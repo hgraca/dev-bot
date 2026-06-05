@@ -1,0 +1,5 @@
+{
+  "guards": [
+    { "regex": "[invalid", "message": "Bad regex" }
+  ]
+}

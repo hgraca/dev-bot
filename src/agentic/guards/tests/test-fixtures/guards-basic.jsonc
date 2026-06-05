@@ -1,0 +1,13 @@
+{
+  "guards": [
+    {
+      "regex": "^rm\\s+-rf\\s+/",
+      "message": "Dangerous recursive delete blocked."
+    },
+    {
+      "regex": "^git\\s+push\\s+--force",
+      "agent": "developer",
+      "message": "Force push not allowed from developer agent."
+    }
+  ]
+}

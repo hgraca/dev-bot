@@ -1,0 +1,13 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash src/agentic/guards/hooks/claudecode/on_tool_execute_before-guards.sh"
+        }
+      ]
+    }
+  ]
+}
