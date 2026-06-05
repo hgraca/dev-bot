@@ -6,7 +6,7 @@ services:
     ports:
       - "127.0.0.1:18000:4000"
     env_file:
-      - .env
+      - ../../../.env
     volumes:
       - ./litellm.config.yaml:/app/config/config.yaml
     command: ["--port", "4000", "--config", "/app/config/config.yaml"]
@@ -14,7 +14,7 @@ services:
       ollama:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/readiness')\""]
+      test: ["CMD-SHELL", 'python3 -c "import urllib.request; urllib.request.urlopen(''http://127.0.0.1:4000/health/readiness'')"']
       interval: 10s
       timeout: 5s
       retries: 12
