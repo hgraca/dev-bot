@@ -1,0 +1,8 @@
+{
+  "qmd": {
+    "type": "local",
+    "command": ["qmd", "mcp"],
+    "enabled": true,
+    "environment": { "QMD_LLAMA_GPU": "__GPU_ENABLED__" }
+  }
+}
