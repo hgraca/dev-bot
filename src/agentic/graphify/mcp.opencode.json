@@ -1,0 +1,11 @@
+{
+  "graphify": {
+    "type": "local",
+    "command": [
+      "bash",
+      ".opencode/graphify-serve.sh",
+      "graphify-out/graph.json"
+    ],
+    "enabled": true
+  }
+}

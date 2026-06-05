@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "graphify": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [".claude/graphify-serve.sh", "graphify-out/graph.json"],
+      "enabled": true
+    }
+  }
+}

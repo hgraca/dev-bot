@@ -1,0 +1,12 @@
+{
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash src/agentic/graphify/hooks/claudecode/on-stop-graphify-update.sh"
+        }
+      ]
+    }
+  ]
+}
