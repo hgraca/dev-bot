@@ -1,0 +1,15 @@
+{
+  "addyosmani": {
+    "url": "https://github.com/addyosmani/agent-skills.git",
+    "paths": {
+      "agents": "agents",
+      "skills": "skills"
+    }
+  },
+  "mattpocock-grilling": {
+    "url": "https://github.com/mattpocock/skills.git",
+    "paths": {
+      "skills": "skills/productivity/grilling"
+    }
+  }
+}
