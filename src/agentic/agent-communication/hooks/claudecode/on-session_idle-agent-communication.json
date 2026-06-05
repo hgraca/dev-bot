@@ -1,0 +1,12 @@
+{
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash src/agentic/agent-communication/hooks/claudecode/on-session_idle-agent-communication.sh"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "info": { "role": "assistant" },
+  "parts": [
+    {
+      "type": "text",
+      "text": "Here is the implementation:\n\n```typescript\nfunction add(a: number, b: number): number {\n  return a + b;\n}\n```\n\n[FINISHED]"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "info": { "role": "assistant" },
+  "parts": [
+    { "type": "text", "text": "I've found two possible approaches for the caching layer.\n\n[NEEDS_INPUT] Should we use Redis or in-memory caching?" }
+  ]
+}
