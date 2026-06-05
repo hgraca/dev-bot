@@ -1,0 +1,494 @@
+#!/usr/bin/env bash
+# =============================================================================
+# bin/devbot — CLI entry point for the dev-bot agent kit.
+#
+# Usage:
+#   devbot help       Show available commands
+#   devbot install    Install tools (bin/install.sh)
+#   devbot update     Update tools from git + run tool update scripts
+# =============================================================================
+
+set -euo pipefail
+
+# Resolve the project root (this script lives at bin/devbot, so .. is root)
+DEV_BOT_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+export DEV_BOT_ROOT
+
+# ── Source shared library ──────────────────────────────────────────────────────
+# shellcheck source=../src/_shared/functions.sh
+source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+
+cmd_help() {
+  echo -e "${TEXT_BOLD}dev-bot — Agent kit for the GET-E engineering team${TEXT_CLEAR}"
+  echo
+  echo -e "${TEXT_BOLD}Usage:${TEXT_CLEAR}"
+  echo "  devbot <command>"
+  echo
+  echo -e "${TEXT_BOLD}Commands:${TEXT_CLEAR}"
+  echo "  help       Show this help"
+  echo "  install    Install all tools (bin/install.sh)"
+  echo "  update     Update tools from git + run tool update scripts"
+  echo "  tool <name>  Run a dev-bot tool by name (e.g. tree, git-report)"
+  echo "  list <type>  List agentic artifacts (commands, agents, skills, hooks, mcps, tools)"
+  echo "             [-a|--all]  Include artifacts from disabled modules"
+  echo "  init [path]  Initialize dev-bot in a project directory (default: .)"
+  echo "  reinit [--all|-a]  Re-initialize dev-bot (current project, or all with --all)"
+  echo "  up           Start docker services (docker compose up)"
+  echo "  down         Stop docker services (docker compose down)"
+  echo "  prune [days] [--all|-a]  Prune old opencode sessions (default: 30 days)"
+  echo "  models     Manage LLM models via Ollama"
+  echo "             pull <model>     Pull a model from registry"
+  echo "             list-local        List locally available models"
+  echo "             list-remote       Show remote model browsing info"
+  echo "             remove <model>    Remove a locally cached model"
+  echo "  module     Manage external modules"
+  echo "             install    Clone/pull configured external modules"
+  echo "             init [path] Wire modules into .opencode/ directories"
+  echo "             add <url|path>   Register a module (git URL or local path)"
+  echo "             remove <name>    Unregister a module"
+  echo "             list              List registered modules"
+  echo "             sync              Re-wire all modules (alias for init)"
+  echo
+  echo -e "${TEXT_BOLD}Running without a known subcommand:${TEXT_CLEAR}"
+  echo "  Starts the configured harness (opencode or claudecode) after running devbot up."
+  echo
+  echo -e "${TEXT_BOLD}Project root:${TEXT_CLEAR} ${DEV_BOT_ROOT}"
+}
+
+cmd_install() {
+  bash "${DEV_BOT_ROOT}/bin/install.sh"
+}
+
+cmd_update() {
+  bash "${DEV_BOT_ROOT}/bin/update.sh"
+}
+
+cmd_models() {
+  local action="${1:-help}"
+
+  case "${action}" in
+    pull)
+      if [[ -z "${2:-}" ]]; then
+        echo "Usage: devbot models pull <model>"
+        echo "Example: devbot models pull llama3.2:3b"
+        exit 1
+      fi
+      docker exec dev-bot-ollama ollama pull "$2"
+      ;;
+    list-local)
+      docker exec dev-bot-ollama ollama list
+      ;;
+    list-remote)
+      # For list-remote, just show usage pointing to ollama.com/library
+      echo "Browse available models at: https://ollama.com/library"
+      echo ""
+      echo "To list remote tags for a model, use:"
+      echo "  curl -s https://registry.ollama.ai/v2/library/<model>/tags/list"
+      echo ""
+      # Also try to show what's available locally as a reference
+      echo "Locally cached models:"
+      docker exec dev-bot-ollama ollama list 2>/dev/null || echo "  (none)"
+      ;;
+    remove)
+      if [[ -z "${2:-}" ]]; then
+        echo "Usage: devbot models remove <model>"
+        echo "Example: devbot models remove llama3.2:3b"
+        docker exec dev-bot-ollama ollama list 2>/dev/null || true
+        exit 1
+      fi
+      docker exec dev-bot-ollama ollama rm "$2"
+      ;;
+    help|--help|-h)
+      echo "Usage: devbot models <subcommand>"
+      echo ""
+      echo "Subcommands:"
+      echo "  pull <model>       Pull a model from the Ollama registry"
+      echo "  list-local         List locally cached models"
+      echo "  list-remote        Show remote model browsing info"
+      echo "  remove <model>     Remove a locally cached model"
+      ;;
+    *)
+      echo "Unknown models subcommand: ${action}"
+      echo "Run 'devbot models help' for available subcommands."
+      exit 1
+      ;;
+  esac
+}
+
+# List available tool names from both agentic and tools modules.
+_list_tool_names() {
+  local -a tool_dirs=("${DEV_BOT_ROOT}/src/agentic/"*/)
+  tool_dirs+=("${DEV_BOT_ROOT}/src/tools/"*/)
+  for tool_dir in "${tool_dirs[@]}"; do
+    while IFS= read -r -d '' sh; do
+      echo "  $(basename "${sh}" .sh)"
+    done < <(find "${tool_dir}tools" -name '*.sh' -type f -print0 2>/dev/null)
+  done
+}
+
+cmd_tool() {
+  local tool_name="${1:-}"
+
+  if [[ -z "${tool_name}" ]]; then
+    echo "Usage: devbot tool <name> [args...]"
+    echo ""
+    echo "Available tools:"
+    _list_tool_names
+    exit 1
+  fi
+
+  # Find the tool script by searching all modules
+  local tool_script=""
+  while IFS= read -r -d '' sh; do
+    local base
+    base="$(basename "${sh}" .sh)"
+    if [[ "${base}" == "${tool_name}" ]]; then
+      tool_script="${sh}"
+      break
+    fi
+  done < <(find "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/tools" -path '*/tools/*' -name '*.sh' -type f -print0 2>/dev/null)
+
+  if [[ -z "${tool_script}" ]]; then
+    echo "Error: unknown tool '${tool_name}'" >&2
+    echo "Available tools:" >&2
+    _list_tool_names >&2
+    exit 1
+  fi
+
+  shift
+  exec "${tool_script}" "$@"
+}
+
+_list_usage() {
+  echo "Usage: devbot list <type> [-a|--all]"
+  echo
+  echo "List artifacts defined across agentic modules as a markdown table."
+  echo
+  echo "Types:"
+  echo "  commands   Slash commands"
+  echo "  agents     Agent definitions"
+  echo "  skills     Skills"
+  echo "  hooks      OpenCode plugin hooks"
+  echo "  mcps       MCP servers"
+  echo "  tools      Tools"
+  echo
+  echo "Options:"
+  echo "  -a, --all   Include artifacts from disabled modules"
+}
+
+cmd_list() {
+  local type="" all=false arg
+  for arg in "$@"; do
+    case "${arg}" in
+      -a|--all) all=true ;;
+      -h|--help)
+        _list_usage
+        return 0
+        ;;
+      -*)
+        echo "Unknown argument: ${arg}" >&2
+        _list_usage >&2
+        return 1
+        ;;
+      *)
+        if [[ -z "${type}" ]]; then
+          type="${arg}"
+        else
+          echo "Unknown argument: ${arg}" >&2
+          _list_usage >&2
+          return 1
+        fi
+        ;;
+    esac
+  done
+
+  if [[ -z "${type}" ]]; then
+    _list_usage
+    return 1
+  fi
+
+  case "${type}" in
+    commands|agents|skills|hooks|mcps|tools) ;;
+    *)
+      echo "Unknown type: ${type}" >&2
+      _list_usage >&2
+      return 1
+      ;;
+  esac
+
+  local disabled_json="[]"
+  if [[ "${all}" == "false" ]]; then
+    disabled_json="$(_devbot_get_disabled_modules)"
+  fi
+
+  python3 - "${DEV_BOT_ROOT}" "${type}" "${disabled_json}" <<'PY'
+import glob
+import json
+import os
+import sys
+import unicodedata
+
+root = sys.argv[1]
+kind = sys.argv[2]
+disabled = set(json.loads(sys.argv[3]) if len(sys.argv) > 3 else [])
+
+AGENTIC = os.path.join(root, "src", "agentic")
+
+def module_of(path):
+    return os.path.relpath(path, AGENTIC).split(os.sep)[0]
+
+def read(path):
+    with open(path, encoding="utf-8") as f:
+        return f.read()
+
+def parse_frontmatter(text):
+    meta = {}
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) >= 3:
+            for line in parts[1].splitlines():
+                line = line.strip()
+                if line.startswith("name:"):
+                    meta["name"] = line[len("name:"):].strip().strip('"')
+                elif line.startswith("description:"):
+                    meta["description"] = line[len("description:"):].strip().strip('"')
+                elif line.startswith("mode:"):
+                    meta["mode"] = line[len("mode:"):].strip().strip('"')
+    return meta
+
+def parse_tool_description(text):
+    for line in text.splitlines()[:20]:
+        line = line.strip()
+        if line.startswith("# description:"):
+            return line[len("# description:"):].strip()
+    return ""
+
+def display_width(s):
+    return sum(2 if unicodedata.east_asian_width(c) in ("W", "F") else 1 for c in s)
+
+def pad(s, w):
+    return s + " " * max(0, w - display_width(s))
+
+def collect(kind):
+    if kind == "commands":
+        headers = ["Module", "Command", "Description"]
+        rows = []
+        for f in sorted(glob.glob(os.path.join(AGENTIC, "*", "commands", "*.md"))):
+            m = parse_frontmatter(read(f))
+            if m.get("name"):
+                rows.append([module_of(f), m["name"], m.get("description", "")])
+        return headers, rows
+
+    if kind == "agents":
+        headers = ["Module", "Agent", "Type", "Description"]
+        rows = []
+        for f in sorted(glob.glob(os.path.join(AGENTIC, "*", "agents", "*.md"))):
+            m = parse_frontmatter(read(f))
+            if m.get("name"):
+                rows.append([module_of(f), m["name"], m.get("mode", ""), m.get("description", "")])
+        return headers, rows
+
+    if kind == "skills":
+        headers = ["Module", "Skill", "Description"]
+        rows = []
+        for f in sorted(glob.glob(os.path.join(AGENTIC, "*", "skills", "**", "SKILL.md"), recursive=True)):
+            m = parse_frontmatter(read(f))
+            if m.get("name"):
+                rows.append([module_of(f), m["name"], m.get("description", "")])
+        return headers, rows
+
+    if kind == "hooks":
+        headers = ["Module", "Hook"]
+        rows = []
+        for f in sorted(glob.glob(os.path.join(AGENTIC, "*", "hooks", "opencode", "*.ts"))):
+            name = os.path.basename(f)
+            if name.endswith(".ts"):
+                name = name[:-3]
+            rows.append([module_of(f), name])
+        return headers, rows
+
+    if kind == "mcps":
+        headers = ["Module", "MCP"]
+        rows = []
+        for f in sorted(glob.glob(os.path.join(AGENTIC, "*", "mcp.opencode.json"))):
+            try:
+                data = json.loads(read(f))
+            except Exception:
+                continue
+            for server in sorted(data):
+                rows.append([module_of(f), server])
+        return headers, rows
+
+    if kind == "tools":
+        headers = ["Module", "Tool", "Description"]
+        rows = []
+        tools_dir = os.path.join(root, ".agents", "tools")
+        for f in sorted(glob.glob(os.path.join(tools_dir, "*.sh"))):
+            name = os.path.basename(f)
+            if name.endswith(".sh"):
+                name = name[:-3]
+            target = os.path.realpath(f)
+            desc = parse_tool_description(read(target))
+            rows.append([module_of(target), name, desc])
+        return headers, rows
+
+    raise SystemExit("unknown type: %s" % kind)
+
+headers, all_rows = collect(kind)
+rows = [r for r in all_rows if r[0] not in disabled]
+
+def sort_key(row):
+    module = row[0]
+    name = row[1]
+    type_rank = 1
+    if "Type" in headers:
+        type_rank = 0 if row[headers.index("Type")] == "primary" else 1
+    return (module, type_rank, name)
+
+rows.sort(key=sort_key)
+
+widths = []
+for idx, h in enumerate(headers):
+    widths.append(max([display_width(h)] + [display_width(r[idx]) for r in rows]))
+
+def fmt(cells):
+    return "| " + " | ".join(pad(c, w) for c, w in zip(cells, widths)) + " |"
+
+print(fmt(headers))
+print("| " + " | ".join("-" * w for w in widths) + " |")
+for r in rows:
+    cells = [c.replace("|", "\\|") for c in r]
+    print(fmt(cells))
+PY
+}
+
+cmd_init() {
+  if [[ ! -f "${DEV_BOT_ROOT}/bin/init.sh" ]]; then
+    echo "Error: bin/init.sh not found at ${DEV_BOT_ROOT}/bin/init.sh" >&2
+    exit 1
+  fi
+
+  export DEV_BOT_ROOT
+  exec bash "${DEV_BOT_ROOT}/bin/init.sh" "$@"
+}
+
+cmd_reinit() {
+  if [[ ! -f "${DEV_BOT_ROOT}/bin/reinit.sh" ]]; then
+    echo "Error: bin/reinit.sh not found at ${DEV_BOT_ROOT}/bin/reinit.sh" >&2
+    exit 1
+  fi
+
+  export DEV_BOT_ROOT
+  exec bash "${DEV_BOT_ROOT}/bin/reinit.sh" "$@"
+}
+
+cmd_up() {
+  if [[ ! -f "${DEV_BOT_ROOT}/bin/up.sh" ]]; then
+    echo "Error: bin/up.sh not found at ${DEV_BOT_ROOT}/bin/up.sh" >&2
+    exit 1
+  fi
+
+  export DEV_BOT_ROOT
+  exec bash "${DEV_BOT_ROOT}/bin/up.sh" "$@"
+}
+
+cmd_down() {
+  if [[ ! -f "${DEV_BOT_ROOT}/bin/down.sh" ]]; then
+    echo "Error: bin/down.sh not found at ${DEV_BOT_ROOT}/bin/down.sh" >&2
+    exit 1
+  fi
+
+  export DEV_BOT_ROOT
+  exec bash "${DEV_BOT_ROOT}/bin/down.sh" "$@"
+}
+
+cmd_prune() {
+  if [[ ! -f "${DEV_BOT_ROOT}/bin/prune.sh" ]]; then
+    echo "Error: bin/prune.sh not found at ${DEV_BOT_ROOT}/bin/prune.sh" >&2
+    exit 1
+  fi
+
+  export DEV_BOT_ROOT
+  exec bash "${DEV_BOT_ROOT}/bin/prune.sh" "$@"
+}
+
+  cmd_module() {
+    local tool_script="${DEV_BOT_ROOT}/src/tools/external-modules/tools/module.sh"
+    if [[ ! -f "$tool_script" ]]; then
+      echo "Error: module tool not found" >&2
+      exit 1
+    fi
+    exec bash "$tool_script" "$@"
+  }
+
+cmd_harness() {
+  if [[ ! -f "$(pwd)/.devbot.project.jsonc" ]]; then
+    cmd_help
+    return
+  fi
+  bash "${DEV_BOT_ROOT}/bin/up.sh" "$(pwd)" || exit $?
+  exec $(_devbot_resolve_harness_bin "$(pwd)") "$@"
+}
+
+# ── main ──────────────────────────────────────────────────────────────────────
+
+main() {
+  local cmd="${1:-}"
+
+  case "${cmd}" in
+    "")
+      cmd_harness
+      ;;
+    help|-h|--help)
+      cmd_help
+      ;;
+    install)
+      cmd_install
+      ;;
+    update)
+      cmd_update
+      ;;
+    models)
+      shift
+      cmd_models "$@"
+      ;;
+    tool)
+      shift
+      cmd_tool "$@"
+      ;;
+    list)
+      shift
+      cmd_list "$@"
+      ;;
+    init)
+      shift
+      cmd_init "$@"
+      ;;
+    reinit)
+      shift
+      cmd_reinit "$@"
+      ;;
+    up)
+      shift
+      cmd_up "$@"
+      ;;
+    down)
+      cmd_down "$@"
+      ;;
+    prune)
+      shift
+      cmd_prune "$@"
+      ;;
+    module)
+      shift
+      cmd_module "$@"
+      ;;
+    *)
+      cmd_harness "$@"
+      ;;
+  esac
+}
+
+main "$@"

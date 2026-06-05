@@ -1,0 +1,16 @@
+name: dev-bot
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: dev-bot-ollama
+    restart: "no"
+    ports:
+      - "127.0.0.1:18434:11434"
+    volumes:
+      - ./storage/ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12

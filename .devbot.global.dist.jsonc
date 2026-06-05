@@ -1,0 +1,25 @@
+{
+  "harness": "opencode",
+  "gpu_enabled": false,
+  "devbot_dir": ".agents",
+  "ollama_local_api": "http://localhost:18434",
+  "disabled_modules": ["claudecode", "litellm"],
+  "auto_recover": {
+    "max_attempts": 5
+  },
+  "projects": [],
+  "guards": [
+    {
+      "regex": "rm -rf",
+      "message": "rm -rf is blocked"
+    },
+    {
+      "regex": "sudo .*",
+      "message": "sudo requires approval"
+    },
+    {
+      "regex": "git push --force",
+      "message": "force push is prohibited"
+    }
+  ]
+}
