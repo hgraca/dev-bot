@@ -1,0 +1,13 @@
+{
+  "PostToolUse": [
+    {
+      "matcher": "Edit|Write",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash src/agentic/format-md/hooks/claudecode/on-file_edited-format-md.sh"
+        }
+      ]
+    }
+  ]
+}
