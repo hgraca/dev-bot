@@ -713,3 +713,88 @@ _check_python3() {
   fi
   _ok "python3 found"
 }
+
+# ── Harness delegation to devbot_dir/ ──────────────────────────────────────────
+# Migrates existing harness-specific agents/commands/skills/tools content into
+# the devbot state dir (from config), then creates a symlink from the harness
+# dir to the devbot dir's subdirectories.
+#
+# Usage: _harness_delegate_to_agents <harness_dir> <project_dir>
+
+_harness_delegate_type() {
+  local harness_dir="$1"
+  local project_dir="$2"
+  local type="$3"
+
+  local devbot_dir
+  devbot_dir="$(_devbot_get_project_dir "${project_dir}")"
+
+  local harness_path="${harness_dir}/${type}"
+  local agents_path="${project_dir}/${devbot_dir}/${type}"
+
+  # Already delegated — skip
+  if [[ -L "${harness_path}" ]]; then
+    local current
+    current="$(readlink "${harness_path}")"
+    if [[ "${current}" == "../${devbot_dir}/${type}" ]]; then
+      _skip "${type}/ already delegated to ${devbot_dir}/"
+      return 0
+    fi
+    rm -f "${harness_path}"
+  fi
+
+  # Directory exists — migrate content then remove
+  if [[ -d "${harness_path}" ]]; then
+    mkdir -p "${agents_path}"
+
+    while IFS= read -r -d '' item; do
+      local name
+      name="$(basename "${item}")"
+      [[ "${name}" == ".gitkeep" ]] && continue
+
+      local dest="${agents_path}/${name}"
+
+      if [[ -L "${item}" ]]; then
+        local link_target
+        link_target="$(readlink "${item}")"
+        if [[ -L "${dest}" ]]; then
+          local existing
+          existing="$(readlink "${dest}")"
+          [[ "${existing}" == "${link_target}" ]] && continue
+          rm -f "${dest}"
+        elif [[ -e "${dest}" ]]; then
+          _warn "${type}/${name} exists in ${devbot_dir}/ but is not a symlink — skipping"
+          continue
+        fi
+        mkdir -p "$(dirname "${dest}")"
+        ln -sf "${link_target}" "${dest}"
+        _ok "migrated symlink to ${devbot_dir}/${type}/${name}"
+      elif [[ -f "${item}" ]]; then
+        if [[ -e "${dest}" ]]; then
+          continue
+        fi
+        mkdir -p "$(dirname "${dest}")"
+        cp "${item}" "${dest}"
+        _ok "migrated file to ${devbot_dir}/${type}/${name}"
+      fi
+    done < <(find "${harness_path}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
+
+    rm -rf "${harness_path}"
+  elif [[ -e "${harness_path}" ]]; then
+    rm -rf "${harness_path}"
+  fi
+
+  # Create delegation symlink
+  mkdir -p "$(dirname "${harness_path}")"
+  ln -sf "../${devbot_dir}/${type}" "${harness_path}"
+  _ok "${type}/ delegated to ${devbot_dir}/${type}/"
+}
+
+_harness_delegate_to_agents() {
+  local harness_dir="$1"
+  local project_dir="$2"
+
+  for type in agents commands skills tools; do
+    _harness_delegate_type "${harness_dir}" "${project_dir}" "${type}"
+  done
+}
