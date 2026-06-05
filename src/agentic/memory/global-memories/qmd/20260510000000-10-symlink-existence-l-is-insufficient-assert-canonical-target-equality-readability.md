@@ -1,0 +1,8 @@
+---
+date: 2026-05-10
+keywords: ["qmd"]
+---
+
+## Symlink existence (`-L`) is insufficient — assert canonical-target equality + readability
+
+A test that only checks `[[ -L "$path" ]]` confirms the path is _some_ symlink, not that it points to the _correct_ target. This bug class hit `tests/bin/init.test.sh` section 5: each per-project secret in `.ai/devbot/secrets/<name>` was asserted to be a symlink, but a stale/wrong target (e.g. pointing at a 41B placeholder instead of the real `storage/secrets/gh_pat`) silently passed the test, while `gh auth login` failed during `make test` step 2/3 because the resolved content was wrong. Dangling symlinks (target deleted) also pass `-L`. **Fix**: for any test asserting a symlink wires correctly, check three properties: (a) `[[ -L "$path" ]]` — is a symlink; (b) `readlink -f "$path" == readlink -f "$expected_target"` — canonical-inode equality, indirection-hop-count agnostic; (c) `[[ -r "$path" ]]` — readable through the symlink, catches dangling. Plus: count the source-side files iterated and `_warn` (not `_pass`) if zero, so the test cannot trivially green on an empty fixture. Confirmed `tests/bin/init.test.sh` strengthened 2026-05-10 (commit `fe1791a`): all 5 secrets (`gh_pat`, `graphify-python`, `provider-key-cortecs`, `qmd-cache-home`, `devbot-root`) now verified canonically. Pattern applies to any wiring test (config symlinks, plugin links, AGENTS.md, opencode.jsonc) — existence-only checks are weak; canonical-target equality is the right invariant. See [[patterns]] for the broader "test the invariant, not the artefact shape" pattern.

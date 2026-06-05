@@ -2,6 +2,7 @@
   "project_name": "__PROJECT_NAME__",
   "harness": "opencode",
   "devbot_dir": ".agents",
+  "commit_memory": false,
   "disabled_modules": ["claudecode", "react", "signoz", "svelte"],
   "auto_recover": {
     "max_attempts": 5
