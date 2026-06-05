@@ -1,0 +1,50 @@
+{
+  "embeddingProvider": "custom",
+  "customProvider": {
+    "baseUrl": "__OLLAMA_API_URL__",
+    "model": "nomic-embed-text",
+    "dimensions": 768,
+    "apiKey": "ollama"
+  },
+  "indexing": {
+    "autoIndex": true,
+    "autoIndexWaitMs": 60000,
+    "autoIndexMaxRetries": 10,
+    "autoIndexRetryDelayMs": 2000,
+    "watchFiles": false,
+    "maxFileSize": 1048576,
+    "maxChunksPerFile": 100,
+    "autoGc": true,
+    "gcIntervalDays": 7
+  },
+  "search": {
+    "maxResults": 20,
+    "minScore": 0.1,
+    "hybridWeight": 0.6,
+    "fusionStrategy": "rrf",
+    "rrfK": 60,
+    "rerankTopN": 20
+  },
+  "include": [
+    "**/*.{ts,tsx,js,jsx,mjs,cjs}",
+    "**/*.{py,pyi}",
+    "**/*.{go,rs,java,kt,scala}",
+    "**/*.{c,cpp,cc,h,hpp}",
+    "**/*.{rb,php,inc,swift}",
+    "**/*.{vue,svelte,astro}",
+    "**/*.{sql,graphql,proto}",
+    "**/*.{yaml,yml,toml}",
+    "**/*.{sh,bash,zsh}",
+    "**/*.{md,mdx}",
+    "**/*.{json,jsonc}"
+  ],
+  "exclude": [
+    "**/graphify-out/**",
+    "**/node_modules/**",
+    "**/vendor/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/.cache/**"
+  ]
+}

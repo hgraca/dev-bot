@@ -1,0 +1,17 @@
+{
+  "codebase-index": {
+    "type": "local",
+    "command": [
+      "npx",
+      "-y",
+      "-p",
+      "opencode-codebase-index",
+      "-p",
+      "@modelcontextprotocol/sdk",
+      "opencode-codebase-index-mcp",
+      "--project",
+      "."
+    ],
+    "enabled": true
+  }
+}

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+while IFS= read -r line; do
+  [[ -z "$line" ]] && continue
+  method=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('method',''))" 2>/dev/null || echo "")
+  msg_id=$(echo "$line" | python3 -c "import sys,json; print(json.load(sys.stdin).get('id',''))" 2>/dev/null || echo "")
+  if [[ "$method" == "initialize" ]]; then
+    echo '{"jsonrpc":"2.0","id":'"$msg_id"',"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"test","version":"1.0.0"}}}'
+  elif [[ "$method" == "notifications/initialized" ]]; then
+    :
+  elif [[ "$method" == "tools/call" ]]; then
+    echo '{"jsonrpc":"2.0","id":'"$msg_id"',"result":{"results":[]}}'
+  fi
+done
+exit 0

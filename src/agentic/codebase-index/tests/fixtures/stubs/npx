@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# =============================================================================
+# fake-npx — stubs npx for testing codebase-index tool.
+# Intercepts `which opencode-codebase-index-mcp` and returns a path to fake-mcp.
+# For all other invocations, delegates to real npx.
+# =============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check if this is a "which opencode-codebase-index-mcp" call
+if [[ "$*" == *"which opencode-codebase-index-mcp"* ]]; then
+    echo "${SCRIPT_DIR}/fake-mcp"
+    exit 0
+fi
+
+# Otherwise delegate to real npx
+exec /usr/bin/env npx "$@"
