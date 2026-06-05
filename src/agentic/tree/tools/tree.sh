@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# ---
+# description: Display directory structure as a tree. Accepts one or more paths. Returns output in markdown or plain text.
+# ---
+# =============================================================================
+# src/agentic/tree/tools/tree.sh
+# Run `tree` on directories and return output (markdown or plain text).
+#
+# Usage:
+#   tree.sh [--markdown|--json|--format <fmt>] <dir> [<dir> ...]
+#
+# Accepts single path, JSON array, comma-separated, or space-separated paths.
+#
+# Parameters:
+# - paths (string, required): directory path or multiple paths. Accepts: single path 'src', JSON array '["src","lib"]', comma-separated 'src,lib', or space-separated 'src lib'
+# - format (string, optional): 'markdown' (default) or 'json'
+# =============================================================================
+
+set -euo pipefail
+
+case "${1:-}" in
+  mcp-meta)
+    cat <<'JSON'
+{"name":"tree","description":"Display directory structure as a tree. Accepts one or more paths. Returns output in markdown or plain text.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: [--markdown|--json|--format <fmt>] <dir> [<dir> ...]"}},"required":["args"]}}
+JSON
+    exit 0
+    ;;
+esac
+
+# ── Resolve multiple path formats into a flat list ────────────────────────────
+_resolve_paths() {
+  local raw="$1"
+  # Try JSON array first
+  if echo "$raw" | python3 -c "import json,sys; print('\n'.join(json.loads(sys.stdin.read())))" 2>/dev/null; then
+    return
+  fi
+  # Fallback: comma-separated or single path
+  echo "$raw" | tr ',' '\n' | while IFS= read -r p; do
+    [[ -n "$p" ]] && echo "$p"
+  done
+}
+
+# ── Parse args ───────────────────────────────────────────────────────────────
+FMT="markdown"
+PATHS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --json) FMT="json"; shift ;;
+    --markdown) FMT="markdown"; shift ;;
+    --format) FMT="$2"; shift 2 ;;
+    --format=*) FMT="${1#--format=}"; shift ;;
+    *) PATHS+=("$1"); shift ;;
+  esac
+done
+
+if [[ ${#PATHS[@]} -eq 0 ]]; then
+  echo "Usage: tree.sh [--markdown|--json|--format <fmt>] <dir> [<dir> ...]" >&2
+  exit 1
+fi
+
+# ── Resolve and validate paths ───────────────────────────────────────────────
+RESOLVED=()
+SKIPPED=()
+for p in "${PATHS[@]}"; do
+  while IFS= read -r sub; do
+    [[ -z "$sub" ]] && continue
+    abs="$(realpath "$sub" 2>/dev/null || echo "")"
+    if [[ -n "$abs" && -e "$abs" ]]; then
+      RESOLVED+=("$abs")
+    else
+      SKIPPED+=("$sub")
+    fi
+  done < <(_resolve_paths "$p")
+done
+
+if [[ ${#RESOLVED[@]} -eq 0 ]]; then
+  echo "tree: none of the given paths exist: ${PATHS[*]}" >&2
+  exit 1
+fi
+
+if [[ ${#SKIPPED[@]} -gt 0 ]]; then
+  echo "> skipped non-existent paths: ${SKIPPED[*]}"
+  echo
+fi
+
+# ── Run tree ─────────────────────────────────────────────────────────────────
+OUTPUT=""
+SEPARATOR=""
+for ((i = 0; i < ${#RESOLVED[@]}; i++)); do
+  dir="${RESOLVED[$i]}"
+
+  if ! stdout=$(tree -a --dirsfirst --charset=ASCII "$dir" 2>/dev/null); then
+    echo "tree failed for $dir" >&2
+    exit 1
+  fi
+
+  if [[ "$FMT" == "markdown" ]]; then
+    OUTPUT+="${SEPARATOR}## Tree structure\n\n\`\`\`text\n${stdout}\n\`\`\`\n"
+  else
+    OUTPUT+="${SEPARATOR}${stdout}\n"
+  fi
+  SEPARATOR="\n"
+done
+
+echo -e "$OUTPUT"
