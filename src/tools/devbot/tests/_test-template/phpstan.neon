@@ -1,0 +1,14 @@
+includes:
+    - vendor/symplify/phpstan-extensions/config/config.neon
+    - vendor/phpstan/phpstan-phpunit/extension.neon
+
+parameters:
+    paths:
+        - bin
+        - src
+        - tests
+
+    # max is the highest level
+    level: max
+
+    treatPhpDocTypesAsCertain: false
