@@ -1,0 +1,156 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "lsp": true,
+  "model": "cortecs/deepseek-v4-flash",
+  "small_model": "opencode/big-pickle",
+  "instructions": ["AGENTS.md", ".agents/memory/active/**/*.md"],
+  "plugin": [
+    "opencode-codebase-index",
+    ".opencode/plugins/on-session_idle-agent-communication.ts",
+    ".opencode/plugins/on-session_idle-remember-session.ts",
+    ".opencode/plugins/on-session_error-auto-recover.ts",
+    ".opencode/plugins/on-file_edited-format-md.ts",
+    ".opencode/plugins/on-tool_execute_before-guards.ts",
+    ".opencode/plugins/on-file_edited-reindex-memories.ts"
+  ],
+  "default_agent": "DevBot",
+  "agent": {
+    "plan": { "disable": true },
+    "build": { "disable": true },
+    // opencode free
+    //    "DevBot": { "model": "opencode/mimo-v2.5-free" },
+    //    "TeamLead": { "model": "opencode/mimo-v2.5-free" },
+    //    "Architect": { "model": "opencode/mimo-v2.5-free" },
+    //    "PO": { "model": "opencode/mimo-v2.5-free" },
+    //    "Critic": { "model": "opencode/mimo-v2.5-free" },
+    //    "Developer": { "model": "opencode/deepseek-v4-flash-free" },
+    //    "Tester": { "model": "opencode/deepseek-v4-flash-free" },
+    //    "Reviewer": { "model": "opencode/deepseek-v4-flash-free" },
+    //    "Security": { "model": "opencode/mimo-v2.5-free" },
+    //    "Scout": { "model": "opencode/deepseek-v4-flash-free" },
+    //    "DescribeImage": { "model": "opencode/deepseek-v4-flash-free" }
+    // cortecs
+    //    "DevBot": { "model": "cortecs/deepseek-v4-pro" },
+    //    "TeamLead": { "model": "cortecs/deepseek-v4-pro" },
+    //    "Architect": { "model": "cortecs/deepseek-v4-pro" },
+    //    "PO": { "model": "cortecs/deepseek-v4-pro" },
+    //    "Critic": { "model": "cortecs/deepseek-v4-pro" },
+    //    "Developer": { "model": "cortecs/deepseek-v4-flash" },
+    //    "Tester": { "model": "cortecs/deepseek-v4-flash" },
+    //    "Reviewer": { "model": "cortecs/deepseek-v4-flash" },
+    //    "Security": { "model": "cortecs/deepseek-v4-pro" },
+    //    "Scout": { "model": "cortecs/deepseek-v4-flash" },
+    //    "DescribeImage": { "model": "cortecs/deepseek-v4-flash" }
+    // deepseek
+    "DevBot": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
+    "Expert": { "model": "cortecs/kimi-k3", "variant": "high" },
+    "Designer": { "model": "cortecs/kimi-k3", "variant": "high" },
+    "TeamLead": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
+    "Architect": { "model": "cortecs/kimi-k3", "variant": "high" },
+    "PO": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
+    "Critic": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
+    "Developer": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
+    "Tester": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
+    "Reviewer": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
+    "Security": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
+    "Scout": { "model": "deepseek/deepseek-v4-flash", "variant": "high" }
+    // litellm
+    //    "DevBot": { "model": "litellm/orchestrator" },
+    //    "TeamLead": { "model": "litellm/orchestrator" },
+    //    "Architect": { "model": "litellm/architect" },
+    //    "PO": { "model": "litellm/po" },
+    //    "Critic": { "model": "litellm/critic" },
+    //    "Developer": { "model": "litellm/developer" },
+    //    "Tester": { "model": "litellm/tester" },
+    //    "Reviewer": { "model": "litellm/reviewer" },
+    //    "Security": { "model": "litellm/security" },
+    //    "Scout": { "model": "litellm/scout" }
+  },
+  "permission": {
+    "external_directory": {
+      "*": "deny"
+    },
+    "edit": "allow",
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "bash": {
+      "*": "allow",
+      "rm *": "ask",
+      "sudo *": "ask"
+    },
+    "task": "allow",
+    "todowrite": "allow",
+    "todoread": "allow",
+    "question": "allow",
+    "webfetch": "allow",
+    "websearch": "allow",
+    "codesearch": "allow",
+    "lsp": "allow",
+    "doom_loop": "allow",
+    "skill": "allow"
+  },
+  "watcher": {
+    "ignore": [
+      "node_modules/**",
+      "vendor/**",
+      "dist/**",
+      "build/**",
+      ".git/**",
+      ".cache/**",
+      "*no-vcs*",
+      "*no-vcs*/**",
+      "storage/**",
+      ".idea/**",
+      ".vscode/**",
+      ".env*"
+    ]
+  },
+  "mcp": {
+    "websearch": {
+      "type": "remote",
+      "url": "https://mcp.exa.ai/mcp?tools=web_search_exa",
+      "enabled": true,
+      "oauth": false
+    },
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true,
+      "oauth": false
+    },
+    "codebase-index": {
+      "type": "local",
+      "command": [
+        "npx",
+        "-y",
+        "-p",
+        "opencode-codebase-index",
+        "-p",
+        "@modelcontextprotocol/sdk",
+        "opencode-codebase-index-mcp",
+        "--project",
+        "."
+      ],
+      "enabled": true
+    },
+    "qmd": {
+      "type": "local",
+      "command": ["qmd", "mcp"],
+      "enabled": true,
+      "environment": {
+        "QMD_LLAMA_GPU": true
+      }
+    },
+    "chrome-devtools": {
+      "type": "local",
+      "command": ["npx", "-y", "chrome-devtools-mcp@latest"]
+    },
+    "playwright": {
+      "type": "local",
+      "command": ["docker", "run", "--rm", "-i", "mcp/playwright"],
+      "enabled": true
+    }
+  }
+}
