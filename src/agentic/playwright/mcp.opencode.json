@@ -1,0 +1,7 @@
+{
+  "playwright": {
+    "type": "local",
+    "command": ["docker", "run", "--rm", "-i", "mcp/playwright"],
+    "enabled": true
+  }
+}
