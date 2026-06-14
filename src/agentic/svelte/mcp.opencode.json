@@ -1,0 +1,7 @@
+{
+  "svelte": {
+    "type": "local",
+    "command": ["npx", "-y", "@sveltejs/mcp"],
+    "enabled": true
+  }
+}
