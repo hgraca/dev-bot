@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "signoz": {
+      "type": "stdio",
+      "command": ".opencode/signoz-mcp-server",
+      "enabled": false
+    }
+  }
+}
