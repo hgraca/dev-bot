@@ -1,0 +1,13 @@
+{
+  "PostToolUse": [
+    {
+      "matcher": "Edit|Write",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash src/agentic/k8s/hooks/claudecode/on-file_edited-lint-k8s.sh"
+        }
+      ]
+    }
+  ]
+}
