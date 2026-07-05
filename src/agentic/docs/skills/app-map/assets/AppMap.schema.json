@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["id", "title", "type", "subtitle", "items"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string" },
+    "title": { "type": "string" },
+    "subtitle": { "type": "string" },
+    "type": { "const": "map" },
+    "x": { "type": "integer", "description": "Optional X position." },
+    "y": { "type": "integer", "description": "Optional Y position." },
+    "color": {
+      "type": "string",
+      "description": "Optional CSS color."
+    },
+    "legend": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/legendEntry" }
+    },
+    "subtitle": {
+          "type": "string",
+          "description": "Optional subtitle."
+        },
+        "x": { "type": "integer", "description": "Optional X position." },
+        "y": { "type": "integer", "description": "Optional Y position." },
+        "items": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          { "$ref": "#/$defs/moduleItem" },
+          { "$ref": "#/$defs/groupItem" }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "baseItem": {
+      "type": "object",
+      "required": ["id", "title", "type", "items"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["map", "module", "action", "connector", "moduleItemGroup"]
+        },
+        "color": {
+          "type": "string",
+          "description": "Optional CSS color."
+        },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/item" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "moduleItem": {
+      "allOf": [
+        { "$ref": "#/$defs/baseItem" },
+        {
+          "properties": {
+            "type": { "const": "module" },
+            "items": {
+              "type": "array",
+              "items": {
+                "anyOf": [
+                  { "$ref": "#/$defs/moduleItem" },
+                  { "$ref": "#/$defs/actionItem" },
+                  { "$ref": "#/$defs/connectorItem" },
+                  { "$ref": "#/$defs/groupItem" }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    "actionItem": {
+      "allOf": [
+        { "$ref": "#/$defs/baseItem" },
+        {
+          "properties": {
+            "type": { "const": "action" },
+            "items": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/connectorItem"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "connectorItem": {
+      "type": "object",
+      "required": [
+        "id",
+        "title",
+        "type",
+        "items",
+        "name",
+        "lineType",
+        "direction",
+        "target"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "const": "connector" },
+        "color": {
+          "type": "string",
+          "description": "Optional CSS color."
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "name": { "type": "string" },
+        "lineType": {
+          "type": "string",
+          "enum": ["full", "dashed", "dotted"]
+        },
+        "direction": {
+          "type": "string",
+          "enum": ["none", "out", "in", "both"]
+        },
+        "target": {
+          "type": "string",
+          "description": "Dot notation path or item id",
+          "pattern": "^([a-zA-Z0-9_-]+(\\.items\\.\\[[0-9]+\\])*)$|^[a-zA-Z0-9_-]+$"
+        }
+      }
+    },
+    "nonGroupItem": {
+      "anyOf": [
+        { "$ref": "#/$defs/moduleItem" },
+        { "$ref": "#/$defs/actionItem" },
+        { "$ref": "#/$defs/connectorItem" }
+      ]
+    },
+    "childModuleRef": {
+      "type": "object",
+      "required": ["id", "type"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "type": { "const": "module" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "color": { "type": "string" },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/item" }
+        }
+      }
+    },
+    "groupItem": {
+      "type": "object",
+      "required": ["id", "title", "type", "items"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string", "description": "Optional subtitle." },
+        "type": { "const": "moduleItemGroup" },
+        "color": { "type": "string", "description": "Optional CSS color." },
+        "width": { "type": "number", "default": 400 },
+        "height": { "type": "number", "default": 300 },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/childModuleRef" }
+        },
+        "items": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonGroupItem" }
+        }
+      }
+    },
+    "item": {
+      "anyOf": [
+        { "$ref": "#/$defs/moduleItem" },
+        { "$ref": "#/$defs/actionItem" },
+        { "$ref": "#/$defs/connectorItem" },
+        { "$ref": "#/$defs/groupItem" }
+      ]
+    },
+    "legendEntry": {
+      "type": "object",
+      "required": ["item", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "anyOf": [
+            { "$ref": "#/$defs/moduleItem" },
+            { "$ref": "#/$defs/actionItem" },
+            { "$ref": "#/$defs/connectorItem" },
+            { "$ref": "#/$defs/groupItem" }
+          ]
+        },
+        "description": { "type": "string" }
+      }
+    }
+  }
+}

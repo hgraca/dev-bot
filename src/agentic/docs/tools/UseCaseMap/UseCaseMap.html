@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Use Case Map</title>
+<style>
+:root {
+  --cli: #2e7d32; --cli-bg: #e8f5e9;
+  --ctrl: #00897b; --ctrl-bg: #e0f2f1;
+  --uc: #0d47a1; --uc-bg: #bbdefb;
+  --handler: #42a5f5; --handler-bg: #e3f2fd;
+  --query: #43a047; --query-bg: #e8f5e9;
+  --port: #e65100; --port-bg: #fff3e0;
+  --adapter: #c62828; --adapter-bg: #fce4ec;
+  --http: #6a1b9a; --http-bg: #f3e5f5;
+  --event: #ef6c00; --event-bg: #ffe0b2;
+  --listnr: #558b2f; --listnr-bg: #f1f8e9;
+  --cb: #f9a825; --cb-bg: #fff8e1;
+  --indirect: #9e9e9e;
+  --text-primary: #212121;
+  --text-secondary: #616161;
+  --text-muted: #9e9e9e;
+  --border: #e0e0e0;
+  --surface: #ffffff;
+  --bg-page: #f5f5f5;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; background: var(--bg-page); color: var(--text-primary); line-height: 1.6; padding: 0; }
+
+/* Menu bar */
+.menu-bar { display: flex; align-items: center; gap: 1rem; padding: 0.75rem 1.5rem; background: var(--surface); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100; }
+.menu-title { font-size: 1.125rem; font-weight: 650; color: var(--text-primary); letter-spacing: -0.01em; margin-right: 1rem; }
+.menu-btn { display: inline-flex; align-items: center; gap: 0.375rem; padding: 0.5rem 1rem; font-size: 0.8125rem; font-weight: 500; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-primary); cursor: pointer; transition: background 0.15s; }
+.menu-btn:hover { background: var(--bg-page); }
+.menu-btn-file { position: relative; overflow: hidden; }
+.menu-btn-file input[type=file] { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.menu-filename { font-size: 0.75rem; color: var(--text-muted); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 60vh; color: var(--text-muted); font-size: 1rem; text-align: center; padding: 2rem; }
+.empty-state p { margin-bottom: 1rem; }
+.empty-state .icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+
+/* Content area */
+#content { padding: 2rem; }
+
+h1 { font-size: 1.5rem; font-weight: 650; margin-bottom: 0.25rem; color: var(--text-primary); letter-spacing: -0.01em; }
+.subtitle { font-size: 0.875rem; color: var(--text-secondary); margin-bottom: 2rem; max-width: 48rem; }
+h2 { font-size: 1.125rem; font-weight: 600; margin: 2.5rem 0 1rem; padding-bottom: 0.375rem; border-bottom: 1px solid var(--border); color: var(--text-primary); cursor: pointer; user-select: none; }
+h2:hover { opacity: 0.8; }
+h2::after { content: " \25B6"; font-size: 0.7rem; color: var(--text-muted); }
+h2.expanded::after { content: " \25BC"; }
+h2.expanded + .section-collapse { display: block; }
+h3 { font-size: 0.9375rem; font-weight: 600; margin: 1.5rem 0 0.75rem; color: var(--text-secondary); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.5rem; padding: 1rem; background: var(--surface); border-radius: 6px; border: 1px solid var(--border); }
+.legend-item { display: flex; align-items: center; gap: 0.375rem; font-size: 0.8125rem; color: var(--text-secondary); }
+.legend-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+.flow-columns { display: flex; gap: 0; overflow-x: auto; padding-bottom: 0.5rem; }
+.flow-columns > .column + .column { margin-left: 8px; padding-left: 8px; border-left: 1px solid var(--border); }
+.column { display: flex; flex-direction: column; gap: 3px; min-width: 120px; max-width: none; }
+.column-header { font-size: 0.6875rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; text-align: center; padding: 4px 8px; border-radius: 4px; color: #fff; white-space: nowrap; }
+.column-header.cli { background: var(--cli); }
+.column-header.ctrl { background: var(--ctrl); }
+.column-header.uc { background: var(--uc); }
+.column-header.handler { background: var(--handler); }
+.column-header.query { background: var(--query); }
+.column-header.qhandler { background: var(--qhandler); }
+.column-header.port { background: var(--port); }
+.column-header.adapter { background: var(--adapter); }
+.column-header.http { background: var(--http); }
+.column-header.event { background: var(--event); }
+.column-header.listnr { background: var(--listnr); color: #fff; }
+.column-header.cb { background: var(--cb); color: var(--text-primary); }
+.column-header.indirect { background: var(--indirect); }
+.node-group { display: flex; flex-direction: column; gap: 1px; padding: 3px; border-radius: 5px; background: #f0ebf8; border: 1px solid #d5c8e8; position: relative; }
+.node-group > .node.uc { margin-left: 28px; }
+.node-group > .node.uc::before,
+.node-group > .node.query::before,
+.node-group > .node.event::before { content: ''; position: absolute; left: -28px; top: 50%; transform: translateY(-50%); width: 22px; border-top: 3px solid #78909c; }
+.node-group.sync > .node.uc::before,
+.node-group.sync > .node.query::before { border-top-style: solid; }
+.node-group.async > .node.uc::before,
+.node-group.async > .node.event::before { border-top-style: dashed; }
+.node-group > .node.uc::after,
+.node-group > .node.query::after,
+.node-group > .node.event::after { content: ''; position: absolute; width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 8px solid #78909c; top: 50%; transform: translateY(-50%); left: -6px; }
+.node-group.async > .node.uc::after { border-left-color: #90a4ae; }
+.node-group.sync > .node.uc::after { border-left-color: #546e7a; }
+.node-group.sync > .node.query::after { border-left-color: var(--query); }
+.node-group.async > .node.event::after { border-left-color: var(--event); }
+.node-group > .node.query { margin-left: 28px; }
+.node-group > .node.event { margin-left: 28px; }
+.sub-group { display: flex; flex-direction: column; gap: 1px; margin: 3px 0 0 14px; padding: 3px 3px 3px 10px; border-left: 2px dashed var(--indirect); }
+.node { padding: 5px 8px; border-radius: 4px; border: 1.5px solid; font-size: 0.75rem; background: var(--surface); position: relative; }
+.node .ns { font-size: 0.5625rem; color: var(--text-muted); display: block; margin-top: 1px; overflow-wrap: break-word; white-space: pre-wrap; }
+.node .call-list { font-size: 0.65625rem; color: var(--text-secondary); margin-top: 2px; padding-left: 0; list-style: none; }
+.node .call-list li { padding-left: 10px; border-left: 2px solid var(--border); }
+.node .call-list li + li { margin-top: 1px; }
+.node.cli { background: var(--cli-bg); border-color: var(--cli); }
+.node.ctrl { background: var(--ctrl-bg); border-color: var(--ctrl); }
+.node.uc { background: var(--uc-bg); border-color: var(--uc); }
+.node.handler { background: var(--handler-bg); border-color: var(--handler); }
+.node.query { background: var(--query-bg); border-color: var(--query); }
+.node.qhandler { background: var(--qhandler-bg); border-color: var(--qhandler); }
+.node.port { background: var(--port-bg); border-color: var(--port); }
+.node.adapter { background: var(--adapter-bg); border-color: var(--adapter); }
+.node.http { background: var(--http-bg); border-color: var(--http); }
+.node.event { background: var(--event-bg); border-color: var(--event); }
+.node.listnr { background: var(--listnr-bg); border-color: var(--listnr); }
+.node.cb { background: var(--cb-bg); border-color: var(--cb); }
+.node.indirect { background: #fafafa; border-color: var(--indirect); border-style: dashed; }
+.node-title-main { font-weight: 600; }
+.command-flow, .callback-flow { margin-bottom: 1rem; padding: 0.625rem 0.75rem; background: var(--surface); border-radius: 6px; border: 1px solid var(--border); }
+.command-flow .flow-header, .callback-flow .flow-header { font-weight: 600; font-size: 0.8125rem; margin-bottom: 0.5rem; color: var(--text-primary); }
+.command-flow .flow-header code, .callback-flow .flow-header code { font-weight: 400; font-size: 0.75rem; color: var(--text-secondary); }
+.section-collapse { display: none; }
+@media (max-width: 900px) {
+  body { padding: 0; }
+  #content { padding: 1rem; }
+  .menu-bar { flex-wrap: wrap; padding: 0.5rem 1rem; }
+  .flow-columns { flex-direction: column; gap: 0.5rem; }
+  .column { min-width: unset; max-width: unset; flex-direction: row; flex-wrap: wrap; }
+  .column-header { white-space: normal; }
+  .flow-columns > .column + .column { margin-left: 0; padding-left: 0; border-left: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="menu-bar">
+  <span class="menu-title">Use case map</span>
+  <label class="menu-btn menu-btn-file">
+    Load json map
+    <input type="file" id="fileInput" accept=".json,application/json">
+  </label>
+  <span class="menu-filename" id="fileName"></span>
+</div>
+
+<div id="content">
+  <div class="empty-state" id="emptyState">
+    <p>No map loaded yet.</p>
+    <p style="font-size:0.875rem;">Click <strong>Load json map</strong> in the menu bar to open a JSON file.</p>
+  </div>
+  <div id="app" style="display:none;"></div>
+</div>
+
+<script>
+const LAYER_META = {
+  cli:     { label: 'CLI Command',     bg: 'var(--cli-bg)',     fg: 'var(--cli)' },
+  ctrl:    { label: 'HTTP Controller', bg: 'var(--ctrl-bg)',    fg: 'var(--ctrl)' },
+  uc:      { label: 'UseCase Command', bg: 'var(--uc-bg)',      fg: 'var(--uc)' },
+  handler: { label: 'CommandHandler',  bg: 'var(--handler-bg)', fg: 'var(--handler)' },
+  query:   { label: 'Query',           bg: 'var(--query-bg)',   fg: 'var(--query)' },
+  qhandler:{ label: 'QueryHandler',    bg: 'var(--qhandler-bg)',fg: 'var(--qhandler)' },
+  port:    { label: 'Port (interface)',bg: 'var(--port-bg)',    fg: 'var(--port)' },
+  adapter: { label: 'Adapter',         bg: 'var(--adapter-bg)', fg: 'var(--adapter)' },
+  http:    { label: 'HTTP Client',     bg: 'var(--http-bg)',    fg: 'var(--http)' },
+  event:   { label: 'Domain Event',    bg: 'var(--event-bg)',   fg: 'var(--event)' },
+  listnr:  { label: 'Listener',        bg: 'var(--listnr-bg)',  fg: 'var(--listnr)' },
+  cb:      { label: 'Callback Handler',bg: 'var(--cb-bg)',      fg: 'var(--cb)' },
+  indirect:{ label: 'Indirect delegation', bg: '#fafafa',       fg: 'var(--indirect)' }
+};
+
+function esc(s) {
+  if (!s) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function parseInfo(info) {
+  if (!info) return { ns: '', calls: [] };
+  var lines = info.split('\n');
+  var nsLines = [];
+  var calls = [];
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (line.indexOf('- ') === 0) {
+      calls.push(line.substring(2));
+    } else {
+      nsLines.push(line);
+    }
+  }
+  return { ns: nsLines.join('\n'), calls: calls };
+}
+
+function renderNode(node, isSub) {
+  if (!node) return '';
+  var info = parseInfo(node.info);
+  var color = node.color || '';
+  var html = '<div class="node ' + esc(color) + '"' + (isSub ? ' style="font-size:0.7rem;"' : '') + '>';
+  html += '<span class="node-title-main"' + (isSub ? ' style="font-size:0.7rem;"' : '') + '>' + esc(node.title) + '</span>';
+  if (info.calls.length > 0) {
+    html += '<ul class="call-list">';
+    for (var ci = 0; ci < info.calls.length; ci++) {
+      html += '<li>' + info.calls[ci] + '</li>';
+    }
+    html += '</ul>';
+  }
+  if (info.ns) {
+    html += '<span class="ns"' + (isSub ? ' style="font-size:0.5rem;"' : '') + '>' + esc(info.ns) + '</span>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function renderUseCase(uc, depth) {
+  depth = depth || 0;
+  var mode = uc.dispatchMode || 'sync';
+  var color = uc.color || 'uc';
+  var isSub = depth > 0;
+
+  // Detect type from properties
+  var isQuery = !!(uc.query);
+  var isEvent = !!(uc.event);
+  var isListener = !!(uc.listener);
+  var isCommand = !!(uc.command);
+
+  var html = '<div class="node-group ' + esc(mode) + '">';
+
+  if (isQuery) {
+    // Query: render only the query node (sync arrow, no handler)
+    html += renderNode(uc.query, isSub);
+  } else if (isEvent) {
+    // Event: render only the event node (async arrow, no listener)
+    html += renderNode(uc.event, isSub);
+  } else if (isListener) {
+    // Listener: render only the listener node
+    html += renderNode(uc.listener, isSub);
+  } else {
+    // Default: command/handler pair
+    html += renderNode(uc.command, isSub);
+    html += renderNode(uc.handler, isSub);
+  }
+
+  if (uc.items && uc.items.length > 0) {
+    html += '<div class="sub-group">';
+    for (var ci = 0; ci < uc.items.length; ci++) {
+      var child = uc.items[ci];
+      if (child.command || child.query || child.event || child.listener) {
+        html += renderUseCase(child, depth + 1);
+      } else {
+        html += renderNode(child, depth + 1);
+      }
+    }
+    html += '</div>';
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function renderColumnItem(item) {
+  if (item.command || item.query || item.event || item.listener) {
+    return renderUseCase(item);
+  }
+  if (item.color === 'query' || item.color === 'event') {
+    var mode = item.dispatchMode || (item.color === 'query' ? 'sync' : 'async');
+    var html = '<div class="node-group ' + mode + '">';
+    html += renderNode(item);
+    html += '</div>';
+    return html;
+  }
+  return renderNode(item);
+}
+
+function renderFlowHeader(title) {
+  var m = title.match(/^(\d+\.\d+)\s+(.+?)\s*[\u2014\u2013-]\s*(.+)$/);
+  if (m) {
+    return esc(m[1]) + ' <code>' + esc(m[2]) + '</code> &mdash; ' + esc(m[3]);
+  }
+  return esc(title);
+}
+
+function isCallbackFlow(columns) {
+  for (var ci = 0; ci < columns.length; ci++) {
+    var col = columns[ci];
+    if (col.color === 'cb' || col.color === 'event' || col.color === 'listnr') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function render() {
+  var data = window.USE_CASE_MAP_DATA;
+  if (!data) {
+    document.getElementById('emptyState').style.display = '';
+    document.getElementById('app').style.display = 'none';
+    return;
+  }
+
+  document.getElementById('emptyState').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+
+  var html = '';
+
+  html += '<h1>' + esc(data.title) + '</h1>';
+  html += '<p class="subtitle">' + esc(data.subtitle) + '</p>';
+
+  var usedColors = {};
+  for (var si = 0; si < (data.items || []).length; si++) {
+    var section = data.items[si];
+    for (var fi = 0; fi < (section.items || []).length; fi++) {
+      var sub = section.items[fi];
+      for (var ci = 0; ci < (sub.items || []).length; ci++) {
+        var base = (sub.items[ci].color || '').split(' ')[0];
+        if (base && LAYER_META[base]) usedColors[base] = true;
+      }
+    }
+  }
+
+  var allLayers = ['cli', 'ctrl', 'uc', 'handler', 'query', 'qhandler', 'port', 'adapter', 'http', 'event', 'listnr', 'cb', 'indirect'];
+  for (var li = 0; li < allLayers.length; li++) {
+    if (LAYER_META[allLayers[li]]) usedColors[allLayers[li]] = true;
+  }
+
+  html += '<div class="legend">';
+  for (var k in usedColors) {
+    var meta = LAYER_META[k];
+    if (meta) {
+      html += '<div class="legend-item">';
+      html += '<span class="legend-swatch" style="background:' + meta.bg + ';border:1.5px solid ' + meta.fg + '"></span>';
+      html += esc(meta.label);
+      if (k === 'indirect') {
+        html += ' <span style="font-size:0.7rem;color:var(--text-muted)">(dashed)</span>';
+      }
+      html += '</div>';
+    }
+  }
+  html += '</div>';
+
+  for (var si = 0; si < (data.items || []).length; si++) {
+    var section = data.items[si];
+    html += '<h2>' + esc(section.title) + '</h2>';
+    html += '<div class="section-collapse">';
+
+    for (var fi = 0; fi < (section.items || []).length; fi++) {
+      var sub = section.items[fi];
+      var flowType = isCallbackFlow(sub.items) ? 'callback-flow' : 'command-flow';
+      html += '<div class="' + flowType + '">';
+      html += '  <div class="flow-header">' + renderFlowHeader(sub.title) + '</div>';
+      html += '  <div class="flow-columns">';
+
+      for (var ci = 0; ci < (sub.items || []).length; ci++) {
+        var col = sub.items[ci];
+        html += '    <div class="column">';
+        html += '      <div class="column-header ' + esc(col.color) + '">' + esc(col.title) + '</div>';
+        for (var ii = 0; ii < (col.items || []).length; ii++) {
+          html += renderColumnItem(col.items[ii]);
+        }
+        html += '    </div>';
+      }
+
+      html += '  </div>';
+      html += '</div>';
+    }
+
+    html += '</div>';
+  }
+
+  document.getElementById('app').innerHTML = html;
+
+  var headings = document.querySelectorAll('h2');
+  for (var hi = 0; hi < headings.length; hi++) {
+    headings[hi].addEventListener('click', function() {
+      this.classList.toggle('expanded');
+    });
+  }
+}
+
+// File input handling
+document.getElementById('fileInput').addEventListener('change', function(e) {
+  var file = e.target.files[0];
+  if (!file) return;
+
+  document.getElementById('fileName').textContent = file.name;
+
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    try {
+      var data = JSON.parse(ev.target.result);
+      window.USE_CASE_MAP_DATA = data;
+      render();
+    } catch (err) {
+      alert('Error parsing JSON: ' + err.message);
+    }
+  };
+  reader.onerror = function() {
+    alert('Error reading file');
+  };
+  reader.readAsText(file);
+});
+
+// Query parameter support: ?file=path/to/map.json or ?data=base64encoded
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var dataParam = params.get('data');
+  var fileParam = params.get('file');
+
+  // ?data=base64encoded — works with file:// protocol (no CORS)
+  if (dataParam) {
+    try {
+      var decoded = atob(dataParam);
+      var data = JSON.parse(decoded);
+      window.USE_CASE_MAP_DATA = data;
+      document.getElementById('fileName').textContent = 'inline data (' + dataParam.length + ' chars)';
+      render();
+    } catch (err) {
+      document.getElementById('emptyState').innerHTML =
+        '<p style="color:red">Error parsing data parameter: ' + esc(err.message) + '</p>';
+    }
+    return;
+  }
+
+  // ?file=path — requires HTTP server (blocked by CORS on file://)
+  if (fileParam) {
+    document.getElementById('fileName').textContent = fileParam;
+    fetch(fileParam)
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status + ': ' + fileParam);
+        return r.json();
+      })
+      .then(function(data) {
+        window.USE_CASE_MAP_DATA = data;
+        render();
+      })
+      .catch(function(err) {
+        var msg = esc(err.message);
+        var isFileProtocol = window.location.protocol === 'file:';
+        document.getElementById('emptyState').innerHTML =
+          '<p style="color:red">Error loading: ' + msg + '</p>' +
+          (isFileProtocol
+            ? '<p style="font-size:0.875rem;color:var(--text-secondary);">' +
+              'Browsers block fetch() from <code>file://</code> URLs due to CORS. ' +
+              'Use the <strong>Load json map</strong> button instead, ' +
+              'or encode your JSON as base64 and pass it as <code>?data=&lt;base64&gt;</code>.</p>'
+            : '<p style="font-size:0.875rem;color:var(--text-secondary);">' +
+              'Use the <strong>Load json map</strong> button or provide a valid <code>?file=</code> URL parameter.</p>');
+      });
+  }
+})();
+</script>
+</body>
+</html>
