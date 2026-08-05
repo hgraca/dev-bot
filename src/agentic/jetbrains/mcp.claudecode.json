@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "jetbrains": {
+      "type": "remote",
+      "url": "http://127.0.0.1:__MCP_PORT__/stream",
+      "headers": {
+        "IJ_MCP_SERVER_PROJECT_PATH": "__PROJECT_PATH__"
+      },
+      "enabled": true
+    }
+  }
+}

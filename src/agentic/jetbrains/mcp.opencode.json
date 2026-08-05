@@ -1,0 +1,10 @@
+{
+  "jetbrains": {
+    "type": "remote",
+    "url": "http://127.0.0.1:64442/stream",
+    "headers": {
+      "IJ_MCP_SERVER_PROJECT_PATH": "__PROJECT_DIR__"
+    },
+    "enabled": true
+  }
+}
