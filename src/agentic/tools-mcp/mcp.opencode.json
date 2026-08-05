@@ -1,0 +1,7 @@
+{
+  "devbot-tools": {
+    "type": "local",
+    "command": ["bash", ".opencode/tools-mcp-serve.sh"],
+    "enabled": true
+  }
+}

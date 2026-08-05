@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "devbot-tools": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [".claude/tools-mcp-serve.sh"],
+      "enabled": true
+    }
+  }
+}
