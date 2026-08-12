@@ -1,0 +1,51 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="devbot icon">
+  <title>devbot</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1B2450"/>
+      <stop offset="0.55" stop-color="#111634"/>
+      <stop offset="1" stop-color="#0A0D20"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.3" cy="0.18" r="0.75">
+      <stop offset="0" stop-color="#6C7BFF" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#6C7BFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="shell" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#F4F5FC"/>
+      <stop offset="1" stop-color="#C6CCEC"/>
+    </linearGradient>
+    <linearGradient id="visor" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0" stop-color="#161B3C"/>
+      <stop offset="1" stop-color="#0C1029"/>
+    </linearGradient>
+  </defs>
+
+  <!-- plate -->
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <rect width="512" height="512" rx="116" fill="url(#glow)"/>
+
+  <!-- antenna: reads as an antenna, drawn as a git branch -->
+  <g fill="none" stroke="#8B96C9" stroke-width="15" stroke-linecap="round">
+    <path d="M256 168 V 104"/>
+    <path d="M256 146 H 302 A 20 20 0 0 0 322 126 V 112"/>
+  </g>
+  <circle cx="256" cy="90" r="21" fill="#FFB454"/>
+  <circle cx="322" cy="96" r="16" fill="#6C7BFF"/>
+
+  <!-- side pods -->
+  <rect x="72" y="238" width="34" height="82" rx="17" fill="#6C7BFF"/>
+  <rect x="406" y="238" width="34" height="82" rx="17" fill="#6C7BFF"/>
+
+  <!-- head -->
+  <rect x="106" y="166" width="300" height="228" rx="62" fill="url(#shell)"/>
+
+  <!-- visor / terminal -->
+  <rect x="142" y="204" width="228" height="118" rx="40" fill="url(#visor)"/>
+  <g stroke="#6C7BFF" stroke-width="19" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M202 240 L 228 263 L 202 286"/>
+  </g>
+  <rect x="250" y="245" width="58" height="36" rx="9" fill="#FFB454"/>
+
+  <!-- vent -->
+  <rect x="212" y="350" width="88" height="15" rx="7.5" fill="#A3AAD2"/>
+</svg>

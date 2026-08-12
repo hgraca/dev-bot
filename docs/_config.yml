@@ -1,0 +1,34 @@
+title: DevBot
+description: >-
+  Meta-harness for agentic software development.
+  Pair programming partner with persistent memory, deep codebase understanding, and instant context across sessions.
+url: "https://hgraca.github.io"
+baseurl: "/dev-bot"
+
+markdown: kramdown
+highlighter: rouge
+
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-seo-tag
+
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "page"
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - claudecode
+  - opencode
+
+collections_dir: .
+
+permalink: pretty

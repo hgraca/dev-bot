@@ -124,3 +124,7 @@ test: ## Run the full test suite
 
 logs:
 	tail -f "$$(ls -t ~/.local/share/opencode/log/*.log | head -1)" -n 100
+
+
+docs:
+	cd docs && bundle install && bundle exec jekyll serve

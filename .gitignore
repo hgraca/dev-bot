@@ -8,6 +8,9 @@
 storage/*
 vendor/
 Makefile.local.mk
+docs/_site/
+docs/.jekyll-cache/
+docs/vendor/
 Makefile.vars.local.mk
 .env
 litellm.config.yaml
