@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "aws-mcp": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [".claude/aws-mcp-proxy.sh"],
+      "enabled": true
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "aws-mcp": {
+    "type": "local",
+    "command": ["bash", ".opencode/aws-mcp-proxy.sh"],
+    "enabled": true
+  }
+}
