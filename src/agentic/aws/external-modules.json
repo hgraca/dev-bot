@@ -1,0 +1,8 @@
+{
+  "agent-toolkit-for-aws": {
+    "url": "https://github.com/aws/agent-toolkit-for-aws.git",
+    "paths": {
+      "skills": "plugins/aws-core/skills"
+    }
+  }
+}
