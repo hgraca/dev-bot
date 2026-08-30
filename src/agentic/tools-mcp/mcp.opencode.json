@@ -1,0 +1,11 @@
+{
+  "devbot-tools": {
+    "type": "local",
+    "command": [
+      "bash",
+      "-c",
+      "mkdir -p .agents/logs && exec bash .opencode/tools-mcp-serve.sh 2>>.agents/logs/devbot-tools-mcp.log"
+    ],
+    "enabled": true
+  }
+}

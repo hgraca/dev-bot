@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "devbot-tools": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "mkdir -p .agents/logs && exec bash .claude/tools-mcp-serve.sh 2>>.agents/logs/devbot-tools-mcp.log"
+      ],
+      "enabled": true
+    }
+  }
+}
