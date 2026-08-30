@@ -1,0 +1,8 @@
+{
+  "guards": [
+    {
+      "regex": "^docker\\s+system\\s+prune",
+      "message": "Docker system prune blocked (project)."
+    }
+  ]
+}

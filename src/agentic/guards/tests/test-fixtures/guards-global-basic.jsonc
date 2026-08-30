@@ -1,0 +1,8 @@
+{
+  "guards": [
+    {
+      "regex": "^rm\\s+-rf\\s+/",
+      "message": "Dangerous recursive delete blocked (global)."
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "guards": [
+    { "regex": "^rm", "message": "Any rm blocked" },
+    { "regex": "^rm\\s+-rf", "message": "Recursive rm blocked (never reached)" }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "hooks": [
+    {
+      "id": "guards",
+      "event": "command.before",
+      "match": { "tool": ["bash", "shell"] },
+      "run": [
+        "bun",
+        "{module}/tools/guards.ts",
+        "--command",
+        "{command}",
+        "--global-config",
+        "{global-config}",
+        "--project-config",
+        "{project-config}",
+        "--agent",
+        "{agent}"
+      ],
+      "blocking": true
+    }
+  ]
+}
