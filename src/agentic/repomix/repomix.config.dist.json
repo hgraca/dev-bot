@@ -1,0 +1,25 @@
+{
+  "output": {
+    "style": "xml",
+    "removeComments": false,
+    "showLineNumbers": true,
+    "topFilesLength": 0,
+    "copyToClipboard": false
+  },
+  "include": [],
+  "ignore": {
+    "useGitignore": true,
+    "useDefaultPatterns": true,
+    "customPatterns": [
+      "vendor/**",
+      "node_modules/**",
+      "storage/**",
+      "*no-vcs*",
+      "*no-vcs*/**",
+      ".git/**"
+    ]
+  },
+  "security": {
+    "enableSecurityCheck": true
+  }
+}
