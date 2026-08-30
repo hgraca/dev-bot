@@ -1,0 +1,6 @@
+{
+  "info": { "role": "assistant" },
+  "parts": [
+    { "type": "text", "text": "Cannot proceed with the deployment until the CI pipeline is green.\n\n[BLOCKED] CI pipeline is failing on integration tests" }
+  ]
+}
