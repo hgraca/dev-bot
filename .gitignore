@@ -1,0 +1,66 @@
+
+###> IDE ###
+.idea
+.vscode
+###< IDE ###
+
+###> project ###
+storage/*
+vendor/
+Makefile.local.mk
+docs/_site/
+docs/.jekyll-cache/
+docs/vendor/
+Makefile.vars.local.mk
+.env
+litellm.config.yaml
+node_modules
+package-lock.json
+**/*.backup
+**/*.bkp
+/.devbot.global.jsonc
+**/__pycache__/
+*.pyc
+###< project ###
+
+###> ai ###
+.opencode
+/opencode.json
+/opencode.jsonc
+AGENTS.md
+.claude
+CLAUDE.md
+mcp.json
+/.graphifyignore
+/graphify-out
+###< ai ###
+
+# >>> DEVBOT
+.devbot.project.jsonc
+.agents/logs
+# <<< DEVBOT
+
+# >>> DEVBOT - graphify
+.graphifyignore
+# graphify-out/ must be in .gitignore (not only .git/info/exclude): the
+# codebase-index file watcher (chokidar) reads .gitignore to skip paths,
+# but never reads .git/info/exclude. Without this it watches all ~80K AST
+# cache files under graphify-out/cache/ast/ and exhausts inotify watches
+# (ENOSPC: no space left on device).
+graphify-out/
+# <<< DEVBOT - graphify
+
+# >>> DEVBOT - memory
+!.agents
+.agents/memory/latent/global
+.agents/memory/thinking
+.agents/memory/work
+# <<< DEVBOT - memory
+
+# >>> DEVBOT - repomix
+/repomix.config.json
+# <<< DEVBOT - repomix
+
+# >>> DEVBOT - global memories (shipped knowledge base, tracked despite storage/*)
+!storage/global-memories/
+# <<< DEVBOT - global memories
