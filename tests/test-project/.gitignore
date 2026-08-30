@@ -1,0 +1,38 @@
+/.idea
+/build
+/vendor
+/.editorconfig
+/.phpunit.result.cache
+/composer.lock
+claude.deb
+.playwright-mcp
+
+###> ai ###
+.opencode
+/opencode.json
+/opencode.jsonc
+AGENTS.md
+.claude
+CLAUDE.md
+.mcp.json
+mcp.json
+.agents/**
+.agents/logs/
+###< ai ###
+
+# >>> DEVBOT
+.devbot.project.jsonc
+# <<< DEVBOT
+
+# >>> DEVBOT - graphify
+# graphify-out/ must be in .gitignore (not only .git/info/exclude): the
+# codebase-index file watcher (chokidar) reads .gitignore to skip paths,
+# but never reads .git/info/exclude. Without this it watches all ~80K AST
+# cache files under graphify-out/cache/ast/ and exhausts inotify watches
+# (ENOSPC: no space left on device).
+graphify-out/
+# <<< DEVBOT - graphify
+
+# >>> DEVBOT - repomix
+/repomix.config.json
+# <<< DEVBOT - repomix
