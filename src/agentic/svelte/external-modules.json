@@ -1,0 +1,20 @@
+{
+  "mindrally-svelte": {
+    "url": "https://github.com/mindrally/skills.git",
+    "paths": {
+      "skills": "skills/svelte"
+    }
+  },
+  "sveltekit-structure": {
+    "url": "https://github.com/spences10/svelte-skills-kit.git",
+    "paths": {
+      "skills": "skills/sveltekit-structure"
+    }
+  },
+  "svelte5-best-practices": {
+    "url": "https://github.com/ejirocodes/agent-skills.git",
+    "paths": {
+      "skills": "skills/svelte5-best-practices"
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "svelte": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "mkdir -p .agents/logs && exec npx -y @sveltejs/mcp 2>>.agents/logs/svelte-mcp.log"
+      ],
+      "enabled": false
+    }
+  }
+}

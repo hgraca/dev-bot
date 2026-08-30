@@ -1,0 +1,11 @@
+{
+  "svelte": {
+    "type": "local",
+    "command": [
+      "bash",
+      "-c",
+      "mkdir -p .agents/logs && exec npx -y @sveltejs/mcp 2>>.agents/logs/svelte-mcp.log"
+    ],
+    "enabled": true
+  }
+}
