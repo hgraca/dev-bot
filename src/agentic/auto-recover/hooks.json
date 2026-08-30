@@ -1,0 +1,14 @@
+{
+  "hooks": [
+    {
+      "id": "auto-recover",
+      "event": "session.error",
+      "plugin": "{module}/hooks/opencode/on-session_error-auto-recover.ts"
+    },
+    {
+      "id": "watchdog-silent-stall",
+      "event": "plugin",
+      "plugin": "{module}/hooks/opencode/on-watchdog-silent-stall.ts"
+    }
+  ]
+}
