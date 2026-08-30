@@ -1,0 +1,11 @@
+{
+  "hooks": [
+    {
+      "id": "format-json",
+      "event": "file.edited",
+      "match": { "file": "\\.(json|jsonc)$" },
+      "run": ["python3", "{module}/tools/format-json.py", "{file}"],
+      "log": ".agents/logs/format-json.log"
+    }
+  ]
+}
