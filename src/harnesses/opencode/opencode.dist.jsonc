@@ -1,0 +1,158 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "lsp": true,
+  "model": "opencode/nemotron-3.5-lightning-free", // or "litellm/default"
+  "small_model": "opencode/big-pickle", // or "litellm/low"
+  //  "provider": {
+  //    "litellm": {
+  //      "npm": "@ai-sdk/openai-compatible",
+  //      "name": "LiteLLM",
+  //      "options": {
+  //        "baseURL": "http://localhost:18000/v1"
+  //      },
+  //      "models": {
+  //        "orchestrator": { "name": "Orchestrator" },
+  //        "architect": { "name": "Architect" },
+  //        "po": { "name": "Po" },
+  //        "critic": { "name": "Critic" },
+  //        "developer": { "name": "Developer" },
+  //        "tester": { "name": "Tester" },
+  //        "reviewer": { "name": "Reviewer" },
+  //        "security": { "name": "Security" },
+  //        "scout": { "name": "Scout" },
+  //        "highest": { "name": "highest" },
+  //        "high": { "name": "high" },
+  //        "default": { "name": "default" },
+  //        "low": { "name": "low" },
+  //        "lowest": { "name": "lowest" }
+  //      }
+  //    }
+  //  },
+  "instructions": ["AGENTS.md", ".agents/memory/active/**/*.md"],
+  "plugin": [".opencode/plugins/on-hooks.ts"],
+  "default_agent": "DevBot",
+  // Provider-level timeouts: aborts requests that hang without emitting
+  // (cortecs/kimi-k3 was observed to stall silently for minutes — see
+  // src/harnesses/opencode/hooks/on-watchdog-silent-stall.ts). chunkTimeout
+  // aborts a stream with no SSE chunk for 90s, surfacing the failure to
+  // auto-recover instead of hanging forever.
+  "provider": {
+    "cortecs": {
+      "options": {
+        "timeout": 300000,
+        "headerTimeout": 60000,
+        "chunkTimeout": 90000
+      }
+    }
+  },
+  "agent": {
+    "plan": { "disable": true },
+    "build": { "disable": true },
+    // opencode free
+    //    "DevBot": { "model": "opencode/mimo-v2.5-free", "variant": "high" },
+    //    "Expert": { "model": "opencode/kimi-k3", "variant": "high" },
+    //    "Designer": { "model": "opencode/kimi-k3", "variant": "high" },
+    //    "TeamLead": { "model": "opencode/mimo-v2.5-free", "variant": "high" },
+    //    "Architect": { "model": "opencode/mimo-v2.5-free", "variant": "high" },
+    //    "PO": { "model": "opencode/mimo-v2.5-free", "variant": "high" },
+    //    "Critic": { "model": "opencode/mimo-v2.5-free", "variant": "high" },
+    //    "Developer": { "model": "opencode/deepseek-v4-flash-free", "variant": "high" },
+    //    "Tester": { "model": "opencode/deepseek-v4-flash-free", "variant": "high" },
+    //    "Reviewer": { "model": "opencode/deepseek-v4-flash-free", "variant": "high" },
+    //    "Security": { "model": "opencode/mimo-v2.5-free", "variant": "high" },
+    //    "Scout": { "model": "opencode/deepseek-v4-flash-free", "variant": "high" }
+    // opencode
+    //    "DevBot": { "model": "opencode/deepseek-v4-flash", "variant": "high" },
+    //    "Expert": { "model": "opencode/kimi-k3", "variant": "high" },
+    //    "Designer": { "model": "opencode/kimi-k3", "variant": "high" },
+    //    "TeamLead": { "model": "opencode/deepseek-v4-flash", "variant": "high" },
+    //    "Architect": { "model": "opencode/kimi-k3", "variant": "high" },
+    //    "PO": { "model": "opencode/deepseek-v4-flash", "variant": "high" },
+    //    "Critic": { "model": "opencode/deepseek-v4-pro", "variant": "high" },
+    //    "Developer": { "model": "opencode/deepseek-v4-flash", "variant": "high" },
+    //    "Tester": { "model": "opencode/deepseek-v4-flash", "variant": "high" },
+    //    "Reviewer": { "model": "opencode/deepseek-v4-pro", "variant": "high" },
+    //    "Security": { "model": "opencode/deepseek-v4-pro", "variant": "high" },
+    //    "Scout": { "model": "opencode/deepseek-v4-flash", "variant": "high" },
+    // cortecs
+    //    "DevBot": { "model": "cortecs/deepseek-v4-flash", "variant": "high" },
+    //    "Expert": { "model": "cortecs/kimi-k3", "variant": "high" },
+    //    "Designer": { "model": "cortecs/kimi-k3", "variant": "high" },
+    //    "TeamLead": { "model": "cortecs/deepseek-v4-pro", "variant": "high" },
+    //    "Architect": { "model": "cortecs/kimi-k3", "variant": "high" },
+    //    "PO": { "model": "cortecs/deepseek-v4-pro", "variant": "high" },
+    //    "Critic": { "model": "cortecs/deepseek-v4-pro", "variant": "high" },
+    //    "Developer": { "model": "cortecs/deepseek-v4-flash", "variant": "high" },
+    //    "Tester": { "model": "cortecs/deepseek-v4-flash", "variant": "high" },
+    //    "Reviewer": { "model": "cortecs/deepseek-v4-flash", "variant": "high" },
+    //    "Security": { "model": "cortecs/deepseek-v4-pro", "variant": "high" },
+    //    "Scout": { "model": "cortecs/deepseek-v4-flash", "variant": "high" }
+    // deepseek
+    "DevBot": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
+    "Expert": { "model": "cortecs/kimi-k3", "variant": "high" },
+    "Designer": { "model": "cortecs/kimi-k3", "variant": "high" },
+    "TeamLead": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
+    "Architect": { "model": "cortecs/kimi-k3", "variant": "high" },
+    "PO": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
+    "Critic": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
+    "Developer": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
+    "Tester": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
+    "Reviewer": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
+    "Security": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
+    "Scout": { "model": "deepseek/deepseek-v4-flash", "variant": "high" }
+    // litellm
+    //    "DevBot": { "model": "litellm/orchestrator", "variant": "high" },
+    //    "Expert": { "model": "litellm/high", "variant": "high" },
+    //    "Designer": { "model": "litellm/high", "variant": "high" },
+    //    "TeamLead": { "model": "litellm/orchestrator", "variant": "high" },
+    //    "Architect": { "model": "litellm/architect", "variant": "high" },
+    //    "PO": { "model": "litellm/po", "variant": "high" },
+    //    "Critic": { "model": "litellm/critic", "variant": "high" },
+    //    "Developer": { "model": "litellm/developer", "variant": "high" },
+    //    "Tester": { "model": "litellm/tester", "variant": "high" },
+    //    "Reviewer": { "model": "litellm/reviewer", "variant": "high" },
+    //    "Security": { "model": "litellm/security", "variant": "high" },
+    //    "Scout": { "model": "litellm/scout", "variant": "high" }
+  },
+  "permission": {
+    "external_directory": {
+      "*": "deny",
+      "/tmp/**": "allow"
+    },
+    "edit": "allow",
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow",
+    "list": "allow",
+    "bash": {
+      "*": "allow",
+      "sudo *": "ask"
+    },
+    "task": "allow",
+    "todowrite": "allow",
+    "todoread": "allow",
+    "question": "allow",
+    "webfetch": "allow",
+    "websearch": "allow",
+    "codesearch": "allow",
+    "lsp": "allow",
+    "doom_loop": "allow",
+    "skill": "allow"
+  },
+  "watcher": {
+    "ignore": [
+      "node_modules/**",
+      "vendor/**",
+      "dist/**",
+      "build/**",
+      ".git/**",
+      ".cache/**",
+      "*no-vcs*",
+      "*no-vcs*/**",
+      "storage/**",
+      ".idea/**",
+      ".vscode/**",
+      ".env*"
+    ]
+  }
+}
