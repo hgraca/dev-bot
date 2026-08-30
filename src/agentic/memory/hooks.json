@@ -1,0 +1,29 @@
+{
+  "hooks": [
+    {
+      "id": "reindex-memories",
+      "event": "file.edited",
+      "match": {
+        "file": "/memory/latent.*\\.md$"
+      },
+      "run": [
+        "bash",
+        "{module}/tools/reindex-memories/reindex-memories.mcp.sh"
+      ],
+      "log": ".agents/logs/qmd-index.log"
+    },
+    {
+      "id": "reindex-passive-memories",
+      "event": "file.edited",
+      "match": {
+        "file": "/memory/latent/(global|learnings).*\\.md$"
+      },
+      "run": [
+        "bash",
+        "{module}/tools/reindex-passive-memories.sh",
+        "{file}",
+        "{worktree}"
+      ]
+    }
+  ]
+}
