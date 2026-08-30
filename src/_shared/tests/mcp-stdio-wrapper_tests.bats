@@ -1,0 +1,94 @@
+#!/usr/bin/env bats
+# =============================================================================
+# src/_shared/tests/mcp-stdio-wrapper_tests.bats
+# Tests for mcp-stdio-wrapper.js (the MCP stdio EPIPE swallow).
+#
+# npx-launched stdio MCP servers (playwright, chrome-devtools, codebase-index)
+# crash with an unhandled EPIPE when the MCP client closes the stdio pipe at
+# session teardown (audit-18/19 NOTEs). The wrapper bridges stdio and swallows
+# that teardown EPIPE. Tests use fake child commands — no playwright, no
+# docker, no network.
+# =============================================================================
+
+setup() {
+  bats_load_library bats-support
+  bats_load_library bats-assert
+
+  TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
+  WRAPPER="$TEST_DIR/../mcp-stdio-wrapper.js"
+
+  FAKE_BIN="$(mktemp -d)"
+}
+
+teardown() {
+  rm -rf "${FAKE_BIN}"
+}
+
+# ── Wrapper behaviour ─────────────────────────────────────────────────────────
+
+@test "wrapper: forwards child stdout and exits 0" {
+  local child="${FAKE_BIN}/echo.sh"
+  cat > "${child}" <<'EOF'
+#!/usr/bin/env bash
+printf 'hello from mcp server\n'
+exit 0
+EOF
+  chmod +x "${child}"
+
+  run node "${WRAPPER}" bash "${child}"
+
+  assert_success
+  assert_output "hello from mcp server"
+}
+
+@test "wrapper: propagates the child's non-zero exit code" {
+  local child="${FAKE_BIN}/fail.sh"
+  cat > "${child}" <<'EOF'
+#!/usr/bin/env bash
+echo "boom" >&2
+exit 3
+EOF
+  chmod +x "${child}"
+
+  run node "${WRAPPER}" bash "${child}"
+
+  assert_failure 3
+}
+
+@test "wrapper: usage error without a command (exit 2)" {
+  run node "${WRAPPER}"
+
+  assert_failure 2
+  assert_output --partial "Usage:"
+}
+
+@test "wrapper: reports a spawn failure (missing command) with exit 1" {
+  run node "${WRAPPER}" /nonexistent-command-xyz
+
+  assert_failure 1
+  assert_output --partial "failed to spawn"
+}
+
+@test "wrapper: survives the client closing stdout early (EPIPE swallow)" {
+  # The child emits ~1MB — far more than the 64KB kernel pipe buffer — so the
+  # wrapper is still writing when the reader (head) closes the pipe after the
+  # first line. Without the stdout 'error' listener, node dies on the first
+  # EPIPE with exit 1; with it, the wrapper drains and exits 0.
+  local child="${FAKE_BIN}/spew.sh"
+  cat > "${child}" <<'EOF'
+#!/usr/bin/env bash
+for i in $(seq 1 20000); do
+  printf 'line-%05d-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n' "$i"
+done
+exit 0
+EOF
+  chmod +x "${child}"
+
+  run bash -c 'set -o pipefail
+node "$1" bash "$2" 2>/dev/null | head -n 1 >/dev/null
+printf "node=%s\n" "${PIPESTATUS[0]}"
+' _ "${WRAPPER}" "${child}"
+
+  assert_success
+  assert_output --partial "node=0"
+}
