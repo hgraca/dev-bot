@@ -1,0 +1,1885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<title>Application Map v3</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap');
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{--board:#f5f0e8;--grid:#d8d0c0}
+    html,body{width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
+    body{font-family:'DM Sans',sans-serif;background:#2c2c2c}
+    #menu-bar{position:fixed;top:0;left:0;right:0;height:52px;display:flex;align-items:center;gap:12px;padding:0 14px;background:#f3f3f3;border-bottom:1px solid rgba(0,0,0,.12);z-index:1000;box-shadow:0 2px 10px rgba(0,0,0,.08)}
+    #menu-title{font-weight:700;font-size:.95rem;color:#222}
+    #load-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#2d7ef7;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
+    #load-btn:hover{background:#2568cd}
+    #new-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#e85050;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
+    #new-btn:hover{background:#c73e3e}
+    #save-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#2c2c2c;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
+    #save-btn:hover{background:#1a1a1a}
+    #add-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#22BF3E;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
+    #add-btn:hover{background:#1a9e32}
+    #add-group-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#8B5CF6;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
+    #add-group-btn:hover{background:#7C3AED}
+    #file-input{display:none}
+    #viewport{position:fixed;inset:52px 0 0 0;overflow:hidden;touch-action:none;background:#ededed;cursor:default;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+     #board{position:absolute;left:0;top:0;width:300%;height:300%;background:#ededed;transform-origin:0 0;will-change:transform;cursor:grab}
+    #svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:999999;overflow:visible}
+    #svg .hit{fill:none;stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+    #svg .vis{fill:none;stroke-width:2;pointer-events:none}
+    .connector-label{font-family:'DM Sans',sans-serif;font-size:12px;fill:#2d2d2d;pointer-events:none;user-select:none}
+    .connector-label-bg{fill:rgba(245,240,232,.94);stroke:rgba(0,0,0,.08);stroke-width:1;rx:6;ry:6;pointer-events:none}
+    .board-header,.module{box-shadow:4px 7px 22px rgba(0,0,0,.22),1px 2px 5px rgba(0,0,0,.1);border-radius:8px}
+    .board-header{position:absolute;left:70px;top:18px;width:360px;z-index:20;background:#d9c6ff;padding:10px 12px 9px}
+    .board-header-content,.module-header-content{display:flex;flex-direction:column;min-width:0;flex:1}
+    .board-title,.module-title{font-family:'DM Sans',sans-serif;font-weight:700;color:rgba(0,0,0,.78);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .board-title{font-size:1rem}
+    .board-subtitle,.module-subtitle{font-size:.72rem;color:rgba(0,0,0,.5);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .board-subtitle{margin-top:2px}
+    .module{position:absolute;min-width:280px;user-select:none;background:#fff;z-index:10;touch-action:none}
+    .module.dragging,.board-header.dragging{cursor:grabbing;box-shadow:14px 20px 44px rgba(0,0,0,.32);transform:rotate(.4deg) scale(1.01);z-index:500}
+    .module-header{display:flex;align-items:center;gap:8px;cursor:grab;min-height:44px;padding:10px 10px 8px;border-radius:8px 8px 0 0}
+    .module-header:active{cursor:grabbing}
+    .module-body{background:#fafafa;border-top:1px solid rgba(0,0,0,.08);padding:8px;display:flex;flex-direction:column;gap:6px;border-radius:0 0 8px 8px}
+    .module-body>.item,.module-body>.module{cursor:grab}
+    .drag-active,.drag-active *{cursor:grabbing!important}
+    .item{background:#fff;border:1.5px solid #e4e4e4;border-radius:6px;padding:8px 8px 7px;display:flex;flex-direction:column;gap:6px}
+    .item .top{display:flex;align-items:center;gap:6px}
+    .item .name{font-family:'DM Mono',monospace;font-size:.77rem;font-weight:500;color:#1a1a1a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .item .children{display:flex;flex-direction:column;gap:6px;margin-left:12px}
+    .item-subtitle{font-size:.7rem;color:#888;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-2px}
+    .moduleItemGroup{position:absolute;z-index:1;border:2px dashed #888;background:#f9f9f9;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.1);display:flex;flex-direction:column;overflow:hidden}
+    .moduleItemGroup-header{padding:6px 10px;font-weight:bold;font-size:13px;background:#e8e8e8;border-bottom:2px dashed #ccc;cursor:grab;user-select:none;flex-shrink:0}
+    .moduleItemGroup-body{position:relative;flex:1;overflow:hidden;min-height:0}
+    .moduleItemGroup .module{position:absolute;min-width:120px}
+    .moduleItemGroup.dragging{z-index:1000}
+.moduleItemGroup .resize-handle{position:absolute;width:20px;height:20px;background:#888;border-radius:4px;z-index:100;display:none}
+.moduleItemGroup.selected .resize-handle{display:block}
+.resize-handle-right{right:-10px;top:50%;transform:translateY(-50%);cursor:ew-resize}
+.resize-handle-bottom{bottom:-10px;left:50%;transform:translateX(-50%);cursor:ns-resize}
+.resize-handle-corner{right:-10px;bottom:-10px;cursor:nwse-resize}
+    .tip{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.75);color:#fff;padding:7px 16px;border-radius:20px;font-size:.78rem;pointer-events:none;opacity:0;transition:opacity .3s;z-index:9999}
+    .tip.show{opacity:1}
+    .empty-state{position:absolute;left:70px;top:90px;color:#666;font-size:.9rem}
+    [contenteditable]:focus{outline:2px solid #6ea8ff;outline-offset:1px;border-radius:2px;background:rgba(255,255,255,.5)}
+    .ctx-menu{position:fixed;z-index:10000;background:#fff;border:1px solid rgba(0,0,0,.12);border-radius:8px;padding:6px 8px;box-shadow:0 4px 16px rgba(0,0,0,.15);width:fit-content}
+    .ctx-edit-row{padding:4px 8px;font-size:.82rem;color:#333;cursor:pointer;border-radius:4px}
+    .ctx-edit-row:hover{background:#f0f0f0}
+    .ctx-divider{height:1px;background:#eee;margin:4px 0}
+    .ctx-header{font-size:.78rem;font-weight:600;color:#555;padding:2px 2px 6px;border-bottom:1px solid #eee;margin-bottom:6px}
+    .ctx-swatches{display:grid;grid-template-columns:repeat(4,16px);gap:2px;margin-bottom:6px}
+    .ctx-swatch{width:16px;height:16px;border-radius:3px;border:1.5px solid transparent;cursor:pointer}
+    .ctx-swatch:hover{border-color:#888}
+    .ctx-swatch.active{border-color:#333}
+    .ctx-hex-row{display:flex;align-items:center;gap:6px}
+    .ctx-hex-label{font-size:.75rem;color:#888;font-weight:500}
+    .ctx-hex{width:72px;padding:4px 6px;border:1px solid #ddd;border-radius:4px;font-size:.78rem;font-family:monospace;outline:none}
+    .ctx-hex:focus{border-color:#6ea8ff}
+.ctx-lt-row{display:flex;gap:4px;margin-top:4px}
+.ctx-lt-opt{flex:1;text-align:center;padding:4px 2px;border:1.5px solid #ddd;border-radius:5px;cursor:pointer;font-size:1rem;letter-spacing:1px;color:#555}
+.ctx-dir-row .ctx-lt-opt{display:inline-flex;align-items:center;justify-content:center;padding:6px 2px}
+.ctx-lt-opt:hover{background:#f0f0f0;border-color:#aaa}
+.ctx-lt-opt.active{border-color:#6ea8ff;background:#e8f0ff;color:#222}
+.ctx-lt-opt .lt-line{display:inline-block;vertical-align:middle}
+.board-legend{margin-top:8px;border-collapse:collapse;width:100%}
+.board-legend td{padding:3px 6px;font-size:.72rem;color:rgba(0,0,0,.65);vertical-align:top}
+.board-legend td:first-child{font-weight:600;color:rgba(0,0,0,.8);white-space:nowrap}
+.dir-line{display:inline-flex;align-items:center;justify-content:center;gap:0;height:20px;width:42px}
+.dir-bar{display:inline-block;width:16px;border-top:2.5px solid #555;height:0;flex-shrink:0}
+.dir-head{font-size:13px;line-height:0;color:#555;flex-shrink:0;transform:translateY(-.5px)}
+  </style>
+</head>
+<body>
+<div id="menu-bar">
+  <div id="menu-title">Application Map</div>
+  <button id="new-btn" type="button">New</button>
+  <button id="load-btn" type="button">Load JSON</button>
+  <button id="save-btn" type="button">Save as</button>
+  <button id="add-btn" type="button">Add module</button>
+  <button id="add-group-btn" type="button" title="Add moduleItemGroup">Add group</button>
+  <input id="file-input" type="file" accept="application/json,.json"/>
+</div>
+
+<div id="viewport">
+  <div id="board">
+    <div id="board-header" class="board-header" style="display:none;">
+      <div class="board-header-content">
+        <div class="board-title" id="boardTitle"></div>
+        <div class="board-subtitle" id="boardSubtitle"></div>
+        <div id="boardLegend"></div>
+      </div>
+    </div>
+    <div id="empty-state" class="empty-state">Load a JSON file to display the diagram.</div>
+    <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+      <defs id="defs"></defs>
+      <g id="paths"></g>
+    </svg>
+  </div>
+</div>
+<div id="tip" class="tip"></div>
+<div id="ctx-menu" class="ctx-menu" style="display:none">
+  <div class="ctx-edit-row" id="ctx-edit-title" style="display:none">Edit title</div>
+  <div class="ctx-edit-row" id="ctx-edit-subtitle" style="display:none">Edit subtitle</div>
+  <div class="ctx-edit-row" id="ctx-add-action" style="display:none">Add action</div>
+  <div class="ctx-edit-row" id="ctx-add-module" style="display:none">Add module</div>
+  <div class="ctx-edit-row" id="ctx-add-conn" style="display:none">Add connection</div>
+  <div class="ctx-divider"></div>
+  <div class="ctx-edit-row" id="ctx-remove" style="display:none;color:#d33">Remove</div>
+  <div class="ctx-divider"></div>
+  <div class="ctx-header">Change color</div>
+  <div class="ctx-swatches" id="ctx-swatches"></div>
+  <div class="ctx-hex-row">
+    <span class="ctx-hex-label">Hex</span>
+    <input type="text" id="ctx-hex" class="ctx-hex" maxlength="7" placeholder="#xxxxxx">
+  </div>
+  <div class="ctx-divider" id="ctx-div-lt" style="display:none"></div>
+  <div class="ctx-header" id="ctx-hdr-lt" style="display:none">Line type</div>
+  <div class="ctx-lt-row" id="ctx-lt-row" style="display:none">
+    <span class="ctx-lt-opt" data-lt="full"><span class="lt-line" style="border-top:3px solid #555;width:30px"></span></span>
+    <span class="ctx-lt-opt" data-lt="dashed"><span class="lt-line" style="border-top:3px dashed #555;width:30px"></span></span>
+    <span class="ctx-lt-opt" data-lt="dotted"><span class="lt-line" style="border-top:3px dotted #555;width:30px"></span></span>
+  </div>
+  <div class="ctx-divider" id="ctx-div-dir" style="display:none"></div>
+  <div class="ctx-header" id="ctx-hdr-dir" style="display:none">Direction</div>
+  <div class="ctx-dir-row" id="ctx-dir-row" style="display:none">
+    <span class="ctx-lt-opt" data-dir="out"><span class="dir-line"><span class="dir-bar"></span><span class="dir-head">▶</span></span></span>
+    <span class="ctx-lt-opt" data-dir="in"><span class="dir-line"><span class="dir-head">◀</span><span class="dir-bar"></span></span></span>
+    <span class="ctx-lt-opt" data-dir="both"><span class="dir-line"><span class="dir-head">◀</span><span class="dir-bar"></span><span class="dir-head">▶</span></span></span>
+    <span class="ctx-lt-opt" data-dir="none"><span class="dir-line"><span class="dir-bar"></span></span></span>
+  </div>
+</div>
+
+<script>
+  const viewport = document.getElementById('viewport');
+  const board = document.getElementById('board');
+  const defs = document.getElementById('defs');
+  const paths = document.getElementById('paths');
+  const tip = document.getElementById('tip');
+  const boardTitle = document.getElementById('boardTitle');
+  const boardSubtitle = document.getElementById('boardSubtitle');
+  const boardHeader = document.getElementById('board-header');
+  const emptyState = document.getElementById('empty-state');
+  const loadBtn = document.getElementById('load-btn');
+  const fileInput = document.getElementById('file-input');
+
+  const DEFAULT_COLORS = {
+    map: '#d9c6ff',
+    module: '#fff1a8',
+    action: '#cfe8ff',
+    connector: '#22BF3E',
+    group: '#e8e8e8'
+  };
+
+  let data = null;
+
+  let dragTarget = null, dragDX = 0, dragDY = 0, zTop = 10;
+  let selectedGroup = null;
+  let resizeTarget = null;
+  let resizeHandle = null;
+  let resizeStartX = 0, resizeStartY = 0;
+  let resizeStartWidth = 0, resizeStartHeight = 0;
+  let panX = 0, panY = 0, zoom = 1;
+  const idMap = new Map();
+  const dataMap = new Map();
+  const connectors = [];
+  const markerCache = new Map();
+  const pointers = new Map();
+  let dragPointerId = null;
+  let panMode = null;
+  let pinchStartDist = 0;
+  let pinchStartZoom = 1;
+  let pinchStartPanX = 0;
+  let pinchStartPanY = 0;
+  let pinchStartMid = null;
+
+  function showTip(msg, ms=1800){
+    tip.textContent = msg;
+    tip.classList.add('show');
+    clearTimeout(showTip._t);
+    showTip._t = setTimeout(() => tip.classList.remove('show'), ms);
+  }
+
+  function front(el){ el.style.zIndex = ++zTop; }
+
+  function applyTransform(){
+    clampPan();
+    board.style.transform = `translate(${panX}px, ${panY}px) scale(${zoom})`;
+    drawArrows();
+  }
+
+  function clampPan(){
+    const vw = viewport.clientWidth;
+    const vh = viewport.clientHeight;
+    const bw = board.clientWidth * zoom;
+    const bh = board.clientHeight * zoom;
+    if (bw <= vw) {
+      panX = (vw - bw) / 2;
+    } else {
+      panX = Math.max(vw - bw, Math.min(0, panX));
+    }
+    if (bh <= vh) {
+      panY = (vh - bh) / 2;
+    } else {
+      panY = Math.max(vh - bh, Math.min(0, panY));
+    }
+  }
+
+  function screenToBoard(clientX, clientY){
+    const r = viewport.getBoundingClientRect();
+    return { x: (clientX - r.left - panX) / zoom, y: (clientY - r.top - panY) / zoom };
+  }
+
+  function ensureMarker(color){
+    if(markerCache.has(color)) return markerCache.get(color);
+    const id = 'm' + color.replace('#','');
+    const m = document.createElementNS('http://www.w3.org/2000/svg','marker');
+    m.setAttribute('id', id);
+    m.setAttribute('markerWidth','9');
+    m.setAttribute('markerHeight','7');
+    m.setAttribute('refX','8');
+    m.setAttribute('refY','3.5');
+    m.setAttribute('orient','auto-start-reverse');
+    const p = document.createElementNS('http://www.w3.org/2000/svg','polygon');
+    p.setAttribute('points','0 0, 9 3.5, 0 7');
+    p.setAttribute('fill', color);
+    m.appendChild(p);
+    defs.appendChild(m);
+    markerCache.set(color, id);
+    return id;
+  }
+
+  function elPos(el, stopAt){
+    let x=0, y=0, e=el, s=stopAt || board;
+    while(e && e !== s){ x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; }
+    return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+  }
+
+  function getContainingGroup(el){
+    return el ? el.closest('.moduleItemGroup-body') : null;
+  }
+
+  function centerRight(el){
+    const p = elPos(el);
+    return { x: p.x + p.w, y: p.y + p.h / 2 };
+  }
+
+  function registerItem(item, el){
+    if (el) idMap.set(item.id, el);
+    dataMap.set(item.id, item);
+    if(item.type === 'connector') connectors.push(item);
+  }
+
+  function createGroup(group, level, parentId){
+    const el = document.createElement('div');
+    el.className = 'moduleItemGroup';
+    el.dataset.id = group.id;
+    el.style.left = (group.x || 70) + 'px';
+    el.style.top = (group.y || 110) + 'px';
+    el.style.width = (group.width || 400) + 'px';
+    el.style.height = (group.height || 300) + 'px';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'moduleItemGroup-header';
+    header.style.background = group.color || DEFAULT_COLORS.group || '#e8e8e8';
+    header.textContent = group.title || 'Group';
+    el.appendChild(header);
+
+    // Body (mini-board)
+    const body = document.createElement('div');
+    body.className = 'moduleItemGroup-body';
+    el.appendChild(body);
+
+    // Render children inside body
+    const children = (group.items || []).filter(c => c.type === 'module');
+    children.forEach(child => {
+      const childEl = createModule(child, 1, group.id);
+      if(childEl){
+        childEl.style.position = 'absolute';
+        childEl.style.left = (child.x || 0) + 'px';
+        childEl.style.top = (child.y || 0) + 'px';
+        childEl.style.minWidth = '120px';
+        childEl.style.width = ''; // clear '100%' set by createModule for level>0 — let CSS auto-size
+        body.appendChild(childEl);
+        makeGroupChildDraggable(childEl, body);
+      }
+    });
+
+    registerItem(group, el);
+
+    // Context menu
+    addContextMenu(el, group, DEFAULT_COLORS.group || '#e8e8e8', ctxUpdate);
+
+    // Draggable on main board
+    makeDraggable(el, header);
+
+    board.appendChild(el);
+    el.addEventListener('pointerdown', e => {
+      if(e.target.closest('.resize-handle')) return;
+      if(selectedGroup && selectedGroup !== el) selectedGroup.classList.remove('selected');
+      selectedGroup = el;
+      el.classList.add('selected');
+    });
+    addResizeHandles(el);
+    return el;
+  }
+
+  function addResizeHandles(groupEl){
+    const right = document.createElement('div');
+    right.className = 'resize-handle resize-handle-right';
+    const bottom = document.createElement('div');
+    bottom.className = 'resize-handle resize-handle-bottom';
+    const corner = document.createElement('div');
+    corner.className = 'resize-handle resize-handle-corner';
+    groupEl.append(right, bottom, corner);
+    [right, bottom, corner].forEach(h => {
+      h.addEventListener('pointerdown', e => {
+        e.stopPropagation(); e.preventDefault();
+        resizeTarget = groupEl;
+        resizeStartX = e.clientX; resizeStartY = e.clientY;
+        resizeStartWidth = parseInt(groupEl.style.width) || 400;
+        resizeStartHeight = parseInt(groupEl.style.height) || 300;
+        resizeHandle = h === right ? 'right' : h === bottom ? 'bottom' : 'corner';
+        h.setPointerCapture(e.pointerId);
+      });
+    });
+  }
+
+  function reclampChildren(groupEl){
+    const body = groupEl.querySelector('.moduleItemGroup-body');
+    if(!body) return;
+    const groupWidth = parseInt(groupEl.style.width) || 400;
+    const groupHeight = parseInt(groupEl.style.height) || 300;
+    body.querySelectorAll('.module').forEach(child => {
+      let left = parseInt(child.style.left) || 0;
+      let top = parseInt(child.style.top) || 0;
+      const maxLeft = groupWidth - child.offsetWidth;
+      const maxTop = groupHeight - child.offsetHeight;
+      if(left > maxLeft) child.style.left = Math.max(0, maxLeft) + 'px';
+      if(top > maxTop) child.style.top = Math.max(0, maxTop) + 'px';
+      const item = dataMap.get(child.dataset.id);
+      if(item){ item.x = parseInt(child.style.left) || 0; item.y = parseInt(child.style.top) || 0; }
+    });
+  }
+
+  function createConnector(connector, sourceId){
+    if(!connector.source) connector.source = sourceId;
+    connectors.push(connector);
+    dataMap.set(connector.id, connector);
+    return null;
+  }
+
+  function createAction(action, parentId=null){
+    const el = document.createElement('div');
+    el.className = 'item action';
+    el.dataset.id = action.id;
+    el.style.background = action.color || DEFAULT_COLORS.action;
+    el.innerHTML = `
+    <div class="top">
+      <span class="name">${action.title}</span>
+    </div>
+    <div class="item-subtitle">${action.subtitle || ''}</div>
+  `;
+    const childWrap = document.createElement('div');
+    childWrap.className = 'children';
+    (action.items || []).forEach(c => {
+      const child = createNode(c, action.id);
+      if(child) childWrap.appendChild(child);
+    });
+    el.appendChild(childWrap);
+    registerItem(action, el);
+    addContextMenu(el, action, DEFAULT_COLORS.action, c => { el.style.background = c; });
+    return el;
+  }
+
+  function createModule(module, level=0, parentId=null){
+    const el = document.createElement('div');
+    el.className = 'module';
+    el.dataset.id = module.id;
+    el.style.left = '0px';
+    el.style.top = '0px';
+    if(module.x != null) el.style.left = module.x + 'px';
+    if(module.y != null) el.style.top = module.y + 'px';
+
+    const header = document.createElement('div');
+    header.className = 'module-header';
+    header.style.background = module.color || DEFAULT_COLORS.module;
+
+    const content = document.createElement('div');
+    content.className = 'module-header-content';
+
+    const title = document.createElement('div');
+    title.className = 'module-title';
+    title.textContent = module.title;
+
+    const subtitle = document.createElement('div');
+    subtitle.className = 'module-subtitle';
+    subtitle.textContent = module.subtitle || '';
+
+    content.appendChild(title);
+    content.appendChild(subtitle);
+    header.appendChild(content);
+
+    registerItem(module, el);
+
+    const body = document.createElement('div');
+    body.className = 'module-body';
+    (module.items || []).forEach(item => {
+      const child = createNode(item, module.id, level + 1);
+      if(child) body.appendChild(child);
+    });
+
+    el.appendChild(header);
+    el.appendChild(body);
+    makeReorderable(body, module.id);
+    addContextMenu(el, module, DEFAULT_COLORS.module, c => {
+      el.querySelector('.module-header').style.background = c;
+    });
+    if(level > 0){
+      // Nested module: flow inside parent's body, not absolutely positioned
+      el.style.position = 'static';
+      el.style.width = '100%';
+      el.style.minWidth = '0';
+      el.style.margin = '0';
+    }else{
+      makeDraggable(el, header);
+      board.appendChild(el);
+    }
+    return el;
+  }
+
+  function createNode(node, parentId=null, level=0){
+    if(node.type === 'module') return createModule(node, level, parentId);
+    if(node.type === 'action') return createAction(node, parentId);
+    if(node.type === 'connector') return createConnector(node, parentId);
+    if(node.type === 'moduleItemGroup') return createGroup(node, level, parentId);
+    return document.createElement('div');
+  }
+
+  function resolveTarget(target){
+    if(!target) return null;
+    if(idMap.has(target)) return idMap.get(target);
+    const parts = target.split('.').filter(Boolean);
+    let cur = data;
+    for(let i=0;i<parts.length;i++){
+      const p = parts[i];
+      if(p === 'items') continue;
+      if(/^\[\d+\]$/.test(p)){
+        const idx = parseInt(p.slice(1,-1),10);
+        cur = cur.items?.[idx];
+      } else {
+        cur = (cur.items || []).find(x => x.id === p) || cur;
+      }
+      if(!cur) return null;
+    }
+    return idMap.get(cur.id) || null;
+  }
+
+  function sourceAnchor(sourceEl, targetEl){
+    const s = elPos(sourceEl);
+    const t = elPos(targetEl);
+    const tc = { x: t.x + t.w / 2, y: t.y + t.h / 2 };
+    const candidates = [
+      { x: s.x, y: s.y + s.h / 2, side: 'left' },
+      { x: s.x + s.w, y: s.y + s.h / 2, side: 'right' },
+      { x: s.x + s.w / 2, y: s.y, side: 'top' },
+      { x: s.x + s.w / 2, y: s.y + s.h, side: 'bottom' }
+    ];
+    let best = candidates[0];
+    let bestDist = Infinity;
+    for (const c of candidates) {
+      const d = Math.hypot(c.x - tc.x, c.y - tc.y);
+      if (d < bestDist) { bestDist = d; best = c; }
+    }
+    return best;
+  }
+
+  function targetAnchor(sourceEl, targetEl){
+    const s = elPos(sourceEl);
+    const t = elPos(targetEl);
+    const sc = { x: s.x + s.w / 2, y: s.y + s.h / 2 };
+    const candidates = [
+      { x: t.x, y: t.y + t.h / 2, side: 'left' },
+      { x: t.x + t.w, y: t.y + t.h / 2, side: 'right' },
+      { x: t.x + t.w / 2, y: t.y, side: 'top' },
+      { x: t.x + t.w / 2, y: t.y + t.h, side: 'bottom' }
+    ];
+    let best = candidates[0];
+    let bestDist = Infinity;
+    for (const c of candidates) {
+      const d = Math.hypot(c.x - sc.x, c.y - sc.y);
+      if (d < bestDist) { bestDist = d; best = c; }
+    }
+    return best;
+  }
+
+  function pathFor(sourceEl, targetEl){
+    const src = sourceAnchor(sourceEl, targetEl);
+    const tgt = targetAnchor(sourceEl, targetEl);
+    const dx = Math.max(Math.abs(tgt.x - src.x) * 0.5, 70);
+    const dy = Math.max(Math.abs(tgt.y - src.y) * 0.5, 70);
+    const cp1 = { x: src.x, y: src.y };
+    const cp2 = { x: tgt.x, y: tgt.y };
+    if(src.side === 'right') cp1.x += dx;
+    else if(src.side === 'left') cp1.x -= dx;
+    else if(src.side === 'bottom') cp1.y += dy;
+    else cp1.y -= dy; // top
+    if(tgt.side === 'left') cp2.x -= dx;
+    else if(tgt.side === 'right') cp2.x += dx;
+    else if(tgt.side === 'bottom') cp2.y += dy;
+    else cp2.y -= dy; // top
+    return `M${src.x},${src.y} C${cp1.x},${cp1.y} ${cp2.x},${cp2.y} ${tgt.x},${tgt.y}`;
+  }
+
+  function outsidePath(srcEl, tgtEl, modEl, side){
+    const mod = elPos(modEl);
+    const s = elPos(srcEl);
+    const t = elPos(tgtEl);
+    const ext = 80;
+    let src, tgt, cp1x, cp2x;
+    if(side === 'right'){
+      // Anchor at module's RIGHT edge
+      src = { x: mod.x + mod.w, y: s.y + s.h / 2, side: 'right' };
+      tgt = { x: mod.x + mod.w, y: t.y + t.h / 2, side: 'right' };
+      cp1x = mod.x + mod.w + ext;
+      cp2x = mod.x + mod.w + ext;
+    } else {
+      // Anchor at module's LEFT edge (default)
+      src = { x: mod.x, y: s.y + s.h / 2, side: 'left' };
+      tgt = { x: mod.x, y: t.y + t.h / 2, side: 'left' };
+      cp1x = mod.x - ext;
+      cp2x = mod.x - ext;
+    }
+    const d = `M${src.x},${src.y} C${cp1x},${src.y} ${cp2x},${tgt.y} ${tgt.x},${tgt.y}`;
+    return { path: d, src, tgt };
+  }
+
+  function drawArrows(){
+    paths.innerHTML = '';
+    if(!data) return;
+    let intraIdx = 0;
+    connectors.forEach(c => {
+      const source = idMap.get(c.source);
+      const target = resolveTarget(c.target);
+      if(!source || !target) return;
+      // Anchor to module header when connecting to/from modules
+      const srcEl = source.classList.contains('module') ? source.querySelector('.module-header') : source;
+      const tgtEl = target.classList.contains('module') ? target.querySelector('.module-header') : target;
+      function findCommonModule(a, b) {
+        // Collect all module ancestors of a
+        const ancestorsA = [];
+        let el = a.classList.contains('module') ? a.parentElement : a;
+        while(el) {
+          const mod = el.closest('.module');
+          if(!mod) break;
+          ancestorsA.push(mod);
+          el = mod.parentElement;
+        }
+        // Walk up from b to find first module that is also an ancestor of a
+        el = b.classList.contains('module') ? b.parentElement : b;
+        while(el) {
+          const mod = el.closest('.module');
+          if(!mod) break;
+          if(ancestorsA.includes(mod)) return mod;
+          el = mod.parentElement;
+        }
+        return null;
+      }
+      // Group-aware coordinate resolution
+      const srcGroup = getContainingGroup(source);
+      const tgtGroup = getContainingGroup(target);
+      let srcPos, tgtPos;
+      if(srcGroup && tgtGroup && srcGroup === tgtGroup){
+        // Case A: both in same group — use group-relative coordinates then add offset
+        srcPos = elPos(source, srcGroup);
+        tgtPos = elPos(target, tgtGroup);
+        const groupPos = elPos(srcGroup);
+        srcPos.x += groupPos.x;
+        srcPos.y += groupPos.y;
+        tgtPos.x += groupPos.x;
+        tgtPos.y += groupPos.y;
+      } else if(srcGroup){
+        // Case B1: source in group, target outside
+        srcPos = elPos(source, srcGroup);
+        const groupPos = elPos(srcGroup);
+        srcPos.x += groupPos.x;
+        srcPos.y += groupPos.y;
+        tgtPos = elPos(target);
+      } else if(tgtGroup){
+        // Case B2: target in group, source outside
+        tgtPos = elPos(target, tgtGroup);
+        const groupPos = elPos(tgtGroup);
+        tgtPos.x += groupPos.x;
+        tgtPos.y += groupPos.y;
+        srcPos = elPos(source);
+      } else {
+        // Case C: neither in group
+        srcPos = elPos(source);
+        tgtPos = elPos(target);
+      }
+
+      const commonMod = findCommonModule(source, target);
+      function findCommonGroup(a, b){
+        const sg = getContainingGroup(a);
+        const tg = getContainingGroup(b);
+        if(sg && tg && sg === tg) return sg;
+        return null;
+      }
+      const commonGroup = findCommonGroup(source, target);
+      let src, tgt, d;
+      if(commonMod) {
+        const srcMod = source.closest('.module');
+        const tgtMod = target.closest('.module');
+        if(srcMod === tgtMod) {
+          // Intra-module: source and target in same immediate module — use outsidePath
+          const modPos = elPos(commonMod);
+          const sPos = elPos(srcEl);
+          const tPos = elPos(tgtEl);
+          const srcCx = sPos.x + sPos.w / 2;
+          const tgtCx = tPos.x + tPos.w / 2;
+          const leftDist = Math.abs(modPos.x - srcCx) + Math.abs(modPos.x - tgtCx);
+          const rightDist = Math.abs(modPos.x + modPos.w - srcCx) + Math.abs(modPos.x + modPos.w - tgtCx);
+          const side = leftDist <= rightDist ? 'left' : 'right';
+          const result = outsidePath(srcEl, tgtEl, commonMod, side);
+          src = result.src; tgt = result.tgt; d = result.path;
+          intraIdx++;
+        }
+      }
+      if(!src && commonGroup) {
+        // Intra-group connector: joint endpoint-to-endpoint shortest distance
+        const srcCandidates = [
+          { x: srcPos.x, y: srcPos.y + srcPos.h / 2, side: 'left' },
+          { x: srcPos.x + srcPos.w, y: srcPos.y + srcPos.h / 2, side: 'right' },
+          { x: srcPos.x + srcPos.w / 2, y: srcPos.y, side: 'top' },
+          { x: srcPos.x + srcPos.w / 2, y: srcPos.y + srcPos.h, side: 'bottom' }
+        ];
+        const tgtCandidates = [
+          { x: tgtPos.x, y: tgtPos.y + tgtPos.h / 2, side: 'left' },
+          { x: tgtPos.x + tgtPos.w, y: tgtPos.y + tgtPos.h / 2, side: 'right' },
+          { x: tgtPos.x + tgtPos.w / 2, y: tgtPos.y, side: 'top' },
+          { x: tgtPos.x + tgtPos.w / 2, y: tgtPos.y + tgtPos.h, side: 'bottom' }
+        ];
+        let bestSrc = srcCandidates[0], bestTgt = tgtCandidates[0], bestDist = Infinity;
+        for(const s of srcCandidates) {
+          for(const t of tgtCandidates) {
+            const d = Math.hypot(t.x - s.x, t.y - s.y);
+            if(d < bestDist) { bestDist = d; bestSrc = s; bestTgt = t; }
+          }
+        }
+        src = bestSrc; tgt = bestTgt;
+        const dx = Math.max(Math.abs(tgt.x - src.x) * 0.5, 70);
+        const dy = Math.max(Math.abs(tgt.y - src.y) * 0.5, 70);
+        const cp1 = { x: src.x, y: src.y };
+        const cp2 = { x: tgt.x, y: tgt.y };
+        if(src.side === 'right') cp1.x += dx;
+        else if(src.side === 'left') cp1.x -= dx;
+        else if(src.side === 'bottom') cp1.y += dy;
+        else cp1.y -= dy;
+        if(tgt.side === 'right') cp2.x += dx;
+        else if(tgt.side === 'left') cp2.x -= dx;
+        else if(tgt.side === 'bottom') cp2.y += dy;
+        else cp2.y -= dy;
+        d = `M ${src.x} ${src.y} C ${cp1.x} ${cp1.y}, ${cp2.x} ${cp2.y}, ${tgt.x} ${tgt.y}`;
+      }
+      if(!src) {
+        // General case: joint endpoint-to-endpoint shortest distance
+        const srcCandidates = [
+          { x: srcPos.x, y: srcPos.y + srcPos.h / 2, side: 'left' },
+          { x: srcPos.x + srcPos.w, y: srcPos.y + srcPos.h / 2, side: 'right' },
+          { x: srcPos.x + srcPos.w / 2, y: srcPos.y, side: 'top' },
+          { x: srcPos.x + srcPos.w / 2, y: srcPos.y + srcPos.h, side: 'bottom' }
+        ];
+        const tgtCandidates = [
+          { x: tgtPos.x, y: tgtPos.y + tgtPos.h / 2, side: 'left' },
+          { x: tgtPos.x + tgtPos.w, y: tgtPos.y + tgtPos.h / 2, side: 'right' },
+          { x: tgtPos.x + tgtPos.w / 2, y: tgtPos.y, side: 'top' },
+          { x: tgtPos.x + tgtPos.w / 2, y: tgtPos.y + tgtPos.h, side: 'bottom' }
+        ];
+        let bestSrc = srcCandidates[0], bestTgt = tgtCandidates[0], bestDist = Infinity;
+        for(const s of srcCandidates) {
+          for(const t of tgtCandidates) {
+            const d = Math.hypot(t.x - s.x, t.y - s.y);
+            if(d < bestDist) { bestDist = d; bestSrc = s; bestTgt = t; }
+          }
+        }
+        src = bestSrc; tgt = bestTgt;
+        const dx = Math.max(Math.abs(tgt.x - src.x) * 0.5, 70);
+        const dy = Math.max(Math.abs(tgt.y - src.y) * 0.5, 70);
+        const cp1 = { x: src.x, y: src.y };
+        const cp2 = { x: tgt.x, y: tgt.y };
+        if(src.side === 'right') cp1.x += dx;
+        else if(src.side === 'left') cp1.x -= dx;
+        else if(src.side === 'bottom') cp1.y += dy;
+        else cp1.y -= dy;
+        if(tgt.side === 'left') cp2.x -= dx;
+        else if(tgt.side === 'right') cp2.x += dx;
+        else if(tgt.side === 'bottom') cp2.y += dy;
+        else cp2.y -= dy;
+        d = `M${src.x},${src.y} C${cp1.x},${cp1.y} ${cp2.x},${cp2.y} ${tgt.x},${tgt.y}`;
+      }
+      const color = c.color || (c.direction === 'in' ? '#118ab2' : c.direction === 'none' ? '#888' : '#06d6a0');
+      const marker = ensureMarker(color);
+      const label = c.title || c.name || c.id;
+      const midX = (src.x + tgt.x) / 2;
+      const midY = (src.y + tgt.y) / 2 - 6;
+
+      const hit = document.createElementNS('http://www.w3.org/2000/svg','path');
+      hit.setAttribute('d', d);
+      hit.setAttribute('class', 'hit');
+      hit.addEventListener('click', () => showTip(`Connector: ${label}`));
+      hit.addEventListener('contextmenu', e => {
+        showCtx(e, c, () => drawArrows(), color);
+        ctxGroup = c._g;
+      });
+
+      const vis = document.createElementNS('http://www.w3.org/2000/svg','path');
+      vis.setAttribute('d', d);
+      vis.setAttribute('class', 'vis');
+      vis.setAttribute('stroke', color);
+      if(c.direction !== 'none'){
+        if(c.direction !== 'in') vis.setAttribute('marker-end', `url(#${marker})`);
+        if(c.direction === 'in' || c.direction === 'both') vis.setAttribute('marker-start', `url(#${marker})`);
+      }
+      if(c.lineType === 'dashed') vis.setAttribute('stroke-dasharray', '7 5');
+      if(c.lineType === 'dotted') vis.setAttribute('stroke-dasharray', '2 5');
+
+      const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+      c._g = g;
+      const text = document.createElementNS('http://www.w3.org/2000/svg','text');
+      text.setAttribute('x', midX);
+      text.setAttribute('y', midY);
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('class', 'connector-label');
+      text.textContent = label;
+      text.style.pointerEvents = 'auto';
+      text.style.cursor = 'default';
+
+      g.appendChild(text);
+      if(c.subtitle){
+        const sub = document.createElementNS('http://www.w3.org/2000/svg','text');
+        sub.setAttribute('x', midX);
+        sub.setAttribute('y', midY + 14);
+        sub.setAttribute('text-anchor', 'middle');
+        sub.setAttribute('class', 'connector-subtitle');
+        sub.textContent = c.subtitle;
+        g.appendChild(sub);
+      }
+      paths.appendChild(hit);
+      paths.appendChild(vis);
+      paths.appendChild(g);
+
+      requestAnimationFrame(() => {
+        try {
+          const bb = text.getBBox();
+          const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
+          bg.setAttribute('x', bb.x - 6);
+          bg.setAttribute('y', bb.y - 3);
+          bg.setAttribute('width', bb.width + 12);
+          bg.setAttribute('height', bb.height + 6);
+          bg.setAttribute('class', 'connector-label-bg');
+          g.insertBefore(bg, text);
+        } catch(e) {}
+      });
+    });
+  }
+
+  function makeGroupChildDraggable(childEl, groupBodyEl){
+    const header = childEl.querySelector('.module-header');
+    if(!header) return;
+
+    header.addEventListener('pointerdown', e => {
+      e.stopPropagation();
+      e.preventDefault();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const startLeft = parseInt(childEl.style.left) || 0;
+      const startTop = parseInt(childEl.style.top) || 0;
+      const pointerId = e.pointerId;
+
+      function onMove(ev){
+        if(ev.pointerId !== pointerId) return;
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        let newLeft = startLeft + dx;
+        let newTop = startTop + dy;
+        // Clamp to group body bounds
+        const maxLeft = groupBodyEl.clientWidth - childEl.offsetWidth;
+        const maxTop = groupBodyEl.clientHeight - childEl.offsetHeight;
+        newLeft = Math.max(0, Math.min(newLeft, maxLeft));
+        newTop = Math.max(0, Math.min(newTop, maxTop));
+        childEl.style.left = newLeft + 'px';
+        childEl.style.top = newTop + 'px';
+        drawArrows();
+      }
+
+      function onUp(ev){
+        if(ev.pointerId !== pointerId) return;
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        // Save position to data
+        const item = dataMap.get(childEl.dataset.id);
+        if(item){
+          item.x = parseInt(childEl.style.left) || 0;
+          item.y = parseInt(childEl.style.top) || 0;
+        }
+      }
+
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+    });
+  }
+
+  function makeDraggable(el, handle){
+    handle.addEventListener('pointerdown', e => {
+      if(e.button !== 0) return;
+      if(e.target.closest('[contenteditable]')) return;
+      if(e.pointerType === 'touch') e.preventDefault();
+      dragTarget = el;
+      dragPointerId = e.pointerId;
+      front(el);
+      const r = el.getBoundingClientRect();
+      dragDX = e.clientX - r.left;
+      dragDY = e.clientY - r.top;
+      el.classList.add('dragging');
+      handle.setPointerCapture?.(e.pointerId);
+    });
+  }
+
+  function onDragPointerMove(e){
+    if(!dragTarget || e.pointerId !== dragPointerId) return;
+    const p = screenToBoard(e.clientX, e.clientY);
+    let x = p.x - dragDX / zoom;
+    let y = p.y - dragDY / zoom;
+    x = Math.max(0, Math.min(board.offsetWidth - dragTarget.offsetWidth, x));
+    y = Math.max(0, Math.min(board.offsetHeight - dragTarget.offsetHeight, y));
+    dragTarget.style.left = x + 'px';
+    dragTarget.style.top = y + 'px';
+    drawArrows();
+  }
+
+  function stopDragPointer(e){
+    if(!dragTarget || e.pointerId !== dragPointerId) return;
+    // Save position to data
+    const left = parseInt(dragTarget.style.left);
+    const top = parseInt(dragTarget.style.top);
+    if(!isNaN(left) && !isNaN(top)){
+      if(dragTarget === boardHeader){
+        data.x = left;
+        data.y = top;
+      }else{
+        const item = dataMap.get(dragTarget.dataset.id);
+        if(item){ item.x = left; item.y = top; }
+      }
+    }
+    dragTarget.classList.remove('dragging');
+    dragTarget = null;
+    dragPointerId = null;
+    drawArrows();
+  }
+
+  function layoutModules(){
+    const modules = (data?.items || []).filter(m => m.type !== 'moduleItemGroup');
+    const moduleCount = modules.length;
+    const moduleWidth = 280;
+    const gap = 80;
+    const totalWidth = moduleCount * moduleWidth + Math.max(0, moduleCount - 1) * gap;
+    const centerX = board.clientWidth / 2;
+    const centerY = board.clientHeight / 2;
+    const startX = Math.max(70, centerX - totalWidth / 2);
+
+    // First pass: position modules at initial X, temporary Y=0
+    modules.forEach((m, i) => {
+      const el = idMap.get(m.id);
+      if(el){
+        el.style.left = (m.x != null ? m.x : startX + i * (moduleWidth + gap)) + 'px';
+        el.style.top = (m.y != null ? m.y : 0) + 'px';
+      }
+    });
+
+    // Second pass: measure bounding box and center vertically
+    let minY = Infinity, maxY = -Infinity;
+    modules.forEach(m => {
+      const el = idMap.get(m.id);
+      if(el && m.y == null){
+        const pos = elPos(el);
+        minY = Math.min(minY, pos.y);
+        maxY = Math.max(maxY, pos.y + pos.h);
+      }
+    });
+    if(minY !== Infinity){
+      const bboxCenterY = (minY + maxY) / 2;
+      const offsetY = centerY - bboxCenterY;
+      modules.forEach(m => {
+        const el = idMap.get(m.id);
+        if(el && m.y == null){
+          el.style.top = (parseFloat(el.style.top) + offsetY) + 'px';
+        }
+      });
+    }
+  }
+
+  function render(){
+    board.querySelectorAll('.module').forEach(n => n.remove());
+    board.querySelectorAll('.moduleItemGroup').forEach(el => el.remove());
+    selectedGroup = null;
+    idMap.clear();
+    connectors.length = 0;
+
+    if(!data){
+      boardHeader.style.display = 'none';
+      emptyState.style.display = 'block';
+      drawArrows();
+      return;
+    }
+
+    boardHeader.style.display = 'block';
+    emptyState.style.display = 'none';
+    if(data.x != null) boardHeader.style.left = data.x + 'px';
+    if(data.y != null) boardHeader.style.top = data.y + 'px';
+
+    boardTitle.textContent = data.title || '';
+    boardSubtitle.textContent = data.subtitle || '';
+    const legendDiv = document.getElementById('boardLegend');
+    legendDiv.innerHTML = '';
+    if(data.legend && data.legend.length){
+      const table = document.createElement('table');
+      table.className = 'board-legend';
+      data.legend.forEach(entry => {
+        const tr = document.createElement('tr');
+        const tdItem = document.createElement('td');
+        let preview;
+        if(entry.item.type === 'module'){
+          preview = document.createElement('div');
+          preview.className = 'module-header';
+          preview.style.background = entry.item.color || DEFAULT_COLORS.module;
+          preview.textContent = entry.item.title;
+          preview.style.display = 'inline-block';
+          preview.style.width = 'auto';
+          preview.style.padding = '4px 8px';
+          preview.style.borderRadius = '4px 4px 0 0';
+          preview.style.fontSize = '0.72rem';
+        }else if(entry.item.type === 'action'){
+          preview = document.createElement('div');
+          preview.className = 'item action';
+          preview.style.background = entry.item.color || DEFAULT_COLORS.action;
+          preview.innerHTML = '<span class="name">' + entry.item.title + '</span>';
+          preview.style.display = 'inline-block';
+          preview.style.padding = '4px 8px';
+          preview.style.fontSize = '0.72rem';
+        }else if(entry.item.type === 'connector'){
+          preview = document.createElement('div');
+          preview.style.width = '100%';
+          preview.style.minWidth = '80px';
+          preview.style.height = '28px';
+          preview.style.position = 'relative';
+          preview.style.display = 'flex';
+          preview.style.alignItems = 'center';
+          const col = entry.item.color || (
+            entry.item.direction === 'out' || entry.item.direction === 'both'
+              ? '#06d6a0' : entry.item.direction === 'in' ? '#118ab2' : '#888'
+          );
+          const dash = entry.item.lineType === 'dashed' ? '7 5' : entry.item.lineType === 'dotted' ? '2 5' : '';
+          const svgNS = 'http://www.w3.org/2000/svg';
+          const svg = document.createElementNS(svgNS, 'svg');
+          svg.setAttribute('viewBox', '0 0 80 28');
+          svg.style.position = 'absolute';
+          svg.style.inset = '0';
+          svg.style.width = '100%';
+          svg.style.height = '100%';
+          svg.style.overflow = 'visible';
+          // Line body
+          const line = document.createElementNS(svgNS, 'line');
+          line.setAttribute('x1', '6');
+          line.setAttribute('y1', '14');
+          line.setAttribute('x2', '74');
+          line.setAttribute('y2', '14');
+          line.setAttribute('stroke', col);
+          line.setAttribute('stroke-width', '2');
+          if(dash) line.setAttribute('stroke-dasharray', dash);
+          svg.appendChild(line);
+          // Arrow head at right end (for out/both)
+          if(entry.item.direction === 'out' || entry.item.direction === 'both'){
+            const arrRight = document.createElementNS(svgNS, 'polygon');
+            arrRight.setAttribute('points', '74,10 80,14 74,18');
+            arrRight.setAttribute('fill', col);
+            svg.appendChild(arrRight);
+          }
+          // Arrow head at left end (for in/both)
+          if(entry.item.direction === 'in' || entry.item.direction === 'both'){
+            const arrLeft = document.createElementNS(svgNS, 'polygon');
+            arrLeft.setAttribute('points', '6,10 0,14 6,18');
+            arrLeft.setAttribute('fill', col);
+            svg.appendChild(arrLeft);
+          }
+          preview.appendChild(svg);
+          const label = document.createElement('span');
+          label.style.position = 'relative';
+          label.style.zIndex = '2';
+          label.style.margin = '0 auto';
+          label.style.padding = '0 6px';
+          label.style.fontSize = '0.65rem';
+          label.style.fontWeight = '500';
+          label.style.color = col;
+          label.style.background = 'rgba(255,255,255,0.85)';
+          label.textContent = entry.item.name || entry.item.title;
+          preview.appendChild(label);
+        }
+        if(preview) tdItem.appendChild(preview);
+        const tdDesc = document.createElement('td');
+        tdDesc.textContent = entry.description;
+        tr.appendChild(tdItem);
+        tr.appendChild(tdDesc);
+        table.appendChild(tr);
+      });
+      legendDiv.appendChild(table);
+    }
+    board.querySelector('#board-header').style.background = data.color || DEFAULT_COLORS.map;
+    addContextMenu(boardHeader, data, DEFAULT_COLORS.map, c => {
+      board.querySelector('#board-header').style.background = c;
+    });
+
+    (data.items || []).forEach(m => createNode(m, null, 0));
+    // Ensure SVG is always the last child of #board so it paints above dynamic content
+    board.appendChild(document.getElementById('svg'));
+    layoutModules();
+    applyTransform();
+    requestAnimationFrame(drawArrows);
+  }
+
+  function distance(a, b){ return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); }
+  function midpoint(a, b){ return { x: (a.clientX + b.clientX) / 2, y: (a.clientY + b.clientY) / 2 }; }
+
+  function fitBoard(){
+    const vw = viewport.clientWidth;
+    const vh = viewport.clientHeight;
+    const bw = board.clientWidth;
+    const bh = board.clientHeight;
+    zoom = Math.min(vw / bw, vh / bh) * 0.95;
+    // Center viewport on board geometric center
+    panX = vw / 2 - (bw / 2) * zoom;
+    panY = vh / 2 - (bh / 2) * zoom;
+    applyTransform();
+  }
+
+  function setData(nextData){
+    data = nextData;
+    render();
+    fitBoard();
+  }
+
+  function syncDataFromDOM(){
+    data.title = boardTitle.textContent;
+    data.subtitle = boardSubtitle.textContent;
+    data.x = boardHeader.offsetLeft;
+    data.y = boardHeader.offsetTop;
+    for(const [id, item] of dataMap){
+      const el = idMap.get(id);
+      if(!el) continue;
+      if(item.type === 'module'){
+        const t = el.querySelector('.module-title');
+        const s = el.querySelector('.module-subtitle');
+        if(t) item.title = t.textContent;
+        if(s) item.subtitle = s.textContent;
+        item.x = el.offsetLeft;
+        item.y = el.offsetTop;
+      }else if(item.type === 'action'){
+        const n = el.querySelector('.name');
+        if(n) item.title = n.textContent;
+        const as = el.querySelector('.item-subtitle');
+        if(as) item.subtitle = as.textContent || undefined;
+      }else if(item.type === 'moduleItemGroup'){
+        // full sync implemented in Task 3
+        if(!el) return;
+      }
+    }
+  }
+
+  async function saveAs(){
+    syncDataFromDOM();
+    const content = JSON.stringify(data, null, 2);
+    const suggested = (data.title || 'whiteboard') + '.json';
+    try {
+      const handle = await window.showSaveFilePicker?.({
+        suggestedName: suggested,
+        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }]
+      });
+      if(handle){
+        const writable = await handle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        showTip('Saved');
+      }
+    }catch(e){
+      if(e.name === 'AbortError') return; // user cancelled
+      // Fallback: download
+      const blob = new Blob([content], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = suggested;
+      a.click();
+      URL.revokeObjectURL(url);
+      showTip('Saved (download)');
+    }
+  }
+
+  document.getElementById('save-btn').addEventListener('click', saveAs);
+
+  document.getElementById('new-btn').addEventListener('click', () => {
+    setData({ id:'root', title:'Untitled', subtitle:'', type:'map', items:[] });
+    showTip('New board');
+  });
+
+  let _cid = 0;
+  document.getElementById('add-btn').addEventListener('click', () => {
+    if(!data) return;
+    _cid++;
+    if(!data.items) data.items = [];
+    data.items.push({
+      id: 'module-' + _cid,
+      title: 'New Module',
+      subtitle: '',
+      type: 'module',
+      color: '#fff1a8',
+      items: []
+    });
+    render();
+    showTip('Added module');
+  });
+
+  document.getElementById('add-group-btn').addEventListener('click', () => {
+    if(!data) return;
+    _cid++;
+    const group = {
+      id: 'group-' + _cid,
+      title: 'New Group',
+      subtitle: '',
+      type: 'moduleItemGroup',
+      color: '#e8e8e8',
+      width: 400,
+      height: 300,
+      x: 70 + (_cid * 30) % 800,
+      y: 110 + (_cid * 30) % 600,
+      items: []
+    };
+    data.items.push(group);
+    render();
+    showTip('Added group');
+  });
+
+  // ── Connector inline editing ──────────────────────────────
+  function editConnectorLabel(textEl, g, labelText, connData){
+    const bb = textEl.getBBox();
+    const fo = document.createElementNS('http://www.w3.org/2000/svg','foreignObject');
+    fo.setAttribute('x', bb.x - 6);
+    fo.setAttribute('y', bb.y - 3);
+    fo.setAttribute('width', Math.max(bb.width + 12, 40));
+    fo.setAttribute('height', Math.max(bb.height + 6, 24));
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.value = labelText;
+    Object.assign(inp.style, {
+      width:'100%', height:'100%', boxSizing:'border-box',
+      border:'1px solid #6ea8ff', borderRadius:'4px',
+      padding:'2px 4px', font:'12px DM Sans, sans-serif',
+      background:'#fff', outline:'none'
+    });
+    fo.appendChild(inp);
+    g.appendChild(fo);
+    inp.focus();
+    inp.select();
+    const done = () => {
+      const v = inp.value.trim();
+      fo.remove();
+      if(v && v !== labelText){
+        if(connData.title) connData.title = v; else connData.name = v;
+        drawArrows();
+      }
+    };
+    inp.addEventListener('blur', done);
+    inp.addEventListener('keydown', ke => {
+      if(ke.key === 'Enter'){ ke.preventDefault(); inp.blur(); }
+      if(ke.key === 'Escape'){ ke.preventDefault(); fo.remove(); }
+    });
+  }
+
+  function editConnectorSubtitle(g, connData){
+    const label = g.querySelector('.connector-label');
+    if(!label) return;
+    const bb = label.getBBox();
+    const value = connData.subtitle || '';
+    const fo = document.createElementNS('http://www.w3.org/2000/svg','foreignObject');
+    fo.setAttribute('x', bb.x - 6);
+    fo.setAttribute('y', bb.y + bb.height + 6);
+    fo.setAttribute('width', Math.max(bb.width + 12, 40));
+    fo.setAttribute('height', 24);
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.value = value;
+    Object.assign(inp.style, {
+      width:'100%', height:'100%', boxSizing:'border-box',
+      border:'1px solid #6ea8ff', borderRadius:'4px',
+      padding:'2px 4px', font:'12px DM Sans, sans-serif',
+      background:'#fff', outline:'none'
+    });
+    fo.appendChild(inp);
+    g.appendChild(fo);
+    inp.focus();
+    inp.select();
+    const done = () => {
+      const v = inp.value.trim();
+      fo.remove();
+      if(v !== (connData.subtitle || '')){
+        connData.subtitle = v || undefined;
+        drawArrows();
+      }
+    };
+    inp.addEventListener('blur', done);
+    inp.addEventListener('keydown', ke => {
+      if(ke.key === 'Enter'){ ke.preventDefault(); inp.blur(); }
+      if(ke.key === 'Escape'){ ke.preventDefault(); fo.remove(); }
+    });
+  }
+
+  // ── Drag reordering ───────────────────────────────────────
+  let dragBody = null, dragItem = null, dragStartY = 0, dragParentId = null;
+
+  document.addEventListener('pointerup', () => { dragBody = null; dragItem = null; });
+  document.addEventListener('pointercancel', () => { dragBody = null; dragItem = null; });
+
+  function makeReorderable(bodyEl, parentId){
+
+    function startDrag(e, item){
+      dragBody = bodyEl;
+      dragItem = item;
+      dragParentId = parentId;
+      dragStartY = e.clientY;
+      try { bodyEl.setPointerCapture(e.pointerId); } catch(_) {}
+      document.body.classList.add('drag-active');
+      item.style.transition = 'box-shadow .15s';
+      item.style.boxShadow = '0 4px 12px rgba(0,0,0,.15)';
+    }
+
+    bodyEl.addEventListener('pointerdown', e => {
+      if(connActive) return;
+      const item = e.target.closest('.item, .module');
+      if(!item || item.parentElement !== bodyEl || e.target.closest('[contenteditable],.ctx-menu')) return;
+      if(e.button !== 0) return;
+      e.preventDefault();
+      startDrag(e, item);
+    });
+
+    bodyEl.addEventListener('pointermove', e => {
+      if(!dragItem || dragBody !== bodyEl) return;
+      if(!bodyEl.contains(dragItem)){ dragItem = null; return; }
+      const dy = e.clientY - dragStartY;
+      const items = [...bodyEl.children].filter(c => c.classList.contains('item') || c.classList.contains('module'));
+      const idx = items.indexOf(dragItem);
+      if(idx === -1){ dragItem = null; return; }
+
+      function doSwap(sibling){
+        bodyEl.insertBefore(sibling, dragItem);
+        dragStartY = e.clientY;
+        const mod = dataMap.get(parentId);
+        if(mod && mod.items){
+          const i1 = mod.items.findIndex(i => i.id === dragItem.dataset.id);
+          const i2 = mod.items.findIndex(i => i.id === sibling.dataset.id);
+          if(i1 !== -1 && i2 !== -1) [mod.items[i1], mod.items[i2]] = [mod.items[i2], mod.items[i1]];
+        }
+      }
+
+      if(dy > 15 && idx < items.length - 1){
+        const next = items[idx + 1];
+        if(e.clientY > next.getBoundingClientRect().top + next.offsetHeight / 2 - 4) doSwap(next);
+      }else if(dy < -15 && idx > 0){
+        const prev = items[idx - 1];
+        if(e.clientY < prev.getBoundingClientRect().top + prev.offsetHeight / 2 + 4) doSwap(prev);
+      }
+    });
+
+    bodyEl.addEventListener('pointerup', () => { cleanup(); });
+    bodyEl.addEventListener('pointercancel', () => { cleanup(); });
+    bodyEl.addEventListener('pointerleave', () => { cleanup(); });
+  }
+
+  function cleanup(){
+    if(dragItem){
+      document.body.classList.remove('drag-active');
+      dragItem.style.boxShadow = '';
+      dragItem.style.transition = '';
+    }
+    dragBody = null;
+    dragItem = null;
+  }
+
+  // ── Connection mode ────────────────────────────────────────
+  let connActive = false, connSource = null, connSourceData = null, connLine = null;
+
+  function startConnection(sourceEl, sourceData){
+    connActive = true; connSource = sourceEl; connSourceData = sourceData;
+    if(document.activeElement?.blur) document.activeElement.blur();
+    const svg = document.getElementById('svg');
+    connLine = document.createElementNS('http://www.w3.org/2000/svg','path');
+    connLine.setAttribute('class', 'vis');
+    connLine.setAttribute('stroke', '#22BF3E');
+    connLine.setAttribute('stroke-dasharray', '7 5');
+    connLine.style.pointerEvents = 'none';
+    svg.appendChild(connLine);
+    document.addEventListener('pointermove', onConnMove);
+    document.addEventListener('click', onConnClick);
+    document.addEventListener('keydown', onConnKey);
+  }
+
+  function onConnMove(e){
+    if(!connActive || !connSource || !connLine) return;
+    const srcEl = connSource.classList.contains('module') ? connSource.querySelector('.module-header') : connSource;
+    const src = centerRight(srcEl);
+    const bp = screenToBoard(e.clientX, e.clientY);
+    const dx = Math.max(Math.abs(bp.x - src.x) * 0.5, 70);
+    connLine.setAttribute('d', `M${src.x},${src.y} C${src.x+dx},${src.y} ${bp.x-dx},${bp.y} ${bp.x},${bp.y}`);
+  }
+
+  function onConnClick(e){
+    if(!connActive) return;
+    const clickEl = e.target.nodeType === 3 ? e.target.parentElement : e.target;
+    if(!clickEl) return;
+    let target = clickEl.closest('.item.action') || clickEl.closest('[data-id]');
+    if(!target && clickEl.closest('#board-header')) target = boardHeader;
+    if(!target || target === connSource) return;
+    let td;
+    if(target === boardHeader) td = data;
+    else td = dataMap.get(target.dataset.id);
+    if(td && td !== connSourceData) finishConnection(td);
+  }
+
+  function onConnKey(e){
+    if(e.key === 'Escape') cancelConnection();
+  }
+
+  function finishConnection(targetData){
+    if(!connActive || !connSourceData) return;
+    _cid++;
+    const title = (connSourceData.title || connSourceData.id) + ' -> ' + (targetData.title || targetData.id);
+    if(!connSourceData.items) connSourceData.items = [];
+    connSourceData.items.push({
+      id: 'connector-' + _cid, title, type: 'connector', color: '#22BF3E',
+      items: [], name: 'onEvent', lineType: 'full', direction: 'out',
+      target: targetData.id
+    });
+    cancelConnection();
+    render();
+    showTip('Added connection');
+  }
+
+  function cancelConnection(){
+    connActive = false;
+    if(connLine && connLine.parentElement) connLine.remove();
+    connLine = null; connSource = null; connSourceData = null;
+    document.removeEventListener('pointermove', onConnMove);
+    document.removeEventListener('click', onConnClick);
+    document.removeEventListener('keydown', onConnKey);
+  }
+
+  // ── Context menu ──────────────────────────────────────────
+  const PREDEFINED_COLORS = [
+    '#d9c6ff','#fff1a8','#cfe8ff','#22BF3E',
+    '#FF6B6B','#FFA94D','#FFD43B','#69DB7C',
+    '#38D9A9','#4DABF7','#748FFC','#9775FA',
+    '#DA77F2','#F783AC','#868E96','#212529'
+  ];
+
+  let ctxData = null;
+  let ctxUpdate = null;
+  let ctxGroup = null;
+
+  function hideCtx(){
+    document.getElementById('ctx-menu').style.display = 'none';
+    ctxData = null;
+    ctxUpdate = null;
+    ctxGroup = null;
+  }
+
+  document.addEventListener('click', e => {
+    if(!e.target.closest('#ctx-menu')) hideCtx();
+  });
+  document.addEventListener('contextmenu', e => {
+    if(!e.target.closest('#ctx-menu')) hideCtx();
+  });
+
+  function applyColor(color){
+    if(!ctxData) return;
+    ctxData.color = color;
+    if(ctxUpdate) ctxUpdate(color);
+    // Update active swatch + hex
+    document.querySelectorAll('.ctx-swatch').forEach(s => {
+      s.classList.toggle('active', s.dataset.color === color);
+    });
+    document.getElementById('ctx-hex').value = color;
+  }
+
+  // Click on swatch
+  document.getElementById('ctx-swatches').addEventListener('click', e => {
+    const swatch = e.target.closest('.ctx-swatch');
+    if(swatch) applyColor(swatch.dataset.color);
+  });
+
+  // Hex input
+  document.getElementById('ctx-hex').addEventListener('input', function(){
+    const v = this.value.trim();
+    if(/^#[0-9a-fA-F]{6}$/.test(v)) applyColor(v);
+  });
+
+  document.getElementById('ctx-hex').addEventListener('blur', function(){
+    const v = this.value.trim();
+    if(!/^#[0-9a-fA-F]{6}$/.test(v)) this.value = ctxData ? ctxData.color : '';
+  });
+
+  function showCtx(e, dataObj, updateFn, defaultColor){
+    e.preventDefault();
+    e.stopPropagation();
+    hideCtx();
+    ctxData = dataObj;
+    ctxUpdate = updateFn;
+    const menu = document.getElementById('ctx-menu');
+    const current = dataObj.color || defaultColor;
+    const swatches = document.getElementById('ctx-swatches');
+    swatches.innerHTML = PREDEFINED_COLORS.map(c =>
+            `<div class="ctx-swatch${c === current ? ' active' : ''}" data-color="${c}" style="background:${c}"></div>`
+    ).join('');
+    document.getElementById('ctx-hex').value = current;
+    // Show/hide edit rows based on item type
+    document.getElementById('ctx-edit-title').style.display = 'block';
+    document.getElementById('ctx-edit-subtitle').style.display = 'block';
+    document.getElementById('ctx-add-action').style.display =
+            dataObj.type === 'module' ? 'block' : 'none';
+    document.getElementById('ctx-add-module').style.display =
+            dataObj.type === 'module' ? 'block' : 'none';
+    document.getElementById('ctx-add-conn').style.display =
+            dataObj.type === 'module' || dataObj.type === 'action' ? 'block' : 'none';
+    document.getElementById('ctx-remove').style.display =
+            dataObj !== data ? 'block' : 'none';
+    const isConn = dataObj.type === 'connector';
+    document.getElementById('ctx-div-lt').style.display = isConn ? 'block' : 'none';
+    document.getElementById('ctx-hdr-lt').style.display = isConn ? 'block' : 'none';
+    document.getElementById('ctx-lt-row').style.display = isConn ? 'flex' : 'none';
+    document.getElementById('ctx-div-dir').style.display = isConn ? 'block' : 'none';
+    document.getElementById('ctx-hdr-dir').style.display = isConn ? 'block' : 'none';
+    document.getElementById('ctx-dir-row').style.display = isConn ? 'flex' : 'none';
+    if(isConn){
+      document.querySelectorAll('.ctx-lt-opt').forEach(el => {
+        el.classList.toggle('active', el.dataset.lt === (dataObj.lineType || 'full'));
+      });
+      document.querySelectorAll('#ctx-dir-row .ctx-lt-opt').forEach(el => {
+        el.classList.toggle('active', el.dataset.dir === (dataObj.direction || 'out'));
+      });
+    }
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+    menu.style.display = 'block';
+  }
+
+  // Edit title click — focus the title element and start editing
+  document.getElementById('ctx-edit-title').addEventListener('click', () => {
+    if(!ctxData) return;
+    const dataObj = ctxData;
+    const group = ctxGroup;
+    hideCtx();
+    // Connectors: inline editing on the SVG text element
+    if(dataObj.type === 'connector' && group){
+      const text = group.querySelector('.connector-label');
+      const label = dataObj.title || dataObj.name || dataObj.id;
+      if(text){
+        editConnectorLabel(text, group, label, dataObj);
+        return;
+      }
+    }
+    // HTML items: focus the contenteditable element
+    let el;
+    if(dataObj === data) el = boardTitle;
+    else el = idMap.get(dataObj.id)?.querySelector('.module-title, .name');
+    if(el) editHTMLLabel(el, v => { dataObj.title = v; });
+  });
+
+  // Edit subtitle click
+  document.getElementById('ctx-edit-subtitle').addEventListener('click', () => {
+    if(!ctxData) return;
+    const dataObj = ctxData;
+    const group = ctxGroup;
+    hideCtx();
+    // Connectors: inline subtitle editing on the SVG text element
+    if(dataObj.type === 'connector' && group){
+      editConnectorSubtitle(group, dataObj);
+      return;
+    }
+    // HTML items
+    let el;
+    if(dataObj === data) el = boardSubtitle;
+    else if(dataObj.type === 'module') el = idMap.get(dataObj.id)?.querySelector('.module-subtitle');
+    else if(dataObj.type === 'action') el = idMap.get(dataObj.id)?.querySelector('.item-subtitle');
+    if(el) editHTMLLabel(el, v => { dataObj.subtitle = v; });
+  });
+
+  // Add action click — add an action sub-item to a module
+  document.getElementById('ctx-add-action').addEventListener('click', () => {
+    if(!ctxData || ctxData.type !== 'module') return;
+    const mod = ctxData;
+    hideCtx();
+    _cid++;
+    if(!mod.items) mod.items = [];
+    mod.items.push({
+      id: 'action-' + _cid,
+      title: 'New Action',
+      type: 'action',
+      color: '#cfe8ff',
+      items: []
+    });
+    render();
+    showTip('Added action');
+  });
+
+  document.getElementById('ctx-add-module').addEventListener('click', () => {
+    if(!ctxData || ctxData.type !== 'module') return;
+    const mod = ctxData;
+    hideCtx();
+    _cid++;
+    if(!mod.items) mod.items = [];
+    mod.items.push({
+      id: 'module-' + _cid,
+      title: 'New Module',
+      subtitle: '',
+      type: 'module',
+      color: '#fff1a8',
+      items: []
+    });
+    render();
+    showTip('Added nested module');
+  });
+
+  document.getElementById('ctx-add-conn').addEventListener('click', () => {
+    if(!ctxData) return;
+    const el = ctxData === data ? boardHeader : idMap.get(ctxData.id);
+    const dataObj = ctxData;
+    hideCtx();
+    if(el && dataObj) startConnection(el, dataObj);
+  });
+
+  document.getElementById('ctx-remove').addEventListener('click', () => {
+    if(!ctxData || ctxData === data) return;
+    const obj = ctxData;
+    hideCtx();
+    // Find and remove from data tree by id
+    function removeById(id, items) {
+      for(let i = 0; i < items.length; i++){
+        if(items[i].id === id){ items.splice(i, 1); return true; }
+        if(items[i].items && removeById(id, items[i].items)) return true;
+      }
+      return false;
+    }
+    removeById(obj.id, data.items || []);
+    const type = obj.type;
+    render();
+    showTip('Removed ' + type);
+  });
+
+  document.getElementById('ctx-lt-row').addEventListener('click', e => {
+    const opt = e.target.closest('.ctx-lt-opt');
+    if(!opt || !ctxData || ctxData.type !== 'connector') return;
+    ctxData.lineType = opt.dataset.lt;
+    document.querySelectorAll('.ctx-lt-opt').forEach(el => {
+      el.classList.toggle('active', el.dataset.lt === ctxData.lineType);
+    });
+    drawArrows();
+  });
+
+  document.getElementById('ctx-dir-row').addEventListener('click', e => {
+    const opt = e.target.closest('.ctx-lt-opt');
+    if(!opt || !ctxData || ctxData.type !== 'connector') return;
+    ctxData.direction = opt.dataset.dir;
+    document.querySelectorAll('#ctx-dir-row .ctx-lt-opt').forEach(el => {
+      el.classList.toggle('active', el.dataset.dir === ctxData.direction);
+    });
+    drawArrows();
+  });
+
+  function editHTMLLabel(el, onDone){
+    el.contentEditable = true;
+    el.focus();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    const done = () => {
+      el.contentEditable = false;
+      el.removeEventListener('blur', done);
+      el.removeEventListener('keydown', onKey);
+      if(onDone) onDone(el.textContent);
+    };
+    const onKey = e => {
+      if(e.key === 'Enter'){ e.preventDefault(); el.blur(); }
+    };
+    el.addEventListener('blur', done);
+    el.addEventListener('keydown', onKey);
+  }
+
+  function addContextMenu(el, dataObj, defaultColor, updateFn){
+    el.addEventListener('contextmenu', e => showCtx(e, dataObj, updateFn, defaultColor));
+  }
+
+  // ── Legacy migration helpers ──────────────────────────────
+  function detectLegacyNestedModules(items, result = [], parentIsLegacy = false){
+    if(!items) return result;
+    items.forEach(item => {
+      const hasNestedModules = item.type === 'module' && item.items && item.items.some(c => c.type === 'module');
+      if(hasNestedModules && !parentIsLegacy){
+        result.push(item);
+      }
+      if(item.items) detectLegacyNestedModules(item.items, result, hasNestedModules);
+    });
+    return result;
+  }
+
+  function assignDefaultPositions(children){
+    if(!children) return;
+    children.forEach((child, i) => {
+      if(child.type === 'module'){
+        child.x = child.x || 20 + (i % 3) * 120;
+        child.y = child.y || 20 + Math.floor(i / 3) * 80;
+      }
+    });
+  }
+
+  function convertToGroup(legacyModule){
+    const group = {
+      id: legacyModule.id,
+      title: legacyModule.title,
+      subtitle: legacyModule.subtitle || '',
+      type: 'moduleItemGroup',
+      color: legacyModule.color || '#e8e8e8',
+      width: 400,
+      height: 300,
+      x: legacyModule.x || 70,
+      y: legacyModule.y || 110,
+      items: (legacyModule.items || []).map(child => {
+        return { ...child };
+      })
+    };
+    assignDefaultPositions(group.items);
+    return group;
+  }
+
+  function replaceInTree(items, targetId, replacement){
+    if(!items) return false;
+    for(let i = 0; i < items.length; i++){
+      if(items[i].id === targetId){
+        items[i] = replacement;
+        return true;
+      }
+      if(items[i].items && replaceInTree(items[i].items, targetId, replacement)){
+        return true;
+      }
+    }
+    return false;
+  }
+
+  loadBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    if(!file) return;
+    try{
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      // Migration: detect and offer to convert legacy nested modules
+      const legacy = detectLegacyNestedModules(parsed.items || []);
+      if(legacy.length > 0){
+        const migrate = confirm(`Found ${legacy.length} module(s) with nested children. Convert to moduleItemGroup?`);
+        if(migrate){
+          // Deep clone for safe conversion
+          const converted = JSON.parse(JSON.stringify(parsed));
+          const convertedLegacy = detectLegacyNestedModules(converted.items || []);
+          convertedLegacy.forEach(mod => {
+            const group = convertToGroup(mod);
+            // Replace in tree: find parent and swap
+            replaceInTree(converted.items, mod.id, group);
+          });
+          // Use converted data
+          setData(converted);
+          showTip(`Migrated ${legacy.length} module(s) to groups. Save to persist.`);
+          fileInput.value = '';
+          return;
+        }
+      }
+      function validateGroups(items){
+        for(const item of items){
+          if(item.type === 'moduleItemGroup'){
+            if(!item.id || typeof item.id !== 'string'){
+              return false;
+            }
+          }
+          if(item.items && !validateGroups(item.items)) return false;
+        }
+        return true;
+      }
+      if(!validateGroups(parsed.items || [])){
+        showTip('Invalid moduleItemGroup: missing id');
+        return;
+      }
+      setData(parsed);
+      showTip(`Loaded ${file.name}`);
+    }catch(err){
+      showTip('Invalid JSON file');
+    }finally{
+      fileInput.value = '';
+    }
+  });
+
+  viewport.addEventListener('contextmenu', e => {
+    if(!e.target.closest('#menu-bar')) e.preventDefault();
+  });
+
+  viewport.addEventListener('pointerdown', e => {
+    if(!data) return;
+    if(e.button !== 0) return;
+    pointers.set(e.pointerId, e);
+    // Deselect group when clicking on board background
+    if(!e.target.closest('.moduleItemGroup') && selectedGroup){
+      selectedGroup.classList.remove('selected');
+      selectedGroup = null;
+    }
+    if (e.target.closest('.module-header')) return;
+    if (e.target.closest('.module-body')) return;
+    if (pointers.size === 1) {
+      panMode = 'pan';
+      panXStart = panX;
+      panYStart = panY;
+      panPointer = e.pointerId;
+      panStartClientX = e.clientX;
+      panStartClientY = e.clientY;
+      viewport.setPointerCapture(e.pointerId);
+      board.style.cursor = 'grabbing';
+    }
+    if (pointers.size === 2) {
+      const pts = [...pointers.values()];
+      pinchStartDist = distance(pts[0], pts[1]);
+      pinchStartZoom = zoom;
+      pinchStartPanX = panX;
+      pinchStartPanY = panY;
+      pinchStartMid = midpoint(pts[0], pts[1]);
+    }
+  });
+
+  let panPointer = null;
+  let panXStart = 0;
+  let panYStart = 0;
+  let panStartClientX = 0;
+  let panStartClientY = 0;
+
+  viewport.addEventListener('pointermove', e => {
+    if(!data) return;
+    if(resizeTarget){
+      const dx = e.clientX - resizeStartX;
+      const dy = e.clientY - resizeStartY;
+      if(resizeHandle === 'right' || resizeHandle === 'corner'){
+        resizeTarget.style.width = Math.max(150, resizeStartWidth + dx) + 'px';
+      }
+      if(resizeHandle === 'bottom' || resizeHandle === 'corner'){
+        resizeTarget.style.height = Math.max(100, resizeStartHeight + dy) + 'px';
+      }
+      drawArrows();
+      return;
+    }
+
+    if (dragTarget && e.pointerId === dragPointerId) {
+      onDragPointerMove(e);
+      return;
+    }
+
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, e);
+
+    if (pointers.size === 1 && panMode === 'pan' && e.pointerId === panPointer) {
+      panX = panXStart + (e.clientX - panStartClientX);
+      panY = panYStart + (e.clientY - panStartClientY);
+      applyTransform();
+    }
+
+    if (pointers.size >= 2) {
+      const pts = [...pointers.values()];
+      const d = distance(pts[0], pts[1]);
+      const mid = midpoint(pts[0], pts[1]);
+      const oldZoom = zoom;
+      zoom = Math.max(0.3, Math.min(2.5, pinchStartZoom * (d / pinchStartDist)));
+
+      panX = pinchStartPanX + (mid.x - pinchStartMid.x);
+      panY = pinchStartPanY + (mid.y - pinchStartMid.y);
+
+      const rect = viewport.getBoundingClientRect();
+      const mx = mid.x - rect.left;
+      const my = mid.y - rect.top;
+      panX = mx - ((mx - panX) / oldZoom) * zoom;
+      panY = my - ((my - panY) / oldZoom) * zoom;
+
+      applyTransform();
+    }
+  });
+
+  viewport.addEventListener('pointerup', e => {
+    pointers.delete(e.pointerId);
+    if(resizeTarget){
+      const group = dataMap.get(resizeTarget.dataset.id);
+      if(group){ group.width = parseInt(resizeTarget.style.width) || 400; group.height = parseInt(resizeTarget.style.height) || 300; }
+      reclampChildren(resizeTarget);
+      resizeTarget = null; resizeHandle = null;
+      drawArrows();
+      return;
+    }
+    if (dragTarget && e.pointerId === dragPointerId) stopDragPointer(e);
+    if (pointers.size === 0) {
+      panMode = null;
+      panPointer = null;
+      board.style.cursor = '';
+    }
+  });
+
+  viewport.addEventListener('pointercancel', e => {
+    pointers.delete(e.pointerId);
+    if (dragTarget && e.pointerId === dragPointerId) {
+      dragTarget.classList.remove('dragging');
+      dragTarget = null;
+      dragPointerId = null;
+    }
+    if (resizeTarget) {
+      resizeTarget = null;
+      resizeHandle = null;
+    }
+    if (pointers.size === 0) {
+      panMode = null;
+      panPointer = null;
+      board.style.cursor = '';
+    }
+  });
+
+  viewport.addEventListener('wheel', e => {
+    if(!data) return;
+    e.preventDefault();
+    const oldZoom = zoom;
+    const delta = e.deltaY < 0 ? 1.02 : 1 / 1.02;
+    zoom = Math.max(0.3, Math.min(2.5, zoom * delta));
+    const rect = viewport.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    panX = mouseX - ((mouseX - panX) / oldZoom) * zoom;
+    panY = mouseY - ((mouseY - panY) / oldZoom) * zoom;
+    applyTransform();
+  }, { passive:false });
+
+  window.addEventListener('resize', drawArrows);
+  render();
+  makeDraggable(boardHeader, boardHeader);
+  showTip('Load a JSON file to begin.');
+</script>
+</body>
+</html>

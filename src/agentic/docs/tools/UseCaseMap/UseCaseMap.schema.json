@@ -1,0 +1,238 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "telamon/architecture/create-use-case-map/schema.json",
+  "title": "UseCaseMap",
+  "description": "Schema for use-case map architecture diagram data. Drives the HTML template rendering in create-use-case-map skill.",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Page-level heading, rendered as <h1>"
+    },
+    "subtitle": {
+      "type": "string",
+      "description": "Page-level subtitle, rendered as <p class=\"subtitle\">"
+    },
+    "items": {
+      "type": "array",
+      "description": "Top-level sections (e.g. \"On-Demand CLI Commands\", \"Scheduled Batch Commands\")",
+      "items": {
+        "$ref": "#/definitions/Section"
+      }
+    }
+  },
+  "required": ["title", "subtitle", "items"],
+  "additionalProperties": false,
+
+  "definitions": {
+    "Section": {
+      "type": "object",
+      "description": "A major grouping of flows. Rendered as <h2> with collapsible section wrapper.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Section heading text"
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Optional section-level subtitle"
+        },
+        "items": {
+          "type": "array",
+          "description": "Sub-sections within this section",
+          "items": {
+            "$ref": "#/definitions/SubSection"
+          }
+        }
+      },
+      "required": ["title", "items"],
+      "additionalProperties": false
+    },
+
+    "SubSection": {
+      "type": "object",
+      "description": "A sub-section grouping of related flows. Rendered as <h3>.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Sub-section heading text"
+        },
+        "subtitle": {
+          "type": "string",
+          "description": "Optional sub-section-level subtitle"
+        },
+        "items": {
+          "type": "array",
+          "description": "Columns representing architectural layers (CLI, UseCase, Port, Adapter, HTTP, etc.)",
+          "items": {
+            "$ref": "#/definitions/Column"
+          }
+        }
+      },
+      "required": ["title", "items"],
+      "additionalProperties": false
+    },
+
+    "Column": {
+      "type": "object",
+      "description": "A single architectural layer column (e.g. CLI Command, UseCase Command, Port, Adapter, HTTP Client). Rendered as <div class=\"column\"> with a <div class=\"column-header\">.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Column header label (e.g. \"CLI Command\", \"Port\", \"Adapter\"). Also used as CSS class for colouring."
+        },
+        "color": {
+          "type": "string",
+          "description": "CSS colour class for the column header and its nodes. Must match a known layer class: cli, ctrl, uc, handler, port, adapter, http, event, listnr, cb, indirect.",
+          "pattern": "^(cli|ctrl|uc|handler|port|adapter|http|event|listnr|cb|indirect)$"
+        },
+    "items": {
+      "type": "array",
+      "description": "Units within this column — either a regular unit, a UseCase, Query, Event, or Listener.",
+      "items": {
+        "oneOf": [
+          { "$ref": "#/definitions/Unit" },
+          { "$ref": "#/definitions/UseCase" },
+          { "$ref": "#/definitions/Query" },
+          { "$ref": "#/definitions/Event" },
+          { "$ref": "#/definitions/Listener" }
+        ]
+      }
+    }
+      },
+      "required": ["title", "color", "items"],
+      "additionalProperties": false
+    },
+
+    "Unit": {
+      "type": "object",
+      "description": "A single node in the diagram. Rendered as <div class=\"node\">. Can be nested to represent sub-command delegation chains.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Node title text (e.g. class name). Rendered as <span class=\"node-title-main\">."
+        },
+        "info": {
+          "type": "string",
+          "description": "Secondary info line (e.g. fully-qualified namespace or context). Rendered as <span class=\"ns\">."
+        },
+        "color": {
+          "type": "string",
+          "description": "CSS colour class for this node. Overrides the column colour if set. Must match a known layer class: cli, ctrl, uc, handler, port, adapter, http, event, listnr, cb, indirect. Also supports the \"weak\" modifier (e.g. \"uc weak\", \"port weak\") for handlers that do not call the Erp port.",
+          "pattern": "^[a-z]+( (weak|indirect-weak))?$"
+        },
+        "indentation": {
+          "type": "integer",
+          "description": "Nesting depth. 0 = top-level node within column. Each increment adds visual indentation via margin-left and dashed left border.",
+          "minimum": 0
+        },
+        "items": {
+          "type": "array",
+          "description": "Nested sub-units. Represents sub-command delegation: a handler dispatching child commands.",
+          "items": {
+            "$ref": "#/definitions/Unit"
+          }
+        },
+        "type": {
+          "type": "string",
+          "description": "Type identifier for this node. One of: unit, command, query, event, listener. Used by renderers to determine layout and arrow styling.",
+          "enum": ["unit", "use-case", "command", "command-handler", "query", "event", "event-listener"]
+        }
+      },
+      "required": ["title"],
+      "additionalProperties": false
+    },
+
+    "UseCase": {
+      "description": "A UseCase unit, which is a Unit composed of a Command (type Unit, typically colour \"uc\") and a Handler (type Unit, typically colour \"handler\"). Rendered as <div class=\"node-group sync|async\"> wrapping two <div class=\"node\"> elements.",
+      "allOf": [
+        { "$ref": "#/definitions/Unit" },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "$ref": "#/definitions/Unit",
+              "description": "The UseCase Command unit (typically colour \"uc\"). Rendered as <div class=\"node uc\">."
+            },
+            "handler": {
+              "$ref": "#/definitions/Unit",
+              "description": "The CommandHandler unit (typically colour \"handler\"). Rendered as <div class=\"node handler\">."
+            },
+            "dispatchMode": {
+              "type": "string",
+              "enum": ["sync", "async"],
+              "description": "Dispatch mode for this UseCase. sync → solid arrow (dispatchSync), async → dashed arrow (dispatchAsync). Applied as CSS class on the node-group wrapper."
+            }
+          },
+          "required": ["command", "handler"]
+        }
+      ]
+    },
+
+    "Query": {
+      "description": "A Query unit, which is a Unit composed of a single Query class (type Unit, typically colour \"query\"). Rendered as <div class=\"node-group sync\"> wrapping a single <div class=\"node query\"> element. Always dispatched synchronously. No handler is rendered — query handlers are an implementation detail.",
+      "allOf": [
+        { "$ref": "#/definitions/Unit" },
+        {
+          "type": "object",
+          "properties": {
+            "query": {
+              "$ref": "#/definitions/Unit",
+              "description": "The Query class unit (typically colour \"query\"). Rendered as <div class=\"node query\">."
+            },
+            "dispatchMode": {
+              "type": "string",
+              "enum": ["sync"],
+              "description": "Dispatch mode for queries — always sync."
+            }
+          },
+          "required": ["query"]
+        }
+      ]
+    },
+
+    "Event": {
+      "description": "An Event unit, which is a Unit composed of a Domain Event class (type Unit, typically colour \"event\"). Rendered as <div class=\"node-group async\"> wrapping a single <div class=\"node event\"> element. Always dispatched asynchronously. Listeners are separate nodes in the Listener column.",
+      "allOf": [
+        { "$ref": "#/definitions/Unit" },
+        {
+          "type": "object",
+          "properties": {
+            "event": {
+              "$ref": "#/definitions/Unit",
+              "description": "The Domain Event class unit (typically colour \"event\"). Rendered as <div class=\"node event\">."
+            },
+            "dispatchMode": {
+              "type": "string",
+              "enum": ["async"],
+              "description": "Dispatch mode for events — always async."
+            }
+          },
+          "required": ["event"]
+        }
+      ]
+    },
+
+    "Listener": {
+      "description": "A Listener unit, which is a Unit composed of an EventListener class (type Unit, typically colour \"listnr\"). Rendered as <div class=\"node-group\"> wrapping a single <div class=\"node listnr\"> element.",
+      "allOf": [
+        { "$ref": "#/definitions/Unit" },
+        {
+          "type": "object",
+          "properties": {
+            "listener": {
+              "$ref": "#/definitions/Unit",
+              "description": "The EventListener class unit (typically colour \"listnr\"). Rendered as <div class=\"node listnr\">."
+            },
+            "dispatchMode": {
+              "type": "string",
+              "enum": ["async"],
+              "description": "Dispatch mode for listeners — always async."
+            }
+          },
+          "required": ["listener"]
+        }
+      ]
+    }
+  }
+}
