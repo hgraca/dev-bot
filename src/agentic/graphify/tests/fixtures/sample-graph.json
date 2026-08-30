@@ -1,0 +1,21 @@
+{
+  "nodes": [
+    {"id": "user_controller", "label": "UserController", "file_type": "code", "source_file": "src/Controller/UserController.php"},
+    {"id": "user_service", "label": "UserService", "file_type": "code", "source_file": "src/Service/UserService.php"},
+    {"id": "user_repository", "label": "UserRepository", "file_type": "code", "source_file": "src/Repository/UserRepository.php"},
+    {"id": "auth_module", "label": "AuthModule", "file_type": "code", "source_file": "src/Security/AuthModule.php"},
+    {"id": "database", "label": "Database", "file_type": "code", "source_file": "src/Infrastructure/Database.php"}
+  ],
+  "links": [
+    {"source": "user_controller", "target": "user_service", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0},
+    {"source": "user_service", "target": "user_repository", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0},
+    {"source": "user_service", "target": "auth_module", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0},
+    {"source": "user_repository", "target": "database", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0},
+    {"source": "auth_module", "target": "database", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0}
+  ],
+  "communities": {
+    "0": ["user_controller", "user_service", "user_repository"],
+    "1": ["auth_module"],
+    "2": ["database"]
+  }
+}

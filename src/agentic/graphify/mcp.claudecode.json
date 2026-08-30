@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "graphify": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "mkdir -p .agents/logs && exec bash .claude/graphify-serve.sh graphify-out/graph.json 2>>.agents/logs/graphify-mcp.log"
+      ],
+      "enabled": true
+    }
+  }
+}

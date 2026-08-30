@@ -1,0 +1,31 @@
+{
+  "hooks": [
+    {
+      "id": "graphify-commit-detect",
+      "event": "command.after",
+      "match": { "command": "git\\s+commit" },
+      "run": [
+        "bash",
+        "{module}/tools/graphify-commit-trigger.sh",
+        "detect",
+        "{worktree}",
+        "{hash}"
+      ]
+    },
+    {
+      "id": "graphify-commit-check",
+      "event": "session.idle",
+      "run": [
+        "bash",
+        "{module}/tools/graphify-commit-trigger.sh",
+        "check",
+        "{worktree}"
+      ]
+    },
+    {
+      "id": "graphify-session-update",
+      "event": "session.created",
+      "run": ["bash", "{module}/tools/graphify-update-bg.sh", "{worktree}"]
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "graphify": {
+    "type": "local",
+    "command": [
+      "bash",
+      "-c",
+      "mkdir -p .agents/logs && exec bash .opencode/graphify-serve.sh graphify-out/graph.json 2>>.agents/logs/graphify-mcp.log"
+    ],
+    "enabled": true
+  }
+}
