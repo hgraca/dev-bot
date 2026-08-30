@@ -1,0 +1,28 @@
+{
+  "project_name": "__PROJECT_NAME__",
+  "harness": "opencode",
+  "devbot_dir": ".agents",
+  "commit_memory": false,
+  "modules": {
+    "react": false,
+    "signoz": false,
+    "svelte": false
+  },
+  "auto_recover": {
+    "max_attempts": 5
+  },
+  "guards": [
+    {
+      "regex": "rm -rf",
+      "message": "rm -rf is blocked"
+    },
+    {
+      "regex": "sudo .*",
+      "message": "sudo requires approval"
+    },
+    {
+      "regex": "git push --force",
+      "message": "force push is prohibited"
+    }
+  ]
+}
