@@ -1,0 +1,45 @@
+title: DevBot
+description: >-
+  Meta-harness for agentic software development.
+  Pair programming partner with persistent memory, deep codebase understanding, and instant context across sessions.
+# Site `url` is not hardcoded: the GitHub Pages workflow injects it from the
+# `configure-pages` origin output (see .github/workflows/jekyll-gh-pages.yml),
+# so it stays correct if the repository moves. Local `make docs` builds simply
+# have no absolute canonical.
+baseurl: "/dev-bot"
+
+# Repo location pieces for the install snippets and GitHub links. Pages derive
+# these at runtime from the GitHub Pages URL (https://<org>.github.io/<repo>/);
+# these values are the server-rendered fallback, e.g. local `make docs`.
+install_host: github.com
+install_org: GET-E
+install_repo: dev-bot
+install_branch: main
+
+markdown: kramdown
+highlighter: rouge
+
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-seo-tag
+
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "page"
+
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - claudecode
+  - opencode
+
+collections_dir: .
+
+permalink: pretty
