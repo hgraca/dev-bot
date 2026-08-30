@@ -1,0 +1,14 @@
+{
+  "hooks": [
+    {
+      "id": "lint-k8s",
+      "event": "file.edited",
+      "match": {
+        "file": "\\.(ya?ml)$",
+        "content": "apiVersion:[\\s\\S]*kind:"
+      },
+      "run": ["bash", "{module}/tools/lint-k8s/lint-k8s.mcp.sh", "{file}"],
+      "log": ".agents/logs/lint-k8s.log"
+    }
+  ]
+}
