@@ -1,0 +1,11 @@
+{
+  "hooks": [
+    {
+      "id": "format-yml",
+      "event": "file.edited",
+      "match": { "file": "\\.(ya?ml)$" },
+      "run": ["python3", "{module}/tools/format-yml.py", "{file}"],
+      "log": ".agents/logs/format-yml.log"
+    }
+  ]
+}
