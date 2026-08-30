@@ -1,0 +1,114 @@
+#!/usr/bin/env bats
+# =============================================================================
+# src/harnesses/claudecode/tests/reset_tests.bats
+# Tests for claudecode/reset.sh:
+#   - harness disabled -> .claude/, CLAUDE.md, .mcp.json left UNTOUCHED
+#     (the user may use Claude Code independently of dev-bot)
+#   - harness enabled  -> dev-bot symlinks removed, user files kept
+#
+# Runs the REAL reset.sh against a sandbox project dir whose
+# .devbot.project.jsonc explicitly sets the claudecode module state.
+# =============================================================================
+
+setup() {
+  bats_load_library bats-support
+  bats_load_library bats-assert
+
+  TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
+  PROJECT_ROOT="$(cd "${TEST_DIR}/../../../.." && pwd)"
+  RESET_SCRIPT="${PROJECT_ROOT}/src/harnesses/claudecode/reset.sh"
+
+  SANDBOX_DIR="$(mktemp -d)"
+
+  command -v python3 &>/dev/null || skip "python3 not installed"
+  command -v jq &>/dev/null || skip "jq not installed"
+  command -v bash &>/dev/null || skip "bash not installed"
+}
+
+teardown() {
+  rm -rf "${SANDBOX_DIR}" 2>/dev/null || true
+}
+
+# _write_project_config <enabled|disabled>: write .devbot.project.jsonc with
+# the claudecode module explicitly set, overriding the global default.
+_write_project_config() {
+  local state="$1"
+  local value=false
+  [[ "${state}" == "enabled" ]] && value=true
+
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
+{
+  "modules": {
+    "claudecode": ${value}
+  }
+}
+JSONC_EOF
+}
+
+# _create_claude_dir: realistic user .claude/ with a user agent file and a
+# dev-bot symlink (pointing into the real repo).
+_create_claude_dir() {
+  mkdir -p "${SANDBOX_DIR}/.claude/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.claude/agents/user-agent.md"
+  ln -s "${PROJECT_ROOT}/src/agentic/devbot/agents" "${SANDBOX_DIR}/.claude/agents/devbot"
+  echo '{"mcpServers": {"devbot-tools": {"type": "stdio", "command": "x"}}}' > "${SANDBOX_DIR}/.mcp.json"
+  echo "# Project instructions" > "${SANDBOX_DIR}/CLAUDE.md"
+}
+
+# ── Disabled harness: leave everything untouched ───────────────────────────
+
+@test "disabled: leaves .claude/, CLAUDE.md and .mcp.json intact" {
+  _write_project_config disabled
+  _create_claude_dir
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  assert [ -d "${SANDBOX_DIR}/.claude" ]
+  assert [ -f "${SANDBOX_DIR}/.claude/agents/user-agent.md" ]
+  assert [ -L "${SANDBOX_DIR}/.claude/agents/devbot" ]
+  assert [ -f "${SANDBOX_DIR}/.mcp.json" ]
+  assert [ -f "${SANDBOX_DIR}/CLAUDE.md" ]
+}
+
+@test "disabled: does not remove dev-bot symlinks either" {
+  _write_project_config disabled
+  _create_claude_dir
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  assert [ -L "${SANDBOX_DIR}/.claude/agents/devbot" ]
+}
+
+@test "disabled: skips gracefully when nothing exists" {
+  _write_project_config disabled
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+}
+
+# ── Enabled harness: surgical cleanup only ─────────────────────────────────
+
+@test "enabled: removes dev-bot symlinks but keeps user files and CLAUDE.md" {
+  _write_project_config enabled
+  _create_claude_dir
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  # dev-bot symlink removed
+  refute [ -L "${SANDBOX_DIR}/.claude/agents/devbot" ]
+  # user artifacts preserved
+  assert [ -f "${SANDBOX_DIR}/.claude/agents/user-agent.md" ]
+  assert [ -f "${SANDBOX_DIR}/.mcp.json" ]
+  assert [ -f "${SANDBOX_DIR}/CLAUDE.md" ]
+  assert [ -d "${SANDBOX_DIR}/.claude" ]
+}
+
+@test "enabled: skips when no .claude/ directory" {
+  _write_project_config enabled
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+}
