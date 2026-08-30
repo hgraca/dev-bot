@@ -1,0 +1,8 @@
+{
+  "websearch": {
+    "type": "remote",
+    "url": "https://mcp.exa.ai/mcp?tools=web_search_exa",
+    "enabled": true,
+    "oauth": false
+  }
+}
