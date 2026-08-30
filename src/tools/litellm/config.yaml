@@ -1,0 +1,317 @@
+general_settings:
+  master_key: sk-litellm-master-key # CHANGE THIS in production
+  database_url: null # SQLite by default
+
+litellm_settings:
+  drop_params: true
+  set_verbose: false
+  request_timeout: 600
+  default_fallbacks: []
+
+router_settings:
+  num_retries: 3 # Global default for real models
+  fallbacks:
+    - orchestrator:
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+    - architect:
+        - opencode.free.deepseek-v4-flash-free.high # 13B/284B MoE
+    - po:
+        - opencode.free.deepseek-v4-flash-free.high # 13B/284B MoE
+    - critic:
+        - opencode.free.deepseek-v4-flash-free.high # 13B/284B MoE
+    - developer:
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+    - tester:
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+    - reviewer:
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+    - security:
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+    - scout:
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+    - highest:
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+    - high:
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+    - default:
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+    - low:
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+    - lowest: # ~ local, for code completions
+        - opencode.free.deepseek-v4-flash-free.low # 13B/284B MoE
+        # - local.free.qwen2.5-coder:7b
+        # - cortecs.qwen-2.5-72b-instruct # $0.062
+
+model_list:
+  # ── Placeholder models ─────────────────────────────────────────────────────────────
+
+  - model_name: orchestrator
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  - model_name: architect
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  - model_name: po
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+      reasoning_effort: "high"
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  - model_name: critic
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  - model_name: developer
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  - model_name: tester
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  - model_name: reviewer
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  - model_name: security
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  - model_name: scout
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  # ── Tier 1: Highest
+  - model_name: highest
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  # ── Tier 2: High
+  - model_name: high
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  # ── Tier 3: Default
+  - model_name: default
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+      reasoning_effort: "high"
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  # ── Tier 4: Low
+  - model_name: low
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  # ── Tier 5: Lowest (local, code completion)
+  - model_name: lowest
+    litellm_params:
+      model: openai/noop
+      num_retries: 0 # 👈 per-model, overrides global
+    model_info:
+      allowed_fails: 1
+      cooldown_time: 86400 # 24h
+
+  # ── Real models ─────────────────────────────────────────────────────────────
+
+  - model_name: local.free.qwen2.5-coder:7b # code completions
+    litellm_params:
+      model: ollama/qwen2.5-coder:7b
+      api_base: http://localhost:18434
+
+  - model_name: cortecs.kimi-k2.6
+    litellm_params:
+      model: openai/kimi-k2.6
+      api_base: https://api.cortecs.ai/v1
+      api_key: os.environ/CORTECS_API_KEY
+
+  - model_name: cortecs.deepseek-v4-pro
+    litellm_params:
+      model: openai/deepseek-v4-pro
+      api_base: https://api.cortecs.ai/v1
+      api_key: os.environ/CORTECS_API_KEY
+      reasoning_effort: "high"
+
+  - model_name: cortecs.deepseek-v4-flash.high
+    litellm_params:
+      model: openai/deepseek-v4-flash
+      api_base: https://api.cortecs.ai/v1
+      api_key: os.environ/CORTECS_API_KEY
+      reasoning_effort: "high"
+
+  - model_name: cortecs.deepseek-v4-flash
+    litellm_params:
+      model: openai/deepseek-v4-flash
+      api_base: https://api.cortecs.ai/v1
+      api_key: os.environ/CORTECS_API_KEY
+
+  - model_name: cortecs.qwen-2.5-72b-instruct
+    litellm_params:
+      model: openai/qwen-2.5-72b-instruct
+      api_base: https://api.cortecs.ai/v1
+      api_key: os.environ/CORTECS_API_KEY
+
+  - model_name: opencode.free.deepseek-v4-flash-free.high
+    litellm_params:
+      model: openai/deepseek-v4-flash-free
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/ZEN_API_KEY
+      reasoning_effort: "high"
+
+  - model_name: opencode.free.deepseek-v4-flash-free.low
+    litellm_params:
+      model: openai/deepseek-v4-flash-free
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/ZEN_API_KEY
+
+  - model_name: opencode.free.nemotron-3-super-free
+    litellm_params:
+      model: openai/nemotron-3-super-free
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/ZEN_API_KEY
+
+  - model_name: opencode.free.big-pickle
+    litellm_params:
+      model: openai/big-pickle
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/ZEN_API_KEY
+
+  - model_name: opencode.free.gpt-5-nano
+    litellm_params:
+      model: openai/gpt-5-nano
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/ZEN_API_KEY
+
+  - model_name: gemini.free.gemini-2.5-flash-lite
+    litellm_params:
+      model: gemini/gemini-2.5-flash-lite
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: gemini.free.gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+
+  - model_name: groq.free.llama-3.3-70b-versatile
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: groq.free.llama-4-maverick-17b-128e-instruct
+    litellm_params:
+      model: groq/llama-4-maverick-17b-128e-instruct
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: groq.free.llama-3.1-8b-instant
+    litellm_params:
+      model: groq/llama-3.1-8b-instant
+      api_key: os.environ/GROQ_API_KEY
+
+  - model_name: openrouter.free.llama-3.3-70b-instruct
+    litellm_params:
+      model: openrouter/meta-llama/llama-3.3-70b-instruct:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: openrouter.free.qwen3-coder-480b-a35b-instruct:free
+    litellm_params:
+      model: openrouter/qwen/qwen3-coder-480b-a35b-instruct:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: openrouter.free.llama-3.1-8b-instruct:free
+    litellm_params:
+      model: openrouter/meta-llama/llama-3.1-8b-instruct:free
+      api_key: os.environ/OPENROUTER_API_KEY
+
+  - model_name: puter.free.gemini-2.5-flash-lite
+    litellm_params:
+      model: openai/gemini-2.5-flash-lite
+      api_base: https://api.puter.com/puterai/openai/v1/
+      api_key: os.environ/PUTER_API_KEY
+
+  - model_name: puter.free.llama-3.1-8b-instruct
+    litellm_params:
+      model: openai/llama-3.1-8b-instruct
+      api_base: https://api.puter.com/puterai/openai/v1/
+      api_key: os.environ/PUTER_API_KEY
+
+  - model_name: puter.free.gemini-2.5-flash
+    litellm_params:
+      model: openai/gemini-2.5-flash
+      api_base: https://api.puter.com/puterai/openai/v1/
+      api_key: os.environ/PUTER_API_KEY
+
+  - model_name: puter.free.llama-4-maverick-17b-128e-instruct
+    litellm_params:
+      model: openai/llama-4-maverick-17b-128e-instruct
+      api_base: https://api.puter.com/puterai/openai/v1/
+      api_key: os.environ/PUTER_API_KEY
+
+  - model_name: puter.free.llama-3.3-70b-instruct
+    litellm_params:
+      model: openai/llama-3.3-70b-instruct
+      api_base: https://api.puter.com/puterai/openai/v1/
+      api_key: os.environ/PUTER_API_KEY
+
+  - model_name: puter.free.qwen-2.5-72b-instruct
+    litellm_params:
+      model: openai/qwen-2.5-72b-instruct
+      api_base: https://api.puter.com/puterai/openai/v1/
+      api_key: os.environ/PUTER_API_KEY
+
+  - model_name: puter.free.qwen3-coder-480b-a35b-instruct
+    litellm_params:
+      model: openai/qwen3-coder-480b-a35b-instruct
+      api_base: https://api.puter.com/puterai/openai/v1/
+      api_key: os.environ/PUTER_API_KEY
