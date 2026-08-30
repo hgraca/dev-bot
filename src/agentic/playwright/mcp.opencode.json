@@ -1,0 +1,11 @@
+{
+  "playwright": {
+    "type": "local",
+    "command": [
+      "bash",
+      "-c",
+      "mkdir -p .agents/logs && if docker info >/dev/null 2>&1; then exec node .opencode/playwright-mcp-wrapper.js docker run --rm -i mcp/playwright 2>>.agents/logs/playwright-mcp.log; else exec node .opencode/playwright-mcp-wrapper.js npx -y @playwright/mcp@0.0.79 --browser chromium 2>>.agents/logs/playwright-mcp.log; fi"
+    ],
+    "enabled": true
+  }
+}
