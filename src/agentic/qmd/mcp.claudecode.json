@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "qmd": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"
+      ],
+      "enabled": true
+    }
+  }
+}

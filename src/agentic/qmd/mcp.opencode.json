@@ -1,0 +1,12 @@
+{
+  "qmd": {
+    "type": "local",
+    "command": [
+      "bash",
+      "-c",
+      "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"
+    ],
+    "enabled": true,
+    "environment": { "QMD_LLAMA_GPU": "__GPU_ENABLED__" }
+  }
+}
