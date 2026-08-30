@@ -1,0 +1,17 @@
+{
+  "signoz": {
+    "type": "local",
+    "command": [
+      "bash",
+      "-c",
+      "mkdir -p .agents/logs && exec .opencode/signoz-mcp-server 2>>.agents/logs/signoz-mcp.log"
+    ],
+    "enabled": true,
+    "environment": {
+      "SIGNOZ_URL": "https://signoz.get-e.com",
+      "SIGNOZ_API_KEY": "{env:SIGNOZ_AUTH_TOKEN}",
+      "SIGNOZ_SSL_VERIFY": "true",
+      "LOG_LEVEL": "info"
+    }
+  }
+}

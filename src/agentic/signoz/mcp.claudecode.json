@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "signoz": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "mkdir -p .agents/logs && exec .opencode/signoz-mcp-server 2>>.agents/logs/signoz-mcp.log"
+      ],
+      "enabled": false
+    }
+  }
+}
