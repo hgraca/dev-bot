@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "next-devtools": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "mkdir -p .agents/logs && exec npx -y next-devtools-mcp@latest 2>>.agents/logs/next-devtools-mcp.log"
+      ],
+      "enabled": false
+    }
+  }
+}

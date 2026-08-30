@@ -1,0 +1,11 @@
+{
+  "next-devtools": {
+    "type": "local",
+    "command": [
+      "bash",
+      "-c",
+      "mkdir -p .agents/logs && exec npx -y next-devtools-mcp@latest 2>>.agents/logs/next-devtools-mcp.log"
+    ],
+    "enabled": true
+  }
+}
