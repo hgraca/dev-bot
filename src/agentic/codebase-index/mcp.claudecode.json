@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "codebase-index": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "mkdir -p .agents/logs && exec node .claude/codebase-index-mcp-wrapper.js npx -y -p opencode-codebase-index -p @modelcontextprotocol/sdk opencode-codebase-index-mcp --project . --host claude 2>>.agents/logs/codebase-index-mcp.log"
+      ],
+      "enabled": true
+    }
+  }
+}
