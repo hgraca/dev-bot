@@ -1,0 +1,21 @@
+name: dev-bot
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: dev-bot-ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18434:11434"
+    env_file:
+      - ../../../.env
+    volumes:
+      - ../../../storage/ollama:/root/.ollama
+      # qmd's downloaded llama models, read-only — lets the qmd→ollama share
+      # import them under the qmd/ namespace without re-downloading.
+      - ${QMD_MODELS_DIR:-${HOME}/.cache/qmd/models}:/root/.qmd-cache:ro
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
