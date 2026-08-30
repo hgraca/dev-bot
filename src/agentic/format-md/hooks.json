@@ -1,0 +1,11 @@
+{
+  "hooks": [
+    {
+      "id": "format-md",
+      "event": "file.edited",
+      "match": { "file": "\\.md$" },
+      "run": ["python3", "{module}/tools/format-md.py", "{file}"],
+      "log": ".agents/logs/format-md.log"
+    }
+  ]
+}
