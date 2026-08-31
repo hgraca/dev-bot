@@ -1,0 +1,8 @@
+---
+date: 2026-05-06
+keywords: ["git", "commit", "blob"]
+---
+
+## `error: invalid object … Error building trees` — recoverable when working-tree hash matches missing blob
+
+`git commit` fails with `error: invalid object 100644 <sha> for '<path>'` and `Error building trees` when a blob referenced by HEAD's tree (and the index) is missing from `.git/objects` — typically caused by an interrupted `git gc`, partial disk write, or filesystem hiccup. `git fsck --full` confirms with `missing blob <sha>`. **Lossless recovery if the working-tree file's hash matches the missing blob**: run `git hash-object <path>` to compute the working-tree SHA, compare against the missing SHA from fsck — if equal, run `git hash-object -w <path>` to re-create the blob in `.git/objects` from the on-disk content. Repeat per missing blob, then `git fsck --full` returns clean and commits work again. Caveat: if `git ls-files -s <path>` shows a different hash than `git hash-object <path>`, the working tree has been modified and the blob content is genuinely lost — recover from origin instead. Origin can't help when the affected commits are local-only (ahead of origin). Lesson: push frequently — local-only commits with missing blobs are unrecoverable from remote. **Recovery via cherry-pick**: when only ONE commit in a chain references the missing blob, hard-reset to before the chain and `git cherry-pick A B C D` — cherry-pick stops at the bad commit but lands the earlier ones, so partial recovery is automatic. The remaining bad commit can be reconstructed from the working-tree state (still staged after `git stash pop`). Cross-ref [[memories]] for git workflow practices.

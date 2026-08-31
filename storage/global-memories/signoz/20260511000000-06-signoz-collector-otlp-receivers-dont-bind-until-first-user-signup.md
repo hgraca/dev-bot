@@ -1,0 +1,9 @@
+---
+date: 2026-05-11
+keywords: ["signoz", "helm", "chart"]
+---
+
+## SigNoz collector OTLP receivers don't bind until first-user signup (orgId)
+
+On a cold `helm install`, the SigNoz OTel collector container declares ports 4317/4318 but the receivers do NOT listen (`/proc/net/tcp` only shows pprof/metrics/zpages bound to 127.0.0.1; container ports 4317/4318 absent on 0.0.0.0). Symptoms: `curl http://signoz-otel-collector:4318/v1/traces` from inside the cluster → `Connection refused`; from host via port-forward → `curl: (52) Empty reply from server`. Root cause: collector connects to signoz-0 via OpAMP for its dynamic config; query-service rejects the agent with `cannot create agent without orgId` (logs in `signoz-0`, file `pkg/query-service/app/opamp/opamp_server.go:120`). Until the first SigNoz UI user completes signup (which creates the default org), OpAMP never pushes the receiver config → collector never binds OTLP ports → all ingestion (incl. `ac-1a-trace-ingest.sh`, `ac-1-trace-roundtrip.sh`) fails on cold-start clusters even when `make test` (storage invariants) PASSES.
+Fix: Complete SigNoz UI signup at http://signoz.get-e.com (or `signoz.obs.local` legacy) immediately after `make up-signoz` and BEFORE running any AC-1/AC-1a script. Verify ports bound via `kubectl exec -n observability deploy/signoz-otel-collector -- sh -c 'cat /proc/net/tcp | awk "{print \$2}"'` and look for `10E1` (4317) / `10E2` (4318). Detected during W-1 Phase-2 destructive verification (2026-05-11) post-purge cold start; the pre-PR-2 AC-1 PASS happened on a cluster where signup had already occurred. Long-term fix candidate: pre-seed default org via SigNoz seed script in `signoz-install` Makefile target, or wait-for-receiver-port readiness gate. File into Task 7 or new task. See also [[latent/PDRs]] (Tasks 9, 10 cover auth/bearer-tokens but NOT orgId bootstrap).
