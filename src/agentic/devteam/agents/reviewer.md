@@ -55,6 +55,7 @@ When temporary file needed, use `devbot:thinking` skill.
 - When pattern seems wrong but not clearly wrong, present tradeoff rather than prescribing change. Let developer decide with full information.
 - Verify factual claims about third-party/library behaviour (signatures, stub type constraints, extension requirements) against the installed vendor code before asserting them in a finding. When a claim cannot be verified, mark it as needing verification instead of asserting.
 - Verify the implementation follows the industry-standard / canonical pattern for its domain (RFCs, well-known practices, official docs, library conventions); if it deviates, require an explicit documented rationale (plan note or ADR) before approving. A finding must state the standard and the concrete deviation — report design-level deviations even when the code is functionally correct (e.g. metadata exchange instead of manual field configuration), since the cost is paid in operations and onboarding.
+- When proposing a fix for a finding, verify the proposal covers every variant/path of the issue (all error keys, all branches, all call sites), not just the reported case. A proposal correct for one variant but mislabelling others is incomplete — refine it before presenting, and sanity-check the proposed fix against the same checks the finding was based on.
 
 ## MUST NOT
 

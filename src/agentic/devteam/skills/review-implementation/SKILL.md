@@ -228,6 +228,16 @@ Apply the section for each technology the project uses. Each list merges issue t
 6. **Laravel Authorization & Policies** — when a Laravel controller's `authorize()` calls or policy methods are added or modified:
     - Verify controller `authorize()` calls pass VOs to policies, not raw primitives, when VO already constructed in controller.
     - Verify policy methods accept corresponding VO type, not primitive.
+7. **API resource serialization is scalar** — for every field in a resource `toArray()` or a JSON response array:
+    - Verify the value is scalar (string/int/bool/array). Backed enums must use `->value`; value objects must use `->getValue()` (or an explicit string conversion). Never rely on implicit `JsonSerializable`.
+    - json_encode of a PHP backed enum (no `JsonSerializable`, no public properties) silently yields `{}` — clients receive `"status": {}` with no error. A VO that implements `JsonSerializable` works but relies on the interface staying present.
+    - Response tests must assert the serialized field value (`assertJsonPath('data.status', 'active')`), not just presence — the bug only surfaces when a test reads the field.
+8. **Validation bounded to DB schema** — for every string field validated by a FormRequest:
+    - Verify a `max` rule matches its DB column length (`string(255)` column → `max:255`); oversized input must fail validation (4xx) before reaching the DB (500).
+    - Check list-item rules too (`email_domains.*`), not just scalar top-level strings. A unique-index column (`string(255)`) exceeded by input is the common 500 leak.
+9. **DB constraint-violation → field mapping** — when a handler converts a unique-key `QueryException` (MySQL 1062) into a 4xx validation error:
+    - Verify the mapped field matches the actually-violated constraint, not a hardcoded field. Parse the key name from the error message (`for key 'schema.table_index'`) and map it (e.g. `*_slug_unique` → `slug`, `*_owner_key_unique` → `owner_type`); fall back to a default only for unknown keys.
+    - A 400 that blames the wrong field (always `email_domains` when `slug`/`owner_key`/`idp_entity_id` was violated) misleads clients and makes conflicts unresolvable.
 
 #### Kubernetes
 
@@ -268,7 +278,7 @@ Save to `<issue-folder>/REVIEW-YYYY-MM-DD-NNN.md`.
 > - **Log Level Appropriateness** — Hot-path log statements use `debug` for routine "nothing happened" messages?
 > - **Return-Type Contraction Safety** — Proposed type narrowings survive every runtime branch (pass-through/fallback paths) and existing callers/tests?
 > - **Recurring Issue Types (Generic)** — TOCTOU/concurrent modification? Config-like entity invariants? Migration `down()` restores exact schema? API contract round-trip? Docs match implementation (incl. docblocks)? Architecture/design smells? Atomic commit structure? Configuration & rollout? Per-request performance? Deployment/queue rollout compatibility?
-> - **Recurring Issue Types (Technology-specific)** — For each technology in use: PHP (SSRF/untrusted remote input, baselines not grown, `@phpstan-ignore` masking real type mismatches, extension guards cover all required extensions, global state restored in `finally`, `tearDown()` wrapped in nested `try/finally`, PSR-3 logs include `'exception' => $e`, no `@` operator), Laravel (async command correctness, real middleware stack on tested path, HTTP error/exception semantics, catch-all fallback & HTTP-method semantics, view/layout rendering, `authorize()`/policies use VOs), Kubernetes (manifest consistency, `SkipDryRunOnMissingResource`, `kustomization.yaml` resources)?
+> - **Recurring Issue Types (Technology-specific)** — For each technology in use: PHP (SSRF/untrusted remote input, baselines not grown, `@phpstan-ignore` masking real type mismatches, extension guards cover all required extensions, global state restored in `finally`, `tearDown()` wrapped in nested `try/finally`, PSR-3 logs include `'exception' => $e`, no `@` operator), Laravel (async command correctness, real middleware stack on tested path, HTTP error/exception semantics, catch-all fallback & HTTP-method semantics, view/layout rendering, `authorize()`/policies use VOs, API resource serialization is scalar, validation bounded to DB column lengths, DB duplicate-key handlers name the violated field), Kubernetes (manifest consistency, `SkipDryRunOnMissingResource`, `kustomization.yaml` resources)?
 > - **Code Style** — Symbols imported? No FQCNs inline? Explicit guards? Sealed/final convention?
 > - **Role Compliance** — All code changes made by Developer?
 > - **Documentation** — Manual config steps documented? Obsolete steps removed?
