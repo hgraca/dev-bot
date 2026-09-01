@@ -3,14 +3,8 @@
   "lsp": true,
   "model": "opencode/nemotron-3.5-lightning-free",
   "small_model": "opencode/big-pickle",
-  "instructions": [
-    "AGENTS.md",
-    ".agents/memory/active/**/*.md"
-  ],
-  "plugin": [
-    "opencode-codebase-index",
-    ".opencode/plugins/on-hooks.ts"
-  ],
+  "instructions": ["AGENTS.md", ".agents/memory/active/**/*.md"],
+  "plugin": ["opencode-codebase-index", ".opencode/plugins/on-hooks.ts"],
   "default_agent": "DevBot",
   "provider": {
     "cortecs": {
@@ -148,10 +142,7 @@
     },
     "qmd": {
       "type": "local",
-      "command": [
-        "qmd",
-        "mcp"
-      ],
+      "command": ["qmd", "mcp"],
       "enabled": true,
       "environment": {
         "QMD_LLAMA_GPU": true
@@ -160,37 +151,24 @@
     "chrome-devtools": {
       "type": "local",
       "command": [
-        "npx",
-        "-y",
-        "chrome-devtools-mcp@latest"
+        "bash",
+        "-c",
+        "mkdir -p .agents/logs && if [ \"$(uname -s)\" = \"Darwin\" ]; then CHROME_REAL=\"$(ls \"$HOME\"/.cache/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium 2>/dev/null | head -1)\"; else CHROME_REAL=\"$(ls \"$HOME\"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | head -1)\"; fi && if [ -n \"$CHROME_REAL\" ]; then WRAP=\"$HOME/.cache/ms-playwright/chrome-nosandbox\"; printf '#!/bin/bash\\nexec \"%s\" --no-sandbox \"$@\"\\n' \"$CHROME_REAL\" > \"$WRAP\"; chmod +x \"$WRAP\"; exec node .opencode/chrome-devtools-mcp-wrapper.js npx -y chrome-devtools-mcp@latest --headless --executablePath \"$WRAP\" 2>>.agents/logs/chrome-devtools-mcp.log; else exec node .opencode/chrome-devtools-mcp-wrapper.js npx -y chrome-devtools-mcp@latest --headless 2>>.agents/logs/chrome-devtools-mcp.log; fi"
       ]
     },
     "playwright": {
       "type": "local",
-      "command": [
-        "docker",
-        "run",
-        "--rm",
-        "-i",
-        "mcp/playwright"
-      ],
+      "command": ["docker", "run", "--rm", "-i", "mcp/playwright"],
       "enabled": true
     },
     "next-devtools": {
       "type": "local",
-      "command": [
-        "npx",
-        "-y",
-        "next-devtools-mcp@latest"
-      ],
+      "command": ["npx", "-y", "next-devtools-mcp@latest"],
       "enabled": true
     },
     "devbot-tools": {
       "type": "local",
-      "command": [
-        "bash",
-        ".opencode/tools-mcp-serve.sh"
-      ],
+      "command": ["bash", ".opencode/tools-mcp-serve.sh"],
       "enabled": true
     }
   }

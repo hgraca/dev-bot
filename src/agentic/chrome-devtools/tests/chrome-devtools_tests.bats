@@ -53,3 +53,45 @@ setup_project() {
     "${MODULE_DIR}/mcp.opencode.json"
   assert_equal "$output" "1"
 }
+
+# ── audit-25 F4: Chromium discovery must be platform-aware ────────────────────
+# The wrapper's CHROME_REAL glob was Linux-only (chromium-*/chrome-linux*/chrome)
+# so it never matched macOS's chrome-mac/Chromium.app layout, and with no
+# Playwright Chromium installed chrome-devtools could not launch at all on a
+# Mac. The discovery must branch on the OS and cover both layouts.
+
+@test "audit-25: opencode template discovers chrome on macOS and Linux" {
+  run grep -c 'chrome-mac/Chromium.app/Contents/MacOS/Chromium' \
+    "${MODULE_DIR}/mcp.opencode.json"
+  assert_equal "$output" "1"
+  run grep -c 'chrome-linux\*/chrome' \
+    "${MODULE_DIR}/mcp.opencode.json"
+  assert_equal "$output" "1"
+  run grep -c 'uname -s' "${MODULE_DIR}/mcp.opencode.json"
+  assert_equal "$output" "1"
+}
+
+@test "audit-25: claudecode template discovers chrome on macOS and Linux" {
+  run grep -c 'chrome-mac/Chromium.app/Contents/MacOS/Chromium' \
+    "${MODULE_DIR}/mcp.claudecode.json"
+  assert_equal "$output" "1"
+  run grep -c 'chrome-linux\*/chrome' \
+    "${MODULE_DIR}/mcp.claudecode.json"
+  assert_equal "$output" "1"
+  run grep -c 'uname -s' "${MODULE_DIR}/mcp.claudecode.json"
+  assert_equal "$output" "1"
+}
+
+@test "audit-25: root opencode.dist.jsonc routes chrome-devtools through the wrapper with platform-aware discovery" {
+  local dist="${MODULE_DIR}/../../..//opencode.dist.jsonc"
+  # The root dist is what dist-initialized projects copy; its chrome-devtools
+  # entry must carry the same wrapper + platform-aware discovery as the module
+  # templates, otherwise registration skips the module version (key exists)
+  # and the fix never reaches those projects.
+  run grep -c 'chrome-devtools-mcp-wrapper\.js' "${dist}"
+  assert_equal "$output" "1"
+  run grep -c 'chrome-mac/Chromium.app/Contents/MacOS/Chromium' "${dist}"
+  assert_equal "$output" "1"
+  run grep -c 'chrome-linux\*/chrome' "${dist}"
+  assert_equal "$output" "1"
+}
