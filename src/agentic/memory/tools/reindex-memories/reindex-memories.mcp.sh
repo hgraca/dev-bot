@@ -60,7 +60,11 @@ fi
 # when this shell exits, releasing the lock immediately after launch.
 mkdir -p "${LOCK_DIR}"
 exec 200>"${LOCK_FILE}"
-if ! flock -n 200; then
+# audit-25 F2: flock(1) is util-linux (Linux-only) — macOS lacks it. Fall back
+# to python fcntl on the inherited fd 200: the lock lives on the open file
+# description, so it is still released when this shell exits (audit-24
+# check-then-launch semantics preserved).
+if ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; then
   echo "{\"status\":\"in_progress\",\"pid\":$(cat "$PID_FILE" 2>/dev/null || echo null)}"
   exit 0
 fi

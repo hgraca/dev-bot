@@ -39,7 +39,10 @@ mkdir -p "${GRAPHIFY_OUT}"
 
 # ── Mutual exclusion: prevent concurrent graphify updates ──
 exec 200>"${LOCK_FILE}"
-flock -n 200 || exit 0
+# audit-25 F2: flock(1) is util-linux (Linux-only) — macOS lacks it. Fall back
+# to python fcntl on the inherited fd 200: the lock lives on the open file
+# description, so it is still released when this shell exits.
+{ flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; } || exit 0
 
 # ── Kill any prior stale graphify process ──
 if [[ -f "${PID_FILE}" ]]; then

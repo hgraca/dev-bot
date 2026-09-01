@@ -107,14 +107,59 @@ SCRIPT
 
 @test "tool: in_progress when another invocation holds the flock (TOCTOU fix)" {
   mkdir -p "$WORK/devbot"
-  # Hold the lock file in a background subshell for 10s.
+  # Hold the lock file in a background subshell for 10s. Uses the same
+  # portable acquire primitive as the tool (flock, else python fcntl on the
+  # inherited fd) so this holder works on macOS where flock(1) is absent.
   (
     exec 200>"$WORK/devbot/reindex-memories.lock"
-    flock -n 200 || exit 1
+    { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; } || exit 1
     sleep 10
   ) &
   local holder=$!
   # Give the holder a moment to acquire the lock.
+  sleep 0.2
+
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL"
+
+  kill "$holder" 2>/dev/null || true
+
+  assert_success
+  assert_output --partial '"status":"in_progress"'
+}
+
+# ── audit-25 F2: portable lock fallback for macOS (flock(1) is util-linux) ──
+
+@test "tool: works when flock is missing (macOS) via python fcntl fallback" {
+  # Stub flock to exit 127 (command-not-found), simulating a macOS host
+  # without util-linux. The tool must fall back to python fcntl on the
+  # inherited fd and still launch the reindex.
+  cat > "$STUB_DIR/flock" <<'SCRIPT'
+#!/usr/bin/env bash
+exit 127
+SCRIPT
+  chmod +x "$STUB_DIR/flock"
+
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL"
+  assert_success
+  assert_output --partial '"status":"started"'
+}
+
+@test "tool: python fallback still respects a held lock (in_progress)" {
+  # With flock stubbed to fail, the python fallback must still observe a lock
+  # held by another process — proving the fallback is a real lock, not a no-op.
+  cat > "$STUB_DIR/flock" <<'SCRIPT'
+#!/usr/bin/env bash
+exit 127
+SCRIPT
+  chmod +x "$STUB_DIR/flock"
+  mkdir -p "$WORK/devbot"
+
+  (
+    exec 200>"$WORK/devbot/reindex-memories.lock"
+    python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null || exit 1
+    sleep 10
+  ) &
+  local holder=$!
   sleep 0.2
 
   run env PATH="$STUB_DIR:$PATH" bash "$TOOL"

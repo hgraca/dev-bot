@@ -45,7 +45,11 @@ _reindex_running() {
 # dedicated lock file so concurrent memory hooks cannot both launch a job.
 mkdir -p "$LOCK_DIR"
 exec 200>"${LOCK_FILE}"
-if ! flock -n 200; then
+# audit-25 F2: flock(1) is util-linux (Linux-only) — macOS lacks it. Fall back
+# to python fcntl on the inherited fd 200: the lock lives on the open file
+# description, so it is still released when this shell exits (audit-24
+# check-then-act semantics preserved).
+if ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; then
   # Another invocation holds the lock — an edit is already being covered.
   exit 0
 fi
