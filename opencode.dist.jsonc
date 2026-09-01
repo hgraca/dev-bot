@@ -145,7 +145,8 @@
       "command": ["qmd", "mcp"],
       "enabled": true,
       "environment": {
-        "QMD_LLAMA_GPU": true
+        "QMD_LLAMA_GPU": "__GPU_ENABLED__",
+        "QMD_EXPAND_CONTEXT_SIZE": "512"
       }
     },
     "chrome-devtools": {

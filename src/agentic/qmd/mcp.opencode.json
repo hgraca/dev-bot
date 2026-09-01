@@ -7,6 +7,9 @@
       "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"
     ],
     "enabled": true,
-    "environment": { "QMD_LLAMA_GPU": "__GPU_ENABLED__" }
+    "environment": {
+      "QMD_LLAMA_GPU": "__GPU_ENABLED__",
+      "QMD_EXPAND_CONTEXT_SIZE": "512"
+    }
   }
 }

@@ -11,6 +11,7 @@ setup() {
 
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
+  PROJECT_ROOT="$(cd "$TEST_DIR/../../../.." && pwd)"
   TOOL="$MODULE_DIR/tools/qmd.mcp.sh"
   FIXTURES="$TEST_DIR/fixtures"
 
@@ -311,4 +312,38 @@ SCRIPT
   [[ "$cleanup_line" -lt "$update_line" ]]
 
   rm -r "$sandbox"
+}
+
+# ── audit-28 FAIL-1: GPU query-expansion VRAM safety ──────────────────────────
+# On small-VRAM GPUs (RTX 4050, 5.6 GB) qmd's query-expansion model at the
+# default 2048 context overflows VRAM: "InsufficientMemoryError: A context
+# size of 2048 is too large for the available VRAM" — every hybrid query logs
+# a stack trace and expansion silently degrades to unexpanded search.
+# QMD_EXPAND_CONTEXT_SIZE must be pinned to a VRAM-safe value in the MCP
+# environment so it flows into every project on reinit.
+
+@test "audit-28: opencode template pins QMD_EXPAND_CONTEXT_SIZE to a VRAM-safe value" {
+  run python3 -c "import json; d=json.load(open('${MODULE_DIR}/mcp.opencode.json')); print(json.dumps(d['qmd'].get('environment', {})))"
+  assert_success
+  assert_output --partial '"QMD_EXPAND_CONTEXT_SIZE": "512"'
+}
+
+@test "audit-28: claudecode template pins QMD_EXPAND_CONTEXT_SIZE" {
+  run python3 -c "import json; d=json.load(open('${MODULE_DIR}/mcp.claudecode.json')); print(json.dumps(d['mcpServers']['qmd'].get('env', {})))"
+  assert_success
+  assert_output --partial '"QMD_EXPAND_CONTEXT_SIZE": "512"'
+}
+
+@test "audit-28: root opencode.dist.jsonc qmd entry uses the GPU placeholder, not a bare boolean" {
+  # qmd 2.8.3 rejects QMD_LLAMA_GPU=true (boolean); the dist entry must use the
+  # __GPU_ENABLED__ placeholder that harness init substitutes (metal|cuda|vulkan|false).
+  run grep -q '"QMD_LLAMA_GPU"[[:space:]]*:[[:space:]]*true' \
+    "$PROJECT_ROOT/opencode.dist.jsonc"
+  assert_failure
+  run grep -q '"QMD_LLAMA_GPU"[[:space:]]*:[[:space:]]*"__GPU_ENABLED__"' \
+    "$PROJECT_ROOT/opencode.dist.jsonc"
+  assert_success
+  run grep -q '"QMD_EXPAND_CONTEXT_SIZE"[[:space:]]*:[[:space:]]*"512"' \
+    "$PROJECT_ROOT/opencode.dist.jsonc"
+  assert_success
 }
