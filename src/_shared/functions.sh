@@ -898,11 +898,54 @@ _upsert_hook_section() {
 
 _check_python3() {
   if ! command -v python3 >/dev/null 2>&1; then
-    _fatal "python3 is required but not installed."
-    echo "  Install via your system package manager (apt, dnf, brew)." >&2
-    exit 1
+    # audit-25: macOS ships no /usr/bin/python3 on fresh installs is rare, but
+    # Darwin users routinely have only 3.9.6. Try a Homebrew install before
+    # giving up so `devbot install/update` self-heals instead of failing.
+    if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+      _info "python3 not found — installing via Homebrew..."
+      brew install python >/dev/null 2>&1 || true
+    fi
+    if ! command -v python3 >/dev/null 2>&1; then
+      _fatal "python3 is required but not installed."
+      echo "  Install via your system package manager (apt, dnf, brew)." >&2
+      exit 1
+    fi
   fi
-  _ok "python3 found"
+
+  # audit-25 F1/F3: PEP 604 union annotations (str | None) require Python >=
+  # 3.10 at import time. The tools now carry 'from __future__ import
+  # annotations' (3.7+ compatible), but 3.10 remains the supported floor —
+  # warn loudly when it is not met so future regressions surface early.
+  local ver major minor
+  ver="$(python3 --version 2>&1 | sed -n 's/^Python \([0-9]*\.[0-9]*\).*/\1/p')"
+  if [[ -z "${ver}" ]]; then
+    _warn "Could not determine python3 version (got '$(python3 --version 2>&1)') — assuming >= 3.10."
+    _ok "python3 found"
+    return 0
+  fi
+  major="${ver%%.*}"
+  minor="${ver##*.}"
+
+  if [[ "${major}" -ge 3 && "${minor}" -ge 10 ]]; then
+    _ok "python3 found (${ver})"
+    return 0
+  fi
+
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+    _info "python3 ${ver} is older than 3.10 — upgrading via Homebrew..."
+    brew upgrade python >/dev/null 2>&1 || brew install python >/dev/null 2>&1 || true
+    ver="$(python3 --version 2>&1 | sed -n 's/^Python \([0-9]*\.[0-9]*\).*/\1/p')"
+    major="${ver%%.*}"
+    minor="${ver##*.}"
+    if [[ "${major}" -ge 3 && "${minor}" -ge 10 ]]; then
+      _ok "python3 found (${ver})"
+      return 0
+    fi
+  fi
+
+  _warn "python3 is ${ver} (< 3.10) — devbot's Python tools expect Python >= 3.10."
+  _warn "Install Python 3.10+ (e.g. 'brew install python' on macOS) for full compatibility."
+  _ok "python3 found (${ver})"
 }
 
 # ── Harness delegation to devbot_dir/ ──────────────────────────────────────────

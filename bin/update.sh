@@ -100,6 +100,7 @@ main() {
   _header_1 "DevBot Update"
 
   _update_git
+  _check_python3
   _update_dependencies
 
   _header_2 "Tools"

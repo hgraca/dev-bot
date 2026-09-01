@@ -168,6 +168,7 @@ main() {
 
   _setup_env
   _check_prerequisites
+  _check_python3
   _run_module_prereqs
   _setup_devbot_config
   _install_dependencies
