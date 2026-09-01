@@ -11,10 +11,8 @@ baseurl: "/dev-bot"
 # Repo location pieces for the install snippets and GitHub links. Pages derive
 # these at runtime from the GitHub Pages URL (https://<org>.github.io/<repo>/);
 # these values are the server-rendered fallback, e.g. local `make docs`.
-install_host: github.com
 install_org: GET-E
 install_repo: dev-bot
-install_branch: main
 
 markdown: kramdown
 highlighter: rouge

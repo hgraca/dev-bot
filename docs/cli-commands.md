@@ -13,12 +13,10 @@ The `devbot` CLI is the single entry point for installing, configuring, and runn
 
 <div class="hero-install">
   <button type="button" class="hero-install-cmd"
-          data-install-host="{{ site.install_host | default: 'github.com' }}"
           data-install-org="{{ site.install_org | default: 'GET-E' }}"
           data-install-repo="{{ site.install_repo | default: 'dev-bot' }}"
-          data-install-branch="{{ site.install_branch | default: 'main' }}"
           aria-label="Copy install command">
-    <span class="hero-install-cmd-text">$ curl -fsSL https://raw.githubusercontent.com/GET-E/dev-bot/main/install.sh | bash -s -- --org GET-E</span>
+    <span class="hero-install-cmd-text">$ curl -fsSL https://get-e.github.io/dev-bot/install.sh | bash -s -- --ssh</span>
     <span class="hero-install-copy-status">
       <svg class="hero-install-copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
       <svg class="hero-install-copy-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.75 15.0938L9 20.25L21.25 3.75"></path></svg>

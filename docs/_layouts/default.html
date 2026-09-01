@@ -51,10 +51,8 @@
       var first = document.querySelector('.hero-install-cmd');
       if (!first) return;
 
-      var fallbackHost = first.dataset.installHost || 'github.com';
       var fallbackOrg = first.dataset.installOrg || 'GET-E';
       var fallbackRepo = first.dataset.installRepo || 'dev-bot';
-      var fallbackBranch = first.dataset.installBranch || 'main';
 
       var hostParts = window.location.hostname.split('.');
       var pathParts = window.location.pathname.split('/').filter(Boolean);
@@ -88,8 +86,7 @@
       }
 
       document.querySelectorAll('.hero-install-cmd').forEach(function (code) {
-        var branch = code.dataset.installBranch || fallbackBranch;
-        var command = 'curl -fsSL https://raw.githubusercontent.com/' + org + '/' + repo + '/' + branch + '/install.sh | bash -s -- --org ' + org;
+        var command = 'curl -fsSL https://' + org + '.github.io/' + repo + '/install.sh | bash -s -- --ssh';
         var text = code.querySelector('.hero-install-cmd-text');
         if (text) text.textContent = '$ ' + command;
         code.addEventListener('click', function () { copyCommand(command, code); });

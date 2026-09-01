@@ -43,6 +43,14 @@ jobs:
         env:
           JEKYLL_ENV: production
 
+      - name: Stage install script
+        # Serve the root install.sh from the Pages site so the docs' curl
+        # install command works without raw.githubusercontent.com (the repo is
+        # private, and raw.githubusercontent.com only serves public repos).
+        # Copied fresh on every deploy so it always matches the repo root.
+        run: cp ../install.sh _site/install.sh
+        working-directory: docs
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
