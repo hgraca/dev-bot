@@ -101,6 +101,7 @@ main() {
 
   _update_git
   _check_python3
+  _check_flock
   _update_dependencies
 
   _header_2 "Tools"

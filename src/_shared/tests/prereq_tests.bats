@@ -128,3 +128,83 @@ SCRIPT
   assert_success
   assert_output --partial "WARN"
 }
+
+# A flock-free PATH (filter every dir that contains a flock binary), with
+# $MOCK prepended. Used to simulate a macOS host that lacks util-linux.
+_flock_free_path() {
+  local filtered_path dir
+  filtered_path=""
+  while IFS= read -r -d: dir; do
+    [[ -n "$dir" && ! -x "$dir/flock" ]] || continue
+    filtered_path="${filtered_path:+$filtered_path:}$dir"
+  done <<< "${PATH}:"
+  echo "$MOCK:${filtered_path}"
+}
+
+# ── _check_flock (audit-25 F2: flock(1) is util-linux, absent on macOS) ───────
+
+@test "flock present: reports ok, no brew invocation" {
+  command -v flock &>/dev/null || skip "flock not installed"
+  _mock_uname "Linux"
+
+  run _check_flock
+  assert_success
+  assert_output --partial "flock found"
+  refute_output --partial "WARN"
+}
+
+@test "flock missing on Darwin with brew: installs util-linux and adds keg-only bin to PATH" {
+  _mock_uname "Darwin"
+  # Simulate a successful brew install under a mock HOMEBREW_PREFIX: the brew
+  # stub creates the keg-only flock binary (util-linux is keg-only — not
+  # symlinked onto PATH by brew). The stub runs under a flock-free PATH that
+  # excludes /usr/bin (which contains flock on Linux), so external commands
+  # are baked in as absolute paths.
+  local mkdir_bin chmod_bin
+  mkdir_bin="$(command -v mkdir)"
+  chmod_bin="$(command -v chmod)"
+  mkdir -p "$MOCK/opt/util-linux/bin"
+  cat > "$MOCK/brew" <<SCRIPT
+#!/bin/bash
+echo "\$*" >> "$MOCK/brew-calls.log"
+"$mkdir_bin" -p "$MOCK/opt/util-linux/bin"
+printf '#!/bin/bash\nexit 0\n' > "$MOCK/opt/util-linux/bin/flock"
+"$chmod_bin" +x "$MOCK/opt/util-linux/bin/flock"
+exit 0
+SCRIPT
+  chmod +x "$MOCK/brew"
+
+  # PATH without flock; _check_flock must locate the keg-only bin itself.
+  local flock_free
+  flock_free="$(_flock_free_path)"
+  [[ "$flock_free" != "$MOCK:" ]] || skip "cannot build a flock-free PATH"
+  export HOMEBREW_PREFIX="$MOCK"
+  PATH="$flock_free" run _check_flock
+  assert_success
+  assert_output --partial "flock found"
+  run cat "$MOCK/brew-calls.log"
+  assert_output --partial "util-linux"
+}
+
+@test "flock missing on Darwin without brew: warns, does not fail" {
+  _mock_uname "Darwin"
+
+  local flock_free
+  flock_free="$(_flock_free_path)"
+  [[ "$flock_free" != "$MOCK:" ]] || skip "cannot build a flock-free PATH"
+  PATH="$flock_free" run _check_flock
+  assert_success
+  assert_output --partial "WARN"
+}
+
+@test "flock missing on Linux: warns, does not fail" {
+  _mock_uname "Linux"
+
+  local flock_free
+  flock_free="$(_flock_free_path)"
+  [[ "$flock_free" != "$MOCK:" ]] || skip "cannot build a flock-free PATH"
+
+  PATH="$flock_free" run _check_flock
+  assert_success
+  assert_output --partial "WARN"
+}

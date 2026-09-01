@@ -948,6 +948,54 @@ _check_python3() {
   _ok "python3 found (${ver})"
 }
 
+# _check_flock
+#   Ensures flock(1) is available. flock ships with Linux's util-linux and is
+#   absent on stock macOS. On Darwin, installs util-linux via Homebrew and
+#   adds its keg-only bin dir to PATH (brew does NOT symlink keg-only
+#   binaries into /opt/homebrew/bin — the hook scripts that exec flock need
+#   the explicit PATH entry). Warns — never fails — on any other platform:
+#   the hooks themselves carry a python fcntl fallback (audit-25 F2).
+_check_flock() {
+  if command -v flock >/dev/null 2>&1; then
+    _ok "flock found"
+    return 0
+  fi
+
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v brew >/dev/null 2>&1; then
+    _info "flock not found — installing util-linux via Homebrew..."
+    if brew install util-linux >/dev/null 2>&1; then
+      # util-linux is keg-only: the binary lands in the versioned opt dir,
+      # not on PATH. Prepend it so hook scripts resolve flock. Homebrew
+      # exports HOMEBREW_PREFIX (/opt/homebrew on Apple Silicon, /usr/local
+      # on Intel) — fall back to probing both when unset.
+      local util_bin=""
+      local prefix="${HOMEBREW_PREFIX:-}"
+      if [[ -n "${prefix}" ]]; then
+        [[ -x "${prefix}/opt/util-linux/bin/flock" ]] && util_bin="${prefix}/opt/util-linux/bin"
+      else
+        for candidate in /opt/homebrew/opt/util-linux/bin /usr/local/opt/util-linux/bin; do
+          if [[ -x "${candidate}/flock" ]]; then
+            util_bin="${candidate}"
+            break
+          fi
+        done
+      fi
+      if [[ -n "${util_bin}" ]]; then
+        export PATH="${util_bin}:${PATH}"
+        _ok "flock found (${util_bin}/flock — keg-only, added to PATH)"
+      else
+        _warn "util-linux installed but flock not found in expected keg dirs"
+      fi
+      return 0
+    else
+      _warn "brew install util-linux failed — hooks will use the python fcntl fallback"
+      return 0
+    fi
+  fi
+
+  _warn "flock not available — hooks will use the python fcntl fallback"
+}
+
 # ── Harness delegation to devbot_dir/ ──────────────────────────────────────────
 # Migrates existing harness-specific agents/commands/skills/tools content into
 # the devbot state dir (from config), then creates a symlink from the harness
