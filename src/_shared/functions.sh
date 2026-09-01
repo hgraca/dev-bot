@@ -652,13 +652,119 @@ _run_service_scripts() {
   fi
 }
 
+# _has_gpu: returns 0 if any usable GPU is available on the host.
+#   NVIDIA: nvidia-smi must exist and succeed.
+#   AMD:    rocm-smi must exist and succeed, or lspci shows AMD GPU.
+#   Intel:  /dev/dri/renderD* exists and a compatible GPU is detected.
+#   macOS:  Apple Silicon (arm64) has built-in GPU.
+_has_gpu() {
+  case "$(uname -s)" in
+    Darwin)
+      [[ "$(uname -m)" == "arm64" ]]
+      return $?
+      ;;
+    Linux)
+      # NVIDIA
+      if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+        return 0
+      fi
+      # AMD ROCm
+      if command -v rocm-smi >/dev/null 2>&1 && rocm-smi >/dev/null 2>&1; then
+        return 0
+      fi
+      # Intel via /dev/dri (render nodes = GPU available)
+      if ls /dev/dri/renderD* >/dev/null 2>&1; then
+        return 0
+      fi
+      return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# _gpu_vendor: prints the GPU vendor name for the primary GPU.
+_gpu_vendor() {
+  case "$(uname -s)" in
+    Darwin)
+      echo "apple-silicon"
+      return 0
+      ;;
+    Linux)
+      if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+        echo "nvidia"
+        return 0
+      fi
+      if command -v rocm-smi >/dev/null 2>&1 && rocm-smi >/dev/null 2>&1; then
+        echo "amd"
+        return 0
+      fi
+      if ls /dev/dri/renderD* >/dev/null 2>&1; then
+        # Check if it's Intel or AMD integrated via lspci
+        if command -v lspci >/dev/null 2>&1; then
+          if lspci 2>/dev/null | grep -qi "VGA.*Intel"; then
+            echo "intel"
+            return 0
+          fi
+          if lspci 2>/dev/null | grep -qi "VGA.*AMD\|VGA.*Advanced Micro Devices"; then
+            echo "amd"  # AMD integrated (not ROCm)
+            return 0
+          fi
+        fi
+        echo "intel"  # fallback — most common with /dev/dri/render
+        return 0
+      fi
+      return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# _has_docker_gpu: returns 0 if Docker GPU passthrough is available.
+#   Linux (NVIDIA): nvidia-smi + NVIDIA Container Toolkit.
+#   Linux (AMD):    rocm-smi + /dev/kfd accessible.
+#   Linux (Intel):  /dev/dri/renderD* accessible.
+#   macOS:          always 1 — Docker Desktop does not support GPU passthrough.
+_has_docker_gpu() {
+  [[ "$(uname -s)" != "Linux" ]] && return 1
+  _has_gpu || return 1
+
+  local vendor
+  vendor="$(_gpu_vendor)"
+  case "${vendor}" in
+    nvidia)
+      docker info 2>/dev/null | grep -qi nvidia \
+        || [[ -x "/usr/bin/nvidia-container-toolkit" ]]
+      return $?
+      ;;
+    amd)
+      # AMD ROCm requires /dev/kfd for Docker passthrough
+      ls /dev/kfd >/dev/null 2>&1
+      return $?
+      ;;
+    intel)
+      # Intel GPU in Docker requires /dev/dri and the intel-gpu-plugin
+      ls /dev/dri/renderD* >/dev/null 2>&1
+      return $?
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 # _qmd_gpu_value
 #   Prints a QMD_LLAMA_GPU value qmd 2.8.3 actually accepts: metal|cuda|vulkan
-#   when a GPU is enabled (vendor-detected), else "false". qmd REJECTS the
-#   plain boolean "true" ("invalid QMD_LLAMA_GPU=\"true\", using auto GPU
+#   when the HOST has a usable GPU (audit-25 F5: driven by _has_gpu, not the
+#   gpu_enabled config flag — qmd runs as a plain local process, so Docker
+#   passthrough availability is irrelevant to it), else "false". qmd REJECTS
+#   the plain boolean "true" ("invalid QMD_LLAMA_GPU=\"true\", using auto GPU
 #   selection") — this is what the __GPU_ENABLED__ placeholder substitutes.
 _qmd_gpu_value() {
-  if ! _devbot_is_true "gpu_enabled"; then
+  if ! _has_gpu; then
     echo "false"
     return 0
   fi
