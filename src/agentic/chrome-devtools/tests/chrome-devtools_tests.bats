@@ -95,3 +95,37 @@ setup_project() {
   run grep -c 'chrome-linux\*/chrome' "${dist}"
   assert_equal "$output" "1"
 }
+
+# ── audit-25 F4: install/update must provision a sandboxable Chromium ────────
+# The discovery glob only matches Playwright-downloaded Chromium; on machines
+# without system Chrome that directory never exists, so chrome-devtools could
+# not launch. install.sh and update.sh must run 'npx playwright install
+# chromium' so a browser is actually present after setup.
+
+@test "audit-25: install.sh exists, is executable, and runs playwright install chromium" {
+  [[ -x "${MODULE_DIR}/install.sh" ]]
+  run grep -q 'playwright install chromium' "${MODULE_DIR}/install.sh"
+  assert_success
+}
+
+@test "audit-25: update.sh exists, is executable, and re-runs the install flow" {
+  [[ -x "${MODULE_DIR}/update.sh" ]]
+  run grep -q 'install\.sh' "${MODULE_DIR}/update.sh"
+  assert_success
+}
+
+@test "audit-25: install.sh skips when a chromium binary is already present" {
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  mkdir -p "${tmpdir}/.cache/ms-playwright/chromium-9999/chrome-linux"
+  touch "${tmpdir}/.cache/ms-playwright/chromium-9999/chrome-linux/chrome"
+  chmod +x "${tmpdir}/.cache/ms-playwright/chromium-9999/chrome-linux/chrome"
+
+  run env HOME="$tmpdir" bash "${MODULE_DIR}/install.sh"
+  assert_success
+  # Must skip the download — the discovery already found a chromium.
+  assert_output --partial "already present"
+  refute_output --partial "Installing Playwright Chromium"
+
+  rm -rf "${tmpdir}"
+}
