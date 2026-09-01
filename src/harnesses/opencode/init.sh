@@ -453,6 +453,32 @@ PY
   _ok "default agent set to DevBot"
 }
 
+# ── Ensure a non-empty AGENTS.md (referenced in dist instructions) ────────────
+# The dist's opencode.jsonc template lists "AGENTS.md" in `instructions`, so
+# opencode expects the file. A missing or 0-byte AGENTS.md is a stale-looking
+# artifact (audit-28 NOTE-2): write a pointer to the always-on memory vault
+# when the file is absent or empty. A user-populated AGENTS.md is never
+# touched.
+_ensure_agents_md() {
+  local project_dir="${1:-${PROJECT_DIR:-$(pwd)}}"
+  local agents_md="${project_dir}/AGENTS.md"
+  local devbot_dir
+  devbot_dir="$(_devbot_get_project_dir "${project_dir}")"
+
+  if [[ -f "${agents_md}" && -s "${agents_md}" ]]; then
+    _skip "AGENTS.md already populated"
+    return 0
+  fi
+
+  cat > "${agents_md}" <<EOF
+# Agent Instructions
+
+Always-on context lives in the memory vault:
+${devbot_dir}/memory/active/**/*.md
+EOF
+  _ok "Wrote AGENTS.md pointer to ${devbot_dir}/memory/active/"
+}
+
 # ── Delegate .opencode/* artifact dirs to devbot_dir/ ─────────────────────────
 # opencode auto-discovers skills from .agents/skills directly, so delegating
 # .opencode/skills → .agents/skills causes duplicate skill-name warnings. With
@@ -471,6 +497,7 @@ _delegate_harness_dirs() {
 # ── main ───────────────────────────────────────────────────────────────────────
 _copy_opencode_dir
 _write_opencode_config
+_ensure_agents_md
 _delegate_harness_dirs
 _link_plugins_modules
 _link_module_plugins

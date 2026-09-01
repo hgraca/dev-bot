@@ -134,3 +134,54 @@ JSONC_EOF
   assert_output --partial "skills|false"
   refute_output --partial "skills|true"
 }
+
+# ── audit-28 NOTE-2: AGENTS.md must be non-empty (referenced in instructions) ─
+
+@test "ensure_agents_md: creates a non-empty AGENTS.md with a vault pointer when missing" {
+  _setup_sandbox
+  SANDBOX_PROJECT_DIR="$(mktemp -d)"
+  mkdir -p "${SANDBOX_PROJECT_DIR}"
+  export SANDBOX_PROJECT_DIR
+
+  source "${SANDBOX_DIR}/init.sh"
+
+  run _ensure_agents_md "${SANDBOX_PROJECT_DIR}"
+  assert_success
+
+  local agents="${SANDBOX_PROJECT_DIR}/AGENTS.md"
+  [[ -f "$agents" ]] || fail "AGENTS.md not created"
+  [[ -s "$agents" ]] || fail "AGENTS.md is empty"
+  grep -q "memory/active" "$agents" || fail "AGENTS.md missing memory vault pointer"
+}
+
+@test "ensure_agents_md: leaves a user-populated AGENTS.md untouched" {
+  _setup_sandbox
+  SANDBOX_PROJECT_DIR="$(mktemp -d)"
+  mkdir -p "${SANDBOX_PROJECT_DIR}"
+  printf 'My custom agent instructions\n' > "${SANDBOX_PROJECT_DIR}/AGENTS.md"
+  export SANDBOX_PROJECT_DIR
+
+  source "${SANDBOX_DIR}/init.sh"
+
+  run _ensure_agents_md "${SANDBOX_PROJECT_DIR}"
+  assert_success
+
+  run cat "${SANDBOX_PROJECT_DIR}/AGENTS.md"
+  assert_output "My custom agent instructions"
+}
+
+@test "ensure_agents_md: fills an empty AGENTS.md (0 bytes)" {
+  _setup_sandbox
+  SANDBOX_PROJECT_DIR="$(mktemp -d)"
+  mkdir -p "${SANDBOX_PROJECT_DIR}"
+  : > "${SANDBOX_PROJECT_DIR}/AGENTS.md"
+  export SANDBOX_PROJECT_DIR
+
+  source "${SANDBOX_DIR}/init.sh"
+
+  run _ensure_agents_md "${SANDBOX_PROJECT_DIR}"
+  assert_success
+
+  local agents="${SANDBOX_PROJECT_DIR}/AGENTS.md"
+  [[ -s "$agents" ]] || fail "AGENTS.md still empty after ensure"
+}
