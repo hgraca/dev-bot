@@ -1,0 +1,8 @@
+---
+date: 2026-09-01
+keywords: ["reviewer", "improve-reviewing", "review-implementation", "copilot-gaps"]
+---
+
+## Reviewer skill extended from Copilot-caught SAML review gaps
+
+After the positioning-activities ARC-808 SAML SSO review round, 8 issues caught by the GitHub Copilot PR review but missed by the devbot reviewer were distilled into `review-implementation/SKILL.md` recurring issue types: (generic) concurrent-race recovery must guard the actual failing operation (Eloquent `new()` doesn't persist — the 1062 catch around a non-persisting `create()` is dead code) and bootstrap path for newly-gated admin capabilities (a privilege flag defaulting false that gates the only admin API locks out the first admin); (PHP) assumed third-party security defaults (onelogin strict mode does not imply `wantAssertionsSigned` — verify library defaults in installed vendor code) and credentials hashed before persistence (generated `Str::random` passwords stored raw); (Laravel) case-sensitive identifiers need binary collation (`utf8mb4_bin` for entity IDs — default `utf8mb4_unicode_ci` conflates case), single-use cache consumption must be atomic (`Cache::pull` is read-then-delete — use a lock), and route params constrained to value-object constructors (`whereUuid` → 404 not `InvalidUuidException` 500). The reviewer agent profile gained a behavioural MUST: proactively verify library security defaults a change relies on, not just claims it asserts. One Copilot finding (validation bounds vs DB column lengths) was already covered by a concurrent improvement (Laravel issue type 8) and was not duplicated.

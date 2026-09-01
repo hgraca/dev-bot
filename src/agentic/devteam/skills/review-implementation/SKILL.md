@@ -160,6 +160,12 @@ Issue types that apply regardless of technology stack.
     - Do not scan the full route collection (hundreds of routes × regex) per fallback/404 request — use the framework's compiled matcher.
     - Keep synchronous waits (e.g. Kafka `flush()`, external calls) short for request-path observers/loops; a 10s per-call stall on outage exhausts workers. Long delivery/retry windows belong in a background/outbox path, and the config comment must state which is which.
 10. **Deployment/queue rollout compatibility** — deleting a queued job class breaks payloads already waiting/retrying in the queue (they must unserialize the old FQCN): keep a **compatibility shim** class delegating to the new implementation until the queue retention window elapses (note the removal date in the class), or document an explicit drain/migration rollout.
+11. **Concurrent-race recovery guards the actual failing operation** — when code catches a DB constraint violation (e.g. MySQL 1062 unique-key) to recover a concurrent race (re-fetch instead of failing):
+    - Verify the guarded call is where the exception is actually thrown. In Eloquent, `Model::new()` builds an **unsaved** model — the insert happens at `save()`, so a try/catch around a repository `create()` only works if that method persists before returning. A recovery wrapped around a non-persisting "create" is dead code: the losing request still surfaces an uncaught `QueryException`.
+    - Check the recovery path: after catching the violation, re-fetch the row and continue idempotently (both racing requests succeed), or map to the intended domain exception.
+12. **Bootstrap path for newly-gated admin capabilities** — when a new privilege flag/role (defaulting to false) gates an admin or CRUD capability:
+    - Verify an operator bootstrap path exists (CLI command, seed/backfill of known accounts, or documented deployment step). A flag that ships false for every existing user and gates the only API that can create initial state (e.g. the first SAML config) locks out the first admin.
+    - Do not rely on a migration backfill unless it can name the trusted accounts; an explicit CLI command is the safe default.
 
 ### Technology-specific
 
@@ -200,6 +206,11 @@ Apply the section for each technology the project uses. Each list merges issue t
     - Flag as WARNING — `@` operator suppresses all PHP errors indiscriminately, hiding potentially important warnings and making debugging difficult.
     - Require targeted `set_error_handler`/`restore_error_handler` pair in `try/finally` block instead, so only expected warnings suppressed and unexpected ones remain observable.
     - Only acceptable use of `@` is on trivially safe operations where failure immediately checked (e.g. `@unlink()` followed by existence check).
+9. **Assumed third-party security defaults** — when a change relies on a security property of a third-party library (signature requirements, validation guarantees, atomic single-use operations):
+    - Verify the library's actual defaults in the installed vendor code and flag properties that are **assumed but not explicitly set**. Example: onelogin/php-saml `strict => true` does NOT imply `wantAssertionsSigned` (defaults false) — a signed response carrying an unsigned assertion is accepted unless the setting is explicit.
+    - The same principle applies to any security-relevant library knob the change depends on: check the default, set it explicitly, and say so.
+10. **Credentials hashed before persistence** — for every path that writes a password or credential (provisioning services, factories, seeders, imports):
+    - Verify the value is hashed (`Hash::make`, bcrypt, etc.) before storage. A generated credential (`Str::random(...)`) passed raw to a model constructor or repository is stored as plaintext — flag as BLOCKER even when the password is unusable (e.g. SAML-provisioned users excluded from password login).
 
 #### Laravel
 
@@ -238,6 +249,12 @@ Apply the section for each technology the project uses. Each list merges issue t
 9. **DB constraint-violation → field mapping** — when a handler converts a unique-key `QueryException` (MySQL 1062) into a 4xx validation error:
     - Verify the mapped field matches the actually-violated constraint, not a hardcoded field. Parse the key name from the error message (`for key 'schema.table_index'`) and map it (e.g. `*_slug_unique` → `slug`, `*_owner_key_unique` → `owner_type`); fall back to a default only for unknown keys.
     - A 400 that blames the wrong field (always `email_domains` when `slug`/`owner_key`/`idp_entity_id` was violated) misleads clients and makes conflicts unresolvable.
+10. **Case-sensitive identifiers need binary collation** — when a migration creates a column that stores identifiers matched server-side (SAML entity IDs, codes, tokens):
+    - Verify the column uses a case-sensitive (binary) collation, e.g. `->collation('utf8mb4_bin')`. The default `utf8mb4_unicode_ci` is case-insensitive: a UNIQUE index and lookups (`WHERE col = ?`) conflate values differing only by case.
+11. **Single-use cache consumption must be atomic** — when a one-time token/correlation value is consumed from the cache:
+    - Verify the consume is atomic. `Cache::pull()` is read-then-delete (get + forget): two concurrent requests can both read the same value before either delete lands, breaking single-use guarantees. Guard with a cache lock (`Cache::lock(...)->get()` + `finally` release) or an atomic GETDEL.
+12. **Route params constrained to value-object constructors** — when a route parameter feeds a value-object/entity constructor (`new SomeUuid($routeParam)`):
+    - Verify the route constrains the parameter (`->whereUuid('uuid')`, etc.) so malformed input is a 404, not a constructor exception (e.g. `InvalidUuidException` → 500).
 
 #### Kubernetes
 
@@ -277,8 +294,8 @@ Save to `<issue-folder>/REVIEW-YYYY-MM-DD-NNN.md`.
 > - **Magic Values** — Domain-meaningful literals extracted to class constants?
 > - **Log Level Appropriateness** — Hot-path log statements use `debug` for routine "nothing happened" messages?
 > - **Return-Type Contraction Safety** — Proposed type narrowings survive every runtime branch (pass-through/fallback paths) and existing callers/tests?
-> - **Recurring Issue Types (Generic)** — TOCTOU/concurrent modification? Config-like entity invariants? Migration `down()` restores exact schema? API contract round-trip? Docs match implementation (incl. docblocks)? Architecture/design smells? Atomic commit structure? Configuration & rollout? Per-request performance? Deployment/queue rollout compatibility?
-> - **Recurring Issue Types (Technology-specific)** — For each technology in use: PHP (SSRF/untrusted remote input, baselines not grown, `@phpstan-ignore` masking real type mismatches, extension guards cover all required extensions, global state restored in `finally`, `tearDown()` wrapped in nested `try/finally`, PSR-3 logs include `'exception' => $e`, no `@` operator), Laravel (async command correctness, real middleware stack on tested path, HTTP error/exception semantics, catch-all fallback & HTTP-method semantics, view/layout rendering, `authorize()`/policies use VOs, API resource serialization is scalar, validation bounded to DB column lengths, DB duplicate-key handlers name the violated field), Kubernetes (manifest consistency, `SkipDryRunOnMissingResource`, `kustomization.yaml` resources)?
+> - **Recurring Issue Types (Generic)** — TOCTOU/concurrent modification? Config-like entity invariants? Migration `down()` restores exact schema? API contract round-trip? Docs match implementation (incl. docblocks)? Architecture/design smells? Atomic commit structure? Configuration & rollout? Per-request performance? Deployment/queue rollout compatibility? Concurrent-race recovery guards the actual failing operation (`new()` vs `save()`)? Bootstrap path for newly-gated admin capabilities?
+> - **Recurring Issue Types (Technology-specific)** — For each technology in use: PHP (SSRF/untrusted remote input, baselines not grown, `@phpstan-ignore` masking real type mismatches, extension guards cover all required extensions, global state restored in `finally`, `tearDown()` wrapped in nested `try/finally`, PSR-3 logs include `'exception' => $e`, no `@` operator, assumed third-party security defaults, credentials hashed before persistence), Laravel (async command correctness, real middleware stack on tested path, HTTP error/exception semantics, catch-all fallback & HTTP-method semantics, view/layout rendering, `authorize()`/policies use VOs, API resource serialization is scalar, validation bounded to DB column lengths, DB duplicate-key handlers name the violated field, case-sensitive identifiers use binary collation, single-use cache consumption atomic, route params constrained to VO constructors), Kubernetes (manifest consistency, `SkipDryRunOnMissingResource`, `kustomization.yaml` resources)?
 > - **Code Style** — Symbols imported? No FQCNs inline? Explicit guards? Sealed/final convention?
 > - **Role Compliance** — All code changes made by Developer?
 > - **Documentation** — Manual config steps documented? Obsolete steps removed?
