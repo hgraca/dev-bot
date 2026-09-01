@@ -10,6 +10,8 @@ Usage:
   python3 git-report.py --log-count 20
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import subprocess

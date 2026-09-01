@@ -12,6 +12,8 @@ Usage:
   python3 search-memories.py --query "billing" --format json
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os

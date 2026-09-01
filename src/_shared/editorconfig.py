@@ -5,6 +5,8 @@ This module fills the gap for stdin/pipe mode where prettier can't find
 .editorconfig because there's no file path to walk up from.
 """
 
+from __future__ import annotations
+
 import os
 import fnmatch
 import re
