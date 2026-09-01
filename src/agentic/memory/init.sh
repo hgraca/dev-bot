@@ -68,19 +68,28 @@ _scaffold_vault() {
   # Symlink global-memories to the dev-bot central store
   # Remove first if it exists as a real dir (from template copy or prior run)
   [[ -e "${vault}/latent/global" && ! -L "${vault}/latent/global" ]] && rm -rf "${vault}/latent/global"
-  ln -sfn "${GLOBAL_MEMORIES_DIR}" "${vault}/latent/global"
+  if ln -sfn "${GLOBAL_MEMORIES_DIR}" "${vault}/latent/global"; then
+    _ok "Global memories linked (${vault}/latent/global → ${GLOBAL_MEMORIES_DIR})"
+  else
+    _warn "Could not create global memories symlink at ${vault}/latent/global"
+  fi
 
   # ── QMD collection for global memories ────────────────────────────────────
   # QMD doesn't follow symlinks, so create a collection pointing at the real
   # global-memories path. Uses a fixed shared name — all projects share the
   # same global knowledge base, so a single QMD collection suffices.
+  # audit-25 F6: registration failure must surface loudly — a silently
+  # swallowed '&& _ok' left the global store unreachable on a fresh install
+  # with no visible error (only the absence of the collection).
   local global_collection="dev-bot-global"
 
   if qmd collection show "${global_collection}" >/dev/null 2>&1; then
     _skip "QMD collection '${global_collection}' already exists"
+  elif qmd collection add "${GLOBAL_MEMORIES_DIR}" --name "${global_collection}" >/dev/null 2>&1; then
+    _ok "QMD collection '${global_collection}' created"
   else
-    qmd collection add "${GLOBAL_MEMORIES_DIR}" --name "${global_collection}" >/dev/null 2>&1 && \
-      _ok "QMD collection '${global_collection}' created"
+    _warn "Could not register QMD collection '${global_collection}' for ${GLOBAL_MEMORIES_DIR}"
+    _warn "The global memory store will be unreachable via search-memories — check that qmd is installed."
   fi
 
   _ok "Vault scaffolded at ${target_path}"

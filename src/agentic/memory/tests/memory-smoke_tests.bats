@@ -70,6 +70,94 @@ teardown() {
   rm -rf "$tmpdir"
 }
 
+# ── audit-25 F6: global memory store wiring ───────────────────────────────────
+# The global store was unreachable on a fresh macOS install: no
+# .agents/memory/latent/global symlink and no QMD collection. The scaffold
+# code exists, but no test asserted the symlink TARGET or the collection
+# registration — the old -d check dereferences the symlink and passes even
+# when the target is wrong or missing.
+
+@test "init.sh: latent/global symlink points at the dev-bot central store" {
+  local tmpdir
+  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+
+  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  assert_success
+
+  local link="$tmpdir/.agents/memory/latent/global"
+  [[ -L "$link" ]] || fail "latent/global is not a symlink"
+  local expected
+  expected="$(cd "$MODULE_DIR/../../../storage/global-memories" && pwd)"
+  local actual
+  actual="$(readlink "$link")"
+  [[ "$actual" == "$expected" ]] \
+    || fail "latent/global -> $actual (expected $expected)"
+
+  # The target must actually exist — a dangling symlink is a silent failure.
+  [[ -d "$expected" ]] || fail "global store target missing: $expected"
+  [[ -d "$link" ]] || fail "latent/global does not resolve to a directory"
+
+  rm -rf "$tmpdir"
+}
+
+@test "init.sh: re-run preserves the global symlink (idempotent)" {
+  local tmpdir
+  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+
+  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  assert_success
+  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  assert_success
+
+  local link="$tmpdir/.agents/memory/latent/global"
+  [[ -L "$link" ]] || fail "latent/global is not a symlink after re-run"
+  local expected
+  expected="$(cd "$MODULE_DIR/../../../storage/global-memories" && pwd)"
+  local actual
+  actual="$(readlink "$link")"
+  [[ "$actual" == "$expected" ]] || fail "symlink target changed on re-run"
+
+  rm -rf "$tmpdir"
+}
+
+@test "init.sh: registers the dev-bot-global QMD collection when qmd is available" {
+  command -v qmd &>/dev/null || skip "qmd not installed"
+
+  local tmpdir
+  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+
+  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  assert_success
+
+  run qmd collection show dev-bot-global
+  assert_success
+
+  rm -rf "$tmpdir"
+}
+
+@test "init.sh: warns (not silently succeeds) when qmd collection add fails" {
+  # Stub qmd to fail: the collection must be registered with the shared name
+  # dev-bot-global; a stub that always fails must surface a warning, not a
+  # silent success (the old '&& _ok' swallowed the error).
+  local stubdir
+  stubdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  cat > "$stubdir/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+exit 1
+SCRIPT
+  chmod +x "$stubdir/qmd"
+
+  local tmpdir
+  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+
+  run env PATH="$stubdir:$PATH" bash "$MODULE_DIR/init.sh" "$tmpdir"
+  assert_success
+  assert_output --partial "WARN"
+  assert_output --partial "dev-bot-global"
+
+  rm -rf "$tmpdir" "$stubdir"
+}
+
 @test "init.sh: reinit does not clobber per-project active files" {
   local tmpdir
   tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
