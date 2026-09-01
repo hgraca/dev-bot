@@ -7,7 +7,7 @@
 # Run `tree` on directories and return output (markdown or plain text).
 #
 # Usage:
-#   tree.mcp.sh [--markdown|--json|--format <fmt>] <dir> [<dir> ...]
+#   tree.mcp.sh [--markdown|--json|--format <fmt>] [--max-depth <n>|-L <n>] <dir> [<dir> ...]
 #
 # Accepts single path, JSON array, comma-separated, or space-separated paths.
 #
@@ -21,7 +21,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"tree","description":"Display directory structure as a tree. Accepts one or more paths. Returns output in markdown or plain text.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: [--markdown|--json|--format <fmt>] <dir> [<dir> ...]"}},"required":["args"]}}
+{"name":"tree","description":"Display directory structure as a tree. Accepts one or more paths. Returns output in markdown or plain text.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: [--markdown|--json|--format <fmt>] [--max-depth <n>|-L <n>] <dir> [<dir> ...]"}},"required":["args"]}}
 JSON
     exit 0
     ;;
@@ -42,6 +42,7 @@ _resolve_paths() {
 
 # ── Parse args ───────────────────────────────────────────────────────────────
 FMT="markdown"
+MAX_DEPTH=""
 PATHS=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -49,11 +50,30 @@ while [[ $# -gt 0 ]]; do
     --markdown) FMT="markdown"; shift ;;
     --format) FMT="$2"; shift 2 ;;
     --format=*) FMT="${1#--format=}"; shift ;;
+    --max-depth|-L)
+      # audit-28 NOTE-4: real `tree` supports -L level; accept --max-depth N
+      # and -L N and pass through as -L N so callers can limit output depth.
+      if [[ $# -lt 2 || ! "$2" =~ ^[0-9]+$ ]]; then
+        echo "Option $1 requires a positive integer value" >&2
+        echo "Usage: tree.mcp.sh [--markdown|--json|--format <fmt>] [--max-depth <n>|-L <n>] <dir> [<dir> ...]" >&2
+        exit 1
+      fi
+      MAX_DEPTH="$2"; shift 2
+      ;;
+    --max-depth=*)
+      local_value="${1#--max-depth=}"
+      if [[ ! "$local_value" =~ ^[0-9]+$ ]]; then
+        echo "Option --max-depth requires a positive integer value" >&2
+        echo "Usage: tree.mcp.sh [--markdown|--json|--format <fmt>] [--max-depth <n>|-L <n>] <dir> [<dir> ...]" >&2
+        exit 1
+      fi
+      MAX_DEPTH="$local_value"; shift
+      ;;
     --*)
       # Unknown flag (e.g. --depth): reject with a usage error instead of
       # silently treating it as a path (audit-26 NOTE-4).
       echo "Unknown option: $1" >&2
-      echo "Usage: tree.mcp.sh [--markdown|--json|--format <fmt>] <dir> [<dir> ...]" >&2
+      echo "Usage: tree.mcp.sh [--markdown|--json|--format <fmt>] [--max-depth <n>|-L <n>] <dir> [<dir> ...]" >&2
       exit 1
       ;;
     *) PATHS+=("$1"); shift ;;
@@ -61,7 +81,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ ${#PATHS[@]} -eq 0 ]]; then
-  echo "Usage: tree.mcp.sh [--markdown|--json|--format <fmt>] <dir> [<dir> ...]" >&2
+  echo "Usage: tree.mcp.sh [--markdown|--json|--format <fmt>] [--max-depth <n>|-L <n>] <dir> [<dir> ...]" >&2
   exit 1
 fi
 
@@ -93,10 +113,12 @@ fi
 # ── Run tree ─────────────────────────────────────────────────────────────────
 OUTPUT=""
 SEPARATOR=""
+DEPTH_ARGS=()
+[[ -n "$MAX_DEPTH" ]] && DEPTH_ARGS=("-L" "$MAX_DEPTH")
 for ((i = 0; i < ${#RESOLVED[@]}; i++)); do
   dir="${RESOLVED[$i]}"
 
-  if ! stdout=$(tree -a --dirsfirst --charset=ASCII "$dir" 2>/dev/null); then
+  if ! stdout=$(tree -a --dirsfirst --charset=ASCII "${DEPTH_ARGS[@]}" "$dir" 2>/dev/null); then
     echo "tree failed for $dir" >&2
     exit 1
   fi

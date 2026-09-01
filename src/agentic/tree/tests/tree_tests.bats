@@ -186,6 +186,48 @@ setup() {
   assert_output --partial "Usage:"
 }
 
+# ── Depth limiting (audit-28 NOTE-4): --max-depth / -L passthrough ───────────
+# Real `tree` supports `-L level` to descend only N levels. The wrapper
+# rejected it as an unknown flag; now --max-depth N and -L N map to -L N so
+# callers can limit output depth.
+
+@test "--max-depth N: limits output to N levels (subdir contents excluded)" {
+  run bash "$TOOL" --max-depth 1 "$FIXTURES"
+
+  assert_success
+  assert_output --partial "subdir"
+  refute_output --partial "sub_file.txt"
+}
+
+@test "-L N: limits output to N levels" {
+  run bash "$TOOL" -L 1 "$FIXTURES"
+
+  assert_success
+  assert_output --partial "subdir"
+  refute_output --partial "sub_file.txt"
+}
+
+@test "--max-depth 2: includes one level deeper" {
+  run bash "$TOOL" --max-depth 2 "$FIXTURES"
+
+  assert_success
+  assert_output --partial "sub_file.txt"
+}
+
+@test "--max-depth with non-numeric value: rejected with usage error" {
+  run bash "$TOOL" --max-depth abc "$FIXTURES"
+
+  assert_failure
+  assert_output --partial "Usage:"
+}
+
+@test "--max-depth without value: rejected with usage error" {
+  run bash "$TOOL" --max-depth
+
+  assert_failure
+  assert_output --partial "Usage:"
+}
+
 @test "--json flag changes output format to json" {
   run bash "$TOOL" "--json" "$FIXTURES"
 
