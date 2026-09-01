@@ -6,8 +6,8 @@
 # onto $PATH so it can be used from any project directory.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/GET-E/dev-bot/main/install.sh | bash
-#   curl -fsSL <url> | bash -s -- --org <org> --repo <repo> --branch <branch> --host <host>
+#   curl -fsSL https://get-e.github.io/dev-bot/install.sh | bash -s -- --ssh
+#   curl -fsSL <url> | bash -s -- --org <org> --repo <repo> --branch <branch> --host <host> [--ssh]
 #   bash install.sh              # from inside a dev-bot clone (used by `make install`)
 #
 # The repository location is built from pieces so a fork, a mirror, or a moved
@@ -18,6 +18,7 @@
 #   org     | --org         | DEV_BOT_ORG         | GET-E
 #   repo    | --repo        | DEV_BOT_REPO        | dev-bot
 #   branch  | --branch      | DEV_BOT_BRANCH      | latest release tag, else main
+#   ssh     | --ssh         | DEV_BOT_SSH         | false (git@host:org/repo.git)
 #   dir     | --install-dir | DEV_BOT_INSTALL_DIR | ~/.local/share/dev-bot
 #
 # When no branch is given, the latest GitHub release tag is installed when one
@@ -33,6 +34,7 @@ REPO="${DEV_BOT_REPO:-dev-bot}"
 BRANCH="${DEV_BOT_BRANCH:-}"
 BRANCH_SET=false
 INSTALL_DIR="${DEV_BOT_INSTALL_DIR:-$HOME/.local/share/dev-bot}"
+SSH="${DEV_BOT_SSH:-false}"
 PRINT_URL=false
 
 usage() {
@@ -49,6 +51,7 @@ Options:
   --branch <branch>    Git branch to install (default: latest release tag,
                        else main, env: DEV_BOT_BRANCH)
   --host <host>        Git host (default: github.com, env: DEV_BOT_HOST)
+  --ssh                Clone over SSH (git@host:org/repo.git) instead of HTTPS
   --install-dir <dir>  Install directory (default: ~/.local/share/dev-bot,
                        env: DEV_BOT_INSTALL_DIR)
   --print-url          Print the computed clone URL and exit (no install)
@@ -62,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --repo) REPO="$2"; shift 2 ;;
     --branch) BRANCH="$2"; BRANCH_SET=true; shift 2 ;;
     --host) HOST="$2"; shift 2 ;;
+    --ssh) SSH=true; shift ;;
     --install-dir) INSTALL_DIR="$2"; shift 2 ;;
     --print-url) PRINT_URL=true; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -72,7 +76,11 @@ done
 # An explicitly-set branch (flag or env) wins over release-tag resolution.
 [[ -n "${BRANCH}" ]] && BRANCH_SET=true
 
-REPO_URL="https://${HOST}/${ORG}/${REPO}.git"
+if [[ "${SSH}" == true ]]; then
+  REPO_URL="git@${HOST}:${ORG}/${REPO}.git"
+else
+  REPO_URL="https://${HOST}/${ORG}/${REPO}.git"
+fi
 
 if [[ "${PRINT_URL}" == true ]]; then
   echo "${REPO_URL}"

@@ -53,6 +53,24 @@ setup() {
   [ "$output" == "https://github.com/flag-org/dev-bot.git" ]
 }
 
+@test "install.sh --print-url --ssh uses SSH protocol with canonical defaults" {
+  run env -u DEV_BOT_ORG -u DEV_BOT_REPO -u DEV_BOT_HOST -u DEV_BOT_SSH bash "${INSTALL_SH}" --print-url --ssh
+  [ "$status" -eq 0 ]
+  [ "$output" == "git@github.com:GET-E/dev-bot.git" ]
+}
+
+@test "install.sh --print-url honors DEV_BOT_SSH env var" {
+  run env DEV_BOT_SSH=true bash "${INSTALL_SH}" --print-url
+  [ "$status" -eq 0 ]
+  [ "$output" == "git@github.com:GET-E/dev-bot.git" ]
+}
+
+@test "install.sh --print-url --ssh honors --org/--repo/--host" {
+  run bash "${INSTALL_SH}" --print-url --ssh --org other-org --repo other-repo --host git.example.com
+  [ "$status" -eq 0 ]
+  [ "$output" == "git@git.example.com:other-org/other-repo.git" ]
+}
+
 # ── Standalone ref-resolution tests ──────────────────────────────────────────
 # These exercise the standalone path (clone / pull). install.sh skips it when
 # run from inside a clone (PWD/bin/install.sh exists), so we copy install.sh
