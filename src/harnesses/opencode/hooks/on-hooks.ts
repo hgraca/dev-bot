@@ -15,7 +15,7 @@ import { readFileSync, readdirSync, existsSync } from "fs"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { defaultHookLog, routeHookOutput, type HookDecl } from "../on-hooks-utils"
+import { defaultHookLog, deletedFileFromWatcher, routeHookOutput, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -129,6 +129,13 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
       if (type === "file.edited") {
         const file: string = (event as any).properties?.file ?? ""
         if (file) await dispatch("file.edited", file, { file })
+      } else if (type === "file.watcher.updated") {
+        // audit-28 NOTE-8: a delete arrives as a watcher "unlink" event (the
+        // SDK has no file.deleted type). Map it to a "file.deleted" hook event
+        // so modules can react to removals — e.g. reindexing memory to prune
+        // the stale index entries of deleted notes.
+        const deleted = deletedFileFromWatcher(event)
+        if (deleted) await dispatch("file.deleted", deleted, { file: deleted })
       } else if (type === "session.created") {
         await dispatch("session.created", undefined, {})
       } else if (type === "session.idle") {

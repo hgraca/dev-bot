@@ -88,3 +88,25 @@ describe("routeHookOutput", () => {
     expect(existsSync(join(root, ".agents"))).toBe(false)
   })
 })
+
+describe("deletedFileFromWatcher (audit-28 NOTE-8)", () => {
+  test("returns the file path for an unlink watcher event", () => {
+    const { deletedFileFromWatcher } = require("../on-hooks-utils") as typeof import("../on-hooks-utils")
+    const file = deletedFileFromWatcher({
+      type: "file.watcher.updated",
+      properties: { file: ".agents/memory/latent/learnings/gone.md", event: "unlink" },
+    })
+    expect(file).toBe(".agents/memory/latent/learnings/gone.md")
+  })
+
+  test("returns null for add/change watcher events (only deletes matter)", () => {
+    const { deletedFileFromWatcher } = require("../on-hooks-utils") as typeof import("../on-hooks-utils")
+    expect(deletedFileFromWatcher({ type: "file.watcher.updated", properties: { file: "x.md", event: "add" } })).toBeNull()
+    expect(deletedFileFromWatcher({ type: "file.watcher.updated", properties: { file: "x.md", event: "change" } })).toBeNull()
+  })
+
+  test("returns null for non-watcher events", () => {
+    const { deletedFileFromWatcher } = require("../on-hooks-utils") as typeof import("../on-hooks-utils")
+    expect(deletedFileFromWatcher({ type: "file.edited", properties: { file: "x.md" } })).toBeNull()
+  })
+})
