@@ -37,42 +37,6 @@
         "skills": "skills"
       }
     },
-    "mindrally-svelte": {
-      "url": "https://github.com/mindrally/skills.git",
-      "paths": {
-        "skills": "svelte"
-      }
-    },
-    "sveltekit-structure": {
-      "url": "https://github.com/spences10/svelte-skills-kit.git",
-      "paths": {
-        "skills": "plugins/svelte-skills/skills/sveltekit-structure"
-      }
-    },
-    "svelte5-best-practices": {
-      "url": "https://github.com/ejirocodes/agent-skills.git",
-      "paths": {
-        "skills": "svelte/skills/svelte5-best-practices"
-      }
-    },
-    "mindrally-react": {
-      "url": "https://github.com/mindrally/skills.git",
-      "paths": {
-        "skills": "skills/react"
-      }
-    },
-    "mindrally-nextjs": {
-      "url": "https://github.com/mindrally/skills.git",
-      "paths": {
-        "skills": "skills/nextjs-react-typescript"
-      }
-    },
-    "mindrally-react-best-practices": {
-      "url": "https://github.com/mindrally/skills.git",
-      "paths": {
-        "skills": "skills/modern-web-development"
-      }
-    },
     "mattpocock-grilling": {
       "url": "https://github.com/mattpocock/skills.git",
       "paths": {
