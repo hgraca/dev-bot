@@ -58,3 +58,42 @@ export function routeHookOutput(out: { stdout: string; stderr: string }, hook: H
   if (stderr) parts.push(`[stderr]\n${stderr}`)
   appendLog(join(root, hook.log ?? defaultHookLog()), hook.id, parts.join("\n\n"))
 }
+
+export interface CommandResult {
+  stdout: string
+  stderr: string
+  exitCode: number
+}
+
+// Decide whether a command.before hook blocks the tool. Fail-closed contract
+// (audit-31 §2): a blocking hook whose subprocess fails to execute (non-zero
+// exit, missing script/interpreter, unparseable output) must DENY — a guard
+// that produced no valid decision must not silently let the command through.
+// A non-blocking hook only blocks on an explicit {"blocked": true}.
+export function guardDecision(result: CommandResult, blocking?: boolean): { blocked: boolean; message: string } {
+  if (!blocking) {
+    try {
+      const parsed = JSON.parse(result.stdout || "{}")
+      if (parsed?.blocked) {
+        return { blocked: true, message: parsed.message ?? "guard rule" }
+      }
+    } catch {
+      // Non-JSON output — not blocked.
+    }
+    return { blocked: false, message: "" }
+  }
+
+  if (result.exitCode !== 0) {
+    return { blocked: true, message: `guard temporarily unavailable (exited ${result.exitCode})` }
+  }
+  let parsed: any = {}
+  try {
+    parsed = JSON.parse(result.stdout || "{}")
+  } catch {
+    return { blocked: true, message: "guard temporarily unavailable (unparseable output)" }
+  }
+  if (parsed?.blocked) {
+    return { blocked: true, message: parsed.message ?? "guard rule" }
+  }
+  return { blocked: false, message: "" }
+}

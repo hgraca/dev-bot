@@ -15,7 +15,7 @@ import { readFileSync, readdirSync, existsSync } from "fs"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { defaultHookLog, routeHookOutput, type HookDecl } from "../on-hooks-utils"
+import { defaultHookLog, guardDecision, routeHookOutput, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -40,7 +40,7 @@ function resolve(run: string[], ctx: Record<string, string>): string[] {
   return run.map((part) => part.replace(/\{(\w[\w-]*)\}/g, (_, key: string) => ctx[key] ?? ""))
 }
 
-async function runCommand(cmd: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
+async function runCommand(cmd: string[], cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" })
   // Drain both streams concurrently — an undrained stderr pipe fills up and
   // blocks the child hook once the buffer exceeds ~64KB.
@@ -48,8 +48,8 @@ async function runCommand(cmd: string[], cwd: string): Promise<{ stdout: string;
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
   ])
-  await proc.exited
-  return { stdout, stderr }
+  const exitCode = await proc.exited
+  return { stdout, stderr, exitCode }
 }
 
 // (appendLog, defaultHookLog and routeHookOutput live in ../on-hooks-utils.ts
@@ -165,17 +165,19 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
           })
           try {
             const out = await runCommand(cmd, root)
-            let parsed: any = {}
-            try {
-              parsed = JSON.parse(out.stdout)
-            } catch {
-              // Non-JSON output — not blocked.
-            }
-            if (parsed?.blocked) {
-              throw new Error(`[${hook.id}] Command blocked: ${parsed.message ?? "guard rule"}`)
+            const decision = guardDecision(out, hook.blocking)
+            if (decision.blocked) {
+              throw new Error(`[${hook.id}] Command blocked: ${decision.message}`)
             }
           } catch (e) {
             if (e instanceof Error && e.message.startsWith(`[${hook.id}]`)) throw e
+            // The guard tool failed to execute (missing interpreter/script).
+            // A blocking guard that cannot run must fail CLOSED, not silently
+            // let the command through (audit-31 §2) — opencode treats an
+            // exception from tool.execute.before as a block.
+            if (hook.blocking) {
+              throw new Error(`[${hook.id}] Command blocked: guard temporarily unavailable (failed to execute)`)
+            }
             logger.debug(`${hook.id} hook failed: ${e instanceof Error ? e.message : String(e)}`)
           }
         }
