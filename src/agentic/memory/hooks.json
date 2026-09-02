@@ -26,20 +26,8 @@
       ]
     },
     {
-      "id": "reindex-memories-on-delete",
-      "event": "file.deleted",
-      "match": {
-        "file": "/memory/latent.*\\.md$"
-      },
-      "run": [
-        "bash",
-        "{module}/tools/reindex-memories/reindex-memories.mcp.sh"
-      ],
-      "log": ".agents/logs/qmd-index.log"
-    },
-    {
-      "id": "reindex-memories-prune-idle",
-      "event": "session.idle",
+      "id": "reindex-memories-prune-start",
+      "event": "session.created",
       "run": [
         "bash",
         "{module}/tools/reindex-memories/reindex-memories.mcp.sh",
