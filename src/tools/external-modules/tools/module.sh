@@ -360,12 +360,40 @@ cmd_remove() {
         return 0
     fi
 
-    # Unwire from projects
+    # Unwire from projects (legacy .opencode links)
     local -a projects
     while IFS= read -r _proj; do
         projects+=("${_proj}")
     done < <(_discover_projects | sort -u)
     _unwire_module "${name}" "${projects[@]}"
+
+    # Unwire modern .agents/<type>/<name> links — capture the entry's paths
+    # before removing it from config.
+    local paths_json
+    paths_json="$(_get_external_module_field "${name}" "paths")"
+    if [[ -n "${paths_json}" ]]; then
+        local _type
+        while IFS= read -r _type; do
+            [[ -z "${_type}" ]] && continue
+            local _proj
+            for _proj in "${projects[@]}"; do
+                local devbot_dir link_path
+                devbot_dir="$(_devbot_get_project_dir "${_proj}")"
+                link_path="${_proj}/${devbot_dir}/${_type}/${name}"
+                if [[ -L "${link_path}" ]]; then
+                    rm "${link_path}"
+                    _log "Removed ${devbot_dir}/${_type}/${name}"
+                fi
+            done
+        done < <(echo "${paths_json}" | python3 -c "
+import json, sys
+try:
+    paths = json.load(sys.stdin)
+    print('\n'.join(paths.keys()))
+except Exception:
+    pass
+")
+    fi
 
     # Remove from config (comment-preserving)
     python3 "${MERGE_JSONC}" "${CONFIG_FILE}" --remove "${name}" >/dev/null 2>&1
