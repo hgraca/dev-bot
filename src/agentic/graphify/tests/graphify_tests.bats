@@ -393,3 +393,64 @@ setup_init() {
 
   rm -rf "$tmpdir"
 }
+
+@test "init.sh: removes the CLI's unnamespaced .claude/skills/graphify copy after claude install" {
+  # audit-31 §3: `graphify install --platform claude --project` writes an
+  # unnamespaced .claude/skills/graphify/SKILL.md (name: graphify). The
+  # claudecode harness flattens dev-bot's own namespaced skill as
+  # .claude/skills/devbot:graphify — if the CLI's stale copy survives, both
+  # coexist and every reinit re-migrates the old one as a "user skill",
+  # producing .bkp churn. init.sh must remove the CLI's copy, mirroring the
+  # opencode branch's cleanup of .opencode/skills/graphify.
+  setup_init
+
+  # The shared setup() stub only echoes args — replace it with a behavioral
+  # stub that mimics the real CLI: `install --platform claude --project`
+  # writes the unnamespaced skill dir into the project.
+  cat > "${FAKE_BIN}/graphify" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$1" == "install" && "$2" == "--platform" && "$3" == "claude" && "$4" == "--project" ]]; then
+  mkdir -p .claude/skills/graphify/references
+  printf '%s\n' "---" "name: graphify" "---" "" "# Graphify" \
+    > .claude/skills/graphify/SKILL.md
+  echo "skill installed -> .claude/skills/graphify/SKILL.md"
+  exit 0
+fi
+if [[ "$1" == "install" && "$2" == "--platform" && "$3" == "opencode" && "$4" == "--project" ]]; then
+  mkdir -p .opencode/skills/graphify
+  printf '%s\n' "---" "name: graphify" "---" "" "# Graphify" \
+    > .opencode/skills/graphify/SKILL.md
+  echo "skill installed -> .opencode/skills/graphify/SKILL.md"
+  exit 0
+fi
+printf 'graphify-args: %s\n' "$*"
+EOF
+  chmod +x "${FAKE_BIN}/graphify"
+
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  mkdir -p "$tmpdir/src"
+  mkdir -p "$tmpdir/.git/hooks"
+  printf '# test\n' > "$tmpdir/.gitignore"
+  # The claudecode branch only runs when claudecode is enabled — the sandbox
+  # needs a project config to override the (claudecode-disabled) global one.
+  cat > "$tmpdir/.devbot.project.jsonc" <<'JSON'
+{
+  "modules": {
+    "claudecode": true
+  }
+}
+JSON
+
+  # Sanity: the stub install alone would create the duplicate.
+  (cd "$tmpdir" && bash "${FAKE_BIN}/graphify" install --platform claude --project >/dev/null 2>&1)
+  assert [ -e "$tmpdir/.claude/skills/graphify/SKILL.md" ]
+
+  STORAGE_ROOT="$tmpdir/graphify-storage" run bash "$INIT_TOOL" "$tmpdir"
+
+  assert_success
+  # The CLI's unnamespaced copy must not survive init.
+  refute [ -e "$tmpdir/.claude/skills/graphify" ]
+
+  rm -rf "$tmpdir"
+}

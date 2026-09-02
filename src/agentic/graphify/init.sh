@@ -99,6 +99,16 @@ if command -v graphify >/dev/null 2>&1; then
     _step "Installing graphify Claude Code tools..."
     if graphify install --platform claude --project 2>&1; then
       _log "graphify Claude Code tools installed"
+      # The CLI installs its own skill copy under .claude/skills/graphify with
+      # an UNNAMESPACED frontmatter name ("name: graphify") — the same skill
+      # dev-bot ships namespaced as devbot:graphify (audit-31 §3). The
+      # claudecode harness flatten flattens dev-bot's copy to
+      # .claude/skills/devbot:graphify; leaving the CLI's stale unnamespaced
+      # copy behind makes BOTH register, and every reinit re-migrates the old
+      # one as a "user skill" (graphify.bkp churn). Mirror the opencode branch:
+      # remove the CLI's project-scope skill copy — dev-bot's own namespaced
+      # skill is the canonical one.
+      rm -rf "${PROJECT_DIR}/.claude/skills/graphify" 2>/dev/null || true
     else
       _warn "graphify install (claude) failed — continuing without Claude Code tools"
     fi
