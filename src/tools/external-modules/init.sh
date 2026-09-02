@@ -135,7 +135,9 @@ for k, v in paths.items():
     local target_dir="${PROJECT_DIR}/${devbot_dir}/${type}"
     local link_path="${target_dir}/${name}"
 
-    mkdir -p "${target_dir}"
+    # The name may be namespaced (org/repo, local/folder) — create the parent
+    # dirs so the link lands at .agents/<type>/<org>/<repo>.
+    mkdir -p "$(dirname "${link_path}")"
 
     if [[ -L "${link_path}" ]]; then
       local current
@@ -251,15 +253,19 @@ for name, entry in data.get('external_modules', {}).items():
     _process_agentic_module "$(basename "${module_dir}")" "${disabled_json}"
   done
 
-  # Config-only local modules: entries carrying `path` that no internal module
-  # declares (registered directly in .devbot.global.jsonc). They are wired
-  # exactly like declared ones, straight from the local path — never cloned.
+  # Config-only modules: entries registered directly in .devbot.global.jsonc
+  # that no internal module declares (CLI/user-added git repos and local
+  # paths). They are wired exactly like declared ones — a url entry is cloned
+  # to vendor/ on first init, a local path is used as-is. Pruning (install.sh)
+  # keeps this set free of leftovers, so wiring everything here is safe.
   local entry_line name url path paths_json
   while IFS= read -r entry_line; do
     [[ -z "${entry_line}" ]] && continue
     IFS=$'\x1f' read -r name url path paths_json <<< "${entry_line}"
 
-    [[ -z "${path}" ]] && continue  # url-only / stale entries stay declaration-driven
+    if [[ -z "${url}" && -z "${path}" ]]; then
+      continue  # no source configured
+    fi
 
     if echo "${PROCESSED_NAMES}" | grep -Fxq "${name}"; then
       continue  # already wired by the declared-module loop above
@@ -270,13 +276,25 @@ for name, entry in data.get('external_modules', {}).items():
       continue
     fi
 
-    if [[ ! -d "${path}" ]]; then
-      _warn "${name}: local path not found (${path})"
-      continue
+    local src_dir
+    if [[ -n "${path}" ]]; then
+      if [[ ! -d "${path}" ]]; then
+        _warn "${name}: local path not found (${path})"
+        continue
+      fi
+      src_dir="${path}"
+    else
+      src_dir="${MODULES_DIR}/$(_derive_vendor_path "${url}")"
+      if [[ ! -d "${src_dir}" ]]; then
+        _install_one_module "${name}" "${url}" "${src_dir}" "${paths_json}" || {
+          _warn "${name}: source not found at ${src_dir} — auto-install failed"
+          continue
+        }
+      fi
     fi
 
-    _wire_one_module "${name}" "${path}" "${paths_json}"
-    _setup_one_storage "${name}" "${path}" "${paths_json}"
+    _wire_one_module "${name}" "${src_dir}" "${paths_json}"
+    _setup_one_storage "${name}" "${src_dir}" "${paths_json}"
   done <<< "${MODULE_ENTRIES}"
 
   _ok "external-modules wiring complete"

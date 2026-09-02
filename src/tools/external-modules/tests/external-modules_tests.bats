@@ -499,6 +499,47 @@ EOF
   assert [ "$(readlink "${project}/.agents/skills/demo")" = "${DEV_BOT_ROOT}/vendor/acme/demo/skills" ]
 }
 
+@test "init: config-only url entry wires .agents nested under org/repo" {
+  mkdir -p "${DEV_BOT_ROOT}/vendor/acme/userrepo/skills"
+  echo "skill" > "${DEV_BOT_ROOT}/vendor/acme/userrepo/skills/u.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"acme/userrepo\": { \"url\": \"https://example.com/acme/userrepo.git\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  local project="${TEST_HOME}/project-url-user"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert [ -L "${project}/.agents/skills/acme/userrepo" ]
+  assert [ "$(readlink "${project}/.agents/skills/acme/userrepo")" = "${DEV_BOT_ROOT}/vendor/acme/userrepo/skills" ]
+}
+
+@test "init: config-only local entry wires .agents nested under local/<folder>" {
+  local loc_dir="${TEST_HOME}/nested-local"
+  mkdir -p "${loc_dir}/skills"
+  echo "skill" > "${loc_dir}/skills/n.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"local/nested-local\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  local project="${TEST_HOME}/project-local-nested"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert [ -L "${project}/.agents/skills/local/nested-local" ]
+  assert [ "$(readlink "${project}/.agents/skills/local/nested-local")" = "${loc_dir}/skills" ]
+}
+
 @test "init: leaves local source untouched (README intact, no .git created)" {
   local loc_dir="${TEST_HOME}/precious-mod"
   mkdir -p "${loc_dir}/skills"
