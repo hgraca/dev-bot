@@ -109,4 +109,37 @@ describe("deletedFileFromWatcher (audit-28 NOTE-8)", () => {
     const { deletedFileFromWatcher } = require("../on-hooks-utils") as typeof import("../on-hooks-utils")
     expect(deletedFileFromWatcher({ type: "file.edited", properties: { file: "x.md" } })).toBeNull()
   })
+
+  test("returns null for delete-like event values other than 'unlink' (documents the audit-29 gap)", () => {
+    // Audit-28/29: bash-deleted notes never dispatched file.deleted in
+    // opencode 1.18.26. If the real payload uses a different event value,
+    // this strictness is the gap — the adapter logs rejected delete-lookalikes
+    // (appendHooksLog) so a live session can capture the true shape.
+    const { deletedFileFromWatcher } = require("../on-hooks-utils") as typeof import("../on-hooks-utils")
+    expect(deletedFileFromWatcher({ type: "file.watcher.updated", properties: { file: "x.md", event: "remove" } })).toBeNull()
+    expect(deletedFileFromWatcher({ type: "file.watcher.updated", properties: { file: "x.md", event: "delete" } })).toBeNull()
+    expect(deletedFileFromWatcher({ type: "file.watcher.updated", properties: { file: "x.md" } })).toBeNull()
+    expect(deletedFileFromWatcher({ type: "file.watcher.updated", properties: { event: "unlink" } })).toBeNull()
+  })
+})
+
+describe("appendHooksLog (audit-29 watcher diagnostics)", () => {
+  let root: string
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "hooks-log-"))
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test("appends a watcher-diag line to .agents/logs/hooks.log", () => {
+    const { appendHooksLog } = require("../on-hooks-utils") as typeof import("../on-hooks-utils")
+    appendHooksLog(root, 'watcher.rejected type=file.watcher.updated event=remove file=x.md props={}')
+
+    const log = readFileSync(join(root, ".agents", "logs", "hooks.log"), "utf8")
+    expect(log).toContain("watcher-diag")
+    expect(log).toContain("watcher.rejected type=file.watcher.updated event=remove file=x.md")
+  })
 })

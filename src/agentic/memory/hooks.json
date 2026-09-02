@@ -36,6 +36,16 @@
         "{module}/tools/reindex-memories/reindex-memories.mcp.sh"
       ],
       "log": ".agents/logs/qmd-index.log"
+    },
+    {
+      "id": "reindex-memories-prune-idle",
+      "event": "session.idle",
+      "run": [
+        "bash",
+        "{module}/tools/reindex-memories/reindex-memories.mcp.sh",
+        "prune"
+      ],
+      "log": ".agents/logs/qmd-index.log"
     }
   ]
 }

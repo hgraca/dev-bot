@@ -15,7 +15,7 @@ import { readFileSync, readdirSync, existsSync } from "fs"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { defaultHookLog, deletedFileFromWatcher, routeHookOutput, type HookDecl } from "../on-hooks-utils"
+import { appendHooksLog, defaultHookLog, deletedFileFromWatcher, routeHookOutput, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -135,7 +135,24 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
         // so modules can react to removals — e.g. reindexing memory to prune
         // the stale index entries of deleted notes.
         const deleted = deletedFileFromWatcher(event)
-        if (deleted) await dispatch("file.deleted", deleted, { file: deleted })
+        if (deleted) {
+          await dispatch("file.deleted", deleted, { file: deleted })
+        } else {
+          // audit-29 FAIL: bash-deleted memory notes never dispatched
+          // file.deleted in opencode 1.18.26, leaving stale search entries.
+          // Record rejected watcher payloads that look delete-related (or
+          // touch the memory vault) so a live session captures the real event
+          // shape — then the matcher is adapted, or the idle-prune self-heal
+          // hook remains the answer.
+          const props = (event as any)?.properties
+          const ev = String(props?.event ?? "")
+          const file = String(props?.file ?? "")
+          const deleteLike = ["unlink", "remove", "delete", "deleted"].includes(ev)
+          const memoryPath = file.includes("/memory/") && ev !== "edit" && ev !== "create"
+          if (deleteLike || memoryPath) {
+            appendHooksLog(root, `watcher.rejected type=${type} event=${ev} file=${file} props=${JSON.stringify(props ?? {})}`)
+          }
+        }
       } else if (type === "session.created") {
         await dispatch("session.created", undefined, {})
       } else if (type === "session.idle") {

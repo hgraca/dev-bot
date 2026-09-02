@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # ---
-# description: Rebuild the QMD memory index by running qmd cleanup && qmd update && qmd embed in the background (fire-and-forget). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one.
+# description: Rebuild the QMD memory index by running qmd cleanup && qmd update && qmd embed in the background (fire-and-forget). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one, or 'prune' to run cleanup && update only (no embed) — the cheap self-heal for stale deleted-note entries.
 # ---
 # =============================================================================
 # src/agentic/memory/tools/reindex-memories/reindex-memories.mcp.sh
 # Rebuilds the QMD memory index (qmd cleanup && qmd update && qmd embed) in the
 # background. The cleanup prunes orphaned embedding chunks (stale vectors from
 # deleted/moved docs) so they don't silently accumulate across sessions.
+#
+# 'prune' mode runs cleanup && update only — no embed (the slow GPU/model step).
+# Embedding a deleted doc's absence needs no new vectors; cleanup + update
+# suffice to stop it surfacing in search. Used by the session.idle self-heal
+# hook (audit-29: bash-deleted notes stayed searchable — watcher unlink never
+# dispatched file.deleted).
 #
 # Coalesces concurrent requests via a pidfile: a second invocation while one is
 # running reports "in_progress" instead of stacking another job. Honest status:
@@ -24,7 +30,7 @@ LOCK_FILE="$LOCK_DIR/reindex-memories.lock"
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"reindex-memories","description":"Rebuild the QMD memory index by running qmd cleanup && qmd update && qmd embed in the background (fire-and-forget). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"Optional positional: 'status' to report running/idle without launching"}}}}
+{"name":"reindex-memories","description":"Rebuild the QMD memory index by running qmd cleanup && qmd update && qmd embed in the background (fire-and-forget). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one, or 'prune' to run cleanup && update only (no embed) — the cheap self-heal for stale deleted-note entries.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"Optional positional: 'status' to report running/idle without launching; 'prune' to launch a cleanup+update-only pass"}}}}
 JSON
     exit 0
     ;;
@@ -49,6 +55,11 @@ if [[ "${1:-}" == "status" ]]; then
     echo '{"status":"idle","message":"no reindex in progress"}'
   fi
   exit 0
+fi
+
+MODE="full"
+if [[ "${1:-}" == "prune" ]]; then
+  MODE="prune"
 fi
 
 # ── Atomic check-then-act ────────────────────────────────────────────────────
@@ -79,10 +90,16 @@ rm -f "$PID_FILE"
 # `qmd cleanup` first prunes orphaned embedding chunks (stale vectors from
 # deleted/moved docs) so they don't silently accumulate across sessions
 # (audit-20 FAIL: 135 orphaned chunks, 14%). Best-effort: a cleanup failure
-# must not block the reindex.
-( qmd cleanup >/dev/null 2>&1; qmd update && qmd embed; rm -f "$PID_FILE" ) >/dev/null 2>&1 &
+# must not block the reindex. Prune mode skips embed — see header.
+if [[ "${MODE}" == "prune" ]]; then
+  ( qmd cleanup >/dev/null 2>&1; qmd update; rm -f "$PID_FILE" ) >/dev/null 2>&1 &
+  bg_message="qmd cleanup && qmd update (prune, no embed) launched in background"
+else
+  ( qmd cleanup >/dev/null 2>&1; qmd update && qmd embed; rm -f "$PID_FILE" ) >/dev/null 2>&1 &
+  bg_message="qmd cleanup && qmd update && qmd embed launched in background"
+fi
 bg_pid=$!
 echo "$bg_pid" > "$PID_FILE"
 disown "$bg_pid" 2>/dev/null || true
 
-echo "{\"status\":\"started\",\"message\":\"qmd cleanup && qmd update && qmd embed launched in background\",\"pid\":$bg_pid}"
+echo "{\"status\":\"started\",\"message\":\"${bg_message}\",\"pid\":$bg_pid}"

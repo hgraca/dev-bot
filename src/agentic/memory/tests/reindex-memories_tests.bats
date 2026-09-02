@@ -103,6 +103,35 @@ SCRIPT
   assert_line --index 2 "embed"
 }
 
+@test "tool: prune mode runs qmd cleanup and update without embed" {
+  # audit-29: the session.idle self-heal hook fires 'prune' (cleanup+update
+  # only) so bash-deleted notes stop surfacing without paying the embed cost.
+  cat > "$STUB_DIR/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$*" >> "$QMD_CALL_LOG"
+exit 0
+SCRIPT
+  chmod +x "$STUB_DIR/qmd"
+  local call_log="$WORK/qmd-prune-calls.log"
+
+  run env PATH="$STUB_DIR:$PATH" QMD_CALL_LOG="$call_log" bash "$TOOL" prune
+  assert_success
+  assert_output --partial '"status":"started"'
+  assert_output --partial "no embed"
+
+  local i
+  for i in $(seq 1 50); do
+    [[ "$(wc -l < "$call_log" 2>/dev/null || echo 0)" -ge 2 ]] && break
+    sleep 0.1
+  done
+
+  run cat "$call_log"
+  assert_line --index 0 "cleanup"
+  assert_line --index 1 "update"
+  # Exactly two calls — embed must never run in prune mode.
+  assert [ "$(wc -l < "$call_log" 2>/dev/null || echo 0)" = "2" ]
+}
+
 # ── audit-24 NOTE-4: flock serializes the pidfile check-then-act ─────────────
 
 @test "tool: in_progress when another invocation holds the flock (TOCTOU fix)" {
