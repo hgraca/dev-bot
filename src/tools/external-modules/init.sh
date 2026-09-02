@@ -18,13 +18,11 @@ source "${MODULE_DIR}/../../_shared/functions.sh"
 source "${MODULE_DIR}/functions.sh"
 
 # -- Shared state (populated by setup functions, read by worker functions) ---
-# DEV_BOT_ROOT is exported by _shared/functions.sh at source time (respecting a
-# pre-set env value) and refined by _resolve_paths — do not pre-declare it empty.
+DEV_BOT_ROOT=""
 CONFIG_FILE=""
 MODULES_DIR=""
 PROJECT_DIR=""
-MODULE_ENTRIES=""  # name\x1furl\x1fpath\x1fpaths_json per line (pre-built lookup)
-PROCESSED_NAMES="" # names already wired by the declared-module loop (newline-separated)
+MODULE_ENTRIES=""  # name\x1furl\x1flocal_path\x1fpaths_json per line (pre-built lookup)
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -39,10 +37,9 @@ _resolve_project_dir() {
 }
 
 _resolve_paths() {
-  # DEV_BOT_ROOT/CONFIG_FILE/MODULES_DIR may be pre-set (tests run against a sandbox).
-  DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
-  CONFIG_FILE="${CONFIG_FILE:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
-  MODULES_DIR="${MODULES_DIR:-${DEV_BOT_ROOT}/vendor}"
+  DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../../.." && pwd)"
+  CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  MODULES_DIR="${DEV_BOT_ROOT}/vendor"
 }
 
 _check_config_exists() {
@@ -82,11 +79,9 @@ with open('${ext_file}') as f:
 
 _resolve_source_dir() {
   local url="$1"
-  local path="$2"
-  # path (local dir) takes precedence over url — lets a config entry point a
-  # declared repo at a local checkout; never cloned into vendor/.
-  if [[ -n "${path}" ]]; then
-    echo "${path}"
+  local local_path="$2"
+  if [[ -n "${local_path}" ]]; then
+    echo "${local_path}"
     return 0
   elif [[ -n "${url}" ]]; then
     local vendor_rel
@@ -109,6 +104,16 @@ _wire_one_module() {
   local src_dir="$2"
   local paths_json="$3"
 
+  local paths_map
+  paths_map="$(python3 -c "
+import json, sys
+paths = json.loads('${paths_json}')
+for k, v in paths.items():
+    print(f'{k}={v}')
+" 2>/dev/null || true)"
+
+  [[ -n "${paths_map}" ]] || return 0
+
   # External artifacts go into the DEVBOT DIR (e.g. .agents/), like the
   # internal artifacts — NOT .opencode/ — so both harnesses get them through
   # the harness delegation (.claude/* → .agents/*) and opencode's direct
@@ -117,75 +122,33 @@ _wire_one_module() {
   local devbot_dir
   devbot_dir="$(_devbot_get_project_dir "${PROJECT_DIR}")"
 
-  # Decode the paths map into "type | basename | relpath" lines. String values
-  # yield one line; array values (additive paths, D1) yield one line per
-  # element; dict values (memory file maps) are not directory links and are
-  # never wired here.
-  local decoded
-  decoded=$(python3 -c "
-import json, os, sys
-paths = json.loads('${paths_json}')
-for t, v in paths.items():
-    vals = v if isinstance(v, list) else [v]
-    for rel in vals:
-        if isinstance(rel, str) and rel:
-            print(t + '\x1f' + os.path.basename(rel.rstrip('/')) + '\x1f' + rel)
-" 2>/dev/null || true)
-  [[ -n "${decoded}" ]] || return 0
-
-  local prev_type="" seen="" container_done=""
-  while IFS=$'\x1f' read -r type base rel_path; do
-    [[ -z "${type}" || -z "${base}" || -z "${rel_path}" ]] && continue
-
-    if [[ "${type}" != "${prev_type}" ]]; then
-      prev_type="${type}"
-      seen=""
-      container_done=""
-    fi
-
+  while IFS='=' read -r type rel_path; do
+    [[ -z "${type}" || -z "${rel_path}" ]] && continue
     [[ ! -d "${src_dir}/${rel_path}" ]] && continue
 
-    # Same-basename collision within one entry+type: first path wins.
-    if echo "${seen}" | grep -Fqx "${base}" 2>/dev/null; then
-      _warn "${name}: ${type} paths share basename '${base}' (${rel_path}) — skipping"
-      continue
-    fi
-    seen+="${base}"$'\n'
-
-    # Uniform nested layout (D2): .agents/<type>/<org>/<repo> is a container
-    # dir holding one symlink per path, named by the path's basename. A
-    # symlink at the container path is the pre-additive shape — convert it so
-    # a re-init heals consumers wired under the old layout.
-    local container="${PROJECT_DIR}/${devbot_dir}/${type}/${name}"
-    if [[ -z "${container_done}" ]]; then
-      container_done=1
-      if [[ -L "${container}" ]]; then
-        rm "${container}"
-        _log "${name}: converted old-shape link to container dir (${devbot_dir}/${type}/${name})"
-      fi
-      mkdir -p "${container}"
-    fi
-
     local type_src="${src_dir}/${rel_path}"
-    local link_path="${container}/${base}"
+    local target_dir="${PROJECT_DIR}/${devbot_dir}/${type}"
+    local link_path="${target_dir}/${name}"
+
+    mkdir -p "${target_dir}"
 
     if [[ -L "${link_path}" ]]; then
       local current
       current="$(readlink "${link_path}")"
       if [[ "${current}" == "${type_src}" ]]; then
-        _skip "${name} → ${devbot_dir}/${type}/${name}/${base} (already correct)"
+        _skip "${name} → ${devbot_dir}/${type}/${name} (already correct)"
       else
         rm "${link_path}"
         ln -s "${type_src}" "${link_path}"
-        _log "${name} → ${devbot_dir}/${type}/${name}/${base} repaired"
+        _log "${name} → ${devbot_dir}/${type}/${name} repaired"
       fi
     elif [[ -e "${link_path}" ]]; then
       _warn "${link_path} exists but is not a symlink — skipping"
     else
       ln -s "${type_src}" "${link_path}"
-      _log "${name} → ${devbot_dir}/${type}/${name}/${base} linked"
+      _log "${name} → ${devbot_dir}/${type}/${name} linked"
     fi
-  done <<< "${decoded}"
+  done <<< "${paths_map}"
 }
 
 _setup_one_storage() {
@@ -221,21 +184,16 @@ _process_agentic_module() {
       continue
     fi
 
-    local url path paths_json
-    IFS=$'\x1f' read -r _ url path paths_json <<< "${entry_line}"
+    local url local_path paths_json
+    IFS=$'\x1f' read -r _ url local_path paths_json <<< "${entry_line}"
 
     local src_dir
-    src_dir=$(_resolve_source_dir "${url}" "${path}") || {
-      _warn "${ext_name}: missing url and path — skipping"
+    src_dir=$(_resolve_source_dir "${url}" "${local_path}") || {
+      _warn "${ext_name}: missing url and local_path — skipping"
       continue
     }
 
-    if [[ -n "${path}" && ! -d "${src_dir}" ]]; then
-      _warn "${ext_name}: local path not found (${path})"
-      continue
-    fi
-
-    if [[ -z "${path}" && ! -d "${src_dir}" ]]; then
+    if [[ -z "${local_path}" && ! -d "${src_dir}" ]]; then
       _install_one_module "${ext_name}" "${url}" "${src_dir}" "${paths_json}" || {
         _warn "${ext_name}: source not found at ${src_dir} — auto-install failed"
         continue
@@ -244,7 +202,6 @@ _process_agentic_module() {
 
     _wire_one_module "${ext_name}" "${src_dir}" "${paths_json}"
     _setup_one_storage "${ext_name}" "${src_dir}" "${paths_json}"
-    PROCESSED_NAMES+="${ext_name}"$'\n'
   done <<< "${declared_names}"
 }
 
@@ -262,12 +219,10 @@ sys.path.insert(0, '${MODULE_DIR}/../../_shared')
 from read_jsonc import load_jsonc
 data = load_jsonc('${CONFIG_FILE}')
 for name, entry in data.get('external_modules', {}).items():
-    if not isinstance(entry, dict):
-        continue  # boolean enable/disable flags are not module definitions
     url = entry.get('url', '')
-    path = entry.get('path', '')
+    local_path = entry.get('local_path', '')
     paths = json.dumps(entry.get('paths', {}))
-    print(f'{name}\x1f{url}\x1f{path}\x1f{paths}')
+    print(f'{name}\x1f{url}\x1f{local_path}\x1f{paths}')
 " 2>/dev/null || true)
 
   local disabled_json
@@ -282,50 +237,6 @@ for name, entry in data.get('external_modules', {}).items():
   for module_dir in "${DEV_BOT_ROOT}/src/agentic/"*/ "${DEV_BOT_ROOT}/src/tools/"*/; do
     _process_agentic_module "$(basename "${module_dir}")" "${disabled_json}"
   done
-
-  # Config-only modules: entries registered directly in .devbot.global.jsonc
-  # that no internal module declares (CLI/user-added git repos and local
-  # paths). They are wired exactly like declared ones — a url entry is cloned
-  # to vendor/ on first init, a local path is used as-is. Pruning (install.sh)
-  # keeps this set free of leftovers, so wiring everything here is safe.
-  local entry_line name url path paths_json
-  while IFS= read -r entry_line; do
-    [[ -z "${entry_line}" ]] && continue
-    IFS=$'\x1f' read -r name url path paths_json <<< "${entry_line}"
-
-    if [[ -z "${url}" && -z "${path}" ]]; then
-      continue  # no source configured
-    fi
-
-    if echo "${PROCESSED_NAMES}" | grep -Fxq "${name}"; then
-      continue  # already wired by the declared-module loop above
-    fi
-
-    if _is_disabled "${name}" "${disabled_json}"; then
-      _skip "${name}: disabled — skipping"
-      continue
-    fi
-
-    local src_dir
-    if [[ -n "${path}" ]]; then
-      if [[ ! -d "${path}" ]]; then
-        _warn "${name}: local path not found (${path})"
-        continue
-      fi
-      src_dir="${path}"
-    else
-      src_dir="${MODULES_DIR}/$(_derive_vendor_path "${url}")"
-      if [[ ! -d "${src_dir}" ]]; then
-        _install_one_module "${name}" "${url}" "${src_dir}" "${paths_json}" || {
-          _warn "${name}: source not found at ${src_dir} — auto-install failed"
-          continue
-        }
-      fi
-    fi
-
-    _wire_one_module "${name}" "${src_dir}" "${paths_json}"
-    _setup_one_storage "${name}" "${src_dir}" "${paths_json}"
-  done <<< "${MODULE_ENTRIES}"
 
   _ok "external-modules wiring complete"
 }

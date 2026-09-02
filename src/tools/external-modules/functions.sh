@@ -8,13 +8,8 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${MODULE_DIR}/../../_shared/functions.sh"
 
 # Derive a vendor directory path from a git URL.
-# Actual semantics: strip a trailing .git and any *:// scheme+host, then drop
-# the first remaining path segment (the host's org/user namespace).
-#   https://github.com/org/repo.git  →  org/repo
-#   https://github.com/org/repo       →  org/repo
-# scp-style (git@host:org/repo.git) has no *:// scheme, so only the part after
-# the first '/' survives — it derives to a single segment (repo). Declared
-# modules use https URLs, which is what the vendor layout expects.
+#   https://github.com/org/repo.git  →  github.com/org/repo
+#   git@github.com:org/repo.git      →  github.com/org/repo
 _derive_vendor_path() {
     local url="${1%/}"
     url="${url%.git}"
@@ -53,13 +48,9 @@ for rel_path in paths.values():
 }
 
 # Set up external module storage structure.
-# Creates storage/external-agentic-modules/<sanitized-name>/ with:
+# Creates storage/external-agentic-modules/<name>/ with:
 #   - Directory symlinks for string-valued paths (e.g. "skills" -> "skills")
-#   - One directory symlink per element for array-valued paths (additive, D1),
-#     under a <type> container dir (e.g. skills/react, skills/nextjs-...)
 #   - File symlinks for object-valued paths (e.g. {"CLAUDE.md": "bootstrap/..."})
-# The config name is sanitized via _external_storage_dir_name (org/repo ->
-# org__repo) so the storage dir stays a single path segment.
 #
 # Args:
 #   $1  src_dir  — vendor directory (or local path) for the module
@@ -72,7 +63,7 @@ _setup_external_module_storage() {
     local paths_json="$3"
     local dev_bot_root="$4"
 
-    local storage_base="${dev_bot_root}/storage/external-agentic-modules/$(_external_storage_dir_name "${name}")"
+    local storage_base="${dev_bot_root}/storage/external-agentic-modules/${name}"
 
     _step "${name}: setting up storage structure..."
 
@@ -89,9 +80,9 @@ expected_files = set()
 
 for path_type, value in paths.items():
     dest_dir = os.path.join(storage_base, path_type)
+    expected_dirs.add(dest_dir)
 
     if isinstance(value, str):
-        expected_dirs.add(dest_dir)
         source = os.path.join(src_dir, value)
         if not os.path.isdir(source):
             print(f'  \u26a0  {name}/{path_type} \u2014 source dir not found: {source}')
@@ -112,45 +103,7 @@ for path_type, value in paths.items():
             os.symlink(source, dest_dir)
             print(f'  -  {name}/{path_type} \u2192 {source}')
 
-    elif isinstance(value, list):
-        # Additive paths: <type> becomes a container dir holding one symlink
-        # per element, named by the element's basename. Same-basename elements
-        # keep the first, mirroring the .agents wiring (D2).
-        seen = set()
-        for rel in value:
-            if not isinstance(rel, str) or not rel:
-                continue
-            base = os.path.basename(rel.rstrip('/'))
-            source = os.path.join(src_dir, rel)
-            if not os.path.isdir(source):
-                print(f'  \u26a0  {name}/{path_type}/{rel} \u2014 source dir not found: {source}')
-                continue
-            if base in seen:
-                print(f'  \u26a0  {name}/{path_type} paths share basename \'{base}\' ({rel}) \u2014 skipping')
-                continue
-            seen.add(base)
-            leaf = os.path.join(dest_dir, base)
-            # The leaf is a symlinked dir — cleanup walks dirs and must treat
-            # it as expected, or it would be reaped as stale right after creation.
-            expected_dirs.add(dest_dir)
-            expected_dirs.add(leaf)
-            if os.path.islink(leaf):
-                current = os.readlink(leaf)
-                if current == source:
-                    print(f'  \u203a  {name}/{path_type}/{base} \u2014 already correct')
-                else:
-                    os.unlink(leaf)
-                    os.symlink(source, leaf)
-                    print(f'  -  {name}/{path_type}/{base} \u2192 {source} (repaired)')
-            elif os.path.exists(leaf):
-                print(f'  \u26a0\u26a0  {name}/{path_type}/{base} \u2014 exists but not symlink: {leaf}')
-            else:
-                os.makedirs(dest_dir, exist_ok=True)
-                os.symlink(source, leaf)
-                print(f'  -  {name}/{path_type}/{base} \u2192 {source}')
-
     elif isinstance(value, dict):
-        expected_dirs.add(dest_dir)
         for src_file, dest_rel_path in value.items():
             source_file = os.path.join(src_dir, src_file)
             if not os.path.exists(source_file):
@@ -209,155 +162,13 @@ if os.path.isdir(storage_base):
                 print(f'  -  {name} stale file removed: {os.path.relpath(fpath, storage_base)}')
         for dname in dirs:
             dpath = os.path.join(root, dname)
-            if dpath in expected_dirs:
-                continue
-            if os.path.islink(dpath):
-                # A stale symlinked dir leaf — unlink the link, never the target.
-                os.unlink(dpath)
-                print(f'  -  {name} stale link removed: {os.path.relpath(dpath, storage_base)}')
-                continue
-            try:
-                shutil.rmtree(dpath)
-                print(f'  -  {name} stale dir removed: {os.path.relpath(dpath, storage_base)}')
-            except OSError:
-                pass
+            if dpath not in expected_dirs:
+                try:
+                    shutil.rmtree(dpath)
+                    print(f'  -  {name} stale dir removed: {os.path.relpath(dpath, storage_base)}')
+                except OSError:
+                    pass
 " "$src_dir" "$paths_json" "$storage_base" "$name" 2>&1 || true
-}
-
-# Prune stale external module config entries — entries whose key is declared
-# by a *disabled* internal module (e.g. a disabled module's declaration that
-# was merged into config before the module was disabled). Entries with no
-# declaring module (CLI-added, local `path`) are intentional and kept.
-# Args:
-#   $1  config_file     — .devbot.global.jsonc
-#   $2  dev_bot_root    — root of dev-bot installation
-#   $3  disabled_json   — JSON array of disabled module names
-#   $4  merge_script    — path to merge_modules_jsonc.py
-_prune_stale_external_modules() {
-    local config_file="$1"
-    local dev_bot_root="$2"
-    local disabled_json="$3"
-    local merge_script="$4"
-
-    local shared_dir
-    shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../_shared" && pwd)"
-
-    local stale_names
-    stale_names=$(python3 -c "
-import json, sys, glob
-sys.path.insert(0, '${shared_dir}')
-from read_jsonc import load_jsonc
-root = '${dev_bot_root}'
-disabled = set(json.loads('${disabled_json}'))
-
-# Declared-name maps from internal module declaration files: which names are
-# declared by an enabled module (live declarers) and which only by disabled
-# ones (stale sources). enabled_modules = the enabled module dirs that ship
-# declarations (declarers are module NAMES, not declared names).
-enabled_modules = set()
-enabled_declared = {}
-disabled_declared = {}
-for pattern in ('src/agentic/*/external-modules.json', 'src/tools/*/external-modules.json'):
-    for f in glob.glob(root + '/' + pattern):
-        mod = f.split('/')[-2]
-        try:
-            with open(f) as fh:
-                names = json.load(fh)
-        except Exception:
-            continue
-        if mod in disabled:
-            for name in names:
-                disabled_declared[name] = mod
-        else:
-            enabled_modules.add(mod)
-            for name in names:
-                enabled_declared[name] = mod
-
-data = load_jsonc('${config_file}')
-modules = data.get('external_modules', {})
-configured_keys = set(modules)
-
-def declarer_alive(d):
-    # An enabled internal module that ships declarations, or any currently
-    # configured external module.
-    return d in enabled_modules or d in configured_keys
-
-stale = []
-for name, entry in modules.items():
-    if not isinstance(entry, dict):
-        continue
-    # User-added entries are never auto-pruned.
-    if entry.get('_user_added'):
-        continue
-    declared_by = entry.get('_declared_by')
-    if isinstance(declared_by, list) and declared_by:
-        # Prune when every declarer is disabled or gone (chain cleanup: a
-        # removed parent external module takes its transitive children).
-        if all(d in disabled or not declarer_alive(d) for d in declared_by):
-            stale.append(name)
-    elif name in disabled_declared and name not in enabled_declared:
-        # Markerless legacy entry declared only by a disabled module.
-        stale.append(name)
-print('\n'.join(sorted(stale)))
-" 2>/dev/null || true)
-
-    local removed=0
-    local name
-    while IFS= read -r name; do
-        [[ -z "${name}" ]] && continue
-        python3 "${merge_script}" "${config_file}" --remove "${name}" >/dev/null 2>&1 && removed=$((removed + 1))
-    done <<< "${stale_names}"
-
-    if [[ ${removed} -gt 0 ]]; then
-        _log "removed ${removed} stale external module config entry/entries"
-    fi
-}
-
-# Remove vendor clones that are no longer referenced by any url entry in the
-# config (e.g. stale clones of modules whose config entry was pruned).
-# Args:
-#   $1  modules_dir    — the vendor directory
-#   $2  config_file    — .devbot.global.jsonc
-_prune_stale_vendor_clones() {
-    local modules_dir="$1"
-    local config_file="$2"
-
-    local shared_dir
-    shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../_shared" && pwd)"
-
-    local referenced=""
-    local url
-    while IFS= read -r url; do
-        [[ -z "${url}" ]] && continue
-        referenced+="$(_derive_vendor_path "${url}")"$'\n'
-    done < <(python3 -c "
-import json, sys
-sys.path.insert(0, '${shared_dir}')
-from read_jsonc import load_jsonc
-d = load_jsonc('${config_file}')
-for e in d.get('external_modules', {}).values():
-    if isinstance(e, dict) and e.get('url'):
-        print(e['url'])
-" 2>/dev/null || true)
-
-    local removed=0
-    local org_dir repo_dir rel
-    for org_dir in "${modules_dir}"/*/; do
-        [[ -d "${org_dir}" ]] || continue
-        for repo_dir in "${org_dir}"*/; do
-            [[ -d "${repo_dir}.git" ]] || continue
-            rel="$(basename "${org_dir}")/$(basename "${repo_dir}")"
-            if ! echo "${referenced}" | grep -Fxq "${rel}"; then
-                rm -rf "${repo_dir}"
-                _log "removed stale vendor clone: vendor/${rel}"
-                removed=$((removed + 1))
-            fi
-        done
-    done
-
-    if [[ ${removed} -gt 0 ]]; then
-        _ok "${removed} stale vendor clone(s) removed"
-    fi
 }
 
 # Clone or update a single git-sourced external module.

@@ -251,20 +251,11 @@ _prune_orphaned_external_modules() {
   local configured
   configured="$(_devbot_get_external_modules)"
 
-  # Config names may be namespaced (org/repo) while storage dirs are sanitized
-  # to a single segment (org__repo) — compare on the sanitized form.
-  local configured_sanitized=""
-  local _cn
-  while IFS= read -r _cn; do
-    [[ -z "${_cn}" ]] && continue
-    configured_sanitized+="$(_external_storage_dir_name "${_cn}")"$'\n'
-  done <<< "${configured}"
-
   local orphan_dir
   for orphan_dir in "${external_base}/"*/; do
     local dir_name
     dir_name="$(basename "${orphan_dir}")"
-    if echo "${configured_sanitized}" | grep -Fxq "${dir_name}" 2>/dev/null; then
+    if echo "${configured}" | grep -Fxq "${dir_name}" 2>/dev/null; then
       continue
     fi
     _warn "Removing orphaned external module storage: ${dir_name} (not in modules config)"
@@ -306,7 +297,7 @@ for m in json.loads(sys.stdin.read()):
     if echo "${disabled_list}" | grep -Fxq "${ext_mod_name}" 2>/dev/null; then
       continue
     fi
-    _link_external_module_memory "${external_base}/$(_external_storage_dir_name "${ext_mod_name}")/" "${memory_dir}"
+    _link_external_module_memory "${external_base}/${ext_mod_name}/" "${memory_dir}"
   done < <(_devbot_get_external_modules)
 }
 

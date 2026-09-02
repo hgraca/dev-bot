@@ -1,45 +1,17 @@
 #!/usr/bin/env python3
-"""Edit the 'external_modules' section of a JSONC file while preserving comments.
+"""Insert entries into the 'external_modules' section of a JSONC file while preserving all comments.
 
 Usage:
-  merge_modules_jsonc.py <jsonc_file> <entries_file> [--owner <name>]   # insert missing entries
-  merge_modules_jsonc.py <jsonc_file> --remove <key>                    # remove one entry
-  merge_modules_jsonc.py <jsonc_file> --update <entries_file> [--owner <name>]  # update declared entries
-
-Insert mode:
-  Reads entries from entries_file (a JSON object of module declarations)
-  and merges each into the "external_modules" key of jsonc_file.
-  Skips entries whose key already exists. Preserves JSONC comments.
-  Provenance: with --owner <name> the inserted entry records
-  "_declared_by": [<name>]; without --owner (a CLI/user registration) it
-  records "_user_added": true.
-
-Remove mode:
-  Removes the entry with the given key. Prints REMOVED or NOT_FOUND.
-
-Update mode:
-  For each key in entries_file that already exists, replaces the entry with
-  the declaration merged over the existing value: keys present in the
-  declaration (url, paths) win, any other existing keys (e.g. a user-added
-  local `path`) are preserved. With --owner <name>, <name> is appended to the
-  entry's "_declared_by" list (union, deduplicated). Entries not present are
-  left untouched (use insert mode to add them). Prints UPDATED (n) or SKIP_ALL.
+  merge_modules_jsonc.py <jsonc_file> <entries_file>
+    Reads entries from entries_file (a JSON object of module declarations)
+    and merges each into the "external_modules" key of jsonc_file.
+    Skips entries whose key already exists. Preserves JSONC comments.
 
 Exit codes:
-  0 - success (INSERTED / SKIP_ALL / REMOVED / NOT_FOUND / UPDATED / NO_MODULES)
-  1 - ERROR: failure, or a declaration refused by the duplicate-repo guard
-
-Duplicate-repo guard: insert and update mode refuse a declaration whose git url
-derives to an org/repo already present under a *different* key. The script
-prints an ERROR naming the existing key and exits 1 before any write, so a
-refused batch leaves the file untouched. Declarations with a local `path`
-(no url) never collide.
-
-Comment preservation: comments OUTSIDE the external_modules section are always
-kept. Insert mode also keeps comments inside the section (it only appends new
-entries). Remove/update modes rewrite the section's contents canonically from
-the parsed object, so comments *inside* the external_modules section are not
-preserved — entries there are machine-generated in practice.
+  0 - INSERTED:   one or more entries were inserted
+  0 - SKIP_ALL:   all entries already exist (no change)
+  0 - NO_MODULES: file has no external_modules section (created one)
+  1 - ERROR:      other failure
 
 This is the external_modules-section counterpart of merge_mcp_jsonc.py.
 """
@@ -103,84 +75,27 @@ def _find_balanced_brace(text, open_pos):
 
 
 def _find_field_value_end(text, field):
-    """Find value boundaries for the top-level <field> key.
-    Returns (value_start, value_end_exclusive) or None. Works on single-line
-    and multi-line JSONC alike: scans tokens, tracking brace depth, and treats
-    `"field"` as the key only when it sits at depth 0 in an object context
-    (preceded by '{' or ',').
+    """Find value boundaries for top-level <field> key.
+    Returns (value_start, value_end_exclusive) or None.
     """
-    needle = '"' + field + '"'
-    depth = 0
-    i = 0
-    n = len(text)
-    while i < n:
-        j = _skip_strings_and_comments(text, i)
-        if j != i:
-            # Root-level keys live at depth 1; only a string that equals the
-            # field name there can be the key (values at depth 1 are strings
-            # that never equal it in practice). Probe for the colon.
-            if depth == 1 and text[i] == '"' and text[i:j] == needle:
-                c = j
-                while c < n and text[c] in ' \t\r\n':
-                    c += 1
-                c2 = _skip_strings_and_comments(text, c)
-                if c2 != c:
-                    c = c2
-                while c < n and text[c] in ' \t\r\n':
-                    c += 1
-                if c < n and text[c] == ':':
-                    v = c + 1
-                    while v < n:
-                        v2 = _skip_strings_and_comments(text, v)
-                        if v2 != v:
-                            v = v2
-                            continue
-                        if text[v] in ' \t\r\n':
-                            v += 1
-                            continue
-                        break
-                    if v < n:
-                        ch = text[v]
-                        if ch == '{':
-                            end = _find_balanced_brace(text, v)
-                            if end != -1:
-                                return (v, end)
-                        elif ch == '[':
-                            d2 = 0
-                            t = v
-                            while t < n:
-                                t2 = _skip_strings_and_comments(text, t)
-                                if t2 != t:
-                                    t = t2
-                                    continue
-                                c3 = text[t]
-                                if c3 == '[':
-                                    d2 += 1
-                                elif c3 == ']':
-                                    d2 -= 1
-                                    if d2 == 0:
-                                        return (v, t + 1)
-                                t += 1
-                        else:
-                            # Scalar value: ends at the next top-level ',' or '}'.
-                            t = v
-                            while t < n:
-                                t2 = _skip_strings_and_comments(text, t)
-                                if t2 != t:
-                                    t = t2
-                                    continue
-                                if text[t] in ',}':
-                                    return (v, t)
-                                t += 1
-            i = j
+    m = re.search(r'^\s*"' + re.escape(field) + r'"\s*:', text, re.MULTILINE)
+    if not m:
+        return None
+
+    i = m.end()
+    while i < len(text):
+        i = _skip_strings_and_comments(text, i)
+        if i >= len(text):
+            return None
+        if text[i] == '{':
+            end = _find_balanced_brace(text, i)
+            if end == -1:
+                return None
+            return (i, end)
+        if text[i] in ' \t\n\r,':
+            i += 1
             continue
-        ch = text[i]
-        if ch == '{':
-            depth += 1
-        elif ch == '}':
-            depth -= 1
-        i += 1
-    return None
+        return None
 
 
 def _entry_exists(section_text, key):
@@ -192,142 +107,38 @@ def _entry_exists(section_text, key):
     ))
 
 
-def _strip_comments(text):
-    """Remove // and /* */ comments, keeping string literals intact."""
-    out = []
-    i = 0
-    while i < len(text):
-        n = _skip_strings_and_comments(text, i)
-        if n != i:
-            if text[i] == '"':
-                out.append(text[i:n])
-            i = n
-            continue
-        out.append(text[i])
-        i += 1
-    return ''.join(out)
+def _insert_before_close(text, mcp_end, entry_str):
+    """Insert entry_str before the closing '}' at mcp_end-1."""
+    return text[:mcp_end - 1] + entry_str + text[mcp_end - 1:]
 
 
-def _drop_orphan_commas(s):
-    """Remove commas that are immediately preceded or followed (ignoring
-    whitespace) by '{', '}' or another comma. Tolerates the leading/trailing
-    comma artifacts left by textual insert merges."""
-    out = []
-    i = 0
-    n = len(s)
-    while i < n:
-        if s[i] == ',':
-            j = len(out) - 1
-            while j >= 0 and out[j] in ' \t\n\r':
-                j -= 1
-            prev = out[j] if j >= 0 else '{'
-            k = i + 1
-            while k < n and s[k] in ' \t\n\r':
-                k += 1
-            nxt = s[k] if k < n else '}'
-            if prev in '{,' or nxt in '},':
-                i += 1
-                continue
-        out.append(s[i])
-        i += 1
-    return ''.join(out)
-
-
-def _parse_section_dict(inner_text):
-    """Parse the text between the external_modules braces into a dict,
-    tolerating comments and orphan commas."""
-    clean = _drop_orphan_commas(_strip_comments(inner_text))
-    return json.loads('{' + clean + '}')
-
-
-def _serialize_section_dict(section_dict):
-    """Serialize a dict as the inner content of the external_modules section."""
-    body = json.dumps(section_dict, indent=2)
-    return body[1:-1]
-
-
-def _derive_org_repo(url):
-    """Mirror src/tools/external-modules/functions.sh:_derive_vendor_path:
-    strip trailing '/', '.git', any 'scheme://', and the first path segment,
-    yielding the canonical org/repo for git urls."""
-    u = url.rstrip('/')
-    if u.endswith('.git'):
-        u = u[:-4]
-    if '://' in u:
-        u = u.split('://', 1)[1]
-    if '/' in u:
-        u = u.split('/', 1)[1]
-    return u
-
-
-def _load_text(path):
-    try:
-        with open(path) as f:
-            return f.read()
-    except FileNotFoundError:
-        print("ERROR: target file not found", file=sys.stderr)
+def main():
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} <jsonc_file> <entries_file>", file=sys.stderr)
         sys.exit(1)
 
+    jsonc_path = sys.argv[1]
+    entries_path = sys.argv[2]
 
-def _load_entries(path):
+    # Read entries to merge
     try:
-        with open(path) as f:
+        with open(entries_path) as f:
             entries = json.load(f)
     except (json.JSONDecodeError, FileNotFoundError) as e:
         print(f"ERROR: cannot read entries file: {e}", file=sys.stderr)
         sys.exit(1)
+
     if not isinstance(entries, dict) or not entries:
         print("SKIP_EMPTY")
-        return None
-    return entries
-
-
-def _cmd_insert(jsonc_path, entries_path, owner=""):
-    entries = _load_entries(entries_path)
-    if entries is None:
         return 0
 
-    # Provenance decoration applied up front so both the section-creation and
-    # section-append paths record it: declarations record their owning module,
-    # ownerless registrations (CLI/user) are marked user-added.
-    decorated = {}
-    for key, value in entries.items():
-        entry_value = dict(value)
-        if owner:
-            entry_value['_declared_by'] = [owner]
-        else:
-            entry_value['_user_added'] = True
-        decorated[key] = entry_value
-    entries = decorated
-
-    text = _load_text(jsonc_path)
-
-    # D6 duplicate-repo guard: refuse declarations whose git url derives to an
-    # org/repo already present under a different key — in the existing config
-    # or earlier in this same declaration batch. Runs before any write so a
-    # refused batch leaves the file untouched.
-    repo_keys = {}
-    bounds0 = _find_field_value_end(text, "external_modules")
-    if bounds0 is not None:
-        try:
-            section0 = _parse_section_dict(text[bounds0[0] + 1:bounds0[1] - 1])
-        except (json.JSONDecodeError, ValueError):
-            section0 = {}
-        for k, v in section0.items():
-            if isinstance(v, dict) and isinstance(v.get('url'), str):
-                repo_keys.setdefault(_derive_org_repo(v['url']), k)
-    for key, value in entries.items():
-        if not isinstance(value, dict) or not isinstance(value.get('url'), str):
-            continue  # local-path declarations never collide
-        repo = _derive_org_repo(value['url'])
-        holder = repo_keys.get(repo)
-        if holder is not None and holder != key:
-            print(
-                f"ERROR: {key}: repo '{repo}' already declared as '{holder}'; use that key",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-        repo_keys.setdefault(repo, key)
+    # Read target JSONC file
+    try:
+        with open(jsonc_path) as f:
+            text = f.read()
+    except FileNotFoundError:
+        print("ERROR: target file not found", file=sys.stderr)
+        sys.exit(1)
 
     bounds = _find_field_value_end(text, "external_modules")
     if bounds is None:
@@ -426,136 +237,6 @@ def _cmd_insert(jsonc_path, entries_path, owner=""):
     else:
         print(f"SKIP_ALL ({skip_count} already present)")
     return 0
-
-
-def _cmd_remove(jsonc_path, key):
-    text = _load_text(jsonc_path)
-    bounds = _find_field_value_end(text, "external_modules")
-    if bounds is None:
-        print("NOT_FOUND")
-        return 0
-
-    mod_start, mod_end = bounds
-    try:
-        section = _parse_section_dict(text[mod_start + 1:mod_end - 1])
-    except (json.JSONDecodeError, ValueError):
-        print("ERROR: cannot parse external_modules section", file=sys.stderr)
-        sys.exit(1)
-
-    if key not in section:
-        print("NOT_FOUND")
-        return 0
-
-    del section[key]
-    text = text[:mod_start] + '{' + _serialize_section_dict(section) + '}' + text[mod_end:]
-    with open(jsonc_path, 'w') as f:
-        f.write(text)
-    print("REMOVED")
-    return 0
-
-
-def _cmd_update(jsonc_path, entries_path, owner=""):
-    entries = _load_entries(entries_path)
-    if entries is None:
-        return 0
-
-    text = _load_text(jsonc_path)
-    bounds = _find_field_value_end(text, "external_modules")
-    if bounds is None:
-        print("SKIP_ALL (no external_modules section)")
-        return 0
-
-    mod_start, mod_end = bounds
-    try:
-        section = _parse_section_dict(text[mod_start + 1:mod_end - 1])
-    except (json.JSONDecodeError, ValueError):
-        print("ERROR: cannot parse external_modules section", file=sys.stderr)
-        sys.exit(1)
-
-    # D6 duplicate-repo guard (update mode): refuse when a declaration for an
-    # existing key derives to an org/repo held by a *different* key.
-    repo_keys = {}
-    for k, v in section.items():
-        if isinstance(v, dict) and isinstance(v.get('url'), str):
-            repo_keys.setdefault(_derive_org_repo(v['url']), k)
-    for key, decl in entries.items():
-        if not isinstance(decl, dict) or key not in section:
-            continue
-        if not isinstance(decl.get('url'), str):
-            continue  # local-path declarations never collide
-        repo = _derive_org_repo(decl['url'])
-        holder = repo_keys.get(repo)
-        if holder is not None and holder != key:
-            print(
-                f"ERROR: {key}: repo '{repo}' already declared as '{holder}'; use that key",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-    updated = 0
-    not_present = 0
-    for key, decl in entries.items():
-        if not isinstance(decl, dict) or key not in section:
-            not_present += 1
-            continue
-        existing = section[key]
-        if not isinstance(existing, dict):
-            existing = {}
-        # Declaration wins for url/paths; any other existing keys (e.g. a
-        # user-added local `path`) are preserved.
-        merged = dict(existing)
-        for field in ('url', 'paths'):
-            if field in decl:
-                merged[field] = decl[field]
-        # Union of declaring modules.
-        if owner:
-            declared_by = merged.get('_declared_by')
-            if not isinstance(declared_by, list):
-                declared_by = []
-            if owner not in declared_by:
-                declared_by.append(owner)
-            merged['_declared_by'] = declared_by
-        section[key] = merged
-        updated += 1
-
-    if updated == 0:
-        print(f"SKIP_ALL ({not_present} not present)")
-        return 0
-
-    text = text[:mod_start] + '{' + _serialize_section_dict(section) + '}' + text[mod_end:]
-    with open(jsonc_path, 'w') as f:
-        f.write(text)
-    print(f"UPDATED ({updated} entry/entries)")
-    return 0
-
-
-def main():
-    argv = sys.argv[1:]
-    owner = ""
-    rest = []
-    i = 0
-    while i < len(argv):
-        if argv[i] == '--owner' and i + 1 < len(argv):
-            owner = argv[i + 1]
-            i += 2
-        else:
-            rest.append(argv[i])
-            i += 1
-
-    if len(rest) == 2:
-        _cmd_insert(rest[0], rest[1], owner)
-    elif len(rest) == 3 and rest[1] == '--remove':
-        _cmd_remove(rest[0], rest[2])
-    elif len(rest) == 3 and rest[1] == '--update':
-        _cmd_update(rest[0], rest[2], owner)
-    else:
-        print(
-            "Usage: merge_modules_jsonc.py <jsonc_file> <entries_file> [--owner <name>]"
-            " | <jsonc_file> --remove <key>"
-            " | <jsonc_file> --update <entries_file> [--owner <name>]",
-            file=sys.stderr,
-        )
-        sys.exit(1)
 
 
 if __name__ == '__main__':

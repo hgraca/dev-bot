@@ -70,8 +70,6 @@ except:
 
 _devbot_get_project_dir() { echo ".agents"; }
 
-_external_storage_dir_name() { printf '%s' "${1//\//__}"; }
-
 _devbot_get_external_modules() {
   local config="${DEV_BOT_ROOT}/.devbot.jsonc"
   [[ ! -f "${config}" ]] && return 0
@@ -338,28 +336,6 @@ with open(config, 'w') as f:
   assert [ ! -e "${SANDBOX_DIR}/storage/external-agentic-modules/orphan-a" ]
   assert [ ! -e "${SANDBOX_DIR}/storage/external-agentic-modules/orphan-b" ]
   assert [ -d "${SANDBOX_DIR}/storage/external-agentic-modules/keep-me" ]
-}
-
-@test "prune: keeps sanitized storage dir for namespaced config name" {
-  _setup '{}'
-  python3 -c "
-import json
-config = '${SANDBOX_DIR}/.devbot.jsonc'
-with open(config) as f:
-    data = json.load(f)
-data.setdefault('external_modules', {})['acme/repo'] = {'url': 'https://example.com/acme/repo.git', 'paths': {}}
-with open(config, 'w') as f:
-    json.dump(data, f, indent=2)
-"
-  # Namespaced names sanitize to a single segment in the storage mirror.
-  mkdir -p "${SANDBOX_DIR}/storage/external-agentic-modules/acme__repo/memory"
-  _add_orphan_storage "ghost-dir"
-
-  run _run _prune_orphaned_external_modules
-  assert_success
-
-  assert [ -d "${SANDBOX_DIR}/storage/external-agentic-modules/acme__repo" ]
-  assert [ ! -e "${SANDBOX_DIR}/storage/external-agentic-modules/ghost-dir" ]
 }
 
 @test "prune: harmless when no external modules directory" {
