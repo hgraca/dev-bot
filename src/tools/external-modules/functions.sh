@@ -8,8 +8,13 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${MODULE_DIR}/../../_shared/functions.sh"
 
 # Derive a vendor directory path from a git URL.
-#   https://github.com/org/repo.git  →  github.com/org/repo
-#   git@github.com:org/repo.git      →  github.com/org/repo
+# Actual semantics: strip a trailing .git and any *:// scheme+host, then drop
+# the first remaining path segment (the host's org/user namespace).
+#   https://github.com/org/repo.git  →  org/repo
+#   https://github.com/org/repo       →  org/repo
+# scp-style (git@host:org/repo.git) has no *:// scheme, so only the part after
+# the first '/' survives — it derives to a single segment (repo). Declared
+# modules use https URLs, which is what the vendor layout expects.
 _derive_vendor_path() {
     local url="${1%/}"
     url="${url%.git}"
