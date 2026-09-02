@@ -154,6 +154,18 @@ Known third-party noise signatures — record as NOTE, not FAIL, unless they esc
 
 Fold anything found into the report's FAIL table (or NOTES) with the log line and likely cause.
 
+## 9. External modules (install + wiring)
+
+External modules are the one dev-bot feature with a registration CLI (`devbot module add`) plus a separate wiring pass (reinit's `external-modules/init.sh`), so audit them **live end-to-end** — filesystem reachability is not enough.
+
+- **Inventory** — list every entry under `external_modules` in `.devbot.global.jsonc` (both modules declared by internal `external-modules.json` files and user/CLI `module add` entries). For each confirm: the source resolves (vendor clone for `url`, existing dir for `local_path`); it is wired as `.agents/<type>/<name>` per its `paths` map in the project's devbot dir; and its storage mirror exists under `storage/external-agentic-modules/<name>/`.
+- **Install all external modules** — run the install path (`devbot module install`) and confirm every `url` entry clones/updates and every `local_path` entry is verified without cloning.
+- **Local-path module end-to-end** — create a dummy local module (a temp dir with `skills/` and/or `agents/` subdirs containing a `SKILL.md` / agent file), register it with the official CLI (`devbot module add <dir>`), then run `devbot reinit`. Confirm the dummy is wired into the project's `.agents/skills/<name>` (and agents/commands per detected paths) and mirrored in storage. This is the documented user flow — a registered module that reinit does **not** wire is a FAIL (audit-29 FAIL-1).
+- **Git module variant** (optional, offline-safe) — repeat with a `file://` url or a pre-cloned vendor dir via `devbot module add <url>`.
+- **Revert** — afterwards `devbot module remove <name>`, delete the dummy source / vendor clone / storage dir, re-run reinit, and confirm the fixture is back to its pre-test state (no dummy references in configs, no broken symlinks). Audit-29's §9 shows the expected pass/fail matrix and cleanup.
+
+Fold any finding into the FAIL table with the config entry, the observed wiring state, and the likely cause (declaration gate in `external-modules/init.sh`, `_discover_projects()` scope, `_unwire_module` coverage, etc.).
+
 ## Report
 
 At the end, produce an audit that answers only these two questions (project specifics are irrelevant):
