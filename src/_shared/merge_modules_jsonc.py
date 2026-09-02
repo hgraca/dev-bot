@@ -27,7 +27,13 @@ Update mode:
 
 Exit codes:
   0 - success (INSERTED / SKIP_ALL / REMOVED / NOT_FOUND / UPDATED / NO_MODULES)
-  1 - ERROR: other failure
+  1 - ERROR: failure, or a declaration refused by the duplicate-repo guard
+
+Duplicate-repo guard: insert and update mode refuse a declaration whose git url
+derives to an org/repo already present under a *different* key. The script
+prints an ERROR naming the existing key and exits 1 before any write, so a
+refused batch leaves the file untouched. Declarations with a local `path`
+(no url) never collide.
 
 Comment preservation: comments OUTSIDE the external_modules section are always
 kept. Insert mode also keeps comments inside the section (it only appends new
@@ -240,6 +246,20 @@ def _serialize_section_dict(section_dict):
     return body[1:-1]
 
 
+def _derive_org_repo(url):
+    """Mirror src/tools/external-modules/functions.sh:_derive_vendor_path:
+    strip trailing '/', '.git', any 'scheme://', and the first path segment,
+    yielding the canonical org/repo for git urls."""
+    u = url.rstrip('/')
+    if u.endswith('.git'):
+        u = u[:-4]
+    if '://' in u:
+        u = u.split('://', 1)[1]
+    if '/' in u:
+        u = u.split('/', 1)[1]
+    return u
+
+
 def _load_text(path):
     try:
         with open(path) as f:
@@ -281,6 +301,34 @@ def _cmd_insert(jsonc_path, entries_path, owner=""):
     entries = decorated
 
     text = _load_text(jsonc_path)
+
+    # D6 duplicate-repo guard: refuse declarations whose git url derives to an
+    # org/repo already present under a different key — in the existing config
+    # or earlier in this same declaration batch. Runs before any write so a
+    # refused batch leaves the file untouched.
+    repo_keys = {}
+    bounds0 = _find_field_value_end(text, "external_modules")
+    if bounds0 is not None:
+        try:
+            section0 = _parse_section_dict(text[bounds0[0] + 1:bounds0[1] - 1])
+        except (json.JSONDecodeError, ValueError):
+            section0 = {}
+        for k, v in section0.items():
+            if isinstance(v, dict) and isinstance(v.get('url'), str):
+                repo_keys.setdefault(_derive_org_repo(v['url']), k)
+    for key, value in entries.items():
+        if not isinstance(value, dict) or not isinstance(value.get('url'), str):
+            continue  # local-path declarations never collide
+        repo = _derive_org_repo(value['url'])
+        holder = repo_keys.get(repo)
+        if holder is not None and holder != key:
+            print(
+                f"ERROR: {key}: repo '{repo}' already declared as '{holder}'; use that key",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        repo_keys.setdefault(repo, key)
+
     bounds = _find_field_value_end(text, "external_modules")
     if bounds is None:
         # No "external_modules" section — create one before the last closing brace.
@@ -423,6 +471,26 @@ def _cmd_update(jsonc_path, entries_path, owner=""):
     except (json.JSONDecodeError, ValueError):
         print("ERROR: cannot parse external_modules section", file=sys.stderr)
         sys.exit(1)
+
+    # D6 duplicate-repo guard (update mode): refuse when a declaration for an
+    # existing key derives to an org/repo held by a *different* key.
+    repo_keys = {}
+    for k, v in section.items():
+        if isinstance(v, dict) and isinstance(v.get('url'), str):
+            repo_keys.setdefault(_derive_org_repo(v['url']), k)
+    for key, decl in entries.items():
+        if not isinstance(decl, dict) or key not in section:
+            continue
+        if not isinstance(decl.get('url'), str):
+            continue  # local-path declarations never collide
+        repo = _derive_org_repo(decl['url'])
+        holder = repo_keys.get(repo)
+        if holder is not None and holder != key:
+            print(
+                f"ERROR: {key}: repo '{repo}' already declared as '{holder}'; use that key",
+                file=sys.stderr,
+            )
+            sys.exit(1)
 
     updated = 0
     not_present = 0

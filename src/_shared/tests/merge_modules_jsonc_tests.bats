@@ -371,3 +371,109 @@ print('ok')
   assert_success
   assert_output "ok"
 }
+
+@test "insert: refuses short key when repo already declared under another key" {
+  cat > "${WORK}/cfg2.jsonc" <<'EOF'
+{
+  "external_modules": {
+    "mindrally/skills": { "url": "https://github.com/mindrally/skills.git", "paths": { "skills": ["skills/react"] } }
+  }
+}
+EOF
+  cat > "${WORK}/decl.json" <<'EOF'
+{"mindrally-skills": {"url": "https://github.com/mindrally/skills.git", "paths": {"skills": "skills/react"}}}
+EOF
+  cp "${WORK}/cfg2.jsonc" "${WORK}/before.jsonc"
+
+  run python3 "$TOOL" "${WORK}/cfg2.jsonc" "${WORK}/decl.json"
+
+  assert_failure
+  assert_output --partial "already declared as 'mindrally/skills'"
+  assert [ "$(cat "${WORK}/before.jsonc")" = "$(cat "${WORK}/cfg2.jsonc")" ]
+}
+
+@test "insert: canonical key (key == derived org/repo) is not refused" {
+  cat > "${WORK}/cfg2.jsonc" <<'EOF'
+{
+  "external_modules": {}
+}
+EOF
+  cat > "${WORK}/decl.json" <<'EOF'
+{"mindrally/skills": {"url": "https://github.com/mindrally/skills.git", "paths": {"skills": ["skills/react", "skills/nextjs-react-typescript"]}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg2.jsonc" "${WORK}/decl.json"
+
+  assert_success
+  assert_output --partial "INSERTED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg2.jsonc')
+assert d['external_modules']['mindrally/skills']['paths']['skills'] == ['skills/react', 'skills/nextjs-react-typescript'], d
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "update: refuses updating an entry whose repo is held by a different key" {
+  # Pre-guard legacy state: a canonical entry and a differently-keyed twin on
+  # the same repo url. Updating the twin must be refused.
+  cat > "${WORK}/cfg2.jsonc" <<'EOF'
+{
+  "external_modules": {
+    "mindrally/skills": { "url": "https://github.com/mindrally/skills.git", "paths": { "skills": ["skills/react"] }, "_declared_by": ["react"] },
+    "mindrally-skills": { "url": "https://github.com/mindrally/skills.git", "paths": { "skills": "skills/svelte" }, "_declared_by": ["svelte"] }
+  }
+}
+EOF
+  cat > "${WORK}/decl.json" <<'EOF'
+{"mindrally-skills": {"url": "https://github.com/mindrally/skills.git", "paths": {"skills": "skills/other"}}}
+EOF
+  cp "${WORK}/cfg2.jsonc" "${WORK}/before.jsonc"
+
+  run python3 "$TOOL" "${WORK}/cfg2.jsonc" --update "${WORK}/decl.json"
+
+  assert_failure
+  assert_output --partial "already declared as 'mindrally/skills'"
+  assert [ "$(cat "${WORK}/before.jsonc")" = "$(cat "${WORK}/cfg2.jsonc")" ]
+}
+
+@test "insert: two differently-keyed declarations for one repo in a batch are refused atomically" {
+  cat > "${WORK}/cfg2.jsonc" <<'EOF'
+{
+  "external_modules": {}
+}
+EOF
+  cat > "${WORK}/decl.json" <<'EOF'
+{"react-one": {"url": "https://github.com/mindrally/skills.git", "paths": {"skills": "skills/react"}}, "react-two": {"url": "https://github.com/mindrally/skills.git", "paths": {"skills": "skills/svelte"}}}
+EOF
+  cp "${WORK}/cfg2.jsonc" "${WORK}/before.jsonc"
+
+  run python3 "$TOOL" "${WORK}/cfg2.jsonc" "${WORK}/decl.json"
+
+  assert_failure
+  assert_output --partial "already declared as 'react-one'"
+  assert [ "$(cat "${WORK}/before.jsonc")" = "$(cat "${WORK}/cfg2.jsonc")" ]
+}
+
+@test "insert: local-path declaration without url never collides" {
+  cat > "${WORK}/cfg2.jsonc" <<'EOF'
+{
+  "external_modules": {
+    "mindrally/skills": { "path": "/tmp/local", "paths": { "skills": "skills" } }
+  }
+}
+EOF
+  cat > "${WORK}/decl.json" <<'EOF'
+{"other/local": {"path": "/tmp/other", "paths": {"skills": "skills"}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg2.jsonc" "${WORK}/decl.json"
+
+  assert_success
+  assert_output --partial "INSERTED"
+}
