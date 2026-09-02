@@ -303,6 +303,41 @@ EOF
   assert [ -L "${DEV_BOT_ROOT}/storage/external-agentic-modules/dummy/skills" ]
 }
 
+@test "init: does not wire entries declared by a disabled module" {
+  # react/svelte declare mindrally-* entries while disabled — the config-only
+  # pass must not pull them into .agents (module-managed, intentionally off).
+  local loc_dir="${TEST_HOME}/offdecl-mod"
+  mkdir -p "${loc_dir}/skills"
+  echo "skill" > "${loc_dir}/skills/x.md"
+
+  export CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  export MODULES_DIR="${DEV_BOT_ROOT}/vendor"
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/offmod"
+  cat > "${DEV_BOT_ROOT}/src/agentic/offmod/external-modules.json" <<'EOF'
+{
+  "offdecl": { "url": "https://example.com/off/decl.git", "paths": { "skills": "skills" } }
+}
+EOF
+
+  cat > "${CONFIG_FILE}" <<EOF
+{
+  "modules": { "offmod": false },
+  "external_modules": {
+    "offdecl": { "local_path": "${loc_dir}", "paths": { "skills": "skills" } }
+  }
+}
+EOF
+
+  local project="${TEST_HOME}/proj-off"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "declared by a module"
+  assert [ ! -e "${project}/.agents/skills/offdecl" ]
+}
+
 @test "remove: cleans .agents links in projects from the global projects registry" {
   local loc_dir="${TEST_HOME}/dummy-mod"
   mkdir -p "${loc_dir}/skills"
