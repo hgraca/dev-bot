@@ -30,6 +30,7 @@ main() {
   local merge_script="${MODULE_DIR}/../../_shared/merge_modules_jsonc.py"
   local found_count=0
   local added_count=0
+  local updated_count=0
 
   # Scan declarations from both agentic and tool modules (mirrors bin/up.sh).
   for module_dir in "${dev_bot_root}/src/agentic/"*/ "${dev_bot_root}/src/tools/"*/; do
@@ -47,19 +48,28 @@ main() {
 
     found_count=$((found_count + 1))
 
-    local result
-    result=$(python3 "${merge_script}" "${config_file}" "${ext_file}" 2>&1) || true
+    # Insert missing entries, then propagate declaration changes (url/paths)
+    # onto existing ones — user-added keys such as a local `path` are preserved
+    # by the --update mode.
+    local insert_result update_result
+    insert_result=$(python3 "${merge_script}" "${config_file}" "${ext_file}" 2>&1) || true
+    update_result=$(python3 "${merge_script}" "${config_file}" --update "${ext_file}" 2>&1) || true
 
-    if echo "${result}" | grep -q "^INSERTED"; then
-      _log "${module_name}: ${result}"
+    if echo "${insert_result}" | grep -q "^INSERTED"; then
+      _log "${module_name}: ${insert_result}"
       added_count=$((added_count + 1))
     else
-      _skip "${module_name}: ${result}"
+      _skip "${module_name}: ${insert_result}"
+    fi
+
+    if echo "${update_result}" | grep -q "^UPDATED"; then
+      _log "${module_name}: ${update_result}"
+      updated_count=$((updated_count + 1))
     fi
   done
 
   if [[ ${found_count} -gt 0 ]]; then
-    _ok "${found_count} module(s) with external module declarations processed (${added_count} with new entries added)"
+    _ok "${found_count} module(s) with external module declarations processed (${added_count} new, ${updated_count} updated)"
   fi
 
   # Format .devbot.global.jsonc

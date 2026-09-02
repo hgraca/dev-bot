@@ -384,6 +384,46 @@ EOF
   assert [ -d "${DEV_BOT_ROOT}/vendor/org/live" ]
 }
 
+@test "install: propagates declaration changes, preserving user-added path" {
+  local mod_src="${DEV_BOT_ROOT}/src/tools/some-tool"
+  mkdir -p "${mod_src}"
+  cat > "${mod_src}/external-modules.json" <<'EOF'
+{
+  "decl-mod": { "url": "https://example.com/acme/decl.git", "paths": { "skills": "skills", "agents": "agents" } }
+}
+EOF
+
+  # decl-mod has stale paths (no agents) plus a user-added path override;
+  # untouched-mod is config-only and must not change.
+  local loc_dir="${TEST_HOME}/override-local"
+  mkdir -p "${loc_dir}/skills"
+
+  _write_config "{
+    \"external_modules\": {
+      \"decl-mod\": { \"url\": \"https://example.com/acme/decl.git\", \"paths\": { \"skills\": \"skills\" }, \"path\": \"${loc_dir}\" },
+      \"untouched-mod\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entries = data['external_modules']
+decl = entries['decl-mod']
+assert decl['paths'] == {'skills': 'skills', 'agents': 'agents'}, decl  # propagated
+assert decl['path'] == '${loc_dir}', decl                                # override preserved
+assert entries['untouched-mod'] == {'path': '${loc_dir}', 'paths': {'skills': 'skills'}}, entries
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
 @test "install: merges declarations from src/tools modules into config" {
   local mod_src="${DEV_BOT_ROOT}/src/tools/some-tool"
   mkdir -p "${mod_src}"
