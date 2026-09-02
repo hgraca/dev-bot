@@ -18,8 +18,6 @@ setup() {
   DEV_BOT_ROOT="${TEST_HOME}/devbot"
   export DEV_BOT_ROOT
   mkdir -p "${DEV_BOT_ROOT}"
-  # Initialize a clean .devbot.jsonc
-  echo '{"external_modules":{}}' > "${DEV_BOT_ROOT}/.devbot.jsonc"
 
   # Create a minimal devbot binary for testing the module subcommand
   mkdir -p "${DEV_BOT_ROOT}/bin"
@@ -30,11 +28,11 @@ if [[ "$1" == "module" && "$2" == "help" ]]; then
   echo ""
   echo "Subcommands:"
   echo "  install    Clone/pull configured external modules"
-  echo "  init [path] Wire modules into .opencode/ directories"
+  echo "  init [path] Wire modules into .agents/ directories"
   echo "  add <url|path>   Register a module (git URL or local path)"
   echo "  remove <name>    Unregister a module"
   echo "  list              List registered modules"
-  echo "  sync [--project=<dir>]  Re-wire all modules (alias for init)"
+  echo "  sync [path]       Re-wire all modules (alias for init)"
   exit 0
 fi
 echo "Unknown command: $1"
@@ -74,10 +72,6 @@ teardown() {
 # ── List (empty) ──────────────────────────────────────────────────────────────
 
 @test "list: shows empty state when no modules" {
-  # Use a temp config to avoid polluting real devbot config
-  local tmp_config="${DEV_BOT_ROOT}/.devbot.jsonc"
-  echo '{"external_modules":{}}' > "$tmp_config"
-
   run bash "$TOOL" list
   assert_success
   assert_output --partial "Add one: devbot module add <git-url>"
