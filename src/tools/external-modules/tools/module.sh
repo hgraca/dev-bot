@@ -65,6 +65,16 @@ _get_external_module_field() {
     python3 "${READ_JSONC}" "${CONFIG_FILE}" external_modules "${name}" "${field}" 2>/dev/null || true
 }
 
+# Normalize .devbot.global.jsonc with the format-json tool after a config
+# write — same convention install.sh / bin/up.sh already follow for this file,
+# so add/remove output stays canonical and diffs stay stable (audit-30 NOTE-1).
+_format_config() {
+    local format_json_tool="${DEV_BOT_ROOT}/src/agentic/format-json/tools/format-json.mcp.sh"
+    if [[ -f "${format_json_tool}" ]]; then
+        bash "${format_json_tool}" "${CONFIG_FILE}" >/dev/null 2>&1 || true
+    fi
+}
+
 _discover_projects() {
     # Find projects with a .devbot.project.jsonc file
     while IFS= read -r _f; do
@@ -445,6 +455,7 @@ with open('${CONFIG_FILE}', 'w') as f:
     json.dump(data, f, indent=2)
     f.write('\n')
 "
+        _format_config
         _ok "Registered: ${name}"
     else
         local url="${url_or_path}"
@@ -501,6 +512,7 @@ with open('${CONFIG_FILE}', 'w') as f:
     json.dump(data, f, indent=2)
     f.write('\n')
 "
+        _format_config
         _ok "Registered: ${name}"
 
         _step "Wiring into projects ..."
@@ -554,6 +566,7 @@ with open('${CONFIG_FILE}', 'w') as f:
     json.dump(data, f, indent=2)
     f.write('\n')
 "
+    _format_config
 
     # Remove storage structure (config is now the source of truth — no longer configured)
     local storage_dir="${DEV_BOT_ROOT}/storage/external-agentic-modules/${name}"
