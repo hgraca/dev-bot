@@ -45,28 +45,6 @@ export function defaultHookLog(): string {
   return ".agents/logs/hooks.log"
 }
 
-// Append a raw diagnostic line to the shared hook log (.agents/logs/hooks.log)
-// without going through a hook declaration — used by the adapter itself to
-// record watcher events it could not classify (audit-29 delete→prune gap), so
-// the real opencode payload shape can be captured in a live session.
-export function appendHooksLog(root: string, text: string) {
-  appendLog(join(root, defaultHookLog()), "watcher-diag", text)
-}
-
-// audit-28 NOTE-8: opencode emits file.watcher.updated with event "unlink"
-// when a file is deleted, but no file.deleted event type exists in the SDK.
-// Extract the deleted file path from a watcher event, or null for any other
-// event. Lets hooks.json declare a "file.deleted" hook that fires on delete —
-// e.g. reindexing memory so removed notes stop surfacing in search.
-export function deletedFileFromWatcher(event: {
-  type: string
-  properties?: { file?: string; event?: string }
-}): string | null {
-  if (event?.type !== "file.watcher.updated") return null
-  if (event?.properties?.event !== "unlink") return null
-  return event.properties.file ?? null
-}
-
 // Route a hook's captured output to a persistent log file — its declared
 // `log` file, or the shared default. Stderr is appended after stdout, labeled
 // [stderr]. Hook output must never reach the plugin process stderr — opencode
