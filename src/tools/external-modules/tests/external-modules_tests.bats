@@ -538,6 +538,8 @@ EOF
   assert_success
   assert [ -L "${project}/.agents/skills/local/nested-local" ]
   assert [ "$(readlink "${project}/.agents/skills/local/nested-local")" = "${loc_dir}/skills" ]
+  # Storage mirror dir is sanitized to a single segment.
+  assert [ -L "${DEV_BOT_ROOT}/storage/external-agentic-modules/local__nested-local/skills" ]
 }
 
 @test "init: leaves local source untouched (README intact, no .git created)" {

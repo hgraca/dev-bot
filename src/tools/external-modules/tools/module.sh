@@ -398,7 +398,7 @@ except Exception:
     # Remove from config (comment-preserving)
     python3 "${MERGE_JSONC}" "${CONFIG_FILE}" --remove "${name}" >/dev/null 2>&1
     # Remove storage structure (config is now the source of truth — no longer configured)
-    local storage_dir="${DEV_BOT_ROOT}/storage/external-agentic-modules/${name}"
+    local storage_dir="${DEV_BOT_ROOT}/storage/external-agentic-modules/$(_external_storage_dir_name "${name}")"
     if [[ -d "${storage_dir}" ]]; then
         rm -rf "${storage_dir}"
         _ok "Removed storage: ${storage_dir}"

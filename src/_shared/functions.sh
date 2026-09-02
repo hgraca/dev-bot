@@ -336,6 +336,15 @@ print(json.dumps(sorted(disabled)))
 ' 2>/dev/null || echo "[]"
 }
 
+# _external_storage_dir_name <config_name>
+#   Maps a config external module name to its storage/external-agentic-modules
+#   directory name. Namespaced names (org/repo, local/<folder>) are sanitized
+#   to a single path segment (org__repo) because storage dirs double as
+#   runnable module bases in the generic lifecycle runners.
+_external_storage_dir_name() {
+  printf '%s' "${1//\//__}"
+}
+
 # ── External modules (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_external_modules

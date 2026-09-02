@@ -53,9 +53,11 @@ for rel_path in paths.values():
 }
 
 # Set up external module storage structure.
-# Creates storage/external-agentic-modules/<name>/ with:
+# Creates storage/external-agentic-modules/<sanitized-name>/ with:
 #   - Directory symlinks for string-valued paths (e.g. "skills" -> "skills")
 #   - File symlinks for object-valued paths (e.g. {"CLAUDE.md": "bootstrap/..."})
+# The config name is sanitized via _external_storage_dir_name (org/repo ->
+# org__repo) so the storage dir stays a single path segment.
 #
 # Args:
 #   $1  src_dir  — vendor directory (or local path) for the module
@@ -68,7 +70,7 @@ _setup_external_module_storage() {
     local paths_json="$3"
     local dev_bot_root="$4"
 
-    local storage_base="${dev_bot_root}/storage/external-agentic-modules/${name}"
+    local storage_base="${dev_bot_root}/storage/external-agentic-modules/$(_external_storage_dir_name "${name}")"
 
     _step "${name}: setting up storage structure..."
 
