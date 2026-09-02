@@ -107,12 +107,20 @@ done
 # Some modules (tools-mcp, graphify) create MCP wrapper symlinks at the root
 _reset_symlinks_in_dir "${OPENCODE_DIR}"
 
-# ── Remove devbot-tools MCP from opencode.jsonc ─────────────────────────────
+# ── Remove module-managed MCP keys from opencode.jsonc ─────────────────────
+# Reinit runs reset.sh then init.sh: init's module registration is
+# skip-if-exists, so any stale MCP entry (old env, outdated command) survives
+# reinit unless reset drops it first. devbot-tools and qmd are re-registered
+# fresh by init from their module templates — qmd's environment changed in
+# audit-28 (QMD_LLAMA_GPU boolean → __GPU_ENABLED__ placeholder +
+# QMD_EXPAND_CONTEXT_SIZE), so existing configs must not keep the stale entry.
 OPENCODE_CONFIG="${PROJECT_DIR}/opencode.jsonc"
 if [[ -f "${OPENCODE_CONFIG}" ]]; then
   REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
   if [[ -f "${REMOVE_MCP_PY}" ]]; then
-    python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "devbot-tools" 2>/dev/null || true
+    for mcp_key in devbot-tools qmd; do
+      python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${mcp_key}" 2>/dev/null || true
+    done
   fi
 fi
 

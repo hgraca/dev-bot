@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Remove an MCP server key from a JSONC config file.
 
-Handles both opencode.jsonc (mcpServers top-level) and .mcp.json (Claude Code).
+Handles both config shapes:
+  - opencode.jsonc:   top-level "mcp" map        { "mcp": { "qmd": {...} } }
+  - .mcp.json (Claude Code): top-level "mcpServers" map
 Preserves all other keys and structure.
 
 Usage:
@@ -77,12 +79,12 @@ def main():
         print(f"Failed to parse {config_file}: {e}", file=sys.stderr)
         sys.exit(1)
 
-    mcp_servers = data.get("mcpServers")
-    if not mcp_servers or mcp_key not in mcp_servers:
+    mcp_section = data.get("mcp") or data.get("mcpServers")
+    if not mcp_section or mcp_key not in mcp_section:
         # Key not present — idempotent no-op
         sys.exit(0)
 
-    del mcp_servers[mcp_key]
+    del mcp_section[mcp_key]
 
     with open(config_file, "w") as f:
         json.dump(data, f, indent=2)

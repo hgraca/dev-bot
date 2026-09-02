@@ -51,7 +51,14 @@ _create_opencode_dir() {
   mkdir -p "${SANDBOX_DIR}/.opencode/agents"
   echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
   ln -s "${PROJECT_ROOT}/src/agentic/devbot/agents" "${SANDBOX_DIR}/.opencode/agents/devbot"
-  echo '{"mcp": {"devbot-tools": {"type": "local", "command": ["x"]}}}' > "${SANDBOX_DIR}/opencode.jsonc"
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "devbot-tools": {"type": "local", "command": ["x"]},
+    "qmd": {"type": "local", "command": ["qmd", "mcp"], "environment": {"QMD_LLAMA_GPU": true}}
+  }
+}
+JSONC_EOF
 }
 
 # ── Disabled harness: leave everything untouched ───────────────────────────
@@ -108,4 +115,30 @@ _create_opencode_dir() {
 
   run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
   assert_success
+}
+
+# ── audit-28 review F1: reset must drop the stale qmd MCP entry ─────────────
+
+@test "enabled: removes devbot-tools AND qmd MCP keys from opencode.jsonc" {
+  _write_project_config enabled
+  _create_opencode_dir
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  # Both keys removed so reinit re-registers them fresh from module templates
+  # (the qmd env changed in audit-28: QMD_LLAMA_GPU boolean -> placeholder +
+  # QMD_EXPAND_CONTEXT_SIZE — existing configs kept the stale entry).
+  run python3 -c "
+import json, sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${SANDBOX_DIR}/opencode.jsonc')
+mcp = d.get('mcp', {})
+assert 'devbot-tools' not in mcp, mcp
+assert 'qmd' not in mcp, mcp
+print('MCP-CLEAN:OK')
+"
+  assert_success
+  grep -qF 'MCP-CLEAN:OK' <<< "$output" || fail "MCP keys not removed"
 }
