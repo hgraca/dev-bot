@@ -142,16 +142,12 @@ External modules bring third-party agent artifacts (skills, agents, commands, me
 
 ### Registered modules
 
-| Name                           | Source                                 | Wires               |
-| ------------------------------ | -------------------------------------- | ------------------- |
-| addyosmani                     | github.com/addyosmani/agent-skills     | 4 agents, 24 skills |
-| mindrally-svelte               | github.com/mindrally/skills            | skills              |
-| sveltekit-structure            | github.com/spences10/svelte-skills-kit | skills              |
-| svelte5-best-practices         | github.com/ejirocodes/agent-skills     | skills              |
-| mindrally-react                | github.com/mindrally/skills            | skills              |
-| mindrally-nextjs               | github.com/mindrally/skills            | skills              |
-| mindrally-react-best-practices | github.com/mindrally/skills            | skills              |
-| mattpocock-grilling            | github.com/mattpocock/skills           | skills              |
+Declared by dev-bot's own modules (see `src/tools/external-modules/external-modules.json`). Additional modules can be registered per installation under `external_modules` (see [Configuration format](#configuration-format) below):
+
+| Name                | Source                             | Wires               |
+| ------------------- | ---------------------------------- | ------------------- |
+| addyosmani          | github.com/addyosmani/agent-skills | 4 agents, 24 skills |
+| mattpocock-grilling | github.com/mattpocock/skills       | skills              |
 
 ### Module CLI
 
