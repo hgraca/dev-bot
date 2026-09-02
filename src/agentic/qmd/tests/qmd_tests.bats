@@ -334,9 +334,14 @@ SCRIPT
   assert_output --partial '"QMD_EXPAND_CONTEXT_SIZE": "512"'
 }
 
-@test "audit-28: root opencode.dist.jsonc qmd entry uses the GPU placeholder, not a bare boolean" {
-  # qmd 2.8.3 rejects QMD_LLAMA_GPU=true (boolean); the dist entry must use the
-  # __GPU_ENABLED__ placeholder that harness init substitutes (metal|cuda|vulkan|false).
+@test "audit-28: root opencode.dist.jsonc qmd entry stays consistent with the module template" {
+  # NOTE: the root opencode.dist.jsonc is a LEGACY artifact — the opencode
+  # harness copies src/harnesses/opencode/opencode.dist.jsonc (no mcp section),
+  # and runtime MCP config comes from module-template registration (tested
+  # above). This assertion guards the legacy copy against drift: it must not
+  # carry the qmd 2.8.3-rejected boolean true (use the __GPU_ENABLED__
+  # placeholder, as the module template does) and should carry the same
+  # VRAM-safe QMD_EXPAND_CONTEXT_SIZE pin.
   run grep -q '"QMD_LLAMA_GPU"[[:space:]]*:[[:space:]]*true' \
     "$PROJECT_ROOT/opencode.dist.jsonc"
   assert_failure
