@@ -52,6 +52,21 @@ def quiet(cmd, cwd):
     subprocess.run(cmd, cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def deny(reason):
+    # Claude Code's PreToolUse hook contract: the legacy top-level "decision"
+    # field is not recognized (only approve/block, and the current schema uses
+    # hookSpecificOutput.permissionDecision) — a plain {"decision":"deny"} is
+    # silently IGNORED and the command runs. Emit the current schema so guards
+    # actually block.
+    print(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": "Command blocked by guard rule: " + reason,
+        },
+    }))
+
+
 def run_and_log(cmd, cwd, log_path, hook_id):
     try:
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
@@ -118,28 +133,35 @@ def main():
                 "project-config": os.path.join(worktree, ".devbot.project.jsonc"),
             }
             cmd = resolve(hook["run"], ctx)
-            r = subprocess.run(cmd, cwd=worktree, capture_output=True, text=True)
+            try:
+                r = subprocess.run(cmd, cwd=worktree, capture_output=True, text=True)
+            except Exception:
+                # The guard tool failed to execute (missing interpreter/script,
+                # transiently absent during a reinit rebuild). Claude Code's
+                # PreToolUse contract treats a hook execution ERROR as "no
+                # decision" → default-allow — so a blocking guard that cannot
+                # run must fail CLOSED (audit-31 §2), not let the command
+                # through.
+                if hook.get("blocking"):
+                    deny("guard temporarily unavailable (failed to execute)")
+                    return
+                continue
             if hook.get("blocking"):
                 try:
                     parsed = json.loads(r.stdout or "{}")
+                    if r.returncode != 0:
+                        # Non-zero exit = the guard itself errored; no valid
+                        # decision was produced. Fail closed.
+                        deny("guard temporarily unavailable (exited %d)" % r.returncode)
+                        return
                     if parsed.get("blocked"):
-                        # Claude Code's PreToolUse hook contract: the legacy
-                        # top-level "decision" field is not recognized (only
-                        # approve/block, and the current schema uses
-                        # hookSpecificOutput.permissionDecision) — a plain
-                        # {"decision":"deny"} is silently IGNORED and the
-                        # command runs. Emit the current schema so guards
-                        # actually block.
-                        print(json.dumps({
-                            "hookSpecificOutput": {
-                                "hookEventName": "PreToolUse",
-                                "permissionDecision": "deny",
-                                "permissionDecisionReason": "Command blocked by guard rule: " + (parsed.get("message") or "guard rule"),
-                            },
-                        }))
+                        deny(parsed.get("message") or "guard rule")
                         return
                 except Exception:
-                    pass
+                    # Unparseable output from a blocking guard — no decision
+                    # was produced. Fail closed rather than silently allow.
+                    deny("guard temporarily unavailable (unparseable output)")
+                    return
 
     elif phase == "post-file":
         file_path = (data.get("tool_input") or {}).get("file_path") or ""

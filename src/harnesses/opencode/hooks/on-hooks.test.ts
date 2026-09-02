@@ -10,7 +10,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { defaultHookLog, routeHookOutput, type HookDecl } from "../on-hooks-utils"
+import { defaultHookLog, guardDecision, routeHookOutput, type HookDecl } from "../on-hooks-utils"
 
 const LOG = ".agents/logs/lint-k8s.log"
 
@@ -86,5 +86,47 @@ describe("routeHookOutput", () => {
     routeHookOutput({ stdout: "   \n\t\n", stderr: "  \n" }, hook({ log: LOG }), root)
 
     expect(existsSync(join(root, ".agents"))).toBe(false)
+  })
+})
+
+// ── guardDecision (audit-31 §2: blocking guard fails closed) ────────────────
+
+describe("guardDecision", () => {
+  test("blocking guard with explicit blocked:true denies with the guard message", () => {
+    const d = guardDecision({ stdout: '{"blocked":true,"message":"rm -rf is blocked"}', stderr: "", exitCode: 0 }, true)
+    expect(d.blocked).toBe(true)
+    expect(d.message).toBe("rm -rf is blocked")
+  })
+
+  test("blocking guard that allows emits no block", () => {
+    const d = guardDecision({ stdout: '{"blocked":false}', stderr: "", exitCode: 0 }, true)
+    expect(d.blocked).toBe(false)
+  })
+
+  test("blocking guard with non-zero exit denies (guard errored)", () => {
+    const d = guardDecision({ stdout: "", stderr: "bun: command not found", exitCode: 127 }, true)
+    expect(d.blocked).toBe(true)
+    expect(d.message).toContain("guard temporarily unavailable")
+  })
+
+  test("blocking guard with unparseable output denies (fail closed)", () => {
+    const d = guardDecision({ stdout: "not json at all", stderr: "", exitCode: 0 }, true)
+    expect(d.blocked).toBe(true)
+    expect(d.message).toContain("guard temporarily unavailable")
+  })
+
+  test("non-blocking hook with non-zero exit does not deny", () => {
+    const d = guardDecision({ stdout: "", stderr: "boom", exitCode: 3 }, false)
+    expect(d.blocked).toBe(false)
+  })
+
+  test("non-blocking hook with garbage output does not deny", () => {
+    const d = guardDecision({ stdout: "noise", stderr: "", exitCode: 0 }, false)
+    expect(d.blocked).toBe(false)
+  })
+
+  test("non-blocking hook with explicit blocked:true still denies", () => {
+    const d = guardDecision({ stdout: '{"blocked":true,"message":"rule"}', stderr: "", exitCode: 0 }, false)
+    expect(d.blocked).toBe(true)
   })
 })
