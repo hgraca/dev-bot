@@ -1,17 +1,35 @@
 #!/usr/bin/env python3
-"""Insert entries into the 'external_modules' section of a JSONC file while preserving all comments.
+"""Edit the 'external_modules' section of a JSONC file while preserving comments.
 
 Usage:
-  merge_modules_jsonc.py <jsonc_file> <entries_file>
-    Reads entries from entries_file (a JSON object of module declarations)
-    and merges each into the "external_modules" key of jsonc_file.
-    Skips entries whose key already exists. Preserves JSONC comments.
+  merge_modules_jsonc.py <jsonc_file> <entries_file>          # insert missing entries
+  merge_modules_jsonc.py <jsonc_file> --remove <key>          # remove one entry
+  merge_modules_jsonc.py <jsonc_file> --update <entries_file> # update declared entries
+
+Insert mode:
+  Reads entries from entries_file (a JSON object of module declarations)
+  and merges each into the "external_modules" key of jsonc_file.
+  Skips entries whose key already exists. Preserves JSONC comments.
+
+Remove mode:
+  Removes the entry with the given key. Prints REMOVED or NOT_FOUND.
+
+Update mode:
+  For each key in entries_file that already exists, replaces the entry with
+  the declaration merged over the existing value: keys present in the
+  declaration (url, paths) win, any other existing keys (e.g. a user-added
+  local `path`) are preserved. Entries not present are left untouched (use
+  insert mode to add them). Prints UPDATED (n) or SKIP_ALL.
 
 Exit codes:
-  0 - INSERTED:   one or more entries were inserted
-  0 - SKIP_ALL:   all entries already exist (no change)
-  0 - NO_MODULES: file has no external_modules section (created one)
-  1 - ERROR:      other failure
+  0 - success (INSERTED / SKIP_ALL / REMOVED / NOT_FOUND / UPDATED / NO_MODULES)
+  1 - ERROR: other failure
+
+Comment preservation: comments OUTSIDE the external_modules section are always
+kept. Insert mode also keeps comments inside the section (it only appends new
+entries). Remove/update modes rewrite the section's contents canonically from
+the parsed object, so comments *inside* the external_modules section are not
+preserved — entries there are machine-generated in practice.
 
 This is the external_modules-section counterpart of merge_mcp_jsonc.py.
 """
@@ -107,39 +125,88 @@ def _entry_exists(section_text, key):
     ))
 
 
-def _insert_before_close(text, mcp_end, entry_str):
-    """Insert entry_str before the closing '}' at mcp_end-1."""
-    return text[:mcp_end - 1] + entry_str + text[mcp_end - 1:]
+def _strip_comments(text):
+    """Remove // and /* */ comments, keeping string literals intact."""
+    out = []
+    i = 0
+    while i < len(text):
+        n = _skip_strings_and_comments(text, i)
+        if n != i:
+            if text[i] == '"':
+                out.append(text[i:n])
+            i = n
+            continue
+        out.append(text[i])
+        i += 1
+    return ''.join(out)
 
 
-def main():
-    if len(sys.argv) != 3:
-        print(f"Usage: {sys.argv[0]} <jsonc_file> <entries_file>", file=sys.stderr)
-        sys.exit(1)
+def _drop_orphan_commas(s):
+    """Remove commas that are immediately preceded or followed (ignoring
+    whitespace) by '{', '}' or another comma. Tolerates the leading/trailing
+    comma artifacts left by textual insert merges."""
+    out = []
+    i = 0
+    n = len(s)
+    while i < n:
+        if s[i] == ',':
+            j = len(out) - 1
+            while j >= 0 and out[j] in ' \t\n\r':
+                j -= 1
+            prev = out[j] if j >= 0 else '{'
+            k = i + 1
+            while k < n and s[k] in ' \t\n\r':
+                k += 1
+            nxt = s[k] if k < n else '}'
+            if prev in '{,' or nxt in '},':
+                i += 1
+                continue
+        out.append(s[i])
+        i += 1
+    return ''.join(out)
 
-    jsonc_path = sys.argv[1]
-    entries_path = sys.argv[2]
 
-    # Read entries to merge
+def _parse_section_dict(inner_text):
+    """Parse the text between the external_modules braces into a dict,
+    tolerating comments and orphan commas."""
+    clean = _drop_orphan_commas(_strip_comments(inner_text))
+    return json.loads('{' + clean + '}')
+
+
+def _serialize_section_dict(section_dict):
+    """Serialize a dict as the inner content of the external_modules section."""
+    body = json.dumps(section_dict, indent=2)
+    return body[1:-1]
+
+
+def _load_text(path):
     try:
-        with open(entries_path) as f:
-            entries = json.load(f)
-    except (json.JSONDecodeError, FileNotFoundError) as e:
-        print(f"ERROR: cannot read entries file: {e}", file=sys.stderr)
-        sys.exit(1)
-
-    if not isinstance(entries, dict) or not entries:
-        print("SKIP_EMPTY")
-        return 0
-
-    # Read target JSONC file
-    try:
-        with open(jsonc_path) as f:
-            text = f.read()
+        with open(path) as f:
+            return f.read()
     except FileNotFoundError:
         print("ERROR: target file not found", file=sys.stderr)
         sys.exit(1)
 
+
+def _load_entries(path):
+    try:
+        with open(path) as f:
+            entries = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError) as e:
+        print(f"ERROR: cannot read entries file: {e}", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(entries, dict) or not entries:
+        print("SKIP_EMPTY")
+        return None
+    return entries
+
+
+def _cmd_insert(jsonc_path, entries_path):
+    entries = _load_entries(entries_path)
+    if entries is None:
+        return 0
+
+    text = _load_text(jsonc_path)
     bounds = _find_field_value_end(text, "external_modules")
     if bounds is None:
         # No "external_modules" section — create one before the last closing brace.
@@ -237,6 +304,97 @@ def main():
     else:
         print(f"SKIP_ALL ({skip_count} already present)")
     return 0
+
+
+def _cmd_remove(jsonc_path, key):
+    text = _load_text(jsonc_path)
+    bounds = _find_field_value_end(text, "external_modules")
+    if bounds is None:
+        print("NOT_FOUND")
+        return 0
+
+    mod_start, mod_end = bounds
+    try:
+        section = _parse_section_dict(text[mod_start + 1:mod_end - 1])
+    except (json.JSONDecodeError, ValueError):
+        print("ERROR: cannot parse external_modules section", file=sys.stderr)
+        sys.exit(1)
+
+    if key not in section:
+        print("NOT_FOUND")
+        return 0
+
+    del section[key]
+    text = text[:mod_start] + '{' + _serialize_section_dict(section) + '}' + text[mod_end:]
+    with open(jsonc_path, 'w') as f:
+        f.write(text)
+    print("REMOVED")
+    return 0
+
+
+def _cmd_update(jsonc_path, entries_path):
+    entries = _load_entries(entries_path)
+    if entries is None:
+        return 0
+
+    text = _load_text(jsonc_path)
+    bounds = _find_field_value_end(text, "external_modules")
+    if bounds is None:
+        print("SKIP_ALL (no external_modules section)")
+        return 0
+
+    mod_start, mod_end = bounds
+    try:
+        section = _parse_section_dict(text[mod_start + 1:mod_end - 1])
+    except (json.JSONDecodeError, ValueError):
+        print("ERROR: cannot parse external_modules section", file=sys.stderr)
+        sys.exit(1)
+
+    updated = 0
+    not_present = 0
+    for key, decl in entries.items():
+        if not isinstance(decl, dict) or key not in section:
+            not_present += 1
+            continue
+        existing = section[key]
+        if not isinstance(existing, dict):
+            existing = {}
+        # Declaration wins for url/paths; any other existing keys (e.g. a
+        # user-added local `path`) are preserved.
+        merged = dict(existing)
+        for field in ('url', 'paths'):
+            if field in decl:
+                merged[field] = decl[field]
+        section[key] = merged
+        updated += 1
+
+    if updated == 0:
+        print(f"SKIP_ALL ({not_present} not present)")
+        return 0
+
+    text = text[:mod_start] + '{' + _serialize_section_dict(section) + '}' + text[mod_end:]
+    with open(jsonc_path, 'w') as f:
+        f.write(text)
+    print(f"UPDATED ({updated} entry/entries)")
+    return 0
+
+
+def main():
+    argv = sys.argv[1:]
+    if len(argv) == 2:
+        _cmd_insert(argv[0], argv[1])
+    elif len(argv) == 3 and argv[1] == '--remove':
+        _cmd_remove(argv[0], argv[2])
+    elif len(argv) == 3 and argv[1] == '--update':
+        _cmd_update(argv[0], argv[2])
+    else:
+        print(
+            "Usage: merge_modules_jsonc.py <jsonc_file> <entries_file>"
+            " | <jsonc_file> --remove <key>"
+            " | <jsonc_file> --update <entries_file>",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == '__main__':

@@ -1,0 +1,180 @@
+#!/usr/bin/env bats
+# =============================================================================
+# src/_shared/tests/merge_modules_jsonc_tests.bats
+# Tests for merge_modules_jsonc.py — insert / --remove / --update modes of the
+# comment-preserving editor for the external_modules config section.
+# =============================================================================
+
+setup() {
+  bats_load_library bats-support
+  bats_load_library bats-assert
+
+  TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
+  TOOL="${TEST_DIR}/../merge_modules_jsonc.py"
+  WORK="$(mktemp -d)"
+
+  cat > "${WORK}/cfg.jsonc" <<'EOF'
+{
+  // top-level comment must survive
+  "gpu_enabled": true,
+  "external_modules": {
+    "addyosmani": { "url": "https://github.com/addyosmani/agent-skills.git", "paths": { "skills": "skills" } },
+    "local-thing": { "path": "/tmp/local", "paths": { "skills": "skills" } }
+  }
+}
+EOF
+}
+
+teardown() {
+  rm -rf "${WORK}" 2>/dev/null || true
+}
+
+_assert_parses() {
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+load_jsonc('${WORK}/cfg.jsonc')
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "insert: adds missing entry and reports INSERTED" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"mattpocock-grilling": {"url": "https://github.com/mattpocock/skills.git", "paths": {"skills": "skills/productivity/grilling"}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" "${WORK}/decl.json"
+
+  assert_success
+  assert_output --partial "INSERTED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+assert 'mattpocock-grilling' in d['external_modules'], d
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "insert: existing entry is skipped (SKIP_ALL)" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"addyosmani": {"url": "https://github.com/addyosmani/agent-skills.git", "paths": {}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" "${WORK}/decl.json"
+
+  assert_success
+  assert_output --partial "SKIP_ALL"
+}
+
+@test "remove: removes entry and reports REMOVED" {
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" --remove local-thing
+
+  assert_success
+  assert_output --partial "REMOVED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+assert 'local-thing' not in d['external_modules'], d
+assert 'addyosmani' in d['external_modules'], d
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "remove: unknown key reports NOT_FOUND and leaves file unchanged" {
+  cp "${WORK}/cfg.jsonc" "${WORK}/before.jsonc"
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" --remove nope
+
+  assert_success
+  assert_output --partial "NOT_FOUND"
+  assert [ "$(cat "${WORK}/before.jsonc")" = "$(cat "${WORK}/cfg.jsonc")" ]
+}
+
+@test "remove/update: comments outside external_modules survive" {
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" --remove local-thing
+  assert_success
+
+  run grep -c "top-level comment must survive" "${WORK}/cfg.jsonc"
+  assert_success
+  assert_output "1"
+}
+
+@test "update: merges declaration url/paths and preserves user-added path" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"addyosmani": {"url": "https://github.com/addyosmani/agent-skills.git", "paths": {"agents": "agents", "skills": "skills"}}}
+EOF
+  # Give addyosmani a user-added local path override to prove preservation.
+  run python3 -c "
+import sys, json
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+d['external_modules']['addyosmani']['path'] = '/tmp/override'
+with open('${WORK}/cfg.jsonc', 'w') as f:
+    json.dump(d, f, indent=2)
+"
+  assert_success
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" --update "${WORK}/decl.json"
+  assert_success
+  assert_output --partial "UPDATED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+entry = d['external_modules']['addyosmani']
+assert entry['url'] == 'https://github.com/addyosmani/agent-skills.git', entry
+assert entry['paths'] == {'agents': 'agents', 'skills': 'skills'}, entry
+assert entry['path'] == '/tmp/override', entry  # user override preserved
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "update: config-only entries not in declaration are untouched" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"addyosmani": {"url": "https://github.com/addyosmani/agent-skills.git", "paths": {"skills": "skills"}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" --update "${WORK}/decl.json"
+  assert_success
+  assert_output --partial "UPDATED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+assert d['external_modules']['local-thing'] == {'path': '/tmp/local', 'paths': {'skills': 'skills'}}, d
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "update: unknown keys are skipped (SKIP_ALL)" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"ghost": {"url": "https://example.com/ghost.git", "paths": {}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" --update "${WORK}/decl.json"
+
+  assert_success
+  assert_output --partial "SKIP_ALL"
+}
