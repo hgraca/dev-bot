@@ -8,7 +8,7 @@ setup() {
   FIXTURES="$BATS_TEST_TMPDIR"
 }
 
-@test "hooks.json declares reindex-memories file.edited hooks" {
+@test "hooks.json declares reindex-memories file.edited + session.created hooks" {
   run python3 -c "
 import json
 data = json.load(open('${MODULE_DIR}/hooks.json'))
@@ -16,7 +16,7 @@ hooks = data['hooks']
 assert len(hooks) == 3, hooks
 events = [h['event'] for h in hooks]
 assert events.count('file.edited') == 2, events
-assert events.count('file.deleted') == 1, events
+assert events.count('session.created') == 1, events
 assert 'reindex-memories.mcp.sh' in hooks[0]['run'][1], hooks
 assert 'reindex-passive-memories.sh' in hooks[1]['run'][1], hooks
 assert 'reindex-memories.mcp.sh' in hooks[2]['run'][1], hooks
@@ -26,20 +26,23 @@ print('MANIFEST:OK')
   grep -qF 'MANIFEST:OK' <<< "$output" || fail "manifest missing or malformed"
 }
 
-@test "hooks.json file.deleted hook matches latent memory paths (audit-28 NOTE-8)" {
+@test "hooks.json session.created prune hook matches latent memory paths (audit-31 §5)" {
+  # audit-31 §5: the file.deleted hook was dead code under both harnesses (no
+  # delete events for external bash rm) — dropped in favor of a session-start
+  # prune (32be1e82). Assert the surviving session.created prune hook's shape.
   run python3 -c "
 import json, re
 data = json.load(open('${MODULE_DIR}/hooks.json'))
-delete_hook = next(h for h in data['hooks'] if h['event'] == 'file.deleted')
-pattern = delete_hook['match']['file']
-assert re.search(pattern, '.agents/memory/latent/learnings/gone.md'), pattern
-assert re.search(pattern, '.agents/memory/latent/global/k8s/note.md'), pattern
-assert not re.search(pattern, '.agents/memory/active/note.md'), pattern
-assert 'reindex-memories.mcp.sh' in delete_hook['run'][1], delete_hook
-print('DELETE-HOOK:OK')
+prune_hook = next(h for h in data['hooks'] if h['event'] == 'session.created')
+assert prune_hook['id'] == 'reindex-memories-prune-start', prune_hook
+assert prune_hook['run'][-1] == 'prune', prune_hook
+assert 'reindex-memories.mcp.sh' in prune_hook['run'][1], prune_hook
+assert prune_hook['log'] == '.agents/logs/qmd-index.log', prune_hook
+assert 'file.deleted' not in [h['event'] for h in data['hooks']], data['hooks']
+print('PRUNE-START:OK')
 "
   assert_success
-  grep -qF 'DELETE-HOOK:OK' <<< "$output" || fail "delete hook missing or misconfigured"
+  grep -qF 'PRUNE-START:OK' <<< "$output" || fail "prune-start hook missing or misconfigured"
 }
 
 @test "shared reindex tools exist" {
