@@ -147,6 +147,79 @@ print('ok')
   assert_output "ok"
 }
 
+@test "insert: with --owner records _declared_by, not _user_added" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"new-mod": {"url": "https://example.com/acme/new.git", "paths": {"skills": "skills"}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" "${WORK}/decl.json" --owner some-module
+
+  assert_success
+  assert_output --partial "INSERTED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+entry = d['external_modules']['new-mod']
+assert entry['_declared_by'] == ['some-module'], entry
+assert '_user_added' not in entry, entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "insert: without --owner records _user_added" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"user-mod": {"path": "/tmp/foo", "paths": {"skills": "skills"}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" "${WORK}/decl.json"
+
+  assert_success
+  assert_output --partial "INSERTED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+entry = d['external_modules']['user-mod']
+assert entry.get('_user_added') is True, entry
+assert '_declared_by' not in entry, entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "update: with --owner unions _declared_by across declarers" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"addyosmani": {"url": "https://github.com/addyosmani/agent-skills.git", "paths": {"skills": "skills"}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" --update "${WORK}/decl.json" --owner mod-a
+  assert_success
+  assert_output --partial "UPDATED"
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" --update "${WORK}/decl.json" --owner mod-b
+  assert_success
+  assert_output --partial "UPDATED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+entry = d['external_modules']['addyosmani']
+assert entry['_declared_by'] == ['mod-a', 'mod-b'], entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
 @test "update: config-only entries not in declaration are untouched" {
   cat > "${WORK}/decl.json" <<'EOF'
 {"addyosmani": {"url": "https://github.com/addyosmani/agent-skills.git", "paths": {"skills": "skills"}}}

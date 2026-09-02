@@ -50,10 +50,10 @@ main() {
 
     # Insert missing entries, then propagate declaration changes (url/paths)
     # onto existing ones — user-added keys such as a local `path` are preserved
-    # by the --update mode.
+    # by the --update mode. --owner records provenance on both.
     local insert_result update_result
-    insert_result=$(python3 "${merge_script}" "${config_file}" "${ext_file}" 2>&1) || true
-    update_result=$(python3 "${merge_script}" "${config_file}" --update "${ext_file}" 2>&1) || true
+    insert_result=$(python3 "${merge_script}" "${config_file}" "${ext_file}" --owner "${module_name}" 2>&1) || true
+    update_result=$(python3 "${merge_script}" "${config_file}" --update "${ext_file}" --owner "${module_name}" 2>&1) || true
 
     if echo "${insert_result}" | grep -q "^INSERTED"; then
       _log "${module_name}: ${insert_result}"

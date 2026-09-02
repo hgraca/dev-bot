@@ -2,14 +2,17 @@
 """Edit the 'external_modules' section of a JSONC file while preserving comments.
 
 Usage:
-  merge_modules_jsonc.py <jsonc_file> <entries_file>          # insert missing entries
-  merge_modules_jsonc.py <jsonc_file> --remove <key>          # remove one entry
-  merge_modules_jsonc.py <jsonc_file> --update <entries_file> # update declared entries
+  merge_modules_jsonc.py <jsonc_file> <entries_file> [--owner <name>]   # insert missing entries
+  merge_modules_jsonc.py <jsonc_file> --remove <key>                    # remove one entry
+  merge_modules_jsonc.py <jsonc_file> --update <entries_file> [--owner <name>]  # update declared entries
 
 Insert mode:
   Reads entries from entries_file (a JSON object of module declarations)
   and merges each into the "external_modules" key of jsonc_file.
   Skips entries whose key already exists. Preserves JSONC comments.
+  Provenance: with --owner <name> the inserted entry records
+  "_declared_by": [<name>]; without --owner (a CLI/user registration) it
+  records "_user_added": true.
 
 Remove mode:
   Removes the entry with the given key. Prints REMOVED or NOT_FOUND.
@@ -18,8 +21,9 @@ Update mode:
   For each key in entries_file that already exists, replaces the entry with
   the declaration merged over the existing value: keys present in the
   declaration (url, paths) win, any other existing keys (e.g. a user-added
-  local `path`) are preserved. Entries not present are left untouched (use
-  insert mode to add them). Prints UPDATED (n) or SKIP_ALL.
+  local `path`) are preserved. With --owner <name>, <name> is appended to the
+  entry's "_declared_by" list (union, deduplicated). Entries not present are
+  left untouched (use insert mode to add them). Prints UPDATED (n) or SKIP_ALL.
 
 Exit codes:
   0 - success (INSERTED / SKIP_ALL / REMOVED / NOT_FOUND / UPDATED / NO_MODULES)
@@ -201,10 +205,23 @@ def _load_entries(path):
     return entries
 
 
-def _cmd_insert(jsonc_path, entries_path):
+def _cmd_insert(jsonc_path, entries_path, owner=""):
     entries = _load_entries(entries_path)
     if entries is None:
         return 0
+
+    # Provenance decoration applied up front so both the section-creation and
+    # section-append paths record it: declarations record their owning module,
+    # ownerless registrations (CLI/user) are marked user-added.
+    decorated = {}
+    for key, value in entries.items():
+        entry_value = dict(value)
+        if owner:
+            entry_value['_declared_by'] = [owner]
+        else:
+            entry_value['_user_added'] = True
+        decorated[key] = entry_value
+    entries = decorated
 
     text = _load_text(jsonc_path)
     bounds = _find_field_value_end(text, "external_modules")
@@ -332,7 +349,7 @@ def _cmd_remove(jsonc_path, key):
     return 0
 
 
-def _cmd_update(jsonc_path, entries_path):
+def _cmd_update(jsonc_path, entries_path, owner=""):
     entries = _load_entries(entries_path)
     if entries is None:
         return 0
@@ -365,6 +382,14 @@ def _cmd_update(jsonc_path, entries_path):
         for field in ('url', 'paths'):
             if field in decl:
                 merged[field] = decl[field]
+        # Union of declaring modules.
+        if owner:
+            declared_by = merged.get('_declared_by')
+            if not isinstance(declared_by, list):
+                declared_by = []
+            if owner not in declared_by:
+                declared_by.append(owner)
+            merged['_declared_by'] = declared_by
         section[key] = merged
         updated += 1
 
@@ -381,17 +406,28 @@ def _cmd_update(jsonc_path, entries_path):
 
 def main():
     argv = sys.argv[1:]
-    if len(argv) == 2:
-        _cmd_insert(argv[0], argv[1])
-    elif len(argv) == 3 and argv[1] == '--remove':
-        _cmd_remove(argv[0], argv[2])
-    elif len(argv) == 3 and argv[1] == '--update':
-        _cmd_update(argv[0], argv[2])
+    owner = ""
+    rest = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == '--owner' and i + 1 < len(argv):
+            owner = argv[i + 1]
+            i += 2
+        else:
+            rest.append(argv[i])
+            i += 1
+
+    if len(rest) == 2:
+        _cmd_insert(rest[0], rest[1], owner)
+    elif len(rest) == 3 and rest[1] == '--remove':
+        _cmd_remove(rest[0], rest[2])
+    elif len(rest) == 3 and rest[1] == '--update':
+        _cmd_update(rest[0], rest[2], owner)
     else:
         print(
-            "Usage: merge_modules_jsonc.py <jsonc_file> <entries_file>"
+            "Usage: merge_modules_jsonc.py <jsonc_file> <entries_file> [--owner <name>]"
             " | <jsonc_file> --remove <key>"
-            " | <jsonc_file> --update <entries_file>",
+            " | <jsonc_file> --update <entries_file> [--owner <name>]",
             file=sys.stderr,
         )
         sys.exit(1)

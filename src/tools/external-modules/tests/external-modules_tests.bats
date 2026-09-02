@@ -444,6 +444,8 @@ with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
 entries = data['external_modules']
 assert 'tools-decl' in entries, entries
 assert 'existing' in entries, entries
+# Declaration merges record the owning module.
+assert entries['tools-decl'].get('_declared_by') == ['some-tool'], entries['tools-decl']
 print('ok')
 "
   assert_success
@@ -600,6 +602,7 @@ with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
     data = json.load(f)
 entry = data['external_modules']['local/cli-module']
 assert 'path' in entry and 'local_path' not in entry, entry
+assert entry.get('_user_added') is True, entry  # CLI registrations are user-added
 print(entry['path'])
 "
   assert_success
