@@ -31,7 +31,8 @@ main() {
   local found_count=0
   local added_count=0
 
-  for module_dir in "${dev_bot_root}/src/agentic/"*/; do
+  # Scan declarations from both agentic and tool modules (mirrors bin/up.sh).
+  for module_dir in "${dev_bot_root}/src/agentic/"*/ "${dev_bot_root}/src/tools/"*/; do
     local module_name
     module_name="$(basename "${module_dir}")"
 

@@ -317,6 +317,38 @@ EOF
   assert [ ! -d "${DEV_BOT_ROOT}/storage/external-agentic-modules/ghost" ]
 }
 
+@test "install: merges declarations from src/tools modules into config" {
+  local mod_src="${DEV_BOT_ROOT}/src/tools/some-tool"
+  mkdir -p "${mod_src}"
+  cat > "${mod_src}/external-modules.json" <<'EOF'
+{
+  "tools-decl": { "url": "https://example.com/acme/tools-decl.git", "paths": { "skills": "skills" } }
+}
+EOF
+
+  _write_config "{
+    \"external_modules\": {
+      \"existing\": { \"url\": \"https://example.com/acme/existing.git\", \"paths\": {} }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entries = data['external_modules']
+assert 'tools-decl' in entries, entries
+assert 'existing' in entries, entries
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
 @test "init: config-only path entry wires .agents from local dir (no declaration)" {
   local loc_dir="${TEST_HOME}/local-mod"
   mkdir -p "${loc_dir}/skills"
