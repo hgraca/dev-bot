@@ -278,3 +278,96 @@ EOF
   assert_success
   assert_output --partial "SKIP_ALL"
 }
+
+@test "insert: array path value round-trips with element order preserved" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"mindrally/skills": {"url": "https://github.com/mindrally/skills.git", "paths": {"skills": ["skills/react", "skills/nextjs-react-typescript"]}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" "${WORK}/decl.json"
+
+  assert_success
+  assert_output --partial "INSERTED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+entry = d['external_modules']['mindrally/skills']
+assert entry['paths']['skills'] == ['skills/react', 'skills/nextjs-react-typescript'], entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "insert: string, array and memory-dict path forms coexist in one entry" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"mindrally/skills": {"url": "https://github.com/mindrally/skills.git", "paths": {"skills": ["skills/react", "skills/nextjs-react-typescript"], "agents": "agents", "memory": {"CLAUDE.md": "bootstrap/CLAUDE.md"}}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" "${WORK}/decl.json"
+
+  assert_success
+  assert_output --partial "INSERTED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+entry = d['external_modules']['mindrally/skills']
+assert entry['paths']['skills'] == ['skills/react', 'skills/nextjs-react-typescript'], entry
+assert entry['paths']['agents'] == 'agents', entry
+assert entry['paths']['memory'] == {'CLAUDE.md': 'bootstrap/CLAUDE.md'}, entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "update: declaration array paths replace existing string paths" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"addyosmani": {"url": "https://github.com/addyosmani/agent-skills.git", "paths": {"skills": ["skills/one", "skills/two"]}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" --update "${WORK}/decl.json"
+
+  assert_success
+  assert_output --partial "UPDATED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+entry = d['external_modules']['addyosmani']
+assert entry['paths']['skills'] == ['skills/one', 'skills/two'], entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "update: entries untouched by the update keep legacy string paths verbatim" {
+  cat > "${WORK}/decl.json" <<'EOF'
+{"addyosmani": {"url": "https://github.com/addyosmani/agent-skills.git", "paths": {"skills": ["skills/one"]}}}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg.jsonc" --update "${WORK}/decl.json"
+
+  assert_success
+  assert_output --partial "UPDATED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg.jsonc')
+assert d['external_modules']['local-thing'] == {'path': '/tmp/local', 'paths': {'skills': 'skills'}}, d
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
