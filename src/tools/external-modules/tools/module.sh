@@ -144,26 +144,54 @@ print(paths.get('${type}', ''))
 }
 
 _unwire_module() {
-    local name="$1"
-    shift
-    for proj in "$@"; do
-        local devbot_dir
-        devbot_dir="$(_devbot_get_project_dir "${proj}")"
-        for type in skills agents commands plugins; do
-            # Legacy .opencode links
-            local link_path="${proj}/.opencode/${type}/${name}"
-            if [[ -L "${link_path}" ]]; then
-                rm "${link_path}"
-                _log "Removed .opencode/${type}/${name}"
-            fi
-            # Modern .agents links (devbot dir) — wired by external-modules/init.sh
-            local alink="${proj}/${devbot_dir}/${type}/${name}"
-            if [[ -L "${alink}" ]]; then
-                rm "${alink}"
-                _log "Removed ${devbot_dir}/${type}/${name}"
-            fi
-        done
+  local name="$1"
+  shift
+  for proj in "$@"; do
+    local devbot_dir
+    devbot_dir="$(_devbot_get_project_dir "${proj}")"
+    for type in skills agents commands plugins; do
+      # Legacy .opencode links
+      local link_path="${proj}/.opencode/${type}/${name}"
+      if [[ -L "${link_path}" ]]; then
+        rm "${link_path}"
+        _log "Removed .opencode/${type}/${name}"
+      fi
+      # Modern .agents links (devbot dir) — wired by external-modules/init.sh
+      local alink="${proj}/${devbot_dir}/${type}/${name}"
+      if [[ -L "${alink}" ]]; then
+        rm "${alink}"
+        _log "Removed ${devbot_dir}/${type}/${name}"
+      fi
     done
+
+    # Flattened .claude/skills entries (claudecode harness): the harness
+    # flatten links an external module's SKILL.md into
+    # .claude/skills/<frontmatter-name>/ as a symlink into the module's
+    # storage mirror. The mirror is removed by cmd_remove, which would leave
+    # this symlink dangling (audit-31 §9) — remove it here while the mirror
+    # still exists so we can identify entries by their symlink target.
+    local mirror="${DEV_BOT_ROOT}/storage/external-agentic-modules/${name}"
+    if [[ -d "${proj}/.claude/skills" && -d "${mirror}" ]]; then
+      local skill_dir
+      while IFS= read -r -d '' skill_dir; do
+        local link="${skill_dir}/SKILL.md"
+        if [[ -L "${link}" ]]; then
+          local target
+          target="$(readlink "${link}" 2>/dev/null || true)"
+          local abs_target="${target}"
+          if [[ -n "${target}" && "${target}" != /* ]]; then
+            abs_target="$(cd "$(dirname "${link}")" 2>/dev/null \
+              && cd "$(dirname "${target}")" 2>/dev/null \
+              && pwd 2>/dev/null || true)/$(basename "${target}")"
+          fi
+          if [[ "${abs_target}" == "${mirror}/"* ]]; then
+            rm -rf "${skill_dir}"
+            _log "Removed .claude/skills/$(basename "${skill_dir}") (flattened entry for ${name})"
+          fi
+        fi
+      done < <(find "${proj}/.claude/skills" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+    fi
+  done
 }
 
 # ── Subcommands ────────────────────────────────────────────────────────────────

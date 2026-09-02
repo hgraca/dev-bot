@@ -374,3 +374,56 @@ EOF
   assert [ ! -e "${project}/.agents/skills/dummy" ]
   assert [ ! -e "${DEV_BOT_ROOT}/storage/external-agentic-modules/dummy" ]
 }
+
+@test "remove: cleans the flattened .claude/skills entry left dangling under claudecode" {
+  # audit-31 §9: under the claudecode harness, _link_claude_skills_flat links
+  # an external module's SKILL.md into .claude/skills/<frontmatter-name>/ as a
+  # symlink into the module's storage mirror. `module remove` deleted the
+  # mirror but not the flattened symlink — which then dangled (its target was
+  # gone). Reinit's broken-symlink sweep only scans .agents/, so the dangling
+  # entry survived future reinits.
+  local loc_dir="${TEST_HOME}/dummy-mod"
+  mkdir -p "${loc_dir}/skills"
+  printf '%s\n' "---" "name: dummy-skill" "---" "" "# Dummy skill" \
+    > "${loc_dir}/skills/SKILL.md"
+
+  export CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  export MODULES_DIR="${DEV_BOT_ROOT}/vendor"
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/tools"
+
+  local project="${TEST_HOME}/claude-proj"
+  mkdir -p "${project}/.claude"
+
+  cat > "${CONFIG_FILE}" <<EOF
+{
+  "projects": ["${project}"],
+  "external_modules": {
+    "dummy": { "local_path": "${loc_dir}", "paths": { "skills": "skills" } }
+  }
+}
+EOF
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+  assert_success
+  assert [ -L "${project}/.agents/skills/dummy" ]
+
+  # Simulate what the claudecode harness flatten does: a symlinked SKILL.md
+  # pointing into the module's storage mirror.
+  local storage_mirror="${DEV_BOT_ROOT}/storage/external-agentic-modules/dummy"
+  assert [ -d "${storage_mirror}" ]
+  local flat_skill="${project}/.claude/skills/dummy-skill"
+  mkdir -p "${flat_skill}"
+  ln -s "${storage_mirror}/skills/SKILL.md" "${flat_skill}/SKILL.md"
+  assert [ -e "${flat_skill}/SKILL.md" ]
+
+  run bash "$TOOL" remove dummy
+
+  assert_success
+  assert_output --partial "Unregistered: dummy"
+  # The flattened claudecode entry is gone — not left dangling.
+  assert [ ! -e "${flat_skill}/SKILL.md" ]
+  assert [ ! -e "${flat_skill}" ]
+  # And the mirror + .agents link are cleaned as before.
+  assert [ ! -e "${DEV_BOT_ROOT}/storage/external-agentic-modules/dummy" ]
+  assert [ ! -e "${project}/.agents/skills/dummy" ]
+}
