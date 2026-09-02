@@ -79,41 +79,41 @@ Test fixtures go in `<module>/tests/fixtures/` and should be minimal — create 
 
 Located at `src/agentic/<name>/`. Each provides agent skills, tools, hooks, agents, or MCP servers.
 
-| Module              | S   | T   | A   | H   | MCP | Description                                                                                                                                                                                                                                    |
-| ------------------- | --- | --- | --- | --- | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| agent-communication | 1   | 1   | —   | 2   | —   | Structured inter-agent protocol — validates terminal status markers in messages                                                                                                                                                                |
-| architecture        | 5   | —   | —   | —   | —   | Architecture governance: design rules, DDD+Hex+CQRS layers, codebase audits, test suite audits, ADRs                                                                                                                                           |
-| auto-recover        | 2   | —   | —   | 3   | —   | Automatic recovery from transient provider errors + structured exception handling                                                                                                                                                              |
-| chrome-devtools     | —   | —   | —   | —   | ✓   | Browser DevTools MCP — inspect DOM, console, network, performance traces                                                                                                                                                                       |
-| codebase-index      | 1   | —   | —   | —   | ✓   | Semantic code search via Ollama embeddings — find code by meaning, not keywords                                                                                                                                                                |
-| context7            | —   | —   | —   | —   | ✓   | Official documentation retrieval for any library/framework                                                                                                                                                                                     |
-| dev                 | 5   | —   | —   | —   | —   | Dev conventions: software-development (craft hub), address-review, rest-conventions, makefile, make-tests                                                                                                                                      |
-| devbot              | —   | —   | 3   | —   | —   | Pair programming partner agent + Expert and Designer subagents — works alongside human incrementally, never autonomously                                                                                                                       |
+| Module              | S   | T   | A   | H   | MCP | Description                                                                                                                                                                                                                                                                              |
+| ------------------- | --- | --- | --- | --- | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| agent-communication | 1   | 1   | —   | 2   | —   | Structured inter-agent protocol — validates terminal status markers in messages                                                                                                                                                                                                          |
+| architecture        | 5   | —   | —   | —   | —   | Architecture governance: design rules, DDD+Hex+CQRS layers, codebase audits, test suite audits, ADRs                                                                                                                                                                                     |
+| auto-recover        | 2   | —   | —   | 3   | —   | Automatic recovery from transient provider errors + structured exception handling                                                                                                                                                                                                        |
+| chrome-devtools     | —   | —   | —   | —   | ✓   | Browser DevTools MCP — inspect DOM, console, network, performance traces                                                                                                                                                                                                                 |
+| codebase-index      | 1   | —   | —   | —   | ✓   | Semantic code search via Ollama embeddings — find code by meaning, not keywords                                                                                                                                                                                                          |
+| context7            | —   | —   | —   | —   | ✓   | Official documentation retrieval for any library/framework                                                                                                                                                                                                                               |
+| dev                 | 5   | —   | —   | —   | —   | Dev conventions: software-development (craft hub), address-review, rest-conventions, makefile, make-tests                                                                                                                                                                                |
+| devbot              | —   | —   | 3   | —   | —   | Pair programming partner agent + Expert and Designer subagents — works alongside human incrementally, never autonomously                                                                                                                                                                 |
 | devteam             | 6   | —   | 9   | —   | —   | Multi-agent team: TeamLead orchestrator + 8 subagents (PO, Architect, Critic, Developer, Tester, Reviewer, Scout, Security). 6 workflow skills: devbot:make-plan, devbot:review-plan, devbot:implement-plan, devbot:implement-story, devbot:review-implementation, devbot:summarize-plan |
-| docker              | 1   | —   | —   | —   | —   | Dockerfile authoring — battle-tested patterns for production-grade container builds                                                                                                                                                            |
-| docs                | 4   | 2   | —   | —   | —   | Documentation — use-case maps from PHP code, interactive app-map editor, gh-docs-website, documentation-rules                                                                                                                                  |
-| explore             | 3   | —   | —   | —   | —   | Codebase exploration: devbot:gather-context (session priming), devbot:create-project-report, devbot:search-code                                                                                                                                                     |
-| format-json         | 1   | 2   | —   | 2   | —   | Auto-formats .json/.jsonc files via prettier on save                                                                                                                                                                                           |
-| format-md           | 1   | 2   | —   | 2   | —   | Auto-formats .md files via prettier on save — aligns table columns, normalizes spacing                                                                                                                                                         |
-| format-yml          | 1   | 2   | —   | 2   | —   | Auto-formats .yml/.yaml files via prettier on save                                                                                                                                                                                             |
-| git                 | 5   | 2   | —   | —   | —   | Git workflow skills (atomic/ conventional/ fixup commits, advanced history surgery, git-report) + git-report tool                                                                                                                              |
-| github              | —   | —   | —   | —   | —   | GitHub integration: gh-review command + GitHub CLI (gh) install/update lifecycle scripts                                                                                                                                                       |
-| graphify            | 1   | 4   | —   | 5   | ✓   | Codebase knowledge graph — build, query path/explain, community detection, god nodes                                                                                                                                                           |
-| guards              | 1   | —   | —   | 2   | —   | Evaluates bash commands against configurable guard rules before execution                                                                                                                                                                      |
-| jetbrains           | —   | —   | —   | —   | ✓   | JetBrains IDE integration — code analysis, inspections, debugging, database tools                                                                                                                                                              |
-| k8s                 | 1   | 1   | —   | 2   | —   | Kubernetes manifest linting — kubeconform (schema) + kube-linter (best practices)                                                                                                                                                              |
-| memory              | 5   | 3   | —   | 7   | —   | Knowledge vault: devbot:search-memory, devbot:remember-session, devbot:memory-management, devbot:prune-memories, devbot:thinking + reindex-memories/search-memories tools                                                                                                         |
-| playwright          | —   | —   | —   | —   | ✓   | Browser automation via Playwright MCP — drive real browser sessions for E2E testing                                                                                                                                                            |
-| qmd                 | 1   | 1   | —   | —   | ✓   | Semantic search over markdown vaults (BM25 + vector + hybrid + LLM reranking)                                                                                                                                                                  |
-| react               | 1   | —   | —   | —   | ✓   | React 18+ and Next.js development conventions + next-devtools MCP                                                                                                                                                                              |
-| repomix             | —   | —   | —   | —   | —   | Directory packing into single structured file for full-context analysis                                                                                                                                                                        |
-| security            | 1   | —   | —   | —   | —   | Security auditing: STRIDE threat modelling, OWASP Top 10, PHP vulnerability assessment                                                                                                                                                         |
-| self-improvement    | 13  | —   | —   | —   | —   | Meta-optimization: create-skill/agent/module, create-opencode/claudecode hook/tool, make-retrospective, improve-planning/reviewer/implementation, optimize-instructions                                                                        |
-| signoz              | —   | —   | —   | —   | ✓   | SigNoz observability platform — dashboards, alerts, queries, investigation                                                                                                                                                                     |
-| svelte              | 1   | —   | —   | —   | ✓   | Svelte development conventions + Svelte MCP                                                                                                                                                                                                    |
-| tools-mcp           | 1   | —   | —   | —   | ✓   | MCP server exposing devbot custom tools to agents — each tool self-describes via mcp-meta subcommand                                                                                                                                           |
-| tree                | 1   | 1   | —   | —   | —   | Directory tree inspection — shows subfolders and files in markdown, plain text, or JSON                                                                                                                                                        |
-| websearch           | —   | —   | —   | —   | ✓   | Web search via Exa API — current information retrieval beyond LLM knowledge cutoff                                                                                                                                                             |
+| docker              | 1   | —   | —   | —   | —   | Dockerfile authoring — battle-tested patterns for production-grade container builds                                                                                                                                                                                                      |
+| docs                | 4   | 2   | —   | —   | —   | Documentation — use-case maps from PHP code, interactive app-map editor, gh-docs-website, documentation-rules                                                                                                                                                                            |
+| explore             | 3   | —   | —   | —   | —   | Codebase exploration: devbot:gather-context (session priming), devbot:create-project-report, devbot:search-code                                                                                                                                                                          |
+| format-json         | 1   | 2   | —   | 2   | —   | Auto-formats .json/.jsonc files via prettier on save                                                                                                                                                                                                                                     |
+| format-md           | 1   | 2   | —   | 2   | —   | Auto-formats .md files via prettier on save — aligns table columns, normalizes spacing                                                                                                                                                                                                   |
+| format-yml          | 1   | 2   | —   | 2   | —   | Auto-formats .yml/.yaml files via prettier on save                                                                                                                                                                                                                                       |
+| git                 | 5   | 2   | —   | —   | —   | Git workflow skills (atomic/ conventional/ fixup commits, advanced history surgery, git-report) + git-report tool                                                                                                                                                                        |
+| github              | —   | —   | —   | —   | —   | GitHub integration: gh-review command + GitHub CLI (gh) install/update lifecycle scripts                                                                                                                                                                                                 |
+| graphify            | 1   | 4   | —   | 5   | ✓   | Codebase knowledge graph — build, query path/explain, community detection, god nodes                                                                                                                                                                                                     |
+| guards              | 1   | —   | —   | 2   | —   | Evaluates bash commands against configurable guard rules before execution                                                                                                                                                                                                                |
+| jetbrains           | —   | —   | —   | —   | ✓   | JetBrains IDE integration — code analysis, inspections, debugging, database tools                                                                                                                                                                                                        |
+| k8s                 | 1   | 1   | —   | 2   | —   | Kubernetes manifest linting — kubeconform (schema) + kube-linter (best practices)                                                                                                                                                                                                        |
+| memory              | 5   | 3   | —   | 7   | —   | Knowledge vault: devbot:search-memory, devbot:remember-session, devbot:memory-management, devbot:prune-memories, devbot:thinking + reindex-memories/search-memories tools                                                                                                                |
+| playwright          | —   | —   | —   | —   | ✓   | Browser automation via Playwright MCP — drive real browser sessions for E2E testing                                                                                                                                                                                                      |
+| qmd                 | 1   | 1   | —   | —   | ✓   | Semantic search over markdown vaults (BM25 + vector + hybrid + LLM reranking)                                                                                                                                                                                                            |
+| react               | 1   | —   | —   | —   | ✓   | React 18+ and Next.js development conventions + next-devtools MCP                                                                                                                                                                                                                        |
+| repomix             | —   | —   | —   | —   | —   | Directory packing into single structured file for full-context analysis                                                                                                                                                                                                                  |
+| security            | 1   | —   | —   | —   | —   | Security auditing: STRIDE threat modelling, OWASP Top 10, PHP vulnerability assessment                                                                                                                                                                                                   |
+| self-improvement    | 13  | —   | —   | —   | —   | Meta-optimization: create-skill/agent/module, create-opencode/claudecode hook/tool, make-retrospective, improve-planning/reviewer/implementation, optimize-instructions                                                                                                                  |
+| signoz              | —   | —   | —   | —   | ✓   | SigNoz observability platform — dashboards, alerts, queries, investigation                                                                                                                                                                                                               |
+| svelte              | 1   | —   | —   | —   | ✓   | Svelte development conventions + Svelte MCP                                                                                                                                                                                                                                              |
+| tools-mcp           | 1   | —   | —   | —   | ✓   | MCP server exposing devbot custom tools to agents — each tool self-describes via mcp-meta subcommand                                                                                                                                                                                     |
+| tree                | 1   | 1   | —   | —   | —   | Directory tree inspection — shows subfolders and files in markdown, plain text, or JSON                                                                                                                                                                                                  |
+| websearch           | —   | —   | —   | —   | ✓   | Web search via Exa API — current information retrieval beyond LLM knowledge cutoff                                                                                                                                                                                                       |
 
 **S** = Skills, **T** = Tool scripts, **A** = Agents, **H** = Hook scripts (opencode `.ts` + claudecode `.sh`), **MCP** = MCP server
 
@@ -138,7 +138,7 @@ Located at `src/tools/<name>/`. Infrastructure services — Docker Compose, CLI 
 
 ## External modules
 
-Third-party modules registered via `devbot module add` and wired into projects via symlinks. Cloned into `vendor/` with symlinks in `.opencode/<type>/<name>/`. External modules follow the same anatomy as internal modules — they can provide agents, skills, commands, hooks, tools, and memory bootstrap files. The runtime treats them identically; the only difference is where they live on disk (`vendor/` vs `src/agentic/`).
+External modules bring third-party agent artifacts (skills, agents, commands, memory bootstrap files) into projects. Each module is either **git-sourced** (a `url`, shallow-cloned into `vendor/<org>/<repo>`) or **path-sourced** (a local directory via `path`, wired in place — never cloned). Their artifacts are symlinked into each project's devbot dir (`.agents/<type>/<name>/`) by the module's `init.sh`, which runs automatically as part of `devbot init`. External modules follow the same anatomy as internal modules; the only difference is where they live on disk (`vendor/` or a local path, vs `src/agentic/`).
 
 ### Registered modules
 
@@ -176,7 +176,7 @@ Register an external module from a git URL or a local directory.
 | `--commands=<path>` | `./commands` | Path to commands directory                 |
 | `--plugins=<path>`  | `./plugins`  | Path to plugins directory                  |
 
-When `<url-or-path>` is an existing directory, it's treated as a **local module** (no cloning, symlinked into `vendor/`). Otherwise it's treated as a git URL and cloned into `vendor/`.
+When `<url-or-path>` is an existing directory, it is registered as a **local module** using a `path` entry (see [Configuration format](#configuration-format) below) — it is never cloned into `vendor/`, and its artifacts are wired straight from that directory. Otherwise it is treated as a git URL (a `url` entry) and cloned into `vendor/` on install.
 
 **Examples:**
 
@@ -187,7 +187,7 @@ devbot module add /path/to/my/module
 devbot module add https://github.com/org/repo.git --skills=./my-skills --agents=./my-agents
 ```
 
-After registration, the module is automatically wired into all discovered projects via symlinks in `.opencode/<type>/<name>/`.
+After registration, run `devbot init <project>` to wire the module's artifacts into `<project>/.agents/<type>/<name>`.
 
 #### `remove <name>`
 
@@ -202,9 +202,9 @@ devbot module remove my-module
 Show all registered modules with their clone/link status.
 
 ```
-✔  addyosmani  [git]    (vendor/github.com/addyosmani/agent-skills)
+✔  addyosmani  [git]    (vendor/addyosmani/agent-skills)
 ✔  my-module   [local]  (/path/to/my/module)
-✖  other       [git]    (vendor/github.com/org/other)
+✖  other       [git]    (vendor/org/other)
 ```
 
 #### `sync`
@@ -217,10 +217,10 @@ devbot module sync
 
 #### Configuration format
 
-External modules are defined in `.devbot.global.jsonc` under the `"modules"` key. Each entry maps a name to a source and optional paths:
+External modules are defined in `.devbot.global.jsonc` under the `"external_modules"` key. Each entry maps a name to a source and optional paths. The source is exactly one of `url` (git-sourced) or `path` (local directory):
 
 ```jsonc
-"modules": {
+"external_modules": {
   "addyosmani": {
     "url": "https://github.com/addyosmani/agent-skills.git",
     "paths": {
@@ -231,32 +231,46 @@ External modules are defined in `.devbot.global.jsonc` under the `"modules"` key
         // file-level symlink — individual file wired at exact path
       }
     }
+  },
+  "my-local-skills": {
+    "path": "/absolute/path/to/local/folder",
+    "paths": {
+      "skills": "skills"
+    }
   }
 }
 ```
 
+**Source key semantics:**
+
+- **`url`** — git-sourced. The repo is shallow-cloned into `vendor/<org>/<repo>` on `devbot install` and artifacts are wired from the clone.
+- **`path`** — local directory. Nothing is cloned or copied into `vendor/`; the directory is verified to exist on install and artifacts are symlinked straight from it. The local source is **never modified** — in particular the post-clone README cleanup only ever applies to clones, never to a local source.
+- **Both set** — `path` takes precedence and no clone happens. This lets you point a declared (git-sourced) module at a local checkout while you iterate on it.
+- **Neither set** — the entry is skipped with a warning.
+
+`external_modules` entries are **global to a dev-bot installation** (`.devbot.global.jsonc` is gitignored), so a `path` pointing at a machine-specific directory is safe to add per machine. Modules registered here — even when no internal module declares them — are wired on the next `devbot init`.
+
 **`paths` key semantics:**
 
-- **String value** (`"skills": "skills"`) — the entire directory from the module is symlinked into `.opencode/<type>/<name>/` or `.agents/memory/<name>/`
+- **String value** (`"skills": "skills"`) — the entire directory from the module is symlinked into `.agents/<type>/<name>/`
 - **Object value** (`"memory": { "source": "dest" }`) — each file is symlinked individually at its exact destination path. Used for `memory/` bootstrap files that must sit alongside internal bootstrap files without an extra nesting level
 - **Missing paths** — if a path key is omitted, that module type is not wired
 
 **Storage layout** (after wiring):
 
-| Path                                       | Purpose                                          |
-| ------------------------------------------ | ------------------------------------------------ |
-| `<devbot-root>/.devbot.global.jsonc`       | Module registry (under `modules` key)            |
-| `<devbot-root>/vendor/<org>/<repo>/`       | Cloned repository                                |
-| `storage/external-agentic-modules/<name>/` | Wired module with full lifecycle (init.sh, etc.) |
-| `<project>/.opencode/<type>/<name>`        | Symlink wired into each project                  |
-| `<project>/.agents/memory/`                | Memory bootstrap files (file-level symlinks)     |
+| Path                                       | Purpose                                                      |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| `<devbot-root>/.devbot.global.jsonc`       | Module registry (under `external_modules` key)               |
+| `<devbot-root>/vendor/<org>/<repo>/`       | Cloned repository (git-sourced modules only)                 |
+| `<local-path>/`                            | Local source directory (path-sourced modules — never copied) |
+| `storage/external-agentic-modules/<name>/` | Storage mirror (dir/file symlinks + lifecycle scripts)       |
+| `<project>/.agents/<type>/<name>`          | Symlink wired into each project's devbot dir                 |
+| `<project>/.agents/memory/`                | Memory bootstrap files (file-level symlinks)                 |
 
 #### How it works
 
-1. `add` registers the module in `.devbot.global.jsonc` under the `"modules"` key
-2. For git URLs: clones into `vendor/<org>/<repo>`
-3. For local paths: symlinks into `vendor/`
-4. Discovers all initialized projects (those with `.agents/devbot.jsonc`)
-5. Creates symlinks: `<project>/.opencode/<type>/<name>` → `<vendor>/<type>/`
-6. `sync` repeats step 4-5 for all registered modules
-7. `remove` removes symlinks and the config entry
+1. Register the module in `.devbot.global.jsonc` under `external_modules` — either via `devbot module add <url|path>` or by editing the config directly (see [Configuration format](#configuration-format))
+2. `devbot install` — git-sourced modules are shallow-cloned/updated into `vendor/<org>/<repo>`; path-sourced modules are only verified to exist (their READMEs are never touched)
+3. `devbot init <project>` — the module's `init.sh` symlinks each configured artifact into `<project>/.agents/<type>/<name>`, pointing at the vendor clone or at the local path, and mirrors it into `storage/external-agentic-modules/<name>/`
+4. Memory bootstrap files declared under `paths.memory` are linked into `<project>/.agents/memory/`
+5. `devbot module remove <name>` removes the config entry; storage dirs no longer present in the config are pruned on the next init
