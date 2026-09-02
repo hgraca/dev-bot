@@ -138,16 +138,16 @@ Located at `src/tools/<name>/`. Infrastructure services — Docker Compose, CLI 
 
 ## External modules
 
-External modules bring third-party agent artifacts (skills, agents, commands, memory bootstrap files) into projects. Each module is either **git-sourced** (a `url`, shallow-cloned into `vendor/<org>/<repo>`) or **path-sourced** (a local directory via `path`, wired in place — never cloned). Their artifacts are symlinked into each project's devbot dir (`.agents/<type>/<name>/`) by the module's `init.sh`, which runs automatically as part of `devbot init`. External modules follow the same anatomy as internal modules; the only difference is where they live on disk (`vendor/` or a local path, vs `src/agentic/`).
+External modules bring third-party agent artifacts (skills, agents, commands, memory bootstrap files) into projects. Each module is either **git-sourced** (a `url`, shallow-cloned into `vendor/<org>/<repo>`) or **path-sourced** (a local directory via `path`, wired in place — never cloned). Module names are **namespaced identities**: `<org>/<repo>` for git modules, `local/<folder>` for local ones. Their artifacts are symlinked into each project's devbot dir — nested as `.agents/<type>/<org>/<repo>` / `.agents/<type>/local/<folder>` — by the module's `init.sh`, which runs automatically as part of `devbot init`. External modules follow the same anatomy as internal modules and may themselves declare further external modules (see [Transitive declarations](#transitive-declarations)).
 
 ### Registered modules
 
 Declared by dev-bot's own modules (see `src/tools/external-modules/external-modules.json`). Additional modules can be registered per installation under `external_modules` (see [Configuration format](#configuration-format) below):
 
-| Name                | Source                             | Wires               |
-| ------------------- | ---------------------------------- | ------------------- |
-| addyosmani          | github.com/addyosmani/agent-skills | 4 agents, 24 skills |
-| mattpocock-grilling | github.com/mattpocock/skills       | skills              |
+| Name                    | Source                             | Wires               |
+| ----------------------- | ---------------------------------- | ------------------- |
+| addyosmani/agent-skills | github.com/addyosmani/agent-skills | 4 agents, 24 skills |
+| mattpocock/skills       | github.com/mattpocock/skills       | skills              |
 
 ### Module CLI
 
@@ -172,18 +172,18 @@ Register an external module from a git URL or a local directory.
 | `--commands=<path>` | `./commands` | Path to commands directory                 |
 | `--plugins=<path>`  | `./plugins`  | Path to plugins directory                  |
 
-When `<url-or-path>` is an existing directory, it is registered as a **local module** using a `path` entry (see [Configuration format](#configuration-format) below) — it is never cloned into `vendor/`, and its artifacts are wired straight from that directory. Otherwise it is treated as a git URL (a `url` entry) and cloned into `vendor/` on install.
+When `<url-or-path>` is an existing directory, it is registered as a **local module** under `local/<folder>` (see [Configuration format](#configuration-format) below) — it is never cloned into `vendor/`, and its artifacts are wired straight from that directory. Otherwise it is treated as a git URL (a `url` entry) and registered under `<org>/<repo>`, cloned into `vendor/` on install.
 
 **Examples:**
 
 ```bash
-devbot module add https://github.com/org/my-skills.git
-devbot module add https://github.com/org/repo.git --name=custom-name
-devbot module add /path/to/my/module
+devbot module add https://github.com/org/my-skills.git      # registers "org/my-skills"
+devbot module add /path/to/my/module                        # registers "local/my-module"
+devbot module add /path/to/other --name=custom              # registers "local/custom"
 devbot module add https://github.com/org/repo.git --skills=./my-skills --agents=./my-agents
 ```
 
-After registration, run `devbot init <project>` to wire the module's artifacts into `<project>/.agents/<type>/<name>`.
+`--name` applies to **local** modules only (the folder part under `local/`); git module names are derived from the url. After registration, run `devbot init <project>` to wire the module's artifacts into `<project>/.agents/<type>/<name>`.
 
 #### `remove <name>`
 
@@ -198,9 +198,9 @@ devbot module remove my-module
 Show all registered modules with their clone/link status.
 
 ```
-✔  addyosmani  [git]    (vendor/addyosmani/agent-skills)
-✔  my-module   [local]  (/path/to/my/module)
-✖  other       [git]    (vendor/org/other)
+✔  addyosmani/agent-skills  [git]    (vendor/addyosmani/agent-skills)
+✔  local/my-module          [local]  (/path/to/my/module)
+✖  org/other                [git]    (vendor/org/other)
 ```
 
 #### `sync`
@@ -213,11 +213,11 @@ devbot module sync <project>
 
 #### Configuration format
 
-External modules are defined in `.devbot.global.jsonc` under the `"external_modules"` key. Each entry maps a name to a source and optional paths. The source is exactly one of `url` (git-sourced) or `path` (local directory):
+External modules are defined in `.devbot.global.jsonc` under the `"external_modules"` key. Each entry maps a **namespaced name** to a source and optional paths. The source is exactly one of `url` (git-sourced) or `path` (local directory); the name is `<org>/<repo>` (derived from the url) or `local/<folder>`:
 
 ```jsonc
 "external_modules": {
-  "addyosmani": {
+  "addyosmani/agent-skills": {
     "url": "https://github.com/addyosmani/agent-skills.git",
     "paths": {
       "agents": "agents",       // directory symlink — all files linked
@@ -228,7 +228,7 @@ External modules are defined in `.devbot.global.jsonc` under the `"external_modu
       }
     }
   },
-  "my-local-skills": {
+  "local/my-local-skills": {
     "path": "/absolute/path/to/local/folder",
     "paths": {
       "skills": "skills"
@@ -244,29 +244,35 @@ External modules are defined in `.devbot.global.jsonc` under the `"external_modu
 - **Both set** — `path` takes precedence and no clone happens. This lets you point a declared (git-sourced) module at a local checkout while you iterate on it.
 - **Neither set** — the entry is skipped with a warning.
 
-`external_modules` entries are **global to a dev-bot installation** (`.devbot.global.jsonc` is gitignored), so a `path` pointing at a machine-specific directory is safe to add per machine. Modules registered here — even when no internal module declares them — are wired on the next `devbot init`.
+**Provenance** (recorded by the tooling, not hand-edited): declaration merges record `"_declared_by": [<module>, ...]` (the union of modules that declare the entry); CLI registrations record `"_user_added": true`. `devbot install` prunes an entry only when it is not user-added and **every** declarer is disabled or gone — so removing a parent module chains its transitive children away, while an entry kept alive by one remaining declarer (or by the user) survives.
+
+`external_modules` entries are **global to a dev-bot installation** (`.devbot.global.jsonc` is gitignored), so a `path` pointing at a machine-specific directory is safe to add per machine. Every entry that survives pruning — declared or user-added, git or local — is wired on the next `devbot init`.
 
 **`paths` key semantics:**
 
-- **String value** (`"skills": "skills"`) — the entire directory from the module is symlinked into `.agents/<type>/<name>/`
+- **String value** (`"skills": "skills"`) — the entire directory from the module is symlinked into `.agents/<type>/<org>/<repo>` (or `.agents/<type>/local/<folder>`)
 - **Object value** (`"memory": { "source": "dest" }`) — each file is symlinked individually at its exact destination path. Used for `memory/` bootstrap files that must sit alongside internal bootstrap files without an extra nesting level
 - **Missing paths** — if a path key is omitted, that module type is not wired
 
 **Storage layout** (after wiring):
 
-| Path                                       | Purpose                                                      |
-| ------------------------------------------ | ------------------------------------------------------------ |
-| `<devbot-root>/.devbot.global.jsonc`       | Module registry (under `external_modules` key)               |
-| `<devbot-root>/vendor/<org>/<repo>/`       | Cloned repository (git-sourced modules only)                 |
-| `<local-path>/`                            | Local source directory (path-sourced modules — never copied) |
-| `storage/external-agentic-modules/<name>/` | Storage mirror (dir/file symlinks + lifecycle scripts)       |
-| `<project>/.agents/<type>/<name>`          | Symlink wired into each project's devbot dir                 |
-| `<project>/.agents/memory/`                | Memory bootstrap files (file-level symlinks)                 |
+| Path                                              | Purpose                                                                                                                      |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `<devbot-root>/.devbot.global.jsonc`              | Module registry (under `external_modules` key)                                                                               |
+| `<devbot-root>/vendor/<org>/<repo>/`              | Cloned repository (git-sourced modules only)                                                                                 |
+| `<local-path>/`                                   | Local source directory (path-sourced modules — never copied)                                                                 |
+| `storage/external-agentic-modules/<org>__<repo>/` | Storage mirror (dir/file symlinks + lifecycle scripts); `/` in config names sanitized to `__` so the dir is one path segment |
+| `<project>/.agents/<type>/<org>/<repo>`           | Symlink wired into each project's devbot dir (nested for `/` names)                                                          |
+
+**Transitive declarations**
+
+External modules are a dependency graph. Any external module root (a `vendor/` clone or a local `path` directory) may carry its own `external-modules.json`; `devbot install` resolves the graph breadth-first, merging each module's declarations (owned by that module's name) and cloning/wiring the newly declared modules until nothing new appears. Cycles are cut by the visited set. Declarations are `url`-only — a tracked `external-modules.json` never carries a machine-specific local `path`.
 
 #### How it works
 
-1. Register the module in `.devbot.global.jsonc` under `external_modules` — either via `devbot module add <url|path>` or by editing the config directly (see [Configuration format](#configuration-format))
-2. `devbot install` — git-sourced modules are shallow-cloned/updated into `vendor/<org>/<repo>`; path-sourced modules are only verified to exist (their READMEs are never touched)
-3. `devbot init <project>` — the module's `init.sh` symlinks each configured artifact into `<project>/.agents/<type>/<name>`, pointing at the vendor clone or at the local path, and mirrors it into `storage/external-agentic-modules/<name>/`
-4. Memory bootstrap files declared under `paths.memory` are linked into `<project>/.agents/memory/`
-5. `devbot module remove <name>` removes the config entry; storage dirs no longer present in the config are pruned on the next init
+1. Register the module in `.devbot.global.jsonc` under `external_modules` — via `devbot module add <url|dir>` (names are derived: `<org>/<repo>` or `local/<folder>`) or by editing the config directly (see [Configuration format](#configuration-format))
+2. `devbot install` — git-sourced modules are shallow-cloned/updated into `vendor/<org>/<repo>`; path-sourced modules are only verified to exist (their READMEs are never touched). Each module's own `external-modules.json` is merged and its transitive modules processed to closure
+3. `devbot install` prunes entries whose declarers are all disabled/gone (user-added entries survive) and vendor clones no longer referenced
+4. `devbot init <project>` — the module's `init.sh` symlinks each configured artifact into `<project>/.agents/<type>/<name>` (nested for namespaced names), pointing at the vendor clone or at the local path, and mirrors it into `storage/external-agentic-modules/<sanitized-name>/`
+5. Memory bootstrap files declared under `paths.memory` are linked into `<project>/.agents/memory/`
+6. `devbot module remove <name>` unwires the `.agents` and legacy `.opencode` links and deletes the config entry; storage dirs no longer present in the config are pruned on the next init
