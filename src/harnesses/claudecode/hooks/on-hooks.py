@@ -80,6 +80,21 @@ def run_and_log(cmd, cwd, log_path, hook_id):
         pass
 
 
+def run_hook(hook, ctx, worktree):
+    # Route a hook's output to its declared "log" path when present, else run
+    # quietly. Every phase (file.edited, command.after, session.idle,
+    # session.created) must honor the manifest's log field — audit-31 §5 found
+    # the non-post-file phases discarding output unconditionally, so a
+    # session-start prune that declared qmd-index.log never wrote an entry and
+    # the self-heal looked broken.
+    cmd = resolve(hook["run"], ctx)
+    log_path = hook.get("log")
+    if log_path:
+        run_and_log(cmd, worktree, os.path.join(worktree, log_path), hook["id"])
+    else:
+        quiet(cmd, worktree)
+
+
 def run_file_edits(file_path, worktree):
     for hook in load_manifests():
         if hook.get("event") != "file.edited" or not hook.get("run"):
@@ -94,12 +109,7 @@ def run_file_edits(file_path, worktree):
                     continue
             except Exception:
                 continue
-        cmd = resolve(hook["run"], {"module": hook["_module"], "worktree": worktree, "file": file_path})
-        log_path = hook.get("log")
-        if log_path:
-            run_and_log(cmd, worktree, os.path.join(worktree, log_path), hook["id"])
-        else:
-            quiet(cmd, worktree)
+        run_hook(hook, {"module": hook["_module"], "worktree": worktree, "file": file_path}, worktree)
 
 
 def main():
@@ -186,20 +196,20 @@ def main():
             match = hook.get("match", {})
             if "command" in match and not re.search(match["command"], command):
                 continue
-            quiet(resolve(hook["run"], {"module": hook["_module"], "worktree": worktree, "command": command, "hash": hash_}), worktree)
+            run_hook(hook, {"module": hook["_module"], "worktree": worktree, "command": command, "hash": hash_}, worktree)
 
     elif phase == "stop":
         session_id = data.get("session_id") or "default"
         for hook in load_manifests():
             if hook.get("event") != "session.idle" or not hook.get("run"):
                 continue
-            quiet(resolve(hook["run"], {"module": hook["_module"], "worktree": worktree, "session-id": session_id}), worktree)
+            run_hook(hook, {"module": hook["_module"], "worktree": worktree, "session-id": session_id}, worktree)
 
     elif phase == "startup":
         for hook in load_manifests():
             if hook.get("event") != "session.created" or not hook.get("run"):
                 continue
-            quiet(resolve(hook["run"], {"module": hook["_module"], "worktree": worktree}), worktree)
+            run_hook(hook, {"module": hook["_module"], "worktree": worktree}, worktree)
 
 
 if __name__ == "__main__":
