@@ -30,18 +30,20 @@
     }
   ],
   "external_modules": {
-    "addyosmani": {
+    "addyosmani/agent-skills": {
       "url": "https://github.com/addyosmani/agent-skills.git",
       "paths": {
         "agents": "agents",
         "skills": "skills"
-      }
+      },
+      "_declared_by": ["external-modules"]
     },
-    "mattpocock-grilling": {
+    "mattpocock/skills": {
       "url": "https://github.com/mattpocock/skills.git",
       "paths": {
         "skills": "skills/productivity/grilling"
-      }
+      },
+      "_declared_by": ["external-modules"]
     }
   }
 }
