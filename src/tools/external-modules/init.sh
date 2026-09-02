@@ -109,16 +109,6 @@ _wire_one_module() {
   local src_dir="$2"
   local paths_json="$3"
 
-  local paths_map
-  paths_map="$(python3 -c "
-import json, sys
-paths = json.loads('${paths_json}')
-for k, v in paths.items():
-    print(f'{k}={v}')
-" 2>/dev/null || true)"
-
-  [[ -n "${paths_map}" ]] || return 0
-
   # External artifacts go into the DEVBOT DIR (e.g. .agents/), like the
   # internal artifacts — NOT .opencode/ — so both harnesses get them through
   # the harness delegation (.claude/* → .agents/*) and opencode's direct
@@ -127,35 +117,75 @@ for k, v in paths.items():
   local devbot_dir
   devbot_dir="$(_devbot_get_project_dir "${PROJECT_DIR}")"
 
-  while IFS='=' read -r type rel_path; do
-    [[ -z "${type}" || -z "${rel_path}" ]] && continue
+  # Decode the paths map into "type | basename | relpath" lines. String values
+  # yield one line; array values (additive paths, D1) yield one line per
+  # element; dict values (memory file maps) are not directory links and are
+  # never wired here.
+  local decoded
+  decoded=$(python3 -c "
+import json, os, sys
+paths = json.loads('${paths_json}')
+for t, v in paths.items():
+    vals = v if isinstance(v, list) else [v]
+    for rel in vals:
+        if isinstance(rel, str) and rel:
+            print(t + '\x1f' + os.path.basename(rel.rstrip('/')) + '\x1f' + rel)
+" 2>/dev/null || true)
+  [[ -n "${decoded}" ]] || return 0
+
+  local prev_type="" seen="" container_done=""
+  while IFS=$'\x1f' read -r type base rel_path; do
+    [[ -z "${type}" || -z "${base}" || -z "${rel_path}" ]] && continue
+
+    if [[ "${type}" != "${prev_type}" ]]; then
+      prev_type="${type}"
+      seen=""
+      container_done=""
+    fi
+
     [[ ! -d "${src_dir}/${rel_path}" ]] && continue
 
-    local type_src="${src_dir}/${rel_path}"
-    local target_dir="${PROJECT_DIR}/${devbot_dir}/${type}"
-    local link_path="${target_dir}/${name}"
+    # Same-basename collision within one entry+type: first path wins.
+    if echo "${seen}" | grep -Fqx "${base}" 2>/dev/null; then
+      _warn "${name}: ${type} paths share basename '${base}' (${rel_path}) — skipping"
+      continue
+    fi
+    seen+="${base}"$'\n'
 
-    # The name may be namespaced (org/repo, local/folder) — create the parent
-    # dirs so the link lands at .agents/<type>/<org>/<repo>.
-    mkdir -p "$(dirname "${link_path}")"
+    # Uniform nested layout (D2): .agents/<type>/<org>/<repo> is a container
+    # dir holding one symlink per path, named by the path's basename. A
+    # symlink at the container path is the pre-additive shape — convert it so
+    # a re-init heals consumers wired under the old layout.
+    local container="${PROJECT_DIR}/${devbot_dir}/${type}/${name}"
+    if [[ -z "${container_done}" ]]; then
+      container_done=1
+      if [[ -L "${container}" ]]; then
+        rm "${container}"
+        _log "${name}: converted old-shape link to container dir (${devbot_dir}/${type}/${name})"
+      fi
+      mkdir -p "${container}"
+    fi
+
+    local type_src="${src_dir}/${rel_path}"
+    local link_path="${container}/${base}"
 
     if [[ -L "${link_path}" ]]; then
       local current
       current="$(readlink "${link_path}")"
       if [[ "${current}" == "${type_src}" ]]; then
-        _skip "${name} → ${devbot_dir}/${type}/${name} (already correct)"
+        _skip "${name} → ${devbot_dir}/${type}/${name}/${base} (already correct)"
       else
         rm "${link_path}"
         ln -s "${type_src}" "${link_path}"
-        _log "${name} → ${devbot_dir}/${type}/${name} repaired"
+        _log "${name} → ${devbot_dir}/${type}/${name}/${base} repaired"
       fi
     elif [[ -e "${link_path}" ]]; then
       _warn "${link_path} exists but is not a symlink — skipping"
     else
       ln -s "${type_src}" "${link_path}"
-      _log "${name} → ${devbot_dir}/${type}/${name} linked"
+      _log "${name} → ${devbot_dir}/${type}/${name}/${base} linked"
     fi
-  done <<< "${paths_map}"
+  done <<< "${decoded}"
 }
 
 _setup_one_storage() {

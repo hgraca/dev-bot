@@ -561,8 +561,12 @@ print('ok')
   run bash "${MODULE_DIR}/init.sh" "${project}"
 
   assert_success
-  assert [ -L "${project}/.agents/skills/loc-mod" ]
-  assert [ "$(readlink "${project}/.agents/skills/loc-mod")" = "${loc_dir}/skills" ]
+  # Uniform nested layout: the name level is a container dir, the symlink
+  # leaf is the path's basename.
+  assert [ -d "${project}/.agents/skills/loc-mod" ]
+  assert [ ! -L "${project}/.agents/skills/loc-mod" ]
+  assert [ -L "${project}/.agents/skills/loc-mod/skills" ]
+  assert [ "$(readlink "${project}/.agents/skills/loc-mod/skills")" = "${loc_dir}/skills" ]
 }
 
 @test "init: declared url module still wires from vendor clone dir" {
@@ -589,8 +593,10 @@ EOF
   run bash "${MODULE_DIR}/init.sh" "${project}"
 
   assert_success
-  assert [ -L "${project}/.agents/skills/demo" ]
-  assert [ "$(readlink "${project}/.agents/skills/demo")" = "${DEV_BOT_ROOT}/vendor/acme/demo/skills" ]
+  assert [ -d "${project}/.agents/skills/demo" ]
+  assert [ ! -L "${project}/.agents/skills/demo" ]
+  assert [ -L "${project}/.agents/skills/demo/skills" ]
+  assert [ "$(readlink "${project}/.agents/skills/demo/skills")" = "${DEV_BOT_ROOT}/vendor/acme/demo/skills" ]
 }
 
 @test "init: config-only url entry wires .agents nested under org/repo" {
@@ -609,8 +615,10 @@ EOF
   run bash "${MODULE_DIR}/init.sh" "${project}"
 
   assert_success
-  assert [ -L "${project}/.agents/skills/acme/userrepo" ]
-  assert [ "$(readlink "${project}/.agents/skills/acme/userrepo")" = "${DEV_BOT_ROOT}/vendor/acme/userrepo/skills" ]
+  assert [ -d "${project}/.agents/skills/acme/userrepo" ]
+  assert [ ! -L "${project}/.agents/skills/acme/userrepo" ]
+  assert [ -L "${project}/.agents/skills/acme/userrepo/skills" ]
+  assert [ "$(readlink "${project}/.agents/skills/acme/userrepo/skills")" = "${DEV_BOT_ROOT}/vendor/acme/userrepo/skills" ]
 }
 
 @test "init: config-only local entry wires .agents nested under local/<folder>" {
@@ -630,8 +638,10 @@ EOF
   run bash "${MODULE_DIR}/init.sh" "${project}"
 
   assert_success
-  assert [ -L "${project}/.agents/skills/local/nested-local" ]
-  assert [ "$(readlink "${project}/.agents/skills/local/nested-local")" = "${loc_dir}/skills" ]
+  assert [ -d "${project}/.agents/skills/local/nested-local" ]
+  assert [ ! -L "${project}/.agents/skills/local/nested-local" ]
+  assert [ -L "${project}/.agents/skills/local/nested-local/skills" ]
+  assert [ "$(readlink "${project}/.agents/skills/local/nested-local/skills")" = "${loc_dir}/skills" ]
   # Storage mirror dir is sanitized to a single segment.
   assert [ -L "${DEV_BOT_ROOT}/storage/external-agentic-modules/local__nested-local/skills" ]
 }
@@ -656,8 +666,112 @@ EOF
   assert_success
   assert [ -f "${loc_dir}/skills/README.md" ]
   assert [ ! -d "${loc_dir}/.git" ]
-  assert [ -L "${project}/.agents/skills/precious-mod" ]
-  assert [ "$(readlink "${project}/.agents/skills/precious-mod")" = "${loc_dir}/skills" ]
+  assert [ -d "${project}/.agents/skills/precious-mod" ]
+  assert [ ! -L "${project}/.agents/skills/precious-mod" ]
+  assert [ -L "${project}/.agents/skills/precious-mod/skills" ]
+  assert [ "$(readlink "${project}/.agents/skills/precious-mod/skills")" = "${loc_dir}/skills" ]
+}
+
+@test "init: array paths wire one leaf per element under the repo container" {
+  mkdir -p "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/react"
+  mkdir -p "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/nextjs-react-typescript"
+  echo "r" > "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/react/r.md"
+  echo "n" > "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/nextjs-react-typescript/n.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"acme/skills-pack\": { \"url\": \"https://example.com/acme/skills-pack.git\", \"paths\": { \"skills\": [\"skills/react\", \"skills/nextjs-react-typescript\"] } }
+    }
+  }"
+
+  local project="${TEST_HOME}/project-array"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert [ -d "${project}/.agents/skills/acme/skills-pack" ]
+  assert [ ! -L "${project}/.agents/skills/acme/skills-pack" ]
+  assert [ -L "${project}/.agents/skills/acme/skills-pack/react" ]
+  assert [ "$(readlink "${project}/.agents/skills/acme/skills-pack/react")" = "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/react" ]
+  assert [ -L "${project}/.agents/skills/acme/skills-pack/nextjs-react-typescript" ]
+  assert [ "$(readlink "${project}/.agents/skills/acme/skills-pack/nextjs-react-typescript")" = "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/nextjs-react-typescript" ]
+  # Content is reachable through both leaves.
+  assert [ -f "${project}/.agents/skills/acme/skills-pack/react/r.md" ]
+  assert [ -f "${project}/.agents/skills/acme/skills-pack/nextjs-react-typescript/n.md" ]
+}
+
+@test "init: idempotent re-run on array paths reports already-correct" {
+  mkdir -p "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/react"
+  mkdir -p "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/nextjs-react-typescript"
+  echo "r" > "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/react/r.md"
+  echo "n" > "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/nextjs-react-typescript/n.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"acme/skills-pack\": { \"url\": \"https://example.com/acme/skills-pack.git\", \"paths\": { \"skills\": [\"skills/react\", \"skills/nextjs-react-typescript\"] } }
+    }
+  }"
+
+  local project="${TEST_HOME}/project-array-idem"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+  assert_success
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+  assert_success
+  assert_output --partial "already correct"
+  assert [ -L "${project}/.agents/skills/acme/skills-pack/react" ]
+  assert [ "$(readlink "${project}/.agents/skills/acme/skills-pack/react")" = "${DEV_BOT_ROOT}/vendor/acme/skills-pack/skills/react" ]
+}
+
+@test "init: converts old-shape repo-leaf symlink to container dir" {
+  mkdir -p "${DEV_BOT_ROOT}/vendor/acme/userrepo/skills"
+  echo "skill" > "${DEV_BOT_ROOT}/vendor/acme/userrepo/skills/u.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"acme/userrepo\": { \"url\": \"https://example.com/acme/userrepo.git\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  local project="${TEST_HOME}/project-repair"
+  mkdir -p "${project}/.agents/skills/acme"
+  # Pre-additive shape: <org>/<repo> itself is the symlink.
+  ln -s "${DEV_BOT_ROOT}/vendor/acme/userrepo/skills" "${project}/.agents/skills/acme/userrepo"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "converted old-shape"
+  assert [ -d "${project}/.agents/skills/acme/userrepo" ]
+  assert [ ! -L "${project}/.agents/skills/acme/userrepo" ]
+  assert [ -L "${project}/.agents/skills/acme/userrepo/skills" ]
+  assert [ "$(readlink "${project}/.agents/skills/acme/userrepo/skills")" = "${DEV_BOT_ROOT}/vendor/acme/userrepo/skills" ]
+}
+
+@test "init: same-basename paths in one type warn and keep the first" {
+  mkdir -p "${DEV_BOT_ROOT}/vendor/col/repo/skills"
+  mkdir -p "${DEV_BOT_ROOT}/vendor/col/repo/meta/skills"
+  echo "a" > "${DEV_BOT_ROOT}/vendor/col/repo/skills/a.md"
+  echo "b" > "${DEV_BOT_ROOT}/vendor/col/repo/meta/skills/b.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"col/repo\": { \"url\": \"https://example.com/col/repo.git\", \"paths\": { \"skills\": [\"skills\", \"meta/skills\"] } }
+    }
+  }"
+
+  local project="${TEST_HOME}/project-collision"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "share basename 'skills'"
+  assert [ -L "${project}/.agents/skills/col/repo/skills" ]
+  assert [ "$(readlink "${project}/.agents/skills/col/repo/skills")" = "${DEV_BOT_ROOT}/vendor/col/repo/skills" ]
 }
 
 @test "init: missing local path warns and skips without crashing" {
@@ -836,8 +950,10 @@ print('ok')
   run bash "$TOOL" init "${project}"
 
   assert_success
-  assert [ -L "${project}/.agents/skills/cli-local" ]
-  assert [ "$(readlink "${project}/.agents/skills/cli-local")" = "${loc_dir}/skills" ]
+  assert [ -d "${project}/.agents/skills/cli-local" ]
+  assert [ ! -L "${project}/.agents/skills/cli-local" ]
+  assert [ -L "${project}/.agents/skills/cli-local/skills" ]
+  assert [ "$(readlink "${project}/.agents/skills/cli-local/skills")" = "${loc_dir}/skills" ]
   assert [ ! -e "${project}/.opencode/skills/cli-local" ]
 }
 
