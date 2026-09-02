@@ -598,3 +598,92 @@ print(entry['path'])
   assert_output --partial "local module at"
   refute_output --partial "missing url"
 }
+
+# ── CLI modernisation (wires .agents, comment-preserving config writes) ────────
+
+@test "init: delegates to module init.sh and wires .agents for local path entry" {
+  local loc_dir="${TEST_HOME}/cli-local"
+  mkdir -p "${loc_dir}/skills"
+  echo "skill" > "${loc_dir}/skills/cli.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"cli-local\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  local project="${TEST_HOME}/project-cli-init"
+  mkdir -p "${project}"
+
+  run bash "$TOOL" init "${project}"
+
+  assert_success
+  assert [ -L "${project}/.agents/skills/cli-local" ]
+  assert [ "$(readlink "${project}/.agents/skills/cli-local")" = "${loc_dir}/skills" ]
+  assert [ ! -e "${project}/.opencode/skills/cli-local" ]
+}
+
+@test "add: local registration preserves JSONC comments" {
+  local mod_dir="${TEST_HOME}/comment-module"
+  mkdir -p "${mod_dir}/skills"
+
+  cat > "${DEV_BOT_ROOT}/.devbot.global.jsonc" <<'EOF'
+{
+  // keep this comment
+  "gpu_enabled": true
+}
+EOF
+
+  run bash "$TOOL" add "${mod_dir}" --name=comment-module
+
+  assert_success
+  assert_output --partial "Registered: comment-module"
+
+  run grep -c "keep this comment" "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  assert_success
+  assert_output "1"
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.loads(__import__('re').sub(r'//.*', '', f.read()))
+entry = data['external_modules']['comment-module']
+assert entry.get('path') == '${mod_dir}', entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "remove: preserves JSONC comments while removing entry" {
+  local loc_dir="${TEST_HOME}/remove-comment-module"
+  mkdir -p "${loc_dir}/skills"
+
+  cat > "${DEV_BOT_ROOT}/.devbot.global.jsonc" <<EOF
+{
+  // keep this comment
+  "external_modules": {
+    "remove-me": { "path": "${loc_dir}", "paths": { "skills": "skills" } },
+    "stay": { "path": "${loc_dir}", "paths": { "skills": "skills" } }
+  }
+}
+EOF
+
+  run bash "$TOOL" remove remove-me
+
+  assert_success
+  run grep -c "keep this comment" "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  assert_success
+  assert_output "1"
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.loads(__import__('re').sub(r'//.*', '', f.read()))
+assert 'remove-me' not in data['external_modules'], data
+assert 'stay' in data['external_modules'], data
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}

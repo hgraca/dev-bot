@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
 # src/tools/external-modules/tools/module.sh
-# DevBot module manager — manage external module repos (clone, wire, sync).
+# DevBot module manager — register/list/remove external modules and wire them
+# into projects.
 #
 # Usage:
 #   module.sh install    # clone/pull configured external modules
-#   module.sh init [path] # wire modules into .opencode/ dirs
+#   module.sh init [path] # wire modules into a project's .agents/ dir
 #   module.sh add <url|path>   # register a module (git URL or local path)
 #   module.sh remove <name>    # unregister a module
 #   module.sh list              # list registered modules
-#   module.sh sync [--project=<dir>]  # re-wire all modules (alias for init)
+#   module.sh sync [path]       # re-wire all modules (alias for init)
 # =============================================================================
 
 set -euo pipefail
@@ -19,6 +20,7 @@ DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
 MODULES_DIR="${DEV_BOT_ROOT}/vendor"
 CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 READ_JSONC="${SCRIPT_DIR}/../../../_shared/read_jsonc.py"
+MERGE_JSONC="${SCRIPT_DIR}/../../../_shared/merge_modules_jsonc.py"
 
 # ── Source shared library ──────────────────────────────────────────────────────
 # shellcheck source=../../../_shared/functions.sh
@@ -37,22 +39,8 @@ _url_to_name() {
 _ensure_config() {
     if [[ ! -f "${CONFIG_FILE}" ]]; then
         _step "Creating .devbot.global.jsonc ..."
-        echo '{"external_modules":{}}' > "${CONFIG_FILE}"
+        echo '{}' > "${CONFIG_FILE}"
         _ok ".devbot.global.jsonc created"
-        return 0
-    fi
-    # Ensure modules key exists (use python to write clean JSON)
-    if ! python3 "${READ_JSONC}" "${CONFIG_FILE}" external_modules 2>/dev/null; then
-        _step "Fixing .devbot.global.jsonc (adding modules key)..."
-        python3 -c "
-import json
-with open('${CONFIG_FILE}') as f:
-    data = json.loads(__import__('re').sub(r'//.*', '', f.read()))
-data.setdefault('external_modules', {})
-with open('${CONFIG_FILE}', 'w') as f:
-    json.dump(data, f, indent=2)
-    f.write('\n')
-" 2>/dev/null || true
     fi
 }
 
@@ -65,6 +53,31 @@ _get_external_module_field() {
     python3 "${READ_JSONC}" "${CONFIG_FILE}" external_modules "${name}" "${field}" 2>/dev/null || true
 }
 
+# Register a module in external_modules via the comment-preserving merge script.
+# Args: $1 name, $2 url (or empty), $3 path (or empty), $4 paths JSON.
+_register_entry() {
+    local name="$1" url="$2" path="$3" paths_json="$4"
+    local tmp_entries
+    tmp_entries="$(mktemp)"
+    if ! python3 -c "
+import json, sys
+name, url, path, paths = sys.argv[1:5]
+entry = {'paths': json.loads(paths)}
+if url:
+    entry['url'] = url
+if path:
+    entry['path'] = path
+json.dump({name: entry}, open(sys.argv[5], 'w'))
+" "${name}" "${url}" "${path}" "${paths_json}" "${tmp_entries}"; then
+        rm -f "${tmp_entries}"
+        return 1
+    fi
+    python3 "${MERGE_JSONC}" "${CONFIG_FILE}" "${tmp_entries}"
+    local rc=$?
+    rm -f "${tmp_entries}"
+    return ${rc}
+}
+
 _discover_projects() {
     # Find projects with a .devbot.project.jsonc file
     while IFS= read -r _f; do
@@ -75,48 +88,6 @@ _discover_projects() {
     if [[ -f "${DEV_BOT_ROOT}/.devbot.project.jsonc" || -f "${CONFIG_FILE}" ]]; then
         echo "${DEV_BOT_ROOT}"
     fi
-}
-
-_wire_module() {
-    local name="$1" src_dir="$2" paths_json="$3"
-    shift 3
-    local project_dirs=("$@")
-
-    for type in skills agents commands plugins; do
-        local rel_path
-        rel_path="$(python3 -c "
-import json, sys
-paths = json.loads('${paths_json}')
-print(paths.get('${type}', ''))
-")"
-        [[ -z "${rel_path}" ]] && continue
-
-        local type_src
-        type_src="$(cd -P "${src_dir}/${rel_path}" 2>/dev/null && pwd)" || continue
-        [[ -d "${type_src}" ]] || continue
-
-        for proj in "${project_dirs[@]}"; do
-            local target_dir="${proj}/.opencode/${type}"
-            local link_path="${target_dir}/${name}"
-            mkdir -p "${target_dir}"
-            if [[ -L "${link_path}" ]]; then
-                local current
-                current="$(readlink "${link_path}")"
-                if [[ "${current}" == "${type_src}" ]]; then
-                    _skip "${name} → .opencode/${type}/${name} (already correct)"
-                else
-                    rm "${link_path}"
-                    ln -s "${type_src}" "${link_path}"
-                    _log "${name} → .opencode/${type}/${name} repaired"
-                fi
-            elif [[ -e "${link_path}" ]]; then
-                _warn "${link_path} exists but is not a symlink — skipping"
-            else
-                ln -s "${type_src}" "${link_path}"
-                _log "${name} → .opencode/${type}/${name} linked"
-            fi
-        done
-    done
 }
 
 _unwire_module() {
@@ -208,107 +179,10 @@ cmd_init() {
         exit 1
     fi
 
-    DEV_BOT_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
-    CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
-    MODULES_DIR="${DEV_BOT_ROOT}/vendor"
-
-    # Ensure config exists
-    if [[ ! -f "${CONFIG_FILE}" ]]; then
-        _skip ".devbot.global.jsonc not found — nothing to wire"
-        exit 0
-    fi
-
-    # Read modules configuration
-    if ! python3 "${READ_JSONC}" "${CONFIG_FILE}" external_modules >/dev/null 2>&1; then
-        _skip "No modules configured in .devbot.global.jsonc"
-        exit 0
-    fi
-
-    # Discover projects to wire into (the specified project and optionally the devbot root)
-    local -a projects=("${project_dir}")
-
-    # Also wire into devbot root itself if it's a different directory and has a devbot.jsonc
-    if [[ "${project_dir}" != "${DEV_BOT_ROOT}" && -f "${DEV_BOT_ROOT}/.devbot.project.jsonc" ]]; then
-        projects+=("${DEV_BOT_ROOT}")
-    fi
-
-    # Deduplicate projects
-    IFS=$'\n' read -r -d '' -a unique_projects < <(printf '%s\n' "${projects[@]}" | sort -u && printf '\0')
-    projects=("${unique_projects[@]}")
-
-    # Process each module
-    while IFS=$'\x1f' read -r name url path paths_json; do
-        # Determine source directory
-        if [[ -n "${path}" ]]; then
-            local src_dir="${path}"
-        elif [[ -n "${url}" ]]; then
-            local vendor_rel
-            vendor_rel="$(_derive_vendor_path "${url}")"
-            local src_dir="${MODULES_DIR}/${vendor_rel}"
-            # Ensure the module is cloned (should have been done by install.sh)
-            if [[ ! -d "${src_dir}" ]]; then
-                _warn "${name}: source not found at ${src_dir} — run install.sh first"
-                continue
-            fi
-        else
-            _warn "${name}: missing url and path — skipping"
-            continue
-        fi
-
-        # Parse paths JSON
-        local paths_map
-        paths_map="$(python3 -c "
-import json, sys
-paths = json.loads('${paths_json}')
-# Output as key=value lines
-for k, v in paths.items():
-    print(f'{k}={v}')
-")"
-
-        # Wire each path type
-        while IFS='=' read -r type rel_path; do
-            [[ -z "${type}" || -z "${rel_path}" ]] && continue
-            [[ ! -d "${src_dir}/${rel_path}" ]] && continue
-
-            local type_src="${src_dir}/${rel_path}"
-            for proj in "${projects[@]}"; do
-                local target_dir="${proj}/.opencode/${type}"
-                local link_path="${target_dir}/${name}"
-
-                mkdir -p "${target_dir}"
-
-                if [[ -L "${link_path}" ]]; then
-                    local current
-                    current="$(readlink "${link_path}")"
-                    if [[ "${current}" == "${type_src}" ]]; then
-                        _skip "${name} → .opencode/${type}/${name} (already correct)"
-                    else
-                        rm "${link_path}"
-                        ln -s "${type_src}" "${link_path}"
-                        _log "${name} → .opencode/${type}/${name} repaired"
-                    fi
-                elif [[ -e "${link_path}" ]]; then
-                    _warn "${link_path} exists but is not a symlink — skipping"
-                else
-                    ln -s "${type_src}" "${link_path}"
-                    _log "${name} → .opencode/${type}/${name} linked"
-                fi
-            done
-        done <<< "${paths_map}"
-    done < <(python3 "${READ_JSONC}" "${CONFIG_FILE}" external_modules | \
-        python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for name, entry in data.items():
-    if not isinstance(entry, dict):
-        continue  # boolean enable/disable flags are not module definitions
-    url = entry.get('url', '')
-    path = entry.get('path', '')
-    paths = json.dumps(entry.get('paths', {}))
-    print(f'{name}\x1f{url}\x1f{path}\x1f{paths}')
-    ")
-
-    _ok "external-modules wiring complete"
+    # Delegate to the module's init.sh — the single source of truth for wiring
+    # external module artifacts into a project's devbot dir (.agents/). It wires
+    # declared modules plus config-only local (path) modules.
+    bash "${SCRIPT_DIR}/../init.sh" "${project_dir}"
 }
 
 cmd_list() {
@@ -413,16 +287,9 @@ print(json.dumps(paths))
         fi
 
         _step "Registering in .devbot.global.jsonc ..."
-        python3 "${READ_JSONC}" "${CONFIG_FILE}" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-modules = data.setdefault('external_modules', {})
-modules['${name}'] = {'path': '${local_abs_path}', 'paths': ${paths_json}}
-with open('${CONFIG_FILE}', 'w') as f:
-    json.dump(data, f, indent=2)
-    f.write('\n')
-"
-        _ok "Registered: ${name}"
+        _register_entry "${name}" "" "${local_abs_path}" "${paths_json}"
+        _ok "Registered: ${name} [local]"
+        _log "Run 'devbot init <project>' to wire it into .agents/ — local modules are never cloned into vendor/"
     else
         local url="${url_or_path}"
         local name="${opt_name:-$(_url_to_name "${url}")}"
@@ -469,31 +336,9 @@ print(json.dumps(paths))
         _remove_readme_from_paths "${dest}" "${paths_json}"
 
         _step "Registering in .devbot.global.jsonc ..."
-        python3 "${READ_JSONC}" "${CONFIG_FILE}" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-modules = data.setdefault('external_modules', {})
-modules['${name}'] = {'url': '${url}', 'paths': ${paths_json}}
-with open('${CONFIG_FILE}', 'w') as f:
-    json.dump(data, f, indent=2)
-    f.write('\n')
-"
-        _ok "Registered: ${name}"
-
-        _step "Wiring into projects ..."
-        local -a projects
-        while IFS= read -r _proj; do
-            projects+=("${_proj}")
-        done < <(_discover_projects | sort -u)
-
-        if [[ ${#projects[@]} -eq 0 ]]; then
-            _info "No projects found — run 'devbot init <path>' first"
-            return 0
-        fi
-
-        local src_dir="${local_abs_path:-${dest}}"
-        _wire_module "${name}" "${src_dir}" "${paths_json}" "${projects[@]}"
-        _ok "Wired into ${#projects[@]} project(s)"
+        _register_entry "${name}" "${url}" "" "${paths_json}"
+        _ok "Registered: ${name} [git]"
+        _log "Run 'devbot install' then 'devbot init <project>' — git modules are wired from vendor/ when declared by an enabled module"
     fi
 }
 
@@ -522,16 +367,8 @@ cmd_remove() {
     done < <(_discover_projects | sort -u)
     _unwire_module "${name}" "${projects[@]}"
 
-    # Remove from config
-    python3 "${READ_JSONC}" "${CONFIG_FILE}" | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-data.get('external_modules', {}).pop('${name}', None)
-with open('${CONFIG_FILE}', 'w') as f:
-    json.dump(data, f, indent=2)
-    f.write('\n')
-"
-
+    # Remove from config (comment-preserving)
+    python3 "${MERGE_JSONC}" "${CONFIG_FILE}" --remove "${name}" >/dev/null 2>&1
     # Remove storage structure (config is now the source of truth — no longer configured)
     local storage_dir="${DEV_BOT_ROOT}/storage/external-agentic-modules/${name}"
     if [[ -d "${storage_dir}" ]]; then
@@ -564,15 +401,16 @@ case "${_cmd}" in
         echo ""
         echo "Subcommands:"
         echo "  install    Clone/pull configured external modules"
-        echo "  init [path] Wire modules into .opencode/ directories"
+        echo "  init [path] Wire modules into a project's .agents/ directory"
         echo "  add <url|path>   Register a module (git URL or local path)"
         echo "  remove <name>    Unregister a module"
         echo "  list              List registered modules"
-        echo "  sync [--project=<dir>]  Re-wire all modules (alias for init)"
+        echo "  sync [path]       Re-wire all modules (alias for init)"
         echo ""
         echo "Notes:"
         echo "  - 'install' reads .devbot.global.jsonc and clones/pulls the configured modules."
-        echo "  - 'init' wires the installed modules into .opencode/ directories of projects."
+        echo "  - 'init' wires the installed modules into a project's .agents/ directory (delegates to the module init.sh)."
+        echo "  - 'add <dir>' registers a local module (path) — it is wired by 'devbot init', never cloned."
         echo "  - 'sync' is an alias for 'init' (provided for backward compatibility)."
         ;;
     *) _fatal "Unknown subcommand '${_cmd}'"; echo "  Run: module.sh help"; exit 1 ;;
