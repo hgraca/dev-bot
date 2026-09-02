@@ -4,6 +4,10 @@ keywords: ["external-modules", "devbot", "architecture", "provenance", "merge"]
 see: ["PDRs/20260902140000-external-modules-full-intent.md"]
 ---
 
+> **SUPERSEDED (2026-09-02)** by
+> [20260902170000-external-modules-named-imports-restored.md](20260902170000-external-modules-named-imports-restored.md):
+> the org/repo namespaced model described here was reverted to named imports.
+
 ## External module architecture: path sources, namespacing, recursion, provenance
 
 dev-bot's external-modules machinery (module at `src/tools/external-modules/`, config editor `src/_shared/merge_modules_jsonc.py`) was reworked over 2026-09-02 into a namespaced, recursive graph model. Key architectural decisions, all tested:

@@ -3,6 +3,11 @@ date: 2026-09-02
 keywords: ["devbot", "external-modules", "merge_modules_jsonc", "gotcha"]
 ---
 
+> **SESSION REVERTED (2026-09-02)** — the namespaced model this file documents
+> was reverted to named imports (see
+> [ADRs/20260902170000-external-modules-named-imports-restored.md](../ADRs/20260902170000-external-modules-named-imports-restored.md)).
+> Bullets 1-2 still apply to the restored code; bullet 3 (nested keys) is void.
+
 # External-modules implementation gotchas (2026-09-02)
 
 - `merge_modules_jsonc.py` reads declaration files with plain `json.load` — a `//` comment inside `external-modules.json` makes the merge fail with "cannot read entries file" and, because install.sh prunes stale entries after merging, a broken declaration silently pruned the live vendor clones and config during migration. Declaration files must stay strict JSON; JSONC comments belong in `.devbot.global.jsonc`, never in declaration files.

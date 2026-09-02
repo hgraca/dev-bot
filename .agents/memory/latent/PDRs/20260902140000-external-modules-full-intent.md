@@ -3,6 +3,10 @@ date: 2026-09-02
 keywords: ["external-modules", "devbot", "namespaced", "recursive", "additive-paths"]
 ---
 
+> **SUPERSEDED (2026-09-02)** by the revert to named imports
+> ([20260902170000-external-modules-named-imports-restored.md](../ADRs/20260902170000-external-modules-named-imports-restored.md)):
+> namespaced identities, additive paths and their open branches were dropped.
+
 ## External module model — full intent and open design branches
 
 Product decisions (2026-09-02 session, all confirmed by the stakeholder): external modules in `.devbot.global.jsonc:external_modules` may be git-sourced (`url`) or local (`path`), with `path` winning when both are set and never being cloned/copied to `vendor/`; the local source is never modified. Names are namespaced identities: `<org>/<repo>` for git (derived from url), `local/<folder>` for local (CLI `--name` overrides only the folder). Users must be able to register git repos directly and have them wired (config-only entries are wired, not just declared ones). External modules form a dependency graph: any external module root (vendor clone or local path) may ship its own `external-modules.json` and declare further modules, resolved to closure by `devbot install` with a visited-set against cycles. Entries carry provenance so pruning is safe: `_declared_by` (union of declaring modules, set by merges with `--owner`) vs `_user_added` (CLI registrations); an entry is pruned only when not user-added and every declarer is disabled or gone, which chains removal of transitive children when a parent module disappears.
