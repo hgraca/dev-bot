@@ -70,22 +70,6 @@ If you are **not** running as DevBot (the audit was launched under TeamLead or a
 - **Project has a Makefile** — run `make help` and confirm the command list renders; run `make test` (or the scoped test suite) and confirm it passes; confirm the dev container is up (`make up` / `make down` round-trip if feasible).
 - **No Makefile** (e.g. a kata project that runs tests via raw `docker run` / `phpunit`) — record this as a NOTE / N-A, **not** a FAIL. It is not a reinit defect.
 
-## 1b. External modules wiring
-
-External modules are registered in `.devbot.global.jsonc` under `external_modules` (per-project `.devbot.project.jsonc` cannot override them). Each entry has exactly one source: `url` (git, cloned into `vendor/<org>/<repo>`) or `path` (a local directory, never cloned). Wiring lives in the devbot root's `.agents/` (and in each project's `.agents/` after `devbot init <project>`); the storage mirror sits at `storage/external-agentic-modules/<name>/`. Exercise each module with LIVE probes, not just filesystem reads:
-
-- **Enumerate the configured set** — read `external_modules` keys from `.devbot.global.jsonc`. Names are namespaced: `<org>/<repo>` for git, `local/<folder>` for local. For every entry determine its source (`url` vs `path`) and expected target dir (clone path for `url`; the literal path for `path`).
-- **Git-sourced module** — PASS if the clone exists at `vendor/<org>/<repo>` (`_derive_vendor_path` semantics: scheme + host + first path segment are stripped), the storage mirror `storage/external-agentic-modules/<org>__<repo>/<type>` symlinks resolve (note: `/` in the name is sanitized to `__` in the mirror dir), and the project `.agents/<type>/<org>/<repo>` symlinks point into the clone. FAIL if the clone is missing (fix: `devbot install`), or a configured path type has no symlink while the source dir exists.
-- **Local (`path`) module — verify the no-clone invariant explicitly**: PASS if (a) the path exists, (b) the project `.agents/<type>/local/<folder>` symlinks resolve INTO the local path, (c) **no copy/clone of it exists under `vendor/`**, and (d) the local source was not modified by dev-bot — spot-check that a `README.md` present in the source still exists (the post-clone README cleanup only ever applies to clones). FAIL on any violation (fix: remove the accidental `vendor/` copy, re-run `devbot init`).
-- **Config-only modules** (entries no internal module's `external-modules.json` declares — user git registrations and local dirs) MUST still be wired into the project `.agents/` by init.sh — probe one end to end. FAIL if registered but not wired (fix: `devbot init <project>`).
-- **Transitive declarations** — an external module root may ship its own `external-modules.json`; `devbot install` resolves the graph to closure. Probe one: pick a module whose root carries the file, confirm its declared children appear in the config with `_declared_by` naming the parent and are themselves wired.
-- **Both `url` and `path` set** — `path` wins by design (a local override of a declared repo). NOTE the precedence, FAIL only if the clone is also being maintained (both copies drifting).
-- **Neither set** — FAIL: the entry is misconfigured and will be skipped with a warning.
-- **Provenance / hygiene (stale leftovers)** — FAIL/NOTE if: an entry is not user-added (`_user_added`) and every `_declared_by` module is disabled or absent from the config (stale — `devbot install` should have pruned it and its transitive children); a `vendor/` clone is not referenced by any config `url` entry (stale clone — install prunes these); or a `storage/external-agentic-modules/` dir has no config entry (orphaned — the next `devbot init` prunes it). Suggested fix in each case: run `devbot install` / `devbot init`; only hand-edit `.devbot.global.jsonc` with the comment-preserving `src/_shared/merge_modules_jsonc.py` when the automated path fails.
-- **Idempotency** — re-run the module's init wiring (or `devbot init`) and confirm it reports "already correct" rather than re-creating/repairing symlinks each time.
-
-Report every failure in the FAIL table with the config entry, the observed state (missing clone / dangling symlink / stray vendor copy / stale entry), and the fix above.
-
 ## 2. Hooks (manifest-driven)
 
 - Edit a `.md` file and confirm the format-md hook reformats it.
