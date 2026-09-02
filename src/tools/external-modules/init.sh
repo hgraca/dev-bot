@@ -82,6 +82,26 @@ with open('${ext_file}') as f:
 " 2>/dev/null || true
 }
 
+# Is a config entry name declared by ANY internal module's external-modules.json?
+# Declared names are managed by their module's lifecycle: an enabled module's
+# declarations are wired by the declared-module loop above, and a disabled
+# module's declarations (react/svelte) must NOT be pulled in by the config-only
+# pass — only truly config-only (user/CLI `module add`) entries belong there.
+_is_declared_by_any_module() {
+  local name="$1"
+  python3 -c "
+import glob, json, sys
+name = sys.argv[1]
+for f in glob.glob('${DEV_BOT_ROOT}/src/agentic/*/external-modules.json') + glob.glob('${DEV_BOT_ROOT}/src/tools/*/external-modules.json'):
+    try:
+        if name in json.load(open(f)):
+            sys.exit(0)
+    except Exception:
+        continue
+sys.exit(1)
+" "${name}" 2>/dev/null && return 0 || return 1
+}
+
 _resolve_source_dir() {
   local url="$1"
   local local_path="$2"
@@ -255,6 +275,13 @@ for name, entry in data.get('external_modules', {}).items():
 
     if echo "${PROCESSED_NAMES}" | grep -Fxq "${name}" 2>/dev/null; then
       continue  # already wired by the declared-module loop above
+    fi
+
+    # Entries declared by a module are module-managed: enabled ones were wired
+    # above, disabled ones (react/svelte) must stay unwired — not config-only.
+    if _is_declared_by_any_module "${name}"; then
+      _skip "${name}: declared by a module — skipping config-only pass"
+      continue
     fi
 
     if _is_disabled "${name}" "${disabled_json}"; then
