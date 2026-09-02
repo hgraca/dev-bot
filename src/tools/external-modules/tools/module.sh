@@ -71,6 +71,20 @@ _discover_projects() {
         echo "$(dirname "${_f}")"
     done < <(find "${DEV_BOT_ROOT}" -maxdepth 5 -path '*/node_modules/*' -prune -o -name '.devbot.project.jsonc' -print 2>/dev/null || true)
 
+    # Plus every existing project registered in the global config's `projects`
+    # array — the canonical project registry, which may live outside
+    # DEV_BOT_ROOT (audit-29 FAIL-2).
+    if [[ -f "${CONFIG_FILE}" ]]; then
+        python3 -c "
+import os, sys
+sys.path.insert(0, '${SCRIPT_DIR}/../../../_shared')
+from read_jsonc import load_jsonc
+for p in load_jsonc('${CONFIG_FILE}').get('projects', []):
+    if os.path.isdir(p):
+        print(p)
+" 2>/dev/null || true
+    fi
+
     # Also check the devbot root itself
     if [[ -f "${DEV_BOT_ROOT}/.devbot.project.jsonc" || -f "${CONFIG_FILE}" ]]; then
         echo "${DEV_BOT_ROOT}"
@@ -123,11 +137,20 @@ _unwire_module() {
     local name="$1"
     shift
     for proj in "$@"; do
+        local devbot_dir
+        devbot_dir="$(_devbot_get_project_dir "${proj}")"
         for type in skills agents commands plugins; do
+            # Legacy .opencode links
             local link_path="${proj}/.opencode/${type}/${name}"
             if [[ -L "${link_path}" ]]; then
                 rm "${link_path}"
                 _log "Removed .opencode/${type}/${name}"
+            fi
+            # Modern .agents links (devbot dir) — wired by external-modules/init.sh
+            local alink="${proj}/${devbot_dir}/${type}/${name}"
+            if [[ -L "${alink}" ]]; then
+                rm "${alink}"
+                _log "Removed ${devbot_dir}/${type}/${name}"
             fi
         done
     done

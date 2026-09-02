@@ -18,11 +18,14 @@ source "${MODULE_DIR}/../../_shared/functions.sh"
 source "${MODULE_DIR}/functions.sh"
 
 # -- Shared state (populated by setup functions, read by worker functions) ---
-DEV_BOT_ROOT=""
-CONFIG_FILE=""
-MODULES_DIR=""
+# DEV_BOT_ROOT/CONFIG_FILE/MODULES_DIR may be pre-set by tests (sandbox) —
+# keep those values, default the rest to empty.
+DEV_BOT_ROOT="${DEV_BOT_ROOT:-}"
+CONFIG_FILE="${CONFIG_FILE:-}"
+MODULES_DIR="${MODULES_DIR:-}"
 PROJECT_DIR=""
 MODULE_ENTRIES=""  # name\x1furl\x1flocal_path\x1fpaths_json per line (pre-built lookup)
+PROCESSED_NAMES="" # names already wired by the declared-module loop
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -37,9 +40,11 @@ _resolve_project_dir() {
 }
 
 _resolve_paths() {
-  DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../../.." && pwd)"
-  CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
-  MODULES_DIR="${DEV_BOT_ROOT}/vendor"
+  # DEV_BOT_ROOT/CONFIG_FILE/MODULES_DIR may be pre-set (tests run against a
+  # sandbox) — mirrors the env-override pattern in install.sh.
+  DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
+  CONFIG_FILE="${CONFIG_FILE:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
+  MODULES_DIR="${MODULES_DIR:-${DEV_BOT_ROOT}/vendor}"
 }
 
 _check_config_exists() {
@@ -202,6 +207,7 @@ _process_agentic_module() {
 
     _wire_one_module "${ext_name}" "${src_dir}" "${paths_json}"
     _setup_one_storage "${ext_name}" "${src_dir}" "${paths_json}"
+    PROCESSED_NAMES+="${ext_name}"$'\n'
   done <<< "${declared_names}"
 }
 
@@ -237,6 +243,47 @@ for name, entry in data.get('external_modules', {}).items():
   for module_dir in "${DEV_BOT_ROOT}/src/agentic/"*/ "${DEV_BOT_ROOT}/src/tools/"*/; do
     _process_agentic_module "$(basename "${module_dir}")" "${disabled_json}"
   done
+
+  # Config-only modules: entries registered directly in .devbot.global.jsonc
+  # (devbot module add / hand-written) that no internal module declares. Wire
+  # them exactly like declared ones — a url entry is cloned to vendor/ on
+  # first init, a local path is used as-is — so a CLI-registered module is
+  # usable after reinit (audit-29 FAIL-1).
+  while IFS=$'\x1f' read -r name url local_path paths_json; do
+    [[ -z "${name}" ]] && continue
+    [[ -z "${url}" && -z "${local_path}" ]] && continue
+
+    if echo "${PROCESSED_NAMES}" | grep -Fxq "${name}" 2>/dev/null; then
+      continue  # already wired by the declared-module loop above
+    fi
+
+    if _is_disabled "${name}" "${disabled_json}"; then
+      _skip "${name}: disabled — skipping"
+      continue
+    fi
+
+    if [[ -n "${local_path}" && ! -d "${local_path}" ]]; then
+      _warn "${name}: local path not found (${local_path})"
+      continue
+    fi
+
+    local src_dir
+    src_dir=$(_resolve_source_dir "${url}" "${local_path}") || {
+      _warn "${name}: missing url and local_path — skipping"
+      continue
+    }
+
+    if [[ -z "${local_path}" && ! -d "${src_dir}" ]]; then
+      _install_one_module "${name}" "${url}" "${src_dir}" "${paths_json}" || {
+        _warn "${name}: source not found at ${src_dir} — auto-install failed"
+        continue
+      }
+    fi
+
+    _wire_one_module "${name}" "${src_dir}" "${paths_json}"
+    _setup_one_storage "${name}" "${src_dir}" "${paths_json}"
+    PROCESSED_NAMES+="${name}"$'\n'
+  done <<< "${MODULE_ENTRIES}"
 
   _ok "external-modules wiring complete"
 }

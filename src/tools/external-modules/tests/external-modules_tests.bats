@@ -270,3 +270,72 @@ teardown() {
 
   rm -rf "${DEV_BOT_ROOT}/storage"
 }
+
+@test "init: wires a config-only local module (CLI-registered, not declared)" {
+  local loc_dir="${TEST_HOME}/dummy-mod"
+  mkdir -p "${loc_dir}/skills"
+  echo "skill" > "${loc_dir}/skills/x.md"
+
+  export CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  export MODULES_DIR="${DEV_BOT_ROOT}/vendor"
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/tools"
+
+  cat > "${CONFIG_FILE}" <<EOF
+{
+  "external_modules": {
+    "dummy": { "local_path": "${loc_dir}", "paths": { "skills": "skills" } }
+  }
+}
+EOF
+
+  local project="${TEST_HOME}/proj"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "wiring complete"
+  # Config-only entries are wired into the devbot dir like declared ones
+  # (audit-29 FAIL-1): .agents link + storage mirror.
+  assert [ -L "${project}/.agents/skills/dummy" ]
+  assert [ "$(readlink "${project}/.agents/skills/dummy")" = "${loc_dir}/skills" ]
+  assert [ -e "${project}/.agents/skills/dummy/x.md" ]
+  assert [ -L "${DEV_BOT_ROOT}/storage/external-agentic-modules/dummy/skills" ]
+}
+
+@test "remove: cleans .agents links in projects from the global projects registry" {
+  local loc_dir="${TEST_HOME}/dummy-mod"
+  mkdir -p "${loc_dir}/skills"
+  echo "skill" > "${loc_dir}/skills/x.md"
+
+  export CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  export MODULES_DIR="${DEV_BOT_ROOT}/vendor"
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/tools"
+
+  # The project lives OUTSIDE DEV_BOT_ROOT and is known only through the
+  # global config's projects registry (audit-29 FAIL-2).
+  local project="${TEST_HOME}/outside-proj"
+  mkdir -p "${project}"
+
+  cat > "${CONFIG_FILE}" <<EOF
+{
+  "projects": ["${project}"],
+  "external_modules": {
+    "dummy": { "local_path": "${loc_dir}", "paths": { "skills": "skills" } }
+  }
+}
+EOF
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+  assert_success
+  assert [ -L "${project}/.agents/skills/dummy" ]
+
+  run bash "$TOOL" remove dummy
+
+  assert_success
+  assert_output --partial "Unregistered: dummy"
+  # _unwire_module now removes .agents links too (audit-29 NOTE-1), reaching
+  # the project through the global projects registry (audit-29 FAIL-2).
+  assert [ ! -e "${project}/.agents/skills/dummy" ]
+  assert [ ! -e "${DEV_BOT_ROOT}/storage/external-agentic-modules/dummy" ]
+}
