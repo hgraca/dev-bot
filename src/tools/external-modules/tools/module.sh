@@ -144,14 +144,14 @@ cmd_install() {
     fi
 
     # Process each module
-    while IFS=$'\x1f' read -r name url local_path paths_json; do
-        if [[ -n "${local_path}" ]]; then
+    while IFS=$'\x1f' read -r name url path paths_json; do
+        if [[ -n "${path}" ]]; then
             # Local module - verify it exists
-            if [[ ! -d "${local_path}" ]]; then
-                _warn "${name}: local path not found (${local_path})"
+            if [[ ! -d "${path}" ]]; then
+                _warn "${name}: local path not found (${path})"
                 continue
             fi
-            _skip "${name}: local module at ${local_path}"
+            _skip "${name}: local module at ${path}"
         elif [[ -n "${url}" ]]; then
             # Git module - clone or pull
             local vendor_rel
@@ -180,7 +180,7 @@ cmd_install() {
                 _remove_readme_from_paths "${dest}" "${paths_json}"
             fi
         else
-            _warn "${name}: missing url and local_path — skipping"
+            _warn "${name}: missing url and path — skipping"
             continue
         fi
     done < <(python3 "${READ_JSONC}" "${CONFIG_FILE}" external_modules | \
@@ -191,9 +191,9 @@ for name, entry in data.items():
     if not isinstance(entry, dict):
         continue  # boolean enable/disable flags are not module definitions
     url = entry.get('url', '')
-    local_path = entry.get('local_path', '')
+    path = entry.get('path', '')
     paths = json.dumps(entry.get('paths', {}))
-    print(f'{name}\x1f{url}\x1f{local_path}\x1f{paths}')
+    print(f'{name}\x1f{url}\x1f{path}\x1f{paths}')
     ")
 
     _ok "external-modules installation complete"
@@ -237,10 +237,10 @@ cmd_init() {
     projects=("${unique_projects[@]}")
 
     # Process each module
-    while IFS=$'\x1f' read -r name url local_path paths_json; do
+    while IFS=$'\x1f' read -r name url path paths_json; do
         # Determine source directory
-        if [[ -n "${local_path}" ]]; then
-            local src_dir="${local_path}"
+        if [[ -n "${path}" ]]; then
+            local src_dir="${path}"
         elif [[ -n "${url}" ]]; then
             local vendor_rel
             vendor_rel="$(_derive_vendor_path "${url}")"
@@ -251,7 +251,7 @@ cmd_init() {
                 continue
             fi
         else
-            _warn "${name}: missing url and local_path — skipping"
+            _warn "${name}: missing url and path — skipping"
             continue
         fi
 
@@ -303,9 +303,9 @@ for name, entry in data.items():
     if not isinstance(entry, dict):
         continue  # boolean enable/disable flags are not module definitions
     url = entry.get('url', '')
-    local_path = entry.get('local_path', '')
+    path = entry.get('path', '')
     paths = json.dumps(entry.get('paths', {}))
-    print(f'{name}\x1f{url}\x1f{local_path}\x1f{paths}')
+    print(f'{name}\x1f{url}\x1f{path}\x1f{paths}')
     ")
 
     _ok "external-modules wiring complete"
@@ -325,12 +325,12 @@ cmd_list() {
         return 0
     fi
 
-    while IFS=$'\x1f' read -r _name _url _local_path _paths_json; do
-        if [[ -n "${_local_path}" ]]; then
+    while IFS=$'\x1f' read -r _name _url _path _paths_json; do
+        if [[ -n "${_path}" ]]; then
             # Local module
             local status="✔"
-            [[ -d "${_local_path}" ]] || status="✖"
-            printf "  %s  %s  [local]  (%s)\n" "${status}" "${_name}" "${_local_path}"
+            [[ -d "${_path}" ]] || status="✖"
+            printf "  %s  %s  [local]  (%s)\n" "${status}" "${_name}" "${_path}"
         else
             # Git module
             local vendor_rel
@@ -347,7 +347,7 @@ data = json.load(sys.stdin)
 for name, entry in data.items():
     if not isinstance(entry, dict):
         continue  # boolean enable/disable flags are not module definitions
-    print(name + '\x1f' + entry.get('url', '') + '\x1f' + entry.get('local_path', '') + '\x1f' + json.dumps(entry.get('paths', {})))
+    print(name + '\x1f' + entry.get('url', '') + '\x1f' + entry.get('path', '') + '\x1f' + json.dumps(entry.get('paths', {})))
 ")
 
     if [[ ${count} -eq 0 ]]; then
@@ -388,7 +388,7 @@ cmd_add() {
         local name="${opt_name:-$(basename "${local_abs_path}")}"
         local existing_url existing_local
         existing_url="$(_get_external_module_field "${name}" "url")"
-        existing_local="$(_get_external_module_field "${name}" "local_path")"
+        existing_local="$(_get_external_module_field "${name}" "path")"
         if [[ -n "${existing_url}" || -n "${existing_local}" ]]; then
             _skip "Already registered: ${name}"
             return 0
@@ -417,7 +417,7 @@ print(json.dumps(paths))
 import json, sys
 data = json.load(sys.stdin)
 modules = data.setdefault('external_modules', {})
-modules['${name}'] = {'local_path': '${local_abs_path}', 'paths': ${paths_json}}
+modules['${name}'] = {'path': '${local_abs_path}', 'paths': ${paths_json}}
 with open('${CONFIG_FILE}', 'w') as f:
     json.dump(data, f, indent=2)
     f.write('\n')
@@ -430,7 +430,7 @@ with open('${CONFIG_FILE}', 'w') as f:
 
         local existing_url existing_local
         existing_url="$(_get_external_module_field "${name}" "url")"
-        existing_local="$(_get_external_module_field "${name}" "local_path")"
+        existing_local="$(_get_external_module_field "${name}" "path")"
         if [[ -n "${existing_url}" || -n "${existing_local}" ]]; then
             _skip "Already registered: ${name}"
             return 0
@@ -508,7 +508,7 @@ cmd_remove() {
 
     local existing_url existing_local
     existing_url="$(_get_external_module_field "${name}" "url")"
-    existing_local="$(_get_external_module_field "${name}" "local_path")"
+    existing_local="$(_get_external_module_field "${name}" "path")"
 
     if [[ -z "${existing_url}" && -z "${existing_local}" ]]; then
         _warn "Module '${name}' not found"

@@ -18,11 +18,13 @@ source "${MODULE_DIR}/../../_shared/functions.sh"
 source "${MODULE_DIR}/functions.sh"
 
 # -- Shared state (populated by setup functions, read by worker functions) ---
-DEV_BOT_ROOT=""
+# DEV_BOT_ROOT is exported by _shared/functions.sh at source time (respecting a
+# pre-set env value) and refined by _resolve_paths — do not pre-declare it empty.
 CONFIG_FILE=""
 MODULES_DIR=""
 PROJECT_DIR=""
-MODULE_ENTRIES=""  # name\x1furl\x1flocal_path\x1fpaths_json per line (pre-built lookup)
+MODULE_ENTRIES=""  # name\x1furl\x1fpath\x1fpaths_json per line (pre-built lookup)
+PROCESSED_NAMES="" # names already wired by the declared-module loop (newline-separated)
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -37,9 +39,10 @@ _resolve_project_dir() {
 }
 
 _resolve_paths() {
-  DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../../.." && pwd)"
-  CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
-  MODULES_DIR="${DEV_BOT_ROOT}/vendor"
+  # DEV_BOT_ROOT/CONFIG_FILE/MODULES_DIR may be pre-set (tests run against a sandbox).
+  DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
+  CONFIG_FILE="${CONFIG_FILE:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
+  MODULES_DIR="${MODULES_DIR:-${DEV_BOT_ROOT}/vendor}"
 }
 
 _check_config_exists() {
@@ -79,9 +82,11 @@ with open('${ext_file}') as f:
 
 _resolve_source_dir() {
   local url="$1"
-  local local_path="$2"
-  if [[ -n "${local_path}" ]]; then
-    echo "${local_path}"
+  local path="$2"
+  # path (local dir) takes precedence over url — lets a config entry point a
+  # declared repo at a local checkout; never cloned into vendor/.
+  if [[ -n "${path}" ]]; then
+    echo "${path}"
     return 0
   elif [[ -n "${url}" ]]; then
     local vendor_rel
@@ -184,16 +189,21 @@ _process_agentic_module() {
       continue
     fi
 
-    local url local_path paths_json
-    IFS=$'\x1f' read -r _ url local_path paths_json <<< "${entry_line}"
+    local url path paths_json
+    IFS=$'\x1f' read -r _ url path paths_json <<< "${entry_line}"
 
     local src_dir
-    src_dir=$(_resolve_source_dir "${url}" "${local_path}") || {
-      _warn "${ext_name}: missing url and local_path — skipping"
+    src_dir=$(_resolve_source_dir "${url}" "${path}") || {
+      _warn "${ext_name}: missing url and path — skipping"
       continue
     }
 
-    if [[ -z "${local_path}" && ! -d "${src_dir}" ]]; then
+    if [[ -n "${path}" && ! -d "${src_dir}" ]]; then
+      _warn "${ext_name}: local path not found (${path})"
+      continue
+    fi
+
+    if [[ -z "${path}" && ! -d "${src_dir}" ]]; then
       _install_one_module "${ext_name}" "${url}" "${src_dir}" "${paths_json}" || {
         _warn "${ext_name}: source not found at ${src_dir} — auto-install failed"
         continue
@@ -202,6 +212,7 @@ _process_agentic_module() {
 
     _wire_one_module "${ext_name}" "${src_dir}" "${paths_json}"
     _setup_one_storage "${ext_name}" "${src_dir}" "${paths_json}"
+    PROCESSED_NAMES+="${ext_name}"$'\n'
   done <<< "${declared_names}"
 }
 
@@ -219,10 +230,12 @@ sys.path.insert(0, '${MODULE_DIR}/../../_shared')
 from read_jsonc import load_jsonc
 data = load_jsonc('${CONFIG_FILE}')
 for name, entry in data.get('external_modules', {}).items():
+    if not isinstance(entry, dict):
+        continue  # boolean enable/disable flags are not module definitions
     url = entry.get('url', '')
-    local_path = entry.get('local_path', '')
+    path = entry.get('path', '')
     paths = json.dumps(entry.get('paths', {}))
-    print(f'{name}\x1f{url}\x1f{local_path}\x1f{paths}')
+    print(f'{name}\x1f{url}\x1f{path}\x1f{paths}')
 " 2>/dev/null || true)
 
   local disabled_json
@@ -237,6 +250,34 @@ for name, entry in data.get('external_modules', {}).items():
   for module_dir in "${DEV_BOT_ROOT}/src/agentic/"*/ "${DEV_BOT_ROOT}/src/tools/"*/; do
     _process_agentic_module "$(basename "${module_dir}")" "${disabled_json}"
   done
+
+  # Config-only local modules: entries carrying `path` that no internal module
+  # declares (registered directly in .devbot.global.jsonc). They are wired
+  # exactly like declared ones, straight from the local path — never cloned.
+  local entry_line name url path paths_json
+  while IFS= read -r entry_line; do
+    [[ -z "${entry_line}" ]] && continue
+    IFS=$'\x1f' read -r name url path paths_json <<< "${entry_line}"
+
+    [[ -z "${path}" ]] && continue  # url-only / stale entries stay declaration-driven
+
+    if echo "${PROCESSED_NAMES}" | grep -Fxq "${name}"; then
+      continue  # already wired by the declared-module loop above
+    fi
+
+    if _is_disabled "${name}" "${disabled_json}"; then
+      _skip "${name}: disabled — skipping"
+      continue
+    fi
+
+    if [[ ! -d "${path}" ]]; then
+      _warn "${name}: local path not found (${path})"
+      continue
+    fi
+
+    _wire_one_module "${name}" "${path}" "${paths_json}"
+    _setup_one_storage "${name}" "${path}" "${paths_json}"
+  done <<< "${MODULE_ENTRIES}"
 
   _ok "external-modules wiring complete"
 }

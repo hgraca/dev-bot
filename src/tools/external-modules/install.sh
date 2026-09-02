@@ -16,10 +16,10 @@ source "${MODULE_DIR}/functions.sh"
 main() {
   _info "external-modules — install/update"
 
-  local dev_bot_root
-  dev_bot_root="$(cd "${MODULE_DIR}/../../.." && pwd)"
-  local config_file="${dev_bot_root}/.devbot.global.jsonc"
-  local modules_dir="${dev_bot_root}/vendor"
+  # DEV_BOT_ROOT/CONFIG_FILE/MODULES_DIR may be pre-set (tests run against a sandbox).
+  local dev_bot_root="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
+  local config_file="${CONFIG_FILE:-${dev_bot_root}/.devbot.global.jsonc}"
+  local modules_dir="${MODULES_DIR:-${dev_bot_root}/vendor}"
 
   # ── Rebuild external module config from declarations ──────────────────
   local disabled_raw
@@ -79,16 +79,17 @@ main() {
     return 0
   fi
 
-  # Process each module
-  while IFS=$'\x1f' read -r name url local_path paths_json; do
+  # Process each module — source is either a git url (cloned to vendor/) or a
+  # local path (wired directly, never cloned).
+  while IFS=$'\x1f' read -r name url path paths_json; do
     local src_dir=""
-    if [[ -n "${local_path}" ]]; then
+    if [[ -n "${path}" ]]; then
       # Local module - verify it exists
-      if [[ ! -d "${local_path}" ]]; then
-        _warn "${name}: local path not found (${local_path})"
+      if [[ ! -d "${path}" ]]; then
+        _warn "${name}: local path not found (${path})"
         continue
       fi
-      src_dir="${local_path}"
+      src_dir="${path}"
     elif [[ -n "${url}" ]]; then
       local vendor_rel dest
       vendor_rel="$(_derive_vendor_path "${url}")"
@@ -96,7 +97,7 @@ main() {
       _install_one_module "${name}" "${url}" "${dest}" "${paths_json}" || continue
       src_dir="${dest}"
     else
-      _warn "${name}: missing url and local_path — skipping"
+      _warn "${name}: missing url and path — skipping"
       continue
     fi
 
@@ -109,9 +110,9 @@ for name, entry in data.items():
     if not isinstance(entry, dict):
         continue  # boolean enable/disable flags are not module definitions
     url = entry.get('url', '')
-    local_path = entry.get('local_path', '')
+    path = entry.get('path', '')
     paths = json.dumps(entry.get('paths', {}))
-    print(f'{name}\x1f{url}\x1f{local_path}\x1f{paths}')
+    print(f'{name}\x1f{url}\x1f{path}\x1f{paths}')
   ")
 
   _ok "external-modules installation/update complete"

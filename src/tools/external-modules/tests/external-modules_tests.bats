@@ -270,3 +270,192 @@ teardown() {
 
   rm -rf "${DEV_BOT_ROOT}/storage"
 }
+
+# ── Local path sources (path field instead of url) ──────────────────────────────
+
+_write_config() {
+  # $1 = JSON body for .devbot.global.jsonc under the sandbox DEV_BOT_ROOT
+  cat > "${DEV_BOT_ROOT}/.devbot.global.jsonc" <<EOF
+$1
+EOF
+}
+
+@test "install: path entry skips vendor clone and wires storage from local dir" {
+  local loc_dir="${TEST_HOME}/local-install"
+  mkdir -p "${loc_dir}/skills"
+  echo "skill" > "${loc_dir}/skills/a.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"loc-install\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+  refute_output --partial "missing url"
+  assert [ ! -d "${DEV_BOT_ROOT}/vendor" ]
+  assert [ -L "${DEV_BOT_ROOT}/storage/external-agentic-modules/loc-install/skills" ]
+  assert [ "$(readlink "${DEV_BOT_ROOT}/storage/external-agentic-modules/loc-install/skills")" = "${loc_dir}/skills" ]
+}
+
+@test "install: missing path dir warns and is skipped" {
+  local ghost="${TEST_HOME}/does-not-exist"
+
+  _write_config "{
+    \"external_modules\": {
+      \"ghost\": { \"path\": \"${ghost}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+  refute_output --partial "missing url"
+  assert_output --partial "local path not found"
+  assert [ ! -d "${DEV_BOT_ROOT}/storage/external-agentic-modules/ghost" ]
+}
+
+@test "init: config-only path entry wires .agents from local dir (no declaration)" {
+  local loc_dir="${TEST_HOME}/local-mod"
+  mkdir -p "${loc_dir}/skills"
+  echo "skill" > "${loc_dir}/skills/local.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"loc-mod\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  local project="${TEST_HOME}/project"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert [ -L "${project}/.agents/skills/loc-mod" ]
+  assert [ "$(readlink "${project}/.agents/skills/loc-mod")" = "${loc_dir}/skills" ]
+}
+
+@test "init: declared url module still wires from vendor clone dir" {
+  local mod_src="${DEV_BOT_ROOT}/src/agentic/some-mod"
+  mkdir -p "${mod_src}"
+  cat > "${mod_src}/external-modules.json" <<'EOF'
+{
+  "demo": { "url": "https://example.com/acme/demo.git", "paths": { "skills": "skills" } }
+}
+EOF
+
+  _write_config "{
+    \"external_modules\": {
+      \"demo\": { \"url\": \"https://example.com/acme/demo.git\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  mkdir -p "${DEV_BOT_ROOT}/vendor/acme/demo/skills"
+  echo "demo skill" > "${DEV_BOT_ROOT}/vendor/acme/demo/skills/demo.md"
+
+  local project="${TEST_HOME}/project-url"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert [ -L "${project}/.agents/skills/demo" ]
+  assert [ "$(readlink "${project}/.agents/skills/demo")" = "${DEV_BOT_ROOT}/vendor/acme/demo/skills" ]
+}
+
+@test "init: leaves local source untouched (README intact, no .git created)" {
+  local loc_dir="${TEST_HOME}/precious-mod"
+  mkdir -p "${loc_dir}/skills"
+  echo "# keep me" > "${loc_dir}/skills/README.md"
+  echo "skill" > "${loc_dir}/skills/x.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"precious-mod\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  local project="${TEST_HOME}/project-precious"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert [ -f "${loc_dir}/skills/README.md" ]
+  assert [ ! -d "${loc_dir}/.git" ]
+  assert [ -L "${project}/.agents/skills/precious-mod" ]
+  assert [ "$(readlink "${project}/.agents/skills/precious-mod")" = "${loc_dir}/skills" ]
+}
+
+@test "init: missing local path warns and skips without crashing" {
+  local ghost="${TEST_HOME}/ghost-mod"
+
+  _write_config "{
+    \"external_modules\": {
+      \"ghost\": { \"path\": \"${ghost}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  local project="${TEST_HOME}/project-ghost"
+  mkdir -p "${project}"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "local path not found"
+  assert [ ! -e "${project}/.agents/skills/ghost" ]
+}
+
+@test "add: local dir registers with path field (not local_path)" {
+  local mod_dir="${TEST_HOME}/cli-module"
+  mkdir -p "${mod_dir}/skills"
+
+  run bash "$TOOL" add "${mod_dir}" --name=cli-module
+
+  assert_success
+  assert_output --partial "Registered: cli-module"
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entry = data['external_modules']['cli-module']
+assert 'path' in entry and 'local_path' not in entry, entry
+print(entry['path'])
+"
+  assert_success
+  assert_output "${mod_dir}"
+}
+
+@test "list: shows [local] for hand-written path config entry" {
+  _write_config "{
+    \"external_modules\": {
+      \"manual\": { \"path\": \"${TEST_HOME}/somewhere\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  run bash "$TOOL" list
+
+  assert_success
+  assert_output --partial "[local]"
+}
+
+@test "install: recognizes hand-written path entry without clone or missing-source warning" {
+  local loc_dir="${TEST_HOME}/ok-local"
+  mkdir -p "${loc_dir}/skills"
+
+  _write_config "{
+    \"external_modules\": {
+      \"ok-local\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  run bash "$TOOL" install
+
+  assert_success
+  assert_output --partial "local module at"
+  refute_output --partial "missing url"
+}
