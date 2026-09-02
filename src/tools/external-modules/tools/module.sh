@@ -408,8 +408,8 @@ except Exception:
 }
 
 cmd_sync() {
-    # Deprecated alias for init — kept for backward compatibility
-    shift
+    # Deprecated alias for init — kept for backward compatibility.
+    # Dispatch already shifted the subcommand, so pass args through untouched.
     cmd_init "$@"
 }
 
