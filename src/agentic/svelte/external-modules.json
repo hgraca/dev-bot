@@ -1,17 +1,17 @@
 {
-  "mindrally-svelte": {
+  "mindrally/skills": {
     "url": "https://github.com/mindrally/skills.git",
     "paths": {
-      "skills": "skills/svelte"
+      "skills": ["skills/svelte"]
     }
   },
-  "sveltekit-structure": {
+  "spences10/svelte-skills-kit": {
     "url": "https://github.com/spences10/svelte-skills-kit.git",
     "paths": {
       "skills": "skills/sveltekit-structure"
     }
   },
-  "svelte5-best-practices": {
+  "ejirocodes/agent-skills": {
     "url": "https://github.com/ejirocodes/agent-skills.git",
     "paths": {
       "skills": "skills/svelte5-best-practices"
