@@ -87,7 +87,7 @@ teardown() {
   run bash "$TOOL" add "${mod_dir}" --name=test-module
 
   assert_success
-  assert_output --partial "Registered: test-module"
+  assert_output --partial "Registered: local/test-module"
 }
 
 @test "add: duplicate module reports already registered" {
@@ -549,13 +549,13 @@ EOF
   run bash "$TOOL" add "${mod_dir}" --name=cli-module
 
   assert_success
-  assert_output --partial "Registered: cli-module"
+  assert_output --partial "Registered: local/cli-module"
 
   run python3 -c "
 import json
 with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
     data = json.load(f)
-entry = data['external_modules']['cli-module']
+entry = data['external_modules']['local/cli-module']
 assert 'path' in entry and 'local_path' not in entry, entry
 print(entry['path'])
 "
@@ -591,6 +591,92 @@ print(entry['path'])
   assert_success
   assert_output --partial "local module at"
   refute_output --partial "missing url"
+}
+
+# ── Namespaced names (org/repo, local/<folder>) ────────────────────────────────
+
+@test "add: local dir registers under local/<folder> name" {
+  local mod_dir="${TEST_HOME}/ns-module"
+  mkdir -p "${mod_dir}/skills"
+
+  run bash "$TOOL" add "${mod_dir}"
+
+  assert_success
+  assert_output --partial "Registered: local/ns-module [local]"
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entry = data['external_modules'].get('local/ns-module')
+assert entry is not None, data['external_modules']
+assert entry['path'] == '${mod_dir}', entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "add: local dir with --name overrides folder under local/" {
+  local mod_dir="${TEST_HOME}/folder-name"
+  mkdir -p "${mod_dir}/skills"
+
+  run bash "$TOOL" add "${mod_dir}" --name=custom
+
+  assert_success
+  assert_output --partial "Registered: local/custom [local]"
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+assert 'local/custom' in data['external_modules'], data['external_modules']
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "add: duplicate local name errors with --name hint" {
+  local mod_dir="${TEST_HOME}/shared-name"
+  mkdir -p "${mod_dir}/skills"
+
+  bash "$TOOL" add "${mod_dir}" 2>/dev/null || true
+  run bash "$TOOL" add "${mod_dir}"
+
+  assert_success
+  assert_output --partial "Already registered"
+  assert_output --partial "--name="
+}
+
+@test "add: git url refuses --name (name is derived org/repo)" {
+  run bash "$TOOL" add "https://example.com/acme/repo.git" --name=myname
+
+  assert_failure
+  assert_output --partial "derived from the url"
+}
+
+@test "add: git url registers under org/repo name without cloning when already cloned" {
+  # Pre-clone so the add flow does not need the network, then register.
+  mkdir -p "${DEV_BOT_ROOT}/vendor/acme/repo/.git"
+  echo '{}' > "${DEV_BOT_ROOT}/vendor/acme/repo/.git/HEAD"
+
+  run bash "$TOOL" add "https://example.com/acme/repo.git"
+
+  assert_success
+  assert_output --partial "Registered: acme/repo [git]"
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entry = data['external_modules'].get('acme/repo')
+assert entry is not None, data['external_modules']
+assert entry['url'] == 'https://example.com/acme/repo.git', entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
 }
 
 # ── CLI modernisation (wires .agents, comment-preserving config writes) ────────
@@ -631,7 +717,7 @@ EOF
   run bash "$TOOL" add "${mod_dir}" --name=comment-module
 
   assert_success
-  assert_output --partial "Registered: comment-module"
+  assert_output --partial "Registered: local/comment-module"
 
   run grep -c "keep this comment" "${DEV_BOT_ROOT}/.devbot.global.jsonc"
   assert_success
@@ -641,7 +727,7 @@ EOF
 import json
 with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
     data = json.loads(__import__('re').sub(r'//.*', '', f.read()))
-entry = data['external_modules']['comment-module']
+entry = data['external_modules']['local/comment-module']
 assert entry.get('path') == '${mod_dir}', entry
 print('ok')
 "

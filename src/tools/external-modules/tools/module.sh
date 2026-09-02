@@ -29,13 +29,6 @@ source "${SCRIPT_DIR}/../../../_shared/functions.sh"
 source "${SCRIPT_DIR}/../functions.sh"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
-_url_to_name() {
-    local url="${1%/}"
-    url="${url%.git}"
-    basename "${url}"
-}
-
-
 _ensure_config() {
     if [[ ! -f "${CONFIG_FILE}" ]]; then
         _step "Creating .devbot.global.jsonc ..."
@@ -259,12 +252,13 @@ cmd_add() {
     fi
 
     if [[ "${is_local}" == true ]]; then
-        local name="${opt_name:-$(basename "${local_abs_path}")}"
+        # Namespaced name: local/<folder>. --name overrides only the folder part.
+        local name="local/${opt_name:-$(basename "${local_abs_path}")}"
         local existing_url existing_local
         existing_url="$(_get_external_module_field "${name}" "url")"
         existing_local="$(_get_external_module_field "${name}" "path")"
         if [[ -n "${existing_url}" || -n "${existing_local}" ]]; then
-            _skip "Already registered: ${name}"
+            _skip "Already registered: ${name} — use --name=<folder> to pick another local/ name"
             return 0
         fi
 
@@ -292,7 +286,13 @@ print(json.dumps(paths))
         _log "Run 'devbot init <project>' to wire it into .agents/ — local modules are never cloned into vendor/"
     else
         local url="${url_or_path}"
-        local name="${opt_name:-$(_url_to_name "${url}")}"
+        if [[ -n "${opt_name}" ]]; then
+            _fatal "git module names are derived from the url (<org>/<repo>) — --name only applies to local modules"
+            exit 1
+        fi
+        # Namespaced name: <org>/<repo>, matching the vendor clone layout.
+        local name
+        name="$(_derive_vendor_path "${url}")"
         _header_3 "Module add: ${name}"
 
         local existing_url existing_local
