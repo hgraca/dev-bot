@@ -317,6 +317,73 @@ EOF
   assert [ ! -d "${DEV_BOT_ROOT}/storage/external-agentic-modules/ghost" ]
 }
 
+@test "install: prunes config entries declared by disabled modules" {
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/react" "${DEV_BOT_ROOT}/src/agentic/live"
+  cat > "${DEV_BOT_ROOT}/src/agentic/react/external-modules.json" <<'EOF'
+{
+  "stale-mod": { "url": "https://example.com/org/stale.git", "paths": { "skills": "skills" } }
+}
+EOF
+  cat > "${DEV_BOT_ROOT}/src/agentic/live/external-modules.json" <<'EOF'
+{
+  "live-mod": { "url": "https://example.com/org/live.git", "paths": { "skills": "skills" } }
+}
+EOF
+
+  local loc_dir="${TEST_HOME}/keep-local"
+  mkdir -p "${loc_dir}/skills"
+
+  _write_config "{
+    \"modules\": { \"react\": false },
+    \"external_modules\": {
+      \"stale-mod\": { \"url\": \"https://example.com/org/stale.git\", \"paths\": { \"skills\": \"skills\" } },
+      \"live-mod\": { \"url\": \"https://example.com/org/live.git\", \"paths\": { \"skills\": \"skills\" } },
+      \"keep-local\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entries = data['external_modules']
+assert 'stale-mod' not in entries, entries
+assert 'live-mod' in entries, entries
+assert 'keep-local' in entries, entries
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "install: prunes vendor clones not referenced by config url entries" {
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/live"
+  cat > "${DEV_BOT_ROOT}/src/agentic/live/external-modules.json" <<'EOF'
+{
+  "live-mod": { "url": "https://example.com/org/live.git", "paths": { "skills": "skills" } }
+}
+EOF
+
+  # A stale clone (no config entry) and a live clone (referenced by url).
+  mkdir -p "${DEV_BOT_ROOT}/vendor/org/stale/.git" "${DEV_BOT_ROOT}/vendor/org/live/.git"
+
+  _write_config "{
+    \"external_modules\": {
+      \"live-mod\": { \"url\": \"https://example.com/org/live.git\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+  assert [ ! -d "${DEV_BOT_ROOT}/vendor/org/stale" ]
+  assert [ -d "${DEV_BOT_ROOT}/vendor/org/live" ]
+}
+
 @test "install: merges declarations from src/tools modules into config" {
   local mod_src="${DEV_BOT_ROOT}/src/tools/some-tool"
   mkdir -p "${mod_src}"

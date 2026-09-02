@@ -171,6 +171,114 @@ if os.path.isdir(storage_base):
 " "$src_dir" "$paths_json" "$storage_base" "$name" 2>&1 || true
 }
 
+# Prune stale external module config entries — entries whose key is declared
+# by a *disabled* internal module (e.g. a disabled module's declaration that
+# was merged into config before the module was disabled). Entries with no
+# declaring module (CLI-added, local `path`) are intentional and kept.
+# Args:
+#   $1  config_file     — .devbot.global.jsonc
+#   $2  dev_bot_root    — root of dev-bot installation
+#   $3  disabled_json   — JSON array of disabled module names
+#   $4  merge_script    — path to merge_modules_jsonc.py
+_prune_stale_external_modules() {
+    local config_file="$1"
+    local dev_bot_root="$2"
+    local disabled_json="$3"
+    local merge_script="$4"
+
+    local shared_dir
+    shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../_shared" && pwd)"
+
+    local stale_names
+    stale_names=$(python3 -c "
+import json, sys, glob
+sys.path.insert(0, '${shared_dir}')
+from read_jsonc import load_jsonc
+root = '${dev_bot_root}'
+disabled = set(json.loads('${disabled_json}'))
+owner = {}
+for pattern in ('src/agentic/*/external-modules.json', 'src/tools/*/external-modules.json'):
+    for f in glob.glob(root + '/' + pattern):
+        mod = f.split('/')[-2]
+        try:
+            with open(f) as fh:
+                for name in json.load(fh):
+                    # Prefer an enabled owner over a disabled one if both declare it.
+                    if name not in owner or owner[name] in disabled:
+                        owner[name] = mod
+        except Exception:
+            continue
+data = load_jsonc('${config_file}')
+modules = data.get('external_modules', {})
+stale = []
+for name, entry in modules.items():
+    if not isinstance(entry, dict):
+        continue
+    owning = owner.get(name, '')
+    if owning and owning in disabled:
+        stale.append(name)
+print('\n'.join(sorted(stale)))
+" 2>/dev/null || true)
+
+    local removed=0
+    local name
+    while IFS= read -r name; do
+        [[ -z "${name}" ]] && continue
+        python3 "${merge_script}" "${config_file}" --remove "${name}" >/dev/null 2>&1 && removed=$((removed + 1))
+    done <<< "${stale_names}"
+
+    if [[ ${removed} -gt 0 ]]; then
+        _log "removed ${removed} stale external module config entry/entries"
+    fi
+}
+
+# Remove vendor clones that are no longer referenced by any url entry in the
+# config (e.g. stale clones of modules whose config entry was pruned).
+# Args:
+#   $1  modules_dir    — the vendor directory
+#   $2  config_file    — .devbot.global.jsonc
+_prune_stale_vendor_clones() {
+    local modules_dir="$1"
+    local config_file="$2"
+
+    local shared_dir
+    shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../_shared" && pwd)"
+
+    local referenced=""
+    local url
+    while IFS= read -r url; do
+        [[ -z "${url}" ]] && continue
+        referenced+="$(_derive_vendor_path "${url}")"$'\n'
+    done < <(python3 -c "
+import json, sys
+sys.path.insert(0, '${shared_dir}')
+from read_jsonc import load_jsonc
+d = load_jsonc('${config_file}')
+for e in d.get('external_modules', {}).values():
+    if isinstance(e, dict) and e.get('url'):
+        print(e['url'])
+" 2>/dev/null || true)
+
+    local removed=0
+    local org_dir repo_dir rel
+    for org_dir in "${modules_dir}"/*/; do
+        [[ -d "${org_dir}" ]] || continue
+        for repo_dir in "${org_dir}"*/; do
+            [[ -d "${repo_dir}.git" ]] || continue
+            rel="$(basename "${org_dir}")/$(basename "${repo_dir}")"
+            if ! echo "${referenced}" | grep -Fxq "${rel}"; then
+                rm -rf "${repo_dir}"
+                _log "removed stale vendor clone: vendor/${rel}"
+                removed=$((removed + 1))
+            fi
+        done
+    done
+
+    if [[ ${removed} -gt 0 ]]; then
+        _ok "${removed} stale vendor clone(s) removed"
+    fi
+}
+
 # Clone or update a single git-sourced external module.
 # Args:
 #   $1  name        — module display name

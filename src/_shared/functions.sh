@@ -298,7 +298,11 @@ _devbot_check_session_logs() {
 
 _devbot_get_disabled_modules() {
   local project_dir="${1:-}"
-  local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+  # The reader always lives beside this file — not under DEV_BOT_ROOT, which
+  # may be overridden to a sandbox root in tests.
+  local shared_dir
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local reader="${shared_dir}/read_jsonc.py"
   local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 
   # Read global modules map

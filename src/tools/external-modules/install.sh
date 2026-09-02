@@ -68,6 +68,10 @@ main() {
     bash "${format_json_tool}" "${config_file}" 2>/dev/null || true
   fi
 
+  # Prune stale config entries left behind by disabled modules (before the
+  # processing loop below, so they are not cloned/storage-set this run).
+  _prune_stale_external_modules "${config_file}" "${dev_bot_root}" "${disabled_raw}" "${merge_script}"
+
   # Ensure config exists with external_modules key
   if [[ ! -f "${config_file}" ]]; then
     _skip ".devbot.global.jsonc not found — nothing to install/update"
@@ -115,6 +119,9 @@ for name, entry in data.items():
     paths = json.dumps(entry.get('paths', {}))
     print(f'{name}\x1f{url}\x1f{path}\x1f{paths}')
   ")
+
+  # Prune stale vendor clones no longer referenced by the config.
+  _prune_stale_vendor_clones "${modules_dir}" "${config_file}"
 
   _ok "external-modules installation/update complete"
 }
