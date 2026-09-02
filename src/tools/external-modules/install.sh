@@ -72,15 +72,16 @@ main() {
     _ok "${found_count} module(s) with external module declarations processed (${added_count} new, ${updated_count} updated)"
   fi
 
-  # Format .devbot.global.jsonc
+  # Prune stale config entries left behind by disabled modules (before the
+  # processing loop below, so they are not cloned/storage-set this run).
+  _prune_stale_external_modules "${config_file}" "${dev_bot_root}" "${disabled_raw}" "${merge_script}"
+
+  # Format .devbot.global.jsonc — after the merge/prune writes, so the file is
+  # left in canonical shape.
   local format_json_tool="${dev_bot_root}/src/agentic/format-json/tools/format-json.mcp.sh"
   if [[ -f "${format_json_tool}" ]]; then
     bash "${format_json_tool}" "${config_file}" 2>/dev/null || true
   fi
-
-  # Prune stale config entries left behind by disabled modules (before the
-  # processing loop below, so they are not cloned/storage-set this run).
-  _prune_stale_external_modules "${config_file}" "${dev_bot_root}" "${disabled_raw}" "${merge_script}"
 
   # Ensure config exists with external_modules key
   if [[ ! -f "${config_file}" ]]; then
