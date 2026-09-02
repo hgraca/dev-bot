@@ -265,6 +265,81 @@ teardown() {
   rm -rf "${DEV_BOT_ROOT}/storage"
 }
 
+@test "storage: array path value creates one symlink per element under type container" {
+  source "${MODULE_DIR}/functions.sh"
+
+  local module_name="acme/skills-pack"
+  local src_dir="${TEST_HOME}/vendor/acme/skills-pack"
+  local storage_base="${DEV_BOT_ROOT}/storage/external-agentic-modules/acme__skills-pack"
+  local paths_json='{"skills":["skills/react","skills/nextjs-react-typescript"]}'
+
+  mkdir -p "${src_dir}/skills/react" "${src_dir}/skills/nextjs-react-typescript"
+  echo "r" > "${src_dir}/skills/react/r.md"
+  echo "n" > "${src_dir}/skills/nextjs-react-typescript/n.md"
+
+  run _setup_external_module_storage "${src_dir}" "${module_name}" "${paths_json}" "${DEV_BOT_ROOT}"
+
+  assert_success
+  assert [ -d "${storage_base}/skills" ]
+  assert [ ! -L "${storage_base}/skills" ]
+  assert [ -L "${storage_base}/skills/react" ]
+  assert [ "$(readlink "${storage_base}/skills/react")" = "${src_dir}/skills/react" ]
+  assert [ -L "${storage_base}/skills/nextjs-react-typescript" ]
+  assert [ "$(readlink "${storage_base}/skills/nextjs-react-typescript")" = "${src_dir}/skills/nextjs-react-typescript" ]
+  assert [ -f "${storage_base}/skills/react/r.md" ]
+
+  rm -rf "${DEV_BOT_ROOT}/storage"
+}
+
+@test "storage: orphan cleanup removes a dropped array leaf, keeping survivors" {
+  source "${MODULE_DIR}/functions.sh"
+
+  local module_name="acme/skills-pack"
+  local src_dir="${TEST_HOME}/vendor/acme/skills-pack"
+  local storage_base="${DEV_BOT_ROOT}/storage/external-agentic-modules/acme__skills-pack"
+
+  mkdir -p "${src_dir}/skills/react" "${src_dir}/skills/nextjs-react-typescript"
+  echo "r" > "${src_dir}/skills/react/r.md"
+  echo "n" > "${src_dir}/skills/nextjs-react-typescript/n.md"
+
+  local paths_json='{"skills":["skills/react","skills/nextjs-react-typescript"]}'
+  run _setup_external_module_storage "${src_dir}" "${module_name}" "${paths_json}" "${DEV_BOT_ROOT}"
+  assert_success
+  assert [ -L "${storage_base}/skills/nextjs-react-typescript" ]
+
+  # Declarer drops one path; re-run must remove its stale leaf only.
+  local paths_json2='{"skills":["skills/react"]}'
+  run _setup_external_module_storage "${src_dir}" "${module_name}" "${paths_json2}" "${DEV_BOT_ROOT}"
+  assert_success
+  assert [ ! -e "${storage_base}/skills/nextjs-react-typescript" ]
+  assert [ -L "${storage_base}/skills/react" ]
+  assert [ "$(readlink "${storage_base}/skills/react")" = "${src_dir}/skills/react" ]
+
+  rm -rf "${DEV_BOT_ROOT}/storage"
+}
+
+@test "storage: same-basename array elements keep the first and warn" {
+  source "${MODULE_DIR}/functions.sh"
+
+  local module_name="col/repo"
+  local src_dir="${TEST_HOME}/vendor/col/repo"
+  local storage_base="${DEV_BOT_ROOT}/storage/external-agentic-modules/col__repo"
+  local paths_json='{"skills":["skills","meta/skills"]}'
+
+  mkdir -p "${src_dir}/skills" "${src_dir}/meta/skills"
+  echo "a" > "${src_dir}/skills/a.md"
+  echo "b" > "${src_dir}/meta/skills/b.md"
+
+  run _setup_external_module_storage "${src_dir}" "${module_name}" "${paths_json}" "${DEV_BOT_ROOT}"
+
+  assert_success
+  assert_output --partial "share basename 'skills'"
+  assert [ -L "${storage_base}/skills/skills" ]
+  assert [ "$(readlink "${storage_base}/skills/skills")" = "${src_dir}/skills" ]
+
+  rm -rf "${DEV_BOT_ROOT}/storage"
+}
+
 # ── Local path sources (path field instead of url) ──────────────────────────────
 
 _write_config() {

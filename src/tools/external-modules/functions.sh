@@ -55,6 +55,8 @@ for rel_path in paths.values():
 # Set up external module storage structure.
 # Creates storage/external-agentic-modules/<sanitized-name>/ with:
 #   - Directory symlinks for string-valued paths (e.g. "skills" -> "skills")
+#   - One directory symlink per element for array-valued paths (additive, D1),
+#     under a <type> container dir (e.g. skills/react, skills/nextjs-...)
 #   - File symlinks for object-valued paths (e.g. {"CLAUDE.md": "bootstrap/..."})
 # The config name is sanitized via _external_storage_dir_name (org/repo ->
 # org__repo) so the storage dir stays a single path segment.
@@ -87,9 +89,9 @@ expected_files = set()
 
 for path_type, value in paths.items():
     dest_dir = os.path.join(storage_base, path_type)
-    expected_dirs.add(dest_dir)
 
     if isinstance(value, str):
+        expected_dirs.add(dest_dir)
         source = os.path.join(src_dir, value)
         if not os.path.isdir(source):
             print(f'  \u26a0  {name}/{path_type} \u2014 source dir not found: {source}')
@@ -110,7 +112,45 @@ for path_type, value in paths.items():
             os.symlink(source, dest_dir)
             print(f'  -  {name}/{path_type} \u2192 {source}')
 
+    elif isinstance(value, list):
+        # Additive paths: <type> becomes a container dir holding one symlink
+        # per element, named by the element's basename. Same-basename elements
+        # keep the first, mirroring the .agents wiring (D2).
+        seen = set()
+        for rel in value:
+            if not isinstance(rel, str) or not rel:
+                continue
+            base = os.path.basename(rel.rstrip('/'))
+            source = os.path.join(src_dir, rel)
+            if not os.path.isdir(source):
+                print(f'  \u26a0  {name}/{path_type}/{rel} \u2014 source dir not found: {source}')
+                continue
+            if base in seen:
+                print(f'  \u26a0  {name}/{path_type} paths share basename \'{base}\' ({rel}) \u2014 skipping')
+                continue
+            seen.add(base)
+            leaf = os.path.join(dest_dir, base)
+            # The leaf is a symlinked dir — cleanup walks dirs and must treat
+            # it as expected, or it would be reaped as stale right after creation.
+            expected_dirs.add(dest_dir)
+            expected_dirs.add(leaf)
+            if os.path.islink(leaf):
+                current = os.readlink(leaf)
+                if current == source:
+                    print(f'  \u203a  {name}/{path_type}/{base} \u2014 already correct')
+                else:
+                    os.unlink(leaf)
+                    os.symlink(source, leaf)
+                    print(f'  -  {name}/{path_type}/{base} \u2192 {source} (repaired)')
+            elif os.path.exists(leaf):
+                print(f'  \u26a0\u26a0  {name}/{path_type}/{base} \u2014 exists but not symlink: {leaf}')
+            else:
+                os.makedirs(dest_dir, exist_ok=True)
+                os.symlink(source, leaf)
+                print(f'  -  {name}/{path_type}/{base} \u2192 {source}')
+
     elif isinstance(value, dict):
+        expected_dirs.add(dest_dir)
         for src_file, dest_rel_path in value.items():
             source_file = os.path.join(src_dir, src_file)
             if not os.path.exists(source_file):
@@ -169,12 +209,18 @@ if os.path.isdir(storage_base):
                 print(f'  -  {name} stale file removed: {os.path.relpath(fpath, storage_base)}')
         for dname in dirs:
             dpath = os.path.join(root, dname)
-            if dpath not in expected_dirs:
-                try:
-                    shutil.rmtree(dpath)
-                    print(f'  -  {name} stale dir removed: {os.path.relpath(dpath, storage_base)}')
-                except OSError:
-                    pass
+            if dpath in expected_dirs:
+                continue
+            if os.path.islink(dpath):
+                # A stale symlinked dir leaf — unlink the link, never the target.
+                os.unlink(dpath)
+                print(f'  -  {name} stale link removed: {os.path.relpath(dpath, storage_base)}')
+                continue
+            try:
+                shutil.rmtree(dpath)
+                print(f'  -  {name} stale dir removed: {os.path.relpath(dpath, storage_base)}')
+            except OSError:
+                pass
 " "$src_dir" "$paths_json" "$storage_base" "$name" 2>&1 || true
 }
 
