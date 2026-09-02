@@ -57,6 +57,7 @@ for m in json.loads(sys.stdin.read()):
   local merge_script="${DEV_BOT_ROOT}/src/_shared/merge_modules_jsonc.py"
   local found_count=0
   local added_count=0
+  local updated_count=0
 
   # ── Scan enabled modules for external-modules.json ────────────────────────
   for module_dir in "${DEV_BOT_ROOT}/src/agentic/"*/ "${DEV_BOT_ROOT}/src/tools/"*/; do
@@ -74,21 +75,40 @@ for m in json.loads(sys.stdin.read()):
 
     found_count=$((found_count + 1))
 
-    local result
-    result=$(python3 "${merge_script}" "${config_file}" "${ext_file}" 2>&1) || true
+    # Insert missing entries, then propagate declaration changes (url/paths)
+    # onto existing ones — mirrors install.sh so entries added by 'up' carry
+    # the same provenance and stay in sync with declarer edits.
+    local insert_result update_result
+    insert_result=$(python3 "${merge_script}" "${config_file}" "${ext_file}" --owner "${module_name}" 2>&1) || true
+    update_result=$(python3 "${merge_script}" "${config_file}" --update "${ext_file}" --owner "${module_name}" 2>&1) || true
 
-    if echo "${result}" | grep -q "^INSERTED"; then
-      _log "${module_name}: ${result}"
+    if echo "${insert_result}" | grep -q "^INSERTED"; then
+      _log "${module_name}: ${insert_result}"
       added_count=$((added_count + 1))
     else
-      _skip "${module_name}: ${result}"
+      _skip "${module_name}: ${insert_result}"
+    fi
+
+    if echo "${update_result}" | grep -q "^UPDATED"; then
+      _log "${module_name}: ${update_result}"
+      updated_count=$((updated_count + 1))
     fi
   done
 
   if [[ ${found_count} -eq 0 ]]; then
     _info "No external-modules.json declarations found in enabled modules"
   else
-    _ok "${found_count} module(s) with external module declarations processed (${added_count} with new entries added)"
+    _ok "${found_count} module(s) with external module declarations processed (${added_count} new, ${updated_count} updated)"
+  fi
+
+  # Prune stale config entries left behind by disabled modules — same rule as
+  # install.sh (entry pruned iff not user-added and every declarer disabled).
+  local module_functions="${DEV_BOT_ROOT}/src/tools/external-modules/functions.sh"
+  if [[ -f "${module_functions}" ]]; then
+    source "${module_functions}"
+    _prune_stale_external_modules "${config_file}" "${DEV_BOT_ROOT}" "${disabled_raw}" "${merge_script}"
+  else
+    _skip "config prune skipped — external-modules module functions not found"
   fi
 
   # Format .devbot.global.jsonc to ensure consistent JSON formatting after merge
