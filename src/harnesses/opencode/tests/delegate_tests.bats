@@ -26,6 +26,12 @@ setup() {
 
 teardown() {
   rm -rf "${SANDBOX_DIR}" 2>/dev/null || true
+  # ensure_agents_md tests create a separate project dir (SANDBOX_PROJECT_DIR)
+  # distinct from SANDBOX_DIR — clean it too. Harmless when they are the same
+  # dir (already removed above).
+  if [[ -n "${SANDBOX_PROJECT_DIR:-}" && "${SANDBOX_PROJECT_DIR}" != "${SANDBOX_DIR}" ]]; then
+    rm -rf "${SANDBOX_PROJECT_DIR}" 2>/dev/null || true
+  fi
 }
 
 _setup_sandbox() {
