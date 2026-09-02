@@ -220,7 +220,34 @@ print('ok')
   assert_output "ok"
 }
 
-@test "update: config-only entries not in declaration are untouched" {
+@test "remove: finds section when external_modules is first key after a comment" {
+  cat > "${WORK}/cfg2.jsonc" <<'EOF'
+{
+  // a comment before the section
+  "external_modules": {
+    "only-one": { "url": "https://example.com/x.git", "paths": {} }
+  }
+}
+EOF
+
+  run python3 "$TOOL" "${WORK}/cfg2.jsonc" --remove only-one
+
+  assert_success
+  assert_output --partial "REMOVED"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${TEST_DIR}/..')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/cfg2.jsonc')
+assert 'external_modules' in d and d['external_modules'] == {}, d
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "remove: config-only entries not in declaration are untouched" {
   cat > "${WORK}/decl.json" <<'EOF'
 {"addyosmani": {"url": "https://github.com/addyosmani/agent-skills.git", "paths": {"skills": "skills"}}}
 EOF

@@ -95,31 +95,62 @@ main() {
     return 0
   fi
 
-  # Process each module — source is either a git url (cloned to vendor/) or a
-  # local path (wired directly, never cloned).
-  while IFS=$'\x1f' read -r name url path paths_json; do
-    local src_dir=""
-    if [[ -n "${path}" ]]; then
-      # Local module - verify it exists
-      if [[ ! -d "${path}" ]]; then
-        _warn "${name}: local path not found (${path})"
+  # Process the module graph to closure — source is either a git url (cloned
+  # to vendor/) or a local path (wired directly, never cloned). Each external
+  # module's root may declare further external modules (external-modules.json);
+  # those are merged and processed in the next round until nothing new appears.
+  # A visited set plus the merge's add-only insert make cycles terminate.
+  local processed=""
+  local round=0
+  while [[ ${round} -lt 50 ]]; do
+    local changed=0
+    round=$((round + 1))
+
+    while IFS=$'\x1f' read -r name url path paths_json; do
+      if echo "${processed}" | grep -Fxq "${name}"; then
         continue
       fi
-      src_dir="${path}"
-    elif [[ -n "${url}" ]]; then
-      local vendor_rel dest
-      vendor_rel="$(_derive_vendor_path "${url}")"
-      dest="${modules_dir}/${vendor_rel}"
-      _install_one_module "${name}" "${url}" "${dest}" "${paths_json}" || continue
-      src_dir="${dest}"
-    else
-      _warn "${name}: missing url and path — skipping"
-      continue
-    fi
 
-    _setup_external_module_storage "${src_dir}" "${name}" "${paths_json}" "${dev_bot_root}"
-  done < <(python3 "${MODULE_DIR}/../../_shared/read_jsonc.py" "${config_file}" external_modules | \
-    python3 -c "
+      local src_dir=""
+      if [[ -n "${path}" ]]; then
+        # Local module - verify it exists
+        if [[ ! -d "${path}" ]]; then
+          _warn "${name}: local path not found (${path})"
+          processed+="${name}"$'\n'
+          continue
+        fi
+        src_dir="${path}"
+      elif [[ -n "${url}" ]]; then
+        local vendor_rel dest
+        vendor_rel="$(_derive_vendor_path "${url}")"
+        dest="${modules_dir}/${vendor_rel}"
+        _install_one_module "${name}" "${url}" "${dest}" "${paths_json}" || {
+          processed+="${name}"$'\n'  # do not retry a failing clone every round
+          continue
+        }
+        src_dir="${dest}"
+      else
+        _warn "${name}: missing url and path — skipping"
+        processed+="${name}"$'\n'
+        continue
+      fi
+
+      # Transitive declarations from this module's own root.
+      local ext_file="${src_dir}/external-modules.json"
+      if [[ -f "${ext_file}" ]]; then
+        local decl_result
+        decl_result=$(python3 "${merge_script}" "${config_file}" "${ext_file}" --owner "${name}" 2>&1) || true
+        if echo "${decl_result}" | grep -q "^INSERTED"; then
+          changed=1
+          _log "${name}: transitively declared ${decl_result}"
+        fi
+        python3 "${merge_script}" "${config_file}" --update "${ext_file}" --owner "${name}" >/dev/null 2>&1 || true
+      fi
+
+      _setup_external_module_storage "${src_dir}" "${name}" "${paths_json}" "${dev_bot_root}"
+      processed+="${name}"$'\n'
+    done < <(python3 "${MODULE_DIR}/../../_shared/read_jsonc.py" "${config_file}" external_modules | \
+      python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 for name, entry in data.items():
@@ -130,6 +161,9 @@ for name, entry in data.items():
     paths = json.dumps(entry.get('paths', {}))
     print(f'{name}\x1f{url}\x1f{path}\x1f{paths}')
   ")
+
+    [[ ${changed} -eq 0 ]] && break
+  done
 
   # Prune stale vendor clones no longer referenced by the config.
   _prune_stale_vendor_clones "${modules_dir}" "${config_file}"

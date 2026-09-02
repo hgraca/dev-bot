@@ -418,6 +418,98 @@ print('ok')
   assert_output "ok"
 }
 
+@test "install: resolves transitive declarations from an external module root" {
+  # Parent is a local module whose root declares a further git module.
+  local parent="${TEST_HOME}/org__parent"
+  mkdir -p "${parent}"
+  cat > "${parent}/external-modules.json" <<'EOF'
+{
+  "org/child": { "url": "https://example.com/org/child.git", "paths": { "skills": "skills" } }
+}
+EOF
+
+  _write_config "{
+    \"external_modules\": {
+      \"org/parent\": { \"path\": \"${parent}\", \"paths\": {} }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entries = data['external_modules']
+assert 'org/parent' in entries, entries
+child = entries.get('org/child')
+assert child is not None, entries
+assert child['_declared_by'] == ['org/parent'], child
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "install: prunes entries whose declarers are all gone (chain cleanup)" {
+  local ghost_dir="${TEST_HOME}/ghost-local"
+  local user_dir="${TEST_HOME}/user-local"
+  mkdir -p "${ghost_dir}" "${user_dir}"
+
+  _write_config "{
+    \"external_modules\": {
+      \"org/orphan\": { \"path\": \"${ghost_dir}\", \"paths\": {}, \"_declared_by\": [\"org/removed-parent\"] },
+      \"local/user-thing\": { \"path\": \"${user_dir}\", \"paths\": {}, \"_user_added\": true }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entries = data['external_modules']
+assert 'org/orphan' not in entries, entries  # declarer gone
+assert 'local/user-thing' in entries, entries  # user-added survives
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "install: keeps entry with at least one live declarer" {
+  local ghost_dir="${TEST_HOME}/ghost2-local"
+  local alive_dir="${TEST_HOME}/alive-local"
+  mkdir -p "${ghost_dir}" "${alive_dir}"
+
+  _write_config "{
+    \"external_modules\": {
+      \"org/shared\": { \"path\": \"${ghost_dir}\", \"paths\": {}, \"_declared_by\": [\"org/gone\", \"org/other\"] },
+      \"org/other\": { \"path\": \"${alive_dir}\", \"paths\": {} }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entries = data['external_modules']
+assert 'org/shared' in entries, entries  # second declarer org/other is configured
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
 @test "install: merges declarations from src/tools modules into config" {
   local mod_src="${DEV_BOT_ROOT}/src/tools/some-tool"
   mkdir -p "${mod_src}"

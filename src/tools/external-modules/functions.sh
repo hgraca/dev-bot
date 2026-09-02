@@ -203,26 +203,54 @@ sys.path.insert(0, '${shared_dir}')
 from read_jsonc import load_jsonc
 root = '${dev_bot_root}'
 disabled = set(json.loads('${disabled_json}'))
-owner = {}
+
+# Declared-name maps from internal module declaration files: which names are
+# declared by an enabled module (live declarers) and which only by disabled
+# ones (stale sources). enabled_modules = the enabled module dirs that ship
+# declarations (declarers are module NAMES, not declared names).
+enabled_modules = set()
+enabled_declared = {}
+disabled_declared = {}
 for pattern in ('src/agentic/*/external-modules.json', 'src/tools/*/external-modules.json'):
     for f in glob.glob(root + '/' + pattern):
         mod = f.split('/')[-2]
         try:
             with open(f) as fh:
-                for name in json.load(fh):
-                    # Prefer an enabled owner over a disabled one if both declare it.
-                    if name not in owner or owner[name] in disabled:
-                        owner[name] = mod
+                names = json.load(fh)
         except Exception:
             continue
+        if mod in disabled:
+            for name in names:
+                disabled_declared[name] = mod
+        else:
+            enabled_modules.add(mod)
+            for name in names:
+                enabled_declared[name] = mod
+
 data = load_jsonc('${config_file}')
 modules = data.get('external_modules', {})
+configured_keys = set(modules)
+
+def declarer_alive(d):
+    # An enabled internal module that ships declarations, or any currently
+    # configured external module.
+    return d in enabled_modules or d in configured_keys
+
 stale = []
 for name, entry in modules.items():
     if not isinstance(entry, dict):
         continue
-    owning = owner.get(name, '')
-    if owning and owning in disabled:
+    # User-added entries are never auto-pruned.
+    if entry.get('_user_added'):
+        continue
+    declared_by = entry.get('_declared_by')
+    if isinstance(declared_by, list) and declared_by:
+        # Prune when every declarer is disabled or gone (chain cleanup: a
+        # removed parent external module takes its transitive children).
+        if all(d in disabled or not declarer_alive(d) for d in declared_by):
+            stale.append(name)
+    elif name in disabled_declared and name not in enabled_declared:
+        # Markerless legacy entry declared only by a disabled module.
         stale.append(name)
 print('\n'.join(sorted(stale)))
 " 2>/dev/null || true)

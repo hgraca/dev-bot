@@ -97,27 +97,84 @@ def _find_balanced_brace(text, open_pos):
 
 
 def _find_field_value_end(text, field):
-    """Find value boundaries for top-level <field> key.
-    Returns (value_start, value_end_exclusive) or None.
+    """Find value boundaries for the top-level <field> key.
+    Returns (value_start, value_end_exclusive) or None. Works on single-line
+    and multi-line JSONC alike: scans tokens, tracking brace depth, and treats
+    `"field"` as the key only when it sits at depth 0 in an object context
+    (preceded by '{' or ',').
     """
-    m = re.search(r'^\s*"' + re.escape(field) + r'"\s*:', text, re.MULTILINE)
-    if not m:
-        return None
-
-    i = m.end()
-    while i < len(text):
-        i = _skip_strings_and_comments(text, i)
-        if i >= len(text):
-            return None
-        if text[i] == '{':
-            end = _find_balanced_brace(text, i)
-            if end == -1:
-                return None
-            return (i, end)
-        if text[i] in ' \t\n\r,':
-            i += 1
+    needle = '"' + field + '"'
+    depth = 0
+    i = 0
+    n = len(text)
+    while i < n:
+        j = _skip_strings_and_comments(text, i)
+        if j != i:
+            # Root-level keys live at depth 1; only a string that equals the
+            # field name there can be the key (values at depth 1 are strings
+            # that never equal it in practice). Probe for the colon.
+            if depth == 1 and text[i] == '"' and text[i:j] == needle:
+                c = j
+                while c < n and text[c] in ' \t\r\n':
+                    c += 1
+                c2 = _skip_strings_and_comments(text, c)
+                if c2 != c:
+                    c = c2
+                while c < n and text[c] in ' \t\r\n':
+                    c += 1
+                if c < n and text[c] == ':':
+                    v = c + 1
+                    while v < n:
+                        v2 = _skip_strings_and_comments(text, v)
+                        if v2 != v:
+                            v = v2
+                            continue
+                        if text[v] in ' \t\r\n':
+                            v += 1
+                            continue
+                        break
+                    if v < n:
+                        ch = text[v]
+                        if ch == '{':
+                            end = _find_balanced_brace(text, v)
+                            if end != -1:
+                                return (v, end)
+                        elif ch == '[':
+                            d2 = 0
+                            t = v
+                            while t < n:
+                                t2 = _skip_strings_and_comments(text, t)
+                                if t2 != t:
+                                    t = t2
+                                    continue
+                                c3 = text[t]
+                                if c3 == '[':
+                                    d2 += 1
+                                elif c3 == ']':
+                                    d2 -= 1
+                                    if d2 == 0:
+                                        return (v, t + 1)
+                                t += 1
+                        else:
+                            # Scalar value: ends at the next top-level ',' or '}'.
+                            t = v
+                            while t < n:
+                                t2 = _skip_strings_and_comments(text, t)
+                                if t2 != t:
+                                    t = t2
+                                    continue
+                                if text[t] in ',}':
+                                    return (v, t)
+                                t += 1
+            i = j
             continue
-        return None
+        ch = text[i]
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+        i += 1
+    return None
 
 
 def _entry_exists(section_text, key):
