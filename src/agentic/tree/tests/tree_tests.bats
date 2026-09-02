@@ -228,6 +228,36 @@ setup() {
   assert_output --partial "Usage:"
 }
 
+@test "--max-depth 0: rejected (tree -L 0 is invalid)" {
+  run bash "$TOOL" --max-depth 0 "$FIXTURES"
+
+  assert_failure
+  assert_output --partial "Usage:"
+  refute_output --partial "Invalid level"
+}
+
+@test "-L 0: rejected (tree -L 0 is invalid)" {
+  run bash "$TOOL" -L 0 "$FIXTURES"
+
+  assert_failure
+  assert_output --partial "Usage:"
+}
+
+@test "--max-depth=1 (equals form): limits output to N levels" {
+  run bash "$TOOL" --max-depth=1 "$FIXTURES"
+
+  assert_success
+  assert_output --partial "subdir"
+  refute_output --partial "sub_file.txt"
+}
+
+@test "--max-depth=0 (equals form): rejected" {
+  run bash "$TOOL" --max-depth=0 "$FIXTURES"
+
+  assert_failure
+  assert_output --partial "Usage:"
+}
+
 @test "--json flag changes output format to json" {
   run bash "$TOOL" "--json" "$FIXTURES"
 

@@ -53,7 +53,7 @@ while [[ $# -gt 0 ]]; do
     --max-depth|-L)
       # audit-28 NOTE-4: real `tree` supports -L level; accept --max-depth N
       # and -L N and pass through as -L N so callers can limit output depth.
-      if [[ $# -lt 2 || ! "$2" =~ ^[0-9]+$ ]]; then
+      if [[ $# -lt 2 || ! "$2" =~ ^[1-9][0-9]*$ ]]; then
         echo "Option $1 requires a positive integer value" >&2
         echo "Usage: tree.mcp.sh [--markdown|--json|--format <fmt>] [--max-depth <n>|-L <n>] <dir> [<dir> ...]" >&2
         exit 1
@@ -62,7 +62,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --max-depth=*)
       local_value="${1#--max-depth=}"
-      if [[ ! "$local_value" =~ ^[0-9]+$ ]]; then
+      if [[ ! "$local_value" =~ ^[1-9][0-9]*$ ]]; then
         echo "Option --max-depth requires a positive integer value" >&2
         echo "Usage: tree.mcp.sh [--markdown|--json|--format <fmt>] [--max-depth <n>|-L <n>] <dir> [<dir> ...]" >&2
         exit 1
