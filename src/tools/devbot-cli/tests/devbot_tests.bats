@@ -144,19 +144,19 @@ setup() {
   # to .opencode/skills (the opencode harness loads .agents/skills directly), so
   # .agents/ is the authoritative location to assert.
   if [[ -d "$PROJECT_ROOT/vendor/addyosmani/agent-skills" ]]; then
-    # agents symlink
-    local addy_agents="$test_project/.agents/agents/addyosmani"
-    [ -L "$addy_agents" ] || fail "agents/addyosmani is not a symlink"
+    # agents symlink — namespaced name nests under .agents/<type>/<org>/<repo>.
+    local addy_agents="$test_project/.agents/agents/addyosmani/agent-skills"
+    [ -L "$addy_agents" ] || fail "agents/addyosmani/agent-skills is not a symlink"
     [ "$(readlink "$addy_agents")" = "$PROJECT_ROOT/vendor/addyosmani/agent-skills/agents" ] \
-      || fail "agents/addyosmani points wrong target"
-    [ -d "$(readlink "$addy_agents")" ] || fail "agents/addyosmani target missing"
+      || fail "agents/addyosmani/agent-skills points wrong target"
+    [ -d "$(readlink "$addy_agents")" ] || fail "agents/addyosmani/agent-skills target missing"
 
     # skills symlink
-    local addy_skills="$test_project/.agents/skills/addyosmani"
-    [ -L "$addy_skills" ] || fail "skills/addyosmani is not a symlink"
+    local addy_skills="$test_project/.agents/skills/addyosmani/agent-skills"
+    [ -L "$addy_skills" ] || fail "skills/addyosmani/agent-skills is not a symlink"
     [ "$(readlink "$addy_skills")" = "$PROJECT_ROOT/vendor/addyosmani/agent-skills/skills" ] \
-      || fail "skills/addyosmani points wrong target"
-    [ -d "$(readlink "$addy_skills")" ] || fail "skills/addyosmani target missing"
+      || fail "skills/addyosmani/agent-skills points wrong target"
+    [ -d "$(readlink "$addy_skills")" ] || fail "skills/addyosmani/agent-skills target missing"
   fi
 
   # ── Verify plugins are symlinked and trigger correct tools ──────────────
