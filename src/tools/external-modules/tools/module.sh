@@ -344,10 +344,18 @@ print(json.dumps(paths))
 
 cmd_remove() {
     local name="${1:-}"
+    local opt_path=""
     if [[ -z "${name}" ]]; then
-        _fatal "Usage: module.sh remove <name>"
+        _fatal "Usage: module.sh remove <name> [--path=<rel>]"
         exit 1
     fi
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --path=*) opt_path="${1#*=}"; shift ;;
+            *) _fatal "Unknown option '$1'"; exit 1 ;;
+        esac
+    done
 
     _header_3 "Module remove: ${name}"
 
@@ -360,6 +368,19 @@ cmd_remove() {
         return 0
     fi
 
+    if [[ -n "${opt_path}" ]]; then
+        _remove_one_path "${name}" "${opt_path}"
+        return
+    fi
+
+    _remove_entry_fully "${name}"
+}
+
+# Remove a whole external module entry: legacy .opencode links, modern
+# .agents containers, config entry, and storage mirror (D4 whole-entry form).
+_remove_entry_fully() {
+    local name="$1"
+
     # Unwire from projects (legacy .opencode links)
     local -a projects
     while IFS= read -r _proj; do
@@ -367,8 +388,8 @@ cmd_remove() {
     done < <(_discover_projects | sort -u)
     _unwire_module "${name}" "${projects[@]}"
 
-    # Unwire modern .agents/<type>/<name> links — capture the entry's paths
-    # before removing it from config.
+    # Unwire modern .agents/<type>/<name> — since T2 the name level is a
+    # container dir (or a pre-additive symlink); remove whichever exists.
     local paths_json
     paths_json="$(_get_external_module_field "${name}" "paths")"
     if [[ -n "${paths_json}" ]]; then
@@ -383,6 +404,9 @@ cmd_remove() {
                 if [[ -L "${link_path}" ]]; then
                     rm "${link_path}"
                     _log "Removed ${devbot_dir}/${_type}/${name}"
+                elif [[ -d "${link_path}" ]]; then
+                    rm -rf "${link_path}"
+                    _log "Removed ${devbot_dir}/${_type}/${name} (container)"
                 fi
             done
         done < <(echo "${paths_json}" | python3 -c "
@@ -405,6 +429,116 @@ except Exception:
     fi
 
     _ok "Unregistered: ${name}"
+}
+
+# Remove one directory path from an entry (D4 per-path form). If it was the
+# last path, the whole entry is removed. The matching .agents leaf and
+# storage leaf are cleaned per project/root.
+_remove_one_path() {
+    local name="$1" rel="$2"
+
+    local paths_json
+    paths_json="$(_get_external_module_field "${name}" "paths")"
+
+    # Locate the type whose directory value holds rel (string value equal to
+    # rel, or rel as an array element). Memory dict paths are not removable.
+    local lookup
+    lookup=$(echo "${paths_json}" | python3 -c "
+import json, os, sys
+rel = sys.argv[1]
+try:
+    paths = json.load(sys.stdin)
+except Exception:
+    paths = {}
+for t, v in paths.items():
+    elems = v if isinstance(v, list) else ([v] if isinstance(v, str) else [])
+    if rel in elems:
+        form = 'list' if isinstance(v, list) else 'string'
+        print(t + '\x1f' + form + '\x1f' + os.path.basename(rel.rstrip('/')))
+        sys.exit(0)
+sys.exit(1)
+" "${rel}") || {
+        _warn "Directory path '${rel}' not found in '${name}'"
+        return 0
+    }
+    local found_type form base
+    IFS=$'\x1f' read -r found_type form base <<< "${lookup}"
+
+    # Compute the remaining paths map with rel removed.
+    local remaining
+    remaining=$(echo "${paths_json}" | python3 -c "
+import json, sys
+rel, t0 = sys.argv[1], sys.argv[2]
+paths = json.load(sys.stdin)
+if t0 in paths:
+    v = paths[t0]
+    if isinstance(v, list):
+        v = [x for x in v if x != rel]
+        paths[t0] = v if v else '__DROPPED__'
+    elif isinstance(v, str) and v == rel:
+        paths[t0] = '__DROPPED__'
+print(json.dumps({t: vv for t, vv in paths.items() if vv != '__DROPPED__'}))
+" "${rel}" "${found_type}")
+
+    if [[ "${remaining}" == "{}" ]]; then
+        _remove_entry_fully "${name}"
+        return
+    fi
+
+    # Unwire the .agents leaf across projects; drop the container dir when its
+    # type is gone from the remaining paths.
+    local -a projects
+    while IFS= read -r _proj; do
+        projects+=("${_proj}")
+    done < <(_discover_projects | sort -u)
+    local type_gone="no"
+    echo "${remaining}" | grep -q "\"${found_type}\"" || type_gone="yes"
+    local _proj
+    for _proj in "${projects[@]}"; do
+        local devbot_dir leaf_path container_path
+        devbot_dir="$(_devbot_get_project_dir "${_proj}")"
+        leaf_path="${_proj}/${devbot_dir}/${found_type}/${name}/${base}"
+        if [[ -L "${leaf_path}" ]]; then
+            rm "${leaf_path}"
+            _log "Removed ${devbot_dir}/${found_type}/${name}/${base}"
+        elif [[ -e "${leaf_path}" ]]; then
+            _warn "${leaf_path} exists but is not a symlink — leaving it"
+        fi
+        if [[ "${type_gone}" == "yes" ]]; then
+            container_path="${_proj}/${devbot_dir}/${found_type}/${name}"
+            rmdir "${container_path}" 2>/dev/null || true
+        fi
+    done
+
+    # Remove the matching storage leaf (string form: the <type> symlink;
+    # array form: the basename leaf under the <type> container).
+    local storage_dir="${DEV_BOT_ROOT}/storage/external-agentic-modules/$(_external_storage_dir_name "${name}")"
+    if [[ "${form}" == "string" ]]; then
+        rm -f "${storage_dir}/${found_type}"
+    else
+        rm -f "${storage_dir}/${found_type}/${base}"
+        rmdir "${storage_dir}/${found_type}" 2>/dev/null || true
+    fi
+    rmdir "${storage_dir}" 2>/dev/null || true
+
+    # Update the config entry via merge (declaration fields preserved; a
+    # module-declared entry may regain the path on the next install).
+    local tmp_entries
+    tmp_entries="$(mktemp)"
+    python3 -c "
+import json, sys
+name, remaining = sys.argv[1], sys.argv[2]
+json.dump({name: {'paths': json.loads(remaining)}}, open(sys.argv[3], 'w'))
+" "${name}" "${remaining}" "${tmp_entries}"
+    python3 "${MERGE_JSONC}" "${CONFIG_FILE}" --update "${tmp_entries}" >/dev/null 2>&1
+    rm -f "${tmp_entries}"
+
+    local declared_by
+    declared_by="$(_get_external_module_field "${name}" "_declared_by")"
+    if [[ -n "${declared_by}" ]]; then
+        _warn "${name} is declared by a module — 'install' may re-add '${rel}' from its declaration"
+    fi
+    _log "Removed path '${rel}' from ${name}"
 }
 
 cmd_sync() {
@@ -431,7 +565,7 @@ case "${_cmd}" in
         echo "  install    Clone/pull configured external modules"
         echo "  init [path] Wire modules into a project's .agents/ directory"
         echo "  add <url|path>   Register a module (git URL or local path)"
-        echo "  remove <name>    Unregister a module"
+        echo "  remove <name>    Unregister a module (--path=<rel> removes one path)"
         echo "  list              List registered modules"
         echo "  sync [path]       Re-wire all modules (alias for init)"
         echo ""

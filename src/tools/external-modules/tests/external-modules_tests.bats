@@ -1096,3 +1096,186 @@ print('ok')
   assert_success
   assert_output "ok"
 }
+
+@test "remove: --path drops one element and cleans its .agents and storage leaves" {
+  local loc_dir="${TEST_HOME}/pack-local"
+  mkdir -p "${loc_dir}/skills/react" "${loc_dir}/skills/nextjs-react-typescript"
+  echo "r" > "${loc_dir}/skills/react/r.md"
+  echo "n" > "${loc_dir}/skills/nextjs-react-typescript/n.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"acme/skills-pack\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": [\"skills/react\", \"skills/nextjs-react-typescript\"] } }
+    }
+  }"
+
+  # Wire .agents + storage into the sandbox root project.
+  run bash "${MODULE_DIR}/init.sh" "${DEV_BOT_ROOT}"
+  assert_success
+  assert [ -L "${DEV_BOT_ROOT}/.agents/skills/acme/skills-pack/react" ]
+  assert [ -L "${DEV_BOT_ROOT}/storage/external-agentic-modules/acme__skills-pack/skills/react" ]
+
+  run bash "$TOOL" remove "acme/skills-pack" --path=skills/react
+
+  assert_success
+  assert_output --partial "Removed path 'skills/react'"
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entry = data['external_modules']['acme/skills-pack']
+assert entry['paths'] == {'skills': ['skills/nextjs-react-typescript']}, entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+  assert [ ! -e "${DEV_BOT_ROOT}/.agents/skills/acme/skills-pack/react" ]
+  assert [ -L "${DEV_BOT_ROOT}/.agents/skills/acme/skills-pack/nextjs-react-typescript" ]
+  assert [ ! -e "${DEV_BOT_ROOT}/storage/external-agentic-modules/acme__skills-pack/skills/react" ]
+  assert [ -L "${DEV_BOT_ROOT}/storage/external-agentic-modules/acme__skills-pack/skills/nextjs-react-typescript" ]
+}
+
+@test "remove: --path on the last element removes the whole entry" {
+  local loc_dir="${TEST_HOME}/pack-single"
+  mkdir -p "${loc_dir}/skills/react"
+  echo "r" > "${loc_dir}/skills/react/r.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"acme/skills-pack\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": [\"skills/react\"] } }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/init.sh" "${DEV_BOT_ROOT}"
+  assert_success
+  assert [ -L "${DEV_BOT_ROOT}/.agents/skills/acme/skills-pack/react" ]
+
+  run bash "$TOOL" remove "acme/skills-pack" --path=skills/react
+
+  assert_success
+  assert_output --partial "Unregistered: acme/skills-pack"
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+assert 'acme/skills-pack' not in data['external_modules'], data
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+  assert [ ! -e "${DEV_BOT_ROOT}/.agents/skills/acme/skills-pack" ]
+  assert [ ! -e "${DEV_BOT_ROOT}/storage/external-agentic-modules/acme__skills-pack" ]
+}
+
+@test "remove: whole-entry remove cleans the nested .agents container dir" {
+  local loc_dir="${TEST_HOME}/whole-remove"
+  mkdir -p "${loc_dir}/skills"
+  echo "skill" > "${loc_dir}/skills/w.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"loc-mod\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": \"skills\" } }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/init.sh" "${DEV_BOT_ROOT}"
+  assert_success
+  assert [ -d "${DEV_BOT_ROOT}/.agents/skills/loc-mod" ]
+  assert [ ! -L "${DEV_BOT_ROOT}/.agents/skills/loc-mod" ]
+
+  run bash "$TOOL" remove loc-mod
+
+  assert_success
+  assert_output --partial "Unregistered: loc-mod"
+  # Container dir (not a symlink since T2) must be removed too.
+  assert [ ! -e "${DEV_BOT_ROOT}/.agents/skills/loc-mod" ]
+  assert [ ! -e "${DEV_BOT_ROOT}/storage/external-agentic-modules/loc-mod" ]
+}
+
+@test "remove: --path with an unknown rel warns and leaves config untouched" {
+  local loc_dir="${TEST_HOME}/unknown-path"
+  mkdir -p "${loc_dir}/skills/react"
+  echo "r" > "${loc_dir}/skills/react/r.md"
+
+  _write_config "{
+    \"external_modules\": {
+      \"acme/skills-pack\": { \"path\": \"${loc_dir}\", \"paths\": { \"skills\": [\"skills/react\"] } }
+    }
+  }"
+
+  run bash "$TOOL" remove "acme/skills-pack" --path=skills/nope
+
+  assert_success
+  assert_output --partial "not found"
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entry = data['external_modules']['acme/skills-pack']
+assert entry['paths'] == {'skills': ['skills/react']}, entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+}
+
+@test "install: declarer dropping one path shrinks config and reaps the storage leaf" {
+  local mod_src="${DEV_BOT_ROOT}/src/agentic/ppmod"
+  mkdir -p "${mod_src}"
+  cat > "${mod_src}/external-modules.json" <<'EOF'
+{
+  "pp/repo": { "url": "https://example.com/pp/repo.git", "paths": { "skills": ["skills/a", "skills/b"] } }
+}
+EOF
+
+  local loc_dir="${TEST_HOME}/pp-local"
+  mkdir -p "${loc_dir}/skills/a" "${loc_dir}/skills/b"
+  echo "a" > "${loc_dir}/skills/a/a.md"
+  echo "b" > "${loc_dir}/skills/b/b.md"
+
+  # Config pre-seeded with a local path override so install never clones.
+  _write_config "{
+    \"external_modules\": {
+      \"pp/repo\": { \"url\": \"https://example.com/pp/repo.git\", \"path\": \"${loc_dir}\", \"paths\": { \"skills\": [\"skills/a\", \"skills/b\"] } }
+    }
+  }"
+
+  run bash "${MODULE_DIR}/install.sh"
+  assert_success
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entry = data['external_modules']['pp/repo']
+assert entry['paths'] == {'skills': ['skills/a', 'skills/b']}, entry
+assert 'ppmod' in entry.get('_declared_by', []), entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+  assert [ -L "${DEV_BOT_ROOT}/storage/external-agentic-modules/pp__repo/skills/b" ]
+
+  # Declarer drops path b; next install must shrink config and reap the leaf.
+  cat > "${mod_src}/external-modules.json" <<'EOF'
+{
+  "pp/repo": { "url": "https://example.com/pp/repo.git", "paths": { "skills": ["skills/a"] } }
+}
+EOF
+
+  run bash "${MODULE_DIR}/install.sh"
+  assert_success
+  run python3 -c "
+import json
+with open('${DEV_BOT_ROOT}/.devbot.global.jsonc') as f:
+    data = json.load(f)
+entry = data['external_modules']['pp/repo']
+assert entry['paths'] == {'skills': ['skills/a']}, entry
+assert entry['path'] == '${loc_dir}', entry   # override preserved
+assert 'ppmod' in entry.get('_declared_by', []), entry
+print('ok')
+"
+  assert_success
+  assert_output "ok"
+  assert [ ! -e "${DEV_BOT_ROOT}/storage/external-agentic-modules/pp__repo/skills/b" ]
+  assert [ -L "${DEV_BOT_ROOT}/storage/external-agentic-modules/pp__repo/skills/a" ]
+}
