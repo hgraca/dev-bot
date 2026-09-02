@@ -205,10 +205,10 @@ Show all registered modules with their clone/link status.
 
 #### `sync`
 
-Re-wire all registered modules into all discovered projects. Clones any missing repos first.
+Alias for `init` (kept for backward compatibility): wires the configured modules into the given project's `.agents/` directory.
 
 ```bash
-devbot module sync
+devbot module sync <project>
 ```
 
 #### Configuration format
