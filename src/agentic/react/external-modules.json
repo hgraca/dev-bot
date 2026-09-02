@@ -2,19 +2,19 @@
   "mindrally-react": {
     "url": "https://github.com/mindrally/skills.git",
     "paths": {
-      "skills": "skills/react"
+      "skills": "react"
     }
   },
   "mindrally-nextjs": {
     "url": "https://github.com/mindrally/skills.git",
     "paths": {
-      "skills": "skills/nextjs-react-typescript"
+      "skills": "nextjs-react-typescript"
     }
   },
   "mindrally-react-best-practices": {
     "url": "https://github.com/mindrally/skills.git",
     "paths": {
-      "skills": "skills/modern-web-development"
+      "skills": "modern-web-development"
     }
   }
 }
