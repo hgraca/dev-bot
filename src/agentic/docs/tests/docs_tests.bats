@@ -427,6 +427,18 @@ exit 125
 SCRIPT
   chmod +x "${bin_dir}/docker"
 
+  # A fake php that always fails (rc 127) so a host-installed php-cli (e.g.
+  # /usr/bin/php, which shares a PATH dir with python3) cannot satisfy the
+  # tool's local-PHP probe. Without this stub the test silently degrades into
+  # a no-op when the host has php — the sandboxed PATH must fully control the
+  # probe, never the host environment.
+  cat > "${bin_dir}/php" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "php: unavailable in test sandbox" >&2
+exit 127
+SCRIPT
+  chmod +x "${bin_dir}/php"
+
   run env "PATH=${bin_dir}:$(dirname "$(command -v python3)")" \
     python3 "$MODULE_DIR/tools/UseCaseMap/create-use-case-map.py" \
     --project-root "$sandbox"
