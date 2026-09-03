@@ -221,23 +221,37 @@ class TestResolveCollection(unittest.TestCase):
         result = resolve_collection(self.root)
         self.assertEqual(result, "commented-project")
 
-    def test_falls_back_to_devbot_when_file_missing(self):
+    def test_falls_back_to_dir_basename_when_file_missing(self):
+        # Mirrors qmd/init.sh: PROJECT_NAME="${PROJECT_NAME:-$(basename "$PROJECT_DIR")}"
         result = resolve_collection(self.root)
-        self.assertEqual(result, "devbot")
+        self.assertEqual(result, self.root.name)
 
     def test_falls_back_when_file_is_invalid_json(self):
         cfg = self.root / ".devbot.project.jsonc"
         cfg.write_text("not valid json {{{")
 
         result = resolve_collection(self.root)
-        self.assertEqual(result, "devbot")
+        self.assertEqual(result, self.root.name)
 
     def test_falls_back_when_no_project_name_key(self):
+        # Regression (audit-32/33): a .devbot.project.jsonc without project_name
+        # must resolve to the project dir basename — the collection qmd/init.sh
+        # actually registers — not a hardcoded "devbot" collection that never
+        # exists ("Collection not found: devbot").
         cfg = self.root / ".devbot.project.jsonc"
-        cfg.write_text('{"other_key": "value"}')
+        cfg.write_text('{"harness": "opencode", "modules": {}}')
 
         result = resolve_collection(self.root)
-        self.assertEqual(result, "devbot")
+        self.assertEqual(result, self.root.name)
+
+    def test_falls_back_when_project_name_empty(self):
+        # qmd/init.sh treats an empty project_name as missing ("${VAR:-fallback}");
+        # resolve_collection must agree, not return "" (which would break qmd -c "").
+        cfg = self.root / ".devbot.project.jsonc"
+        cfg.write_text('{"project_name": ""}')
+
+        result = resolve_collection(self.root)
+        self.assertEqual(result, self.root.name)
 
 
 # ---------------------------------------------------------------------------
