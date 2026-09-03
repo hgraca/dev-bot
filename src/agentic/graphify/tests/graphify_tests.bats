@@ -32,6 +32,66 @@ teardown() {
   rm -rf "${FAKE_BIN}"
 }
 
+# ── init.sh: .opencode/opencode.json legacy-plugin cleanup (audit-37 §4) ──────
+# Every reinit rewrote .opencode/opencode.json via an unconditional
+# `jq … > tmp && mv tmp file` even when the graphify plugin entry was already
+# absent — byte-identical content, churned mtime on a legacy stub that nothing
+# else owns. init.sh must skip the mv when the jq output equals the input.
+
+setup_opencode_project() {
+  local dir="$1"
+  mkdir -p "${dir}/.opencode" "${dir}/.agents/memory/active" "${dir}/graphify-out"
+  printf '{\n  "modules": { "opencode": true, "claudecode": false }\n}\n' \
+    > "${dir}/.devbot.project.jsonc"
+  printf '{"plugin":[".opencode/plugins/graphify.js"]}\n' \
+    > "${dir}/.opencode/opencode.json"
+  # Pre-built graph so init.sh skips the background `graphify update .` build.
+  printf '{"directed":true,"nodes":[],"links":[]}\n' \
+    > "${dir}/graphify-out/graph.json"
+}
+
+@test "init.sh: removes the legacy graphify plugin entry from .opencode/opencode.json" {
+  command -v jq >/dev/null 2>&1 || skip "jq not installed"
+  local proj
+  proj="$(mktemp -d)"
+  setup_opencode_project "${proj}"
+
+  run bash "${MODULE_DIR}/init.sh" "${proj}"
+
+  assert_success
+  run jq -r '.plugin[]?' "${proj}/.opencode/opencode.json"
+  refute_output --partial "graphify"
+
+  rm -rf "${proj}"
+}
+
+@test "init.sh: does not rewrite .opencode/opencode.json when already clean (no mtime churn)" {
+  command -v jq >/dev/null 2>&1 || skip "jq not installed"
+  local proj sentinel
+  proj="$(mktemp -d)"
+  setup_opencode_project "${proj}"
+
+  # First run cleans the plugin entry (real change, mv expected).
+  run bash "${MODULE_DIR}/init.sh" "${proj}"
+  assert_success
+
+  # Second run: content must stay byte-identical AND the file must not be
+  # touched. A sentinel created before the run must remain newer than the file
+  # if the mv is (correctly) skipped.
+  cp "${proj}/.opencode/opencode.json" "${proj}/before.json"
+  sentinel="$(mktemp)"
+
+  run bash "${MODULE_DIR}/init.sh" "${proj}"
+  assert_success
+
+  cmp -s "${proj}/before.json" "${proj}/.opencode/opencode.json"
+  assert_success
+  run find "${proj}/.opencode/opencode.json" -newer "${sentinel}" -print
+  refute_output --partial "opencode.json"
+
+  rm -rf "${proj}" "${sentinel}"
+}
+
 # ── Help flag ─────────────────────────────────────────────────────────────────
 
 @test "--help: prints usage and exits 0" {
