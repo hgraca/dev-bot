@@ -227,17 +227,32 @@ for m in json.loads(sys.stdin.read()):
     print(m)
 " 2>/dev/null || true)
 
+  # audit-33 NOTE: an empty "External Agentic Modules" section (header with no
+  # content) printed when no registered module shipped an init.sh. Track what
+  # actually ran and emit a status line so reinit output never implies a step
+  # ran with nothing to report.
   local ext_mod_name
+  local checked=0
+  local ran=0
   while IFS= read -r ext_mod_name; do
     [[ -z "${ext_mod_name}" ]] && continue
+    checked=$((checked + 1))
 
     if echo "${disabled_list}" | grep -Fxq "${ext_mod_name}" 2>/dev/null; then
       _skip "${ext_mod_name}: disabled per config — skipping"
       continue
     fi
 
-    _run_external_module_init "${external_base}/${ext_mod_name}/" "${PROJECT_DIR}" || true
+    if _run_external_module_init "${external_base}/${ext_mod_name}/" "${PROJECT_DIR}"; then
+      ran=$((ran + 1))
+    fi
   done < <(_devbot_get_external_modules)
+
+  if [[ ${checked} -eq 0 ]]; then
+    _skip "no external modules configured"
+  elif [[ ${ran} -eq 0 ]]; then
+    _skip "${checked} external module(s) checked — none ship init.sh (wiring handled by harness init)"
+  fi
 }
 
 # _prune_orphaned_external_modules — removes external-module storage dirs that

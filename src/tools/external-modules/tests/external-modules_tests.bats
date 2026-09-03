@@ -83,6 +83,34 @@ teardown() {
   assert_output --partial "Add one: devbot module add <git-url>"
 }
 
+# ── _ensure_config stdout leak (audit-32 NOTE) ───────────────────────────────
+
+@test "commands with an existing modules config do not dump raw JSON to stdout" {
+  # Regression: _ensure_config probed the config with read_jsonc.py and only
+  # silenced stderr, so the raw external_modules JSON printed to stdout on
+  # every module command whose config already had the key.
+  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  cat > "$config" <<'JSON'
+{
+  "external_modules": {
+    "demo-module": {
+      "url": "https://example.com/demo.git",
+      "paths": { "skills": "./skills" }
+    }
+  }
+}
+JSON
+
+  # `list` calls _ensure_config first — with the key present, the probe's
+  # stdout must not leak into the command output.
+  run bash "$TOOL" list
+
+  assert_success
+  assert_output --partial "demo-module"
+  refute_output --partial '"external_modules"'
+  refute_output --partial 'https://example.com/demo.git'
+}
+
 # ── Add local module ──────────────────────────────────────────────────────────
 
 @test "add: local directory registers as module" {

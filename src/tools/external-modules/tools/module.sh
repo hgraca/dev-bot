@@ -41,8 +41,11 @@ _ensure_config() {
         _ok ".devbot.global.jsonc created"
         return 0
     fi
-    # Ensure modules key exists (use python to write clean JSON)
-    if ! python3 "${READ_JSONC}" "${CONFIG_FILE}" external_modules 2>/dev/null; then
+    # Ensure modules key exists (use python to write clean JSON). stdout is
+    # silenced: read_jsonc.py prints the raw external_modules JSON when the key
+    # is present — a debug dump that leaked to the terminal on every module
+    # command (audit-32 NOTE).
+    if ! python3 "${READ_JSONC}" "${CONFIG_FILE}" external_modules >/dev/null 2>&1; then
         _step "Fixing .devbot.global.jsonc (adding modules key)..."
         python3 -c "
 import json
