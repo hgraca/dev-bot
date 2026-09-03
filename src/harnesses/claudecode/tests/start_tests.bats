@@ -104,3 +104,40 @@ STUB
   run find "${FAKE_PROJECT}/.agents/logs/rotated" -name "*-hooks-*.log" -print
   assert_output --partial "hooks"
 }
+
+@test "start.sh fires the detached memory prune before launching (memory vault + qmd)" {
+  # audit-36: the delete→prune self-heal (qmd cleanup && qmd update, no embed)
+  # moved from the session.created hook to start.sh, fired detached before the
+  # harness so it runs per launch and qmd gets a head start ahead of the MCP
+  # fleet boot at session start (audit-34 NOTE-8 / audit-35 FAIL).
+  mkdir -p "${FAKE_PROJECT}/.agents/memory/latent/learnings"
+
+  local fake_qmd call_log
+  fake_qmd="$(mktemp -d)"
+  cat > "${fake_qmd}/qmd" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >> "${QMD_CALL_LOG:?}"
+exit 0
+EOF
+  chmod +x "${fake_qmd}/qmd"
+  call_log="$(mktemp)"
+
+  PATH="${fake_qmd}:${FAKE_BIN}:${PATH}" QMD_CALL_LOG="${call_log}" \
+    run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+
+  assert_success
+  # The helper writes its marker synchronously; the qmd work runs detached.
+  run cat "${FAKE_PROJECT}/.agents/logs/qmd-index.log"
+  assert_output --partial "reindex-memories-prune-start"
+
+  local i
+  for i in $(seq 1 50); do
+    [[ "$(wc -l < "${call_log}" 2>/dev/null || echo 0)" -ge 2 ]] && break
+    sleep 0.1
+  done
+  run cat "${call_log}"
+  assert_line --index 0 "cleanup"
+  assert_line --index 1 "update"
+
+  rm -rf "${fake_qmd}" "${call_log}"
+}

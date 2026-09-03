@@ -288,6 +288,60 @@ _devbot_check_session_logs() {
   return 0
 }
 
+# ── Memory delete→prune self-heal (pre-harness launch) ───────────────────────────
+
+# _devbot_prune_memories_detached <project_dir>
+#   Fires the memory delete→prune self-heal (qmd cleanup && qmd update, no
+#   embed) detached BEFORE the harness starts. Moved out of the session.created
+#   hook (memory/hooks.json) into the harness start.sh scripts (audit-36):
+#     - it runs per launch, not only on the first session.created of a process
+#       (audit-34 NOTE-8), and
+#     - qmd gets a head start ahead of the MCP-server fleet boot at session
+#       start, whose concurrent-launch contention exceeded the client's 30s
+#       connect budget for the two heaviest servers (audit-35 FAIL).
+#   The prune tool (reindex-memories.mcp.sh prune) backgrounds + disowns qmd
+#   itself; this helper additionally detaches the invocation from start.sh and
+#   writes a marker line so audits can cross-check `.agents/logs/qmd-index.log`.
+#   Fail-open and silent: no qmd, no memory vault, or a disabled memory module
+#   means "no prune needed here" — it never blocks or fails the harness launch.
+_devbot_prune_memories_detached() {
+  local project_dir="${1:-$(pwd)}"
+  [[ -n "${project_dir}" && -d "${project_dir}" ]] || return 0
+
+  # Disabled memory module → no prune (and no qmd-index.log to write).
+  if _devbot_get_disabled_modules "${project_dir}" | grep -q '"memory"'; then
+    return 0
+  fi
+
+  # No memory vault → nothing to prune.
+  local devbot_dir vault
+  devbot_dir="$(_devbot_get_project_dir "${project_dir}")"
+  vault="${project_dir}/${devbot_dir}/memory"
+  [[ -d "${vault}" ]] || return 0
+
+  command -v qmd >/dev/null 2>&1 || return 0
+
+  # Resolve the tool next to this file (functions.sh → src/_shared), not via
+  # DEV_BOT_ROOT, which may be overridden to a sandbox root in tests.
+  local shared_dir tool
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  tool="${shared_dir}/../agentic/memory/tools/reindex-memories/reindex-memories.mcp.sh"
+  [[ -f "${tool}" ]] || return 0
+
+  local logs_dir="${project_dir}/.agents/logs"
+  mkdir -p "${logs_dir}" 2>/dev/null || return 0
+
+  # Marker line (synchronous) so a session can prove the prune fired; the qmd
+  # work itself runs detached inside the tool.
+  printf '[reindex-memories-prune-start] devbot start.sh: detached memory prune (qmd cleanup && qmd update) launched before harness\n' \
+    >> "${logs_dir}/qmd-index.log" 2>/dev/null || true
+
+  ( cd "${project_dir}" && bash "${tool}" prune ) >> "${logs_dir}/qmd-index.log" 2>&1 &
+  disown 2>/dev/null || true
+
+  return 0
+}
+
 # ── Disabled modules (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_disabled_modules [project_dir]

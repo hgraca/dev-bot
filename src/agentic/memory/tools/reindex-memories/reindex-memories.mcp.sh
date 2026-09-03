@@ -10,9 +10,13 @@
 #
 # 'prune' mode runs cleanup && update only — no embed (the slow GPU/model step).
 # Embedding a deleted doc's absence needs no new vectors; cleanup + update
-# suffice to stop it surfacing in search. Used by the session.idle self-heal
-# hook (audit-29: bash-deleted notes stayed searchable — watcher unlink never
-# dispatched file.deleted).
+# suffice to stop it surfacing in search. Invoked as the delete→prune
+# self-heal by the harness start scripts (start.sh →
+# _devbot_prune_memories_detached): bash-deleted notes stayed searchable
+# because neither harness delivers a delete event for external (bash) rm
+# (audit-29), so the prune runs at launch — moved from the session.created
+# hook (audit-30/31) to start.sh in audit-36 so it fires per launch and qmd
+# gets a head start ahead of the MCP fleet boot.
 #
 # Coalesces concurrent requests via a pidfile: a second invocation while one is
 # running reports "in_progress" instead of stacking another job. Honest status:

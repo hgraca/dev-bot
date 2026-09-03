@@ -38,6 +38,12 @@ fi
 # entries. Fail open: if logs can't be rotated, the check still runs.
 _devbot_rotate_session_logs "${PROJECT_DIR}"
 
+# Fire the memory delete→prune self-heal detached BEFORE the harness boots
+# (audit-34 NOTE-8 / audit-35 FAIL): qmd cleanup gets a head start ahead of
+# the MCP fleet boot and the prune runs per launch, not only on the first
+# session.created of a process. Fail-open — never blocks the launch.
+_devbot_prune_memories_detached "${PROJECT_DIR}" || true
+
 # Run the harness as a child (not exec) so the session-error check can run
 # after it exits; preserve the harness exit code for the caller.
 harness_exit=0

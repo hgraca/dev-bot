@@ -24,16 +24,6 @@
         "{file}",
         "{worktree}"
       ]
-    },
-    {
-      "id": "reindex-memories-prune-start",
-      "event": "session.created",
-      "run": [
-        "bash",
-        "{module}/tools/reindex-memories/reindex-memories.mcp.sh",
-        "prune"
-      ],
-      "log": ".agents/logs/qmd-index.log"
     }
   ]
 }
