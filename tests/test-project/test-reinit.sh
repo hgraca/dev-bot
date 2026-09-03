@@ -46,6 +46,49 @@ echo
 devbot reinit
 echo
 
+# ── Byte-idempotency probe (audit-32 NOTE, fixed in audit-33) ────────────────
+# `devbot reinit` must be byte-idempotent: re-running it on an already-
+# initialized project must not change any generated file. Known drift causes
+# (all fixed): remove_mcp_key.py's whole-file json.dump rewrite (expanded
+# layout + dropped comments), the graphify AGENTS.md section-removal leaving a
+# trailing blank, and reset.sh churning MCP keys that already match their
+# module templates (reordering the mcp map). Snapshot after reinit #1, reinit
+# a second time, and byte-compare the generated files.
+BYTE_IDEM_FILES=(
+  ".devbot.project.jsonc"
+  "AGENTS.md"
+  "CLAUDE.md"
+  "opencode.jsonc"
+  ".mcp.json"
+)
+echo
+echo "running second 'devbot reinit' (byte-idempotency probe)..."
+echo
+BYTE_IDEM_SNAP="$(mktemp -d)"
+for f in "${BYTE_IDEM_FILES[@]}"; do
+  if [[ -f "$f" ]]; then
+    mkdir -p "$(dirname "${BYTE_IDEM_SNAP}/${f}")"
+    cp "$f" "${BYTE_IDEM_SNAP}/${f}"
+  fi
+done
+devbot reinit
+BYTE_IDEM_FAIL=0
+for f in "${BYTE_IDEM_FILES[@]}"; do
+  if [[ -f "$f" ]]; then
+    if ! cmp -s "${BYTE_IDEM_SNAP}/${f}" "$f"; then
+      echo "BYTE-IDEMPOTENCY-FAIL: $f changed on second reinit"
+      BYTE_IDEM_FAIL=1
+    fi
+  fi
+done
+rm -r "${BYTE_IDEM_SNAP}" 2>/dev/null || true
+if [[ ${BYTE_IDEM_FAIL} -eq 0 ]]; then
+  echo "BYTE-IDEMPOTENCY-PASS: second reinit left all generated files unchanged"
+else
+  echo "BYTE-IDEMPOTENCY-FAIL: second reinit changed generated files — reinit is not byte-idempotent"
+fi
+echo
+
 # Grant the dev-bot install dir through opencode's external_directory
 # permission: the agent must read/write the install (skills, agents, hooks,
 # tools) while auditing. Merges into the existing map (idempotent, JSONC
