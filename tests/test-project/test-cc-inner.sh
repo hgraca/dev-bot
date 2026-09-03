@@ -116,12 +116,25 @@ devbot -p "/devbot:audit" || echo "WARN: devbot run failed (exit $?)"
 _phase "agent audit"
 
 # Remove the test git repo when the container exits so the host mount
-# (/app = tests/test-project) stays a plain directory inside the dev-bot repo.
-# NOTE: not `exec` — the EXIT trap must fire after the interactive shell ends.
+# (/app = this run's isolated copy) stays a plain directory. NOTE: not `exec` —
+# the EXIT trap must fire after the interactive shell ends.
 cleanup_test_repo() {
   if [ -e /app/.git ]; then
     rm -rf /app/.git
     echo "(removed test git repo from /app)"
+  fi
+
+  # Stage the claudecode harness logs into /app so the host launcher can sync
+  # them back after the container is removed (--rm). Claude Code's per-server
+  # MCP logs live under ~/.cache/claude-cli-nodejs/ INSIDE the container — not
+  # on any host mount — so without this copy they vanish at container exit.
+  # The launcher's sync_run_outputs() collects them under
+  # .agents/logs/<report-id>/harness/ on the host.
+  local claude_log_dir="$HOME/.cache/claude-cli-nodejs"
+  if [ -d "${claude_log_dir}" ]; then
+    mkdir -p /app/.agents/logs/harness
+    cp -R "${claude_log_dir}/." /app/.agents/logs/harness/ 2>/dev/null || true
+    echo "(staged claude harness logs to /app/.agents/logs/harness)"
   fi
 }
 trap cleanup_test_repo EXIT

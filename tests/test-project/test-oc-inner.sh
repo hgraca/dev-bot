@@ -120,12 +120,23 @@ echo
 #_phase "agent audit"
 
 # Remove the test git repo when the container exits so the host mount
-# (/app = tests/test-project) stays a plain directory inside the dev-bot repo.
-# NOTE: not `exec` — the EXIT trap must fire after the interactive shell ends.
+# (/app = this run's isolated copy) stays a plain directory. NOTE: not `exec` —
+# the EXIT trap must fire after the interactive shell ends.
 cleanup_test_repo() {
   if [ -e /app/.git ]; then
     rm -rf /app/.git
     echo "(removed test git repo from /app)"
+  fi
+
+  # Stage the opencode harness logs into /app so the host launcher can sync
+  # them back after the container is removed. ~/.local/share/opencode is a
+  # host mount, but staging a per-run copy keeps the sync uniform and avoids
+  # picking up logs from OTHER opencode sessions sharing that mount.
+  local oc_log_dir="$HOME/.local/share/opencode/log"
+  if [ -d "${oc_log_dir}" ]; then
+    mkdir -p /app/.agents/logs/harness
+    cp -R "${oc_log_dir}/." /app/.agents/logs/harness/ 2>/dev/null || true
+    echo "(staged opencode harness logs to /app/.agents/logs/harness)"
   fi
 }
 trap cleanup_test_repo EXIT
