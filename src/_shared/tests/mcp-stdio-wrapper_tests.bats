@@ -92,3 +92,72 @@ printf "node=%s\n" "${PIPESTATUS[0]}"
   assert_success
   assert_output --partial "node=0"
 }
+
+# ── Child-process EPIPE guard (audit-35 FAIL) ─────────────────────────────────
+# npx/node-launched MCP servers (chrome-devtools-mcp, @playwright/mcp,
+# codebase-index-mcp) crash with an unhandled EPIPE when the client tears the
+# wrapper down mid-handshake (e.g. a 30s CONNECT_TIMEOUT at session start): the
+# wrapper's own stdout 'error' listener cannot cover the child, which lives in
+# a separate process. The wrapper preloads a guard (NODE_OPTIONS=--require=<
+# mcp-epipe-guard.js>) into node/npx children so the child's own stdout EPIPE
+# exits cleanly (code 0) instead of crash-logging a raw stack trace.
+
+write_node_spew_child() {
+  cat > "${1}" <<'EOF'
+#!/usr/bin/env node
+// Writes far more than the 64KB pipe buffer, so a reader (head -n 1) that
+// closes after the first line forces an EPIPE on a later write.
+const chunk = "x".repeat(1024)
+for (let i = 0; i < 20000; i++) {
+  process.stdout.write(chunk + "\n")
+}
+EOF
+  chmod +x "${1}"
+}
+
+@test "wrapper: injects the EPIPE guard via NODE_OPTIONS into node/npx children" {
+  run env -u NODE_OPTIONS node "${WRAPPER}" node -e \
+    'console.log(process.env.NODE_OPTIONS || "none")'
+
+  assert_success
+  assert_output --regexp '--require=.*mcp-epipe-guard\.js'
+}
+
+@test "wrapper: does not inject NODE_OPTIONS for non-node commands (docker/bash)" {
+  run env -u NODE_OPTIONS node "${WRAPPER}" bash -c 'echo "${NODE_OPTIONS:-none}"'
+
+  assert_success
+  assert_output "none"
+}
+
+@test "guard: node child EPIPE exits 0 with the guard preloaded" {
+  local child="${FAKE_BIN}/spew.js"
+  write_node_spew_child "${child}"
+  local guard
+  guard="$(dirname "${WRAPPER}")/mcp-epipe-guard.js"
+
+  run bash -c 'set -o pipefail
+node --require="$1" "$2" 2>"$3" | head -n 1 >/dev/null
+printf "node=%s\n" "${PIPESTATUS[0]}"
+printf "unhandled=%s\n" "$(grep -c "Unhandled" "$3" || true)"
+' _ "${guard}" "${child}" "${FAKE_BIN}/guard-err.log"
+
+  assert_success
+  assert_output --partial "node=0"
+  assert_output --partial "unhandled=0"
+}
+
+@test "guard: same child crashes without the guard (control)" {
+  local child="${FAKE_BIN}/spew.js"
+  write_node_spew_child "${child}"
+
+  run bash -c 'set -o pipefail
+node "$2" 2>"$3" | head -n 1 >/dev/null
+printf "node=%s\n" "${PIPESTATUS[0]}"
+printf "unhandled=%s\n" "$(grep -c "Unhandled" "$3" || true)"
+' _ _ "${child}" "${FAKE_BIN}/no-guard-err.log"
+
+  assert_success
+  assert_output --partial "node=1"
+  assert_output --partial "unhandled=1"
+}
