@@ -131,8 +131,16 @@ if [[ "${_IS_OPENCODE_DISABLED}" != "true" ]]; then
       if jq --arg plugin ".opencode/plugins/graphify.js" \
         'if .plugin then .plugin |= map(select(. != $plugin)) else . end' \
         "${OPCODE_CONFIG}" > "${OPCODE_CONFIG}.tmp" 2>/dev/null; then
-        mv "${OPCODE_CONFIG}.tmp" "${OPCODE_CONFIG}"
-        _log "Removed graphify plugin from .opencode/opencode.json, to prevent double loading (its automatically discovered and registered)"
+        if cmp -s "${OPCODE_CONFIG}" "${OPCODE_CONFIG}.tmp"; then
+          # Already clean (no graphify plugin entry) — skip the mv so reinit
+          # does not churn the file's mtime on byte-identical content
+          # (audit-37 §4 NOTE: .opencode/opencode.json stub rewritten every
+          # reinit with identical bytes).
+          rm -f "${OPCODE_CONFIG}.tmp"
+        else
+          mv "${OPCODE_CONFIG}.tmp" "${OPCODE_CONFIG}"
+          _log "Removed graphify plugin from .opencode/opencode.json, to prevent double loading (its automatically discovered and registered)"
+        fi
       else
         rm -f "${OPCODE_CONFIG}.tmp"
         _warn "Failed to process .opencode/opencode.json — skipping cleanup"
