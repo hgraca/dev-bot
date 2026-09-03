@@ -161,3 +161,31 @@ printf "unhandled=%s\n" "$(grep -c "Unhandled" "$3" || true)"
   assert_output --partial "node=1"
   assert_output --partial "unhandled=1"
 }
+
+@test "guard: NODE_OPTIONS propagates through npx to the spawned server" {
+  command -v npx >/dev/null 2>&1 || skip "npx not installed"
+  # audit-40-style crash chain: the wrapper spawns `npx -y <mcp-server>` and the
+  # server's OWN stdout is what EPIPEs at teardown — so the guard must survive
+  # the npx hop and load inside the actual server process. Hermetic: a local
+  # fake-server package resolved with `npx --no-install` — no network.
+  local proj
+  proj="$(mktemp -d)"
+  mkdir -p "${proj}/node_modules/fake-server" "${proj}/node_modules/.bin"
+  printf '{"name":"fake-server","version":"1.0.0","bin":{"fake-server":"./server.js"}}\n' \
+    > "${proj}/node_modules/fake-server/package.json"
+  cat > "${proj}/node_modules/fake-server/server.js" <<'EOF'
+#!/usr/bin/env node
+console.log("server NODE_OPTIONS=" + (process.env.NODE_OPTIONS || "unset"))
+EOF
+  chmod +x "${proj}/node_modules/fake-server/server.js"
+  ln -s ../fake-server/server.js "${proj}/node_modules/.bin/fake-server"
+
+  run bash -c 'cd "$1" && node "$2" npx --no-install fake-server' \
+    _ "${proj}" "${WRAPPER}"
+
+  assert_success
+  assert_output --partial "server NODE_OPTIONS=--require="
+  assert_output --partial "mcp-epipe-guard.js"
+
+  rm -rf "${proj}"
+}
