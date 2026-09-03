@@ -105,8 +105,16 @@ _reset_symlinks_in_dir() {
       abs_target="$(cd -P "$(dirname "${rel_target}")" 2>/dev/null && printf '%s/%s' "$(pwd -P)" "$(basename "${rel_target}")" || true)"
     fi
 
-    # Remove if target is under DEV_BOT_ROOT (dev-bot-managed)
-    if [[ "${abs_target}" == "${DEV_BOT_ROOT}"/* ]]; then
+    # Remove if target is under DEV_BOT_ROOT (dev-bot-managed) — EXCEPT the
+    # harness's own dispatcher scripts (on-hooks.py + auto-recover). Those are
+    # constants: init relinks them to the identical target on every run, so
+    # deleting them mid-reinit is pure churn that opens a window where a
+    # concurrent PreToolUse hits a registered hook whose script is gone
+    # (audit-31 §2). Keeping them present makes the guard live across the
+    # whole reinit; the hook *config* is what reset clears.
+    local harness_hooks_dir="${DEV_BOT_ROOT}/src/harnesses/claudecode/hooks"
+    if [[ "${abs_target}" == "${DEV_BOT_ROOT}"/* \
+      && "${abs_target}" != "${harness_hooks_dir}/"* ]]; then
       rm -f "${link}"
       removed=$((removed + 1))
     fi
