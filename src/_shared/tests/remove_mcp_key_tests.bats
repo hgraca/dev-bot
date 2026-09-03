@@ -102,3 +102,98 @@ print('CLAUDE-REMOVE:OK')
   run python3 "$TOOL" "$WORK/nope.jsonc" "qmd"
   assert_success
 }
+
+# ── Byte-preserving removal (audit-32 NOTE: reinit byte-idempotency) ─────────
+# reset.sh removes module-managed MCP keys with this tool on every reinit. A
+# whole-file json.dump rewrite expanded compact objects and dropped comments,
+# so the second reinit produced a different opencode.jsonc than the first. The
+# removal must be text surgery: only the targeted entry disappears, everything
+# else (comments, layout, sibling formatting) stays byte-for-byte.
+
+@test "removal preserves comments and formatting of untouched entries" {
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  // opencode runtime config — do not edit by hand
+  "mcp": {
+    "devbot-tools": { "type": "local", "command": ["x"] },
+    "qmd": {
+      "type": "local",
+      "command": ["qmd", "mcp"]
+    }
+  }
+}
+JSONC_EOF
+  local before
+  before="$(cat "$WORK/opencode.jsonc")"
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" "qmd"
+  assert_success
+
+  # Comment survives; devbot-tools keeps its compact one-line form; the
+  # expanded qmd block is gone entirely.
+  grep -qF '// opencode runtime config — do not edit by hand' "$WORK/opencode.jsonc"
+  grep -qF '"devbot-tools": { "type": "local", "command": ["x"] }' "$WORK/opencode.jsonc"
+  refute grep -qF '"command": ["qmd", "mcp"]' "$WORK/opencode.jsonc"
+  # Valid JSON after removal (comment-free parse succeeds).
+  run python3 -c "
+import json, sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/opencode.jsonc')
+assert 'qmd' not in d['mcp']
+assert 'devbot-tools' in d['mcp']
+print('VALID')
+"
+  assert_success
+  assert_output "VALID"
+}
+
+@test "removing the last entry does not leave a dangling comma" {
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "devbot-tools": { "type": "local", "command": ["x"] },
+    "qmd": { "type": "local", "command": ["qmd", "mcp"] }
+  }
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" "qmd"
+  assert_success
+
+  run python3 -c "
+import json, sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/opencode.jsonc')
+assert 'qmd' not in d['mcp']
+assert 'devbot-tools' in d['mcp']
+print('VALID')
+"
+  assert_success
+  assert_output "VALID"
+}
+
+@test "removing the only entry leaves an empty mcp map" {
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "qmd": { "type": "local", "command": ["qmd", "mcp"] }
+  }
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" "qmd"
+  assert_success
+
+  run python3 -c "
+import json, sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/opencode.jsonc')
+assert d.get('mcp') == {} or 'mcp' not in d, d
+print('VALID')
+"
+  assert_success
+  assert_output "VALID"
+}
