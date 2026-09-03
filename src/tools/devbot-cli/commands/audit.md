@@ -115,6 +115,13 @@ If you are **not** running as DevBot (the audit was launched under TeamLead or a
 
 ## 5. Memory
 
+**Vault cold-start protocol (audit-41 FAIL-3).** On a fresh reinit — or a harness launched directly (bare `opencode`/`claude`, bypassing `devbot` start.sh's detached prune warm-up) — the project memory vault starts **cold**: the `app` collection shows 0 files / "updated never" until the first edit under `/memory/latent` fires the reindex hook, or an explicit `reindex-memories`/`qmd update` runs. It then takes a few minutes to warm up (the reindex runs `qmd update` + `qmd embed` in the background). **Cold-at-start is expected, not a FAIL.**
+
+- **Ordering — check the vault LAST.** The checks below that depend on vault warmth (collection state, marker search, delete→prune re-search) are the **last capability checks of the audit**: run §6–§9 first, then return to them, so the audit's own elapsed time and probe writes have had minutes to warm the vault. If you must write the §5 probe note earlier (its `file.edited` is what triggers the warm-up reindex), do so — but defer the _verification reads_ to the end.
+- **Retry before FAILing.** If a warmth-dependent check still fails at the end (e.g. `app` still 0 files / "updated never", or the probe marker is not found): trigger an explicit `reindex-memories` (full — or `prune` for the delete→prune check), wait a few minutes, and re-check. Only record a FAIL if the collection is still cold after the warm-up trigger plus retry.
+
+Then run the checks below; they verify the vault _works_ once warm:
+
 - **Passive-memory round-trip**: write a note under `.agents/memory/latent/learnings/` with a unique marker (e.g. `devbot-audit-probe-<timestamp>`) and a distinctive phrase, then run `search-memories` for that phrase and confirm the note is returned. This verifies the write → passive reindex → search round-trip. If it isn't found immediately, the passive reindex (`qmd update && qmd embed`) may still be running in the background — run `qmd update` (or wait) and re-search.
 - **Project memories — explicitly verify**: run `search-memories` for a phrase that exists only in the **project** vault (`.agents/memory/latent/`) and confirm the result's file path is under the project vault — not the global store. This proves the project collection is registered and searchable. (If the project vault has no seeded content yet, write the probe note above first, then search for its marker.)
 - **Global memories — explicitly verify**: run `search-memories` (or `qmd search`) for a phrase that exists only in the **global** store (`storage/global-memories/` — the shipped knowledge base symlinked as `.agents/memory/latent/global`) and confirm the result's file path is under `global/` (or the global collection `dev-bot-global`), not the project vault. This proves the `latent/global` symlink and the `dev-bot-global` QMD collection are wired. Good probe phrases: a distinctive tech-gotcha keyword that only lives in the global store — e.g. search a term from a `storage/global-memories/<tech>/` filename you can see exists. If `search-memories` returns nothing for a global-only phrase while `qmd search` (or the `dev-bot-global` collection directly) does, record the mismatch — the tool's global-collection wiring is broken.
@@ -183,11 +190,12 @@ At the end, produce an audit that answers only these two questions (project spec
 
 Write a markdown report to `.agents/memory/thinking/devbot-audit-NN.md` (`.agents` is the devbot dir from config), where `NN` is the next sequential integer starting at `01` — first list the existing `devbot-audit-*.md` files in that directory, then use the next number (e.g. `01` if none exist, `02` after `01`, …).
 
-**Open the report with a header block** stating the audit context — every report MUST begin with these three lines before any findings (they let a reader interpret the whole report without re-deriving the environment):
+**Open the report with a header block** stating the audit context — every report MUST begin with these four lines before any findings (they let a reader interpret the whole report without re-deriving the environment):
 
 - **ENVIRONMENT: container** or **ENVIRONMENT: host** — plus the evidence (from §0).
 - **HARNESS(ES) ENABLED** and **HARNESS THIS AUDIT RAN UNDER** — which harness(es) are wired (`modules` map) and which one this session used (tool-palette naming), plus the evidence (from §0b). If both harnesses are enabled, the audit covers both — say so, and attribute every FAIL/NOTE below to a specific harness.
 - **RUNNING AGENT** — `DevBot` (or the FAIL if not, per §0c).
+- **DEVBOT REVISION (audited commit)** — the exact dev-bot install revision this audit ran against, plus the audit date. Audits 38–41 omitted it and their FAILs turned out to describe pre-fix code from an older install — without the revision a reader cannot tell whether a finding applies to the code in front of them. Resolve it from the dev-bot **install** (the tree the harness symlinks resolve to), not the project: `git -C <install-root> rev-parse HEAD` (+ `git -C <install-root> log -1 --format=%cd --date=short` for the commit date), where `<install-root>` is the install path from §0 (container: e.g. `/home/ubuntu/.local/share/dev-bot`; host: e.g. `~/.local/share/dev-bot`). If the install is not a git checkout, say so explicitly and give the best version marker available (install path + directory mtime).
 
 For each subsystem, record:
 
