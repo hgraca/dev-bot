@@ -192,7 +192,14 @@ def format_json(results: list[dict]) -> dict:
 
 
 def resolve_collection(project_root: Path) -> str:
-    """Resolve QMD collection name from .devbot.project.jsonc."""
+    """Resolve QMD collection name from .devbot.project.jsonc.
+
+    Fallback mirrors qmd/init.sh exactly: when project_name is missing or
+    empty, the collection is the project directory basename. The two files
+    must agree — search-memories queries the collection qmd/init.sh
+    registered, so a hardcoded fallback ("devbot") broke every default
+    invocation ("Collection not found: devbot", audit-32/33).
+    """
     cfg_path = project_root / ".devbot.project.jsonc"
     try:
         raw = cfg_path.read_text()
@@ -201,9 +208,12 @@ def resolve_collection(project_root: Path) -> str:
             if not line.strip().startswith("//")
         )
         data = json.loads(stripped)
-        return data.get("project_name", "devbot")
+        project_name = data.get("project_name")
+        if project_name:
+            return project_name
     except Exception:
-        return "devbot"
+        pass
+    return project_root.name
 
 
 def main() -> None:

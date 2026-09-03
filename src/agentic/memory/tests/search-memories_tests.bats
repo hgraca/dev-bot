@@ -342,6 +342,81 @@ SCRIPT
   assert_output --partial "qmd CLI not found"
 }
 
+# ── Default collection resolution (audit-32/33 FAIL) ──────────────────────────
+# resolve_collection() must mirror qmd/init.sh: fall back to the project dir
+# basename when .devbot.project.jsonc is missing, unreadable, or lacks a
+# (non-empty) project_name — not to a hardcoded "devbot" collection that was
+# never registered ("Collection not found: devbot").
+
+@test "resolve_collection: falls back to dir basename when project_name absent" {
+  command -v python3 &>/dev/null || skip "python3 not installed"
+
+  local proj_dir
+  proj_dir="$(mktemp -d "$FIXTURES/proj.XXXXXX")"
+  # No project_name key — the audit-32/33 fixture shape (harness/modules only).
+  cat > "$proj_dir/.devbot.project.jsonc" <<'JSON'
+{"harness": "opencode", "modules": {}}
+JSON
+
+  run python3 -c "
+import importlib.util, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('sm', '$MODULE_DIR/tools/search-memories/search-memories.py')
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+print(m.resolve_collection(Path('$proj_dir')))
+"
+
+  assert_success
+  assert_output "$(basename "$proj_dir")"
+
+  rm -rf "$proj_dir"
+}
+
+@test "resolve_collection: empty project_name also falls back to dir basename" {
+  command -v python3 &>/dev/null || skip "python3 not installed"
+
+  local proj_dir
+  proj_dir="$(mktemp -d "$FIXTURES/proj.XXXXXX")"
+  printf '{"project_name": ""}\n' > "$proj_dir/.devbot.project.jsonc"
+
+  run python3 -c "
+import importlib.util
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('sm', '$MODULE_DIR/tools/search-memories/search-memories.py')
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+print(m.resolve_collection(Path('$proj_dir')))
+"
+
+  assert_success
+  assert_output "$(basename "$proj_dir")"
+
+  rm -rf "$proj_dir"
+}
+
+@test "resolve_collection: project_name from config wins over dir basename" {
+  command -v python3 &>/dev/null || skip "python3 not installed"
+
+  local proj_dir
+  proj_dir="$(mktemp -d "$FIXTURES/proj.XXXXXX")"
+  printf '{"project_name": "my-cool-project"}\n' > "$proj_dir/.devbot.project.jsonc"
+
+  run python3 -c "
+import importlib.util
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('sm', '$MODULE_DIR/tools/search-memories/search-memories.py')
+m = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(m)
+print(m.resolve_collection(Path('$proj_dir')))
+"
+
+  assert_success
+  assert_output "my-cool-project"
+
+  rm -rf "$proj_dir"
+}
+
 # ── Output format integrity ───────────────────────────────────────────────────
 
 @test "--markdown flag: sets format to markdown" {
