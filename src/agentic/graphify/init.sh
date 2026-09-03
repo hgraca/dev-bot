@@ -158,13 +158,20 @@ else
 fi
 
 # Remove the graphify section from AGENTS.md if present (graphify install writes
-# it, but the always-on context now lives in the memory vault).
+# it, but the always-on context now lives in the memory vault). Also drop
+# trailing blank lines: graphify install appends the section (with a blank
+# separator) at EOF, and a plain section-strip leaves that separator behind —
+# making reinit not byte-idempotent (audit-32 NOTE: AGENTS.md drifted between
+# consecutive reinits).
 if [[ -f "${AGENTS_MD}" ]] && grep -q '^## graphify[[:space:]]*$' "${AGENTS_MD}"; then
   awk '
     /^## graphify[[:space:]]*$/   { skip = 1; next }
     skip && /^## /                { skip = 0 }
     !skip
   ' "${AGENTS_MD}" > "${AGENTS_MD}.tmp" && mv "${AGENTS_MD}.tmp" "${AGENTS_MD}"
+  # Strip trailing blank lines (the separator left where the section was).
+  awk 'NF { seen = NR } { lines[NR] = $0 } END { for (i = 1; i <= seen; i++) print lines[i] }' \
+    "${AGENTS_MD}" > "${AGENTS_MD}.tmp" && mv "${AGENTS_MD}.tmp" "${AGENTS_MD}"
   _log "Removed graphify section from AGENTS.md"
 fi
 
