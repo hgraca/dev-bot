@@ -147,7 +147,10 @@ JSON
   run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
   assert_success
 
-  # End state is consistent: no hook entry references a removed script.
+  # End state is consistent: no hook entry references a removed script. The
+  # dispatcher symlink itself may survive (audit-31 §2 fix a — it is a
+  # constant relinked to the identical target by init), but with hooks cleared
+  # nothing references it, so it is inert until init re-wires.
   run python3 -c "
 import json
 with open('${SANDBOX_DIR}/.claude/settings.local.json') as f:
@@ -157,7 +160,7 @@ print('hooks cleared')
 "
   assert_success
   assert_output "hooks cleared"
-  refute [ -L "${SANDBOX_DIR}/.claude/plugins/on-hooks.py" ]
+  assert [ -L "${SANDBOX_DIR}/.claude/plugins/on-hooks.py" ]
 }
 
 @test "reset.sh clears settings.local.json hooks BEFORE removing plugin symlinks (no torn window)" {
@@ -175,4 +178,35 @@ print('hooks cleared')
   [[ -n "${symlink_loop_line}" ]] || fail "symlink-removal loop not found in reset.sh"
   (( hook_clear_line < symlink_loop_line )) \
     || fail "hook clear (line ${hook_clear_line}) must precede symlink removal (line ${symlink_loop_line})"
+}
+
+@test "enabled: preserves the harness's own dispatcher symlinks across reset (audit-31 §2 fix a)" {
+  # audit-31 §2: reset deleting .claude/plugins/on-hooks.py mid-reinit is pure
+  # churn — init relinks it to the identical target, and the deletion opens a
+  # window where a concurrent PreToolUse (registered hook, script gone) would
+  # error → default-allow. The harness's own dispatcher scripts must survive
+  # reset so the guard stays present for the whole reinit.
+  _write_project_config enabled
+  mkdir -p "${SANDBOX_DIR}/.claude/plugins"
+  # Harness dispatcher symlinks (as init.sh's _link_harness_hooks creates them).
+  ln -s "${PROJECT_ROOT}/src/harnesses/claudecode/hooks/on-hooks.py" \
+    "${SANDBOX_DIR}/.claude/plugins/on-hooks.py"
+  ln -s "${PROJECT_ROOT}/src/harnesses/claudecode/hooks/on-posttooluse-auto-recover.sh" \
+    "${SANDBOX_DIR}/.claude/plugins/on-posttooluse-auto-recover.sh"
+  ln -s "${PROJECT_ROOT}/src/harnesses/claudecode/hooks/on-stop-auto-recover.sh" \
+    "${SANDBOX_DIR}/.claude/plugins/on-stop-auto-recover.sh"
+  # A dev-bot symlink that is NOT a harness dispatcher (e.g. an agent dir) —
+  # this one must still be removed by the sweep.
+  mkdir -p "${SANDBOX_DIR}/.claude/agents"
+  ln -s "${PROJECT_ROOT}/src/agentic/devbot/agents" "${SANDBOX_DIR}/.claude/agents/devbot"
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  # Harness dispatchers survive (target is the harness's own hooks dir).
+  assert [ -L "${SANDBOX_DIR}/.claude/plugins/on-hooks.py" ]
+  assert [ -L "${SANDBOX_DIR}/.claude/plugins/on-posttooluse-auto-recover.sh" ]
+  assert [ -L "${SANDBOX_DIR}/.claude/plugins/on-stop-auto-recover.sh" ]
+  # Non-dispatcher dev-bot symlink is still removed.
+  refute [ -e "${SANDBOX_DIR}/.claude/agents/devbot" ]
 }
