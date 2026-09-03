@@ -3,7 +3,6 @@
 /vendor
 /.editorconfig
 /.phpunit.result.cache
-/composer.lock
 claude.deb
 .playwright-mcp
 
