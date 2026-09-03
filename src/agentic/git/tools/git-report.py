@@ -50,10 +50,15 @@ def collect(log_count: int) -> dict:
         ["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"]
     )
     if rc != 0:
-        default_branch_local = "(unknown)"
         if origin_rc != 0:
+            # No origin remote at all — the only meaningful "default branch" is
+            # the current one (HEAD). Report it instead of a bare "(unknown)"
+            # so the report stays useful on remote-less repos and the
+            # unique-commit logic below has a real base (audit-35 NOTE).
             default_branch = "(unknown — no remote configured)"
+            default_branch_local = current_branch or "(unknown)"
         else:
+            default_branch_local = "(unknown)"
             default_branch = "(unknown — run: git remote set-head origin --auto)"
     else:
         default_branch_local = (
@@ -66,11 +71,11 @@ def collect(log_count: int) -> dict:
     staged_diff, _ = run(["git", "diff", "--staged"])
 
     unique_commits = ""
-    if "unknown" not in default_branch:
+    if default_branch_local not in ("", "(unknown)"):
         unique_commits, urc = run(
             ["git", "log", "--oneline", f"{default_branch_local}..HEAD"]
         )
-        if urc != 0:
+        if urc != 0 and "unknown" not in default_branch:
             unique_commits, _ = run(
                 ["git", "log", "--oneline", f"{default_branch}..HEAD"]
             )

@@ -46,17 +46,29 @@ run_tool() {
   assert_line --index 0 "## Git Report"
 }
 
-@test "default: no origin remote reports unknown without dead set-head advice" {
+@test "default: no origin remote reports current branch as default (audit-35 NOTE)" {
   # The setup repo has no `origin` remote at all. The tool already runs
   # `git remote set-head origin --auto` internally (best-effort) and it cannot
-  # succeed without an origin — so the fallback must say "no remote configured",
-  # not suggest a command that was already tried and will fail again
-  # (audit-19 incidental NOTE).
+  # succeed without an origin — so the remote line must say "no remote
+  # configured", not suggest a command that was already tried and will fail
+  # again (audit-19 incidental NOTE). With no remote, the only meaningful
+  # "default branch" is the current one (HEAD): report it instead of a bare
+  # "(unknown)" so the report stays useful on remote-less repos (audit-35 NOTE).
   run_tool
 
   assert_success
+  assert_output --partial '**Default branch:** `main`'
   assert_output --partial "(unknown — no remote configured)"
+  refute_output --partial "**Default branch:** \`(unknown)\`"
   refute_output --partial "git remote set-head origin --auto"
+}
+
+@test "default: no origin remote renders an up-to-date unique-commits section" {
+  run_tool
+
+  assert_success
+  assert_output --partial "### Commits Unique to Current Branch"
+  assert_output --partial "_(none — branch is up to date or default branch unknown)_"
 }
 
 @test "default: shows current branch" {
