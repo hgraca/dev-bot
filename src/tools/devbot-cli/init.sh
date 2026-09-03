@@ -34,7 +34,69 @@ _write_devbot_config() {
   local config="${PROJECT_DIR}/.devbot.project.jsonc"
 
   if [[ -f "${config}" ]]; then
-    _skip ".devbot.project.jsonc already exists"
+    # audit-32/33 (b): a pre-existing config may lack project_name (e.g. the
+    # harness fixtures write one with only harness/modules). search-memories
+    # and qmd/init.sh must agree on the collection name, so ensure the key is
+    # present — injected as the project dir basename when missing, preserving
+    # the rest of the file (comments and ordering) verbatim.
+    local existing
+    existing="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${config}" project_name 2>/dev/null || true)"
+    if [[ -n "${existing}" ]]; then
+      _skip ".devbot.project.jsonc already exists (project_name: ${existing})"
+      return 0
+    fi
+    _info "Injecting missing project_name into ${config} ..."
+    PROJECT_NAME="${PROJECT_NAME}" CONFIG="${config}" python3 - <<'PY'
+import os, sys
+
+name = os.environ["PROJECT_NAME"]
+path = os.environ["CONFIG"]
+raw = open(path, encoding="utf-8").read()
+
+
+def find_top_brace(text):
+    """First '{' that is outside strings and comments."""
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == '"':
+            j = i + 1
+            while j < n:
+                if text[j] == "\\":
+                    j += 2
+                elif text[j] == '"':
+                    j += 1
+                    break
+                else:
+                    j += 1
+            i = j
+            continue
+        if text[i : i + 2] == "//":
+            j = text.find("\n", i)
+            if j == -1:
+                break
+            i = j
+            continue
+        if text[i : i + 2] == "/*":
+            j = text.find("*/", i + 2)
+            if j == -1:
+                break
+            i = j + 2
+            continue
+        if text[i] == "{":
+            return i
+        i += 1
+    return -1
+
+
+brace = find_top_brace(raw)
+if brace == -1:
+    print("WARN: cannot locate top-level { in " + path + " — leaving file unchanged", file=sys.stderr)
+    sys.exit(1)
+# Splice after the opening brace. Covers both "{\n  ..." and "{...}" layouts.
+insert = '\n  "project_name": "%s",' % name
+open(path, "w", encoding="utf-8").write(raw[: brace + 1] + insert + raw[brace + 1 :])
+PY
+    _ok "project_name written to .devbot.project.jsonc"
     return 0
   fi
 
