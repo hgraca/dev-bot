@@ -4,17 +4,40 @@ A kata to refactor an api parser<!-- devbot-audit-probe -->
 
 ## Test devbot
 
+Build once (a `devbot-test` image):
+
 ```shell
-docker build -t devbot-test
+docker build -t devbot-test .
+```
+
+then either of these — **they can run in parallel** (different terminals):
+
+```shell
+./test-cc.sh # ClaudeCode
+./test-oc.sh # OpenCode
+```
+
+Each launcher runs its container against an **isolated per-run copy** of this
+fixture (mounted at `/app`), with its own pid-suffixed container name — so cc
+and oc never race over `.devbot.project.jsonc`, the harness wiring dirs, the
+nested `.git`, or the audit-report NN sequence. The host composer cache is
+mounted into the container (auto-detected: Linux `~/.cache/composer`, macOS
+`~/Library/Caches/composer`, or composer's own `cache-dir`) so `composer
+install` never re-downloads packages.
+
+On exit the launcher syncs the run's durable outputs back into this real
+fixture:
+
+- the audit report → `.agents/memory/thinking/devbot-audit-<nextNN>.md`
+  (NN is the next free number on the real tree, so parallel runs never clash)
+- the run's devbot logs + staged harness logs →
+  `.agents/logs/<report-id>/`
+
+Manual one-off (older style, not isolated):
+
+```shell
 docker run -it --rm -v "$PWD:/app" -v "$HOME/.ssh:/root/.ssh:ro" -w /app ubuntu bash
 ```
-
-then either of these:
-```shell
-./test-oc.sh # OpenCode
-./test-cc.sh # ClaudeCode
-```
-
 
 ## Coding Challenge
 

@@ -61,21 +61,43 @@ elif ls /dev/dri/renderD* >/dev/null 2>&1; then
   GPU_ARGS=(--device /dev/dri)
 fi
 
-# Fixed container name so an interrupted/detached run can always be found and
-# killed (--rm alone only fires when the container exits cleanly — Ctrl+C or a
-# dropped terminal leaves it running). The trap force-removes it whenever this
-# script exits, and any stale container from an aborted run is dropped first.
-CONTAINER_NAME="devbot-test-oc"
-cleanup_container() {
-  docker rm -f "${CONTAINER_NAME}" >/dev/null 2>&1 || true
+# Isolated per-run fixture + parallel-safe container management. Each run gets
+# its OWN copy of the fixture mounted at /app and its OWN container name (pid-
+# suffixed), so cc and oc — or two runs of the same harness — can execute in
+# parallel without racing over .devbot.project.jsonc, the harness wiring dirs,
+# the nested .git, or the audit-report NN sequence.
+# shellcheck source=./test-lib.sh
+source "${SCRIPT_DIR}/test-lib.sh"
+
+RUN_DIR="$(run_dir_create "${SCRIPT_DIR}" "oc")"
+CONTAINER_NAME="devbot-test-oc-$$"
+
+cleanup() {
+  # Idempotent: runs once from the EXIT trap (also fired by INT/TERM). Kill the
+  # container FIRST (so on Ctrl+C the sync reads a quiescent /app — on normal
+  # exit the container is already gone and this is a no-op), then sync durable
+  # outputs (audit report + logs) back to the real fixture and drop the
+  # isolated copy. A second call is a safe no-op.
+  docker rm -f "${CONTAINER_NAME:-}" >/dev/null 2>&1 || true
+  if [[ -d "${RUN_DIR:-}" ]]; then
+    sync_run_outputs "${RUN_DIR}" "${SCRIPT_DIR}" "oc"
+    run_dir_destroy "${RUN_DIR}"
+  fi
 }
-trap cleanup_container EXIT INT TERM
-cleanup_container
+trap cleanup EXIT INT TERM
+
+# Share the host composer cache so `composer install` in the container never
+# re-downloads packages. Cross-platform: composer's own cache-dir wins, else
+# Linux ~/.cache/composer / macOS ~/Library/Caches/composer. When no host
+# cache exists, COMPOSER_ARGS stays empty and the env var is NOT set (composer
+# would otherwise silently use an empty container-local dir).
+read -r -a COMPOSER_ARGS <<< "$(composer_cache_args)"
 
 docker run -it --rm --name "${CONTAINER_NAME}" \
   --network host \
   "${GPU_ARGS[@]}" \
-  -v "${SCRIPT_DIR}:/app" \
+  "${COMPOSER_ARGS[@]+"${COMPOSER_ARGS[@]}"}" \
+  -v "${RUN_DIR}:/app" \
   -v "${HOME}/.ssh:/tmp/ssh:ro" \
   -v "${HOME}/.local/share/opencode:/home/ubuntu/.local/share/opencode" \
   -v "${HOME}/.cache/qmd:/home/ubuntu/.cache/qmd" \
@@ -89,5 +111,6 @@ docker run -it --rm --name "${CONTAINER_NAME}" \
   devbot-test bash /app/test-oc-inner.sh
 
 # Belt-and-braces: after a normal exit the --rm already removed it; this is a
-# no-op then, but covers any edge where docker run returned without cleanup.
-cleanup_container
+# no-op then (RUN_DIR already gone), but covers any edge where docker run
+# returned without the trap firing.
+cleanup
