@@ -12,10 +12,11 @@
 
 import type { Plugin } from "@opencode-ai/plugin"
 import { readFileSync, readdirSync, existsSync } from "fs"
+import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { defaultHookLog, createFileEditGate, guardDecision, resolveGlobalConfigPath, routeHookOutput, type HookDecl } from "../on-hooks-utils"
+import { defaultHookLog, createFileEditGate, createRewriteEchoTracker, guardDecision, resolveGlobalConfigPath, routeHookOutput, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -66,6 +67,18 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
   const manifests = loadManifests()
   // Per-file gate for file.edited hooks (audit-32: burst-edit race).
   const fileEditGate = createFileEditGate()
+  // Rewrite-echo suppression (audit-37 §2: formatter ping-pong).
+  const rewriteEcho = createRewriteEchoTracker()
+
+  // Content signature of a file — the echo of a hook's own rewrite has the
+  // same signature as the state recorded after dispatch; a real edit differs.
+  function contentSig(file: string): string {
+    try {
+      return createHash("sha1").update(readFileSync(file)).digest("hex")
+    } catch {
+      return ""
+    }
+  }
 
   // Plugin-type hooks declared in module manifests: import each factory and
   // merge the handlers it returns into this adapter's dispatch. This is how
@@ -131,11 +144,25 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
       if (type === "file.edited") {
         const file: string = (event as any).properties?.file ?? ""
         if (file) {
+          const sig = contentSig(file)
+          if (rewriteEcho.isEcho(file, sig)) {
+            // audit-37 §2: the watcher echo of a rewrite our own hooks just
+            // performed (e.g. format-yml normalizing the file) — content is
+            // unchanged since the hook wrote it, so re-dispatching would run
+            // every matching hook again (lint-k8s double-fire, format no-op).
+            // Drop the echo so one user edit runs content hooks exactly once.
+            return
+          }
           // audit-32 FAIL: format-yml burst race — two file.edited events
           // within ~1s ran two concurrent format hooks whose read-modify-write
           // interleaves corrupted the file. Serialize + coalesce per file: a
           // burst collapses into one in-flight run plus one trailing re-run.
-          fileEditGate(file, () => dispatch("file.edited", file, { file }))
+          fileEditGate(file, async () => {
+            await dispatch("file.edited", file, { file })
+            // Record the post-hook content so the echo of a rewrite the hooks
+            // just performed is recognized (and dropped) above.
+            rewriteEcho.record(file, contentSig(file))
+          })
         }
       } else if (type === "session.created") {
         await dispatch("session.created", undefined, {})

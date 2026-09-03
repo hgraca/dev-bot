@@ -12,6 +12,7 @@ import { tmpdir } from "os"
 import { join } from "path"
 import {
   createFileEditGate,
+  createRewriteEchoTracker,
   defaultHookLog,
   guardDecision,
   resolveGlobalConfigPath,
@@ -296,5 +297,49 @@ describe("createFileEditGate", () => {
 
     // The dirty edit still gets its trailing run despite the failure.
     expect(started).toBe(2)
+  })
+})
+
+// ── createRewriteEchoTracker (audit-37 §2: formatter ping-pong) ──────────────
+// A format hook that rewrites a file triggers a second file.edited event from
+// the watcher. Without suppression that echo re-runs every matching hook —
+// lint-k8s double-fires and the formatter no-ops. The tracker recognizes the
+// echo (same content signature as the adapter's last post-hook state, within a
+// short window) so one user edit runs content hooks exactly once.
+
+describe("createRewriteEchoTracker", () => {
+  test("returns false when nothing was recorded for the file", () => {
+    const tracker = createRewriteEchoTracker(2000)
+    expect(tracker.isEcho("a.yml", "sig-A", 1000)).toBe(false)
+  })
+
+  test("a rewrite echo (same signature, within window) is detected once, then consumed", () => {
+    const tracker = createRewriteEchoTracker(2000)
+    tracker.record("a.yml", "sig-A", 1000)
+
+    expect(tracker.isEcho("a.yml", "sig-A", 1100)).toBe(true)
+    // Consumed — a second identical event is not suppressed again.
+    expect(tracker.isEcho("a.yml", "sig-A", 1200)).toBe(false)
+  })
+
+  test("a real edit (different signature) is not an echo", () => {
+    const tracker = createRewriteEchoTracker(2000)
+    tracker.record("a.yml", "sig-A", 1000)
+
+    expect(tracker.isEcho("a.yml", "sig-B", 1100)).toBe(false)
+  })
+
+  test("a stale rewrite beyond the window no longer suppresses an edit", () => {
+    const tracker = createRewriteEchoTracker(2000)
+    tracker.record("a.yml", "sig-A", 1000)
+
+    expect(tracker.isEcho("a.yml", "sig-A", 5000)).toBe(false)
+  })
+
+  test("tracks files independently", () => {
+    const tracker = createRewriteEchoTracker(2000)
+    tracker.record("a.yml", "sig-A", 1000)
+
+    expect(tracker.isEcho("b.yml", "sig-A", 1000)).toBe(false)
   })
 })
