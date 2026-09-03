@@ -5,6 +5,16 @@ description: Find database issues (full table scans, slow queries, N+1, app anti
 
 Use the SigNoz MCP tools to find every category of database issue in production, then produce a delegation-ready inventory. Categorize each finding as exactly one of the categories below.
 
+## 0. Per-query metrics (required for every problematic query)
+
+For **every query** you report as a finding — whether from ranking by total time, by latency, by frequency, an N+1, or an app anti-pattern — you MUST report three numbers:
+
+- **Executions per day** — `signoz_aggregate_traces` aggregation `count` for the exact query text over `timeRange = 24h`. If the trace store is sampled, state that the count is the sampled-store count and, when possible, cross-check server-side (e.g. `mysql_global_status_*` counters, or a longer window) and say which figure you are reporting.
+- **Median duration (p50)** — aggregation `p50`, `aggregateOn = durationNano`, same filter.
+- **p95 duration** — aggregation `p95`, `aggregateOn = durationNano`, same filter.
+
+Report them inline per finding, e.g. `~85×/day · median 4.2 ms · p95 18.0 ms`. Where a query cannot be captured in the trace store (scheduled jobs, sampled-out, writes not instrumented), say so explicitly and give the best available estimate with its source — do not silently omit the metrics.
+
 ## 1. Establish the load profile
 
 Query these metrics with `deployment.environment = 'production'`, 24h window:
@@ -42,11 +52,15 @@ Query these metrics with `deployment.environment = 'production'`, 24h window:
 - **By latency (slow queries)**: aggregation `avg`, `aggregateOn = durationNano`, same groupBy/filter, order `avg(durationNano) desc`. Also `p99` for tail latency.
 - **By frequency (N+1)**: aggregation `count`, same groupBy/filter, order `count() desc`.
 
+For every query that lands in the report, add the per-query metrics from section 0: **count/day, p50, p95** (`signoz_aggregate_traces` aggregation `count` / `p50` / `p95`, `aggregateOn = durationNano`, same filter). Trace stores are usually sampled — a `count` from `signoz_aggregate_traces` is the sampled figure. When a query's volume looks anomalously low versus a prior report or the load profile (e.g. a job query that used to run ~7.8k/day now showing ~85/day), verify before reporting: widen the window (7d), check whether the statement text changed (a query rewrite changes `db.query.text` and orphans the old group), and check whether the workload that runs it (scheduled job, endpoint) actually executed in the window. State the reconciled figure and the cause of the delta in the finding.
+
 ## 3. Detect N+1
 
 - Same point-lookup text executed ~1M+ times/day (`select * from X where id = ? limit 1`, `where <fk> = ?`).
 - `count` grouped by `traceID, db.query.text` — same query text repeated >3× within a single trace.
 - `count` grouped by `traceID` — traces with >10 DB spans.
+
+For each N+1 query confirmed, report the per-query metrics from section 0 (count/day, p50, p95) and the per-trace repetition count.
 
 ## 3b. Detect application-level anti-patterns (inspect `db.query.text`)
 
@@ -83,4 +97,6 @@ Aggregate `count` grouped by `db.query.text` with these filters, and flag the of
 
 - For each application with query-related findings, create a backlog file in `.agents/memory/work/active/` under that application's repo (e.g. `~/Development/Get-e/core`, `~/Development/Get-e/hotels-api`), one per application, all in parallel. The user will deliver each backlog to the owning project.
 - Hardware / resource / lock / replication findings do not belong to an app repo — list them in a separate section of the report instead.
-- Print a **global simplified report directly to the user**: a summary table grouped by category, each row = app · query (or signal) · category · evidence · one-line fix.
+- Print a **global simplified report directly to the user**: a summary table grouped by category, each row = app · query (or signal) · category · **count/day · median · p95** · evidence · one-line fix.
+
+Every query finding in both the backlog and the report MUST carry the three per-query metrics from section 0 — count/day, median (p50), and p95 duration — next to the query text. If a metric could not be obtained (sampling, no instrumentation), say so in the finding rather than omitting it.
