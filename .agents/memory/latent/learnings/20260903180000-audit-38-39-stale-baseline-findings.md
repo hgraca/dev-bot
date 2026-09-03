@@ -35,6 +35,33 @@ claudecode fixture run) and the flatten code is delicate (review conventions
 F1–F4, zero test coverage). If revisited: skip real-file dirs whose SKILL.md
 content matches dev-bot's canonical copy or that carry a known tool marker.
 
+## Update: audits 40/41 (2026-09-03, same session)
+
+Audits 40 (claudecode) and 41 (opencode) repeated the same stale claims
+(guards `DEVBOT_ROOT`, search-memories `"devbot"` fallback) and added one
+crash report: audit-40's session-end WARN showed unhandled `write EPIPE` in
+`chrome-devtools`/`codebase-index`/`playwright` `.agents/logs/*-mcp.log` — the
+audit-35 signature again. Disposition, verified on disk + source:
+
+- **EPIPE traces exist only in the `audit-35` and `audit-40` log archives**
+  (`tests/test-project/.agents/logs/devbot-audit-*/`); audits 36–39 and 41 are
+  clean — including audit-36 (claudecode, rev `3cb91c2` WITH the guard fix).
+  audit-40's fixture therefore predates `feab74d8` (round-1 guard) — same
+  stale-baseline class as 38/39.
+- **Guard chain now proven through the npx hop**: `mcp-stdio-wrapper.js`
+  spawns `npx -y <server>`; a hermetic bats test (`guard: NODE_OPTIONS
+propagates through npx to the spawned server`, wrapper tests) asserts the
+  server process sees `NODE_OPTIONS=--require=<mcp-epipe-guard.js>` — the
+  crash site (server's own stdout) is covered.
+- **audit-41 FAIL-3 (project `app` collection cold at launch) is a known,
+  accepted trade-off**: the delete→prune warm-up lives in `start.sh`
+  (`_devbot_prune_memories_detached`), so harnesses launched directly (the
+  fixture's `test-oc.sh`/`test-cc.sh` bypass `devbot`) do not warm the vault
+  until the first latent/learnings edit. Documented when the session.created
+  hook was removed (audit-36 fix); `devbot` start is the canonical entry.
+- audit-40/41 also omit the installed dev-bot rev (as 38/39 did) — the runner
+  should print it or fixtures should pin the local branch rev.
+
 ## Guidance for future audit rounds
 
 - Build fixture containers from the **local branch rev** (as 36/37 did), not a
