@@ -7,10 +7,17 @@
 // declared `log` file, or to the shared default hook log when none is declared.
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
-import { defaultHookLog, guardDecision, routeHookOutput, type HookDecl } from "../on-hooks-utils"
+import {
+  createFileEditGate,
+  defaultHookLog,
+  guardDecision,
+  resolveGlobalConfigPath,
+  routeHookOutput,
+  type HookDecl,
+} from "../on-hooks-utils"
 
 const LOG = ".agents/logs/lint-k8s.log"
 
@@ -128,5 +135,166 @@ describe("guardDecision", () => {
   test("non-blocking hook with explicit blocked:true still denies", () => {
     const d = guardDecision({ stdout: '{"blocked":true,"message":"rule"}', stderr: "", exitCode: 0 }, false)
     expect(d.blocked).toBe(true)
+  })
+})
+
+// ── resolveGlobalConfigPath (audit-32 FAIL: guards not enforced live) ────────
+// The harness exports DEV_BOT_ROOT, not DEVBOT_ROOT; the plugin reads env
+// DEVBOT_ROOT and got "" → --global-config "" → no guard rules. Resolution
+// must prefer the plugin's own root (realpath, beside .devbot.global.jsonc),
+// then fall back to env DEV_BOT_ROOT.
+
+describe("resolveGlobalConfigPath", () => {
+  let root: string
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "global-config-test-"))
+  })
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test("prefers .devbot.global.jsonc beside the plugin root", () => {
+    writeFileSync(join(root, ".devbot.global.jsonc"), "{}")
+    const result = resolveGlobalConfigPath(root, {})
+    expect(result).toBe(join(root, ".devbot.global.jsonc"))
+  })
+
+  test("falls back to env DEV_BOT_ROOT when no config beside plugin root", () => {
+    const envRoot = mkdtempSync(join(tmpdir(), "global-config-env-"))
+    writeFileSync(join(envRoot, ".devbot.global.jsonc"), "{}")
+    try {
+      const result = resolveGlobalConfigPath(root, { DEV_BOT_ROOT: envRoot })
+      expect(result).toBe(join(envRoot, ".devbot.global.jsonc"))
+    } finally {
+      rmSync(envRoot, { recursive: true, force: true })
+    }
+  })
+
+  test("ignores env DEVBOT_ROOT (wrong spelling, never exported)", () => {
+    const result = resolveGlobalConfigPath(root, { DEVBOT_ROOT: "/somewhere" })
+    expect(result).toBe("")
+  })
+
+  test("returns empty string when no config and no env fallback", () => {
+    const result = resolveGlobalConfigPath(root, {})
+    expect(result).toBe("")
+  })
+})
+
+// ── createFileEditGate (audit-32 FAIL: format-yml burst-edit race) ───────────
+// Two file.edited events within ~1s spawned two concurrent format-hook runs;
+// their read-modify-write interleaves corrupted the file. The gate serializes
+// per file: one in-flight run at a time, and edits landing mid-run are
+// coalesced into a single trailing re-run of the same stored run (which
+// re-reads the file's latest content — exactly what a formatter needs).
+
+describe("createFileEditGate", () => {
+  test("never runs the same file concurrently; burst collapses to one trailing run", async () => {
+    const gate = createFileEditGate()
+    let started = 0
+    let maxConcurrent = 0
+    let inFlight = 0
+    let release!: () => void
+    const hold = new Promise<void>((res) => {
+      release = res
+    })
+
+    const run = async () => {
+      started++
+      inFlight++
+      maxConcurrent = Math.max(maxConcurrent, inFlight)
+      await hold // hold every run open so bursts overlap the in-flight one
+      inFlight--
+    }
+
+    // Burst of three edits while the first run is still in flight.
+    gate("a.yml", run)
+    gate("a.yml", run)
+    gate("a.yml", run)
+
+    await new Promise((r) => setTimeout(r, 5))
+    expect(started).toBe(1) // only the first run started
+    expect(maxConcurrent).toBe(1)
+
+    release()
+    await new Promise((r) => setTimeout(r, 10))
+    // One trailing coalesced re-run — three edits do NOT become three runs.
+    expect(started).toBe(2)
+    expect(maxConcurrent).toBe(1)
+  })
+
+  test("a second edit after the run settled starts a fresh run", async () => {
+    const gate = createFileEditGate()
+    const runs: string[] = []
+    let release!: () => void
+    const hold = new Promise<void>((res) => {
+      release = res
+    })
+
+    const run = async () => {
+      runs.push("start")
+      await hold
+      runs.push("end")
+    }
+
+    gate("a.yml", run)
+    release()
+    await new Promise((r) => setTimeout(r, 5))
+
+    // Run settled; a later event must start a new run, not be lost.
+    gate("a.yml", run)
+    release()
+    await new Promise((r) => setTimeout(r, 5))
+
+    expect(runs).toEqual(["start", "end", "start", "end"])
+  })
+
+  test("different files run independently", async () => {
+    const gate = createFileEditGate()
+    const order: string[] = []
+    let releaseA!: () => void
+    const holdA = new Promise<void>((res) => {
+      releaseA = res
+    })
+
+    gate("a.yml", async () => {
+      order.push("a-start")
+      await holdA
+      order.push("a-end")
+    })
+    gate("b.yml", async () => {
+      order.push("b-done")
+    })
+
+    await new Promise((r) => setTimeout(r, 5))
+    expect(order).toEqual(["a-start", "b-done"]) // b is not blocked by a
+    releaseA()
+    await new Promise((r) => setTimeout(r, 5))
+    expect(order).toEqual(["a-start", "b-done", "a-end"])
+  })
+
+  test("a failing run does not wedge the file gate", async () => {
+    const gate = createFileEditGate()
+    let started = 0
+    let release!: () => void
+    const hold = new Promise<void>((res) => {
+      release = res
+    })
+
+    const run = async () => {
+      started++
+      await hold
+      throw new Error("hook boom")
+    }
+
+    gate("a.yml", run)
+    gate("a.yml", run) // coalesced edit while the failing run is in flight
+    release()
+    await new Promise((r) => setTimeout(r, 10))
+
+    // The dirty edit still gets its trailing run despite the failure.
+    expect(started).toBe(2)
   })
 })

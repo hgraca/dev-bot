@@ -7,7 +7,7 @@
 // module (on-hooks.ts) therefore must export only its factory; any helper a
 // test needs lives here instead.
 
-import { appendFileSync, mkdirSync } from "fs"
+import { appendFileSync, existsSync, mkdirSync } from "fs"
 import { dirname, join } from "path"
 
 export interface HookDecl {
@@ -45,6 +45,21 @@ export function defaultHookLog(): string {
   return ".agents/logs/hooks.log"
 }
 
+// Resolve the global config path for guard hooks (audit-32 FAIL: guards not
+// enforced live). The harness exports DEV_BOT_ROOT — not DEVBOT_ROOT — and the
+// plugin already computes its own root from its real location, so reading the
+// env var alone yielded "" and disabled every guard rule. Prefer the config
+// beside the plugin's own root (the dev-bot install, realpath-resolved), then
+// the DEV_BOT_ROOT env var, then "" (project-config-only — matches the prior
+// no-var behavior).
+export function resolveGlobalConfigPath(pluginRoot: string, env: NodeJS.ProcessEnv = process.env): string {
+  const besidePlugin = join(pluginRoot, ".devbot.global.jsonc")
+  if (existsSync(besidePlugin)) return besidePlugin
+  const envRoot = env.DEV_BOT_ROOT
+  if (envRoot) return join(envRoot, ".devbot.global.jsonc")
+  return ""
+}
+
 // Route a hook's captured output to a persistent log file — its declared
 // `log` file, or the shared default. Stderr is appended after stdout, labeled
 // [stderr]. Hook output must never reach the plugin process stderr — opencode
@@ -63,6 +78,45 @@ export interface CommandResult {
   stdout: string
   stderr: string
   exitCode: number
+}
+
+// Serialize and coalesce per-file async work (audit-32 FAIL: format-yml burst
+// race — two file.edited events ~1s apart spawned two concurrent format runs
+// whose read-modify-write interleaves corrupted the .yml). For each file path
+// at most one run executes at a time; an edit arriving while a run is in
+// flight marks the file dirty and triggers exactly one trailing run over the
+// latest content, so bursts collapse instead of piling up.
+export type FileEditGate = (file: string, run: () => Promise<void>) => void
+
+export function createFileEditGate(): FileEditGate {
+  const active = new Map<string, { dirty: boolean }>()
+
+  return (file, run) => {
+    const existing = active.get(file)
+    if (existing) {
+      existing.dirty = true
+      return
+    }
+    const state = { dirty: false }
+    active.set(file, state)
+
+    const loop = async () => {
+      try {
+        do {
+          state.dirty = false
+          try {
+            await run()
+          } catch {
+            // Hook failure — dispatch() logs it. Keep the gate alive so a
+            // dirty re-run still happens; the error must not wedge the file.
+          }
+        } while (state.dirty)
+      } finally {
+        if (active.get(file) === state) active.delete(file)
+      }
+    }
+    void loop()
+  }
 }
 
 // Decide whether a command.before hook blocks the tool. Fail-closed contract

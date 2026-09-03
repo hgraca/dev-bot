@@ -15,7 +15,7 @@ import { readFileSync, readdirSync, existsSync } from "fs"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { defaultHookLog, guardDecision, routeHookOutput, type HookDecl } from "../on-hooks-utils"
+import { defaultHookLog, createFileEditGate, guardDecision, resolveGlobalConfigPath, routeHookOutput, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -64,6 +64,8 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
     logFile: join(root, defaultHookLog()),
   })
   const manifests = loadManifests()
+  // Per-file gate for file.edited hooks (audit-32: burst-edit race).
+  const fileEditGate = createFileEditGate()
 
   // Plugin-type hooks declared in module manifests: import each factory and
   // merge the handlers it returns into this adapter's dispatch. This is how
@@ -128,7 +130,13 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
       const type = event?.type
       if (type === "file.edited") {
         const file: string = (event as any).properties?.file ?? ""
-        if (file) await dispatch("file.edited", file, { file })
+        if (file) {
+          // audit-32 FAIL: format-yml burst race — two file.edited events
+          // within ~1s ran two concurrent format hooks whose read-modify-write
+          // interleaves corrupted the file. Serialize + coalesce per file: a
+          // burst collapses into one in-flight run plus one trailing re-run.
+          fileEditGate(file, () => dispatch("file.edited", file, { file }))
+        }
       } else if (type === "session.created") {
         await dispatch("session.created", undefined, {})
       } else if (type === "session.idle") {
@@ -151,9 +159,10 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
           if (hook.match?.tool && !hook.match.tool.includes(tool)) continue
 
           const agent = process.env.OPENCODE_AGENT ?? ""
-          const globalConfig = process.env.DEVBOT_ROOT
-            ? join(process.env.DEVBOT_ROOT, ".devbot.global.jsonc")
-            : ""
+          // audit-32 FAIL: guards silently disabled — env is DEV_BOT_ROOT, not
+          // DEVBOT_ROOT. Resolve from the plugin's own root (realpath, already
+          // used for manifest loading above) so guards run with rules.
+          const globalConfig = resolveGlobalConfigPath(DEV_BOT_ROOT, process.env)
           const projectConfig = join(root, ".devbot.project.jsonc")
           const cmd = resolve(hook.run, {
             module: moduleDir,
