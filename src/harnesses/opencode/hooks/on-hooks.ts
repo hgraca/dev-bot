@@ -209,7 +209,11 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
           if (hook.match?.command && !new RegExp(hook.match.command).test(command)) continue
           const cmd = resolve(hook.run, { module: moduleDir, worktree: root, command, hash })
           try {
-            await runCommand(cmd, root)
+            const out = await runCommand(cmd, root)
+            // Route output like dispatch() does — a command.after hook that
+            // declares a "log" field must not have its output silently
+            // discarded (mirrors the claudecode post-bash fix, audit-31 §5).
+            routeHookOutput(out, hook, root)
           } catch (e) {
             logger.debug(`${hook.id} hook failed: ${e instanceof Error ? e.message : String(e)}`)
           }
