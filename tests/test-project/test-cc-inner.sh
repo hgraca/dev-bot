@@ -45,6 +45,10 @@ _show_durations() {
     total=$(( total + dur ))
   done
   printf '  %-24s %4ds\n' "TOTAL" "${total}"
+  # .agents/logs is wiped by test-reinit.sh and recreated lazily only when a
+  # harness session runs (cc recreates it via the audit, but not if it fails) —
+  # ensure it exists first.
+  mkdir -p /app/.agents/logs 2>/dev/null || true
   {
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] test phase durations:"
     for entry in "${PHASES[@]}"; do
