@@ -114,13 +114,29 @@ _reset_symlinks_in_dir "${OPENCODE_DIR}"
 # fresh by init from their module templates — qmd's environment changed in
 # audit-28 (QMD_LLAMA_GPU boolean → __GPU_ENABLED__ placeholder +
 # QMD_EXPAND_CONTEXT_SIZE), so existing configs must not keep the stale entry.
+# Only STALE entries are removed: dropping an entry that already matches its
+# module template makes init re-append it at the end of the mcp map, reordering
+# keys and breaking reinit byte-idempotency (audit-32 NOTE).
 OPENCODE_CONFIG="${PROJECT_DIR}/opencode.jsonc"
 if [[ -f "${OPENCODE_CONFIG}" ]]; then
   REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
+  IS_CURRENT_PY="${DEV_BOT_ROOT}/src/_shared/mcp_key_is_current.py"
   if [[ -f "${REMOVE_MCP_PY}" ]]; then
-    for mcp_key in devbot-tools qmd; do
+    # key → module template declaring it (qmd module, tools-mcp module)
+    declare -A MCP_TEMPLATES=(
+      [qmd]="${DEV_BOT_ROOT}/src/agentic/qmd/mcp.opencode.json"
+      [devbot-tools]="${DEV_BOT_ROOT}/src/agentic/tools-mcp/mcp.opencode.json"
+    )
+    for mcp_key in "${!MCP_TEMPLATES[@]}"; do
+      local_template="${MCP_TEMPLATES[$mcp_key]}"
+      if [[ -f "${IS_CURRENT_PY}" && -f "${local_template}" ]] \
+        && python3 "${IS_CURRENT_PY}" "${OPENCODE_CONFIG}" "${local_template}" "${mcp_key}" 2>/dev/null; then
+        _skip "${mcp_key}: matches module template — no refresh needed"
+        continue
+      fi
       python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${mcp_key}" 2>/dev/null || true
     done
+    unset MCP_TEMPLATES
   fi
 fi
 
