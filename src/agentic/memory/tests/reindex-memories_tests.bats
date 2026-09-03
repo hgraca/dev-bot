@@ -104,8 +104,9 @@ SCRIPT
 }
 
 @test "tool: prune mode runs qmd cleanup and update without embed" {
-  # audit-29: the session.idle self-heal hook fires 'prune' (cleanup+update
-  # only) so bash-deleted notes stop surfacing without paying the embed cost.
+  # audit-29/audit-36: the pre-harness delete→prune self-heal fires 'prune'
+  # (cleanup+update only) so bash-deleted notes stop surfacing without paying
+  # the embed cost.
   cat > "$STUB_DIR/qmd" <<'SCRIPT'
 #!/usr/bin/env bash
 echo "$*" >> "$QMD_CALL_LOG"

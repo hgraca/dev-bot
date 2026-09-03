@@ -21,3 +21,19 @@ therefore runs on `session.created` (`reindex-memories-prune-start` in
 `src/agentic/memory/hooks.json`): a note deleted mid-session is pruned at the
 next session start. `session.idle` only maps to claudecode's `Stop` (end of
 session), so it is not a reliable cross-harness "idle" signal.
+
+## Superseded for the memory prune (audit-36, 2026-09-03)
+
+The delete→prune self-heal no longer uses `session.created`. It moved to the
+harness start scripts (`src/harnesses/{opencode,claudecode}/start.sh` →
+`_devbot_prune_memories_detached` in `src/_shared/functions.sh`), fired
+**detached before the harness boots**, and the `reindex-memories-prune-start`
+hook was removed from `src/agentic/memory/hooks.json`. Reasons: (1) opencode
+`session.created` fires only for the first session of a process, so later
+sessions in the same process never pruned (audit-34 NOTE-8); (2) running at
+harness boot added contention that, together with the concurrent launch of all
+MCP servers, pushed chrome-devtools/playwright past the client's 30s connect
+budget (audit-35 FAIL). The start.sh prune fires per `devbot` launch and gives
+qmd a head start ahead of the MCP fleet boot. `session.created` remains a valid
+event for other start-of-session maintenance that must also cover directly
+launched harnesses.

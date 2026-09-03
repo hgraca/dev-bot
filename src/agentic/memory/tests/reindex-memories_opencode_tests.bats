@@ -8,41 +8,40 @@ setup() {
   FIXTURES="$BATS_TEST_TMPDIR"
 }
 
-@test "hooks.json declares reindex-memories file.edited + session.created hooks" {
+@test "hooks.json declares file.edited reindex hooks only (prune moved to start.sh)" {
+  # audit-31 §5 / audit-36: the delete→prune self-heal no longer fires from a
+  # session.created hook — it runs detached from the harness start scripts
+  # (start.sh → _devbot_prune_memories_detached) so it fires per launch and
+  # gets a head start ahead of the MCP fleet boot (audit-34 NOTE-8, audit-35
+  # FAIL).
   run python3 -c "
 import json
 data = json.load(open('${MODULE_DIR}/hooks.json'))
 hooks = data['hooks']
-assert len(hooks) == 3, hooks
+assert len(hooks) == 2, hooks
 events = [h['event'] for h in hooks]
 assert events.count('file.edited') == 2, events
-assert events.count('session.created') == 1, events
+assert 'session.created' not in events, events
 assert 'reindex-memories.mcp.sh' in hooks[0]['run'][1], hooks
 assert 'reindex-passive-memories.sh' in hooks[1]['run'][1], hooks
-assert 'reindex-memories.mcp.sh' in hooks[2]['run'][1], hooks
 print('MANIFEST:OK')
 "
   assert_success
   grep -qF 'MANIFEST:OK' <<< "$output" || fail "manifest missing or malformed"
 }
 
-@test "hooks.json session.created prune hook matches latent memory paths (audit-31 §5)" {
-  # audit-31 §5: the file.deleted hook was dead code under both harnesses (no
-  # delete events for external bash rm) — dropped in favor of a session-start
-  # prune (32be1e82). Assert the surviving session.created prune hook's shape.
+@test "hooks.json no longer declares a session.created prune hook" {
+  # audit-36: the session.created prune hook was removed from the manifest —
+  # assert its absence so a future re-introduction (which would re-add boot
+  # contention + first-session-only firing) is caught.
   run python3 -c "
-import json, re
+import json
 data = json.load(open('${MODULE_DIR}/hooks.json'))
-prune_hook = next(h for h in data['hooks'] if h['event'] == 'session.created')
-assert prune_hook['id'] == 'reindex-memories-prune-start', prune_hook
-assert prune_hook['run'][-1] == 'prune', prune_hook
-assert 'reindex-memories.mcp.sh' in prune_hook['run'][1], prune_hook
-assert prune_hook['log'] == '.agents/logs/qmd-index.log', prune_hook
-assert 'file.deleted' not in [h['event'] for h in data['hooks']], data['hooks']
-print('PRUNE-START:OK')
+assert not any(h['event'] == 'session.created' for h in data['hooks']), data['hooks']
+print('NO-PRUNE-HOOK:OK')
 "
   assert_success
-  grep -qF 'PRUNE-START:OK' <<< "$output" || fail "prune-start hook missing or misconfigured"
+  grep -qF 'NO-PRUNE-HOOK:OK' <<< "$output" || fail "session.created prune hook still present"
 }
 
 @test "shared reindex tools exist" {
