@@ -132,6 +132,17 @@ test: ## Run the full test suite
 		exit 1; \
 	fi
 	@bun test src/
+	@echo -e "\n\033[1m\033[34m━━━ Running python tests... ━━━\033[0m"
+	@if ! command -v python3 &>/dev/null; then \
+		echo "  python3 not found — install python3 to run the python tests"; \
+		exit 1; \
+	fi
+	@failed=0; \
+	while IFS= read -r f; do \
+		echo "  python3 -m unittest $$f"; \
+		(cd "$$(dirname "$$f")" && python3 -m unittest "$$(basename "$$f" .py)") || failed=1; \
+	done < <(find src -name 'test_*.py' -not -path '*/node_modules/*' 2>/dev/null | sort); \
+	[ $${failed} -eq 0 ]
 
 logs:
 	tail -f "$$(ls -t ~/.local/share/opencode/log/*.log | head -1)" -n 100
