@@ -51,6 +51,7 @@ First determine which agent harness(es) are wired and which one you are running 
 - **Which harnesses are enabled** — check the `modules` map in `.devbot.project.jsonc` and `.devbot.global.jsonc`: a harness is enabled unless its key (`opencode` or `claudecode`) is present and `false`; absent = enabled. A project may have **both** enabled, in which case both `.opencode/` and `.claude/` exist and both config files are wired. If neither dir exists, `devbot reinit`'s harness step did not run — record that as a FAIL.
 - **Which harness you are running under** — look at your own tool palette naming: opencode exposes MCP tools as `<server>_<tool>` (e.g. `qmd_*`, `devbot-tools_*`); claudecode exposes them as `mcp__<server>__<tool>` (e.g. `mcp__qmd__*`, `mcp__devbot-tools__*`). Cross-check with the `harness` key (single value, picks the launch binary) if present.
 - **Audit every enabled harness**, not only the one you are running under: each harness has its own MCP config (`opencode.jsonc` vs `.mcp.json`), its own launch command paths, and its own log location. A project with both harnesses enabled must have both configs correct — a broken `.mcp.json` is a defect even if you are currently in opencode.
+- **Record it in the report header** — the report MUST state which harness(es) this audit covered and which one the audit ran under, next to the ENVIRONMENT verdict from §0, with the evidence (the `modules` map values + your own tool-palette naming). Without the harness, findings are ambiguous: the same symptom can be an opencode-only bug, a claudecode-only bug, or a harness-gating defect — and log paths, config files, and tool naming all differ per harness. Every FAIL/NOTE row in the report should be attributable to a specific harness (or "both").
 
 ## 0c. Identify the running agent (must be DevBot)
 
@@ -176,7 +177,15 @@ At the end, produce an audit that answers only these two questions (project spec
 
 ### Write the report to a file
 
-Write a markdown report to `.agents/memory/thinking/devbot-audit-NN.md` (`.agents` is the devbot dir from config), where `NN` is the next sequential integer starting at `01` — first list the existing `devbot-audit-*.md` files in that directory, then use the next number (e.g. `01` if none exist, `02` after `01`, …). For each subsystem, record:
+Write a markdown report to `.agents/memory/thinking/devbot-audit-NN.md` (`.agents` is the devbot dir from config), where `NN` is the next sequential integer starting at `01` — first list the existing `devbot-audit-*.md` files in that directory, then use the next number (e.g. `01` if none exist, `02` after `01`, …).
+
+**Open the report with a header block** stating the audit context — every report MUST begin with these three lines before any findings (they let a reader interpret the whole report without re-deriving the environment):
+
+- **ENVIRONMENT: container** or **ENVIRONMENT: host** — plus the evidence (from §0).
+- **HARNESS(ES) ENABLED** and **HARNESS THIS AUDIT RAN UNDER** — which harness(es) are wired (`modules` map) and which one this session used (tool-palette naming), plus the evidence (from §0b). If both harnesses are enabled, the audit covers both — say so, and attribute every FAIL/NOTE below to a specific harness.
+- **RUNNING AGENT** — `DevBot` (or the FAIL if not, per §0c).
+
+For each subsystem, record:
 
 - **PASS** — what worked and the evidence (tool output, hook firing, etc.).
 - **FAIL / NOTE** — every problem found, however small, with the exact error/output observed, the most likely known cause, and a **suggested fix** (what to change and where). Do NOT apply fixes — the report surfaces them for the developer.
