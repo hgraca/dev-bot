@@ -23,7 +23,8 @@
 # qmd's cache files are never touched.
 #
 # Idempotent: skips models already imported. Recreates the ollama container
-# with the qmd-cache mount if it is missing (bin/up.sh uses --no-recreate).
+# when its /root/.qmd-cache mount is missing OR stale (bin/up.sh uses
+# --no-recreate, so a replaced host cache dir needs a forced recreate).
 # Called by qmd/up.sh on `devbot up`; can also be invoked directly.
 #
 # GATE: This module must work on Ubuntu, Fedora, and macOS.
@@ -47,19 +48,68 @@ MODELS=(
   "qwen3-reranker-0.6b:hf_ggml-org_qwen3-reranker-0.6b-q8_0.gguf:q8_0"
 )
 
-_ensure_qmd_cache_mount() {
-  # bin/up.sh runs `docker compose up -d --no-recreate`, so an existing
-  # container keeps its old config. Recreate (applies the new mount) when the
-  # container lacks /root/.qmd-cache. Mirror bin/up.sh's compose opts — append
-  # docker-compose.gpu.yml when gpu_enabled, or this recreation would drop the
-  # GPU passthrough (ollama then serves embeddings CPU-only).
-  if ! docker exec "${CONTAINER}" sh -c "test -d ${CACHE_MOUNT}" 2>/dev/null; then
-    _info "recreating ${CONTAINER} to add the qmd cache mount..."
-    local -a compose_opts=("-f" "${OLLAMA_COMPOSE}")
-    if _devbot_is_true "gpu_enabled"; then
-      compose_opts+=("-f" "${DEV_BOT_ROOT}/docker-compose.gpu.yml")
+_mount_is_stale() {
+  # Host has a downloaded GGUF the container's /root/.qmd-cache cannot see —
+  # the bind is pinned to a replaced host directory (docker keeps the source
+  # inode across plain `up`, so only a forced recreate re-resolves it).
+  # This is the failure behind ollama's misleading "400 invalid model name":
+  # `ollama create` cannot open the FROM path and falls back to name parsing.
+  local entry file
+  for entry in "${MODELS[@]}"; do
+    file="${entry#*:}"; file="${file%%:*}"
+    [[ -f "${QMD_CACHE_DIR}/${file}" ]] || continue
+    if ! docker exec "${CONTAINER}" test -f "${CACHE_MOUNT}/${file}" 2>/dev/null; then
+      return 0
     fi
-    docker compose "${compose_opts[@]}" up -d ollama
+  done
+  return 1
+}
+
+_recreate_ollama_container() {
+  _info "recreating ${CONTAINER} ${1:-to fix the qmd cache mount}..."
+  # Mirror bin/up.sh's compose opts — append docker-compose.gpu.yml when
+  # gpu_enabled, or the recreation would drop the GPU passthrough (ollama then
+  # serves embeddings CPU-only).
+  local -a compose_opts=("-f" "${OLLAMA_COMPOSE}")
+  if _devbot_is_true "gpu_enabled"; then
+    compose_opts+=("-f" "${DEV_BOT_ROOT}/docker-compose.gpu.yml")
+  fi
+  # --force-recreate is required: a stale mount leaves the compose spec
+  # identical to the running container, so plain `up -d` would be a no-op.
+  docker compose "${compose_opts[@]}" up -d --force-recreate ollama
+}
+
+_wait_for_ollama() {
+  # A freshly recreated container needs a moment before ollama serves; the
+  # import loop's first `ollama list`/`ollama create` must not race it.
+  local tries=0
+  while ! docker exec "${CONTAINER}" ollama list >/dev/null 2>&1; do
+    tries=$((tries + 1))
+    if [[ "${tries}" -ge 15 ]]; then
+      _warn "ollama not responding after recreate (15s) — continuing"
+      return 0
+    fi
+    sleep 1
+  done
+}
+
+_ensure_qmd_cache_mount() {
+  # Recreate when the mount is missing (container predates the compose mount)
+  # or stale (bind pinned to a replaced host dir — an empty mount that a plain
+  # `test -d` cannot detect). Fails loudly if the mount still will not heal.
+  if ! docker exec "${CONTAINER}" sh -c "test -d ${CACHE_MOUNT}" 2>/dev/null; then
+    _recreate_ollama_container "to add the qmd cache mount"
+    _wait_for_ollama
+    return 0
+  fi
+  if _mount_is_stale; then
+    _recreate_ollama_container "to re-resolve the qmd cache mount"
+    _wait_for_ollama
+    if _mount_is_stale; then
+      _error "qmd cache mount still stale after recreate — is ${QMD_CACHE_DIR} intact?"
+      return 1
+    fi
+    _ok "qmd cache mount re-resolved"
   fi
 }
 
