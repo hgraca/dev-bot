@@ -119,6 +119,40 @@ export function createFileEditGate(): FileEditGate {
   }
 }
 
+// ── Rewrite-echo suppression (audit-37 §2: formatter ping-pong) ───────────────
+// A format hook that rewrites a file triggers a second file.edited event from
+// the watcher; without suppression that echo re-runs every matching hook —
+// lint-k8s double-fires and the formatter no-ops on its own output. The
+// adapter records the file's content signature after each dispatch; an
+// incoming event whose signature matches (within a short window) is the echo
+// of the adapter's own rewrite and is dropped, so one user edit runs content
+// hooks exactly once. A real edit changes the signature and still dispatches.
+
+export interface RewriteEchoTracker {
+  /** Whether (file, sig) matches the adapter's own last rewrite of the file
+   * within the window. A match is consumed (one echo per rewrite). */
+  isEcho(file: string, sig: string, now?: number): boolean
+  /** Record the post-dispatch content signature of a file. */
+  record(file: string, sig: string, now?: number): void
+}
+
+export function createRewriteEchoTracker(windowMs = 2000): RewriteEchoTracker {
+  const written = new Map<string, { sig: string; at: number }>()
+
+  return {
+    isEcho(file, sig, now = Date.now()) {
+      const prev = written.get(file)
+      if (!prev) return false
+      written.delete(file)
+      if (now - prev.at > windowMs) return false
+      return prev.sig === sig
+    },
+    record(file, sig, now = Date.now()) {
+      written.set(file, { sig, at: now })
+    },
+  }
+}
+
 // Decide whether a command.before hook blocks the tool. Fail-closed contract
 // (audit-31 §2): a blocking hook whose subprocess fails to execute (non-zero
 // exit, missing script/interpreter, unparseable output) must DENY — a guard
