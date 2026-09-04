@@ -70,12 +70,12 @@ for i in "$@"; do
       FORMAT="markdown"; HAS_FORMAT=true ;;
     --json)
       FORMAT="json"; HAS_FORMAT=true ;;
-    --format|--collection|--max-results)
+    --format|--collection|--max-results|--query)
       EXTRA_ARGS+=("${i}")
       SKIP_NEXT=true ;;
     --format=*)
       FORMAT="${i#--format=}"; HAS_FORMAT=true ;;
-    --collection=*|--max-results=*)
+    --collection=*|--max-results=*|--query=*)
       EXTRA_ARGS+=("${i}") ;;
     --*)
       EXTRA_ARGS+=("${i}") ;;
