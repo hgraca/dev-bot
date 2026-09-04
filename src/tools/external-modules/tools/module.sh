@@ -422,6 +422,15 @@ for name, entry in data.items():
 
 cmd_add() {
     local url_or_path="${1:-}"
+    case "${url_or_path}" in
+      -h|--help)
+        echo "Usage: devbot module add <url|path> [--name=<name>] [--skills=<path>] [--agents=<path>] [--commands=<path>] [--plugins=<path>]"
+        echo
+        echo "Register an external module (git URL or local path). Re-run 'devbot reinit'"
+        echo "to wire it into the project; 'devbot module remove <name>' to unregister."
+        return 0
+        ;;
+    esac
     if [[ -z "${url_or_path}" ]]; then
         _fatal "Usage: module.sh add <url|path> [--name=<name>] [--skills=<path>] [--agents=<path>] [--commands=<path>] [--plugins=<path>]"
         exit 1
