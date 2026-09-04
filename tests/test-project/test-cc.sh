@@ -116,6 +116,7 @@ docker run -it --rm --name "${CONTAINER_NAME}" \
   -v "${HOME}/.npm:/home/ubuntu/.npm" \
   -e "JETBRAINS_PROJECT_PATH=${SCRIPT_DIR}" \
   -e "DEV_BOT_TEST_BRANCH=${BRANCH}" \
+  -e "DEVBOT_TEST_NONINTERACTIVE=${DEVBOT_TEST_NONINTERACTIVE:-0}" \
   -w /app \
   --user "$(id -u):$(id -g)" \
   devbot-test bash /app/test-cc-inner.sh
