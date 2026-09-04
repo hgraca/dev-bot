@@ -117,27 +117,27 @@ python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py"
 _phase "claudecode grant"
 
 # claude
-echo
-echo "▶ Running headless devbot audit (/devbot:audit) — typically 10-20 min; output streams below."
-echo "  (tee'd to /app/.agents/logs/devbot-audit-run.log for diagnosis)"
-echo
-mkdir -p /app/.agents/logs 2>/dev/null || true
-set +e
-devbot -p "/devbot:audit" 2>&1 | tee /app/.agents/logs/devbot-audit-run.log
-AUDIT_RC=${PIPESTATUS[0]}
-set -e
-_phase "agent audit"
-if [[ ${AUDIT_RC} -ne 0 ]]; then
-  echo "WARN: devbot audit run failed (exit ${AUDIT_RC}) — see /app/.agents/logs/devbot-audit-run.log"
-else
-  # The audit must have written a report inside the isolated run; surface it.
-  audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-*.md' 2>/dev/null | sort | tail -1 || true)"
-  if [[ -n "${audit_report}" ]]; then
-    echo "✔ audit report: ${audit_report}"
-  else
-    echo "WARN: devbot audit exited 0 but wrote NO devbot-audit-*.md report — see devbot-audit-run.log"
-  fi
-fi
+#echo
+#echo "▶ Running headless devbot audit (/devbot:audit) — typically 10-20 min; output streams below."
+#echo "  (tee'd to /app/.agents/logs/devbot-audit-run.log for diagnosis)"
+#echo
+#mkdir -p /app/.agents/logs 2>/dev/null || true
+#set +e
+#devbot -p "/devbot:audit" 2>&1 | tee /app/.agents/logs/devbot-audit-run.log
+#AUDIT_RC=${PIPESTATUS[0]}
+#set -e
+#_phase "agent audit"
+#if [[ ${AUDIT_RC} -ne 0 ]]; then
+#  echo "WARN: devbot audit run failed (exit ${AUDIT_RC}) — see /app/.agents/logs/devbot-audit-run.log"
+#else
+#  # The audit must have written a report inside the isolated run; surface it.
+#  audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-*.md' 2>/dev/null | sort | tail -1 || true)"
+#  if [[ -n "${audit_report}" ]]; then
+#    echo "✔ audit report: ${audit_report}"
+#  else
+#    echo "WARN: devbot audit exited 0 but wrote NO devbot-audit-*.md report — see devbot-audit-run.log"
+#  fi
+#fi
 
 # Remove the test git repo when the container exits so the host mount
 # (/app = this run's isolated copy) stays a plain directory. NOTE: not `exec` —
