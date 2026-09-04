@@ -59,6 +59,10 @@ make_fixture() {
   # kube-linter's report is embedded as real JSON (--format json on stdout) —
   # not written to a stray output file (kube-linter's --output is a file path).
   assert_output --partial '"Reports"'
+  # The whole payload must parse as JSON (guards the trailing-comma class).
+  printf '%s' "$output" > "$BATS_TEST_TMPDIR/report.json"
+  run python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$BATS_TEST_TMPDIR/report.json"
+  assert_success
 }
 
 @test "json mode creates no stray output file in the working directory" {
@@ -89,4 +93,16 @@ make_fixture() {
   run bash "$TOOL" "$dir"
   assert_failure
   assert_output --partial "no Kubernetes manifests found"
+}
+
+@test "the --schema override is passed through to kubeconform" {
+  local dir="$BATS_TEST_TMPDIR/project"
+  make_fixture "$dir"
+
+  # A bogus schema location makes kubeconform fail validation — proves the
+  # parsed --schema flag actually reaches kubeconform (-schema-location),
+  # rather than being parsed and silently dropped (shellcheck SC2034).
+  run bash "$TOOL" --schema /nonexistent/schemas "$dir"
+  assert_success
+  refute_output --partial "All valid"
 }
