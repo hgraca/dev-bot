@@ -199,8 +199,12 @@ _devbot_lock_wait() {
   local msg="${3:-}"
   mkdir -p "$(dirname "${lockfile}")" 2>/dev/null || return 1
   exec 200>"${lockfile}" 2>/dev/null || return 1
-  local waited=0
+  local waited=0 first_wait=1
   while ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; do
+    if (( first_wait )); then
+      first_wait=0
+      _info "waiting for lock $(basename "${lockfile}") (held by another process)…"
+    fi
     waited=$((waited + 2))
     if (( waited >= cap )); then
       [[ -n "${msg}" ]] && _warn "${msg}"

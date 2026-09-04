@@ -198,7 +198,11 @@ fi
 
 # Only drop into an interactive shell when stdin really is a tty — otherwise a
 # `bash -i` with no usable stdin looks like a hang where typing does nothing.
+# `stty sane` first: if anything earlier left the tty with echo off / raw
+# (e.g. a crashed TUI or password prompt), restore a normal line discipline so
+# the prompt actually echoes input.
 if [[ -t 0 ]]; then
+  stty sane 2>/dev/null || true
   echo
   echo "=== Test done — interactive shell (uid $(id -u)). Run 'exit' to leave. ==="
   bash -i
