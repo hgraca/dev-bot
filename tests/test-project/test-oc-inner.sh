@@ -24,6 +24,16 @@ export QMD_EMBED_TIMEOUT=300
 export INDEX_PATH="${QMD_TEST_INDEX_PATH:-$HOME/.cache/qmd/devbot-test/index.sqlite}"
 mkdir -p "$(dirname "${INDEX_PATH}")"
 
+# Ensure devbot + opencode are on PATH for later interactive/exec shells:
+# `docker exec` shells are non-login and only read ~/.bashrc.
+if ! grep -q 'devbot e2e: devbot+opencode PATH' "$HOME/.bashrc" 2>/dev/null; then
+  {
+    echo ""
+    echo "# devbot e2e: devbot+opencode PATH (docker exec shells are non-login)"
+    echo 'export PATH="$HOME/.local/bin:$HOME/.opencode/bin:$PATH"'
+  } >> "$HOME/.bashrc"
+fi
+
 # ── Duration capture ──────────────────────────────────────────────────────────
 # Phase timings are collected into PHASES ("name:seconds") and printed (and
 # saved to .agents/logs/test-durations.log) when the test flow reaches the
@@ -169,17 +179,20 @@ trap cleanup_test_repo EXIT
 
 _show_durations
 
-# Non-interactive mode (DEVBOT_TEST_NONINTERACTIVE=1, forwarded by the
-# launcher): finish the test and exit cleanly instead of parking at bash -i —
-# the EXIT trap stages the harness logs and the host launcher syncs outputs
-# back to the fixture. For automation/CI.
+# ── Signal the host launcher that the phases are complete ────────────────────
+# The launcher runs this container DETACHED (docker run -d) and attaches the
+# interactive shell afterwards via `docker exec -it` (docker run -it stdin is
+# unreliable across terminals). Touch a readiness file on the host-mounted
+# /app so the launcher knows the phases finished, then either exit
+# (non-interactive) or stay alive until the launcher execs a shell and the
+# user leaves.
+mkdir -p /app/.agents 2>/dev/null || true
+touch /app/.agents/.test-ready
+
 if [[ "${DEVBOT_TEST_NONINTERACTIVE:-0}" == "1" ]]; then
   echo "=== Test complete (non-interactive) — exiting ==="
   exit 0
 fi
 
-echo
-echo "=== Test done — interactive shell (uid $(id -u)). Run 'exit' to leave. ==="
-echo "  (if typing does not echo here, your terminal is not forwarding stdin to"
-echo "   docker — from a real terminal run: docker exec -it ${DEVBOT_TEST_CONTAINER_NAME:-<container>} bash)"
-bash -i
+echo "=== Phases complete — the host launcher will attach an interactive shell (docker exec -it). ==="
+while :; do sleep 3600; done

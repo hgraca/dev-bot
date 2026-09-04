@@ -110,7 +110,14 @@ read -r -a COMPOSER_ARGS <<< "$(composer_cache_args)"
 # Runs as the host uid, so file ownership matches and claude can read/write its
 # own state (settings, backups) as usual.
 
-docker run -it --rm --name "${CONTAINER_NAME}" \
+# ── Run the container DETACHED; attach interactivity via `docker exec` ───────
+# `docker run -it`'s stdin attach has proven unreliable in several terminals
+# (typed input reaches neither echo nor the shell, while `docker exec -it`
+# works) — so run detached and, once the inner script signals it has finished
+# its phases (writes .agents/.test-ready into the host-mounted /app), attach a
+# real pty with `docker exec -it`. Phase output streams live via `docker logs`.
+echo "Starting ${CONTAINER_NAME} (detached — phases run inside; log follows)..."
+docker run -d --rm --name "${CONTAINER_NAME}" \
   --network host \
   "${GPU_ARGS[@]}" \
   "${COMPOSER_ARGS[@]+"${COMPOSER_ARGS[@]}"}" \
@@ -132,6 +139,39 @@ docker run -it --rm --name "${CONTAINER_NAME}" \
   --user "$(id -u):$(id -g)" \
   devbot-test bash /app/test-cc-inner.sh
 
-# Belt-and-braces: after a normal exit the --rm already removed it; this is a
-# no-op then, but covers any edge where docker run returned without cleanup.
+# Stream phase output until the inner script signals readiness (or exits).
+docker logs -f "${CONTAINER_NAME}" &
+LOGS_FOLLOWER=$!
+
+READY_FILE="${RUN_DIR}/.agents/.test-ready"
+READY=0
+WAITED=0
+while (( WAITED < 1800 )); do
+  if [[ -f "${READY_FILE}" ]]; then READY=1; break; fi
+  if ! docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null | grep -q true; then
+    break
+  fi
+  sleep 2
+  WAITED=$((WAITED + 2))
+done
+kill "${LOGS_FOLLOWER}" 2>/dev/null || true
+wait "${LOGS_FOLLOWER}" 2>/dev/null || true
+
+if [[ "${READY}" == "1" ]] \
+  && docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null | grep -q true; then
+  if [[ "${DEVBOT_TEST_NONINTERACTIVE:-0}" == "1" ]]; then
+    echo "=== non-interactive: waiting for container to exit ==="
+    while docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null | grep -q true; do sleep 2; done
+  else
+    echo "=== Phases complete — attaching interactive shell ==="
+    echo "    run /devbot:audit manually; type 'exit' to leave and clean up."
+    docker exec -it "${CONTAINER_NAME}" bash || true
+  fi
+elif [[ "${READY}" != "1" ]]; then
+  echo "WARN: container did not signal readiness — see the log above." >&2
+else
+  echo "=== Test complete (container exited). ==="
+fi
+
+# Belt-and-braces: the EXIT trap cleans up; this is a no-op on the normal path.
 cleanup
