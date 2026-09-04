@@ -147,6 +147,15 @@ trap cleanup_test_repo EXIT
 
 _show_durations
 
+# Non-interactive mode (DEVBOT_TEST_NONINTERACTIVE=1, forwarded by the
+# launcher): finish the test and exit cleanly instead of parking at bash -i —
+# the EXIT trap stages the harness logs and the host launcher syncs outputs
+# back to the fixture. For automation/CI.
+if [[ "${DEVBOT_TEST_NONINTERACTIVE:-0}" == "1" ]]; then
+  echo "=== Test complete (non-interactive) — exiting ==="
+  exit 0
+fi
+
 echo
 echo "=== Test done — you are inside the container (uid $(id -u)). Run 'exit' to leave. ==="
 bash -i
