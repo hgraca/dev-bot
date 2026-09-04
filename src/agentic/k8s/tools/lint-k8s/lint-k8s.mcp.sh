@@ -55,13 +55,28 @@ _run_with_timeout() {
 
 # ── Gather manifests ─────────────────────────────────────────────────────────
 
+# True when the file looks like a Kubernetes manifest — it contains an
+# `apiVersion` key and a `kind` key (tolerating JSON's quoted keys). Directory
+# sweeps gather only manifest-looking files; anything else (config files,
+# editor/tool caches) would otherwise make kubeconform report a "missing
+# 'kind' key" error for every non-manifest file (audit-48 N5). An explicitly
+# passed file is still linted as-is — a mistaken explicit target stays loud.
+_is_manifest() {
+  local file="$1"
+  grep -Eq '(^|[^[:alnum:]_-])apiVersion"?[[:space:]]*:' "$file" 2>/dev/null \
+    && grep -Eq '(^|[^[:alnum:]_-])kind"?[[:space:]]*:' "$file" 2>/dev/null
+}
+
 _gather_files() {
   local path="$1"
   if [[ -f "$path" ]]; then
     [[ "$path" =~ \.(ya?ml|json)$ ]] && echo "$path"
   elif [[ -d "$path" ]]; then
-    find "$path" -type f \( -name "*.yml" -o -name "*.yaml" -o -name "*.json" \) \
-      ! -path "*/.git/*" ! -path "*/node_modules/*" ! -path "*/.terraform/*" 2>/dev/null
+    local f
+    while IFS= read -r f; do
+      [[ -n "$f" ]] && _is_manifest "$f" && echo "$f"
+    done < <(find "$path" -type f \( -name "*.yml" -o -name "*.yaml" -o -name "*.json" \) \
+      ! -path "*/.git/*" ! -path "*/node_modules/*" ! -path "*/.terraform/*" 2>/dev/null)
   fi
 }
 
@@ -105,7 +120,7 @@ while IFS= read -r f; do
 done < <(_gather_files "$TARGET")
 
 if [[ ${#FILES[@]} -eq 0 ]]; then
-  echo "lint-k8s: no YAML/YML/JSON files found in $TARGET" >&2
+  echo "lint-k8s: no Kubernetes manifests found in $TARGET (sweeps gather only YAML/JSON files containing an apiVersion and a kind key)" >&2
   exit 1
 fi
 
@@ -125,7 +140,7 @@ if [[ "$FORMAT" == "json" ]]; then
   echo '  },'
   echo '  "kubelinter": {'
 
-  KL_OUTPUT=$("$KUBELINTER" lint "${FILES[@]}" --output json 2>/dev/null || echo '{"Reports":[],"Summary":{"TotalViolations":0,"FilesWithViolations":0,"TotalFilesScanned":0}}')
+  KL_OUTPUT=$("$KUBELINTER" lint "${FILES[@]}" --format json 2>/dev/null || echo '{"Reports":[],"Summary":{"TotalViolations":0,"FilesWithViolations":0,"TotalFilesScanned":0}}')
   echo '    "report": '"$KL_OUTPUT"
   echo '  }'
   echo "}"
