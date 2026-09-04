@@ -186,7 +186,9 @@ fi
 if [[ -t 0 ]]; then
   stty sane 2>/dev/null || true
   echo
-  echo "=== Test done — interactive shell (uid $(id -u)). Run 'exit' to leave. ==="
+  echo "=== Test done — interactive shell (uid $(id -u)) on $(tty 2>/dev/null || echo 'no-tty') ==="
+  echo "  (if typing does not echo, your terminal is not forwarding stdin to docker —"
+  echo "   from a real terminal run: docker exec -it ${DEVBOT_TEST_CONTAINER_NAME:-<container>} bash)"
   bash -i
 else
   echo "=== Test complete — no tty attached, exiting cleanly ==="
