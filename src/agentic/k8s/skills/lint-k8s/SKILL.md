@@ -78,7 +78,7 @@ The tool returns a JSON object:
 
 ## Workflow
 
-1. **Identify** all YAML/YML/JSON manifest files under the target path
+1. **Identify** all YAML/YML/JSON manifest files under the target path. Directory sweeps gather only files that look like Kubernetes manifests (contain an `apiVersion` and a `kind` key) — non-manifest YAML/JSON (config files, editor/tool caches such as `.opencode/index/` or `graphify-out`) is skipped, so a sweep never drowns real findings in "missing 'kind' key" noise. Pass an explicit file path to lint a file that the sweep would skip.
 2. **Invoke** `lint-k8s(path: "<target-path>")` using your built-in tool
 3. **Parse** the JSON result:
     - Report kubeconform errors with filename + message
