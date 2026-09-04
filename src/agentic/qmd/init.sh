@@ -52,8 +52,12 @@ _acquire_qmd_llama_lock() {
   local lock_dir="${XDG_CACHE_HOME:-$HOME/.cache}/qmd"
   mkdir -p "${lock_dir}" 2>/dev/null || return 1
   exec 200>"${lock_dir}/.llama.lock" 2>/dev/null || return 1
-  local waited=0 cap="${QMD_EMBED_TIMEOUT:-180}"
+  local waited=0 first_wait=1 cap="${QMD_EMBED_TIMEOUT:-180}"
   while ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; do
+    if (( first_wait )); then
+      first_wait=0
+      _info "waiting for qmd llama lock (another reinit is embedding)…"
+    fi
     waited=$((waited + 2))
     if (( waited >= cap )); then
       _warn "qmd llama lock held >${cap}s by another process — proceeding without it"

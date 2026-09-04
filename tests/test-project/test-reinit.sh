@@ -127,8 +127,12 @@ _acquire_llama_guard_lock() {
   local lock="${XDG_CACHE_HOME:-$HOME/.cache}/qmd/.llama.lock"
   mkdir -p "$(dirname "${lock}")" 2>/dev/null || return 1
   exec 200>"${lock}" 2>/dev/null || return 1
-  local waited=0
+  local waited=0 first_wait=1
   while ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; do
+    if (( first_wait )); then
+      first_wait=0
+      echo "(waiting for qmd llama lock — sibling container is running qmd doctor/pull)…"
+    fi
     waited=$((waited + 2))
     if (( waited >= 60 )); then return 1; fi
     sleep 2
