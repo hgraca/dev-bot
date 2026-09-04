@@ -129,7 +129,19 @@ _install_dependencies() {
   fi
 
   _info "Installing npm dependencies..."
+  # Serialize across concurrent installs sharing the npm cache (~/.npm — mounted
+  # rw into every dev-bot e2e container): two `npm install` reify runs on one
+  # cacache contend and hang. Bounded wait; proceed without the lock rather
+  # than block install forever.
+  local npm_cache="${npm_config_cache:-$HOME/.npm}" locked=false
+  if _devbot_lock_wait "${npm_cache}/.devbot-install.lock" 600 \
+    "npm cache lock held >600s by another dev-bot install — proceeding without it"; then
+    locked=true
+  fi
   npm install --prefix "${DEV_BOT_ROOT}"
+  if [[ "${locked}" == true ]]; then
+    exec 200>&- 2>/dev/null || true
+  fi
   _ok "npm dependencies installed"
 }
 
