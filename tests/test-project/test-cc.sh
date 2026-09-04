@@ -95,12 +95,20 @@ trap cleanup EXIT INT TERM
 # would otherwise silently use an empty container-local dir).
 read -r -a COMPOSER_ARGS <<< "$(composer_cache_args)"
 
+# ~/.claude is mounted so the container's claude CLI inherits the HOST claude
+# login (~/.claude/.credentials.json) — without it the automated
+# `devbot -p "/devbot:audit"` fails with "Not logged in · Please run /login"
+# (the opencode harness auths via the separately-mounted ~/.local/share/opencode).
+# Runs as the host uid, so file ownership matches and claude can read/write its
+# own state (settings, backups) as usual.
+
 docker run -it --rm --name "${CONTAINER_NAME}" \
   --network host \
   "${GPU_ARGS[@]}" \
   "${COMPOSER_ARGS[@]+"${COMPOSER_ARGS[@]}"}" \
   -v "${RUN_DIR}:/app" \
   -v "${HOME}/.ssh:/tmp/ssh:ro" \
+  -v "${HOME}/.claude:/home/ubuntu/.claude" \
   -v "${HOME}/.local/share/opencode:/home/ubuntu/.local/share/opencode" \
   -v "${HOME}/.cache/qmd:/home/ubuntu/.cache/qmd" \
   -v "${HOME}/.cache/opencode:/home/ubuntu/.cache/opencode" \
