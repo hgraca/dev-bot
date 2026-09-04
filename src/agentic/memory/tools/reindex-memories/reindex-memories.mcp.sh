@@ -91,17 +91,51 @@ fi
 
 rm -f "$PID_FILE"
 
+# ── Background job log (audit-49 NOTE-2) ─────────────────────────────────────
+# The background job used to discard qmd's output to /dev/null, so a slow or
+# failed reindex was unobservable (a passive reindex was watched take ~10 min
+# with no log trail and no completion marker). Log the job to the project's
+# .agents/logs/qmd-index.log when run from a project (hooks and the MCP
+# servers run the tool with the project as cwd), else to the devbot cache.
+BG_LOG=""
+if [[ -d "$PWD/.agents" ]]; then
+  mkdir -p "$PWD/.agents/logs" 2>/dev/null || true
+  BG_LOG="$PWD/.agents/logs/qmd-index.log"
+else
+  mkdir -p "$LOCK_DIR" 2>/dev/null || true
+  BG_LOG="$LOCK_DIR/reindex-memories.log"
+fi
+
 # `qmd cleanup` first prunes orphaned embedding chunks (stale vectors from
 # deleted/moved docs) so they don't silently accumulate across sessions
 # (audit-20 FAIL: 135 orphaned chunks, 14%). Best-effort: a cleanup failure
 # must not block the reindex. Prune mode skips embed — see header.
 if [[ "${MODE}" == "prune" ]]; then
-  ( qmd cleanup >/dev/null 2>&1; qmd update; rm -f "$PID_FILE" ) >/dev/null 2>&1 &
   bg_message="qmd cleanup && qmd update (prune, no embed) launched in background"
 else
-  ( qmd cleanup >/dev/null 2>&1; qmd update && qmd embed; rm -f "$PID_FILE" ) >/dev/null 2>&1 &
   bg_message="qmd cleanup && qmd update && qmd embed launched in background"
 fi
+
+# The job runs with errexit OFF: the tool itself is `set -e`, and an inherited
+# errexit would abort the subshell on the first failing qmd step BEFORE it
+# removes the pid file — leaking the pid and wedging the tool into perpetual
+# in_progress (audit-49 NOTE-2). Record and log each step's exit code instead.
+(
+  set +e
+  {
+    echo "[reindex-memories] ${MODE} start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    qmd cleanup
+    _cleanup_rc=$?
+    if [[ "${MODE}" == "prune" ]]; then
+      qmd update
+    else
+      qmd update && qmd embed
+    fi
+    _reindex_rc=$?
+    echo "[reindex-memories] ${MODE} finished cleanup=${_cleanup_rc} update-embed=${_reindex_rc} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } >> "${BG_LOG}" 2>&1
+  rm -f "$PID_FILE"
+) &
 bg_pid=$!
 echo "$bg_pid" > "$PID_FILE"
 disown "$bg_pid" 2>/dev/null || true

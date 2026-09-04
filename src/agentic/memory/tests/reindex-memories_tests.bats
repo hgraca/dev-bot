@@ -12,6 +12,10 @@ setup() {
   WORK="$(mktemp -d)"
   export XDG_CACHE_HOME="$WORK"
 
+  # Run from a scratch dir so the tool's cwd-derived log target stays inside
+  # $WORK (never the repo's own .agents/logs).
+  cd "$WORK"
+
   # Fake qmd so tests never trigger a real index/embed.
   STUB_DIR="$WORK/bin"
   mkdir -p "$STUB_DIR"
@@ -211,4 +215,93 @@ SCRIPT
   run env PATH="$STUB_DIR:$PATH" bash "$TOOL"
   assert_success
   assert_output --partial '"status":"started"'
+}
+
+# ── Background job logging (audit-49 NOTE-2) ─────────────────────────────────
+# The background job used to discard qmd's output to /dev/null, so a slow or
+# failed reindex was unobservable. The job now logs start/done markers with
+# exit codes to the project's .agents/logs/qmd-index.log (when run from a
+# project) or the devbot cache log otherwise.
+
+# A "project" scratch dir with .agents/logs, plus a qmd that records argv.
+make_project() {
+  local proj="$1"
+  mkdir -p "$proj/.agents/logs"
+  cat > "$STUB_DIR/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$*" >> "$QMD_CALL_LOG"
+exit 0
+SCRIPT
+  chmod +x "$STUB_DIR/qmd"
+}
+
+wait_for_pid_gone() {
+  local i
+  for i in $(seq 1 100); do
+    [[ ! -f "$WORK/devbot/reindex-memories.pid" ]] && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+@test "tool: background job logs start/done markers with exit codes to the project qmd-index.log" {
+  local proj="$WORK/project"
+  make_project "$proj"
+  local call_log="$WORK/qmd-full.log"
+  local index_log="$proj/.agents/logs/qmd-index.log"
+
+  cd "$proj"
+  run env PATH="$STUB_DIR:$PATH" QMD_CALL_LOG="$call_log" bash "$TOOL"
+  cd "$WORK"
+  assert_success
+
+  wait_for_pid_gone
+  [[ -f "$index_log" ]] || fail "no qmd-index.log written in project"
+
+  run cat "$index_log"
+  assert_output --regexp "\[reindex-memories\] full start"
+  assert_output --regexp "\[reindex-memories\] full finished cleanup=0 update-embed=0"
+}
+
+@test "tool: prune-mode background job logs a prune marker" {
+  local proj="$WORK/project-prune"
+  make_project "$proj"
+  local index_log="$proj/.agents/logs/qmd-index.log"
+
+  cd "$proj"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" prune
+  cd "$WORK"
+  assert_success
+
+  wait_for_pid_gone
+  run cat "$index_log"
+  assert_output --regexp "\[reindex-memories\] prune start"
+  assert_output --regexp "\[reindex-memories\] prune finished cleanup=0 update-embed=0"
+}
+
+@test "tool: pid file is removed and failure logged even when qmd exits non-zero" {
+  # audit-49 NOTE-2 latent bug: the background subshell inherited the tool's
+  # `set -e`, so a failing `qmd cleanup` aborted the subshell BEFORE its
+  # `rm -f "$PID_FILE"` — leaking the pid file and wedging the tool into
+  # perpetual in_progress. The job must run errexit-off: record the exit
+  # codes, log them, and always remove the pid file.
+  local proj="$WORK/project-fail"
+  make_project "$proj"
+  cat > "$STUB_DIR/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "boom" >&2
+exit 1
+SCRIPT
+  chmod +x "$STUB_DIR/qmd"
+  local index_log="$proj/.agents/logs/qmd-index.log"
+
+  cd "$proj"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL"
+  cd "$WORK"
+  assert_success
+
+  wait_for_pid_gone || fail "pid file was not removed after a failing qmd run"
+  run cat "$index_log"
+  assert_output --regexp "boom"
+  assert_output --regexp "\[reindex-memories\] full finished cleanup=1"
 }
