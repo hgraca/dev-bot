@@ -178,19 +178,8 @@ if [[ "${DEVBOT_TEST_NONINTERACTIVE:-0}" == "1" ]]; then
   exit 0
 fi
 
-# Only drop into an interactive shell when stdin really is a tty — otherwise a
-# `bash -i` with no usable stdin looks like a hang where typing does nothing.
-# `stty sane` first: if anything earlier left the tty with echo off / raw
-# (e.g. a crashed TUI or password prompt), restore a normal line discipline so
-# the prompt actually echoes input.
-if [[ -t 0 ]]; then
-  stty sane 2>/dev/null || true
-  echo
-  echo "=== Test done — interactive shell (uid $(id -u)) on $(tty 2>/dev/null || echo 'no-tty') ==="
-  echo "  (if typing does not echo, your terminal is not forwarding stdin to docker —"
-  echo "   from a real terminal run: docker exec -it ${DEVBOT_TEST_CONTAINER_NAME:-<container>} bash)"
-  bash -i
-else
-  echo "=== Test complete — no tty attached, exiting cleanly ==="
-  exit 0
-fi
+echo
+echo "=== Test done — interactive shell (uid $(id -u)). Run 'exit' to leave. ==="
+echo "  (if typing does not echo here, your terminal is not forwarding stdin to"
+echo "   docker — from a real terminal run: docker exec -it ${DEVBOT_TEST_CONTAINER_NAME:-<container>} bash)"
+bash -i
