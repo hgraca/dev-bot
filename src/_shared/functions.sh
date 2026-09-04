@@ -292,6 +292,12 @@ _devbot_check_session_logs() {
   # SQLITE_CONSTRAINT_PRIMARYKEY tokens even without the word "failed" — the
   # _\b_ boundaries would miss the compound token).
   local pattern='(\b(error|fatal|traceback|exception|failed)\b|constraint)'
+  # Known-benign qmd graceful-degradation lines: when the shared GPU lacks VRAM
+  # (concurrent e2e containers / host ollama), qmd's query-time reranker and
+  # query-expansion skip with an InsufficientMemoryError and the search still
+  # works — degraded quality, not a runtime failure (audit-45 §4). These lines
+  # must not trip the session-end alert the way a genuine crash would.
+  local benign='(Reranker unavailable|Structured query expansion failed|GPU init failed|no GPU acceleration|InsufficientMemoryError|skipping reranking)'
   local report_logs="lint-k8s.log format-md.log format-json.log format-yml.log"
   local file count found=0
   while IFS= read -r file; do
@@ -299,7 +305,7 @@ _devbot_check_session_logs() {
     case " ${report_logs} " in
       *" $(basename "${file}") "*) continue ;;
     esac
-    count="$(grep -ciE "${pattern}" "${file}" 2>/dev/null || true)"
+    count="$(grep -iE "${pattern}" "${file}" 2>/dev/null | grep -viE "${benign}" | grep -c . || true)"
     if [[ "${count}" =~ ^[0-9]+$ ]] && (( count > 0 )); then
       found=$((found + 1))
       if [[ ${found} -eq 1 ]]; then
@@ -309,6 +315,7 @@ _devbot_check_session_logs() {
       # Distinct error types: normalized matching lines, most frequent first.
       local types type_count
       types="$(grep -iE "${pattern}" "${file}" 2>/dev/null \
+        | grep -viE "${benign}" \
         | sed -E 's/^\[[^]]*\][[:space:]]*//g; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//' \
         | sort | uniq -c | sort -rn || true)"
       type_count="$(printf '%s\n' "${types}" | grep -c . 2>/dev/null || true)"
