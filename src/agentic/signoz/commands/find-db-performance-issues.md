@@ -1,15 +1,21 @@
 ---
 name: devbot:find-db-performance-issues
-description: Find database issues (runaway/long-running queries, full table scans, slow queries, N+1, app anti-patterns, lock contention, hardware limitations) driving DB load — starting from a live processlist investigation of the DB, then SigNoz
+description: Find database issues (runaway/long-running queries, full table scans, slow queries, N+1, app anti-patterns, lock contention, hardware limitations) driving DB load — starting from a live processlist investigation of the database, then the observability platform
 ---
 
 Find every category of database issue in production, then produce a delegation-ready inventory. Categorize each finding as exactly one of the categories below.
 
-**Start with §0 (live DB investigation) before any SigNoz work.** SigNoz digest/trace views only show _completed_ statements — a query that has run for days without finishing (optimizer spin, runaway scan) is invisible to them yet can be the entire CPU load.
+**Technology mapping — the method is stack-agnostic; names in this command are the current production stack used as examples, substitute your own equivalents:**
+
+- **Relational database** — the production instance whose live processes you inspect. Example: MariaDB/MySQL on a shared AWS RDS instance (`gete-prod`), reached via a read-only connection (`prod-mariadb-read`). The introspection SQL below is MariaDB/MySQL dialect (`information_schema`, `performance_schema`).
+- **Observability platform** — traces + DB metrics for the workload profile and per-query ranking. Example: SigNoz MCP — trace aggregation (`signoz_aggregate_traces`) and exported server metrics (`mysql_global_status_*`, `aws_rds_*`), filtered by environment label (`deployment.environment = 'production'`).
+- **Direct SQL access** — your IDE's MCP database tools for the live processlist. Example: JetBrains MCP (`list_database_connections`, `execute_sql_query`).
+
+**Start with §0 (live DB investigation) before any observability-platform work.** Completed-statement digest/trace views (e.g. SigNoz) only show _completed_ statements — a query that has run for days without finishing (optimizer spin, runaway scan) is invisible to them yet can be the entire CPU load.
 
 ## 0. Investigate the live DB first — running processes, duration, repetition, resource consumption
 
-Access is **direct SQL through the JetBrains MCP database tools** (not SigNoz): `list_database_connections` → pick the read-only production connection (e.g. `prod-mariadb-read`), then `execute_sql_query` on it. The RDS instance is usually shared and hosts several applications' schemas (`gete_prod`, `drivers`, `hotels`, `audit_log`, `positioning_*`, …). The processlist is instance-wide — **attribute findings by schema/user**. Keep the connection read-only: report live thread IDs as kill candidates for a write connection; never kill from here.
+Access is **direct SQL through your IDE's MCP database tools** (e.g. JetBrains MCP: `list_database_connections` → pick the read-only production connection such as `prod-mariadb-read` → `execute_sql_query`) — the observability platform cannot see running processes. The relational database instance (e.g. MariaDB/MySQL on RDS) is usually shared and hosts several applications' schemas (`gete_prod`, `drivers`, `hotels`, `audit_log`, `positioning_*`, …). The processlist is instance-wide — **attribute findings by schema/user**. Keep the connection read-only: report live thread IDs as kill candidates for a write connection; never kill from here.
 
 ### 0.1 Running processes and duration
 
@@ -43,7 +49,7 @@ WHERE THREAD_ID = <thread_id> AND COUNT_STAR > 0
 ORDER BY SUM_TIMER_WAIT DESC;
 ```
 
-- **Near-zero waits while the statement timer keeps advancing = on-CPU** (optimizer/statistics spin, scan compute). This is the signature of an invisible runaway: report it even though no digest/SigNoz view shows it (session evidence: an 8-day `COUNT(*)` stuck in `Statistics` showed ~0 waits while its timer advanced 711,058 → 711,154s).
+- **Near-zero waits while the statement timer keeps advancing = on-CPU** (optimizer/statistics spin, scan compute). This is the signature of an invisible runaway: report it even though no observability digest/trace view shows it (session evidence: an 8-day `COUNT(*)` stuck in `Statistics` showed ~0 waits while its timer advanced 711,058 → 711,154s).
 - Meaningful wait time (I/O, locks, mutex) = blocked → different category (lock contention / I/O bound).
 
 ### 0.3 Repetition / burst detection
@@ -81,9 +87,9 @@ Every issue found here is a finding like any other: attach the per-query metrics
 
 ## 1. Per-query metrics (required for every problematic query)
 
-For **every query** you report as a finding — whether from ranking by total time, by latency, by frequency, an N+1, or an app anti-pattern — you MUST report three numbers:
+For **every query** you report as a finding — whether from ranking by total time, by latency, by frequency, an N+1, or an app anti-pattern — you MUST report three numbers, via your observability platform's trace aggregation (e.g. SigNoz MCP `signoz_aggregate_traces`):
 
-- **Executions per day** — `signoz_aggregate_traces` aggregation `count` for the exact query text over `timeRange = 24h`. If the trace store is sampled, state that the count is the sampled-store count and, when possible, cross-check server-side (e.g. `mysql_global_status_*` counters, or a longer window) and say which figure you are reporting.
+- **Executions per day** — aggregation `count` for the exact query text over a 24h window (`timeRange = 24h`). If the trace store is sampled, state that the count is the sampled-store count and, when possible, cross-check server-side (e.g. the DB server's own status counters, or a longer window) and say which figure you are reporting.
 - **Median duration (p50)** — aggregation `p50`, `aggregateOn = durationNano`, same filter.
 - **p95 duration** — aggregation `p95`, `aggregateOn = durationNano`, same filter.
 
@@ -91,7 +97,7 @@ Report them inline per finding, e.g. `~85×/day · median 4.2 ms · p95 18.0 ms`
 
 ## 2. Establish the load profile
 
-Query these metrics with `deployment.environment = 'production'`, 24h window:
+Query the DB server's status/throughput counters and the managed-database resource metrics (e.g. mysqld-exporter status metrics `mysql_global_status_*` and AWS RDS CloudWatch metrics `aws_rds_*`, as exposed by your observability platform) for the production environment (e.g. filter `deployment.environment = 'production'`), 24h window:
 
 **Query-driven vs concurrency vs resource-bound**
 
@@ -122,13 +128,17 @@ Query these metrics with `deployment.environment = 'production'`, 24h window:
 
 ## 3. Rank queries
 
-- **By total DB time (CPU)**: `signoz_aggregate_traces` aggregation `sum`, `aggregateOn = durationNano`, `groupBy = service.name, db.query.text`, filter `db.query.text != '' AND deployment.environment = 'production'`, `timeRange = 24h`, `limit = 60`, order `sum(durationNano) desc`.
+Rank the queries by tracing data from your observability platform (e.g. `signoz_aggregate_traces`), grouping by service and query text (`groupBy = service.name, db.query.text`), filtered to production (`db.query.text != '' AND deployment.environment = 'production'`), 24h window:
+
+- **By total DB time (CPU)**: aggregation `sum`, `aggregateOn = durationNano`, `limit = 60`, order `sum(durationNano) desc`.
 - **By latency (slow queries)**: aggregation `avg`, `aggregateOn = durationNano`, same groupBy/filter, order `avg(durationNano) desc`. Also `p99` for tail latency.
 - **By frequency (N+1)**: aggregation `count`, same groupBy/filter, order `count() desc`.
 
-For every query that lands in the report, add the per-query metrics from section 1: **count/day, p50, p95** (`signoz_aggregate_traces` aggregation `count` / `p50` / `p95`, `aggregateOn = durationNano`, same filter). Trace stores are usually sampled — a `count` from `signoz_aggregate_traces` is the sampled figure. When a query's volume looks anomalously low versus a prior report or the load profile (e.g. a job query that used to run ~7.8k/day now showing ~85/day), verify before reporting: widen the window (7d), check whether the statement text changed (a query rewrite changes `db.query.text` and orphans the old group), and check whether the workload that runs it (scheduled job, endpoint) actually executed in the window. State the reconciled figure and the cause of the delta in the finding.
+For every query that lands in the report, add the per-query metrics from section 1: **count/day, p50, p95** (via your observability platform's trace aggregation: `count` / `p50` / `p95` over `durationNano`, same filter). Trace stores are usually sampled — the sampled count is the figure your aggregation returns. When a query's volume looks anomalously low versus a prior report or the load profile (e.g. a job query that used to run ~7.8k/day now showing ~85/day), verify before reporting: widen the window (7d), check whether the statement text changed (a query rewrite changes `db.query.text` and orphans the old group), and check whether the workload that runs it (scheduled job, endpoint) actually executed in the window. State the reconciled figure and the cause of the delta in the finding.
 
 ## 4. Detect N+1
+
+Using your observability platform's trace aggregation, grouped by trace ID and the span's SQL-text attribute (e.g. `traceID`, `db.query.text`):
 
 - Same point-lookup text executed ~1M+ times/day (`select * from X where id = ? limit 1`, `where <fk> = ?`).
 - `count` grouped by `traceID, db.query.text` — same query text repeated >3× within a single trace.
@@ -136,9 +146,9 @@ For every query that lands in the report, add the per-query metrics from section
 
 For each N+1 query confirmed, report the per-query metrics from section 1 (count/day, p50, p95) and the per-trace repetition count.
 
-## 4b. Detect application-level anti-patterns (inspect `db.query.text`)
+## 4b. Detect application-level anti-patterns (inspect the SQL-text attribute)
 
-Aggregate `count` grouped by `db.query.text` with these filters, and flag the offenders:
+Aggregate `count` grouped by the span's SQL-text attribute (e.g. `db.query.text`) with these filters, and flag the offenders:
 
 - **Over-fetching** — `db.query.text LIKE 'select *%'` (fetches whole wide rows when a few columns would do).
 - **Existence/count check** — `db.query.text CONTAINS 'count(*)'` (a `COUNT(*)` that could be `EXISTS` / `limit 1` / cached).
