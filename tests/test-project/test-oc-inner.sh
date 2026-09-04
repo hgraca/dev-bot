@@ -156,6 +156,13 @@ if [[ "${DEVBOT_TEST_NONINTERACTIVE:-0}" == "1" ]]; then
   exit 0
 fi
 
-echo
-echo "=== Test done — you are inside the container (uid $(id -u)). Run 'exit' to leave. ==="
-bash -i
+# Only drop into an interactive shell when stdin really is a tty — otherwise a
+# `bash -i` with no usable stdin looks like a hang where typing does nothing.
+if [[ -t 0 ]]; then
+  echo
+  echo "=== Test done — interactive shell (uid $(id -u)). Run 'exit' to leave. ==="
+  bash -i
+else
+  echo "=== Test complete — no tty attached, exiting cleanly ==="
+  exit 0
+fi

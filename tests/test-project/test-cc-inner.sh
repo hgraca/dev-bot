@@ -116,28 +116,44 @@ python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py"
   "${PWD}/opencode.jsonc" "${HOME}/.claude/**" 2>/dev/null || true
 _phase "claudecode grant"
 
-# claude
-#echo
-#echo "▶ Running headless devbot audit (/devbot:audit) — typically 10-20 min; output streams below."
-#echo "  (tee'd to /app/.agents/logs/devbot-audit-run.log for diagnosis)"
-#echo
-#mkdir -p /app/.agents/logs 2>/dev/null || true
-#set +e
-#devbot -p "/devbot:audit" 2>&1 | tee /app/.agents/logs/devbot-audit-run.log
-#AUDIT_RC=${PIPESTATUS[0]}
-#set -e
-#_phase "agent audit"
-#if [[ ${AUDIT_RC} -ne 0 ]]; then
-#  echo "WARN: devbot audit run failed (exit ${AUDIT_RC}) — see /app/.agents/logs/devbot-audit-run.log"
-#else
-#  # The audit must have written a report inside the isolated run; surface it.
-#  audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-*.md' 2>/dev/null | sort | tail -1 || true)"
-#  if [[ -n "${audit_report}" ]]; then
-#    echo "✔ audit report: ${audit_report}"
-#  else
-#    echo "WARN: devbot audit exited 0 but wrote NO devbot-audit-*.md report — see devbot-audit-run.log"
-#  fi
-#fi
+# ── Agent audit (headless) ────────────────────────────────────────────────────
+# Runs /devbot:audit through claude -p. This is the LONG phase (5-25 min
+# depending on model). Output streams live AND is tee'd to
+# .agents/logs/devbot-audit-run.log for diagnosis; a heartbeat line prints
+# every 60 s so a long run is visibly alive, never a silent hang. Pick a fast
+# model for quick iteration with DEVBOT_TEST_CLAUDE_MODEL (e.g. haiku).
+echo
+echo "▶ Running headless devbot audit (/devbot:audit)..."
+echo "  (streaming below; tee'd to .agents/logs/devbot-audit-run.log)"
+echo
+mkdir -p /app/.agents/logs 2>/dev/null || true
+AUDIT_START=$(date +%s)
+( while :; do sleep 60; echo "  ⏱ audit still running ($(( $(date +%s) - AUDIT_START ))s)…"; done ) & AUDIT_HB=$!
+set +e
+if [[ -n "${DEVBOT_TEST_CLAUDE_MODEL:-}" ]]; then
+  devbot -p --model "${DEVBOT_TEST_CLAUDE_MODEL}" "/devbot:audit" 2>&1 \
+    | tee /app/.agents/logs/devbot-audit-run.log
+else
+  devbot -p "/devbot:audit" 2>&1 | tee /app/.agents/logs/devbot-audit-run.log
+fi
+AUDIT_RC=${PIPESTATUS[0]}
+set -e
+kill "${AUDIT_HB}" 2>/dev/null || true
+wait "${AUDIT_HB}" 2>/dev/null || true
+_phase "agent audit"
+echo
+if [[ ${AUDIT_RC} -ne 0 ]]; then
+  echo "WARN: devbot audit run failed (exit ${AUDIT_RC}) — tail of devbot-audit-run.log:"
+  tail -5 /app/.agents/logs/devbot-audit-run.log 2>/dev/null | sed 's/^/  /'
+else
+  # The audit must have written a report inside the isolated run; surface it.
+  audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-*.md' 2>/dev/null | sort | tail -1 || true)"
+  if [[ -n "${audit_report}" ]]; then
+    echo "✔ audit report written: ${audit_report}"
+  else
+    echo "WARN: devbot audit exited 0 but wrote NO devbot-audit-*.md report — see devbot-audit-run.log"
+  fi
+fi
 
 # Remove the test git repo when the container exits so the host mount
 # (/app = this run's isolated copy) stays a plain directory. NOTE: not `exec` —
@@ -174,6 +190,13 @@ if [[ "${DEVBOT_TEST_NONINTERACTIVE:-0}" == "1" ]]; then
   exit 0
 fi
 
-echo
-echo "=== Test done — you are inside the container (uid $(id -u)). Run 'exit' to leave. ==="
-bash -i
+# Only drop into an interactive shell when stdin really is a tty — otherwise a
+# `bash -i` with no usable stdin looks like a hang where typing does nothing.
+if [[ -t 0 ]]; then
+  echo
+  echo "=== Test done — interactive shell (uid $(id -u)). Run 'exit' to leave. ==="
+  bash -i
+else
+  echo "=== Test complete — no tty attached, exiting cleanly ==="
+  exit 0
+fi
