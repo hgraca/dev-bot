@@ -202,6 +202,66 @@ SCRIPT
   rm -rf "$mockdir"
 }
 
+# ── --query flag forms (audit-49 NOTE-1) ─────────────────────────────────────
+# The wrapper forwarded a literal --query into EXTRA_ARGS without its value, so
+# `search-memories --query "phrase"` produced a valueless trailing --query and
+# argparse failed with "argument --query: expected one argument". --query must
+# behave like the other two-token flags (--collection/--max-results).
+
+@test "--query <value> two-token form: value forwarded, not treated as query" {
+  local mockdir
+  mockdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  cat > "$mockdir/python3" <<'SCRIPT'
+#!/bin/bash
+echo "$*"
+SCRIPT
+  chmod +x "$mockdir/python3"
+
+  PATH="$mockdir:/usr/bin:/bin" run "$BASH" "$TOOL" --query "planning workflow"
+
+  assert_success
+  assert_output --regexp "\-\-query planning workflow"
+  # The phrase must not also appear as a separate valueless --query.
+  refute_output --regexp "\-\-query[[:space:]]*$"
+  rm -rf "$mockdir"
+}
+
+@test "--query=<value> embedded form: passed through to python" {
+  local mockdir
+  mockdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  cat > "$mockdir/python3" <<'SCRIPT'
+#!/bin/bash
+echo "$*"
+SCRIPT
+  chmod +x "$mockdir/python3"
+
+  PATH="$mockdir:/usr/bin:/bin" run "$BASH" "$TOOL" "--query=planning" "--max-results=3"
+
+  assert_success
+  assert_output --regexp "\-\-query=planning"
+  assert_output --regexp "\-\-max-results.*3"
+  rm -rf "$mockdir"
+}
+
+@test "audit-49 repro: --query phrase --max-results n parses end to end" {
+  local mockdir
+  mockdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  cat > "$mockdir/python3" <<'SCRIPT'
+#!/bin/bash
+echo "$*"
+SCRIPT
+  chmod +x "$mockdir/python3"
+
+  PATH="$mockdir:/usr/bin:/bin" run "$BASH" "$TOOL" --query "billing erp" --max-results 3
+
+  assert_success
+  assert_output --regexp "\-\-query billing erp"
+  assert_output --regexp "\-\-max-results 3"
+  # No valueless --query left dangling before the next flag (audit-49 failure).
+  refute_output --regexp "\-\-query \-\-max-results"
+  rm -rf "$mockdir"
+}
+
 # ── Two-token --collection and --max-results forwarding ──────────────────────
 # These test the fix for the bug where "--collection myproj" would drop "myproj"
 # as a search query instead of forwarding it as the collection value.
