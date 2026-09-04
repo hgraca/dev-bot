@@ -115,9 +115,9 @@ python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py"
   "${PWD}/opencode.jsonc" "${HOME}/.opencode/**" 2>/dev/null || true
 _phase "opencode grant"
 
-echo
-echo "doing agent audit..."
-echo
+#echo
+#echo "doing agent audit..."
+#echo
 ## Run the audit command body through opencode.
 #CMD_BODY=$(cat .agents/commands/devbot/audit.md | awk 'n < 2 { if (/^---[[:space:]]*$/) n++; next } { print }')
 #opencode run "$CMD_BODY" || echo "WARN: opencode run failed (exit $?) — likely missing model credentials"
