@@ -14,13 +14,14 @@ export SKIP_CONFIRM=1
 # qmd embedding can be slow on CPU — give it a generous bound.
 export QMD_EMBED_TIMEOUT=300
 
-# Use an ISOLATED qmd SQLite index for the test, so the host's shared index
-# (~/.cache/qmd/index.sqlite, mounted into the container for the ~2 GB model
-# cache) is never polluted by test collections/probes. qmd's store.js checks
-# INDEX_PATH first; the model cache still comes from XDG_CACHE_HOME (shared).
-# This also lets the host and container use qmd concurrently without lock
-# contention on the same index.
-export INDEX_PATH="/tmp/qmd-test/index.sqlite"
+# Use a SHARED qmd SQLite index for the devbot-test runs, living under the
+# host-mounted qmd cache (~/.cache/qmd is mounted rw into every container), so
+# parallel cc + oc runs index the ~600-doc global store ONCE, not once per
+# container. The llama-heavy embed is serialized by qmd/init.sh's cross-process
+# lock (.llama.lock in the same cache) — see qmd/init.sh. The host's REAL index
+# (~/.cache/qmd/index.sqlite) is still never touched; this is a dedicated
+# devbot-test database. Override with QMD_TEST_INDEX_PATH.
+export INDEX_PATH="${QMD_TEST_INDEX_PATH:-$HOME/.cache/qmd/devbot-test/index.sqlite}"
 mkdir -p "$(dirname "${INDEX_PATH}")"
 
 # ── Duration capture ──────────────────────────────────────────────────────────

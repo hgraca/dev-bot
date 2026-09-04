@@ -115,13 +115,39 @@ fi
 # GGUF models in its model cache (`qmd pull`); without them the LLM call hangs
 # until the MCP timeout (-32001). The Dockerfile bakes them; this guard covers
 # older images. Non-fatal — `qmd search` / `rerank:false` still work without.
-if qmd doctor 2>/dev/null | grep -q "missing 0/3"; then
-  echo "qmd models already present"
-else
-  echo "pulling qmd models (embedding + query-expansion + reranker)..."
-  if timeout "${QMD_PULL_TIMEOUT:-600}" qmd pull >/dev/null 2>&1; then
-    echo "qmd models ready"
+#
+# Serialized with the SAME cross-process llama lock qmd/init.sh uses
+# (XDG_CACHE_HOME/qmd/.llama.lock — a host mount shared by cc + oc containers):
+# `qmd doctor` runs a llama CPU probe (~14 s) and `qmd pull` writes the shared
+# model cache; running either from two containers at once doubles the CPU burn
+# and races the same model files. Bounded wait (60 s); if the sibling is still
+# holding the lock, skip the guard this run (models are likely being handled
+# there) rather than block.
+_acquire_llama_guard_lock() {
+  local lock="${XDG_CACHE_HOME:-$HOME/.cache}/qmd/.llama.lock"
+  mkdir -p "$(dirname "${lock}")" 2>/dev/null || return 1
+  exec 200>"${lock}" 2>/dev/null || return 1
+  local waited=0
+  while ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; do
+    waited=$((waited + 2))
+    if (( waited >= 60 )); then return 1; fi
+    sleep 2
+  done
+  return 0
+}
+
+if _acquire_llama_guard_lock; then
+  if qmd doctor 2>/dev/null | grep -q "missing 0/3"; then
+    echo "qmd models already present"
   else
-    echo "WARN: qmd pull failed or timed out — 'qmd query' rerank will be unavailable (search still works)"
+    echo "pulling qmd models (embedding + query-expansion + reranker)..."
+    if timeout "${QMD_PULL_TIMEOUT:-600}" qmd pull >/dev/null 2>&1; then
+      echo "qmd models ready"
+    else
+      echo "WARN: qmd pull failed or timed out — 'qmd query' rerank will be unavailable (search still works)"
+    fi
   fi
+  exec 200>&- 2>/dev/null || true
+else
+  echo "WARN: qmd llama lock busy (sibling container) — skipping model check/pull; 'qmd query' rerank may be unavailable this run"
 fi
