@@ -20,9 +20,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}"
 
-# Optional branch to install (default: main), forwarded to the inner script
-# and used by the devbot install line in test-reinit.sh.
-BRANCH="${1:-main}"
+# Optional branch to install (default: main) and --headless flag (run the
+# audit headlessly instead of dropping to a shell to run it manually).
+# Usage: ./test-cc.sh [<branch>] [--headless]  (flags may appear anywhere)
+BRANCH="main"
+HEADLESS=0
+for _arg in "$@"; do
+  case "${_arg}" in
+    --headless) HEADLESS=1 ;;
+    *) BRANCH="${_arg}" ;;
+  esac
+done
 
 if ! docker image inspect devbot-test >/dev/null 2>&1; then
   echo "Building devbot-test image..."
@@ -117,6 +125,7 @@ docker run -it --rm --name "${CONTAINER_NAME}" \
   -e "JETBRAINS_PROJECT_PATH=${SCRIPT_DIR}" \
   -e "DEV_BOT_TEST_BRANCH=${BRANCH}" \
   -e "DEVBOT_TEST_NONINTERACTIVE=${DEVBOT_TEST_NONINTERACTIVE:-0}" \
+  -e "DEVBOT_TEST_HEADLESS=${HEADLESS}" \
   -e "DEVBOT_TEST_CLAUDE_MODEL=${DEVBOT_TEST_CLAUDE_MODEL:-}" \
   -w /app \
   --user "$(id -u):$(id -g)" \

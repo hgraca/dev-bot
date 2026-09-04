@@ -123,6 +123,28 @@ _phase "opencode grant"
 #opencode run "$CMD_BODY" || echo "WARN: opencode run failed (exit $?) — likely missing model credentials"
 #_phase "agent audit"
 
+# ── Agent audit — headless (opt-in) or manual ─────────────────────────────────
+# Default (no --headless on the launcher): skip the audit and drop to the
+# interactive shell so you can run /devbot:audit manually in the harness.
+# With --headless (DEVBOT_TEST_HEADLESS=1): run it via `opencode run --command`.
+if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
+  echo
+  echo "▶ Running headless audit (opencode run --command devbot:audit)..."
+  echo "  (tee'd to .agents/logs/devbot-audit-run.log)"
+  echo
+  mkdir -p /app/.agents/logs 2>/dev/null || true
+  set +e
+  opencode run --command devbot:audit 2>&1 | tee /app/.agents/logs/devbot-audit-run.log
+  AUDIT_RC=${PIPESTATUS[0]}
+  set -e
+  _phase "agent audit"
+  if [[ ${AUDIT_RC} -ne 0 ]]; then
+    echo "WARN: headless opencode audit failed (exit ${AUDIT_RC}) — see devbot-audit-run.log"
+  fi
+else
+  echo "(headless audit skipped — run /devbot:audit manually in the harness below)"
+fi
+
 # Remove the test git repo when the container exits so the host mount
 # (/app = this run's isolated copy) stays a plain directory. NOTE: not `exec` —
 # the EXIT trap must fire after the interactive shell ends.
