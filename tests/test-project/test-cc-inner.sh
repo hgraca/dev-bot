@@ -196,27 +196,8 @@ if [[ "${DEVBOT_TEST_NONINTERACTIVE:-0}" == "1" ]]; then
   exit 0
 fi
 
-# Only drop into an interactive shell when stdin really is a tty — otherwise a
-# `bash -i` with no usable stdin looks like a hang where typing does nothing.
-# Re-assert a normal line discipline first (echo + canonical): if anything
-# earlier left the tty with echo off, typing would show nothing while Ctrl+C
-# still works. The termios lines below report whether echo is on.
-if [[ -t 0 ]]; then
-  echo
-  echo "=== Test done — interactive shell (uid $(id -u)) on $(tty 2>/dev/null || echo 'no-tty') ==="
-  echo "  (if typing does not echo, your terminal is not forwarding stdin to docker —"
-  echo "   from a real terminal run: docker exec -it ${DEVBOT_TEST_CONTAINER_NAME:-<container>} bash)"
-  if stty -a 2>/dev/null | grep -q -- '-echo'; then
-    echo "  (tty: echo OFF — restoring)"
-  fi
-  stty sane echo icanon -echoctl 2>/dev/null || true
-  if stty -a 2>/dev/null | grep -q -- '-echo'; then
-    echo "  (tty: echo STILL OFF after stty sane — container tty problem, not the script)"
-  else
-    echo "  (tty: echo on — prompt should echo your typing)"
-  fi
-  bash -i
-else
-  echo "=== Test complete — no tty attached, exiting cleanly ==="
-  exit 0
-fi
+echo
+echo "=== Test done — interactive shell (uid $(id -u)). Run 'exit' to leave. ==="
+echo "  (if typing does not echo here, your terminal is not forwarding stdin to"
+echo "   docker — from a real terminal run: docker exec -it ${DEVBOT_TEST_CONTAINER_NAME:-<container>} bash)"
+bash -i
