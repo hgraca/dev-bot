@@ -5,6 +5,7 @@
       "event": "file.edited",
       "match": { "file": "\\.(ya?ml)$" },
       "run": ["python3", "{module}/tools/format-yml.py", "{file}"],
+      "skipOnCreate": true,
       "log": ".agents/logs/format-yml.log"
     }
   ]

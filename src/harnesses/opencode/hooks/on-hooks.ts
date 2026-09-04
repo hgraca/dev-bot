@@ -16,7 +16,7 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { defaultHookLog, createFileEditGate, createRewriteEchoTracker, guardDecision, resolveGlobalConfigPath, routeHookOutput, type HookDecl } from "../on-hooks-utils"
+import { defaultHookLog, createFileEditGate, createKindResolver, createRewriteEchoTracker, guardDecision, resolveGlobalConfigPath, routeHookOutput, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -69,6 +69,8 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
   const fileEditGate = createFileEditGate()
   // Rewrite-echo suppression (audit-37 §2: formatter ping-pong).
   const rewriteEcho = createRewriteEchoTracker()
+  // Create-vs-edit classification (audit-48 FAIL-1: format-on-create corrupts).
+  const kindResolver = createKindResolver()
 
   // Content signature of a file — the echo of a hook's own rewrite has the
   // same signature as the state recorded after dispatch; a real edit differs.
@@ -111,10 +113,16 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
   }
 
   // Non-blocking event dispatch (file.edited, session.*).
-  async function dispatch(eventName: string, matchFile: string | undefined, ctx: Record<string, string>) {
+  async function dispatch(eventName: string, matchFile: string | undefined, ctx: Record<string, string>, opts: { create?: boolean } = {}) {
     for (const { moduleDir, hooks } of manifests) {
       for (const hook of hooks) {
         if (hook.event !== eventName || !hook.run) continue
+        // audit-48 FAIL-1: a rewrite hook (formatter) must not run on the
+        // file.edited of a file *create* — normalizing the file before the
+        // agent's next edit makes opencode's fuzzy edit tool splice
+        // stale-indentation hunks into it. Read-only hooks opt in to creates
+        // by leaving skipOnCreate unset.
+        if (opts.create && hook.skipOnCreate) continue
         const re = hook.match?.file
         if (re && matchFile !== undefined && !new RegExp(re).test(matchFile)) continue
         const contentRe = hook.match?.content
@@ -153,16 +161,30 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
             // Drop the echo so one user edit runs content hooks exactly once.
             return
           }
-          // audit-32 FAIL: format-yml burst race — two file.edited events
-          // within ~1s ran two concurrent format hooks whose read-modify-write
-          // interleaves corrupted the file. Serialize + coalesce per file: a
-          // burst collapses into one in-flight run plus one trailing re-run.
-          fileEditGate(file, async () => {
-            await dispatch("file.edited", file, { file })
-            // Record the post-hook content so the echo of a rewrite the hooks
-            // just performed is recognized (and dropped) above.
-            rewriteEcho.record(file, contentSig(file))
+          // audit-48 FAIL-1: file.edited carries no create-vs-edit flag — the
+          // companion file.watcher.updated does. Buffer until it arrives (or a
+          // settle timeout defaults to "change") so skipOnCreate hooks can
+          // avoid normalizing a freshly-written file (see dispatch()).
+          kindResolver.onEdited(file, (kind) => {
+            // audit-32 FAIL: format-yml burst race — two file.edited events
+            // within ~1s ran two concurrent format hooks whose read-modify-write
+            // interleaves corrupted the file. Serialize + coalesce per file: a
+            // burst collapses into one in-flight run plus one trailing re-run.
+            fileEditGate(file, async () => {
+              await dispatch("file.edited", file, { file }, { create: kind === "add" })
+              // Record the post-hook content so the echo of a rewrite the hooks
+              // just performed is recognized (and dropped) above.
+              rewriteEcho.record(file, contentSig(file))
+            })
           })
+        }
+      } else if (type === "file.watcher.updated") {
+        // Companion of the tool-published file.edited (and of external
+        // changes). Only consumed here to classify creates vs edits.
+        const file: string = (event as any).properties?.file ?? ""
+        const kind: string = (event as any).properties?.event ?? ""
+        if (file && (kind === "add" || kind === "change" || kind === "unlink")) {
+          kindResolver.onWatcher(file, kind)
         }
       } else if (type === "session.created") {
         await dispatch("session.created", undefined, {})

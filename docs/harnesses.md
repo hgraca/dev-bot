@@ -22,7 +22,7 @@ Each harness ships one **generic adapter** that reads every `src/agentic/*/hooks
 | `session.created` | a session started               | `event` (type `session.created`)     |
 | `session.error`   | a transient provider error      | `event` (type `session.error`)       |
 
-The manifest `run` command resolves placeholders `{module}`, `{file}`, `{command}`, `{agent}`, `{hash}`, `{session-id}`, `{error}`, `{worktree}`, `{global-config}`, `{project-config}`. `match` filters by `file` (path regex), `content` (first-4KB regex), `tool`, or `command`. `blocking: true` blocks when the command prints `{"blocked": true, "message": "…"}`. See [Hooks](/hooks) for the manifest schema.
+The manifest `run` command resolves placeholders `{module}`, `{file}`, `{command}`, `{agent}`, `{hash}`, `{session-id}`, `{error}`, `{worktree}`, `{global-config}`, `{project-config}`. `match` filters by `file` (path regex), `content` (first-4KB regex), `tool`, or `command`. `blocking: true` blocks when the command prints `{"blocked": true, "message": "…"}`. `skipOnCreate: true` (honored by the opencode adapter only) skips dispatch when the `file.edited` is a file _create_ — rewriting hooks such as the formatters opt out of creates so a freshly-written file is never normalized before the agent's next edit (audit-48 FAIL-1); read-only hooks leave it unset so they still fire on creates. See [Hooks](/hooks) for the manifest schema.
 
 ## The adapters
 

@@ -5,6 +5,7 @@
       "event": "file.edited",
       "match": { "file": "\\.md$" },
       "run": ["python3", "{module}/tools/format-md.py", "{file}"],
+      "skipOnCreate": true,
       "log": ".agents/logs/format-md.log"
     }
   ]

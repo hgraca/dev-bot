@@ -12,6 +12,7 @@ import { tmpdir } from "os"
 import { join } from "path"
 import {
   createFileEditGate,
+  createKindResolver,
   createRewriteEchoTracker,
   defaultHookLog,
   guardDecision,
@@ -341,5 +342,102 @@ describe("createRewriteEchoTracker", () => {
     tracker.record("a.yml", "sig-A", 1000)
 
     expect(tracker.isEcho("b.yml", "sig-A", 1000)).toBe(false)
+  })
+})
+
+// ── createKindResolver (audit-48 FAIL-1: format hooks fire on file create) ───
+// opencode's write/edit/apply_patch tools publish file.edited AND a companion
+// file.watcher.updated (event: "add" | "change"). The resolver pairs them so
+// the adapter can tell a create from an edit: a file.edited is buffered until
+// its companion watcher event arrives, then resolved with the real kind; if no
+// watcher event arrives within the settle window it falls back to "change"
+// (dispatch — backward compatible with opencode versions that publish only
+// file.edited). The adapter skips content hooks that declare skipOnCreate for
+// an "add" so a freshly-written file is never normalized before the agent's
+// next edit — the stale-indentation splice corruption from audit-48.
+
+describe("createKindResolver", () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  test("companion watcher 'add' resolves a pending file.edited as a create", async () => {
+    const resolver = createKindResolver({ settleMs: 50 })
+    const kinds: string[] = []
+    resolver.onEdited("a.yml", (k) => kinds.push(k))
+    await wait(5)
+    expect(kinds).toEqual([]) // still waiting for the companion event
+    resolver.onWatcher("a.yml", "add")
+    await wait(5)
+    expect(kinds).toEqual(["add"])
+  })
+
+  test("companion watcher 'change' resolves a pending file.edited as an edit", async () => {
+    const resolver = createKindResolver({ settleMs: 50 })
+    const kinds: string[] = []
+    resolver.onEdited("a.yml", (k) => kinds.push(k))
+    resolver.onWatcher("a.yml", "change")
+    await wait(5)
+    expect(kinds).toEqual(["change"])
+  })
+
+  test("no companion watcher within the settle window falls back to 'change' (dispatch)", async () => {
+    const resolver = createKindResolver({ settleMs: 15 })
+    const kinds: string[] = []
+    resolver.onEdited("a.yml", (k) => kinds.push(k))
+    await wait(40)
+    expect(kinds).toEqual(["change"])
+  })
+
+  test("watcher event arriving before file.edited is remembered and consumed (out of order)", async () => {
+    const resolver = createKindResolver({ settleMs: 50, rememberMs: 500 })
+    const kinds: string[] = []
+    resolver.onWatcher("a.yml", "add")
+    resolver.onEdited("a.yml", (k) => kinds.push(k))
+    await wait(5)
+    expect(kinds).toEqual(["add"])
+    // The remembered kind was consumed: a later file.edited with no new
+    // watcher event must fall back to "change", not reuse the stale "add".
+    resolver.onEdited("a.yml", (k) => kinds.push(k))
+    await wait(70)
+    expect(kinds).toEqual(["add", "change"])
+  })
+
+  test("a remembered kind expires after rememberMs", async () => {
+    const resolver = createKindResolver({ settleMs: 15, rememberMs: 10 })
+    const kinds: string[] = []
+    resolver.onWatcher("a.yml", "add")
+    await wait(30) // remembered kind expired
+    resolver.onEdited("a.yml", (k) => kinds.push(k))
+    await wait(40)
+    expect(kinds).toEqual(["change"])
+  })
+
+  test("unlink cancels a pending file.edited without resolving it", async () => {
+    const resolver = createKindResolver({ settleMs: 10 })
+    const kinds: string[] = []
+    resolver.onEdited("a.yml", (k) => kinds.push(k))
+    resolver.onWatcher("a.yml", "unlink")
+    await wait(30) // past the settle window — the cancelled timer must not fire
+    expect(kinds).toEqual([])
+  })
+
+  test("a second file.edited while one is pending replaces the first (latest write wins)", async () => {
+    const resolver = createKindResolver({ settleMs: 50 })
+    const kinds: string[] = []
+    resolver.onEdited("a.yml", (k) => kinds.push("first:" + k))
+    resolver.onEdited("a.yml", (k) => kinds.push("second:" + k))
+    resolver.onWatcher("a.yml", "change")
+    await wait(5)
+    expect(kinds).toEqual(["second:change"])
+  })
+
+  test("different files resolve independently", async () => {
+    const resolver = createKindResolver({ settleMs: 50 })
+    const kinds: string[] = []
+    resolver.onEdited("a.yml", (k) => kinds.push("a:" + k))
+    resolver.onEdited("b.yml", (k) => kinds.push("b:" + k))
+    resolver.onWatcher("b.yml", "add")
+    resolver.onWatcher("a.yml", "change")
+    await wait(5)
+    expect(kinds.sort()).toEqual(["a:change", "b:add"])
   })
 })
