@@ -112,6 +112,14 @@ if [[ -z "$KUBECONFORM" || -z "$KUBELINTER" ]]; then
   exit 1
 fi
 
+# kubeconform args shared by both output modes. The --schema CLI flag maps to
+# kubeconform's -schema-location (shellcheck SC2034: SCHEMA was parsed above
+# but never reached kubeconform).
+KC_ARGS=(-summary)
+if [[ -n "$SCHEMA" ]]; then
+  KC_ARGS+=(-schema-location "$SCHEMA")
+fi
+
 # ── Run linters ──────────────────────────────────────────────────────────────
 
 FILES=()
@@ -133,10 +141,15 @@ if [[ "$FORMAT" == "json" ]]; then
   KC_VALID=true
   KC_OUTPUT=""
   for f in "${FILES[@]}"; do
-    result=$(_run_with_timeout 30 "$KUBECONFORM" -summary "$f" 2>&1) || { KC_VALID=false; KC_OUTPUT+="$result"$'\n'; }
+    result=$(_run_with_timeout 30 "$KUBECONFORM" "${KC_ARGS[@]}" "$f" 2>&1) || { KC_VALID=false; KC_OUTPUT+="$result"$'\n'; }
   done
+  if [[ -z "$KC_OUTPUT" ]]; then
+    KC_SUMMARY="all valid"
+  else
+    KC_SUMMARY="found issues"
+  fi
   echo '    "valid": '$KC_VALID','
-  echo '    "summary": "'$([ -z "$KC_OUTPUT" ] && echo "all valid" || echo "found issues")'"'
+  echo '    "summary": "'"$KC_SUMMARY"'"'
   echo '  },'
   echo '  "kubelinter": {'
 
@@ -155,7 +168,7 @@ else
 
   KC_ERRORS=0
   for f in "${FILES[@]}"; do
-    "$KUBECONFORM" -summary "$f" 2>&1 || { KC_ERRORS=$((KC_ERRORS + 1)); }
+    "$KUBECONFORM" "${KC_ARGS[@]}" "$f" 2>&1 || { KC_ERRORS=$((KC_ERRORS + 1)); }
   done
   [[ $KC_ERRORS -eq 0 ]] && echo "All valid"
 
