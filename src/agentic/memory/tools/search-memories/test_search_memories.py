@@ -415,5 +415,41 @@ class TestQmdEnv(unittest.TestCase):
 # Main
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Dual-store default contract (audit-46 §4 / D)
+# ---------------------------------------------------------------------------
+# Memory search must ALWAYS cover BOTH the resolved project collection and the
+# shared dev-bot-global store, whether triggered via the devbot-tools MCP tool
+# or the CLI wrapper. qmd's own default scope already includes all registered
+# collections (none set includeByDefault:false), but search-memories forces the
+# pair explicitly so the contract cannot drift.
+
+
+class TestDualStoreDefaultContract(unittest.TestCase):
+    def _search(self, query, collection, max_results=5):
+        seen = {}
+
+        def fake_run(cmd):
+            seen["cmd"] = list(cmd)
+            return "[]", None
+
+        with patch.object(_search_memories, "run_qmd_cli", side_effect=fake_run):
+            results, err = search_qmd([query], collection, max_results)
+        self.assertIsNone(err)
+        return seen["cmd"]
+
+    def test_default_project_collection_always_searches_global_too(self):
+        cmd = self._search("some marker", "myproj", 10)
+        self.assertIn("myproj", cmd)
+        self.assertIn("dev-bot-global", cmd)
+        # global is appended after the project -c
+        self.assertLess(cmd.index("myproj"), cmd.index("dev-bot-global"))
+
+    def test_explicit_collection_still_adds_global(self):
+        cmd = self._search("probe", "custom", 5)
+        self.assertIn("custom", cmd)
+        self.assertIn("dev-bot-global", cmd)
+
+
 if __name__ == "__main__":
     unittest.main()
