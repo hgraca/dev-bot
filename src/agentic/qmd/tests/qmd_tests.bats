@@ -277,10 +277,116 @@ setup() {
   # Guard audit-26 NOTE-6: qmd status reported 118 orphaned embedding chunks
   # (12%) because reinit (init.sh) never ran `qmd cleanup` — only the reindex
   # tool does. The stub qmd records its argv; assert cleanup precedes the
-  # index build.
+  # index build. XDG_CACHE_HOME is sandboxed so the llama serialization lock
+  # (see the lock tests below) never touches the developer's real qmd cache.
   local sandbox
   sandbox="$(mktemp -d)"
   mkdir -p "${sandbox}/bin" "${sandbox}/.agents/memory/latent"
+
+  cat > "${sandbox}/bin/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$(python3 -c 'import time; print(time.time())') $*" >> "${QMD_CALL_LOG}"
+case "$1" in
+  collection|context) exit 0 ;;
+  update|embed|cleanup) exit 0 ;;
+esac
+exit 0
+SCRIPT
+  chmod +x "${sandbox}/bin/qmd"
+
+  local call_log="${sandbox}/qmd-calls.log"
+  : > "$call_log"
+
+  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)")" \
+    XDG_CACHE_HOME="$sandbox/cache" \
+    QMD_CALL_LOG="$call_log" \
+    bash "${MODULE_DIR}/init.sh" "${sandbox}"
+
+  assert_success
+  # cleanup must run, and before the first index-building call
+  run cat "$call_log"
+  assert_output --partial "cleanup"
+  local cleanup_line update_line
+  cleanup_line="$(grep -n "cleanup" "$call_log" | head -1 | cut -d: -f1 || echo 0)"
+  update_line="$(grep -n "update" "$call_log" | head -1 | cut -d: -f1 || echo 0)"
+  [[ -n "$cleanup_line" && "$cleanup_line" -gt 0 ]]
+  [[ -n "$update_line" && "$update_line" -gt 0 ]]
+  [[ "$cleanup_line" -lt "$update_line" ]]
+
+  rm -r "$sandbox"
+}
+
+# ── Cross-process llama serialization (dev-bot e2e CPU crash) ─────────────────
+# cc + oc e2e containers reinit concurrently, each running qmd/init.sh's
+# `qmd embed` on the same GPU / shared model cache. Under VRAM contention qmd
+# falls back to CPU, where llama uses every core — two at once pegged the host
+# (100% CPU, freeze). init.sh must serialize the llama-heavy build via a
+# cross-process flock in the qmd cache (a host mount shared by the containers).
+
+@test "init.sh waits for a concurrently-held llama lock before running the build" {
+  local sandbox
+  sandbox="$(mktemp -d)"
+  mkdir -p "${sandbox}/bin" "${sandbox}/.agents/memory/latent" "${sandbox}/cache/qmd"
+
+  cat > "${sandbox}/bin/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$(python3 -c 'import time; print(time.time())') $*" >> "${QMD_CALL_LOG}"
+case "$1" in
+  collection|context) exit 0 ;;
+  update|embed|cleanup) exit 0 ;;
+esac
+exit 0
+SCRIPT
+  chmod +x "${sandbox}/bin/qmd"
+
+  local call_log="${sandbox}/qmd-calls.log"
+  : > "$call_log"
+  local lock="${sandbox}/cache/qmd/.llama.lock"
+  : > "$lock"
+  local release_ts="${sandbox}/release.ts" held_marker="${sandbox}/held"
+
+  # Another process (the sibling e2e container) holds the llama lock for 2.5s.
+  python3 -c '
+import fcntl, os, sys, time
+lock, release, held = sys.argv[1], sys.argv[2], sys.argv[3]
+f = open(lock, "w")
+fcntl.flock(f, fcntl.LOCK_EX)
+open(held, "w").write("1")
+time.sleep(2.5)
+open(release, "w").write(str(time.time()))
+' "$lock" "$release_ts" "$held_marker" &
+  local holder=$!
+  # Wait until the holder actually owns the lock before starting init.
+  local i
+  for i in $(seq 1 50); do
+    [[ -f "$held_marker" ]] && break
+    sleep 0.1
+  done
+
+  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)")" \
+    XDG_CACHE_HOME="$sandbox/cache" \
+    QMD_CALL_LOG="$call_log" \
+    bash "${MODULE_DIR}/init.sh" "${sandbox}"
+  assert_success
+  wait "$holder" 2>/dev/null || true
+
+  # The build must have started only AFTER the holder released the lock —
+  # i.e. the first qmd call (cleanup) is timestamped >= release.
+  local cleanup_ts
+  cleanup_ts="$(grep -m1 "cleanup" "$call_log" | cut -d' ' -f1 || echo 0)"
+  local release
+  release="$(cat "$release_ts" 2>/dev/null || echo 0)"
+  run python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) >= float(sys.argv[2]) else 1)' \
+    "${cleanup_ts}" "${release}"
+  assert_success
+
+  rm -r "$sandbox"
+}
+
+@test "init.sh proceeds (with a warning) when the llama lock is held past the cap" {
+  local sandbox
+  sandbox="$(mktemp -d)"
+  mkdir -p "${sandbox}/bin" "${sandbox}/.agents/memory/latent" "${sandbox}/cache/qmd"
 
   cat > "${sandbox}/bin/qmd" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -295,21 +401,30 @@ SCRIPT
 
   local call_log="${sandbox}/qmd-calls.log"
   : > "$call_log"
+  local lock="${sandbox}/cache/qmd/.llama.lock"
+  : > "$lock"
+
+  # Holder keeps the lock for 3s while the cap is 1s — init must give up
+  # waiting, warn, and still build rather than hang.
+  python3 -c '
+import fcntl, sys, time
+f = open(sys.argv[1], "w")
+fcntl.flock(f, fcntl.LOCK_EX)
+time.sleep(3)
+' "$lock" &
+  local holder=$!
+  sleep 0.3
 
   run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)")" \
+    XDG_CACHE_HOME="$sandbox/cache" \
+    QMD_EMBED_TIMEOUT=1 \
     QMD_CALL_LOG="$call_log" \
     bash "${MODULE_DIR}/init.sh" "${sandbox}"
-
   assert_success
-  # cleanup must run, and before the first index-building call
+  wait "$holder" 2>/dev/null || true
+
   run cat "$call_log"
   assert_output --partial "cleanup"
-  local cleanup_line update_line
-  cleanup_line="$(grep -n "cleanup" "$call_log" | head -1 | cut -d: -f1 || echo 0)"
-  update_line="$(grep -n "update" "$call_log" | head -1 | cut -d: -f1 || echo 0)"
-  [[ -n "$cleanup_line" && "$cleanup_line" -gt 0 ]]
-  [[ -n "$update_line" && "$update_line" -gt 0 ]]
-  [[ "$cleanup_line" -lt "$update_line" ]]
 
   rm -r "$sandbox"
 }

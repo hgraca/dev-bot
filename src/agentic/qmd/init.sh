@@ -37,6 +37,37 @@ if [[ -f "${local_config}" ]]; then
 fi
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_DIR}")}"
 
+# ── Cross-process llama serialization ─────────────────────────────────────────
+# qmd update/embed load llama (GPU or CPU). Run concurrently from multiple
+# processes (e.g. the cc + oc e2e containers sharing one GPU and a host-mounted
+# model cache, or two reinit runs on one host) they contend for VRAM — and when
+# GPU init fails qmd falls back to CPU, where llama uses every core (~100% CPU
+# per process; two at once froze the host during dev-bot e2e runs). Serialize
+# the llama-heavy index build with a cross-process flock on a file in the qmd
+# cache root (XDG_CACHE_HOME/qmd — a host mount shared by the e2e containers),
+# so only one llama run happens at a time. Bounded wait: if the lock is held
+# longer than the embed timeout the other side is probably gone — proceed
+# without it (warn) rather than hang init.
+_acquire_qmd_llama_lock() {
+  local lock_dir="${XDG_CACHE_HOME:-$HOME/.cache}/qmd"
+  mkdir -p "${lock_dir}" 2>/dev/null || return 1
+  exec 200>"${lock_dir}/.llama.lock" 2>/dev/null || return 1
+  local waited=0 cap="${QMD_EMBED_TIMEOUT:-180}"
+  while ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; do
+    waited=$((waited + 2))
+    if (( waited >= cap )); then
+      _warn "qmd llama lock held >${cap}s by another process — proceeding without it"
+      return 1
+    fi
+    sleep 2
+  done
+  return 0
+}
+
+_release_qmd_llama_lock() {
+  exec 200>&- 2>/dev/null || true
+}
+
 # ── Check qmd CLI ─────────────────────────────────────────────────────────────
 
 _header_3 "QMD Init — ${PROJECT_NAME}"
@@ -108,6 +139,14 @@ fi
 
 _header_3 "Building QMD index"
 
+# Serialize the llama-heavy build across processes sharing the qmd cache/GPU
+# (see _acquire_qmd_llama_lock): concurrent reinit runs (cc + oc e2e) must not
+# double-load llama and fall back to all-cores CPU embedding.
+_LLAMA_LOCK_HELD=false
+if _acquire_qmd_llama_lock; then
+  _LLAMA_LOCK_HELD=true
+fi
+
 # Prune orphaned embedding chunks first (audit-26 NOTE-6): qmd status can
 # report stale vectors from reindex churn (118 chunks / 12%). Best-effort —
 # a cleanup failure must not block the index build (same pattern as the
@@ -147,6 +186,12 @@ if [[ ${embed_status} -ne 0 ]]; then
   _warn "Embedding had issues or timed out — continuing"
 else
   _ok "Embedding complete"
+fi
+
+# Release the llama lock so a sibling process (other e2e container) can run its
+# own build instead of waiting on us for the rest of this init.
+if [[ "${_LLAMA_LOCK_HELD}" == "true" ]]; then
+  _release_qmd_llama_lock
 fi
 
 _ok "QMD init complete for ${PROJECT_NAME}"
