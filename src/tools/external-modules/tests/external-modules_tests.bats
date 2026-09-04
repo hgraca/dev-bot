@@ -455,3 +455,16 @@ EOF
   assert [ ! -e "${DEV_BOT_ROOT}/storage/external-agentic-modules/dummy" ]
   assert [ ! -e "${project}/.agents/skills/dummy" ]
 }
+
+@test "add --help prints usage instead of treating --help as a module path (audit-45 §9)" {
+  # audit-45 §9 NOTE: `module add --help` used to fall through to the
+  # positional <url|path> branch and attempt `git clone ... --help`.
+  run bash "$TOOL" add --help
+
+  assert_success
+  assert_output --partial "Usage: devbot module add <url|path>"
+  refute_output --partial "Cloning"
+  refute_output --partial "clone"
+  # Nothing registered, nothing cloned into vendor/.
+  assert [ ! -e "${DEV_BOT_ROOT}/vendor/--help" ]
+}
