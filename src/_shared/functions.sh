@@ -179,6 +179,38 @@ _devbot_get_project_dir() {
   echo "${devbot_dir:-.agents}"
 }
 
+# ── Cross-process bounded lock ─────────────────────────────────────────────────
+#
+# _devbot_lock_wait <lockfile> [cap_seconds] [warning_message]
+#   Acquire an exclusive cross-process flock on <lockfile>, waiting up to
+#   cap_seconds (default 600). The lock is held on fd 200 — the caller keeps it
+#   until it runs `exec 200>&-` or the script exits.
+#   Serializes steps that hammer a SHARED resource across concurrent processes
+#   or containers — e.g. `npm install`/`npm update` against a host-mounted npm
+#   cache (two dev-bot e2e containers running install simultaneously hang in
+#   npm reify) and qmd llama builds on a shared model cache (same rig, CPU
+#   freeze). flock(1) is util-linux; on macOS fall back to python fcntl on the
+#   inherited fd (same pattern as the reindex tool).
+#   Returns 0 when the lock is held; 1 when it could not be acquired in time —
+#   the caller should then proceed (with the warning) or skip, never block.
+_devbot_lock_wait() {
+  local lockfile="$1"
+  local cap="${2:-600}"
+  local msg="${3:-}"
+  mkdir -p "$(dirname "${lockfile}")" 2>/dev/null || return 1
+  exec 200>"${lockfile}" 2>/dev/null || return 1
+  local waited=0
+  while ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; do
+    waited=$((waited + 2))
+    if (( waited >= cap )); then
+      [[ -n "${msg}" ]] && _warn "${msg}"
+      return 1
+    fi
+    sleep 2
+  done
+  return 0
+}
+
 # ── Harness selection (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_harness [project_dir]
