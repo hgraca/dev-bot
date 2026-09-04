@@ -106,6 +106,7 @@ If no technology bucket fits, use `learnings/`.
     - Use `search-memories` tool with relevant query terms
     - QMD returns file content with frontmatter stripped (data only)
     - Read specific files directly only when you know the exact filename
+- **Memory search MUST go through `search-memories`** (devbot-tools MCP tool or CLI): it always scopes to the CURRENT project vault + `dev-bot-global` and nothing else. Raw `qmd query`/`qmd search`/`qmd` MCP tools (without explicit `collection:` args) span **every registered collection** — on a shared host that includes other projects' vaults, and they can miss the current project's. Pass explicit `collections` if you must use raw qmd for memory.
 - All other files: search before read; max 3 non-latent notes per task; discard results with relevance score < 0.6
 - If `search-memories` returns no matches, the index may not be built yet or a reindex may still be in progress — do not loop reindex → search → reindex. Check `reindex-memories status`; if `in_progress`, wait and re-search once. Repeated reindex calls coalesce into one job.
 
