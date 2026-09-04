@@ -473,12 +473,16 @@ except Exception:
 _link_claude_skills_flat() {
   local project_dir="$1"
   local claude_skills="${project_dir}/.claude/skills"
+  # Names this run actually (re)linked — used to reconcile stale entries at
+  # the end instead of dropping the whole dir (audit-45 §3).
+  local _FLAT_DESIRED=""
+  _flat_mark() { _FLAT_DESIRED+="${1}"$'\n'; }
 
   # ── Preserve user custom skills before the rebuild ────────────────────────
-  # The flat rebuild below drops .claude/skills entirely. Any REAL skill dir
-  # the user created there (SKILL.md is a real file, not a symlink) is migrated
-  # into devbot_dir/skills first so it is never destroyed. dev-bot's own flat
-  # links (symlinked SKILL.md) and already-migrated skills are skipped.
+  # Any REAL skill dir the user created in .claude/skills (SKILL.md is a real
+  # file, not a symlink) is migrated into devbot_dir/skills first so it is
+  # never destroyed. dev-bot's own flat links (symlinked SKILL.md) and
+  # already-migrated skills are skipped.
   local devbot_dir agents_skills
   devbot_dir="$(_devbot_get_project_dir "${project_dir}")"
   agents_skills="${project_dir}/${devbot_dir}/skills"
@@ -538,15 +542,22 @@ _link_claude_skills_flat() {
       # are never misclassified as user content (review F1).
       touch "${dest}/.devbot-migrated"
       _ok "migrated custom skill ${name} to ${devbot_dir}/skills/"
+      # The content now lives in devbot_dir/skills (marked). Drop the original
+      # so the user-flatten below links at the plain name (no spurious .bkp
+      # from the copy still sitting here) and the stale-reconcile pass does
+      # not have to guess at it.
+      rm -rf "${item}" 2>/dev/null || true
     done < <(find "${claude_skills}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
   fi
 
-  # Drop any previous delegation symlink/dir (a reset leaves it absent, but be
-  # safe for projects that were not fully reset).
+  # Ensure the flat dir exists as a REAL dir (a reset leaves it absent; a
+  # pre-flatten delegation symlink is dropped once). Do NOT drop an existing
+  # real dir: flattening now reconciles in place so unchanged skill dirs keep
+  # their inodes/mtimes — a mid-session `devbot reinit` must not invalidate
+  # the harness's skill registry (audit-45 §3 FAIL: any reinit killed the
+  # Skill tool for the rest of the session).
   if [[ -L "${claude_skills}" ]]; then
     rm -f "${claude_skills}"
-  elif [[ -e "${claude_skills}" ]]; then
-    rm -rf "${claude_skills}"
   fi
   mkdir -p "${claude_skills}"
 
@@ -565,17 +576,25 @@ _link_claude_skills_flat() {
     else
       ln -s "${f}" "${link}"
     fi
+    _flat_mark "${name}"
   }
 
   # Link a user skill (from devbot_dir/skills) flat, preferring its frontmatter
   # name and falling back to the dir name. On collision with an existing flat
   # skill (a dev-bot one), the user's is stored as <name>.bkp; if that slot is
-  # taken too, re-suffix (.bkp.bkp) rather than aborting (review F2).
+  # taken too, re-suffix (.bkp.bkp) rather than aborting (review F2). A symlink
+  # already pointing at this same source is our OWN previous flatten (the dir
+  # survived a reinit unchanged) — leave it untouched so the inode/mtime is
+  # preserved (audit-45 §3), not treated as a collision.
   _link_user_skill_file() {
     local f="$1" name link
     name="$(sed -n 's/^name:[[:space:]]*//p' "${f}" | head -1 | tr -d '"')"
     [[ -n "${name}" ]] || name="$(basename "$(dirname "${f}")")"
     link="${claude_skills}/${name}/SKILL.md"
+    if [[ -L "${link}" && "$(readlink "${link}")" == "${f}" ]]; then
+      _flat_mark "${name}"
+      return 0
+    fi
     if [[ -e "${link}" || -L "${link}" ]]; then
       local candidate="${name}"
       while [[ -e "${claude_skills}/${candidate}/SKILL.md" || -L "${claude_skills}/${candidate}/SKILL.md" ]]; do
@@ -586,6 +605,7 @@ _link_claude_skills_flat() {
     fi
     mkdir -p "$(dirname "${link}")"
     ln -s "${f}" "${link}"
+    _flat_mark "$(basename "$(dirname "${link}")")"
   }
 
   local f
@@ -618,6 +638,21 @@ _link_claude_skills_flat() {
       _link_user_skill_file "${skill_dir}/SKILL.md"
     done < <(find "${agents_skills}" -mindepth 2 -maxdepth 2 -name .devbot-migrated -print0 2>/dev/null)
   fi
+
+  # ── Reconcile stale entries ────────────────────────────────────────────────
+  # Remove any .claude/skills/<name> this run did not (re)produce — skills
+  # removed from a module, or leftover .bkp from old migration bugs. Entries
+  # that were unchanged were left untouched above (same dir inode/mtime),
+  # which is what keeps the harness skill registry valid across reinits.
+  local existing existing_name
+  while IFS= read -r -d '' existing; do
+    existing_name="$(basename "${existing}")"
+    [[ "${existing_name}" == ".gitkeep" ]] && continue
+    if ! grep -Fqx -- "${existing_name}" <<< "${_FLAT_DESIRED}"; then
+      rm -rf "${existing}" 2>/dev/null || true
+      _log "removed stale .claude/skills/${existing_name}"
+    fi
+  done < <(find "${claude_skills}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
 
   _ok "claudecode skills flattened into .claude/skills/ (incl. external modules)"
 }

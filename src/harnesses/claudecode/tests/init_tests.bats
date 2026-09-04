@@ -129,3 +129,56 @@ assert json.load(open('${SANDBOX_DIR}/.claude/settings.json'))['agent'] == 'buil
 "
   assert_success
 }
+
+# ── skills-flatten reconcile (audit-45 §3 FAIL) ───────────────────────────────
+# _link_claude_skills_flat used to rm -rf the whole .claude/skills dir on every
+# reinit, so a mid-session `devbot reinit` rewrote every skill dir (new inodes)
+# and the claudecode Skill tool reported "Unknown skill" for the rest of the
+# session. Flattening must reconcile in place: unchanged dirs keep their
+# inode/mtime across reinits. Full init.sh runs (claudecode-enabled project).
+
+@test "skills-flatten: second init preserves skill-dir inodes (no rewrite churn)" {
+  local proj sk ino1 ino2
+  proj="$(mktemp -d)"
+  printf '{\n  "modules": { "opencode": false, "claudecode": true }\n}\n' \
+    > "${proj}/.devbot.project.jsonc"
+
+  run bash "${PROJECT_ROOT}/src/harnesses/claudecode/init.sh" "${proj}"
+  assert_success
+  sk="${proj}/.claude/skills/devbot:agent-communication"
+  [[ -e "${sk}/SKILL.md" ]]
+  ino1="$(ls -id "${sk}" | awk '{print $1}')"
+  [[ -n "${ino1}" ]]
+
+  run bash "${PROJECT_ROOT}/src/harnesses/claudecode/init.sh" "${proj}"
+  assert_success
+  ino2="$(ls -id "${sk}" | awk '{print $1}')"
+  [[ "${ino1}" == "${ino2}" ]]
+
+  rm -rf "${proj}"
+}
+
+@test "skills-flatten: user real-file skill migrates once and stays at plain name" {
+  local proj us
+  proj="$(mktemp -d)"
+  printf '{\n  "modules": { "opencode": false, "claudecode": true }\n}\n' \
+    > "${proj}/.devbot.project.jsonc"
+  mkdir -p "${proj}/.claude/skills/my-custom-skill"
+  printf -- '---\nname: my-custom-skill\ndescription: A user skill\n---\n# My Skill\n' \
+    > "${proj}/.claude/skills/my-custom-skill/SKILL.md"
+
+  run bash "${PROJECT_ROOT}/src/harnesses/claudecode/init.sh" "${proj}"
+  assert_success
+  # Migrated copy in the devbot skills dir, flattened back at the plain name.
+  [[ -f "${proj}/.agents/skills/my-custom-skill/SKILL.md" ]]
+  us="${proj}/.claude/skills/my-custom-skill"
+  [[ -L "${us}/SKILL.md" ]]
+
+  # A second reinit must NOT .bkp-suffix its own previous flatten.
+  run bash "${PROJECT_ROOT}/src/harnesses/claudecode/init.sh" "${proj}"
+  assert_success
+  [[ -L "${us}/SKILL.md" ]]
+  refute [ -d "${proj}/.claude/skills/my-custom-skill.bkp" ]
+
+  rm -rf "${proj}"
+}
