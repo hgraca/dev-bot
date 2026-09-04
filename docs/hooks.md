@@ -46,6 +46,7 @@ A module declares its hooks in `<module>/hooks.json`:
 - `match` — optional filter: `file` (path regex), `content` (first-4KB regex), `tool` (tool-name list), or `command` (command regex).
 - `blocking: true` — for `command.before`; blocks the tool when the command prints `{"blocked": true, "message": "…"}`.
 - `log` — optional path (relative to the project root) to append the hook's output to, for hooks whose effect is otherwise invisible (e.g. a linter that only reports, unlike format hooks which mutate files).
+- `skipOnCreate: true` — opencode only; skip dispatch when the `file.edited` is a file _create_. Rewriting hooks (the three format hooks) opt out of creates so a freshly-written file is never normalized before the agent's next edit — normalizing it is what lets opencode's fuzzy edit tool splice stale-indentation hunks into the file (audit-48 FAIL-1). Read-only hooks (lint, memory reindex) leave it unset so they keep firing on creates. The opencode adapter classifies creates by pairing each `file.edited` with its companion `file.watcher.updated` (`add`/`change`).
 
 ## Two hook forms
 

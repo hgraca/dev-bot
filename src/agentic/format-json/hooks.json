@@ -5,6 +5,7 @@
       "event": "file.edited",
       "match": { "file": "\\.(json|jsonc)$" },
       "run": ["python3", "{module}/tools/format-json.py", "{file}"],
+      "skipOnCreate": true,
       "log": ".agents/logs/format-json.log"
     }
   ]

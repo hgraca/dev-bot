@@ -23,6 +23,13 @@ export interface HookDecl {
   plugin?: string
   blocking?: boolean
   log?: string
+  /** Open-code only: skip dispatch when the file.edited is a file *create*
+   * (companion file.watcher.updated "add"). Rewriting hooks (formatters) must
+   * opt out of creates — normalizing a freshly-written file before the agent's
+   * next edit is what lets opencode's fuzzy edit tool splice stale-indentation
+   * hunks into the file (audit-48 FAIL-1). Read-only hooks (lint, indexers)
+   * leave this unset so they keep firing on creates. */
+  skipOnCreate?: boolean
 }
 
 // Append a hook's output to a persistent log file (for hooks whose effect is
@@ -116,6 +123,105 @@ export function createFileEditGate(): FileEditGate {
       }
     }
     void loop()
+  }
+}
+
+// ── Create/edit classification (audit-48 FAIL-1: format-on-create corrupts) ─
+// opencode's write/edit/apply_patch tools publish file.edited AND a companion
+// file.watcher.updated whose event is "add" (create) or "change" (edit).
+// file.edited alone cannot distinguish the two (payload: { file }), but the
+// adapter needs to — formatting a freshly-written file before the agent's next
+// edit silently normalizes it, and opencode's fuzzy edit tool then splices the
+// agent's stale-indentation hunk into the normalized file, producing invalid
+// YAML that prettier refuses to repair. The resolver pairs each file.edited
+// with its companion watcher event so the adapter can skip create dispatches.
+export type FileChangeKind = "add" | "change"
+
+export interface CreateKindResolver {
+  /** A file.edited arrived for `file`. Resolves `cb` with the write kind once
+   * known: the companion file.watcher.updated event, or "change" when none
+   * arrives within the settle window (backward-compatible default — versions
+   * that publish only file.edited keep dispatching every write). A second
+   * onEdited while one is pending replaces the first (latest write wins). */
+  onEdited(file: string, cb: (kind: FileChangeKind) => void): void
+  /** A file.watcher.updated arrived for `file` (add|change|unlink). Resolves a
+   * pending onEdited if one is buffered; otherwise remembers the kind briefly
+   * for a file.edited that may arrive out of order. "unlink" cancels any
+   * pending onEdited for the file (a deleted file has nothing to dispatch). */
+  onWatcher(file: string, kind: FileChangeKind | "unlink"): void
+}
+
+export interface CreateKindResolverOptions {
+  /** ms to wait for the companion file.watcher.updated before defaulting to
+   * "change". Default 250 — the tool publishes both events back-to-back, so a
+   * real pair resolves in well under this; the timeout only fires for
+   * watcher-less versions. */
+  settleMs?: number
+  /** ms a watcher kind is remembered for an out-of-order file.edited. Short on
+   * purpose: a remembered "add" must never outlive the write it paired with
+   * and swallow the format dispatch of the file's first real edit. */
+  rememberMs?: number
+  now?: () => number
+}
+
+export function createKindResolver(opts: CreateKindResolverOptions = {}): CreateKindResolver {
+  const settleMs = opts.settleMs ?? 250
+  const rememberMs = opts.rememberMs ?? 500
+  const now = opts.now ?? Date.now
+  const pending = new Map<string, { cb: (kind: FileChangeKind) => void; timer: ReturnType<typeof setTimeout> }>()
+  const remembered = new Map<string, { kind: FileChangeKind; at: number }>()
+
+  function forgetExpired(): void {
+    if (remembered.size <= 64) return
+    const cutoff = now() - rememberMs
+    for (const [file, entry] of remembered) if (entry.at < cutoff) remembered.delete(file)
+  }
+
+  return {
+    onEdited(file, cb) {
+      const prior = remembered.get(file)
+      if (prior) {
+        remembered.delete(file) // consumed — one pairing per write
+        if (now() - prior.at <= rememberMs) {
+          cb(prior.kind)
+          return
+        }
+      }
+      const existing = pending.get(file)
+      if (existing) {
+        // Latest write wins: replace the callback, keep the original timer.
+        existing.cb = cb
+        return
+      }
+      const entry = { cb, timer: null as unknown as ReturnType<typeof setTimeout> }
+      entry.timer = setTimeout(() => {
+        if (pending.get(file) !== entry) return
+        pending.delete(file)
+        entry.cb("change")
+      }, settleMs)
+      pending.set(file, entry)
+    },
+
+    onWatcher(file, kind) {
+      if (kind === "unlink") {
+        const entry = pending.get(file)
+        if (entry) {
+          clearTimeout(entry.timer)
+          pending.delete(file)
+        }
+        remembered.delete(file)
+        return
+      }
+      const entry = pending.get(file)
+      if (entry) {
+        clearTimeout(entry.timer)
+        pending.delete(file)
+        entry.cb(kind)
+        return
+      }
+      forgetExpired()
+      remembered.set(file, { kind, at: now() })
+    },
   }
 }
 
