@@ -9,13 +9,13 @@ Find every category of database issue in production, then produce a delegation-r
 
 - **Relational database** — the production instance whose live processes you inspect. Example: MariaDB/MySQL on a shared AWS RDS instance (`gete-prod`), reached via a read-only connection (`prod-mariadb-read`). The introspection SQL below is MariaDB/MySQL dialect (`information_schema`, `performance_schema`).
 - **Observability platform** — traces + DB metrics for the workload profile and per-query ranking. Example: SigNoz MCP — trace aggregation (`signoz_aggregate_traces`) and exported server metrics (`mysql_global_status_*`, `aws_rds_*`), filtered by environment label (`deployment.environment = 'production'`).
-- **Direct SQL access** — your IDE's MCP database tools for the live processlist. Example: JetBrains MCP (`list_database_connections`, `execute_sql_query`).
+- **Direct SQL access** — database tools for the live processlist (use whatever is connected — e.g. a database MCP server such as JetBrains MCP's `list_database_connections` / `execute_sql_query`).
 
 **Start with §0 (live DB investigation) before any observability-platform work.** Completed-statement digest/trace views (e.g. SigNoz) only show _completed_ statements — a query that has run for days without finishing (optimizer spin, runaway scan) is invisible to them yet can be the entire CPU load.
 
 ## 0. Investigate the live DB first — running processes, duration, repetition, resource consumption
 
-Access is **direct SQL through your IDE's MCP database tools** (e.g. JetBrains MCP: `list_database_connections` → pick the read-only production connection such as `prod-mariadb-read` → `execute_sql_query`) — the observability platform cannot see running processes. The relational database instance (e.g. MariaDB/MySQL on RDS) is usually shared and hosts several applications' schemas (`gete_prod`, `drivers`, `hotels`, `audit_log`, `positioning_*`, …). The processlist is instance-wide — **attribute findings by schema/user**. Keep the connection read-only: report live thread IDs as kill candidates for a write connection; never kill from here.
+Access is **direct SQL through your database tools** (e.g. JetBrains MCP: `list_database_connections` → pick the read-only production connection such as `prod-mariadb-read` → `execute_sql_query`) — the observability platform cannot see running processes. The relational database instance (e.g. MariaDB/MySQL on RDS) is usually shared and hosts several applications' schemas (`gete_prod`, `drivers`, `hotels`, `audit_log`, `positioning_*`, …). The processlist is instance-wide — **attribute findings by schema/user**. Keep the connection read-only: report live thread IDs as kill candidates for a write connection; never kill from here.
 
 ### 0.1 Running processes and duration
 
