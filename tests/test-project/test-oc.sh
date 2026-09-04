@@ -38,10 +38,12 @@ if ! curl -s --max-time 5 http://localhost:18434/api/tags >/dev/null 2>&1; then
 fi
 
 # Share the host qmd model cache so container runs never re-download the ~2 GB
-# qmd llama models (qmd pull is a no-op once they are cached). Pre-create the
-# dir so docker does not mount a root-owned one. The test's qmd SQLite INDEX is
-# isolated via INDEX_PATH (set in test-oc-inner.sh), so the shared mount only
-# carries models — the host index is never written by the test.
+# qmd llama models (qmd pull is a no-op once cached). Pre-create the
+# dir so docker does not mount a root-owned one. The test's qmd SQLite INDEX
+# is a DEDICATED devbot-test db under this same mount (~/.cache/qmd/devbot-test,
+# set via INDEX_PATH in test-oc-inner.sh) — shared by parallel cc + oc runs so
+# the global store embeds once, serialized by qmd/init.sh's .llama.lock; the
+# host's real index is never written by the test.
 # Share the host caches so container runs never re-pay cold-start costs:
 # - ~/.cache/qmd: the ~2 GB qmd llama models (qmd pull is a no-op once cached)
 # - ~/.cache/opencode: opencode models.json + plugin packages (~385 MB)
