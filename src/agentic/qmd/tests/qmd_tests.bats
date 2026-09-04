@@ -441,12 +441,14 @@ time.sleep(3)
   run python3 -c "import json; d=json.load(open('${MODULE_DIR}/mcp.opencode.json')); print(json.dumps(d['qmd'].get('environment', {})))"
   assert_success
   assert_output --partial '"QMD_EXPAND_CONTEXT_SIZE": "512"'
+  assert_output --partial '"QMD_RERANK_CONTEXT_SIZE": "1024"'
 }
 
 @test "audit-28: claudecode template pins QMD_EXPAND_CONTEXT_SIZE" {
   run python3 -c "import json; d=json.load(open('${MODULE_DIR}/mcp.claudecode.json')); print(json.dumps(d['mcpServers']['qmd'].get('env', {})))"
   assert_success
   assert_output --partial '"QMD_EXPAND_CONTEXT_SIZE": "512"'
+  assert_output --partial '"QMD_RERANK_CONTEXT_SIZE": "1024"'
 }
 
 @test "audit-28: root opencode.dist.jsonc qmd entry stays consistent with the module template" {
@@ -464,6 +466,9 @@ time.sleep(3)
     "$PROJECT_ROOT/opencode.dist.jsonc"
   assert_success
   run grep -q '"QMD_EXPAND_CONTEXT_SIZE"[[:space:]]*:[[:space:]]*"512"' \
+    "$PROJECT_ROOT/opencode.dist.jsonc"
+  assert_success
+  run grep -q '"QMD_RERANK_CONTEXT_SIZE"[[:space:]]*:[[:space:]]*"1024"' \
     "$PROJECT_ROOT/opencode.dist.jsonc"
   assert_success
 }

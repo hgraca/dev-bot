@@ -84,6 +84,41 @@ STUB
   assert_output --partial "hooks.log"
 }
 
+@test "start.sh does not alert on qmd graceful-degradation lines (audit-45 §4)" {
+  # qmd's query-time reranker/query-expansion skip with an InsufficientMemoryError
+  # when the shared GPU lacks VRAM; search still works (degraded). Those lines
+  # contain 'failed' but must NOT trip the session-end alert.
+  cat > "${FAKE_HOME}/.opencode/bin/opencode" <<'STUB'
+#!/usr/bin/env bash
+mkdir -p .agents/logs
+printf 'Structured query expansion failed: InsufficientMemoryError: A context size of 512 is too large for the available VRAM\n' >> .agents/logs/qmd-mcp.log
+printf 'Reranker unavailable — skipping reranking (A context size of 4096 is too large for the available VRAM)\n' >> .agents/logs/qmd-mcp.log
+printf 'QMD Warning: no GPU acceleration, running on CPU (slow)\n' >> .agents/logs/qmd-mcp.log
+printf '%s\n' "$*"
+STUB
+  chmod +x "${FAKE_HOME}/.opencode/bin/opencode"
+
+  HOME="${FAKE_HOME}" run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+  assert_success
+  refute_output --partial "Session finished with error log entries"
+}
+
+@test "start.sh still alerts on a genuine error beside qmd degradation lines" {
+  cat > "${FAKE_HOME}/.opencode/bin/opencode" <<'STUB'
+#!/usr/bin/env bash
+mkdir -p .agents/logs
+printf 'Structured query expansion failed: InsufficientMemoryError: x\n' >> .agents/logs/qmd-mcp.log
+printf 'ERROR: real crash\n' >> .agents/logs/qmd-mcp.log
+printf '%s\n' "$*"
+STUB
+  chmod +x "${FAKE_HOME}/.opencode/bin/opencode"
+
+  HOME="${FAKE_HOME}" run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+  assert_success
+  assert_output --partial "Session finished with error log entries"
+  assert_output --partial "qmd-mcp.log"
+}
+
 @test "start.sh fires the detached memory prune before launching (memory vault + qmd)" {
   # audit-36: the delete→prune self-heal (qmd cleanup && qmd update, no embed)
   # moved from the session.created hook to start.sh, fired detached before the

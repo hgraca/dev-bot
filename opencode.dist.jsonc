@@ -146,7 +146,8 @@
       "enabled": true,
       "environment": {
         "QMD_LLAMA_GPU": "__GPU_ENABLED__",
-        "QMD_EXPAND_CONTEXT_SIZE": "512"
+        "QMD_EXPAND_CONTEXT_SIZE": "512",
+        "QMD_RERANK_CONTEXT_SIZE": "1024"
       }
     },
     "chrome-devtools": {
