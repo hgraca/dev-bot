@@ -116,43 +116,49 @@ python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py"
   "${PWD}/opencode.jsonc" "${HOME}/.claude/**" 2>/dev/null || true
 _phase "claudecode grant"
 
-# ── Agent audit (headless) ────────────────────────────────────────────────────
-# Runs /devbot:audit through claude -p. This is the LONG phase (5-25 min
-# depending on model). Output streams live AND is tee'd to
-# .agents/logs/devbot-audit-run.log for diagnosis; a heartbeat line prints
-# every 60 s so a long run is visibly alive, never a silent hang. Pick a fast
-# model for quick iteration with DEVBOT_TEST_CLAUDE_MODEL (e.g. haiku).
-echo
-echo "▶ Running headless devbot audit (/devbot:audit)..."
-echo "  (streaming below; tee'd to .agents/logs/devbot-audit-run.log)"
-echo
-mkdir -p /app/.agents/logs 2>/dev/null || true
-AUDIT_START=$(date +%s)
-( while :; do sleep 60; echo "  ⏱ audit still running ($(( $(date +%s) - AUDIT_START ))s)…"; done ) & AUDIT_HB=$!
-set +e
-if [[ -n "${DEVBOT_TEST_CLAUDE_MODEL:-}" ]]; then
-  devbot -p --model "${DEVBOT_TEST_CLAUDE_MODEL}" "/devbot:audit" 2>&1 \
-    | tee /app/.agents/logs/devbot-audit-run.log
-else
-  devbot -p "/devbot:audit" 2>&1 | tee /app/.agents/logs/devbot-audit-run.log
-fi
-AUDIT_RC=${PIPESTATUS[0]}
-set -e
-kill "${AUDIT_HB}" 2>/dev/null || true
-wait "${AUDIT_HB}" 2>/dev/null || true
-_phase "agent audit"
-echo
-if [[ ${AUDIT_RC} -ne 0 ]]; then
-  echo "WARN: devbot audit run failed (exit ${AUDIT_RC}) — tail of devbot-audit-run.log:"
-  tail -5 /app/.agents/logs/devbot-audit-run.log 2>/dev/null | sed 's/^/  /'
-else
-  # The audit must have written a report inside the isolated run; surface it.
-  audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-*.md' 2>/dev/null | sort | tail -1 || true)"
-  if [[ -n "${audit_report}" ]]; then
-    echo "✔ audit report written: ${audit_report}"
+# ── Agent audit — headless (opt-in) or manual ─────────────────────────────────
+# Default (no --headless on the launcher): skip the audit entirely and drop to
+# an interactive shell so you can run /devbot:audit manually in the harness.
+# With --headless (DEVBOT_TEST_HEADLESS=1): run /devbot:audit through claude -p.
+# That is the LONG phase (5-25 min depending on model). Output streams live AND
+# is tee'd to .agents/logs/devbot-audit-run.log; a heartbeat prints every 60 s
+# so a long run is visibly alive. Pick a fast model with
+# DEVBOT_TEST_CLAUDE_MODEL (e.g. haiku).
+if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
+  echo
+  echo "▶ Running headless devbot audit (/devbot:audit)..."
+  echo "  (streaming below; tee'd to .agents/logs/devbot-audit-run.log)"
+  echo
+  mkdir -p /app/.agents/logs 2>/dev/null || true
+  AUDIT_START=$(date +%s)
+  ( while :; do sleep 60; echo "  ⏱ audit still running ($(( $(date +%s) - AUDIT_START ))s)…"; done ) & AUDIT_HB=$!
+  set +e
+  if [[ -n "${DEVBOT_TEST_CLAUDE_MODEL:-}" ]]; then
+    devbot -p --model "${DEVBOT_TEST_CLAUDE_MODEL}" "/devbot:audit" 2>&1 \
+      | tee /app/.agents/logs/devbot-audit-run.log
   else
-    echo "WARN: devbot audit exited 0 but wrote NO devbot-audit-*.md report — see devbot-audit-run.log"
+    devbot -p "/devbot:audit" 2>&1 | tee /app/.agents/logs/devbot-audit-run.log
   fi
+  AUDIT_RC=${PIPESTATUS[0]}
+  set -e
+  kill "${AUDIT_HB}" 2>/dev/null || true
+  wait "${AUDIT_HB}" 2>/dev/null || true
+  _phase "agent audit"
+  echo
+  if [[ ${AUDIT_RC} -ne 0 ]]; then
+    echo "WARN: devbot audit run failed (exit ${AUDIT_RC}) — tail of devbot-audit-run.log:"
+    tail -5 /app/.agents/logs/devbot-audit-run.log 2>/dev/null | sed 's/^/  /'
+  else
+    # The audit must have written a report inside the isolated run; surface it.
+    audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-*.md' 2>/dev/null | sort | tail -1 || true)"
+    if [[ -n "${audit_report}" ]]; then
+      echo "✔ audit report written: ${audit_report}"
+    else
+      echo "WARN: devbot audit exited 0 but wrote NO devbot-audit-*.md report — see devbot-audit-run.log"
+    fi
+  fi
+else
+  echo "(headless audit skipped — run /devbot:audit manually in the harness below)"
 fi
 
 # Remove the test git repo when the container exits so the host mount
