@@ -118,13 +118,25 @@ setup() {
   # skips the skills delegation since opencode loads .agents/skills directly).
   local linked_skills="$test_project/.agents/skills/devbot"
   [ -d "$linked_skills" ] || fail "skills/devbot/ is missing"
-  # Build expected module list: modules that have a skills/ directory (non-disabled)
+  # Resolve the effective disabled set (modules map + codebase_index_provider
+  # auto-disable) the same way init does, so modules disabled by config or by
+  # the provider selection are not expected to be linked.
+  local disabled_names=""
+  disabled_names="$(
+    DEV_BOT_ROOT="${PROJECT_ROOT}" bash -c '
+      source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
+      _devbot_get_disabled_modules "${1}" 2>/dev/null
+    ' _ "${test_project}" 2>/dev/null || true
+  )"
+  # Build expected module list: modules that have a skills/ directory and are
+  # not in the effective disabled set.
   local expected_skills=""
   for mod_dir in "$source_skills_dir/"*/; do
     [[ -d "${mod_dir}skills" ]] || continue
-    # Skip disabled modules (react, svelte are disabled in devbot config)
     local mod_name=$(basename "$mod_dir")
-    [[ "$mod_name" == "react" || "$mod_name" == "svelte" ]] && continue
+    if echo "${disabled_names}" | grep -qF "\"${mod_name}\""; then
+      continue
+    fi
     expected_skills="$expected_skills$mod_name\n"
   done
   # Compare against what's actually linked
