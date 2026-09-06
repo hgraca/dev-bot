@@ -13,11 +13,12 @@ nav_section: docs
 
 ## Codebase Understanding
 
-| Tool                                    | Description                                            |
-| --------------------------------------- | ------------------------------------------------------ |
-| [Graphify](/tools/graphify)             | Auto-built structural knowledge graph of the codebase  |
-| [Codebase Index](/tools/codebase-index) | Find code by natural language description              |
-| [Repomix](/tools/repomix)               | Packs many files into a single compressed context dump |
+| Tool                                      | Description                                            |
+| ----------------------------------------- | ------------------------------------------------------ |
+| [Graphify](/tools/graphify)               | Auto-built structural knowledge graph of the codebase  |
+| [Codebase Index](/tools/codebase-index)   | Find code by natural language description              |
+| [Codebase Memory](/tools/codebase-memory) | Structural code intelligence via tree-sitter graph     |
+| [Repomix](/tools/repomix)                 | Packs many files into a single compressed context dump |
 
 ## Knowledge Vault
 
@@ -72,7 +73,7 @@ MCP servers shipped as standalone integrations (no dedicated tool page):
 | **Svelte**          | Svelte framework integration (svelte module)             |
 | **devbot-tools**    | Exposes DevBot tool scripts as MCP tools                 |
 
-Graphify, Codebase Index, QMD, and SigNoz also expose MCP servers — see their tool sections above.
+Graphify, Codebase Index, Codebase Memory, QMD, and SigNoz also expose MCP servers — see their tool sections above.
 
 ## Conventions (Skills)
 
