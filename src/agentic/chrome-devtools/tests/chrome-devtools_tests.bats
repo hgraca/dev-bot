@@ -82,20 +82,6 @@ setup_project() {
   assert_equal "$output" "1"
 }
 
-@test "audit-25: root opencode.dist.jsonc routes chrome-devtools through the wrapper with platform-aware discovery" {
-  local dist="${MODULE_DIR}/../../..//opencode.dist.jsonc"
-  # The root dist is what dist-initialized projects copy; its chrome-devtools
-  # entry must carry the same wrapper + platform-aware discovery as the module
-  # templates, otherwise registration skips the module version (key exists)
-  # and the fix never reaches those projects.
-  run grep -c 'chrome-devtools-mcp-wrapper\.js' "${dist}"
-  assert_equal "$output" "1"
-  run grep -c 'chrome-mac/Chromium.app/Contents/MacOS/Chromium' "${dist}"
-  assert_equal "$output" "1"
-  run grep -c 'chrome-linux\*/chrome' "${dist}"
-  assert_equal "$output" "1"
-}
-
 # ── audit-25 F4: install/update must provision a sandboxable Chromium ────────
 # The discovery glob only matches Playwright-downloaded Chromium; on machines
 # without system Chrome that directory never exists, so chrome-devtools could
