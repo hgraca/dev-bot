@@ -1,0 +1,7 @@
+{
+  "codebase-memory": {
+    "type": "local",
+    "command": ["codebase-memory-mcp"],
+    "enabled": true
+  }
+}
