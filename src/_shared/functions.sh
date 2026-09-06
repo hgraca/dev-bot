@@ -385,12 +385,42 @@ _devbot_prune_memories_detached() {
   return 0
 }
 
+# ── Codebase engine provider (config-driven) ───────────────────────────────────
+#
+# _devbot_get_codebase_provider [project_dir]
+#   Prints the active codebase engine module name: "codebase-index" or
+#   "codebase-memory". Selected by the global-only key "codebase_index_provider"
+#   in .devbot.global.jsonc; absent or invalid => "codebase-memory" (the new
+#   capability default). project_dir is accepted for signature symmetry but not
+#   read in v1 — the provider is deliberately global-only (no per-project
+#   override yet).
+
+_devbot_get_codebase_provider() {
+  local shared_dir
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local reader="${shared_dir}/read_jsonc.py"
+  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+
+  local provider=""
+  if [[ -f "${global_config}" ]]; then
+    provider=$(python3 "${reader}" "${global_config}" "codebase_index_provider" 2>/dev/null || true)
+  fi
+
+  case "${provider}" in
+    codebase-index | codebase-memory) echo "${provider}" ;;
+    *) echo "codebase-memory" ;;
+  esac
+}
+
 # ── Disabled modules (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_disabled_modules [project_dir]
 #   Returns a JSON array of disabled module names. The effective state is
 #   computed from the "modules" maps (module → bool): the per-project
 #   value overrides the global value; a module absent from both is enabled.
+#   The two codebase engine modules (codebase-index / codebase-memory) are
+#   mutually exclusive: whichever is NOT selected by codebase_index_provider
+#   is appended to the disabled set, so exactly one engine is ever wired.
 #   Handles missing fields gracefully (returns "[]").
 
 _devbot_get_disabled_modules() {
@@ -416,9 +446,17 @@ _devbot_get_disabled_modules() {
     [[ -z "${project_states}" || "${project_states}" == "null" ]] && project_states="{}"
   fi
 
+  # Non-selected codebase engine: codebase-index <-> codebase-memory
+  local provider
+  provider="$(_devbot_get_codebase_provider "${project_dir}")"
+  local non_selected="codebase-index"
+  [[ "${provider}" == "codebase-index" ]] && non_selected="codebase-memory"
+
   # Merge: project overrides global. A module is disabled when its effective
-  # value is false (project value if present, else global value).
-  GLOBAL_STATES="${global_states}" PROJECT_STATES="${project_states}" python3 -c '
+  # value is false (project value if present, else global value). The
+  # non-selected codebase engine is always disabled (mutual exclusion).
+  GLOBAL_STATES="${global_states}" PROJECT_STATES="${project_states}" \
+    NON_SELECTED="${non_selected}" python3 -c '
 import json, os
 global_states = json.loads(os.environ["GLOBAL_STATES"])
 project_states = json.loads(os.environ["PROJECT_STATES"])
@@ -429,6 +467,7 @@ for m, v in global_states.items():
 for m, v in project_states.items():
     if m not in global_states and v is False:
         disabled.add(m)
+disabled.add(os.environ["NON_SELECTED"])
 print(json.dumps(sorted(disabled)))
 ' 2>/dev/null || echo "[]"
 }
