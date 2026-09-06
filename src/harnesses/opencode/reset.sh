@@ -138,6 +138,84 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
     done
     unset MCP_TEMPLATES
   fi
+
+  # ── Prune plugin/MCP entries declared by now-DISABLED modules ─────────────
+  # Registration into opencode.jsonc is append-only (_upsert_opencode_plugin,
+  # merge_mcp_jsonc.py SKIP_EXISTS), so a module that became disabled — e.g.
+  # codebase-index after a codebase_index_provider flip to codebase-memory —
+  # keeps its plugin/MCP entries unless reset drops them. init never re-adds
+  # disabled modules, so removal is unconditional (unlike the stale-only
+  # enabled-module refresh above) and byte-idempotent: a second reset finds the
+  # entry already gone and touches nothing.
+  #
+  # TRADEOFF (intentional, documented in docs/configuration.md): disabling a
+  # module now UNREGISTERS its declared plugin/MCP entries at the next reinit,
+  # not merely stops future registration. A user-customized entry for a module
+  # dev-bot no longer manages is removed permanently — config files are
+  # rewritten, not backed up. Required for the codebase_index_provider engine
+  # swap: a flipped-off engine must shed its registrations.
+  REMOVE_PLUGIN_PY="${DEV_BOT_ROOT}/src/_shared/remove_plugin_entry.py"
+  # Parse the disabled set once (module names the registration loops skip).
+  disabled_name=""
+  while IFS= read -r disabled_name; do
+    [[ -n "${disabled_name}" ]] || continue
+
+    # Locate the module dir in the bases that register into opencode.jsonc
+    # (tools/agentic declare mcp.opencode.json + plugin.opencode.json; harnesses
+    # only mcp.opencode.json — external modules never register here).
+    mod_dir=""
+    base_dir=""
+    for base_dir in "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/tools" "${DEV_BOT_ROOT}/src/harnesses"; do
+      if [[ -d "${base_dir}/${disabled_name}" ]]; then
+        mod_dir="${base_dir}/${disabled_name}"
+        break
+      fi
+    done
+    [[ -n "${mod_dir}" ]] || continue
+
+    # Plugin array entries (plugin.opencode.json = ["name", ...])
+    if [[ -f "${mod_dir}/plugin.opencode.json" && -f "${REMOVE_PLUGIN_PY}" ]]; then
+      while IFS= read -r plugin_name; do
+        [[ -n "${plugin_name}" ]] || continue
+        # Pre-check scoped to the actual plugin array (not a whole-file grep,
+        # which would match the name inside comments or other sections and then
+        # report a phantom removal).
+        if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "plugin" 2>/dev/null \
+          | grep -q "\"${plugin_name}\""; then
+          python3 "${REMOVE_PLUGIN_PY}" "${OPENCODE_CONFIG}" "${plugin_name}" 2>/dev/null || true
+          # Post-check: only report success when the entry is actually gone —
+          # a removal that silently no-ops (e.g. the top-level plugin array was
+          # absent despite the pre-check) must surface as a warning, not an _ok.
+          if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "plugin" 2>/dev/null \
+            | grep -q "\"${plugin_name}\""; then
+            _warn "${disabled_name}: plugin '${plugin_name}' still present in plugin array — removal failed"
+          else
+            _ok "${disabled_name}: removed plugin '${plugin_name}' (module disabled)"
+          fi
+        fi
+      done < <(jq -r '.[]' "${mod_dir}/plugin.opencode.json" 2>/dev/null)
+    fi
+
+    # MCP keys (mcp.opencode.json = { "key": {...} })
+    if [[ -f "${mod_dir}/mcp.opencode.json" && -f "${REMOVE_MCP_PY}" ]]; then
+      mcp_key_name=""
+      while IFS= read -r mcp_key_name; do
+        [[ -n "${mcp_key_name}" ]] || continue
+        if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
+          | grep -q "\"${mcp_key_name}\""; then
+          python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${mcp_key_name}" 2>/dev/null || true
+          _ok "${disabled_name}: removed MCP '${mcp_key_name}' (module disabled)"
+        fi
+      done < <(python3 -c "
+import json
+with open('${mod_dir}/mcp.opencode.json') as f:
+    data = json.load(f)
+for k in data.keys():
+    print(k)
+" 2>/dev/null)
+    fi
+  done < <(echo "${_disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
+  unset REMOVE_PLUGIN_PY
 fi
 
 _ok "Opencode reset complete"

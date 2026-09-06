@@ -142,3 +142,81 @@ print('MCP-CLEAN:OK')
   assert_success
   grep -qF 'MCP-CLEAN:OK' <<< "$output" || fail "MCP keys not removed"
 }
+
+# ── D7: prune plugin/MCP entries declared by now-DISABLED modules ────────────
+# Registration is append-only, so a module that became disabled (e.g.
+# codebase-index after a codebase_index_provider flip to codebase-memory) keeps
+# its plugin/MCP entries in opencode.jsonc unless reset drops them. Fixture:
+#   - codebase-index disabled via project modules override (module declares
+#     plugin.opencode.json = ["opencode-codebase-index"])
+#   - react globally disabled (module declares mcp.opencode.json key
+#     "next-devtools")
+#   - enabled modules' entries (on-hooks.ts plugin, chrome-devtools MCP) survive
+
+_write_d7_fixture() {
+  # opencode enabled; codebase-index (plugin) and react (mcp.opencode.json
+  # key "next-devtools") disabled at project level. chrome-devtools is
+  # force-ENABLED at project level too (its MCP entry must survive the prune):
+  # the project modules map overrides the real global config, so the test is
+  # hermetic — it must not depend on whatever per-machine .devbot.global.jsonc
+  # disables (review F4).
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
+{
+  "modules": {
+    "opencode": true,
+    "codebase-index": false,
+    "react": false,
+    "chrome-devtools": true
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  ln -s "${PROJECT_ROOT}/src/agentic/devbot/agents" "${SANDBOX_DIR}/.opencode/agents/devbot"
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "plugin": ["opencode-codebase-index", ".opencode/plugins/on-hooks.ts"],
+  "mcp": {
+    "next-devtools": { "type": "local", "command": ["next-devtools-mcp"] },
+    "chrome-devtools": { "type": "local", "command": ["chrome-devtools-mcp"] }
+  }
+}
+JSONC_EOF
+}
+@test "D7: reset removes plugin + MCP entries of disabled modules, keeps enabled ones" {
+  _write_d7_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import json, sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${SANDBOX_DIR}/opencode.jsonc')
+plugins = d.get('plugin', [])
+assert 'opencode-codebase-index' not in plugins, plugins
+assert '.opencode/plugins/on-hooks.ts' in plugins, plugins
+mcp = d.get('mcp', {})
+assert 'next-devtools' not in mcp, mcp
+assert 'chrome-devtools' in mcp, mcp
+print('D7-PRUNE:OK')
+"
+  assert_success
+  grep -qF 'D7-PRUNE:OK' <<< "$output" || fail "disabled-module entries not pruned"
+}
+
+@test "D7: second reset is byte-idempotent (no further changes)" {
+  _write_d7_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  local after_first
+  after_first="$(cat "${SANDBOX_DIR}/opencode.jsonc")"
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
+}
