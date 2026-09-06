@@ -102,6 +102,50 @@ Module names to skip during lifecycle scripts (init, install, update, prereq che
 
 ---
 
+### `codebase_index_provider`
+
+```jsonc
+{ "codebase_index_provider": "codebase-index" }
+```
+
+**Type:** `string` (`"codebase-index"` \| `"codebase-memory"`)
+**Default:** `"codebase-memory"`
+**Required:** no
+**Scope:** global only
+
+Selects which codebase-understanding engine is active. The two engines are
+interchangeable — the same slot in the agent toolkit, swapped by flipping this
+one key (then running `devbot reinit`):
+
+| Value               | Engine                                                                  | Integration           |
+| ------------------- | ----------------------------------------------------------------------- | --------------------- |
+| `"codebase-index"`  | `opencode-codebase-index` (Ollama `nomic-embed-text` embeddings)        | opencode plugin + MCP |
+| `"codebase-memory"` | `codebase-memory-mcp` (DeusData — bundled native embeddings, no Ollama) | MCP server            |
+
+The two modules are **mutually exclusive**: `_devbot_get_disabled_modules`
+auto-appends the non-selected engine to the disabled set, so exactly one is
+ever wired. An explicit `modules`-map `false` on the _selected_ engine still
+hard-disables it (no codebase engine); enabling the _non-selected_ one via
+`modules` is ignored.
+
+**Upgrade note:** existing installs that do not set this key get the
+`codebase-memory` default and will stop registering `codebase-index` on the
+next reinit. Pin `"codebase_index_provider": "codebase-index"` _before_
+updating dev-bot to keep the previous engine.
+
+**Behaviour on disable (read before flipping):** disabling a module — via this
+key or the `modules` map — **unregisters** its declared opencode plugin/MCP
+entries at the next `devbot reinit`, not merely stops future registration. This
+is required for the engine swap: a flipped-off engine must shed its
+registrations. `devbot init`/`reinit` rewrite `opencode.jsonc`, `.mcp.json` and
+the per-project config from module manifests — existing configs are **not
+backed up**; the old file is replaced. Skills, agents, commands, and tool
+symlinks are removed outright and regenerated from source. Review the current
+config before reinit if you have hand-tuned entries for a module you are about
+to disable.
+
+---
+
 ### `devbot:guards`
 
 ```jsonc
