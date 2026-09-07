@@ -171,10 +171,20 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
             // interleaves corrupted the file. Serialize + coalesce per file: a
             // burst collapses into one in-flight run plus one trailing re-run.
             fileEditGate(file, async () => {
+              const before = contentSig(file)
               await dispatch("file.edited", file, { file }, { create: kind === "add" })
+              const after = contentSig(file)
+              // audit-51 §2: a rewrite hook (e.g. format normalization) changed
+              // the file between two user edits — opencode's fuzzy edit tool can
+              // splice a stale-indentation oldString into the normalized content.
+              // Surface the rewrite so the agent re-reads before its next edit
+              // and so audits can trace the sequence in hooks.log.
+              if (before && after && before !== after && kind !== "add") {
+                logger.info(`file.edited hooks rewrote ${file} (format normalization?) — re-read the file before your next edit`)
+              }
               // Record the post-hook content so the echo of a rewrite the hooks
               // just performed is recognized (and dropped) above.
-              rewriteEcho.record(file, contentSig(file))
+              rewriteEcho.record(file, after)
             })
           })
         }
