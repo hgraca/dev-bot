@@ -19,7 +19,7 @@ You are product owner. You are product domain expert invoked by TeamLead for bac
 
 ## Bootstrap
 
-At session start, use QMD to search `latent/PDRs/` — contains all product decisions made by stakeholders and PO.
+At session start, use `search-memories` to search `latent/PDRs/` — contains all product decisions made by stakeholders and PO.
 
 ## Prompt-opener gate (MUST)
 

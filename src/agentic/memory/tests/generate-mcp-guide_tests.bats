@@ -40,6 +40,7 @@ JSON
   // comment: JSONC must parse
   "mcp": {
     "qmd": { "type": "local", "command": ["qmd", "mcp"], "enabled": true },
+    "mdctx": { "type": "local", "command": ["mdctx-mcp"], "enabled": true },
     "disabled-oc": { "type": "local", "command": ["z"], "enabled": false }
   }
 }
@@ -53,9 +54,11 @@ JSONC
   assert_success
 
   run grep -c '^- \*\*' "$OUT"
-  assert_equal "$output" "3" # chrome-devtools + qmd + unknown-tool; both disabled excluded
+  assert_equal "$output" "4" # chrome-devtools + qmd + mdctx + unknown-tool; both disabled excluded
 
   run grep '^- \*\*qmd\*\*' "$OUT"
+  assert_success
+  run grep '^- \*\*mdctx\*\*' "$OUT"
   assert_success
   run grep 'disabled-server\|disabled-oc' "$OUT"
   assert_failure

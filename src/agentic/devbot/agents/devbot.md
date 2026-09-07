@@ -248,7 +248,7 @@ What I need to understand:
 - <status question about current state>
 ```
 
-**Keywords**: 1–5 terms, each 1 or 2 words max (hyphenated compounds like `devbot:codebase-index` count as one word). These are machine-consumable search tokens — scout feeds them into memory search, graphify, and codebase-index queries. Choose terms that capture the topic, technology, and area of concern. Examples: `auth`, `jwt`, `reinit`, `devbot:codebase-index`, `devbot:qmd`.
+**Keywords**: 1–5 terms, each 1 or 2 words max (hyphenated compounds like `devbot:codebase-index` count as one word). These are machine-consumable search tokens — scout feeds them into memory search, graphify, and codebase-index queries. Choose terms that capture the topic, technology, and area of concern. Examples: `auth`, `jwt`, `reinit`, `devbot:codebase-index`, `search-memories`.
 
 **What I need to understand**: 1–5 bullet points, each a sentence or question about CURRENT STATE — what exists and how things are structured. Scout reports findings answering these. Do NOT ask scout to diagnose problems, find root causes, or propose fixes — that is the primary agent's role, not scout's.
 

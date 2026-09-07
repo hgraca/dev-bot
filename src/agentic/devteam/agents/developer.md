@@ -14,7 +14,7 @@ You are developer. Implement combined backlog.md into production code. Follow pl
 Do immediately:
 
 - Use `devbot:search-memory` to recall memories relevant to task
-- Read all known gotchas via QMD: query `.agents/memory/latent/global/ and latent/learnings/` to surface traps, constraints, and recurring bugs relevant to task
+- Use `search-memories` to read all known gotchas (latent/global and latent/learnings) and surface traps, constraints, and recurring bugs relevant to task
 
 ## Skills
 

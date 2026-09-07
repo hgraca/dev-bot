@@ -17,19 +17,19 @@ Selects right search tool for question. Different tools excel at different queri
 
 ## Tool Selection
 
-| Question type                                          | Tool                    | Why                                                    |
-| ------------------------------------------------------ | ----------------------- | ------------------------------------------------------ |
-| Semantic search ("where is auth logic?")               | `codebase_search`       | Hybrid semantic + keyword, returns full code content   |
-| Quick location lookup ("find payment handler")         | `codebase_peek`         | Same search, returns only metadata — saves ~90% tokens |
-| Jump to definition ("where is validateToken defined?") | `implementation_lookup` | Finds authoritative source, skips tests/docs/examples  |
-| Who calls this? / What does this call?                 | `call_graph`            | Traces callers or callees by function name             |
-| Find similar code (duplicate detection, refactoring)   | `find_similar`          | Vector similarity on code snippet                      |
-| File path lookup by pattern                            | `Glob`                  | Fast glob matching (`**/*.ts`, `src/**/Handler.php`)   |
-| Exact string or regex in file contents                 | `Grep`                  | Regex search across files, filterable by extension     |
-| AST structural pattern matching                        | `ast-grep`              | Matches code by AST structure, not text                |
-| Cross-file relationships, architecture                 | `devbot:graphify` (CLI+MCP)    | Knowledge graph with communities, god nodes, paths     |
-| Full directory context for audit/analysis              | `repomix` (CLI)         | Packs files into single structured dump                |
-| Markdown notes/docs in memory vault                    | `devbot:qmd` (CLI)             | Hybrid lex+vec+rerank over indexed `.md` collections   |
+| Question type                                          | Tool                        | Why                                                                            |
+| ------------------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------ |
+| Semantic search ("where is auth logic?")               | `codebase_search`           | Hybrid semantic + keyword, returns full code content                           |
+| Quick location lookup ("find payment handler")         | `codebase_peek`             | Same search, returns only metadata — saves ~90% tokens                         |
+| Jump to definition ("where is validateToken defined?") | `implementation_lookup`     | Finds authoritative source, skips tests/docs/examples                          |
+| Who calls this? / What does this call?                 | `call_graph`                | Traces callers or callees by function name                                     |
+| Find similar code (duplicate detection, refactoring)   | `find_similar`              | Vector similarity on code snippet                                              |
+| File path lookup by pattern                            | `Glob`                      | Fast glob matching (`**/*.ts`, `src/**/Handler.php`)                           |
+| Exact string or regex in file contents                 | `Grep`                      | Regex search across files, filterable by extension                             |
+| AST structural pattern matching                        | `ast-grep`                  | Matches code by AST structure, not text                                        |
+| Cross-file relationships, architecture                 | `devbot:graphify` (CLI+MCP) | Knowledge graph with communities, god nodes, paths                             |
+| Full directory context for audit/analysis              | `repomix` (CLI)             | Packs files into single structured dump                                        |
+| Markdown notes/docs in the memory vault                | `search-memories`           | Searches the project + global vault under the configured engine (qmd or mdctx) |
 
 ## Detailed Guidance
 
@@ -152,40 +152,35 @@ Regex content search across files.
 - Use `include` to narrow: `"*.php"`, `"*.{ts,tsx}"`
 - Returns file paths + line numbers, sorted by modification time
 
-### qmd (CLI)
+### Memory-vault search (`search-memories`)
 
-Hybrid markdown search over memory vault — combines BM25 keyword (`lex`), semantic vector (`vec`), and hypothetical-document (`hyde`) search with LLM reranking.
+The canonical way to search the agent memory vault — `.md` notes under
+`.agents/memory/` (latent notes, ADRs, PDRs, gotchas, patterns, work artefacts,
+decisions, retrospectives). `search-memories` searches the CURRENT project
+vault **and** the shared global store, under whichever engine
+`memory_search_provider` selects (qmd or mdctx).
 
 **Use when:**
 
-- Searching `.md` content under `.agents/memory/` (latent notes, ADRs, PDRs, gotchas, patterns, work artefacts, decisions, retrospectives)
-- Looking up past lessons, decisions, or context from vault
-- Reading vault files by canonical path (`qmd get` works on gitignored `.ai/` paths where `Glob` does not)
-- Concept search across notes ("how did we decide X?", "what's auth pattern?")
+- Recalling past lessons, decisions, or context from the vault
+- Concept/keyword search across notes ("how did we decide X?", "what's the auth pattern?")
+- Reading full matched notes — `search-memories` returns whole file bodies with frontmatter stripped
 
 **Tools:**
 
-- `qmd query "question"` — hybrid search with auto-expansion + reranking
-- `qmd query $'lex: ...\nvec: ...'` — structured query document
-- `qmd search "keywords"` — BM25 only (no LLM, faster)
-- `qmd get <path>` — read single document by path
-- `qmd multi-get <pattern>` — batch fetch by glob or comma-separated paths
-- `qmd status` — list indexed collections and health
+- `search-memories <query>` — devbot-tools MCP tool or CLI; the route for vault search
+- `reindex-memories` — refresh/rebuild the vault index after heavy edits (or when a search returns nothing)
 
-**Indexed collections:**
-
-- `devbot` — entire memory vault (latent, work, reference, thinking, bootstrap)
-- Root: `<project>/.agents/memory` (the devbot dir, configurable via `devbot_dir`)
+**Engine specifics** — each engine's native CLI subcommands, MCP tools and
+index locations are documented in the ACTIVE engine's own skill:
+`devbot:qmd` when `memory_search_provider` is `qmd`, `devbot:mdctx` when it is
+`mdctx`. Only the selected engine's skill is linked.
 
 **Tips:**
 
-- For exact term/path lookup: `qmd search "PDRs gotcha"`
-- For concept search: `qmd query "how did we decide X?"`
-- For structured queries: `qmd query $'lex: PDRs\ngotcha\nvec: what patterns do we have for auth?'`
-- Use `--json --explain` to see score traces: `qmd query --json --explain "question"`
-- **Set env vars** when running qmd CLI directly: `XDG_CACHE_HOME="${DEVBOT_ROOT}/storage" QMD_LLAMA_GPU=true qmd query "..."` — redirects cache to DevBot storage and enables GPU acceleration
-- Prefer `devbot:qmd` over `Glob`/`Grep` for ANY `.md` content search inside `.agents/memory/` — qmd's index is canonical view of vault, and `Glob`/`Grep` may miss gitignored vault paths
-- For non-vault markdown (e.g. project-root `README.md`, `docs/**/*.md`), `Glob`/`Grep`/`Read` are still right tools — qmd does not index those
+- Prefer `search-memories` over `Glob`/`Grep` for ANY `.md` content search inside `.agents/memory/` — the search index is the canonical view of the vault, and `Glob`/`Grep` may miss gitignored vault paths
+- Once a search returns file paths, `Read` the files directly when you need their exact content
+- For non-vault markdown (e.g. project-root `README.md`, `docs/**/*.md`), `Glob`/`Grep`/`Read` are still right tools — vault search engines do not index those
 
 ### ast-grep
 
@@ -205,7 +200,7 @@ AST-based structural pattern matching.
 
 ## Decision Flowchart
 
-1. **Searching `.md` content under `.agents/memory/`?** → `qmd query` / `qmd get`
+1. **Searching `.md` content under `.agents/memory/`?** → `search-memories`
 2. **Know exact file path?** → `Read`
 3. **Know file name pattern?** → `Glob`
 4. **Know exact string to find?** → `Grep`

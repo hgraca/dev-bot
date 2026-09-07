@@ -47,7 +47,8 @@ devbot-tools|Use to run dev-bot's own tooling — memory search (`search-memorie
 graphify|Use to search and analyze code structure — trace relationships, dependencies, call graphs, and references to understand how parts of the codebase connect and what an edit will affect.
 jetbrains|Use to query and drive the local JetBrains IDE — modules, open files, symbols, call analysis, inspections, and running code via run configurations (e.g. `get_project_modules`, `search_symbol`, `lint_files`); reach for it when the task benefits from the IDE's own indexer or needs something run in the IDE.
 playwright|Use to _drive_ a browser programmatically — automate multi-step flows, run end-to-end tests, fill forms, or scrape content that requires interaction; the action tool to chrome-devtools' inspection tool.
-qmd|Use to search a local markdown knowledge base (notes, docs, transcripts) — hybrid keyword + semantic search with LLM reranking; reach for it to retrieve written knowledge, then fetch full documents by file. Use when you need to search your memories.
+qmd|Use to search a local markdown knowledge base (notes, docs, transcripts) — the memory-search engine selected when `memory_search_provider` is `qmd` (hybrid keyword + semantic search with LLM reranking over registered collections); reach for it via `search-memories` to retrieve written knowledge.
+mdctx|Use to search a local markdown knowledge base (notes, docs, transcripts) — the memory-search engine selected when `memory_search_provider` is `mdctx` (zero-ML keyword BM25 over a flat git-diffable index); reach for it via `search-memories` to retrieve written knowledge.
 websearch|Use to retrieve current, real-world information beyond your knowledge cutoff — news, latest versions, prices, or any fact that may have changed.
 EOF
 )

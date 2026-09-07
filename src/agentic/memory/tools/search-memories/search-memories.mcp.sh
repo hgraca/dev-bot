@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---
-# description: Search the memory vault and return full file bodies. Fast keyword (BM25) search across QMD-indexed memories — no GPU or LLM models required.
+# description: Search the memory vault and return full file bodies. Fast keyword (BM25) search across memories indexed by the configured engine (qmd or mdctx) — no GPU or LLM models required.
 # ---
 # =============================================================================
 # src/agentic/memory/tools/search-memories/search-memories.mcp.sh
@@ -29,7 +29,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"search-memories","description":"Search the memory vault and return full file bodies. Fast keyword (BM25) search across QMD-indexed memories — no GPU or LLM models required.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <query> [--collection <name>] [--max-results <n>] [--json]"}},"required":["args"]}}
+{"name":"search-memories","description":"Search the memory vault and return full file bodies. Fast keyword (BM25) search across memories indexed by the configured engine (qmd or mdctx) — no GPU or LLM models required.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <query> [--collection <name>] [--max-results <n>] [--json]"}},"required":["args"]}}
 JSON
     exit 0
     ;;
