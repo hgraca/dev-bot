@@ -82,10 +82,24 @@ both. `reindex-memories` refreshes them.
   title/frontmatter/headings + body emphasis, ranked with BM25. There is no
   semantic/vector search, no LLM reranking, no fuzzy paraphrase matching —
   choose qmd (`memory_search_provider: "qmd"`) if you need those.
+- **Capped keyword extraction**: per-file keywords are auto-sized to 5–25
+  (roughly one per 30 words). An exact distinctive literal — an error code, a
+  hyphenated compound, a slug or identifier that never surfaced as a keyword —
+  can return **zero hits** even though the term is in the file body. For
+  literal-identifier lookups fall back to `Grep`/`Glob`/`Read` over the vault
+  (or qmd under `memory_search_provider: "qmd"`, whose BM25 covers full text).
 - **Deterministic + offline**: no model, no GPU, no cost per index update; the
   index JSON is git-diffable.
 - **No symlink following**: a docs tree reached only via symlinks is never
   indexed — register the real path.
+
+## MCP server scope (opencode registration)
+
+The opencode-registered `mdctx` MCP server roots at the **shared global store**
+(`MDCTX_ROOT` = `${DEV_BOT_ROOT}/storage/global-memories`), so its native tools
+(`search_context` / `list_context`) browse **global memories only**. Project
+vault search goes through `search-memories`, which covers both stores — do not
+expect project-vault hits from the mdctx MCP tools.
 
 ## Setup
 
