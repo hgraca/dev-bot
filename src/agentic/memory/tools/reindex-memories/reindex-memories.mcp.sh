@@ -188,7 +188,7 @@ fi
       else
         _global_rc=0
       fi
-      echo "[reindex-memories] ${MODE} finished project=${_project_rc} global=${_global_rc} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      echo "[reindex-memories] ${MODE} finished project_rc=${_project_rc} global_rc=${_global_rc} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     else
       qmd cleanup
       _cleanup_rc=$?

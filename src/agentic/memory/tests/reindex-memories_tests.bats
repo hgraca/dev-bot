@@ -362,12 +362,12 @@ SCRIPT
   # Log markers (engine-agnostic memory-index.log).
   local j
   for j in $(seq 1 50); do
-    grep -q "finished project=0 global=0" "$index_log" 2>/dev/null && break
+    grep -q "finished project_rc=0 global_rc=0" "$index_log" 2>/dev/null && break
     sleep 0.1
   done
   run cat "$index_log"
   assert_output --regexp "\[reindex-memories\] full start"
-  assert_output --regexp "\[reindex-memories\] full finished project=0 global=0"
+  assert_output --regexp "\[reindex-memories\] full finished project_rc=0 global_rc=0"
 }
 
 @test "mdctx provider + prune mode: same build, logs a prune marker" {
@@ -384,12 +384,12 @@ SCRIPT
 
   local j
   for j in $(seq 1 50); do
-    grep -q "prune finished project=0 global=0" "$index_log" 2>/dev/null && break
+    grep -q "prune finished project_rc=0 global_rc=0" "$index_log" 2>/dev/null && break
     sleep 0.1
   done
   run cat "$index_log"
   assert_output --regexp "\[reindex-memories\] prune start"
-  assert_output --regexp "\[reindex-memories\] prune finished project=0 global=0"
+  assert_output --regexp "\[reindex-memories\] prune finished project_rc=0 global_rc=0"
 }
 
 @test "mdctx provider + mdctx binary missing: FATAL" {
