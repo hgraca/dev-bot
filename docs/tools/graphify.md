@@ -19,6 +19,11 @@ Graphify builds a persistent knowledge graph from your codebase — queries run 
 
 Agents query graphify to understand code structure — trace how a function connects to others, find all callers of a method, or discover which modules would be affected by a change.
 
+**MCP `project_path`:** the graphify MCP server appends `graphify-out/graph.json`
+to the `project_path` you pass it — always pass the **project root**, never a
+`…/graphify-out` path (that double-joins and errors, audit-51 NOTE). The CLI
+(`graphify query/path/explain`) discovers the graph itself.
+
 ## Local model
 
 Uses Ollama embeddings for semantic understanding. No cloud API calls.
