@@ -314,8 +314,66 @@ def search_mdctx(
     # remaining slots — never interleave raw scores across the two scales.
     project_results.sort(key=lambda r: r.get("score", 0), reverse=True)
     global_results.sort(key=lambda r: r.get("score", 0), reverse=True)
+
+    # audit-52/55/56 NOTE: mdctx indexes a capped set of extracted keywords per
+    # file — an exact literal (error code, slug, numeric/dashed marker, filename
+    # stem) is usually NOT among them, so a keyword search silently misses files
+    # that plainly contain the term. When the keyword index yields nothing, fall
+    # back to a bounded full-text substring scan of the vault roots.
+    if not project_results and not global_results:
+        return _literal_fallback(queries, pairs, max_results), None
+
     merged = (project_results + global_results)[:max_results]
     return merged, None
+
+
+def _literal_fallback(
+    queries: list[str], pairs: list[tuple[Path, Path]], max_results: int
+) -> list[dict]:
+    """Direct substring scan of the vault roots (audit-52/55/56 exact-literal gap).
+
+    Runs only when the mdctx keyword search returned nothing. Scans each
+    indexed root's `.md`/`.mdx` files (devbot vaults are small — well under a
+    second for ~1000 files) for a case-insensitive substring of the query.
+    Results carry score 0.0 — below any keyword hit, but the fallback only runs
+    when there were none. Symlinked files are skipped (mdctx does not follow
+    symlinks; the global store is scanned through its real root).
+    """
+    seen: set[str] = set()
+    hits: list[dict] = []
+    for query in queries:
+        q = (query or "").lower().strip()
+        if not q:
+            continue
+        for root, _index_file in pairs:
+            if not root.is_dir():
+                continue
+            for p in root.rglob("*"):
+                if not (p.is_file() and p.suffix.lower() in (".md", ".mdx")):
+                    continue
+                if p.is_symlink():
+                    continue
+                try:
+                    text = p.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                if q in text.lower():
+                    key = str(p.resolve())
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    hits.append(
+                        {
+                            "docid": "",
+                            "score": 0.0,
+                            "file": key,
+                            "title": p.stem,
+                            "snippet": "",
+                        }
+                    )
+                    if len(hits) >= max_results:
+                        return hits
+    return hits
 
 
 def strip_yaml_frontmatter(content: str) -> str:

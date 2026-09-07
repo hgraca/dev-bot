@@ -59,10 +59,11 @@ semantic/vector search, no LLM reranking. Choose `qmd` when you need those.
 
 ## Known limits
 
-- **Keyword-capped extraction**: per-file keywords are auto-sized (5–25);
-  exact distinctive literals (error codes, slugs, hyphenated identifiers) may
-  not be extracted as keywords and can return zero hits — fall back to
-  `Grep`/`Glob` for literal-identifier lookups.
+- **Keyword-capped extraction with full-text fallback**: per-file keywords are
+  auto-sized (5–25); exact distinctive literals (error codes, slugs, numeric/
+  dashed markers) may not be extracted as keywords. `search-memories` adds a
+  bounded full-text substring fallback when the keyword index misses, so
+  literal lookups still find the file (raw `mdctx search` has no fallback).
 - **No symlink following**: each real corpus needs its own index (the shared
   store and each project vault are indexed separately).
 - **MCP scope**: the opencode-registered mdctx MCP server roots at the shared

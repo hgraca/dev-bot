@@ -570,7 +570,7 @@ class TestSearchMdctx(unittest.TestCase):
         self.latent = self.root / ".agents" / "memory" / "latent"
         self.latent.mkdir(parents=True)
         (self.root / ".mdctx").mkdir()
-        (self.latent / "a.md").write_text("# A\n\ncontent a")
+        (self.latent / "a.md").write_text("# A\n\ncontent a zorblatt-fenwick-nine")
         self.global_dir = self.root / "storage" / "global-memories"
         self.global_dir.mkdir(parents=True)
         (self.root / "storage" / ".mdctx").mkdir(parents=True)
@@ -710,6 +710,25 @@ class TestSearchMdctx(unittest.TestCase):
         self.assertTrue(
             all(str(self.global_dir) in r["file"] for r in results[1:])
         )
+
+    def test_exact_literal_falls_back_to_fulltext_scan(self):
+        # audit-52/55/56 NOTE: mdctx keyword extraction drops exact literals
+        # (dashed/numeric markers). When the keyword index returns nothing, the
+        # full-text fallback must still surface the file that contains the term.
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(
+                _search_memories,
+                "run_mdctx_cli",
+                return_value=("[]", None),  # keyword search: no matches
+            ):
+                results, err = _search_memories.search_mdctx(
+                    ["zorblatt-fenwick-nine"], self.root, 5
+                )
+
+        self.assertIsNone(err)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["file"], str((self.latent / "a.md").resolve()))
+        self.assertEqual(results[0]["score"], 0.0)
 
 
 # ---------------------------------------------------------------------------
