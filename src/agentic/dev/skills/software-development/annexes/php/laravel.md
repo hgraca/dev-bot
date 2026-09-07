@@ -86,10 +86,37 @@ This project upgraded from Laravel 10 without migrating to new file structure. T
 - Faker: Use `$this->faker->word()` or `fake()->randomDigit()`. Follow existing `$this->faker` vs `fake()` convention.
 - Use `php artisan make:test [options] {name}` for feature tests, `--unit` for unit tests. Most tests should be feature tests.
 
+## Caching
+
+### Cache arrays/scalars only — never objects
+
+`config/cache.php` sets `'serializable_classes' => false` (PHP object-injection hardening). Serializing cache stores (Redis, file, database) read values back with `unserialize($value, ['allowed_classes' => false])`, so **any object stored in the cache comes back as `__PHP_Incomplete_Class`** — arrays and scalars are unaffected.
+
+Symptoms:
+
+- `TypeError: Foo::bar(): Return value must be of type ..., __PHP_Incomplete_Class returned`
+- Cached objects that fail their declared types or cannot be used.
+
+Rules:
+
+- Cache plain arrays/scalars only: `->pluck('column')->all()`, `->toArray()`, primitives.
+- Rebuild objects on read, outside the cache call: `new Collection(Cache::remember(...))`.
+- The rule applies to `Cache::remember()` closures and `Cache::put()` values alike.
+
+Why tests miss it: `phpunit.xml` sets `CACHE_DRIVER=array`, and the array store never serializes — object-caching bugs stay green in unit tests and explode only on serializing stores (Redis in production). When changing anything cached, add a regression test that pins a serializing store:
+
+```php
+config()->set('cache.default', 'file');
+config()->set('cache.stores.file.path', storage_path('framework/testing/cache'));
+```
+
+Incident 2026-09-07: `OptionsFilter::blacklistTransporterIdsFor()` cached an Eloquent `Collection`; the second read within the TTL threw the TypeError above → HTTP 500s on Booking.com/Trip.com estimate flows.
+
 ## Do Not
 
 - Create verification scripts or tinker when tests cover that functionality
 - Change application dependencies without approval
+- Cache objects (Eloquent models, Collections, DTOs) in the shared cache — see [Caching](#caching)
 
 ## See also
 
