@@ -46,6 +46,11 @@ DEVBOT_ROOT = Path(
     os.environ.get("SEARCH_MEMORIES_DEV_BOT_ROOT") or find_devbot_root(SCRIPT_DIR)
 ).resolve()
 
+# Score multiplier for project-store hits in the mdctx merge (audit-51 §5 NOTE
+# — the global store otherwise buries small project vaults below the result
+# window on fuzzy queries).
+MDCTX_PROJECT_SCORE_BOOST = 2.0
+
 
 def _qmd_env() -> dict:
     """Build env for qmd subprocesses.
@@ -250,7 +255,14 @@ def search_mdctx(
     absolute path under its docs root so body fetching is a plain disk read
     (no `mdctx get`). Results from both stores are merged and deduplicated by
     absolute path, mirroring search_qmd's dual-collection contract.
+
+    Project-store hits get a score boost (audit-51 §5 NOTE): the global store
+    (hundreds of files, larger keyword surfaces) naturally outranks a small
+    project vault on fuzzy queries, burying the project's own note below the
+    default result window. Boosting the project vault keeps project memories
+    first; the global store still contributes below them.
     """
+    project_index = project_root / ".mdctx" / "context-index.json"
     pairs = [(root, idx) for root, idx in resolve_mdctx_indexes(project_root) if idx.is_file()]
     if not pairs:
         return None, (
@@ -277,6 +289,7 @@ def search_mdctx(
             if not isinstance(data, list):
                 continue
 
+            project_store = index_file == project_index
             for r in data:
                 rel = r.get("path", "")
                 if not rel:
@@ -285,10 +298,13 @@ def search_mdctx(
                 if abs_path in seen_files:
                     continue
                 seen_files.add(abs_path)
+                score = r.get("score", 0)
+                if project_store:
+                    score *= MDCTX_PROJECT_SCORE_BOOST
                 all_results.append(
                     {
                         "docid": "",
-                        "score": r.get("score", 0),
+                        "score": score,
                         "file": abs_path,
                         "title": r.get("title", ""),
                         "snippet": "",

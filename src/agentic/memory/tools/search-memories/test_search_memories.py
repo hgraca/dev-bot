@@ -666,6 +666,27 @@ class TestSearchMdctx(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["title"], "")  # the empty-path hit was skipped
 
+    def test_project_store_hits_rank_above_higher_scoring_global_hits(self):
+        # audit-51 §5 NOTE: the global store (many files) outranks a small
+        # project vault on fuzzy queries, burying the project note below the
+        # window. The project-store boost must lift the project hit above a
+        # higher raw-scoring global hit.
+        project_out = json.dumps([self._hit("a.md", 0.6, "A")])  # project
+        global_out = json.dumps([self._hit("g.md", 0.9, "G")])  # global (higher raw)
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(
+                _search_memories,
+                "run_mdctx_cli",
+                side_effect=[(project_out, None), (global_out, None)],
+            ):
+                results, err = _search_memories.search_mdctx(["q1"], self.root, 5)
+
+        self.assertIsNone(err)
+        self.assertEqual(len(results), 2)
+        # Project hit (0.6 × boost 2.0 = 1.2) must outrank the global 0.9.
+        self.assertEqual(results[0]["file"], str((self.latent / "a.md").resolve()))
+        self.assertAlmostEqual(results[0]["score"], 1.2)
+
 
 # ---------------------------------------------------------------------------
 # fetch_mdctx_body (direct disk read + frontmatter strip)
