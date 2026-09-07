@@ -146,6 +146,56 @@ to disable.
 
 ---
 
+### `memory_search_provider`
+
+```jsonc
+{ "memory_search_provider": "qmd" }
+```
+
+**Type:** `string` (`"qmd"` \| `"mdctx"`)
+**Default:** `"mdctx"`
+**Required:** no
+**Scope:** global only
+
+Selects which memory-search engine is active. The two engines are
+interchangeable — the agent-facing entry point (`search-memories`) stays the
+same and dispatches to whichever engine this key selects (both search the
+project memory vault and the shared global store); the engine's own MCP server
+and skill are registered for the selected engine only. Swap by flipping this
+one key, then running `devbot reinit`:
+
+| Value     | Engine                                                                                                                             | Integration      |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
+| `"qmd"`   | `@tobilu/qmd` (hybrid semantic + BM25 over per-project collections; llama/GPU, GGUF models)                                        | MCP server + CLI |
+| `"mdctx"` | `mdctx` (zachkepe/mdctx — zero-ML-dependency RAKE + BM25 keyword index over a flat, git-diffable JSON file; no embeddings, no GPU) | MCP server + CLI |
+
+The two modules are **mutually exclusive**: `_devbot_get_disabled_modules`
+auto-appends the non-selected engine to the disabled set, so exactly one is
+ever wired. An explicit `modules`-map `false` on the _selected_ engine still
+hard-disables it (no memory-search engine); enabling the _non-selected_ one via
+`modules` is ignored. The qmd/mdctx pair is independent of the
+`codebase_index_provider` pair — both auto-exclusions apply.
+
+**Capability difference:** `mdctx` is keyword-only by design (no semantic /
+vector search, no per-document collections). Under `mdctx` the agent's memory
+search is deterministic BM25 against descriptive titles/keywords; semantic
+query (`qmd_query` vec/hyde) exists only when `"qmd"` is selected.
+
+**Upgrade note:** existing installs that do not set this key get the `mdctx`
+default and will stop registering `qmd` on the next reinit. Pin
+`"memory_search_provider": "qmd"` _before_ updating dev-bot to keep the
+semantic/GPU engine and its existing collections.
+
+**Flip:** after changing the key, run `devbot reinit` so the newly selected
+engine's MCP/skill is registered, the losing engine's entries are pruned, and
+its index is built (`mdctx build` of the project vault + global store, or qmd
+collection registration).
+
+**Behaviour on disable** matches `codebase_index_provider` above: disabling a
+module unregisters its declared plugin/MCP entries at the next `devbot reinit`.
+
+---
+
 ### `devbot:guards`
 
 ```jsonc

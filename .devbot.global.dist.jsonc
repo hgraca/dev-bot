@@ -5,6 +5,7 @@
   "commit_memory": false,
   "ollama_local_api": "http://localhost:18434",
   "codebase_index_provider": "codebase-memory", // codebase-index | codebase-memory (absent => codebase-memory); pin "codebase-index" to keep the Ollama-based engine
+  "memory_search_provider": "mdctx", // qmd | mdctx (absent => mdctx); pin "qmd" to keep the semantic/GPU engine
   "modules": {
     "claudecode": false,
     "litellm": false,
