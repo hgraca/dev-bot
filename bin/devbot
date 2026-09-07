@@ -67,7 +67,19 @@ cmd_help() {
   echo -e "${TEXT_BOLD}Running without a known subcommand:${TEXT_CLEAR}"
   echo "  Starts the configured harness (opencode or claudecode) after running devbot up."
   echo
-  echo -e "${TEXT_BOLD}Project root:${TEXT_CLEAR} ${DEV_BOT_ROOT}"
+  # The CLI is global, but a user invoking it inside a project reads "Project
+  # root" as scoping to the install. Distinguish the two: print the current
+  # project (cwd walk-up for .devbot.project.jsonc) when inside one, and label
+  # the install location clearly (audit-51 §6 NOTE).
+  local proj_dir="${PWD}"
+  while [[ -n "${proj_dir}" && "${proj_dir}" != "/" ]]; do
+    if [[ -f "${proj_dir}/.devbot.project.jsonc" ]]; then
+      echo -e "${TEXT_BOLD}Project:${TEXT_CLEAR} ${proj_dir}"
+      break
+    fi
+    proj_dir="$(dirname "${proj_dir}")"
+  done
+  echo -e "${TEXT_BOLD}Install root:${TEXT_CLEAR} ${DEV_BOT_ROOT}"
 }
 
 cmd_install() {

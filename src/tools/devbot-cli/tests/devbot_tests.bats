@@ -223,3 +223,45 @@ setup() {
   # ── Cleanup ────────────────────────────────────────────────────────────
 #  rm -rf "$test_project"
 }
+
+
+@test "devbot help labels install root and prints the current project" {
+  # audit-51 §6 NOTE: "Project root" used to print the CLI's install location,
+  # which a user inside a project read as scoping. Inside a project (cwd has
+  # .devbot.project.jsonc) help must show both Project and Install root.
+  local scratch
+  scratch="$(mktemp -d)"
+  echo '{"project_name": "scratch-proj"}' > "$scratch/.devbot.project.jsonc"
+
+  cd "$scratch"
+  run bash "$PROJECT_ROOT/bin/devbot" help
+  cd "$PROJECT_ROOT"
+
+  assert_success
+  # Labels carry ANSI colour escapes between label and value — assert each part
+  # separately.
+  assert_output --partial "Project:"
+  assert_output --partial "$scratch"
+  assert_output --partial "Install root:"
+  assert_output --partial "$PROJECT_ROOT"
+  refute_output --partial "Project root:"
+
+  rm -r "$scratch"
+}
+
+@test "devbot help outside a project omits the Project line" {
+  local scratch
+  scratch="$(mktemp -d)"
+
+  cd "$scratch"
+  run bash "$PROJECT_ROOT/bin/devbot" help
+  cd "$PROJECT_ROOT"
+
+  assert_success
+  assert_output --partial "Install root:"
+  assert_output --partial "$PROJECT_ROOT"
+  refute_output --partial "Project:"
+  refute_output --partial "Project root:"
+
+  rm -r "$scratch"
+}
