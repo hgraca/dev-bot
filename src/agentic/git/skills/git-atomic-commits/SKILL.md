@@ -11,10 +11,22 @@ Always assume there are other agents working in files in the same branch, so mak
 
 The opposite is a "checkpoint commit" — committing linearly as you go, like a save point in a video game. Avoid it: new changes that belong to an existing commit should be folded into that commit, not made into a new one; changes serving different purposes never share a commit.
 
-Two hygiene rules follow:
+Three hygiene rules follow:
 
 - Use `git mv` for renames, not a manual delete + add, so git tracks the move and preserves file history.
 - Never commit paths ignored by git — a gitignored file or folder must not be committed unless a human explicitly asks for it.
+- Never create a new local branch that points at the remote default branch (`git checkout -b <name> origin/main` / `origin/master`) — see [Branch creation (MUST)](#branch-creation-must).
+
+## Branch creation (MUST)
+
+Never create a new local branch pointing at the remote default branch. `git checkout -b <name> origin/main` sets the remote default branch as the new branch's upstream, so a bare `git push` targets it — your commits go straight at `main`, bypassing the PR flow. Only ever push a branch you created, never the default branch.
+
+Safe patterns:
+
+- Default to branching from a **local** up-to-date default branch: `git switch main && git pull --ff-only`, then `git switch -c <name>`. The new branch has no remote upstream until you set one.
+- If you must start from the remote tip, do not take it as upstream: `git checkout -b <name> --no-track origin/main`.
+- Verify before committing: `git status -sb` must show no upstream (`...origin/main` ahead/behind) on your new branch.
+- Push explicitly, setting your own upstream: `git push -u origin <name>` — never a bare `git push` on a branch whose upstream you did not choose.
 
 ## Workflow
 
