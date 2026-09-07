@@ -93,6 +93,17 @@ _write_project_cfg() {
   assert_output "mdctx"
 }
 
+@test "_devbot_get_memory_search_provider env override wins over config" {
+  # DEVBOT_MEMORY_SEARCH_PROVIDER mirrors search-memories.py's
+  # SEARCH_MEMORIES_PROVIDER — hermetic tests must not depend on the real
+  # machine config's provider.
+  _write_global_cfg '{ "memory_search_provider": "mdctx" }'
+
+  DEVBOT_MEMORY_SEARCH_PROVIDER=qmd run _devbot_get_memory_search_provider "${PROJECT_DIR}"
+  assert_success
+  assert_output "qmd"
+}
+
 # ── _devbot_get_disabled_modules: memory-engine mutual exclusion ─────────────
 # Each fixture pins codebase_index_provider explicitly so the codebase pair's
 # auto-disable is deterministic and the expected set isolates the memory pair.

@@ -334,24 +334,28 @@ _devbot_check_session_logs() {
 # ── Memory delete→prune self-heal (pre-harness launch) ───────────────────────────
 
 # _devbot_prune_memories_detached <project_dir>
-#   Fires the memory delete→prune self-heal (qmd cleanup && qmd update, no
-#   embed) detached BEFORE the harness starts. Moved out of the session.created
+#   Fires the memory delete→prune self-heal (qmd: cleanup && update, no embed;
+#   mdctx: incremental build of project + global indexes) detached BEFORE the
+#   harness starts. The engine is the one selected by memory_search_provider;
+#   the reindex tool dispatches internally. Moved out of the session.created
 #   hook (memory/hooks.json) into the harness start.sh scripts (audit-36):
 #     - it runs per launch, not only on the first session.created of a process
 #       (audit-34 NOTE-8), and
-#     - qmd gets a head start ahead of the MCP-server fleet boot at session
-#       start, whose concurrent-launch contention exceeded the client's 30s
-#       connect budget for the two heaviest servers (audit-35 FAIL).
-#   The prune tool (reindex-memories.mcp.sh prune) backgrounds + disowns qmd
-#   itself; this helper additionally detaches the invocation from start.sh and
-#   writes a marker line so audits can cross-check `.agents/logs/qmd-index.log`.
-#   Fail-open and silent: no qmd, no memory vault, or a disabled memory module
-#   means "no prune needed here" — it never blocks or fails the harness launch.
+#     - the engine gets a head start ahead of the MCP-server fleet boot at
+#       session start, whose concurrent-launch contention exceeded the client's
+#       30s connect budget for the two heaviest servers (audit-35 FAIL).
+#   The prune tool (reindex-memories.mcp.sh prune) backgrounds + disowns the
+#   engine itself; this helper additionally detaches the invocation from
+#   start.sh and writes a marker line so audits can cross-check
+#   `.agents/logs/memory-index.log` (engine-agnostic name — qmd and mdctx).
+#   Fail-open and silent: no engine binary, no memory vault, or a disabled
+#   memory module means "no prune needed here" — it never blocks or fails the
+#   harness launch.
 _devbot_prune_memories_detached() {
   local project_dir="${1:-$(pwd)}"
   [[ -n "${project_dir}" && -d "${project_dir}" ]] || return 0
 
-  # Disabled memory module → no prune (and no qmd-index.log to write).
+  # Disabled memory module → no prune (and no memory-index.log to write).
   if _devbot_get_disabled_modules "${project_dir}" | grep -q '"memory"'; then
     return 0
   fi
@@ -362,7 +366,14 @@ _devbot_prune_memories_detached() {
   vault="${project_dir}/${devbot_dir}/memory"
   [[ -d "${vault}" ]] || return 0
 
-  command -v qmd >/dev/null 2>&1 || return 0
+  # Fail open when the SELECTED engine's binary is missing.
+  local provider
+  provider="$(_devbot_get_memory_search_provider "${project_dir}")"
+  if [[ "${provider}" == "mdctx" ]]; then
+    command -v mdctx >/dev/null 2>&1 || return 0
+  else
+    command -v qmd >/dev/null 2>&1 || return 0
+  fi
 
   # Resolve the tool next to this file (functions.sh → src/_shared), not via
   # DEV_BOT_ROOT, which may be overridden to a sandbox root in tests.
@@ -374,12 +385,12 @@ _devbot_prune_memories_detached() {
   local logs_dir="${project_dir}/.agents/logs"
   mkdir -p "${logs_dir}" 2>/dev/null || return 0
 
-  # Marker line (synchronous) so a session can prove the prune fired; the qmd
-  # work itself runs detached inside the tool.
-  printf '[reindex-memories-prune-start] devbot start.sh: detached memory prune (qmd cleanup && qmd update) launched before harness\n' \
-    >> "${logs_dir}/qmd-index.log" 2>/dev/null || true
+  # Marker line (synchronous) so a session can prove the prune fired; the
+  # engine work itself runs detached inside the tool.
+  printf '[reindex-memories-prune-start] devbot start.sh: detached memory prune (%s) launched before harness\n' "${provider}" \
+    >> "${logs_dir}/memory-index.log" 2>/dev/null || true
 
-  ( cd "${project_dir}" && bash "${tool}" prune ) >> "${logs_dir}/qmd-index.log" 2>&1 &
+  ( cd "${project_dir}" && bash "${tool}" prune ) >> "${logs_dir}/memory-index.log" 2>&1 &
   disown 2>/dev/null || true
 
   return 0
@@ -418,9 +429,10 @@ _devbot_get_codebase_provider() {
 #   Prints the active memory-search engine module name: "qmd" or "mdctx".
 #   Selected by the global-only key "memory_search_provider" in
 #   .devbot.global.jsonc; absent or invalid => "mdctx" (the zero-dependency
-#   keyword-index default). project_dir is accepted for signature symmetry but
-#   not read in v1 — the provider is deliberately global-only (no per-project
-#   override yet).
+#   keyword-index default). The DEVBOT_MEMORY_SEARCH_PROVIDER env override
+#   wins for hermetic tests. project_dir is accepted for signature symmetry
+#   but not read in v1 — the provider is deliberately global-only (no
+#   per-project override yet).
 
 _devbot_get_memory_search_provider() {
   local shared_dir
@@ -428,8 +440,10 @@ _devbot_get_memory_search_provider() {
   local reader="${shared_dir}/read_jsonc.py"
   local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 
-  local provider=""
-  if [[ -f "${global_config}" ]]; then
+  # DEVBOT_MEMORY_SEARCH_PROVIDER env override wins (hermetic tests — mirrors
+  # search-memories.py's SEARCH_MEMORIES_PROVIDER).
+  local provider="${DEVBOT_MEMORY_SEARCH_PROVIDER:-}"
+  if [[ -z "${provider}" && -f "${global_config}" ]]; then
     provider=$(python3 "${reader}" "${global_config}" "memory_search_provider" 2>/dev/null || true)
   fi
 

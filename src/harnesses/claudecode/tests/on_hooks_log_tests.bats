@@ -7,7 +7,7 @@
 # unconditionally, discarding a hook's output even when the manifest declared
 # a "log" path. Only the post-file phase (run_file_edits) branched on "log".
 # A developer troubleshooting "does the session-start prune actually run?" by
-# grepping qmd-index.log saw nothing and wrongly concluded it didn't — the
+# grepping memory-index.log saw nothing and wrongly concluded it didn't — the
 # self-heal worked, but its evidence trail was broken. All phases must route
 # output to the declared log file (mirroring run_file_edits), falling back to
 # quiet() only when no log path is declared.

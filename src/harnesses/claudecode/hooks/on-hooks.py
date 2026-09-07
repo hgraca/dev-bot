@@ -85,7 +85,7 @@ def run_hook(hook, ctx, worktree):
     # quietly. Every phase (file.edited, command.after, session.idle,
     # session.created) must honor the manifest's log field — audit-31 §5 found
     # the non-post-file phases discarding output unconditionally, so a
-    # session-start prune that declared qmd-index.log never wrote an entry and
+    # session-start prune that declared memory-index.log never wrote an entry and
     # the self-heal looked broken.
     cmd = resolve(hook["run"], ctx)
     log_path = hook.get("log")

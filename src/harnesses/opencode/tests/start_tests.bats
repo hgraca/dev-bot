@@ -137,11 +137,12 @@ EOF
   call_log="$(mktemp)"
 
   HOME="${FAKE_HOME}" PATH="${fake_qmd}:${PATH}" QMD_CALL_LOG="${call_log}" \
-    run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+    DEVBOT_MEMORY_SEARCH_PROVIDER=qmd run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
 
   assert_success
-  # The helper writes its marker synchronously; the qmd work runs detached.
-  run cat "${FAKE_PROJECT}/.agents/logs/qmd-index.log"
+  # The helper writes its marker synchronously; the engine work runs detached.
+  # Log target is memory-index.log (engine-agnostic name for qmd and mdctx).
+  run cat "${FAKE_PROJECT}/.agents/logs/memory-index.log"
   assert_output --partial "reindex-memories-prune-start"
 
   local i
