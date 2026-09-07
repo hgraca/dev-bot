@@ -3,10 +3,13 @@
     {
       "id": "format-json",
       "event": "file.edited",
-      "match": { "file": "\\.(json|jsonc)$" },
+      "match": {
+        "file": "\\.(json|jsonc)$"
+      },
       "run": ["python3", "{module}/tools/format-json.py", "{file}"],
       "skipOnCreate": true,
-      "log": ".agents/logs/format-json.log"
+      "log": ".agents/logs/format-json.log",
+      "_skipOnCreateNote": "opencode-only: the claudecode dispatcher (src/harnesses/claudecode/hooks/on-hooks.py) does not read skipOnCreate and fires on every file.edited match \u2014 safe there because its Edit tool is strict and never produces the fuzzy-splice corruption skipOnCreate guards against on opencode."
     }
   ]
 }
