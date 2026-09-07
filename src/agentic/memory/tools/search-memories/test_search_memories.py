@@ -12,6 +12,7 @@ Usage:
 import importlib.util
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -112,13 +113,20 @@ class TestOutputFormatting(unittest.TestCase):
         self.assertIn("More content.", output)
         self.assertIn("---", output)  # separator between entries
 
-    def test_format_markdown_fetch_error(self):
-        """When _body is missing, falls back to fetch_file_body."""
-        with patch.object(_search_memories, "fetch_file_body", return_value=(None, "mock error")):
-            results = [{"file": "qmd://missing/file.md"}]
+    def test_format_markdown_missing_body_is_engine_neutral(self):
+        """Formatters never fetch bodies themselves — main() attaches _body via
+        the engine dispatch. A body-less result renders an error line WITHOUT
+        calling the qmd fetch (regression guard: the old qmd-only fallback
+        would break under the mdctx engine)."""
+        with patch.object(
+            _search_memories,
+            "fetch_file_body",
+            side_effect=AssertionError("formatters must not fetch bodies"),
+        ):
+            results = [{"file": "some/path.md"}]
             output = format_markdown(results)
             self.assertIn("_Error reading file", output)
-            self.assertIn("mock error", output)
+            self.assertIn("body not fetched", output)
 
     def test_format_json_empty(self):
         result = format_json([])
@@ -449,6 +457,276 @@ class TestDualStoreDefaultContract(unittest.TestCase):
         cmd = self._search("probe", "custom", 5)
         self.assertIn("custom", cmd)
         self.assertIn("dev-bot-global", cmd)
+
+
+# ---------------------------------------------------------------------------
+# resolve_provider (memory_search_provider engine selection)
+# ---------------------------------------------------------------------------
+# The memory-search engine is chosen by the global-only key
+# memory_search_provider (absent => mdctx). SEARCH_MEMORIES_PROVIDER env
+# overrides for hermetic tests (mirrors SEARCH_MEMORIES_XDG_CACHE_HOME).
+
+
+class TestResolveProvider(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _make_sandbox(self, config_text=None):
+        """Sandbox devbot root with the real read_jsonc.py reader + optional
+        .devbot.global.jsonc (the config branch reads via read_jsonc.py)."""
+        shared = self.root / "src" / "_shared"
+        shared.mkdir(parents=True)
+        # The real reader lives at the repo root (unpatched module DEVBOT_ROOT).
+        real_reader = _search_memories.DEVBOT_ROOT / "src" / "_shared" / "read_jsonc.py"
+        shutil.copy(str(real_reader), str(shared / "read_jsonc.py"))
+        if config_text is not None:
+            (self.root / ".devbot.global.jsonc").write_text(config_text)
+        return patch.object(_search_memories, "DEVBOT_ROOT", self.root)
+
+    def test_defaults_to_mdctx_when_no_override_and_no_config(self):
+        with patch.dict(os.environ, {}, clear=False):
+            with self._make_sandbox():
+                self.assertEqual(_search_memories.resolve_provider(), "mdctx")
+
+    def test_env_override_wins(self):
+        with patch.dict(os.environ, {"SEARCH_MEMORIES_PROVIDER": "qmd"}):
+            with self._make_sandbox('{"memory_search_provider": "mdctx"}'):
+                self.assertEqual(_search_memories.resolve_provider(), "qmd")
+
+    def test_reads_memory_search_provider_from_global_config(self):
+        with patch.dict(os.environ, {}, clear=False):
+            with self._make_sandbox('{"memory_search_provider": "qmd"}'):
+                self.assertEqual(_search_memories.resolve_provider(), "qmd")
+
+    def test_defaults_to_mdctx_for_invalid_config_value(self):
+        with patch.dict(os.environ, {}, clear=False):
+            with self._make_sandbox('{"memory_search_provider": "bogus"}'):
+                self.assertEqual(_search_memories.resolve_provider(), "mdctx")
+
+    def test_defaults_to_mdctx_for_jsonc_config_with_comments(self):
+        # read_jsonc.py strips comments; the scalar must still resolve.
+        with patch.dict(os.environ, {}, clear=False):
+            with self._make_sandbox('{\n  // engine selection\n  "memory_search_provider": "qmd"\n}'):
+                self.assertEqual(_search_memories.resolve_provider(), "qmd")
+
+
+# ---------------------------------------------------------------------------
+# resolve_mdctx_indexes (mdctx root + index pairs)
+# ---------------------------------------------------------------------------
+
+
+class TestResolveMdctxIndexes(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmpdir.name)
+        # sandbox devbot root: storage/global-memories (the docs root) +
+        # storage/.mdctx (the global index home)
+        (self.root / "storage" / "global-memories").mkdir(parents=True)
+        (self.root / "storage" / ".mdctx").mkdir(parents=True)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_returns_project_and_global_index_pairs(self):
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            pairs = _search_memories.resolve_mdctx_indexes(self.root)
+        files = [str(idx) for _, idx in pairs]
+        self.assertIn(str(self.root / ".mdctx" / "context-index.json"), files)
+        self.assertIn(str(self.root / "storage" / ".mdctx" / "context-index.json"), files)
+        # global pair roots at storage/global-memories
+        global_pair = next(p for p in pairs if p[1].name == "context-index.json" and "storage" in str(p[1]))
+        self.assertEqual(str(global_pair[0]), str(self.root / "storage" / "global-memories"))
+
+
+# ---------------------------------------------------------------------------
+# search_mdctx (mock mdctx CLI)
+# ---------------------------------------------------------------------------
+
+
+class TestSearchMdctx(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmpdir.name)
+        # Latent + global docs roots with real files, and existing indexes so
+        # the "not built yet" guard passes.
+        self.latent = self.root / ".agents" / "memory" / "latent"
+        self.latent.mkdir(parents=True)
+        (self.root / ".mdctx").mkdir()
+        (self.latent / "a.md").write_text("# A\n\ncontent a")
+        self.global_dir = self.root / "storage" / "global-memories"
+        self.global_dir.mkdir(parents=True)
+        (self.root / "storage" / ".mdctx").mkdir(parents=True)
+        (self.global_dir / "g.md").write_text("# G\n\ncontent g")
+        (self.root / ".mdctx" / "context-index.json").write_text("{}")
+        (self.root / "storage" / ".mdctx" / "context-index.json").write_text("{}")
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    @staticmethod
+    def _hit(rel, score, title=""):
+        return {"path": rel, "score": score, "title": title, "matchedKeywords": []}
+
+    def test_merges_and_deduplicates_project_and_global_results(self):
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(_search_memories, "run_mdctx_cli") as mock_run:
+                mock_run.side_effect = [
+                    (json.dumps([self._hit("a.md", 0.9, "A")]), None),            # q1 project
+                    (json.dumps([self._hit("g.md", 0.5, "G")]), None),            # q1 global
+                    (json.dumps([self._hit("a.md", 0.8, "A")]), None),            # q2 project (dup)
+                    (json.dumps([self._hit("g.md", 0.4, "G")]), None),            # q2 global (dup)
+                ]
+                results, err = _search_memories.search_mdctx(["q1", "q2"], self.root, 10)
+
+        self.assertIsNone(err)
+        self.assertEqual(len(results), 2)  # deduped across queries + stores
+        files = [r["file"] for r in results]
+        self.assertIn(str((self.latent / "a.md").resolve()), files)
+        self.assertIn(str((self.global_dir / "g.md").resolve()), files)
+        # sorted by score desc
+        self.assertGreaterEqual(results[0]["score"], results[1]["score"])
+
+    def test_searches_both_indexes_per_query(self):
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(_search_memories, "run_mdctx_cli", return_value=("[]", None)) as mock_run:
+                _, err = _search_memories.search_mdctx(["q1"], self.root, 5)
+
+        self.assertIsNone(err)
+        self.assertEqual(mock_run.call_count, 2)  # project + global
+        cmds = [c.args[0] for c in mock_run.call_args_list]
+        index_flags = [cmd[cmd.index("-i") + 1] for cmd in cmds]
+        self.assertIn(str(self.root / ".mdctx" / "context-index.json"), index_flags)
+        self.assertIn(str(self.root / "storage" / ".mdctx" / "context-index.json"), index_flags)
+
+    def test_limits_to_max_results(self):
+        many = [self._hit(f"f{i}.md", 1.0 - i * 0.01, f"T{i}") for i in range(15)]
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(_search_memories, "run_mdctx_cli", return_value=(json.dumps(many), None)):
+                results, err = _search_memories.search_mdctx(["q1"], self.root, 5)
+
+        self.assertIsNone(err)
+        self.assertEqual(len(results), 5)
+
+    def test_friendly_error_when_no_index_built(self):
+        (self.root / ".mdctx" / "context-index.json").unlink()
+        (self.root / "storage" / ".mdctx" / "context-index.json").unlink()
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            results, err = _search_memories.search_mdctx(["q1"], self.root, 5)
+
+        self.assertIsNone(results)
+        self.assertIn("reinit", err)
+
+    def test_returns_error_on_mdctx_failure(self):
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(_search_memories, "run_mdctx_cli", return_value=(None, "mdctx crashed")):
+                results, err = _search_memories.search_mdctx(["q1"], self.root, 5)
+
+        self.assertIsNone(results)
+        self.assertIn("mdctx crashed", err)
+
+    def test_handles_invalid_json_output(self):
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(_search_memories, "run_mdctx_cli", return_value=("not json", None)):
+                results, err = _search_memories.search_mdctx(["q1"], self.root, 5)
+
+        self.assertIsNone(results)
+        self.assertIn("Failed to parse mdctx output", err)
+
+    def test_skips_results_with_empty_path(self):
+        # Project store carries the empty-path hit + a real one; global store
+        # is empty — the empty path must be dropped and a.md kept exactly once.
+        project_out = json.dumps([{"path": "", "score": 9.0}, self._hit("a.md", 0.5)])
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(
+                _search_memories,
+                "run_mdctx_cli",
+                side_effect=[(project_out, None), ("[]", None)],
+            ):
+                results, err = _search_memories.search_mdctx(["q1"], self.root, 5)
+
+        self.assertIsNone(err)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["title"], "")  # the empty-path hit was skipped
+
+
+# ---------------------------------------------------------------------------
+# fetch_mdctx_body (direct disk read + frontmatter strip)
+# ---------------------------------------------------------------------------
+
+
+class TestFetchMdctxBody(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def test_reads_and_strips_frontmatter(self):
+        f = self.root / "note.md"
+        f.write_text("---\ntitle: Note\n---\n\n# Heading\n\nBody.")
+        body, err = _search_memories.fetch_mdctx_body(str(f))
+        self.assertIsNone(err)
+        self.assertIn("# Heading", body)
+        self.assertIn("Body.", body)
+        self.assertNotIn("title:", body)
+
+    def test_missing_file_returns_error(self):
+        body, err = _search_memories.fetch_mdctx_body(str(self.root / "nope.md"))
+        self.assertIsNone(body)
+        self.assertIn("Error reading file", err)
+
+
+# ---------------------------------------------------------------------------
+# main() engine dispatch
+# ---------------------------------------------------------------------------
+
+
+class TestMainEngineDispatch(unittest.TestCase):
+    """main() routes to search_qmd under provider qmd and search_mdctx under
+    provider mdctx — the two engines are interchangeable behind one CLI."""
+
+    def _run_main(self, provider, search_ret, body_ret, monkey):
+        """Run main with patched provider + engine fns; returns captured fmt out."""
+        args = ["--query", "q1"]
+        captured = {}
+
+        def fake_search_qmd(*a, **k):
+            captured["qmd"] = True
+            return search_ret
+
+        def fake_search_mdctx(*a, **k):
+            captured["mdctx"] = True
+            return search_ret
+
+        def fake_fetch(path):
+            captured.setdefault("fetches", []).append(path)
+            return body_ret
+
+        with patch.object(_search_memories, "resolve_provider", return_value=provider), \
+             patch.object(_search_memories, "search_qmd", side_effect=fake_search_qmd), \
+             patch.object(_search_memories, "search_mdctx", side_effect=fake_search_mdctx), \
+             patch.object(_search_memories, "fetch_file_body", side_effect=fake_fetch), \
+             patch.object(_search_memories, "fetch_mdctx_body", side_effect=fake_fetch), \
+             patch.object(sys, "argv", ["search-memories"] + args):
+            _search_memories.main()
+        return captured
+
+    def test_provider_mdctx_routes_to_search_mdctx(self):
+        f = Path(tempfile.mkdtemp()) / "a.md"
+        f.write_text("# A\n\nbody")
+        captured = self._run_main("mdctx", ([{"file": str(f), "score": 1.0, "title": "A"}], None), ("body", None), None)
+        self.assertIn("mdctx", captured)
+        self.assertNotIn("qmd", captured)
+
+    def test_provider_qmd_routes_to_search_qmd(self):
+        captured = self._run_main("qmd", ([{"file": "qmd://x.md", "score": 1.0}], None), ("body", None), None)
+        self.assertIn("qmd", captured)
+        self.assertNotIn("mdctx", captured)
 
 
 if __name__ == "__main__":

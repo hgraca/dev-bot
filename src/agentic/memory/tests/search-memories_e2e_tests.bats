@@ -33,6 +33,10 @@ setup() {
   E2E_CONFIG="$(mktemp -d)"
   export XDG_CACHE_HOME="$E2E_CACHE"
   export SEARCH_MEMORIES_XDG_CACHE_HOME="$E2E_CACHE"
+  # Pin the qmd provider: this suite exercises the real qmd path — without it,
+  # the tool dispatches on the host config (absent key => mdctx) and the isolated
+  # qmd fixtures are never searched.
+  export SEARCH_MEMORIES_PROVIDER=qmd
   export QMD_CONFIG_DIR="$E2E_CONFIG"
   export DEVBOT_ROOT
 

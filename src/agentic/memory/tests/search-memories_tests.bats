@@ -383,9 +383,11 @@ SCRIPT
   assert_output --partial "--query"
 }
 
-@test "qmd not installed: returns clear error message" {
+@test "qmd provider + qmd not installed: returns clear error message" {
   command -v python3 &>/dev/null || skip "python3 not installed"
 
+  # Pin the qmd provider (SEARCH_MEMORIES_PROVIDER) so this error path is
+  # deterministic: under the mdctx default a missing qmd binary is irrelevant.
   # Hide qmd (but keep python3, which the wrapper execs) so this error path is
   # exercised regardless of the host's qmd installation. Strip the directory
   # containing `qmd` from PATH rather than blanking PATH entirely.
@@ -396,10 +398,31 @@ SCRIPT
     [[ -n "$dir" && "$dir" != "$qmd_dir" ]] || continue
     filtered_path="${filtered_path:+$filtered_path:}$dir"
   done <<< "${PATH}:"
-  PATH="$filtered_path" run "$BASH" "$TOOL" "test"
+  PATH="$filtered_path" SEARCH_MEMORIES_PROVIDER=qmd run "$BASH" "$TOOL" "test"
 
   assert_failure
   assert_output --partial "qmd CLI not found"
+}
+
+@test "mdctx provider + no built index: returns reinit hint" {
+  # Default engine is mdctx; without a built .mdctx index (no reinit yet) the
+  # tool must fail loudly with the recovery hint, not hang or crash. Run from a
+  # scratch dir with no .mdctx and a redirected dev-bot root so BOTH index
+  # pairs (project + global) resolve under the scratch — hermetic regardless
+  # of any real mdctx indexes on this machine.
+  command -v python3 &>/dev/null || skip "python3 not installed"
+  local scratch
+  scratch="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+
+  cd "$scratch"
+  SEARCH_MEMORIES_PROVIDER=mdctx SEARCH_MEMORIES_DEV_BOT_ROOT="$scratch" \
+    run "$BASH" "$TOOL" "test"
+
+  assert_failure
+  assert_output --partial "mdctx index not found"
+  assert_output --partial "reinit"
+
+  rm -rf "$scratch"
 }
 
 # ── Default collection resolution (audit-32/33 FAIL) ──────────────────────────

@@ -39,7 +39,12 @@ def find_devbot_root(start: Path) -> Path:
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-DEVBOT_ROOT = find_devbot_root(SCRIPT_DIR)
+# SEARCH_MEMORIES_DEV_BOT_ROOT overrides the devbot install root (hermetic
+# tests: redirects the global-store index pair + provider config into a
+# scratch sandbox), mirroring the SEARCH_MEMORIES_XDG_CACHE_HOME override.
+DEVBOT_ROOT = Path(
+    os.environ.get("SEARCH_MEMORIES_DEV_BOT_ROOT") or find_devbot_root(SCRIPT_DIR)
+).resolve()
 
 
 def _qmd_env() -> dict:
@@ -78,6 +83,69 @@ def run_qmd_cli(args: list[str]) -> tuple[str | None, str | None]:
         return None, "qmd CLI not found. Install with: npm install -g @tobilu/qmd"
     except subprocess.TimeoutExpired:
         return None, "qmd search timed out after 30s"
+
+
+def _read_jsonc_scalar(cfg_path: Path, key: str) -> str:
+    """Read a scalar key from a JSONC config via read_jsonc.py.
+
+    read_jsonc.py is the canonical JSONC parser (handles full-line, inline
+    and block comments) — ad-hoc comment stripping silently breaks on inline
+    or /* */ comments. Returns "" when the file or reader is missing, the key
+    is absent, or parsing fails.
+    """
+    reader = DEVBOT_ROOT / "src" / "_shared" / "read_jsonc.py"
+    if not cfg_path.is_file() or not reader.is_file():
+        return ""
+    try:
+        result = subprocess.run(
+            ["python3", str(reader), str(cfg_path), key],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
+def resolve_provider() -> str:
+    """Resolve the active memory-search engine module: "qmd" or "mdctx".
+
+    SEARCH_MEMORIES_PROVIDER env override wins (hermetic tests, mirrors
+    SEARCH_MEMORIES_XDG_CACHE_HOME). Otherwise the global-only key
+    memory_search_provider is read from <DEVBOT_ROOT>/.devbot.global.jsonc via
+    read_jsonc.py (JSONC-aware). Absent or invalid => "mdctx" — must agree with
+    _devbot_get_memory_search_provider in src/_shared/functions.sh.
+    """
+    override = os.environ.get("SEARCH_MEMORIES_PROVIDER")
+    if override in ("qmd", "mdctx"):
+        return override
+
+    provider = _read_jsonc_scalar(DEVBOT_ROOT / ".devbot.global.jsonc", "memory_search_provider")
+    return provider if provider in ("qmd", "mdctx") else "mdctx"
+
+
+def run_mdctx_cli(args: list[str]) -> tuple[str | None, str | None]:
+    """Run mdctx CLI with given args. Returns (stdout, error_message)."""
+    mdctx_path = shutil.which("mdctx")
+    if not mdctx_path:
+        return None, "mdctx CLI not found. Install with: npm install -g mdctx"
+    try:
+        result = subprocess.run(
+            [mdctx_path] + args,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode != 0:
+            return None, result.stderr.strip() or result.stdout.strip()
+        return result.stdout.strip(), None
+    except FileNotFoundError:
+        return None, "mdctx CLI not found. Install with: npm install -g mdctx"
+    except subprocess.TimeoutExpired:
+        return None, "mdctx search timed out after 30s"
 
 
 def search_qmd(
@@ -131,6 +199,107 @@ def search_qmd(
     return all_results[:max_results], None
 
 
+def resolve_devbot_dir(project_root: Path) -> str:
+    """Resolve the devbot state dir for a project (bash: _devbot_get_project_dir).
+
+    Project .devbot.project.jsonc wins, then global .devbot.global.jsonc,
+    then ".agents" (the bash default). Used to locate the project latent vault
+    for the mdctx engine (which resolves roots on disk, not qmd collections).
+    """
+    for cfg_path in (
+        project_root / ".devbot.project.jsonc",
+        DEVBOT_ROOT / ".devbot.global.jsonc",
+    ):
+        devbot_dir = _read_jsonc_scalar(cfg_path, "devbot_dir")
+        if devbot_dir:
+            return devbot_dir
+    return ".agents"
+
+
+def resolve_mdctx_indexes(
+    project_root: Path,
+) -> list[tuple[Path, Path]]:
+    """Locate the (docs root, index file) pairs searchable under mdctx.
+
+    mdctx builds one flat JSON index per real root (it does not follow
+    symlinks — the project vault's latent/global symlink is therefore NOT
+    covered by the project index). This mirrors search_qmd's dual-store
+    contract (project collection + dev-bot-global): the project latent vault
+    and the shared global-memories store are each indexed and searched.
+
+    Returns [(root_dir, index_file)]:
+      - project: <project>/.agents/memory/latent  + <project>/.mdctx/context-index.json
+      - global:  <DEV_BOT_ROOT>/storage/global-memories + <DEV_BOT_ROOT>/storage/.mdctx/context-index.json
+    """
+    devbot_dir = resolve_devbot_dir(project_root)
+    latent = project_root / devbot_dir / "memory" / "latent"
+    project_pair = (latent, project_root / ".mdctx" / "context-index.json")
+    global_pair = (
+        DEVBOT_ROOT / "storage" / "global-memories",
+        DEVBOT_ROOT / "storage" / ".mdctx" / "context-index.json",
+    )
+    return [project_pair, global_pair]
+
+
+def search_mdctx(
+    queries: list[str], project_root: Path, max_results: int
+) -> tuple[list[dict] | None, str | None]:
+    """Search the mdctx project + global indexes for each query.
+
+    mdctx search yields root-relative paths; each result is mapped to an
+    absolute path under its docs root so body fetching is a plain disk read
+    (no `mdctx get`). Results from both stores are merged and deduplicated by
+    absolute path, mirroring search_qmd's dual-collection contract.
+    """
+    pairs = [(root, idx) for root, idx in resolve_mdctx_indexes(project_root) if idx.is_file()]
+    if not pairs:
+        return None, (
+            "mdctx index not found — run `devbot reinit` (or mdctx init.sh) so the "
+            ".mdctx/context-index.json files are built first"
+        )
+
+    all_results: list[dict] = []
+    seen_files: set[str] = set()
+
+    for query in queries:
+        for root, index_file in pairs:
+            cmd = ["search", query, "--json", "-n", str(max_results), "-i", str(index_file)]
+            stdout, err = run_mdctx_cli(cmd)
+            if err:
+                return None, err
+            if stdout is None:
+                continue
+            try:
+                data = json.loads(stdout)
+            except json.JSONDecodeError:
+                return None, f"Failed to parse mdctx output: {stdout[:500]}"
+
+            if not isinstance(data, list):
+                continue
+
+            for r in data:
+                rel = r.get("path", "")
+                if not rel:
+                    continue
+                abs_path = str((root / rel).resolve()) if not Path(rel).is_absolute() else rel
+                if abs_path in seen_files:
+                    continue
+                seen_files.add(abs_path)
+                all_results.append(
+                    {
+                        "docid": "",
+                        "score": r.get("score", 0),
+                        "file": abs_path,
+                        "title": r.get("title", ""),
+                        "snippet": "",
+                    }
+                )
+
+    # Sort by score descending, limit
+    all_results.sort(key=lambda r: r.get("score", 0), reverse=True)
+    return all_results[:max_results], None
+
+
 def strip_yaml_frontmatter(content: str) -> str:
     """Strip YAML frontmatter (--- ... ---) from file content."""
     if not content.startswith("---"):
@@ -149,6 +318,20 @@ def fetch_file_body(file_uri: str) -> tuple[str | None, str | None]:
     return strip_yaml_frontmatter(stdout or "").strip(), None
 
 
+def fetch_mdctx_body(file_path: str) -> tuple[str | None, str | None]:
+    """Read a markdown file directly from disk (mdctx results are fs paths).
+
+    mdctx ships no `get` subcommand — its search returns root-relative paths,
+    so the full body is a plain file read plus the same frontmatter strip the
+    qmd path applies to `qmd get` output.
+    """
+    try:
+        content = Path(file_path).read_text(encoding="utf-8", errors="replace")
+    except Exception as e:  # noqa: BLE001 — any read failure becomes a message
+        return None, f"Error reading file {file_path}: {e}"
+    return strip_yaml_frontmatter(content).strip(), None
+
+
 # ---------------------------------------------------------------------------
 # Output formatters
 # ---------------------------------------------------------------------------
@@ -160,12 +343,9 @@ def format_markdown(results: list[dict]) -> str:
     parts = ["# Memories", ""]
     for r in results:
         file_uri = r.get("file", "")
-        if "_body" in r:
-            body, err = r["_body"], None
-        else:
-            body, err = fetch_file_body(file_uri)
-        if err:
-            parts.append(f"_Error reading file `{file_uri}`: {err}_")
+        body = r.get("_body")
+        if body is None:
+            parts.append(f"_Error reading file `{file_uri}`: body not fetched_")
         elif body:
             parts.append(body)
         else:
@@ -180,8 +360,7 @@ def format_markdown(results: list[dict]) -> str:
 def format_json(results: list[dict]) -> dict:
     memories = []
     for r in results:
-        file_uri = r.get("file", "")
-        body = r["_body"] if "_body" in r else fetch_file_body(file_uri)[0]
+        body = r.get("_body")
         memories.append(body or "")
     return {"memories": memories}
 
@@ -200,20 +379,8 @@ def resolve_collection(project_root: Path) -> str:
     registered, so a hardcoded fallback ("devbot") broke every default
     invocation ("Collection not found: devbot", audit-32/33).
     """
-    cfg_path = project_root / ".devbot.project.jsonc"
-    try:
-        raw = cfg_path.read_text()
-        stripped = "\n".join(
-            line for line in raw.split("\n")
-            if not line.strip().startswith("//")
-        )
-        data = json.loads(stripped)
-        project_name = data.get("project_name")
-        if project_name:
-            return project_name
-    except Exception:
-        pass
-    return project_root.name
+    project_name = _read_jsonc_scalar(project_root / ".devbot.project.jsonc", "project_name")
+    return project_name or project_root.name
 
 
 def main() -> None:
@@ -229,7 +396,7 @@ def main() -> None:
     parser.add_argument(
         "--collection",
         default="",
-        help="QMD collection name (default: auto-detected from devbot.jsonc)",
+        help="qmd collection name (qmd engine only; mdctx resolves roots on disk)",
     )
     parser.add_argument(
         "--max-results",
@@ -246,15 +413,26 @@ def main() -> None:
     args = parser.parse_args()
 
     project_root = Path(os.getcwd())
-    collection = args.collection or resolve_collection(project_root)
-    queries: list[str] = args.query
+    provider = resolve_provider()
 
-    results, err = search_qmd(queries, collection, args.max_results)
+    # Engine dispatch: qmd and mdctx are interchangeable behind this CLI,
+    # selected by memory_search_provider. Each engine's search covers the
+    # project vault AND the shared global store ("as it currently works" for
+    # qmd's project collection + dev-bot-global).
+    if provider == "mdctx":
+        results, err = search_mdctx(args.query, project_root, args.max_results)
+        body_fetch = fetch_mdctx_body
+    else:
+        collection = args.collection or resolve_collection(project_root)
+        results, err = search_qmd(args.query, collection, args.max_results)
+        body_fetch = fetch_file_body
+
     if err:
         if args.format == "json":
+            engine_code = "MDCTX" if provider == "mdctx" else "QMD"
             print(
                 json.dumps(
-                    {"status": "error", "code": "QMD_SEARCH_FAILED", "message": err}
+                    {"status": "error", "code": f"{engine_code}_SEARCH_FAILED", "message": err}
                 )
             )
         else:
@@ -268,7 +446,7 @@ def main() -> None:
     unique_results: list[dict] = []
     for r in results:
         file_uri = r.get("file", "")
-        body, _ = fetch_file_body(file_uri)
+        body, _ = body_fetch(file_uri)
         body_key = (body or "").strip()
         if body_key and body_key in seen_bodies:
             continue
