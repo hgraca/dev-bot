@@ -350,6 +350,9 @@ def format_markdown(results: list[dict]) -> str:
             parts.append(body)
         else:
             parts.append("_(empty file)_")
+        if file_uri:
+            parts.append("")
+            parts.append(f"_File: `{file_uri}`_")
         parts.append("")
         parts.append("---")
         parts.append("")
@@ -358,10 +361,11 @@ def format_markdown(results: list[dict]) -> str:
 
 
 def format_json(results: list[dict]) -> dict:
+    # Each memory carries its source file (qmd uri or absolute path) so
+    # callers can tell project-vs-global provenance (audit-51/52 NOTE).
     memories = []
     for r in results:
-        body = r.get("_body")
-        memories.append(body or "")
+        memories.append({"file": r.get("file", ""), "body": r.get("_body") or ""})
     return {"memories": memories}
 
 

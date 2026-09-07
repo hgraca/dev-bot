@@ -113,6 +113,12 @@ class TestOutputFormatting(unittest.TestCase):
         self.assertIn("More content.", output)
         self.assertIn("---", output)  # separator between entries
 
+    def test_format_markdown_annotates_source_file(self):
+        """Each note is annotated with its source file (provenance)."""
+        results = [{"file": "qmd://notes/test1.md", "_body": "Body."}]
+        output = format_markdown(results)
+        self.assertIn("_File: `qmd://notes/test1.md`_", output)
+
     def test_format_markdown_missing_body_is_engine_neutral(self):
         """Formatters never fetch bodies themselves — main() attaches _body via
         the engine dispatch. A body-less result renders an error line WITHOUT
@@ -138,7 +144,15 @@ class TestOutputFormatting(unittest.TestCase):
             {"file": "qmd://notes/b.md", "_body": "Content B"},
         ]
         result = format_json(results)
-        self.assertEqual(result, {"memories": ["Content A", "Content B"]})
+        self.assertEqual(
+            result,
+            {
+                "memories": [
+                    {"file": "qmd://notes/a.md", "body": "Content A"},
+                    {"file": "qmd://notes/b.md", "body": "Content B"},
+                ]
+            },
+        )
 
 
 # ---------------------------------------------------------------------------
