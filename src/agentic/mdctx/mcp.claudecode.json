@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "mdctx": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [
+        "-c",
+        "mkdir -p .agents/logs && exec mdctx-mcp 2>>.agents/logs/mdctx-mcp.log"
+      ],
+      "enabled": true
+    }
+  }
+}
