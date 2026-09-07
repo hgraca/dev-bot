@@ -669,10 +669,10 @@ class TestSearchMdctx(unittest.TestCase):
     def test_project_store_hits_rank_above_higher_scoring_global_hits(self):
         # audit-51 §5 NOTE: the global store (many files) outranks a small
         # project vault on fuzzy queries, burying the project note below the
-        # window. The project-store boost must lift the project hit above a
-        # higher raw-scoring global hit.
+        # window. Merge is project-first: the project hit must rank above the
+        # higher raw-scoring global hit even without a boost.
         project_out = json.dumps([self._hit("a.md", 0.6, "A")])  # project
-        global_out = json.dumps([self._hit("g.md", 0.9, "G")])  # global (higher raw)
+        global_out = json.dumps([self._hit("g.md", 9.0, "G")])  # global (much higher raw)
         with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
             with patch.object(
                 _search_memories,
@@ -683,9 +683,33 @@ class TestSearchMdctx(unittest.TestCase):
 
         self.assertIsNone(err)
         self.assertEqual(len(results), 2)
-        # Project hit (0.6 × boost 2.0 = 1.2) must outrank the global 0.9.
+        # Project hit ranks first despite the lower raw score.
         self.assertEqual(results[0]["file"], str((self.latent / "a.md").resolve()))
-        self.assertAlmostEqual(results[0]["score"], 1.2)
+        self.assertEqual(results[1]["file"], str((self.global_dir / "g.md").resolve()))
+
+    def test_small_project_vault_hit_not_buried_by_global_partials(self):
+        # audit-53 FAIL-1 repro: a 1-doc project vault whose full match scores
+        # ~1.5 vs global partial matches at 5.7-6.0. The project hit must be
+        # first at the default window (5), never silently missing.
+        project_out = json.dumps([self._hit("a.md", 1.482, "A")])  # full match
+        global_out = json.dumps(
+            [self._hit(f"g{i}.md", 5.7 + i * 0.1, f"G{i}") for i in range(5)]
+        )
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(
+                _search_memories,
+                "run_mdctx_cli",
+                side_effect=[(project_out, None), (global_out, None)],
+            ):
+                results, err = _search_memories.search_mdctx(["q1"], self.root, 5)
+
+        self.assertIsNone(err)
+        self.assertEqual(len(results), 5)
+        self.assertEqual(results[0]["file"], str((self.latent / "a.md").resolve()))
+        # The global store fills the remaining slots.
+        self.assertTrue(
+            all(str(self.global_dir) in r["file"] for r in results[1:])
+        )
 
 
 # ---------------------------------------------------------------------------

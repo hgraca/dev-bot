@@ -46,11 +46,6 @@ DEVBOT_ROOT = Path(
     os.environ.get("SEARCH_MEMORIES_DEV_BOT_ROOT") or find_devbot_root(SCRIPT_DIR)
 ).resolve()
 
-# Score multiplier for project-store hits in the mdctx merge (audit-51 §5 NOTE
-# — the global store otherwise buries small project vaults below the result
-# window on fuzzy queries).
-MDCTX_PROJECT_SCORE_BOOST = 2.0
-
 
 def _qmd_env() -> dict:
     """Build env for qmd subprocesses.
@@ -256,11 +251,14 @@ def search_mdctx(
     (no `mdctx get`). Results from both stores are merged and deduplicated by
     absolute path, mirroring search_qmd's dual-collection contract.
 
-    Project-store hits get a score boost (audit-51 §5 NOTE): the global store
-    (hundreds of files, larger keyword surfaces) naturally outranks a small
-    project vault on fuzzy queries, burying the project's own note below the
-    default result window. Boosting the project vault keeps project memories
-    first; the global store still contributes below them.
+    Merging is **project-first** (audit-53 FAIL-1): mdctx BM25 scores are
+    corpus-relative (IDF over each index's own document set), so a small
+    project vault and the 613-file global store are not on a comparable scale
+    — a raw-score merge (or a flat multiplier on it) lets global partial
+    matches bury the project's full matches below the result window. The
+    project vault's hits therefore rank first (sorted by their own score), and
+    the global store fills the remaining slots — the project vault is never
+    silent behind global noise.
     """
     project_index = project_root / ".mdctx" / "context-index.json"
     pairs = [(root, idx) for root, idx in resolve_mdctx_indexes(project_root) if idx.is_file()]
@@ -270,8 +268,24 @@ def search_mdctx(
             ".mdctx/context-index.json files are built first"
         )
 
-    all_results: list[dict] = []
+    project_results: list[dict] = []
+    global_results: list[dict] = []
     seen_files: set[str] = set()
+
+    def _append(store_results: list[dict], root: Path, rel: str, score: float, title: str) -> None:
+        abs_path = str((root / rel).resolve()) if not Path(rel).is_absolute() else rel
+        if abs_path in seen_files:
+            return
+        seen_files.add(abs_path)
+        store_results.append(
+            {
+                "docid": "",
+                "score": score,
+                "file": abs_path,
+                "title": title,
+                "snippet": "",
+            }
+        )
 
     for query in queries:
         for root, index_file in pairs:
@@ -289,31 +303,19 @@ def search_mdctx(
             if not isinstance(data, list):
                 continue
 
-            project_store = index_file == project_index
+            store_results = project_results if index_file == project_index else global_results
             for r in data:
                 rel = r.get("path", "")
                 if not rel:
                     continue
-                abs_path = str((root / rel).resolve()) if not Path(rel).is_absolute() else rel
-                if abs_path in seen_files:
-                    continue
-                seen_files.add(abs_path)
-                score = r.get("score", 0)
-                if project_store:
-                    score *= MDCTX_PROJECT_SCORE_BOOST
-                all_results.append(
-                    {
-                        "docid": "",
-                        "score": score,
-                        "file": abs_path,
-                        "title": r.get("title", ""),
-                        "snippet": "",
-                    }
-                )
+                _append(store_results, root, rel, r.get("score", 0), r.get("title", ""))
 
-    # Sort by score descending, limit
-    all_results.sort(key=lambda r: r.get("score", 0), reverse=True)
-    return all_results[:max_results], None
+    # Project vault first (own-score order), then the global store fills the
+    # remaining slots — never interleave raw scores across the two scales.
+    project_results.sort(key=lambda r: r.get("score", 0), reverse=True)
+    global_results.sort(key=lambda r: r.get("score", 0), reverse=True)
+    merged = (project_results + global_results)[:max_results]
+    return merged, None
 
 
 def strip_yaml_frontmatter(content: str) -> str:
