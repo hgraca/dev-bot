@@ -104,8 +104,9 @@ Located at `src/agentic/<name>/`. Each provides agent skills, tools, hooks, agen
 | jetbrains           | —   | —   | —   | —   | ✓   | JetBrains IDE integration — code analysis, inspections, debugging, database tools                                                                                                                                                                                                        |
 | k8s                 | 1   | 1   | —   | 2   | —   | Kubernetes manifest linting — kubeconform (schema) + kube-linter (best practices)                                                                                                                                                                                                        |
 | memory              | 5   | 3   | —   | 7   | —   | Knowledge vault: devbot:search-memory, devbot:remember-session, devbot:memory-management, devbot:prune-memories, devbot:thinking + reindex-memories/search-memories tools                                                                                                                |
+| mdctx               | 1   | —   | —   | —   | ✓   | Zero-ML keyword search over markdown vaults (RAKE + BM25 over a flat git-diffable index) — interchangeable with qmd via memory_search_provider                                                                                                                                           |
 | playwright          | —   | —   | —   | —   | ✓   | Browser automation via Playwright MCP — drive real browser sessions for E2E testing                                                                                                                                                                                                      |
-| qmd                 | 1   | 1   | —   | —   | ✓   | Semantic search over markdown vaults (BM25 + vector + hybrid + LLM reranking)                                                                                                                                                                                                            |
+| qmd                 | 1   | 1   | —   | —   | ✓   | Semantic search over markdown vaults (BM25 + vector + hybrid + LLM reranking) — interchangeable with mdctx via memory_search_provider                                                                                                                                                    |
 | react               | 1   | —   | —   | —   | ✓   | React 18+ and Next.js development conventions + next-devtools MCP                                                                                                                                                                                                                        |
 | repomix             | —   | —   | —   | —   | —   | Directory packing into single structured file for full-context analysis                                                                                                                                                                                                                  |
 | security            | 1   | —   | —   | —   | —   | Security auditing: STRIDE threat modelling, OWASP Top 10, PHP vulnerability assessment                                                                                                                                                                                                   |
@@ -118,7 +119,7 @@ Located at `src/agentic/<name>/`. Each provides agent skills, tools, hooks, agen
 
 **S** = Skills, **T** = Tool scripts, **A** = Agents, **H** = Hook scripts (opencode `.ts` + claudecode `.sh`), **MCP** = MCP server
 
-**Module count**: 34 modules.
+**Module count**: 35 modules.
 
 ---
 

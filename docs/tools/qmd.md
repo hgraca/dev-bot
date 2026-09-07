@@ -7,6 +7,12 @@ nav_section: docs
 
 QMD (Query Markdown Documents) powers the knowledge vault — all your decisions, patterns, and gotchas are searchable by meaning.
 
+QMD is one of two interchangeable memory-search engines; it is active only
+when `memory_search_provider` is `"qmd"` in `.devbot.global.jsonc` (default is
+`mdctx`, see [mdctx](/tools/mdctx) and [Configuration](/configuration)). Agents
+search the vault through **`search-memories`**, which swaps engines
+transparently.
+
 ## What it does
 
 - **Hybrid search**: combines BM25 (keyword) + vector (semantic) + LLM reranking

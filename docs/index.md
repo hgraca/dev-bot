@@ -158,6 +158,10 @@ title: DevBot
         <p>Curated knowledge vault with semantic search. Goals, decisions, patterns, and gotchas in human-readable markdown notes.</p>
       </div>
       <div class="feature-card">
+        <h3><a href="{{ '/tools/mdctx' | relative_url }}">mdctx Keyword Search</a></h3>
+        <p>Zero-ML keyword search over the same vault &mdash; deterministic, offline, git-diffable index. The lightweight default engine.</p>
+      </div>
+      <div class="feature-card">
         <h3><a href="{{ '/tools/guards' | relative_url }}">Guards</a></h3>
         <p>Prevent dangerous commands from being executed by agents. Configure regex patterns to block risky operations before they run.</p>
       </div>

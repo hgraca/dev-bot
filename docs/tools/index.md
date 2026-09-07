@@ -22,9 +22,10 @@ nav_section: docs
 
 ## Knowledge Vault
 
-| Tool              | Description                              |
-| ----------------- | ---------------------------------------- |
-| [QMD](/tools/qmd) | Semantic search over the knowledge vault |
+| Tool                  | Description                                     |
+| --------------------- | ----------------------------------------------- |
+| [mdctx](/tools/mdctx) | Zero-ML keyword search over the knowledge vault |
+| [QMD](/tools/qmd)     | Hybrid semantic search over the knowledge vault |
 
 ## Safety &amp; Reliability
 
