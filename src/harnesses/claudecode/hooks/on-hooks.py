@@ -68,14 +68,29 @@ def deny(reason):
 
 
 def run_and_log(cmd, cwd, log_path, hook_id):
+    # Always write an entry when a hook with a declared log ran — formatters
+    # print nothing on success (and only stderr on failure), so a stdout-only
+    # gate left the declared format-*.log files never created and a broken
+    # formatter silent (audit-55 FAIL). stdout on success, stderr + exit code
+    # on failure, an explicit "ok (no output)" marker otherwise.
     try:
         r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
         text = (r.stdout or "").strip()
+        err = (r.stderr or "").strip()
+        lines = []
         if text:
-            os.makedirs(os.path.dirname(log_path), exist_ok=True)
-            ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
-            with open(log_path, "a") as f:
-                f.write(f"[{ts}] {hook_id}\n{text}\n\n")
+            lines.append(text)
+        if err:
+            lines.append("[stderr]")
+            lines.append(err)
+        if r.returncode != 0:
+            lines.append(f"exit={r.returncode}")
+        elif not lines:
+            lines.append("ok (no output)")
+        with open(log_path, "a") as f:
+            f.write(f"[{ts}] {hook_id}\n" + "\n".join(lines) + "\n\n")
     except Exception:
         pass
 

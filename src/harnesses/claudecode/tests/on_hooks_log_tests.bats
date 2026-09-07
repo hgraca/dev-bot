@@ -149,3 +149,67 @@ _run_phase() {
 
   refute [ -e "${SANDBOX_DIR}/.agents" ]
 }
+
+
+# ── audit-55 FAIL: a hook with a declared log must ALWAYS create the log ─────
+# Formatters print nothing on success (stderr only on failure), so the old
+# stdout-only gate left format-*.log never created and failures invisible.
+
+_setup_sandbox_extra_scripts() {
+  _setup_sandbox
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 0' \
+    > "${SANDBOX_DIR}/src/agentic/fakelog/silent.sh"
+  printf '%s\n' '#!/usr/bin/env bash' 'echo "boom on stderr" >&2' 'exit 1' \
+    > "${SANDBOX_DIR}/src/agentic/fakelog/fail.sh"
+  chmod +x "${SANDBOX_DIR}/src/agentic/fakelog/silent.sh" \
+    "${SANDBOX_DIR}/src/agentic/fakelog/fail.sh"
+}
+
+_write_manifest_run() {
+  local event="$1"
+  local log_field="$2"
+  local script="$3"
+  local log_json=""
+  if [[ -n "${log_field}" ]]; then
+    log_json=", \"log\": \"${log_field}\""
+  fi
+  cat > "${SANDBOX_DIR}/src/agentic/fakelog/hooks.json" <<JSON
+{
+  "hooks": [
+    {
+      "id": "fakelog",
+      "event": "${event}",
+      "run": ["bash", "{module}/${script}"]${log_json}
+    }
+  ]
+}
+JSON
+}
+
+@test "silent hook with a declared log still writes the log (ok marker)" {
+  _setup_sandbox_extra_scripts
+  _write_manifest_run "session.created" ".agents/logs/fakelog.log" "silent.sh"
+
+  run _run_phase startup "{\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+
+  local log="${SANDBOX_DIR}/.agents/logs/fakelog.log"
+  assert [ -f "${log}" ]
+  run cat "${log}"
+  assert_output --partial "fakelog"
+  assert_output --partial "ok (no output)"
+}
+
+@test "failing hook logs stderr and exit code" {
+  _setup_sandbox_extra_scripts
+  _write_manifest_run "session.created" ".agents/logs/fakelog.log" "fail.sh"
+
+  run _run_phase startup "{\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+
+  local log="${SANDBOX_DIR}/.agents/logs/fakelog.log"
+  assert [ -f "${log}" ]
+  run cat "${log}"
+  assert_output --partial "boom on stderr"
+  assert_output --partial "exit=1"
+}
