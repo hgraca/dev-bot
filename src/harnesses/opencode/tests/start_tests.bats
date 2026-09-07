@@ -204,6 +204,8 @@ sys.exit(0 if list(entries.keys())[0] == '*' else 1)
 
   run grep -q '"'"${HOME}/.local/share/opencode/log/\*\*"'": "allow"' "${FAKE_PROJECT}/opencode.jsonc"
   assert_success
+  run grep -q '"'"${HOME}/.config/opencode/\*\*"'": "allow"' "${FAKE_PROJECT}/opencode.jsonc"
+  assert_success
 }
 
 @test "reconcile: log allow survives a second init run (no duplicate)" {

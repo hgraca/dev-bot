@@ -377,6 +377,9 @@ with open(config) as f:
 # specific), matching how the other absolute allows are written.
 home = os.environ.get("HOME", "")
 log_allow = home + "/.local/share/opencode/log/**"
+# audit-56 §8b NOTE: opencode also loads global config surfaces under
+# ~/.config/opencode — allow reads so audits can inspect the merge order.
+cfg_allow = home + "/.config/opencode/**"
 
 block_m = re.search(r'"external_directory"\s*:\s*\{([^}]*)\}', text, re.S)
 tmp_present = '"/tmp/**"' in text
@@ -404,8 +407,9 @@ if (
     tmp_present
     and list(entries.keys())[:1] == ["*"]
     and log_allow in entries
+    and cfg_allow in entries
 ):
-    print("0")  # already deny-first with /tmp/** + opencode log allowed
+    print("0")  # already deny-first with /tmp/** + opencode log/config allowed
     raise SystemExit
 
 ordered = {}
@@ -418,6 +422,8 @@ if not tmp_present:
     ordered["/tmp/**"] = "allow"
 if log_allow and log_allow not in ordered:
     ordered[log_allow] = "allow"
+if cfg_allow and cfg_allow not in ordered:
+    ordered[cfg_allow] = "allow"
 
 new_block = ",\n".join(f'    "{k}": "{v}"' for k, v in ordered.items())
 text = text[: block_m.start(1)] + new_block + text[block_m.end(1) :]
@@ -428,7 +434,7 @@ PY
   )
 
   if [[ "${added}" == "1" ]]; then
-    _ok "external_directory reconciled: deny-first, /tmp/** and opencode log allowed"
+    _ok "external_directory reconciled: deny-first, /tmp/**, opencode log + config allowed"
   fi
 }
 
