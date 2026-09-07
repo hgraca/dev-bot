@@ -33,6 +33,13 @@ index at session start (unlike graphify). Run `index_status` then
 `index_repository <project-dir>` once per project — at session start, or the
 first time a structural tool errors. `auto_watch` keeps it fresh afterwards.
 
+**"Path too broad" rejection (audit-55 FAIL):** `index_repository` refuses a
+path its broadness heuristic judges too big to index as one root — container
+mount roots (`/app`, `/workspace`) are routinely rejected even for small
+repos. When it errors, point `repo_path` at a source subdirectory (e.g. `src/`)
+instead of the project root; a subdirectory always works and the watcher keeps
+it fresh.
+
 ## MCP Tools
 
 ### `index_repository` — Build/refresh the index
