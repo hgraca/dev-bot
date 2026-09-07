@@ -614,15 +614,23 @@ _link_claude_skills_flat() {
     _link_skill_file "${f}"
   done < <(find "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/tools" -name SKILL.md -print0 2>/dev/null)
 
-  # External-module skills (addyosmani, mattpocock-grilling, ...): their skill
-  # dirs are symlinks into the vendored tree (follow with -L). DevBot's persona
-  # references these by their bare upstream names (test-driven-development,
-  # grilling, debugging-and-error-recovery, ...) — without this they are
-  # unreachable under claudecode.
-  if [[ -d "${DEV_BOT_ROOT}/storage/external-agentic-modules" ]]; then
-    while IFS= read -r -d '' f; do
-      _link_skill_file "${f}"
-    done < <(find -L "${DEV_BOT_ROOT}/storage/external-agentic-modules" -name SKILL.md -print0 2>/dev/null)
+  # External-module skills (addyosmani, mattpocock-grilling, ...): flatten only
+  # the WIRED external modules. `.agents/skills` holds exactly one entry per
+  # wired external module — a symlink into the vendored skills tree, with the
+  # declared-module gate already applied — so walking it yields the gated set.
+  # Walking the unconditional storage/external-agentic-modules mirror here would
+  # bypass the gate and leak disabled modules' skills (react/svelte families)
+  # under claudecode (audit-52 §9 FAIL). Non-symlink entries (the devbot/
+  # wrapper real dir, graphify-style tool dirs) are skipped — their skills are
+  # already flattened by the dev-bot module walk above.
+  if [[ -d "${agents_skills}" ]]; then
+    local ext_link
+    while IFS= read -r -d '' ext_link; do
+      [[ -L "${ext_link}" ]] || continue
+      while IFS= read -r -d '' f; do
+        _link_skill_file "${f}"
+      done < <(find -L "${ext_link}" -name SKILL.md -print0 2>/dev/null)
+    done < <(find "${agents_skills}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
   fi
 
   # ── Flatten user custom skills (migrated above) back into .claude/skills ──

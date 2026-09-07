@@ -248,3 +248,34 @@ _add_user_skill() {
   assert [ -f "${SANDBOX_DIR}/.agents/skills/taken.bkp.bkp/SKILL.md" ]
   refute [ -d "${SANDBOX_DIR}/.agents/skills/taken.bkp/taken" ]
 }
+
+# ── Declared-module gate (audit-52 §9 FAIL) ──────────────────────────────────
+# The external-module flatten must consult the gated .agents/skills tree, NOT
+# the unconditional storage/external-agentic-modules mirror: a disabled module
+# (react/svelte families) is cloned + mirrored but never wired into
+# .agents/skills — its skills must not reach .claude/skills.
+
+@test "gate: external flatten only wires modules present in .agents/skills (disabled mirror module excluded)" {
+  _setup_sandbox
+
+  # The mirror holds BOTH a wired and a disabled module (unconditional clone).
+  mkdir -p "${SANDBOX_DIR}/storage/external-agentic-modules/wired-ext/skill-a" \
+           "${SANDBOX_DIR}/storage/external-agentic-modules/disabled-ext/skill-b"
+  printf '%s\n' "---" "name: skill-a" "---" "" "# Skill A" \
+    > "${SANDBOX_DIR}/storage/external-agentic-modules/wired-ext/skill-a/SKILL.md"
+  printf '%s\n' "---" "name: skill-b" "---" "" "# Skill B" \
+    > "${SANDBOX_DIR}/storage/external-agentic-modules/disabled-ext/skill-b/SKILL.md"
+
+  # Wired tree: only wired-ext is symlinked under .agents/skills (the gate).
+  mkdir -p "${SANDBOX_DIR}/.agents/skills"
+  ln -s "${SANDBOX_DIR}/storage/external-agentic-modules/wired-ext" \
+    "${SANDBOX_DIR}/.agents/skills/wired-ext"
+
+  _run_flat
+
+  [ -e "${SANDBOX_DIR}/.claude/skills/skill-a/SKILL.md" ] \
+    || fail "wired external skill not flattened"
+  if [[ -e "${SANDBOX_DIR}/.claude/skills/skill-b" || -e "${SANDBOX_DIR}/.claude/skills/skill-b.bkp" ]]; then
+    fail "disabled module skill leaked into .claude/skills"
+  fi
+}
