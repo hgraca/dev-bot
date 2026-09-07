@@ -109,6 +109,22 @@ if command -v graphify >/dev/null 2>&1; then
       # remove the CLI's project-scope skill copy — dev-bot's own namespaced
       # skill is the canonical one.
       rm -rf "${PROJECT_DIR}/.claude/skills/graphify" 2>/dev/null || true
+      # audit-55 FAIL: graphify install --platform claude --project also writes
+      # a "## graphify" fragment into .claude/CLAUDE.md pointing at the
+      # project-relative .claude/skills/graphify/SKILL.md we just removed —
+      # leaving a dangling reference (mirror of the AGENTS.md handling below).
+      # Also drop the settings.json.graphify-bak the CLI's hook-guard installer
+      # leaves behind (byte-identical backup of .claude/settings.json).
+      CLAUDE_MD="${PROJECT_DIR}/.claude/CLAUDE.md"
+      if [[ -f "${CLAUDE_MD}" ]] && grep -q '^## graphify[[:space:]]*$' "${CLAUDE_MD}"; then
+        awk '
+          /^## graphify[[:space:]]*$/   { skip = 1; next }
+          skip && /^## /                { skip = 0 }
+          !skip
+        ' "${CLAUDE_MD}" > "${CLAUDE_MD}.tmp" && mv "${CLAUDE_MD}.tmp" "${CLAUDE_MD}"
+        _log "Removed graphify section from .claude/CLAUDE.md"
+      fi
+      rm -f "${PROJECT_DIR}/.claude/settings.json.graphify-bak" 2>/dev/null || true
     else
       _warn "graphify install (claude) failed — continuing without Claude Code tools"
     fi
