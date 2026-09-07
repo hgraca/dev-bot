@@ -4,7 +4,7 @@
       "id": "reindex-memories",
       "event": "file.edited",
       "match": {
-        "file": "/memory/latent.*\\.md$"
+        "file": "/memory/latent/(?!(global|learnings)/).*\\.md$"
       },
       "run": [
         "bash",
