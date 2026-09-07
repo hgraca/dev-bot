@@ -7,6 +7,13 @@ description: "Use this skill whenever the user asks to search notes, find docume
 
 Local search engine for markdown content. Use when you need to find documents, search notes, or look up information in the project's `.agents/memory/` vault.
 
+> **Engine note:** qmd is one of the two memory-search engines dev-bot can use.
+> It is active only when `memory_search_provider` is `"qmd"` in
+> `.devbot.global.jsonc` (default is `mdctx`). Whichever engine is selected,
+> **memory search routes through `search-memories`** (see
+> `devbot:search-memory`); this skill documents qmd's native surface
+> (semantic queries, collections, index management) for engine-specific work.
+
 ## When to Use
 
 | Situation                                                               | Tool                    |

@@ -88,6 +88,23 @@ print('OPCODE-MCP:OK')
   [ ! -f "$MODULE_DIR/reset.sh" ]
 }
 
+@test "skill has valid frontmatter named devbot:mdctx" {
+  local skill="$MODULE_DIR/skills/SKILL.md"
+  [ -f "$skill" ]
+  run python3 -c "
+import json, re, sys
+s = open('${skill}').read()
+m = re.match(r'^---\n(.*?)\n---', s, re.S)
+assert m, 'no YAML frontmatter'
+fm = m.group(1)
+assert 'name: devbot:mdctx' in fm, fm
+assert 'description:' in fm, fm
+print('SKILL:OK')
+"
+  assert_success
+  grep -qF 'SKILL:OK' <<< "$output" || fail "skill frontmatter wrong"
+}
+
 # ── install.sh / update.sh behaviour (npm guarded by binary presence) ────────
 # NOTE: unlike the codebase-memory fixture, the real mdctx binary IS installed
 # on dev machines (~/.npm-global/bin), so the sandbox PATH must exclude its
