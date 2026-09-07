@@ -11,6 +11,11 @@ setup() {
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
   FIXTURES="$TEST_DIR/fixtures"
+  # Neutral init.sh tests must not depend on the host's live engine pin:
+  # the default engine is mdctx, which would run a real mdctx build of the
+  # actual global store on an mdctx-default host. Pin qmd here; the mdctx
+  # tests override with a sandboxed DEV_BOT_ROOT + provider env.
+  export DEVBOT_MEMORY_SEARCH_PROVIDER=qmd
 }
 
 teardown() {
@@ -126,7 +131,7 @@ teardown() {
   local tmpdir
   tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
 
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  DEVBOT_MEMORY_SEARCH_PROVIDER=qmd run bash "$MODULE_DIR/init.sh" "$tmpdir"
   assert_success
 
   run qmd collection show dev-bot-global
@@ -150,12 +155,66 @@ SCRIPT
   local tmpdir
   tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
 
-  run env PATH="$stubdir:$PATH" bash "$MODULE_DIR/init.sh" "$tmpdir"
+  run env PATH="$stubdir:$PATH" DEVBOT_MEMORY_SEARCH_PROVIDER=qmd \
+    bash "$MODULE_DIR/init.sh" "$tmpdir"
   assert_success
   assert_output --partial "WARN"
   assert_output --partial "dev-bot-global"
 
   rm -rf "$tmpdir" "$stubdir"
+}
+
+@test "init.sh: builds the mdctx global index when provider is mdctx" {
+  # Under the mdctx engine the global store is indexed at a sandboxed
+  # DEV_BOT_ROOT/storage/.mdctx — hermetic regardless of any real index.
+  command -v mdctx &>/dev/null || skip "mdctx not installed"
+  command -v python3 &>/dev/null || skip "python3 not installed"
+
+  local devroot
+  devroot="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  mkdir -p "$devroot/storage/global-memories"
+  printf -- '---\ntitle: Global Smoke\n---\n\n# Body\n' > "$devroot/storage/global-memories/smoke.md"
+
+  local tmpdir
+  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+
+  run env DEV_BOT_ROOT="$devroot" DEVBOT_MEMORY_SEARCH_PROVIDER=mdctx \
+    bash "$MODULE_DIR/init.sh" "$tmpdir"
+  assert_success
+  assert_output --partial "mdctx global index written"
+
+  local index="$devroot/storage/.mdctx/context-index.json"
+  [[ -f "$index" ]] || fail "mdctx global index not written at $index"
+
+  rm -rf "$tmpdir" "$devroot"
+}
+
+@test "init.sh: warns when provider is mdctx but mdctx is not installed" {
+  command -v python3 &>/dev/null || skip "python3 not installed"
+
+  local devroot
+  devroot="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  mkdir -p "$devroot/storage/global-memories"
+
+  local tmpdir
+  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+
+  # Strip the real mdctx dir from PATH so the "not installed" branch is
+  # deterministic regardless of the host's mdctx install.
+  local mdctx_dir filtered_path dir
+  mdctx_dir="$(dirname "$(command -v mdctx 2>/dev/null)")"
+  filtered_path=""
+  while IFS= read -r -d: dir; do
+    [[ -n "$dir" && "$dir" != "$mdctx_dir" ]] || continue
+    filtered_path="${filtered_path:+$filtered_path:}$dir"
+  done <<< "${PATH}:"
+
+  run env PATH="$filtered_path" DEV_BOT_ROOT="$devroot" \
+    DEVBOT_MEMORY_SEARCH_PROVIDER=mdctx bash "$MODULE_DIR/init.sh" "$tmpdir"
+  assert_success
+  assert_output --partial "mdctx not installed"
+
+  rm -rf "$tmpdir" "$devroot"
 }
 
 @test "init.sh: reinit does not clobber per-project active files" {

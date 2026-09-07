@@ -74,22 +74,45 @@ _scaffold_vault() {
     _warn "Could not create global memories symlink at ${vault}/latent/global"
   fi
 
-  # ── QMD collection for global memories ────────────────────────────────────
-  # QMD doesn't follow symlinks, so create a collection pointing at the real
-  # global-memories path. Uses a fixed shared name — all projects share the
-  # same global knowledge base, so a single QMD collection suffices.
+  # ── Memory-search engine registration for global memories ─────────────────
+  # The shared global store is registered under whichever engine
+  # memory_search_provider selects. Neither engine follows symlinks, so the
+  # latent/global symlink above is never indexed — each engine must register
+  # the REAL global-memories path:
+  #   - qmd:   a "dev-bot-global" collection pointing at the real path (fixed
+  #            shared name — all projects share the same global knowledge base)
+  #   - mdctx: a flat keyword index at ${DEV_BOT_ROOT}/storage/.mdctx (already
+  #            gitignored: .gitignore has storage/* except global-memories/)
   # audit-25 F6: registration failure must surface loudly — a silently
   # swallowed '&& _ok' left the global store unreachable on a fresh install
-  # with no visible error (only the absence of the collection).
-  local global_collection="dev-bot-global"
+  # with no visible error (only the absence of the collection/index).
+  local provider
+  provider="$(_devbot_get_memory_search_provider "${target_path}")"
 
-  if qmd collection show "${global_collection}" >/dev/null 2>&1; then
-    _skip "QMD collection '${global_collection}' already exists"
-  elif qmd collection add "${GLOBAL_MEMORIES_DIR}" --name "${global_collection}" >/dev/null 2>&1; then
-    _ok "QMD collection '${global_collection}' created"
+  if [[ "${provider}" == "mdctx" ]]; then
+    if ! command -v mdctx >/dev/null 2>&1; then
+      _warn "mdctx not installed — skipping global index build (run 'devbot install' first)"
+    else
+      local global_index_dir="${DEV_BOT_ROOT}/storage/.mdctx"
+      mkdir -p "${global_index_dir}"
+      if mdctx build "${GLOBAL_MEMORIES_DIR}" -o "${global_index_dir}/context-index.json" >/dev/null 2>&1; then
+        _ok "mdctx global index written (${global_index_dir}/context-index.json)"
+      else
+        _warn "Could not build mdctx global index for ${GLOBAL_MEMORIES_DIR}"
+        _warn "The global memory store will be unreachable via search-memories — check that mdctx is installed."
+      fi
+    fi
   else
-    _warn "Could not register QMD collection '${global_collection}' for ${GLOBAL_MEMORIES_DIR}"
-    _warn "The global memory store will be unreachable via search-memories — check that qmd is installed."
+    local global_collection="dev-bot-global"
+
+    if qmd collection show "${global_collection}" >/dev/null 2>&1; then
+      _skip "QMD collection '${global_collection}' already exists"
+    elif qmd collection add "${GLOBAL_MEMORIES_DIR}" --name "${global_collection}" >/dev/null 2>&1; then
+      _ok "QMD collection '${global_collection}' created"
+    else
+      _warn "Could not register QMD collection '${global_collection}' for ${GLOBAL_MEMORIES_DIR}"
+      _warn "The global memory store will be unreachable via search-memories — check that qmd is installed."
+    fi
   fi
 
   _ok "Vault scaffolded at ${target_path}"
