@@ -363,6 +363,14 @@ config = os.environ["CONFIG_PATH"]
 with open(config) as f:
     text = f.read()
 
+# audit-51 §8b NOTE: the opencode harness log (~/.local/share/opencode/log/) is
+# outside the allow-list, so an MCP launch failure ("server unavailable …
+# status=failed") is unreadable in-band by the agent. Allow it so DevBot can
+# read the harness log itself. HOME is baked at reinit time (host/container
+# specific), matching how the other absolute allows are written.
+home = os.environ.get("HOME", "")
+log_allow = home + "/.local/share/opencode/log/**"
+
 block_m = re.search(r'"external_directory"\s*:\s*\{([^}]*)\}', text, re.S)
 tmp_present = '"/tmp/**"' in text
 
@@ -377,16 +385,20 @@ if not block_m:
     raise SystemExit
 
 # Rebuild the block with "*": "deny" first, then the specific allows, so the
-# allows are evaluated last and win. Covers both "stale order" (allow before
-# deny) and "absent /tmp/**" (insert after the deny).
+# allows are evaluated last and win. Covers "stale order" (allow before deny),
+# "absent /tmp/**", and the missing opencode log allow (audit-51 §8b).
 try:
     entries = json.loads("{" + block_m.group(1) + "}")
 except Exception:
     print("0")
     raise SystemExit
 
-if tmp_present and list(entries.keys())[:1] == ["*"]:
-    print("0")  # already deny-first with /tmp/** — nothing to do
+if (
+    tmp_present
+    and list(entries.keys())[:1] == ["*"]
+    and log_allow in entries
+):
+    print("0")  # already deny-first with /tmp/** + opencode log allowed
     raise SystemExit
 
 ordered = {}
@@ -397,6 +409,8 @@ for k, v in entries.items():
         ordered[k] = v
 if not tmp_present:
     ordered["/tmp/**"] = "allow"
+if log_allow and log_allow not in ordered:
+    ordered[log_allow] = "allow"
 
 new_block = ",\n".join(f'    "{k}": "{v}"' for k, v in ordered.items())
 text = text[: block_m.start(1)] + new_block + text[block_m.end(1) :]
@@ -407,7 +421,7 @@ PY
   )
 
   if [[ "${added}" == "1" ]]; then
-    _ok "external_directory reconciled: deny-first with /tmp/** allowed"
+    _ok "external_directory reconciled: deny-first, /tmp/** and opencode log allowed"
   fi
 }
 

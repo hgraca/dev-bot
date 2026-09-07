@@ -193,3 +193,27 @@ sys.exit(0 if list(entries.keys())[0] == '*' else 1)
   run grep -q '"/tmp/\*\*": "allow"' "${FAKE_PROJECT}/opencode.jsonc"
   assert_success
 }
+
+@test "reconcile: allows the opencode harness log dir (audit-51 §8b)" {
+  # A deny-first block with /tmp/** but no opencode-log allow is still
+  # reconciled so the agent can read the harness log in-band.
+  printf '{\n  "permission": {\n    "external_directory": {\n      "*": "deny",\n      "/tmp/**": "allow"\n    }\n  }\n}\n' > "${FAKE_PROJECT}/opencode.jsonc"
+
+  run bash "${MODULE_DIR}/init.sh" "${FAKE_PROJECT}"
+  assert_success
+
+  run grep -q '"'"${HOME}/.local/share/opencode/log/\*\*"'": "allow"' "${FAKE_PROJECT}/opencode.jsonc"
+  assert_success
+}
+
+@test "reconcile: log allow survives a second init run (no duplicate)" {
+  printf '{\n  "permission": {\n    "external_directory": {\n      "*": "deny",\n      "/tmp/**": "allow"\n    }\n  }\n}\n' > "${FAKE_PROJECT}/opencode.jsonc"
+
+  run bash "${MODULE_DIR}/init.sh" "${FAKE_PROJECT}"
+  assert_success
+  run bash "${MODULE_DIR}/init.sh" "${FAKE_PROJECT}"
+  assert_success
+
+  run grep -c '"'"${HOME}/.local/share/opencode/log/\*\*"'": "allow"' "${FAKE_PROJECT}/opencode.jsonc"
+  assert_equal "$output" "1"
+}
