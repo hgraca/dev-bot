@@ -26,6 +26,13 @@ searching, tracing, and analysing the graph.
 | Arbitrary relationship queries (read-only Cypher subset)     | `query_graph`                          |
 | Persist architecture decisions across sessions               | `manage_adr`                           |
 
+**Cold start (no auto-priming — audit-51/52 §4 NOTE):** the engine indexes
+nothing until the first `index_repository`. Before that, every other tool
+returns "project not found or not indexed" — nothing in dev-bot primes the
+index at session start (unlike graphify). Run `index_status` then
+`index_repository <project-dir>` once per project — at session start, or the
+first time a structural tool errors. `auto_watch` keeps it fresh afterwards.
+
 ## MCP Tools
 
 ### `index_repository` — Build/refresh the index

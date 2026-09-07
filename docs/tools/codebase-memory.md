@@ -20,6 +20,21 @@ Find code by structure and meaning — call graphs, architecture, impact — bac
 
 Instead of grepping for keywords or reading files one at a time, agents query the graph: trace callers of a function, map what a change touches, or get a whole-codebase architecture summary in a single structured call.
 
+**Cold start:** the engine indexes nothing until the first `index_repository`
+call — every other tool errors ("project not found or not indexed") before
+that, and nothing primes it at session start. Run `index_repository
+<project-dir>` once per project when the structural tools first error
+(audit-51/52 NOTE).
+
+## Known limits
+
+- **Root-too-broad guard**: `index_repository` rejects a path it judges too
+  broad to index as one root (e.g. a whole repo whose only subdirectory is
+  `src/`); name a project directory below it (upstream engine heuristic).
+- **Group-writable daemon warn**: the server may log
+  `daemon.private_dir_group_writable_ancestor mode=0775` where the container
+  user's home has a group-writable ancestor — benign (server still serves).
+
 ## Engine
 
 Powered by `codebase-memory-mcp` (DeusData) — a single native binary with embeddings compiled in. No Ollama, no Docker, no GPU, no API key. Index persists under `~/.cache/codebase-memory-mcp/`.
