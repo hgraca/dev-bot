@@ -137,6 +137,13 @@ sys.exit(1)
 }
 
 # ── Write opencode.jsonc from template ─────────────────────────────────────────
+# NOTE (audit-54 F3): opencode loads TWO config surfaces — this file
+# (opencode.jsonc, dev-bot's managed config: mcp/agent/plugin blocks) and the
+# opencode-owned `.opencode/opencode.json` project config it creates/reads on
+# first run. Both are loaded and their plugin arrays union; `.opencode/
+# opencode.json` is NOT dev-bot managed (never written here) and is inert when
+# its plugin array is empty. Don't "clean up" that file — opencode recreates
+# it; treat opencode.jsonc as authoritative for dev-bot wiring.
 _write_opencode_config() {
   local config="${PROJECT_DIR}/opencode.jsonc"
 
