@@ -317,7 +317,14 @@ def collect(kind):
     if kind == "commands":
         headers = ["Module", "Command", "Description"]
         rows = []
-        for f in sorted(glob.glob(os.path.join(AGENTIC, "*", "commands", "*.md"))):
+        # audit-53 FAIL-2: audit.md/audit-fix.md live in src/tools/devbot-cli/
+        # commands — the agentic-only glob silently omitted them (mirrors the
+        # audit-24 NOTE-7 fix for the tools kind).
+        files = sorted(
+            set(glob.glob(os.path.join(AGENTIC, "*", "commands", "*.md")))
+            | set(glob.glob(os.path.join(root, "src", "tools", "*", "commands", "*.md")))
+        )
+        for f in files:
             m = parse_frontmatter(read(f))
             if m.get("name"):
                 rows.append([module_of(f), m["name"], m.get("description", "")])

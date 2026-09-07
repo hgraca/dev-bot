@@ -265,3 +265,15 @@ setup() {
 
   rm -r "$scratch"
 }
+
+
+@test "devbot list commands includes src/tools commands (audit-53 FAIL-2)" {
+  # audit.md / audit-fix.md live in src/tools/devbot-cli/commands/ — the old
+  # agentic-only glob omitted them from `devbot list commands` even though they
+  # were wired and functional.
+  run bash "$PROJECT_ROOT/bin/devbot" list commands
+  assert_success
+  assert_output --partial "devbot:audit"
+  assert_output --partial "devbot:audit-fix"
+  assert_output --partial "devbot-cli"
+}
