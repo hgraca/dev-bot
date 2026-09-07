@@ -412,6 +412,33 @@ _devbot_get_codebase_provider() {
   esac
 }
 
+# ── Memory-search engine provider (config-driven) ─────────────────────────────
+#
+# _devbot_get_memory_search_provider [project_dir]
+#   Prints the active memory-search engine module name: "qmd" or "mdctx".
+#   Selected by the global-only key "memory_search_provider" in
+#   .devbot.global.jsonc; absent or invalid => "mdctx" (the zero-dependency
+#   keyword-index default). project_dir is accepted for signature symmetry but
+#   not read in v1 — the provider is deliberately global-only (no per-project
+#   override yet).
+
+_devbot_get_memory_search_provider() {
+  local shared_dir
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local reader="${shared_dir}/read_jsonc.py"
+  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+
+  local provider=""
+  if [[ -f "${global_config}" ]]; then
+    provider=$(python3 "${reader}" "${global_config}" "memory_search_provider" 2>/dev/null || true)
+  fi
+
+  case "${provider}" in
+    qmd | mdctx) echo "${provider}" ;;
+    *) echo "mdctx" ;;
+  esac
+}
+
 # ── Disabled modules (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_disabled_modules [project_dir]
@@ -421,6 +448,9 @@ _devbot_get_codebase_provider() {
 #   The two codebase engine modules (codebase-index / codebase-memory) are
 #   mutually exclusive: whichever is NOT selected by codebase_index_provider
 #   is appended to the disabled set, so exactly one engine is ever wired.
+#   The two memory-search engine modules (qmd / mdctx) are mutually exclusive
+#   the same way via memory_search_provider — both pairs are independent and
+#   both non-selected engines are appended.
 #   Handles missing fields gracefully (returns "[]").
 
 _devbot_get_disabled_modules() {
@@ -452,11 +482,18 @@ _devbot_get_disabled_modules() {
   local non_selected="codebase-index"
   [[ "${provider}" == "codebase-index" ]] && non_selected="codebase-memory"
 
+  # Non-selected memory-search engine: qmd <-> mdctx
+  local mem_provider non_selected_mem
+  mem_provider="$(_devbot_get_memory_search_provider "${project_dir}")"
+  non_selected_mem="qmd"
+  [[ "${mem_provider}" == "qmd" ]] && non_selected_mem="mdctx"
+
   # Merge: project overrides global. A module is disabled when its effective
   # value is false (project value if present, else global value). The
-  # non-selected codebase engine is always disabled (mutual exclusion).
+  # non-selected codebase engine and non-selected memory-search engine are
+  # always disabled (mutual exclusion per pair).
   GLOBAL_STATES="${global_states}" PROJECT_STATES="${project_states}" \
-    NON_SELECTED="${non_selected}" python3 -c '
+    NON_SELECTED="${non_selected}" NON_SELECTED_MEM="${non_selected_mem}" python3 -c '
 import json, os
 global_states = json.loads(os.environ["GLOBAL_STATES"])
 project_states = json.loads(os.environ["PROJECT_STATES"])
@@ -468,6 +505,7 @@ for m, v in project_states.items():
     if m not in global_states and v is False:
         disabled.add(m)
 disabled.add(os.environ["NON_SELECTED"])
+disabled.add(os.environ["NON_SELECTED_MEM"])
 print(json.dumps(sorted(disabled)))
 ' 2>/dev/null || echo "[]"
 }

@@ -68,7 +68,7 @@ _write_project_cfg() {
 }
 
 @test "_devbot_get_codebase_provider passes through codebase-index" {
-  _write_global_cfg '{ "codebase_index_provider": "codebase-index" }'
+  _write_global_cfg '{ "codebase_index_provider": "codebase-index", "memory_search_provider": "qmd" }'
 
   run _devbot_get_codebase_provider "${PROJECT_DIR}"
   assert_success
@@ -76,7 +76,7 @@ _write_project_cfg() {
 }
 
 @test "_devbot_get_codebase_provider passes through codebase-memory" {
-  _write_global_cfg '{ "codebase_index_provider": "codebase-memory" }'
+  _write_global_cfg '{ "codebase_index_provider": "codebase-memory", "memory_search_provider": "qmd" }'
 
   run _devbot_get_codebase_provider "${PROJECT_DIR}"
   assert_success
@@ -94,35 +94,35 @@ _write_project_cfg() {
 # ── _devbot_get_disabled_modules: mutual exclusion ───────────────────────────
 
 @test "disabled set auto-disables codebase-memory when provider is codebase-index" {
-  _write_global_cfg '{ "codebase_index_provider": "codebase-index" }'
+  _write_global_cfg '{ "codebase_index_provider": "codebase-index", "memory_search_provider": "qmd" }'
 
   run _devbot_get_disabled_modules "${PROJECT_DIR}"
   assert_success
-  assert_output '["codebase-memory"]'
+  assert_output '["codebase-memory", "mdctx"]'
 }
 
 @test "disabled set auto-disables codebase-index when provider defaults to codebase-memory" {
-  _write_global_cfg '{ "modules": {} }'
+  _write_global_cfg '{ "modules": {}, "memory_search_provider": "qmd" }'
 
   run _devbot_get_disabled_modules "${PROJECT_DIR}"
   assert_success
-  assert_output '["codebase-index"]'
+  assert_output '["codebase-index", "mdctx"]'
 }
 
 @test "disabled set keeps explicit modules-map disables alongside the auto-disable" {
-  _write_global_cfg '{ "codebase_index_provider": "codebase-memory", "modules": { "graphify": false } }'
+  _write_global_cfg '{ "codebase_index_provider": "codebase-memory", "memory_search_provider": "qmd", "modules": { "graphify": false } }'
 
   run _devbot_get_disabled_modules "${PROJECT_DIR}"
   assert_success
-  assert_output '["codebase-index", "graphify"]'
+  assert_output '["codebase-index", "graphify", "mdctx"]'
 }
 
 @test "explicit false on the selected engine still disables it (no codebase engine)" {
-  _write_global_cfg '{ "codebase_index_provider": "codebase-memory", "modules": { "codebase-memory": false } }'
+  _write_global_cfg '{ "codebase_index_provider": "codebase-memory", "memory_search_provider": "qmd", "modules": { "codebase-memory": false } }'
 
   run _devbot_get_disabled_modules "${PROJECT_DIR}"
   assert_success
-  assert_output '["codebase-index", "codebase-memory"]'
+  assert_output '["codebase-index", "codebase-memory", "mdctx"]'
 }
 
 @test "both engines explicitly false => both disabled (no codebase engine)" {
@@ -130,19 +130,20 @@ _write_project_cfg() {
   # Explicit false adds each module; the auto-disable adds the other.
   _write_global_cfg '{
     "codebase_index_provider": "codebase-memory",
+    "memory_search_provider": "qmd",
     "modules": { "codebase-index": false, "codebase-memory": false }
   }'
 
   run _devbot_get_disabled_modules "${PROJECT_DIR}"
   assert_success
-  assert_output '["codebase-index", "codebase-memory"]'
+  assert_output '["codebase-index", "codebase-memory", "mdctx"]'
 }
 
 @test "project modules-map disable of the selected engine wins over global provider" {
-  _write_global_cfg '{ "codebase_index_provider": "codebase-index" }'
+  _write_global_cfg '{ "codebase_index_provider": "codebase-index", "memory_search_provider": "qmd" }'
   _write_project_cfg '{ "modules": { "codebase-index": false } }'
 
   run _devbot_get_disabled_modules "${PROJECT_DIR}"
   assert_success
-  assert_output '["codebase-index", "codebase-memory"]'
+  assert_output '["codebase-index", "codebase-memory", "mdctx"]'
 }
