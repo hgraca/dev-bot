@@ -71,6 +71,12 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
   const rewriteEcho = createRewriteEchoTracker()
   // Create-vs-edit classification (audit-48 FAIL-1: format-on-create corrupts).
   const kindResolver = createKindResolver()
+  // audit-56 FAIL: two rapid edits while a format hook is active could drop
+  // the second edit — a format run that read the file between the two tool
+  // applications rewrote stale (pre-B) content over edit B. Debounce the
+  // dispatch so an edit burst quiesces before any rewrite hook reads the file.
+  const EDIT_DEBOUNCE_MS = 400
+  const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   // Content signature of a file — the echo of a hook's own rewrite has the
   // same signature as the state recorded after dispatch; a real edit differs.
@@ -166,26 +172,37 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
           // settle timeout defaults to "change") so skipOnCreate hooks can
           // avoid normalizing a freshly-written file (see dispatch()).
           kindResolver.onEdited(file, (kind) => {
-            // audit-32 FAIL: format-yml burst race — two file.edited events
-            // within ~1s ran two concurrent format hooks whose read-modify-write
-            // interleaves corrupted the file. Serialize + coalesce per file: a
-            // burst collapses into one in-flight run plus one trailing re-run.
-            fileEditGate(file, async () => {
-              const before = contentSig(file)
-              await dispatch("file.edited", file, { file }, { create: kind === "add" })
-              const after = contentSig(file)
-              // audit-51 §2: a rewrite hook (e.g. format normalization) changed
-              // the file between two user edits — opencode's fuzzy edit tool can
-              // splice a stale-indentation oldString into the normalized content.
-              // Surface the rewrite so the agent re-reads before its next edit
-              // and so audits can trace the sequence in hooks.log.
-              if (before && after && before !== after && kind !== "add") {
-                logger.info(`file.edited hooks rewrote ${file} (format normalization?) — re-read the file before your next edit`)
-              }
-              // Record the post-hook content so the echo of a rewrite the hooks
-              // just performed is recognized (and dropped) above.
-              rewriteEcho.record(file, after)
-            })
+            // audit-56 FAIL: debounce the dispatch — a burst of rapid edits
+            // resets the timer so a single run happens after the burst has
+            // quiesced, never between two tool applications.
+            const existing = debounceTimers.get(file)
+            if (existing !== undefined) clearTimeout(existing)
+            debounceTimers.set(
+              file,
+              setTimeout(() => {
+                debounceTimers.delete(file)
+                // audit-32 FAIL: format-yml burst race — two file.edited events
+                // within ~1s ran two concurrent format hooks whose read-modify-write
+                // interleaves corrupted the file. Serialize + coalesce per file: a
+                // burst collapses into one in-flight run plus one trailing re-run.
+                fileEditGate(file, async () => {
+                  const before = contentSig(file)
+                  await dispatch("file.edited", file, { file }, { create: kind === "add" })
+                  const after = contentSig(file)
+                  // audit-51 §2: a rewrite hook (e.g. format normalization) changed
+                  // the file between two user edits — opencode's fuzzy edit tool can
+                  // splice a stale-indentation oldString into the normalized content.
+                  // Surface the rewrite so the agent re-reads before its next edit
+                  // and so audits can trace the sequence in hooks.log.
+                  if (before && after && before !== after && kind !== "add") {
+                    logger.info(`file.edited hooks rewrote ${file} (format normalization?) — re-read the file before your next edit`)
+                  }
+                  // Record the post-hook content so the echo of a rewrite the hooks
+                  // just performed is recognized (and dropped) above.
+                  rewriteEcho.record(file, after)
+                })
+              }, EDIT_DEBOUNCE_MS),
+            )
           })
         }
       } else if (type === "file.watcher.updated") {
