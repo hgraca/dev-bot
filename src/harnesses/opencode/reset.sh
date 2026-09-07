@@ -122,9 +122,10 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
   REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
   IS_CURRENT_PY="${DEV_BOT_ROOT}/src/_shared/mcp_key_is_current.py"
   if [[ -f "${REMOVE_MCP_PY}" ]]; then
-    # key → module template declaring it (qmd module, tools-mcp module)
+    # key → module template declaring it (qmd module, mdctx module, tools-mcp module)
     declare -A MCP_TEMPLATES=(
       [qmd]="${DEV_BOT_ROOT}/src/agentic/qmd/mcp.opencode.json"
+      [mdctx]="${DEV_BOT_ROOT}/src/agentic/mdctx/mcp.opencode.json"
       [devbot-tools]="${DEV_BOT_ROOT}/src/agentic/tools-mcp/mcp.opencode.json"
     )
     for mcp_key in "${!MCP_TEMPLATES[@]}"; do

@@ -15,10 +15,13 @@ Config files and module templates use different shapes, and both are handled:
   module (mcp.opencode.json):   {"<key>": {...}}            (key at top level)
   module (mcp.claudecode.json): {"mcpServers": {"<key>": {...}}}
 
-The __GPU_ENABLED__ placeholder is treated as current-any-value: the resolved
-GPU value (cuda/metal/vulkan/false) is machine-dependent and legitimately
-differs between configs, so it must not trigger a re-registration. Anything
-else that differs (command, env shape, type) is stale.
+Placeholders are treated as current-any-value: the resolved value is
+machine-dependent (GPU string for __GPU_ENABLED__, install root for
+__DEV_BOT_ROOT__) and legitimately differs between configs, so a differing
+resolved value must not trigger a re-registration. __DEV_BOT_ROOT__ appears as
+a path prefix inside a value (e.g. "__DEV_BOT_ROOT__/storage/global-memories");
+the suffix after the placeholder must still match. Anything else that differs
+(command, env shape, type) is stale.
 
 Usage:
   mcp_key_is_current.py <config_file> <module_template_file> <key>
@@ -91,20 +94,36 @@ def _find_entry(data, key):
 def _normalize(entry, config_entry):
     """Return a comparable copy of a template entry.
 
-    __GPU_ENABLED__ is rewritten to whatever GPU value the config resolved —
-    the only runtime-dependent field. Other differences stay visible.
+    Placeholders are rewritten to whatever value the config resolved — the
+    only runtime-dependent fields:
+      - __GPU_ENABLED__      whole-value placeholder (cuda/metal/vulkan/false)
+      - __DEV_BOT_ROOT__     path-prefix placeholder (absolute install root);
+                             the suffix after the placeholder must match the
+                             config's value for the entry to stay current.
+    Other differences stay visible.
     """
     entry = json.loads(json.dumps(entry))  # deep copy
     env = entry.get("environment")
-    if isinstance(env, dict) and "__GPU_ENABLED__" in env.values():
+    if isinstance(env, dict):
         config_env = config_entry.get("environment") or {}
-        resolved = next(
-            (v for v in config_env.values() if v != "__GPU_ENABLED__"),
-            "__GPU_ENABLED__",
-        )
         for k, v in env.items():
             if v == "__GPU_ENABLED__":
+                resolved = next(
+                    (cv for cv in config_env.values() if cv != "__GPU_ENABLED__"),
+                    "__GPU_ENABLED__",
+                )
                 env[k] = resolved
+            elif "__DEV_BOT_ROOT__" in v:
+                prefix, _, suffix = v.partition("__DEV_BOT_ROOT__")
+                cv = config_env.get(k)
+                if (
+                    isinstance(cv, str)
+                    and cv
+                    and cv.startswith(prefix)
+                    and cv.endswith(suffix)
+                    and len(cv) >= len(prefix) + len(suffix)
+                ):
+                    env[k] = cv
     return entry
 
 

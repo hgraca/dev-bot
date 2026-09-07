@@ -136,3 +136,98 @@ JSON_EOF
   run python3 "$TOOL" "$WORK/.mcp.json" "$WORK/qmd-claudecode-module.json" "qmd"
   assert_success
 }
+
+@test "exit 0 when __DEV_BOT_ROOT__ resolves to the config's install path (suffix matches)" {
+  # The config resolved __DEV_BOT_ROOT__ → "/opt/dev-bot" at registration; the
+  # suffix after the placeholder must match for the entry to stay current.
+  cat > "$WORK/mdctx-config.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "mdctx": {
+      "type": "local",
+      "command": ["mdctx-mcp"],
+      "environment": {
+        "MDCTX_ROOT": "/opt/dev-bot/storage/global-memories",
+        "MDCTX_INDEX": "/opt/dev-bot/storage/.mdctx/context-index.json"
+      }
+    }
+  }
+}
+JSONC_EOF
+  cat > "$WORK/mdctx-module.json" <<'JSON_EOF'
+{
+  "mdctx": {
+    "type": "local",
+    "command": ["mdctx-mcp"],
+    "environment": {
+      "MDCTX_ROOT": "__DEV_BOT_ROOT__/storage/global-memories",
+      "MDCTX_INDEX": "__DEV_BOT_ROOT__/storage/.mdctx/context-index.json"
+    }
+  }
+}
+JSON_EOF
+
+  run python3 "$TOOL" "$WORK/mdctx-config.jsonc" "$WORK/mdctx-module.json" "mdctx"
+  assert_success
+}
+
+@test "exit 1 when __DEV_BOT_ROOT__-resolved path has a different suffix (stale)" {
+  # Root layout drifted from the module template (e.g. store moved): the
+  # placeholder must not mask the structural difference.
+  cat > "$WORK/mdctx-stale-config.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "mdctx": {
+      "type": "local",
+      "command": ["mdctx-mcp"],
+      "environment": {
+        "MDCTX_ROOT": "/opt/dev-bot/elsewhere/global-memories",
+        "MDCTX_INDEX": "/opt/dev-bot/storage/.mdctx/context-index.json"
+      }
+    }
+  }
+}
+JSONC_EOF
+  cat > "$WORK/mdctx-module.json" <<'JSON_EOF'
+{
+  "mdctx": {
+    "type": "local",
+    "command": ["mdctx-mcp"],
+    "environment": {
+      "MDCTX_ROOT": "__DEV_BOT_ROOT__/storage/global-memories",
+      "MDCTX_INDEX": "__DEV_BOT_ROOT__/storage/.mdctx/context-index.json"
+    }
+  }
+}
+JSON_EOF
+
+  run python3 "$TOOL" "$WORK/mdctx-stale-config.jsonc" "$WORK/mdctx-module.json" "mdctx"
+  assert_failure
+}
+
+@test "exit 1 when __DEV_BOT_ROOT__ env key is missing from config (stale)" {
+  # Config predates the mdctx env (or was hand-edited to drop it): the missing
+  # env key must read as stale so reset removes and init re-registers.
+  cat > "$WORK/mdctx-noenv-config.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "mdctx": { "type": "local", "command": ["mdctx-mcp"] }
+  }
+}
+JSONC_EOF
+  cat > "$WORK/mdctx-module.json" <<'JSON_EOF'
+{
+  "mdctx": {
+    "type": "local",
+    "command": ["mdctx-mcp"],
+    "environment": {
+      "MDCTX_ROOT": "__DEV_BOT_ROOT__/storage/global-memories",
+      "MDCTX_INDEX": "__DEV_BOT_ROOT__/storage/.mdctx/context-index.json"
+    }
+  }
+}
+JSON_EOF
+
+  run python3 "$TOOL" "$WORK/mdctx-noenv-config.jsonc" "$WORK/mdctx-module.json" "mdctx"
+  assert_failure
+}

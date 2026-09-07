@@ -94,8 +94,11 @@ _register_module_mcp() {
   fi
 
   # Substitute placeholders (e.g. __GPU_ENABLED__ → qmd-valid GPU value:
-  # metal|cuda|vulkan when enabled, else false — qmd rejects the boolean true)
+  # metal|cuda|vulkan when enabled, else false — qmd rejects the boolean true;
+  # __DEV_BOT_ROOT__ → the absolute dev-bot install root, e.g. the mdctx MCP
+  # server's MDCTX_ROOT/MDCTX_INDEX env)
   mcp_def="${mcp_def//__GPU_ENABLED__/$(_qmd_gpu_value)}"
+  mcp_def="${mcp_def//__DEV_BOT_ROOT__/${DEV_BOT_ROOT}}"
 
   # Merge into opencode config (comment-preserving approach)
   local merge_result

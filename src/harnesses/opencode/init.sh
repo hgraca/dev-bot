@@ -156,8 +156,10 @@ _write_opencode_config() {
   # dist is a template full of commented-out model/provider options; the project
   # config should be clean. Stripping is string-aware so URLs (https://…) survive.
   # __GPU_ENABLED__ becomes a qmd-valid value (metal|cuda|vulkan|false) — qmd
-  # 2.8.3 rejects the plain boolean "true".
-  GPU_ENABLED="$(_qmd_gpu_value)" DIST_CONFIG="${DIST_CONFIG}" CONFIG="${config}" python3 - <<'PY'
+  # 2.8.3 rejects the plain boolean "true"; __DEV_BOT_ROOT__ becomes the
+  # absolute dev-bot install root (e.g. mdctx MCP MDCTX_ROOT/MDCTX_INDEX env).
+  GPU_ENABLED="$(_qmd_gpu_value)" DEV_BOT_ROOT="${DEV_BOT_ROOT}" \
+    DIST_CONFIG="${DIST_CONFIG}" CONFIG="${config}" python3 - <<'PY'
 import os
 import tempfile
 raw = open(os.environ["DIST_CONFIG"]).read()
@@ -193,7 +195,9 @@ while i < n:
     out.append(raw[i])
     i += 1
 
-stripped = "".join(out).replace("__GPU_ENABLED__", os.environ["GPU_ENABLED"])
+stripped = "".join(out).replace("__GPU_ENABLED__", os.environ["GPU_ENABLED"]).replace(
+    "__DEV_BOT_ROOT__", os.environ.get("DEV_BOT_ROOT", "")
+)
 # Drop lines left blank by full-line comments; trim trailing whitespace.
 lines = [line.rstrip() for line in stripped.splitlines() if line.strip()]
 data = "\n".join(lines) + "\n"
