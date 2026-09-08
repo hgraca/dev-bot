@@ -110,34 +110,46 @@ _reset_symlinks_in_dir "${OPENCODE_DIR}"
 # ── Remove module-managed MCP keys from opencode.jsonc ─────────────────────
 # Reinit runs reset.sh then init.sh: init's module registration is
 # skip-if-exists, so any stale MCP entry (old env, outdated command) survives
-# reinit unless reset drops it first. devbot-tools and qmd are re-registered
-# fresh by init from their module templates — qmd's environment changed in
-# audit-28 (QMD_LLAMA_GPU boolean → __GPU_ENABLED__ placeholder +
-# QMD_EXPAND_CONTEXT_SIZE), so existing configs must not keep the stale entry.
-# Only STALE entries are removed: dropping an entry that already matches its
-# module template makes init re-append it at the end of the mcp map, reordering
-# keys and breaking reinit byte-idempotency (audit-32 NOTE).
+# reinit unless reset drops it first. Templates are each module's canonical
+# mcp.json translated to the opencode shape (mcp_key_is_current.py): e.g. qmd's
+# environment changed in audit-28 (QMD_LLAMA_GPU boolean → __GPU_ENABLED__
+# placeholder + QMD_EXPAND_CONTEXT_SIZE), so existing configs must not keep the
+# stale entry. Only STALE entries are removed: dropping an entry that already
+# matches its module template makes init re-append it at the end of the mcp
+# map, reordering keys and breaking reinit byte-idempotency (audit-32 NOTE).
 OPENCODE_CONFIG="${PROJECT_DIR}/opencode.jsonc"
 if [[ -f "${OPENCODE_CONFIG}" ]]; then
   REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
   IS_CURRENT_PY="${DEV_BOT_ROOT}/src/_shared/mcp_key_is_current.py"
   if [[ -f "${REMOVE_MCP_PY}" ]]; then
-    # key → module template declaring it (qmd module, mdctx module, tools-mcp module)
-    declare -A MCP_TEMPLATES=(
-      [qmd]="${DEV_BOT_ROOT}/src/agentic/qmd/mcp.opencode.json"
-      [mdctx]="${DEV_BOT_ROOT}/src/agentic/mdctx/mcp.opencode.json"
-      [devbot-tools]="${DEV_BOT_ROOT}/src/agentic/tools-mcp/mcp.opencode.json"
-    )
-    for mcp_key in "${!MCP_TEMPLATES[@]}"; do
-      local_template="${MCP_TEMPLATES[$mcp_key]}"
-      if [[ -f "${IS_CURRENT_PY}" && -f "${local_template}" ]] \
-        && python3 "${IS_CURRENT_PY}" "${OPENCODE_CONFIG}" "${local_template}" "${mcp_key}" 2>/dev/null; then
-        _skip "${mcp_key}: matches module template — no refresh needed"
+    # Every enabled agentic module with a canonical mcp.json. Plugin-provided
+    # servers (codebase-index) are not opencode-registered as MCPs — nothing to
+    # refresh. Disabled modules are pruned unconditionally below.
+    for mod_dir in "${DEV_BOT_ROOT}/src/agentic/"*/; do
+      local_tpl="${mod_dir}mcp.json"
+      [[ -f "${local_tpl}" ]] || continue
+      mod_name="$(basename "${mod_dir}")"
+      if echo "${_disabled_raw}" | jq -e --arg m "${mod_name}" 'index($m) != null' >/dev/null 2>&1; then
         continue
       fi
-      python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${mcp_key}" 2>/dev/null || true
+      [[ -f "${mod_dir}plugin.opencode.json" ]] && continue
+      while IFS= read -r mcp_key; do
+        [[ -n "${mcp_key}" ]] || continue
+        if [[ -f "${IS_CURRENT_PY}" ]] \
+          && python3 "${IS_CURRENT_PY}" "${OPENCODE_CONFIG}" "${local_tpl}" "${mcp_key}" opencode 2>/dev/null; then
+          _skip "${mcp_key}: matches module template — no refresh needed"
+          continue
+        fi
+        python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${mcp_key}" 2>/dev/null || true
+      done < <(python3 -c "
+import json
+with open('${local_tpl}') as f:
+    data = json.load(f)
+for k in data.get('mcp', {}):
+    if not k.startswith('_'):
+        print(k)
+" 2>/dev/null)
     done
-    unset MCP_TEMPLATES
   fi
 
   # ── Prune plugin/MCP entries declared by now-DISABLED modules ─────────────
@@ -162,8 +174,9 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
     [[ -n "${disabled_name}" ]] || continue
 
     # Locate the module dir in the bases that register into opencode.jsonc
-    # (tools/agentic declare mcp.opencode.json + plugin.opencode.json; harnesses
-    # only mcp.opencode.json — external modules never register here).
+    # (tools/agentic declare the canonical mcp.json + plugin.opencode.json;
+    # harnesses only plugin.opencode.json — external modules never register
+    # here).
     mod_dir=""
     base_dir=""
     for base_dir in "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/tools" "${DEV_BOT_ROOT}/src/harnesses"; do
@@ -197,8 +210,8 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
       done < <(jq -r '.[]' "${mod_dir}/plugin.opencode.json" 2>/dev/null)
     fi
 
-    # MCP keys (mcp.opencode.json = { "key": {...} })
-    if [[ -f "${mod_dir}/mcp.opencode.json" && -f "${REMOVE_MCP_PY}" ]]; then
+    # MCP keys (canonical mcp.json = { "mcp": { "key": {...} } })
+    if [[ -f "${mod_dir}/mcp.json" && -f "${REMOVE_MCP_PY}" ]]; then
       mcp_key_name=""
       while IFS= read -r mcp_key_name; do
         [[ -n "${mcp_key_name}" ]] || continue
@@ -209,10 +222,11 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
         fi
       done < <(python3 -c "
 import json
-with open('${mod_dir}/mcp.opencode.json') as f:
+with open('${mod_dir}/mcp.json') as f:
     data = json.load(f)
-for k in data.keys():
-    print(k)
+for k in data.get('mcp', {}):
+    if not k.startswith('_'):
+        print(k)
 " 2>/dev/null)
     fi
   done < <(echo "${_disabled_raw}" | jq -r '.[]' 2>/dev/null || true)

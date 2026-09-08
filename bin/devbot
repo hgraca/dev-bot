@@ -365,12 +365,14 @@ def collect(kind):
     if kind == "mcps":
         headers = ["Module", "MCP"]
         rows = []
-        for f in sorted(glob.glob(os.path.join(AGENTIC, "*", "mcp.opencode.json"))):
+        # Module definitions live in the single canonical manifest mcp.json
+        # ({ "mcp": { "<server>": ... } }) — see docs/mcp-config.md.
+        for f in sorted(glob.glob(os.path.join(AGENTIC, "*", "mcp.json"))):
             try:
                 data = json.loads(read(f))
             except Exception:
                 continue
-            for server in sorted(data):
+            for server in sorted(data.get("mcp", {})):
                 rows.append([module_of(f), server])
         # Harness-level servers are not module definitions — they are written
         # as dynamic manifests in the project's .opencode/ (e.g. jetbrains by

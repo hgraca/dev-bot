@@ -8,23 +8,28 @@ init re-appends it at the end of the mcp map, reordering keys and breaking
 reinit byte-idempotency (audit-32 NOTE). This helper lets reset remove a key
 only when it is actually stale.
 
-Config files and module templates use different shapes, and both are handled:
+The module template is the single canonical manifest (mcp.json, {"mcp": {...}})
+and is translated to the target harness shape before comparison, so config and
+template always speak the same vocabulary:
 
-  config (opencode.jsonc):  {"mcp":         {"<key>": {...}}}
-  config (.mcp.json):       {"mcpServers":  {"<key>": {...}}}
-  module (mcp.opencode.json):   {"<key>": {...}}            (key at top level)
-  module (mcp.claudecode.json): {"mcpServers": {"<key>": {...}}}
+  config (opencode.jsonc):  {"mcp":         {"<key>": {type: local, ... environment: {...}}}}
+  config (.mcp.json):       {"mcpServers":  {"<key>": {type: stdio, ... env: {...}}}}
+  module (mcp.json):        {"mcp":         {"<key>": {type: stdio|http, command, env: {...}}}}
 
-Placeholders are treated as current-any-value: the resolved value is
-machine-dependent (GPU string for __GPU_ENABLED__, install root for
-__DEV_BOT_ROOT__) and legitimately differs between configs, so a differing
-resolved value must not trigger a re-registration. __DEV_BOT_ROOT__ appears as
-a path prefix inside a value (e.g. "__DEV_BOT_ROOT__/storage/global-memories");
-the suffix after the placeholder must still match. Anything else that differs
-(command, env shape, type) is stale.
+Translation runs with placeholders UNRESOLVED (mcp_translate.py --gpu/--root
+omitted): the resolved values are machine-dependent (GPU string, install root,
+SIGNOZ token) and legitimately differ between configs, so a differing resolved
+value must not trigger a re-registration. Comparison then normalizes:
+
+  - __GPU_ENABLED__     whole-value placeholder: any config value is current
+  - __DEV_BOT_ROOT__    path-prefix placeholder: the suffix after the
+                        placeholder must still match (root layout drift is stale)
+  - {env:VAR}           env indirection: current whether the config holds the
+                        literal, a registration-time-resolved value, or omits
+                        the key (unset at registration — claudecode drops it)
 
 Usage:
-  mcp_key_is_current.py <config_file> <module_template_file> <key>
+  mcp_key_is_current.py <config_file> <module_mcp.json> <key> <harness>
 
 Exit codes:
   0 — key absent from config, or registered def matches the template (no
@@ -35,6 +40,9 @@ Exit codes:
 import json
 import sys
 import os
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+from mcp_translate import load_canonical, server_map, translate  # noqa: E402
 
 
 def _load_jsonc(path):
@@ -80,10 +88,10 @@ def _find_entry(data, key):
     """Locate the entry dict for `key` in any supported map shape."""
     if not isinstance(data, dict):
         return None
-    # Key at top level (mcp.opencode.json module template shape).
+    # Key at top level.
     if isinstance(data.get(key), dict):
         return data[key]
-    # Key under a servers map (config files + mcp.claudecode.json templates).
+    # Key under a servers map (config files + canonical mcp.json).
     for map_key in ("mcp", "mcpServers"):
         m = data.get(map_key)
         if isinstance(m, dict) and isinstance(m.get(key), dict):
@@ -92,47 +100,71 @@ def _find_entry(data, key):
 
 
 def _normalize(entry, config_entry):
-    """Return a comparable copy of a template entry.
+    """Return a comparable copy of the translated template entry.
 
-    Placeholders are rewritten to whatever value the config resolved — the
-    only runtime-dependent fields:
-      - __GPU_ENABLED__      whole-value placeholder (cuda/metal/vulkan/false)
-      - __DEV_BOT_ROOT__     path-prefix placeholder (absolute install root);
-                             the suffix after the placeholder must match the
-                             config's value for the entry to stay current.
+    Placeholders are rewritten to whatever the config resolved — the only
+    runtime-dependent fields:
+      - __GPU_ENABLED__    whole-value placeholder (cuda/metal/vulkan/false)
+      - __DEV_BOT_ROOT__   path-prefix placeholder (absolute install root);
+                           the suffix after the placeholder must match the
+                           config's value for the entry to stay current
+      - {env:VAR}          env indirection: dropped from the comparison, since
+                           the config may hold the literal (opencode native),
+                           a registration-resolved value (claudecode), or no
+                           key at all (var unset at registration)
     Other differences stay visible.
     """
     entry = json.loads(json.dumps(entry))  # deep copy
-    env = entry.get("environment")
-    if isinstance(env, dict):
-        config_env = config_entry.get("environment") or {}
-        for k, v in env.items():
-            if v == "__GPU_ENABLED__":
-                resolved = next(
-                    (cv for cv in config_env.values() if cv != "__GPU_ENABLED__"),
-                    "__GPU_ENABLED__",
-                )
+
+    # The env block is named `environment` (opencode) or `env` (claudecode)
+    # depending on the harness the template was translated for.
+    env = None
+    config_env = None
+    for key in ("environment", "env"):
+        if isinstance(entry.get(key), dict):
+            env = entry[key]
+            config_env = config_entry.get(key)
+        elif isinstance(config_entry.get(key), dict):
+            config_env = config_entry[key]
+    if not isinstance(env, dict):
+        return entry
+
+    config_env = config_env if isinstance(config_env, dict) else {}
+    for k, v in list(env.items()):
+        if v == "__GPU_ENABLED__":
+            resolved = config_env.get(k)
+            # Any resolved string is current (GPU value is machine-dependent);
+            # a non-string (legacy boolean true — audit-28) is not.
+            if isinstance(resolved, str) and resolved != "__GPU_ENABLED__":
                 env[k] = resolved
-            elif "__DEV_BOT_ROOT__" in v:
-                prefix, _, suffix = v.partition("__DEV_BOT_ROOT__")
-                cv = config_env.get(k)
-                if (
-                    isinstance(cv, str)
-                    and cv
-                    and cv.startswith(prefix)
-                    and cv.endswith(suffix)
-                    and len(cv) >= len(prefix) + len(suffix)
-                ):
-                    env[k] = cv
+        elif "__DEV_BOT_ROOT__" in v:
+            prefix, _, suffix = v.partition("__DEV_BOT_ROOT__")
+            cv = config_env.get(k)
+            if (
+                isinstance(cv, str)
+                and cv
+                and cv.startswith(prefix)
+                and cv.endswith(suffix)
+                and len(cv) >= len(prefix) + len(suffix)
+            ):
+                env[k] = cv
+        elif v.startswith("{env:") and v.endswith("}"):
+            # Env indirection: current whether the config resolved it, kept the
+            # literal, or omitted the key. Drop from both sides.
+            env.pop(k)
+            config_env.pop(k, None)
     return entry
 
 
 def main():
-    if len(sys.argv) != 4:
-        print("Usage: mcp_key_is_current.py <config_file> <module_template_file> <key>", file=sys.stderr)
+    if len(sys.argv) != 5:
+        print(
+            "Usage: mcp_key_is_current.py <config_file> <module_mcp.json> <key> <harness>",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    config_file, template_file, key = sys.argv[1], sys.argv[2], sys.argv[3]
+    config_file, template_file, key, harness = sys.argv[1:5]
 
     if not os.path.isfile(config_file) or not os.path.isfile(template_file):
         # Nothing to compare — trivially current (nothing to remove).
@@ -140,7 +172,7 @@ def main():
 
     try:
         config_entry = _find_entry(_load_jsonc(config_file), key)
-        template_entry = _find_entry(_load_jsonc(template_file), key)
+        template_entry = _find_entry(load_canonical(template_file), key)
     except Exception as e:
         print(f"Failed to parse config/template: {e}", file=sys.stderr)
         sys.exit(0)  # fail safe: don't churn on a parse anomaly
@@ -150,7 +182,13 @@ def main():
         # refresh (and nothing for init to re-register either).
         sys.exit(0)
 
-    if json.dumps(_normalize(template_entry, config_entry), sort_keys=True) == \
+    try:
+        translated = translate(template_entry, harness)
+    except Exception as e:
+        print(f"Failed to translate module template: {e}", file=sys.stderr)
+        sys.exit(0)  # fail safe: don't churn on an invalid template
+
+    if json.dumps(_normalize(translated, config_entry), sort_keys=True) == \
             json.dumps(config_entry, sort_keys=True):
         sys.exit(0)  # current — skip removal
     sys.exit(1)  # stale — reset should remove so init re-registers

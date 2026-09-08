@@ -35,9 +35,8 @@ _register_module_mcp() {
   local mod_dir="$1"
   local config_file="$2"
   local config_name="$3"
-  local gpu_enabled="$4"
 
-  local mcp_file="${mod_dir}mcp.opencode.json"
+  local mcp_file="${mod_dir}mcp.json"
   if [[ ! -f "${mcp_file}" || -z "${config_file}" ]]; then
     echo 0
     return
@@ -46,77 +45,94 @@ _register_module_mcp() {
   local mod_name
   mod_name="$(basename "${mod_dir}")"
   local merge_mcp_script="${DEV_BOT_ROOT}/src/_shared/merge_mcp_jsonc.py"
+  local translate_script="${DEV_BOT_ROOT}/src/_shared/mcp_translate.py"
 
-  # Extract the MCP server key (top-level key in the JSON file)
+  # Plugin-provided servers are NOT also registered as MCPs: opencode loads
+  # them from the module's plugin.opencode.json (codebase-index), and
+  # registering the server as an MCP too would double-load it.
+  if [[ -f "${mod_dir}plugin.opencode.json" ]]; then
+    _skip "${mod_name}: MCP provided via opencode plugin — skipping MCP registration" >&2
+    echo 0
+    return
+  fi
+
+  # Translate the canonical manifest (src/agentic/<module>/mcp.json) into the
+  # opencode mcp shape. The translator resolves {harness-dir} → .opencode and
+  # the __GPU_ENABLED__ / __DEV_BOT_ROOT__ placeholders (qmd GPU value /
+  # dev-bot install root) at registration time.
+  local translated
+  translated="$(python3 "${translate_script}" "${mcp_file}" opencode \
+    --gpu "$(_qmd_gpu_value)" --root "${DEV_BOT_ROOT}" 2>/dev/null || true)"
+
+  if ! python3 -c "import json, sys; json.loads(sys.stdin.read())" <<<"${translated}" 2>/dev/null; then
+    _warn "${mod_name}: could not translate ${mcp_file} — skipping MCP registration" >&2
+    echo 0
+    return
+  fi
+
+  local inserted=0
   local mcp_key
-  mcp_key=$(python3 -c "import json; print(list(json.load(open('${mcp_file}')).keys())[0])" 2>/dev/null || true)
+  while IFS= read -r mcp_key; do
+    [[ -n "${mcp_key}" ]] || continue
 
-  if [[ -z "${mcp_key}" ]]; then
-    _warn "${mod_name}: could not parse MCP key from ${mcp_file} — skipping" >&2
-    echo 0
-    return
-  fi
-
-  # Check if already registered in config — scoped to the mcp section. A
-  # whole-file grep matched the key ANYWHERE (e.g. the permission block's
-  # `"websearch": "allow"`), so an unregistered MCP was silently skipped on
-  # every reinit. read_jsonc gives the mcp map; the merge script's own
-  # SKIP_EXISTS remains the authoritative idempotency check.
-  if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${config_file}" "mcp" 2>/dev/null \
-    | grep -q "\"${mcp_key}\""; then
-    _skip "${mod_name}: MCP '${mcp_key}' already registered in ${config_name}" >&2
-    echo 0
-    return
-  fi
-
-  _info "Registering ${mod_name} MCP '${mcp_key}' in ${config_name}..." >&2
-
-  # Read the MCP server definition from the module's file
-  local mcp_def
-  mcp_def=$(python3 -c "import json; d=json.load(open('${mcp_file}')); print(json.dumps(d['${mcp_key}']))" 2>/dev/null || true)
-
-  if [[ -z "${mcp_def}" ]]; then
-    _warn "${mod_name}: could not read MCP definition from ${mcp_file} — skipping" >&2
-    echo 0
-    return
-  fi
-
-  # Docker-only MCPs can't run without a docker daemon (e.g. inside a
-  # container) — skip registering them so the client never starts them and
-  # never logs connection errors. Hybrid defs (docker with an npx fallback,
-  # like playwright) are still registered; their wrapper picks the path.
-  if echo "${mcp_def}" | grep -q 'docker run' \
-    && ! echo "${mcp_def}" | grep -q 'npx -y @playwright/mcp' \
-    && ! docker info >/dev/null 2>&1; then
-    _skip "${mod_name}: MCP '${mcp_key}' needs a docker daemon — skipping registration" >&2
-    echo 0
-    return
-  fi
-
-  # Substitute placeholders (e.g. __GPU_ENABLED__ → qmd-valid GPU value:
-  # metal|cuda|vulkan when enabled, else false — qmd rejects the boolean true;
-  # __DEV_BOT_ROOT__ → the absolute dev-bot install root, e.g. the mdctx MCP
-  # server's MDCTX_ROOT/MDCTX_INDEX env)
-  mcp_def="${mcp_def//__GPU_ENABLED__/$(_qmd_gpu_value)}"
-  mcp_def="${mcp_def//__DEV_BOT_ROOT__/${DEV_BOT_ROOT}}"
-
-  # Merge into opencode config (comment-preserving approach)
-  local merge_result
-  merge_result=$(python3 "${merge_mcp_script}" "${config_file}" "${mcp_key}" "${mcp_def}" 2>/dev/null || true)
-  case "${merge_result}" in
-    INSERTED)
-      _ok "${mod_name}: MCP '${mcp_key}' registered in ${config_name}" >&2
-      echo 1
-      ;;
-    SKIP_EXISTS)
+    # Check if already registered in config — scoped to the mcp section. A
+    # whole-file grep matched the key ANYWHERE (e.g. the permission block's
+    # `"websearch": "allow"`), so an unregistered MCP was silently skipped on
+    # every reinit. read_jsonc gives the mcp map; the merge script's own
+    # SKIP_EXISTS remains the authoritative idempotency check.
+    if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${config_file}" "mcp" 2>/dev/null \
+      | grep -q "\"${mcp_key}\""; then
       _skip "${mod_name}: MCP '${mcp_key}' already registered in ${config_name}" >&2
-      echo 0
-      ;;
-    *)
-      _error "${mod_name}: merge_mcp_jsonc returned unexpected result '${merge_result}' — skipping" >&2
-      echo 0
-      ;;
-  esac
+      continue
+    fi
+
+    # Extract this server's translated definition.
+    local mcp_def
+    mcp_def="$(python3 -c "
+import json, sys
+d = json.loads(sys.stdin.read())
+print(json.dumps(d['${mcp_key}']))
+" <<<"${translated}" 2>/dev/null || true)"
+
+    if [[ -z "${mcp_def}" ]]; then
+      _warn "${mod_name}: could not read MCP definition for '${mcp_key}' — skipping" >&2
+      continue
+    fi
+
+    # Docker-only MCPs can't run without a docker daemon (e.g. inside a
+    # container) — skip registering them so the client never starts them and
+    # never logs connection errors. Hybrid defs (docker with an npx fallback,
+    # like playwright) are still registered; their wrapper picks the path.
+    if echo "${mcp_def}" | grep -q 'docker run' \
+      && ! echo "${mcp_def}" | grep -q 'npx -y @playwright/mcp' \
+      && ! docker info >/dev/null 2>&1; then
+      _skip "${mod_name}: MCP '${mcp_key}' needs a docker daemon — skipping registration" >&2
+      continue
+    fi
+
+    # Merge into opencode config (comment-preserving approach)
+    _info "Registering ${mod_name} MCP '${mcp_key}' in ${config_name}..." >&2
+    local merge_result
+    merge_result=$(python3 "${merge_mcp_script}" "${config_file}" "${mcp_key}" "${mcp_def}" 2>/dev/null || true)
+    case "${merge_result}" in
+      INSERTED)
+        _ok "${mod_name}: MCP '${mcp_key}' registered in ${config_name}" >&2
+        inserted=$((inserted + 1))
+        ;;
+      SKIP_EXISTS)
+        _skip "${mod_name}: MCP '${mcp_key}' already registered in ${config_name}" >&2
+        ;;
+      *)
+        _error "${mod_name}: merge_mcp_jsonc returned unexpected result '${merge_result}' — skipping" >&2
+        ;;
+    esac
+  done < <(python3 -c "
+import json, sys
+d = json.loads(sys.stdin.read())
+print('\n'.join(d.keys()))
+" <<<"${translated}" 2>/dev/null)
+
+  echo "${inserted}"
 }
 
 _link_module_memory() {
@@ -367,9 +383,6 @@ for m in modules:
     print(m)
 " 2>/dev/null || true)
 
-  local gpu_enabled
-  gpu_enabled="$(_devbot_get_bool "gpu_enabled")"
-
   # ── Shared paths ──────────────────────────────────────────────────────────
   local devbot_dir
   devbot_dir="$(_devbot_get_project_dir "${PROJECT_DIR}")"
@@ -480,7 +493,7 @@ for m in modules:
         continue
       fi
 
-      mcp_count=$((mcp_count + $(_register_module_mcp "${mod_dir}" "${config_file}" "${config_name}" "${gpu_enabled}")))
+      mcp_count=$((mcp_count + $(_register_module_mcp "${mod_dir}" "${config_file}" "${config_name}")))
     done
   done
 

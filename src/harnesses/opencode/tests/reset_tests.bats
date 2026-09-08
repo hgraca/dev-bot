@@ -149,13 +149,12 @@ print('MCP-CLEAN:OK')
 # its plugin/MCP entries in opencode.jsonc unless reset drops them. Fixture:
 #   - codebase-index disabled via project modules override (module declares
 #     plugin.opencode.json = ["opencode-codebase-index"])
-#   - react globally disabled (module declares mcp.opencode.json key
-#     "next-devtools")
+#   - react globally disabled (canonical mcp.json declares "next-devtools")
 #   - enabled modules' entries (on-hooks.ts plugin, chrome-devtools MCP) survive
 
 _write_d7_fixture() {
-  # opencode enabled; codebase-index (plugin) and react (mcp.opencode.json
-  # key "next-devtools") disabled at project level. chrome-devtools is
+  # opencode enabled; codebase-index (plugin) and react (mcp.json key
+  # "next-devtools") disabled at project level. chrome-devtools is
   # force-ENABLED at project level too (its MCP entry must survive the prune):
   # the project modules map overrides the real global config, so the test is
   # hermetic — it must not depend on whatever per-machine .devbot.global.jsonc
@@ -173,15 +172,26 @@ JSONC_EOF
 
   mkdir -p "${SANDBOX_DIR}/.opencode/agents"
   ln -s "${PROJECT_ROOT}/src/agentic/devbot/agents" "${SANDBOX_DIR}/.opencode/agents/devbot"
-  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
-{
-  "plugin": ["opencode-codebase-index", ".opencode/plugins/on-hooks.ts"],
-  "mcp": {
-    "next-devtools": { "type": "local", "command": ["next-devtools-mcp"] },
-    "chrome-devtools": { "type": "local", "command": ["chrome-devtools-mcp"] }
-  }
+  # chrome-devtools entry must equal its canonical template translated to the
+  # opencode shape, so reset's stale-refresh keeps it — a simplified literal
+  # would read as stale (real template is the wrapper blob) and be pruned.
+  python3 - "${PROJECT_ROOT}/src/_shared" "${PROJECT_ROOT}" "${SANDBOX_DIR}" <<'PY_EOF'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from mcp_translate import load_canonical, server_map, translate
+canon = load_canonical(sys.argv[2] + "/src/agentic/chrome-devtools/mcp.json")
+entry = translate(server_map(canon)["chrome-devtools"], "opencode")
+config = {
+    "plugin": ["opencode-codebase-index", ".opencode/plugins/on-hooks.ts"],
+    "mcp": {
+        "next-devtools": {"type": "local", "command": ["next-devtools-mcp"]},
+        "chrome-devtools": entry,
+    },
 }
-JSONC_EOF
+with open(sys.argv[3] + "/opencode.jsonc", "w") as f:
+    json.dump(config, f, indent=2)
+    f.write("\n")
+PY_EOF
 }
 @test "D7: reset removes plugin + MCP entries of disabled modules, keeps enabled ones" {
   _write_d7_fixture
