@@ -259,12 +259,15 @@ _link_plugins_modules() {
 }
 
 # ── Wire MCP servers from agentic modules ───────────────────────────────────
-# Reads mcp.claudecode.json from each module, regenerates .mcp.json from scratch.
-# Skips disabled modules (same pattern as _link_modules).
+# Translates each module's canonical mcp.json to the claudecode shape
+# (mcp_translate.py) and regenerates .mcp.json from scratch. Skips disabled
+# modules (same pattern as _link_modules). There is no per-server enablement:
+# an enabled module's servers are always wired.
 _wire_mcp() {
   local config="${PROJECT_DIR}/.mcp.json"
   local merged=0
   local tmp_servers="/tmp/devbot-claudecode-mcp-$$.json"
+  local shared_dir="${DEV_BOT_ROOT}/src/_shared"
   echo '{}' > "${tmp_servers}"
 
   # Resolve disabled modules
@@ -282,7 +285,7 @@ _wire_mcp() {
       continue
     fi
 
-    local mcp_file="${mod_dir}/mcp.claudecode.json"
+    local mcp_file="${mod_dir}/mcp.json"
     [[ -f "${mcp_file}" ]] || continue
 
     # Docker-only MCPs can't run without a docker daemon (e.g. inside a
@@ -296,29 +299,55 @@ _wire_mcp() {
       continue
     fi
 
-    # Merge this module's enabled MCP servers into tmp_servers
-    python3 -c "
+    # Translate the canonical manifest and merge its servers into tmp_servers.
+    # __GPU_ENABLED__ / __DEV_BOT_ROOT__ resolve here (the claudecode side now
+    # carries the same env as opencode). {env:VAR} values resolve from the init
+    # environment — .mcp.json cannot interpolate — and an unset var drops the
+    # env key with a warning (the server still registers).
+    local translate_failed=0
+    python3 - "${mcp_file}" "${tmp_servers}" "$(_qmd_gpu_value)" "${DEV_BOT_ROOT}" "${shared_dir}" <<'PY_EOF' || translate_failed=1
 import json
+import os
+import sys
 
-with open('${tmp_servers}') as f:
+sys.path.insert(0, sys.argv[5])
+from mcp_translate import load_canonical, server_map, translate
+
+mcp_file, tmp_servers = sys.argv[1], sys.argv[2]
+gpu, root = sys.argv[3], sys.argv[4]
+
+with open(tmp_servers) as f:
     current = json.load(f)
-with open('${mcp_file}') as f:
-    new_mcp = json.load(f)
 
-for name, entry in new_mcp.get('mcpServers', {}).items():
-    if entry.get('enabled', True):
-        current[name] = entry
+for name, entry in server_map(load_canonical(mcp_file)).items():
+    out = translate(entry, "claudecode", gpu=gpu, root=root)
+    env = out.get("env")
+    if isinstance(env, dict):
+        for key, value in list(env.items()):
+            if isinstance(value, str) and value.startswith("{env:") and value.endswith("}"):
+                var = value[5:-1]
+                resolved = os.environ.get(var)
+                if resolved is None:
+                    print(f"WARN: {name}: env var {var} unset at registration — omitting env key {key}", file=sys.stderr)
+                    del env[key]
+                else:
+                    env[key] = resolved
+    current[name] = out
 
-with open('${tmp_servers}', 'w') as f:
+with open(tmp_servers, "w") as f:
     json.dump(current, f)
-" 2>/dev/null
+PY_EOF
+    if [[ ${translate_failed} -eq 1 ]]; then
+      _warn "${mod_name}: could not translate ${mcp_file} — skipping registration"
+      continue
+    fi
 
     _ok "${mod_name}: MCP registered"
     merged=$((merged + 1))
   done
 
   # Dynamic manifests written by module inits (e.g. jetbrains detects the
-  # runtime port). Same mcpServers shape as mcp.claudecode.json.
+  # runtime port). Same mcpServers shape as the claudecode runtime config.
   for dyn_file in "${PROJECT_DIR}/.claude/"*.mcp.json; do
     [[ -f "${dyn_file}" ]] || continue
     python3 -c "

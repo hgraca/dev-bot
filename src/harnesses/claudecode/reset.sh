@@ -158,21 +158,22 @@ if [[ -f "${MCP_CONFIG}" ]]; then
   # reinit byte-idempotency (audit-32 NOTE).
   REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
   IS_CURRENT_PY="${DEV_BOT_ROOT}/src/_shared/mcp_key_is_current.py"
-  # Scan agentic modules for known MCP keys
+  # Scan agentic modules for known MCP keys (canonical mcp.json = { mcp: {...} })
   for mod_dir in "${DEV_BOT_ROOT}/src/agentic/"*/; do
-    MCP_FILE="${mod_dir}/mcp.claudecode.json"
+    MCP_FILE="${mod_dir}/mcp.json"
     if [[ -f "${MCP_FILE}" ]]; then
       # Extract MCP server keys from this module
       python3 -c "
 import json
 with open('${MCP_FILE}') as f:
     data = json.load(f)
-for name in data.get('mcpServers', {}):
-    print(name)
+for name in data.get('mcp', {}):
+    if not name.startswith('_'):
+        print(name)
 " 2>/dev/null | while IFS= read -r mcp_key; do
         if [[ -n "${mcp_key}" ]]; then
           if [[ -f "${REMOVE_MCP_PY}" && -f "${IS_CURRENT_PY}" ]] \
-            && python3 "${IS_CURRENT_PY}" "${MCP_CONFIG}" "${MCP_FILE}" "${mcp_key}" 2>/dev/null; then
+            && python3 "${IS_CURRENT_PY}" "${MCP_CONFIG}" "${MCP_FILE}" "${mcp_key}" claudecode 2>/dev/null; then
             _skip "${mcp_key}: matches module template — no refresh needed"
           else
             python3 "${REMOVE_MCP_PY}" "${MCP_CONFIG}" "${mcp_key}" 2>/dev/null || true
