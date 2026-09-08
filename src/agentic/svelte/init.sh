@@ -47,7 +47,7 @@ else:
   _ok "Svelte/SvelteKit project detected"
 
   _info "Available tooling for this project:"
-  _info "  - @sveltejs/mcp MCP server  (auto-registered by devbot init via mcp.opencode.json)"
+  _info "  - @sveltejs/mcp MCP server  (auto-registered by devbot init from mcp.json)"
   _info "  - mindrally-svelte skills   (svelte patterns, via external-modules.json)"
   _info "  - sveltekit-structure skills (SvelteKit project structure, via external-modules.json)"
   _info "  - svelte5-best-practices skills (Svelte 5 best practices, via external-modules.json)"

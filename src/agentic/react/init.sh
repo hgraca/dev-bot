@@ -47,7 +47,7 @@ else:
   _ok "React/Next.js project detected"
 
   _info "Available tooling for this project:"
-  _info "  - next-devtools MCP server  (auto-registered by devbot init via mcp.opencode.json)"
+  _info "  - next-devtools MCP server  (auto-registered by devbot init from mcp.json)"
   _info "  - mindrally-react skills    (react patterns, via external-modules.json)"
   _info "  - mindrally-nextjs skills   (Next.js + React + TypeScript, via external-modules.json)"
   _info "  - mindrally-react-best-practices skills (modern web development, via external-modules.json)"
