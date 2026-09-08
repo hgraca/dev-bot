@@ -3,9 +3,14 @@
 # bin/update.sh
 # Updates the dev-bot agent kit and all its tools.
 # 1. Git pull the project repo (stash local changes first)
-# 2. Run each tool's update.sh under src/tools/<tool>/
+# 2. Pin the legacy engine providers on existing installs (adds
+#    codebase_index_provider=codebase-index / memory_search_provider=qmd to the
+#    global config when absent, so an upgrade never silently flips engines)
+# 3. Run each tool's update.sh under src/tools/<tool>/
+# 4. Re-run `devbot reinit --all` so every registered project re-wires
 #
-# Safe to re-run at any time.
+# Safe to re-run at any time. Skip the final reinit with
+# DEV_BOT_UPDATE_SKIP_REINIT=1.
 #
 # Usage:
 #   bin/update.sh              # full update
@@ -82,6 +87,64 @@ _update_dependencies() {
   _ok "npm dependencies updated"
 }
 
+# ── Legacy engine pins (upgrade guard) ───────────────────────────────────────
+# Existing installs predate the codebase_index_provider / memory_search_provider
+# keys. On update, pin them to the PRE-SWAP engines (codebase-index, qmd) when
+# absent, so an upgrade never silently flips an install onto the new defaults
+# (codebase-memory / mdctx). A key that is already set — including one an
+# install deliberately chose — is left untouched.
+_ensure_legacy_providers() {
+  _header_2 "Legacy engine pins"
+
+  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+  local pinned=0 current=""
+
+  # codebase_index_provider → codebase-index (the pre-swap engine)
+  current="$(python3 "${reader}" "${config}" codebase_index_provider 2>/dev/null || true)"
+  if [[ -n "${current}" ]]; then
+    _skip "codebase_index_provider already set (${current}) — left untouched"
+  elif _devbot_ensure_global_default codebase_index_provider codebase-index; then
+    _ok "codebase_index_provider pinned to codebase-index (legacy default)"
+    pinned=1
+  else
+    _warn "could not pin codebase_index_provider — no global config at ${config}"
+  fi
+
+  # memory_search_provider → qmd (the pre-swap engine)
+  current="$(python3 "${reader}" "${config}" memory_search_provider 2>/dev/null || true)"
+  if [[ -n "${current}" ]]; then
+    _skip "memory_search_provider already set (${current}) — left untouched"
+  elif _devbot_ensure_global_default memory_search_provider qmd; then
+    _ok "memory_search_provider pinned to qmd (legacy default)"
+    pinned=1
+  else
+    _warn "could not pin memory_search_provider — no global config at ${config}"
+  fi
+
+  if [[ "${pinned}" -eq 0 ]]; then
+    _skip "no provider keys needed pinning"
+  fi
+}
+
+# ── Reinit all registered projects ───────────────────────────────────────────
+# After the update + pins, re-wire every registered project so the provider
+# selection and new module wiring take effect. Skippable with
+# DEV_BOT_UPDATE_SKIP_REINIT=1 (CI/sandbox).
+_reinit_all_projects() {
+  if [[ "${DEV_BOT_UPDATE_SKIP_REINIT:-}" == "1" ]]; then
+    _skip "DEV_BOT_UPDATE_SKIP_REINIT=1 — skipping devbot reinit --all"
+    return 0
+  fi
+  _header_2 "Reinit all registered projects"
+  if bash "${DEV_BOT_ROOT}/bin/reinit.sh" --all; then
+    _ok "devbot reinit --all completed"
+  else
+    _warn "devbot reinit --all reported issues — inspect the output above"
+    return 1
+  fi
+}
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 print_summary() {
   _header_2 "✔  DevBot update complete"
@@ -114,6 +177,9 @@ main() {
   _check_flock
   _update_dependencies
 
+  # Pin the legacy engines on existing installs (before anything re-wires).
+  _ensure_legacy_providers
+
   _header_2 "Tools"
   _update_modules "${DEV_BOT_ROOT}/src/tools"
   tool_count="${MODULE_SCRIPT_COUNT:-0}"
@@ -142,6 +208,10 @@ main() {
 
   echo -e "  ${TEXT_DIM}⏱  Total: $(_fmt_duration $(( SECONDS - total_start )))${TEXT_CLEAR}"
   echo
+
+  # Final step: re-wire every registered project so the provider pins and any
+  # new module wiring take effect.
+  _reinit_all_projects
 }
 
 main "$@"
