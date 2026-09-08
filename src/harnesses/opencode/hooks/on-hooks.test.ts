@@ -91,10 +91,23 @@ describe("routeHookOutput", () => {
     expect(content).toContain("violation")
   })
 
-  test("writes nothing for whitespace-only stdout and stderr", () => {
+  test("writes an ok marker for whitespace-only stdout and stderr (audit-57 §8)", () => {
+    // Formatters are silent on success — the declared per-hook log must still
+    // be created with an explicit marker so the hook's run is observable.
     routeHookOutput({ stdout: "   \n\t\n", stderr: "  \n" }, hook({ log: LOG }), root)
 
-    expect(existsSync(join(root, ".agents"))).toBe(false)
+    const path = join(root, LOG)
+    expect(existsSync(path)).toBe(true)
+    const content = readFileSync(path, "utf8")
+    expect(content).toContain("ok (no output)")
+  })
+
+  test("appends exit= on non-zero exit", () => {
+    routeHookOutput({ stdout: "", stderr: "boom\n", exitCode: 3 }, hook({ log: LOG }), root)
+
+    const content = readFileSync(join(root, LOG), "utf8")
+    expect(content).toContain("[stderr]\nboom")
+    expect(content).toContain("exit=3")
   })
 })
 

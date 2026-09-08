@@ -71,13 +71,22 @@ export function resolveGlobalConfigPath(pluginRoot: string, env: NodeJS.ProcessE
 // `log` file, or the shared default. Stderr is appended after stdout, labeled
 // [stderr]. Hook output must never reach the plugin process stderr — opencode
 // surfaces plugin stderr in the TUI.
-export function routeHookOutput(out: { stdout: string; stderr: string }, hook: HookDecl, root: string): void {
+export function routeHookOutput(out: { stdout: string; stderr: string; exitCode?: number }, hook: HookDecl, root: string): void {
   const stdout = out.stdout.trim()
   const stderr = out.stderr.trim()
-  if (!stdout && !stderr) return
   const parts: string[] = []
   if (stdout) parts.push(stdout)
   if (stderr) parts.push(`[stderr]\n${stderr}`)
+  // audit-57 §8 / audit-54 F6: formatters are silent on success, so a
+  // stdout/stderr gate left the declared per-hook log (format-*.log) never
+  // created and a broken formatter invisible. A hook that ran ALWAYS gets a
+  // log entry: output when there is any, an explicit marker when silent, and
+  // the exit code on failure.
+  if (out.exitCode !== undefined && out.exitCode !== 0) {
+    parts.push(`exit=${out.exitCode}`)
+  } else if (!parts.length) {
+    parts.push("ok (no output)")
+  }
   appendLog(join(root, hook.log ?? defaultHookLog()), hook.id, parts.join("\n\n"))
 }
 
