@@ -410,6 +410,33 @@ class TestSearchQmd(unittest.TestCase):
         cmd = mock_run.call_args[0][0]
         self.assertEqual(cmd[0], "search")
 
+    def test_degrades_to_project_only_when_global_collection_missing(self):
+        """audit-01 (macOS host) FAIL: on a project whose dev-bot-global
+        collection was never registered, the combined call errors and used to
+        fail EVERY query. It must retry without the global flag and return
+        project results."""
+        project_out = json.dumps(
+            {"results": [{"docid": "1", "score": 0.8, "file": "qmd://col/a.md", "title": "A", "snippet": ""}]}
+        )
+        with patch.object(
+            _search_memories,
+            "run_qmd_cli",
+            side_effect=[
+                (None, "Collection not found: dev-bot-global"),  # combined call fails
+                (project_out, None),  # retry project-only succeeds
+            ],
+        ) as mock_run:
+            results, err = search_qmd(["q1"], "col", 10)
+
+        self.assertIsNone(err)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["file"], "qmd://col/a.md")
+        # Exactly two calls: the failing combined one, then the project-only retry.
+        self.assertEqual(mock_run.call_count, 2)
+        retry_cmd = mock_run.call_args_list[1].args[0]
+        self.assertIn("col", retry_cmd)
+        self.assertNotIn("dev-bot-global", retry_cmd)
+
 
 # ---------------------------------------------------------------------------
 # _qmd_env

@@ -162,11 +162,20 @@ def search_qmd(
         # Also search the shared global memory collection (covers latent/global symlink).
         # Single fixed name — QMD won't allow duplicate collections per path, and all
         # projects share the same global-memories store (storage/global-memories).
-        cmd += ["-c", "dev-bot-global"]
+        global_cmd = cmd + ["-c", "dev-bot-global"]
 
-        stdout, err = run_qmd_cli(cmd)
+        stdout, err = run_qmd_cli(global_cmd)
+        # audit-01 (macOS host) FAIL: on a project whose dev-bot-global
+        # collection was never registered (fresh install / partial reinit) qmd
+        # errors "Collection not found: dev-bot-global" and the combined call
+        # fails EVERY query. Degrade gracefully: retry without the global flag
+        # so project-vault search still works.
+        if err and "Collection not found" in err and "dev-bot-global" in err:
+            stdout, err = run_qmd_cli(cmd)
         if err:
             return None, err
+        if stdout is None:
+            continue
 
         try:
             data = json.loads(stdout)
