@@ -22,6 +22,12 @@ Instead of grepping for keywords, agents describe what they're looking for in pl
 
 Powered by Ollama running `nomic-embed-text` for embeddings. Runs entirely on your machine.
 
+**macOS platform note:** Ollama runs inside Docker Desktop on macOS, and Docker Desktop
+does not pass the host Metal GPU through to Linux containers — so `nomic-embed-text`
+embeddings run CPU-only on macOS hosts. This is a platform limitation, not a
+misconfiguration (`size_vram: 0` is expected). For GPU-accelerated embeddings on macOS,
+use an engine that runs natively on the host (e.g. qmd's Metal-backed models).
+
 ## See also
 
 - [Graphify](/tools/graphify) — structural knowledge graph
