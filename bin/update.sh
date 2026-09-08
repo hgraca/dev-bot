@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
 # =============================================================================
 # bin/update.sh
-# Updates the dev-bot agent kit and all its tools.
-# 1. Git pull the project repo (stash local changes first)
-# 2. Pin the legacy engine providers on existing installs (adds
-#    codebase_index_provider=codebase-index / memory_search_provider=qmd to the
-#    global config when absent, so an upgrade never silently flips engines)
-# 3. Run each tool's update.sh under src/tools/<tool>/
-# 4. Re-run `devbot reinit --all` so every registered project re-wires
+# Updates the dev-bot agent kit to the newest RELEASE TAG, then refreshes the
+# install's tooling against the new code.
+#
+# devbot update is release-tracked — it no longer pulls the current branch.
+#   1. Fetch tags from origin; find the newest release tag (semver sort).
+#   2. Compare HEAD against that tag:
+#        at / ahead of it        -> "already on the latest version", exit 0
+#        strictly behind it      -> stash local changes, detach-checkout the tag,
+#                                   then stash pop (conflict => ack prompt)
+#        diverged branch         -> rebase the branch onto the tag; on conflict,
+#                                   abort the rebase, restore state, exit 1
+#   3. Only when the checkout moved onto the new release:
+#        python/flock checks, legacy engine pins, npm update, each tool's
+#        update.sh under src/tools/, agentic pre.sh + update.sh, and a refresh
+#        of the external module repos (module.sh install). Harnesses are never
+#        touched here.
+#   4. Re-run `devbot reinit --all` so every registered project re-wires.
 #
 # Safe to re-run at any time. Skip the final reinit with
 # DEV_BOT_UPDATE_SKIP_REINIT=1.
@@ -29,38 +39,167 @@ source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 # ── PATH ──────────────────────────────────────────────────────────────────────
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:$PATH"
 
-# ── Git pull ──────────────────────────────────────────────────────────────────
-_update_git() {
-  _header_2 "Git update"
+# ── Release discovery ─────────────────────────────────────────────────────────
 
-  local stashed=0
+# Fetch tags from origin. Prints nothing; non-zero when the fetch fails.
+_fetch_tags() {
+  _header_2 "Fetching release tags"
+  if ! git -C "${DEV_BOT_ROOT}" fetch --tags origin; then
+    _error "Could not fetch tags from origin — is the network available?"
+    return 1
+  fi
+  _ok "Tags fetched from origin."
+}
 
-  if git -C "${DEV_BOT_ROOT}" diff --quiet && git -C "${DEV_BOT_ROOT}" diff --cached --quiet; then
-    _ok "No local changes to stash."
+# Print the newest release tag (version-sorted), or nothing when no tags exist.
+_newest_release() {
+  local newest=""
+  # read the first line of the version-sorted list — piping into `head` would
+  # SIGPIPE-kill `git tag` under pipefail once the list outgrows the buffer.
+  read -r newest < <(git -C "${DEV_BOT_ROOT}" tag --sort=-v:refname) || true
+  printf '%s\n' "${newest}"
+}
+
+# Print the HEAD state relative to the newest release tag:
+#   current   HEAD is at, or ahead of, the tag (nothing to update)
+#   behind    HEAD is an ancestor of the tag (an update is available)
+#   diverged  neither is an ancestor of the other (branch has its own commits)
+_release_state() {
+  local release="$1"
+  local head tag_head
+  head="$(git -C "${DEV_BOT_ROOT}" rev-parse HEAD)"
+  tag_head="$(git -C "${DEV_BOT_ROOT}" rev-parse "${release}^{commit}")"
+
+  [[ "${head}" == "${tag_head}" ]] && { echo "current"; return; }
+  if git -C "${DEV_BOT_ROOT}" merge-base --is-ancestor "${tag_head}" HEAD; then
+    echo "current"      # tag is an ancestor of HEAD — at or ahead
+  elif git -C "${DEV_BOT_ROOT}" merge-base --is-ancestor HEAD "${tag_head}"; then
+    echo "behind"       # HEAD is an ancestor of the tag — strictly behind
   else
+    echo "diverged"
+  fi
+}
+
+_git_dirty() {
+  ! (git -C "${DEV_BOT_ROOT}" diff --quiet && git -C "${DEV_BOT_ROOT}" diff --cached --quiet)
+}
+
+# Describe where HEAD is now, for the "updated X → Y" summary line.
+_describe_head() {
+  git -C "${DEV_BOT_ROOT}" describe --tags --abbrev=0 HEAD 2>/dev/null \
+    || git -C "${DEV_BOT_ROOT}" rev-parse --short HEAD
+}
+
+# Ask the user to acknowledge a conflict left in the working tree. Best-effort:
+# in a non-interactive run (no stdin) this returns immediately.
+_acknowledge_conflict() {
+  echo
+  _warn "Reapplying your stashed changes hit conflicts — they are left in the"
+  _warn "working tree for you to resolve."
+  _info "Press any key to acknowledge and continue the update (fix conflicts later)..."
+  read -r -n 1 -s 2>/dev/null || true
+  _ok "Continuing."
+}
+
+# ── Path A: strictly behind -> stash, detach-jump, reapply ───────────────────
+_jump_to_release() {
+  local release="$1"
+  local old stashed=0
+  old="$(_describe_head)"
+
+  _header_2 "Updating to release ${release}"
+
+  if _git_dirty; then
     _info "Stashing local changes..."
-    if git -C "${DEV_BOT_ROOT}" stash push --include-untracked -m "update.sh auto-stash"; then
-      stashed=1
-      _ok "Changes stashed."
-    else
-      _warn "git stash failed — skipping rebase."
+    if ! git -C "${DEV_BOT_ROOT}" stash push --include-untracked -m "update.sh auto-stash"; then
+      _warn "git stash failed — commit or stash your local changes, then re-run devbot update."
+      return 1
     fi
+    stashed=1
+    _ok "Changes stashed."
   fi
 
-  if git -C "${DEV_BOT_ROOT}" pull --rebase; then
-    _ok "Rebased onto origin/$(git -C "${DEV_BOT_ROOT}" rev-parse --abbrev-ref HEAD)."
-  else
-    _warn "git pull --rebase failed — resolve conflicts, then run 'git stash pop' if needed."
+  if ! git -C "${DEV_BOT_ROOT}" checkout --detach "${release}"; then
+    _error "Could not check out release ${release}."
+    if [[ "${stashed}" -eq 1 ]]; then
+      _info "Restoring stashed changes..."
+      if ! git -C "${DEV_BOT_ROOT}" stash pop; then
+        _warn "Could not restore stashed changes — see 'git stash list'."
+      fi
+    fi
+    return 1
   fi
+  _ok "Moved onto release ${release} (was ${old})."
 
   if [[ "${stashed}" -eq 1 ]]; then
     _info "Restoring stashed changes..."
-    if git -C "${DEV_BOT_ROOT}" stash pop; then
-      _ok "Stash restored."
+    if ! git -C "${DEV_BOT_ROOT}" stash pop; then
+      _acknowledge_conflict
     else
-      _warn "git stash pop failed — resolve conflicts manually."
+      _ok "Stash restored."
     fi
   fi
+
+  UPDATE_OLD="${old}" UPDATE_NEW="${release}"
+}
+
+# ── Path B: diverged branch -> rebase onto the tag ────────────────────────────
+# Returns: 0 rebased, 1 rebase failed (aborted + state restored), 2 detached
+# HEAD that cannot be rebased (skip).
+_rebase_onto_release() {
+  local release="$1"
+  local branch old stashed=0
+  branch="$(git -C "${DEV_BOT_ROOT}" rev-parse --abbrev-ref HEAD)"
+
+  if [[ "${branch}" == "HEAD" ]]; then
+    _warn "Detached HEAD with commits not in ${release} — cannot rebase safely. Skipping version update."
+    return 2
+  fi
+
+  old="$(_describe_head)"
+  _header_2 "Rebasing ${branch} onto release ${release}"
+
+  if _git_dirty; then
+    _info "Stashing local changes..."
+    if ! git -C "${DEV_BOT_ROOT}" stash push --include-untracked -m "update.sh auto-stash"; then
+      _warn "git stash failed — commit or stash your local changes, then re-run devbot update."
+      return 1
+    fi
+    stashed=1
+    _ok "Changes stashed."
+  fi
+
+  if ! git -C "${DEV_BOT_ROOT}" rebase "${release}"; then
+    _warn "Rebase of ${branch} onto ${release} failed (conflicts)."
+    if git -C "${DEV_BOT_ROOT}" rebase --abort; then
+      _ok "Rebase aborted — branch state restored."
+    else
+      _warn "git rebase --abort failed — inspect the repository state manually."
+    fi
+    if [[ "${stashed}" -eq 1 ]]; then
+      _info "Restoring stashed changes..."
+      if ! git -C "${DEV_BOT_ROOT}" stash pop; then
+        _warn "Could not restore stashed changes — see 'git stash list'."
+      fi
+    fi
+    _error "Attempted to rebase ${branch} onto release ${release}, but conflicts occurred;"
+    _error "the rebase was aborted and your branch is exactly as it was before. Resolve the"
+    _error "conflicts manually (e.g. git rebase --continue after fixing, or redo the branch),"
+    _error "then re-run devbot update."
+    return 1
+  fi
+  _ok "Rebased ${branch} onto release ${release} (was ${old})."
+
+  if [[ "${stashed}" -eq 1 ]]; then
+    _info "Restoring stashed changes..."
+    if ! git -C "${DEV_BOT_ROOT}" stash pop; then
+      _acknowledge_conflict
+    else
+      _ok "Stash restored."
+    fi
+  fi
+
+  UPDATE_OLD="${old}" UPDATE_NEW="${release}"
 }
 
 # ── npm dependencies (package.json) ──────────────────────────────────────────
@@ -127,6 +266,24 @@ _ensure_legacy_providers() {
   fi
 }
 
+# ── External module repos (vendor) ───────────────────────────────────────────
+# Refresh the registered external module git repos (clone or pull) via the
+# module manager — `devbot module install`. Harnesses are deliberately not
+# updated here.
+_update_external_modules() {
+  _header_2 "External Modules"
+  local module_tool="${DEV_BOT_ROOT}/src/tools/external-modules/tools/module.sh"
+  if [[ ! -f "${module_tool}" ]]; then
+    _skip "module manager not found — skipping external module refresh"
+    return 0
+  fi
+  if bash "${module_tool}" install; then
+    _ok "external modules refreshed"
+  else
+    _warn "external modules refresh reported issues — see output above"
+  fi
+}
+
 # ── Reinit all registered projects ───────────────────────────────────────────
 # After the update + pins, re-wire every registered project so the provider
 # selection and new module wiring take effect. Skippable with
@@ -150,12 +307,13 @@ print_summary() {
   _header_2 "✔  DevBot update complete"
 
   echo -e "  ${TEXT_BOLD}Root   :${TEXT_CLEAR} ${DEV_BOT_ROOT}"
+  if [[ -n "${UPDATE_OLD:-}" && -n "${UPDATE_NEW:-}" ]]; then
+    echo -e "  ${TEXT_BOLD}Release:${TEXT_CLEAR} ${UPDATE_OLD} → ${UPDATE_NEW}"
+  fi
   echo -e "  ${TEXT_BOLD}Updated:${TEXT_CLEAR} ${UPDATED:-0}"
   [[ "${FAILED:-0}" -gt 0 ]] && echo -e "  ${TEXT_BOLD}Failed :${TEXT_CLEAR} ${FAILED}"
   echo -e "  ${TEXT_BOLD}Module Updated:${TEXT_CLEAR} ${MODULE_UPDATED:-0}"
   [[ "${MODULE_FAILED:-0}" -gt 0 ]] && echo -e "  ${TEXT_BOLD}Failed :${TEXT_CLEAR} ${MODULE_FAILED}"
-  echo -e "  ${TEXT_BOLD}Harness Updated:${TEXT_CLEAR} ${HARNESS_UPDATED:-0}"
-  [[ "${HARNESS_FAILED:-0}" -gt 0 ]] && echo -e "  ${TEXT_BOLD}Failed :${TEXT_CLEAR} ${HARNESS_FAILED}"
   echo -e "  ${TEXT_BOLD}Prereqs:${TEXT_CLEAR} ${MODULE_PREREQ_PASSED:-0} passed, ${MODULE_PREREQ_FAILED:-0} failed, ${MODULE_PREREQ_SKIPPED:-0} without pre-reqs"
   echo
   echo -e "  ${TEXT_BOLD}Verify:${TEXT_CLEAR}"
@@ -168,17 +326,42 @@ main() {
   local total_start=${SECONDS}
   local tool_count=0 tool_failed=0
   local module_count=0 module_failed=0
-  local harness_count=0 harness_failed=0
 
   _header_1 "DevBot Update"
 
-  _update_git
+  if ! _fetch_tags; then
+    exit 1
+  fi
+
+  local release state
+  release="$(_newest_release)"
+  if [[ -z "${release}" ]]; then
+    _skip "No release tags found — nothing to update."
+    exit 0
+  fi
+
+  state="$(_release_state "${release}")"
+  case "${state}" in
+    current)
+      _ok "Already on the latest version (${release})."
+      exit 0
+      ;;
+    behind)
+      _jump_to_release "${release}" || exit 1
+      ;;
+    diverged)
+      local rebase_rc=0
+      _rebase_onto_release "${release}" || rebase_rc=$?
+      [[ "${rebase_rc}" -eq 2 ]] && exit 0
+      [[ "${rebase_rc}" -eq 1 ]] && exit 1
+      ;;
+  esac
+
+  # Only reached when the checkout moved onto the new release.
   _check_python3
   _check_flock
-  _update_dependencies
-
-  # Pin the legacy engines on existing installs (before anything re-wires).
   _ensure_legacy_providers
+  _update_dependencies
 
   _header_2 "Tools"
   _update_modules "${DEV_BOT_ROOT}/src/tools"
@@ -191,19 +374,10 @@ main() {
   module_count="${MODULE_SCRIPT_COUNT:-0}"
   module_failed="${MODULE_SCRIPT_FAILED:-0}"
 
-  _header_2 "Harnesses"
-  _update_modules "${DEV_BOT_ROOT}/src/harnesses"
-  harness_count="${MODULE_SCRIPT_COUNT:-0}"
-  harness_failed="${MODULE_SCRIPT_FAILED:-0}"
-
-  _header_2 "External Modules"
-  if [[ -d "${DEV_BOT_ROOT}/storage/external-agentic-modules" ]]; then
-    _update_modules "${DEV_BOT_ROOT}/storage/external-agentic-modules"
-  fi
+  _update_external_modules
 
   UPDATED="${tool_count}" FAILED="${tool_failed}"
   MODULE_UPDATED="${module_count}" MODULE_FAILED="${module_failed}"
-  HARNESS_UPDATED="${harness_count}" HARNESS_FAILED="${harness_failed}"
   print_summary
 
   echo -e "  ${TEXT_DIM}⏱  Total: $(_fmt_duration $(( SECONDS - total_start )))${TEXT_CLEAR}"
