@@ -20,10 +20,11 @@ Find code by structure and meaning — call graphs, architecture, impact — bac
 
 Instead of grepping for keywords or reading files one at a time, agents query the graph: trace callers of a function, map what a change touches, or get a whole-codebase architecture summary in a single structured call.
 
-**Cold start:** the engine indexes nothing until the first `index_repository`
-call — every other tool errors ("project not found or not indexed") before
-that, and nothing primes it at session start. Run `index_repository
-<project-dir>` once per project when the structural tools first error
+**Cold start:** the module's `session.created` hook now background-indexes the
+project's `src` or `app` folder (whichever exists at the project root) via the
+engine CLI, so structural tools work out of the box after a `devbot`-launched
+session. Without a src/app dir — or on a bare harness launch — run
+`index_repository <dir>` once when the structural tools first error
 (audit-51/52 NOTE).
 
 ## Known limits

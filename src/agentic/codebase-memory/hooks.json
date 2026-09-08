@@ -1,0 +1,9 @@
+{
+  "hooks": [
+    {
+      "id": "codebase-memory-index-project",
+      "event": "session.created",
+      "run": ["bash", "{module}/tools/index-project.sh", "{worktree}"]
+    }
+  ]
+}

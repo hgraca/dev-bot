@@ -26,12 +26,14 @@ searching, tracing, and analysing the graph.
 | Arbitrary relationship queries (read-only Cypher subset)     | `query_graph`                          |
 | Persist architecture decisions across sessions               | `manage_adr`                           |
 
-**Cold start (no auto-priming — audit-51/52 §4 NOTE):** the engine indexes
-nothing until the first `index_repository`. Before that, every other tool
-returns "project not found or not indexed" — nothing in dev-bot primes the
-index at session start (unlike graphify). Run `index_status` then
-`index_repository <project-dir>` once per project — at session start, or the
-first time a structural tool errors. `auto_watch` keeps it fresh afterwards.
+**Cold start (auto-primed since the src|app index hook):** at session start the
+codebase-memory module's `session.created` hook background-indexes the
+project's `src` or `app` folder (whichever exists at the root) via the engine
+CLI — so structural tools usually work out of the box. If they still report
+"project not found or not indexed" (no src/app dir, or a bare `opencode`
+launch that bypassed `devbot` start.sh), run `index_status` then
+`index_repository <dir>` yourself. `auto_watch` keeps the index fresh
+afterwards.
 
 **"Path too broad" rejection (audit-55 FAIL):** `index_repository` refuses a
 path its broadness heuristic judges too big to index as one root — container

@@ -197,3 +197,105 @@ MOCK
   assert_failure
   assert_output --partial "Node.js >= 18 is required"
 }
+
+
+# ── Session-start src|app auto-index (operator directive; audit-52/54/55/56) ──
+
+_setup_idx_sandbox() {
+  SANDBOX="$(mktemp -d)"
+  export DEV_BOT_ROOT="${SANDBOX}"
+  MOCKBIN="${SANDBOX}/mockbin"
+  mkdir -p "${MOCKBIN}" "${SANDBOX}/src"
+  # Pin codebase-memory as the active engine (real reader used by the helper).
+  echo '{"codebase_index_provider": "codebase-memory"}' > "${SANDBOX}/.devbot.global.jsonc"
+  export CBM_ARGS_FILE="${SANDBOX}/cbm.args"
+  : > "${CBM_ARGS_FILE}"
+  cat > "${MOCKBIN}/codebase-memory-mcp" <<'MOCK'
+#!/usr/bin/env bash
+echo "$*" >> "${CBM_ARGS_FILE}"
+exit 0
+MOCK
+  chmod +x "${MOCKBIN}/codebase-memory-mcp"
+  # A project rooted inside the sandbox (kept outside the mocked devbot root).
+  PROJ="${SANDBOX}/project"
+  mkdir -p "${PROJ}"
+  export PATH="${MOCKBIN}:$(dirname "$(command -v python3)")"
+}
+
+@test "index-project.sh: hooks.json declares the session.created index hook" {
+  run python3 -c "
+import json
+d = json.load(open('${MODULE_DIR}/hooks.json'))
+h = d['hooks'][0]
+assert h['event'] == 'session.created', h
+assert 'index-project.sh' in h['run'][1], h
+print('HOOK:OK')
+"
+  assert_success
+  grep -qF 'HOOK:OK' <<< "$output" || fail "hooks.json shape wrong"
+  [ -x "$MODULE_DIR/tools/index-project.sh" ]
+}
+
+@test "index-project.sh: indexes <project>/src when it exists" {
+  _setup_idx_sandbox
+  mkdir -p "${PROJ}/src"
+
+  run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
+  assert_success
+
+  local i
+  for i in $(seq 1 30); do
+    [[ -s "${CBM_ARGS_FILE}" ]] && break
+    sleep 0.1
+  done
+  run cat "${CBM_ARGS_FILE}"
+  assert_output --regexp '^cli index_repository \{"repo_path": ".*/project/src"\}$'
+
+  run cat "${PROJ}/.agents/logs/codebase-memory-index.log"
+  assert_output --partial "index-project start"
+  assert_output --partial "index-project finished rc=0"
+}
+
+@test "index-project.sh: falls back to <project>/app when src is absent" {
+  _setup_idx_sandbox
+  mkdir -p "${PROJ}/app"
+
+  run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
+  assert_success
+
+  local i
+  for i in $(seq 1 30); do
+    [[ -s "${CBM_ARGS_FILE}" ]] && break
+    sleep 0.1
+  done
+  run cat "${CBM_ARGS_FILE}"
+  assert_output --regexp '"repo_path": ".*/project/app"'
+}
+
+@test "index-project.sh: skips silently when neither src nor app exists" {
+  _setup_idx_sandbox
+  run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
+  assert_success
+  [ ! -s "${CBM_ARGS_FILE}" ]
+  [ ! -f "${PROJ}/.agents/logs/codebase-memory-index.log" ]
+}
+
+@test "index-project.sh: skips when codebase-index is the active engine" {
+  _setup_idx_sandbox
+  echo '{"codebase_index_provider": "codebase-index"}' > "${SANDBOX}/.devbot.global.jsonc"
+  mkdir -p "${PROJ}/src"
+
+  run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
+  assert_success
+  [ ! -s "${CBM_ARGS_FILE}" ]
+}
+
+@test "index-project.sh: skips when the engine binary is missing" {
+  _setup_idx_sandbox
+  rm -f "${MOCKBIN}/codebase-memory-mcp"
+  mkdir -p "${PROJ}/src"
+
+  run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
+  assert_success
+  [ ! -f "${PROJ}/.agents/logs/codebase-memory-index.log" ]
+}
