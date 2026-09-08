@@ -5,7 +5,7 @@
 # - Skips when the binary is already on PATH (idempotent, fast repeat runs)
 # - The npm package's bin.js installs/verifies the native runtime on first use
 #
-# MCP registration is handled by init (mcp.opencode.json / mcp.claudecode.json);
+# MCP registration is handled by the harness inits from the canonical mcp.json;
 # no per-project config is written — codebase-memory-mcp stores its settings
 # account-wide via `codebase-memory-mcp config set`, not per-project files.
 #

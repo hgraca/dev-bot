@@ -204,7 +204,7 @@ JSONC
 @test "devbot list mcps includes dynamic harness servers tagged (harness)" {
   # A sandbox project whose .opencode/ holds a dynamic MCP manifest (e.g. the
   # jetbrains server, written by src/agentic/jetbrains/init.sh). These are
-  # harness-level, not module mcp.opencode.json files, and must be listed.
+  # harness-level, not module mcp.json manifests, and must be listed.
   local sandbox
   sandbox="$(mktemp -d)"
   mkdir -p "${sandbox}/.opencode"

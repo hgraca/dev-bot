@@ -31,7 +31,7 @@ Every agentic module lives at `src/agentic/<name>/` and follows this structure (
   init.sh           Per-project initialization (optional)
   up.sh             Post-docker startup script (optional)
   pre.sh            Prerequisites check (optional)
-  mcp.opencode.json MCP server definition for auto-registration (optional)
+  mcp.json          Canonical MCP server manifest (harness-agnostic, see docs/mcp-config.md)
 ```
 
 ## Lifecycle Script Conventions

@@ -5,7 +5,7 @@
 # - Skips when the mdctx binary is already on PATH (idempotent, fast repeat runs)
 # - No models to pull, no GPU, no docker — mdctx is zero-ML-dependency
 #
-# MCP registration is handled by init (mcp.opencode.json / mcp.claudecode.json);
+# MCP registration is handled by the harness inits from the canonical mcp.json;
 # no per-project config is written here.
 #
 # GATE: This module must work on Ubuntu, Fedora, and macOS.
