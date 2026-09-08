@@ -453,6 +453,57 @@ _devbot_get_memory_search_provider() {
   esac
 }
 
+# _devbot_ensure_global_default <key> <value>
+#   Adds `<key>: "<value>"` to ${DEV_BOT_ROOT}/.devbot.global.jsonc ONLY when
+#   the key is absent — an existing value is never overwritten (an install
+#   that deliberately chose the new default keeps it). Comment-preserving
+#   text insert after the first top-level key. Used by `devbot update` to pin
+#   the legacy engines on existing installs that predate the provider keys.
+#   Silent (callers add their own messaging). Returns 0 on success or no-op,
+#   1 when the config file is missing.
+
+_devbot_ensure_global_default() {
+  local key="${1:?Usage: _devbot_ensure_global_default <key> <value>}"
+  local value="${2:?Usage: _devbot_ensure_global_default <key> <value>}"
+  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  [[ -f "${config}" ]] || return 1
+
+  local reader
+  reader="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/read_jsonc.py"
+  local current
+  current="$(python3 "${reader}" "${config}" "${key}" 2>/dev/null || true)"
+  [[ -n "${current}" ]] && return 0
+
+  python3 - "${config}" "${key}" "${value}" <<'PY' 2>/dev/null || return 1
+import re
+import sys
+
+path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(path).read()
+if re.search(r'"' + re.escape(key) + r'"\s*:', text):
+    raise SystemExit(0)  # present but unparseable-by-reader edge — no-op
+line = (
+    '  "%s": "%s", // devbot update: legacy default for existing installs '
+    "(only added when the key is absent)"
+) % (key, value)
+# Insert a full line right AFTER the first top-level property line (the
+# earliest "…": line, which in pretty-printed configs is always top-level),
+# or after the opening brace for single-line configs — never mid-line.
+match = re.search(r'^[ \t]*"[^"]+"\s*:.*$', text, re.M)
+if match:
+    # End of the first top-level property line — insert our line after it.
+    anchor_end = match.end()
+    text = text[:anchor_end] + "\n" + line + text[anchor_end:]
+else:
+    # Single-line config ("{ ... }") — open the brace, add our line, and keep
+    # the remainder on its own line (a bare newline after the comment, or the
+    # comment would swallow the rest of the object).
+    anchor_end = text.index("{") + 1
+    text = text[:anchor_end] + "\n" + line + "\n" + text[anchor_end:]
+open(path, "w").write(text)
+PY
+}
+
 # ── Disabled modules (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_disabled_modules [project_dir]
