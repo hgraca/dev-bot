@@ -52,7 +52,11 @@ main() {
   fi
 
   _info "Installing Playwright Chromium (chrome-devtools needs a sandboxable browser)..."
-  if npx -y playwright install chromium; then
+  # Force a FIXED browsers path on every platform (audit-01 macOS FAIL):
+  # Playwright's default cache is ~/Library/Caches/ms-playwright on macOS but
+  # ~/.cache/ms-playwright on Linux — the MCP launch wrapper globs the Linux
+  # path. Pinning PLAYWRIGHT_BROWSERS_PATH keeps the glob valid everywhere.
+  if PLAYWRIGHT_BROWSERS_PATH="$HOME/.cache/ms-playwright" npx -y playwright install chromium; then
     _ok "Playwright Chromium installed"
   else
     _warn "playwright install chromium failed — chrome-devtools will require a system Chrome"
