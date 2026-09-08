@@ -1,0 +1,18 @@
+{
+  "mcp": {
+    "signoz": {
+      "type": "stdio",
+      "command": [
+        "bash",
+        "-c",
+        "mkdir -p .agents/logs && exec {harness-dir}/signoz-mcp-server 2>>.agents/logs/signoz-mcp.log"
+      ],
+      "env": {
+        "SIGNOZ_URL": "https://signoz.get-e.com",
+        "SIGNOZ_API_KEY": "{env:SIGNOZ_AUTH_TOKEN}",
+        "SIGNOZ_SSL_VERIFY": "true",
+        "LOG_LEVEL": "info"
+      }
+    }
+  }
+}

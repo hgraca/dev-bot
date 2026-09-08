@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "codebase-index": {
+      "type": "stdio",
+      "command": [
+        "bash",
+        "-c",
+        "mkdir -p .agents/logs && exec node {harness-dir}/codebase-index-mcp-wrapper.js npx -y -p opencode-codebase-index -p @modelcontextprotocol/sdk opencode-codebase-index-mcp --project . --host {host} 2>>.agents/logs/codebase-index-mcp.log"
+      ]
+    }
+  }
+}

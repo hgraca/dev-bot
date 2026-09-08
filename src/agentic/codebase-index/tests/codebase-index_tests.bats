@@ -17,25 +17,41 @@ setup() {
 
 @test "opencode integration is the plugin (not a redundant MCP entry)" {
   # For opencode the package is integrated as a plugin, which itself spawns the
-  # MCP server — registering it as an MCP too would double-load it.
+  # MCP server — registering it as an MCP too would double-load it. The
+  # canonical mcp.json therefore serves claudecode only; the opencode
+  # registration adapter skips this server (plugin-precedence rule).
   local plugin_config="$MODULE_DIR/plugin.opencode.json"
   [ -f "$plugin_config" ]
   run grep -q 'opencode-codebase-index' "$plugin_config"
   assert_success
+  [ -f "$MODULE_DIR/mcp.json" ]
   [ ! -f "$MODULE_DIR/mcp.opencode.json" ]
+  [ ! -f "$MODULE_DIR/mcp.claudecode.json" ]
 }
 
-@test "claudecode MCP config registers codebase-index server" {
-  local mcp_config="$MODULE_DIR/mcp.claudecode.json"
+@test "canonical mcp.json declares codebase-index with harness tokens" {
+  # {harness-dir} resolves the EPIPE wrapper path (.opencode/.claude); {host}
+  # resolves the server's config-location arg (opencode/claude).
+  local mcp_config="$MODULE_DIR/mcp.json"
   [ -f "$mcp_config" ]
   run grep -q 'codebase-index-mcp' "$mcp_config"
   assert_success
+  run grep -c '{harness-dir}/codebase-index-mcp-wrapper.js' "$mcp_config"
+  assert_equal "$output" "1"
+  run grep -c -- '--host {host}' "$mcp_config"
+  assert_equal "$output" "1"
+  run grep -c '"enabled"' "$mcp_config"
+  assert_equal "$output" "0"
 }
 
-@test "claudecode MCP launch routes through the EPIPE wrapper" {
-  run grep -c 'node \.claude/codebase-index-mcp-wrapper\.js npx' \
-    "$MODULE_DIR/mcp.claudecode.json"
-  assert_equal "$output" "1"
+@test "claudecode translation routes through the EPIPE wrapper with --host claude" {
+  # Translate the canonical manifest and assert the claudecode launch shape.
+  PROJECT_ROOT="$(cd "$MODULE_DIR/../../.." && pwd)"
+  run python3 "$PROJECT_ROOT/src/_shared/mcp_translate.py" "$MODULE_DIR/mcp.json" claudecode
+  assert_success
+  assert_output --partial 'node .claude/codebase-index-mcp-wrapper.js npx'
+  assert_output --regexp -- '--host claude[" ]'
+  refute_output --partial 'claudecode'
 }
 
 @test "init.sh: symlinks the shared EPIPE wrapper into .claude" {
