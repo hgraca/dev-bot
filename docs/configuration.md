@@ -202,7 +202,7 @@ module unregisters its declared plugin/MCP entries at the next `devbot reinit`.
 {
     "guards": [
         { "regex": "rm -rf", "message": "rm -rf is blocked" },
-        { "regex": "sudo .*", "message": "sudo requires approval" },
+        { "regex": "sudo .*", "message": "sudo is blocked" },
         { "regex": "git push --force", "message": "force push is prohibited" },
     ],
 }
@@ -310,7 +310,7 @@ Absolute paths of projects registered with DevBot. Managed by the project-regist
     // Guard rules for bash commands
     "guards": [
         { "regex": "rm -rf", "message": "rm -rf is blocked" },
-        { "regex": "sudo .*", "message": "sudo requires approval" },
+        { "regex": "sudo .*", "message": "sudo is blocked" },
         { "regex": "git push --force", "message": "force push is prohibited" },
     ],
 

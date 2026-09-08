@@ -24,7 +24,7 @@
     },
     {
       "regex": "sudo .*",
-      "message": "sudo requires approval"
+      "message": "sudo is blocked"
     },
     {
       "regex": "git push --force",
