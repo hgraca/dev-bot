@@ -53,6 +53,11 @@ TRANSPORTS = ("stdio", "http")
 ENTRY_KEYS = ("type", "command", "url", "oauth", "env")
 
 HARNESS_DIRS = {"opencode": ".opencode", "claudecode": ".claude"}
+# {host} resolves to the PRODUCT name each harness is known by — opencode, and
+# Claude Code = "claude" (module dir is .claude, module name claudecode).
+# Needed by servers whose --host arg selects their config location (e.g.
+# codebase-index reads .opencode/codebase-index.json vs .claude/codebase-index.json).
+HOST_NAMES = {"opencode": "opencode", "claudecode": "claude"}
 
 
 def _substitute(
@@ -61,7 +66,7 @@ def _substitute(
     """Deep-replace tokens/placeholders in strings within the entry."""
     if isinstance(value, str):
         value = value.replace("{harness-dir}", HARNESS_DIRS[harness])
-        value = value.replace("{host}", harness)
+        value = value.replace("{host}", HOST_NAMES[harness])
         if gpu is not None:
             value = value.replace("__GPU_ENABLED__", gpu)
         if root is not None:

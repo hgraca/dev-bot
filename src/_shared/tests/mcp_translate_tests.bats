@@ -144,15 +144,19 @@ assert_json_eq() {
 }
 
 @test "{harness-dir} and {host} tokens resolve per harness" {
+  # {host} is the PRODUCT name: opencode, and "claude" for claudecode (its
+  # module/dir name is claudecode/.claude — assert an exact boundary so a
+  # "claudecode" resolution cannot false-pass on the "claude" substring).
   run python3 "$TOOL" "$WORK/tokens.json" claudecode
   assert_success
   assert_output --partial "exec node .claude/codebase-index-mcp-wrapper.js"
-  assert_output --partial "--host claude"
+  assert_output --regexp -- '--host claude[" ]'
+  refute_output --partial 'claudecode'
 
   run python3 "$TOOL" "$WORK/tokens.json" opencode
   assert_success
   assert_output --partial "exec node .opencode/codebase-index-mcp-wrapper.js"
-  assert_output --partial "--host opencode"
+  assert_output --regexp -- '--host opencode[" ]'
 }
 
 @test "placeholders resolved when --gpu/--root given, left literal otherwise" {
