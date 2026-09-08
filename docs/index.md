@@ -170,6 +170,10 @@ title: DevBot
         <p>OpenCode lifecycle hooks that fire automatically &mdash; format on save, guard dangerous commands, auto-recover from errors.</p>
       </div>
       <div class="feature-card">
+        <h3><a href="{{ '/mcp-config' | relative_url }}">MCP configuration</a></h3>
+        <p>Canonical per-module MCP manifests, wired into OpenCode and Claude Code through a shared translator.</p>
+      </div>
+      <div class="feature-card">
         <h3><a href="{{ '/tools/agent-communication' | relative_url }}">Agent Communication</a></h3>
         <p>Structured inter-agent protocol with terminal status markers. Orchestrator delegates to specialists with verified deliverables.</p>
       </div>

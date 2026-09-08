@@ -32,8 +32,8 @@ Every module follows the same structure; **all entries are optional** — includ
   up.sh                 Post-docker startup script
   pre.sh                Prerequisites check
   functions.sh          Thin wrapper sourcing `src/_shared/functions.sh`
-  mcp.opencode.json     OpenCode MCP server definition
-  mcp.claudecode.json   Claude Code MCP server definition
+  mcp.json              Canonical MCP server manifest (harness-agnostic — see [MCP configuration](/mcp-config))
+  plugin.opencode.json  OpenCode plugin names declared by this module (optional)
   external-modules.json External module dependencies declared by this module
 ```
 
@@ -100,17 +100,20 @@ Agent profiles under `agents/<name>.md`, with `name`, `description`, and `mode` 
 
 ### MCP servers
 
-`mcp.opencode.json` (and `mcp.claudecode.json` for Claude Code) defines the MCP server and is auto-registered during `devbot init`:
+Declare the MCP server(s) once in a canonical, harness-agnostic `mcp.json` — both harnesses register from it via the shared translator during `devbot init` (see [MCP configuration](/mcp-config) for the schema, tokens, and per-harness shapes):
 
-```jsonc
+```json
 {
-    "my-mcp": {
-        "type": "local",
-        "command": ["bash", ".opencode/my-mcp-serve.sh"],
-        "enabled": true,
-    },
+    "mcp": {
+        "my-mcp": {
+            "type": "stdio",
+            "command": ["bash", "-c", "exec {harness-dir}/my-mcp-serve.sh"]
+        }
+    }
 }
 ```
+
+There is no `enabled` field: enabling/disabling the module is the only gate. If the module's integration with a harness is plugin-based (like codebase-index on opencode), declare it in `plugin.opencode.json` instead — the opencode registration adapter skips plugin-provided servers to avoid double-loading.
 
 ## 3. Lifecycle scripts
 

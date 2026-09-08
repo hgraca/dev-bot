@@ -7,7 +7,7 @@ nav_section: docs
 
 # MCPs
 
-DevBot wires **13 MCP servers** into the agent tool palette. Each lives in a module's `mcp.opencode.json` and is auto-registered during `devbot init`. The list below is generated via `devbot list mcps -a` (includes disabled modules):
+DevBot wires **13 MCP servers** into the agent tool palette. Each is declared once in a module's canonical `mcp.json` (harness-agnostic — see [MCP configuration](/mcp-config) for the schema and per-harness wiring) and auto-registered during `devbot init`. The list below is generated via `devbot list mcps -a` (includes disabled modules):
 
 | Module          | MCP server              | Provides                                                      |
 | --------------- | ----------------------- | ------------------------------------------------------------- |

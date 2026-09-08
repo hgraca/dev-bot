@@ -30,8 +30,8 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
   reset.sh              Per-project state reset
   start.sh              Launch the harness binary (harnesses only)
   functions.sh          Thin wrapper sourcing `src/_shared/functions.sh`
-  mcp.opencode.json     OpenCode MCP server definition for auto-registration
-  mcp.claudecode.json   Claude Code MCP server definition
+  mcp.json              Canonical MCP server manifest (harness-agnostic — see [MCP configuration](/mcp-config))
+  plugin.opencode.json  OpenCode plugin names declared by this module (optional)
   external-modules.json External module dependencies declared by this module
 ```
 
