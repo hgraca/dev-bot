@@ -1,0 +1,16 @@
+{
+  "mcp": {
+    "mdctx": {
+      "type": "stdio",
+      "command": [
+        "bash",
+        "-c",
+        "mkdir -p .agents/logs && exec mdctx-mcp 2>>.agents/logs/mdctx-mcp.log"
+      ],
+      "env": {
+        "MDCTX_ROOT": "__DEV_BOT_ROOT__/storage/global-memories",
+        "MDCTX_INDEX": "__DEV_BOT_ROOT__/storage/.mdctx/context-index.json"
+      }
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "graphify": {
+      "type": "stdio",
+      "command": [
+        "bash",
+        "-c",
+        "mkdir -p .agents/logs && exec bash {harness-dir}/graphify-serve.sh graphify-out/graph.json 2>>.agents/logs/graphify-mcp.log"
+      ]
+    }
+  }
+}

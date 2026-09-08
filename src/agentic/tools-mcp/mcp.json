@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "devbot-tools": {
+      "type": "stdio",
+      "command": [
+        "bash",
+        "-c",
+        "mkdir -p .agents/logs && exec bash {harness-dir}/tools-mcp-serve.sh 2>>.agents/logs/devbot-tools-mcp.log"
+      ]
+    }
+  }
+}

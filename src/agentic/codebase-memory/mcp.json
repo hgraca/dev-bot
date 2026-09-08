@@ -1,13 +1,12 @@
 {
-  "mcpServers": {
+  "mcp": {
     "codebase-memory": {
       "type": "stdio",
-      "command": "bash",
-      "args": [
+      "command": [
+        "bash",
         "-c",
         "mkdir -p .agents/logs && exec codebase-memory-mcp 2>>.agents/logs/codebase-memory-mcp.log"
-      ],
-      "enabled": true
+      ]
     }
   }
 }

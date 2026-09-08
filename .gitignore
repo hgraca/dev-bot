@@ -30,7 +30,7 @@ package-lock.json
 AGENTS.md
 .claude
 CLAUDE.md
-mcp.json
+.mcp.json
 /.graphifyignore
 /graphify-out
 ###< ai ###

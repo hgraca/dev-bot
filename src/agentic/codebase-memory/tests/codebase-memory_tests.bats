@@ -6,8 +6,8 @@
 # The module wraps the codebase-memory-mcp native binary (npm package
 # codebase-memory-mcp) as the opencode/claudecode codebase engine. Unlike its
 # sibling codebase-index (opencode PLUGIN integration), codebase-memory is a
-# plain stdio MCP server on both harnesses — hence mcp.opencode.json EXISTS and
-# plugin.opencode.json MUST NOT.
+# plain stdio MCP server on both harnesses — hence a single canonical mcp.json
+# EXISTS and plugin.opencode.json MUST NOT.
 # =============================================================================
 
 setup() {
@@ -21,35 +21,33 @@ setup() {
 
 # ── Module structure ──────────────────────────────────────────────────────────
 
-@test "opencode integration is an MCP entry, not a plugin" {
+@test "MCP integration is a single canonical mcp.json, not a plugin" {
   # For opencode codebase-memory is registered as a plain stdio MCP server
   # (upstream ships no opencode plugin). Inverse of codebase-index, which
-  # registers as a plugin and deliberately has NO mcp.opencode.json.
-  local mcp_config="$MODULE_DIR/mcp.opencode.json"
+  # registers as a plugin and deliberately has no MCP registration on opencode.
+  local mcp_config="$MODULE_DIR/mcp.json"
   [ -f "$mcp_config" ]
+  # The per-harness manifest pair was consolidated into one canonical file.
+  [ ! -f "$MODULE_DIR/mcp.opencode.json" ]
+  [ ! -f "$MODULE_DIR/mcp.claudecode.json" ]
+  [ ! -f "$MODULE_DIR/plugin.opencode.json" ]
   run grep -q 'codebase-memory-mcp' "$mcp_config"
   assert_success
-  [ ! -f "$MODULE_DIR/plugin.opencode.json" ]
 }
 
-@test "opencode MCP config declares the codebase-memory key as a local server" {
+@test "canonical mcp.json declares the codebase-memory key as a stdio server" {
   run python3 -c "
 import json
-d = json.load(open('${MODULE_DIR}/mcp.opencode.json'))
-assert 'codebase-memory' in d, d
-assert d['codebase-memory']['type'] == 'local', d
-assert d['codebase-memory']['command'] == ['codebase-memory-mcp'], d
-print('OPCODE-MCP:OK')
+d = json.load(open('${MODULE_DIR}/mcp.json'))
+m = d['mcp']['codebase-memory']
+assert m['type'] == 'stdio', m
+assert m['command'][0:2] == ['bash', '-c'], m
+assert 'exec codebase-memory-mcp' in m['command'][2], m
+assert 'enabled' not in m, m
+print('MCP:OK')
 "
   assert_success
-  grep -qF 'OPCODE-MCP:OK' <<< "$output" || fail "opencode MCP shape wrong"
-}
-
-@test "claudecode MCP config registers the codebase-memory server" {
-  local mcp_config="$MODULE_DIR/mcp.claudecode.json"
-  [ -f "$mcp_config" ]
-  run grep -q 'codebase-memory-mcp' "$mcp_config"
-  assert_success
+  grep -qF 'MCP:OK' <<< "$output" || fail "canonical mcp.json shape wrong"
 }
 
 @test "functions.sh sources the shared library (no Ollama models declared)" {

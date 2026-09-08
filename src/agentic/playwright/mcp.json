@@ -1,0 +1,12 @@
+{
+  "mcp": {
+    "playwright": {
+      "type": "stdio",
+      "command": [
+        "bash",
+        "-c",
+        "mkdir -p .agents/logs && if docker info >/dev/null 2>&1; then exec node {harness-dir}/playwright-mcp-wrapper.js docker run --rm -i mcp/playwright 2>>.agents/logs/playwright-mcp.log; else exec node {harness-dir}/playwright-mcp-wrapper.js npx -y @playwright/mcp@0.0.79 --browser chromium 2>>.agents/logs/playwright-mcp.log; fi"
+      ]
+    }
+  }
+}

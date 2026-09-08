@@ -7,7 +7,8 @@
 # The module wraps the mdctx npm package (CLI `mdctx` + MCP server
 # `mdctx-mcp`) as the opencode/claudecode memory-search engine. Like its
 # sibling codebase-memory it is a plain stdio MCP server on both harnesses —
-# mcp.opencode.json EXISTS and plugin.opencode.json MUST NOT. Unlike qmd it has
+# a single canonical mcp.json EXISTS (both harnesses register from it via the
+# shared translator) and plugin.opencode.json MUST NOT. Unlike qmd it has
 # no GPU/llama surface (no __GPU_ENABLED__ placeholder) and no docker/up.sh;
 # unlike codebase-memory it is per-project (init.sh builds the project index).
 #
@@ -27,41 +28,41 @@ setup() {
 
 # ── Module structure ──────────────────────────────────────────────────────────
 
-@test "opencode integration is an MCP entry, not a plugin" {
-  local mcp_config="$MODULE_DIR/mcp.opencode.json"
+@test "MCP integration is a single canonical mcp.json, not a plugin" {
+  local mcp_config="$MODULE_DIR/mcp.json"
   [ -f "$mcp_config" ]
+  # The per-harness manifest pair was consolidated into one canonical file.
+  [ ! -f "$MODULE_DIR/mcp.opencode.json" ]
+  [ ! -f "$MODULE_DIR/mcp.claudecode.json" ]
+  [ ! -f "$MODULE_DIR/plugin.opencode.json" ]
   run grep -q 'mdctx-mcp' "$mcp_config"
   assert_success
-  [ ! -f "$MODULE_DIR/plugin.opencode.json" ]
 }
 
-@test "opencode MCP config declares the mdctx key with DEV_BOT_ROOT env" {
+@test "canonical mcp.json declares mdctx stdio with DEV_BOT_ROOT env" {
+  # The env uses the __DEV_BOT_ROOT__ path-prefix placeholder (resolved at
+  # registration by the harness adapters), so the manifest asserts the template
+  # placeholder, not a machine path.
   run python3 -c "
 import json
-d = json.load(open('${MODULE_DIR}/mcp.opencode.json'))
-assert 'mdctx' in d, d
-m = d['mdctx']
-assert m['type'] == 'local', m
-assert m['command'] == ['mdctx-mcp'], m
-env = m['environment']
+d = json.load(open('${MODULE_DIR}/mcp.json'))
+m = d['mcp']['mdctx']
+assert m['type'] == 'stdio', m
+assert m['command'][0:2] == ['bash', '-c'], m
+assert 'exec mdctx-mcp' in m['command'][2], m
+env = m['env']
 assert env['MDCTX_ROOT'] == '__DEV_BOT_ROOT__/storage/global-memories', env
 assert env['MDCTX_INDEX'] == '__DEV_BOT_ROOT__/storage/.mdctx/context-index.json', env
-print('OPCODE-MCP:OK')
+assert 'enabled' not in m, m
+print('MCP:OK')
 "
   assert_success
-  grep -qF 'OPCODE-MCP:OK' <<< "$output" || fail "opencode MCP shape wrong"
+  grep -qF 'MCP:OK' <<< "$output" || fail "canonical mcp.json shape wrong"
 }
 
 @test "mdctx MCP env has no GPU placeholder (zero-ML engine)" {
-  run grep -c '__GPU_ENABLED__' "$MODULE_DIR/mcp.opencode.json"
+  run grep -c '__GPU_ENABLED__' "$MODULE_DIR/mcp.json"
   assert_equal "$output" "0"
-}
-
-@test "claudecode MCP config registers the mdctx server" {
-  local mcp_config="$MODULE_DIR/mcp.claudecode.json"
-  [ -f "$mcp_config" ]
-  run grep -q 'mdctx-mcp' "$mcp_config"
-  assert_success
 }
 
 @test "functions.sh sources the shared library (no Ollama models declared)" {

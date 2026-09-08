@@ -45,13 +45,16 @@ setup_project() {
 
 # ── mcp.json launch routing ───────────────────────────────────────────────────
 
-@test "mcp.json: both harness launch commands route through the wrapper" {
-  run grep -c 'node \.claude/chrome-devtools-mcp-wrapper\.js npx' \
-    "${MODULE_DIR}/mcp.claudecode.json"
-  assert_equal "$output" "1"
-  run grep -c 'node \.opencode/chrome-devtools-mcp-wrapper\.js npx' \
-    "${MODULE_DIR}/mcp.opencode.json"
-  assert_equal "$output" "1"
+@test "mcp.json: canonical manifest routes both harnesses through the wrapper" {
+  # The single canonical mcp.json carries a {harness-dir} token; the shared
+  # translator resolves it to the per-harness wrapper path (.opencode/.claude).
+  PROJECT_ROOT="$(cd "$MODULE_DIR/../../.." && pwd)"
+  run python3 "$PROJECT_ROOT/src/_shared/mcp_translate.py" "$MODULE_DIR/mcp.json" opencode
+  assert_success
+  assert_output --partial 'node .opencode/chrome-devtools-mcp-wrapper.js npx'
+  run python3 "$PROJECT_ROOT/src/_shared/mcp_translate.py" "$MODULE_DIR/mcp.json" claudecode
+  assert_success
+  assert_output --partial 'node .claude/chrome-devtools-mcp-wrapper.js npx'
 }
 
 # ── audit-25 F4: Chromium discovery must be platform-aware ────────────────────
@@ -60,25 +63,14 @@ setup_project() {
 # Playwright Chromium installed chrome-devtools could not launch at all on a
 # Mac. The discovery must branch on the OS and cover both layouts.
 
-@test "audit-25: opencode template discovers chrome on macOS and Linux" {
+@test "audit-25: canonical template discovers chrome on macOS and Linux" {
   run grep -c 'chrome-mac/Chromium.app/Contents/MacOS/Chromium' \
-    "${MODULE_DIR}/mcp.opencode.json"
+    "${MODULE_DIR}/mcp.json"
   assert_equal "$output" "1"
   run grep -c 'chrome-linux\*/chrome' \
-    "${MODULE_DIR}/mcp.opencode.json"
+    "${MODULE_DIR}/mcp.json"
   assert_equal "$output" "1"
-  run grep -c 'uname -s' "${MODULE_DIR}/mcp.opencode.json"
-  assert_equal "$output" "1"
-}
-
-@test "audit-25: claudecode template discovers chrome on macOS and Linux" {
-  run grep -c 'chrome-mac/Chromium.app/Contents/MacOS/Chromium' \
-    "${MODULE_DIR}/mcp.claudecode.json"
-  assert_equal "$output" "1"
-  run grep -c 'chrome-linux\*/chrome' \
-    "${MODULE_DIR}/mcp.claudecode.json"
-  assert_equal "$output" "1"
-  run grep -c 'uname -s' "${MODULE_DIR}/mcp.claudecode.json"
+  run grep -c 'uname -s' "${MODULE_DIR}/mcp.json"
   assert_equal "$output" "1"
 }
 

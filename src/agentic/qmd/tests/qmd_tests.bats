@@ -437,17 +437,20 @@ time.sleep(3)
 # QMD_EXPAND_CONTEXT_SIZE must be pinned to a VRAM-safe value in the MCP
 # environment so it flows into every project on reinit.
 
-@test "audit-28: opencode template pins QMD_EXPAND_CONTEXT_SIZE to a VRAM-safe value" {
-  run python3 -c "import json; d=json.load(open('${MODULE_DIR}/mcp.opencode.json')); print(json.dumps(d['qmd'].get('environment', {})))"
+@test "audit-28: canonical mcp.json pins VRAM-safe context sizes for both harnesses" {
+  # The env lives once in mcp.json and flows to both harnesses via the shared
+  # translator (the claudecode side previously lacked QMD_LLAMA_GPU — approved
+  # consolidation behavior change: env is now single-source).
+  run python3 -c "import json; d=json.load(open('${MODULE_DIR}/mcp.json')); print(json.dumps(d['mcp']['qmd'].get('env', {})))"
   assert_success
   assert_output --partial '"QMD_EXPAND_CONTEXT_SIZE": "512"'
   assert_output --partial '"QMD_RERANK_CONTEXT_SIZE": "1024"'
+  assert_output --partial '"QMD_LLAMA_GPU": "__GPU_ENABLED__"'
 }
 
-@test "audit-28: claudecode template pins QMD_EXPAND_CONTEXT_SIZE" {
-  run python3 -c "import json; d=json.load(open('${MODULE_DIR}/mcp.claudecode.json')); print(json.dumps(d['mcpServers']['qmd'].get('env', {})))"
-  assert_success
-  assert_output --partial '"QMD_EXPAND_CONTEXT_SIZE": "512"'
-  assert_output --partial '"QMD_RERANK_CONTEXT_SIZE": "1024"'
+@test "audit-28: per-harness manifest pair consolidated into single mcp.json" {
+  [ -f "$MODULE_DIR/mcp.json" ]
+  [ ! -f "$MODULE_DIR/mcp.opencode.json" ]
+  [ ! -f "$MODULE_DIR/mcp.claudecode.json" ]
 }
 
