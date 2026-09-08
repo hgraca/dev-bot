@@ -5,7 +5,7 @@
 # Usage:
 #   devbot help       Show available commands
 #   devbot install    Install tools (bin/install.sh)
-#   devbot update     Update tools from git + run tool update scripts
+#   devbot update [tag]  Update dev-bot: newest release tag, or <tag> if given
 # =============================================================================
 
 set -euo pipefail
@@ -42,7 +42,7 @@ cmd_help() {
   echo -e "${TEXT_BOLD}Commands:${TEXT_CLEAR}"
   echo "  help       Show this help"
   echo "  install    Install all tools (bin/install.sh)"
-  echo "  update     Update dev-bot to the newest release tag (bin/update.sh)"
+  echo "  update [tag]  Update dev-bot: newest release tag, or <tag> if given (bin/update.sh)"
   echo "  tool <name>  Run a dev-bot tool by name (e.g. tree, git-report)"
   echo "  list <type>  List agentic artifacts (commands, agents, skills, hooks, mcps, tools)"
   echo "             [-a|--all]  Include artifacts from disabled modules"
@@ -87,7 +87,7 @@ cmd_install() {
 }
 
 cmd_update() {
-  bash "${DEV_BOT_ROOT}/bin/update.sh"
+  bash "${DEV_BOT_ROOT}/bin/update.sh" "$@"
 }
 
 cmd_models() {
@@ -532,7 +532,8 @@ main() {
       cmd_install
       ;;
     update)
-      cmd_update
+      shift
+      cmd_update "$@"
       ;;
     models)
       shift

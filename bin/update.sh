@@ -5,9 +5,14 @@
 # install's tooling against the new code.
 #
 # devbot update is release-tracked — it no longer pulls the current branch.
-#   1. Fetch tags from origin; find the newest release tag (semver sort).
-#   2. Compare HEAD against that tag:
-#        at / ahead of it        -> "already on the latest version", exit 0
+# Run with no argument to move to the newest release tag, or pass a tag name
+# (devbot update <tag>) to move to that tag explicitly — pin or downgrade.
+#   1. Fetch tags from origin. Target = the newest release tag (semver sort),
+#      or the tag given as an argument (validated to exist).
+#   2. Compare HEAD against the target tag:
+#        exactly on it           -> "already on ...", exit 0
+#        at / ahead of newest    -> "already on the latest version", exit 0
+#                                  (auto mode only — explicit older tag moves)
 #        strictly behind it      -> stash local changes, detach-checkout the tag,
 #                                   then stash pop (conflict => ack prompt)
 #        diverged branch         -> rebase the branch onto the tag; on conflict,
@@ -23,7 +28,8 @@
 # DEV_BOT_UPDATE_SKIP_REINIT=1.
 #
 # Usage:
-#   bin/update.sh              # full update
+#   bin/update.sh              # update to the newest release tag
+#   bin/update.sh <tag>        # update to a specific release tag (pin/downgrade)
 # =============================================================================
 
 set -euo pipefail
@@ -60,21 +66,35 @@ _newest_release() {
   printf '%s\n' "${newest}"
 }
 
-# Print the HEAD state relative to the newest release tag:
-#   current   HEAD is at, or ahead of, the tag (nothing to update)
+# Verify an explicitly requested tag exists (exact ref match — no globbing).
+# Non-zero when it does not; the available tags are listed for the user.
+_ensure_tag_exists() {
+  local tag="$1"
+  if ! git -C "${DEV_BOT_ROOT}" rev-parse --verify --quiet "refs/tags/${tag}^{commit}" >/dev/null; then
+    _error "Tag '${tag}' does not exist. Available tags:"
+    while IFS= read -r t; do
+      echo "    ${t}"
+    done < <(git -C "${DEV_BOT_ROOT}" tag --sort=-v:refname)
+    return 1
+  fi
+}
+
+# Print HEAD's position relative to a release tag:
+#   at        HEAD is exactly on the tag
+#   ahead     the tag is an ancestor of HEAD (HEAD is newer / on a dev line)
 #   behind    HEAD is an ancestor of the tag (an update is available)
 #   diverged  neither is an ancestor of the other (branch has its own commits)
-_release_state() {
-  local release="$1"
+_head_vs_tag() {
+  local ref="$1"
   local head tag_head
   head="$(git -C "${DEV_BOT_ROOT}" rev-parse HEAD)"
-  tag_head="$(git -C "${DEV_BOT_ROOT}" rev-parse "${release}^{commit}")"
+  tag_head="$(git -C "${DEV_BOT_ROOT}" rev-parse "${ref}^{commit}")"
 
-  [[ "${head}" == "${tag_head}" ]] && { echo "current"; return; }
+  [[ "${head}" == "${tag_head}" ]] && { echo "at"; return; }
   if git -C "${DEV_BOT_ROOT}" merge-base --is-ancestor "${tag_head}" HEAD; then
-    echo "current"      # tag is an ancestor of HEAD — at or ahead
+    echo "ahead"       # tag is an ancestor of HEAD
   elif git -C "${DEV_BOT_ROOT}" merge-base --is-ancestor HEAD "${tag_head}"; then
-    echo "behind"       # HEAD is an ancestor of the tag — strictly behind
+    echo "behind"      # HEAD is an ancestor of the tag
   else
     echo "diverged"
   fi
@@ -333,25 +353,50 @@ main() {
     exit 1
   fi
 
-  local release state
-  release="$(_newest_release)"
-  if [[ -z "${release}" ]]; then
-    _skip "No release tags found — nothing to update."
-    exit 0
+  # Target: an explicitly requested tag (pin/downgrade) or the newest tag
+  # (release-tracked update).
+  local target="" explicit=0
+  if [[ $# -gt 0 ]]; then
+    target="$1"
+    explicit=1
+    if ! _ensure_tag_exists "${target}"; then
+      exit 1
+    fi
+  else
+    target="$(_newest_release)"
+    if [[ -z "${target}" ]]; then
+      _skip "No release tags found — nothing to update."
+      exit 0
+    fi
   fi
 
-  state="$(_release_state "${release}")"
+  local state
+  state="$(_head_vs_tag "${target}")"
   case "${state}" in
-    current)
-      _ok "Already on the latest version (${release})."
+    at)
+      if [[ "${explicit}" -eq 1 ]]; then
+        _ok "Already on ${target}."
+      else
+        _ok "Already on the latest version (${target})."
+      fi
       exit 0
       ;;
+    ahead)
+      # Auto mode: ahead of the newest tag = dev line, nothing to update.
+      # Explicit mode: the user asked for an older tag — move to it.
+      if [[ "${explicit}" -eq 1 ]]; then
+        _jump_to_release "${target}" || exit 1
+      else
+        _ok "Already on the latest version (${target})."
+        exit 0
+      fi
+      ;;
     behind)
-      _jump_to_release "${release}" || exit 1
+      _jump_to_release "${target}" || exit 1
       ;;
     diverged)
       local rebase_rc=0
-      _rebase_onto_release "${release}" || rebase_rc=$?
+      _rebase_onto_release "${target}" || rebase_rc=$?
       [[ "${rebase_rc}" -eq 2 ]] && exit 0
       [[ "${rebase_rc}" -eq 1 ]] && exit 1
       ;;

@@ -113,7 +113,7 @@ _publish_release() {
 }
 
 _run_update() {
-  run bash "${INSTALL}/bin/update.sh"
+  run bash "${INSTALL}/bin/update.sh" "$@"
   UPDATE_STATUS="$status"
   UPDATE_OUTPUT="$output"
 }
@@ -281,4 +281,58 @@ _assert_detached_at_newest_tag() {
   run git -C "${INSTALL}" stash list
   [[ -z "$output" ]]
   ! _refresh_ran
+}
+
+# ── Explicit target: devbot update <tag> ─────────────────────────────────────
+
+@test "explicit older tag from a newer position: downgrades (detach) + refresh" {
+  _new_sandbox "1.0.0:1.1.0" # install detached at 1.1.0 (newest)
+  _run_update 1.0.0
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  # Detached HEAD now sitting exactly on the requested tag's commit.
+  assert_equal "$(git -C "${INSTALL}" rev-parse HEAD)" "$(git -C "${INSTALL}" rev-parse '1.0.0^{commit}')"
+  run git -C "${INSTALL}" symbolic-ref -q HEAD
+  [ "$status" -ne 0 ]
+  _refresh_ran
+  [[ "$UPDATE_OUTPUT" == *"1.0.0"* ]]
+}
+
+@test "explicit target already checked out: says already on and exits 0" {
+  _new_sandbox "1.0.0:1.1.0" # install detached at 1.1.0
+  _run_update 1.1.0
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  [[ "$UPDATE_OUTPUT" == *"Already on 1.1.0"* ]]
+  ! _refresh_ran
+}
+
+@test "explicit nonexistent tag: errors, lists tags, exits 1" {
+  _new_sandbox "1.0.0:1.1.0"
+  _run_update 9.9.9
+
+  [ "$UPDATE_STATUS" -eq 1 ]
+  [[ "$UPDATE_OUTPUT" == *"does not exist"* ]]
+  [[ "$UPDATE_OUTPUT" == *"9.9.9"* ]]
+  [[ "$UPDATE_OUTPUT" == *"1.1.0"* ]] # available-tags listing shown
+  ! _refresh_ran
+}
+
+@test "explicit tag on a diverged branch: rebases onto the requested tag" {
+  _new_sandbox "1.0.0:1.1.0"
+  git -C "${INSTALL}" checkout -q main
+  git -C "${INSTALL}" checkout -qb feature
+  printf 'feature work\n' > "${INSTALL}/feature.txt"
+  git -C "${INSTALL}" add feature.txt
+  git -C "${INSTALL}" commit -qm "feature commit"
+  _publish_release "g.txt" "release 1.2.0" "1.2.0"
+
+  _run_update 1.2.0
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  # Still on the feature branch (not detached), work preserved, tag now base.
+  assert_equal "$(git -C "${INSTALL}" symbolic-ref --short HEAD)" "feature"
+  grep -q 'feature work' "${INSTALL}/feature.txt"
+  git -C "${INSTALL}" merge-base --is-ancestor 1.2.0 HEAD
+  _refresh_ran
 }
