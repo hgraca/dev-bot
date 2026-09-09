@@ -1,0 +1,7 @@
+# Consumer fragment: codebase-index needs the ollama embeddings server but
+# runs no container of its own. Including ollama's compose here boots it on
+# `devbot up` when this module is enabled — even though the ollama module is
+# disabled by default in the `modules` map. `include:` is resolved by docker
+# compose itself (the dev-bot up.sh discovery simply -f's this fragment).
+include:
+  - ../../tools/ollama/docker-compose.yml

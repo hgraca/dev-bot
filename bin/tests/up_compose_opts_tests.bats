@@ -214,3 +214,54 @@ _run_docker_up() {
   assert_failure
   assert_output --partial "No .devbot.global.jsonc found"
 }
+
+# ── Docker service discovery: consumer-driven (compose fragments) ────────────
+# Since v1.4, docker services start only when an ENABLED module needs them:
+# provider composes (ollama, litellm) are discovered across src/tools +
+# src/agentic + src/harnesses; a module disabled in the `modules` map has its
+# compose excluded. A consumer module that needs a service ships its own
+# docker-compose.yml fragment that `include:`s the provider's compose — so an
+# enabled consumer boots the provider even when the provider module is
+# disabled. If NO enabled module ships a compose file, the docker section is
+# skipped entirely (no `docker compose` invocation).
+
+@test "agentic module compose fragment is discovered and added" {
+  mkdir -p "${SANDBOX_DIR}/src/agentic/codebase-index"
+  touch "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.yml"
+
+  _setup_sandbox '{}'
+
+  run _run_docker_up
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  # Discovery order is tools → agentic, so litellm (tools) precedes the
+  # codebase-index fragment (agentic).
+  assert_output --regexp 'compose -f docker-compose\.yml -f src/tools/litellm/docker-compose\.yml -f src/agentic/codebase-index/docker-compose\.yml up -d --no-recreate'
+}
+
+@test "disabled agentic module compose is excluded" {
+  mkdir -p "${SANDBOX_DIR}/src/agentic/codebase-index"
+  touch "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.yml"
+
+  _setup_sandbox '{"modules": {"codebase-index": false}}'
+
+  run _run_docker_up
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --regexp 'compose -f docker-compose\.yml -f src/tools/litellm/docker-compose\.yml up -d --no-recreate'
+  [[ "$output" != *"codebase-index"* ]]
+}
+
+@test "no enabled module ships a compose file — docker section is skipped entirely" {
+  # All provider modules disabled and no consumer fragments → nothing to start.
+  # The sandbox fabricates a root docker-compose.yml the real repo lacks
+  # (only docker-compose.gpu.yml exists there) — drop it so the empty set is
+  # reachable the way production reaches it.
+  _setup_sandbox '{"modules": {"litellm": false, "ollama": false}}'
+  rm -f "${SANDBOX_DIR}/docker-compose.yml"
+
+  run _run_docker_up
+  assert_success
+  # The mock docker must never have been invoked.
+  [ ! -s "${DOCKER_ARGS_FILE}" ]
+}

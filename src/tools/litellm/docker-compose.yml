@@ -1,3 +1,10 @@
+# LiteLLM proxies ollama models. It depends on the ollama service, which is
+# defined by the ollama module's compose — include it so the dependency
+# resolves even when the ollama module is disabled in the `modules` map
+# (litellm's own `depends_on` below would dangle on an undefined service).
+include:
+  - ../ollama/docker-compose.yml
+
 services:
   litellm:
     image: ghcr.io/berriai/litellm:main-latest

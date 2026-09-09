@@ -184,6 +184,11 @@ main() {
   _check_flock
   _run_module_prereqs
   _setup_devbot_config
+  # GPU detection runs at the devbot level (not the ollama module install) so
+  # gpu_enabled is recorded even when the ollama module is disabled — it is
+  # off by default and consumer compose fragments boot it on demand.
+  _header_2 "GPU Detection"
+  _devbot_detect_gpu
   _install_dependencies
 
   _header_2 "Tools"

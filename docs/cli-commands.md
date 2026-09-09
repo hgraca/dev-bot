@@ -74,7 +74,9 @@ Re-initialize the current project, or all registered projects with `--all`.
 
 ### `devbot up` / `devbot down`
 
-Start / stop the Docker services (Ollama, LiteLLM) via auto-discovered compose files.
+Start / stop the Docker services via auto-discovered compose files across all modules (`src/tools`, `src/agentic`, `src/harnesses`).
+
+Docker services are **consumer-driven**: a compose file is only included when its module is **enabled** in the `modules` map. A module that _needs_ a provider's service without running a container of its own ships a compose fragment that `include:`s the provider's compose — so enabling the consumer boots the provider even when the provider module is disabled (e.g. `codebase-index`'s fragment boots `ollama`, which is disabled by default). When no enabled module ships a compose file, the Docker section is skipped entirely and nothing is started/stopped. GPU detection (`gpu_enabled`) runs from `devbot install`/`update`, not the ollama module install, so it survives ollama being disabled.
 
 ### `devbot tool <name> [args...]`
 

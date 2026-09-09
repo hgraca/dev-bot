@@ -9,6 +9,7 @@
   "modules": {
     "claudecode": false,
     "litellm": false,
+    "ollama": false,
     "react": false,
     "signoz": false,
     "svelte": false

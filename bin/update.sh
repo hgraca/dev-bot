@@ -408,6 +408,11 @@ main() {
   _ensure_legacy_providers
   _update_dependencies
 
+  # GPU detection re-runs on update (devbot level, not the ollama module) so
+  # gpu_enabled tracks the machine even when the ollama module is disabled.
+  _header_2 "GPU Detection"
+  _devbot_detect_gpu
+
   _header_2 "Tools"
   _update_modules "${DEV_BOT_ROOT}/src/tools"
   tool_count="${MODULE_SCRIPT_COUNT:-0}"

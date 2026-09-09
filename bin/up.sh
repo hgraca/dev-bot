@@ -101,6 +101,58 @@ for m in json.loads(sys.stdin.read()):
 # ── Docker services ────────────────────────────────────────────────────────────
 
 _docker_up() {
+  # ── Discover docker-compose.yml files across every module base dir ─────
+  # (tools + agentic + harnesses). Since v1.4 docker services start only when
+  # an ENABLED module needs them: a module disabled in the `modules` map has
+  # its compose excluded, and a consumer module that needs a provider's
+  # service ships its own fragment that `include:`s the provider compose (so
+  # the provider boots even when its own module is disabled). If NO enabled
+  # module ships a compose file, docker has nothing to start — skip the whole
+  # section silently (no header, no `docker compose` invocation).
+  local disabled_modules_list
+  disabled_modules_list=$(_devbot_get_disabled_modules)
+  local disabled_lines
+  disabled_lines=$(echo "${disabled_modules_list}" | python3 -c "
+import json, sys
+for m in json.loads(sys.stdin.read()):
+    print(m)
+" 2>/dev/null || true)
+
+  local compose_files=()
+  local base_dir
+  for base_dir in "${DEV_BOT_ROOT}/src/tools" "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/harnesses"; do
+    [[ -d "${base_dir}" ]] || continue
+    while IFS= read -r -d '' f; do
+      compose_files+=("${f}")
+    done < <(find "${base_dir}" -maxdepth 2 -name 'docker-compose.yml' -type f -print0 2>/dev/null)
+  done
+
+  # ── Build compose file list, filtering disabled modules ──────────────────
+  local compose_opts=()
+  if [[ -f "${DEV_BOT_ROOT}/docker-compose.yml" ]]; then
+    compose_opts=("-f" "docker-compose.yml")
+  fi
+
+  for f in "${compose_files[@]}"; do
+    local mod_dir mod_name
+    mod_dir="$(dirname "${f}")"
+    mod_name="$(basename "${mod_dir}")"    # e.g. "ollama", "codebase-index"
+
+    if echo "${disabled_lines}" | grep -Fxq "${mod_name}" 2>/dev/null; then
+      _skip "${mod_name}: disabled per config — skipping ${mod_dir}/docker-compose.yml"
+      continue
+    fi
+
+    # Use path relative to DEV_BOT_ROOT so docker compose resolves correctly
+    local rel="${f#${DEV_BOT_ROOT}/}"
+    compose_opts+=("-f" "${rel}")
+  done
+
+  if [[ ${#compose_opts[@]} -eq 0 ]]; then
+    _skip "no docker services needed by enabled modules"
+    return 0
+  fi
+
   _header_2 "Docker Services"
 
   # Inside a container there is no docker daemon — the host runs the docker
@@ -118,49 +170,9 @@ _docker_up() {
 
   _header_3 "Starting docker services..."
 
-  # ── Discover docker-compose.yml files in tool modules ──────────────────
-  local compose_files=()
-  while IFS= read -r -d '' f; do
-    compose_files+=("${f}")
-  done < <(find "${DEV_BOT_ROOT}/src/tools" -maxdepth 2 -name 'docker-compose.yml' -type f -print0 2>/dev/null)
-
-  # ── Resolve disabled modules ────────────────────────────────────────────
-  local disabled_modules_list
-  disabled_modules_list=$(_devbot_get_disabled_modules)
-  local disabled_lines
-  disabled_lines=$(echo "${disabled_modules_list}" | python3 -c "
-import json, sys
-for m in json.loads(sys.stdin.read()):
-    print(m)
-" 2>/dev/null || true)
-
-  # ── Build compose file list, filtering disabled tools ────────────────────
-  local compose_opts=()
-  if [[ -f "${DEV_BOT_ROOT}/docker-compose.yml" ]]; then
-    compose_opts=("-f" "docker-compose.yml")
-  fi
-  local gpu_eligible=false
-
-  for f in "${compose_files[@]}"; do
-    local tool_dir="$(dirname "${f}")"
-    local tool="$(basename "${tool_dir}")"    # e.g. "ollama", "litellm"
-
-    if echo "${disabled_lines}" | grep -Fxq "${tool}" 2>/dev/null; then
-      _skip "${tool}: disabled per config — skipping ${tool_dir}/docker-compose.yml"
-      continue
-    fi
-
-    # Use path relative to DEV_BOT_ROOT so docker compose resolves correctly
-    local rel="${f#${DEV_BOT_ROOT}/}"
-    compose_opts+=("-f" "${rel}")
-  done
-
-  # ── GPU eligibility: true only if at least one non-gpu tool compose was added ──
-  if [[ ${#compose_opts[@]} -gt 0 ]]; then
-    gpu_eligible=true
-  fi
-
-  if [[ "${gpu_eligible}" == true ]] && _devbot_is_true "gpu_enabled"; then
+  # ── GPU override: append docker-compose.gpu.yml when enabled and the
+  #     base/tool set is non-empty ──────────────────────────────────────────
+  if _devbot_is_true "gpu_enabled"; then
     compose_opts+=("-f" "docker-compose.gpu.yml")
   fi
 

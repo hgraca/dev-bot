@@ -25,6 +25,7 @@ setup() {
 }
 
 teardown() {
+  unset DETECT_HAS_GPU DETECT_DOCKER_GPU 2>/dev/null || true
   rm -rf "$TEST_TEMP" "$MOCK"
 }
 
@@ -121,4 +122,80 @@ SCRIPT
 
   PATH="$MOCK:/usr/bin:/bin" run _has_gpu
   assert_failure
+}
+
+# ── _devbot_detect_gpu: records gpu_enabled in the global config ────────────
+# Relocated from src/tools/ollama/install.sh to the shared library so GPU
+# detection runs from bin/install.sh / bin/update.sh (devbot lifecycle) even
+# when the ollama module itself is disabled in the `modules` map. Semantics
+# preserved verbatim:
+#   - no docker daemon → gpu_enabled follows the HOST probe (_has_gpu); the
+#     host's ollama serves the API and local processes (qmd) can use the GPU.
+#   - docker daemon present → gpu_enabled follows _has_docker_gpu (container
+#     passthrough); a host GPU without the container toolkit does NOT enable
+#     passthrough.
+
+_detect_with() {
+  local docker_ok="$1"   # "yes" | "no"
+  local has_gpu="$2"     # "yes" | "no"  (host probe)
+  local docker_gpu="$3"  # "yes" | "no"  (container passthrough probe)
+
+  # Stored as module-level flags — the mock functions run later (inside
+  # `run _devbot_detect_gpu`) when _detect_with's locals are gone.
+  DETECT_HAS_GPU="${has_gpu}"
+  DETECT_DOCKER_GPU="${docker_gpu}"
+
+  # Fresh config with gpu_enabled present (the key must exist for
+  # _devbot_set_bool's sed to find it).
+  printf '{\n  "gpu_enabled": false\n}\n' > "${TEST_TEMP}/.devbot.global.jsonc"
+  export DEV_BOT_ROOT="$TEST_TEMP"
+  source "$PROJECT_ROOT/src/_shared/functions.sh"
+
+  if [[ "${docker_ok}" == "yes" ]]; then
+    cat > "$MOCK/docker" <<'SCRIPT'
+#!/bin/bash
+if [[ "$1" == "info" ]]; then exit 0; fi
+exit 1
+SCRIPT
+  else
+    cat > "$MOCK/docker" <<'SCRIPT'
+#!/bin/bash
+exit 1
+SCRIPT
+  fi
+  chmod +x "$MOCK/docker"
+
+  _has_gpu() { [[ "${DETECT_HAS_GPU}" == "yes" ]]; }
+  _has_docker_gpu() { [[ "${DETECT_DOCKER_GPU}" == "yes" ]]; }
+  _gpu_vendor() { echo "nvidia"; }
+}
+
+@test "detect_gpu: no docker daemon + host GPU → gpu_enabled=true" {
+  _detect_with no yes no
+  PATH="$MOCK:/usr/bin:/bin" run _devbot_detect_gpu
+  assert_success
+  grep -q '"gpu_enabled": true' "${TEST_TEMP}/.devbot.global.jsonc"
+}
+
+@test "detect_gpu: no docker daemon + no host GPU → gpu_enabled=false" {
+  _detect_with no no no
+  PATH="$MOCK:/usr/bin:/bin" run _devbot_detect_gpu
+  assert_success
+  grep -q '"gpu_enabled": false' "${TEST_TEMP}/.devbot.global.jsonc"
+}
+
+@test "detect_gpu: docker daemon + container passthrough → gpu_enabled=true" {
+  _detect_with yes yes yes
+  PATH="$MOCK:/usr/bin:/bin" run _devbot_detect_gpu
+  assert_success
+  grep -q '"gpu_enabled": true' "${TEST_TEMP}/.devbot.global.jsonc"
+}
+
+@test "detect_gpu: docker daemon + host GPU but no toolkit → gpu_enabled=false" {
+  # audit-25 F5: a host GPU without container passthrough must NOT enable the
+  # GPU compose override (ollama would run CPU in docker anyway).
+  _detect_with yes yes no
+  PATH="$MOCK:/usr/bin:/bin" run _devbot_detect_gpu
+  assert_success
+  grep -q '"gpu_enabled": false' "${TEST_TEMP}/.devbot.global.jsonc"
 }
