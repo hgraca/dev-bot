@@ -40,6 +40,7 @@ Exit codes: 0 ok (prints {"<server>": {...}, ...}); 1 invalid manifest/harness.
 
 import argparse
 import json
+import re
 import sys
 from typing import Any, Optional
 
@@ -126,6 +127,18 @@ def _validate_entry(server: str, entry: Any) -> None:
         or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items())
     ):
         raise ValueError(f"server '{server}': env must map string keys to string values")
+    if isinstance(env, dict):
+        for key, value in env.items():
+            if isinstance(value, str) and "{env:" in value:
+                # Env indirection is whole-value-only: {env:VAR} must be the
+                # entire value (opencode and Claude Code both expand it
+                # natively at launch). An embedded or malformed token would
+                # expand on one harness and stay literal on the other — reject.
+                if not re.fullmatch(r"\{env:[A-Za-z_][A-Za-z0-9_]*\}", value):
+                    raise ValueError(
+                        f"server '{server}': env key '{key}' value '{value}' — "
+                        f"{{env:VAR}} must be a well-formed whole value"
+                    )
 
 
 def load_canonical(path: str) -> Any:

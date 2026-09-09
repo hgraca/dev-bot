@@ -119,6 +119,23 @@ JSON_EOF
   }
 }
 JSON_EOF
+
+  # {env:VAR} indirection is whole-value-only and must be well-formed.
+  cat > "$WORK/env-embedded.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": { "type": "stdio", "command": ["qmd", "mcp"], "env": { "HOST": "https://{env:API_HOST}/v1" } }
+  }
+}
+JSON_EOF
+
+  cat > "$WORK/env-malformed.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": { "type": "stdio", "command": ["qmd", "mcp"], "env": { "KEY": "{env:UNCLOSED" } }
+  }
+}
+JSON_EOF
 }
 
 teardown() {
@@ -216,6 +233,18 @@ assert_json_eq() {
   run python3 "$TOOL" "$WORK/stdio-with-oauth.json" opencode
   assert_failure
   assert_output --partial "oauth"
+}
+
+@test "embedded {env:VAR} in an env value fails loudly (whole-value-only)" {
+  run python3 "$TOOL" "$WORK/env-embedded.json" opencode
+  assert_failure
+  assert_output --partial "whole value"
+}
+
+@test "malformed {env:VAR} token fails loudly" {
+  run python3 "$TOOL" "$WORK/env-malformed.json" opencode
+  assert_failure
+  assert_output --partial "{env:"
 }
 
 @test "unsupported harness fails loudly" {
