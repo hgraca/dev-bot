@@ -19,3 +19,5 @@ Consolidation (13 modules): each module now declares its servers **once** in a c
 **Exceptions staying structural**: codebase-index's opencode integration is plugin-based (`plugin.opencode.json`) — the opencode registration adapter skips plugin-declared modules so the server is not double-loaded; its canonical manifest serves claudecode. Dynamic runtime manifests (`.opencode/*.mcp.json`, `.claude/*.mcp.json`, e.g. jetbrains' runtime port) stay harness-native. `.gitignore` `mcp.json` corrected to `.mcp.json` (the rule was missing the dot — it hid module manifests while claudecode's regenerated `.mcp.json` went unprotected).
 
 Rule for future MCP work: declare servers once in the module's canonical `mcp.json` and let the shared translator + harness inits wire them — never write a per-harness MCP manifest. Schema, tokens and per-harness wiring documented in `docs/mcp-config.md`.
+
+Rollout note: consumer projects must gitignore `.mcp.json` (dotfile) — a bare `mcp.json` rule does not match it — so a regenerated claudecode config is never committed.

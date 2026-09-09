@@ -110,3 +110,5 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 
 - **opencode** — merge-only registration preserves local config edits; entries of the explicit refresh-list modules and of disabled modules are pruned by `reset.sh` (byte-idempotent). `opencode.jsonc` is gitignored.
 - **claudecode** — `.mcp.json` is regenerated from scratch on every init (also gitignored, so nothing dev-bot-managed is ever committed); edit the module's canonical `mcp.json` to change defaults, since per-project `.mcp.json` edits are overwritten on reinit.
+
+> **Consumer projects**: gitignore the dotfile — a bare `mcp.json` rule (common in `###> ai ###` blocks) does **not** match `.mcp.json`. Update it to `.mcp.json` so a regenerated claudecode config is never committed.
