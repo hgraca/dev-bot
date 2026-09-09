@@ -544,6 +544,15 @@ for m in modules:
   _header_2 "Broken Symlink Cleanup"
   _remove_broken_symlinks
 
+  # ── 8b. Baseline config hashes (auto-reinit detection) ──────────────────
+  # Record the content hash of both configs AFTER registration/symlink steps
+  # mutated them, so the next `devbot` start compares equal and does not
+  # re-trigger a reinit. Written by every init — reinit ends by running
+  # init.sh, so it refreshes the baseline too. Missing .sha (legacy project)
+  # counts as changed, so one reinit establishes it.
+  _devbot_write_config_sha "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  _devbot_write_config_sha "${PROJECT_DIR}/.devbot.project.jsonc"
+
   # ── 9. Final header ─────────────────────────────────────────────────────
   _header_2 "✔  DevBot init complete, you still should run the '/create-codebase-report' command on the first time you start the agent"
 

@@ -19,6 +19,7 @@ package-lock.json
 **/*.backup
 **/*.bkp
 /.devbot.global.jsonc
+/.devbot.global.sha
 **/__pycache__/
 *.pyc
 ###< project ###
@@ -37,6 +38,7 @@ CLAUDE.md
 
 # >>> DEVBOT
 .devbot.project.jsonc
+.devbot.project.sha
 .agents/logs
 # <<< DEVBOT
 

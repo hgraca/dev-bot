@@ -980,6 +980,120 @@ _devbot_check_mcp_env_vars() {
   _devbot_present_missing_env_vars "${refs}" "${mode}"
 }
 
+# ── Config-change → auto-reinit (devbot start) ──────────────────────────────────
+#
+# The global (.devbot.global.jsonc) and per-project (.devbot.project.jsonc)
+# configs are the source of truth for wiring (modules, providers, external
+# modules, gpu_enabled, …). When either changes, the next `devbot` start must
+# reinit that project so the whole start sequence runs on freshly wired state.
+#
+# Change detection is a content hash of each config file, stored in a sibling
+# file with the extension REPLACED: <file>.jsonc → <file>.sha (same location,
+# e.g. .devbot.global.jsonc.sha would be .devbot.global.sha — the extension is
+# replaced, not appended). Baselines are refreshed by init.sh at the end of
+# every init/reinit; a missing .sha (legacy project, or a fresh config with no
+# wiring yet) counts as changed so one reinit establishes it.
+#
+# _devbot_config_sha_path <config_file>
+#   Prints the sibling .sha path (extension replaced).
+#
+# _devbot_config_sha <config_file>
+#   Prints the sha256 of the file's content via python3 (cross-platform —
+#   sha256sum is not on macOS by default; python3 is a hard dependency of the
+#   lifecycle scripts). Empty when the file is unreadable.
+#
+# _devbot_config_changed <config_file>
+#   0 when the current hash differs from the stored .sha, or when no .sha
+#   baseline exists (E1). 1 when the config is missing or hashes match.
+#
+# _devbot_write_config_sha <config_file>
+#   Writes the current hash to the sibling .sha file (skips a missing config).
+#
+# _devbot_auto_reinit_if_config_changed <project_dir>
+#   0 and no-op when neither the global nor the project config changed. When
+#   either changed: runs `bash $DEV_BOT_ROOT/bin/reinit.sh` from the project
+#   dir (single-project reinit; the init.sh it ends with refreshes baselines).
+#   On reinit failure: warns and, in a non-interactive run (SKIP_CONFIRM / no
+#   TTY), returns 0 = continue the start anyway; interactively asks y/N.
+
+_devbot_config_sha_path() {
+  local config="$1"
+  echo "${config%.jsonc}.sha"
+}
+
+_devbot_config_sha() {
+  local config="$1"
+  [[ -f "${config}" ]] || return 0
+  python3 -c "
+import hashlib, sys
+print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest())
+" "${config}" 2>/dev/null || true
+}
+
+_devbot_config_changed() {
+  local config="$1"
+  [[ -f "${config}" ]] || return 1
+  local sha_path current stored
+  sha_path="$(_devbot_config_sha_path "${config}")"
+  [[ -f "${sha_path}" ]] || return 0  # no baseline → changed
+  current="$(_devbot_config_sha "${config}")"
+  stored="$(<"${sha_path}")"
+  [[ -n "${current}" && "${current}" == "${stored}" ]] && return 1
+  return 0
+}
+
+_devbot_write_config_sha() {
+  local config="$1"
+  [[ -f "${config}" ]] || return 0
+  local sha_path current
+  sha_path="$(_devbot_config_sha_path "${config}")"
+  current="$(_devbot_config_sha "${config}")"
+  [[ -n "${current}" ]] || return 0
+  printf '%s\n' "${current}" > "${sha_path}"
+}
+
+_devbot_auto_reinit_if_config_changed() {
+  local project_dir="${1:-$(pwd)}"
+  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local project_config="${project_dir}/.devbot.project.jsonc"
+
+  local changed=false
+  if _devbot_config_changed "${global_config}"; then
+    changed=true
+  fi
+  if _devbot_config_changed "${project_config}"; then
+    changed=true
+  fi
+  [[ "${changed}" == "true" ]] || return 0
+
+  _header_3 "Config changed — running devbot reinit before start..."
+  local reinit_script="${DEV_BOT_ROOT}/bin/reinit.sh"
+  local reinit_exit=0
+  if [[ -f "${reinit_script}" ]]; then
+    (cd "${project_dir}" && bash "${reinit_script}") || reinit_exit=$?
+  else
+    reinit_exit=127
+  fi
+  if [[ ${reinit_exit} -eq 0 ]]; then
+    _ok "Reinit complete after config change"
+    return 0
+  fi
+
+  _warn "Automatic reinit failed (exit ${reinit_exit}) — the start would run on stale wiring."
+  # Non-interactive: never block a scripted/CI start — warn and continue.
+  if [[ "${SKIP_CONFIRM:-0}" == "1" || ! -t 0 ]]; then
+    _warn "Non-interactive run — continuing the start anyway."
+    return 0
+  fi
+  _warn "Continue the start anyway? [y/N]"
+  local answer
+  read -r answer 2>/dev/null || true
+  if [[ "${answer}" =~ ^[yY](es)?$ ]]; then
+    return 0
+  fi
+  return 1
+}
+
 # ── Service lifecycle runner (up.sh / down.sh) ──────────────────────────────────
 #
 # _run_service_scripts <script_name> [args...]

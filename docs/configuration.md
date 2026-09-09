@@ -22,6 +22,17 @@ Two files exist at different scopes, both optional:
 
 Scalar settings resolve project-over-global, falling back to a built-in default when neither is set (`devbot_dir`, `harness`). List settings are merged: `disabled_modules` as a union of both files, `devbot:guards` as a concatenation evaluated first-match-wins (global rules first, then project). `search-memories` reads only the project config. If a file is missing, its settings are skipped.
 
+### Auto-reinit on config change
+
+Both config files are the source of truth for wiring — changing one (e.g. a `disabled_modules` flip, a provider key, `gpu_enabled`) only takes effect after a reinit. Rather than requiring a manual `devbot reinit`, the next **bare `devbot` start** detects the change and reinits the current project automatically, **before** `up.sh` runs, so the whole start sequence runs on freshly wired state.
+
+Detection is a content hash of each config stored next to it with the extension **replaced**: `<file>.jsonc` → `<file>.sha` (e.g. `.devbot.global.jsonc` ↔ `.devbot.global.sha`, `<project>/.devbot.project.jsonc` ↔ `.devbot.project.sha` — same location, never committed). `init`/`reinit` refresh the baseline at the end of every run, so an unchanged config starts without re-running reinit. A project with no `.sha` yet (freshly added, or upgraded from before this feature) triggers one reinit to establish it.
+
+- If reinit succeeds, the start proceeds normally.
+- If reinit **fails**, dev-bot warns and asks whether to continue the start anyway; non-interactive runs (`SKIP_CONFIRM` / no TTY) warn and continue.
+- Editing `opencode.jsonc`/`.mcp.json` directly does **not** trigger this — those are outputs of init, not inputs.
+- `make up` / `devbot up` alone do not trigger it — only a bare `devbot` start (harness launch).
+
 ## Properties
 
 ### `project_name`

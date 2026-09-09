@@ -194,6 +194,7 @@ _ensure_gitignore() {
 
   local -a gitignore_paths=(
     ".devbot.project.jsonc"
+    ".devbot.project.sha"
     "${devbot_dir}/logs"
     "${devbot_dir}/agents"
     "${devbot_dir}/commands"
