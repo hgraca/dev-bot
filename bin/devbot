@@ -514,7 +514,18 @@ cmd_harness() {
   bash "${DEV_BOT_ROOT}/bin/up.sh" "$(pwd)" || exit $?
   local harness
   harness="$(_devbot_get_harness "$(pwd)")"
-  exec bash "${DEV_BOT_ROOT}/src/harnesses/${harness}/start.sh" "$(pwd)" "$@"
+
+  # Harness-arg passthrough: `devbot ... -- arg-X` forwards only the tail
+  # after the first `--` to the harness (pre-`--` args are devbot's own and
+  # are consumed). No `--` → all args forward unchanged. Args keep their
+  # boundaries — assembled into an argv array via while-read (bash 3.2-safe).
+  local -a harness_args=()
+  local passthrough_arg
+  while IFS= read -r passthrough_arg; do
+    harness_args+=("${passthrough_arg}")
+  done < <(_devbot_passthrough_args "$@")
+
+  exec bash "${DEV_BOT_ROOT}/src/harnesses/${harness}/start.sh" "$(pwd)" "${harness_args[@]}"
 }
 
 # ── main ──────────────────────────────────────────────────────────────────────

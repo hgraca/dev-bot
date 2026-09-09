@@ -1094,6 +1094,58 @@ _devbot_auto_reinit_if_config_changed() {
   return 1
 }
 
+# ── Harness-arg passthrough (devbot -- …) ─────────────────────────────────────
+#
+# _devbot_passthrough_args [args...]
+#   The devbot CLI escape: when a bare `devbot` start carries `--`, everything
+#   after the FIRST `--` is forwarded verbatim to the underlying harness and
+#   everything before it is devbot's own (consumed, never forwarded). No `--`
+#   in the args → all args forward unchanged (the documented "unknown
+#   argument starts the harness" behaviour). Only the first `--` splits — a
+#   later `--` is a literal part of the harness argv.
+#
+#   Prints one arg per line (NOT a single line — args keep their boundaries,
+#   so quoting survives: `-c "two words"` forwards as two argv elements).
+#   Callers assemble an argv array with a while-read loop (bash 3.2-safe —
+#   macOS default bash has no mapfile), exactly as cmd_harness in bin/devbot
+#   does. Output is empty when there is nothing to forward.
+
+_devbot_passthrough_args() {
+  # Nothing to forward — no output at all (printf '%s\n' "$@" with zero args
+  # would emit one empty line and corrupt the caller's argv).
+  if [[ $# -eq 0 ]]; then
+    return 0
+  fi
+
+  # First pass: does the arg list carry a -- separator at all? No -- → every
+  # arg forwards unchanged (documented "unknown argument" harness start).
+  local has_sep=false
+  local a
+  for a in "$@"; do
+    if [[ "${a}" == "--" ]]; then
+      has_sep=true
+      break
+    fi
+  done
+  if [[ "${has_sep}" == "false" ]]; then
+    printf '%s\n' "$@"
+    return 0
+  fi
+
+  # Second pass: emit only the args AFTER the first -- (pre-`--` args are
+  # devbot's own and are consumed; a later -- is a literal tail arg).
+  local started=false
+  for a in "$@"; do
+    if [[ "${started}" == "false" && "${a}" == "--" ]]; then
+      started=true
+      continue
+    fi
+    if [[ "${started}" == "true" ]]; then
+      printf '%s\n' "${a}"
+    fi
+  done
+}
+
 # ── Service lifecycle runner (up.sh / down.sh) ──────────────────────────────────
 #
 # _run_service_scripts <script_name> [args...]
