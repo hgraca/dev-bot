@@ -127,3 +127,41 @@ _run_cmd_harness() {
   # No further lines — empty harness argv.
   [ "$(wc -l < "${SANDBOX}/start-args.log")" -eq 1 ]
 }
+
+# ── cmd_models: routes through _devbot_ollama_exec (boot→operate→down) ─────
+# _devbot_ollama_exec itself is unit-tested in ollama_exec_tests.bats; here we
+# stub it to record argv and assert cmd_models dispatches pull/list-local/
+# remove to it with the right ollama subcommand. list-remote stays non-booting
+# (registry browsing — its local-cache reference line degrades to "(none)").
+
+_run_cmd_models() {
+  DEV_BOT_ROOT="${SANDBOX}" run bash -c "
+    source '${SANDBOX}/bin/devbot'
+    _devbot_ollama_exec() { printf 'exec:%s\n' \"\$*\" > '${SANDBOX}/models-calls.log'; }
+    cmd_models \"\$@\"
+  " _ "$@"
+}
+
+@test "cmd_models pull routes to _devbot_ollama_exec pull" {
+  rm -f "${SANDBOX}/models-calls.log"
+  _run_cmd_models pull llama3.2:3b
+  assert_success
+  run cat "${SANDBOX}/models-calls.log"
+  assert_output "exec:pull llama3.2:3b"
+}
+
+@test "cmd_models list-local routes to _devbot_ollama_exec list" {
+  rm -f "${SANDBOX}/models-calls.log"
+  _run_cmd_models list-local
+  assert_success
+  run cat "${SANDBOX}/models-calls.log"
+  assert_output "exec:list"
+}
+
+@test "cmd_models remove routes to _devbot_ollama_exec rm" {
+  rm -f "${SANDBOX}/models-calls.log"
+  _run_cmd_models remove llama3.2:3b
+  assert_success
+  run cat "${SANDBOX}/models-calls.log"
+  assert_output "exec:rm llama3.2:3b"
+}

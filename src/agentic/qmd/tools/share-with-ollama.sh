@@ -121,7 +121,7 @@ main() {
     return 0
   fi
   if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "${CONTAINER}"; then
-    _warn "${CONTAINER} not running — start it first (devbot up)"
+    _skip "${CONTAINER} not running — qmd→ollama model share skipped (ollama is disabled by default; start it with 'devbot up' when a consumer needs it, or 'devbot models pull' to boot it temporarily)"
     return 0
   fi
   if [[ ! -d "${QMD_CACHE_DIR}" ]]; then

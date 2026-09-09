@@ -1485,6 +1485,65 @@ _pull_ollama_models() {
   fi
 }
 
+# _devbot_ollama_exec <args...>
+#   Runs `ollama <args...>` inside the dev-bot-ollama container, booting the
+#   container first when it is not running and taking it back DOWN afterwards
+#   when THIS helper started it. A container that was already running is left
+#   running. Backs `devbot models pull/list-local/remove` — those commands
+#   must work even though the ollama module is disabled by default (it only
+#   runs when an enabled consumer fragment includes it).
+#   The temporary boot mirrors the qmd share script's compose opts: when
+#   gpu_enabled, docker-compose.gpu.yml is appended so a GPU machine does not
+#   serve CPU-only after a temporary boot. Returns the ollama command's exit
+#   code; fails cleanly (exit 1) when there is no docker daemon.
+
+_devbot_ollama_exec() {
+  if ! docker info >/dev/null 2>&1; then
+    _skip "no docker daemon (inside a container?) — ollama exec skipped; the host serves the ollama API instead"
+    return 1
+  fi
+
+  local compose_file="${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml"
+  local container_was_running=false
+  local started_container=false
+  local -a compose_opts=("-f" "${compose_file}")
+  if _devbot_is_true "gpu_enabled" && [[ -f "${DEV_BOT_ROOT}/docker-compose.gpu.yml" ]]; then
+    compose_opts+=("-f" "docker-compose.gpu.yml")
+  fi
+
+  if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'dev-bot-ollama'; then
+    container_was_running=true
+  else
+    _info "Ollama container not running — starting it temporarily..."
+    if docker compose "${compose_opts[@]}" up -d ollama 2>/dev/null; then
+      started_container=true
+      # Wait for ollama to be ready before exec'ing into it.
+      local retries=15
+      while ! docker exec dev-bot-ollama ollama list >/dev/null 2>&1; do
+        if [[ ${retries} -le 0 ]]; then
+          _warn "Ollama container did not become ready in time — stopping it"
+          docker compose "${compose_opts[@]}" down ollama 2>/dev/null || true
+          return 1
+        fi
+        sleep 1
+        (( retries-- ))
+      done
+    else
+      _warn "Failed to start Ollama container"
+      return 1
+    fi
+  fi
+
+  docker exec dev-bot-ollama ollama "$@"
+  local exec_rc=$?
+
+  if [[ "${started_container}" == true && "${container_was_running}" == false ]]; then
+    _info "Stopping temporary Ollama container..."
+    docker compose "${compose_opts[@]}" down ollama 2>/dev/null || true
+  fi
+  return "${exec_rc}"
+}
+
 # _ensure_ollama_models_detached <model...>
 #   Ensures the given models exist on the configured ollama API WITHOUT
 #   blocking the caller. Skips models already present; launches the missing

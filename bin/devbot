@@ -100,10 +100,13 @@ cmd_models() {
         echo "Example: devbot models pull llama3.2:3b"
         exit 1
       fi
-      docker exec dev-bot-ollama ollama pull "$2"
+      # Boot the ollama container if it isn't running, pull, and down it
+      # again when this command started it (ollama is off by default — it
+      # only runs when an enabled consumer needs it).
+      _devbot_ollama_exec pull "$2"
       ;;
     list-local)
-      docker exec dev-bot-ollama ollama list
+      _devbot_ollama_exec list
       ;;
     list-remote)
       # For list-remote, just show usage pointing to ollama.com/library
@@ -123,7 +126,7 @@ cmd_models() {
         docker exec dev-bot-ollama ollama list 2>/dev/null || true
         exit 1
       fi
-      docker exec dev-bot-ollama ollama rm "$2"
+      _devbot_ollama_exec rm "$2"
       ;;
     help|--help|-h)
       echo "Usage: devbot models <subcommand>"
