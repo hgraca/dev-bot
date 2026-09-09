@@ -29,8 +29,6 @@ if [[ -z "${PROJECT_DIR}" || ! -d "${PROJECT_DIR}" ]]; then
   exit 1
 fi
 
-PROJECT_NAME="$(basename "${PROJECT_DIR}")"
-
 _register_module_mcp() {
   local mod_dir="$1"
   local config_file="$2"
@@ -302,7 +300,8 @@ _prune_orphaned_external_modules() {
 # Gitignore is handled by the memory module (src/agentic/memory/init.sh).
 
 _link_memory_folders() {
-  local memory_dir="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/memory"
+  local memory_dir
+  memory_dir="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/memory"
 
   local disabled_list
   disabled_list=$(echo "$(_devbot_get_disabled_modules "${PROJECT_DIR}")" | python3 -c "
@@ -350,7 +349,8 @@ _format_opencode_config() {
 # Run LAST (after every module/harness init) so it catches dangling symlinks left
 # by module renames/removals anywhere in the devbot dir.
 _remove_broken_symlinks() {
-  local target="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")"
+  local target
+  target="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")"
   [[ -d "${target}" ]] || return 0
 
   local removed=0
