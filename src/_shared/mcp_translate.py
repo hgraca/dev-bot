@@ -109,9 +109,17 @@ def _validate_entry(server: str, entry: Any) -> None:
             )
         if entry.get("url"):
             raise ValueError(f"server '{server}': stdio must not carry a url")
+        if "oauth" in entry:
+            raise ValueError(
+                f"server '{server}': oauth is http-only — stdio servers do not use it"
+            )
     else:  # http
         if not isinstance(entry.get("url"), str) or not entry["url"]:
             raise ValueError(f"server '{server}': http requires a url")
+        if entry.get("command"):
+            raise ValueError(
+                f"server '{server}': http must not carry a command (use url)"
+            )
     env = entry.get("env")
     if env is not None and (
         not isinstance(env, dict)

@@ -102,6 +102,23 @@ JSON_EOF
   }
 }
 JSON_EOF
+
+  # Leftover harness-shaped fields must fail loudly, not silently drop.
+  cat > "$WORK/http-with-command.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": { "type": "http", "url": "https://example.com/mcp", "command": ["npx", "mcp-server"] }
+  }
+}
+JSON_EOF
+
+  cat > "$WORK/stdio-with-oauth.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": { "type": "stdio", "command": ["qmd", "mcp"], "oauth": false }
+  }
+}
+JSON_EOF
 }
 
 teardown() {
@@ -187,6 +204,18 @@ assert_json_eq() {
   run python3 "$TOOL" "$WORK/missing-command.json" opencode
   assert_failure
   assert_output --partial "command"
+}
+
+@test "http entry with a command fails loudly" {
+  run python3 "$TOOL" "$WORK/http-with-command.json" opencode
+  assert_failure
+  assert_output --partial "command"
+}
+
+@test "stdio entry with oauth fails loudly" {
+  run python3 "$TOOL" "$WORK/stdio-with-oauth.json" opencode
+  assert_failure
+  assert_output --partial "oauth"
 }
 
 @test "unsupported harness fails loudly" {
