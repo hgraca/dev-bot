@@ -7,23 +7,24 @@ nav_section: docs
 
 # MCPs
 
-DevBot wires **13 MCP servers** into the agent tool palette. Each is declared once in a module's canonical `mcp.json` (harness-agnostic — see [MCP configuration](/mcp-config) for the schema and per-harness wiring) and auto-registered during `devbot init`. The list below is generated via `devbot list mcps -a` (includes disabled modules):
+DevBot wires **13 module-declared MCP servers** plus dynamic per-project harness servers (tagged `(harness)` below) into the agent tool palette. Each module-declared server is declared once in the module's canonical `mcp.json` (harness-agnostic — see [MCP configuration](/mcp-config) for the schema and per-harness wiring) and auto-registered during `devbot init`. The list below is generated via `devbot list mcps -a` (includes disabled modules):
 
-| Module          | MCP server              | Provides                                                      |
-| --------------- | ----------------------- | ------------------------------------------------------------- |
-| chrome-devtools | `chrome-devtools`       | Browser inspection, console, network, performance, Lighthouse |
-| codebase-index  | `devbot:codebase-index` | Semantic code search, implementation lookup, call graph       |
-| context7        | `context7`              | Version-accurate library/framework documentation              |
-| graphify        | `devbot:graphify`       | Codebase knowledge graph querying                             |
-| jetbrains       | `jetbrains`             | IDE integration — inspections, debugging, database tools      |
-| mdctx           | `devbot:mdctx`          | Keyword markdown knowledge-base search (zero-ML BM25)         |
-| playwright      | `playwright`            | Browser automation and E2E testing                            |
-| qmd             | `devbot:qmd`            | Markdown knowledge-base search (semantic + keyword)           |
-| react           | `next-devtools`         | Next.js runtime diagnostics                                   |
-| signoz          | `signoz`                | Observability — dashboards, alerts, queries, investigation    |
-| svelte          | `svelte`                | Svelte framework integration                                  |
-| tools-mcp       | `devbot-tools`          | DevBot tool scripts as MCP tools (see below)                  |
-| websearch       | `websearch`             | Web search via Exa API                                        |
+| Module          | MCP server              | Provides                                                                         |
+| --------------- | ----------------------- | -------------------------------------------------------------------------------- |
+| chrome-devtools | `chrome-devtools`       | Browser inspection, console, network, performance, Lighthouse                    |
+| codebase-index  | `devbot:codebase-index` | Semantic code search, implementation lookup, call graph                          |
+| codebase-memory | `codebase-memory`       | Codebase engine via the codebase-memory-mcp binary (no Ollama)                   |
+| context7        | `context7`              | Version-accurate library/framework documentation                                 |
+| graphify        | `devbot:graphify`       | Codebase knowledge graph querying                                                |
+| mdctx           | `devbot:mdctx`          | Keyword markdown knowledge-base search (zero-ML BM25)                            |
+| playwright      | `playwright`            | Browser automation and E2E testing                                               |
+| qmd             | `devbot:qmd`            | Markdown knowledge-base search (semantic + keyword)                              |
+| react           | `next-devtools`         | Next.js runtime diagnostics                                                      |
+| signoz          | `signoz`                | Observability — dashboards, alerts, queries, investigation                       |
+| svelte          | `svelte`                | Svelte framework integration                                                     |
+| tools-mcp       | `devbot-tools`          | DevBot tool scripts as MCP tools (see below)                                     |
+| websearch       | `websearch`             | Web search via Exa API                                                           |
+| (harness)       | `jetbrains`             | IDE integration — inspections, debugging, database tools (dynamic, runtime port) |
 
 ## devbot-tools MCP tools
 
