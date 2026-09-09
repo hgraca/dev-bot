@@ -8,9 +8,10 @@
 # MCP auto-registration is handled by the harness inits from the single
 # canonical manifest (src/agentic/signoz/mcp.json): the command resolves
 # {harness-dir}/signoz-mcp-server to the symlink created in step 1, and the
-# SIGNOZ_API_KEY env comes from {env:SIGNOZ_AUTH_TOKEN} — resolved natively by
-# opencode at launch, and by the claudecode adapter at registration (.mcp.json
-# cannot interpolate).
+# SIGNOZ_API_KEY env comes from {env:SIGNOZ_AUTH_TOKEN} — mapped by the shared
+# translator to each harness's native env expansion (opencode keeps {env:VAR},
+# claudecode's .mcp.json carries ${VAR}); both clients resolve it at launch,
+# so the token is never written into a config file.
 #
 # Idempotent — safe to re-run.
 #
@@ -111,8 +112,8 @@ cat <<'EOF'
   Auto-registered by the harness inits from src/agentic/signoz/mcp.json.
   Auth env (SIGNOZ_URL, SIGNOZ_API_KEY, SIGNOZ_SSL_VERIFY, LOG_LEVEL) lives in
   that manifest's "env" block. SIGNOZ_API_KEY is set from the SIGNOZ_AUTH_TOKEN
-  environment variable via {env:SIGNOZ_AUTH_TOKEN}:
-    - opencode resolves it natively at launch
-    - claudecode resolves it at registration (.mcp.json cannot interpolate);
-      if SIGNOZ_AUTH_TOKEN is unset at init the key is omitted with a warning
+  environment variable via {env:SIGNOZ_AUTH_TOKEN}, mapped per harness:
+    - opencode keeps {env:SIGNOZ_AUTH_TOKEN} (native expansion at launch)
+    - claudecode's .mcp.json carries ${SIGNOZ_AUTH_TOKEN} (Claude Code native
+      expansion at launch — the token is never written into the file)
 EOF

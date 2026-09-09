@@ -215,7 +215,7 @@ JSONC_EOF
   assert_failure
 }
 
-@test "{env:VAR} values are current: literal (opencode), resolved (claudecode), or absent" {
+@test "{env:VAR} values are current: {env:} literal (opencode), \${} native (claudecode), or absent" {
   cat > "$WORK/signoz-module.json" <<'JSON_EOF'
 {
   "mcp": {
@@ -228,7 +228,7 @@ JSONC_EOF
 }
 JSON_EOF
 
-  # opencode holds the literal — opencode interpolates natively at launch.
+  # opencode holds the literal {env:...} — opencode interpolates at launch.
   cat > "$WORK/signoz-opencode.jsonc" <<'JSONC_EOF'
 {
   "mcp": {
@@ -240,19 +240,20 @@ JSONC_EOF
   run python3 "$TOOL" "$WORK/signoz-opencode.jsonc" "$WORK/signoz-module.json" "signoz" opencode
   assert_success
 
-  # claudecode resolved the token at registration — differs, still current.
-  cat > "$WORK/signoz-claude-resolved.json" <<'JSONC_EOF'
+  # claudecode holds the native ${VAR} token — Claude Code expands it at
+  # launch; never a registration-resolved plaintext value.
+  cat > "$WORK/signoz-claude-native.json" <<'JSONC_EOF'
 {
   "mcpServers": {
     "signoz": { "type": "stdio", "command": "signoz-mcp-server", "env": {
-      "SIGNOZ_URL": "https://signoz.get-e.com", "SIGNOZ_API_KEY": "tok_live_abc123" } }
+      "SIGNOZ_URL": "https://signoz.get-e.com", "SIGNOZ_API_KEY": "${SIGNOZ_AUTH_TOKEN}" } }
   }
 }
 JSONC_EOF
-  run python3 "$TOOL" "$WORK/signoz-claude-resolved.json" "$WORK/signoz-module.json" "signoz" claudecode
+  run python3 "$TOOL" "$WORK/signoz-claude-native.json" "$WORK/signoz-module.json" "signoz" claudecode
   assert_success
 
-  # claudecode omitted the key (token unset at registration) — still current.
+  # Config omits the key entirely — still current.
   cat > "$WORK/signoz-claude-noenv.json" <<'JSONC_EOF'
 {
   "mcpServers": {

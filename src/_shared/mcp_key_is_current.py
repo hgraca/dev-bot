@@ -24,9 +24,10 @@ value must not trigger a re-registration. Comparison then normalizes:
   - __GPU_ENABLED__     whole-value placeholder: any config value is current
   - __DEV_BOT_ROOT__    path-prefix placeholder: the suffix after the
                         placeholder must still match (root layout drift is stale)
-  - {env:VAR}           env indirection: current whether the config holds the
-                        literal, a registration-time-resolved value, or omits
-                        the key (unset at registration — claudecode drops it)
+  - {env:VAR}           env indirection (mapped per harness: opencode keeps
+                        {env:VAR}, claudecode's .mcp.json carries ${VAR}) —
+                        current whether the config holds the literal token in
+                        either spelling, or omits the key
 
 Usage:
   mcp_key_is_current.py <config_file> <module_mcp.json> <key> <harness>
@@ -38,8 +39,9 @@ Exit codes:
 """
 
 import json
-import sys
 import os
+import re
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 from mcp_translate import load_canonical, server_map, translate  # noqa: E402
@@ -109,9 +111,9 @@ def _normalize(entry, config_entry):
                            the suffix after the placeholder must match the
                            config's value for the entry to stay current
       - {env:VAR}          env indirection: dropped from the comparison, since
-                           the config may hold the literal (opencode native),
-                           a registration-resolved value (claudecode), or no
-                           key at all (var unset at registration)
+                           the config holds the native token literal — opencode
+                           {env:VAR}, claudecode ${VAR} (both client-resolved
+                           at launch) — or omits the key
     Other differences stay visible.
     """
     entry = json.loads(json.dumps(entry))  # deep copy
@@ -149,8 +151,14 @@ def _normalize(entry, config_entry):
             ):
                 env[k] = cv
         elif v.startswith("{env:") and v.endswith("}"):
-            # Env indirection: current whether the config resolved it, kept the
-            # literal, or omitted the key. Drop from both sides.
+            # Env indirection (opencode spelling): current whether the config
+            # resolved it, kept the literal, or omitted the key. Drop from both.
+            env.pop(k)
+            config_env.pop(k, None)
+        elif re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", v):
+            # Env indirection (claudecode spelling, mapped from {env:VAR} by the
+            # translator): Claude Code expands ${VAR} at launch, so the config
+            # may hold the token or omit the key. Drop from both.
             env.pop(k)
             config_env.pop(k, None)
     return entry

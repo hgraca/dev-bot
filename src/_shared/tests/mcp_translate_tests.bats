@@ -136,6 +136,20 @@ JSON_EOF
   }
 }
 JSON_EOF
+
+  # Env indirection maps per harness: opencode keeps {env:VAR} (native), the
+  # claudecode target config uses ${VAR} (native Claude Code expansion).
+  cat > "$WORK/env-indirect.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "signoz": {
+      "type": "stdio",
+      "command": ["signoz-mcp-server"],
+      "env": { "SIGNOZ_URL": "https://signoz.get-e.com", "SIGNOZ_API_KEY": "{env:SIGNOZ_AUTH_TOKEN}" }
+    }
+  }
+}
+JSON_EOF
 }
 
 teardown() {
@@ -245,6 +259,19 @@ assert_json_eq() {
   run python3 "$TOOL" "$WORK/env-malformed.json" opencode
   assert_failure
   assert_output --partial "{env:"
+}
+
+@test "{env:VAR} maps to native syntax per harness (opencode {env:}, claudecode \${})" {
+  # opencode keeps {env:VAR} — it interpolates natively at launch. claudecode
+  # must not see the token resolved to a plaintext secret at registration; the
+  # target .mcp.json uses Claude Code's own ${VAR} expansion instead.
+  run python3 "$TOOL" "$WORK/env-indirect.json" opencode
+  assert_success
+  assert_output --partial '"SIGNOZ_API_KEY": "{env:SIGNOZ_AUTH_TOKEN}"'
+
+  run python3 "$TOOL" "$WORK/env-indirect.json" claudecode
+  assert_success
+  assert_output --partial '"SIGNOZ_API_KEY": "${SIGNOZ_AUTH_TOKEN}"'
 }
 
 @test "unsupported harness fails loudly" {

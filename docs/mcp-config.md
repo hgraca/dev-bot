@@ -66,10 +66,12 @@ Resolved at translation time by `mcp_translate.py`:
 | `__DEV_BOT_ROOT__` | the dev-bot install root (registration)           | mdctx index paths                                        |
 | `{env:VAR}`        | see below                                         | secrets / per-machine config                             |
 
-`{env:VAR}` is an env indirection whose resolution differs by harness because the targets differ:
+`{env:VAR}` is an env indirection resolved by **each client natively at launch** — the shared translator maps it to the harness's native spelling, so the value is never resolved into a config file:
 
-- **opencode** keeps the literal `{env:VAR}` in `opencode.jsonc` — opencode interpolates it natively at launch from its own process env.
-- **claudecode** cannot interpolate (`.mcp.json` env is literal), so the adapter resolves `{env:VAR}` from the init environment at registration. If the variable is unset, the env key is omitted with a `WARN` (the server still registers).
+- **opencode** keeps `{env:VAR}` in `opencode.jsonc` — opencode interpolates it at launch from its own process env.
+- **claudecode** `.mcp.json` carries `${VAR}` — Claude Code's native expansion (the claudecode target cannot use `{env:VAR}`, and Claude Code expands `${VAR}` in `env`, `command`, `args`, `url` and `headers`). A missing variable (no `${VAR:-default}`) loads the config with a warning and registers the unexpanded text.
+
+`{env:VAR}` is whole-value-only (it must be the entire env value, never embedded in a URL or path) — the translator rejects malformed or embedded tokens so both harnesses cannot silently diverge.
 
 ## Interpretation per harness
 
@@ -85,7 +87,7 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 ### Registration
 
 - **opencode** (`bin/init.sh:_register_module_mcp`) — translates each enabled module's manifest (resolving `__GPU_ENABLED__`/`__DEV_BOT_ROOT__`), then merges each server into `opencode.jsonc` with `merge_mcp_jsonc.py`. Merge is skip-if-exists, so local/user edits to an `opencode.jsonc` MCP entry survive reinit.
-- **claudecode** (`src/harnesses/claudecode/init.sh:_wire_mcp`) — translates each enabled module's manifest, resolves placeholders _and_ `{env:VAR}`, merges into a temp map, validates transport types (an invalid `type` would make Claude Code reject the whole `.mcp.json`), and writes `.mcp.json` from scratch. Dynamic runtime manifests (`.claude/*.mcp.json`, e.g. jetbrains' port) merge the same way.
+- **claudecode** (`src/harnesses/claudecode/init.sh:_wire_mcp`) — translates each enabled module's manifest, resolves `__GPU_ENABLED__`/`__DEV_BOT_ROOT__`, merges into a temp map, validates transport types (an invalid `type` would make Claude Code reject the whole `.mcp.json`), and writes `.mcp.json` from scratch. Dynamic runtime manifests (`.claude/*.mcp.json`, e.g. jetbrains' port) merge the same way.
 
 ### Reset / reinit
 
@@ -93,7 +95,7 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 
 - `__GPU_ENABLED__` — any resolved string is current (GPU value is machine-dependent);
 - `__DEV_BOT_ROOT__` — the suffix after the placeholder must still match (root layout drift is stale);
-- `{env:VAR}` — current whether the config holds the literal (opencode), a resolved value (claudecode), or omits the key (var unset at registration).
+- `{env:VAR}` — current whether the config holds the native token literal (opencode `{env:VAR}`, claudecode `${VAR}`) or omits the key.
 
 ### Inventory
 

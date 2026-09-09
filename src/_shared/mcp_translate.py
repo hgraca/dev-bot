@@ -155,6 +155,24 @@ def server_map(data: Any) -> dict[str, Any]:
     return {k: v for k, v in mcp.items() if not k.startswith("_")}
 
 
+def _map_env_value(value: Any, harness: str) -> Any:
+    """Translate one env value to the target harness's native syntax.
+
+    {env:VAR} indirection (whole-value-only, validated in _validate_entry) is
+    native to both clients but spelled differently: opencode expands {env:VAR}
+    in its config; Claude Code expands ${VAR} in .mcp.json. Mapping here — the
+    single translation site — keeps secrets out of the claudecode config file
+    (never resolved to plaintext at registration).
+    """
+    if (
+        harness == "claudecode"
+        and isinstance(value, str)
+        and re.fullmatch(r"\{env:[A-Za-z_][A-Za-z0-9_]*\}", value)
+    ):
+        return "${" + value[5:-1] + "}"
+    return value
+
+
 def translate(
     entry: Any,
     harness: str,
@@ -185,7 +203,10 @@ def translate(
                 out["oauth"] = entry["oauth"]
         env = entry.get("env")
         if isinstance(env, dict) and env:
-            out["environment"] = _substitute(env, harness, gpu, root)
+            out["environment"] = {
+                k: _map_env_value(v, harness)
+                for k, v in _substitute(env, harness, gpu, root).items()
+            }
         return out
 
     # claudecode
@@ -198,7 +219,10 @@ def translate(
         out = {"type": "http", "url": _substitute(entry["url"], harness, gpu, root)}
     env = entry.get("env")
     if isinstance(env, dict) and env:
-        out["env"] = _substitute(env, harness, gpu, root)
+        out["env"] = {
+            k: _map_env_value(v, harness)
+            for k, v in _substitute(env, harness, gpu, root).items()
+        }
     return out
 
 

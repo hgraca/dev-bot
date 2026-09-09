@@ -301,13 +301,12 @@ _wire_mcp() {
 
     # Translate the canonical manifest and merge its servers into tmp_servers.
     # __GPU_ENABLED__ / __DEV_BOT_ROOT__ resolve here (the claudecode side now
-    # carries the same env as opencode). {env:VAR} values resolve from the init
-    # environment — .mcp.json cannot interpolate — and an unset var drops the
-    # env key with a warning (the server still registers).
+    # carries the same env as opencode). {env:VAR} values stay unresolved — the
+    # translator maps them to Claude Code's native ${VAR} expansion, which the
+    # .mcp.json client resolves at launch, so secrets never land in the file.
     local translate_failed=0
     python3 - "${mcp_file}" "${tmp_servers}" "$(_qmd_gpu_value)" "${DEV_BOT_ROOT}" "${shared_dir}" <<'PY_EOF' || translate_failed=1
 import json
-import os
 import sys
 
 sys.path.insert(0, sys.argv[5])
@@ -320,19 +319,7 @@ with open(tmp_servers) as f:
     current = json.load(f)
 
 for name, entry in server_map(load_canonical(mcp_file)).items():
-    out = translate(entry, "claudecode", gpu=gpu, root=root)
-    env = out.get("env")
-    if isinstance(env, dict):
-        for key, value in list(env.items()):
-            if isinstance(value, str) and value.startswith("{env:") and value.endswith("}"):
-                var = value[5:-1]
-                resolved = os.environ.get(var)
-                if resolved is None:
-                    print(f"WARN: {name}: env var {var} unset at registration — omitting env key {key}", file=sys.stderr)
-                    del env[key]
-                else:
-                    env[key] = resolved
-    current[name] = out
+    current[name] = translate(entry, "claudecode", gpu=gpu, root=root)
 
 with open(tmp_servers, "w") as f:
     json.dump(current, f)
