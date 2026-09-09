@@ -117,22 +117,26 @@ _reset_symlinks_in_dir "${OPENCODE_DIR}"
 # stale entry. Only STALE entries are removed: dropping an entry that already
 # matches its module template makes init re-append it at the end of the mcp
 # map, reordering keys and breaking reinit byte-idempotency (audit-32 NOTE).
+#
+# The refresh is scoped to an EXPLICIT list of modules whose canonical
+# manifest changed and must propagate into existing configs. Every other
+# module's opencode.jsonc entry is treated as user-owned: merge-only init
+# never overwrites it, and reset never drops it (a user-customized command,
+# url or env var is not stale — review F2). Add a module here when a release
+# changes its mcp.json in a way existing configs must pick up. Disabled
+# modules are pruned unconditionally in the block below, refresh-list or not.
 OPENCODE_CONFIG="${PROJECT_DIR}/opencode.jsonc"
 if [[ -f "${OPENCODE_CONFIG}" ]]; then
   REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
   IS_CURRENT_PY="${DEV_BOT_ROOT}/src/_shared/mcp_key_is_current.py"
   if [[ -f "${REMOVE_MCP_PY}" ]]; then
-    # Every enabled agentic module with a canonical mcp.json. Plugin-provided
-    # servers (codebase-index) are not opencode-registered as MCPs — nothing to
-    # refresh. Disabled modules are pruned unconditionally below.
-    for mod_dir in "${DEV_BOT_ROOT}/src/agentic/"*/; do
-      local_tpl="${mod_dir}mcp.json"
+    REFRESH_MODULES=(qmd mdctx tools-mcp)
+    for mod_name in "${REFRESH_MODULES[@]}"; do
+      local_tpl="${DEV_BOT_ROOT}/src/agentic/${mod_name}/mcp.json"
       [[ -f "${local_tpl}" ]] || continue
-      mod_name="$(basename "${mod_dir}")"
-      if echo "${_disabled_raw}" | jq -e --arg m "${mod_name}" 'index($m) != null' >/dev/null 2>&1; then
-        continue
-      fi
-      [[ -f "${mod_dir}plugin.opencode.json" ]] && continue
+      # Plugin-provided servers (codebase-index) are not opencode-registered
+      # as MCPs — nothing to refresh.
+      [[ -f "${DEV_BOT_ROOT}/src/agentic/${mod_name}/plugin.opencode.json" ]] && continue
       while IFS= read -r mcp_key; do
         [[ -n "${mcp_key}" ]] || continue
         if [[ -f "${IS_CURRENT_PY}" ]] \

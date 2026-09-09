@@ -86,12 +86,11 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 
 ### Registration
 
-- **opencode** (`bin/init.sh:_register_module_mcp`) — translates each enabled module's manifest (resolving `__GPU_ENABLED__`/`__DEV_BOT_ROOT__`), then merges each server into `opencode.jsonc` with `merge_mcp_jsonc.py`. Merge is skip-if-exists, so local/user edits to an `opencode.jsonc` MCP entry survive reinit.
-- **claudecode** (`src/harnesses/claudecode/init.sh:_wire_mcp`) — translates each enabled module's manifest, resolves `__GPU_ENABLED__`/`__DEV_BOT_ROOT__`, merges into a temp map, validates transport types (an invalid `type` would make Claude Code reject the whole `.mcp.json`), and writes `.mcp.json` from scratch. Dynamic runtime manifests (`.claude/*.mcp.json`, e.g. jetbrains' port) merge the same way.
+- **opencode** (`bin/init.sh:_register_module_mcp`) — translates each enabled module's manifest (resolving `__GPU_ENABLED__`/`__DEV_BOT_ROOT__`), then merges each server into `opencode.jsonc` with `merge_mcp_jsonc.py`. Merge is skip-if-exists, so local/user edits to an `opencode.jsonc` MCP entry survive reinit — except entries of the modules on reset's explicit refresh list (see below), which are refreshed when stale.- **claudecode** (`src/harnesses/claudecode/init.sh:_wire_mcp`) — translates each enabled module's manifest, resolves `__GPU_ENABLED__`/`__DEV_BOT_ROOT__`, merges into a temp map, validates transport types (an invalid `type` would make Claude Code reject the whole `.mcp.json`), and writes `.mcp.json` from scratch. Dynamic runtime manifests (`.claude/*.mcp.json`, e.g. jetbrains' port) merge the same way.
 
 ### Reset / reinit
 
-`src/_shared/mcp_key_is_current.py` compares each registered entry against its module's canonical manifest _translated to that harness_ and reports stale entries, so `reset.sh` drops only what init would re-register differently — keeping reinit byte-idempotent (audit-32). It compares placeholder-insensitively:
+`src/_shared/mcp_key_is_current.py` compares a registered entry against its module's canonical manifest _translated to that harness_ and reports stale entries, so `reset.sh` drops only what init would re-register differently — keeping reinit byte-idempotent (audit-32). The opencode refresh is scoped to an **explicit list** of modules whose canonical manifest changed (`qmd`, `mdctx`, `tools-mcp` — add a module here when a release changes its `mcp.json`); every other module's entry is user-owned and never dropped by reset, only pruned when its module is disabled. It compares placeholder-insensitively:
 
 - `__GPU_ENABLED__` — any resolved string is current (GPU value is machine-dependent);
 - `__DEV_BOT_ROOT__` — the suffix after the placeholder must still match (root layout drift is stale);
@@ -109,5 +108,5 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 
 ## Harness differences
 
-- **opencode** — merge-only registration preserves local config edits; stale and disabled-module entries are pruned by `reset.sh` (byte-idempotent). `opencode.jsonc` is gitignored.
+- **opencode** — merge-only registration preserves local config edits; entries of the explicit refresh-list modules and of disabled modules are pruned by `reset.sh` (byte-idempotent). `opencode.jsonc` is gitignored.
 - **claudecode** — `.mcp.json` is regenerated from scratch on every init (also gitignored, so nothing dev-bot-managed is ever committed); edit the module's canonical `mcp.json` to change defaults, since per-project `.mcp.json` edits are overwritten on reinit.
