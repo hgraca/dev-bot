@@ -37,6 +37,22 @@ exit 0
 EOF
   chmod +x "${SANDBOX}/bin/up.sh"
 
+  # Stub reinit.sh — the real one runs reset+init (a mutation the audit forbids
+  # and a heavy flow for a wiring test). Records the invocation; refreshes the
+  # .sha baselines the way a real reinit does (it ends by running init.sh,
+  # which writes them), so a second cmd_harness call would no-op. Runs from
+  # the project dir (cmd_harness cd's there before invoking it), so $(pwd) is
+  # the project and DEV_BOT_ROOT is the sandbox.
+  cat > "${SANDBOX}/bin/reinit.sh" <<'REINIT_EOF'
+#!/usr/bin/env bash
+source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
+echo "reinit-called $(pwd)" >> "${DEV_BOT_ROOT}/reinit.log"
+_devbot_write_config_sha "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+_devbot_write_config_sha "$(pwd)/.devbot.project.jsonc"
+exit 0
+REINIT_EOF
+  chmod +x "${SANDBOX}/bin/reinit.sh"
+
   # Stub harness start.sh — mirrors the real one: shifts off the project
   # dir (its first arg) and records the harness argv it received.
   cat > "${SANDBOX}/src/harnesses/opencode/start.sh" <<EOF
@@ -164,4 +180,41 @@ _run_cmd_models() {
   assert_success
   run cat "${SANDBOX}/models-calls.log"
   assert_output "exec:rm llama3.2:3b"
+}
+
+@test "cmd_harness runs reinit before up when the project config changed (stale baseline)" {
+  rm -f "${SANDBOX}/reinit.log" "${SANDBOX}/start-args.log"
+  # Make the project config differ from its stored .sha → auto-reinit fires.
+  echo '{"harness": "opencode", "project_name": "edited"}' > "${PROJECT}/.devbot.project.jsonc"
+
+  _run_cmd_harness -c "two words"
+  # Copy status/output BEFORE any later `run` overwrites them.
+  local harness_status="${status}" harness_output="${output}"
+  assert_success
+  # reinit ran BEFORE up.sh (the whole point of gap 1).
+  run cat "${SANDBOX}/reinit.log"
+  assert_output "reinit-called ${PROJECT}"
+  # And up still ran afterwards, then start.sh got the passthrough args.
+  [[ "${harness_output}" == *"up-called"* ]]
+  run cat "${SANDBOX}/start-args.log"
+  assert_line --index 0 "start-opencode"
+  assert_line --index 1 "-c"
+  assert_line --index 2 "two words"
+}
+
+@test "cmd_harness reinits at most once — a refreshed baseline no-ops the next start" {
+  rm -f "${SANDBOX}/reinit.log" "${SANDBOX}/start-args.log"
+  echo '{"harness": "opencode", "project_name": "edited"}' > "${PROJECT}/.devbot.project.jsonc"
+
+  # First start: stale → reinit fires and refreshes baselines.
+  _run_cmd_harness
+  assert_success
+  run cat "${SANDBOX}/reinit.log"
+  assert_output --partial "reinit-called"
+
+  # Second start: baselines now match → no second reinit.
+  rm -f "${SANDBOX}/reinit.log"
+  _run_cmd_harness
+  assert_success
+  [ ! -e "${SANDBOX}/reinit.log" ]
 }

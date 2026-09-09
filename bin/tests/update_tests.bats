@@ -191,6 +191,11 @@ _assert_detached_at_newest_tag() {
   _assert_detached_at_newest_tag
   _refresh_ran
   [[ "$UPDATE_OUTPUT" == *"1.2.0"* ]]
+  # The post-jump refresh runs _devbot_detect_gpu (bin/update.sh). The sandbox
+  # install has no .devbot.global.jsonc, so the helper hits its first guard —
+  # asserting that message proves the GPU-detection call site is reached
+  # (without depending on the host's GPU state).
+  [[ "$UPDATE_OUTPUT" == *"gpu detection skipped"* ]]
 }
 
 @test "behind with dirty tree: stashes, jumps, reapplies cleanly" {
