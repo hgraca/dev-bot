@@ -22,6 +22,7 @@ setup() {
   # point HOME at a sandbox holding a fake binary that records its args.
   FAKE_HOME="$(mktemp -d)"
   FAKE_PROJECT="$(mktemp -d)"
+  FAKE_ROOT="$(mktemp -d)"
   mkdir -p "${FAKE_HOME}/.opencode/bin"
 
   cat > "${FAKE_HOME}/.opencode/bin/opencode" <<'EOF'
@@ -31,8 +32,50 @@ EOF
   chmod +x "${FAKE_HOME}/.opencode/bin/opencode"
 }
 
+# ── Env-var gate fixture ─────────────────────────────────────────────────────
+# A fake dev-bot root whose single enabled module references an env var, so
+# _devbot_check_mcp_env_vars (gate) has something to check. memory is disabled
+# so start.sh's detached prune preamble no-ops fast.
+_make_env_gate_root() {
+  mkdir -p "${FAKE_ROOT}/src/tools" "${FAKE_ROOT}/src/agentic/envmod" "${FAKE_ROOT}/src/harnesses"
+  echo '{ "modules": { "memory": false } }' > "${FAKE_ROOT}/.devbot.global.jsonc"
+  cat > "${FAKE_ROOT}/src/agentic/envmod/mcp.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "envmod-server": {
+      "type": "stdio",
+      "command": ["envmod-mcp"],
+      "env": { "ENVMOD_TOKEN": "{env:DEV_TEST_MCP_TOKEN}" }
+    }
+  }
+}
+JSON_EOF
+}
+
+@test "start.sh warns about unset MCP env vars and still launches (non-interactive)" {
+  _make_env_gate_root
+  unset DEV_TEST_MCP_TOKEN
+  DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" \
+    run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+  assert_success
+  assert_output --partial "DEV_TEST_MCP_TOKEN"
+  assert_output --partial "envmod"
+  assert_output --partial ".bashrc"
+}
+
+@test "start.sh launches cleanly when MCP env vars are set" {
+  _make_env_gate_root
+  export DEV_TEST_MCP_TOKEN="present"
+  DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" \
+    run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+  assert_success
+  refute_output --partial "DEV_TEST_MCP_TOKEN"
+  refute_output --partial "envmod"
+  unset DEV_TEST_MCP_TOKEN
+}
+
 teardown() {
-  rm -rf "${FAKE_HOME}" "${FAKE_PROJECT}"
+  rm -rf "${FAKE_HOME}" "${FAKE_PROJECT}" "${FAKE_ROOT}"
 }
 
 @test "start.sh launches opencode without forcing an agent" {

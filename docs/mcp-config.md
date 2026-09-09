@@ -73,6 +73,17 @@ Resolved at translation time by `mcp_translate.py`:
 
 `{env:VAR}` is whole-value-only (it must be the entire env value, never embedded in a URL or path) — the translator rejects malformed or embedded tokens so both harnesses cannot silently diverge.
 
+### Env-var presence check (init / harness start)
+
+Because the client resolves `{env:VAR}` at launch, a missing variable only surfaces when the server fails to start — long after init wrote the config. `src/_shared/mcp_env_refs.py` + the `_devbot_*_mcp_env_vars` helpers in `src/_shared/functions.sh` close that gap by checking, against the current shell env, every `{env:VAR}` referenced by the canonical manifests of **enabled** modules (plugin-provided and disabled modules are skipped, mirroring the registration skip set):
+
+- **`devbot init` / single-project `reinit`** — after MCP registration, if any referenced var is unset/empty, init prints the notice (var + module/server + `export VAR=…` in `~/.bashrc`) and waits for a **press-any-key acknowledgement** before continuing.
+- **`devbot reinit --all`** — each per-project init emits only a compact notice (`DEV_BOT_DEFER_ENV_DIALOG=1` defers the dialog); after all projects are processed, reinit shows **one** full notice for the union of missing vars across projects.
+- **`devbot` (harness `start.sh`, opencode + claudecode)** — before launching, the same check asks **"Launch the harness anyway? [y/N]"**; answering No aborts the launch.
+- **Non-interactive** runs (`SKIP_CONFIRM=1` or no TTY) print the notice but never block.
+
+The notice tells the user to add the vars to their shell profile (`~/.bashrc` or equivalent) and start devbot from a **new terminal** — the running process cannot pick up vars added after it started. The check only tests presence; values are never resolved or written to any config (secrets stay out of configs, per the design above).
+
 ## Interpretation per harness
 
 `mcp_translate.py` output shapes:

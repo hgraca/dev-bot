@@ -497,6 +497,14 @@ for m in modules:
     done
   done
 
+  # ── 3.5 Env-var presence check ─────────────────────────────────────────
+  # Configs registered above may reference {env:VAR} tokens that must exist
+  # in the env of whatever launches the harness. If any are missing, tell
+  # the user and wait for an acknowledgement before continuing. Under
+  # `devbot reinit --all` the DEV_BOT_DEFER_ENV_DIALOG marker collapses this
+  # to a compact per-project notice; the end-of-run dialog shows the union.
+  _devbot_check_mcp_env_vars "${PROJECT_DIR}" ack
+
   # ── 4. Memory links + external module init ──────────────────────────────
   _prune_orphaned_external_modules
   _link_memory_folders

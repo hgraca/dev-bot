@@ -20,6 +20,7 @@ setup() {
 
   FAKE_BIN="$(mktemp -d)"
   FAKE_PROJECT="$(mktemp -d)"
+  FAKE_ROOT="$(mktemp -d)"
 
   # Fake claude records its CLI args — start.sh must `exec` it, so the
   # recorded output is exactly what the real claude would receive.
@@ -30,8 +31,50 @@ EOF
   chmod +x "${FAKE_BIN}/claude"
 }
 
+# ── Env-var gate fixture ─────────────────────────────────────────────────────
+# A fake dev-bot root whose single enabled module references an env var, so
+# _devbot_check_mcp_env_vars (gate) has something to check. memory is disabled
+# so start.sh's detached prune preamble no-ops fast.
+_make_env_gate_root() {
+  mkdir -p "${FAKE_ROOT}/src/tools" "${FAKE_ROOT}/src/agentic/envmod" "${FAKE_ROOT}/src/harnesses"
+  echo '{ "modules": { "memory": false } }' > "${FAKE_ROOT}/.devbot.global.jsonc"
+  cat > "${FAKE_ROOT}/src/agentic/envmod/mcp.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "envmod-server": {
+      "type": "stdio",
+      "command": ["envmod-mcp"],
+      "env": { "ENVMOD_TOKEN": "{env:DEV_TEST_MCP_TOKEN}" }
+    }
+  }
+}
+JSON_EOF
+}
+
+@test "start.sh warns about unset MCP env vars and still launches (non-interactive)" {
+  _make_env_gate_root
+  unset DEV_TEST_MCP_TOKEN
+  DEV_BOT_ROOT="${FAKE_ROOT}" PATH="${FAKE_BIN}:${PATH}" \
+    run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+  assert_success
+  assert_output --partial "DEV_TEST_MCP_TOKEN"
+  assert_output --partial "envmod"
+  assert_output --partial ".bashrc"
+}
+
+@test "start.sh launches cleanly when MCP env vars are set" {
+  _make_env_gate_root
+  export DEV_TEST_MCP_TOKEN="present"
+  DEV_BOT_ROOT="${FAKE_ROOT}" PATH="${FAKE_BIN}:${PATH}" \
+    run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+  assert_success
+  refute_output --partial "DEV_TEST_MCP_TOKEN"
+  refute_output --partial "envmod"
+  unset DEV_TEST_MCP_TOKEN
+}
+
 teardown() {
-  rm -rf "${FAKE_BIN}" "${FAKE_PROJECT}"
+  rm -rf "${FAKE_BIN}" "${FAKE_PROJECT}" "${FAKE_ROOT}"
 }
 
 @test "start.sh launches claude without forcing an agent" {

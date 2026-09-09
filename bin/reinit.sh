@@ -175,6 +175,9 @@ for p in json.loads(sys.stdin.read()):
     echo
 
     local i=0
+    # Each per-project init emits only a compact env-var notice; the single
+    # end-of-run dialog below shows the union across all projects.
+    export DEV_BOT_DEFER_ENV_DIALOG=1
     while IFS= read -r project_dir; do
       i=$((i + 1))
       _header_2 "Project ${i}/${project_count}: ${project_dir}"
@@ -185,6 +188,31 @@ import json, sys
 for p in json.loads(sys.stdin.read()):
     print(p)
 " 2>/dev/null)
+    unset DEV_BOT_DEFER_ENV_DIALOG
+
+    # ── 4b. End-of-run env-var dialog (union across every processed project) ──
+    # init.sh only warned per project (deferred). Present the union once:
+    # collect refs from all projects, dedupe, and run the full notice + ack.
+    local union_refs=""
+    while IFS= read -r project_dir; do
+      [[ -d "${project_dir}" ]] || continue
+      local proj_refs
+      proj_refs="$(_devbot_missing_mcp_env_vars "${project_dir}")"
+      if [[ -n "${proj_refs}" ]]; then
+        union_refs+="${proj_refs}"$'\n'
+      fi
+    done < <(echo "${projects_json}" | python3 -c "
+import json, sys
+for p in json.loads(sys.stdin.read()):
+    print(p)
+" 2>/dev/null)
+
+    if [[ -n "${union_refs}" ]]; then
+      # Dedupe identical ref lines across projects (same module+server+key+var).
+      local deduped
+      deduped="$(echo "${union_refs}" | awk '!seen[$0]++')"
+      _devbot_present_missing_env_vars "${deduped}" ack
+    fi
   else
     # Single project: reinit current working directory
     _reinit_project "$(pwd)" "${reset_scripts[@]}"

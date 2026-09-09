@@ -834,6 +834,152 @@ _collect_module_scripts() {
   done
 }
 
+# ── MCP env-var presence check ──────────────────────────────────────────────────
+#
+# _devbot_missing_mcp_env_vars <project_dir>
+#   Prints one line per {env:VAR} reference found in an enabled module's
+#   canonical mcp.json whose variable is unset or empty in the current shell
+#   env. Line format: <module>|<server>|<env_key>|<VAR> (pipe-separated).
+#   Skips disabled modules and plugin-provided modules (plugin.opencode.json)
+#   — the same skip set as init's _register_module_mcp. The extractor is
+#   resolved from this file's directory (not DEV_BOT_ROOT, which may be
+#   overridden to a sandbox root in tests).
+#
+# _devbot_present_missing_env_vars <refs> <mode>
+#   refs: newline-separated <module>|<server>|<env_key>|<VAR> lines (as
+#   produced by _devbot_missing_mcp_env_vars). mode:
+#     report — print the notice, no prompt
+#     ack    — print the notice, ask the user to press any key, continue
+#     gate   — print the notice, ask y/N "launch the harness anyway"; N → 1
+#   DEV_BOT_DEFER_ENV_DIALOG=1 (reinit --all defers the dialog to the end of
+#   the run), SKIP_CONFIRM=1 and non-TTY stdin all collapse ack/gate to
+#   report — never block a non-interactive run.
+#
+# _devbot_check_mcp_env_vars <project_dir> <mode>
+#   Wrapper: collect the missing refs, then present them in the given mode.
+
+_devbot_missing_mcp_env_vars() {
+  local project_dir="${1:-$(pwd)}"
+  local shared_dir
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local refs_script="${shared_dir}/mcp_env_refs.py"
+  [[ -f "${refs_script}" ]] || return 0
+
+  local disabled_raw disabled_modules
+  disabled_raw="$(_devbot_get_disabled_modules "${project_dir}")"
+  disabled_modules="$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)"
+
+  local base_dir
+  for base_dir in "${DEV_BOT_ROOT}/src/tools" "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/harnesses"; do
+    [[ -d "${base_dir}" ]] || continue
+    local mod_dir
+    for mod_dir in "${base_dir}/"*/; do
+      local mod_name mod_mcp
+      mod_name="$(basename "${mod_dir}")"
+      mod_mcp="${mod_dir}mcp.json"
+      [[ -f "${mod_mcp}" ]] || continue
+
+      if echo "${disabled_modules}" | grep -Fxq "${mod_name}" 2>/dev/null; then
+        continue
+      fi
+      # Plugin-provided servers are NOT MCP-registered (opencode loads them
+      # from plugin.opencode.json) — their env refs are not init's business.
+      if [[ -f "${mod_dir}plugin.opencode.json" ]]; then
+        continue
+      fi
+
+      local server env_key var
+      while IFS=$'\t' read -r server env_key var; do
+        [[ -n "${server}" ]] || continue
+        if [[ -z "${!var:-}" ]]; then
+          echo "${mod_name}|${server}|${env_key}|${var}"
+        fi
+      done < <(python3 "${refs_script}" "${mod_mcp}" 2>/dev/null)
+    done
+  done
+}
+
+_devbot_present_missing_env_vars() {
+  local refs="$1"
+  local mode="${2:-report}"
+  [[ -n "${refs}" ]] || return 0
+
+  # reinit --all defers the dialog to the end of the run: each per-project
+  # init emits only a COMPACT notice (the end-of-run dialog dedupes and shows
+  # the full detail). SKIP_CONFIRM and a non-TTY stdin mean nobody is there
+  # to answer — emit the full notice but never prompt.
+  if [[ "${DEV_BOT_DEFER_ENV_DIALOG:-0}" == "1" ]]; then
+    local compact_vars=""
+    local line
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] || continue
+      local var="${line##*|}"
+      if ! echo "${compact_vars}" | grep -Fxq "${var}" 2>/dev/null; then
+        compact_vars+="${var} "
+      fi
+    done <<<"${refs}"
+    _warn "MCP configs reference unset env var(s): ${compact_vars}— full notice at end of reinit"
+    return 0
+  fi
+
+  local effective_mode="${mode}"
+  if [[ "${SKIP_CONFIRM:-0}" == "1" || ! -t 0 ]]; then
+    effective_mode="report"
+  fi
+
+  _warn "MCP configs reference environment variables that are not set:"
+  local line
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    local module="${line%%|*}"
+    local rest="${line#*|}"
+    local server="${rest%%|*}"
+    rest="${rest#*|}"
+    local env_key="${rest%%|*}"
+    local var="${rest#*|}"
+    _log "  ${var} (${module} MCP '${server}', env key '${env_key}')"
+  done <<<"${refs}"
+
+  # One export suggestion per unique variable (the refs may repeat a var).
+  _warn "Add them to your shell profile (e.g. ~/.bashrc or equivalent):"
+  local unique_vars=""
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] || continue
+    local var="${line##*|}"
+    if ! echo "${unique_vars}" | grep -Fxq "${var}" 2>/dev/null; then
+      unique_vars+="${var}"$'\n'
+      _log "  export ${var}=..."
+    fi
+  done <<<"${refs}"
+  _info "Then start devbot from a NEW terminal so it picks up the new variables."
+
+  case "${effective_mode}" in
+    ack)
+      _info "Press any key to acknowledge and continue..."
+      read -r -n 1 -s 2>/dev/null || true
+      _ok "Continuing."
+      ;;
+    gate)
+      _warn "Launch the harness anyway? [y/N]"
+      local answer
+      read -r answer 2>/dev/null || true
+      if [[ "${answer}" =~ ^[yY](es)?$ ]]; then
+        return 0
+      fi
+      return 1
+      ;;
+  esac
+  return 0
+}
+
+_devbot_check_mcp_env_vars() {
+  local project_dir="${1:-$(pwd)}"
+  local mode="${2:-report}"
+  local refs
+  refs="$(_devbot_missing_mcp_env_vars "${project_dir}")"
+  _devbot_present_missing_env_vars "${refs}" "${mode}"
+}
+
 # ── Service lifecycle runner (up.sh / down.sh) ──────────────────────────────────
 #
 # _run_service_scripts <script_name> [args...]

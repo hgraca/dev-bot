@@ -44,6 +44,15 @@ _devbot_rotate_session_logs "${PROJECT_DIR}"
 # session.created of a process. Fail-open — never blocks the launch.
 _devbot_prune_memories_detached "${PROJECT_DIR}" || true
 
+# Gate: MCP configs registered at init may reference {env:VAR} tokens that
+# must be set in THIS shell's env (the harness inherits it). If any are
+# missing, ask whether to launch anyway — the affected servers would fail to
+# start. Non-interactive runs (SKIP_CONFIRM / no TTY) warn and launch.
+if ! _devbot_check_mcp_env_vars "${PROJECT_DIR}" gate; then
+  _fatal "Aborting launch — set the missing env vars (see above), then start devbot from a new terminal."
+  exit 1
+fi
+
 # Run the harness as a child (not exec) so the session-error check can run
 # after it exits; preserve the harness exit code for the caller.
 harness_exit=0
