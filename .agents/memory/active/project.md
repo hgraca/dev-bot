@@ -1,189 +1,150 @@
 ---
 tags: [bootstrap, project]
-description: dev-bot — agentic dev toolkit for GET-E, multi-agent orchestration on OpenCode
+description: dev-bot — agentic dev toolkit for GET-E, multi-agent orchestration on opencode / claude code
 ---
 
 ## What this project is
 
-dev-bot is an agentic software development toolkit for the GET-E engineering team. Provides multi-agent system (DevBot orchestrator + 8 specialized subagents) running on OpenCode (or Claude Code). Written in Bash, TypeScript, Python, and Markdown. Handles planning, implementation, testing, review, architecture, security, and memory for AI-assisted development workflows.
+dev-bot is the GET-E engineering team's agentic development toolkit: 12 first-party agent definitions (devbot, designer, expert, teamlead + 8 devteam specialists) plus capability modules (skills, tools, lifecycle hooks, MCP servers) that install into an opencode or claude code harness. Written in Bash, TypeScript, Python, and Markdown. Handles planning, implementation, testing, review, architecture, security, and memory for AI-assisted development workflows.
 
 ## Sibling projects
 
-You can get the list of sibling projects from .devbot.global.jsonc::projects
+List of sibling projects in `.devbot.global.jsonc::projects`.
 
 ## Repository layout
 
-| Path            | Contents                                                                                                                                                                                                                                                                       |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `.opencode/`    | OpenCode runtime: agents (9), skills (20 modules, symlinked from `src/`), commands (6), tools (11), plugins (8)                                                                                                                                                                |
-| `src/`          | Module source — each has skill, hooks, tools, tests, lifecycle scripts                                                                                                                                                                                                         |
-| `src/_shared/`  | Shared library: `functions.sh` (15+ utility functions), `read_jsonc.py` (JSONC parser)                                                                                                                                                                                         |
-| `src/agentic/`  | Agent definitions (9 agents: devbot, po, architect, critic, developer, reviewer, tester, scout, security)                                                                                                                                                                      |
-| `src/agentic/`  | 23 modules: agent-communication, architecture, auto-recover, codebase-index, chrome-devtools, context7, dev, docs, explore, external-modules, format-md, git-report, graphify, guards, memory, playwright, qmd, repomix, security, self-improvement, tree, websearch, workflow |
-| `src/tools/`    | 3 tools: ollama, litellm, opencode — each with `install.sh`, `init.sh`, `update.sh`; ollama + litellm also have `docker-compose.yml`                                                                                                                                           |
-| `bin/`          | CLI entry (`devbot`) + lifecycle scripts (install, init, update, up, down)                                                                                                                                                                                                     |
-| `docs/`         | Module docs, agent docs, config ref, claudecode/ and opencode/ subfolders                                                                                                                                                                                                      |
-| `.ai/devbot/`   | Agent memory vault (gitignored): bootstrap, latent notes, work folders                                                                                                                                                                                                         |
-| `no-vcs/`       | Runtime symlinks (agents, skills, commands from vendor), node_modules, index (gitignored per `ignore.md`)                                                                                                                                                                      |
-| `graphify-out/` | Knowledge graph output dir (gitignored)                                                                                                                                                                                                                                        |
+| Path                                                   | Contents                                                                                                                                                                                                                                                                                         |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.agents/`                                             | Agent home for this repo: `memory/` = committed vault (active + latent/ADRs, PDRs, learnings; `thinking/`, `work/`, `latent/global`, `logs` gitignored); `skills/`, `agents/`, `commands/`, `tools/` = symlink farms into `src/` + `vendor/` (machine-local, gitignored via `.git/info/exclude`) |
+| `.devbot.*.dist.jsonc`                                 | Committed dist configs; copied to gitignored `.devbot.global.jsonc` / `.devbot.project.jsonc` at install                                                                                                                                                                                         |
+| `.github/workflows/`                                   | CI: docs-site deploy (`jekyll-gh-pages.yml`)                                                                                                                                                                                                                                                     |
+| `.opencode/`                                           | Runtime symlink farm (agents, commands, tools, plugins) regenerated by install/init/up — gitignored                                                                                                                                                                                              |
+| `AGENTS.md`, `CLAUDE.md`                               | Root agent-instruction entrypoints read by harness; gitignored (machine-local)                                                                                                                                                                                                                   |
+| `bin/`                                                 | `devbot` CLI + lifecycle scripts (`install/update/up/down/init/reinit/prune/uninstall.sh`) + `bin/tests/` BATS                                                                                                                                                                                   |
+| `docs/`                                                | Jekyll site (GH Pages): module-reference, configuration, mcp-config, mcps, harnesses, hooks, agents, cli-commands, create-a-module; `_site/` gitignored                                                                                                                                          |
+| `src/agentic/`                                         | 37 capability folders — skills, tools, hooks, tests, lifecycle scripts (20 with `install.sh`; 13 with canonical `mcp.json`); agent defs under `devbot/agents` + `devteam/agents`                                                                                                                 |
+| `src/harnesses/`                                       | Harness implementations: `opencode/`, `claudecode/` — each `init.sh`/`reset.sh`/`start.sh`, dist config, `_*.tpl` scaffold                                                                                                                                                                       |
+| `src/_shared/`                                         | Shared lib: `functions.sh`, `read_jsonc.py`, `mcp_translate.py`, `mcp_key_is_current.py`, `merge_mcp_jsonc.py`, `logger.ts`                                                                                                                                                                      |
+| `src/tools/`                                           | Standalone tools: `devbot-cli`, `external-modules`, `ollama`, `litellm` (ollama/litellm carry `docker-compose.yml`)                                                                                                                                                                              |
+| `Makefile`                                             | Preferred runner: `install`, `update`, `up`, `down`, `test`, `docs`, `build-test-image`                                                                                                                                                                                                          |
+| `storage/`                                             | Local service volumes (ollama models); `storage/global-memories/` tracked shipped knowledge base                                                                                                                                                                                                 |
+| `tests/test-project/`                                  | Docker fixture for e2e BATS (image `devbot-test`)                                                                                                                                                                                                                                                |
+| `vendor/`                                              | Cloned external modules (addyosmani/agent-skills, mattpocock/skills) — gitignored                                                                                                                                                                                                                |
+| `no-vcs/`, `node_modules/`, `graphify-out/`            | Runtime/vendored/index — gitignored, never read per `ignore.md`                                                                                                                                                                                                                                  |
+| `install.sh`, `docker-compose.gpu.yml`, `package.json` | Root installer (also staged into docs `_site`), optional GPU compose, opencode plugin SDK dep                                                                                                                                                                                                    |
 
 ## Architecture
 
-Modular monolith + symlink-based plugin wiring. Each module under `src/agentic/<name>/` follows consistent layout:
+Modular monolith + symlink wiring. Canonical sources under `src/` are committed; harness runtime dirs (`.opencode/`, `.agents/{skills,agents,commands,tools}`) are generated symlink farms — a fresh clone gets its wiring from `make install` / `devbot init`.
 
-| Component                      | Description                                                      |
-| ------------------------------ | ---------------------------------------------------------------- |
-| `skills/<skill-name>/SKILL.md` | Agent-readable skill instructions                                |
-| `tools/`                       | Executable tools (Bash, Python, TS) wired into OpenCode          |
-| `hooks/`                       | Lifecycle hooks (opencode/ and claudecode/ variants)             |
-| `tests/`                       | BATS shell test suite                                            |
-| `functions.sh`                 | Thin wrapper sourcing `src/_shared/functions.sh`                 |
-| `install.sh`                   | Idempotent installer — wires hooks, tools, runtime deps          |
-| `init.sh`                      | Per-project initialization (optional)                            |
-| `update.sh`                    | Update logic (often re-executes install.sh)                      |
-| `pre.sh`                       | Prerequisites check run before install/update (optional)         |
-| `up.sh`                        | Post-startup script run after docker services are up (optional)  |
-| `mcp.opencode.json`            | MCP server definition for auto-registration (optional)           |
-| `external-modules.json`        | Declares external module dependencies for auto-wiring (optional) |
+Module anatomy — `src/agentic/<name>/`:
+
+| Component                                | Description                                                                       |
+| ---------------------------------------- | --------------------------------------------------------------------------------- |
+| `skills/<skill>/SKILL.md`                | Agent-readable skill instructions                                                 |
+| `tools/`                                 | Executable tools (Bash/Python/TS), exposed as `*.mcp.sh` via `.agents/tools` farm |
+| `hooks/opencode/*.ts`                    | Module-scoped lifecycle plugin hooks (e.g. auto-recover)                          |
+| `tests/`                                 | BATS test suite (module-local)                                                    |
+| `install.sh` (+ `init/update/pre/up.sh`) | Lifecycle scripts — idempotent; 20 modules have them                              |
+| `mcp.json`                               | Canonical harness-agnostic MCP manifest (13 modules)                              |
+
+Agent definitions:
+
+| Location                                 | Agents                                                                                       |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `src/agentic/devbot/agents/`             | devbot (pair-programmer mode), designer, expert                                              |
+| `src/agentic/devteam/agents/`            | teamlead (orchestrator), po, architect, critic, developer, reviewer, tester, scout, security |
+| `vendor/addyosmani/agent-skills/agents/` | external: code-reviewer, security-auditor, test-engineer, web-performance-auditor            |
 
 **Key patterns:**
 
-- **Multi-agent orchestration**: DevBot classifies work by type/size, delegates to subagents (PO, Architect, Critic, Developer, Tester, Reviewer, Security, Scout) via structured protocol (`devbot:agent-communication` skill).
-- **Planning → Implementation workflow**: `devbot:make-plan` + `devbot:implement-story` drive staged process: backlog (PO) → plan (Architect) → review (Critic) → approve (DevBot) → implement (Developer + Tester + Reviewer).
-- **Memory vault**: `.agents/memory/` stores agent knowledge (latent notes, ADRs, PDRs, thinking, work) — captured automatically by `remember-session` hooks.
-- **Plugin hooks**: OpenCode lifecycle hooks (`on-file_edited-*`, `on-tool_execute_before-*`, `on-session_error-*`, `on-session_idle-*`) for guards, format-md, auto-recover.
-- **Entry point**: `bin/devbot` CLI (Bash) — subcommands: install, init, update, up, down, tool, module, models.
-- **External modules**: Third-party agent skills/tools wired via `modules` config (e.g. addyosmani/agent-skills), cloned into `vendor/`, symlinked into `.opencode/`.
-- **Local LLM**: Docker Compose runs Ollama for local inference (port 18434). Optional LiteLLM proxy.
-- **Graph-based code analysis**: `graphify` tool produces codebase knowledge graphs in `graphify-out/`.
-
-### Cascading `functions.sh` dependency chain
-
-All modules share a single library via a cascading source chain:
+- **Two operating modes**: devbot (human pair programming, writes with human) and teamlead (orchestrator — delegates all code/tests, never writes) — see `devbot.md` and `teamlead.md`.
+- **Planning → Implementation workflow**: `devbot:make-plan` (PO → Architect → Critic) then `devbot:implement-story` (Tester → Developer → Reviewer cycles).
+- **Harness-driven config generation**: `devbot` CLI (bare invocation) boots the configured harness via `src/harnesses/<harness>/start.sh`; harness `init.sh`/`reset.sh` regenerate runtime config (`opencode.jsonc`, `.mcp.json`) from canonical sources. `opencode.dist.jsonc` lives in `src/harnesses/opencode/`.
+- **MCP manifests are canonical + translated** (ADR `20260908213000-mcp-manifest-consolidation`): each module declares servers once in harness-agnostic `src/agentic/<module>/mcp.json` (`{"mcp": {<server>: {type: stdio|http, command|url, env}}}`); `src/_shared/mcp_translate.py` maps to opencode (`stdio→local`/`environment`) and claudecode (`command`+`env`, `${VAR}`) shapes. No per-server `enabled` — module enablement is the only gate. Divergence via tokens: `{harness-dir}`, `{host}`, `{env:VAR}`, `__GPU_ENABLED__`, `__DEV_BOT_ROOT__`. Exceptions stay structural: codebase-index's plugin-based opencode integration; dynamic runtime manifests (`.opencode/*.mcp.json`, e.g. jetbrains). Schema + wiring in `docs/mcp-config.md`.
+- **Memory vault committed**: `.agents/memory/` is git-tracked (113 files; `commit_memory: true` in both `.devbot.*.jsonc`). Latent `thinking/`/`work`/`global` and `.agents/logs` are gitignored. Memory files are committed; the symlink farms around them are not.
+- **Cascading `functions.sh` chain**:
 
 ```
-src/_shared/functions.sh          ← root shared library (15+ utility functions)
-  ├── src/agentic/*/functions.sh  ← thin wrapper: sources _shared (7 lines)
-  ├── src/tools/*/functions.sh    ← thin wrapper: sources _shared (7 lines)
-  └── bin/*.sh                    ← lifecycle scripts: source _shared directly
+src/_shared/functions.sh         ← root shared library (15+ utility functions)
+  ├── src/agentic/*/functions.sh ← thin wrapper: sources _shared
+  ├── src/tools/*/functions.sh   ← thin wrapper: sources _shared
+  └── bin/*.sh                   ← lifecycle scripts: source _shared directly
 ```
 
-`src/_shared/functions.sh` provides: `_upsert_gitignore_section`, `_upsert_hook_section`, `_upsert_opencode_plugin`, `_run_module_prereqs`, `_pull_ollama_models`, `_devbot_get_disabled_modules`, `_check_python3`, `_fmt_duration`, output helpers (`_info`, `_ok`, `_skip`, `_warn`, `_error`, `_header_1/2/3`), `_step`.
+- **Docker Compose pattern**: compose files live per-tool (`src/tools/ollama/docker-compose.yml` etc.), auto-discovered by `bin/up.sh`/`bin/down.sh` (filtered by `disabled_modules`); `docker-compose.gpu.yml` appended when `gpu_enabled: true`. Ollama `127.0.0.1:18434`, optional LiteLLM `127.0.0.1:18000`.
+- **External modules**: git repos (addyosmani/agent-skills, mattpocock/skills) cloned into `vendor/` via `external_modules` config, symlinked into `.agents/` and `.opencode/` by install.
+- **Plugin hooks centralize in the harness**: harness-level dispatch in `src/harnesses/opencode/hooks/on-hooks.ts`; only auto-recover carries module-scoped `hooks/opencode/on-*.ts` (session-error recovery, silent-stall watchdog).
 
-Module-level `functions.sh` files are thin wrappers (7 lines) that resolve `MODULE_DIR` and source `../../_shared/functions.sh`. `bin/*.sh` scripts source `src/_shared/functions.sh` directly via `DEV_BOT_ROOT`.
+## Lifecycle & workflows
 
-### Docker Compose pattern
+`bin/devbot` CLI delegates to `bin/<command>.sh`; each lifecycle script loops `src/tools/*/` and `src/agentic/*/` running the matching script, honoring `disabled_modules` (project + global config merged).
 
-Docker compose files live under `src/tools/<tool>/docker-compose.yml` — not at project root:
+| Command                                     | Purpose                                                                                                                                                                               |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `devbot` (bare)                             | Boot configured harness (opencode or claudecode)                                                                                                                                      |
+| `devbot install` / `init [path]` / `reinit` | Install toolkit / scaffold a consumer project / regenerate wiring                                                                                                                     |
+| `devbot update [tag]`                       | Update dev-bot (release-tag based)                                                                                                                                                    |
+| `devbot up` / `down`                        | Start/stop local LLM services (docker compose)                                                                                                                                        |
+| `devbot models`, `tool`, `list <type>`      | Ollama model mgmt, run a tool, list inventory (incl. `list mcps`)                                                                                                                     |
+| `make test`                                 | **Preferred full suite** — BATS (`src/` + `bin/`), `bun test src/`, python `unittest` over `test_*.py` (~4 min; heavy e2e: search-memories, git-report, init scaffold, harness reset) |
+| `make docs` / `make build-test-image`       | Serve docs site locally / build `devbot-test` e2e fixture                                                                                                                             |
 
-| Tool    | Service | Port mapping            | Notes                                                |
-| ------- | ------- | ----------------------- | ---------------------------------------------------- |
-| ollama  | ollama  | `127.0.0.1:18434:11434` | Healthcheck: `ollama list`, volume: `storage/ollama` |
-| litellm | litellm | `127.0.0.1:18000:4000`  | Depends on ollama `service_healthy`                  |
+Disabled modules in this repo instance (config): claudecode, graphify, litellm, react, signoz, svelte.
 
-`bin/up.sh` and `bin/down.sh` **auto-discover** compose files via `find src/tools -maxdepth 2 -name 'docker-compose.yml'`, filter by `disabled_modules` config, and build `-f` flags for `docker compose`. If `gpu_enabled: true` in `.devbot.jsonc`, a `docker-compose.gpu.yml` is appended.
+## Runtime & deployment
 
-### MCP config pattern (`mcp.opencode.json`)
+dev-bot is an **installed toolkit**, not a deployed app: it runs inside a consumer's opencode/claude code checkout; local Ollama/LiteLLM containers (`make up`) support local inference and embeddings. The only "production" surface is the **docs site**: Jekyll in `docs/`, deployed to GitHub Pages from `main` (repo is private, so the Pages site also serves `install.sh` — raw.githubusercontent.com only serves public repos).
 
-Seven agentic modules provide MCP servers via `src/agentic/<module>/mcp.opencode.json`. Each file defines a single MCP server entry with a top-level key:
+## CI/CD
 
-```json
-{
-  "<mcp-key>": {
-    "type": "local" | "remote",
-    "command": ["...", "..."],   // local only
-    "url": "https://...",        // remote only
-    "enabled": true
-  }
-}
-```
-
-| Module          | Type   | Transport                          |
-| --------------- | ------ | ---------------------------------- |
-| graphify        | local  | `bash .opencode/graphify-serve.sh` |
-| codebase-index  | local  | `npx opencode-codebase-index-mcp`  |
-| qmd             | local  | `qmd mcp`                          |
-| chrome-devtools | local  | `npx chrome-devtools-mcp@latest`   |
-| playwright      | local  | `docker run mcp/playwright`        |
-| context7        | remote | `https://mcp.context7.com/mcp`     |
-| websearch       | remote | `https://mcp.exa.ai/mcp`           |
-
-`bin/init.sh` auto-registers these into the project's `opencode.jsonc`: scans `src/agentic/*/mcp.opencode.json`, extracts the MCP key, checks for existing registration, substitutes `__GPU_ENABLED__` placeholder, and merges via `jq`.
-
-### External module config pattern (`external-modules.json`)
-
-Modules that depend on external git repositories (skills, agents, commands) declare them via `src/agentic/<module>/external-modules.json`. Each file defines one or more external module entries matching the `.devbot.jsonc` `modules` key format:
-
-```json
-{
-    "<module-name>": {
-        "url": "<git-url>",
-        "paths": {
-            "<type>": "<path>"
-        }
-    }
-}
-```
-
-Entries are auto-merged into the root `.devbot.jsonc` `modules` config by `bin/up.sh` (via `_rebuild_external_module_config()`), which scans all enabled modules, collects their declarations, and adds missing entries idempotently. Disabled modules' declarations are skipped.
-
-| Module           | Declared external modules |
-| ---------------- | ------------------------- |
-| external-modules | _(canonical spec holder)_ |
-
-### `bin/` lifecycle delegation
-
-The `bin/devbot` CLI delegates each subcommand to a corresponding `bin/<command>.sh` script. Each lifecycle script follows the same pattern: source `src/_shared/functions.sh`, then loop through `src/tools/*/` and `src/agentic/*/` running the matching script, respecting `disabled_modules` config.
-
-| Command   | Script           | Flow                                                                                                    |
-| --------- | ---------------- | ------------------------------------------------------------------------------------------------------- |
-| `install` | `bin/install.sh` | `pre.sh` → `src/tools/*/install.sh` → `src/agentic/*/install.sh`                                        |
-| `update`  | `bin/update.sh`  | git pull → `npm update` → `src/tools/*/update.sh` → `pre.sh` → `src/agentic/*/update.sh`                |
-| `init`    | `bin/init.sh`    | `src/tools/*/init.sh` → `src/agentic/*/init.sh` → MCP registration → external modules                   |
-| `up`      | `bin/up.sh`      | docker compose up (auto-discovered) → external module config rebuild → `src/**/up.sh` (auto-discovered) |
-| `down`    | `bin/down.sh`    | docker compose down (auto-discovered)                                                                   |
-
-**Disabled modules**: Config-driven via `.devbot.jsonc` (`disabled_modules` array). Per-project override in `.ai/devbot/devbot.jsonc` merged with global config. All lifecycle scripts filter by this list before running module/tool scripts.
-
-## Tool entry points
-
-- **`.ts` tools are authoritative** — agents/LLM invoke `.ts` tools directly via OpenCode tool palette. Business logic lives in `.ts` files.
-- **`.sh` scripts are human CLI wrappers only** — thin entry points that delegate to `.ts` via `bun run`. Never contain business logic.
-- **`.py` scripts are internal helpers** — called by `.ts` or `.sh` as subprocesses; never the primary entry point for agents.
+Single GitHub Actions workflow — `.github/workflows/jekyll-gh-pages.yml`: builds the Jekyll docs site (Ruby 3.3, bundler cache in `docs/`) and deploys to Pages on pushes to `main` touching `docs/**` or the workflow itself; manual `workflow_dispatch` available. **No CI runs the test suite** — `make test` is local-only. Merge to `main` == docs redeploy (no app deploy exists).
 
 ## Critical conventions
 
-- `.ai/` gitignored — never commit agent working state to project repo.
-- `no-vcs/` NEVER read/modified by agents (enforced by `ignore.md`).
-- JSONC format (JSON + comments, trailing commas) for all config files — parsed via `src/_shared/read_jsonc.py` (strips `//` and `/* */` comments), never raw `jq`.
-- Symlink-based wiring: `.opencode/` skills/agents/commands are symlinks into `src/agentic/<module>/skills/` or `no-vcs/.opencode/` for external modules.
-- **Plugin auto-wiring**: `src/tools/opencode/init.sh` (_link_plugins) auto-discovers `src/agentic/*/hooks/opencode/*.ts` files, symlinks them into `.opencode/plugins/`, and registers them in `opencode.jsonc` via `_upsert_opencode_plugin`. New modules with hooks need NO install/init script for hook wiring — just place the `.ts` file under `hooks/opencode/`.
-- **Detached silent spawn pattern**: When a hook needs to run a CLI command without blocking the TUI or leaking output, use `Bun.spawn` with the array `stdio` form: `Bun.spawn(["cmd", "arg"], { cwd: project.worktree, stdio: ["ignore", "ignore", "ignore"], detached: true }).unref()`. The array `["ignore", "ignore", "ignore"]` maps to `[stdin, stdout, stderr]`. Do NOT use `await $` (BunShell) — it blocks the event loop and leaks output to TUI. Reference: `src/agentic/memory/hooks/opencode/on-file_edited-reindex-memories.ts` and `src/agentic/devbot-up/hooks/opencode/on-session_created-devbot-up.ts`.
-- BATS for shell module tests — each module owns `tests/<module>_tests.bats`.
-- **Run the full test suite with `make test`** — it runs all BATS (`bats -T -r src/ bin/`, timing per test) plus the bun tests (`bun test src/`). Use this target whenever the full suite is needed, not a manual `bats -r src/ bin/` invocation; the full suite takes ~4 minutes, and heavy e2e tests (search-memories, devbot init scaffold, git-report) are intentionally part of it.
-- Module lifecycle: each has `install.sh` (idempotent) + optional `init.sh`, `update.sh`, `pre.sh`, `up.sh`.
-- Conventional commit messages enforced by git hooks.
-- `graphify-out/` and `node_modules` gitignored.
-- **Cross-platform shell compatibility**: shell scripts must run on Linux Mint, Fedora, and macOS. No GNU-only tools (`readlink -f`, `sed -i` without a backup arg); resolve paths and `SCRIPT_DIR` with bash-native constructs (`cd -P`, `dirname`, the `readlink` symlink loop) rather than shelling out to `python3` (macOS ships no `python3` by default).
+- `.agents/memory/` committed — never gitignore it; `thinking/`, `work/`, `latent/global`, `.agents/logs` stay out of git.
+- `.agents/{skills,agents,commands,tools}` are install-generated symlink farms — machine-local via `.git/info/exclude`, not committed.
+- `.opencode/`, `opencode.jsonc`, `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `graphify-out/`, `vendor/`, `node_modules/`, `/.devbot.*.jsonc` gitignored. Runtime `.mcp.json` (claudecode) must be gitignored in consumer projects too — the bare `mcp.json` rule does not match the dotfile.
+- Declare MCP servers once in the module's canonical `mcp.json` — never hand-write per-harness manifests (ADR rule).
+- JSONC config (comments, trailing commas) parsed via `read_jsonc.py` — never raw `jq`.
+- Tool roles: `.ts` authoritative (agents invoke directly), `.sh` thin CLI wrappers delegating via `bun run`, `.py` internal helpers (never primary entry point). `.py` must parse (`python3 -m py_compile`) before commit.
+- **Detached silent spawn pattern** for hooks: `Bun.spawn([...], { stdio: ["ignore","ignore","ignore"], detached: true }).unref()` — never `await $` (BunShell) in hooks.
+- Cross-platform shell (Linux Mint, Fedora, macOS): no GNU-only tools (`readlink -f`, bare `sed -i`); resolve paths bash-natively, never shell out to `python3`.
+- BATS per module (`tests/<module>_tests.bats`); full suite via `make test` only.
+- Conventional Commits are the repo style; commits must be atomic (one logical change each).
+- External module content arrives via `vendor/` clone — treat as read-only reference, not editable source.
 
 ## Rough edges
 
-- Two OpenCode config files: `opencode.dist.jsonc` (canonical dist at `src/tools/opencode/opencode.dist.jsonc`) vs runtime `opencode.jsonc` (gitignored at root) — confusion risk about which authoritative.
-- Symlink-heavy structure → some tools fail to follow targets (glob, qmd index) — verified gotchas in memory.
-- `.opencode/index/` under `no-vcs/` (bypassed by glob/grep) — index ops must use dedicated codebase-search tools.
-- Git blob corruption incidents documented in memory — index-only corruption recoverable via `git rm --cached` + `git reset HEAD`.
-- AI session idling triggers `remember-session` plugin automatically → simultaneous hook execution if session resumes while hook runs.
+- `.gitignore` vs `.git/info/exclude` split: rules hiding `.agents/{skills,agents,commands,tools}` live only in the machine-local exclude file — other machines get untracked noise until install regenerates them.
+- `AGENTS.md` / `CLAUDE.md` are gitignored yet act as the project's primary agent instructions — content is machine-local and drifts (current one cites removed paths: `devbot-up/` module, `src/agentic/memory/hooks/opencode/on-file_edited-reindex-memories.ts`).
+- Docs tables kept in sync by hand: recent commits exist purely to "align mcps.md table with the live inventory".
+- Two config worlds: committed `*.dist.jsonc` vs gitignored runtime `*.jsonc`/`*.json` — easy to edit the wrong one.
+- Symlink-heavy wiring: tools that don't follow symlinks break on `.opencode/`/`.agents/` farms (glob, qmd index — verified gotchas in memory).
+- No CI gate for tests or lint — `make test` is the only check, so regressions ship to `main` silently if not run locally.
+
+## When to read docs vs code
+
+| Question                              | Go to                                                                  |
+| ------------------------------------- | ---------------------------------------------------------------------- |
+| Install / configure dev-bot           | `README.md`, `docs/configuration.md`                                   |
+| Module anatomy, create a module       | `docs/create-a-module.md`, `docs/module-reference.md`                  |
+| MCP server wiring                     | `docs/mcp-config.md`, `docs/mcps.md`, ADR `mcp-manifest-consolidation` |
+| Agent roles & roster                  | `docs/agents.md`, `src/agentic/{devbot,devteam}/agents/*.md`           |
+| Harness registration / runtime config | `docs/harnesses.md`, `src/harnesses/{opencode,claudecode}/`            |
+| CLI subcommands                       | `docs/cli-commands.md`, `bin/devbot`                                   |
+| Memory vault rules                    | `devbot:memory-management` skill, `.agents/memory/active/memory.md`    |
 
 ## Dependencies
 
-| Dependency                             | Purpose                                         |
-| -------------------------------------- | ----------------------------------------------- |
-| `@opencode-ai/plugin` (^1.14.50)       | OpenCode plugin SDK                             |
-| Docker + Docker Compose                | Local dev services (Ollama, LiteLLM)            |
-| Ollama                                 | Local LLM inference                             |
-| uv (Python package manager)            | Python tool execution (graphify, format-md)     |
-| npm / node                             | OpenCode runtime, TypeScript tools              |
-| BATS                                   | Shell test framework                            |
-| jq / yq                                | JSON/YAML parsing in shell scripts              |
-| ripgrep (rg)                           | Fast content search (used by tools/search-code) |
-| Git hooks (post-commit, post-checkout) | Auto-trigger memory capture and graph re-index  |
+| Dependency                 | Purpose                                                  |
+| -------------------------- | -------------------------------------------------------- |
+| opencode or claude code    | Harness dev-bot installs into (via `src/harnesses/`)     |
+| `@opencode-ai/plugin`      | OpenCode plugin SDK (`package.json`)                     |
+| Docker + Docker Compose    | Local services (Ollama, LiteLLM) via `make up`           |
+| Ollama                     | Local LLM inference / embeddings (`127.0.0.1:18434`)     |
+| bun                        | `.ts` tool runtime + `bun test`                          |
+| node / npm                 | OpenCode runtime, prettier (format-* tools), global BATS |
+| BATS + bats-assert/support | Shell test framework                                     |
+| python3                    | `_shared` helpers + `test_*.py` unit tests               |
+| ripgrep                    | Content search (`tools/search-code`)                     |
