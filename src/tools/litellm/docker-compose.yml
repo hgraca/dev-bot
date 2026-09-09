@@ -2,8 +2,13 @@
 # defined by the ollama module's compose — include it so the dependency
 # resolves even when the ollama module is disabled in the `modules` map
 # (litellm's own `depends_on` below would dangle on an undefined service).
+# The include path is ABSOLUTE via ${DEV_BOT_ROOT}: docker compose resolves a
+# relative `include:` in any non-first `-f` file against the FIRST file's
+# directory, so an absolute path keeps this order-independent when up.sh -f's
+# several fragments together. DEV_BOT_ROOT is exported by every dev-bot
+# compose invocation.
 include:
-  - ../ollama/docker-compose.yml
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml
 
 services:
   litellm:

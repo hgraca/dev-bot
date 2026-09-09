@@ -1,7 +1,14 @@
 # Consumer fragment: codebase-index needs the ollama embeddings server but
 # runs no container of its own. Including ollama's compose here boots it on
 # `devbot up` when this module is enabled — even though the ollama module is
-# disabled by default in the `modules` map. `include:` is resolved by docker
-# compose itself (the dev-bot up.sh discovery simply -f's this fragment).
+# disabled by default in the `modules` map.
+#
+# The include path is ABSOLUTE via ${DEV_BOT_ROOT}: docker compose resolves a
+# relative `include:` in any non-first `-f` file against the FIRST file's
+# directory (not the including file's), so two fragments including the same
+# provider would break unless the provider happened to be -f'd first. An
+# absolute path is order-independent. dev-bot always exports DEV_BOT_ROOT
+# when it invokes compose (up.sh, down.sh, the ollama exec helper); a bare
+# `docker compose -f <this-file>` needs DEV_BOT_ROOT set too.
 include:
-  - ../../tools/ollama/docker-compose.yml
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml
