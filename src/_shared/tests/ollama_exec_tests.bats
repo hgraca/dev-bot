@@ -135,18 +135,24 @@ teardown() {
   [ "$status" -eq 3 ]
 }
 
-@test "exec applies the GPU overlay when gpu_enabled and it boots the container" {
+@test "exec applies the GPU overlay (absolute path) when gpu_enabled and it boots the container" {
   printf '{\n  "gpu_enabled": true\n}\n' > "${DEV_BOT_ROOT}/.devbot.global.jsonc"
   echo "down" > "${MOCK}/container.state"
   echo "0" > "${MOCK}/exec.rc"
 
   # Re-source so _devbot_is_true reads the updated config.
   source "${PROJECT_ROOT}/src/_shared/functions.sh"
-  run _devbot_ollama_exec list
-  assert_success
+  # Run from a cwd OTHER than DEV_BOT_ROOT — the helper must resolve the gpu
+  # overlay absolutely (devbot models runs from the caller's cwd, which is
+  # usually not the install root; a relative path would not resolve).
+  OTHER_CWD="$(mktemp -d)"
+  local exec_rc=0
+  (cd "${OTHER_CWD}" && _devbot_ollama_exec list) || exec_rc=$?
+  [ "${exec_rc}" -eq 0 ]
   run cat "${MOCK}/calls.log"
-  # The compose-up line must carry the gpu overlay file.
-  assert_output --regexp "-f .*docker-compose\.gpu\.yml"
+  # The compose-up line must carry the gpu overlay as an ABSOLUTE path.
+  assert_output --regexp "-f ${DEV_BOT_ROOT}/docker-compose\.gpu\.yml"
+  rm -rf "${OTHER_CWD}"
 }
 
 @test "exec fails cleanly when there is no docker daemon" {

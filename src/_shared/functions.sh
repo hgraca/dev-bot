@@ -1507,8 +1507,10 @@ _devbot_ollama_exec() {
   local container_was_running=false
   local started_container=false
   local -a compose_opts=("-f" "${compose_file}")
+  # Absolute path — this helper runs from the caller's cwd (devbot models),
+  # not from DEV_BOT_ROOT, so a relative gpu overlay would not resolve.
   if _devbot_is_true "gpu_enabled" && [[ -f "${DEV_BOT_ROOT}/docker-compose.gpu.yml" ]]; then
-    compose_opts+=("-f" "docker-compose.gpu.yml")
+    compose_opts+=("-f" "${DEV_BOT_ROOT}/docker-compose.gpu.yml")
   fi
 
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'dev-bot-ollama'; then
