@@ -51,6 +51,7 @@ cmd_help() {
   echo "  up           Start docker services (docker compose up)"
   echo "  down         Stop docker services (docker compose down)"
   echo "  prune [days] [--all|-a]  Prune old opencode sessions (default: 30 days)"
+  echo "  stats [--days=N] [--all|-a] [--harness=H]  Tool + MCP usage report (default: 30 days)"
   echo "  models     Manage LLM models via Ollama"
   echo "             pull <model>     Pull a model from registry"
   echo "             list-local        List locally available models"
@@ -490,6 +491,16 @@ cmd_prune() {
   exec bash "${DEV_BOT_ROOT}/bin/prune.sh" "$@"
 }
 
+cmd_stats() {
+  if [[ ! -f "${DEV_BOT_ROOT}/bin/stats.sh" ]]; then
+    echo "Error: bin/stats.sh not found at ${DEV_BOT_ROOT}/bin/stats.sh" >&2
+    exit 1
+  fi
+
+  export DEV_BOT_ROOT
+  exec bash "${DEV_BOT_ROOT}/bin/stats.sh" "$@"
+}
+
   cmd_module() {
     local tool_script="${DEV_BOT_ROOT}/src/tools/external-modules/tools/module.sh"
     if [[ ! -f "$tool_script" ]]; then
@@ -610,6 +621,10 @@ main() {
     prune)
       shift
       cmd_prune "$@"
+      ;;
+    stats)
+      shift
+      cmd_stats "$@"
       ;;
     module)
       shift
