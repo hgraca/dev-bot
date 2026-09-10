@@ -506,7 +506,11 @@ main() {
       else
         local dev_branch
         dev_branch="$(git -C "${DEV_BOT_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
-        _ok "Branch '${dev_branch}' is not a release checkout — skipping update."
+        if [[ "${dev_branch}" == "HEAD" ]]; then
+          _ok "Detached HEAD is not a release checkout — skipping update."
+        else
+          _ok "Branch '${dev_branch}' is not a release checkout — skipping update."
+        fi
         exit 0
       fi
       ;;
