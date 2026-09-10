@@ -15,8 +15,12 @@
 #                                  (auto mode only — explicit older tag moves)
 #        strictly behind it      -> stash local changes, detach-checkout the tag,
 #                                   then stash pop (conflict => ack prompt)
-#        diverged branch         -> rebase the branch onto the tag; on conflict,
-#                                   abort the rebase, restore state, exit 1
+#        diverged branch         -> no implicit target: echo "not a release
+#                                   checkout" and continue (an implicit update
+#                                   never rewrites a branch). An EXPLICIT
+#                                   `devbot update <tag>` rebases the branch onto
+#                                   the tag; on conflict, abort the rebase,
+#                                   restore state, exit 1.
 #   3. Only when the checkout moved onto the new release:
 #        python/flock checks, legacy engine pins, npm update, each tool's
 #        update.sh under src/tools/, agentic pre.sh + update.sh, a refresh of
@@ -486,11 +490,25 @@ main() {
       _jump_to_release "${target}" || exit 1
       ;;
     diverged)
-      [[ "${AUTO_QUIET}" -eq 1 ]] && _header_1 "DevBot Update"
-      local rebase_rc=0
-      _rebase_onto_release "${target}" || rebase_rc=$?
-      [[ "${rebase_rc}" -eq 2 ]] && exit 0
-      [[ "${rebase_rc}" -eq 1 ]] && exit 1
+      # A branch with commits of its own — neither an ancestor nor a descendant
+      # of the release — is a development line, not a release checkout. An
+      # implicit update (newest tag) must never rewrite it: only an explicit
+      # `devbot update <tag>` rebases. Echo and continue on the current version.
+      # (install.sh clones with --depth 1, whose truncated history makes an
+      # ahead-of-tag branch look diverged here — this path is the safe one for
+      # those shallow installs too.)
+      if [[ "${explicit}" -eq 1 ]]; then
+        [[ "${AUTO_QUIET}" -eq 1 ]] && _header_1 "DevBot Update"
+        local rebase_rc=0
+        _rebase_onto_release "${target}" || rebase_rc=$?
+        [[ "${rebase_rc}" -eq 2 ]] && exit 0
+        [[ "${rebase_rc}" -eq 1 ]] && exit 1
+      else
+        local dev_branch
+        dev_branch="$(git -C "${DEV_BOT_ROOT}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
+        _ok "Branch '${dev_branch}' is not a release checkout — skipping update."
+        exit 0
+      fi
       ;;
   esac
 

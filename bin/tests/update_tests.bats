@@ -8,7 +8,10 @@
 #   - at/ahead of the newest tag  -> "already on latest" + exit 0 (no refresh)
 #   - strictly behind the tag     -> stash dirty tree, detach-jump to the tag,
 #                                    stash pop (conflict => ack prompt, continue)
-#   - diverged branch             -> rebase the branch onto the tag; on failure
+#   - diverged branch (no tag)    -> "not a release checkout" + exit 0 (no
+#                                    rebase: an implicit update never rewrites a
+#                                    branch; only an explicit tag rebases)
+#   - explicit tag on diverged    -> rebase the branch onto the tag; on failure
 #                                    abort the rebase, restore state, exit 1
 #   - after a successful jump     -> npm + tools + agentic + external modules
 #                                    (module.sh install) refresh; harnesses never
@@ -261,9 +264,9 @@ EOF
   [[ "$output" == *"UU f.txt"* || "$output" == *"AA f.txt"* || "$output" == *"U"* ]]
 }
 
-# ── Path B: diverged branch -> rebase onto the tag ───────────────────────────
+# ── Path B: diverged branch — implicit update skips, explicit tag rebases ─────
 
-@test "diverged branch: rebases onto the newest tag, keeps branch and work" {
+@test "diverged branch (no explicit tag): skips without rebasing, keeps the branch" {
   _new_sandbox "1.0.0:1.1.0"
   # Feature branch with its own commit (new file — no overlap with releases).
   git -C "${INSTALL}" checkout -q main
@@ -271,21 +274,47 @@ EOF
   printf 'feature work\n' > "${INSTALL}/feature.txt"
   git -C "${INSTALL}" add feature.txt
   git -C "${INSTALL}" commit -qm "feature commit"
+  local pre_sha
+  pre_sha="$(git -C "${INSTALL}" rev-parse HEAD)"
   _publish_release "g.txt" "release 1.2.0" "1.2.0"
 
   _run_update
 
   [ "$UPDATE_STATUS" -eq 0 ]
-  # Still on the feature branch (not detached), work preserved, tag now base.
+  # Branch and work untouched: no rebase, no detach, no refresh.
   assert_equal "$(git -C "${INSTALL}" symbolic-ref --short HEAD)" "feature"
+  assert_equal "$(git -C "${INSTALL}" rev-parse HEAD)" "${pre_sha}"
   grep -q 'feature work' "${INSTALL}/feature.txt"
-  git -C "${INSTALL}" merge-base --is-ancestor 1.2.0 HEAD
-  _refresh_ran
+  [[ "$UPDATE_OUTPUT" == *"not a release checkout"* ]]
+  [[ "$UPDATE_OUTPUT" == *"skipping update"* ]]
+  ! _refresh_ran
 }
 
-@test "diverged branch, rebase conflict: aborts, restores state, exits 1" {
+@test "--auto on a diverged branch: echoes and continues without updating" {
   _new_sandbox "1.0.0:1.1.0"
-  # Feature commit edits f.txt; the new release also edits f.txt -> rebase
+  git -C "${INSTALL}" checkout -q main
+  git -C "${INSTALL}" checkout -qb feature
+  printf 'feature work\n' > "${INSTALL}/feature.txt"
+  git -C "${INSTALL}" add feature.txt
+  git -C "${INSTALL}" commit -qm "feature commit"
+  local pre_sha
+  pre_sha="$(git -C "${INSTALL}" rev-parse HEAD)"
+  _publish_release "g.txt" "release 1.2.0" "1.2.0"
+
+  _run_update --auto
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  assert_equal "$(git -C "${INSTALL}" rev-parse HEAD)" "${pre_sha}"
+  [[ "$UPDATE_OUTPUT" == *"skipping update"* ]]
+  # Auto mode stays quiet: no banner, no fetch chatter.
+  [[ "$UPDATE_OUTPUT" != *"Fetching release tags"* ]]
+  [[ "$UPDATE_OUTPUT" != *"DevBot Update"* ]]
+  ! _refresh_ran
+}
+
+@test "explicit tag, rebase conflict: aborts, restores state, exits 1" {
+  _new_sandbox "1.0.0:1.1.0"
+  # Feature commit edits f.txt; the requested tag also edits f.txt -> rebase
   # conflict. Capture the branch position before the run.
   git -C "${INSTALL}" checkout -q main
   git -C "${INSTALL}" checkout -qb feature
@@ -296,7 +325,7 @@ EOF
   local pre_sha
   pre_sha="$(git -C "${INSTALL}" rev-parse HEAD)"
 
-  _run_update
+  _run_update 1.2.0
 
   [ "$UPDATE_STATUS" -eq 1 ]
   [[ "$UPDATE_OUTPUT" == *"rebase"* ]]
