@@ -64,6 +64,11 @@ RUN su - ubuntu -c 'curl -fsSL https://opencode.ai/install | bash' \
 # native modules present, no load error). Keep the pinned version in sync with
 # test-reinit.sh.
 
+# codebase-memory-mcp refuses to trust a private state dir whose ancestor is
+# group-writable. ~/.cache defaults to 0775 here, so drop group write to
+# silence the daemon's hardening warning (audit-60 NOTE-2).
+RUN chmod g-w /home/ubuntu/.cache
+
 # CUDA user-space libs (runtime + cuBLAS) so qmd's llama can offload to the GPU
 # passed through via --gpus all. The driver lib is mounted by the runtime; the
 # user-space libs must live in the image.
