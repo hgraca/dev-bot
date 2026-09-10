@@ -49,21 +49,27 @@ for harness in opencode claudecode; do
     continue
   fi
 
-  # Harness dir: opencode → .opencode, claudecode → .claude (module name ≠ dir)
+  # Harness dir: opencode → .opencode, claudecode → .claude (module name ≠ dir).
+  # host: the value passed to the package's --host (config-location selector).
   case "${harness}" in
-    opencode) harness_dir=".opencode" ;;
-    claudecode) harness_dir=".claude" ;;
+    opencode) harness_dir=".opencode"; host="opencode" ;;
+    claudecode) harness_dir=".claude"; host="claude" ;;
   esac
 
   target="${PROJECT_DIR}/${harness_dir}/codebase-index.json"
   if [[ -f "${target}" ]]; then
     _skip "${harness_dir}/codebase-index.json already exists"
-    continue
+  else
+    mkdir -p "$(dirname "${target}")"
+    sed "s|__OLLAMA_API_URL__|${ollama_api}|g" "${DIST_CONFIG}" > "${target}"
+    _ok "${harness_dir}/codebase-index.json written"
   fi
 
-  mkdir -p "$(dirname "${target}")"
-  sed "s|__OLLAMA_API_URL__|${ollama_api}|g" "${DIST_CONFIG}" > "${target}"
-  _ok "${harness_dir}/codebase-index.json written"
+  # Keep an existing index's schema current. A package upgrade can otherwise
+  # leave retrieval unavailable (INDEX_UNAVAILABLE) until a full rebuild. The
+  # check reads the index DB directly (milliseconds); a stale index is
+  # reindexed in the background so reinit never blocks.
+  _codebase_index_reindex_if_stale "${PROJECT_DIR}" "${harness_dir}" "${host}"
 done
 
 # ── Symlink the EPIPE-swallowing MCP wrapper (claudecode only) ───────────────
