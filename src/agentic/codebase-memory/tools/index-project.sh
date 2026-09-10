@@ -72,7 +72,7 @@ exec 200>"${LOCK_FILE}" 2>/dev/null || exit 0
 (
   {
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] index-project start root=${INDEX_ROOT}"
-    codebase-memory-mcp cli index_repository "{\"repo_path\": \"${INDEX_ROOT}\"}"
+    codebase-memory-mcp cli index_repository --repo-path "${INDEX_ROOT}"
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] index-project finished rc=$?"
   } >> "${LOG_FILE}" 2>&1
 ) &

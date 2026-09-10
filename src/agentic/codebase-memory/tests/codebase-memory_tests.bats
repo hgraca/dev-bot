@@ -247,7 +247,7 @@ print('HOOK:OK')
     sleep 0.1
   done
   run cat "${CBM_ARGS_FILE}"
-  assert_output --regexp '^cli index_repository \{"repo_path": ".*/project/src"\}$'
+  assert_output --regexp '^cli index_repository --repo-path .*/project/src$'
 
   run cat "${PROJ}/.agents/logs/codebase-memory-index.log"
   assert_output --partial "index-project start"
@@ -267,7 +267,7 @@ print('HOOK:OK')
     sleep 0.1
   done
   run cat "${CBM_ARGS_FILE}"
-  assert_output --regexp '"repo_path": ".*/project/app"'
+  assert_output --regexp 'index_repository --repo-path .*/project/app'
 }
 
 @test "index-project.sh: skips silently when neither src nor app exists" {
