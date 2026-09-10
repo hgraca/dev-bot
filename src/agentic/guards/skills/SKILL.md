@@ -81,3 +81,10 @@ arguments): (1) the segment's command is a command-runner that can execute
 sub-commands (`bash`/`sh`/`dash`/`zsh`, `eval`, `xargs`, `find -exec`,
 `env`, `sudo`, `su`, `nohup`, `timeout`, `ssh`, `docker`, `podman`, ...);
 (2) the segment contains command substitution (`$(...)` or backticks).
+
+Rules from the global `.devbot.global.jsonc` and the project
+`.devbot.project.jsonc` are concatenated and evaluated first-match-wins, with
+**project rules first** — so a project rule reusing a global regex overrides it
+(typically to customize the message). Guards are deny-only: the blocked set is
+the union of all matching rules, so a project rule can add a rule or reword a
+block, but can never weaken a global guard.
