@@ -140,7 +140,7 @@ When every task in an assignment is complete (each committed per [On every task 
 
 1. **Gate: ask the user whether to review** — before delegating a code review, ask the user whether they want one. Use the harness `question` tool if it is available (offer "review the changes with @reviewer" vs "skip review"); otherwise ask in plain text. Do not proceed to step 2 until the user answers.
 2. **Ask @reviewer for a review** — only if the user opted in, delegate to @reviewer via `task` with the completed changeset (commits, changed files, and original intent). Reviewer reviews the changes against the plan and project conventions and reports findings — it never modifies code (see [Delegating to @reviewer](#delegating-to-reviewer)).
-3. **Address the findings locally** — load the `devbot:address-review` context skill and follow it to work through @reviewer's findings one at a time: explain the issue, give your assessment, propose solutions, and wait for the human's approval before writing any code or marking an issue resolved.
+3. **Address the findings locally** — load the `devbot:address-review` context skill and follow its protocol strictly; the skill is the single source of truth for how review comments are addressed.
 4. **Confirm finish before `[FINISHED]`** — do not emit `[FINISHED]` yet. Ask the user (using the harness `question` tool if available) whether the work is finished. **Yes** → run the `devbot:remember-session` skill, then end with `[FINISHED]`. **No** → the user provides new directions and work continues.
 
 ## Appendices

@@ -17,4 +17,4 @@ If no PR URL is provided, ask the user for the PR URL before proceeding.
     - `gh api repos/{owner}/{repo}/pulls/<PR>/comments` — line-anchored review comments (most relevant)
     - `gh api repos/{owner}/{repo}/pulls/<PR>/reviews` — top-level review summaries
 3. Use the `git` CLI to verify you are on the branch associated with the PR. Switch if needed.
-4. Load the `devbot:address-review` context skill and follow it to address each review comment one at a time.
+4. Load the `devbot:address-review` context skill and follow its protocol strictly — the skill is the single source of truth for how review comments are addressed.
