@@ -34,3 +34,25 @@ EOF
   assert_output --partial '"blocked":false'
   rm -rf "$tmpdir"
 }
+
+# audit-59 FAIL-1: a project guard with the same regex as a global guard must
+# win (project config overrides global defaults), so its message is reported.
+@test "project guard overrides a global guard with the same regex" {
+  local tmpdir
+  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  cat > "$tmpdir/.devbot.global.jsonc" << 'EOF'
+{ "guards": [ { "regex": "sudo .*", "message": "sudo is blocked (global)" } ] }
+EOF
+  cat > "$tmpdir/.devbot.project.jsonc" << 'EOF'
+{ "guards": [ { "regex": "sudo .*", "message": "sudo requires approval (project)" } ] }
+EOF
+
+  run bun "$MODULE_DIR/tools/guards.ts" --command "sudo echo test" \
+    --global-config "$tmpdir/.devbot.global.jsonc" \
+    --project-config "$tmpdir/.devbot.project.jsonc"
+  assert_success
+  assert_output --partial '"blocked":true'
+  assert_output --partial 'sudo requires approval (project)'
+  refute_output --partial 'sudo is blocked (global)'
+  rm -rf "$tmpdir"
+}

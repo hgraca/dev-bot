@@ -121,7 +121,12 @@ export function checkCommand(
   projectConfig?: string,
   agent = "",
 ): GuardResult {
-  const guards = [...loadGuards(globalConfig), ...loadGuards(projectConfig)]
+  // Project guards come FIRST so they override global defaults on first match
+  // (audit-59 FAIL-1): a project rule reusing a global regex — typically to
+  // customize the message — was previously unreachable because the global copy
+  // always matched first. This mirrors how .devbot.project.jsonc overrides
+  // .devbot.global.jsonc everywhere else.
+  const guards = [...loadGuards(projectConfig), ...loadGuards(globalConfig)]
   return evaluate(command, guards, agent)
 }
 
