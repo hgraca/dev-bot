@@ -56,3 +56,25 @@ EOF
   refute_output --partial 'sudo is blocked (global)'
   rm -rf "$tmpdir"
 }
+
+# The reorder must not stop a global guard from matching when the project's
+# rules do not — guards are deny-only, so the blocked set is the union of all
+# matching rules and precedence only chooses the message.
+@test "non-matching project guard falls through to the global guard" {
+  local tmpdir
+  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  cat > "$tmpdir/.devbot.global.jsonc" << 'EOF'
+{ "guards": [ { "regex": "rm -rf", "message": "rm -rf is blocked (global)" } ] }
+EOF
+  cat > "$tmpdir/.devbot.project.jsonc" << 'EOF'
+{ "guards": [ { "regex": "docker system prune", "message": "prune blocked (project)" } ] }
+EOF
+
+  run bun "$MODULE_DIR/tools/guards.ts" --command "rm -rf /tmp/fallthrough" \
+    --global-config "$tmpdir/.devbot.global.jsonc" \
+    --project-config "$tmpdir/.devbot.project.jsonc"
+  assert_success
+  assert_output --partial '"blocked":true'
+  assert_output --partial 'rm -rf is blocked (global)'
+  rm -rf "$tmpdir"
+}

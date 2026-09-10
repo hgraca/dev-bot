@@ -126,6 +126,11 @@ export function checkCommand(
   // customize the message — was previously unreachable because the global copy
   // always matched first. This mirrors how .devbot.project.jsonc overrides
   // .devbot.global.jsonc everywhere else.
+  //
+  // Guards are deny-only: a rule either blocks or is ignored — there is no
+  // allow/negate action. The blocked set is therefore the UNION of all matching
+  // rules, and order only decides WHICH message is reported. A project rule can
+  // add rules or reword a match, never weaken a global guard.
   const guards = [...loadGuards(projectConfig), ...loadGuards(globalConfig)]
   return evaluate(command, guards, agent)
 }
