@@ -101,6 +101,13 @@ for m in json.loads(sys.stdin.read()):
 # ── Docker services ────────────────────────────────────────────────────────────
 
 _docker_up() {
+  # dev-bot must be installed (global config) — report before doing anything,
+  # regardless of whether any compose files are discovered.
+  if [[ ! -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]]; then
+    _fatal "No .devbot.global.jsonc found at ${DEV_BOT_ROOT}/.devbot.global.jsonc — run 'make install' first."
+    exit 1
+  fi
+
   # ── Discover docker-compose.yml files across every module base dir ─────
   # (tools + agentic + harnesses). Since v1.4 docker services start only when
   # an ENABLED module needs them: a module disabled in the `modules` map has
@@ -161,11 +168,6 @@ for m in json.loads(sys.stdin.read()):
   if ! docker info >/dev/null 2>&1; then
     _skip "no docker daemon (inside a container?) — docker services not started here; run them on the host"
     return 0
-  fi
-
-  if [[ ! -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]]; then
-    _fatal "No .devbot.global.jsonc found at ${DEV_BOT_ROOT}/.devbot.global.jsonc — run 'make install' first."
-    exit 1
   fi
 
   _header_3 "Starting docker services..."

@@ -28,6 +28,13 @@ _run_down_scripts() {
 # ── Docker services ────────────────────────────────────────────────────────────
 
 _docker_down() {
+  # dev-bot must be installed (global config) — report before doing anything,
+  # regardless of whether any compose files are discovered.
+  if [[ ! -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]]; then
+    _fatal "No .devbot.global.jsonc found at ${DEV_BOT_ROOT}/.devbot.global.jsonc — run 'make install' first."
+    exit 1
+  fi
+
   # Mirror bin/up.sh discovery: docker services are only ever started for
   # enabled modules (consumer fragments may `include:` a disabled provider's
   # compose). Same scan + disabled filter; skip silently when nothing is
@@ -78,9 +85,12 @@ for m in json.loads(sys.stdin.read()):
 
   _header_2 "Docker Services"
 
-  if [[ ! -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]]; then
-    _fatal "No .devbot.global.jsonc found at ${DEV_BOT_ROOT}/.devbot.global.jsonc — run 'make install' first."
-    exit 1
+  # Inside a container there is no docker daemon — the containers run on the
+  # host, so they cannot be stopped from here. Skip instead of failing
+  # `docker compose down` (mirrors bin/up.sh's guard).
+  if ! docker info >/dev/null 2>&1; then
+    _skip "no docker daemon (inside a container?) — docker services not stopped here; stop them on the host"
+    return 0
   fi
 
   _header_3 "Stopping docker services..."

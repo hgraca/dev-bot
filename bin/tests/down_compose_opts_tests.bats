@@ -170,3 +170,33 @@ _run_docker_down() {
   # The mock docker must never have been invoked.
   [ ! -s "${DOCKER_ARGS_FILE}" ]
 }
+
+# ── Guards: no daemon, and missing global config ─────────────────────────────
+
+@test "down skips cleanly (no compose call) when there is no docker daemon" {
+  _setup_sandbox '{}'
+  # Override the mock: \`docker info\` fails (as inside a container).
+  cat > "${SANDBOX_DIR}/mockbin/docker" <<'MOCK'
+#!/usr/bin/env bash
+if [[ "$1" == "info" ]]; then exit 1; fi
+echo "$@" >> "${DOCKER_ARGS_FILE}"
+MOCK
+  chmod +x "${SANDBOX_DIR}/mockbin/docker"
+
+  run _run_docker_down
+  assert_success
+  # The daemon guard skipped before any `docker compose down` call.
+  [ ! -s "${DOCKER_ARGS_FILE}" ]
+}
+
+@test "down reports missing global config even when no compose files exist" {
+  _setup_sandbox '{}'
+  rm -f "${SANDBOX_DIR}/.devbot.global.jsonc"
+  rm -f "${SANDBOX_DIR}/docker-compose.yml"
+  rm -f "${SANDBOX_DIR}/src/tools/litellm/docker-compose.yml"
+  rm -f "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.yml"
+
+  run _run_docker_down
+  assert_failure
+  assert_output --partial "No .devbot.global.jsonc found"
+}
