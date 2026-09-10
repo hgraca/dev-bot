@@ -1,6 +1,6 @@
 # kata-pokeapi_parser_refactoring
 
-A kata to refactor an api parser<!-- devbot-audit-probe -->
+A kata to refactor an api parser
 
 ## Test devbot
 
