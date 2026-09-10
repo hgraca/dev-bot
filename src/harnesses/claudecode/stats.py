@@ -23,6 +23,10 @@ import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "_shared")))
+from stats_args import bash_value  # noqa: E402
+
 PROJECTS_DIR = os.environ.get(
     "CLAUDE_PROJECTS_DIR", os.path.expanduser("~/.claude/projects")
 )
@@ -33,6 +37,23 @@ _USAGE_KEYS = (
     "cache_read_input_tokens",
     "cache_creation_input_tokens",
 )
+
+# Claude Code tool name → canonical argument tool name, and its input key.
+_ARG_TOOLS = {"Bash": "bash", "Skill": "skill", "Grep": "grep", "Glob": "glob"}
+_ARG_KEYS = {"bash": "command", "skill": "skill", "grep": "pattern", "glob": "pattern"}
+_ARG_TOP = 20
+
+
+def _arg_value(tool: str, input_obj) -> str:
+    canonical = _ARG_TOOLS[tool]
+    if not isinstance(input_obj, dict):
+        return ""
+    if canonical == "bash":
+        return bash_value(input_obj.get("command"))
+    value = input_obj.get(_ARG_KEYS[canonical])
+    if value is None and canonical == "skill":
+        value = input_obj.get("name")
+    return str(value or "")
 
 
 def parse_ts(raw):
@@ -90,14 +111,14 @@ def gather(paths, cutoff):
                 content = message.get("content")
                 if not isinstance(content, list):
                     continue
-                tools = [
-                    part.get("name")
+                calls = [
+                    (part.get("name"), part.get("input"))
                     for part in content
                     if isinstance(part, dict)
                     and part.get("type") == "tool_use"
                     and part.get("name")
                 ]
-                if not tools:
+                if not calls:
                     continue
                 key = message.get("id") or obj.get("requestId") or obj.get("uuid")
                 if key is None:
@@ -110,21 +131,26 @@ def gather(paths, cutoff):
                         "ts": parse_ts(obj.get("timestamp")),
                     }
                     messages[key] = entry
-                entry["tools"].extend(tools)
+                entry["tools"].extend(calls)
 
     counts = Counter()
     tokens = defaultdict(float)
+    arg_counts = {tool: Counter() for tool in _ARG_TOOLS.values()}
 
     for entry in messages.values():
         ts = entry["ts"]
         if ts is not None and ts < cutoff:
             continue
-        tools = entry["tools"]
+        calls = entry["tools"]
         total = sum(int(entry["usage"].get(k) or 0) for k in _USAGE_KEYS)
-        share = total / len(tools)
-        for name in tools:
+        share = total / len(calls)
+        for name, input_obj in calls:
             counts[name] += 1
             tokens[name] += share
+            if name in _ARG_TOOLS:
+                value = _arg_value(name, input_obj)
+                if value:
+                    arg_counts[_ARG_TOOLS[name]][value] += 1
 
     tools = []
     server_count = Counter()
@@ -160,7 +186,13 @@ def gather(paths, cutoff):
             ],
         })
 
-    return tools, mcp_servers
+    tool_arguments = {
+        tool: [{"value": value, "count": count} for value, count in arg_counts[tool].most_common(_ARG_TOP)]
+        for tool in _ARG_TOOLS.values()
+        if arg_counts[tool]
+    }
+
+    return tools, mcp_servers, tool_arguments
 
 
 def main() -> int:
@@ -176,7 +208,7 @@ def main() -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
     cwd = os.getcwd()
 
-    tools, mcp_servers = gather(transcript_files(args.scope_all, cwd), cutoff)
+    tools, mcp_servers, tool_arguments = gather(transcript_files(args.scope_all, cwd), cutoff)
 
     data = {
         "schema": 1,
@@ -188,6 +220,7 @@ def main() -> int:
         "cost_kind": None,
         "tools": tools,
         "mcp_servers": mcp_servers,
+        "tool_arguments": tool_arguments,
     }
     json.dump(data, sys.stdout, indent=2)
     sys.stdout.write("\n")

@@ -28,8 +28,21 @@ def _cost(value, estimated: bool) -> str:
     return f"{'~' if estimated else ''}${value:,.2f}"
 
 
-def _share(count: int, total: int) -> str:
-    return f"{count / total * 100:.1f}%" if total else _MISSING
+def _shares(counts) -> list[str]:
+    """Percentage labels (1 decimal) that sum to exactly 100.0%.
+
+    Uses the largest-remainder method so per-row rounding never drifts off 100%.
+    """
+    total = sum(counts)
+    if not total:
+        return [_MISSING for _ in counts]
+    tenths = [c * 1000 / total for c in counts]
+    floors = [int(t) for t in tenths]
+    remaining = 1000 - sum(floors)
+    order = sorted(range(len(counts)), key=lambda i: tenths[i] - floors[i], reverse=True)
+    for i in order[: max(0, remaining)]:
+        floors[i] += 1
+    return [f"{f / 10:.1f}%" for f in floors]
 
 
 def _generated(raw) -> str:
@@ -115,9 +128,11 @@ def render(data: dict) -> str:
         if show_cost:
             header.append(cost_header)
             aligns.append("r")
+        ordered = sorted(tools, key=lambda x: x.get("count", 0), reverse=True)
+        shares = _shares([t.get("count", 0) for t in ordered])
         rows = []
-        for i, t in enumerate(sorted(tools, key=lambda x: x.get("count", 0), reverse=True), 1):
-            row = [i, t.get("name", "?"), _int(t.get("count", 0)), _share(t.get("count", 0), total)]
+        for i, t in enumerate(ordered):
+            row = [i + 1, t.get("name", "?"), _int(t.get("count", 0)), shares[i]]
             if show_tokens:
                 row.append(_int(t.get("tokens")))
             if show_cost:
@@ -140,26 +155,33 @@ def render(data: dict) -> str:
             aligns.append("r")
         header.append("Top tools")
         aligns.append("l")
+        ordered = sorted(servers, key=lambda x: x.get("count", 0), reverse=True)
+        shares = _shares([s.get("count", 0) for s in ordered])
         rows = []
-        for s in sorted(servers, key=lambda x: x.get("count", 0), reverse=True):
-            row = [
-                s.get("server", "?"),
-                _int(s.get("count", 0)),
-                _share(s.get("count", 0), total),
-            ]
+        for i, s in enumerate(ordered):
+            row = [s.get("server", "?"), _int(s.get("count", 0)), shares[i]]
             if show_tokens:
                 row.append(_int(s.get("tokens")))
             if show_cost:
                 row.append(_cost(s.get("cost"), estimated))
-            top = sorted(s.get("tools") or [], key=lambda x: x.get("count", 0), reverse=True)[:3]
+            top = sorted(s.get("tools") or [], key=lambda x: x.get("count", 0), reverse=True)[:5]
             row.append(", ".join(f"{t.get('name', '?')} ({t.get('count', 0):,})" for t in top) or _MISSING)
             rows.append(row)
         out += render_table(header, aligns, rows)
     else:
         out.append("_No MCP server usage in this window._")
 
-    out.append("")
-    return "\n".join(out)
+    arguments = data.get("tool_arguments") or {}
+    argument_tools = [k for k in ("bash", "skill", "grep", "glob") if arguments.get(k)]
+    if argument_tools:
+        out += ["", "## Tool Arguments", ""]
+        for tool in argument_tools:
+            out += [f"### {tool}", ""]
+            rows = [[e.get("value", _MISSING), _int(e.get("count", 0))] for e in arguments[tool]]
+            out += render_table(["Value", "Calls"], ["l", "r"], rows)
+            out.append("")
+
+    return "\n".join(out).rstrip() + "\n"
 
 
 def main() -> int:

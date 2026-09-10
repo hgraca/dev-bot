@@ -269,3 +269,76 @@ JSON
   assert_output --partial "last 1 day"
   refute_output --partial "last 1 days"
 }
+
+@test "renderer rounds each table's Share column to sum to 100.0%" {
+  cat > "${SANDBOX}/round.json" <<'JSON'
+{
+  "schema": 1, "harness": "x", "days": 30, "scope": "current", "scope_label": "/p",
+  "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
+  "tools": [{"name": "a", "count": 1}, {"name": "b", "count": 1}, {"name": "c", "count": 1}],
+  "mcp_servers": [{"server": "s1", "count": 1, "tools": []},
+                  {"server": "s2", "count": 1, "tools": []},
+                  {"server": "s3", "count": 1, "tools": []}]
+}
+JSON
+
+  run python3 "${PROJECT_ROOT}/src/_shared/render_stats.py" < "${SANDBOX}/round.json"
+  [ "${status}" -eq 0 ]
+
+  echo "${output}" | python3 -c "
+import sys
+sums = []
+for block in sys.stdin.read().split('## '):
+    lines = [l for l in block.splitlines() if l.strip().startswith('|')]
+    if len(lines) < 3:
+        continue
+    header = [c.strip() for c in lines[0].strip('|').split('|')]
+    if 'Share' not in header:
+        continue
+    idx = header.index('Share')
+    total = 0.0
+    for row in lines[2:]:
+        cells = [c.strip() for c in row.strip('|').split('|')]
+        total += float(cells[idx].rstrip('%'))
+    sums.append(round(total, 1))
+assert sums == [100.0, 100.0], sums
+"
+}
+
+@test "renderer shows up to five MCP tools per server" {
+  cat > "${SANDBOX}/top5.json" <<'JSON'
+{
+  "schema": 1, "harness": "x", "days": 30, "scope": "current", "scope_label": "/p",
+  "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
+  "tools": [{"name": "bash", "count": 1}],
+  "mcp_servers": [{"server": "demo", "count": 6, "tools": [
+    {"name": "t1", "count": 6}, {"name": "t2", "count": 5}, {"name": "t3", "count": 4},
+    {"name": "t4", "count": 3}, {"name": "t5", "count": 2}, {"name": "t6", "count": 1}]}]
+}
+JSON
+
+  run python3 "${PROJECT_ROOT}/src/_shared/render_stats.py" < "${SANDBOX}/top5.json"
+  [ "${status}" -eq 0 ]
+  assert_output --partial "t5 (2)"
+  refute_output --partial "t6 (1)"
+}
+
+@test "renderer emits a Tool Arguments section" {
+  cat > "${SANDBOX}/args.json" <<'JSON'
+{
+  "schema": 1, "harness": "x", "days": 30, "scope": "current", "scope_label": "/p",
+  "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
+  "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
+  "tool_arguments": {"bash": [{"value": "git status", "count": 338}],
+                     "skill": [{"value": "devbot:make-plan", "count": 5}]}
+}
+JSON
+
+  run python3 "${PROJECT_ROOT}/src/_shared/render_stats.py" < "${SANDBOX}/args.json"
+  [ "${status}" -eq 0 ]
+  assert_output --partial "## Tool Arguments"
+  assert_output --partial "### bash"
+  assert_output --partial "git status"
+  assert_output --partial "### skill"
+  assert_output --partial "devbot:make-plan"
+}

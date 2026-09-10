@@ -156,3 +156,40 @@ print(eval(sys.argv[1]))
   [ "${status}" -eq 0 ]
   echo "${output}" | json "data['tools']" | grep -Fqx "[]"
 }
+
+@test "adapter aggregates Bash/Skill/Grep/Glob arguments" {
+  local dir="${SANDBOX}/argproj" projects="${SANDBOX}/argprojects"
+  mkdir -p "${dir}" "${projects}"
+  local slug
+  slug="$(printf '%s' "${dir}" | tr '/' '-')"
+  mkdir -p "${projects}/${slug}"
+
+  python3 - "${projects}/${slug}/s.jsonl" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+
+now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+def line(mid, tool, inp):
+    return json.dumps({"type": "assistant", "timestamp": now,
+                       "message": {"id": mid, "usage": {"input_tokens": 1, "output_tokens": 1},
+                                   "content": [{"type": "tool_use", "name": tool, "input": inp}]}})
+
+rows = [
+    line("a", "Bash", {"command": "cd /x && make test"}),
+    line("b", "Skill", {"skill": "devbot:make-plan"}),
+    line("c", "Grep", {"pattern": "foo"}),
+    line("d", "Glob", {"pattern": "**/*.bats"}),
+]
+with open(sys.argv[1], "w") as fh:
+    fh.write("\n".join(rows) + "\n")
+PY
+
+  export CLAUDE_PROJECTS_DIR="${projects}"
+  run bash -c "cd '${dir}' && bash '${MODULE_DIR}/stats.sh' --days=30"
+  [ "${status}" -eq 0 ]
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['bash']]" | grep -Fqx "[('make test', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['skill']]" | grep -Fqx "[('devbot:make-plan', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['grep']]" | grep -Fqx "[('foo', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['glob']]" | grep -Fqx "[('**/*.bats', 1)]"
+}

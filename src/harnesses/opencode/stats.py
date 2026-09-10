@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "_shared")))
 from read_jsonc import load_jsonc  # noqa: E402
+from stats_args import bash_value  # noqa: E402
 
 DB_PATH = os.environ.get(
     "OPENCODE_DB_PATH", os.path.expanduser("~/.local/share/opencode/opencode.db")
@@ -36,6 +37,19 @@ _CONFIG_NAMES = (
     ".opencode/opencode.json",
     ".opencode/opencode.jsonc",
 )
+
+# Tools whose arguments we aggregate, and the input key holding the value.
+_ARG_TOOLS = ("bash", "skill", "grep", "glob")
+_ARG_KEYS = {"bash": "command", "skill": "name", "grep": "pattern", "glob": "pattern"}
+_ARG_TOP = 20
+
+
+def _arg_value(tool: str, input_obj) -> str:
+    if not isinstance(input_obj, dict):
+        return ""
+    if tool == "bash":
+        return bash_value(input_obj.get("command"))
+    return str(input_obj.get(_ARG_KEYS[tool]) or "")
 
 
 def known_servers(project_dirs):
@@ -80,7 +94,9 @@ def gather(cutoff_ms, scope_all, cwd, db_path):
         sql = (
             "SELECT p.session_id, "
             "json_extract(p.data,'$.type'), json_extract(p.data,'$.tool'), "
-            "json_extract(p.data,'$.cost'), json_extract(p.data,'$.tokens') "
+            "json_extract(p.data,'$.cost'), json_extract(p.data,'$.tokens'), "
+            "CASE WHEN json_extract(p.data,'$.tool') IN ('bash','skill','grep','glob') "
+            "THEN json_extract(p.data,'$.state.input') END "
             "FROM part p JOIN session s ON s.id = p.session_id "
             "WHERE p.time_created >= ? "
             "AND json_extract(p.data,'$.type') IN ('tool','step-finish')"
@@ -94,10 +110,11 @@ def gather(cutoff_ms, scope_all, cwd, db_path):
         counts = Counter()
         tokens = defaultdict(float)
         costs = defaultdict(float)
+        arg_counts = {tool: Counter() for tool in _ARG_TOOLS}
 
         current_tools: list[str] = []
         last_session = None
-        for session_id, kind, tool, cost, tok in conn.execute(sql, params):
+        for session_id, kind, tool, cost, tok, input_json in conn.execute(sql, params):
             if session_id != last_session:
                 current_tools = []
                 last_session = session_id
@@ -105,6 +122,14 @@ def gather(cutoff_ms, scope_all, cwd, db_path):
                 if tool:
                     counts[tool] += 1
                     current_tools.append(tool)
+                    if tool in _ARG_TOOLS and input_json:
+                        try:
+                            input_obj = json.loads(input_json)
+                        except ValueError:
+                            input_obj = None
+                        value = _arg_value(tool, input_obj)
+                        if value:
+                            arg_counts[tool][value] += 1
             elif kind == "step-finish":
                 n = len(current_tools)
                 if n:
@@ -165,7 +190,13 @@ def gather(cutoff_ms, scope_all, cwd, db_path):
             ],
         })
 
-    return servers, tools, mcp_servers
+    tool_arguments = {
+        tool: [{"value": value, "count": count} for value, count in arg_counts[tool].most_common(_ARG_TOP)]
+        for tool in _ARG_TOOLS
+        if arg_counts[tool]
+    }
+
+    return tools, mcp_servers, tool_arguments
 
 
 def main() -> int:
@@ -185,7 +216,7 @@ def main() -> int:
     cwd = os.getcwd()
 
     try:
-        _, tools, mcp_servers = gather(cutoff_ms, args.scope_all, cwd, DB_PATH)
+        tools, mcp_servers, tool_arguments = gather(cutoff_ms, args.scope_all, cwd, DB_PATH)
     except sqlite3.Error as exc:
         print(f"ERROR: failed to read opencode database: {exc}", file=sys.stderr)
         return 1
@@ -200,6 +231,7 @@ def main() -> int:
         "cost_kind": "estimated",
         "tools": tools,
         "mcp_servers": mcp_servers,
+        "tool_arguments": tool_arguments,
     }
     json.dump(data, sys.stdout, indent=2)
     sys.stdout.write("\n")

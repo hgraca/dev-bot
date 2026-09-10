@@ -179,3 +179,38 @@ PY
   [ "${status}" -eq 0 ]
   echo "${output}" | json "[(t['name'], round(t['cost'],2), t['tokens']) for t in data['tools'] if t['name']=='demo_foo'][0]" | grep -Fqx "('demo_foo', 1.0, 100)"
 }
+
+@test "adapter aggregates bash/skill/grep/glob arguments" {
+  local db3="${SANDBOX}/args.db"
+  python3 - "${db3}" "${PROJECT_DIR}" <<'PY'
+import json, sqlite3, sys, time
+db, proj = sys.argv[1], sys.argv[2]
+c = sqlite3.connect(db)
+c.executescript(
+    "CREATE TABLE session(id TEXT PRIMARY KEY, directory TEXT, time_created INTEGER, time_updated INTEGER);"
+    "CREATE TABLE part(id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);"
+)
+now = int(time.time() * 1000)
+c.execute("INSERT INTO session VALUES('s1', ?, ?, ?)", (proj, now, now))
+
+def part(i, obj):
+    c.execute("INSERT INTO part VALUES(?,?,?,?,?,?)",
+              (f"p{i}", "m", "s1", now, now, json.dumps(obj)))
+
+part(1, {"type": "tool", "tool": "bash", "state": {"input": {"command": "cd /x && git status --short"}}})
+part(2, {"type": "tool", "tool": "skill", "state": {"input": {"name": "devbot:make-plan"}}})
+part(3, {"type": "tool", "tool": "grep", "state": {"input": {"pattern": "foo"}}})
+part(4, {"type": "tool", "tool": "glob", "state": {"input": {"pattern": "**/*.bats"}}})
+c.commit()
+c.close()
+PY
+
+  export OPENCODE_DB_PATH="${db3}"
+  run run_adapter --days=30
+  [ "${status}" -eq 0 ]
+  # leading `cd … &&` stripped, then first two tokens
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['bash']]" | grep -Fqx "[('git status', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['skill']]" | grep -Fqx "[('devbot:make-plan', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['grep']]" | grep -Fqx "[('foo', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['glob']]" | grep -Fqx "[('**/*.bats', 1)]"
+}
