@@ -78,6 +78,8 @@ Start / stop the Docker services via auto-discovered compose files across all mo
 
 Docker services are **consumer-driven**: a compose file is only included when its module is **enabled** in the `modules` map. A module that _needs_ a provider's service without running a container of its own ships a compose fragment that `include:`s the provider's compose — so enabling the consumer boots the provider even when the provider module is disabled (e.g. `codebase-index`'s fragment boots `ollama`, which is disabled by default). When no enabled module ships a compose file, the Docker section is skipped entirely and nothing is started/stopped. GPU detection (`gpu_enabled`) runs from `devbot install`/`update`, not the ollama module install, so it survives ollama being disabled.
 
+Every dev-bot compose file declares `name: devbot` — the compose project name is read from the **first** `-f` file, and a consumer fragment is often first, so declaring the same name everywhere keeps all containers (ollama, litellm) in a single `devbot` project regardless of which fragment is merged first (otherwise ollama would boot under the fragment's directory name and `down`/orphan management would break). A test enforces the convention.
+
 ### `devbot tool <name> [args...]`
 
 Run a dev-bot tool by name (e.g. `devbot tool tree`, `devbot tool git-report`). Run `devbot tool` with no name to list available tools.

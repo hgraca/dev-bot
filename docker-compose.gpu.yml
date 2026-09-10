@@ -1,3 +1,12 @@
+# GPU passthrough overlay for ollama. Appended by bin/up.sh/down.sh and the
+# ollama exec helper when gpu_enabled is true.
+#
+# `name: devbot` — the compose project name is read from the FIRST -f file;
+# this overlay is always appended after a base/tool compose, but declaring the
+# name keeps every dev-bot compose file consistent (see the convention test in
+# bin/tests/compose_fragments_tests.bats) so all containers share one project.
+name: devbot
+
 services:
   ollama:
     deploy:

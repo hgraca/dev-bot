@@ -7,6 +7,11 @@
 # directory, so an absolute path keeps this order-independent when up.sh -f's
 # several fragments together. DEV_BOT_ROOT is exported by every dev-bot
 # compose invocation.
+#
+# `name: devbot` — the project name is read from the FIRST -f file; declaring
+# it here keeps every dev-bot container in one project regardless of which
+# fragment is first (otherwise it derives from this directory name).
+name: devbot
 include:
   - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml
 

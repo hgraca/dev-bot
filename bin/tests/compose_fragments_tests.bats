@@ -80,3 +80,50 @@ teardown() {
     assert_equal "${ollama_count}" "1"
   done
 }
+
+# ── Compose project name: every service boots under `devbot` ─────────────────
+# The compose `name:` field is only read from the FIRST -f file. A consumer
+# fragment (codebase-index, litellm) can be first, so EVERY compose file that
+# can be first must declare the same project name — otherwise ollama boots
+# under the fragment's directory name (codebase-index / litellm), different
+# invocations target different projects, and down/orphan management breaks.
+# Convention: all dev-bot compose files declare `name: devbot`.
+
+@test "every compose file declares the shared project name 'devbot'" {
+  local f name
+  for f in \
+    "${PROJECT_ROOT}/docker-compose.gpu.yml" \
+    "${PROJECT_ROOT}/src/tools/ollama/docker-compose.yml" \
+    "${PROJECT_ROOT}/src/tools/litellm/docker-compose.yml" \
+    "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.yml"; do
+    name="$(grep -m1 '^name:' "${f}" 2>/dev/null | sed 's/^name:[[:space:]]*//')"
+    [ "${name}" = "devbot" ] \
+      || fail "$(basename "$(dirname "${f}")")/docker-compose.yml must declare 'name: devbot' (found: '${name}')"
+  done
+}
+
+@test "the project name is devbot whichever fragment is -f'd first" {
+  local first resolved
+  for first in \
+    "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.yml" \
+    "${PROJECT_ROOT}/src/tools/litellm/docker-compose.yml"; do
+    resolved="$(docker compose -f "${first}" config 2>/dev/null | grep -m1 '^name:' | sed 's/^name:[[:space:]]*//')"
+    [ "${resolved}" = "devbot" ] \
+      || fail "project name from $(basename "$(dirname "${first}")")/docker-compose.yml was '${resolved}', expected 'devbot'"
+  done
+}
+
+@test "the project name is devbot when both fragments are merged, either order" {
+  local resolved
+  resolved="$(docker compose \
+    -f "${PROJECT_ROOT}/src/tools/litellm/docker-compose.yml" \
+    -f "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.yml" \
+    config 2>/dev/null | grep -m1 '^name:' | sed 's/^name:[[:space:]]*//')"
+  [ "${resolved}" = "devbot" ] || fail "merged (litellm first) project name was '${resolved}'"
+
+  resolved="$(docker compose \
+    -f "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.yml" \
+    -f "${PROJECT_ROOT}/src/tools/litellm/docker-compose.yml" \
+    config 2>/dev/null | grep -m1 '^name:' | sed 's/^name:[[:space:]]*//')"
+  [ "${resolved}" = "devbot" ] || fail "merged (codebase-index first) project name was '${resolved}'"
+}

@@ -10,5 +10,12 @@
 # absolute path is order-independent. dev-bot always exports DEV_BOT_ROOT
 # when it invokes compose (up.sh, down.sh, the ollama exec helper); a bare
 # `docker compose -f <this-file>` needs DEV_BOT_ROOT set too.
+#
+# `name: devbot` — the compose project name is read from the FIRST -f file,
+# and this fragment is often first (up.sh -f's fragments in discovery order).
+# Every dev-bot compose file declares the same name so all containers land in
+# one project regardless of which file is first (otherwise ollama boots under
+# this fragment's directory name and down/orphan management breaks).
+name: devbot
 include:
   - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml
