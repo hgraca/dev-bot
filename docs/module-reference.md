@@ -29,6 +29,7 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
   pre.sh                Prerequisites check
   reset.sh              Per-project state reset
   start.sh              Launch the harness binary (harnesses only)
+  stats.sh              Tool/MCP usage adapter for `devbot stats` (harnesses only)
   functions.sh          Thin wrapper sourcing `src/_shared/functions.sh`
   mcp.json              Canonical MCP server manifest (harness-agnostic — see [MCP configuration](/mcp-config))
   plugin.opencode.json  OpenCode plugin names declared by this module (optional)

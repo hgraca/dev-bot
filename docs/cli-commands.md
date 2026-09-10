@@ -107,6 +107,27 @@ List agentic artifacts as a markdown table. `type` is one of:
 
 Prune old OpenCode sessions (default: 30 days).
 
+### `devbot stats [--days=N] [--all|-a] [--harness=HARNESS]`
+
+Report tool usage and MCP-server usage as a Markdown report for the last `N` days (default: 30).
+
+The command is harness-agnostic: it detects the harness (the `harness` setting, or `--harness`), delegates data gathering to that harness's stats adapter (`src/harnesses/<harness>/stats.sh`), validates the canonical JSON it returns, and renders the report. Without an adapter for the detected harness the command fails with a `FATAL`.
+
+| Flag             | Description                                           |
+| ---------------- | ----------------------------------------------------- |
+| `--days=N`       | Report window in days (default: 30)                   |
+| `--all`, `-a`    | Aggregate every project (default: current project)    |
+| `--harness=NAME` | Force a harness adapter (default: configured harness) |
+
+```bash
+devbot stats                      # last 30 days, current project, configured harness
+devbot stats --days=7             # last week
+devbot stats --days=90 --all      # every project, last quarter
+devbot stats --harness=claudecode
+```
+
+Adding support for a new harness is a single adapter script — see [Harnesses](/harnesses#stats-adapters).
+
 ### `devbot models <subcommand>`
 
 Manage LLM models via Ollama:

@@ -45,6 +45,10 @@ The manifest `run` command is resolved with placeholders `{module}`, `{file}`, `
 5. Register the harness in the discovery loop (`bin/init.sh` iterates `src/harnesses/*/`).
 6. Add any hand-written hooks for side effects the manifest can't express (e.g. prompt injection) and document them as exceptions.
 
+## Stats adapters
+
+`devbot stats` also delegates to the harness. Add `src/harnesses/<name>/stats.sh` (plus its helper) that prints the canonical stats JSON — the contract and a step-by-step are documented in `docs/harnesses.md` (section "Stats adapters").
+
 ## MUST
 
 - Business logic lives in the agentic module's `tools/`; the adapter only extracts payload + runs commands — never re-implements logic.
