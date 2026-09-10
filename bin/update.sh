@@ -117,6 +117,42 @@ _ensure_tag_exists() {
   fi
 }
 
+# True when the checkout is a shallow clone (install.sh clones --depth 1).
+_is_shallow_repo() {
+  [[ "$(git -C "${DEV_BOT_ROOT}" rev-parse --is-shallow-repository 2>/dev/null)" == "true" ]]
+}
+
+# Classify HEAD against an already-resolved tag commit: ahead/behind/diverged.
+_classify_vs_tag() {
+  local tag_head="$1"
+  if git -C "${DEV_BOT_ROOT}" merge-base --is-ancestor "${tag_head}" HEAD 2>/dev/null; then
+    echo "ahead"       # tag is an ancestor of HEAD
+  elif git -C "${DEV_BOT_ROOT}" merge-base --is-ancestor HEAD "${tag_head}" 2>/dev/null; then
+    echo "behind"      # HEAD is an ancestor of the tag
+  else
+    echo "diverged"
+  fi
+}
+
+# Deepen a shallow clone so ancestry can be resolved. Best-effort and bounded:
+# returns non-zero (the caller keeps its pre-deepen classification) on failure.
+_deepen_shallow_repo() {
+  local cap="${DEV_BOT_UNSHALLOW_TIMEOUT:-60}"
+  GIT_TERMINAL_PROMPT=0 git -C "${DEV_BOT_ROOT}" fetch --unshallow --tags origin >/dev/null 2>&1 &
+  local pid=$! waited=0
+  while kill -0 "${pid}" 2>/dev/null; do
+    if [[ "${waited}" -ge "${cap}" ]]; then
+      kill "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+      return 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "${pid}" 2>/dev/null || return 1
+  return 0
+}
+
 # Print HEAD's position relative to a release tag:
 #   at        HEAD is exactly on the tag
 #   ahead     the tag is an ancestor of HEAD (HEAD is newer / on a dev line)
@@ -129,13 +165,19 @@ _head_vs_tag() {
   tag_head="$(git -C "${DEV_BOT_ROOT}" rev-parse "${ref}^{commit}")"
 
   [[ "${head}" == "${tag_head}" ]] && { echo "at"; return; }
-  if git -C "${DEV_BOT_ROOT}" merge-base --is-ancestor "${tag_head}" HEAD; then
-    echo "ahead"       # tag is an ancestor of HEAD
-  elif git -C "${DEV_BOT_ROOT}" merge-base --is-ancestor HEAD "${tag_head}"; then
-    echo "behind"      # HEAD is an ancestor of the tag
-  else
-    echo "diverged"
+
+  local state
+  state="$(_classify_vs_tag "${tag_head}")"
+  # install.sh clones with --depth 1. A shallow clone's truncated history
+  # cannot connect an ahead-of-tag branch to the tag, so a genuine "ahead" is
+  # misread as "diverged". Deepen once and re-classify before concluding
+  # diverged; if the deepen fails, keep the (safe) diverged result.
+  if [[ "${state}" == "diverged" ]] && _is_shallow_repo; then
+    if _deepen_shallow_repo; then
+      state="$(_classify_vs_tag "${tag_head}")"
+    fi
   fi
+  echo "${state}"
 }
 
 _git_dirty() {
