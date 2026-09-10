@@ -86,6 +86,11 @@ _new_sandbox() {
   fi
 
   # Copy the update machinery + shared library into the fake install.
+  _install_machinery
+}
+
+# Copy the update machinery + shared library into ${INSTALL} (a fake install).
+_install_machinery() {
   mkdir -p "${INSTALL}/bin" \
     "${INSTALL}/src/_shared" \
     "${INSTALL}/src/tools/external-modules/tools" \
@@ -103,6 +108,34 @@ _new_sandbox() {
 touch "${MODULE_STUB_MARKER:-/tmp/module-stub-ran}"
 STUB
   chmod +x "${INSTALL}/src/tools/external-modules/tools/module.sh"
+}
+
+# Shallow-install sandbox, mirroring install.sh's `git clone --depth 1`.
+# origin main carries tags 1.0.0/1.1.0 plus one untagged dev commit; INSTALL is
+# a depth-1 clone at $1 (default main). The newest tag is an ancestor of HEAD
+# in reality, but a shallow clone's truncated history cannot connect it.
+_new_shallow_sandbox() {
+  local ref="${1:-main}"
+  SANDBOX="$(mktemp -d)"
+  ORIGIN="${SANDBOX}/origin"
+  INSTALL="${SANDBOX}/install"
+  export MODULE_STUB_MARKER="${SANDBOX}/module-stub-ran"
+
+  git init -q "${ORIGIN}"
+  git -C "${ORIGIN}" symbolic-ref HEAD refs/heads/main
+  local v
+  for v in 1.0.0 1.1.0; do
+    printf 'v%s\n' "${v}" > "${ORIGIN}/f.txt"
+    git -C "${ORIGIN}" add f.txt
+    git -C "${ORIGIN}" commit -qm "commit for ${v}"
+    git -C "${ORIGIN}" tag "${v}"
+  done
+  printf 'dev\n' > "${ORIGIN}/dev.txt"
+  git -C "${ORIGIN}" add dev.txt
+  git -C "${ORIGIN}" commit -qm "dev after 1.1.0"
+
+  git clone -q --depth 1 --branch "${ref}" "${ORIGIN}" "${INSTALL}"
+  _install_machinery
 }
 
 # Publish a newer release in origin: advance main with a commit touching
@@ -392,6 +425,35 @@ EOF
   assert_equal "$(git -C "${INSTALL}" symbolic-ref --short HEAD)" "feature"
   grep -q 'feature work' "${INSTALL}/feature.txt"
   git -C "${INSTALL}" merge-base --is-ancestor 1.2.0 HEAD
+  _refresh_ran
+}
+
+# ── Shallow installs (install.sh clones with --depth 1) ──────────────────────
+
+@test "shallow install: a branch ahead of the tag is not rebased" {
+  # origin main = tag 1.1.0 + one untagged commit; INSTALL is a depth-1 clone
+  # at main, so 1.1.0 is an ancestor in reality but invisible to a shallow
+  # merge-base. The implicit update must skip, never rebase.
+  _new_shallow_sandbox main
+  local pre_sha
+  pre_sha="$(git -C "${INSTALL}" rev-parse HEAD)"
+  _run_update --auto
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  assert_equal "$(git -C "${INSTALL}" rev-parse HEAD)" "${pre_sha}"
+  assert_equal "$(git -C "${INSTALL}" symbolic-ref --short HEAD)" "main"
+  [[ "$UPDATE_OUTPUT" != *"Rebasing"* ]]
+  ! _refresh_ran
+}
+
+@test "shallow install: a behind branch still updates" {
+  # INSTALL is a depth-1 clone detached at 1.0.0; fetching tags must still
+  # connect 1.1.0 to HEAD and classify it behind.
+  _new_shallow_sandbox 1.0.0
+  _run_update --auto
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  assert_equal "$(git -C "${INSTALL}" rev-parse HEAD)" "$(git -C "${INSTALL}" rev-parse '1.1.0^{commit}')"
   _refresh_ran
 }
 
