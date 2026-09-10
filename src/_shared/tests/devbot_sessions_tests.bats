@@ -139,3 +139,15 @@ EOF
   _devbot_session_release
   [ ! -f "${DOWN_MARKER}" ]
 }
+
+# ── No leftover lock file ────────────────────────────────────────────────────
+# The registry lock is the sessions DIRECTORY itself (flock on a dir fd), not
+# a lock file — so the sessions dir contains only session files, and release
+# leaves nothing behind.
+
+@test "release leaves no lock file behind — sessions dir holds no files after" {
+  _devbot_session_register
+  _devbot_session_release
+  run bash -c "find '${SESSIONS_DIR}' -maxdepth 1 -type f | wc -l | tr -d ' '"
+  assert_output "0"
+}

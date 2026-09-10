@@ -181,8 +181,10 @@ _devbot_get_project_dir() {
 
 # ── Cross-process bounded lock ─────────────────────────────────────────────────
 #
-# _devbot_lock_wait <lockfile> [cap_seconds] [warning_message]
-#   Acquire an exclusive cross-process flock on <lockfile>, waiting up to
+# _devbot_lock_wait <lockfile|dir> [cap_seconds] [warning_message]
+#   Acquire an exclusive cross-process flock on <lockfile> (or on a directory
+#   when a directory is given — flock works on a dir fd, which lets callers
+#   lock a collection without leaving a lock file behind). Waits up to
 #   cap_seconds (default 600). The lock is held on fd 200 — the caller keeps it
 #   until it runs `exec 200>&-` or the script exits.
 #   Serializes steps that hammer a SHARED resource across concurrent processes
@@ -197,8 +199,13 @@ _devbot_lock_wait() {
   local lockfile="$1"
   local cap="${2:-600}"
   local msg="${3:-}"
-  mkdir -p "$(dirname "${lockfile}")" 2>/dev/null || return 1
-  exec 200>"${lockfile}" 2>/dev/null || return 1
+  if [[ -d "${lockfile}" ]]; then
+    # Directory target: open read-only (a dir cannot be opened for writing).
+    exec 200<"${lockfile}" 2>/dev/null || return 1
+  else
+    mkdir -p "$(dirname "${lockfile}")" 2>/dev/null || return 1
+    exec 200>"${lockfile}" 2>/dev/null || return 1
+  fi
   local waited=0 first_wait=1
   while ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; do
     if (( first_wait )); then
@@ -273,8 +280,12 @@ _devbot_session_release() {
 
   [[ -d "${dir}" ]] || return 0
 
-  # Serialize the probe+teardown against other releases via the registry lock.
-  _devbot_lock_wait "${dir}/.release.lock" 30 \
+  # Serialize the probe+teardown against other releases via a lock on the
+  # sessions DIRECTORY itself — flock works on a dir fd, so no lock file is
+  # left behind (the dir holds only session files). Also remove the legacy
+  # .release.lock an older revision created.
+  rm -f "${dir}/.release.lock" 2>/dev/null || true
+  _devbot_lock_wait "${dir}" 30 \
     "session registry lock held >30s by another process — skipping teardown" || return 0
 
   local live=0 f
