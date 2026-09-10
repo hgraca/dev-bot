@@ -67,22 +67,33 @@ setup() {
   grep -qF '"agent"' "$test_project/opencode.jsonc" || fail "opencode.jsonc missing agent key"
   grep -qF '"permission"' "$test_project/opencode.jsonc" || fail "opencode.jsonc missing permission key"
 
-  # ── Verify config-change baselines written by init's final step ────────
-  # init.sh records a content hash of both configs (.jsonc → .sha) so the
-  # next bare `devbot` start can detect a config edit and auto-reinit. A
-  # fresh init must leave both baselines present and matching the current
-  # content (otherwise the first start would reinit spuriously).
+  # ── Verify config-change baseline written by init's final step ─────────
+  # init.sh records a combined content hash of the global + project configs
+  # (into <project>/.devbot.project.sha) so the next bare `devbot` start can
+  # detect a config edit and auto-reinit. A fresh init must leave the baseline
+  # present and matching the current content (otherwise the first start would
+  # reinit spuriously).
   [ -f "$test_project/.devbot.project.sha" ] \
     || fail ".devbot.project.sha baseline not written by init"
   local expected_project_sha
   expected_project_sha="$(
-    python3 -c "import hashlib; print(hashlib.sha256(open('$test_project/.devbot.project.jsonc','rb').read()).hexdigest())"
+    python3 - "$PROJECT_ROOT/.devbot.global.jsonc" "$test_project/.devbot.project.jsonc" <<'PY'
+import hashlib
+import sys
+
+h = hashlib.sha256()
+for i, path in enumerate(sys.argv[1:]):
+    if i:
+        h.update(b"\0")
+    h.update(open(path, "rb").read())
+print(h.hexdigest())
+PY
   )"
   [ "$(<"$test_project/.devbot.project.sha")" = "$expected_project_sha" ] \
-    || fail ".devbot.project.sha does not match current config content"
-  # The global baseline is written next to the install's .devbot.global.jsonc.
-  [ -f "$PROJECT_ROOT/.devbot.global.sha" ] \
-    || fail ".devbot.global.sha baseline not written by init"
+    || fail ".devbot.project.sha does not match the combined config content"
+  # The retired global baseline must not be written.
+  [ ! -e "$PROJECT_ROOT/.devbot.global.sha" ] \
+    || fail ".devbot.global.sha should no longer be written by init"
 
   # ── Verify .git/info/exclude was updated with .ai/ entry ───────────────
   [ -f "$test_project/.git/info/exclude" ]

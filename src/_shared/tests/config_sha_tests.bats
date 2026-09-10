@@ -1,25 +1,17 @@
 #!/usr/bin/env bats
 # =============================================================================
 # src/_shared/tests/config_sha_tests.bats
-# Tests for the config-change → auto-reinit helpers in src/_shared/functions.sh:
+# Tests for the per-project wiring-hash helpers in src/_shared/functions.sh:
 #
-#   _devbot_config_sha_path        — <file>.jsonc → <file>.sha (same location,
-#                                    extension REPLACED, not appended)
-#   _devbot_config_sha             — sha256 of a config file's bytes (python3)
-#   _devbot_config_changed         — 0 when the current hash differs from the
-#                                    stored .sha, or when no .sha baseline exists
-#                                    (E1: missing baseline ⇒ changed ⇒ one reinit
-#                                    establishes it); 1 when config is missing or
-#                                    the hashes match
-#   _devbot_write_config_sha       — write the current hash to the sibling .sha
-#   _devbot_auto_reinit_if_config_changed <project_dir>
-#                                  — 0 when no config changed; when the global or
-#                                    project config changed, runs
-#                                    `bash $DEV_BOT_ROOT/bin/reinit.sh` in the
-#                                    project dir (baselines are refreshed by the
-#                                    init.sh that reinit ends with); on reinit
-#                                    failure, warns and (non-interactive) returns
-#                                    0 = continue the start anyway
+#   _devbot_config_sha_path   — <project>/.devbot.project.jsonc → <project>/.devbot.project.sha
+#   _devbot_config_sha        — sha256 over one or more files joined with NUL
+#   _devbot_wiring_sha        — combined hash of the global + project configs
+#   _devbot_config_changed    — 0 when the wiring hash differs from the stored
+#                               .sha, or when no baseline exists; 1 when neither
+#                               config exists or the hash matches
+#   _devbot_write_config_sha  — write the combined hash to <project>/.devbot.project.sha
+#   _devbot_auto_reinit_if_config_changed
+#                             — reinit the project when its wiring changed
 #
 # Run from project root:
 #   bats src/_shared/tests/config_sha_tests.bats
@@ -32,12 +24,16 @@ setup() {
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   PROJECT_ROOT="$(cd "$TEST_DIR/../../.." && pwd)"
 
-  # ── Fake dev-bot root (configs live here + a fake reinit.sh) ────────────
+  # Fake dev-bot root: the GLOBAL config lives here, plus a fake reinit.sh.
   export DEV_BOT_ROOT="$(mktemp -d)"
   mkdir -p "${DEV_BOT_ROOT}/bin"
-  echo '{"gpu_enabled": false}' > "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  cat > "${DEV_BOT_ROOT}/.devbot.global.jsonc" <<'JSON'
+{
+  "gpu_enabled": false,
+  "version": "1.0.0"
+}
+JSON
 
-  # Project dir with its own config.
   PROJECT="$(mktemp -d)"
   echo '{"project_name": "demo"}' > "${PROJECT}/.devbot.project.jsonc"
 
@@ -45,16 +41,15 @@ setup() {
   # already exported so functions.sh keeps the sandbox root.
   source "${PROJECT_ROOT}/src/_shared/functions.sh"
 
-  # Fake reinit.sh: records the invocation (cwd) and refreshes baselines the
-  # way a real reinit does (it ends by running init.sh, which writes them).
-  # FAIL_REINIT=1 makes it exit non-zero.
+  # Fake reinit.sh: records the invocation (cwd) and refreshes the wiring
+  # baseline for the project it runs in (init.sh does this at the end of a
+  # real reinit). FAIL_REINIT=1 makes it exit non-zero.
   cat > "${DEV_BOT_ROOT}/bin/reinit.sh" <<EOF
 #!/usr/bin/env bash
 source "${PROJECT_ROOT}/src/_shared/functions.sh"
 echo "reinit-called \$(pwd)" >> "${DEV_BOT_ROOT}/reinit.log"
 if [[ "\${FAIL_REINIT:-0}" == "1" ]]; then exit 3; fi
-_devbot_write_config_sha "${DEV_BOT_ROOT}/.devbot.global.jsonc"
-_devbot_write_config_sha "${PROJECT}/.devbot.project.jsonc"
+_devbot_write_config_sha "\$(pwd)"
 exit 0
 EOF
   chmod +x "${DEV_BOT_ROOT}/bin/reinit.sh"
@@ -68,10 +63,6 @@ teardown() {
 # ── sha path naming ───────────────────────────────────────────────────────────
 
 @test "sha path replaces the jsonc extension, keeping the directory" {
-  run _devbot_config_sha_path "${DEV_BOT_ROOT}/.devbot.global.jsonc"
-  assert_success
-  assert_output "${DEV_BOT_ROOT}/.devbot.global.sha"
-
   run _devbot_config_sha_path "${PROJECT}/.devbot.project.jsonc"
   assert_success
   assert_output "${PROJECT}/.devbot.project.sha"
@@ -79,7 +70,7 @@ teardown() {
 
 # ── hash computation ──────────────────────────────────────────────────────────
 
-@test "config sha matches the known sha256 of the file content" {
+@test "config sha matches the known sha256 of a single file" {
   # sha256("hello\n") — hardcoded so a hash-function regression is caught.
   echo "hello" > "${PROJECT}/sample.jsonc"
   run _devbot_config_sha "${PROJECT}/sample.jsonc"
@@ -87,78 +78,111 @@ teardown() {
   assert_output "5891b5b522d5df086d0ff0b110fbd9d21bb4fc7163af34d08286a2e846f6be03"
 }
 
+@test "config sha over two files differs from either file alone" {
+  echo "one" > "${PROJECT}/a.jsonc"
+  echo "two" > "${PROJECT}/b.jsonc"
+  local only_a only_b both
+  only_a="$(_devbot_config_sha "${PROJECT}/a.jsonc")"
+  only_b="$(_devbot_config_sha "${PROJECT}/b.jsonc")"
+  both="$(_devbot_config_sha "${PROJECT}/a.jsonc" "${PROJECT}/b.jsonc")"
+  [ -n "${both}" ]
+  [ "${both}" != "${only_a}" ]
+  [ "${both}" != "${only_b}" ]
+}
+
+@test "wiring sha changes when the GLOBAL config changes" {
+  local before after
+  before="$(_devbot_wiring_sha "${PROJECT}")"
+  echo '{"gpu_enabled": true, "version": "1.0.0"}' > "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  after="$(_devbot_wiring_sha "${PROJECT}")"
+  [ -n "${before}" ]
+  [ "${before}" != "${after}" ]
+}
+
+@test "wiring sha changes when the PROJECT config changes" {
+  local before after
+  before="$(_devbot_wiring_sha "${PROJECT}")"
+  echo '{"project_name": "edited"}' > "${PROJECT}/.devbot.project.jsonc"
+  after="$(_devbot_wiring_sha "${PROJECT}")"
+  [ "${before}" != "${after}" ]
+}
+
 # ── change detection ──────────────────────────────────────────────────────────
 
-@test "config without a .sha baseline is changed (E1: establish baseline)" {
-  run _devbot_config_changed "${PROJECT}/.devbot.project.jsonc"
+@test "config without a baseline is changed (E1: establish baseline)" {
+  run _devbot_config_changed "${PROJECT}"
   assert_success
 }
 
 @test "config matching its baseline is unchanged" {
-  _devbot_write_config_sha "${PROJECT}/.devbot.project.jsonc"
-  run _devbot_config_changed "${PROJECT}/.devbot.project.jsonc"
+  _devbot_write_config_sha "${PROJECT}"
+  run _devbot_config_changed "${PROJECT}"
   assert_failure
 }
 
 @test "config differing from its baseline is changed" {
-  _devbot_write_config_sha "${PROJECT}/.devbot.project.jsonc"
+  _devbot_write_config_sha "${PROJECT}"
   echo '{"project_name": "changed"}' > "${PROJECT}/.devbot.project.jsonc"
-  run _devbot_config_changed "${PROJECT}/.devbot.project.jsonc"
+  run _devbot_config_changed "${PROJECT}"
   assert_success
 }
 
-@test "missing config file is not changed (nothing to reinit for)" {
-  run _devbot_config_changed "${PROJECT}/does-not-exist.jsonc"
+@test "a GLOBAL config change marks the project changed" {
+  _devbot_write_config_sha "${PROJECT}"
+  echo '{"gpu_enabled": true, "version": "2.0.0"}' > "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  run _devbot_config_changed "${PROJECT}"
+  assert_success
+}
+
+@test "missing configs are not changed (nothing to reinit for)" {
+  rm -f "${PROJECT}/.devbot.project.jsonc" "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  run _devbot_config_changed "${PROJECT}"
   assert_failure
 }
 
 # ── baseline write ────────────────────────────────────────────────────────────
 
-@test "write baseline creates a sibling .sha with the current hash" {
-  _devbot_write_config_sha "${PROJECT}/.devbot.project.jsonc"
+@test "write baseline creates the project .sha with the wiring hash (no global .sha)" {
+  _devbot_write_config_sha "${PROJECT}"
   [ -f "${PROJECT}/.devbot.project.sha" ]
-  local stored current
+  [ ! -e "${DEV_BOT_ROOT}/.devbot.global.sha" ]
+  local stored
   stored="$(<"${PROJECT}/.devbot.project.sha")"
-  current="$(_devbot_config_sha "${PROJECT}/.devbot.project.jsonc")"
-  assert_equal "${stored}" "${current}"
+  assert_equal "${stored}" "$(_devbot_wiring_sha "${PROJECT}")"
 }
 
-@test "write baseline skips a missing config file" {
-  run _devbot_write_config_sha "${PROJECT}/missing.jsonc"
+@test "write baseline is a no-op when no config exists" {
+  rm -f "${PROJECT}/.devbot.project.jsonc" "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  run _devbot_write_config_sha "${PROJECT}"
   assert_success
-  [ ! -e "${PROJECT}/missing.sha" ]
+  [ ! -e "${PROJECT}/.devbot.project.sha" ]
 }
 
 # ── auto-reinit orchestration ─────────────────────────────────────────────────
 
-@test "auto-reinit is a no-op when neither config changed" {
-  _devbot_write_config_sha "${DEV_BOT_ROOT}/.devbot.global.jsonc"
-  _devbot_write_config_sha "${PROJECT}/.devbot.project.jsonc"
-
+@test "auto-reinit is a no-op when the wiring is unchanged" {
+  _devbot_write_config_sha "${PROJECT}"
   run _devbot_auto_reinit_if_config_changed "${PROJECT}"
   assert_success
   [ ! -e "${DEV_BOT_ROOT}/reinit.log" ]
 }
 
-@test "auto-reinit runs reinit.sh in the project dir when the project config changed" {
-  _devbot_write_config_sha "${DEV_BOT_ROOT}/.devbot.global.jsonc"
-  _devbot_write_config_sha "${PROJECT}/.devbot.project.jsonc"
+@test "auto-reinit runs when the project config changed" {
+  _devbot_write_config_sha "${PROJECT}"
   echo '{"project_name": "edited"}' > "${PROJECT}/.devbot.project.jsonc"
 
   run _devbot_auto_reinit_if_config_changed "${PROJECT}"
   assert_success
-  assert_output --partial "reinit"
   run cat "${DEV_BOT_ROOT}/reinit.log"
   assert_output "reinit-called ${PROJECT}"
-  # Baselines refreshed by the (fake) reinit — next check is clean.
-  run _devbot_config_changed "${PROJECT}/.devbot.project.jsonc"
+  # Baseline refreshed by the (fake) reinit — next check is clean.
+  run _devbot_config_changed "${PROJECT}"
   assert_failure
 }
 
 @test "auto-reinit runs when the GLOBAL config changed" {
-  _devbot_write_config_sha "${DEV_BOT_ROOT}/.devbot.global.jsonc"
-  _devbot_write_config_sha "${PROJECT}/.devbot.project.jsonc"
-  echo '{"gpu_enabled": true}' > "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  _devbot_write_config_sha "${PROJECT}"
+  echo '{"gpu_enabled": true, "version": "2.0.0"}' > "${DEV_BOT_ROOT}/.devbot.global.jsonc"
 
   run _devbot_auto_reinit_if_config_changed "${PROJECT}"
   assert_success
@@ -166,18 +190,38 @@ teardown() {
   assert_output --partial "reinit-called"
 }
 
-@test "auto-reinit on a project with no baselines runs one reinit to establish them" {
+@test "a global change reinits EVERY project on its own next start" {
+  # Two projects, both wired against the same global config.
+  local project2
+  project2="$(mktemp -d)"
+  echo '{"project_name": "two"}' > "${project2}/.devbot.project.jsonc"
+  _devbot_write_config_sha "${PROJECT}"
+  _devbot_write_config_sha "${project2}"
+
+  # A global change (e.g. the `version` bump devbot update writes).
+  echo '{"gpu_enabled": false, "version": "9.9.9"}' > "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+
+  # Project 1 starts: reinits and refreshes ONLY its own baseline.
+  run _devbot_auto_reinit_if_config_changed "${PROJECT}"
+  assert_success
+
+  # Project 2 must still detect the change — its baseline was not touched.
+  run _devbot_config_changed "${project2}"
+  assert_success
+  rm -rf "${project2}"
+}
+
+@test "auto-reinit on a project with no baseline runs one reinit to establish it" {
   run _devbot_auto_reinit_if_config_changed "${PROJECT}"
   assert_success
   run cat "${DEV_BOT_ROOT}/reinit.log"
   assert_output --partial "reinit-called"
-  [ -f "${DEV_BOT_ROOT}/.devbot.global.sha" ]
   [ -f "${PROJECT}/.devbot.project.sha" ]
+  [ ! -e "${DEV_BOT_ROOT}/.devbot.global.sha" ]
 }
 
 @test "failed auto-reinit warns and continues in a non-interactive run" {
-  _devbot_write_config_sha "${DEV_BOT_ROOT}/.devbot.global.jsonc"
-  _devbot_write_config_sha "${PROJECT}/.devbot.project.jsonc"
+  _devbot_write_config_sha "${PROJECT}"
   echo '{"project_name": "edited"}' > "${PROJECT}/.devbot.project.jsonc"
 
   SKIP_CONFIRM=1 FAIL_REINIT=1 run _devbot_auto_reinit_if_config_changed "${PROJECT}"

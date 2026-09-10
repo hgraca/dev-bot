@@ -1,4 +1,6 @@
 {
+  "version": "", // installed release tag — set by `devbot update`; a change triggers a per-project reinit on next start
+  "auto_update": true, // run `devbot update` automatically on a bare `devbot` start
   "harness": "opencode", // decides what harness is used when launching `devbot`
   "gpu_enabled": false,
   "devbot_dir": ".agents",

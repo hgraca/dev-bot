@@ -19,17 +19,21 @@
 #                                   abort the rebase, restore state, exit 1
 #   3. Only when the checkout moved onto the new release:
 #        python/flock checks, legacy engine pins, npm update, each tool's
-#        update.sh under src/tools/, agentic pre.sh + update.sh, and a refresh
-#        of the external module repos (module.sh install). Harnesses are never
+#        update.sh under src/tools/, agentic pre.sh + update.sh, a refresh of
+#        the external module repos (module.sh install), and recording the
+#        release tag in the global config's `version`. Harnesses are never
 #        touched here.
-#   4. Re-run `devbot reinit --all` so every registered project re-wires.
+#   4. Nothing else: writing `version` changes each project's combined wiring
+#      hash, so every registered project reinit-wires itself on its next
+#      `devbot` start (lazy, per project).
 #
-# Safe to re-run at any time. Skip the final reinit with
-# DEV_BOT_UPDATE_SKIP_REINIT=1.
+# Safe to re-run at any time.
 #
 # Usage:
 #   bin/update.sh              # update to the newest release tag
 #   bin/update.sh <tag>        # update to a specific release tag (pin/downgrade)
+#   bin/update.sh --auto       # quiet mode for the bare-`devbot` start: silent
+#                              # when already on the newest release, never prompts
 # =============================================================================
 
 set -euo pipefail
@@ -45,16 +49,46 @@ source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 # ── PATH ──────────────────────────────────────────────────────────────────────
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:$PATH"
 
+# ── Mode ──────────────────────────────────────────────────────────────────────
+# AUTO_QUIET=1 (set by --auto) is the bare-`devbot` start path: suppress the
+# progress chatter when there is nothing to do, and never prompt.
+AUTO_QUIET=0
+
 # ── Release discovery ─────────────────────────────────────────────────────────
 
-# Fetch tags from origin. Prints nothing; non-zero when the fetch fails.
+# Fetch tags from origin. Non-zero when the fetch fails or stalls. Quiet in
+# auto mode (still reports the failure).
 _fetch_tags() {
-  _header_2 "Fetching release tags"
-  if ! git -C "${DEV_BOT_ROOT}" fetch --tags origin; then
+  if [[ "${AUTO_QUIET}" -eq 0 ]]; then
+    _header_2 "Fetching release tags"
+  fi
+
+  # Never block a start: GIT_TERMINAL_PROMPT=0 fails instead of prompting for
+  # credentials, and a portable bash watchdog SIGTERMs a stalled fetch after
+  # DEV_BOT_FETCH_TIMEOUT seconds (GNU `timeout` is absent on macOS).
+  local cap="${DEV_BOT_FETCH_TIMEOUT:-20}"
+  GIT_TERMINAL_PROMPT=0 git -C "${DEV_BOT_ROOT}" fetch --tags origin &
+  local pid=$! waited=0
+  while kill -0 "${pid}" 2>/dev/null; do
+    if [[ "${waited}" -ge "${cap}" ]]; then
+      kill "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+      _error "Could not fetch tags from origin within ${cap}s — is the network available?"
+      return 1
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  local rc=0
+  wait "${pid}" || rc=$?
+  if [[ ${rc} -ne 0 ]]; then
     _error "Could not fetch tags from origin — is the network available?"
     return 1
   fi
-  _ok "Tags fetched from origin."
+  if [[ "${AUTO_QUIET}" -eq 0 ]]; then
+    _ok "Tags fetched from origin."
+  fi
+  return 0
 }
 
 # Print the newest release tag (version-sorted), or nothing when no tags exist.
@@ -116,6 +150,8 @@ _acknowledge_conflict() {
   echo
   _warn "Reapplying your stashed changes hit conflicts — they are left in the"
   _warn "working tree for you to resolve."
+  # Auto mode is non-interactive — never block the start waiting for a keypress.
+  [[ "${AUTO_QUIET}" -eq 1 ]] && return 0
   _info "Press any key to acknowledge and continue the update (fix conflicts later)..."
   read -r -n 1 -s 2>/dev/null || true
   _ok "Continuing."
@@ -304,21 +340,30 @@ _update_external_modules() {
   fi
 }
 
-# ── Reinit all registered projects ───────────────────────────────────────────
-# After the update + pins, re-wire every registered project so the provider
-# selection and new module wiring take effect. Skippable with
-# DEV_BOT_UPDATE_SKIP_REINIT=1 (CI/sandbox).
-_reinit_all_projects() {
-  if [[ "${DEV_BOT_UPDATE_SKIP_REINIT:-}" == "1" ]]; then
-    _skip "DEV_BOT_UPDATE_SKIP_REINIT=1 — skipping devbot reinit --all"
-    return 0
-  fi
-  _header_2 "Reinit all registered projects"
-  if bash "${DEV_BOT_ROOT}/bin/reinit.sh" --all; then
-    _ok "devbot reinit --all completed"
+# ── Record the installed release ──────────────────────────────────────────────
+# Write the release tag into the global config's `version` and seed the
+# `auto_update` key (default true) for installs that predate it. The version
+# change is the per-project reinit trigger: the combined wiring hash changes, so
+# every registered project reinit-wires itself on its next `devbot` start. Also
+# drop the retired global baseline (.devbot.global.sha) if an older install left
+# one behind.
+_record_installed_version() {
+  local release="$1"
+  _header_2 "Recording installed version"
+
+  _devbot_ensure_global_value auto_update true \
+    || _warn "could not seed auto_update in the global config"
+
+  if _devbot_set_global_value version "\"${release}\""; then
+    _ok "version → ${release} — projects reinit on their next start"
   else
-    _warn "devbot reinit --all reported issues — inspect the output above"
-    return 1
+    _warn "could not record version ${release} in the global config"
+  fi
+
+  local stale_sha="${DEV_BOT_ROOT}/.devbot.global.sha"
+  if [[ -e "${stale_sha}" ]]; then
+    rm -f "${stale_sha}"
+    _ok "removed retired global config baseline"
   fi
 }
 
@@ -347,7 +392,51 @@ main() {
   local tool_count=0 tool_failed=0
   local module_count=0 module_failed=0
 
-  _header_1 "DevBot Update"
+  # Args may appear in any order: `--auto` (quiet, non-interactive) and one
+  # optional explicit tag. `--` ends flag parsing (a following arg is a tag).
+  local tag="" end_of_flags=0 arg=""
+  while [[ $# -gt 0 ]]; do
+    arg="$1"
+    if [[ "${end_of_flags}" -eq 0 ]]; then
+      case "${arg}" in
+        --auto)
+          AUTO_QUIET=1
+          shift
+          continue
+          ;;
+        --)
+          end_of_flags=1
+          shift
+          continue
+          ;;
+        -*)
+          _error "Unknown option: ${arg}"
+          exit 1
+          ;;
+      esac
+    fi
+    if [[ -n "${tag}" ]]; then
+      _error "Unexpected extra argument: ${arg}"
+      exit 1
+    fi
+    tag="${arg}"
+    shift
+  done
+
+  # Serialize the git move across concurrent starts. The lock lives on fd 200
+  # and is released before the refresh block, which reuses fd 200 for the npm
+  # lock. A contender that cannot take the lock skips this update and continues
+  # the start on the current version.
+  local lock_file="${DEV_BOT_ROOT}/storage/run/update.lock"
+  if ! _devbot_lock_wait "${lock_file}" "${DEV_BOT_UPDATE_LOCK_WAIT:-60}" \
+    "another devbot update is in progress — skipping this one"; then
+    _skip "another devbot update is in progress — skipping"
+    exit 0
+  fi
+
+  # Interactive mode announces itself up front; auto mode stays silent until it
+  # knows there is something to do.
+  [[ "${AUTO_QUIET}" -eq 0 ]] && _header_1 "DevBot Update"
 
   if ! _fetch_tags; then
     exit 1
@@ -356,8 +445,8 @@ main() {
   # Target: an explicitly requested tag (pin/downgrade) or the newest tag
   # (release-tracked update).
   local target="" explicit=0
-  if [[ $# -gt 0 ]]; then
-    target="$1"
+  if [[ -n "${tag}" ]]; then
+    target="${tag}"
     explicit=1
     if ! _ensure_tag_exists "${target}"; then
       exit 1
@@ -385,6 +474,7 @@ main() {
       # Auto mode: ahead of the newest tag = dev line, nothing to update.
       # Explicit mode: the user asked for an older tag — move to it.
       if [[ "${explicit}" -eq 1 ]]; then
+        [[ "${AUTO_QUIET}" -eq 1 ]] && _header_1 "DevBot Update"
         _jump_to_release "${target}" || exit 1
       else
         _ok "Already on the latest version (${target})."
@@ -392,15 +482,21 @@ main() {
       fi
       ;;
     behind)
+      [[ "${AUTO_QUIET}" -eq 1 ]] && _header_1 "DevBot Update"
       _jump_to_release "${target}" || exit 1
       ;;
     diverged)
+      [[ "${AUTO_QUIET}" -eq 1 ]] && _header_1 "DevBot Update"
       local rebase_rc=0
       _rebase_onto_release "${target}" || rebase_rc=$?
       [[ "${rebase_rc}" -eq 2 ]] && exit 0
       [[ "${rebase_rc}" -eq 1 ]] && exit 1
       ;;
   esac
+
+  # The git move is done — release the update lock so the npm step below can
+  # take fd 200 for its own lock.
+  exec 200>&- 2>/dev/null || true
 
   # Only reached when the checkout moved onto the new release.
   _check_python3
@@ -426,16 +522,15 @@ main() {
 
   _update_external_modules
 
+  # Record the release so every project reinits on its next start.
+  _record_installed_version "${target}"
+
   UPDATED="${tool_count}" FAILED="${tool_failed}"
   MODULE_UPDATED="${module_count}" MODULE_FAILED="${module_failed}"
   print_summary
 
   echo -e "  ${TEXT_DIM}⏱  Total: $(_fmt_duration $(( SECONDS - total_start )))${TEXT_CLEAR}"
   echo
-
-  # Final step: re-wire every registered project so the provider pins and any
-  # new module wiring take effect.
-  _reinit_all_projects
 }
 
 main "$@"

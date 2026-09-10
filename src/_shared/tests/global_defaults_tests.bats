@@ -77,7 +77,7 @@ _reader_value() {
   assert_failure
 }
 
-@test "inserts after the first top-level key, preserving comments and other keys" {
+@test "inserts the key preserving comments and other keys" {
   _write_global_cfg '{
   // engine selection
   "gpu_enabled": true,

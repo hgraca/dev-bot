@@ -42,7 +42,7 @@ cmd_help() {
   echo -e "${TEXT_BOLD}Commands:${TEXT_CLEAR}"
   echo "  help       Show this help"
   echo "  install    Install all tools (bin/install.sh)"
-  echo "  update [tag]  Update dev-bot: newest release tag, or <tag> if given (bin/update.sh)"
+  echo "  update [tag] [--auto]  Update dev-bot: newest release tag, or <tag> if given (bin/update.sh)"
   echo "  tool <name>  Run a dev-bot tool by name (e.g. tree, git-report)"
   echo "  list <type>  List agentic artifacts (commands, agents, skills, hooks, mcps, tools)"
   echo "             [-a|--all]  Include artifacts from disabled modules"
@@ -504,6 +504,12 @@ cmd_harness() {
     cmd_help
     return
   fi
+
+  # Bring the install to the newest release before wiring/up. Non-fatal: an
+  # offline or conflicting update must never block the start, and update.sh is
+  # a clean no-op when already on the newest release. The `version` it writes
+  # changes the project's wiring hash, so the reinit just below picks it up.
+  _devbot_auto_update_if_enabled
 
   # If the global or project config changed since the last wiring, reinit
   # BEFORE up.sh so the whole start sequence runs on up-to-date state (e.g.

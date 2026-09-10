@@ -12,6 +12,11 @@
 #                                    abort the rebase, restore state, exit 1
 #   - after a successful jump     -> npm + tools + agentic + external modules
 #                                    (module.sh install) refresh; harnesses never
+#                                    touched, and the release tag is recorded in
+#                                    the global config `version` (the per-project
+#                                    reinit trigger). No reinit runs here.
+#   - --auto                      -> quiet no-op when already newest; never
+#                                    prompts. Used by the bare-`devbot` start.
 #
 # The fake "installation" is a sandbox git clone whose origin is a second
 # sandbox repo. bin/update.sh + src/_shared are copied in (DEV_BOT_ROOT is
@@ -26,10 +31,6 @@ setup() {
 
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   UPDATE_SH="${REPO_ROOT}/bin/update.sh"
-
-  # Sandbox installs have no bin/reinit.sh — the reinit step is designed to be
-  # skippable in CI/sandbox (see bin/update.sh header).
-  export DEV_BOT_UPDATE_SKIP_REINIT=1
 
   # Git identity for all sandbox commits (no reliance on user config).
   export GIT_AUTHOR_NAME="update-tests"
@@ -177,6 +178,29 @@ _assert_detached_at_newest_tag() {
 
   [ "$UPDATE_STATUS" -eq 1 ]
   [[ "$UPDATE_OUTPUT" == *"fetch"* ]]
+  ! _refresh_ran
+}
+
+@test "fetch timeout: a stalled fetch is killed and exits 1" {
+  _new_sandbox "1.0.0:1.1.0"
+  # Fake git: hang on `fetch`, delegate every other subcommand to the real git.
+  local real_git
+  real_git="$(command -v git)"
+  mkdir -p "${SANDBOX}/mockbin"
+  cat > "${SANDBOX}/mockbin/git" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+  if [[ "\$a" == "fetch" ]]; then sleep 30; exit 0; fi
+done
+exec "${real_git}" "\$@"
+EOF
+  chmod +x "${SANDBOX}/mockbin/git"
+
+  # PATH scoped to this invocation only — never leak the mock into other tests.
+  PATH="${SANDBOX}/mockbin:${PATH}" DEV_BOT_FETCH_TIMEOUT=1 _run_update
+
+  [ "$UPDATE_STATUS" -eq 1 ]
+  [[ "$UPDATE_OUTPUT" == *"within 1s"* ]]
   ! _refresh_ran
 }
 
@@ -340,4 +364,107 @@ _assert_detached_at_newest_tag() {
   grep -q 'feature work' "${INSTALL}/feature.txt"
   git -C "${INSTALL}" merge-base --is-ancestor 1.2.0 HEAD
   _refresh_ran
+}
+
+# ── Version recording (the per-project reinit trigger) ───────────────────────
+
+@test "behind: records the release tag in the global config version" {
+  _new_sandbox "1.0.0:1.1.0"
+  printf '{\n  "gpu_enabled": false,\n  "version": ""\n}\n' > "${INSTALL}/.devbot.global.jsonc"
+  _publish_release "g.txt" "release 1.2.0" "1.2.0"
+
+  _run_update
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  assert_equal \
+    "$(python3 "${INSTALL}/src/_shared/read_jsonc.py" "${INSTALL}/.devbot.global.jsonc" version)" \
+    "1.2.0"
+}
+
+@test "a real update does not run reinit (the version bump drives it lazily)" {
+  _new_sandbox "1.0.0:1.1.0"
+  printf '{\n  "gpu_enabled": false,\n  "version": ""\n}\n' > "${INSTALL}/.devbot.global.jsonc"
+  # A reinit stub that would leave a marker if update invoked it.
+  cat > "${INSTALL}/bin/reinit.sh" <<EOF
+#!/usr/bin/env bash
+touch "${SANDBOX}/reinit-ran"
+EOF
+  chmod +x "${INSTALL}/bin/reinit.sh"
+  _publish_release "g.txt" "release 1.2.0" "1.2.0"
+
+  _run_update
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  [ ! -e "${SANDBOX}/reinit-ran" ]
+}
+
+# ── Auto mode (bare-`devbot` start) ──────────────────────────────────────────
+
+@test "--auto at the newest tag: one-line no-op, no banner" {
+  _new_sandbox "1.0.0:1.1.0"
+  _run_update --auto
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  [[ "$UPDATE_OUTPUT" == *"Already on the latest version (1.1.0)"* ]]
+  [[ "$UPDATE_OUTPUT" != *"DevBot Update"* ]]
+  [[ "$UPDATE_OUTPUT" != *"Fetching release tags"* ]]
+  ! _refresh_ran
+}
+
+@test "--auto behind: updates and records the version" {
+  _new_sandbox "1.0.0:1.1.0"
+  printf '{\n  "gpu_enabled": false,\n  "version": ""\n}\n' > "${INSTALL}/.devbot.global.jsonc"
+  _publish_release "g.txt" "release 1.2.0" "1.2.0"
+
+  _run_update --auto
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  _assert_detached_at_newest_tag
+  assert_equal \
+    "$(python3 "${INSTALL}/src/_shared/read_jsonc.py" "${INSTALL}/.devbot.global.jsonc" version)" \
+    "1.2.0"
+}
+
+@test "--auto after the tag is honored (flag order independent)" {
+  _new_sandbox "1.0.0:1.1.0"
+  _run_update 1.1.0 --auto
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  [[ "$UPDATE_OUTPUT" == *"Already on 1.1.0"* ]]
+  # --auto was parsed: no banner, no fetch chatter.
+  [[ "$UPDATE_OUTPUT" != *"DevBot Update"* ]]
+  [[ "$UPDATE_OUTPUT" != *"Fetching release tags"* ]]
+}
+
+@test "unknown option: errors and exits 1" {
+  _new_sandbox "1.0.0:1.1.0"
+  _run_update --bogus
+
+  [ "$UPDATE_STATUS" -eq 1 ]
+  [[ "$UPDATE_OUTPUT" == *"Unknown option"* ]]
+}
+
+@test "two tags: errors and exits 1" {
+  _new_sandbox "1.0.0:1.1.0"
+  _run_update 1.0.0 1.1.0
+
+  [ "$UPDATE_STATUS" -eq 1 ]
+  [[ "$UPDATE_OUTPUT" == *"Unexpected extra argument"* ]]
+}
+
+@test "concurrent update: skips when the update lock is held" {
+  _new_sandbox "1.0.0:1.1.0"
+  mkdir -p "${INSTALL}/storage/run"
+  # Hold the update lock for the duration (same flock fd the script uses).
+  ( exec 200>"${INSTALL}/storage/run/update.lock"; flock -x 200; sleep 3 ) &
+  local holder=$!
+  sleep 0.3
+
+  DEV_BOT_UPDATE_LOCK_WAIT=0 _run_update
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  [[ "$UPDATE_OUTPUT" == *"another devbot update is in progress"* ]]
+  ! _refresh_ran
+
+  kill "${holder}" 2>/dev/null || true
 }

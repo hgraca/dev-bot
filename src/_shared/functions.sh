@@ -201,10 +201,12 @@ _devbot_lock_wait() {
   local msg="${3:-}"
   if [[ -d "${lockfile}" ]]; then
     # Directory target: open read-only (a dir cannot be opened for writing).
-    exec 200<"${lockfile}" 2>/dev/null || return 1
+    # The redirect is scoped to the group — a bare `exec … 2>/dev/null` would
+    # persist and permanently silence the shell's stderr.
+    { exec 200<"${lockfile}"; } 2>/dev/null || return 1
   else
     mkdir -p "$(dirname "${lockfile}")" 2>/dev/null || return 1
-    exec 200>"${lockfile}" 2>/dev/null || return 1
+    { exec 200>"${lockfile}"; } 2>/dev/null || return 1
   fi
   local waited=0 first_wait=1
   while ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; do
@@ -556,10 +558,10 @@ _devbot_get_memory_search_provider() {
 }
 
 # _devbot_ensure_global_default <key> <value>
-#   Adds `<key>: "<value>"` to ${DEV_BOT_ROOT}/.devbot.global.jsonc ONLY when
-#   the key is absent — an existing value is never overwritten (an install
-#   that deliberately chose the new default keeps it). Comment-preserving
-#   text insert after the first top-level key. Used by `devbot update` to pin
+#   Adds `<key>: "<value>"` (a string) to ${DEV_BOT_ROOT}/.devbot.global.jsonc
+#   ONLY when the key is absent — an existing value is never overwritten (an
+#   install that deliberately chose the new default keeps it). Thin string
+#   wrapper over _devbot_ensure_global_value. Used by `devbot update` to pin
 #   the legacy engines on existing installs that predate the provider keys.
 #   Silent (callers add their own messaging). Returns 0 on success or no-op,
 #   1 when the config file is missing.
@@ -567,43 +569,87 @@ _devbot_get_memory_search_provider() {
 _devbot_ensure_global_default() {
   local key="${1:?Usage: _devbot_ensure_global_default <key> <value>}"
   local value="${2:?Usage: _devbot_ensure_global_default <key> <value>}"
+  _devbot_ensure_global_value "${key}" "\"${value}\""
+}
+
+# _devbot_set_global_value <key> <raw-json>
+#   Sets `<key>` in ${DEV_BOT_ROOT}/.devbot.global.jsonc to the raw JSON literal
+#   <raw-json> (callers pass JSON — `true`, `"1.4.0"`), replacing an existing
+#   value or inserting the key as the first property. Comment-preserving.
+#   Returns 0 on success, 1 when the config file is missing.
+#
+# _devbot_ensure_global_value <key> <raw-json>
+#   Adds `<key>: <raw-json>` only when the key is absent (an existing value is
+#   never overwritten). Returns 0 on success or no-op, 1 when the config is
+#   missing.
+
+_devbot_set_global_value() {
+  local key="${1:?Usage: _devbot_set_global_value <key> <raw-json>}"
+  local raw="${2:?Usage: _devbot_set_global_value <key> <raw-json>}"
   local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
   [[ -f "${config}" ]] || return 1
 
-  local reader
-  reader="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/read_jsonc.py"
-  local current
-  current="$(python3 "${reader}" "${config}" "${key}" 2>/dev/null || true)"
-  [[ -n "${current}" ]] && return 0
+  # read_jsonc lives beside this file — pass its dir so the validator imports
+  # the same comment-aware parser the rest of the toolkit uses.
+  local reader_dir
+  reader_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-  python3 - "${config}" "${key}" "${value}" <<'PY' 2>/dev/null || return 1
+  python3 - "${config}" "${key}" "${raw}" "${reader_dir}" <<'PY' 2>/dev/null || return 1
 import re
 import sys
 
-path, key, value = sys.argv[1], sys.argv[2], sys.argv[3]
-text = open(path).read()
-if re.search(r'"' + re.escape(key) + r'"\s*:', text):
-    raise SystemExit(0)  # present but unparseable-by-reader edge — no-op
-line = (
-    '  "%s": "%s", // devbot update: legacy default for existing installs '
-    "(only added when the key is absent)"
-) % (key, value)
-# Insert a full line right AFTER the first top-level property line (the
-# earliest "…": line, which in pretty-printed configs is always top-level),
-# or after the opening brace for single-line configs — never mid-line.
-match = re.search(r'^[ \t]*"[^"]+"\s*:.*$', text, re.M)
-if match:
-    # End of the first top-level property line — insert our line after it.
-    anchor_end = match.end()
-    text = text[:anchor_end] + "\n" + line + text[anchor_end:]
+path, key, raw, reader_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+sys.path.insert(0, reader_dir)
+from read_jsonc import load_jsonc
+
+original = open(path).read()
+text = original
+pattern = re.compile(r'("' + re.escape(key) + r'"\s*:\s*)(?:"[^"]*"|[^,}\s]+)')
+if pattern.search(text):
+    text = pattern.sub(lambda m: m.group(1) + raw, text, count=1)
 else:
-    # Single-line config ("{ ... }") — open the brace, add our line, and keep
-    # the remainder on its own line (a bare newline after the comment, or the
-    # comment would swallow the rest of the object).
-    anchor_end = text.index("{") + 1
-    text = text[:anchor_end] + "\n" + line + "\n" + text[anchor_end:]
+    # Insert as the first property. Skip leading comments/whitespace to find
+    # the real object brace — a leading `// {` comment must not be mistaken
+    # for the object start.
+    i = 0
+    while True:
+        m = re.match(r"\s*", text[i:])
+        i += m.end()
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            if j == -1:
+                raise SystemExit(1)
+            i = j
+        elif text.startswith("/*", i):
+            j = text.find("*/", i)
+            if j == -1:
+                raise SystemExit(1)
+            i = j + 2
+        else:
+            break
+    brace = text.index("{", i) + 1
+    rest = text[brace:]
+    sep = "" if rest.lstrip().startswith("}") else ","
+    text = text[:brace] + '\n  "%s": %s%s' % (key, raw, sep) + rest
+
 open(path, "w").write(text)
+try:
+    load_jsonc(path)
+except Exception:
+    open(path, "w").write(original)  # never leave the config unparseable
+    raise SystemExit(1)
 PY
+}
+
+_devbot_ensure_global_value() {
+  local key="${1:?Usage: _devbot_ensure_global_value <key> <raw-json>}"
+  local raw="${2:?Usage: _devbot_ensure_global_value <key> <raw-json>}"
+  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  [[ -f "${config}" ]] || return 1
+  if grep -q "\"${key}\"[[:space:]]*:" "${config}" 2>/dev/null; then
+    return 0
+  fi
+  _devbot_set_global_value "${key}" "${raw}"
 }
 
 # ── Disabled modules (config-driven) ─────────────────────────────────────────────
@@ -1084,39 +1130,43 @@ _devbot_check_mcp_env_vars() {
 
 # ── Config-change → auto-reinit (devbot start) ──────────────────────────────────
 #
-# The global (.devbot.global.jsonc) and per-project (.devbot.project.jsonc)
-# configs are the source of truth for wiring (modules, providers, external
-# modules, gpu_enabled, …). When either changes, the next `devbot` start must
-# reinit that project so the whole start sequence runs on freshly wired state.
+# A project's wiring depends on BOTH the global config
+# (${DEV_BOT_ROOT}/.devbot.global.jsonc) and its own project config
+# (${project_dir}/.devbot.project.jsonc). The reinit trigger is a single
+# per-project content hash over the two files, stored at
+# <project>/.devbot.project.sha (the project config path with its .jsonc
+# extension REPLACED). A change in either file — including the `version` bump
+# `devbot update` writes to the global config — makes the stored hash differ, so
+# that project reinits on its next start. Baselines are refreshed by init.sh at
+# the end of every init/reinit; a missing .sha (fresh project, or an install
+# upgrading from the retired per-file baselines) counts as changed, so one
+# reinit establishes it.
 #
-# Change detection is a content hash of each config file, stored in a sibling
-# file with the extension REPLACED: <file>.jsonc → <file>.sha (same location,
-# e.g. .devbot.global.jsonc.sha would be .devbot.global.sha — the extension is
-# replaced, not appended). Baselines are refreshed by init.sh at the end of
-# every init/reinit; a missing .sha (legacy project, or a fresh config with no
-# wiring yet) counts as changed so one reinit establishes it.
+# _devbot_config_sha_path <project_config>
+#   Prints the sibling .sha path (extension replaced) — the per-project wiring
+#   baseline.
 #
-# _devbot_config_sha_path <config_file>
-#   Prints the sibling .sha path (extension replaced).
+# _devbot_config_sha <file> [<file>...]
+#   Prints the sha256 over the given files' contents joined with a NUL byte, so
+#   file boundaries can never alias. A missing file contributes an empty
+#   segment. Empty when python3 is unavailable.
 #
-# _devbot_config_sha <config_file>
-#   Prints the sha256 of the file's content via python3 (cross-platform —
-#   sha256sum is not on macOS by default; python3 is a hard dependency of the
-#   lifecycle scripts). Empty when the file is unreadable.
+# _devbot_wiring_sha <project_dir>
+#   Combined hash of the global config and the project config.
 #
-# _devbot_config_changed <config_file>
-#   0 when the current hash differs from the stored .sha, or when no .sha
-#   baseline exists (E1). 1 when the config is missing or hashes match.
+# _devbot_config_changed <project_dir>
+#   0 when the wiring hash differs from the stored .sha, or when no .sha
+#   baseline exists (E1). 1 when neither config exists or the hash matches.
 #
-# _devbot_write_config_sha <config_file>
-#   Writes the current hash to the sibling .sha file (skips a missing config).
+# _devbot_write_config_sha <project_dir>
+#   Writes the project's wiring hash to <project>/.devbot.project.sha.
 #
 # _devbot_auto_reinit_if_config_changed <project_dir>
-#   0 and no-op when neither the global nor the project config changed. When
-#   either changed: runs `bash $DEV_BOT_ROOT/bin/reinit.sh` from the project
-#   dir (single-project reinit; the init.sh it ends with refreshes baselines).
-#   On reinit failure: warns and, in a non-interactive run (SKIP_CONFIRM / no
-#   TTY), returns 0 = continue the start anyway; interactively asks y/N.
+#   0 and no-op when the project's wiring hash is unchanged. When it changed:
+#   runs `bash $DEV_BOT_ROOT/bin/reinit.sh` from the project dir (single-project
+#   reinit; the init.sh it ends with refreshes the baseline). On reinit failure:
+#   warns and, in a non-interactive run (SKIP_CONFIRM / no TTY), returns 0 =
+#   continue the start anyway; interactively asks y/N.
 
 _devbot_config_sha_path() {
   local config="$1"
@@ -1124,49 +1174,60 @@ _devbot_config_sha_path() {
 }
 
 _devbot_config_sha() {
-  local config="$1"
-  [[ -f "${config}" ]] || return 0
-  python3 -c "
-import hashlib, sys
-print(hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest())
-" "${config}" 2>/dev/null || true
+  [[ $# -gt 0 ]] || return 0
+  python3 - "$@" <<'PY' 2>/dev/null || true
+import hashlib
+import sys
+
+h = hashlib.sha256()
+for i, path in enumerate(sys.argv[1:]):
+    if i:
+        h.update(b"\0")
+    try:
+        with open(path, "rb") as fh:
+            h.update(fh.read())
+    except OSError:
+        pass
+print(h.hexdigest())
+PY
+}
+
+_devbot_wiring_sha() {
+  local project_dir="${1:-$(pwd)}"
+  _devbot_config_sha \
+    "${DEV_BOT_ROOT}/.devbot.global.jsonc" \
+    "${project_dir}/.devbot.project.jsonc"
 }
 
 _devbot_config_changed() {
-  local config="$1"
-  [[ -f "${config}" ]] || return 1
+  local project_dir="${1:-$(pwd)}"
+  local project_config="${project_dir}/.devbot.project.jsonc"
+  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  [[ -f "${project_config}" || -f "${global_config}" ]] || return 1
   local sha_path current stored
-  sha_path="$(_devbot_config_sha_path "${config}")"
+  sha_path="$(_devbot_config_sha_path "${project_config}")"
   [[ -f "${sha_path}" ]] || return 0  # no baseline → changed
-  current="$(_devbot_config_sha "${config}")"
+  current="$(_devbot_wiring_sha "${project_dir}")"
   stored="$(<"${sha_path}")"
   [[ -n "${current}" && "${current}" == "${stored}" ]] && return 1
   return 0
 }
 
 _devbot_write_config_sha() {
-  local config="$1"
-  [[ -f "${config}" ]] || return 0
+  local project_dir="${1:-$(pwd)}"
+  local project_config="${project_dir}/.devbot.project.jsonc"
+  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  [[ -f "${project_config}" || -f "${global_config}" ]] || return 0
   local sha_path current
-  sha_path="$(_devbot_config_sha_path "${config}")"
-  current="$(_devbot_config_sha "${config}")"
+  sha_path="$(_devbot_config_sha_path "${project_config}")"
+  current="$(_devbot_wiring_sha "${project_dir}")"
   [[ -n "${current}" ]] || return 0
   printf '%s\n' "${current}" > "${sha_path}"
 }
 
 _devbot_auto_reinit_if_config_changed() {
   local project_dir="${1:-$(pwd)}"
-  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
-  local project_config="${project_dir}/.devbot.project.jsonc"
-
-  local changed=false
-  if _devbot_config_changed "${global_config}"; then
-    changed=true
-  fi
-  if _devbot_config_changed "${project_config}"; then
-    changed=true
-  fi
-  [[ "${changed}" == "true" ]] || return 0
+  _devbot_config_changed "${project_dir}" || return 0
 
   _header_3 "Config changed — running devbot reinit before start..."
   local reinit_script="${DEV_BOT_ROOT}/bin/reinit.sh"
@@ -1194,6 +1255,43 @@ _devbot_auto_reinit_if_config_changed() {
     return 0
   fi
   return 1
+}
+
+# ── Auto-update (devbot start) ──────────────────────────────────────────────────
+#
+# _devbot_auto_update_if_enabled
+#   Runs `bin/update.sh --auto` before the start wiring when the global config's
+#   `auto_update` is not explicitly false (absent => enabled). `update.sh --auto`
+#   is a clean no-op when already on the newest release; a failure (offline,
+#   conflict) is reported and swallowed — a start must never be blocked by it.
+#   Returns 0 always.
+#
+#   NOTE: when update.sh moves the checkout, this process keeps the functions.sh
+#   it already sourced while the child scripts on disk (up.sh / reinit.sh /
+#   start.sh) are the new version — the upgrade start runs a mix of old and new
+#   code. Keep the contract between this file and those children (project dir,
+#   argv, config files) stable, or re-exec the new bin/devbot after a move.
+
+_devbot_auto_update_if_enabled() {
+  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local enabled="true"
+  if [[ -f "${global_config}" ]]; then
+    local shared_dir reader
+    shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    reader="${shared_dir}/read_jsonc.py"
+    enabled="$(python3 "${reader}" "${global_config}" auto_update 2>/dev/null || true)"
+  fi
+  [[ "${enabled}" == "false" ]] && return 0
+
+  local update_script="${DEV_BOT_ROOT}/bin/update.sh"
+  [[ -f "${update_script}" ]] || return 0
+
+  local rc=0
+  bash "${update_script}" --auto || rc=$?
+  if [[ ${rc} -ne 0 ]]; then
+    _warn "devbot auto-update failed (exit ${rc}) — continuing on the current version."
+  fi
+  return 0
 }
 
 # ── Harness-arg passthrough (devbot -- …) ─────────────────────────────────────

@@ -67,11 +67,19 @@ EOF
 #!/usr/bin/env bash
 source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 echo "reinit-called $(pwd)" >> "${DEV_BOT_ROOT}/reinit.log"
-_devbot_write_config_sha "${DEV_BOT_ROOT}/.devbot.global.jsonc"
-_devbot_write_config_sha "$(pwd)/.devbot.project.jsonc"
+_devbot_write_config_sha "$(pwd)"
 exit 0
 REINIT_EOF
   chmod +x "${SANDBOX}/bin/reinit.sh"
+
+  # Stub update.sh — the real one hits the network. Records the auto-update
+  # invocation; exits with UPDATE_RC (default 0).
+  cat > "${SANDBOX}/bin/update.sh" <<EOF
+#!/usr/bin/env bash
+echo "update-called \$*" >> "${SANDBOX}/update.log"
+exit "\${UPDATE_RC:-0}"
+EOF
+  chmod +x "${SANDBOX}/bin/update.sh"
 
   # Stub harness start.sh — mirrors the real one: shifts off the project
   # dir (its first arg) and records the harness argv it received.
@@ -90,25 +98,34 @@ exit 0
 EOF
   chmod +x "${SANDBOX}/src/harnesses/claudecode/start.sh"
 
-  # Global config + matching .sha baseline → auto-reinit no-ops (the reinit
-  # would otherwise fire and need its own stub).
-  echo '{}' > "${SANDBOX}/.devbot.global.jsonc"
-  python3 -c "
-import hashlib
-print(hashlib.sha256(open('${SANDBOX}/.devbot.global.jsonc','rb').read()).hexdigest())
-" > "${SANDBOX}/.devbot.global.sha"
+  # Global config with auto_update off (these are wiring tests, not update
+  # tests) + a matching per-project wiring baseline → auto-reinit no-ops.
+  echo '{"auto_update": false}' > "${SANDBOX}/.devbot.global.jsonc"
 
   # Project dir: opencode harness chosen explicitly.
   PROJECT="$(mktemp -d)"
   echo '{"harness": "opencode"}' > "${PROJECT}/.devbot.project.jsonc"
-  python3 -c "
-import hashlib
-print(hashlib.sha256(open('${PROJECT}/.devbot.project.jsonc','rb').read()).hexdigest())
-" > "${PROJECT}/.devbot.project.sha"
+  _write_baseline
 }
 
 teardown() {
   rm -rf "${SANDBOX}" "${PROJECT}" 2>/dev/null || true
+}
+
+# Refresh the per-project combined wiring baseline (what init.sh writes).
+_write_baseline() {
+  python3 - "${SANDBOX}/.devbot.global.jsonc" "${PROJECT}/.devbot.project.jsonc" \
+    > "${PROJECT}/.devbot.project.sha" <<'PY'
+import hashlib
+import sys
+
+h = hashlib.sha256()
+for i, path in enumerate(sys.argv[1:]):
+    if i:
+        h.update(b"\0")
+    h.update(open(path, "rb").read())
+print(h.hexdigest())
+PY
 }
 
 # Source the sandboxed devbot and run cmd_harness from the project dir.
@@ -237,6 +254,42 @@ _run_cmd_models() {
   _run_cmd_harness
   assert_success
   [ ! -e "${SANDBOX}/reinit.log" ]
+}
+
+# ── Auto-update on start ─────────────────────────────────────────────────────
+
+@test "cmd_harness auto-runs update --auto before wiring when auto_update is on" {
+  rm -f "${SANDBOX}/update.log" "${SANDBOX}/start-args.log"
+  echo '{"auto_update": true}' > "${SANDBOX}/.devbot.global.jsonc"
+  _write_baseline # keep the reinit quiet
+
+  _run_cmd_harness
+  assert_success
+  run cat "${SANDBOX}/update.log"
+  assert_output "update-called --auto"
+}
+
+@test "cmd_harness skips auto-update when auto_update is false" {
+  rm -f "${SANDBOX}/update.log" "${SANDBOX}/start-args.log"
+
+  _run_cmd_harness
+  assert_success
+  [ ! -e "${SANDBOX}/update.log" ]
+}
+
+@test "a failed auto-update warns and the start still proceeds" {
+  rm -f "${SANDBOX}/update.log" "${SANDBOX}/start-args.log"
+  echo '{"auto_update": true}' > "${SANDBOX}/.devbot.global.jsonc"
+  _write_baseline
+
+  export UPDATE_RC=1
+  _run_cmd_harness
+  local out="${output}"
+  unset UPDATE_RC
+
+  assert_success
+  [[ "${out}" == *"auto-update failed"* ]]
+  [[ "${out}" == *"up-called"* ]]
 }
 
 # ── Session registry: last-exit tears containers down ────────────────────────

@@ -39,6 +39,8 @@ devbot                       # start the harness (opencode or claudecode)
 
 Run with no subcommand (or any unknown argument) inside a project to start the configured harness (`opencode` or `claudecode`, per the `harness` setting) after running `devbot up`. Outside a project it prints help.
 
+**Auto-update.** Before wiring, a bare start runs `devbot update --auto` — a quiet no-op when already on the newest release. A version change rewrites the global config's `version`, which triggers a per-project reinit on this project's start and on every other project's next start. Set the global `auto_update` to `false` to opt out. A failed update (offline, conflict) warns and the start continues on the current version.
+
 Startup delegates to the harness module's `start.sh` (`src/harnesses/<harness>/start.sh`), which launches the harness binary with no forced agent — the session agent comes from the project's default (`opencode.jsonc` `default_agent` / `.claude/settings.json` `agent`), which `init` creates with DevBot by default and only asks to change when an existing config chose a different agent. Before launching, `start.sh` rotates the previous session's `.agents/logs/*.log` files to `.agents/logs/rotated/<date>-<name>-<NNN>.log` (old logs preserved); when the harness exits it scans the fresh logs for error-level entries, alerts you if any were written, and preserves the harness's exit code.
 
 **Harness-arg passthrough.** Anything after the first `--` is forwarded verbatim to the harness binary; tokens before it are devbot's own and are never forwarded. Without `--`, every argument is forwarded unchanged (the "unknown argument" behaviour above). This is the escape hatch for flags that collide with devbot's own (`-h`/`--help`/`--version` and known subcommand names):
@@ -62,9 +64,9 @@ Show the full command reference.
 
 Install all tools. Idempotent — safe to re-run. Writes `.devbot.global.jsonc` on first run.
 
-### `devbot update`
+### `devbot update [tag] [--auto]`
 
-Pull the latest dev-bot from git and run every tool's update script.
+Move the install to the newest **release tag** (or an explicit tag: `devbot update <tag>` pins/downgrades). Fetches tags from origin, and is a clean no-op when already on the newest tag. On a real move it refreshes tools, agentic modules, and external modules, then records the release in the global config's `version` so every project reinits on its next start. `--auto` is the quiet, non-interactive form used by the bare `devbot` start — a single-line no-op that never prompts; without it the usual update output is printed.
 
 ### `devbot init [path]`
 

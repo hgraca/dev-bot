@@ -26,14 +26,52 @@ Scalar settings resolve project-over-global, falling back to a built-in default 
 
 Both config files are the source of truth for wiring — changing one (e.g. a `disabled_modules` flip, a provider key, `gpu_enabled`) only takes effect after a reinit. Rather than requiring a manual `devbot reinit`, the next **bare `devbot` start** detects the change and reinits the current project automatically, **before** `up.sh` runs, so the whole start sequence runs on freshly wired state.
 
-Detection is a content hash of each config stored next to it with the extension **replaced**: `<file>.jsonc` → `<file>.sha` (e.g. `.devbot.global.jsonc` ↔ `.devbot.global.sha`, `<project>/.devbot.project.jsonc` ↔ `.devbot.project.sha` — same location, never committed). `init`/`reinit` refresh the baseline at the end of every run, so an unchanged config starts without re-running reinit. A project with no `.sha` yet (freshly added, or upgraded from before this feature) triggers one reinit to establish it.
+Detection is a single per-project content hash over **both** configs, stored at `<project>/.devbot.project.sha` (the project config path with its `.jsonc` extension **replaced** — never committed). `init`/`reinit` refresh the baseline at the end of every run, so an unchanged wiring starts without re-running reinit. A project with no `.sha` yet (freshly added, or upgraded from before this feature) triggers one reinit to establish it.
+
+Because the baseline is per project, a **global** change (including the `version` bump `devbot update` writes) makes _every_ project reinit on its own next start — there is no global baseline file.
 
 - If reinit succeeds, the start proceeds normally.
 - If reinit **fails**, dev-bot warns and asks whether to continue the start anyway; non-interactive runs (`SKIP_CONFIRM` / no TTY) warn and continue.
 - Editing `opencode.jsonc`/`.mcp.json` directly does **not** trigger this — those are outputs of init, not inputs.
 - `make up` / `devbot up` alone do not trigger it — only a bare `devbot` start (harness launch).
 
+### Auto-update on start
+
+A bare `devbot` start runs `devbot update` first (quietly), so the install is brought to the newest release before wiring. `update` is a clean no-op when already on the newest tag. Set the global `auto_update` to `false` to opt out.
+
+When `update` moves to a new release it writes the tag into the global config's `version`. That changes each project's wiring hash, so every project reinits on its own next start — see [Auto-reinit on config change](#auto-reinit-on-config-change). If the update fails (offline, conflict), dev-bot warns and continues the start on the current version.
+
 ## Properties
+
+### `version`
+
+```jsonc
+{ "version": "1.4.0" }
+```
+
+**Type:** `string`
+**Required:** no
+**Default:** absent (the dist config seeds `""`)
+**Scope:** global
+
+The installed dev-bot release tag. Written by `devbot update` when it moves onto a new release; not meant to be edited by hand. A change here changes each project's combined wiring hash, so every project reinits on its next start.
+
+---
+
+### `auto_update`
+
+```jsonc
+{ "auto_update": true }
+```
+
+**Type:** `boolean`
+**Required:** no
+**Default:** `true`
+**Scope:** global
+
+When not `false`, a bare `devbot` start runs `devbot update --auto` before wiring. The update is a no-op when already on the newest release; a failure warns and the start continues on the current version.
+
+---
 
 ### `project_name`
 

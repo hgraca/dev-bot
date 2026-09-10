@@ -19,7 +19,6 @@ package-lock.json
 **/*.backup
 **/*.bkp
 /.devbot.global.jsonc
-/.devbot.global.sha
 **/__pycache__/
 *.pyc
 ###< project ###
