@@ -20,7 +20,7 @@ Two files exist at different scopes, both optional:
 
 ## Resolution
 
-Scalar settings resolve project-over-global, falling back to a built-in default when neither is set (`devbot_dir`, `harness`). List settings are merged: `disabled_modules` as a union of both files, `devbot:guards` as a concatenation evaluated first-match-wins (global rules first, then project). `search-memories` reads only the project config. If a file is missing, its settings are skipped.
+Scalar settings resolve project-over-global, falling back to a built-in default when neither is set (`devbot_dir`, `harness`). List settings are merged: `disabled_modules` as a union of both files, `devbot:guards` as a concatenation evaluated first-match-wins (project rules first, then global). `search-memories` reads only the project config. If a file is missing, its settings are skipped.
 
 ### Auto-reinit on config change
 
@@ -268,7 +268,7 @@ Each guard rule has:
 | `message` | `string` | Block reason shown to the user when the rule matches            |
 | `agent`   | `string` | Optional — only apply the rule to a specific agent              |
 
-Used by the **guards** module (`on-tool_execute_before-guards.ts` opencode hook, `on_tool_execute_before-guards.sh` claudecode hook). Guards from the global config and the project config are concatenated; the first matching rule wins (global rules are evaluated before project rules).
+Used by the **guards** module (`on-tool_execute_before-guards.ts` opencode hook, `on_tool_execute_before-guards.sh` claudecode hook). Guards from the global config and the project config are concatenated; the first matching rule wins (project rules are evaluated before global rules).
 
 ---
 
