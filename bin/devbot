@@ -514,6 +514,13 @@ cmd_harness() {
     exit 1
   fi
 
+  # Register this session BEFORE up.sh so a concurrent last-exit teardown
+  # cannot race the containers this session is about to use. Release runs on
+  # normal exit AND on INT/TERM (Ctrl-C, kill) — EXIT alone does not fire on
+  # SIGINT. When the last session releases, the devbot containers are removed.
+  _devbot_session_register
+  trap '_devbot_session_release' INT TERM EXIT
+
   bash "${DEV_BOT_ROOT}/bin/up.sh" "$(pwd)" || exit $?
   local harness
   harness="$(_devbot_get_harness "$(pwd)")"
@@ -528,7 +535,13 @@ cmd_harness() {
     harness_args+=("${passthrough_arg}")
   done < <(_devbot_passthrough_args "$@")
 
-  exec bash "${DEV_BOT_ROOT}/src/harnesses/${harness}/start.sh" "$(pwd)" "${harness_args[@]}"
+  # Run the harness as a child (not exec) so the EXIT/INT/TERM trap can
+  # release the session after it returns; preserve the harness exit code.
+  local harness_exit=0
+  bash "${DEV_BOT_ROOT}/src/harnesses/${harness}/start.sh" "$(pwd)" "${harness_args[@]}" || harness_exit=$?
+
+  _devbot_session_release
+  exit "${harness_exit}"
 }
 
 # ── main ──────────────────────────────────────────────────────────────────────

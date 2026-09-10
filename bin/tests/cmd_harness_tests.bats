@@ -29,13 +29,33 @@ setup() {
   # callable directly (same pattern as init_tests.bats).
   sed '/^main "\$@"/d' "${PROJECT_ROOT}/bin/devbot" > "${SANDBOX}/bin/devbot"
 
-  # Stub up.sh — the real one starts docker services.
-  cat > "${SANDBOX}/bin/up.sh" <<'EOF'
+  # Stub up.sh — the real one starts docker services. Also records whether a
+  # session file already exists at up-time (proves register runs BEFORE up).
+  cat > "${SANDBOX}/bin/up.sh" <<EOF
 #!/usr/bin/env bash
 echo "up-called"
+local_files="\$(find "${SANDBOX}/storage/run/sessions" -maxdepth 1 -name 'session-*' 2>/dev/null | wc -l | tr -d ' ')"
+echo "sessions-at-up=\${local_files}" >> "${SANDBOX}/up.log"
 exit 0
 EOF
   chmod +x "${SANDBOX}/bin/up.sh"
+
+  # Stub down.sh — the session registry's last-exit teardown delegates here.
+  cat > "${SANDBOX}/bin/down.sh" <<EOF
+#!/usr/bin/env bash
+echo "down-called" >> "${SANDBOX}/down.log"
+exit 0
+EOF
+  chmod +x "${SANDBOX}/bin/down.sh"
+
+  # Mock docker so _devbot_session_teardown's \`docker info\` guard passes.
+  mkdir -p "${SANDBOX}/mockbin"
+  cat > "${SANDBOX}/mockbin/docker" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "${SANDBOX}/mockbin/docker"
+  export PATH="${SANDBOX}/mockbin:${PATH}"
 
   # Stub reinit.sh — the real one runs reset+init (a mutation the audit forbids
   # and a heavy flow for a wiring test). Records the invocation; refreshes the
@@ -217,4 +237,77 @@ _run_cmd_models() {
   _run_cmd_harness
   assert_success
   [ ! -e "${SANDBOX}/reinit.log" ]
+}
+
+# ── Session registry: last-exit tears containers down ────────────────────────
+# cmd_harness registers a session before up.sh and releases after start.sh
+# returns; when it was the last session, the registry runs bin/down.sh.
+
+@test "cmd_harness tears containers down when the session was the last" {
+  rm -f "${SANDBOX}/down.log" "${SANDBOX}/start-args.log"
+  _run_cmd_harness
+  assert_success
+  # No live sessions remain → down called on exit.
+  [ -f "${SANDBOX}/down.log" ]
+  run cat "${SANDBOX}/down.log"
+  assert_output "down-called"
+}
+
+@test "cmd_harness leaves containers up when another session is live" {
+  rm -f "${SANDBOX}/down.log" "${SANDBOX}/start-args.log"
+  # A concurrent live session: hold a flock on a session file for the duration.
+  mkdir -p "${SANDBOX}/storage/run/sessions"
+  ( exec 215>"${SANDBOX}/storage/run/sessions/session-99999"; flock -x 215; sleep 3 ) &
+  local holder=$!
+  sleep 0.3
+
+  _run_cmd_harness
+  assert_success
+  # Another session is still live → no teardown.
+  [ ! -f "${SANDBOX}/down.log" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "cmd_harness registers before up.sh and removes its session file on exit" {
+  rm -f "${SANDBOX}/down.log" "${SANDBOX}/up.log"
+  _run_cmd_harness
+  assert_success
+  # register ran BEFORE up.sh: the session file existed when up.sh executed.
+  run cat "${SANDBOX}/up.log"
+  assert_output "sessions-at-up=1"
+  # And release unlinked this session's own file on exit.
+  local remaining
+  remaining="$(find "${SANDBOX}/storage/run/sessions" -maxdepth 1 -name 'session-*' 2>/dev/null | wc -l | tr -d ' ')"
+  [ "${remaining}" -eq 0 ]
+}
+
+# ── Signal handling: Ctrl-C (SIGINT) also releases the session ───────────────
+# EXIT traps do NOT fire on SIGINT, so cmd_harness traps INT TERM EXIT. This
+# runs cmd_harness as a foreground child (timeout -s INT delivers SIGINT to
+# its group, like Ctrl-C) and asserts the last-exit teardown still ran.
+# A harness stub that sleeps keeps the session alive until the signal.
+
+@test "SIGINT releases the session and tears containers down" {
+  rm -f "${SANDBOX}/down.log" "${SANDBOX}/start-args.log"
+  cat > "${SANDBOX}/src/harnesses/opencode/start.sh" <<EOF
+#!/usr/bin/env bash
+shift || true
+printf '%s\n' "start-opencode" "\$@" > "${SANDBOX}/start-args.log"
+sleep 30
+EOF
+  chmod +x "${SANDBOX}/src/harnesses/opencode/start.sh"
+
+  # timeout sends SIGINT to the command's process group after 2s (Ctrl-C-like).
+  cd "${PROJECT}"
+  DEV_BOT_ROOT="${SANDBOX}" run timeout -s INT 2 bash -c "
+    source '${SANDBOX}/bin/devbot'
+    cmd_harness
+  "
+  cd "${PROJECT_ROOT}"
+  # timeout reports 124 when it had to signal — that's expected, not a failure.
+  sleep 0.5
+  [ -f "${SANDBOX}/down.log" ]
+  run cat "${SANDBOX}/down.log"
+  assert_output "down-called"
 }

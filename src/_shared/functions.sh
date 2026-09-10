@@ -215,6 +215,97 @@ _devbot_lock_wait() {
   return 0
 }
 
+# ── Devbot session registry (install-level docker lifecycle) ────────────────────
+#
+# Tracks running devbot harness sessions so the LAST one to exit tears the
+# docker services down. Containers are install-level (one compose project
+# `devbot`, shared by every session regardless of project), so the registry is
+# install-level too: <devbot-root>/storage/run/sessions/.
+#
+# Liveness uses flock, not pidfiles: each session holds an EXCLUSIVE flock on
+# its own file (session-$$) for its lifetime, and the kernel releases it on
+# ANY exit — including SIGKILL, where no trap runs. A file whose flock is
+# acquirable is therefore stale and gets pruned. When the exiting session
+# finds no live session left, it runs the docker teardown.
+#
+# The flock fd is deliberately NOT inherited by detached children (prune,
+# model pulls): the probe opens each file fresh, and a session unlinks its own
+# file on release, so an inherited fd on the old inode cannot keep it "live".
+#
+# _devbot_session_register — record this session. Call BEFORE up.sh so a
+#   concurrent last-exit teardown cannot race the containers this session is
+#   about to use. Holds fd 210 until release (or process exit).
+#
+# _devbot_session_release — release this session; if it was the last, tear the
+#   containers down. Idempotent (guarded) — safe to call from a trap that may
+#   fire alongside an explicit call.
+#
+# _devbot_session_teardown — docker down for the devbot project (skipped when
+#   there is no docker daemon). Delegates to bin/down.sh.
+
+_devbot_sessions_dir() {
+  echo "${DEV_BOT_ROOT}/storage/run/sessions"
+}
+
+_devbot_session_register() {
+  local dir
+  dir="$(_devbot_sessions_dir)"
+  mkdir -p "${dir}" 2>/dev/null || return 0
+  # Hold an exclusive flock on this session's file for the process lifetime.
+  # fd 210 is distinct from _devbot_lock_wait's fd 200.
+  exec 210>"${dir}/session-$$" 2>/dev/null || return 0
+  flock -x 210 2>/dev/null || true
+}
+
+_devbot_session_release() {
+  # Idempotent — INT/TERM/EXIT traps may all fire, plus an explicit call.
+  [[ "${_DEVBOT_SESSION_RELEASED:-0}" == "1" ]] && return 0
+  _DEVBOT_SESSION_RELEASED=1
+
+  local dir
+  dir="$(_devbot_sessions_dir)"
+
+  # Release our own lock and remove our file so a concurrent probe never sees
+  # us as live (an inherited fd on this inode is irrelevant once unlinked).
+  flock -u 210 2>/dev/null || true
+  exec 210>&- 2>/dev/null || true
+  rm -f "${dir}/session-$$" 2>/dev/null || true
+
+  [[ -d "${dir}" ]] || return 0
+
+  # Serialize the probe+teardown against other releases via the registry lock.
+  _devbot_lock_wait "${dir}/.release.lock" 30 \
+    "session registry lock held >30s by another process — skipping teardown" || return 0
+
+  local live=0 f
+  for f in "${dir}"/session-*; do
+    [[ -e "${f}" ]] || continue
+    # A file we can lock has no live holder → stale → prune.
+    if flock -n "${f}" -c true 2>/dev/null; then
+      rm -f "${f}" 2>/dev/null || true
+    else
+      live=$((live + 1))
+    fi
+  done
+
+  exec 200>&- 2>/dev/null || true  # release the registry lock
+
+  if [[ ${live} -eq 0 ]]; then
+    _devbot_session_teardown
+  fi
+  return 0
+}
+
+_devbot_session_teardown() {
+  if ! docker info >/dev/null 2>&1; then
+    return 0
+  fi
+  local down_script="${DEV_BOT_ROOT}/bin/down.sh"
+  [[ -f "${down_script}" ]] || return 0
+  _info "Last devbot session ended — removing devbot containers"
+  bash "${down_script}" >/dev/null 2>&1 || true
+}
+
 # ── Harness selection (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_harness [project_dir]

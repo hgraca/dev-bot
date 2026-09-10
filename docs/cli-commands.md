@@ -52,6 +52,8 @@ devbot foo -- -c "msg"       # foo is consumed; only -c "msg" reaches the harnes
 
 Only the first `--` splits — a later `--` is a literal part of the harness argv. Arguments keep their boundaries (quoting survives the split).
 
+**Session teardown on exit.** Each `devbot` start registers a session in an install-level registry (`storage/run/sessions/`, gitignored) and holds a `flock` on its own file for the session's lifetime. When a session exits — normally, via Ctrl-C, or `kill` (the `flock` auto-releases even on `SIGKILL`) — it removes its file and, if **no other devbot session remains live**, runs `devbot down` to remove the devbot containers. If another session is still running (e.g. a second terminal in another project), the containers stay up. Containers are install-level (compose project `devbot`), shared by every session regardless of project, which is why the registry is install-level too. Volumes/mounted data (`storage/ollama`) are never touched. `devbot up`/`make up` alone start services without registering a session, so they are not auto-downed by a later harness exit.
+
 ### `devbot help`
 
 Show the full command reference.
