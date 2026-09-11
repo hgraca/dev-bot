@@ -2,7 +2,7 @@
 # =============================================================================
 # src/agentic/codebase-memory/functions.sh
 # Shared helpers for codebase-memory module scripts (install.sh, update.sh,
-# pre.sh). Source this file, then call the functions.
+# pre.sh, init.sh). Source this file, then call the functions.
 #
 # NOTE: unlike codebase-index, this module needs NO Ollama model pulls —
 # codebase-memory-mcp bundles its nomic embeddings inside the native binary.

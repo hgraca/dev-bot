@@ -28,7 +28,7 @@ Every module follows the same structure; **all entries are optional** — includ
   tests/                BATS test suite
   install.sh            Idempotent OS dependency installer
   update.sh             Dependency update script
-  init.sh               Per-project initialization
+  init.sh               Per-project init + dependency self-heal
   up.sh                 Post-docker startup script
   pre.sh                Prerequisites check
   functions.sh          Thin wrapper sourcing `src/_shared/functions.sh`
@@ -126,7 +126,7 @@ Dev-bot runs these automatically, identically for internal and external modules:
 | `update.sh`  | `devbot update`                    | Update dependencies                          |
 | `up.sh`      | `devbot up`                        | Post-docker startup (pull models, seed data) |
 | `down.sh`    | `devbot down`                      | Pre-teardown cleanup                         |
-| `init.sh`    | `devbot init`                      | Per-project initialization                   |
+| `init.sh`    | `devbot init`                      | Per-project init + dependency self-heal      |
 | `reset.sh`   | `devbot reinit`                    | Reset per-project state                      |
 
 All must be idempotent and source `functions.sh`.

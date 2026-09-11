@@ -23,7 +23,7 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
   tests/                BATS test suite
   install.sh            Idempotent OS dependency installer
   update.sh             Dependency update script
-  init.sh               Per-project initialization
+  init.sh               Per-project init + dependency self-heal
   up.sh                 Post-docker startup script
   down.sh               Pre-teardown script
   pre.sh                Prerequisites check
@@ -44,7 +44,7 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
 
 **pre.sh**: Checks module prerequisites (Python 3, API reachability, etc.). Run automatically by `bin/install.sh` and `bin/update.sh`. Must be idempotent and non-destructive. Warnings (not errors) for optional deps.
 
-**init.sh**: Per-project initialization. Run by `bin/init.sh`.
+**init.sh**: Per-project initialization and idempotent dependency self-heal. Run by `bin/init.sh`. Modules whose engine ships as a global CLI (e.g. codebase-memory) use this hook to install a missing binary so the harness can launch it on the next start.
 
 **up.sh**: Post-docker startup script. Use for pulling models, waiting for services, seeding data.
 

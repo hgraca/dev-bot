@@ -61,21 +61,23 @@ print('MCP:OK')
 
 # ── Lifecycle scripts exist ──────────────────────────────────────────────────
 
-@test "install/update/pre scripts exist and are executable" {
+@test "install/update/pre/init scripts exist and are executable" {
   [ -f "$MODULE_DIR/install.sh" ]
   [ -f "$MODULE_DIR/update.sh" ]
   [ -f "$MODULE_DIR/pre.sh" ]
+  [ -f "$MODULE_DIR/init.sh" ]
   [ -x "$MODULE_DIR/install.sh" ]
   [ -x "$MODULE_DIR/update.sh" ]
   [ -x "$MODULE_DIR/pre.sh" ]
+  [ -x "$MODULE_DIR/init.sh" ]
 }
 
-@test "no up.sh / init.sh / reset.sh — nothing docker/Ollama or per-project" {
-  # codebase-memory-mcp stores settings account-wide (config set), so no
-  # per-project init config copy is needed (codebase-index writes
-  # .opencode/codebase-index.json); no Ollama/docker deps means no up.sh.
+@test "no up.sh / reset.sh — nothing docker/Ollama" {
+  # codebase-memory-mcp bundles its embeddings and stores settings
+  # account-wide (config set); no Ollama/docker deps means no up.sh, and
+  # nothing stateful to reset. init.sh exists solely as a dependency
+  # self-heal (tested below).
   [ ! -f "$MODULE_DIR/up.sh" ]
-  [ ! -f "$MODULE_DIR/init.sh" ]
   [ ! -f "$MODULE_DIR/reset.sh" ]
 }
 
@@ -174,6 +176,34 @@ MOCK
   assert_success
   run cat "${NPM_ARGS_FILE}"
   assert_output --regexp '^install -g codebase-memory-mcp$'
+}
+
+# ── init.sh behaviour (dependency self-heal at reinit) ───────────────────────
+# devbot update never runs module install.sh, and devbot init runs init.sh —
+# so without an init.sh an install that adopts codebase-memory via update+reinit
+# registers the MCP server with no binary (review F1). init.sh delegates to the
+# idempotent install.sh when the binary is absent.
+
+@test "init.sh: installs codebase-memory-mcp when the binary is missing" {
+  _setup_sandbox
+  _mock_npm
+
+  run bash "$MODULE_DIR/init.sh"
+
+  assert_success
+  run cat "${NPM_ARGS_FILE}"
+  assert_output --regexp '^install -g codebase-memory-mcp$'
+}
+
+@test "init.sh: skips install when the binary is already present" {
+  _setup_sandbox
+  _mock_npm
+  _stub_binary
+
+  run bash "$MODULE_DIR/init.sh"
+
+  assert_success
+  [ ! -s "${NPM_ARGS_FILE}" ]
 }
 
 @test "pre.sh: passes when node and npm are present" {
