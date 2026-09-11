@@ -5,7 +5,7 @@
       "command": [
         "bash",
         "-c",
-        "mkdir -p .agents/logs && exec codebase-memory-mcp 2>>.agents/logs/codebase-memory-mcp.log"
+        "mkdir -p .agents/logs && exec codebase-memory-mcp --ui=false 2>>.agents/logs/codebase-memory-mcp.log"
       ]
     }
   }

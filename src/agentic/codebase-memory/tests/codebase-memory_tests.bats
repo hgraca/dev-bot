@@ -42,7 +42,10 @@ d = json.load(open('${MODULE_DIR}/mcp.json'))
 m = d['mcp']['codebase-memory']
 assert m['type'] == 'stdio', m
 assert m['command'][0:2] == ['bash', '-c'], m
-assert 'exec codebase-memory-mcp' in m['command'][2], m
+# --ui=false: the bundled graph UI binds a fixed loopback port (9749) per
+# instance. dev-bot launches one MCP server per project, so the collision
+# spams ui.unavailable/retry-scheduled warnings. dev-bot never uses the UI.
+assert 'exec codebase-memory-mcp --ui=false' in m['command'][2], m
 assert 'enabled' not in m, m
 print('MCP:OK')
 "
