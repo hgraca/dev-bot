@@ -127,12 +127,17 @@ for line in lines:
 }
 
 @test "devbot list mcps emits a table without a Description column" {
+  # The memory-search engines (qmd / mdctx) are mutually exclusive via the
+  # memory_search_provider key: only the ACTIVE one is listed. Pin one so the
+  # assertion does not depend on the host's gitignored global config.
+  export DEVBOT_MEMORY_SEARCH_PROVIDER=mdctx
   run bash "$PROJECT_ROOT/bin/devbot" list mcps
   [ "$status" -eq 0 ]
 
   assert_output --partial "| MCP"
   refute_output --partial "| Description"
-  assert_output --partial "| qmd"
+  assert_output --partial "| mdctx"
+  refute_output --partial "| qmd"
 
   assert_well_formed_table 2
 }
@@ -145,7 +150,10 @@ for line in lines:
   assert_output --partial "| Description"
   assert_output --partial "| git-report"
   assert_output --partial "| tree"
-  assert_output --partial "| qmd"
+  # A memory tool is always project-materialized (the memory module is
+  # engine-independent). qmd's own tool is wired only when qmd is the active
+  # engine, so asserting "| qmd" here would fail under the shipped mdctx default.
+  assert_output --partial "| search-memories"
   assert_output --partial "Format markdown files with consistent formatting via prettier"
   # tools not wired into .agents/tools/ (not tools-mcp tools) are excluded
   refute_output --partial "| graphify"
