@@ -81,6 +81,12 @@ On first load, load these context skills preemptively if not already loaded:
 - Use descriptive names that state intent (`isRegisteredForDiscounts`, not `discount()`).
 - Reuse existing components before writing new ones.
 
+### Comments
+
+- **No prose in the middle of code.** Narration ("now we iterate and build the map…") restates what the code already says and rots as it moves. Let names and structure carry the meaning; delete the rest.
+- **Docblocks only when they earn their place** — the function/method signature is not self-documenting (non-obvious contract, side effects, ordering, units, a surprising return), or a static-analysis tool requires one. A docblock that merely restates the name and parameters is noise.
+- **At most 1–2 lines for genuinely unreadable code** — a little-known native function or a dense chain of calls. Prefer instead to extract it into a function with a short, meaningful name (≤ ~32 chars): the name states the intent, and the extraction is testable.
+
 ## Testing Discipline
 
 ### Tests first, always

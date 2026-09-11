@@ -1,6 +1,6 @@
 ---
 name: php-rules
-description: "PHP coding rules: strict typing, constructor promotion, type declarations, enums, comments, PHPDoc, array shapes. Read this annex when writing or reviewing PHP code."
+description: "PHP coding rules: strict typing, constructor promotion, type declarations, enums, PHPDoc, array shapes. Read this annex when writing or reviewing PHP code."
 ---
 
 # PHP Universal Rules
@@ -41,11 +41,6 @@ protected function isAccessible(User $user, ?string $path = null): bool
 ## Enums
 
 - Keys in upper snake case: `FAVORITE_PERSON`, `BEST_LAKE`, `MONTHLY`
-
-## Comments
-
-- Prefer PHPDoc blocks over inline comments
-- Never use inline comments unless logic is exceptionally complex
 
 ## PHPDoc Blocks
 
