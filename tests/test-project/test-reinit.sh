@@ -82,20 +82,18 @@ for f in "${BYTE_IDEM_FILES[@]}"; do
   fi
 done
 devbot reinit
+# Record the captured evidence for the in-session audit (§1): per-file SHA-256
+# byte values + the verdict. This runs BEFORE the harness starts, so start.sh
+# rotates the log into .agents/logs/rotated/ and the audit reports PASS/FAIL
+# from captured evidence instead of NOT-RUN. A FAIL never aborts provisioning.
+BYTE_IDEM_LOG=".agents/logs/byte-idempotency.log"
+mkdir -p "$(dirname "${BYTE_IDEM_LOG}")"
 BYTE_IDEM_FAIL=0
-for f in "${BYTE_IDEM_FILES[@]}"; do
-  if [[ -f "$f" ]]; then
-    if ! cmp -s "${BYTE_IDEM_SNAP}/${f}" "$f"; then
-      echo "BYTE-IDEMPOTENCY-FAIL: $f changed on second reinit"
-      BYTE_IDEM_FAIL=1
-    fi
-  fi
-done
+byte_idempotency_report "${BYTE_IDEM_SNAP}" "." "${BYTE_IDEM_LOG}" \
+  "${BYTE_IDEM_FILES[@]}" || BYTE_IDEM_FAIL=$?
 rm -r "${BYTE_IDEM_SNAP}" 2>/dev/null || true
-if [[ ${BYTE_IDEM_FAIL} -eq 0 ]]; then
-  echo "BYTE-IDEMPOTENCY-PASS: second reinit left all generated files unchanged"
-else
-  echo "BYTE-IDEMPOTENCY-FAIL: second reinit changed generated files — reinit is not byte-idempotent"
+if (( BYTE_IDEM_FAIL != 0 )); then
+  echo "  (byte-idempotency evidence: ${BYTE_IDEM_LOG})" >&2
 fi
 echo
 

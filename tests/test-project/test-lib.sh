@@ -21,6 +21,11 @@
 #                                            fail only when the installed dev-bot
 #                                            selects the codebase-index engine
 #                                            (see below)
+#   byte_idempotency_report <snap> <live> <log> <files...> — container-side:
+#                                            record the double-reinit
+#                                            byte-idempotency verdict + per-file
+#                                            SHA-256 values for the audit
+#                                            (see below)
 #
 # GATE: must run on Linux and macOS (no GNU-only tools).
 # =============================================================================
@@ -201,6 +206,65 @@ sync_run_outputs() {
     cp -R "${run_dir}/.agents/logs/harness/." "${logs_base}/${label}/harness/" \
       2>/dev/null || true
   fi
+}
+
+# ── Byte-idempotency evidence (container side) ────────────────────────────────
+# `devbot reinit` must be byte-idempotent. test-reinit.sh snapshots the
+# generated files after reinit #1, runs reinit #2, then calls
+# byte_idempotency_report to record the per-file SHA-256 byte values and the
+# PASS/FAIL verdict. The log is written BEFORE the harness starts, so start.sh
+# rotates it into .agents/logs/rotated/ and the in-session audit reports
+# PASS/FAIL from captured evidence instead of NOT-RUN.
+#
+# Cross-platform: sha256sum (Linux) → shasum -a 256 (macOS) → cksum (POSIX).
+_sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    cksum "$1" | awk '{print $1"-"$2}'
+  fi
+}
+
+# byte_idempotency_report <snap_dir> <live_dir> <log_file> [file...]
+# Compares each snapshotted generated file (reinit #1) with the same file after
+# reinit #2 (live_dir). Writes the byte evidence to <log_file>, echoes it to
+# stdout, and returns 0 on PASS / 1 on FAIL. Files absent from the snapshot are
+# skipped; a snapshotted file that vanished after reinit #2 is a FAIL.
+byte_idempotency_report() {
+  local snap_dir="$1" live_dir="$2" log_file="$3"
+  shift 3
+  local -a files=("$@")
+  local fail=0 f h1 h2 status
+  local -a lines=()
+
+  lines+=("[$(date -u +%Y-%m-%dT%H:%M:%SZ)] byte-idempotency probe (reinit #1 vs reinit #2)")
+  for f in "${files[@]}"; do
+    [[ -f "${snap_dir}/${f}" ]] || continue
+    h1="$(_sha256_file "${snap_dir}/${f}")"
+    if [[ -f "${live_dir}/${f}" ]]; then
+      h2="$(_sha256_file "${live_dir}/${f}")"
+    else
+      h2="MISSING"
+    fi
+    if [[ "${h1}" == "${h2}" ]]; then
+      status="MATCH"
+    else
+      status="DIFF"
+      fail=1
+    fi
+    lines+=("$(printf '%-24s reinit1=%s reinit2=%s %s' "${f}" "${h1}" "${h2}" "${status}")")
+  done
+
+  if (( fail == 0 )); then
+    lines+=("BYTE-IDEMPOTENCY-PASS: second reinit left all generated files unchanged")
+  else
+    lines+=("BYTE-IDEMPOTENCY-FAIL: second reinit changed generated files — reinit is not byte-idempotent")
+  fi
+
+  printf '%s\n' "${lines[@]}" | tee "${log_file}"
+  return "${fail}"
 }
 
 # ── Host ollama gate (container side) ─────────────────────────────────────────
