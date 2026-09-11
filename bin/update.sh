@@ -413,6 +413,50 @@ _record_installed_version() {
   fi
 }
 
+# ── Global config reconciliation ──────────────────────────────────────────────
+# Realign the runtime global config with the shipped schema after an upgrade:
+# add top-level properties the dist template gained, drop the ones it retired.
+# A key present in both keeps its runtime value and comment (the machine's
+# choice wins); nested objects are never touched. The tool is a no-op when the
+# key sets already match. See src/_shared/reconcile_global_config.py.
+_reconcile_global_config() {
+  _header_2 "Global config reconciliation"
+
+  local dist="${DEV_BOT_ROOT}/.devbot.global.dist.jsonc"
+  local runtime="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local tool="${DEV_BOT_ROOT}/src/_shared/reconcile_global_config.py"
+
+  if [[ ! -f "${dist}" ]]; then
+    _skip "no dist config at ${dist} — nothing to reconcile"
+    return 0
+  fi
+  if [[ ! -f "${runtime}" ]]; then
+    _skip "no global config at ${runtime} — nothing to reconcile"
+    return 0
+  fi
+  if [[ ! -f "${tool}" ]]; then
+    _warn "reconciler not found — skipping global config reconciliation"
+    return 0
+  fi
+
+  local report=""
+  if ! report="$(python3 "${tool}" "${dist}" "${runtime}" 2>&1)"; then
+    _warn "global config reconciliation failed — left as-is"
+    [[ -n "${report}" ]] && echo "  ${report}" >&2
+    return 0
+  fi
+
+  if [[ "${report}" == *NOCHANGE* ]]; then
+    _skip "global config already matches the dist schema"
+    return 0
+  fi
+
+  local line
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] && _ok "${line}"
+  done <<< "${report}"
+}
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 print_summary() {
   _header_2 "✔  DevBot update complete"
@@ -588,6 +632,9 @@ main() {
 
   # Record the release so every project reinits on its next start.
   _record_installed_version "${target}"
+
+  # Realign the runtime global config with the (possibly changed) dist schema.
+  _reconcile_global_config
 
   UPDATED="${tool_count}" FAILED="${tool_failed}"
   MODULE_UPDATED="${module_count}" MODULE_FAILED="${module_failed}"

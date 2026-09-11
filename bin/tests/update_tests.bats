@@ -99,6 +99,7 @@ _install_machinery() {
   cp "${UPDATE_SH}" "${INSTALL}/bin/update.sh"
   cp "${REPO_ROOT}/src/_shared/functions.sh" \
     "${REPO_ROOT}/src/_shared/read_jsonc.py" \
+    "${REPO_ROOT}/src/_shared/reconcile_global_config.py" \
     "${INSTALL}/src/_shared/"
 
   # module.sh stub — records invocation, never touches the network.
@@ -467,6 +468,66 @@ EOF
   _run_update
 
   [ "$UPDATE_STATUS" -eq 0 ]
+  assert_equal \
+    "$(python3 "${INSTALL}/src/_shared/read_jsonc.py" "${INSTALL}/.devbot.global.jsonc" version)" \
+    "1.2.0"
+}
+
+@test "behind: reconciles the global config against the dist schema" {
+  _new_sandbox "1.0.0:1.1.0"
+  # Dist schema gained a key and retired another; the runtime config drifts.
+  cat > "${INSTALL}/.devbot.global.dist.jsonc" <<'JSONC_EOF'
+{
+  "version": "",
+  "gpu_enabled": false,
+  "new_key": "from-dist" // added upstream
+}
+JSONC_EOF
+  cat > "${INSTALL}/.devbot.global.jsonc" <<'JSONC_EOF'
+{
+  "version": "",
+  "gpu_enabled": true,
+  "retired_key": true
+}
+JSONC_EOF
+  _publish_release "g.txt" "release 1.2.0" "1.2.0"
+
+  _run_update
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  # The added key lands with its dist value; the retired key is gone; the
+  # runtime value of a shared key is preserved (gpu_enabled stays true).
+  assert_equal \
+    "$(python3 "${INSTALL}/src/_shared/read_jsonc.py" "${INSTALL}/.devbot.global.jsonc" new_key)" \
+    "from-dist"
+  run python3 -c "
+import sys
+sys.path.insert(0, '${INSTALL}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${INSTALL}/.devbot.global.jsonc')
+assert 'retired_key' not in d, d
+assert d['gpu_enabled'] is True, d
+print('RECONCILED')
+"
+  assert_success
+  assert_output "RECONCILED"
+  [[ "$UPDATE_OUTPUT" == *"Global config reconciliation"* ]]
+}
+
+@test "behind: a broken dist config does not abort the update" {
+  _new_sandbox "1.0.0:1.1.0"
+  # Runtime config is valid; the dist template is unparseable, so the
+  # reconciler errors. Update must warn and continue (never abort on it).
+  printf '{\n  "version": \n' > "${INSTALL}/.devbot.global.dist.jsonc"
+  printf '{\n  "gpu_enabled": false,\n  "version": ""\n}\n' > "${INSTALL}/.devbot.global.jsonc"
+  _publish_release "g.txt" "release 1.2.0" "1.2.0"
+
+  _run_update
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  [[ "$UPDATE_OUTPUT" == *"Global config reconciliation"* ]]
+  [[ "$UPDATE_OUTPUT" == *"left as-is"* ]]
+  # The release is still recorded — the reconcile failure did not abort it.
   assert_equal \
     "$(python3 "${INSTALL}/src/_shared/read_jsonc.py" "${INSTALL}/.devbot.global.jsonc" version)" \
     "1.2.0"
