@@ -88,18 +88,18 @@
     //    "Security": { "model": "cortecs/deepseek-v4-pro", "variant": "high" },
     //    "Scout": { "model": "cortecs/deepseek-v4-flash", "variant": "high" }
     // deepseek
-    "DevBot": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
+    "DevBot": { "model": "deepseek/deepseek-flash", "variant": "high" },
     "Expert": { "model": "cortecs/kimi-k3", "variant": "high" },
     "Designer": { "model": "cortecs/kimi-k3", "variant": "high" },
-    "TeamLead": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
+    "TeamLead": { "model": "deepseek/deepseek-flash", "variant": "high" },
     "Architect": { "model": "cortecs/kimi-k3", "variant": "high" },
-    "PO": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
-    "Critic": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
-    "Developer": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
-    "Tester": { "model": "deepseek/deepseek-v4-flash", "variant": "high" },
-    "Reviewer": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
-    "Security": { "model": "deepseek/deepseek-v4-pro", "variant": "high" },
-    "Scout": { "model": "deepseek/deepseek-v4-flash", "variant": "high" }
+    "PO": { "model": "deepseek/deepseek-flash", "variant": "high" },
+    "Critic": { "model": "deepseek/deepseek-flash", "variant": "high" },
+    "Developer": { "model": "deepseek/deepseek-flash", "variant": "high" },
+    "Tester": { "model": "deepseek/deepseek-flash", "variant": "high" },
+    "Reviewer": { "model": "deepseek/deepseek-flash", "variant": "high" },
+    "Security": { "model": "deepseek/deepseek-flash", "variant": "high" },
+    "Scout": { "model": "deepseek/deepseek-flash", "variant": "high" }
     // litellm
     //    "DevBot": { "model": "litellm/orchestrator", "variant": "high" },
     //    "Expert": { "model": "litellm/high", "variant": "high" },
