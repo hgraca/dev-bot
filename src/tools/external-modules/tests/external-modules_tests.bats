@@ -83,6 +83,54 @@ teardown() {
   assert_output --partial "Add one: devbot module add <git-url>"
 }
 
+@test "list: status reflects per-module storage mirror, not the shared clone" {
+  # Two modules share one vendor clone, but only one is mirrored. The
+  # un-mirrored one must not render as resolved (audit-03 §9).
+  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  cat > "$config" <<'JSON'
+{
+  "external_modules": {
+    "shared-a": { "url": "https://example.com/org/shared.git", "paths": { "skills": "skills" } },
+    "shared-b": { "url": "https://example.com/org/shared.git", "paths": { "skills": "skills" } }
+  }
+}
+JSON
+  # The shared vendor clone exists (example.com/org/shared -> org/shared)...
+  mkdir -p "${DEV_BOT_ROOT}/vendor/org/shared/.git"
+  # ...but only shared-a was mirrored by init.
+  mkdir -p "${DEV_BOT_ROOT}/storage/external-agentic-modules/shared-a"
+
+  run bash "$TOOL" list
+  assert_success
+  assert_output --regexp "✔  shared-a"
+  assert_output --regexp "✖  shared-b"
+}
+
+@test "list: local module needs both an existing path and a mirror" {
+  # A valid source without a mirror is not yet set up; a mirror whose source is
+  # gone is broken. Both must render ✖ (audit-03 review F2).
+  local src="${TEST_HOME}/local-src"
+  mkdir -p "${src}/skills"
+  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  cat > "$config" <<JSON
+{
+  "external_modules": {
+    "local-ok": { "local_path": "${src}", "paths": { "skills": "skills" } },
+    "local-nomirror": { "local_path": "${src}", "paths": { "skills": "skills" } },
+    "local-broken": { "local_path": "${src}/gone", "paths": { "skills": "skills" } }
+  }
+}
+JSON
+  mkdir -p "${DEV_BOT_ROOT}/storage/external-agentic-modules/local-ok"
+  mkdir -p "${DEV_BOT_ROOT}/storage/external-agentic-modules/local-broken"
+
+  run bash "$TOOL" list
+  assert_success
+  assert_output --regexp "✔  local-ok"
+  assert_output --regexp "✖  local-nomirror"
+  assert_output --regexp "✖  local-broken"
+}
+
 # ── _ensure_config stdout leak (audit-32 NOTE) ───────────────────────────────
 
 @test "commands with an existing modules config do not dump raw JSON to stdout" {

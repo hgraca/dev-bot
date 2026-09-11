@@ -389,20 +389,27 @@ cmd_list() {
         return 0
     fi
 
+    local storage_base="${DEV_BOT_ROOT}/storage/external-agentic-modules"
     while IFS=$'\x1f' read -r _name _url _local_path _paths_json; do
+        # Resolved means the module is actually usable: its source resolves AND
+        # init mirrored it into storage. The shared vendor clone alone is not a
+        # per-module signal — several modules can share one repo (e.g.
+        # mindrally-*), which would falsely mark un-mirrored modules resolved
+        # (audit-03 §9).
+        local source_ok="✖" loc=""
         if [[ -n "${_local_path}" ]]; then
-            # Local module
-            local status="✔"
-            [[ -d "${_local_path}" ]] || status="✖"
-            printf "  %s  %s  [local]  (%s)\n" "${status}" "${_name}" "${_local_path}"
+            [[ -d "${_local_path}" ]] && source_ok="✔"
+            loc="${_local_path}"
         else
-            # Git module
-            local vendor_rel
-            vendor_rel="$(_derive_vendor_path "${_url}")"
-            local dest="${MODULES_DIR}/${vendor_rel}"
-            local cloned="✖"
-            [[ -d "${dest}/.git" ]] && cloned="✔"
-            printf "  %s  %s  [git]    (%s)\n" "${cloned}" "${_name}" "${vendor_rel}"
+            loc="$(_derive_vendor_path "${_url}")"
+            [[ -d "${MODULES_DIR}/${loc}/.git" ]] && source_ok="✔"
+        fi
+        local status="✖"
+        [[ "${source_ok}" == "✔" && -d "${storage_base}/${_name}" ]] && status="✔"
+        if [[ -n "${_local_path}" ]]; then
+            printf "  %s  %s  [local]  (%s)\n" "${status}" "${_name}" "${loc}"
+        else
+            printf "  %s  %s  [git]    (%s)\n" "${status}" "${_name}" "${loc}"
         fi
         count=$((count + 1))
     done < <(echo "${modules_json}" | python3 -c "
