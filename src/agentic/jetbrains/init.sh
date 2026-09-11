@@ -54,8 +54,11 @@ _project_path() {
 #   - JETBRAINS_PROJECT_PATH set -> the host-side path the operator exports to
 #     the launcher (container reaching the host IDE)
 #   - default -> PWD, the project root the launcher cd's into
-# OpenCode-only: Claude Code uses ${VAR} syntax, so its builder keeps the
-# concrete path (see _build_claude_sse).
+# OpenCode-only by scope, not necessity: Claude Code expands ${VAR} in headers
+# too, so its builder could be made portable — but an unset var there is left as
+# an unexpanded literal, so a token would fail silently rather than being caught
+# by the launch gate. Extending it needs the ${VAR} spelling + claudecode tests;
+# until then _build_claude_sse keeps the concrete path.
 _project_path_ref() {
   if [[ -n "${JETBRAINS_PROJECT_PATH:-}" ]]; then
     echo '{env:JETBRAINS_PROJECT_PATH}'
