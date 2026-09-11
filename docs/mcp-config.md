@@ -101,9 +101,9 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 
 ### Reset / reinit
 
-`src/_shared/mcp_key_is_current.py` compares a registered entry against its module's canonical manifest _translated to that harness_ and reports stale entries, so `reset.sh` drops only what init would re-register differently — keeping reinit byte-idempotent (audit-32). The opencode refresh is scoped to an **explicit list** of modules whose canonical manifest changed (`qmd`, `mdctx`, `tools-mcp` — add a module here when a release changes its `mcp.json`); every other module's entry is user-owned and never dropped by reset, only pruned when its module is disabled. It compares placeholder-insensitively:
+`src/_shared/mcp_key_is_current.py` compares a registered entry against its module's canonical manifest _translated to that harness_ and reports stale entries, so `reset.sh` drops only what init would re-register differently — keeping reinit byte-idempotent (audit-32). The opencode refresh is scoped to an **explicit list** of modules whose canonical manifest changed (`qmd`, `mdctx`, `tools-mcp` — add a module here when a release changes its `mcp.json`); every other module's entry is user-owned and never dropped by reset, only pruned when its module is disabled. It normalizes the machine-dependent placeholders before comparing:
 
-- `__GPU_ENABLED__` — any resolved string is current (GPU value is machine-dependent);
+- `__GPU_ENABLED__` — with `--gpu` supplied (both resets pass `_qmd_gpu_value()`, the same source init resolves the placeholder with), the config value must equal that host value or the entry is stale, so a stale/wrong GPU value self-heals; without `--gpu`, any resolved string is current (GPU value is machine-dependent);
 - `__DEV_BOT_ROOT__` — the suffix after the placeholder must still match (root layout drift is stale);
 - `{env:VAR}` — current whether the config holds the native token literal (opencode `{env:VAR}`, claudecode `${VAR}`) or omits the key.
 

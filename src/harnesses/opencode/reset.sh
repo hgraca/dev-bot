@@ -130,6 +130,11 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
   REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
   IS_CURRENT_PY="${DEV_BOT_ROOT}/src/_shared/mcp_key_is_current.py"
   if [[ -f "${REMOVE_MCP_PY}" ]]; then
+    # The currently-correct host GPU value — the SAME source init resolves the
+    # __GPU_ENABLED__ placeholder with. Passing it makes a stale/wrong resolved
+    # value (e.g. "false" frozen from an older devbot on a GPU host) report
+    # stale so it is refreshed, instead of being trusted forever (audit-03 §4).
+    GPU_VALUE="$(_qmd_gpu_value)"
     REFRESH_MODULES=(qmd mdctx tools-mcp)
     for mod_name in "${REFRESH_MODULES[@]}"; do
       local_tpl="${DEV_BOT_ROOT}/src/agentic/${mod_name}/mcp.json"
@@ -140,7 +145,7 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
       while IFS= read -r mcp_key; do
         [[ -n "${mcp_key}" ]] || continue
         if [[ -f "${IS_CURRENT_PY}" ]] \
-          && python3 "${IS_CURRENT_PY}" "${OPENCODE_CONFIG}" "${local_tpl}" "${mcp_key}" opencode 2>/dev/null; then
+          && python3 "${IS_CURRENT_PY}" "${OPENCODE_CONFIG}" "${local_tpl}" "${mcp_key}" opencode --gpu "${GPU_VALUE}" 2>/dev/null; then
           _skip "${mcp_key}: matches module template — no refresh needed"
           continue
         fi

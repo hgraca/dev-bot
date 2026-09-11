@@ -143,6 +143,79 @@ print('MCP-CLEAN:OK')
   grep -qF 'MCP-CLEAN:OK' <<< "$output" || fail "MCP keys not removed"
 }
 
+# ── audit-03 §4: a stale-but-valid GPU value must self-heal on reset ────────
+
+# _host_qmd_gpu: the currently-correct value the resets pass via --gpu.
+_host_qmd_gpu() {
+  ( source "${PROJECT_ROOT}/src/_shared/functions.sh" >/dev/null 2>&1; _qmd_gpu_value )
+}
+
+# _write_opencode_config_with_gpu <gpu_value>: a config whose qmd entry is the
+# canonical template translated to opencode, with QMD_LLAMA_GPU set to the
+# given value — so it matches the template exactly except for the GPU value.
+_write_opencode_config_with_gpu() {
+  local gpu="$1"
+  python3 - "${gpu}" "${SANDBOX_DIR}/opencode.jsonc" "${PROJECT_ROOT}" <<'PY_EOF'
+import json, sys
+sys.path.insert(0, sys.argv[3] + '/src/_shared')
+from mcp_translate import load_canonical, server_map, translate
+gpu, out, root = sys.argv[1], sys.argv[2], sys.argv[3]
+entry = translate(server_map(load_canonical(root + '/src/agentic/qmd/mcp.json'))['qmd'], 'opencode')
+entry['environment']['QMD_LLAMA_GPU'] = gpu
+with open(out, 'w') as f:
+    json.dump({"mcp": {"qmd": entry}}, f, indent=2)
+PY_EOF
+}
+
+@test "enabled: refreshes a stale-but-valid QMD_LLAMA_GPU value" {
+  _write_project_config enabled
+  _create_opencode_dir
+
+  local host_gpu wrong_gpu
+  host_gpu="$(_host_qmd_gpu)"
+  case "${host_gpu}" in
+    false) wrong_gpu="metal" ;;
+    *) wrong_gpu="false" ;;
+  esac
+  _write_opencode_config_with_gpu "${wrong_gpu}"
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  # Wrong (but valid) value -> stale -> dropped so init re-registers it.
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${SANDBOX_DIR}/opencode.jsonc')
+assert 'qmd' not in d.get('mcp', {}), d
+print('QMD-REFRESHED:OK')
+"
+  assert_success
+  grep -qF 'QMD-REFRESHED:OK' <<< "$output" || fail "stale GPU value not refreshed"
+}
+
+@test "enabled: keeps a correct QMD_LLAMA_GPU value (no churn)" {
+  _write_project_config enabled
+  _create_opencode_dir
+  _write_opencode_config_with_gpu "$(_host_qmd_gpu)"
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  # Correct value -> current -> left alone (reinit byte-idempotency).
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${SANDBOX_DIR}/opencode.jsonc')
+assert 'qmd' in d.get('mcp', {}), d
+print('QMD-KEPT:OK')
+"
+  assert_success
+  grep -qF 'QMD-KEPT:OK' <<< "$output" || fail "correct GPU value was churned"
+}
+
 # ── D7: prune plugin/MCP entries declared by now-DISABLED modules ────────────
 # Registration is append-only, so a module that became disabled (e.g.
 # codebase-index after a codebase_index_provider flip to codebase-memory) keeps

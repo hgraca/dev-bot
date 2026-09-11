@@ -81,6 +81,32 @@ teardown() {
   assert_success
 }
 
+@test "exit 0 when --gpu matches the config value (no churn)" {
+  # The caller passes the currently-correct host GPU value; a matching config
+  # value is current — nothing to refresh.
+  run python3 "$TOOL" "$WORK/opencode.jsonc" "$WORK/qmd-module.json" "qmd" opencode --gpu cuda
+  assert_success
+}
+
+@test "exit 1 when --gpu differs from the config value (stale, audit-03 §4)" {
+  # A stale/wrong resolved GPU value must be dropped so init re-registers the
+  # correct one — e.g. "false" frozen from an older devbot on a GPU host.
+  run python3 "$TOOL" "$WORK/opencode.jsonc" "$WORK/qmd-module.json" "qmd" opencode --gpu metal
+  assert_failure
+}
+
+@test "exit 1 when --gpu is given but the config omits the placeholder key" {
+  cat > "$WORK/no-gpu-key.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "qmd": { "type": "local", "command": ["qmd", "mcp"], "environment": { "QMD_EXPAND_CONTEXT_SIZE": "512" } }
+  }
+}
+JSONC_EOF
+  run python3 "$TOOL" "$WORK/no-gpu-key.jsonc" "$WORK/qmd-module.json" "qmd" opencode --gpu cuda
+  assert_failure
+}
+
 @test "exit 0 when .mcp.json def matches canonical translated to claudecode" {
   cat > "$WORK/.mcp.json" <<'JSONC_EOF'
 {

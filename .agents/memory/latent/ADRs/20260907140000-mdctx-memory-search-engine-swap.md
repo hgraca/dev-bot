@@ -1,7 +1,7 @@
 ---
 date: 2026-09-07
 keywords: ["mdctx", "memory_search_provider", "engine swap", "search-memories"]
-see: []
+see: ["ADRs/20260911113346-mcp-gpu-placeholder-value-exact.md"]
 ---
 
 ## mdctx module + memory_search_provider engine swap

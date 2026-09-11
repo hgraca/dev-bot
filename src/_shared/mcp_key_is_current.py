@@ -18,10 +18,15 @@ template always speak the same vocabulary:
 
 Translation runs with placeholders UNRESOLVED (mcp_translate.py --gpu/--root
 omitted): the resolved values are machine-dependent (GPU string, install root,
-SIGNOZ token) and legitimately differ between configs, so a differing resolved
-value must not trigger a re-registration. Comparison then normalizes:
+SIGNOZ token) and legitimately differ between configs. Comparison then
+normalizes the machine-dependent fields so a legitimate difference does not
+trigger a re-registration — except the GPU value, which is compared exactly
+when the caller supplies the expected host value (--gpu):
 
-  - __GPU_ENABLED__     whole-value placeholder: any config value is current
+  - __GPU_ENABLED__     whole-value placeholder: with --gpu, the config value
+                        must equal the currently-correct host value — a mismatch
+                        is stale (audit-03 §4); without --gpu, any config value
+                        is current (machine-dependent)
   - __DEV_BOT_ROOT__    path-prefix placeholder: the suffix after the
                         placeholder must still match (root layout drift is stale)
   - {env:VAR}           env indirection (mapped per harness: opencode keeps
@@ -30,7 +35,7 @@ value must not trigger a re-registration. Comparison then normalizes:
                         either spelling, or omits the key
 
 Usage:
-  mcp_key_is_current.py <config_file> <module_mcp.json> <key> <harness>
+  mcp_key_is_current.py <config_file> <module_mcp.json> <key> <harness> [--gpu VALUE]
 
 Exit codes:
   0 — key absent from config, or registered def matches the template (no
@@ -101,12 +106,13 @@ def _find_entry(data, key):
     return None
 
 
-def _normalize(entry, config_entry):
+def _normalize(entry, config_entry, gpu=None):
     """Return a comparable copy of the translated template entry.
 
     Placeholders are rewritten to whatever the config resolved — the only
     runtime-dependent fields:
-      - __GPU_ENABLED__    whole-value placeholder (cuda/metal/vulkan/false)
+      - __GPU_ENABLED__    whole-value placeholder (cuda/metal/vulkan/false);
+                           with `gpu` set, the config must equal it
       - __DEV_BOT_ROOT__   path-prefix placeholder (absolute install root);
                            the suffix after the placeholder must match the
                            config's value for the entry to stay current
@@ -134,11 +140,21 @@ def _normalize(entry, config_entry):
     config_env = config_env if isinstance(config_env, dict) else {}
     for k, v in list(env.items()):
         if v == "__GPU_ENABLED__":
-            resolved = config_env.get(k)
-            # Any resolved string is current (GPU value is machine-dependent);
-            # a non-string (legacy boolean true — audit-28) is not.
-            if isinstance(resolved, str) and resolved != "__GPU_ENABLED__":
-                env[k] = resolved
+            if gpu is not None:
+                # Caller supplied the currently-correct host value (the same
+                # _qmd_gpu_value() init resolves the placeholder with): compare
+                # the config against it, so a stale/wrong value — e.g. "false"
+                # frozen from an older devbot on a GPU host — is reported stale
+                # and refreshed (audit-03 §4). A matching value stays current,
+                # so a correct config is never churned.
+                env[k] = gpu
+            else:
+                resolved = config_env.get(k)
+                # No expected value available: any resolved string is current
+                # (GPU value is machine-dependent); a non-string (legacy
+                # boolean true — audit-28) is not.
+                if isinstance(resolved, str) and resolved != "__GPU_ENABLED__":
+                    env[k] = resolved
         elif "__DEV_BOT_ROOT__" in v:
             prefix, _, suffix = v.partition("__DEV_BOT_ROOT__")
             cv = config_env.get(k)
@@ -165,14 +181,25 @@ def _normalize(entry, config_entry):
 
 
 def main():
-    if len(sys.argv) != 5:
+    args = sys.argv[1:]
+
+    gpu = None
+    if "--gpu" in args:
+        i = args.index("--gpu")
+        if i + 1 >= len(args):
+            print("--gpu requires a value", file=sys.stderr)
+            sys.exit(1)
+        gpu = args[i + 1]
+        del args[i : i + 2]
+
+    if len(args) != 4:
         print(
-            "Usage: mcp_key_is_current.py <config_file> <module_mcp.json> <key> <harness>",
+            "Usage: mcp_key_is_current.py <config_file> <module_mcp.json> <key> <harness> [--gpu VALUE]",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    config_file, template_file, key, harness = sys.argv[1:5]
+    config_file, template_file, key, harness = args
 
     if not os.path.isfile(config_file) or not os.path.isfile(template_file):
         # Nothing to compare — trivially current (nothing to remove).
@@ -196,7 +223,7 @@ def main():
         print(f"Failed to translate module template: {e}", file=sys.stderr)
         sys.exit(0)  # fail safe: don't churn on an invalid template
 
-    if json.dumps(_normalize(translated, config_entry), sort_keys=True) == \
+    if json.dumps(_normalize(translated, config_entry, gpu), sort_keys=True) == \
             json.dumps(config_entry, sort_keys=True):
         sys.exit(0)  # current — skip removal
     sys.exit(1)  # stale — reset should remove so init re-registers
