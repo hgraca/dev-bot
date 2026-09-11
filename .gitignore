@@ -19,6 +19,7 @@ package-lock.json
 **/*.backup
 **/*.bkp
 /.devbot.global.jsonc
+/.devbot.global.jsonc.reconcile.tmp
 **/__pycache__/
 *.pyc
 ###< project ###
