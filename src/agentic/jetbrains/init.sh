@@ -50,10 +50,16 @@ _project_path() {
 }
 
 # The {env:VAR} token OpenCode expands at launch, written into the manifest in
-# place of a literal path so the config is portable across machines/projects:
+# place of a literal path so the config is portable across machines/projects.
+#
+# Timing: the TOKEN is chosen here, at init, from whether JETBRAINS_PROJECT_PATH
+# is set in THIS process; OpenCode resolves its VALUE at each launch from its
+# own env. So the override var must also be exported in the shell that launches
+# the harness (it is not inherited from init), and the default PWD assumes the
+# harness is launched from the project root (the canonical start.sh cd's there).
 #   - JETBRAINS_PROJECT_PATH set -> the host-side path the operator exports to
 #     the launcher (container reaching the host IDE)
-#   - default -> PWD, the project root the launcher cd's into
+#   - default -> PWD (project root)
 # OpenCode-only by scope, not necessity: Claude Code expands ${VAR} in headers
 # too, so its builder could be made portable — but an unset var there is left as
 # an unexpanded literal, so a token would fail silently rather than being caught
