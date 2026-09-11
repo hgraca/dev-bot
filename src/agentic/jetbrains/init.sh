@@ -49,6 +49,21 @@ _project_path() {
   echo "${JETBRAINS_PROJECT_PATH:-${PROJECT_PATH}}"
 }
 
+# The {env:VAR} token OpenCode expands at launch, written into the manifest in
+# place of a literal path so the config is portable across machines/projects:
+#   - JETBRAINS_PROJECT_PATH set -> the host-side path the operator exports to
+#     the launcher (container reaching the host IDE)
+#   - default -> PWD, the project root the launcher cd's into
+# OpenCode-only: Claude Code uses ${VAR} syntax, so its builder keeps the
+# concrete path (see _build_claude_sse).
+_project_path_ref() {
+  if [[ -n "${JETBRAINS_PROJECT_PATH:-}" ]]; then
+    echo '{env:JETBRAINS_PROJECT_PATH}'
+  else
+    echo '{env:PWD}'
+  fi
+}
+
 # Probe a single port for the MCP SSE endpoint (GET /stream must answer with
 # text/event-stream).
 _probe_sse_port() {
@@ -128,7 +143,7 @@ _detect_mcp_port() {
 _build_opencode_sse() {
   local port="$1"
   cat <<EOF
-{"type":"remote","url":"http://127.0.0.1:${port}/stream","headers":{"IJ_MCP_SERVER_PROJECT_PATH":"$(_project_path)"},"enabled":true}
+{"type":"remote","url":"http://127.0.0.1:${port}/stream","headers":{"IJ_MCP_SERVER_PROJECT_PATH":"$(_project_path_ref)"},"enabled":true}
 EOF
 }
 
