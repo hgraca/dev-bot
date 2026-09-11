@@ -128,6 +128,15 @@ with open(sys.argv[1]) as fh:
     bash "${INIT_TOOL}" "${PROJECT}"
   assert_success
 
-  run grep -q "${PROJECT}" "${PROJECT}/.opencode/jetbrains.mcp.json"
+  run grep -qF "${PROJECT}" "${PROJECT}/.opencode/jetbrains.mcp.json"
+  assert_failure
+}
+
+@test "jetbrains init: override mode never bakes the host path either" {
+  run env PATH="${SHIM_DIR}:${PATH}" JETBRAINS_PORT="${FAKE_PORT}" \
+    JETBRAINS_PROJECT_PATH="/host-side/project" bash "${INIT_TOOL}" "${PROJECT}"
+  assert_success
+
+  run grep -qF "/host-side/project" "${PROJECT}/.opencode/jetbrains.mcp.json"
   assert_failure
 }
