@@ -156,13 +156,6 @@ _build_opencode_sse() {
 EOF
 }
 
-_build_opencode_stdio() {
-  local ide_binary="$1" port="$2"
-  cat <<EOF
-{"type":"local","command":["${ide_binary}","stdioMcpServer"],"env":{"IJ_MCP_SERVER_PROJECT_PATH":"$(_project_path)","IJ_MCP_SERVER_PORT":"${port}"},"enabled":true}
-EOF
-}
-
 _build_claude_sse() {
   local port="$1"
   cat <<EOF
@@ -171,22 +164,6 @@ _build_claude_sse() {
   "url": "http://127.0.0.1:${port}/stream",
   "headers": {
     "IJ_MCP_SERVER_PROJECT_PATH": "$(_project_path)"
-  },
-  "enabled": true
-}
-EOF
-}
-
-_build_claude_stdio() {
-  local ide_binary="$1" port="$2"
-  cat <<EOF
-{
-  "type": "stdio",
-  "command": "${ide_binary}",
-  "args": ["stdioMcpServer"],
-  "env": {
-    "IJ_MCP_SERVER_PROJECT_PATH": "$(_project_path)",
-    "IJ_MCP_SERVER_PORT": "${port}"
   },
   "enabled": true
 }
