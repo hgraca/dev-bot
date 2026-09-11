@@ -96,15 +96,29 @@ JSON_EOF
   mkdir -p "${PROJECT}"
   echo '{}' > "${PROJECT}/.devbot.project.jsonc"
 
+  # Runtime manifest written by a module init (.opencode/<name>.mcp.json) — no
+  # canonical mcp.json, indirection lives in headers. jetbrains is the real case.
+  mkdir -p "${PROJECT}/.opencode"
+  cat > "${PROJECT}/.opencode/jetbrains.mcp.json" <<'JSON_EOF'
+{
+  "jetbrains": {
+    "type": "remote",
+    "url": "http://127.0.0.1:64442/stream",
+    "headers": { "IJ_MCP_SERVER_PROJECT_PATH": "{env:JET_DYN_SECRET}" },
+    "enabled": true
+  }
+}
+JSON_EOF
+
   # Source the REAL shared library (collector + presenter live there).
   source "${PROJECT_ROOT}/src/_shared/functions.sh"
 
   # Clean env for presence checks — ensure the fixture vars are unset.
-  unset ENVMOD_SECRET PLUG_SECRET 2>/dev/null || true
+  unset ENVMOD_SECRET PLUG_SECRET JET_DYN_SECRET 2>/dev/null || true
 }
 
 teardown() {
-  unset DEV_BOT_ROOT ENVMOD_SECRET PLUG_SECRET 2>/dev/null || true
+  unset DEV_BOT_ROOT ENVMOD_SECRET PLUG_SECRET JET_DYN_SECRET 2>/dev/null || true
   rm -rf "${WORK}" 2>/dev/null || true
 }
 
@@ -148,6 +162,22 @@ JSON_EOF
   assert_failure
 }
 
+@test "extractor reads a runtime manifest's {env:VAR} from headers" {
+  cat > "${WORK}/runtime.mcp.json" <<'JSON_EOF'
+{
+  "jetbrains": {
+    "type": "remote",
+    "url": "http://127.0.0.1:64442/stream",
+    "headers": { "IJ_MCP_SERVER_PROJECT_PATH": "{env:HOST_PATH}" },
+    "enabled": true
+  }
+}
+JSON_EOF
+  run python3 "${EXTRACTOR}" "${WORK}/runtime.mcp.json"
+  assert_success
+  assert_output "jetbrains	IJ_MCP_SERVER_PROJECT_PATH	HOST_PATH"
+}
+
 # ── Bash collector (_devbot_missing_mcp_env_vars) ─────────────────────────────
 
 @test "collector reports an unset {env:VAR} with module context" {
@@ -158,7 +188,7 @@ JSON_EOF
 }
 
 @test "collector stays silent when the env var is set" {
-  export ENVMOD_SECRET="present"
+  export ENVMOD_SECRET="present" JET_DYN_SECRET="present"
   run _devbot_missing_mcp_env_vars "${PROJECT}"
   assert_success
   assert_output ""
@@ -186,6 +216,21 @@ JSON_EOF
   assert_success
   refute_output --partial "plugmod"
   refute_output --partial "PLUG_SECRET"
+}
+
+@test "collector reports a runtime manifest ref, labelled by manifest name" {
+  run _devbot_missing_mcp_env_vars "${PROJECT}"
+  assert_success
+  assert_output --partial "jetbrains|jetbrains|IJ_MCP_SERVER_PROJECT_PATH|JET_DYN_SECRET"
+}
+
+@test "collector skips a runtime manifest for a disabled module" {
+  cat > "${PROJECT}/.devbot.project.jsonc" <<'JSON_EOF'
+{ "modules": { "jetbrains": false } }
+JSON_EOF
+  run _devbot_missing_mcp_env_vars "${PROJECT}"
+  assert_success
+  refute_output --partial "JET_DYN_SECRET"
 }
 
 # ── Notice + prompt (_devbot_present_missing_env_vars) ────────────────────────
@@ -235,7 +280,7 @@ JSON_EOF
 }
 
 @test "check wrapper returns 0 silently when no refs are missing" {
-  export ENVMOD_SECRET="present"
+  export ENVMOD_SECRET="present" JET_DYN_SECRET="present"
   run _devbot_check_mcp_env_vars "${PROJECT}" ack
   assert_success
   assert_output ""

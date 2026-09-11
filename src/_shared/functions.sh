@@ -1045,6 +1045,27 @@ _devbot_missing_mcp_env_vars() {
       done < <(python3 "${refs_script}" "${mod_mcp}" 2>/dev/null)
     done
   done
+
+  # Runtime manifests written by module inits (.opencode/<name>.mcp.json) have
+  # no canonical mcp.json to be scanned above — e.g. jetbrains. Their {env:VAR}
+  # refs (in headers) must be gated too, labelled by manifest name and honouring
+  # the same disabled-module skip.
+  local dyn dyn_name
+  for dyn in "${project_dir}/.opencode/"*.mcp.json; do
+    [[ -f "${dyn}" ]] || continue
+    dyn_name="$(basename "${dyn}" .mcp.json)"
+    if echo "${disabled_modules}" | grep -Fxq "${dyn_name}" 2>/dev/null; then
+      continue
+    fi
+
+    local server env_key var
+    while IFS=$'\t' read -r server env_key var; do
+      [[ -n "${server}" ]] || continue
+      if [[ -z "${!var:-}" ]]; then
+        echo "${dyn_name}|${server}|${env_key}|${var}"
+      fi
+    done < <(python3 "${refs_script}" "${dyn}" 2>/dev/null)
+  done
 }
 
 _devbot_present_missing_env_vars() {
