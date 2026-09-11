@@ -13,7 +13,7 @@ Address review comments by explaining each issue, assessing it, and proposing a 
 
 ## Input
 
-A set of review comments to address, supplied by the caller (e.g. the `/devbot:gh-review` command).
+A set of review comments to address, supplied by the caller (e.g. the `/devbot:gh-address-review` command).
 
 ## Procedure
 

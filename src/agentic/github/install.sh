@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install GitHub CLI (gh) — required by the gh-review command.
+# Install GitHub CLI (gh) — required by the gh-address-review and gh-make-review commands.
 # macOS: installs via Homebrew. Linux: installs via dnf (Fedora) or apt (Debian/Ubuntu).
 # Idempotent — skips if already installed.
 #

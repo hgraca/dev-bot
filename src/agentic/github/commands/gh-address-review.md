@@ -1,11 +1,11 @@
 ---
-name: devbot:gh-review
+name: devbot:gh-address-review
 description: Review a GitHub PR and address its review comments locally
 ---
 
 Review the GitHub PR at the URL given below and address its review comments locally. Never post replies, comments, or resolutions back to GitHub.
 
-PR URL: $ARGUMENTS
+PR URL: $1
 
 If no PR URL is provided, ask the user for the PR URL before proceeding.
 
