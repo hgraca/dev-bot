@@ -345,3 +345,56 @@ with open(config, 'w') as f:
   run _run _prune_orphaned_external_modules
   assert_success
 }
+
+@test "prune: removes a mirror declared by a disabled umbrella module" {
+  _setup '{"modules": {"off-umbrella": false}}'
+  # A disabled umbrella declares ext-decl; init skips it entirely (audit-03 §9),
+  # so a mirror left by an earlier state is an orphan.
+  mkdir -p "${SANDBOX_DIR}/src/agentic/off-umbrella"
+  cat > "${SANDBOX_DIR}/src/agentic/off-umbrella/external-modules.json" <<'EOF'
+{
+  "ext-decl": { "url": "https://example.com/ext-decl.git", "paths": { "skills": "skills" } }
+}
+EOF
+  _add_external_module "ext-decl" 0
+
+  run _run _prune_orphaned_external_modules
+  assert_success
+
+  assert [ ! -e "${SANDBOX_DIR}/storage/external-agentic-modules/ext-decl" ]
+}
+
+@test "prune: keeps a mirror declared by an enabled umbrella module" {
+  _setup '{"modules": {"on-umbrella": true}}'
+  mkdir -p "${SANDBOX_DIR}/src/agentic/on-umbrella"
+  cat > "${SANDBOX_DIR}/src/agentic/on-umbrella/external-modules.json" <<'EOF'
+{
+  "ext-kept": { "url": "https://example.com/ext-kept.git", "paths": { "skills": "skills" } }
+}
+EOF
+  _add_external_module "ext-kept" 0
+
+  run _run _prune_orphaned_external_modules
+  assert_success
+
+  assert [ -d "${SANDBOX_DIR}/storage/external-agentic-modules/ext-kept" ]
+}
+
+@test "prune: keeps a mirror declared by both an enabled and a disabled module" {
+  # A disabled umbrella declaring the name is not enough to orphan it: the
+  # enabled umbrella needs the mirror (audit-03 review F3).
+  _setup '{"modules": {"off-umbrella": false, "on-umbrella": true}}'
+  mkdir -p "${SANDBOX_DIR}/src/agentic/off-umbrella" "${SANDBOX_DIR}/src/agentic/on-umbrella"
+  cat > "${SANDBOX_DIR}/src/agentic/off-umbrella/external-modules.json" <<'EOF'
+{ "shared-name": { "url": "https://example.com/shared-name.git", "paths": { "skills": "skills" } } }
+EOF
+  cat > "${SANDBOX_DIR}/src/agentic/on-umbrella/external-modules.json" <<'EOF'
+{ "shared-name": { "url": "https://example.com/shared-name.git", "paths": { "skills": "skills" } } }
+EOF
+  _add_external_module "shared-name" 0
+
+  run _run _prune_orphaned_external_modules
+  assert_success
+
+  assert [ -d "${SANDBOX_DIR}/storage/external-agentic-modules/shared-name" ]
+}

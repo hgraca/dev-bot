@@ -272,21 +272,66 @@ for m in json.loads(sys.stdin.read()):
   fi
 }
 
+# _module_declared_names <state> — prints the external-module names declared by
+# modules whose state is `disabled` or `enabled`. init's declared-module loop
+# skips a disabled umbrella entirely (no clone, mirror, or wiring — audit-03
+# §9), so a mirror for a disabled-declared name is an orphan; but a name ALSO
+# declared by an enabled umbrella must be kept — the enabled module mirrors it.
+
+_module_declared_names() {
+  local want="$1"
+  local disabled_json
+  disabled_json="$(_devbot_get_disabled_modules "${PROJECT_DIR}")"
+  python3 -c "
+import glob, json, sys
+want = sys.argv[2]
+try:
+    disabled = set(json.loads(sys.argv[1]))
+except Exception:
+    disabled = set()
+for f in glob.glob('${DEV_BOT_ROOT}/src/agentic/*/external-modules.json') + glob.glob('${DEV_BOT_ROOT}/src/tools/*/external-modules.json'):
+    mod = f.rsplit('/', 2)[-2]
+    if (want == 'disabled') != (mod in disabled):
+        continue
+    try:
+        for name in json.load(open(f)):
+            print(name)
+    except Exception:
+        continue
+" "${disabled_json}" "${want}" 2>/dev/null || true
+}
+
 # _prune_orphaned_external_modules — removes external-module storage dirs that
-# are no longer present in the `modules` config. The config is the source of
-# truth; orphaned storage is removed regardless of what still exists on disk.
+# are no longer present in the `modules` config, plus mirrors whose name is
+# declared ONLY by a currently-disabled umbrella module. The config is the
+# source of truth; orphaned storage is removed regardless of what still exists
+# on disk.
 
 _prune_orphaned_external_modules() {
   local external_base="${DEV_BOT_ROOT}/storage/external-agentic-modules"
   [[ -d "${external_base}" ]] || return 0
 
-  local configured
+  local configured disabled_declared enabled_declared
   configured="$(_devbot_get_external_modules)"
+  disabled_declared="$(_module_declared_names disabled)"
+  enabled_declared="$(_module_declared_names enabled)"
 
   local orphan_dir
   for orphan_dir in "${external_base}/"*/; do
     local dir_name
     dir_name="$(basename "${orphan_dir}")"
+
+    # Orphan 1: declared by a disabled umbrella module — init skipped it
+    # entirely, so this mirror is a leftover from an earlier state. A name an
+    # ENABLED umbrella also declares is not an orphan: that umbrella needs it.
+    if echo "${disabled_declared}" | grep -Fxq "${dir_name}" 2>/dev/null \
+      && ! echo "${enabled_declared}" | grep -Fxq "${dir_name}" 2>/dev/null; then
+      _warn "Removing orphaned external module storage: ${dir_name} (declared by a disabled module)"
+      rm -rf "${orphan_dir}"
+      continue
+    fi
+
+    # Orphan 2: not present in the modules config at all.
     if echo "${configured}" | grep -Fxq "${dir_name}" 2>/dev/null; then
       continue
     fi
