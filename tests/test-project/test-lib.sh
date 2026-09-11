@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # =============================================================================
 # tests/test-project/test-lib.sh
-# Shared host-side helpers for the e2e launchers (test-cc.sh / test-oc.sh).
+# Shared helpers for the e2e launchers (test-cc.sh / test-oc.sh) and their
+# inner scripts.
 #
 # Each launcher now runs its container against an ISOLATED per-run copy of the
 # fixture, mounted at /app, so cc and oc (or two runs of the same harness) can
@@ -16,6 +17,10 @@
 #   sync_run_outputs <run_dir> <fixture> <harness> — copy report + logs back
 #   composer_cache_args                    — print docker -v/-e args for the host
 #                                            composer cache (cross-platform)
+#   require_host_ollama_for_codebase_engine [install_root] — container-side gate:
+#                                            fail only when the installed dev-bot
+#                                            selects the codebase-index engine
+#                                            (see below)
 #
 # GATE: must run on Linux and macOS (no GNU-only tools).
 # =============================================================================
@@ -196,4 +201,40 @@ sync_run_outputs() {
     cp -R "${run_dir}/.agents/logs/harness/." "${logs_base}/${label}/harness/" \
       2>/dev/null || true
   fi
+}
+
+# ── Host ollama gate (container side) ─────────────────────────────────────────
+# Only the codebase-index engine embeds via the host ollama at :18434 —
+# codebase-memory bundles its embeddings, mdctx is zero-ML, and qmd uses its own
+# llama.cpp models. The launchers must therefore NOT require host ollama
+# unconditionally (the shipped default is codebase-memory + mdctx); this gate
+# fires only when the INSTALLED dev-bot selects codebase-index. Invoked from
+# test-reinit.sh after install (config exists) and before reinit (which would
+# wire the engine). Returns non-zero with a clear message only when the engine
+# needs ollama and the API is unreachable.
+require_host_ollama_for_codebase_engine() {
+  local install_root="${1:-${DEV_BOT_INSTALL_DIR:-$HOME/.local/share/dev-bot}}"
+  local funcs="${install_root}/src/_shared/functions.sh"
+  local provider=""
+  if [[ -f "${funcs}" ]]; then
+    provider="$(DEV_BOT_ROOT="${install_root}" bash -c \
+      'source "$1" >/dev/null 2>&1; _devbot_get_codebase_provider' _ "${funcs}" 2>/dev/null || true)"
+  fi
+  [[ -n "${provider}" ]] || provider="codebase-memory"
+
+  if [[ "${provider}" != "codebase-index" ]]; then
+    echo "codebase engine: ${provider} — host ollama not required"
+    return 0
+  fi
+
+  if curl -s --max-time 5 http://localhost:18434/api/tags >/dev/null 2>&1; then
+    echo "codebase engine: ${provider} — host ollama reachable at :18434"
+    return 0
+  fi
+
+  echo "ERROR: codebase_index_provider=codebase-index needs the host ollama at" >&2
+  echo "       http://localhost:18434 (the container reaches it via --network host)." >&2
+  echo "       On the host, start it with:" >&2
+  echo "         docker compose -f src/tools/ollama/docker-compose.yml -f docker-compose.gpu.yml up -d" >&2
+  return 1
 }

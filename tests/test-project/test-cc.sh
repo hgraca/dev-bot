@@ -37,14 +37,12 @@ if ! docker image inspect devbot-test >/dev/null 2>&1; then
   docker build -t devbot-test .
 fi
 
-# The container routes to the host ollama via --network host: localhost:18434
-# inside the container is the host's dev-bot-ollama. Require it to be up
-# before starting the test.
-if ! curl -s --max-time 5 http://localhost:18434/api/tags >/dev/null 2>&1; then
-  echo "ERROR: ollama is not reachable on the host at http://localhost:18434." >&2
-  echo "       Start devbot on the host first (devbot up) so the ollama API comes online." >&2
-  exit 1
-fi
+# Host ollama (reachable in-container via --network host at localhost:18434) is
+# required only by the codebase-index engine — NOT by the shipped default
+# (codebase-memory + mdctx). The gate runs inside the container once the
+# installed dev-bot's effective provider is known (test-reinit.sh →
+# require_host_ollama_for_codebase_engine), so there is no blanket host
+# prerequisite here.
 
 # Share the host qmd model cache so container runs never re-download the ~2 GB
 # qmd llama models (qmd pull is a no-op once cached). The test's qmd SQLite

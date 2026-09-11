@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Runs as the host uid (Pattern A image) — put ~/.local/bin on PATH first so
 # the devbot link is found. npm's global prefix also points at ~/.local so
 # `npm install -g` (used by the qmd installer) works as this non-root user.
@@ -12,6 +13,15 @@ if ! command -v devbot >/dev/null 2>&1; then
   echo "devbot not found — installing (branch: ${BRANCH})..."
   curl -fsSL "https://raw.githubusercontent.com/hgraca/dev-bot/${BRANCH}/install.sh" | bash -s -- --org hgraca --branch "${BRANCH}"
 fi
+
+# Host ollama (reachable in-container via --network host at localhost:18434) is
+# required only when the installed dev-bot selects the codebase-index engine —
+# the shipped default (codebase-memory + mdctx) needs none. Gate on the
+# effective provider now, before reinit wires the engine. See
+# require_host_ollama_for_codebase_engine in test-lib.sh.
+# shellcheck source=./test-lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"
+require_host_ollama_for_codebase_engine "${DEV_BOT_INSTALL_DIR:-$HOME/.local/share/dev-bot}"
 
 echo
 echo "removing old files..."
