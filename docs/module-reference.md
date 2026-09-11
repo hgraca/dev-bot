@@ -202,12 +202,12 @@ devbot module remove my-module
 
 #### `list`
 
-Show all registered modules with their clone/link status.
+Show all registered modules with their per-module status: ✔ when the module's source resolves **and** it has been mirrored into storage (i.e. it is set up), ✖ otherwise.
 
 ```
-✔  addyosmani  [git]    (vendor/github.com/addyosmani/agent-skills)
+✔  addyosmani  [git]    (addyosmani/agent-skills)
 ✔  my-module   [local]  (/path/to/my/module)
-✖  other       [git]    (vendor/github.com/org/other)
+✖  other       [git]    (org/other)
 ```
 
 #### `sync`
