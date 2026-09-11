@@ -141,7 +141,7 @@ Located at `src/tools/<name>/`. Infrastructure services — Docker Compose, CLI 
 
 ## External modules
 
-Third-party modules registered via `devbot module add` and wired into projects via symlinks. Cloned into `vendor/` with symlinks in `.opencode/<type>/<name>/`. External modules follow the same anatomy as internal modules — they can provide agents, skills, commands, hooks, tools, and memory bootstrap files. The runtime treats them identically; the only difference is where they live on disk (`vendor/` vs `src/agentic/`).
+Third-party modules registered via `devbot module add` and wired into projects via symlinks. Cloned into `vendor/` with symlinks in the project's devbot dir (`.agents/<type>/<name>/`). External modules follow the same anatomy as internal modules — they can provide agents, skills, commands, hooks, tools, and memory bootstrap files. The runtime treats them identically; the only difference is where they live on disk (`vendor/` vs `src/agentic/`).
 
 ### Registered modules
 
@@ -190,7 +190,7 @@ devbot module add /path/to/my/module
 devbot module add https://github.com/org/repo.git --skills=./my-skills --agents=./my-agents
 ```
 
-After registration, the module is automatically wired into all discovered projects via symlinks in `.opencode/<type>/<name>/`.
+After registration, the module is automatically wired into all discovered projects via symlinks in the project's devbot dir (`.agents/<type>/<name>/`).
 
 #### `remove <name>`
 
@@ -240,7 +240,7 @@ External modules are defined in `.devbot.global.jsonc` under the `"modules"` key
 
 **`paths` key semantics:**
 
-- **String value** (`"skills": "skills"`) — the entire directory from the module is symlinked into `.opencode/<type>/<name>/` or `.agents/memory/<name>/`
+- **String value** (`"skills": "skills"`) — the entire directory from the module is symlinked into `.agents/<type>/<name>/` or `.agents/memory/<name>/`
 - **Object value** (`"memory": { "source": "dest" }`) — each file is symlinked individually at its exact destination path. Used for `memory/` bootstrap files that must sit alongside internal bootstrap files without an extra nesting level
 - **Missing paths** — if a path key is omitted, that module type is not wired
 
@@ -251,7 +251,7 @@ External modules are defined in `.devbot.global.jsonc` under the `"modules"` key
 | `<devbot-root>/.devbot.global.jsonc`       | Module registry (under `modules` key)            |
 | `<devbot-root>/vendor/<org>/<repo>/`       | Cloned repository                                |
 | `storage/external-agentic-modules/<name>/` | Wired module with full lifecycle (init.sh, etc.) |
-| `<project>/.opencode/<type>/<name>`        | Symlink wired into each project                  |
+| `<project>/.agents/<type>/<name>`          | Symlink wired into each project                  |
 | `<project>/.agents/memory/`                | Memory bootstrap files (file-level symlinks)     |
 
 #### How it works
@@ -259,7 +259,7 @@ External modules are defined in `.devbot.global.jsonc` under the `"modules"` key
 1. `add` registers the module in `.devbot.global.jsonc` under the `"modules"` key
 2. For git URLs: clones into `vendor/<org>/<repo>`
 3. For local paths: symlinks into `vendor/`
-4. Discovers all initialized projects (those with `.agents/devbot.jsonc`)
-5. Creates symlinks: `<project>/.opencode/<type>/<name>` → `<vendor>/<type>/`
+4. Discovers all initialized projects (those with `.devbot.project.jsonc`)
+5. Creates symlinks: `<project>/.agents/<type>/<name>` → `<vendor>/<type>/`
 6. `sync` repeats step 4-5 for all registered modules
 7. `remove` removes symlinks and the config entry
