@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 # =============================================================================
 # src/agentic/qmd/tests/qmd_tests.bats
-# Tests for the qmd.mcp.sh bash entrypoint.
-# Tests from the bash entrypoint, covering all options and outputs.
+# Tests for the qmd.sh maintenance CLI.
+# Covers all options and outputs.
 # =============================================================================
 
 setup() {
@@ -12,7 +12,7 @@ setup() {
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
   PROJECT_ROOT="$(cd "$TEST_DIR/../../../.." && pwd)"
-  TOOL="$MODULE_DIR/tools/qmd.mcp.sh"
+  TOOL="$MODULE_DIR/tools/qmd.sh"
   FIXTURES="$TEST_DIR/fixtures"
 
   # Prefer the installed qmd CLI — skip tests if unavailable
@@ -31,12 +31,13 @@ setup() {
   assert_success
   assert_output --partial "Usage:"
   assert_output --partial "status"
-  assert_output --partial "query"
   assert_output --partial "search"
   assert_output --partial "get"
   assert_output --partial "update"
-  assert_output --partial "embed"
   assert_output --partial "collection"
+  # BM25-only: the semantic subcommands are not advertised.
+  refute_output --partial "embed"
+  refute_output --partial "query"
 }
 
 @test "-h: also prints usage" {
@@ -318,28 +319,23 @@ SCRIPT
   rm -r "$sandbox"
 }
 
-# ── audit-28 FAIL-1: GPU query-expansion VRAM safety ──────────────────────────
-# On small-VRAM GPUs (RTX 4050, 5.6 GB) qmd's query-expansion model at the
-# default 2048 context overflows VRAM: "InsufficientMemoryError: A context
-# size of 2048 is too large for the available VRAM" — every hybrid query logs
-# a stack trace and expansion silently degrades to unexpanded search.
-# QMD_EXPAND_CONTEXT_SIZE must be pinned to a VRAM-safe value in the MCP
-# environment so it flows into every project on reinit.
+# ── MCP server retired; GPU env preserved for a future re-enable ─────────────
+# The qmd MCP server was removed (qmd is BM25-only and not agent-invokable). Its
+# manifest is kept as mcp.json.future — NOT discovered by init/list — so the
+# GPU/context env for a future semantic re-enable survives verbatim.
 
-@test "audit-28: canonical mcp.json pins VRAM-safe context sizes for both harnesses" {
-  # The env lives once in mcp.json and flows to both harnesses via the shared
-  # translator (the claudecode side previously lacked QMD_LLAMA_GPU — approved
-  # consolidation behavior change: env is now single-source).
-  run python3 -c "import json; d=json.load(open('${MODULE_DIR}/mcp.json')); print(json.dumps(d['mcp']['qmd'].get('env', {})))"
+@test "qmd MCP is retired: no active mcp.json, only mcp.json.future" {
+  [ ! -f "$MODULE_DIR/mcp.json" ]
+  [ ! -f "$MODULE_DIR/mcp.opencode.json" ]
+  [ ! -f "$MODULE_DIR/mcp.claudecode.json" ]
+  [ -f "$MODULE_DIR/mcp.json.future" ]
+}
+
+@test "reserved mcp.json.future preserves the GPU/context env for re-enable" {
+  run python3 -c "import json; d=json.load(open('${MODULE_DIR}/mcp.json.future')); print(json.dumps(d['mcp']['qmd'].get('env', {})))"
   assert_success
   assert_output --partial '"QMD_EXPAND_CONTEXT_SIZE": "512"'
   assert_output --partial '"QMD_RERANK_CONTEXT_SIZE": "1024"'
   assert_output --partial '"QMD_LLAMA_GPU": "__GPU_ENABLED__"'
-}
-
-@test "audit-28: per-harness manifest pair consolidated into single mcp.json" {
-  [ -f "$MODULE_DIR/mcp.json" ]
-  [ ! -f "$MODULE_DIR/mcp.opencode.json" ]
-  [ ! -f "$MODULE_DIR/mcp.claudecode.json" ]
 }
 
