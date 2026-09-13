@@ -33,6 +33,15 @@ Canonical reference for all `.agents/memory/` vault operations. Other memory ski
   thinking/                  <- scratchpad for drafts (promote or delete)
 ```
 
+### Commit status (tracked vs local)
+
+Folders differ in git status — by design, not an oversight:
+
+- **Tracked** (committed when `commit_memory: true`): `active/`, `latent/ADRs/`, `latent/PDRs/`, `latent/learnings/`, `reference/`.
+- **Local, gitignored** (never committed): `work/` (plans, backlogs, WIP), `thinking/` (scratch), and the `latent/global/` symlink — its target, `storage/global-memories/`, is tracked separately.
+
+Work items (`work/active/<…>/backlog.md`, `work/archive/<…>`) and every `thinking/` note are **local artifacts**: never `git add` or commit them, and never ask the user where they live or whether to commit them — that is settled. An artifact that must survive across machines belongs in `reference/` or `latent/`.
+
 Each `latent/` file is a standalone `.md` with YAML frontmatter (`date`, `keywords`, and optionally `see`). Body starts after frontmatter — no metadata in body.
 
 ## 2. Routing Table
