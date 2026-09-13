@@ -63,3 +63,23 @@ print('MANIFEST:OK')
   run bun run "$TOOL" --command 'echo \$(rm -rf /tmp/guards-sub)' --global-config "$TEST_DIR/../../../../.devbot.global.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc" --agent ""
   assert_output --partial '"blocked":true'
 }
+
+# ── Shipped qmd guard (ADR 20260913072905-qmd-bm25-only-no-model-downloads) ──
+# qmd is BM25-only and not agent-invokable; the shipped global config blocks the
+# CLI. Tested against the DIST config — the live .devbot.global.jsonc is
+# machine-local and reconciled from dist on update.
+
+@test "shipped global guards block a direct qmd invocation" {
+  run bun run "$TOOL" --command "qmd embed" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc" --agent ""
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped global guards block qmd after a shell operator" {
+  run bun run "$TOOL" --command "cd .agents && qmd update" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc" --agent ""
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped global guards do NOT block harmless text mentioning qmd" {
+  run bun run "$TOOL" --command 'echo "qmd is not agent-invokable"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc" --agent ""
+  assert_output --partial '"blocked":false'
+}
