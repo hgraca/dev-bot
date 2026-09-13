@@ -215,7 +215,7 @@ one key, then running `devbot reinit`:
 
 | Value     | Engine                                                                                                                             | Integration      |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `"qmd"`   | `@tobilu/qmd` (hybrid semantic + BM25 over per-project collections; llama/GPU, GGUF models)                                        | MCP server + CLI |
+| `"qmd"`   | `@tobilu/qmd` (BM25 keyword search over per-project collections — no models, no embeddings)                                        | MCP server + CLI |
 | `"mdctx"` | `mdctx` (zachkepe/mdctx — zero-ML-dependency RAKE + BM25 keyword index over a flat, git-diffable JSON file; no embeddings, no GPU) | MCP server + CLI |
 
 The two modules are **mutually exclusive**: `_devbot_get_disabled_modules`
@@ -225,10 +225,11 @@ hard-disables it (no memory-search engine); enabling the _non-selected_ one via
 `modules` is ignored. The qmd/mdctx pair is independent of the
 `codebase_index_provider` pair — both auto-exclusions apply.
 
-**Capability difference:** `mdctx` is keyword-only by design (no semantic /
-vector search, no per-document collections). Under `mdctx` the agent's memory
-search is deterministic BM25 against descriptive titles/keywords; semantic
-query (`qmd_query` vec/hyde) exists only when `"qmd"` is selected.
+**Both engines are keyword-only:** `mdctx` is keyword-only by design (RAKE +
+BM25, no embeddings); `qmd` is used BM25-only through the memory module — no
+model download, no embeddings (ADR `20260913072905-qmd-bm25-only-no-model-
+downloads`). Memory search is deterministic BM25 against descriptive
+titles/keywords under either engine.
 
 **Upgrade note:** existing installs that do not set this key get the `mdctx`
 default and will stop registering `qmd` on the next reinit. Pin

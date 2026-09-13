@@ -21,8 +21,8 @@ When you need information, use right tool for question type:
 
 `search-memories` covers every recall question — it searches the project vault
 and the shared global store under the configured engine (`memory_search_provider`,
-qmd or mdctx). Engine-native extras (e.g. qmd's semantic/vector route) live in
-the ACTIVE engine's skill (`devbot:qmd` / `devbot:mdctx`) — only that one is
-linked, so `devbot:qmd` exists only when qmd is the selected engine.
+qmd or mdctx). Both engines are keyword-only (BM25); there is no semantic/vector
+route. The ACTIVE engine's skill (`devbot:qmd` / `devbot:mdctx`) is linked for
+engine-specific index maintenance, not for memory search.
 
 If `search-memories` returns no matches, the index may not be built yet or a reindex may still be running — do **not** loop reindex → search → reindex. Check `reindex-memories status`; if a reindex is `in_progress`, wait and re-search once. Repeated `reindex-memories` calls coalesce into a single job — they don't make results appear faster.
