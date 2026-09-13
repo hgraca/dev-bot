@@ -58,13 +58,13 @@ Any other key (e.g. a leftover `enabled` or `environment`) fails translation lou
 
 Resolved at translation time by `mcp_translate.py`:
 
-| Token              | Resolves to                                       | Used by                                                  |
-| ------------------ | ------------------------------------------------- | -------------------------------------------------------- |
-| `{harness-dir}`    | `.opencode` \| `.claude`                          | wrapper/serve-script paths in commands                   |
-| `{host}`           | `opencode` \| `claude` (product name)             | servers with a `--host` config selector (codebase-index) |
-| `__GPU_ENABLED__`  | `metal`\|`cuda`\|`vulkan`\|`false` (registration) | qmd GPU selection                                        |
-| `__DEV_BOT_ROOT__` | the dev-bot install root (registration)           | mdctx index paths                                        |
-| `{env:VAR}`        | see below                                         | secrets / per-machine config                             |
+| Token              | Resolves to                                       | Used by                                                                      |
+| ------------------ | ------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `{harness-dir}`    | `.opencode` \| `.claude`                          | wrapper/serve-script paths in commands                                       |
+| `{host}`           | `opencode` \| `claude` (product name)             | servers with a `--host` config selector (codebase-index)                     |
+| `__GPU_ENABLED__`  | `metal`\|`cuda`\|`vulkan`\|`false` (registration) | reserved — no shipped module uses it (see `src/agentic/qmd/mcp.json.future`) |
+| `__DEV_BOT_ROOT__` | the dev-bot install root (registration)           | mdctx index paths                                                            |
+| `{env:VAR}`        | see below                                         | secrets / per-machine config                                                 |
 
 `{env:VAR}` is an env indirection resolved by **each client natively at launch** — the shared translator maps it to the harness's native spelling, so the value is never resolved into a config file:
 
@@ -101,7 +101,7 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 
 ### Reset / reinit
 
-`src/_shared/mcp_key_is_current.py` compares a registered entry against its module's canonical manifest _translated to that harness_ and reports stale entries, so `reset.sh` drops only what init would re-register differently — keeping reinit byte-idempotent (audit-32). The opencode refresh is scoped to an **explicit list** of modules whose canonical manifest changed (`qmd`, `mdctx`, `tools-mcp` — add a module here when a release changes its `mcp.json`); every other module's entry is user-owned and never dropped by reset, only pruned when its module is disabled. It normalizes the machine-dependent placeholders before comparing:
+`src/_shared/mcp_key_is_current.py` compares a registered entry against its module's canonical manifest _translated to that harness_ and reports stale entries, so `reset.sh` drops only what init would re-register differently — keeping reinit byte-idempotent (audit-32). The opencode refresh is scoped to an **explicit list** of modules whose canonical manifest changed (`mdctx`, `tools-mcp` — add a module here when a release changes its `mcp.json`); every other module's entry is user-owned and never dropped by reset, only pruned when its module is disabled. A module that **drops** its MCP server entirely is additionally pruned by reset's retired-key list (`RETIRED_MCP_KEYS`), since its canonical manifest is gone and the other prune paths are keyed on it — qmd's `qmd mcp` server is retired this way. It normalizes the machine-dependent placeholders before comparing:
 
 - `__GPU_ENABLED__` — with `--gpu` supplied (both resets pass `_qmd_gpu_value()`, the same source init resolves the placeholder with), the config value must equal that host value or the entry is stale, so a stale/wrong GPU value self-heals; without `--gpu`, any resolved string is current (GPU value is machine-dependent);
 - `__DEV_BOT_ROOT__` — the suffix after the placeholder must still match (root layout drift is stale);

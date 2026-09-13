@@ -131,11 +131,11 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
   IS_CURRENT_PY="${DEV_BOT_ROOT}/src/_shared/mcp_key_is_current.py"
   if [[ -f "${REMOVE_MCP_PY}" ]]; then
     # The currently-correct host GPU value — the SAME source init resolves the
-    # __GPU_ENABLED__ placeholder with. Passing it makes a stale/wrong resolved
-    # value (e.g. "false" frozen from an older devbot on a GPU host) report
-    # stale so it is refreshed, instead of being trusted forever (audit-03 §4).
+    # __GPU_ENABLED__ placeholder with. Retained for a future GPU-placeholder
+    # manifest; no module on the refresh list below declares one (qmd, the only
+    # one, had its MCP server removed).
     GPU_VALUE="$(_qmd_gpu_value)"
-    REFRESH_MODULES=(qmd mdctx tools-mcp)
+    REFRESH_MODULES=(mdctx tools-mcp)
     for mod_name in "${REFRESH_MODULES[@]}"; do
       local_tpl="${DEV_BOT_ROOT}/src/agentic/${mod_name}/mcp.json"
       [[ -f "${local_tpl}" ]] || continue
@@ -158,6 +158,20 @@ for k in data.get('mcp', {}):
     if not k.startswith('_'):
         print(k)
 " 2>/dev/null)
+    done
+
+    # ── Prune RETIRED MCP keys ──────────────────────────────────────────────
+    # A module that once shipped an MCP server can drop it; its canonical
+    # mcp.json disappears, so neither the stale-refresh loop above nor the
+    # disabled-module prune (both keyed on a module's mcp.json) can locate the
+    # key. Prune it explicitly so existing configs shed the dead server. qmd's
+    # `qmd mcp` server was removed (qmd is BM25-only and not agent-exposed).
+    for retired_key in qmd; do
+      if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
+        | grep -q "\"${retired_key}\""; then
+        python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${retired_key}" 2>/dev/null || true
+        _ok "${retired_key}: removed retired MCP key"
+      fi
     done
   fi
 

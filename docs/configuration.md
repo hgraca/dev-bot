@@ -213,10 +213,10 @@ project memory vault and the shared global store); the engine's own MCP server
 and skill are registered for the selected engine only. Swap by flipping this
 one key, then running `devbot reinit`:
 
-| Value     | Engine                                                                                                                             | Integration      |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------------- | ---------------- |
-| `"qmd"`   | `@tobilu/qmd` (BM25 keyword search over per-project collections — no models, no embeddings)                                        | MCP server + CLI |
-| `"mdctx"` | `mdctx` (zachkepe/mdctx — zero-ML-dependency RAKE + BM25 keyword index over a flat, git-diffable JSON file; no embeddings, no GPU) | MCP server + CLI |
+| Value     | Engine                                                                                                                             | Integration                    |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| `"qmd"`   | `@tobilu/qmd` (BM25 keyword search over per-project collections — no models, no embeddings)                                        | CLI (guard-blocked for agents) |
+| `"mdctx"` | `mdctx` (zachkepe/mdctx — zero-ML-dependency RAKE + BM25 keyword index over a flat, git-diffable JSON file; no embeddings, no GPU) | MCP server + CLI               |
 
 The two modules are **mutually exclusive**: `_devbot_get_disabled_modules`
 auto-appends the non-selected engine to the disabled set, so exactly one is

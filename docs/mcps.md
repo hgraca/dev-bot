@@ -18,7 +18,6 @@ DevBot wires **13 module-declared MCP servers** plus dynamic per-project harness
 | graphify        | `devbot:graphify`       | Codebase knowledge graph querying                                                |
 | mdctx           | `devbot:mdctx`          | Keyword markdown knowledge-base search (zero-ML BM25)                            |
 | playwright      | `playwright`            | Browser automation and E2E testing                                               |
-| qmd             | `devbot:qmd`            | Markdown knowledge-base search (semantic + keyword)                              |
 | react           | `next-devtools`         | Next.js runtime diagnostics                                                      |
 | signoz          | `signoz`                | Observability — dashboards, alerts, queries, investigation                       |
 | svelte          | `svelte`                | Svelte framework integration                                                     |
