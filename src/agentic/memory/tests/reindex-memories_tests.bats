@@ -83,11 +83,11 @@ teardown() {
   kill "$running_pid" 2>/dev/null || true
 }
 
-@test "tool: background reindex runs qmd cleanup before update and embed" {
-  # Guard audit-20 FAIL: orphaned qmd embedding chunks accumulated across
-  # sessions (135 chunks, 14%). The reindex job must prune orphans first so
-  # they don't silently accumulate. The fake qmd records its argv; wait for
-  # all three calls (cleanup, update, embed) then assert the order.
+@test "tool: background reindex runs qmd cleanup then update (no embed)" {
+  # Guard audit-20 FAIL: stale qmd chunks accumulated across sessions. The
+  # reindex job must prune first so they don't silently accumulate. BM25-only:
+  # exactly two calls (cleanup, update) — never embed (ADR
+  # 20260913072905-qmd-bm25-only-no-model-downloads).
   cat > "$STUB_DIR/qmd" <<'SCRIPT'
 #!/usr/bin/env bash
 echo "$*" >> "$QMD_CALL_LOG"
@@ -101,20 +101,21 @@ SCRIPT
 
   local i
   for i in $(seq 1 50); do
-    [[ "$(wc -l < "$call_log" 2>/dev/null || echo 0)" -ge 3 ]] && break
+    [[ "$(wc -l < "$call_log" 2>/dev/null || echo 0)" -ge 2 ]] && break
     sleep 0.1
   done
 
   run cat "$call_log"
   assert_line --index 0 "cleanup"
   assert_line --index 1 "update"
-  assert_line --index 2 "embed"
+  # Exactly two calls — embed must never run.
+  assert [ "$(wc -l < "$call_log" 2>/dev/null || echo 0)" = "2" ]
 }
 
-@test "tool: prune mode runs qmd cleanup and update without embed" {
-  # audit-29/audit-36: the pre-harness delete→prune self-heal fires 'prune'
-  # (cleanup+update only) so bash-deleted notes stop surfacing without paying
-  # the embed cost.
+@test "tool: prune mode runs the same qmd cleanup + update (no embed)" {
+  # audit-29/audit-36: the pre-harness delete→prune self-heal fires 'prune' so
+  # bash-deleted notes stop surfacing. qmd is BM25-only, so prune and full run
+  # the identical cleanup+update — never embed.
   cat > "$STUB_DIR/qmd" <<'SCRIPT'
 #!/usr/bin/env bash
 echo "$*" >> "$QMD_CALL_LOG"
@@ -126,7 +127,6 @@ SCRIPT
   run env PATH="$STUB_DIR:$PATH" QMD_CALL_LOG="$call_log" bash "$TOOL" prune
   assert_success
   assert_output --partial '"status":"started"'
-  assert_output --partial "no embed"
 
   local i
   for i in $(seq 1 50); do
@@ -137,7 +137,7 @@ SCRIPT
   run cat "$call_log"
   assert_line --index 0 "cleanup"
   assert_line --index 1 "update"
-  # Exactly two calls — embed must never run in prune mode.
+  # Exactly two calls — embed must never run.
   assert [ "$(wc -l < "$call_log" 2>/dev/null || echo 0)" = "2" ]
 }
 
@@ -264,7 +264,7 @@ wait_for_pid_gone() {
 
   run cat "$index_log"
   assert_output --regexp "\[reindex-memories\] full start"
-  assert_output --regexp "\[reindex-memories\] full finished cleanup=0 update-embed=0"
+  assert_output --regexp "\[reindex-memories\] full finished cleanup=0 update=0"
 }
 
 @test "tool: prune-mode background job logs a prune marker" {
@@ -280,7 +280,7 @@ wait_for_pid_gone() {
   wait_for_pid_gone
   run cat "$index_log"
   assert_output --regexp "\[reindex-memories\] prune start"
-  assert_output --regexp "\[reindex-memories\] prune finished cleanup=0 update-embed=0"
+  assert_output --regexp "\[reindex-memories\] prune finished cleanup=0 update=0"
 }
 
 @test "tool: pid file is removed and failure logged even when qmd exits non-zero" {

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Install QMD (Quick Markdown search) CLI via npm.
 # Installs the @tobilu/qmd npm package globally.
+# qmd is used BM25-only through the memory module — no model download, no
+# embeddings (see ADRs/20260913072905-qmd-bm25-only-no-model-downloads).
 #
 # GATE: This module must work on Ubuntu, Fedora, and macOS.
 # GATE: Requires npm (Node.js package manager).
@@ -36,20 +38,6 @@ main() {
     _ok "QMD installed: $(qmd --version 2>/dev/null || true)"
   else
     _skip "QMD ($(qmd --version 2>/dev/null || echo 'installed'))"
-  fi
-
-  # ── Ensure qmd models (independent process, non-blocking) ────────────────
-  # qmd query (auto-expand + rerank) needs qmd's own llama models (embedding +
-  # query-expansion + reranker). qmd pull skips models already in the cache
-  # ("cached/checked"); run it detached so a first-time (~2 GB) download never
-  # blocks the install. Models become available once the background pull ends.
-  # Presence check is a fast file glob — NOT `qmd doctor` (its device probe
-  # runs the llama backend and takes ~14 s on CPU).
-  if compgen -G "${QMD_MODELS_DIR:-$HOME/.cache/qmd/models}/*.gguf" >/dev/null 2>&1; then
-    _skip "qmd models already cached"
-  else
-    _info "qmd models not cached — pulling in the background (qmd pull)"
-    ( nohup qmd pull >/dev/null 2>&1 & ) || true
   fi
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Update QMD (Quick Markdown search) CLI via npm.
-# Upgrades @tobilu/qmd to the latest version and refreshes the index.
+# Upgrades @tobilu/qmd to the latest version and refreshes the BM25 index
+# (no model download, no embeddings).
 #
 # GATE: This module must work on Ubuntu, Fedora, and macOS.
 # GATE: Requires npm (Node.js package manager).
@@ -36,7 +37,6 @@ main() {
     if [[ -d "$(_devbot_get_project_dir "$(pwd)")/memory/latent" ]]; then
       _info "Refreshing QMD index..."
       qmd update 2>/dev/null || true
-      qmd embed 2>/dev/null || true
       _ok "QMD index refreshed"
     else
       _skip "No latent/ directory found — skipping index refresh"

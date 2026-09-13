@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 # ---
-# description: Rebuild the memory index in the background (fire-and-forget) using the configured memory-search engine (qmd: cleanup && update [&& embed]; mdctx: incremental build of the project + global indexes). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one, or 'prune' to run the cheap self-heal (qmd: cleanup && update only, no embed; mdctx: rebuild) for stale deleted-note entries.
+# description: Rebuild the memory index in the background (fire-and-forget) using the configured memory-search engine (qmd: cleanup && update, BM25-only; mdctx: incremental build of the project + global indexes). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one, or 'prune' to run the cheap self-heal for stale deleted-note entries.
 # ---
 # =============================================================================
 # src/agentic/memory/tools/reindex-memories/reindex-memories.mcp.sh
 # Rebuilds the memory index using the engine selected by memory_search_provider:
-#   - qmd:  qmd cleanup && qmd update [&& qmd embed]  (cleanup prunes orphaned
-#           embedding chunks from deleted/moved docs)
+#   - qmd:  qmd cleanup && qmd update  (BM25-only — no embed; cleanup prunes
+#           orphaned chunks from deleted/moved docs; see ADR
+#           20260913072905-qmd-bm25-only-no-model-downloads)
 #   - mdctx: mdctx build of the project latent index + the global-memories index
-#           (incremental + hash-cached; there is no cleanup/embed concept)
+#           (incremental + hash-cached)
 # in the background. The engine dispatch isolates each engine's commands and
 # selects them on the provider, exactly like search-memories.
 #
-# 'prune' mode: qmd runs cleanup && update only (no embed — the slow GPU/model
-# step); mdctx runs the same build (already embed-free). Invoked as the
+# 'prune' mode: runs the same command as a full reindex (both engines are
+# embed-free); kept as the delete→prune self-heal entry point. Invoked as the
 # delete→prune self-heal by the harness start scripts (start.sh →
 # _devbot_prune_memories_detached): bash-deleted notes stayed searchable
 # because neither harness delivers a delete event for external (bash) rm
@@ -53,7 +54,7 @@ LOCK_FILE="$LOCK_DIR/reindex-memories.lock"
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"reindex-memories","description":"Rebuild the memory index in the background (fire-and-forget) using the configured memory-search engine (qmd: cleanup && update [&& embed]; mdctx: incremental build of the project + global indexes). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one, or 'prune' to run the cheap self-heal (qmd: cleanup && update only, no embed; mdctx: rebuild) for stale deleted-note entries.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"Optional positional: 'status' to report running/idle without launching; 'prune' to launch the cheap self-heal pass"}}}}
+{"name":"reindex-memories","description":"Rebuild the memory index in the background (fire-and-forget) using the configured memory-search engine (qmd: cleanup && update, BM25-only; mdctx: incremental build of the project + global indexes). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one, or 'prune' to run the cheap self-heal for stale deleted-note entries.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"Optional positional: 'status' to report running/idle without launching; 'prune' to launch the cheap self-heal pass"}}}}
 JSON
     exit 0
     ;;
@@ -140,9 +141,8 @@ else
 fi
 
 if [[ "${PROVIDER}" == "mdctx" ]]; then
-  # mdctx has no cleanup/embed distinction: prune and full both run the same
-  # incremental build (already embed-free), so the mode does not change the
-  # message. The qmd branch below keeps the distinction.
+  # Both engines reindex identically in prune and full mode, so MODE never
+  # changes the message.
   bg_message="mdctx build (project + global indexes) launched in background"
   DEVBOT_DIR="$(_devbot_get_project_dir "${PROJECT_DIR}")"
   LATENT_DIR="${PROJECT_DIR}/${DEVBOT_DIR}/memory/latent"
@@ -150,15 +150,9 @@ if [[ "${PROVIDER}" == "mdctx" ]]; then
   PROJECT_INDEX="${PROJECT_DIR}/.mdctx/context-index.json"
   GLOBAL_INDEX="${DEV_BOT_ROOT}/storage/.mdctx/context-index.json"
 else
-  # `qmd cleanup` first prunes orphaned embedding chunks (stale vectors from
-  # deleted/moved docs) so they don't silently accumulate across sessions
-  # (audit-20 FAIL: 135 orphaned chunks, 14%). Best-effort: a cleanup failure
-  # must not block the reindex. Prune mode skips embed — see header.
-  if [[ "${MODE}" == "prune" ]]; then
-    bg_message="qmd cleanup && qmd update (prune, no embed) launched in background"
-  else
-    bg_message="qmd cleanup && qmd update && qmd embed launched in background"
-  fi
+  # BM25-only: `cleanup` prunes stale chunks, `update` rebuilds the index. No
+  # embed — see ADR 20260913072905-qmd-bm25-only-no-model-downloads.
+  bg_message="qmd cleanup && qmd update launched in background"
 fi
 
 # The job runs with errexit OFF: the tool itself is `set -e`, and an inherited
@@ -192,13 +186,9 @@ fi
     else
       qmd cleanup
       _cleanup_rc=$?
-      if [[ "${MODE}" == "prune" ]]; then
-        qmd update
-      else
-        qmd update && qmd embed
-      fi
+      qmd update
       _reindex_rc=$?
-      echo "[reindex-memories] ${MODE} finished cleanup=${_cleanup_rc} update-embed=${_reindex_rc} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      echo "[reindex-memories] ${MODE} finished cleanup=${_cleanup_rc} update=${_reindex_rc} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
     fi
   } >> "${BG_LOG}" 2>&1
   rm -f "$PID_FILE"

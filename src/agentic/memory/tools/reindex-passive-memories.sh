@@ -2,9 +2,9 @@
 # =============================================================================
 # src/agentic/memory/tools/reindex-passive-memories.sh
 # Passive memory reindex: logs to memory-index.log and runs the configured
-# engine's reindex in the background — qmd: `qmd cleanup && qmd update && qmd
-# embed` (cleanup first prunes orphaned embedding chunks); mdctx: `mdctx
-# build` of the project + global indexes (incremental, no cleanup/embed).
+# engine's reindex in the background — qmd: `qmd cleanup && qmd update`
+# (BM25-only, no embed: see ADR 20260913072905-qmd-bm25-only-no-model-downloads);
+# mdctx: `mdctx build` of the project + global indexes (incremental).
 # Extracted from the former opencode hook so the logic lives in a tool (shared
 # with the claudecode hook).
 #
@@ -101,12 +101,10 @@ if [[ "${PROVIDER}" == "mdctx" ]]; then
     rm -f "$PID_FILE"
   ) &
 else
-  # `qmd cleanup` first prunes orphaned embedding chunks (stale vectors from
-  # deleted/moved docs) so they don't silently accumulate across sessions
-  # (audit-20 FAIL: 135 orphaned chunks, 14%). Best-effort: a cleanup failure
-  # must not block the reindex.
-  printf '[%s] [QMD-INDEX] file=%s cmd="qmd cleanup && qmd update && qmd embed"\n' "${ISO}" "${FILE}" >> "${LOG_FILE}"
-  ( qmd cleanup >> "${LOG_FILE}" 2>&1; qmd update && qmd embed >> "${LOG_FILE}" 2>&1; rm -f "$PID_FILE" ) &
+  # BM25-only: `cleanup` prunes stale chunks (best-effort), `update` rebuilds
+  # the index. No embed — see ADR 20260913072905-qmd-bm25-only-no-model-downloads.
+  printf '[%s] [QMD-INDEX] file=%s cmd="qmd cleanup && qmd update"\n' "${ISO}" "${FILE}" >> "${LOG_FILE}"
+  ( qmd cleanup >> "${LOG_FILE}" 2>&1; qmd update >> "${LOG_FILE}" 2>&1; rm -f "$PID_FILE" ) &
 fi
 bg_pid=$!
 echo "$bg_pid" > "$PID_FILE"
