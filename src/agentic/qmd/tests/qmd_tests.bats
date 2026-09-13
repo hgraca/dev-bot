@@ -319,23 +319,15 @@ SCRIPT
   rm -r "$sandbox"
 }
 
-# ── MCP server retired; GPU env preserved for a future re-enable ─────────────
-# The qmd MCP server was removed (qmd is BM25-only and not agent-invokable). Its
-# manifest is kept as mcp.json.future — NOT discovered by init/list — so the
-# GPU/context env for a future semantic re-enable survives verbatim.
+# ── MCP server retired permanently ───────────────────────────────────────────
+# The qmd MCP server was removed and will not return (qmd is BM25-only and not
+# agent-invokable). No manifest of any kind remains — not per-harness, not a
+# reserved copy.
 
-@test "qmd MCP is retired: no active mcp.json, only mcp.json.future" {
+@test "qmd MCP is retired: no manifest of any kind remains" {
   [ ! -f "$MODULE_DIR/mcp.json" ]
   [ ! -f "$MODULE_DIR/mcp.opencode.json" ]
   [ ! -f "$MODULE_DIR/mcp.claudecode.json" ]
-  [ -f "$MODULE_DIR/mcp.json.future" ]
-}
-
-@test "reserved mcp.json.future preserves the GPU/context env for re-enable" {
-  run python3 -c "import json; d=json.load(open('${MODULE_DIR}/mcp.json.future')); print(json.dumps(d['mcp']['qmd'].get('env', {})))"
-  assert_success
-  assert_output --partial '"QMD_EXPAND_CONTEXT_SIZE": "512"'
-  assert_output --partial '"QMD_RERANK_CONTEXT_SIZE": "1024"'
-  assert_output --partial '"QMD_LLAMA_GPU": "__GPU_ENABLED__"'
+  [ ! -f "$MODULE_DIR/mcp.json.future" ]
 }
 

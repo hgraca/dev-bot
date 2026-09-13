@@ -58,13 +58,13 @@ Any other key (e.g. a leftover `enabled` or `environment`) fails translation lou
 
 Resolved at translation time by `mcp_translate.py`:
 
-| Token              | Resolves to                                       | Used by                                                                      |
-| ------------------ | ------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `{harness-dir}`    | `.opencode` \| `.claude`                          | wrapper/serve-script paths in commands                                       |
-| `{host}`           | `opencode` \| `claude` (product name)             | servers with a `--host` config selector (codebase-index)                     |
-| `__GPU_ENABLED__`  | `metal`\|`cuda`\|`vulkan`\|`false` (registration) | reserved — no shipped module uses it (see `src/agentic/qmd/mcp.json.future`) |
-| `__DEV_BOT_ROOT__` | the dev-bot install root (registration)           | mdctx index paths                                                            |
-| `{env:VAR}`        | see below                                         | secrets / per-machine config                                                 |
+| Token              | Resolves to                                       | Used by                                                  |
+| ------------------ | ------------------------------------------------- | -------------------------------------------------------- |
+| `{harness-dir}`    | `.opencode` \| `.claude`                          | wrapper/serve-script paths in commands                   |
+| `{host}`           | `opencode` \| `claude` (product name)             | servers with a `--host` config selector (codebase-index) |
+| `__GPU_ENABLED__`  | `metal`\|`cuda`\|`vulkan`\|`false` (registration) | reserved — no shipped module uses it                     |
+| `__DEV_BOT_ROOT__` | the dev-bot install root (registration)           | mdctx index paths                                        |
+| `{env:VAR}`        | see below                                         | secrets / per-machine config                             |
 
 `{env:VAR}` is an env indirection resolved by **each client natively at launch** — the shared translator maps it to the harness's native spelling, so the value is never resolved into a config file:
 
