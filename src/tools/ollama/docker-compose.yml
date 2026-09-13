@@ -11,9 +11,6 @@ services:
       - ../../../.env
     volumes:
       - ../../../storage/ollama:/root/.ollama
-      # qmd's downloaded llama models, read-only — lets the qmd→ollama share
-      # import them under the qmd/ namespace without re-downloading.
-      - ${QMD_MODELS_DIR:-${HOME}/.cache/qmd/models}:/root/.qmd-cache:ro
     healthcheck:
       test: ["CMD-SHELL", "ollama list >/dev/null 2>&1"]
       interval: 10s

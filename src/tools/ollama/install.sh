@@ -20,11 +20,6 @@ source "${MODULE_DIR}/functions.sh"
 main() {
   _info "ollama"
 
-  # Pre-create the qmd models cache dir so the docker-compose bind mount
-  # (${QMD_MODELS_DIR:-~/.cache/qmd/models} → /root/.qmd-cache) never has
-  # docker create it as root. The qmd→ollama model share reads from it.
-  mkdir -p "${QMD_MODELS_DIR:-$HOME/.cache/qmd/models}" 2>/dev/null || true
-
   # Inside a container there is no docker daemon to run ollama with — skip
   # cleanly instead of failing the pull. The host's ollama serves the API.
   if ! docker info >/dev/null 2>&1; then
