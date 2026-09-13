@@ -83,24 +83,28 @@ EOF
   [[ "$count" -le 3 ]] || fail "expected <= 3 commits, got $count"
 }
 
-# ── qmd.mcp.sh ─────────────────────────────────────────────────────────────────────
+# ── qmd.sh (maintenance CLI — intentionally NOT a devbot-tools MCP tool) ─────
 
-@test "tool qmd: runs status command" {
+@test "qmd.sh: is not exposed as a devbot-tools MCP tool" {
+  # The devbot-tools server only exposes *.mcp.sh scripts. The qmd wrapper was
+  # renamed to qmd.sh so agents get no qmd tool (qmd is BM25-only and not
+  # agent-invokable — ADR 20260913072905-qmd-bm25-only-no-model-downloads).
+  [ -f "${PROJECT_ROOT}/src/agentic/qmd/tools/qmd.sh" ]
+  [ ! -f "${PROJECT_ROOT}/src/agentic/qmd/tools/qmd.mcp.sh" ]
+}
+
+@test "qmd.sh: runs status command" {
   if ! command -v qmd &>/dev/null; then
     skip "qmd CLI not available"
   fi
 
-  run bash "${PROJECT_ROOT}/src/agentic/qmd/tools/qmd.mcp.sh" status
+  run bash "${PROJECT_ROOT}/src/agentic/qmd/tools/qmd.sh" status
   assert_success
   [[ "$output" == *"## QMD output"* ]] || fail "expected QMD output header"
 }
 
-@test "tool qmd: --help shows usage" {
-  if ! command -v qmd &>/dev/null; then
-    skip "qmd CLI not available"
-  fi
-
-  run bash "${PROJECT_ROOT}/src/agentic/qmd/tools/qmd.mcp.sh" --help
+@test "qmd.sh: --help shows usage" {
+  run bash "${PROJECT_ROOT}/src/agentic/qmd/tools/qmd.sh" --help
   assert_success
   [[ "$output" == *"Usage"* ]] || fail "expected usage info"
 }

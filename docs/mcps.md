@@ -27,7 +27,7 @@ DevBot wires **13 module-declared MCP servers** plus dynamic per-project harness
 
 ## devbot-tools MCP tools
 
-The `devbot:tools-mcp` module's `devbot-tools` MCP server is the only MCP whose tools come from DevBot itself — it exposes the DevBot tool scripts as MCP tools, each self-describing via its `mcp-meta` subcommand. The 11 tools are generated via `devbot list tools -a`:
+The `devbot:tools-mcp` module's `devbot-tools` MCP server is the only MCP whose tools come from DevBot itself — it exposes the DevBot tool scripts as MCP tools, each self-describing via its `mcp-meta` subcommand. The 10 tools are generated via `devbot list tools -a`:
 
 | Module              | Tool                | Description                                                                                                                                                                                                                                                                           |
 | ------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -40,7 +40,6 @@ The `devbot:tools-mcp` module's `devbot-tools` MCP server is the only MCP whose 
 | k8s                 | lint-k8s            | Audit Kubernetes, Kustomize, or Helm manifests using kubeconform (schema validation) and kube-linter (best practices)                                                                                                                                                                 |
 | memory              | reindex-memories    | Rebuild the memory index in the background with the configured engine (qmd: cleanup && update, BM25-only; mdctx: build of project + global indexes). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one. |
 | memory              | search-memories     | Search the memory vault and return full file bodies. Fast keyword (BM25) search across memories indexed by the configured engine (qmd or mdctx) — no GPU or LLM models required.                                                                                                      |
-| qmd                 | qmd                 | Search and navigate markdown knowledge bases using QMD. Supports query (semantic), search (BM25), get, multi-get, update, embed, and collection/context management.                                                                                                                   |
 | tree                | tree                | Display directory structure as a tree. Accepts one or more paths. Returns output in markdown or plain text.                                                                                                                                                                           |
 
 All other MCP servers are external packages whose tool sets are defined by the server itself (e.g. `chrome-devtools_*`, `playwright_*`, `context7_*`).
