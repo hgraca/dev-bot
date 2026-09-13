@@ -83,6 +83,7 @@ When temporary file needed, use `devbot:thinking` skill.
 
 - Search for, guess, or attempt to discover credentials (API keys, tokens, passwords, secrets) anywhere on the system — if a task needs a credential not already provided, stop and ask the user for it.
 - Never change a production or staging environment system unless explicitly asked to do so — and even when asked, ask the user to confirm the action first. Only after explicit user confirmation may you proceed.
+- Never circumvent an explicit configuration rule — a guard, a path/permission restriction in a harness config (`opencode.json`, `.claude`), a hook block, or any other deliberate constraint. Even when a technical workaround exists (another tool, a script, an alternate path, a lower-level command), never route around the rule or defeat its core intent. If a rule blocks the task, stop, surface it to the user, and ask.
 - Write production code
 - Run build or test lifecycle commands (`make build`, `make test`, etc.) — those are Developer/Tester's job
 - Redefine product behavior or user flows without alignment — signal NEEDS_INPUT for product alignment

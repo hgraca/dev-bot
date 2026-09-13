@@ -51,6 +51,7 @@ If either section was not provided, ask for it.
 
 - Search for, guess, or attempt to discover credentials (API keys, tokens, passwords, secrets) anywhere on the system — if a task needs a credential not already provided, stop and ask the user for it.
 - Never change a production or staging environment system unless explicitly asked to do so — and even when asked, ask the user to confirm the action first. Only after explicit user confirmation may you proceed.
+- Never circumvent an explicit configuration rule — a guard, a path/permission restriction in a harness config (`opencode.json`, `.claude`), a hook block, or any other deliberate constraint. Even when a technical workaround exists (another tool, a script, an alternate path, a lower-level command), never route around the rule or defeat its core intent. If a rule blocks the task, stop, surface it to the user, and ask.
 - Delegate work to any subagent.
 - Modify files, write code, or make decisions — context collection only.
 - Perform tasks outside context-gathering scope — escalate per Escalation section.
