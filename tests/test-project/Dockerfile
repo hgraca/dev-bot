@@ -48,11 +48,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # user's npx cache (~/.npm/_npx) so the MCP server launch never blocks on a
 # first-run `npm exec` fetch (a ~10-20 s part of opencode's cold startup).
 
-# qmd models are NOT baked: the test launchers mount the host qmd cache
-# (~/.cache/qmd) into the container, so the ~2 GB llama models (embedding +
-# query-expansion 1.7B + Qwen3-Reranker 0.6B) are provided by the mount. The
-# test-reinit.sh guard runs `qmd pull` (non-fatal) only when the mounted cache
-# is empty — one-time, then persisted on the host.
+# qmd is BM25-only — no models, no embeddings (ADR
+# 20260913072905-qmd-bm25-only-no-model-downloads). The launchers still mount the
+# host ~/.cache/qmd so parallel container runs share one qmd SQLite index.
 RUN su - ubuntu -c 'curl -fsSL https://opencode.ai/install | bash' \
  && su - ubuntu -c 'mkdir -p "$HOME/.cache/opencode/packages/opencode-codebase-index@latest" && npm install --no-save --no-audit --no-fund --prefix "$HOME/.cache/opencode/packages/opencode-codebase-index@latest" opencode-codebase-index@0.25.1'
 
@@ -69,7 +67,7 @@ RUN su - ubuntu -c 'curl -fsSL https://opencode.ai/install | bash' \
 # silence the daemon's hardening warning (audit-60 NOTE-2).
 RUN chmod g-w /home/ubuntu/.cache
 
-# CUDA user-space libs (runtime + cuBLAS) so qmd's llama can offload to the GPU
-# passed through via --gpus all. The driver lib is mounted by the runtime; the
-# user-space libs must live in the image.
+# CUDA user-space libs (runtime + cuBLAS) for GPU-accelerated containers
+# (ollama) passed through via --gpus all. The driver lib is mounted by the
+# runtime; the user-space libs must live in the image.
 ENV LD_LIBRARY_PATH=/usr/local/cuda-12.6/targets/x86_64-linux/lib

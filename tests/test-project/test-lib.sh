@@ -269,8 +269,8 @@ byte_idempotency_report() {
 
 # ── Host ollama gate (container side) ─────────────────────────────────────────
 # Only the codebase-index engine embeds via the host ollama at :18434 —
-# codebase-memory bundles its embeddings, mdctx is zero-ML, and qmd uses its own
-# llama.cpp models. The launchers must therefore NOT require host ollama
+# codebase-memory bundles its embeddings, and both mdctx and qmd are zero-ML
+# (qmd is BM25-only). The launchers must therefore NOT require host ollama
 # unconditionally (the shipped default is codebase-memory + mdctx); this gate
 # fires only when the INSTALLED dev-bot selects codebase-index. Invoked from
 # test-reinit.sh after install (config exists) and before reinit (which would

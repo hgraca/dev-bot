@@ -44,14 +44,14 @@ fi
 # require_host_ollama_for_codebase_engine), so there is no blanket host
 # prerequisite here.
 
-# Share the host qmd model cache so container runs never re-download the ~2 GB
-# qmd llama models (qmd pull is a no-op once cached). The test's qmd SQLite
-# INDEX is a DEDICATED devbot-test db under this same mount
-# (~/.cache/qmd/devbot-test, set via INDEX_PATH in test-cc-inner.sh) — shared
-# by parallel cc + oc runs so the global store embeds once, serialized by
-# qmd/init.sh's .llama.lock; the host's real index is never written by the test.
+# Share the host qmd index cache so parallel cc + oc container runs index the
+# global store once. qmd is BM25-only — no model download, no embeddings (ADR
+# 20260913072905-qmd-bm25-only-no-model-downloads). The test's qmd SQLite INDEX
+# is a DEDICATED devbot-test db under this same mount
+# (~/.cache/qmd/devbot-test, set via INDEX_PATH in test-cc-inner.sh); the host's
+# real index is never written by the test.
 # Share the host caches so container runs never re-pay cold-start costs:
-# - ~/.cache/qmd: the ~2 GB qmd llama models (qmd pull is a no-op once cached)
+# - ~/.cache/qmd: the shared qmd index db (no models — BM25-only)
 # - ~/.cache/opencode: opencode models.json + plugin packages (~385 MB)
 # - ~/.cache/bun: Bun's TS-compile cache (plugin loading)
 # - ~/.npm: the npx cache (MCP server packages)
@@ -61,7 +61,7 @@ mkdir -p "${HOME}/.cache/qmd" "${HOME}/.cache/opencode" "${HOME}/.cache/bun" "${
 echo "Starting container as uid $(id -u):$(id -g) — running the Claude Code test, then dropping you into a shell..."
 
 # Pass the host GPU through if present (NVIDIA --gpus all, else the /dev/dri
-# render nodes) so qmd embeddings / ollama run with acceleration.
+# render nodes) so ollama runs with acceleration.
 GPU_ARGS=()
 if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
   GPU_ARGS=(--gpus all)

@@ -11,14 +11,12 @@ cd /app
 # Never prompt mid-test (e.g. the harness default-agent question) — the run
 # must not block waiting for input.
 export SKIP_CONFIRM=1
-# qmd embedding can be slow on CPU — give it a generous bound.
-export QMD_EMBED_TIMEOUT=300
 
 # Use a SHARED qmd SQLite index for the devbot-test runs, living under the
 # host-mounted qmd cache (~/.cache/qmd is mounted rw into every container), so
 # parallel cc + oc runs index the ~600-doc global store ONCE, not once per
-# container. The llama-heavy embed is serialized by qmd/init.sh's cross-process
-# lock (.llama.lock in the same cache) — see qmd/init.sh. The host's REAL index
+# container. qmd is BM25-only — no embed, no model, no llama lock (ADR
+# 20260913072905-qmd-bm25-only-no-model-downloads). The host's REAL index
 # (~/.cache/qmd/index.sqlite) is still never touched; this is a dedicated
 # devbot-test database. Override with QMD_TEST_INDEX_PATH.
 export INDEX_PATH="${QMD_TEST_INDEX_PATH:-$HOME/.cache/qmd/devbot-test/index.sqlite}"
