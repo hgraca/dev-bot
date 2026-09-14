@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "lsp": true,
+  "lsp": true, // true = all built-ins; or an object to disable specific servers, e.g. { "intelephense": { "disabled": true } }
   "model": "opencode/nemotron-3.5-lightning-free", // or "litellm/default"
   "small_model": "opencode/big-pickle", // or "litellm/low"
   //  "provider": {

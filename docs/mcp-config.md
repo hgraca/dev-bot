@@ -43,6 +43,8 @@ Its servers then appear in no harness config (opencode reset prunes them on rein
 
 `mcp.<name>.enabled: false` in the runtime `opencode.jsonc` is a **local escape hatch** for disabling an inherited server without unregistering it. opencode reads its config once at startup (no hot-reload), so a change requires a restart.
 
+LSP servers are the other per-instance cost — see [Harnesses](/harnesses#runtime-footprint).
+
 ## Canonical manifest
 
 `src/agentic/<module>/mcp.json`:

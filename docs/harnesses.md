@@ -53,29 +53,29 @@ and must print a single JSON object on stdout:
 
 ```json
 {
-    "schema": 1,
-    "harness": "opencode",
-    "days": 30,
-    "scope": "current",
-    "scope_label": "/path/to/project",
-    "generated_at": "2026-09-10T16:40:00Z",
-    "cost_kind": "estimated",
-    "tools": [{ "name": "bash", "count": 27710, "tokens": 196400000, "cost": 12.34 }],
-    "mcp_servers": [
-        {
-            "server": "devbot-tools",
-            "count": 1500,
-            "tokens": 210000,
-            "cost": 0.5,
-            "tools": [{ "name": "search-memories", "count": 1025, "tokens": 150000, "cost": 0.42 }]
-        }
-    ],
-    "tool_arguments": {
-        "bash": [{ "value": "git status", "count": 338 }],
-        "skill": [{ "value": "devbot:software-development", "count": 42 }],
-        "grep": [{ "value": "devbot_dir", "count": 20 }],
-        "glob": [{ "value": "**/*.bats", "count": 15 }]
+  "schema": 1,
+  "harness": "opencode",
+  "days": 30,
+  "scope": "current",
+  "scope_label": "/path/to/project",
+  "generated_at": "2026-09-10T16:40:00Z",
+  "cost_kind": "estimated",
+  "tools": [{ "name": "bash", "count": 27710, "tokens": 196400000, "cost": 12.34 }],
+  "mcp_servers": [
+    {
+      "server": "devbot-tools",
+      "count": 1500,
+      "tokens": 210000,
+      "cost": 0.5,
+      "tools": [{ "name": "search-memories", "count": 1025, "tokens": 150000, "cost": 0.42 }]
     }
+  ],
+  "tool_arguments": {
+    "bash": [{ "value": "git status", "count": 338 }],
+    "skill": [{ "value": "devbot:software-development", "count": 42 }],
+    "grep": [{ "value": "devbot_dir", "count": 20 }],
+    "glob": [{ "value": "**/*.bats", "count": 15 }]
+  }
 }
 ```
 
@@ -108,6 +108,29 @@ The report contains a **Tool Usage** table, an **MCP Server Usage** table (share
 
 - **OpenCode** — `src/harnesses/opencode/stats.py`: reads the OpenCode SQLite database read-only. Cost and tokens are recorded per assistant step, so they are split evenly across the tools that step invoked (`cost_kind: estimated`). MCP tools are recognised by the server names declared in the project's OpenCode config (`mcp` block and `.opencode/*.mcp.json`), so native tools whose names contain underscores are not mistaken for MCP tools. It also aggregates `bash`/`skill`/`grep`/`glob` arguments — bash commands are normalised to `program subcommand` (first two tokens) after stripping a leading `cd … &&`.
 - **Claude Code** — `src/harnesses/claudecode/stats.py`: parses the session transcripts under `~/.claude/projects/<slug>/**/*.jsonl` (including subagents). Tokens come from each assistant message's `usage`; transcripts carry no cost data, so `cost_kind` is `null` and the report shows a Tokens column instead of Cost. It aggregates `Bash`/`Skill`/`Grep`/`Glob` arguments with the same normalisation.
+
+## Runtime footprint
+
+Each harness instance starts its own helper processes. Two levers keep that cost down per project.
+
+### LSP servers
+
+opencode auto-starts a language server for every language it detects in the project (the `lsp` field in `opencode.jsonc`, default `true`). Each server is a separate process costing roughly 100–250 MB per instance — measured in this repo: pyright ~119 MB, bash-language-server ~107 MB; on PHP projects intelephense is the heaviest.
+
+Disable the ones a project doesn't need by turning `lsp` into an object — the object form keeps every other built-in enabled:
+
+```jsonc
+// opencode.jsonc
+"lsp": {
+    "intelephense": { "disabled": true }
+}
+```
+
+`opencode.jsonc` is written once from the template and then treated as user-owned, so this override survives `devbot reinit`. Config is read once at startup — restart opencode after editing.
+
+### MCP servers
+
+See [MCP configuration](/mcp-config#reducing-the-footprint) — heavy servers are dropped by disabling their module.
 
 ## See also
 
