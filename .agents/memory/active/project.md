@@ -48,18 +48,10 @@ Module anatomy — `src/agentic/<name>/`:
 | `install.sh` (+ `init/update/pre/up.sh`) | Lifecycle scripts — idempotent; 20 modules have them                              |
 | `mcp.json`                               | Canonical harness-agnostic MCP manifest (13 modules)                              |
 
-Agent definitions:
-
-| Location                                 | Agents                                                                                       |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `src/agentic/devbot/agents/`             | devbot (pair-programmer mode), designer, expert                                              |
-| `src/agentic/devteam/agents/`            | teamlead (orchestrator), po, architect, critic, developer, reviewer, tester, scout, security |
-| `vendor/addyosmani/agent-skills/agents/` | external: code-reviewer, security-auditor, test-engineer, web-performance-auditor            |
-
 **Key patterns:**
 
-- **Two operating modes**: devbot (human pair programming, writes with human) and teamlead (orchestrator — delegates all code/tests, never writes) — see `devbot.md` and `teamlead.md`.
-- **Planning → Implementation workflow**: `devbot:make-plan` (PO → Architect → Critic) then `devbot:implement-story` (Tester → Developer → Reviewer cycles).
+- **Two operating modes** — see [Agent system](#agent-system).
+- **Planning → Implementation workflow**: `devbot:make-plan` (PO → Architect → Critic) then `devbot:implement-story` (Tester → Developer → Reviewer cycles) — see [Agent system](#agent-system).
 - **Harness-driven config generation**: `devbot` CLI (bare invocation) boots the configured harness via `src/harnesses/<harness>/start.sh`; harness `init.sh`/`reset.sh` regenerate runtime config (`opencode.jsonc`, `.mcp.json`) from canonical sources. `opencode.dist.jsonc` lives in `src/harnesses/opencode/`.
 - **MCP manifests are canonical + translated** (ADR `20260908213000-mcp-manifest-consolidation`): each module declares servers once in harness-agnostic `src/agentic/<module>/mcp.json` (`{"mcp": {<server>: {type: stdio|http, command|url, env}}}`); `src/_shared/mcp_translate.py` maps to opencode (`stdio→local`/`environment`) and claudecode (`command`+`env`, `${VAR}`) shapes. No per-server `enabled` — module enablement is the only gate. Divergence via tokens: `{harness-dir}`, `{host}`, `{env:VAR}`, `__GPU_ENABLED__`, `__DEV_BOT_ROOT__`. Exceptions stay structural: codebase-index's plugin-based opencode integration; dynamic runtime manifests (`.opencode/*.mcp.json`, e.g. jetbrains). Schema + wiring in `docs/mcp-config.md`.
 - **Memory vault committed**: `.agents/memory/` is git-tracked (113 files; `commit_memory: true` in both `.devbot.*.jsonc`). Latent `thinking/`/`work`/`global` and `.agents/logs` are gitignored. Memory files are committed; the symlink farms around them are not.
@@ -75,6 +67,76 @@ src/_shared/functions.sh         ← root shared library (15+ utility functions)
 - **Docker Compose pattern**: compose files live per-tool (`src/tools/ollama/docker-compose.yml` etc.), auto-discovered by `bin/up.sh`/`bin/down.sh` (filtered by `disabled_modules`); `docker-compose.gpu.yml` appended when `gpu_enabled: true`. Ollama `127.0.0.1:18434`, optional LiteLLM `127.0.0.1:18000`.
 - **External modules**: git repos (addyosmani/agent-skills, mattpocock/skills) cloned into `vendor/` via `external_modules` config, symlinked into `.agents/` and `.opencode/` by install.
 - **Plugin hooks centralize in the harness**: harness-level dispatch in `src/harnesses/opencode/hooks/on-hooks.ts`; only auto-recover carries module-scoped `hooks/opencode/on-*.ts` (session-error recovery, silent-stall watchdog).
+
+## Agent system
+
+### Two operating modes
+
+One agentic infrastructure, two primary modes selected by the agent file loaded:
+
+| Mode            | Agent    | File                                     | Role                                                                                                 |
+| --------------- | -------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Pair programmer | DevBot   | `src/agentic/devbot/agents/devbot.md`    | Thinks and writes WITH the human, incrementally. Never autonomous.                                   |
+| Orchestrator    | TeamLead | `src/agentic/devteam/agents/teamlead.md` | Classifies work, routes to specialists, leads planning + implementation. NEVER writes code or tests. |
+
+### Agent roster
+
+Capabilities are strictly scoped (MUST/MUST NOT rules per agent file; auditors carry `edit: deny`):
+
+| Agent     | Mode     | Writes code?   | Core responsibility                                    |
+| --------- | -------- | -------------- | ------------------------------------------------------ |
+| TeamLead  | primary  | no             | Classify, route, orchestrate planning + implementation |
+| Scout     | subagent | no             | Gather context, produce `thinking/` reports            |
+| PO        | subagent | no             | Backlog creation, requirements, product semantics      |
+| Architect | subagent | no             | Technical plans, ADRs, design decisions                |
+| Critic    | subagent | no             | Review plans, audit codebase for drift                 |
+| Developer | subagent | yes (only one) | Implement plans into production code                   |
+| Reviewer  | subagent | no             | Review changesets against plan + conventions           |
+| Tester    | subagent | tests only     | Write tests before code, validate after                |
+| Security  | subagent | no             | Security audits, threat models, vuln assessment        |
+
+| Location                                 | Agents                                                                                       |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `src/agentic/devbot/agents/`             | devbot (pair-programmer mode), designer, expert                                              |
+| `src/agentic/devteam/agents/`            | teamlead (orchestrator), po, architect, critic, developer, reviewer, tester, scout, security |
+| `vendor/addyosmani/agent-skills/agents/` | external: code-reviewer, security-auditor, test-engineer, web-performance-auditor            |
+
+### Communication protocol
+
+Every assistant message ends with exactly one terminal marker (`devbot:agent-communication` skill): `[FINISHED]` (complete), `[BLOCKED]` (needs external action), `[NEEDS_INPUT]` (needs clarification), `[PARTIAL]` (incomplete, resume). Key rules: the primary agent runs `devbot:remember-session` and emits `[FINISHED]` only after the user confirms; the orchestrator verifies a subagent's deliverable exists on disk before accepting its `[FINISHED]`; the same subagent signalling `[PARTIAL]` twice escalates to the human.
+
+### Development lifecycle
+
+The primary agent guides the human through auto-detected stages: **DEFINE** (clarify requirements) → **PLAN** (break into tasks, get sign-off) → **BUILD** (execute, tests-first) → **VERIFY** (debug) → **REVIEW** (quality) → **SHIP** (pre-launch). Never start BUILD without explicit user opt-in; progress tracked via `todowrite` (one `in_progress` at a time).
+
+### Planning workflow (`devbot:make-plan`)
+
+Brief classified as epic/story/trivial → PO writes `backlog.md` (tasks + acceptance criteria) → Architect folds the technical plan into the same file → Critic reviews (BLOCKER/WEAKNESS/WARNING classifications) until APPROVED → orchestrator promotes to FINAL once `planning-complete.md` verifies all artifacts → human approves → implementation. Artifacts live in `.agents/memory/work/active/YYYYMMDD-HHMMSS-NN-<slug>/`.
+
+### Implementation workflow (`devbot:implement-story`)
+
+Per task, sequential: Tester writes tests for the acceptance criteria BEFORE code → Developer implements (full suite green, specific-file commits, verifies files exist before signalling) → Reviewer reviews the changeset (gate: required when 2+ files changed) → findings addressed → task struck through in the backlog. Parallel only when no shared files/state; DB migrations always sequential.
+
+### Guardrails worth knowing
+
+- **Prompt-opener gate**: file-producing subagents (Architect, Critic, PO) must open the delegation prompt with `Write <canonical-path> …`, else they `[BLOCKED]`; their first tool call must be that write.
+- **Delegation hygiene**: audit-log honesty (every claim about a subagent deliverable cites its path + verifying observation); never do a subagent's work yourself.
+- **Developer gates**: list assumptions before starting; run `make test` before every commit; verify Python parses; commit after every task (never push); surface pre-existing issues as follow-ups; simplify.
+- **Context freshness**: session start gathers context via @scout keywords; every user interaction re-evaluates keywords against memory before answering.
+
+## Runtime flow (prompt → commit)
+
+Two layers interact: agent instructions (the persona — rules the LLM follows) and hooks (`.ts` plugins firing automatically on events — invisible to the agent, no narration).
+
+**Always-on / event hooks** (inventory): session create → graphify re-index; before bash → guard rules; file edited → prettier formatters (md/json/yml), kube lint, memory reindex; session error → transient-error auto-recovery with backoff (max 5); session idle → agent-communication marker validation.
+
+**Session bootstrap**: extract keywords from the request → @scout gathers context with `devbot:gather-context` (memory search, git state, graphify, codebase index, directory structure) into a `thinking/` report → detect stage (new feature = DEFINE, bug = VERIFY, continuation = resume) → explore together → agree on approach before touching code.
+
+**Per-interaction work cycle**: re-evaluate keywords (new topic → memory search, noted inline) → load stage context skills → auto-detect stage transitions → stage behavior (DEFINE: interview to sharpen requirements; PLAN: todo list + vault-persisted plan + gate; BUILD: ≤20-line increments, think out loud, alternatives, existing patterns; VERIFY: systematic root-cause; REVIEW: multi-axis quality; SHIP: pre-launch checks).
+
+**Commit cascade**: pre-commit guard on the git command → post-commit (on session idle) the remember-session plugin injects a silent prompt running `devbot:remember-session` once: scans for new learnings since the watermark and routes them (product decisions → `latent/PDRs/`, architecture → `latent/ADRs/`, gotchas → `latent/global/<tech>/` or `latent/learnings/`), promotes `[gather-context]` `thinking/` drafts and prunes. Graphify re-indexes on commit.
+
+**Core operating principles**: conversational cadence (ask before acting, suggest before writing, commit regularly never push); automatic memory (hooks capture silently, watermarks prevent duplicates); self-healing infra (auto-recover from provider errors, guards block dangerous commands, format hooks keep everything consistent). DevBot never: produces large autonomous outputs, decides silently, refactors without asking, runs silent multi-step plans, or skips the "what do you think?" step.
 
 ## Lifecycle & workflows
 
