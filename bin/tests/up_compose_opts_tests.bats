@@ -100,16 +100,31 @@ HEREDOC
   touch "${SANDBOX_DIR}/docker-compose.gpu.yml"
   touch "${SANDBOX_DIR}/src/tools/litellm/docker-compose.yml"
 
-  # Mock docker
+  # Mock docker — records every invocation; `ps -a` answers from a fixture file
+  # of "ID|NAME|PROJECT" rows (empty unless a test seeds a stale container).
+  export STALE_CONTAINERS_FILE="${SANDBOX_DIR}/stale-containers"
+  : > "${STALE_CONTAINERS_FILE}"
   cat > "${SANDBOX_DIR}/mockbin/docker" <<'MOCK'
 #!/usr/bin/env bash
 echo "$@" >> "${DOCKER_ARGS_FILE}"
+if [[ "$1" == "ps" ]]; then
+  has_all=0
+  for a in "$@"; do [[ "$a" == "-a" ]] && has_all=1; done
+  [[ "${has_all}" -eq 1 && -s "${STALE_CONTAINERS_FILE}" ]] && cat "${STALE_CONTAINERS_FILE}"
+  exit 0
+fi
+exit 0
 MOCK
   chmod +x "${SANDBOX_DIR}/mockbin/docker"
 
   export DOCKER_ARGS_FILE="${SANDBOX_DIR}/docker.args"
   : > "${DOCKER_ARGS_FILE}"
   PATH="${SANDBOX_DIR}/mockbin:${PATH}"
+}
+
+# Seed the containers `docker ps -a` reports, as "ID|NAME|PROJECT" rows.
+_seed_container() {
+  printf '%s\n' "$1" >> "${STALE_CONTAINERS_FILE}"
 }
 
 _run_docker_up() {
@@ -264,4 +279,58 @@ _run_docker_up() {
   assert_success
   # The mock docker must never have been invoked.
   [ ! -s "${DOCKER_ARGS_FILE}" ]
+}
+
+# ── Stale container-name reclaim ─────────────────────────────────────────────
+# Every dev-bot container declares a fixed `container_name` in the `dev-bot-*`
+# namespace. A container created under a DIFFERENT compose project (e.g. the
+# retired `dev-bot` project, renamed to `devbot` in 6cced698) is not a member of
+# `devbot`, so `down --remove-orphans` never removes it — and its fixed name
+# makes `docker compose up` fail with "Conflict. The container name ... is
+# already in use". _docker_up must remove such containers first.
+
+@test "stale container from a foreign compose project is removed before up" {
+  _setup_sandbox '{"modules": {"litellm": false}}'
+  _seed_container 'acc7b95dfc16|dev-bot-ollama|dev-bot'
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial 'rm -f acc7b95dfc16'
+  # ...and the compose up still runs afterwards.
+  assert_output --regexp 'compose -f docker-compose\.yml up -d --no-recreate'
+}
+
+@test "container already owned by project devbot is left alone" {
+  _setup_sandbox '{"modules": {"litellm": false}}'
+  _seed_container 'acc7b95dfc16|dev-bot-ollama|devbot'
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  refute_output --partial 'rm -f'
+}
+
+@test "container with no compose project label (manual run) is removed" {
+  _setup_sandbox '{"modules": {"litellm": false}}'
+  _seed_container 'acc7b95dfc16|dev-bot-ollama|'
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial 'rm -f acc7b95dfc16'
+}
+
+@test "a container outside the dev-bot- namespace is never removed" {
+  _setup_sandbox '{"modules": {"litellm": false}}'
+  _seed_container 'deadbeefcafe|some-other-project|dev-bot'
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  refute_output --partial 'rm -f'
 }

@@ -98,6 +98,27 @@ for m in json.loads(sys.stdin.read()):
   fi
 }
 
+# ── Stale container-name reclaim ───────────────────────────────────────────────
+# Every dev-bot container declares a fixed `container_name` in the `dev-bot-*`
+# namespace. A container created under a DIFFERENT compose project — the retired
+# `dev-bot` project (renamed to `devbot` in 6cced698), or a manual `docker run`
+# — is not a member of `devbot`, so `down --remove-orphans` never removes it,
+# and its fixed name makes `docker compose up` fail with "Conflict. The
+# container name ... is already in use", aborting the whole start. Remove such
+# containers so compose can recreate them under our project. Container-local
+# state is disposable: ollama models live in the bind-mounted storage/ollama.
+_reclaim_stale_containers() {
+  local id name project
+  while IFS='|' read -r id name project; do
+    [[ -n "${id}" ]] || continue
+    [[ "${name}" == dev-bot-* ]] || continue
+    [[ "${project}" == "devbot" ]] && continue
+    _warn "removing stale container '${name}' (compose project '${project:-<none>}') — its fixed name blocks recreation"
+    docker rm -f "${id}" >/dev/null 2>&1 || true
+  done < <(docker ps -a --filter "name=dev-bot-" \
+    --format '{{.ID}}|{{.Names}}|{{.Label "com.docker.compose.project"}}' 2>/dev/null || true)
+}
+
 # ── Docker services ────────────────────────────────────────────────────────────
 
 _docker_up() {
@@ -179,8 +200,12 @@ for m in json.loads(sys.stdin.read()):
   fi
 
   cd "${DEV_BOT_ROOT}"
+  _reclaim_stale_containers
   _log "docker compose ${compose_opts[*]} up -d --no-recreate"
-  docker compose "${compose_opts[@]}" up -d --no-recreate
+  if ! docker compose "${compose_opts[@]}" up -d --no-recreate; then
+    _error "docker compose up failed — docker services not started"
+    return 1
+  fi
   _ok "Docker services started"
 
   _reconcile_ollama_gpu
