@@ -34,6 +34,8 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
   mcp.json              Canonical MCP server manifest (harness-agnostic — see [MCP configuration](/mcp-config))
   plugin.opencode.json  OpenCode plugin names declared by this module (optional)
   external-modules.json External module dependencies declared by this module
+  versions.env          Dependency version pin: installed exactly at install, bumped by `update.sh` (optional)
+  skills-prune.lst      Tool-installed skill duplicates this module declares for auto-pruning (optional)
 ```
 
 ### Lifecycle scripts
@@ -53,6 +55,21 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
 **reset.sh**: Resets per-project state. Run by `bin/reinit.sh` (`devbot reinit`) before re-running init.
 
 **start.sh** (harnesses only): Launches the harness binary (`claude` / `opencode`) without forcing an agent — the session agent comes from the project's default (`opencode.jsonc` `default_agent` / `.claude/settings.json` `agent`), created with DevBot by default during init and only asked about when an existing config chose a different agent. Run by `devbot` (`cmd_harness` in `bin/devbot`) to start the configured harness; not part of the generic lifecycle loops. Accepts an optional project directory as `$1` and forwards remaining args to the harness binary. Before launching it rotates the previous session's `.agents/logs/*.log` files to `.agents/logs/rotated/<date>-<name>-<NNN>.log`, then runs the harness as a child (not `exec`); on exit it scans the fresh logs for error-level lines, alerts the user, and exits with the harness's exit code.
+
+### Dependency version pins (`versions.env`)
+
+Modules that install an external CLI/MCP dependency globally (e.g. chrome-devtools, playwright) keep its version in `versions.env`. `install.sh` installs exactly the pin and is idempotent; `update.sh` resolves the package's npm latest on `devbot update`, installs it, and rewrites the pin in place — session start never re-resolves `latest`. Runtime launch commands resolve the installed binary by explicit npm-prefix paths (never bare-name via PATH, which can pick up a stale system binary).
+
+### Declarative skill prunes (`skills-prune.lst`)
+
+External tools sometimes install duplicate copies of a skill a module ships (e.g. the graphify CLI copies its unnamespaced `graphify` skill into project skill dirs, and a module's `init.sh` can only strip them while the module is **enabled**). A module declares such duplicates in `skills-prune.lst`, one per line:
+
+```
+# skill-name  ownership-marker-file
+graphify .graphify_version
+```
+
+Harness inits run `_prune_stale_skill_copies` (`src/_shared/functions.sh`) on every skills location they own — opencode prunes `<devbot_dir>/skills` after delegation; claudecode prunes `.claude/skills` **and** `<devbot_dir>/skills` before the skills flatten. A directory named `<skill-name>` or `<skill-name>.bkp*` is removed only when it carries the declared marker (the installing tool's own signature file), so user content is never touched. Declarations are honoured regardless of module enablement — pruning a disabled module's leftovers is exactly the point.
 
 ### Hooks
 
