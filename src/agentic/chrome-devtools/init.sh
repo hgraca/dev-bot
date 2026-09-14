@@ -47,11 +47,14 @@ if echo "${_disabled_modules_raw}" | jq -e 'index("opencode") != null' >/dev/nul
 fi
 
 WRAPPER="${DEV_BOT_ROOT}/src/_shared/mcp-stdio-wrapper.js"
+SERVE="${MODULE_DIR}/serve.mcp.sh"
 
 if [[ "${_IS_OPENCODE_DISABLED}" != "true" ]]; then
   mkdir -p "${PROJECT_DIR}/.opencode"
   ln -sf "${WRAPPER}" "${PROJECT_DIR}/.opencode/chrome-devtools-mcp-wrapper.js"
   _log "Symlinked .opencode/chrome-devtools-mcp-wrapper.js"
+  ln -sf "${SERVE}" "${PROJECT_DIR}/.opencode/chrome-devtools-serve.mcp.sh"
+  _log "Symlinked .opencode/chrome-devtools-serve.mcp.sh"
 else
   _skip "OpenCode disabled — skipping .opencode/ MCP wrapper symlink"
 fi
@@ -60,8 +63,18 @@ if [[ "${_IS_CLAUDE_DISABLED}" != "true" ]]; then
   mkdir -p "${PROJECT_DIR}/.claude"
   ln -sf "${WRAPPER}" "${PROJECT_DIR}/.claude/chrome-devtools-mcp-wrapper.js"
   _log "Symlinked .claude/chrome-devtools-mcp-wrapper.js"
+  ln -sf "${SERVE}" "${PROJECT_DIR}/.claude/chrome-devtools-serve.mcp.sh"
+  _log "Symlinked .claude/chrome-devtools-serve.mcp.sh"
 else
   _skip "Claude Code disabled — skipping .claude/ MCP wrapper symlink"
+fi
+
+# Dependency self-heal (codebase-memory pattern, T1.2): the serve launcher
+# resolves a globally installed binary by explicit prefix — reinit WITHOUT a
+# preceding install would register the MCP server with no binary and the
+# launcher would fail with FATAL in .agents/logs/chrome-devtools-mcp.log.
+if ! "${MODULE_DIR}/install.sh"; then
+  _warn "chrome-devtools install reported a problem (see above) — serve launcher may fail"
 fi
 
 _log "Chrome DevTools MCP init complete for ${PROJECT_NAME}"

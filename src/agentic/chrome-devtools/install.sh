@@ -22,6 +22,11 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../_shared/functions.sh
 source "${MODULE_DIR}/../../_shared/functions.sh"
 
+# version from versions.env — T1.2: install installs the exact pin.
+CHROME_DEVTOOLS_MCP_VERSION=""
+# shellcheck source=./versions.env
+source "${MODULE_DIR}/versions.env"
+
 _chromium_present() {
   # True if ANY Playwright-downloaded Chromium exists (Linux or macOS layout).
   # Uses a glob-count rather than ls's exit code: ls would report failure when
@@ -31,6 +36,37 @@ _chromium_present() {
     "$HOME"/.cache/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium \
     2>/dev/null | head -1)"
   [[ -n "${found}" ]]
+}
+
+# Prints the installed global binary path, trying the npm prefix candidates the
+# serve launcher uses. Never PATH-resolves (avoids a stale system binary).
+_installed_bin() {
+  local prefix cand
+  prefix="$(npm config get prefix 2>/dev/null || true)"
+  for cand in ${prefix:+"${prefix}/bin/"} "${HOME}/.npm-global/bin/" "/usr/local/bin/"; do
+    [[ -n "${cand}" && -x "${cand}chrome-devtools-mcp" ]] && { printf '%s' "${cand}chrome-devtools-mcp"; return 0; }
+  done
+  return 1
+}
+
+_install_server() {
+  local bin installed_version
+  bin="$(_installed_bin || true)"
+  if [[ -n "${bin}" ]]; then
+    installed_version="$("${bin}" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)"
+    if [[ "${installed_version}" == "${CHROME_DEVTOOLS_MCP_VERSION}" ]]; then
+      _skip "chrome-devtools-mcp ${installed_version} already installed (pinned)"
+      return 0
+    fi
+    _info "chrome-devtools-mcp ${installed_version:-unknown} installed, pin is ${CHROME_DEVTOOLS_MCP_VERSION} — reinstalling"
+  fi
+
+  if npm install -g "chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}" >/dev/null 2>&1; then
+    _ok "chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION} installed"
+  else
+    _warn "npm install -g chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION} failed — check network / npm registry access."
+    return 1
+  fi
 }
 
 main() {
@@ -45,6 +81,16 @@ main() {
     exit 1
   fi
   _skip "node ($(node --version)) found"
+
+  if ! command -v npm >/dev/null 2>&1; then
+    _fatal "npm is required but not installed."
+    exit 1
+  fi
+  _skip "npm ($(npm --version)) found"
+
+  # T1.2: the server binary itself. The mcp.json launcher resolves it by
+  # explicit prefix — install it here or every MCP call fails at launch.
+  _install_server || return 1
 
   if _chromium_present; then
     _skip "playwright chromium already present"
