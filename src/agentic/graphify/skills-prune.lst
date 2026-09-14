@@ -1,0 +1,5 @@
+# skill-name  ownership-marker-file
+# Duplicates of this skill installed by the external graphify CLI
+# (graphify install --project). Harness inits prune entries carrying the
+# marker even when this module is disabled (_prune_stale_skill_copies).
+graphify .graphify_version

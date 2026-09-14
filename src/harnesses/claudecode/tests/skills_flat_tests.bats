@@ -255,6 +255,28 @@ _add_user_skill() {
 # (react/svelte families) is cloned + mirrored but never wired into
 # .agents/skills — its skills must not reach .claude/skills.
 
+# ── T1.1: stale tool-placed skill copies pruned BEFORE the flatten ───────────
+# The flatten migrates REAL .claude/skills dirs into .agents/skills and
+# flattens them back every reinit — a CLI-installed duplicate (graphify-style)
+# would re-register and churn .bkp suffixes forever. Module-declared prunes
+# must run on BOTH farms first. Mechanism is covered by
+# src/_shared/tests/prune-stale-skill-copies_tests.bats; here: the wiring.
+
+@test "main: stale skill copies pruned on both skills farms before the flatten" {
+  local init="${PROJECT_ROOT}/src/harnesses/claudecode/init.sh"
+
+  local flat_line prune_claude_line prune_farm_line
+  flat_line="$(grep -n '^_link_claude_skills_flat "\${PROJECT_DIR}"$' "${init}" | cut -d: -f1)"
+  prune_claude_line="$(grep -n '^_prune_stale_skill_copies "\${PROJECT_DIR}/.claude/skills"$' "${init}" | cut -d: -f1)"
+  prune_farm_line="$(grep -n '^_prune_stale_skill_copies ".*devbot_get_project_dir.*skills"$' "${init}" | cut -d: -f1)"
+
+  [[ -n "${flat_line}" ]] || fail "flatten call not found in main"
+  [[ -n "${prune_claude_line}" ]] || fail ".claude/skills prune not wired before flatten"
+  [[ -n "${prune_farm_line}" ]] || fail "devbot skills-farm prune not wired before flatten"
+  (( prune_claude_line < flat_line )) || fail "prune must run before the flatten"
+  (( prune_farm_line < flat_line )) || fail "prune must run before the flatten"
+}
+
 @test "gate: external flatten only wires modules present in .agents/skills (disabled mirror module excluded)" {
   _setup_sandbox
 

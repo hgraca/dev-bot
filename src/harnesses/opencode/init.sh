@@ -525,11 +525,16 @@ _delegate_harness_dirs() {
   _harness_delegate_to_agents "${OPENCODE_DIR}" "${PROJECT_DIR}" "${delegate_types}"
 }
 
+# Stale tool-placed skill copies (graphify-style duplicates a module declares
+# via src/agentic/<module>/skills-prune.lst) are pruned from the skills farm in
+# _main below via the generic _prune_stale_skill_copies(_shared/functions.sh).
+
 # ── main ───────────────────────────────────────────────────────────────────────
 _copy_opencode_dir
 _write_opencode_config
 _ensure_agents_md
 _delegate_harness_dirs
+_prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
 _link_plugins_modules
 _link_module_plugins
 _link_harness_hooks

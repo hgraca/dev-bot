@@ -2149,3 +2149,41 @@ _harness_delegate_to_agents() {
     _harness_delegate_type "${harness_dir}" "${project_dir}" "${type}"
   done
 }
+
+# =============================================================================
+# _prune_stale_skill_copies <skills_root>
+# Removes tool-placed duplicate skill dirs from a skills directory (T1.1).
+#
+# External tools can install their own copies of a skill dev-bot already ships
+# (graphify install --project drops .claude/skills/graphify etc.). dev-bot's
+# module inits strip those copies only while the module is ENABLED; with the
+# module disabled — or after copies were migrated into the devbot skills farm
+# — the duplicates keep registering and churn .bkp re-suffixes on reinit.
+#
+# A module declares its prune targets in src/agentic/<module>/skills-prune.lst:
+#   <skill-name> <ownership-marker-file>
+# A dir named <skill-name> (or <skill-name>.bkp*, the collision re-suffixes) is
+# removed only when it carries the marker — the tool's own signature — so user
+# content (markerless dirs) is never touched. All declarations are honoured
+# regardless of module enablement ('declaration, not execution').
+# =============================================================================
+_prune_stale_skill_copies() {
+  local skills_root="$1"
+  [[ -n "${DEV_BOT_ROOT:-}" ]] || return 0
+
+  local lst name marker entry
+  shopt -s nullglob
+  for lst in "${DEV_BOT_ROOT}"/src/agentic/*/skills-prune.lst; do
+    [[ -f "${lst}" ]] || continue
+    while read -r name marker _; do
+      [[ "${name:-\#}" == \#* ]] && continue   # comments / blank lines
+      [[ -n "${marker:-}" ]] || continue
+      for entry in "${skills_root}/${name}" "${skills_root}/${name}.bkp"*; do
+        [[ -d "${entry}" && -f "${entry}/${marker}" ]] || continue
+        rm -rf "${entry}"
+        _log "Removed stale ${name} tool skill copy: $(basename "${skills_root}")/$(basename "${entry}")"
+      done
+    done < "${lst}"
+  done
+  shopt -u nullglob
+}

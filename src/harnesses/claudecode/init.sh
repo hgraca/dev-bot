@@ -685,6 +685,13 @@ _link_claude_skills_flat() {
 _copy_claude_dir
 _write_claude_config
 _harness_delegate_to_agents "${CLAUDE_DIR}" "${PROJECT_DIR}" "agents commands tools"
+# Prune stale tool-placed skill copies BEFORE the flatten (T1.1). The flatten
+# migrates REAL .claude/skills dirs into <devbot_dir>/skills and flattens them
+# back every reinit — a CLI-installed duplicate (e.g. graphify) would re-
+# register and churn .bkp suffixes forever. Modules declare their duplicates
+# + ownership markers in skills-prune.lst; pruning works even when disabled.
+_prune_stale_skill_copies "${PROJECT_DIR}/.claude/skills"
+_prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
 _link_claude_skills_flat "${PROJECT_DIR}"
 _link_plugins_modules
 _wire_plugin_hooks

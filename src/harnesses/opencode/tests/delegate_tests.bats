@@ -56,6 +56,7 @@ _info() { echo "INFO: $*"; }
 _ok()   { echo "OK: $*"; }
 _skip() { echo "SKIP: $*"; }
 _warn() { echo "WARN: $*"; }
+_log()  { echo "LOG: $*"; }
 _error() { echo "ERROR: $*" >&2; exit 1; }
 _fatal() { echo "FATAL: $*" >&2; exit 1; }
 
@@ -107,6 +108,24 @@ JSONC_EOF
   source "${SANDBOX_DIR}/init.sh"
   _delegate_harness_dirs
   printf '%b' "${HARNESS_DELEGATE_CALLS:-}"
+}
+
+# ── T1.1: stale tool-placed skill copies pruned from the skills farm ─────────
+# Mechanism (declaration -> markers -> removal with user-content protection)
+# is covered by src/_shared/tests/prune-stale-skill-copies_tests.bats; here we
+# assert only that opencode init wires the generic prune after delegation.
+
+@test "main: prunes stale skill copies from the devbot skills farm after delegation" {
+  local init="${PROJECT_ROOT}/src/harnesses/opencode/init.sh"
+
+  local delegation_line prune_line
+  delegation_line="$(grep -n '^_delegate_harness_dirs$' "${init}" | cut -d: -f1)"
+  prune_line="$(grep -n '_prune_stale_skill_copies "\${PROJECT_DIR}/\$(_devbot_get_project_dir' "${init}" | cut -d: -f1)"
+
+  [[ -n "${delegation_line}" ]] || fail "delegation call not found in main"
+  [[ -n "${prune_line}" ]] || fail "stale-skill-copies prune not wired in main"
+  # prune runs AFTER delegation so migrated leftovers are caught too
+  (( prune_line > delegation_line )) || fail "prune must run after delegation"
 }
 
 # ── .agents devbot_dir (default): skills migrate without a symlink ──────────
