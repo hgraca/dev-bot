@@ -1,6 +1,6 @@
 ---
 name: devbot:create-agent
-description: "Use this skill whenever the user asks to create a new agent, add an agent to a module, refactor or restructure an agent's instructions, harden agent behavior rules, or A/B-test a new agent variant next to the live one — even if they do not say 'agent' (e.g. 'write the developer role', 'split the architect responsibilities'). Covers runtime wiring, the canonical agent structure, reference verification, and the optimize-instructions review gate."
+description: "Use when the user asks to create a new agent, add an agent to a module, refactor or restructure an agent's instructions, harden agent behavior rules, or A/B-test a new agent variant — even if they don't say 'agent' (e.g. 'write the developer role', 'split the architect responsibilities'). Covers runtime wiring, reference verification, and the optimize-instructions review gate."
 ---
 
 # Create Agent
@@ -9,12 +9,12 @@ Procedure for creating or restructuring agent instruction files (`src/agentic/<m
 
 ## When to Apply
 
-| Situation                                                                                             | Apply |
-| ----------------------------------------------------------------------------------------------------- | ----- |
-| Create a new agent for a module (primary or subagent)                                                 | yes   |
-| Restructure an existing agent's instructions (new sections, new layout)                               | yes   |
-| A/B-test a variant next to the live agent (e.g. `devbot2.md` beside `devbot.md`)                      | yes   |
-| Harden agent behavior rules based on observed failure modes                                           | yes   |
+| Situation                                                                                                    | Apply |
+| ------------------------------------------------------------------------------------------------------------ | ----- |
+| Create a new agent for a module (primary or subagent)                                                        | yes   |
+| Restructure an existing agent's instructions (new sections, new layout)                                      | yes   |
+| A/B-test a variant next to the live agent (e.g. `devbot2.md` beside `devbot.md`)                             | yes   |
+| Harden agent behavior rules based on observed failure modes                                                  | yes   |
 | Routine text edits to an agent file (typo, one bullet) — just edit, gate with `devbot:optimize-instructions` | no    |
 
 ## Procedure
@@ -134,9 +134,9 @@ Hardened rule groups, ready to adapt. Each carries its rationale — keep it.
 
 ```markdown
 - Before ending the response, review every agentic tool call made this turn (MCP servers, custom devbot tools). If any failed — error, timeout, crash, or unexpected empty result — end with a brief alert:
-    - **Tool** — name and how it was used (arguments)
-    - **Response** — what it returned (error text, status, or silence)
-    - **Impact** — what happened next: fallback used, work affected, suggested retry
+  - **Tool** — name and how it was used (arguments)
+  - **Response** — what it returned (error text, status, or silence)
+  - **Impact** — what happened next: fallback used, work affected, suggested retry
 ```
 
 ## Runtime wiring reference
@@ -147,7 +147,7 @@ Hardened rule groups, ready to adapt. Each carries its rationale — keep it.
 | Default agent            | `opencode.jsonc` `default_agent`                                          | Unchanged until you edit it — new agent never hijacks sessions                   |
 | Model assignment         | `opencode.jsonc` `agent.<name>` section                                   | Missing → default-model fallback; frontmatter `model:` overrides                 |
 | Docs enumeration         | `docs/agents.md`                                                          | Manual — update for real new agents                                              |
-| BATS agent-symlink tests | `src/tools/devbot-cli/tests/devbot_tests.bats`                                | Enumerates only `devteam` — other modules' agent files don't trip it             |
+| BATS agent-symlink tests | `src/tools/devbot-cli/tests/devbot_tests.bats`                            | Enumerates only `devteam` — other modules' agent files don't trip it             |
 | Claude Code harness      | `.claude/agents` mirror                                                   | Same symlink mechanics; only when the claudecode module is enabled               |
 
 ## Gotchas

@@ -1,6 +1,6 @@
 ---
 name: devbot:improve-planning
-description: "Drives a continuous improvement loop for the multi-agent planning system. Generates a plan in an isolated task-solver session, evaluates it against absolute quality criteria, traces every weakness back to a specific instruction gap, and proposes edits to the agent files and their planning skills. Use this skill whenever the user says 'improve planning', 'improve planning instructions', or 'planning quality', wants the planning workflow to produce better plans, or after a planning iteration completes poorly."
+description: "Drives a continuous improvement loop for the multi-agent planning system: generates a plan in an isolated task-solver session, evaluates it against absolute quality criteria, traces each weakness to a specific instruction gap, and proposes edits to the agent files and planning skills. Use on 'improve planning', 'planning quality', or after a planning iteration completes poorly."
 ---
 
 # Improve Planning Instructions
@@ -26,12 +26,12 @@ Grader is **main-session devbot agent itself**. Evaluates solver's artifacts usi
 
 **Only four agents and three skills in scope** for instruction improvements: only these participate in producing plan:
 
-| Agents                  | Skills        |
-| ----------------------- | ------------- |
-| `devbot` (orchestrator) | `plan`        |
+| Agents                  | Skills               |
+| ----------------------- | -------------------- |
+| `devbot` (orchestrator) | `plan`               |
 | `po`                    | `devbot:make-plan`   |
 | `architect`             | `devbot:review-plan` |
-| `critic`                |               |
+| `critic`                |                      |
 
 `developer`, `reviewer`, and `tester` are **out of scope** because no implementation runs in this iteration — Phase 1 stops at FINAL plan. Their instructions affect implementation quality, not plan quality.
 
@@ -303,12 +303,12 @@ After all decisions captured, orchestrator MUST execute sequence in order. **Eac
 3. **Apply edits** in order recorded in `approved-changes.md` (foundational rules first; rules depending on them after; renames last because widest blast radius).
 4. **Verify working tree** — `git status` should show `approved-changes.md` plus files touched by approved edits, and nothing else. If anything unexpected appears, abort commit and resolve before continuing.
 5. **Single commit** — stage exactly files touched by approved edits AND `approved-changes.md`, then commit with message:
-    ```
-    chore(planning): apply iteration-<n> approved planning improvements
+   ```
+   chore(planning): apply iteration-<n> approved planning improvements
 
-    <one-line summary per approved change, referencing iteration-<n>/approved-changes.md>
-    ```
-    Do NOT amend previous commit. Do NOT push. User pushes when they choose.
+   <one-line summary per approved change, referencing iteration-<n>/approved-changes.md>
+   ```
+   Do NOT amend previous commit. Do NOT push. User pushes when they choose.
 6. **Append "Applied" footer to `approved-changes.md`** with commit SHA and list of files actually touched (may exceed proposals' enumerated targets due to cross-cutting audit in step 2). Then make second tiny commit `chore(planning): record iteration-<n> applied footer`, OR amend previous commit ONLY IF nothing pushed and previous commit is one just made in sub-step 5. "Applied" footer is what Step 0 of next iteration verifies; without it, next iteration's Step 0 gate halts.
 
 ### Step 8: Decide Whether to Continue
@@ -401,7 +401,7 @@ Score each dimension 0–100, then compute weighted total.
 | Dimension                           | Weight | What to evaluate                                                                                                                                                                                                                                   |
 | ----------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Specificity & completeness**      | 35%    | Does every task have testable ACs? Are file paths, class names, field types, behaviors explicit? Would lower-reasoning LLM need to guess anything?                                                                                                 |
-| **`plan` compliance**               | 21%    | Does plan satisfy every rule in `plan` and `devbot:make-plan` skills? Check each bullet point with line references.                                                                                                                                       |
+| **`plan` compliance**               | 21%    | Does plan satisfy every rule in `plan` and `devbot:make-plan` skills? Check each bullet point with line references.                                                                                                                                |
 | **Architecture correctness**        | 21%    | Does plan match architecture rules? Directory structure, dependency rules, naming conventions. Is there architect review confirming this?                                                                                                          |
 | **Clarity for lower-reasoning LLM** | 10%    | Are rules centralized or scattered? Are implicit assumptions made? Would model with limited context window find all necessary information within task it's working on?                                                                             |
 | **Process guidance**                | 5%     | Does plan address: reviewer frequency, commit strategy, stall recovery, delegation batch size, error escalation?                                                                                                                                   |
@@ -443,15 +443,15 @@ Point deductions relative to dimension they affect:
 
 ### Scoring Guidelines — What 100 Looks Like
 
-| Dimension                       | 100/100 means                                                                                          |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Specificity & completeness      | Every class, method, field, behavior, file path named. Zero ambiguity. Edge cases enumerated.          |
+| Dimension                              | 100/100 means                                                                                          |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Specificity & completeness             | Every class, method, field, behavior, file path named. Zero ambiguity. Edge cases enumerated.          |
 | `plan` / `devbot:make-plan` compliance | Every rule in both skills satisfied with traceable evidence.                                           |
-| Architecture correctness        | Architect review confirms compliance. Directory tree matches architecture exactly.                     |
-| Clarity for lower-reasoning LLM | All rules centralized. Each task's AC self-contained. No implicit knowledge required.                  |
-| Process guidance                | Reviewer mandate, commit strategy, stall recovery, delegation limits, error escalation — all explicit. |
-| Defensive completeness          | Every coding-standard rule reflected. Known pitfalls addressed. All edge cases have test criteria.     |
-| Solver execution                | Zero stalls, zero [NEEDS_INPUT], ≤3 critic rounds, all required artifacts present.                     |
+| Architecture correctness               | Architect review confirms compliance. Directory tree matches architecture exactly.                     |
+| Clarity for lower-reasoning LLM        | All rules centralized. Each task's AC self-contained. No implicit knowledge required.                  |
+| Process guidance                       | Reviewer mandate, commit strategy, stall recovery, delegation limits, error escalation — all explicit. |
+| Defensive completeness                 | Every coding-standard rule reflected. Known pitfalls addressed. All edge cases have test criteria.     |
+| Solver execution                       | Zero stalls, zero [NEEDS_INPUT], ≤3 critic rounds, all required artifacts present.                     |
 
 ### Comparability Rules
 

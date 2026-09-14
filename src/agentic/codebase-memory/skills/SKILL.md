@@ -1,6 +1,6 @@
 ---
 name: devbot:codebase-index
-description: "Codebase understanding via the codebase-memory engine — structural code search, call-graph tracing, architecture overview, git-diff impact analysis, and Cypher graph queries backed by a persistent tree-sitter knowledge graph. Use this skill whenever finding code by structure or meaning — e.g. 'who calls this function', 'how do these parts connect', 'what is the architecture', 'what does this diff affect'. The engine this skill documents is selected by the codebase_index_provider config key; the skill name stays devbot:codebase-index whichever engine is active."
+description: "Codebase understanding via the codebase-memory engine — structural search, call-graph tracing, architecture overview, git-diff impact, and Cypher graph queries over a persistent tree-sitter graph. Use when finding code by structure or meaning: 'who calls this function', 'how do these parts connect', 'what is the architecture', 'what does this diff affect'."
 ---
 
 # Codebase Memory (codebase-memory-mcp engine)

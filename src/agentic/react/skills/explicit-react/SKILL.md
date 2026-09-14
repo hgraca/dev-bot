@@ -1,6 +1,6 @@
 ---
 name: devbot:explicit-react
-description: "React 18+ + Next.js + TypeScript development conventions. Use this skill whenever building, scaffolding, or modifying any React project — covers scaffolding, routing, atomic component design, clean architecture, styling, server vs client code separation, TypeScript rules, and data access patterns. Triggers on 'react', 'nextjs', 'create react app', 'react component', 'react project', or when working in a React codebase — even if they only say 'Next.js'."
+description: "React 18+ + Next.js + TypeScript development conventions. Use when building, scaffolding, or modifying any React project — scaffolding, routing, atomic component design, clean architecture, styling, server vs client separation, TypeScript rules, data access. Triggers on 'react', 'nextjs', 'create react app', 'react component', 'react project', or working in a React codebase."
 ---
 
 # Skill: React + Next.js + TypeScript
@@ -223,87 +223,87 @@ src/
 
 - **Atoms**: Buttons, inputs, icons
 
-    ```tsx
-    // src/components/atoms/Button/Button.tsx
-    import { ButtonHTMLAttributes, ReactNode } from "react";
+  ```tsx
+  // src/components/atoms/Button/Button.tsx
+  import { ButtonHTMLAttributes, ReactNode } from "react";
 
-    interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-        children: ReactNode;
-        variant?: "primary" | "secondary";
-    }
+  interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+    children: ReactNode;
+    variant?: "primary" | "secondary";
+  }
 
-    export const Button = ({ children, variant = "primary", ...props }: ButtonProps) => {
-        const baseClasses = "px-4 py-2 rounded font-medium";
-        const variantClasses = {
-            primary: "bg-blue-500 text-white hover:bg-blue-600",
-            secondary: "bg-gray-200 text-gray-800 hover:bg-gray-300",
-        };
-
-        return (
-            <button className={`${baseClasses} ${variantClasses[variant]}`} {...props}>
-                {children}
-            </button>
-        );
+  export const Button = ({ children, variant = "primary", ...props }: ButtonProps) => {
+    const baseClasses = "px-4 py-2 rounded font-medium";
+    const variantClasses = {
+      primary: "bg-blue-500 text-white hover:bg-blue-600",
+      secondary: "bg-gray-200 text-gray-800 hover:bg-gray-300",
     };
-    ```
+
+    return (
+      <button className={`${baseClasses} ${variantClasses[variant]}`} {...props}>
+        {children}
+      </button>
+    );
+  };
+  ```
 
 - **Molecules**: Forms, cards, navbars
 
-    ```tsx
-    // src/components/molecules/Card/Card.tsx
-    import { ReactNode } from "react";
+  ```tsx
+  // src/components/molecules/Card/Card.tsx
+  import { ReactNode } from "react";
 
-    interface CardProps {
-        children: ReactNode;
-        title?: string;
-    }
+  interface CardProps {
+    children: ReactNode;
+    title?: string;
+  }
 
-    export const Card = ({ children, title }: CardProps) => {
-        return (
-            <div className="border rounded-lg p-4 shadow-sm">
-                {title && <h3 className="text-xl font-bold mb-2">{title}</h3>}
-                {children}
-            </div>
-        );
-    };
-    ```
+  export const Card = ({ children, title }: CardProps) => {
+    return (
+      <div className="border rounded-lg p-4 shadow-sm">
+        {title && <h3 className="text-xl font-bold mb-2">{title}</h3>}
+        {children}
+      </div>
+    );
+  };
+  ```
 
 - **Organisms**: Headers, footers, complex sections
 
-    ```tsx
-    // src/components/organisms/Header/Header.tsx
-    import { Navbar } from "../../molecules/Navbar";
+  ```tsx
+  // src/components/organisms/Header/Header.tsx
+  import { Navbar } from "../../molecules/Navbar";
 
-    export const Header = () => {
-        return (
-            <header className="bg-white shadow">
-                <Navbar />
-            </header>
-        );
-    };
-    ```
+  export const Header = () => {
+    return (
+      <header className="bg-white shadow">
+        <Navbar />
+      </header>
+    );
+  };
+  ```
 
 - **Templates**: Page layouts
-    ```tsx
-    // src/components/templates/BaseLayout/BaseLayout.tsx
-    import { Header } from "../../organisms/Header";
-    import { Footer } from "../../organisms/Footer";
-    import { ReactNode } from "react";
+  ```tsx
+  // src/components/templates/BaseLayout/BaseLayout.tsx
+  import { Header } from "../../organisms/Header";
+  import { Footer } from "../../organisms/Footer";
+  import { ReactNode } from "react";
 
-    interface BaseLayoutProps {
-        children: ReactNode;
-    }
+  interface BaseLayoutProps {
+    children: ReactNode;
+  }
 
-    export const BaseLayout = ({ children }: BaseLayoutProps) => {
-        return (
-            <div className="flex flex-col min-h-screen">
-                <Header />
-                <main className="flex-grow">{children}</main>
-                <Footer />
-            </div>
-        );
-    };
-    ```
+  export const BaseLayout = ({ children }: BaseLayoutProps) => {
+    return (
+      <div className="flex flex-col min-h-screen">
+        <Header />
+        <main className="flex-grow">{children}</main>
+        <Footer />
+      </div>
+    );
+  };
+  ```
 
 **Naming:**
 
@@ -316,54 +316,54 @@ src/
 
 - **Tailwind CSS**: Utility-first (recommended)
 
-    ```tsx
-    // Example of Tailwind usage in a component
-    export const Button = () => {
-        return <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Click</button>;
-    };
-    ```
+  ```tsx
+  // Example of Tailwind usage in a component
+  export const Button = () => {
+    return <button className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">Click</button>;
+  };
+  ```
 
 - **CSS Modules**: Scoped styles
 
-    ```css
-    /* src/components/atoms/Button/Button.module.css */
-    .button {
-        padding: 0.5rem 1rem;
-        border-radius: 0.25rem;
-        font-weight: 500;
-    }
-    ```
+  ```css
+  /* src/components/atoms/Button/Button.module.css */
+  .button {
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    font-weight: 500;
+  }
+  ```
 
-    ```tsx
-    // src/components/atoms/Button/Button.tsx
-    import styles from "./Button.module.css";
-    export const Button = () => <button className={styles.button}>Click</button>;
-    ```
+  ```tsx
+  // src/components/atoms/Button/Button.tsx
+  import styles from "./Button.module.css";
+  export const Button = () => <button className={styles.button}>Click</button>;
+  ```
 
 - **Styled Components**: CSS-in-JS
 
-    ```tsx
-    // src/components/atoms/Button/Button.tsx
-    import styled from "styled-components";
-    export const Button = styled.button`
-        padding: 0.5rem 1rem;
-        border-radius: 0.25rem;
-        font-weight: 500;
-        background: ${(props) => props.theme.primary};
-        color: white;
-    `;
-    ```
+  ```tsx
+  // src/components/atoms/Button/Button.tsx
+  import styled from "styled-components";
+  export const Button = styled.button`
+    padding: 0.5rem 1rem;
+    border-radius: 0.25rem;
+    font-weight: 500;
+    background: ${(props) => props.theme.primary};
+    color: white;
+  `;
+  ```
 
 - **Theme**: Define in `src/styles/theme.ts`
-    ```ts
-    // src/styles/theme.ts
-    export const theme = {
-        colors: {
-            primary: "#3b82f6",
-            secondary: "#6b7280",
-        },
-    };
-    ```
+  ```ts
+  // src/styles/theme.ts
+  export const theme = {
+    colors: {
+      primary: "#3b82f6",
+      secondary: "#6b7280",
+    },
+  };
+  ```
 
 ---
 
@@ -371,66 +371,66 @@ src/
 
 - **Local State**: Use `useState`, `useReducer`.
 
-    ```tsx
-    import { useState } from "react";
-    export const Counter = () => {
-        const [count, setCount] = useState(0);
-        return <button onClick={() => setCount((c) => c + 1)}>Count: {count}</button>;
-    };
-    ```
+  ```tsx
+  import { useState } from "react";
+  export const Counter = () => {
+    const [count, setCount] = useState(0);
+    return <button onClick={() => setCount((c) => c + 1)}>Count: {count}</button>;
+  };
+  ```
 
 - **Global State**: Use **Zustand** or **Redux Toolkit** (for complex state).
 
-    ```ts
-    // src/store/useCounterStore.ts
-    import { create } from "zustand";
-    interface CounterState {
-        count: number;
-        increment: () => void;
-    }
-    export const useCounterStore = create<CounterState>((set) => ({
-        count: 0,
-        increment: () => set((state) => ({ count: state.count + 1 })),
-    }));
-    ```
+  ```ts
+  // src/store/useCounterStore.ts
+  import { create } from "zustand";
+  interface CounterState {
+    count: number;
+    increment: () => void;
+  }
+  export const useCounterStore = create<CounterState>((set) => ({
+    count: 0,
+    increment: () => set((state) => ({ count: state.count + 1 })),
+  }));
+  ```
 
 - **Server State**: Use **React Query** or **SWR** for data fetching.
-    ```tsx
-    // src/hooks/useFetch/useFetch.ts
-    import { useQuery } from '@tanstack/react-query';
-    export const useFetch = <T>(url: string) => {
-      return useQuery<T>({
-        queryKey: [url],
-        queryFn: async () => {
-          const res = await fetch(url);
-          return res.json();
-        },
-      });
-    };
-    ```
+  ```tsx
+  // src/hooks/useFetch/useFetch.ts
+  import { useQuery } from '@tanstack/react-query';
+  export const useFetch = <T>(url: string) => {
+    return useQuery<T>({
+      queryKey: [url],
+      queryFn: async () => {
+        const res = await fetch(url);
+        return res.json();
+      },
+    });
+  };
+  ```
 
 ---
 
 ## Data Fetching
 
 - **Next.js App Router**:
-    - Use `async/await` in Server Components.
-    - Use `fetch` with Next.js caching and revalidation.
-    - Use React Query/SWR for client-side data fetching.
+  - Use `async/await` in Server Components.
+  - Use `fetch` with Next.js caching and revalidation.
+  - Use React Query/SWR for client-side data fetching.
 
 **Example:**
 
 ```tsx
 // app/page.tsx
 async function getData() {
-    const res = await fetch("https://api.example.com/data", { next: { revalidate: 3600 } });
-    if (!res.ok) throw new Error("Failed to fetch");
-    return res.json();
+  const res = await fetch("https://api.example.com/data", { next: { revalidate: 3600 } });
+  if (!res.ok) throw new Error("Failed to fetch");
+  return res.json();
 }
 
 export default async function Page() {
-    const data = await getData();
-    return <div>{data.title}</div>;
+  const data = await getData();
+  return <div>{data.title}</div>;
 }
 ```
 
@@ -449,17 +449,17 @@ export default async function Page() {
 ```tsx
 // app/blog/[slug]/page.tsx
 interface BlogPostPageProps {
-    params: { slug: string };
+  params: { slug: string };
 }
 
 export default async function BlogPostPage({ params }: BlogPostPageProps) {
-    const post = await fetchPost(params.slug);
-    return (
-        <article>
-            <h1>{post.title}</h1>
-            <p>{post.content}</p>
-        </article>
-    );
+  const post = await fetchPost(params.slug);
+  return (
+    <article>
+      <h1>{post.title}</h1>
+      <p>{post.content}</p>
+    </article>
+  );
 }
 ```
 
@@ -478,21 +478,21 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
 "use server";
 
 export async function createUser(formData: FormData) {
-    const name = formData.get("name");
-    // Server-side logic
-    console.log("Creating user:", name);
+  const name = formData.get("name");
+  // Server-side logic
+  console.log("Creating user:", name);
 }
 
 // app/page.tsx
 ("use client");
 
 export default function Page() {
-    return (
-        <form action={createUser}>
-            <input type="text" name="name" />
-            <button type="submit">Submit</button>
-        </form>
-    );
+  return (
+    <form action={createUser}>
+      <input type="text" name="name" />
+      <button type="submit">Submit</button>
+    </form>
+  );
 }
 ```
 
@@ -509,13 +509,13 @@ export default function Page() {
 ```ts
 // modules/user/ports/UserRepository.ts
 export interface User {
-    id: string;
-    name: string;
+  id: string;
+  name: string;
 }
 
 export interface UserRepository {
-    findById(id: string): Promise<User>;
-    findAll(): Promise<User[]>;
+  findById(id: string): Promise<User>;
+  findAll(): Promise<User[]>;
 }
 ```
 
@@ -524,15 +524,15 @@ export interface UserRepository {
 import { UserRepository, User } from "../ports/UserRepository";
 
 export class ApiUserRepository implements UserRepository {
-    async findById(id: string): Promise<User> {
-        const res = await fetch(`https://api.example.com/users/${id}`);
-        return res.json();
-    }
+  async findById(id: string): Promise<User> {
+    const res = await fetch(`https://api.example.com/users/${id}`);
+    return res.json();
+  }
 
-    async findAll(): Promise<User[]> {
-        const res = await fetch("https://api.example.com/users");
-        return res.json();
-    }
+  async findAll(): Promise<User[]> {
+    const res = await fetch("https://api.example.com/users");
+    return res.json();
+  }
 }
 ```
 
@@ -541,11 +541,11 @@ export class ApiUserRepository implements UserRepository {
 import { UserRepository } from "../ports/UserRepository";
 
 export class UserService {
-    constructor(private userRepository: UserRepository) {}
+  constructor(private userRepository: UserRepository) {}
 
-    async getUser(id: string) {
-        return this.userRepository.findById(id);
-    }
+  async getUser(id: string) {
+    return this.userRepository.findById(id);
+  }
 }
 ```
 
@@ -579,7 +579,7 @@ npm install -D @next/env
 ```js
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    output: "standalone", // For Node.js deployment
+  output: "standalone", // For Node.js deployment
 };
 
 module.exports = nextConfig;
@@ -602,8 +602,8 @@ import { render, screen } from "@testing-library/react";
 import { Button } from "./Button";
 
 test("renders button with children", () => {
-    render(<Button>Click me</Button>);
-    expect(screen.getByText("Click me")).toBeInTheDocument();
+  render(<Button>Click me</Button>);
+  expect(screen.getByText("Click me")).toBeInTheDocument();
 });
 ```
 
@@ -615,12 +615,12 @@ test("renders button with children", () => {
 - Use Next.js Image for optimized images.
 - Implement code splitting and lazy loading.
 - Use dynamic imports for heavy components:
-    ```tsx
-    import dynamic from "next/dynamic";
-    const HeavyComponent = dynamic(() => import("../components/HeavyComponent"), {
-        loading: () => <p>Loading...</p>,
-    });
-    ```
+  ```tsx
+  import dynamic from "next/dynamic";
+  const HeavyComponent = dynamic(() => import("../components/HeavyComponent"), {
+    loading: () => <p>Loading...</p>,
+  });
+  ```
 
 ---
 

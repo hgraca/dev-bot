@@ -1,6 +1,6 @@
 ---
 name: devbot:create-devbot-module
-description: "Use this skill whenever the user asks to create a new DevBot module, add a module to dev-bot, scaffold a new agentic capability, or bootstrap a module with skills, hooks, tools, or commands — even if they do not say 'module'. Triggers on 'create module', 'new devbot module', 'scaffold module', 'add agentic module', or when the user describes a capability that needs a dedicated module in src/agentic/."
+description: "Use when the user asks to create a new DevBot module, add a module to dev-bot, scaffold a new agentic capability, or bootstrap a module with skills, hooks, tools, or commands — even if they don't say 'module'. Triggers on 'create module', 'new devbot module', 'scaffold module', 'add agentic module', or a capability needing a dedicated module in src/agentic/."
 ---
 
 # Skill: Create DevBot Module
@@ -189,18 +189,18 @@ If yes, ask:
 
 - **Manifest hook** (the common case): write the logic in `tools/<tool>.{ts,sh}` and declare it in `hooks.json`:
 
-    ```json
-    {
-        "hooks": [
-            {
-                "id": "my-hook",
-                "event": "file.edited",
-                "match": { "file": "\\.ext$" },
-                "run": ["bash", "{module}/tools/my-tool.sh", "{file}"]
-            }
-        ]
-    }
-    ```
+  ```json
+  {
+    "hooks": [
+      {
+        "id": "my-hook",
+        "event": "file.edited",
+        "match": { "file": "\\.ext$" },
+        "run": ["bash", "{module}/tools/my-tool.sh", "{file}"]
+      }
+    ]
+  }
+  ```
 
 - **Git hook**: Create `hooks/git/<hook-name>`. Executable bash script or symlink target.
 
@@ -247,19 +247,19 @@ When invoked with `mcp-meta` as the first argument, the script must print a JSON
 
 ```json
 {
-    "name": "tool-name",
-    "description": "What the tool does",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "args": {
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "CLI args: <positional> [--flags]"
-            }
-        },
-        "required": ["args"]
-    }
+  "name": "tool-name",
+  "description": "What the tool does",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "args": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "CLI args: <positional> [--flags]"
+      }
+    },
+    "required": ["args"]
+  }
 }
 ```
 

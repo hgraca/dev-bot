@@ -1,6 +1,6 @@
 ---
 name: devbot:create-opencode-tool
-description: "Use this skill whenever the user asks to create a new tool, add a custom tool, write a tool definition, or extend agent capabilities with a new function — e.g. 'I need the agent to query our database', 'make the agent send Slack messages'. Triggers on 'create tool', 'new tool', 'custom tool', 'tool definition', 'write a tool', 'add a tool', 'make a tool', or when the user describes a capability the agent should have."
+description: "Use when the user asks to create a new tool, add a custom tool, write a tool definition, or extend agent capabilities with a new function — e.g. 'I need the agent to query our database', 'make the agent send Slack messages'. Triggers on 'create tool', 'new tool', 'custom tool', 'tool definition', 'write a tool', 'add a tool', or a capability the agent should have."
 ---
 
 # Skill: Create OpenCode Custom Tool
@@ -60,7 +60,7 @@ When a tool file is typescript (`.ts`) and lives under `.opencode/tools/`, openc
 ```typescript
 const isEntryPoint = process.argv[1] && (process.argv[1] === import.meta.path || process.argv[1].endsWith("/<tool-name>.ts"));
 if (isEntryPoint) {
-    main();
+  main();
 }
 ```
 
@@ -96,23 +96,23 @@ return JSON.parse(stdout); // parsed object
 
 ```typescript
 function toArray(val: unknown): string[] {
-    if (Array.isArray(val)) return val.map(String);
-    const s = String(val ?? "").trim();
-    if (!s) return [];
-    // Try JSON array
-    if (s.startsWith("[")) {
-        try {
-            return (JSON.parse(s) as unknown[]).map(String);
-        } catch {}
-    }
-    // Comma-separated
-    if (s.includes(","))
-        return s
-            .split(",")
-            .map((v) => v.trim())
-            .filter(Boolean);
-    // Space-separated or single value
-    return s.split(/\s+/).filter(Boolean);
+  if (Array.isArray(val)) return val.map(String);
+  const s = String(val ?? "").trim();
+  if (!s) return [];
+  // Try JSON array
+  if (s.startsWith("[")) {
+    try {
+      return (JSON.parse(s) as unknown[]).map(String);
+    } catch {}
+  }
+  // Comma-separated
+  if (s.includes(","))
+    return s
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  // Space-separated or single value
+  return s.split(/\s+/).filter(Boolean);
 }
 ```
 
@@ -124,9 +124,9 @@ return stdout.trim();
 
 // CORRECT — re-serialise if you need to validate JSON
 try {
-    return JSON.stringify(JSON.parse(stdout.trim()));
+  return JSON.stringify(JSON.parse(stdout.trim()));
 } catch {
-    return stdout.trim();
+  return stdout.trim();
 }
 
 // WRONG — returns object, crashes opencode
@@ -150,69 +150,69 @@ import { tool } from "@opencode-ai/plugin";
 import path from "path";
 
 function parseArgs(argv: string[]): { format: string; targets: string[] } {
-    let format = "json";
-    const targets: string[] = [];
-    let i = 0;
-    while (i < argv.length) {
-        switch (argv[i]) {
-            case "--markdown":
-                format = "markdown";
-                i++;
-                break;
-            case "--json":
-                format = "json";
-                i++;
-                break;
-            case "--format":
-                format = argv[++i];
-                i++;
-                break;
-            default:
-                targets.push(argv[i]);
-                i++;
-                break;
-        }
+  let format = "json";
+  const targets: string[] = [];
+  let i = 0;
+  while (i < argv.length) {
+    switch (argv[i]) {
+      case "--markdown":
+        format = "markdown";
+        i++;
+        break;
+      case "--json":
+        format = "json";
+        i++;
+        break;
+      case "--format":
+        format = argv[++i];
+        i++;
+        break;
+      default:
+        targets.push(argv[i]);
+        i++;
+        break;
     }
-    return { format, targets };
+  }
+  return { format, targets };
 }
 
 function main() {
-    const { format, targets } = parseArgs(process.argv.slice(2));
-    if (targets.length === 0) {
-        console.error("Usage: <tool-name>.ts [--markdown|--json|--format markdown|json] <target> [...]");
-        process.exit(1);
-    }
-    // --- BUSINESS LOGIC HERE ---
-    // This is the single source of truth.
-    const results = targets.map((t) => ({ target: t, status: "ok" }));
+  const { format, targets } = parseArgs(process.argv.slice(2));
+  if (targets.length === 0) {
+    console.error("Usage: <tool-name>.ts [--markdown|--json|--format markdown|json] <target> [...]");
+    process.exit(1);
+  }
+  // --- BUSINESS LOGIC HERE ---
+  // This is the single source of truth.
+  const results = targets.map((t) => ({ target: t, status: "ok" }));
 
-    if (format === "json") {
-        console.log(JSON.stringify({ status: "ok", results }, null, 2));
-    } else {
-        for (const r of results) {
-            console.log(`## ${r.target}\n\nstatus: ${r.status}\n`);
-        }
+  if (format === "json") {
+    console.log(JSON.stringify({ status: "ok", results }, null, 2));
+  } else {
+    for (const r of results) {
+      console.log(`## ${r.target}\n\nstatus: ${r.status}\n`);
     }
+  }
 }
 
 // Dual-mode guard: runs main() only when invoked directly, not when imported
 const isEntryPoint = process.argv[1] && (process.argv[1] === import.meta.path || process.argv[1].endsWith("/<tool-name>.ts"));
 if (isEntryPoint) {
-    main();
+  main();
 }
 
 export default tool({
-    description: "Short description of what the tool does.",
-    args: {
-        targets: tool.schema.array(tool.schema.string()).describe("One or more targets to operate on."),
-    },
-    async execute(args) {
-        // Forward to the same business logic invoked programmatically.
-        // In-process call — no subprocess overhead.
-        const targets = Array.isArray(args.targets) ? args.targets : [String(args.targets ?? "")];
-        const results = targets.map((t) => ({ target: t, status: "ok" }));
-        return JSON.stringify({ status: "ok", results });
-    },
+  description: "Short description of what the tool does.",
+  args: {
+    targets: tool.schema.array(tool.schema.string()).describe("One or more targets to operate on."),
+  },
+  async execute(args) {
+    // Forward to the same business logic invoked programmatically.
+    // In-process call — no subprocess overhead.
+    const targets = Array.isArray(args.targets) ? args.targets : [String(args.targets ?? "")];
+    const results = targets.map((t) => ({ target: t, status: "ok" }));
+    return JSON.stringify({ status: "ok", results });
+  },
 });
 ```
 
@@ -240,19 +240,19 @@ Place in `.opencode/tools/<tool-name>.ts` (project) or `~/.config/opencode/tools
 import { tool } from "@opencode-ai/plugin";
 
 export default tool({
-    description: "Short description of what this tool does. One sentence.",
-    args: {
-        arg1: tool.schema.string().describe("What this argument is for"),
-        arg2: tool.schema.number().describe("Another argument"),
-    },
-    async execute(args, context) {
-        // Use context.directory for session working directory
-        // Use context.worktree for git worktree root
-        // Use context.sessionID for the current OpenCode session identifier
-        // Also available: context.messageID (current message ID), context.agent (current agent name)
-        // Your logic here
-        return JSON.stringify({ status: "ok", result: "..." });
-    },
+  description: "Short description of what this tool does. One sentence.",
+  args: {
+    arg1: tool.schema.string().describe("What this argument is for"),
+    arg2: tool.schema.number().describe("Another argument"),
+  },
+  async execute(args, context) {
+    // Use context.directory for session working directory
+    // Use context.worktree for git worktree root
+    // Use context.sessionID for the current OpenCode session identifier
+    // Also available: context.messageID (current message ID), context.agent (current agent name)
+    // Your logic here
+    return JSON.stringify({ status: "ok", result: "..." });
+  },
 });
 ```
 
@@ -262,19 +262,19 @@ export default tool({
 import { tool } from "@opencode-ai/plugin";
 
 export const actionOne = tool({
-    description: "Does one thing.",
-    args: {/* ... */},
-    async execute(args, context) {
-        /* ... */
-    },
+  description: "Does one thing.",
+  args: {/* ... */},
+  async execute(args, context) {
+    /* ... */
+  },
 });
 
 export const actionTwo = tool({
-    description: "Does another thing.",
-    args: {/* ... */},
-    async execute(args, context) {
-        /* ... */
-    },
+  description: "Does another thing.",
+  args: {/* ... */},
+  async execute(args, context) {
+    /* ... */
+  },
 });
 ```
 
@@ -287,15 +287,15 @@ import { tool } from "@opencode-ai/plugin";
 import path from "path";
 
 export default tool({
-    description: "Runs a Python script to do X.",
-    args: {
-        input: tool.schema.string().describe("Input data"),
-    },
-    async execute(args, context) {
-        const script = path.join(context.worktree, ".opencode/tools/my-script.py");
-        const result = await Bun.$`python3 ${script} ${args.input}`.text();
-        return result.trim();
-    },
+  description: "Runs a Python script to do X.",
+  args: {
+    input: tool.schema.string().describe("Input data"),
+  },
+  async execute(args, context) {
+    const script = path.join(context.worktree, ".opencode/tools/my-script.py");
+    const result = await Bun.$`python3 ${script} ${args.input}`.text();
+    return result.trim();
+  },
 });
 ```
 
@@ -305,14 +305,14 @@ Configure in `.opencode/permissions.jsonc`:
 
 ```jsonc
 {
-    "tools": {
-        // Read-only, safe: allow without approval
-        "my-read-tool": "allow",
-        // Destructive: require explicit approval
-        "my-write-tool": "require-approval",
-        // Block entirely
-        "my-dangerous-tool": "deny",
-    },
+  "tools": {
+    // Read-only, safe: allow without approval
+    "my-read-tool": "allow",
+    // Destructive: require explicit approval
+    "my-write-tool": "require-approval",
+    // Block entirely
+    "my-dangerous-tool": "deny",
+  },
 }
 ```
 
@@ -334,33 +334,33 @@ import { tool } from "@opencode-ai/plugin";
 import path from "path";
 
 export default tool({
-    description: "Short description of what this tool does. One sentence.",
-    args: {
-        arg1: tool.schema.string().describe("What this argument is for"),
-    },
-    async execute(args, context) {
-        const logPath = path.join(context.worktree, ".agents/logs/my-tool.log");
-        try {
-            const result = await doSomething(args);
-            // Append structured log entry
-            await Bun.write(
-                logPath,
-                JSON.stringify({
-                    tool: "my-tool",
-                    args,
-                    result,
-                    timestamp: new Date().toISOString(),
-                }) + "\n",
-            );
-            return JSON.stringify({ status: "ok", result });
-        } catch (error) {
-            return JSON.stringify({
-                status: "error",
-                code: "MY_TOOL_FAILED",
-                message: error instanceof Error ? error.message : String(error),
-            });
-        }
-    },
+  description: "Short description of what this tool does. One sentence.",
+  args: {
+    arg1: tool.schema.string().describe("What this argument is for"),
+  },
+  async execute(args, context) {
+    const logPath = path.join(context.worktree, ".agents/logs/my-tool.log");
+    try {
+      const result = await doSomething(args);
+      // Append structured log entry
+      await Bun.write(
+        logPath,
+        JSON.stringify({
+          tool: "my-tool",
+          args,
+          result,
+          timestamp: new Date().toISOString(),
+        }) + "\n",
+      );
+      return JSON.stringify({ status: "ok", result });
+    } catch (error) {
+      return JSON.stringify({
+        status: "error",
+        code: "MY_TOOL_FAILED",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  },
 });
 ```
 
@@ -377,7 +377,7 @@ Check every gate before signalling completion:
 | 5   | Idempotent or dry-run for destructive actions                                                                                                    |           |
 | 6   | Structured JSON output + error codes                                                                                                             |           |
 | 7   | Tests (unit + integration) and CI runs them                                                                                                      |           |
-| 8   | Logging to `.agents/logs/<tool-name>.log` (append-only)                                                                                       |           |
+| 8   | Logging to `.agents/logs/<tool-name>.log` (append-only)                                                                                          |           |
 | 9   | Name follows convention, no built-in shadowing                                                                                                   |           |
 | 10  | Dependencies documented and pinned (runtimes, binaries)                                                                                          |           |
 | 11  | Example usage in tool file or README                                                                                                             |           |
@@ -407,13 +407,13 @@ Inside a custom tool's `execute` function, the session ID is available on the `c
 import { tool } from "@opencode-ai/plugin";
 
 export default tool({
-    description: "My tool",
-    args: tool.schema.object({}),
-    async execute(args, context) {
-        const sessionId = context.sessionID;
-        // also available: context.messageID, context.agent, context.abort (AbortSignal)
-        return `Session: ${sessionId}`;
-    },
+  description: "My tool",
+  args: tool.schema.object({}),
+  async execute(args, context) {
+    const sessionId = context.sessionID;
+    // also available: context.messageID, context.agent, context.abort (AbortSignal)
+    return `Session: ${sessionId}`;
+  },
 });
 ```
 

@@ -1,6 +1,6 @@
 ---
 name: devbot:create-claudecode-tool
-description: "Use this skill whenever someone asks about adding custom tools to Claude Code agents via MCP — extending the agent tool palette, MCP servers in Claude Code, writing an MCP server, .mcp.json configuration, tool naming conventions (mcp__server__tool), giving Claude access to an API or database, subagent tool restrictions, or building domain-specific tools. The Claude Code equivalent of opencode's custom-tools."
+description: "Use when someone asks about adding custom tools to Claude Code agents via MCP — extending the tool palette, MCP servers in Claude Code, writing an MCP server, .mcp.json configuration, tool naming (mcp__server__tool), giving Claude access to an API or database, subagent tool restrictions, or domain-specific tools. The Claude Code equivalent of opencode's custom-tools."
 ---
 
 # Custom Tools in Claude Code via MCP
@@ -24,15 +24,15 @@ Create `.mcp.json` at your project root (committed = shared with team):
 
 ```json
 {
-    "mcpServers": {
-        "my-tools": {
-            "command": "node",
-            "args": ["./tools/server.js"],
-            "env": {
-                "DB_URL": "${DB_URL}"
-            }
-        }
+  "mcpServers": {
+    "my-tools": {
+      "command": "node",
+      "args": ["./tools/server.js"],
+      "env": {
+        "DB_URL": "${DB_URL}"
+      }
     }
+  }
 }
 ```
 
@@ -89,20 +89,20 @@ import { tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 
 const runTests = tool(
-    "run_tests", // name — Claude calls this
-    "Run the project test suite and return results. Use before marking work done.",
-    {
-        suite: z.string().optional().describe("Specific test suite to run"),
-        bail: z.boolean().default(false).describe("Stop on first failure"),
-    },
-    async (args) => {
-        const cmd = ["npm", "test", args.suite, args.bail ? "--bail" : ""].filter(Boolean).join(" ");
-        const result = await runCommand(cmd);
-        return {
-            content: [{ type: "text", text: result.stdout }],
-            isError: result.exitCode !== 0,
-        };
-    },
+  "run_tests", // name — Claude calls this
+  "Run the project test suite and return results. Use before marking work done.",
+  {
+    suite: z.string().optional().describe("Specific test suite to run"),
+    bail: z.boolean().default(false).describe("Stop on first failure"),
+  },
+  async (args) => {
+    const cmd = ["npm", "test", args.suite, args.bail ? "--bail" : ""].filter(Boolean).join(" ");
+    const result = await runCommand(cmd);
+    return {
+      content: [{ type: "text", text: result.stdout }],
+      isError: result.exitCode !== 0,
+    };
+  },
 );
 ```
 
@@ -128,20 +128,20 @@ async def run_tests(args):
 
 ```typescript
 const devServer = createSdkMcpServer({
-    name: "dev-tools",
-    version: "1.0.0",
-    tools: [runTests, lintFiles, checkTypes], // all your tools
+  name: "dev-tools",
+  version: "1.0.0",
+  tools: [runTests, lintFiles, checkTypes], // all your tools
 });
 
 for await (const message of query({
-    prompt: "Implement the auth feature and make sure tests pass",
-    options: {
-        mcpServers: { dev: devServer },
-        allowedTools: ["mcp__dev__run_tests", "mcp__dev__lint_files"],
-        // or wildcard: ["mcp__dev__*"]
-    },
+  prompt: "Implement the auth feature and make sure tests pass",
+  options: {
+    mcpServers: { dev: devServer },
+    allowedTools: ["mcp__dev__run_tests", "mcp__dev__lint_files"],
+    // or wildcard: ["mcp__dev__*"]
+  },
 })) {
-    if (message.type === "result") console.log(message.result);
+  if (message.type === "result") console.log(message.result);
 }
 ```
 
@@ -187,9 +187,9 @@ Use wildcards to allow all tools from a server: `mcp__dev__*`.
 
 ```typescript
 return {
-    content: [{ type: "text", text: "result text here" }], // required
-    isError: false, // optional — set true so Claude knows to retry/adjust
-    structuredContent: {}, // optional — machine-readable JSON alongside content
+  content: [{ type: "text", text: "result text here" }], // required
+  isError: false, // optional — set true so Claude knows to retry/adjust
+  structuredContent: {}, // optional — machine-readable JSON alongside content
 };
 ```
 
@@ -197,16 +197,16 @@ return {
 
 ```typescript
 async (args) => {
-    try {
-        const data = await callApi(args.endpoint);
-        return { content: [{ type: "text", text: JSON.stringify(data) }] };
-    } catch (err) {
-        // Return isError instead of throwing — throwing kills the whole query() call
-        return {
-            content: [{ type: "text", text: `API error: ${err.message}` }],
-            isError: true,
-        };
-    }
+  try {
+    const data = await callApi(args.endpoint);
+    return { content: [{ type: "text", text: JSON.stringify(data) }] };
+  } catch (err) {
+    // Return isError instead of throwing — throwing kills the whole query() call
+    return {
+      content: [{ type: "text", text: `API error: ${err.message}` }],
+      isError: true,
+    };
+  }
 };
 ```
 
@@ -214,13 +214,13 @@ async (args) => {
 
 ```typescript
 return {
-    content: [
-        {
-            type: "image",
-            data: base64EncodedBytes, // no URL — inline base64 only
-            mimeType: "image/png",
-        },
-    ],
+  content: [
+    {
+      type: "image",
+      data: base64EncodedBytes, // no URL — inline base64 only
+      mimeType: "image/png",
+    },
+  ],
 };
 ```
 
@@ -228,12 +228,12 @@ return {
 
 ```typescript
 tool("query_db", "...", schema, handler, {
-    annotations: {
-        readOnlyHint: true, // no side effects → Claude can batch in parallel
-        destructiveHint: false,
-        idempotentHint: true,
-        openWorldHint: false, // false = stays inside your process
-    },
+  annotations: {
+    readOnlyHint: true, // no side effects → Claude can batch in parallel
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false, // false = stays inside your process
+  },
 });
 ```
 
@@ -267,11 +267,11 @@ conversation context):
 name: db-agent
 description: Queries the database
 mcpServers:
-    database:
-        command: node
-        args: ["./db-server.js"]
-        env:
-            DB_URL: "${DB_URL}"
+  database:
+    command: node
+    args: ["./db-server.js"]
+    env:
+      DB_URL: "${DB_URL}"
 ---
 ```
 

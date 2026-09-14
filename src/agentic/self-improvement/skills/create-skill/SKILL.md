@@ -1,6 +1,6 @@
 ---
 name: devbot:create-skill
-description: Use this skill whenever the user asks to create, write, add, scaffold, modify, or improve a skill — including when they don't say the word "skill" explicitly (e.g. "create a new skill in src/...", "write a SKILL.md", "scaffold a skill from commit X", "make this workflow a skill", "turn this into a skill", "based on this example"). Covers authoring a SKILL.md (frontmatter, description, body), testing it with eval prompts, benchmarking skill performance, optimizing the description for triggering accuracy, and optimizing instructions. Use it even for one-off skill edits and description tweaks, not just from-scratch creation.
+description: Use when the user asks to create, write, add, scaffold, modify, or improve a skill — even without saying 'skill' (e.g. 'write a SKILL.md', 'scaffold a skill from commit X', 'make this workflow a skill', 'turn this into a skill'). Covers SKILL.md authoring (frontmatter, description, body), eval-prompt testing, benchmarking, and optimizing the description for triggering accuracy.
 ---
 
 # Skill Creator
@@ -13,8 +13,8 @@ High-level process:
 - Write draft
 - Create test prompts, run agent-with-access-to-skill on them
 - Help user evaluate results qualitatively and quantitatively
-    - While runs happen in background, draft quantitative evals if none exist (or modify existing). Explain them to user.
-    - Use `eval-viewer/generate_review.py` script to show results for user review, plus quantitative metrics
+  - While runs happen in background, draft quantitative evals if none exist (or modify existing). Explain them to user.
+  - Use `eval-viewer/generate_review.py` script to show results for user review, plus quantitative metrics
 - Rewrite skill based on feedback (and glaring flaws from quantitative benchmarks)
 - Repeat until satisfied
 - Expand test set, try again at larger scale
@@ -295,15 +295,15 @@ Save test cases to `evals/evals.json`. Don't write assertions yet — just the p
 
 ```json
 {
-    "skill_name": "example-skill",
-    "evals": [
-        {
-            "id": 1,
-            "prompt": "User's task prompt",
-            "expected_output": "Description of expected result",
-            "files": []
-        }
-    ]
+  "skill_name": "example-skill",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "User's task prompt",
+      "expected_output": "Description of expected result",
+      "files": []
+    }
+  ]
 }
 ```
 
@@ -348,10 +348,10 @@ Write `eval_metadata.json` for each test case (assertions can be empty). Give ea
 
 ```json
 {
-    "eval_id": 0,
-    "eval_name": "descriptive-name-here",
-    "prompt": "The user's task prompt",
-    "assertions": []
+  "eval_id": 0,
+  "eval_name": "descriptive-name-here",
+  "prompt": "The user's task prompt",
+  "assertions": []
 }
 ```
 
@@ -369,9 +369,9 @@ When each subagent task completes, notification contains `total_tokens` and `dur
 
 ```json
 {
-    "total_tokens": 84852,
-    "duration_ms": 23332,
-    "total_duration_seconds": 23.3
+  "total_tokens": 84852,
+  "duration_ms": 23332,
+  "total_duration_seconds": 23.3
 }
 ```
 
@@ -385,29 +385,29 @@ Once all runs done:
 
 2. **Aggregate into benchmark** — run aggregation script from skill-creator directory:
 
-    ```bash
-    python -m scripts.aggregate_benchmark <workspace>/iteration-N --skill-name <name>
-    ```
+   ```bash
+   python -m scripts.aggregate_benchmark <workspace>/iteration-N --skill-name <name>
+   ```
 
-    Produces `benchmark.json` and `benchmark.md` with pass_rate, time, tokens for each configuration, mean ± stddev and delta. If generating benchmark.json manually, see `references/schemas.md` for exact schema viewer expects.
-    Put each with_skill version before its baseline counterpart.
+   Produces `benchmark.json` and `benchmark.md` with pass_rate, time, tokens for each configuration, mean ± stddev and delta. If generating benchmark.json manually, see `references/schemas.md` for exact schema viewer expects.
+   Put each with_skill version before its baseline counterpart.
 
 3. **Analyst pass** — read benchmark data, surface patterns aggregate stats might hide. See `agents/analyzer.md` ("Analyzing Benchmark Results" section) for what to look for — assertions always pass regardless of skill (non-discriminating), high-variance evals (possibly flaky), time/token tradeoffs.
 
 4. **Launch viewer** with both qualitative outputs and quantitative data:
 
-    ```bash
-    nohup python <skill-creator-path>/eval-viewer/generate_review.py \
-      <workspace>/iteration-N \
-      --skill-name "my-skill" \
-      --benchmark <workspace>/iteration-N/benchmark.json \
-      > /dev/null 2>&1 &
-    VIEWER_PID=$!
-    ```
+   ```bash
+   nohup python <skill-creator-path>/eval-viewer/generate_review.py \
+     <workspace>/iteration-N \
+     --skill-name "my-skill" \
+     --benchmark <workspace>/iteration-N/benchmark.json \
+     > /dev/null 2>&1 &
+   VIEWER_PID=$!
+   ```
 
-    For iteration 2+, also pass `--previous-workspace <workspace>/iteration-<N-1>`.
+   For iteration 2+, also pass `--previous-workspace <workspace>/iteration-<N-1>`.
 
-    **Headless environments:** If `webbrowser.open()` not available or no display, use `--static <output_path>` to write standalone HTML file. Feedback downloads as `feedback.json` when user clicks "Submit All Reviews". After download, copy `feedback.json` into workspace directory for next iteration.
+   **Headless environments:** If `webbrowser.open()` not available or no display, use `--static <output_path>` to write standalone HTML file. Feedback downloads as `feedback.json` when user clicks "Submit All Reviews". After download, copy `feedback.json` into workspace directory for next iteration.
 
 Note: use `generate_review.py` to create viewer; no need for custom HTML.
 
@@ -434,12 +434,12 @@ When user says done, read `feedback.json`:
 
 ```json
 {
-    "reviews": [
-        { "run_id": "eval-0-with_skill", "feedback": "chart missing axis labels", "timestamp": "..." },
-        { "run_id": "eval-1-with_skill", "feedback": "", "timestamp": "..." },
-        { "run_id": "eval-2-with_skill", "feedback": "perfect, love this", "timestamp": "..." }
-    ],
-    "status": "complete"
+  "reviews": [
+    { "run_id": "eval-0-with_skill", "feedback": "chart missing axis labels", "timestamp": "..." },
+    { "run_id": "eval-1-with_skill", "feedback": "", "timestamp": "..." },
+    { "run_id": "eval-2-with_skill", "feedback": "perfect, love this", "timestamp": "..." }
+  ],
+  "status": "complete"
 }
 ```
 
@@ -543,8 +543,8 @@ Create 20 eval queries — mix of should-trigger and should-not-trigger. Save as
 
 ```json
 [
-    { "query": "user prompt", "should_trigger": true },
-    { "query": "another prompt", "should_trigger": false }
+  { "query": "user prompt", "should_trigger": true },
+  { "query": "another prompt", "should_trigger": false }
 ]
 ```
 
@@ -566,9 +566,9 @@ Present eval set to user for review using HTML template:
 
 1. Read template from `assets/eval_review.html`
 2. Replace placeholders:
-    - `__EVAL_DATA_PLACEHOLDER__` → JSON array of eval items (no quotes — JS variable assignment)
-    - `__SKILL_NAME_PLACEHOLDER__` → skill name
-    - `__SKILL_DESCRIPTION_PLACEHOLDER__` → skill's current description
+   - `__EVAL_DATA_PLACEHOLDER__` → JSON array of eval items (no quotes — JS variable assignment)
+   - `__SKILL_NAME_PLACEHOLDER__` → skill name
+   - `__SKILL_DESCRIPTION_PLACEHOLDER__` → skill's current description
 3. Write to temp file (e.g., `/tmp/eval_review_<skill-name>.html`) and open: `open /tmp/eval_review_<skill-name>.html`
 4. User can edit queries, toggle should-trigger, add/remove entries, click "Export Eval Set"
 5. Downloads to `~/Downloads/eval_set.json` — check Downloads folder for most recent version if multiple (e.g., `eval_set (1).json`)
@@ -610,11 +610,11 @@ After the skill content is finalized (iteration loop complete) and the descripti
 
 1. Load the `devbot:optimize-instructions` context skill
 2. Follow its 6-step procedure:
-    - **Step 1: Classify the file** — The created file is a Skill type. Confirm its structure matches the Skill template.
-    - **Step 2: Apply writing rules** — Check every rule against the 8-point checklist (economy, precision, positive phrasing, non-redundant, priority ordered, scoped, bounded, output contract). Fix violations.
-    - **Step 3: Check structure compliance** — Validate against the Skill file structure (frontmatter, when to apply, procedure, templates, definitions).
-    - **Step 4: Validate pattern coverage** — Check decomposition/routing, context engineering, communication, reflection, planning, resilience, human oversight, memory, and reasoning patterns relevant to a skill file.
-    - **Step 5: Produce output** — Write the optimized SKILL.md back to its path.
+   - **Step 1: Classify the file** — The created file is a Skill type. Confirm its structure matches the Skill template.
+   - **Step 2: Apply writing rules** — Check every rule against the 8-point checklist (economy, precision, positive phrasing, non-redundant, priority ordered, scoped, bounded, output contract). Fix violations.
+   - **Step 3: Check structure compliance** — Validate against the Skill file structure (frontmatter, when to apply, procedure, templates, definitions).
+   - **Step 4: Validate pattern coverage** — Check decomposition/routing, context engineering, communication, reflection, planning, resilience, human oversight, memory, and reasoning patterns relevant to a skill file.
+   - **Step 5: Produce output** — Write the optimized SKILL.md back to its path.
 
 ### When to skip
 
@@ -682,8 +682,8 @@ Core loop again:
 - Draft or edit skill
 - Run agent-with-access-to-skill on test prompts
 - With user, evaluate outputs:
-    - Create benchmark.json, run `eval-viewer/generate_review.py` for user review
-    - Run quantitative evals
+  - Create benchmark.json, run `eval-viewer/generate_review.py` for user review
+  - Run quantitative evals
 - Repeat until satisfied
 - Optimize description for triggering accuracy (optional, user decides)
 - Optimize instructions with `devbot:optimize-instructions` (optional, user decides)

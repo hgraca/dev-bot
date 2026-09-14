@@ -1,6 +1,6 @@
 ---
 name: devbot:make-plan
-description: "Plans work of any size AND produces its technical implementation plan inline in the backlog. Detects whether the brief is a list of stories (epic path), a single brief judged trivial (skip planning), or a single brief needing a plan (story path), then folds the architecture/implementation plan into a single combined backlog.md. Use this skill whenever a human stakeholder provides a story, epic, feature request, or business initiative that needs planning before implementation, or whenever a technical implementation plan must be designed across layers — even if they do not say 'plan' explicitly."
+description: "Plans work of any size and folds its technical implementation plan into the backlog. Detects epic (list of stories), trivial (skip planning), or story (single brief needing a plan), then writes one combined backlog.md. Use when a stakeholder provides a story, epic, feature request, or initiative needing planning before implementation, or a technical plan must be designed across layers."
 ---
 
 # Skill: Plan
@@ -10,7 +10,7 @@ Plan a body of work AND specify how to build it, in a single combined backlog. I
 | Path        | Trigger                                                                         | Output                                                                                                                                    |
 | ----------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | **Epic**    | Prompt contains explicit list of stories, cross-cutting, or multi-step workflow | One epic `backlog.md` (stories + epic-level technical actions) + one combined `backlog.md` per story sub-folder + critic review per story |
-| **Trivial** | 1-3 files changed, clear scope, no ambiguity                                    | None. Go straight to `devbot:implement-story`                                                                                                    |
+| **Trivial** | 1-3 files changed, clear scope, no ambiguity                                    | None. Go straight to `devbot:implement-story`                                                                                             |
 | **Story**   | Default for any single non-trivial brief                                        | One combined `backlog.md` (story → tasks, with technical actions at task/story level) + critic review + optional UI/UX                    |
 
 This skill absorbs the former `devbot:make-plan` skill. The technical implementation plan is **no longer a separate `PLAN-ARCH-*.md` document** — it is written directly into the backlog. See **Combined backlog format** below for the structure and **Technical-action scope-assignment ladder — MUST** for where each technical action goes.
@@ -334,15 +334,15 @@ Design work needed → delegate @designer. First sentence MUST be: `Write <work-
 Prompt contains a list, cross-cutting concern, or multi-step workflow → epic path.
 
 1. Delegate @po. First sentence MUST be: `Write <work-folder>/backlog.md containing an epic-level story breakdown for: <stakeholder list>.`
-    - Epic backlog: **one entry per story from the user list** in the `## Stories` table. NEVER regroup, split, or merge — preserve the user structure.
-    - Each entry: title, one-paragraph description, priority, dependencies on other stories in the list, sub-folder slug to create.
-    - The PO saves to `<work-folder>/backlog.md`, signals [FINISHED] with the path.
+   - Epic backlog: **one entry per story from the user list** in the `## Stories` table. NEVER regroup, split, or merge — preserve the user structure.
+   - Each entry: title, one-paragraph description, priority, dependencies on other stories in the list, sub-folder slug to create.
+   - The PO saves to `<work-folder>/backlog.md`, signals [FINISHED] with the path.
 
 2. For each story in the epic backlog, in priority order:
-    1. Create the story sub-folder: `<work-folder>/YYYYMMDD-HHMMSS-NN-<story_slug>/`.
-    2. Recurse the **story path** (Steps 3–6) for the story's combined backlog. Use the sub-folder as `<work-folder>` for the recursion.
-    3. Output a progress report after each story:
-        > **Epic planning progress**: \<planned\>/\<total\> stories planned | \<remaining\> remaining
+   1. Create the story sub-folder: `<work-folder>/YYYYMMDD-HHMMSS-NN-<story_slug>/`.
+   2. Recurse the **story path** (Steps 3–6) for the story's combined backlog. Use the sub-folder as `<work-folder>` for the recursion.
+   3. Output a progress report after each story:
+      > **Epic planning progress**: \<planned\>/\<total\> stories planned | \<remaining\> remaining
 
 All stories MUST be planned before implementation begins, making cross-story dependencies and architecture concerns visible before code.
 
@@ -405,46 +405,46 @@ The planning state machine has exactly four legal transitions out of any critic 
 2. Output the summary to the stakeholder, ask for final approval.
 3. Write `<work-folder>/planning-complete.md` as the final closing-checklist artifact, listing each required artifact with **existence-verified AND canonical-path-verified** status. This file MUST be the orchestrator's last write before reporting completion.
 
-    Each `[x]` line MUST cite the **canonical SKILL-prescribed path** under `<work-folder>` (resolved to the absolute path of the work folder) AND a **verifying tool call** confirming the file at that path. Existence-only checks not binding the file to its canonical path are invalid — the line MUST remain `[ ]` until the file is at the correct path.
+   Each `[x]` line MUST cite the **canonical SKILL-prescribed path** under `<work-folder>` (resolved to the absolute path of the work folder) AND a **verifying tool call** confirming the file at that path. Existence-only checks not binding the file to its canonical path are invalid — the line MUST remain `[ ]` until the file is at the correct path.
 
-    Required artifacts by path:
+   Required artifacts by path:
 
-    **Story path**:
-    - `<work-folder>/backlog.md` — refined; every task has acceptance criteria + priority + technical actions; story-level and (where applicable) document-level technical content present; `**Status**: FINAL`, set by the orchestrator only after the critic round is APPROVED with zero BLOCKERs.
-    - `<work-folder>/PLAN-REVIEW-YYYY-MM-DD-NNN.md` — at least one with verdict APPROVED dated after the latest architect revision.
-    - `<work-folder>/summary.md` — per `summarize_plan` skill.
-    - `<work-folder>/retrospective/planning.md` — per `devbot:make-retrospective` skill.
+   **Story path**:
+   - `<work-folder>/backlog.md` — refined; every task has acceptance criteria + priority + technical actions; story-level and (where applicable) document-level technical content present; `**Status**: FINAL`, set by the orchestrator only after the critic round is APPROVED with zero BLOCKERs.
+   - `<work-folder>/PLAN-REVIEW-YYYY-MM-DD-NNN.md` — at least one with verdict APPROVED dated after the latest architect revision.
+   - `<work-folder>/summary.md` — per `summarize_plan` skill.
+   - `<work-folder>/retrospective/planning.md` — per `devbot:make-retrospective` skill.
 
-    **Epic path**:
-    - `<work-folder>/backlog.md` — epic backlog, one entry per story from the user list, plus `## Epic-level technical actions`.
-    - `<work-folder>/summary.md` — epic planning summary.
-    - `<work-folder>/retrospective/planning.md` — per `devbot:make-retrospective` skill.
-    - For each story sub-folder, the **Story path** required artifacts above (verified inside the sub-folder).
+   **Epic path**:
+   - `<work-folder>/backlog.md` — epic backlog, one entry per story from the user list, plus `## Epic-level technical actions`.
+   - `<work-folder>/summary.md` — epic planning summary.
+   - `<work-folder>/retrospective/planning.md` — per `devbot:make-retrospective` skill.
+   - For each story sub-folder, the **Story path** required artifacts above (verified inside the sub-folder).
 
-    **Trivial path**: no `planning-complete.md` produced. No planning stage. Proceed direct to implementation.
+   **Trivial path**: no `planning-complete.md` produced. No planning stage. Proceed direct to implementation.
 
-    For each artifact, the orchestrator MUST `read` it at its canonical path (or `ls` the directory + confirm a non-empty file at that path) BEFORE listing `[x]`. Proof is a tool call against the canonical path, not an assertion.
+   For each artifact, the orchestrator MUST `read` it at its canonical path (or `ls` the directory + confirm a non-empty file at that path) BEFORE listing `[x]`. Proof is a tool call against the canonical path, not an assertion.
 
-    Verification format — each `[x]` line MUST take this shape:
+   Verification format — each `[x]` line MUST take this shape:
 
-    - [x] `<canonical-path>` (verified by `<tool>` at `<ISO-8601 timestamp>` — `<evidence>`)
+   - [x] `<canonical-path>` (verified by `<tool>` at `<ISO-8601 timestamp>` — `<evidence>`)
 
-    Example body:
+   Example body:
 
-    ```markdown
-    # Planning complete — 20260508-143000-01-pokeapi-bus-refactor
+   ```markdown
+   # Planning complete — 20260508-143000-01-pokeapi-bus-refactor
 
-    Work folder: `.agents/memory/work/active/20260508-143000-01-pokeapi-bus-refactor/`
-    Path: story
-    Verified at: 2026-05-08T15:30:00Z
+   Work folder: `.agents/memory/work/active/20260508-143000-01-pokeapi-bus-refactor/`
+   Path: story
+   Verified at: 2026-05-08T15:30:00Z
 
-    - [x] `.ai/.../20260508-143000-01-pokeapi-bus-refactor/backlog.md`
-          (verified by `read` — Status: FINAL on line 3; 7 tasks, each with Technical actions)
-    - [x] `.ai/.../20260508-143000-01-pokeapi-bus-refactor/PLAN-REVIEW-2026-05-08-002.md`
-          (verified by `read` — verdict: APPROVED on line 3)
-    ```
+   - [x] `.ai/.../20260508-143000-01-pokeapi-bus-refactor/backlog.md`
+         (verified by `read` — Status: FINAL on line 3; 7 tasks, each with Technical actions)
+   - [x] `.ai/.../20260508-143000-01-pokeapi-bus-refactor/PLAN-REVIEW-2026-05-08-002.md`
+         (verified by `read` — verdict: APPROVED on line 3)
+   ```
 
-    An artifact NOT at its canonical path → the line is `[ ] <canonical-path> — NOT AT CANONICAL PATH (found at <actual-path>)` or `[ ] <canonical-path> — MISSING`. The orchestrator treats the planning stage as [PARTIAL] per the closing gate below. Move the file to its canonical path, re-verify before marking `[x]`. Planning is complete only when this file exists + lists every required artifact `[x]` at its canonical path with a verifying tool call.
+   An artifact NOT at its canonical path → the line is `[ ] <canonical-path> — NOT AT CANONICAL PATH (found at <actual-path>)` or `[ ] <canonical-path> — MISSING`. The orchestrator treats the planning stage as [PARTIAL] per the closing gate below. Move the file to its canonical path, re-verify before marking `[x]`. Planning is complete only when this file exists + lists every required artifact `[x]` at its canonical path with a verifying tool call.
 
 #### Complete-side enumeration — MUST
 
@@ -472,10 +472,10 @@ Every agent-count claim in ANY closing artefact (`summary.md`, `retrospective/pl
 
 1. Compute `delegation_count[agent]` from `interactions.md` (one count per role: PO, architect, critic, tester, developer, reviewer, designer).
 2. Compute `deliverable_count[agent]` from `glob` per the agent's expected deliverable pattern:
-    - critic: `glob` for `PLAN-REVIEW-*.md` in `<work-folder>`.
-    - PO: `glob` for `backlog.md` (+ any `backlog-delta-*.md`) in `<work-folder>`.
-    - architect: count of `backlog.md` files containing a Technical actions / technical-plan section, PLUS the count of architect-revision entries in any `Review Response` section. (The architect no longer produces `PLAN-ARCH-*.md`; the technical plan lives in the backlog.)
-    - Other agents: `glob` for the agent's expected deliverable pattern.
+   - critic: `glob` for `PLAN-REVIEW-*.md` in `<work-folder>`.
+   - PO: `glob` for `backlog.md` (+ any `backlog-delta-*.md`) in `<work-folder>`.
+   - architect: count of `backlog.md` files containing a Technical actions / technical-plan section, PLUS the count of architect-revision entries in any `Review Response` section. (The architect no longer produces `PLAN-ARCH-*.md`; the technical plan lives in the backlog.)
+   - Other agents: `glob` for the agent's expected deliverable pattern.
 3. Confirm `delegation_count[agent] >= deliverable_count[agent]` for each subagent. Any agent with `delegation_count < deliverable_count` → the orchestrator MUST add the missing Delegation entries (citing the produced deliverable) before the gate passes.
 4. For each closing artefact, `grep` for any agent-count claim (patterns: `\d+ (PO|architect|critic|tester|developer|reviewer|designer)`, `Total subagent invocations: \d+`, any Per-Agent Totals cell).
 5. For every match, verify the cited number equals `delegation_count[agent]` (or the sum for a "Total"). Mismatches FAIL the gate.
@@ -493,10 +493,10 @@ On approval:
 1. Produce a post-planning retrospective per `devbot:make-retrospective` skill.
 2. Address retrospective findings per `devbot:address-retrospective` skill — pass the retro file path.
 3. Proceed to implementation:
-    - **Story path**: follow `devbot:implement-story` skill once, with `<work-folder>` as `<issue-folder>`. The combined `backlog.md` is the implementation source — tasks carry their technical actions inline.
-    - **Epic path**: follow `devbot:implement-story` for each story in dependency-respecting order, with the story sub-folder as `<issue-folder>`. After each story, output:
-        > **Epic implementation progress**: \<implemented\>/\<total\> stories done | \<blocked\> blocked | \<remaining\> remaining
-    - **Trivial path**: already routed in Step 2; nothing more here.
+   - **Story path**: follow `devbot:implement-story` skill once, with `<work-folder>` as `<issue-folder>`. The combined `backlog.md` is the implementation source — tasks carry their technical actions inline.
+   - **Epic path**: follow `devbot:implement-story` for each story in dependency-respecting order, with the story sub-folder as `<issue-folder>`. After each story, output:
+     > **Epic implementation progress**: \<implemented\>/\<total\> stories done | \<blocked\> blocked | \<remaining\> remaining
+   - **Trivial path**: already routed in Step 2; nothing more here.
 
 Ordering rules (epic path): respect explicit dependencies in the epic backlog; no deps → priority order; foundation stories (shared domain, infra, config) before consumers; same bounded context → sequential.
 
@@ -522,9 +522,9 @@ The [FINISHED] message MUST enumerate per-item evidence for each check, not summ
 - **Item 4 (algorithm↔test traceability)**: enumerate per traced / behaviour-change / under-specified row.
 - **Item 5 (verbatim-bar)**: instead of "N lines, M blocks", produce a table:
 
-    ```
+  ```
 
-    ```
+  ```
 
 | Line range | Block type     | Length | Justification (verbatim because …) |
 | ---------- | -------------- | ------ | ---------------------------------- |

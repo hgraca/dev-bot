@@ -1,6 +1,6 @@
 ---
 name: devbot:gh-docs-website
-description: "Use this skill whenever the user wants to create, build, or publish a documentation website for a project — a static docs site on GitHub Pages generated with Jekyll — even if they don't say 'documentation' or 'Jekyll' explicitly (e.g. 'make a docs site', 'put our docs online', 'publish the README as a website', 'docs website', 'gh-pages', 'github pages'). Guides the full flow end to end: understand the target audience, gather project information, scope the documentation, write the content, then set up the technical artifacts (Jekyll site structure, _config.yml, layouts/includes, GitHub Actions deployment workflow). Use it for both the content strategy and the technical implementation."
+description: "Use when the user wants to create, build, or publish a documentation website — a static docs site on GitHub Pages generated with Jekyll — even if they don't say 'documentation' or 'Jekyll' (e.g. 'make a docs site', 'publish the README as a website', 'gh-pages'). Guides the full flow: Jekyll structure, _config.yml, layouts, and the GitHub Actions deploy workflow."
 ---
 
 # gh-docs-website
@@ -147,7 +147,7 @@ The minimal, working configuration:
 ```yaml
 title: <Project Name>
 description: >-
-    <One-sentence description>
+  <One-sentence description>
 url: "https://<org>.github.io"
 baseurl: "/<repo>"
 
@@ -155,24 +155,24 @@ markdown: kramdown
 highlighter: rouge
 
 kramdown:
-    input: GFM
-    syntax_highlighter: rouge
+  input: GFM
+  syntax_highlighter: rouge
 
 plugins:
-    - jekyll-seo-tag
+  - jekyll-seo-tag
 
 defaults:
-    - scope:
-          path: ""
-          type: "pages"
-      values:
-          layout: "page"
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "page"
 
 exclude:
-    - Gemfile
-    - Gemfile.lock
-    - vendor
-    - .bundle
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - .bundle
 
 permalink: pretty
 ```
@@ -220,61 +220,61 @@ Add `.github/workflows/jekyll-gh-pages.yml` with a build + deploy job:
 name: Deploy Jekyll site to GitHub Pages
 
 on:
-    push:
-        branches: ["main"]
-        paths:
-            - "docs/**"
-            - ".github/workflows/jekyll-gh-pages.yml"
-    workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths:
+      - "docs/**"
+      - ".github/workflows/jekyll-gh-pages.yml"
+  workflow_dispatch:
 
 permissions:
-    contents: read
-    pages: write
-    id-token: write
+  contents: read
+  pages: write
+  id-token: write
 
 concurrency:
-    group: "pages"
-    cancel-in-progress: false
+  group: "pages"
+  cancel-in-progress: false
 
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            - name: Setup Ruby
-              uses: ruby/setup-ruby@v1
-              with:
-                  ruby-version: "3.3"
-                  bundler-cache: true
-                  working-directory: docs
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+          working-directory: docs
 
-            - name: Setup Pages
-              id: pages
-              uses: actions/configure-pages@v5
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
 
-            - name: Build with Jekyll
-              run: bundle exec jekyll build --baseurl "${{ steps.pages.outputs.base_path }}"
-              working-directory: docs
-              env:
-                  JEKYLL_ENV: production
+      - name: Build with Jekyll
+        run: bundle exec jekyll build --baseurl "${{ steps.pages.outputs.base_path }}"
+        working-directory: docs
+        env:
+          JEKYLL_ENV: production
 
-            - name: Upload artifact
-              uses: actions/upload-pages-artifact@v3
-              with:
-                  path: docs/_site
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_site
 
-    deploy:
-        environment:
-            name: github-pages
-            url: ${{ steps.deployment.outputs.page_url }}
-        runs-on: ubuntu-latest
-        needs: build
-        steps:
-            - name: Deploy to GitHub Pages
-              id: deployment
-              uses: actions/deploy-pages@v4
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
 ```
 
 Notes:

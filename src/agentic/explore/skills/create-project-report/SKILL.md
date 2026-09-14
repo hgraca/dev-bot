@@ -1,6 +1,6 @@
 ---
 name: devbot:create-project-report
-description: "Explores the entire project and produces a technical description at .agents/memory/active/project.md covering structure, purpose, architecture, conventions, and known inconsistencies, plus a preemptive-skill-loading list. Use this skill whenever onboarding to a new project, when the description is missing or stale, when the user says 'explore the project', 'describe the project', 'map the codebase', 'document the architecture', or invokes /devbot:create-project-report — and when starting work on an unfamiliar repo before planning."
+description: "Explores the entire project and writes a technical description to .agents/memory/active/project.md — structure, purpose, architecture, conventions, known inconsistencies — plus a preemptive-skill-loading list. Use when onboarding to a new project, when the description is missing or stale, on 'explore the project', 'describe the project', 'map the codebase', or /devbot:create-project-report."
 ---
 
 # Skill: Explore Project

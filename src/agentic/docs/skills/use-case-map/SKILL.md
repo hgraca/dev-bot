@@ -1,6 +1,6 @@
 ---
 name: devbot:use-case-map
-description: "Use this skill whenever the user wants a visual map of how commands flow through a PHP codebase — generate a UseCaseMap architecture diagram JSON tracing call chains from entry points through commands, handlers, ports, adapters, and HTTP clients. Triggers on 'use case map', 'architecture diagram', 'system overview', 'message flow', or when needing a visual map of the system, even if they do not say 'use case map'."
+description: "Use when the user wants a visual map of how commands flow through a PHP codebase — generate a UseCaseMap architecture diagram JSON tracing call chains from entry points through commands, handlers, ports, adapters, and HTTP clients. Triggers on 'use case map', 'architecture diagram', 'system overview', 'message flow', or needing a visual map of the system."
 ---
 
 # use-case-map

@@ -1,6 +1,6 @@
 ---
 name: devbot:explicit-svelte
-description: "Svelte 5 + SvelteKit + TypeScript development conventions. Use this skill whenever building, scaffolding, or modifying any Svelte project — covers scaffolding, routing, atomic component design, ports/adapters architecture, SMUI theming, server vs client code separation, TypeScript rules, and data access patterns. Triggers on 'svelte', 'sveltekit', 'create svelte app', 'svelte component', 'svelte project', or when working in a Svelte codebase."
+description: "Svelte 5 + SvelteKit + TypeScript development conventions. Use when building, scaffolding, or modifying any Svelte project — scaffolding, routing, atomic component design, ports/adapters architecture, SMUI theming, server vs client separation, TypeScript rules, data access. Triggers on 'svelte', 'sveltekit', 'create svelte app', 'svelte component', 'svelte project', or a Svelte codebase."
 ---
 
 # Skill: Svelte 5 + SvelteKit + TypeScript
@@ -147,9 +147,9 @@ Example:
 ```ts
 // style/primitives.ts
 export const colors = {
-    white: "#FFFFFF",
-    blue: { 500: "#0066FF", 400: "#0055EE" },
-    gray: { 900: "#111111" },
+  white: "#FFFFFF",
+  blue: { 500: "#0066FF", 400: "#0055EE" },
+  gray: { 900: "#111111" },
 };
 export const spacing = { 4: "4px", 8: "8px" };
 ```
@@ -159,14 +159,14 @@ export const spacing = { 4: "4px", 8: "8px" };
 import { colors, spacing } from "../primitives.ts";
 
 export const lightTheme = {
-    color: {
-        primary: colors.blue[500],
-        background: colors.white,
-    },
-    spacing: {
-        primary: spacing[4],
-        secondary: spacing[8],
-    },
+  color: {
+    primary: colors.blue[500],
+    background: colors.white,
+  },
+  spacing: {
+    primary: spacing[4],
+    secondary: spacing[8],
+  },
 };
 ```
 
@@ -175,14 +175,14 @@ export const lightTheme = {
 import { colors, spacing } from "../primitives.ts";
 
 export const darkTheme = {
-    color: {
-        primary: colors.blue[400],
-        background: colors.gray[900],
-    },
-    spacing: {
-        primary: spacing[4],
-        secondary: spacing[8],
-    },
+  color: {
+    primary: colors.blue[400],
+    background: colors.gray[900],
+  },
+  spacing: {
+    primary: spacing[4],
+    secondary: spacing[8],
+  },
 };
 ```
 
@@ -202,11 +202,11 @@ const storedTheme = localStorage.getItem("theme") || "light";
 export const themeStore = writable(storedTheme === "dark" ? darkTheme : lightTheme);
 
 export function toggleTheme() {
-    themeStore.update((current) => {
-        const next = current === lightTheme ? darkTheme : lightTheme;
-        localStorage.setItem("theme", next === darkTheme ? "dark" : "light");
-        return next;
-    });
+  themeStore.update((current) => {
+    const next = current === lightTheme ? darkTheme : lightTheme;
+    localStorage.setItem("theme", next === darkTheme ? "dark" : "light");
+    return next;
+  });
 }
 ```
 
@@ -215,7 +215,7 @@ Then we use Svelte stores for reactive theme switching:
 ```xhtml
 <!-- App.svelte -->
 <script>
-    import { themeStore, toggleTheme } from "./style/semantic-tokens.ts";
+  import { themeStore, toggleTheme } from "./style/semantic-tokens.ts";
 </script>
 
 <button onclick="{toggleTheme}">Toggle Theme</button>
@@ -313,9 +313,9 @@ npm install -D @sveltejs/adapter-node
 import adapter from "@sveltejs/adapter-node";
 
 export default {
-    kit: {
-        adapter: adapter(),
-    },
+  kit: {
+    adapter: adapter(),
+  },
 };
 ```
 

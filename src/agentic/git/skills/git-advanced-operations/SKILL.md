@@ -1,6 +1,6 @@
 ---
 name: devbot:git-advanced-operations
-description: Advanced git history surgery — partial staging with git add -p, isolating unrelated work with stash pathspecs, splitting a commit that was already made, reordering or rewording a range of commits, verifying each commit builds independently, and recovering from a bad rebase or reset with reflog. Use when a single file contains several unrelated changes, when a commit needs breaking apart after the fact, when unrelated edits are in the way, when the user asks to reorder, reword, drop, or rewrite commits, or when a rebase or reset went wrong and work needs recovering. Also use for "how do I undo this", "I lost a commit", or "I committed too much at once".
+description: Advanced git history surgery — partial staging with git add -p, stash pathspecs, splitting a commit after the fact, reordering or rewording a range, recovering from a bad rebase or reset with reflog. Use when one file holds unrelated changes, a commit needs breaking apart, or the user asks to reorder, reword, drop, or rewrite commits — or 'how do I undo this', 'I lost a commit'.
 ---
 
 # Advanced Git Operations
@@ -26,14 +26,14 @@ git add -p path/to/file.ts
 
 This walks the file hunk by hunk. The useful keys:
 
-| Key | Action |
-|---|---|
-| `y` | stage this hunk |
-| `n` | skip this hunk |
+| Key | Action                   |
+| --- | ------------------------ |
+| `y` | stage this hunk          |
+| `n` | skip this hunk           |
 | `s` | split into smaller hunks |
-| `e` | edit the hunk manually |
-| `q` | quit staging |
-| `?` | help |
+| `e` | edit the hunk manually   |
+| `q` | quit staging             |
+| `?` | help                     |
 
 `s` only splits where there's an unchanged line between changes. When two edits sit on adjacent lines, `e` is the way — it opens the patch so lines can be removed. In an edit buffer, delete `+` lines to leave them unstaged, and change `-` to a space to keep a line from being removed.
 
@@ -62,7 +62,7 @@ git stash list
 git stash show -p stash@{0}
 ```
 
-`git stash push -- <path>` on a newly added file leaves it staged-but-stashed in a way that surprises people; check `git status` rather than assuming. For unrelated *untracked* files, add `-u`.
+`git stash push -- <path>` on a newly added file leaves it staged-but-stashed in a way that surprises people; check `git status` rather than assuming. For unrelated _untracked_ files, add `-u`.
 
 ## Splitting a commit already made
 
@@ -98,14 +98,14 @@ git rebase -i <base>
 
 In the todo list, reorder lines to reorder commits and change the leading verb:
 
-| Verb | Effect |
-|---|---|
-| `pick` | keep as is |
-| `reword` | keep the change, edit the message |
-| `edit` | stop here to amend content |
-| `squash` | merge into previous, combine messages |
-| `fixup` | merge into previous, discard this message |
-| `drop` | remove the commit |
+| Verb     | Effect                                    |
+| -------- | ----------------------------------------- |
+| `pick`   | keep as is                                |
+| `reword` | keep the change, edit the message         |
+| `edit`   | stop here to amend content                |
+| `squash` | merge into previous, combine messages     |
+| `fixup`  | merge into previous, discard this message |
+| `drop`   | remove the commit                         |
 
 Reordering commits that touch the same lines invites conflicts — expect to resolve them, and `git rebase --abort` if the result looks wrong. Add `--autostash` when uncommitted work needs to survive the rebase:
 
