@@ -76,6 +76,9 @@ _devbot_is_true() {
   return 1
 }
 
+# Mirrors bin/up.sh: the GPU overlay also needs a live passthrough capability.
+_has_docker_gpu() { [[ "${MOCK_HAS_DOCKER_GPU:-no}" == "yes" ]]; }
+
 _devbot_get_disabled_modules() {
   local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
   [[ ! -f "${config}" ]] && echo "[]" && return 0
@@ -148,14 +151,29 @@ _run_docker_down() {
   [[ "$output" != *"codebase-index"* ]]
 }
 
-@test "down appends the GPU override when gpu_enabled" {
+@test "down appends the GPU override when gpu_enabled and passthrough is available" {
   _setup_sandbox '{"gpu_enabled": true}'
+  MOCK_HAS_DOCKER_GPU=yes
 
   run _run_docker_down
 
   assert_success
   run cat "${DOCKER_ARGS_FILE}"
   assert_output --regexp 'compose -f docker-compose\.yml -f src/tools/litellm/docker-compose\.yml -f src/agentic/codebase-index/docker-compose\.yml -f docker-compose\.gpu\.yml down --remove-orphans'
+}
+
+@test "down omits the GPU override when gpu_enabled but no passthrough" {
+  # Docker Desktop (macOS/Windows) never has passthrough — the persisted flag
+  # alone must not append the overlay (mirrors the bin/up.sh gate).
+  _setup_sandbox '{"gpu_enabled": true}'
+  MOCK_HAS_DOCKER_GPU=no
+
+  run _run_docker_down
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --regexp 'compose -f docker-compose\.yml -f src/tools/litellm/docker-compose\.yml -f src/agentic/codebase-index/docker-compose\.yml down --remove-orphans'
+  [[ "$output" != *"gpu"* ]]
 }
 
 @test "down skips entirely when no enabled module ships a compose file" {

@@ -142,6 +142,9 @@ teardown() {
 
   # Re-source so _devbot_is_true reads the updated config.
   source "${PROJECT_ROOT}/src/_shared/functions.sh"
+  # The overlay also needs a live passthrough capability — stub it so the
+  # result does not depend on whether this host has docker GPU passthrough.
+  _has_docker_gpu() { return 0; }
   # Run from a cwd OTHER than DEV_BOT_ROOT — the helper must resolve the gpu
   # overlay absolutely (devbot models runs from the caller's cwd, which is
   # usually not the install root; a relative path would not resolve).
@@ -153,6 +156,22 @@ teardown() {
   # The compose-up line must carry the gpu overlay as an ABSOLUTE path.
   assert_output --regexp "-f ${DEV_BOT_ROOT}/docker-compose\.gpu\.yml"
   rm -rf "${OTHER_CWD}"
+}
+
+@test "exec omits the GPU overlay when gpu_enabled but there is no passthrough" {
+  # Docker Desktop (macOS/Windows) never has passthrough — the persisted flag
+  # alone must not append the device reservation (mirrors bin/up.sh).
+  printf '{\n  "gpu_enabled": true\n}\n' > "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  echo "down" > "${MOCK}/container.state"
+  echo "0" > "${MOCK}/exec.rc"
+
+  source "${PROJECT_ROOT}/src/_shared/functions.sh"
+  _has_docker_gpu() { return 1; }
+
+  run _devbot_ollama_exec list
+  assert_success
+  run cat "${MOCK}/calls.log"
+  refute_output --partial "docker-compose.gpu.yml"
 }
 
 @test "exec fails cleanly when there is no docker daemon" {

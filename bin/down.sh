@@ -96,7 +96,9 @@ for m in json.loads(sys.stdin.read()):
   _header_3 "Stopping docker services..."
 
   # ── GPU override: append docker-compose.gpu.yml when enabled ─────────────
-  if _devbot_is_true "gpu_enabled"; then
+  # Mirrors bin/up.sh: the overlay needs a live passthrough capability, not
+  # just the persisted gpu_enabled flag (see up.sh's comment).
+  if _devbot_is_true "gpu_enabled" && _has_docker_gpu; then
     compose_opts+=("-f" "docker-compose.gpu.yml")
   fi
 

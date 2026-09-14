@@ -72,6 +72,10 @@ _devbot_is_true() {
   return 1
 }
 
+# Container GPU passthrough is a LIVE capability probe — a persisted
+# gpu_enabled that no longer matches the host must not gate the overlay.
+_has_docker_gpu() { [[ "${MOCK_HAS_DOCKER_GPU:-no}" == "yes" ]]; }
+
 _devbot_get_disabled_modules() {
   local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
   [[ ! -f "${config}" ]] && echo "[]" && return 0
@@ -168,6 +172,7 @@ _run_docker_up() {
 
 @test "GPU enabled — base compose first, then GPU override" {
   _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false}}'
+  MOCK_HAS_DOCKER_GPU=yes
 
   run _run_docker_up
 
@@ -179,12 +184,29 @@ _run_docker_up() {
 
 @test "GPU and litellm together" {
   _setup_sandbox '{"gpu_enabled": true}'
+  MOCK_HAS_DOCKER_GPU=yes
 
   run _run_docker_up
 
   assert_success
   run cat "${DOCKER_ARGS_FILE}"
   assert_output --regexp 'compose -f docker-compose\.yml -f src/tools/litellm/docker-compose\.yml -f docker-compose\.gpu\.yml up -d --no-recreate'
+}
+
+@test "GPU enabled but no container passthrough — no overlay (Docker Desktop macOS)" {
+  # gpu_enabled is a persisted intent; the overlay must ALSO require a live
+  # _has_docker_gpu. On Docker Desktop (macOS/Windows) passthrough is never
+  # available, so a stale/over-eager gpu_enabled=true must not append the
+  # device reservation — docker compose would fail and abort the whole start.
+  _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false}}'
+  MOCK_HAS_DOCKER_GPU=no
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --regexp 'compose -f docker-compose\.yml up -d --no-recreate'
+  [[ "$output" != *"gpu"* ]]
 }
 
 @test "GPU false and litellm disabled — base only" {

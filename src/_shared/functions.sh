@@ -1570,8 +1570,10 @@ _qmd_gpu_value() {
 #   `gpu_enabled` key via _devbot_set_bool. Semantics (moved verbatim from
 #   src/tools/ollama/install.sh, audit-25 F5):
 #     - no docker daemon  → gpu_enabled follows the HOST probe (_has_gpu):
-#       the host's ollama serves the API and local processes (qmd) can use
-#       the GPU directly even though no ollama container runs here.
+#       passthrough cannot be probed without a daemon, so the host's GPU is
+#       recorded as a preseed. The compose overlay additionally requires a
+#       live _has_docker_gpu (bin/up.sh), so an over-eager true stays harmless
+#       on hosts without passthrough (Docker Desktop).
 #     - docker daemon     → gpu_enabled follows _has_docker_gpu (container
 #       passthrough): a host GPU without the container toolkit does NOT
 #       enable passthrough.
@@ -1590,7 +1592,7 @@ _devbot_detect_gpu() {
 
   if ! docker info >/dev/null 2>&1; then
     if _has_gpu; then
-      _info "GPU detected on this machine — recording gpu_enabled=true (qmd etc. can use it locally); ollama container skipped (no docker daemon)"
+      _info "GPU detected on this machine — recording gpu_enabled=true as a preseed (no docker daemon to probe passthrough); ollama container skipped"
       _devbot_set_bool "gpu_enabled" "true"
     else
       _info "No GPU detected — recording gpu_enabled=false"
@@ -1730,7 +1732,9 @@ _devbot_ollama_exec() {
   local -a compose_opts=("-f" "${compose_file}")
   # Absolute path — this helper runs from the caller's cwd (devbot models),
   # not from DEV_BOT_ROOT, so a relative gpu overlay would not resolve.
-  if _devbot_is_true "gpu_enabled" && [[ -f "${DEV_BOT_ROOT}/docker-compose.gpu.yml" ]]; then
+  # The overlay needs a live passthrough capability, not just the persisted
+  # gpu_enabled flag (mirrors bin/up.sh; see its comment).
+  if _devbot_is_true "gpu_enabled" && _has_docker_gpu && [[ -f "${DEV_BOT_ROOT}/docker-compose.gpu.yml" ]]; then
     compose_opts+=("-f" "${DEV_BOT_ROOT}/docker-compose.gpu.yml")
   fi
 

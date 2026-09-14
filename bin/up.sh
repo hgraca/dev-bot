@@ -195,7 +195,12 @@ for m in json.loads(sys.stdin.read()):
 
   # ── GPU override: append docker-compose.gpu.yml when enabled and the
   #     base/tool set is non-empty ──────────────────────────────────────────
-  if _devbot_is_true "gpu_enabled"; then
+  # gpu_enabled is a persisted INTENT; the device reservation also needs a
+  # live passthrough capability. _has_docker_gpu is false on Docker Desktop
+  # (macOS/Windows), where the daemon rejects the reservation and
+  # `docker compose up` aborts the whole start — the reported macOS failure.
+  # See storage/global-memories/qmd 20260902 (flag conflation).
+  if _devbot_is_true "gpu_enabled" && _has_docker_gpu; then
     compose_opts+=("-f" "docker-compose.gpu.yml")
   fi
 
@@ -211,12 +216,13 @@ for m in json.loads(sys.stdin.read()):
   _reconcile_ollama_gpu
 }
 
-# ── Reconcile Ollama GPU state against gpu_enabled config ──────────────────────
+# ── Reconcile Ollama GPU state against the desired passthrough ────────────────
 # `docker compose up -d --no-recreate` never applies GPU changes to an existing
-# container. When gpu_enabled flips (or the container predates GPU support),
-# force-recreate ollama so its runtime state matches the config.
-# gpu_enabled is the source of truth (set by ollama install.sh GPU detection);
-# the host may or may not actually have a usable GPU, so tolerate failure.
+# container. When the desired passthrough flips (or the container predates GPU
+# support), force-recreate ollama so its runtime state matches.
+# The desired state is gpu_enabled AND a live _has_docker_gpu — the persisted
+# flag alone is not a capability (Docker Desktop always lacks passthrough).
+# The host may or may not actually have a usable GPU, so tolerate failure.
 _reconcile_ollama_gpu() {
   local cid
   cid=$(docker ps --filter "name=^dev-bot-ollama$" --format '{{.ID}}' 2>/dev/null | head -1)
@@ -227,7 +233,9 @@ _reconcile_ollama_gpu() {
   [[ -z "${has_gpu}" ]] && has_gpu=false
 
   local gpu_enabled=false
-  _devbot_is_true "gpu_enabled" && gpu_enabled=true
+  if _devbot_is_true "gpu_enabled" && _has_docker_gpu; then
+    gpu_enabled=true
+  fi
 
   if [[ "${gpu_enabled}" == "true" && "${has_gpu}" == "false" ]]; then
     _warn "gpu_enabled=true but ollama is CPU-only — recreating with GPU passthrough"
