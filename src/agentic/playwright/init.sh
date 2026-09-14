@@ -64,4 +64,12 @@ else
   _skip "Claude Code disabled — skipping .claude/ MCP wrapper symlink"
 fi
 
+# Dependency self-heal (codebase-memory pattern, T1.2): the mcp.json fallback
+# resolves a globally installed binary by explicit prefix — reinit WITHOUT a
+# preceding install would register the server with no npm fallback and launch
+# would fail with FATAL in .agents/logs/playwright-mcp.log.
+if ! "${MODULE_DIR}/install.sh"; then
+  _warn "playwright install reported a problem (see above) — npm fallback may fail"
+fi
+
 _log "Playwright MCP init complete for ${PROJECT_NAME}"

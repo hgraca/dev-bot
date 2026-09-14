@@ -31,12 +31,27 @@ setup_project() {
     > "${1}/.devbot.project.jsonc"
 }
 
+# T1.2: init.sh self-heals via install.sh, which would otherwise run a REAL
+# global `npm install -g` during tests. Isolate the install path: stub npm,
+# provide a fake binary at the pinned version.
+_stub_npm_kit() {
+  local pin
+  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "${MODULE_DIR}/versions.env" | head -1)"
+  mkdir -p "${1}/.npm-global/bin" "${1}/stubbin"
+  printf '#!/bin/bash\necho "%s"\n' "${pin}" > "${1}/.npm-global/bin/playwright-mcp"
+  chmod +x "${1}/.npm-global/bin/playwright-mcp"
+  printf '#!/bin/bash\nif [ "$1 $2 $3" = "config get prefix" ]; then echo "/nonexistent"; exit 0; fi\nexit 0\n' \
+    > "${1}/stubbin/npm"
+  chmod +x "${1}/stubbin/npm"
+}
+
 @test "init.sh: symlinks the shared wrapper into .claude and .opencode" {
   local tmpdir
   tmpdir="$(mktemp -d)"
   setup_project "${tmpdir}"
+  _stub_npm_kit "${tmpdir}"
 
-  run bash "${INIT_TOOL}" "${tmpdir}"
+  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
 
   assert_success
   [[ -L "${tmpdir}/.claude/playwright-mcp-wrapper.js" ]]
@@ -52,14 +67,69 @@ setup_project() {
   local tmpdir
   tmpdir="$(mktemp -d)"
   setup_project "${tmpdir}"
+  _stub_npm_kit "${tmpdir}"
 
-  run bash "${INIT_TOOL}" "${tmpdir}"
+  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
   assert_success
-  run bash "${INIT_TOOL}" "${tmpdir}"
+  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
   assert_success
 
   [[ -L "${tmpdir}/.claude/playwright-mcp-wrapper.js" ]]
   [[ -L "${tmpdir}/.opencode/playwright-mcp-wrapper.js" ]]
 
   rm -rf "${tmpdir}"
+}
+
+# ── T1.2: version pinning ─────────────────────────────────────────────────────
+
+@test "versions.env: exists and pins a semver @playwright/mcp version" {
+  [[ -f "${MODULE_DIR}/versions.env" ]]
+  run bash -c "source '${MODULE_DIR}/versions.env' && [[ -n \"\${PLAYWRIGHT_MCP_VERSION:-}\" ]]"
+  assert_success
+  run grep -cE '^PLAYWRIGHT_MCP_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env"
+  assert_equal "$output" "1"
+}
+
+@test "install.sh: exists, is executable, and installs the pinned package" {
+  [[ -x "${MODULE_DIR}/install.sh" ]]
+  run grep -q 'versions\.env' "${MODULE_DIR}/install.sh"
+  assert_success
+  run grep -qF 'npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}"' "${MODULE_DIR}/install.sh"
+  assert_success
+}
+
+@test "update.sh: exists, is executable, resolves npm latest, and bumps versions.env" {
+  # User policy: the installed version is bumped to npm latest ONLY on
+  # 'devbot update', and the rewritten pin keeps every consumer at the new
+  # version on their next install.
+  [[ -x "${MODULE_DIR}/update.sh" ]]
+  run grep -q 'npm view "@playwright/mcp" version' "${MODULE_DIR}/update.sh"
+  assert_success
+  run grep -qF 'npm install -g "@playwright/mcp@${LATEST}"' "${MODULE_DIR}/update.sh"
+  assert_success
+  run grep -q 'versions\.env' "${MODULE_DIR}/update.sh"
+  assert_success
+}
+
+# ── T1.2: mcp.json launch routing ────────────────────────────────────────────
+
+@test "mcp.json: npm fallback is explicit-prefix resolved, never npx/@latest" {
+  # No runtime version resolution: no npx, no @latest — the fallback binary is
+  # installed at the pin and resolved by explicit prefix (never via PATH).
+  refute grep -q 'npx' "${MODULE_DIR}/mcp.json"
+  refute grep -q '@latest' "${MODULE_DIR}/mcp.json"
+  run grep -q 'config get prefix' "${MODULE_DIR}/mcp.json"
+  assert_success
+}
+
+@test "mcp.json: fallback fails loudly when the binary is not installed" {
+  run grep -q 'devbot install' "${MODULE_DIR}/mcp.json"
+  assert_success
+}
+
+@test "mcp.json: docker path unchanged" {
+  run grep -q 'docker run --rm -i mcp/playwright' "${MODULE_DIR}/mcp.json"
+  assert_success
+  run grep -q 'docker info' "${MODULE_DIR}/mcp.json"
+  assert_success
 }
