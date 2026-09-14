@@ -538,7 +538,16 @@ cmd_harness() {
   _devbot_session_register
   trap '_devbot_session_release' INT TERM EXIT
 
-  bash "${DEV_BOT_ROOT}/bin/up.sh" "$(pwd)" || exit $?
+  # A failed up.sh must not read as a normal session exit: flag it so the EXIT
+  # trap's last-session teardown stays quiet. It still removes any half-started
+  # containers, but the "Last devbot session ended" line would otherwise look
+  # like the CAUSE of the failure — up.sh reports the error itself.
+  local up_rc=0
+  bash "${DEV_BOT_ROOT}/bin/up.sh" "$(pwd)" || up_rc=$?
+  if [[ "${up_rc}" -ne 0 ]]; then
+    _DEVBOT_START_FAILED=1
+    exit "${up_rc}"
+  fi
   local harness
   harness="$(_devbot_get_harness "$(pwd)")"
 

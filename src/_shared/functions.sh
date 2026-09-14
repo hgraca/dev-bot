@@ -315,7 +315,12 @@ _devbot_session_teardown() {
   fi
   local down_script="${DEV_BOT_ROOT}/bin/down.sh"
   [[ -f "${down_script}" ]] || return 0
-  _info "Last devbot session ended — removing devbot containers"
+  # Stay quiet when this teardown follows a FAILED start (cmd_harness sets
+  # _DEVBOT_START_FAILED): the start's own error is the story, and "Last
+  # devbot session ended" reads as its cause. Containers are still removed.
+  if [[ "${_DEVBOT_START_FAILED:-0}" != "1" ]]; then
+    _info "Last devbot session ended — removing devbot containers"
+  fi
   bash "${down_script}" >/dev/null 2>&1 || true
 }
 

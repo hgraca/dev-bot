@@ -306,6 +306,28 @@ _run_cmd_models() {
   assert_output "down-called"
 }
 
+@test "a failed start tears containers down without claiming the session ended" {
+  rm -f "${SANDBOX}/down.log" "${SANDBOX}/start-args.log"
+  # up.sh fails (e.g. `docker compose up` returned non-zero).
+  cat > "${SANDBOX}/bin/up.sh" <<'EOF'
+#!/usr/bin/env bash
+echo "ERROR: docker compose up failed" >&2
+exit 1
+EOF
+  chmod +x "${SANDBOX}/bin/up.sh"
+
+  _run_cmd_harness
+
+  assert_failure
+  # Cleanup still runs — half-started containers must not linger...
+  [ -f "${SANDBOX}/down.log" ]
+  # ...but the last-session message must stay quiet: after a failed start it
+  # reads as the CAUSE of the failure rather than its consequence.
+  refute_output --partial "Last devbot session ended"
+  # And the harness is never started.
+  [ ! -f "${SANDBOX}/start-args.log" ]
+}
+
 @test "cmd_harness leaves containers up when another session is live" {
   rm -f "${SANDBOX}/down.log" "${SANDBOX}/start-args.log"
   # A concurrent live session: hold a flock on a session file for the duration.
