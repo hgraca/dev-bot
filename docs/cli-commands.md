@@ -84,6 +84,8 @@ Docker services are **consumer-driven**: a compose file is only included when it
 
 Every dev-bot compose file declares `name: devbot` — the compose project name is read from the **first** `-f` file, and a consumer fragment is often first, so declaring the same name everywhere keeps all containers (ollama, litellm) in a single `devbot` project regardless of which fragment is merged first (otherwise ollama would boot under the fragment's directory name and `down`/orphan management would break). A test enforces the convention.
 
+Because each container has a fixed `container_name` (`dev-bot-*`), a container left behind by a **different** compose project — e.g. one created before the project was renamed to `devbot`, or by a manual `docker run` — is invisible to `down --remove-orphans` yet blocks recreation with a name conflict. `devbot up` removes such containers before starting, so it self-heals instead of failing.
+
 ### `devbot tool <name> [args...]`
 
 Run a dev-bot tool by name (e.g. `devbot tool tree`, `devbot tool git-report`). Run `devbot tool` with no name to list available tools.

@@ -304,7 +304,9 @@ Used by the **auto-recover** plugin (`on-session_error-auto-recover.ts`).
 **Required:** no
 **Scope:** global only
 
-Enables GPU acceleration for local inference (QMD/Ollama). Set automatically by `ollama install`; read by opencode init to substitute the `__QMD_LLAMA_GPU__` placeholder in `opencode.jsonc`.
+Enables GPU acceleration for local inference (QMD/Ollama). Set automatically by `devbot install` / `devbot update` (devbot-level detection, not the ollama module install); never by a bare start.
+
+The ollama GPU compose overlay (`docker-compose.gpu.yml`) is appended only when this is `true` **and** a live container-passthrough probe (`_has_docker_gpu`) succeeds — on Docker Desktop (macOS/Windows) passthrough is unavailable, so a stray `true` cannot break `devbot up`. qmd's own GPU selection is independent of this flag: it probes the host directly.
 
 ---
 
