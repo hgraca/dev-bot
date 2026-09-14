@@ -250,11 +250,11 @@ module unregisters its declared plugin/MCP entries at the next `devbot reinit`.
 
 ```jsonc
 {
-    "guards": [
-        { "regex": "rm -rf", "message": "rm -rf is blocked" },
-        { "regex": "sudo .*", "message": "sudo is blocked" },
-        { "regex": "git push --force", "message": "force push is prohibited" },
-    ],
+  "guards": [
+    { "regex": "rm -rf", "message": "rm -rf is blocked" },
+    { "regex": "sudo .*", "message": "sudo is blocked" },
+    { "regex": "git push --force", "message": "force push is prohibited" },
+  ],
 }
 ```
 
@@ -277,9 +277,9 @@ Used by the **guards** module (`on-tool_execute_before-guards.ts` opencode hook,
 
 ```jsonc
 {
-    "auto_recover": {
-        "max_attempts": 5,
-    },
+  "auto_recover": {
+    "max_attempts": 5,
+  },
 }
 ```
 
@@ -342,32 +342,32 @@ Absolute paths of projects registered with DevBot. Managed by the project-regist
 
 ```jsonc
 {
-    // Project identity
-    "project_name": "my-api",
+  // Project identity
+  "project_name": "my-api",
 
-    // Harness selection
-    "harness": "opencode",
+  // Harness selection
+  "harness": "opencode",
 
-    // Devbot state directory
-    "devbot_dir": ".agents",
+  // Devbot state directory
+  "devbot_dir": ".agents",
 
-    // Commit the memory vault to version control
-    "commit_memory": false,
+  // Commit the memory vault to version control
+  "commit_memory": false,
 
-    // Modules to skip during lifecycle scripts
-    "disabled_modules": ["claudecode", "react", "signoz", "svelte"],
+  // Modules to skip during lifecycle scripts
+  "disabled_modules": ["claudecode", "react", "signoz", "svelte"],
 
-    // Guard rules for bash commands
-    "guards": [
-        { "regex": "rm -rf", "message": "rm -rf is blocked" },
-        { "regex": "sudo .*", "message": "sudo is blocked" },
-        { "regex": "git push --force", "message": "force push is prohibited" },
-    ],
+  // Guard rules for bash commands
+  "guards": [
+    { "regex": "rm -rf", "message": "rm -rf is blocked" },
+    { "regex": "sudo .*", "message": "sudo is blocked" },
+    { "regex": "git push --force", "message": "force push is prohibited" },
+  ],
 
-    // Auto-recovery
-    "auto_recover": {
-        "max_attempts": 5,
-    },
+  // Auto-recovery
+  "auto_recover": {
+    "max_attempts": 5,
+  },
 }
 ```
 
