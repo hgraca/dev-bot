@@ -127,3 +127,37 @@ teardown() {
     config 2>/dev/null | grep -m1 '^name:' | sed 's/^name:[[:space:]]*//')"
   [ "${resolved}" = "devbot" ] || fail "merged (codebase-index first) project name was '${resolved}'"
 }
+
+# ── Container names: the `dev-bot-*` reclaim namespace ───────────────────────
+# Each service declares a fixed `container_name`. bin/up.sh's
+# _reclaim_stale_containers removes dev-bot containers left behind by a
+# DIFFERENT compose project (one created before the project was renamed to
+# `devbot`, or by a manual `docker run`) so their fixed name cannot wedge
+# `docker compose up` — it locates them by the `dev-bot-` name prefix. A
+# container named outside that namespace would be invisible to the reclaim.
+# Convention: every container_name starts with `dev-bot-`.
+
+@test "every container_name is in the dev-bot- namespace (reclaim prefix)" {
+  local -a files=()
+  local f
+  while IFS= read -r f; do
+    files+=("${f}")
+  done < <(find "${PROJECT_ROOT}/src" -maxdepth 4 -name 'docker-compose*.yml' \
+    -not -path '*/node_modules/*' 2>/dev/null)
+  for f in "${PROJECT_ROOT}"/docker-compose*.yml; do
+    [[ -f "${f}" ]] && files+=("${f}")
+  done
+
+  local found=0 name
+  for f in "${files[@]}"; do
+    while IFS= read -r name; do
+      [[ -n "${name}" ]] || continue
+      found=$((found + 1))
+      [[ "${name}" == dev-bot-* ]] \
+        || fail "${f#"${PROJECT_ROOT}/"}: container_name '${name}' must start with 'dev-bot-'"
+    done < <(sed -n 's/^[[:space:]]*container_name:[[:space:]]*//p' "${f}")
+  done
+
+  [ "${found}" -gt 0 ] \
+    || fail "found no container_name in any compose file — the discovery glob is wrong"
+}
