@@ -20,27 +20,50 @@ There is **no per-server `enabled` field** and no per-harness enablement. Module
 - module **enabled** → all servers it declares are wired into _every_ harness;
 - module **disabled** → its servers appear in _no_ harness config (opencode reset prunes them on reinit; claudecode regenerates without them).
 
+## Reducing the footprint
+
+Every enabled server's tool schemas are injected into the session context, and every harness instance starts its own copy of the server process. Measured per server (2026-09-14, `tools/list` schema bytes):
+
+| server          | tools | ~tokens of schema |
+| --------------- | ----- | ----------------- |
+| chrome-devtools | 29    | ~6.5k             |
+| codebase-memory | 15    | ~5.9k             |
+| playwright      | 21    | ~3.5k             |
+| devbot-tools    | 11    | ~1.1k             |
+| mdctx           | 3     | ~0.3k             |
+
+To stop paying for a server in a project, **disable its module** — module enablement is the only gate:
+
+```jsonc
+// .devbot.project.jsonc
+{ "disabled_modules": ["chrome-devtools", "playwright"] }
+```
+
+Its servers then appear in no harness config (opencode reset prunes them on reinit; claudecode regenerates without them). This also drops the module's skills and tools — for the browser modules the MCP server is essentially the whole module, so the trade is usually free.
+
+`mcp.<name>.enabled: false` in the runtime `opencode.jsonc` is a **local escape hatch** for disabling an inherited server without unregistering it. opencode reads its config once at startup (no hot-reload), so a change requires a restart.
+
 ## Canonical manifest
 
 `src/agentic/<module>/mcp.json`:
 
 ```json
 {
-    "mcp": {
-        "qmd": {
-            "type": "stdio",
-            "command": ["bash", "-c", "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"],
-            "env": {
-                "QMD_LLAMA_GPU": "__GPU_ENABLED__",
-                "QMD_EXPAND_CONTEXT_SIZE": "512"
-            }
-        },
-        "context7": {
-            "type": "http",
-            "url": "https://mcp.context7.com/mcp",
-            "oauth": false
-        }
+  "mcp": {
+    "qmd": {
+      "type": "stdio",
+      "command": ["bash", "-c", "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"],
+      "env": {
+        "QMD_LLAMA_GPU": "__GPU_ENABLED__",
+        "QMD_EXPAND_CONTEXT_SIZE": "512"
+      }
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "oauth": false
     }
+  }
 }
 ```
 

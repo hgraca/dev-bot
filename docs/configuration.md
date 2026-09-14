@@ -149,6 +149,8 @@ Used by memory init and the devbot init gitignore step.
 
 Module names to skip during lifecycle scripts (init, install, update, prereq checks). Global and project lists are merged as a union. When a module name appears, all its scripts and symlink wiring are skipped.
 
+Disabling a module also removes its MCP servers from every harness config — this is the lever for dropping a heavy server's tool-schema and process cost (see [MCP configuration](/mcp-config#reducing-the-footprint)).
+
 ---
 
 ### `codebase_index_provider`
