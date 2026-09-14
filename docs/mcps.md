@@ -7,7 +7,7 @@ nav_section: docs
 
 # MCPs
 
-DevBot wires **13 module-declared MCP servers** plus dynamic per-project harness servers (tagged `(harness)` below) into the agent tool palette. Each module-declared server is declared once in the module's canonical `mcp.json` (harness-agnostic — see [MCP configuration](/mcp-config) for the schema and per-harness wiring) and auto-registered during `devbot init`. The list below is generated via `devbot list mcps -a` (includes disabled modules):
+DevBot wires **12 module-declared MCP servers** plus dynamic per-project harness servers (tagged `(harness)` below) into the agent tool palette. Each module-declared server is declared once in the module's canonical `mcp.json` (harness-agnostic — see [MCP configuration](/mcp-config) for the schema and per-harness wiring) and auto-registered during `devbot init`. The list below is generated via `devbot list mcps -a` (includes disabled modules):
 
 | Module          | MCP server              | Provides                                                                         |
 | --------------- | ----------------------- | -------------------------------------------------------------------------------- |
