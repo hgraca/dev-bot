@@ -18,6 +18,10 @@ main() {
   echo
   _info "SigNoz (update)"
 
+  # ── Retired per-machine binary ───────────────────────────────────────────────
+  # An install that predates the shared gateway still has storage/signoz/bin.
+  _signoz_remove_retired_binary
+
   # ── Skills ───────────────────────────────────────────────────────────────────
   # Always re-fetch (unlike install.sh, which skips when present) so an update
   # actually picks up upstream changes.

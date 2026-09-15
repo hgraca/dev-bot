@@ -153,6 +153,36 @@ MOCK
   rm -rf "${sandbox}"
 }
 
+# ── Retired per-machine binary cleanup ──────────────────────────────────────
+
+@test "install.sh removes the retired per-machine binary from an older install" {
+  # Review F12: install.sh stopped managing the binary, but an install that
+  # predates the shared gateway keeps tens of MB under storage/signoz/bin.
+  sandbox="$(mktemp -d)"
+  mkdir -p "${sandbox}/storage/signoz/bin" "${sandbox}/storage/signoz/skills/a-skill"
+  : > "${sandbox}/storage/signoz/bin/signoz-mcp-server"
+
+  run env DEV_BOT_ROOT="${sandbox}" bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+  assert_output --partial "Removed the retired per-machine MCP binary"
+  [ ! -e "${sandbox}/storage/signoz/bin" ]
+  # The skills survive the cleanup.
+  [ -d "${sandbox}/storage/signoz/skills/a-skill" ]
+  rm -rf "${sandbox}"
+}
+
+@test "install.sh is a no-op cleanup when the retired binary is already gone" {
+  sandbox="$(mktemp -d)"
+  mkdir -p "${sandbox}/storage/signoz/skills/a-skill"
+
+  run env DEV_BOT_ROOT="${sandbox}" bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+  refute_output --partial "Removed the retired"
+  rm -rf "${sandbox}"
+}
+
 # ── Readiness probe honesty ──────────────────────────────────────────────────
 
 # A curl stub that always succeeds: the MCP `initialize` handshake passes even

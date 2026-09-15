@@ -26,6 +26,10 @@ main() {
   echo
   _info "SigNoz (observability MCP server + agent skills)"
 
+  # ── Retired per-machine binary ───────────────────────────────────────────────
+  # An install that predates the shared gateway still has storage/signoz/bin.
+  _signoz_remove_retired_binary
+
   # ── Skills ───────────────────────────────────────────────────────────────────
   if [[ -d "${SKILLS_DIR}" ]] && [[ -n "$(ls -A "${SKILLS_DIR}" 2>/dev/null)" ]]; then
     _skip "SigNoz agent skills already installed (${SKILLS_DIR}/)"

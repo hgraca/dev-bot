@@ -74,3 +74,17 @@ _signoz_install_skills() {
 
   _ok "SigNoz agent skills installed to ${skills_dir}"
 }
+
+# Remove the retired per-machine MCP binary from an install that predates the
+# shared gateway. install.sh no longer downloads or symlinks it — the server runs
+# in a machine-wide container — so a leftover storage/signoz/bin is dead weight
+# (tens of MB). Idempotent: a no-op once it is gone.
+_signoz_remove_retired_binary() {
+  local bin_dir
+  bin_dir="$(_signoz_storage_dir)/bin"
+
+  [[ -e "${bin_dir}" ]] || return 0
+
+  rm -rf "${bin_dir}"
+  _ok "Removed the retired per-machine MCP binary at ${bin_dir}"
+}
