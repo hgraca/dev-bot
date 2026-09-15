@@ -1,12 +1,8 @@
 {
   "mcp": {
     "svelte": {
-      "type": "stdio",
-      "command": [
-        "bash",
-        "-c",
-        "mkdir -p .agents/logs && exec npx -y @sveltejs/mcp 2>>.agents/logs/svelte-mcp.log"
-      ]
+      "type": "http",
+      "url": "http://127.0.0.1:18503/mcp"
     }
   }
 }

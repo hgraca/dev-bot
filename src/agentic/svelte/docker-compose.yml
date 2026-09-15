@@ -1,0 +1,24 @@
+# src/agentic/svelte/docker-compose.yml
+# Shared Svelte MCP gateway. Auto-discovered by bin/up.sh (maxdepth 2 under each
+# module dir) and gated by disabled_modules — the container starts only when the
+# svelte module is enabled.
+#
+# `name: devbot` — the compose project name is read from the FIRST -f file;
+# every dev-bot compose file declares the same name so all containers land in
+# one project regardless of which file is first.
+#
+# The image is built on first `devbot up` (compose builds a `build:` service
+# whose image is missing); later runs reuse it. Rebuild after a Dockerfile
+# change with `docker compose -f src/agentic/svelte/docker-compose.yml build`.
+name: devbot
+
+services:
+  svelte-mcp:
+    build:
+      context: .
+    image: dev-bot-svelte-mcp:local
+    container_name: dev-bot-svelte-mcp
+    restart: "no"
+    ports:
+      # Host-local only — the gateway is never exposed off the machine.
+      - "127.0.0.1:18503:18503"

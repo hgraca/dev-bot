@@ -51,8 +51,9 @@ main() {
     _error "npm not found. npm ships with Node.js."
   fi
 
-  # MCP server package check (informational — runtime uses npx)
-  info "Svelte MCP server: will use 'npx -y @sveltejs/mcp' at runtime"
+  # MCP server package check (informational — the server runs in a container)
+  info "Svelte MCP server: served by the shared gateway container (127.0.0.1:18503)"
+  info "  started by 'devbot up' from this module's docker-compose.yml"
   info "External skills (3): declared in external-modules.json — wired by 'devbot init'"
   info "  - svelte                (mindrally/skills)"
   info "  - sveltekit-structure   (spences10/svelte-skills-kit)"

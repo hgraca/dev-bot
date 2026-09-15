@@ -135,7 +135,7 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
     # manifest; no module on the refresh list below declares one (qmd, the only
     # one, had its MCP server removed).
     GPU_VALUE="$(_qmd_gpu_value)"
-    REFRESH_MODULES=(mdctx signoz tools-mcp)
+    REFRESH_MODULES=(mdctx signoz svelte tools-mcp)
     for mod_name in "${REFRESH_MODULES[@]}"; do
       local_tpl="${DEV_BOT_ROOT}/src/agentic/${mod_name}/mcp.json"
       [[ -f "${local_tpl}" ]] || continue

@@ -119,14 +119,16 @@ JSONC_EOF
 
 # ── retired MCP key: reset must drop the qmd MCP entry ──────────────────────
 
-@test "signoz is on the stale-refresh list (its manifest changed stdio -> http)" {
+@test "shared-gateway modules are on the stale-refresh list (manifest shape changed)" {
   # A module whose canonical mcp.json changes shape must be on REFRESH_MODULES,
   # or existing opencode.jsonc entries keep the old shape forever (registration
-  # is skip-if-exists). signoz moved from a per-harness stdio binary to a shared
-  # http gateway.
+  # is skip-if-exists). mdctx/signoz/svelte moved from a per-instance stdio
+  # process to a shared http gateway.
   run grep -E '^[[:space:]]*REFRESH_MODULES=\(' "${RESET_SCRIPT}"
   assert_success
-  [[ "$output" == *"signoz"* ]] || fail "signoz missing from REFRESH_MODULES: $output"
+  for mod in mdctx signoz svelte; do
+    [[ "$output" == *"$mod"* ]] || fail "$mod missing from REFRESH_MODULES: $output"
+  done
 }
 
 @test "enabled: removes devbot-tools AND the retired qmd MCP key" {
