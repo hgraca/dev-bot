@@ -9,7 +9,11 @@ dist schema evolves. `devbot update` runs this tool to realign the two:
     its trailing comment;
   - remove each runtime key absent from the dist file;
   - leave the value and trailing comment of keys present in both untouched;
-  - treat nested objects as opaque — never reconciled.
+  - treat nested objects as opaque — never reconciled — EXCEPT the catalogue
+    maps in MERGE_MAPS (`external_modules`), which are merged additively: dist
+    entries the runtime lacks are added, existing entries are never touched or
+    removed. A catalogue describes what is available, so a dist that gains an
+    entry must reach existing installs.
 
 Edits are text surgery: only the added/removed properties change, so comments
 and formatting of everything else are preserved. The result is validated in a
@@ -45,6 +49,12 @@ import sys
 # The comment-aware reader lives beside this file.
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from read_jsonc import load_jsonc  # noqa: E402
+
+# Nested maps merged ADDITIVELY (dist entries missing from the runtime are
+# added; existing entries are never touched or removed). These are catalogues of
+# what is available, not machine preferences — so a dist that gains an entry
+# must reach existing installs. Every other nested object stays opaque.
+MERGE_MAPS = ("external_modules",)
 
 
 def _skip_string(text, i):
@@ -124,30 +134,15 @@ def _scan_value(text, i):
     return j
 
 
-def _root_close(text):
-    """Return the index of the root object's closing brace."""
-    start = _skip_ws_comments(text, 0)
-    if start >= len(text) or text[start] != "{":
-        raise ValueError("no root JSON object")
-    return _skip_balanced(text, start) - 1
+def _object_props(text, i):
+    """Return (props, close) for the object body starting at index i.
 
-
-def _end_of_line(text, offset):
-    """Return the index just past the newline ending the line containing offset."""
-    nl = text.find("\n", offset)
-    return len(text) if nl == -1 else nl + 1
-
-
-def _top_level_props(text):
-    """Return the ordered top-level properties with their byte spans.
-
-    Each entry: {key, line_start, value_start, value_end, content_end, comment}.
-    line_start covers the property's leading indentation; content_end is just
-    past the value (or its trailing comment).
+    `i` must point just past the object's opening brace; `close` is the index of
+    the matching closing brace. Each prop: {key, line_start, value_start,
+    value_end, content_end, comment} — line_start covers the property's leading
+    indentation, content_end is just past the value (or its trailing comment).
     """
-    close = _root_close(text)
     props = []
-    i = _skip_ws_comments(text, 0) + 1
     while True:
         i = _skip_ws_comments(text, i)
         if i >= len(text) or text[i] == "}":
@@ -196,6 +191,21 @@ def _top_level_props(text):
         )
         i = content_end
 
+    return props, i
+
+
+def _end_of_line(text, offset):
+    """Return the index just past the newline ending the line containing offset."""
+    nl = text.find("\n", offset)
+    return len(text) if nl == -1 else nl + 1
+
+
+def _top_level_props(text):
+    """Return the ordered top-level properties with their byte spans."""
+    start = _skip_ws_comments(text, 0)
+    if start >= len(text) or text[start] != "{":
+        raise ValueError("no root JSON object")
+    props, close = _object_props(text, start + 1)
     # Guard: the last span must not swallow the close brace.
     for p in props:
         if p["content_end"] > close:
@@ -252,6 +262,53 @@ def _insert_props(text, additions):
     return prefix + "\n".join(lines) + "\n" + text[line_end:]
 
 
+def _merge_map_entries(runtime_text, runtime_prop, dist_text, dist_prop):
+    """Additively merge one nested map: add dist entries the runtime lacks.
+
+    Returns (new_runtime_text, added_keys). Entries present in the runtime keep
+    their value and comment; runtime-only entries are never removed. The entry
+    text is copied from the dist (value + trailing comment) and re-indented to
+    the runtime map's depth.
+    """
+    r_props, r_close = _object_props(runtime_text, runtime_prop["value_start"] + 1)
+    d_props, _ = _object_props(dist_text, dist_prop["value_start"] + 1)
+
+    r_keys = {p["key"] for p in r_props}
+    missing = [p for p in d_props if p["key"] not in r_keys]
+    if not missing:
+        return runtime_text, []
+
+    lines = []
+    for p in missing:
+        value = dist_text[p["value_start"] : p["value_end"]]
+        entry = "    %s: %s" % (json.dumps(p["key"]), value)
+        if p["comment"]:
+            entry += " " + p["comment"]
+        lines.append(entry)
+
+    if not r_props:
+        # Empty runtime map: insert right after its opening brace.
+        at = runtime_prop["value_start"] + 1
+        insert = "\n" + ",\n".join(lines) + "\n  "
+        return runtime_text[:at] + insert + runtime_text[at:], [p["key"] for p in missing]
+
+    last = r_props[-1]
+    # The separator comma must sit right after the VALUE — before any trailing
+    # comment, which would otherwise swallow it.
+    after_value = _skip_whitespace(runtime_text, last["value_end"])
+    has_comma = after_value < len(runtime_text) and runtime_text[after_value] == ","
+
+    text = runtime_text
+    if has_comma:
+        at = last["content_end"]
+    else:
+        text = text[: last["value_end"]] + "," + text[last["value_end"] :]
+        at = last["content_end"] + 1
+
+    insert = "\n" + ",\n".join(lines)
+    return text[:at] + insert + text[at:], [p["key"] for p in missing]
+
+
 def main():
     if len(sys.argv) != 3:
         print("Usage: reconcile_global_config.py <dist_file> <runtime_file>", file=sys.stderr)
@@ -289,7 +346,18 @@ def main():
     added = [k for k in dist_keys if k not in runtime_data]
     removed = [k for k in runtime_keys if k not in dist_data]
 
-    if not added and not removed:
+    # Nested catalogue maps: dist entries the runtime lacks (additive only).
+    map_added = {}
+    for key in MERGE_MAPS:
+        if key not in dist_data or key not in runtime_data:
+            continue
+        if not isinstance(dist_data[key], dict) or not isinstance(runtime_data[key], dict):
+            continue
+        missing = [k for k in dist_data[key] if k not in runtime_data[key]]
+        if missing:
+            map_added[key] = missing
+
+    if not added and not removed and not map_added:
         print("NOCHANGE")
         return 0
 
@@ -310,6 +378,16 @@ def main():
             new_text = _remove_props(new_text, removal_lines)
         if additions:
             new_text = _insert_props(new_text, additions)
+
+        # Nested merges run AFTER the top-level surgery, re-scanning the new
+        # text so the property spans match what will actually be written.
+        if map_added:
+            new_props, _ = _top_level_props(new_text)
+            new_by_key = {p["key"]: p for p in new_props}
+            for key in map_added:
+                new_text, _ = _merge_map_entries(
+                    new_text, new_by_key[key], dist_text, prop_by_key[key]
+                )
     except Exception as e:  # surgery failure — the runtime file is untouched
         print("ERROR: cannot reconcile global config: %s" % e, file=sys.stderr)
         return 1
@@ -323,6 +401,10 @@ def main():
         result = load_jsonc(tmp)
         if set(result.keys()) != set(dist_keys):
             raise ValueError("reconciled key set does not match the dist schema")
+        for key, keys in map_added.items():
+            missing = [k for k in keys if k not in result.get(key, {})]
+            if missing:
+                raise ValueError("merge of %s did not apply: %s" % (key, missing))
         os.replace(tmp, runtime_file)
     except Exception as e:
         try:
@@ -336,6 +418,9 @@ def main():
         print("ADDED: %s" % k)
     for k in removed:
         print("REMOVED: %s" % k)
+    for key, keys in map_added.items():
+        for k in keys:
+            print("ADDED: %s.%s" % (key, k))
     return 0
 
 

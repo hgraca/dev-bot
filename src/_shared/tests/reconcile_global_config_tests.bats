@@ -9,7 +9,9 @@
 #     its trailing // comment)
 #   - remove each runtime key absent from the dist file
 #   - leave keys present in both byte-for-byte (runtime value + comment win)
-#   - nested objects are OPAQUE — never reconciled
+#   - nested objects are OPAQUE — never reconciled — EXCEPT the catalogue maps
+#     in MERGE_MAPS (`external_modules`), merged additively (dist entries the
+#     runtime lacks are added; existing entries are never touched or removed)
 #   - text surgery: comments/layout of untouched properties are preserved
 # =============================================================================
 
@@ -138,6 +140,124 @@ print('OPAQUE')
 "
   assert_success
   assert_output "OPAQUE"
+}
+
+# ── external_modules: additive catalogue merge ───────────────────────────────
+# external_modules is a CATALOGUE of available external modules, not a machine
+# preference: the reconciler adds dist entries the runtime lacks (so a dist that
+# gains a module reaches existing installs) while never touching entries the
+# runtime already has. Every other nested object stays opaque.
+
+@test "external_modules gains dist entries missing from the runtime" {
+  cat > "$WORK/dist.jsonc" <<'JSONC_EOF'
+{
+  "external_modules": {
+    "addyosmani": { "url": "https://example.com/a.git" },
+    "mindrally-react": { "url": "https://example.com/r.git" }
+  }
+}
+JSONC_EOF
+  cat > "$WORK/runtime.jsonc" <<'JSONC_EOF'
+{
+  "external_modules": {
+    "addyosmani": { "url": "https://example.com/a.git" }
+  }
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/dist.jsonc" "$WORK/runtime.jsonc"
+  assert_success
+  grep -qF 'ADDED: external_modules.mindrally-react' <<< "$output" || fail "nested ADDED not reported"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/runtime.jsonc')
+assert set(d['external_modules']) == {'addyosmani', 'mindrally-react'}, d
+print('MERGED')
+"
+  assert_success
+  assert_output "MERGED"
+}
+
+@test "external_modules keeps the runtime's own entry value and comment" {
+  cat > "$WORK/dist.jsonc" <<'JSONC_EOF'
+{
+  "external_modules": {
+    "addyosmani": { "url": "https://example.com/dist.git" },
+    "new-one": { "url": "https://example.com/new.git" }
+  }
+}
+JSONC_EOF
+  cat > "$WORK/runtime.jsonc" <<'JSONC_EOF'
+{
+  "external_modules": {
+    "addyosmani": { "url": "https://example.com/mine.git" } // my fork
+  }
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/dist.jsonc" "$WORK/runtime.jsonc"
+  assert_success
+
+  # The runtime's own entry keeps its value AND its trailing comment.
+  run python3 "$READER" "$WORK/runtime.jsonc" external_modules addyosmani url
+  assert_output "https://example.com/mine.git"
+  grep -qF '// my fork' "$WORK/runtime.jsonc"
+  run python3 "$READER" "$WORK/runtime.jsonc" external_modules new-one url
+  assert_output "https://example.com/new.git"
+}
+
+@test "external_modules never removes a runtime entry absent from the dist" {
+  cat > "$WORK/dist.jsonc" <<'JSONC_EOF'
+{
+  "external_modules": {
+    "a": { "url": "https://example.com/a.git" }
+  }
+}
+JSONC_EOF
+  cat > "$WORK/runtime.jsonc" <<'JSONC_EOF'
+{
+  "external_modules": {
+    "a": { "url": "https://example.com/a.git" },
+    "my-local": { "url": "https://example.com/local.git" }
+  }
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/dist.jsonc" "$WORK/runtime.jsonc"
+  assert_success
+  assert_output "NOCHANGE"
+  run python3 "$READER" "$WORK/runtime.jsonc" external_modules my-local url
+  assert_output "https://example.com/local.git"
+}
+
+@test "external_modules merge is idempotent" {
+  cat > "$WORK/dist.jsonc" <<'JSONC_EOF'
+{
+  "external_modules": {
+    "a": { "url": "https://example.com/a.git" },
+    "b": { "url": "https://example.com/b.git" }
+  }
+}
+JSONC_EOF
+  cat > "$WORK/runtime.jsonc" <<'JSONC_EOF'
+{
+  "external_modules": {
+    "a": { "url": "https://example.com/a.git" }
+  }
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/dist.jsonc" "$WORK/runtime.jsonc"
+  assert_success
+  cp "$WORK/runtime.jsonc" "$WORK/after-first.jsonc"
+
+  run python3 "$TOOL" "$WORK/dist.jsonc" "$WORK/runtime.jsonc"
+  assert_success
+  assert_output "NOCHANGE"
+  diff -q "$WORK/after-first.jsonc" "$WORK/runtime.jsonc"
 }
 
 @test "removing the last property leaves no dangling comma" {
