@@ -8,7 +8,7 @@
 set -euo pipefail
 
 # shellcheck source=./functions.sh
-source "$(dirname "$0")/functions.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/functions.sh"
 
 # GitHub CLI is not in the default Debian/Ubuntu repos — add the official
 # GitHub CLI apt repository, then install gh.

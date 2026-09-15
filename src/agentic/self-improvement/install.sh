@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # shellcheck source=./functions.sh
-source "$(dirname "$0")/functions.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/functions.sh"
 
 # Info/ok/skip helpers
 info()  { printf "  [ \033[33mINFO\033[0m ] %s\n" "$*"; }

@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # shellcheck source=./functions.sh
-source "$(dirname "$0")/functions.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/functions.sh"
 
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 

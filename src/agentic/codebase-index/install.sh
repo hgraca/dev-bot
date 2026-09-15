@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-MODULE_DIR="$(cd "$(dirname "$0")" && pwd)"
+MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"

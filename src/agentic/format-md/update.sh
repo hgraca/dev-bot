@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # shellcheck source=./functions.sh
-source "$(dirname "$0")/functions.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/functions.sh"
 
 main() {
   _info "format-md"
