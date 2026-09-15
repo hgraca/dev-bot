@@ -66,6 +66,10 @@ for m in json.loads(sys.stdin.read()):
   fi
 
   local compose_opts=()
+  # Kept in step with bin/up.sh: a consumer that ships a root docker-compose.yml
+  # gets it first (compose reads the project `name:` from the first -f file),
+  # plus its GPU overlay. dev-bot ships no root compose, so this is normally
+  # skipped; down must still select the same set up did when one exists.
   if [[ -f "${DEV_BOT_ROOT}/docker-compose.yml" ]]; then
     compose_opts=("-f" "docker-compose.yml")
     if [[ ${gpu_ok} -eq 1 && -f "${DEV_BOT_ROOT}/docker-compose.gpu.yml" ]]; then

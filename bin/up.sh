@@ -173,6 +173,13 @@ for m in json.loads(sys.stdin.read()):
   fi
 
   local compose_opts=()
+  # Root-compose support is generic, not vestigial: a consumer that ships a root
+  # docker-compose.yml gets it FIRST, because compose reads the project `name:`
+  # from the first -f file, plus its GPU overlay when passthrough is available.
+  # dev-bot itself ships no root compose (its services live per module), so this
+  # block is normally skipped and the module overlays appended in the loop below
+  # are what actually apply. Covered by the root-compose tests in
+  # bin/tests/up_compose_opts_tests.bats.
   if [[ -f "${DEV_BOT_ROOT}/docker-compose.yml" ]]; then
     compose_opts=("-f" "docker-compose.yml")
     if [[ ${gpu_ok} -eq 1 && -f "${DEV_BOT_ROOT}/docker-compose.gpu.yml" ]]; then
