@@ -122,11 +122,12 @@ JSONC_EOF
 @test "shared-gateway modules are on the stale-refresh list (manifest shape changed)" {
   # A module whose canonical mcp.json changes shape must be on REFRESH_MODULES,
   # or existing opencode.jsonc entries keep the old shape forever (registration
-  # is skip-if-exists). mdctx/signoz/svelte moved from a per-instance stdio
-  # process to a shared http gateway.
+  # is skip-if-exists). All four converted modules moved from a per-instance
+  # stdio process to a shared http gateway — every one of them must be listed,
+  # since dropping any from the list leaves this test green without it.
   run grep -E '^[[:space:]]*REFRESH_MODULES=\(' "${RESET_SCRIPT}"
   assert_success
-  for mod in mdctx signoz svelte; do
+  for mod in codebase-memory mdctx signoz svelte; do
     [[ "$output" == *"$mod"* ]] || fail "$mod missing from REFRESH_MODULES: $output"
   done
 }
