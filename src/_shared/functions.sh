@@ -2189,3 +2189,50 @@ _prune_stale_skill_copies() {
   done
   shopt -u nullglob
 }
+
+# =============================================================================
+# _devbot_wait_for_mcp_gateway <name> <mcp-url> [tries]
+#
+# Wait until a shared MCP gateway — a docker compose service fronted by a
+# module's up.sh — answers an MCP `initialize` request, so the harness that
+# starts right after `devbot up` finds it ready.
+#
+# Returns 0 when the gateway answered, 1 otherwise. Failure is never fatal: a
+# _skip is printed for a timeout or a missing curl and the harness starts with
+# that server unavailable rather than failing the boot. Prints nothing on
+# success, so the caller owns the success message — signoz downgrades it to
+# DEGRADED when its API token is unset.
+#
+# The probe is a real MCP handshake, not a bare TCP/HTTP check. NOTE: a
+# successful handshake proves the TRANSPORT, never the server's configuration —
+# a bridged server whose environment never reaches it still answers here (see
+# the --pass-environment incident). Assert a real tool call in tests.
+# =============================================================================
+_devbot_wait_for_mcp_gateway() {
+  local name="$1"
+  local url="$2"
+  # $3 / DEV_BOT_MCP_WAIT_TRIES exist so tests can exercise the timeout path
+  # without waiting the real 30s.
+  local tries="${3:-${DEV_BOT_MCP_WAIT_TRIES:-30}}"
+
+  if ! command -v curl >/dev/null 2>&1; then
+    _skip "${name}: curl not available — skipping gateway readiness check"
+    return 1
+  fi
+
+  local attempt=0
+  while ! curl -sf -o /dev/null --max-time 2 \
+    -X POST "${url}" \
+    -H 'Content-Type: application/json' \
+    -H 'Accept: application/json, text/event-stream' \
+    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"devbot-up","version":"1"}}}'; do
+    attempt=$((attempt + 1))
+    if [[ ${attempt} -ge ${tries} ]]; then
+      _skip "${name}: gateway not reachable at ${url} after ${tries}s — MCP server will be unavailable"
+      return 1
+    fi
+    sleep 1
+  done
+
+  return 0
+}
