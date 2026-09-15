@@ -152,3 +152,43 @@ MOCK
 
   rm -rf "${sandbox}"
 }
+
+# ── Readiness probe honesty ──────────────────────────────────────────────────
+
+# A curl stub that always succeeds: the MCP `initialize` handshake passes even
+# with an empty API key, so a bare probe cannot tell a working gateway from a
+# useless one. up.sh must therefore key its verdict off the token as well.
+_stub_successful_curl() {
+  local mockbin="$1"
+  mkdir -p "${mockbin}"
+  cat > "${mockbin}/curl" <<'MOCK'
+#!/usr/bin/env bash
+exit 0
+MOCK
+  chmod +x "${mockbin}/curl"
+}
+
+@test "up.sh reports DEGRADED when SIGNOZ_AUTH_TOKEN is unset" {
+  sandbox="$(mktemp -d)"
+  _stub_successful_curl "${sandbox}/mockbin"
+
+  run env -u SIGNOZ_AUTH_TOKEN PATH="${sandbox}/mockbin:${PATH}" \
+    bash "${MODULE_DIR}/up.sh"
+
+  assert_success
+  assert_output --partial "DEGRADED"
+  rm -rf "${sandbox}"
+}
+
+@test "up.sh reports reachable when SIGNOZ_AUTH_TOKEN is set" {
+  sandbox="$(mktemp -d)"
+  _stub_successful_curl "${sandbox}/mockbin"
+
+  run env SIGNOZ_AUTH_TOKEN=dummy PATH="${sandbox}/mockbin:${PATH}" \
+    bash "${MODULE_DIR}/up.sh"
+
+  assert_success
+  assert_output --partial "reachable"
+  refute_output --partial "DEGRADED"
+  rm -rf "${sandbox}"
+}

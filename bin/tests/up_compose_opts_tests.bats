@@ -426,3 +426,46 @@ YAML
   run cat "${DOCKER_ARGS_FILE}"
   refute_output --partial 'rm -f'
 }
+
+# ── Repo .env loading (compose interpolation) ──────────────────────────────
+# Review F2: compose interpolation reads the PROJECT directory's .env. With a
+# module-first -f list that is the module dir, not the repo root, so a var like
+# ${SIGNOZ_AUTH_TOKEN} silently interpolated to empty. _load_env_file closes it.
+
+@test ".env is loaded into the environment before compose runs" {
+  _setup_sandbox '{}'
+  printf 'SIGNOZ_AUTH_TOKEN=from-dotenv\n' > "${SANDBOX_DIR}/.env"
+
+  # env -u: the ambient shell may already export SIGNOZ_AUTH_TOKEN, which would
+  # otherwise mask whether the .env was actually read.
+  run env -u SIGNOZ_AUTH_TOKEN bash -c "
+    source '${SANDBOX_DIR}/bin/up.sh'
+    _load_env_file
+    echo \"resolved=\${SIGNOZ_AUTH_TOKEN:-UNSET}\"
+  "
+
+  assert_success
+  assert_output --partial 'resolved=from-dotenv'
+}
+
+@test "a missing .env is tolerated (no error, nothing exported)" {
+  _setup_sandbox '{}'
+  rm -f "${SANDBOX_DIR}/.env"
+
+  run env -u SIGNOZ_AUTH_TOKEN bash -c "
+    source '${SANDBOX_DIR}/bin/up.sh'
+    _load_env_file
+    echo \"resolved=\${SIGNOZ_AUTH_TOKEN:-UNSET}\"
+  "
+
+  assert_success
+  assert_output --partial 'resolved=UNSET'
+}
+
+@test "_docker_up is preceded by the .env load in main()" {
+  # Guards the call site, not just the helper: a defined-but-never-called
+  # _load_env_file would leave interpolation broken.
+  run grep -A6 '^main()' "${PROJECT_ROOT}/bin/up.sh"
+  assert_success
+  assert_output --partial '_load_env_file'
+}

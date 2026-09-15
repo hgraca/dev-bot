@@ -8,6 +8,11 @@
 # Runs on `devbot up` — after docker services are started. The project directory
 # is passed as $1 by bin/up.sh; falls back to cwd.
 #
+# The API token comes from SIGNOZ_AUTH_TOKEN, which bin/up.sh loads from the repo
+# .env before starting services. A missing token is reported as DEGRADED rather
+# than reachable: an MCP `initialize` handshake succeeds even with an empty key,
+# so probing alone cannot tell a working gateway from a useless one.
+#
 # Non-fatal: if the gateway never comes up, warn and continue — the harness
 # starts with the signoz MCP server unavailable rather than failing the boot.
 # =============================================================================
@@ -24,10 +29,9 @@ SIGNOZ_MCP_URL="${SIGNOZ_MCP_URL:-http://127.0.0.1:18502/mcp}"
 main() {
   _info "signoz — up"
 
-  # The container starts either way, but an empty token makes every SigNoz API
-  # call fail — surface it here rather than at first tool use.
+  local token_ok=true
   if [[ -z "${SIGNOZ_AUTH_TOKEN:-}" ]]; then
-    _warn "SIGNOZ_AUTH_TOKEN is not set — the SigNoz MCP gateway will start but API calls will fail"
+    token_ok=false
   fi
 
   if ! command -v curl >/dev/null 2>&1; then
@@ -48,6 +52,13 @@ main() {
     fi
     sleep 1
   done
+
+  if [[ "${token_ok}" == "false" ]]; then
+    _warn "signoz gateway is up but SIGNOZ_AUTH_TOKEN is unset — DEGRADED."
+    _warn "  The MCP handshake succeeds without a key, but every SigNoz tool call will fail."
+    _warn "  Add SIGNOZ_AUTH_TOKEN to ${DEV_BOT_ROOT}/.env and re-run 'devbot up'."
+    return 0
+  fi
 
   _ok "signoz gateway reachable at ${SIGNOZ_MCP_URL}"
 }

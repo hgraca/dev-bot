@@ -271,12 +271,30 @@ _reconcile_ollama_gpu() {
   fi
 }
 
+# ── Load the repo .env into the environment ──────────────────────────────────
+# Compose interpolation (`${VAR}` in a compose file) reads the environment and
+# the .env in the compose PROJECT directory. With a module-first `-f` list —
+# the normal case here, since there is no root compose — the project directory
+# is that module's dir, so the repo-root .env is NOT consulted and a var like
+# ${SIGNOZ_AUTH_TOKEN} silently interpolates to empty. Loading it here makes
+# interpolation resolve for every module, and the exported vars also reach the
+# module up.sh scripts (which run in this same process).
+_load_env_file() {
+  local env_file="${DEV_BOT_ROOT}/.env"
+  [[ -f "${env_file}" ]] || return 0
+  set -a
+  # shellcheck disable=SC1090
+  . "${env_file}"
+  set +a
+}
+
 # ── main ───────────────────────────────────────────────────────────────────────
 main() {
   local total_start=${SECONDS}
 
   _header_1 "DevBot Up"
 
+  _load_env_file
   _docker_up
   _rebuild_external_module_config
   _run_up_scripts

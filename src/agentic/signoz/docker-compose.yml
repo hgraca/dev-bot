@@ -27,9 +27,13 @@ services:
       TRANSPORT_MODE: http
       MCP_SERVER_PORT: "8000"
       SIGNOZ_URL: ${SIGNOZ_URL:-https://signoz.get-e.com}
-      # The API token comes from the environment (or .env) when `devbot up`
-      # runs — it is never written into a config file. An empty token lets the
-      # container start but every SigNoz API call fails.
+      # The API token is interpolated from the environment bin/up.sh builds:
+      # it loads the repo .env before invoking compose, so SIGNOZ_AUTH_TOKEN can
+      # live there (it is NOT read from a .env next to this file — compose only
+      # consults the PROJECT directory's .env, which is this module's dir when
+      # this compose is the first -f). Never written into a config file. An
+      # empty token still lets the container start, but every SigNoz API call
+      # fails; signoz/up.sh reports that state as DEGRADED.
       SIGNOZ_API_KEY: ${SIGNOZ_AUTH_TOKEN:-}
       SIGNOZ_SSL_VERIFY: "true"
       LOG_LEVEL: info

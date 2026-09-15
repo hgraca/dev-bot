@@ -68,6 +68,17 @@ Gateways bind `127.0.0.1` only (never exposed off the machine), in the `18500–
 | 18503 | svelte          |
 | 18504 | codebase-memory |
 
+### Credentials
+
+A gateway's credentials are interpolated from the **environment `devbot up` builds** — never written into a config file:
+
+- `bin/up.sh` loads the repo-root `.env` before invoking compose. This matters because compose interpolation reads the **project directory's** `.env`, and with a module-first `-f` list (the norm — there is no root compose) that directory is the _module's_. Without the explicit load, the repo `.env` is ignored and `${VAR}` silently interpolates to empty.
+- Put the value in the repo-root `.env`, or export it in the shell that runs `devbot up`.
+
+Changing a credential needs a container recreate — `devbot up` runs compose with `--no-recreate`.
+
+A missing credential is **not** reliably visible to a readiness probe: an MCP `initialize` handshake succeeds against a gateway with no working credential. So `signoz/up.sh` reports `DEGRADED` rather than `reachable` when `SIGNOZ_AUTH_TOKEN` is unset.
+
 ### stdio servers behind a bridge
 
 A server that only speaks stdio runs behind `mcp-proxy` inside its container, which exposes streamable-http at `/mcp`:
