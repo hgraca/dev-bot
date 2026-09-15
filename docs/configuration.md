@@ -308,7 +308,7 @@ Used by the **auto-recover** plugin (`on-session_error-auto-recover.ts`).
 
 Enables GPU acceleration for local inference (QMD/Ollama). Set automatically by `devbot install` / `devbot update` (devbot-level detection, not the ollama module install); never by a bare start.
 
-The ollama GPU compose overlay (`docker-compose.gpu.yml`) is appended only when this is `true` **and** a live container-passthrough probe (`_has_docker_gpu`) succeeds — on Docker Desktop (macOS/Windows) passthrough is unavailable, so a stray `true` cannot break `devbot up`. qmd's own GPU selection is independent of this flag: it probes the host directly.
+A module that needs GPU passthrough ships a `docker-compose.gpu.yml` beside its compose (ollama's is `src/tools/ollama/docker-compose.gpu.yml`; codebase-index ships one that `include:`s it). It is appended only when this is `true` **and** a live container-passthrough probe (`_has_docker_gpu`) succeeds — on Docker Desktop (macOS/Windows) passthrough is unavailable, so a stray `true` cannot break `devbot up`. Because the overlay follows the compose it overrides, it can never be applied without the service it targets. qmd's own GPU selection is independent of this flag: it probes the host directly.
 
 ---
 

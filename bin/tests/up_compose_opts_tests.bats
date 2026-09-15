@@ -198,7 +198,8 @@ _run_docker_up() {
 
   assert_success
   run cat "${DOCKER_ARGS_FILE}"
-  assert_output --regexp 'compose -f docker-compose\.yml -f src/tools/litellm/docker-compose\.yml -f docker-compose\.gpu\.yml up -d --no-recreate'
+  # The GPU overlay follows the compose it overrides (the root base here).
+  assert_output --regexp 'compose -f docker-compose\.yml -f docker-compose\.gpu\.yml -f src/tools/litellm/docker-compose\.yml up -d --no-recreate'
 }
 
 @test "GPU enabled but no container passthrough — no overlay (Docker Desktop macOS)" {
@@ -330,9 +331,10 @@ _run_docker_up() {
   [[ "$output" != *"gpu"* ]]
 }
 
-@test "GPU overlay appended when a consumer fragment includes ollama" {
-  # codebase-index's fragment `include:`s ollama's compose, so ollama IS in the
-  # set even though the ollama module is disabled — the overlay is valid.
+@test "GPU overlay follows a consumer fragment that ships its own" {
+  # codebase-index runs no container of its own — it needs ollama — so it ships
+  # a docker-compose.gpu.yml that `include:`s ollama's. The overlay is appended
+  # right after the fragment it belongs to, and only when GPU is available.
   _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false, "ollama": false}}'
   rm -f "${SANDBOX_DIR}/docker-compose.yml"
   mkdir -p "${SANDBOX_DIR}/src/agentic/codebase-index"
@@ -341,13 +343,34 @@ name: devbot
 include:
   - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml
 YAML
+  cat > "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.gpu.yml" <<'YAML'
+name: devbot
+include:
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.gpu.yml
+YAML
   MOCK_HAS_DOCKER_GPU=yes
 
   run _run_docker_up
 
   assert_success
   run cat "${DOCKER_ARGS_FILE}"
-  assert_output --regexp 'compose -f src/agentic/codebase-index/docker-compose\.yml -f docker-compose\.gpu\.yml up -d --no-recreate'
+  assert_output --regexp 'compose -f src/agentic/codebase-index/docker-compose\.yml -f src/agentic/codebase-index/docker-compose\.gpu\.yml up -d --no-recreate'
+}
+
+@test "a module's GPU overlay is omitted when the module ships none" {
+  # mdctx ships a compose but no GPU overlay — nothing to append.
+  _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false, "ollama": false}}'
+  rm -f "${SANDBOX_DIR}/docker-compose.yml"
+  mkdir -p "${SANDBOX_DIR}/src/agentic/mdctx"
+  touch "${SANDBOX_DIR}/src/agentic/mdctx/docker-compose.yml"
+  MOCK_HAS_DOCKER_GPU=yes
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --regexp 'compose -f src/agentic/mdctx/docker-compose\.yml up -d --no-recreate'
+  [[ "$output" != *"gpu"* ]]
 }
 
 # ── Stale container-name reclaim ─────────────────────────────────────────────

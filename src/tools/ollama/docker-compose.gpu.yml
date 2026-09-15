@@ -1,0 +1,19 @@
+# GPU passthrough overlay for ollama. Lives beside the compose it overrides and
+# is auto-discovered by bin/up.sh/down.sh: a module's docker-compose.gpu.yml is
+# included only when GPU passthrough is available AND that module's compose is
+# selected — so the overlay can never be applied without the service it
+# overrides. The ollama exec helper appends it the same way.
+#
+# `name: devbot` — the compose project name is read from the FIRST -f file;
+# declaring the name keeps every dev-bot compose file consistent (see the
+# convention test in bin/tests/compose_fragments_tests.bats) so all containers
+# share one project.
+name: devbot
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]

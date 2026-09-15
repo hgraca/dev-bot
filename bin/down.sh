@@ -27,28 +27,6 @@ _run_down_scripts() {
 
 # ── Docker services ────────────────────────────────────────────────────────────
 
-# _compose_set_has_ollama <compose-path>...
-# True when the given compose files (paths relative to DEV_BOT_ROOT) will define
-# the `ollama` service — ollama's own compose, a consumer fragment that
-# `include:`s it, or a file that declares the service directly. Mirrors bin/up.sh:
-# the GPU overlay only overrides `ollama`, so it must not be appended when ollama
-# is absent (compose then rejects the project).
-_compose_set_has_ollama() {
-  local f path
-  for f in "$@"; do
-    [[ -n "${f}" ]] || continue
-    path="${DEV_BOT_ROOT}/${f}"
-    [[ -f "${path}" ]] || continue
-    # ollama's own compose
-    [[ "${f}" == *"tools/ollama/docker-compose.yml" ]] && return 0
-    # a consumer fragment that includes ollama's compose
-    grep -qE '^[[:space:]]*-[[:space:]]*.*tools/ollama/docker-compose\.yml' "${path}" 2>/dev/null && return 0
-    # a file that declares the service directly
-    grep -qE '^[[:space:]]*ollama:' "${path}" 2>/dev/null && return 0
-  done
-  return 1
-}
-
 _docker_down() {
   # dev-bot must be installed (global config) — report before doing anything,
   # regardless of whether any compose files are discovered.
@@ -80,11 +58,19 @@ for m in json.loads(sys.stdin.read()):
   done
 
   # ── Build compose file list, filtering disabled modules ──────────────────
+  # Mirrors bin/up.sh: a module's docker-compose.gpu.yml is included only when
+  # GPU passthrough is available AND that module's compose is selected.
+  local gpu_ok=0
+  if _devbot_is_true "gpu_enabled" && _has_docker_gpu; then
+    gpu_ok=1
+  fi
+
   local compose_opts=()
-  local compose_paths=()
   if [[ -f "${DEV_BOT_ROOT}/docker-compose.yml" ]]; then
     compose_opts=("-f" "docker-compose.yml")
-    compose_paths=("docker-compose.yml")
+    if [[ ${gpu_ok} -eq 1 && -f "${DEV_BOT_ROOT}/docker-compose.gpu.yml" ]]; then
+      compose_opts+=("-f" "docker-compose.gpu.yml")
+    fi
   fi
 
   for f in "${compose_files[@]}"; do
@@ -100,7 +86,12 @@ for m in json.loads(sys.stdin.read()):
     # Use path relative to DEV_BOT_ROOT so docker compose resolves correctly
     local rel="${f#${DEV_BOT_ROOT}/}"
     compose_opts+=("-f" "${rel}")
-    compose_paths+=("${rel}")
+
+    # The module's GPU overlay, if it ships one, follows its compose.
+    local gpu_rel="${rel%docker-compose.yml}docker-compose.gpu.yml"
+    if [[ ${gpu_ok} -eq 1 && -f "${DEV_BOT_ROOT}/${gpu_rel}" ]]; then
+      compose_opts+=("-f" "${gpu_rel}")
+    fi
   done
 
   if [[ ${#compose_opts[@]} -eq 0 ]]; then
@@ -119,16 +110,6 @@ for m in json.loads(sys.stdin.read()):
   fi
 
   _header_3 "Stopping docker services..."
-
-  # ── GPU override: append docker-compose.gpu.yml when enabled ─────────────
-  # Mirrors bin/up.sh: the overlay needs a live passthrough capability, not
-  # just the persisted gpu_enabled flag, AND ollama must actually be in the
-  # set — the overlay only overrides `ollama`, so appending it otherwise makes
-  # compose reject the project (see up.sh's comment).
-  if _devbot_is_true "gpu_enabled" && _has_docker_gpu \
-    && _compose_set_has_ollama "${compose_paths[@]}"; then
-    compose_opts+=("-f" "docker-compose.gpu.yml")
-  fi
 
   cd "${DEV_BOT_ROOT}"
   _log "docker compose ${compose_opts[*]} down --remove-orphans"

@@ -167,7 +167,8 @@ _run_docker_down() {
 
   assert_success
   run cat "${DOCKER_ARGS_FILE}"
-  assert_output --regexp 'compose -f docker-compose\.yml -f src/tools/litellm/docker-compose\.yml -f src/agentic/codebase-index/docker-compose\.yml -f docker-compose\.gpu\.yml down --remove-orphans'
+  # The GPU overlay follows the compose it overrides (the root base here).
+  assert_output --regexp 'compose -f docker-compose\.yml -f docker-compose\.gpu\.yml -f src/tools/litellm/docker-compose\.yml -f src/agentic/codebase-index/docker-compose\.yml down --remove-orphans'
 }
 
 @test "down omits the GPU override when gpu_enabled but no passthrough" {

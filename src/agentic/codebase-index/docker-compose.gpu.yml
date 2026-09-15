@@ -1,0 +1,15 @@
+# GPU passthrough overlay for codebase-index. This module runs no container of
+# its own — it needs ollama (for embeddings) — so its GPU overlay simply
+# `include:`s ollama's, mirroring how its docker-compose.yml includes ollama's
+# compose. That way a project using codebase-index gets GPU ollama even when the
+# ollama module itself is disabled.
+#
+# Auto-discovered by bin/up.sh/down.sh: included only when GPU passthrough is
+# available AND this module's compose is selected.
+#
+# The include path is ABSOLUTE via ${DEV_BOT_ROOT} — docker compose resolves a
+# relative `include:` in any non-first `-f` file against the FIRST file's
+# directory, so an absolute path keeps this order-independent.
+name: devbot
+include:
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.gpu.yml

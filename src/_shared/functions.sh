@@ -1720,10 +1720,11 @@ _pull_ollama_models() {
 #   running. Backs `devbot models pull/list-local/remove` — those commands
 #   must work even though the ollama module is disabled by default (it only
 #   runs when an enabled consumer fragment includes it).
-#   The temporary boot mirrors the qmd share script's compose opts: when
-#   gpu_enabled, docker-compose.gpu.yml is appended so a GPU machine does not
-#   serve CPU-only after a temporary boot. Returns the ollama command's exit
-#   code; fails cleanly (exit 1) when there is no docker daemon.
+#   The temporary boot mirrors bin/up.sh's compose opts: when GPU passthrough is
+#   available, ollama's docker-compose.gpu.yml (which lives beside its compose)
+#   is appended so a GPU machine does not serve CPU-only after a temporary boot.
+#   Returns the ollama command's exit code; fails cleanly (exit 1) when there is
+#   no docker daemon.
 
 _devbot_ollama_exec() {
   if ! docker info >/dev/null 2>&1; then
@@ -1739,8 +1740,9 @@ _devbot_ollama_exec() {
   # not from DEV_BOT_ROOT, so a relative gpu overlay would not resolve.
   # The overlay needs a live passthrough capability, not just the persisted
   # gpu_enabled flag (mirrors bin/up.sh; see its comment).
-  if _devbot_is_true "gpu_enabled" && _has_docker_gpu && [[ -f "${DEV_BOT_ROOT}/docker-compose.gpu.yml" ]]; then
-    compose_opts+=("-f" "${DEV_BOT_ROOT}/docker-compose.gpu.yml")
+  local gpu_overlay="${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.gpu.yml"
+  if _devbot_is_true "gpu_enabled" && _has_docker_gpu && [[ -f "${gpu_overlay}" ]]; then
+    compose_opts+=("-f" "${gpu_overlay}")
   fi
 
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -q 'dev-bot-ollama'; then

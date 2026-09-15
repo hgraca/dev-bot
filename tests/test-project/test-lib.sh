@@ -299,6 +299,6 @@ require_host_ollama_for_codebase_engine() {
   echo "ERROR: codebase_index_provider=codebase-index needs the host ollama at" >&2
   echo "       http://localhost:18434 (the container reaches it via --network host)." >&2
   echo "       On the host, start it with:" >&2
-  echo "         docker compose -f src/tools/ollama/docker-compose.yml -f docker-compose.gpu.yml up -d" >&2
+  echo "         docker compose -f src/tools/ollama/docker-compose.yml -f src/tools/ollama/docker-compose.gpu.yml up -d" >&2
   return 1
 }

@@ -27,7 +27,7 @@ services:
     image: ollama/ollama
     container_name: dev-bot-ollama
 EOF
-  cat > "${DEV_BOT_ROOT}/docker-compose.gpu.yml" <<'EOF'
+  cat > "${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.gpu.yml" <<'EOF'
 services:
   ollama:
     deploy:
@@ -154,7 +154,7 @@ teardown() {
   [ "${exec_rc}" -eq 0 ]
   run cat "${MOCK}/calls.log"
   # The compose-up line must carry the gpu overlay as an ABSOLUTE path.
-  assert_output --regexp "-f ${DEV_BOT_ROOT}/docker-compose\.gpu\.yml"
+  assert_output --regexp "-f ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose\.gpu\.yml"
   rm -rf "${OTHER_CWD}"
 }
 

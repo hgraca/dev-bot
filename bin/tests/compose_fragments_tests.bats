@@ -92,10 +92,11 @@ teardown() {
 @test "every compose file declares the shared project name 'devbot'" {
   local f name
   for f in \
-    "${PROJECT_ROOT}/docker-compose.gpu.yml" \
     "${PROJECT_ROOT}/src/tools/ollama/docker-compose.yml" \
+    "${PROJECT_ROOT}/src/tools/ollama/docker-compose.gpu.yml" \
     "${PROJECT_ROOT}/src/tools/litellm/docker-compose.yml" \
-    "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.yml"; do
+    "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.yml" \
+    "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.gpu.yml"; do
     name="$(grep -m1 '^name:' "${f}" 2>/dev/null | sed 's/^name:[[:space:]]*//')"
     [ "${name}" = "devbot" ] \
       || fail "$(basename "$(dirname "${f}")")/docker-compose.yml must declare 'name: devbot' (found: '${name}')"

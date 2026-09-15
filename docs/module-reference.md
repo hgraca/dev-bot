@@ -37,6 +37,7 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
   versions.env          Dependency version pin: installed exactly at install, bumped by `update.sh` (optional)
   skills-prune.lst      Tool-installed skill duplicates this module declares for auto-pruning (optional)
   docker-compose.yml    Module-owned docker service(s), auto-discovered by `devbot up`/`down` (optional)
+  docker-compose.gpu.yml  GPU passthrough overlay for this module's service, included when GPU is available (optional)
   Dockerfile            Image build for a module-owned service (optional)
 ```
 
@@ -67,6 +68,8 @@ Modules that install an external CLI/MCP dependency globally (e.g. chrome-devtoo
 A module that needs a long-running service ships its own `docker-compose.yml`; `bin/up.sh`/`down.sh` discover it (maxdepth 2 under each module dir) and start/stop it, gated by `disabled_modules` — the service runs only while the module is enabled. Every dev-bot compose file declares `name: devbot` so all containers land in one compose project regardless of which file is listed first.
 
 A service that builds its own image adds a `Dockerfile` next to the compose file (`build: { context: . }`). `docker compose up` builds it on first start when the image is missing; rebuild after a Dockerfile change with `docker compose -f <module>/docker-compose.yml build`.
+
+A module that needs GPU passthrough adds a `docker-compose.gpu.yml` beside its compose. It is included only when GPU passthrough is available (`gpu_enabled` **and** a live probe) **and** that module's compose is selected — the overlay follows the compose it overrides, so it can never be applied without the service it targets. A module that runs no container of its own but needs a GPU provider (codebase-index needs ollama) ships an overlay that `include:`s the provider's, mirroring how its compose includes the provider's compose.
 
 Used by the shared MCP gateways — see [MCP configuration](/mcp-config#shared-machine-wide-gateways).
 
