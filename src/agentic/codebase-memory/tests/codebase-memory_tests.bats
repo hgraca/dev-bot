@@ -106,6 +106,14 @@ print('MCP:OK')
   assert_success
 }
 
+@test "Dockerfile passes the environment through the bridge" {
+  # mcp-proxy forwards ONLY HOME and PATH unless --pass-environment is given.
+  # This server needs HOME (its cache/store lives under it), so make the
+  # forwarding explicit rather than relying on the proxy's incidental pass.
+  run grep -q -- '--pass-environment' "${MODULE_DIR}/Dockerfile"
+  assert_success
+}
+
 @test "up.sh waits for the shared gateway" {
   [ -f "${MODULE_DIR}/up.sh" ]
   [ -x "${MODULE_DIR}/up.sh" ]

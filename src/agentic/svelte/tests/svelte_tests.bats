@@ -72,6 +72,14 @@ print('MCP:OK')
   assert_success
 }
 
+@test "Dockerfile passes the environment through the bridge" {
+  # mcp-proxy forwards ONLY HOME and PATH unless --pass-environment is given.
+  # Kept uniform across every bridge so a future env-dependent server cannot
+  # start with an empty environment.
+  run grep -q -- '--pass-environment' "${MODULE_DIR}/Dockerfile"
+  assert_success
+}
+
 @test "up.sh waits for the shared gateway" {
   [ -f "${MODULE_DIR}/up.sh" ]
   [ -x "${MODULE_DIR}/up.sh" ]

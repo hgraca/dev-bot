@@ -82,6 +82,15 @@ print('MCP:OK')
   assert_success
 }
 
+@test "Dockerfile passes the environment through the bridge" {
+  # mcp-proxy forwards ONLY HOME and PATH to the spawned server unless
+  # --pass-environment is given. Without it the child never saw MDCTX_ROOT /
+  # MDCTX_INDEX and silently fell back to its CWD (/ in the container) — the
+  # MCP handshake still succeeded, so only a real tool call revealed it.
+  run grep -q -- '--pass-environment' "${MODULE_DIR}/Dockerfile"
+  assert_success
+}
+
 @test "mdctx MCP env has no GPU placeholder (zero-ML engine)" {
   run grep -c '__GPU_ENABLED__' "$MODULE_DIR/mcp.json"
   assert_equal "$output" "0"

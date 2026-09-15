@@ -27,7 +27,12 @@ RUN codebase-memory-mcp config list >/dev/null
 
 # Bind 0.0.0.0 inside the container so the host port mapping can reach it; the
 # host side maps 127.0.0.1 only (see docker-compose.yml).
+#
+# --pass-environment: mcp-proxy forwards only HOME and PATH by default. This
+# server needs HOME (its cache/store lives under it, and its ancestry check
+# keys off it), so make the forwarding explicit rather than relying on the
+# proxy's incidental HOME pass-through.
 EXPOSE 18504
 # --ui=false: the bundled graph UI binds a fixed loopback port (9749). dev-bot
 # never uses the UI, and a shared gateway must not squat that port.
-CMD ["mcp-proxy", "--port=18504", "--host=0.0.0.0", "--", "codebase-memory-mcp", "--ui=false"]
+CMD ["mcp-proxy", "--port=18504", "--host=0.0.0.0", "--pass-environment", "--", "codebase-memory-mcp", "--ui=false"]

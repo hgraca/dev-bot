@@ -23,5 +23,10 @@ RUN npm install -g @sveltejs/mcp@0.1.26
 
 # Bind 0.0.0.0 inside the container so the host port mapping can reach it; the
 # host side maps 127.0.0.1 only (see docker-compose.yml).
+#
+# --pass-environment: mcp-proxy forwards only HOME and PATH by default. The
+# svelte server needs no other variable today, but passing the environment
+# explicitly keeps every bridge uniform and stops a future env-dependent server
+# from silently starting with an empty environment.
 EXPOSE 18503
-CMD ["mcp-proxy", "--port=18503", "--host=0.0.0.0", "--", "svelte-mcp"]
+CMD ["mcp-proxy", "--port=18503", "--host=0.0.0.0", "--pass-environment", "--", "svelte-mcp"]

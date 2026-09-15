@@ -20,5 +20,10 @@ RUN npm install -g mdctx@0.1.0
 
 # Bind 0.0.0.0 inside the container so the host port mapping can reach it; the
 # host side maps 127.0.0.1 only (see docker-compose.yml).
+#
+# --pass-environment is REQUIRED: mcp-proxy forwards only HOME and PATH to the
+# spawned server, so without it the child never sees MDCTX_ROOT / MDCTX_INDEX
+# and silently falls back to its CWD (/, inside the container) — the MCP
+# handshake still succeeds, so only a real tool call reveals the breakage.
 EXPOSE 18501
-CMD ["mcp-proxy", "--port=18501", "--host=0.0.0.0", "--", "mdctx-mcp"]
+CMD ["mcp-proxy", "--port=18501", "--host=0.0.0.0", "--pass-environment", "--", "mdctx-mcp"]
