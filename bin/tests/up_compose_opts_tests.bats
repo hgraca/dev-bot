@@ -121,6 +121,11 @@ YAML
   # of "ID|NAME|PROJECT" rows (empty unless a test seeds a stale container).
   export STALE_CONTAINERS_FILE="${SANDBOX_DIR}/stale-containers"
   : > "${STALE_CONTAINERS_FILE}"
+  # Holds the image id `docker image inspect` reports. Empty = image absent.
+  # A `build` with MOCK_REBUILD_CHANGES_ID=yes rewrites it, emulating a rebuild
+  # that actually produced new layers.
+  export IMAGE_ID_FILE="${SANDBOX_DIR}/image-id"
+  : > "${IMAGE_ID_FILE}"
   cat > "${SANDBOX_DIR}/mockbin/docker" <<'MOCK'
 #!/usr/bin/env bash
 echo "$@" >> "${DOCKER_ARGS_FILE}"
@@ -129,6 +134,17 @@ if [[ "$1" == "ps" ]]; then
   for a in "$@"; do [[ "$a" == "-a" ]] && has_all=1; done
   [[ "${has_all}" -eq 1 && -s "${STALE_CONTAINERS_FILE}" ]] && cat "${STALE_CONTAINERS_FILE}"
   exit 0
+fi
+if [[ "$1" == "image" && "$2" == "inspect" ]]; then
+  cat "${IMAGE_ID_FILE}" 2>/dev/null || true
+  exit 0
+fi
+if [[ "$1" == "compose" ]]; then
+  case " $* " in
+    *" build "*)
+      [[ "${MOCK_REBUILD_CHANGES_ID:-no}" == "yes" ]] && echo "sha256:rebuilt" > "${IMAGE_ID_FILE}"
+      ;;
+  esac
 fi
 exit 0
 MOCK
@@ -467,6 +483,75 @@ YAML
   assert_success
   assert_output ''
   rm -f "${overlay}"
+}
+
+# ── Rebuilding module images whose build input changed ───────────────────────
+# A `build:` service is only built when its image is MISSING, and --no-recreate
+# never applies a new image to a running container — so a Dockerfile edit used to
+# have no effect until someone deleted the image by hand.
+
+# A compose with a `build:` section, and the image id it currently has.
+_setup_buildable_module() {
+  rm -f "${SANDBOX_DIR}/docker-compose.yml"
+  mkdir -p "${SANDBOX_DIR}/src/agentic/mdctx"
+  cat > "${SANDBOX_DIR}/src/agentic/mdctx/docker-compose.yml" <<'YAML'
+name: devbot
+services:
+  mdctx-mcp:
+    build:
+      context: .
+    image: dev-bot-mdctx-mcp:local
+YAML
+  echo "sha256:original" > "${IMAGE_ID_FILE}"
+}
+
+@test "image rebuild: a module whose image changed is rebuilt and recreated" {
+  _setup_sandbox '{"gpu_enabled": false, "modules": {"litellm": false}}'
+  _setup_buildable_module
+  # Exported: the mock docker is a child process, so it reads this from the env
+  # (unlike MOCK_HAS_DOCKER_GPU, which a stubbed shell function reads in-process).
+  export MOCK_REBUILD_CHANGES_ID=yes
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial 'src/agentic/mdctx/docker-compose.yml build'
+  assert_output --partial 'docker-compose.yml up -d --force-recreate'
+}
+
+@test "image rebuild: an unchanged image does NOT recreate the container" {
+  _setup_sandbox '{"gpu_enabled": false, "modules": {"litellm": false}}'
+  _setup_buildable_module
+  # Warm cache: the build runs but yields the same image id.
+  MOCK_REBUILD_CHANGES_ID=no
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial 'src/agentic/mdctx/docker-compose.yml build'
+  [[ "$output" != *'force-recreate'* ]] \
+    || fail "container was recreated even though the image did not change"
+}
+
+@test "image rebuild: a module that only references a published image is never built" {
+  _setup_sandbox '{"gpu_enabled": false, "modules": {"litellm": false}}'
+  rm -f "${SANDBOX_DIR}/docker-compose.yml"
+  mkdir -p "${SANDBOX_DIR}/src/agentic/signoz"
+  cat > "${SANDBOX_DIR}/src/agentic/signoz/docker-compose.yml" <<'YAML'
+name: devbot
+services:
+  signoz-mcp:
+    image: signoz/signoz-mcp-server:v0.14.0
+YAML
+  echo "sha256:original" > "${IMAGE_ID_FILE}"
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  [[ "$output" != *"build"* ]] || fail "an image-only module was rebuilt"
 }
 
 # ── Stale container-name reclaim ─────────────────────────────────────────────

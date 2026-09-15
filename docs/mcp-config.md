@@ -83,6 +83,8 @@ A missing credential is **not** reliably visible to a readiness probe: an MCP `i
 
 Gateways are started on demand by `devbot up` and left running. They use `restart: "no"` **deliberately** rather than `unless-stopped`: a gateway is a dev-machine service tied to the dev-bot services around it, so it should not come back on its own after a reboot without `devbot up` having started its neighbours.
 
+A gateway whose image is **built** from a module `Dockerfile` is rebuilt when that build input changes: `devbot up` runs a cache-warm build for each selected module that builds its own image and recreates the container only when the resulting image id actually changed. A module that merely references a published image (signoz) is not built.
+
 Each gateway declares a healthcheck that performs a real MCP handshake on its own port, so `docker ps` reports a gateway that has stopped answering as `unhealthy`. The probe runs `python3` — the bridge images install it for `mcp-proxy` and carry no HTTP client.
 
 `signoz` is the exception: its official image is **distroless** (no shell, and none of `curl`/`wget`/`python3`/`node`), so nothing can run a probe inside it. Its readiness is covered by `signoz/up.sh` instead, which handshakes over the network and reports `DEGRADED` when the API token is missing. The compose file states this rather than leaving it implicit.

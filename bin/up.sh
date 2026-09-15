@@ -187,6 +187,7 @@ for m in json.loads(sys.stdin.read()):
     fi
   fi
 
+  local selected_composes=()
   for f in "${compose_files[@]}"; do
     local mod_dir mod_name
     mod_dir="$(dirname "${f}")"
@@ -200,6 +201,7 @@ for m in json.loads(sys.stdin.read()):
     # Use path relative to DEV_BOT_ROOT so docker compose resolves correctly
     local rel="${f#${DEV_BOT_ROOT}/}"
     compose_opts+=("-f" "${rel}")
+    selected_composes+=("${rel}")
 
     # The module's GPU overlay, if it ships one, follows its compose. An
     # overlay may declare `devbot:gpu-overlay-skip-if-included <compose>` to say
@@ -245,7 +247,57 @@ for m in json.loads(sys.stdin.read()):
   fi
   _ok "Docker services started"
 
+  _rebuild_changed_module_images ${selected_composes[@]+"${selected_composes[@]}"}
   _reconcile_ollama_gpu
+}
+
+# ── Rebuild module images whose build input changed ───────────────────────────
+# A compose service with a `build:` section is built only when its image is
+# MISSING, and the `--no-recreate` above would not apply a new image to a running
+# container anyway — so editing a module's Dockerfile had no effect until someone
+# removed the image by hand.
+#
+# This rebuilds each module that builds its own image and recreates its container
+# ONLY when the resulting image id actually changed, so a warm `devbot up` pays
+# the (sub-second) cache-warm build but never restarts a container needlessly.
+# Scope is deliberately narrow: the global `--no-recreate` behaviour is unchanged
+# for everything else.
+_rebuild_changed_module_images() {
+  local rel dir compose image before after
+
+  for rel in "$@"; do
+    compose="${DEV_BOT_ROOT}/${rel}"
+    dir="$(dirname "${rel}")"
+
+    # Only a module that BUILDS an image can go stale this way; one that merely
+    # references a published image (signoz) has nothing to rebuild.
+    grep -qE '^[[:space:]]*build:' "${compose}" 2>/dev/null || continue
+
+    # The module's own image, declared beside the build context. Every dev-bot
+    # compose has a single service, so the first `image:` is the one.
+    image="$(sed -n 's/^[[:space:]]*image:[[:space:]]*//p' "${compose}" | head -1)"
+    [[ -n "${image}" ]] || continue
+
+    before="$(docker image inspect "${image}" --format '{{.Id}}' 2>/dev/null || true)"
+    [[ -n "${before}" ]] || continue   # no image yet — the `up` above builds it
+
+    if ! docker compose -f "${compose}" build >/dev/null 2>&1; then
+      _warn "${dir}: image build failed — keeping the current image"
+      continue
+    fi
+
+    after="$(docker image inspect "${image}" --format '{{.Id}}' 2>/dev/null || true)"
+
+    # Same id → the running container is already correct.
+    [[ "${before}" == "${after}" ]] && continue
+
+    _log "${dir}: image changed — recreating the container"
+    if docker compose -f "${compose}" up -d --force-recreate >/dev/null 2>&1; then
+      _ok "${dir}: container recreated on the rebuilt image"
+    else
+      _warn "${dir}: could not recreate the container on the new image"
+    fi
+  done
 }
 
 # ── Reconcile Ollama GPU state against the desired passthrough ────────────────
