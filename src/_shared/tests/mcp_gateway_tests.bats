@@ -153,8 +153,31 @@ MOCK
   [ "${fail}" -eq 0 ]
 }
 
-# ── 3. Live gateway (docker required) ────────────────────────────────────────
+# ── 3. Script hygiene for the gateway modules ────────────────────────────────
 
+@test "gateway module scripts end with a newline" {
+  # Review F11: rewritten signoz scripts lost their trailing newline.
+  #
+  # NOT asserted here: ${BASH_SOURCE[0]} vs $0. The documented convention
+  # (docs/create-a-module.md) is BASH_SOURCE, but $0 persists in ~37 pre-existing
+  # short scripts across the tree — an unrelated pre-existing drift, not part of
+  # this changeset. Tracked as a follow-up rather than enforced for four modules
+  # while the rest of the tree disagrees.
+  local entry mod f fail=0
+  for entry in $(_gateways); do
+    mod="${entry%%:*}"
+    for f in "${PROJECT_ROOT}/src/agentic/${mod}"/*.sh; do
+      [[ -f "${f}" ]] || continue
+      if [[ -n "$(tail -c 1 "${f}")" ]]; then
+        echo "${f#${PROJECT_ROOT}/} does not end with a newline"
+        fail=1
+      fi
+    done
+  done
+  [ "${fail}" -eq 0 ]
+}
+
+# ── 4. Live gateway (docker required) ────────────────────────────────────────
 # POST an MCP initialize, capturing both the response body and the session id
 # the streamable-http transport requires on subsequent requests. A stateless
 # server (signoz speaks native HTTP) issues no session id at all.
