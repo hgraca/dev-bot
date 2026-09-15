@@ -45,6 +45,38 @@ Its servers then appear in no harness config (opencode reset prunes them on rein
 
 LSP servers are the other per-instance cost — see [Harnesses](/harnesses#runtime-footprint).
 
+## Shared machine-wide gateways
+
+A dev-bot MCP server must never launch its own per-instance process. Servers that are stateless and machine-global run **once per machine** as a docker compose service; every harness instance connects over streamable-http instead of spawning its own stdio copy. This follows the module-owned compose pattern (`docker-compose.yml` in the module dir, auto-discovered by `devbot up`/`down`, gated by `disabled_modules`).
+
+The canonical manifest declares such a server as `http`:
+
+```json
+{ "mcp": { "mdctx": { "type": "http", "url": "http://127.0.0.1:18501/mcp" } } }
+```
+
+The translator maps `http` to opencode's `remote` and Claude Code's `http` — no per-harness wiring.
+
+### Port registry
+
+Gateways bind `127.0.0.1` only (never exposed off the machine), in the `18500–18599` block:
+
+| port  | server |
+| ----- | ------ |
+| 18501 | mdctx  |
+
+### stdio servers behind a bridge
+
+A server that only speaks stdio runs behind `mcp-proxy` inside its container, which exposes streamable-http at `/mcp`:
+
+```dockerfile
+CMD ["mcp-proxy", "--port=18501", "--host=0.0.0.0", "--", "mdctx-mcp"]
+```
+
+`--host=0.0.0.0` is required inside the container so the host port mapping can reach it. Pin `mcp-proxy` together with `mcp<2` — 0.12.0 is incompatible with the 2.x SDK.
+
+If the container is not running the server is simply unavailable; there is no stdio fallback (that would reintroduce the per-instance process).
+
 ## Canonical manifest
 
 `src/agentic/<module>/mcp.json`:

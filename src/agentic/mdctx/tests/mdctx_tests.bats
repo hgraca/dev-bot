@@ -5,16 +5,17 @@
 # sibling alternative to qmd, selected by memory_search_provider).
 #
 # The module wraps the mdctx npm package (CLI `mdctx` + MCP server
-# `mdctx-mcp`) as the opencode/claudecode memory-search engine. Like its
-# sibling codebase-memory it is a plain stdio MCP server on both harnesses —
-# a single canonical mcp.json EXISTS (both harnesses register from it via the
-# shared translator) and plugin.opencode.json MUST NOT. Unlike qmd it has
-# no GPU/llama surface (no __GPU_ENABLED__ placeholder) and no docker/up.sh;
-# unlike codebase-memory it is per-project (init.sh builds the project index).
+# `mdctx-mcp`) as the opencode/claudecode memory-search engine. The MCP server
+# is a machine-wide docker compose gateway (docker-compose.yml) reached over
+# streamable-http — one container serves every harness instance instead of each
+# spawning its own stdio `mdctx-mcp`. A single canonical mcp.json EXISTS (both
+# harnesses register from it via the shared translator) and plugin.opencode.json
+# MUST NOT. Unlike qmd it has no GPU/llama surface (no __GPU_ENABLED__
+# placeholder). The host CLI stays installed — the memory module's tools
+# (search-memories, reindex) use it directly.
 #
-# The MCP env uses the __DEV_BOT_ROOT__ path-prefix placeholder (resolved at
-# registration by bin/init.sh / the harness init), so the manifest asserts the
-# template placeholder, not a machine path.
+# The gateway URL is host-local (127.0.0.1:18501); the manifest asserts the
+# fixed port, not a machine path.
 # =============================================================================
 
 setup() {
@@ -35,29 +36,50 @@ setup() {
   [ ! -f "$MODULE_DIR/mcp.opencode.json" ]
   [ ! -f "$MODULE_DIR/mcp.claudecode.json" ]
   [ ! -f "$MODULE_DIR/plugin.opencode.json" ]
-  run grep -q 'mdctx-mcp' "$mcp_config"
+  run grep -q '18501' "$mcp_config"
   assert_success
 }
 
-@test "canonical mcp.json declares mdctx stdio with DEV_BOT_ROOT env" {
-  # The env uses the __DEV_BOT_ROOT__ path-prefix placeholder (resolved at
-  # registration by the harness adapters), so the manifest asserts the template
-  # placeholder, not a machine path.
+@test "canonical mcp.json declares mdctx as a shared http gateway" {
+  # The MCP server no longer runs per-instance: it is a machine-wide docker
+  # compose service (docker-compose.yml) reached over streamable-http at /mcp.
   run python3 -c "
 import json
 d = json.load(open('${MODULE_DIR}/mcp.json'))
 m = d['mcp']['mdctx']
-assert m['type'] == 'stdio', m
-assert m['command'][0:2] == ['bash', '-c'], m
-assert 'exec mdctx-mcp' in m['command'][2], m
-env = m['env']
-assert env['MDCTX_ROOT'] == '__DEV_BOT_ROOT__/storage/global-memories', env
-assert env['MDCTX_INDEX'] == '__DEV_BOT_ROOT__/storage/.mdctx/context-index.json', env
+assert m['type'] == 'http', m
+assert m['url'] == 'http://127.0.0.1:18501/mcp', m
+assert 'command' not in m, m
+assert 'env' not in m, m
 assert 'enabled' not in m, m
 print('MCP:OK')
 "
   assert_success
   grep -qF 'MCP:OK' <<< "$output" || fail "canonical mcp.json shape wrong"
+}
+
+@test "docker-compose.yml declares the shared gateway on the 18500+ block" {
+  local compose="$MODULE_DIR/docker-compose.yml"
+  [ -f "$compose" ]
+  # Host-local port mapping only — never exposed off the machine.
+  run grep -q '127.0.0.1:18501:18501' "$compose"
+  assert_success
+  # Every dev-bot compose file declares the same project name.
+  run grep -q 'name: devbot' "$compose"
+  assert_success
+}
+
+@test "Dockerfile pins the bridge and mdctx versions" {
+  local df="$MODULE_DIR/Dockerfile"
+  [ -f "$df" ]
+  # mcp-proxy 0.12.0 needs mcp<2 (the SDK moved request_ctx in 2.x).
+  run grep -q 'mcp-proxy==0.12.0' "$df"
+  assert_success
+  run grep -q 'mcp<2' "$df"
+  assert_success
+  # mdctx pinned to the host CLI version so the index format matches.
+  run grep -q 'mdctx@0.1.0' "$df"
+  assert_success
 }
 
 @test "mdctx MCP env has no GPU placeholder (zero-ML engine)" {
@@ -81,11 +103,12 @@ print('MCP:OK')
   done
 }
 
-@test "no up.sh / reset.sh — nothing docker or destructive-prune" {
-  # No Ollama/docker deps => no up.sh. No per-project reset needed: indexes
-  # are just .mdctx JSON files rebuilt by init.sh (unlike qmd's reset.sh,
-  # which removes its sqlite collections).
-  [ ! -f "$MODULE_DIR/up.sh" ]
+@test "up.sh waits for the shared gateway; no reset.sh" {
+  # The MCP server is a docker compose service, so up.sh waits for it to accept
+  # MCP requests before the harness starts. No reset.sh: indexes are just
+  # .mdctx JSON files rebuilt by init.sh (unlike qmd's sqlite collections).
+  [ -f "$MODULE_DIR/up.sh" ]
+  [ -x "$MODULE_DIR/up.sh" ]
   [ ! -f "$MODULE_DIR/reset.sh" ]
 }
 

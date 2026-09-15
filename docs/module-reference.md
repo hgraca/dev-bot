@@ -36,6 +36,8 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
   external-modules.json External module dependencies declared by this module
   versions.env          Dependency version pin: installed exactly at install, bumped by `update.sh` (optional)
   skills-prune.lst      Tool-installed skill duplicates this module declares for auto-pruning (optional)
+  docker-compose.yml    Module-owned docker service(s), auto-discovered by `devbot up`/`down` (optional)
+  Dockerfile            Image build for a module-owned service (optional)
 ```
 
 ### Lifecycle scripts
@@ -59,6 +61,14 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
 ### Dependency version pins (`versions.env`)
 
 Modules that install an external CLI/MCP dependency globally (e.g. chrome-devtools, playwright) keep its version in `versions.env`. `install.sh` installs exactly the pin and is idempotent; `update.sh` resolves the package's npm latest on `devbot update`, installs it, and rewrites the pin in place — session start never re-resolves `latest`. Runtime launch commands resolve the installed binary by explicit npm-prefix paths (never bare-name via PATH, which can pick up a stale system binary).
+
+### Module-owned docker services (`docker-compose.yml`)
+
+A module that needs a long-running service ships its own `docker-compose.yml`; `bin/up.sh`/`down.sh` discover it (maxdepth 2 under each module dir) and start/stop it, gated by `disabled_modules` — the service runs only while the module is enabled. Every dev-bot compose file declares `name: devbot` so all containers land in one compose project regardless of which file is listed first.
+
+A service that builds its own image adds a `Dockerfile` next to the compose file (`build: { context: . }`). `docker compose up` builds it on first start when the image is missing; rebuild after a Dockerfile change with `docker compose -f <module>/docker-compose.yml build`.
+
+Used by the shared MCP gateways — see [MCP configuration](/mcp-config#shared-machine-wide-gateways).
 
 ### Declarative skill prunes (`skills-prune.lst`)
 

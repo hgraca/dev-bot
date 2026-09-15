@@ -1,0 +1,33 @@
+# src/agentic/mdctx/docker-compose.yml
+# Shared mdctx MCP gateway. Auto-discovered by bin/up.sh (maxdepth 2 under each
+# module dir) and gated by disabled_modules — the container starts only when the
+# mdctx module is enabled.
+#
+# `name: devbot` — the compose project name is read from the FIRST -f file;
+# every dev-bot compose file declares the same name so all containers land in
+# one project regardless of which file is first.
+#
+# The image is built on first `devbot up` (compose builds a `build:` service
+# whose image is missing); later runs reuse it. Rebuild after a Dockerfile
+# change with `docker compose -f src/agentic/mdctx/docker-compose.yml build`.
+name: devbot
+
+services:
+  mdctx-mcp:
+    build:
+      context: .
+    image: dev-bot-mdctx-mcp:local
+    container_name: dev-bot-mdctx-mcp
+    restart: "no"
+    ports:
+      # Host-local only — the gateway is never exposed off the machine.
+      - "127.0.0.1:18501:18501"
+    volumes:
+      # The MCP server serves the machine-global memory store; the index is
+      # shared with the host tools (search-memories, reindex) so both see the
+      # same file.
+      - ${DEV_BOT_ROOT}/storage/global-memories:/data/global-memories
+      - ${DEV_BOT_ROOT}/storage/.mdctx:/data/.mdctx
+    environment:
+      MDCTX_ROOT: /data/global-memories
+      MDCTX_INDEX: /data/.mdctx/context-index.json
