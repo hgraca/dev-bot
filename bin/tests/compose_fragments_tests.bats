@@ -90,17 +90,25 @@ teardown() {
 # Convention: all dev-bot compose files declare `name: devbot`.
 
 @test "every compose file declares the shared project name 'devbot'" {
-  local f name
+  local f name found=0
+  # Derived, not enumerated (review F7): a hardcoded list silently stopped
+  # covering the four gateway composes added with the shared-gateway work. The
+  # glob mirrors the directories bin/up.sh discovers.
+  shopt -s nullglob
   for f in \
-    "${PROJECT_ROOT}/src/tools/ollama/docker-compose.yml" \
-    "${PROJECT_ROOT}/src/tools/ollama/docker-compose.gpu.yml" \
-    "${PROJECT_ROOT}/src/tools/litellm/docker-compose.yml" \
-    "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.yml" \
-    "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.gpu.yml"; do
+    "${PROJECT_ROOT}"/docker-compose*.yml \
+    "${PROJECT_ROOT}"/src/tools/*/docker-compose*.yml \
+    "${PROJECT_ROOT}"/src/agentic/*/docker-compose*.yml \
+    "${PROJECT_ROOT}"/src/harnesses/*/docker-compose*.yml; do
+    found=$((found + 1))
     name="$(grep -m1 '^name:' "${f}" 2>/dev/null | sed 's/^name:[[:space:]]*//')"
     [ "${name}" = "devbot" ] \
-      || fail "$(basename "$(dirname "${f}")")/docker-compose.yml must declare 'name: devbot' (found: '${name}')"
+      || fail "${f#${PROJECT_ROOT}/} must declare 'name: devbot' (found: '${name}')"
   done
+  shopt -u nullglob
+  # Guards against a stale glob quietly covering nothing.
+  [ "${found}" -gt 0 ] || fail "no compose files matched — the glob is stale"
+  return 0
 }
 
 @test "the project name is devbot whichever fragment is -f'd first" {
