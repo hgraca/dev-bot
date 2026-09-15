@@ -6,8 +6,13 @@
 # The module wraps the codebase-memory-mcp native binary (npm package
 # codebase-memory-mcp) as the opencode/claudecode codebase engine. Unlike its
 # sibling codebase-index (opencode PLUGIN integration), codebase-memory is a
-# plain stdio MCP server on both harnesses — hence a single canonical mcp.json
-# EXISTS and plugin.opencode.json MUST NOT.
+# plain MCP server registered on both harnesses — hence a single canonical
+# mcp.json EXISTS and plugin.opencode.json MUST NOT.
+#
+# Since the shared-gateway work the canonical manifest declares an http URL: the
+# server runs once per machine in a docker compose container (bridged from stdio
+# by mcp-proxy) and every harness instance connects to it over
+# streamable-http at /mcp.
 # =============================================================================
 
 setup() {
@@ -22,9 +27,10 @@ setup() {
 # ── Module structure ──────────────────────────────────────────────────────────
 
 @test "MCP integration is a single canonical mcp.json, not a plugin" {
-  # For opencode codebase-memory is registered as a plain stdio MCP server
+  # codebase-memory is registered as a plain MCP server on both harnesses
   # (upstream ships no opencode plugin). Inverse of codebase-index, which
   # registers as a plugin and deliberately has no MCP registration on opencode.
+  # The manifest's transport is http (shared gateway) — asserted in its own test.
   local mcp_config="$MODULE_DIR/mcp.json"
   [ -f "$mcp_config" ]
   # The per-harness manifest pair was consolidated into one canonical file.
