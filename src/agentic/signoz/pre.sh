@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
 # src/agentic/signoz/pre.sh
-# Prerequisites check for SigNoz module.
+# Prerequisites check for the SigNoz module.
 # Run automatically by bin/install.sh and bin/update.sh.
 #
-# Checks: curl (or wget), tar, npx (node), uname (always available).
+# There is no per-machine binary any more: the MCP server runs as a shared
+# machine-wide container (docker-compose.yml) and only the agent skills are
+# fetched per machine (via npx). Docker is therefore the real prerequisite;
+# curl is optional (it only powers the gateway readiness probe in up.sh).
+#
 # Non-destructive — warnings only for missing optional tools.
 
 set -euo pipefail
@@ -17,30 +21,27 @@ _main() {
 
   _header_3 "SigNoz prerequisites"
 
-  # curl or wget (required for downloading binary)
-  if command -v curl >/dev/null 2>&1; then
-    _ok "curl (for downloading binary)"
-  elif command -v wget >/dev/null 2>&1; then
-    _ok "wget (for downloading binary)"
+  # docker (required to run the shared MCP gateway container)
+  if command -v docker >/dev/null 2>&1; then
+    _ok "docker (for the shared MCP gateway container)"
   else
-    _warn "Neither curl nor wget found — cannot download SigNoz MCP binary"
+    _warn "docker not found — the SigNoz MCP gateway cannot run"
     all_ok=false
   fi
 
-  # tar (required to extract archive)
-  if command -v tar >/dev/null 2>&1; then
-    _ok "tar (for extracting archive)"
-  else
-    _warn "tar not found — cannot extract SigNoz MCP binary"
-    all_ok=false
-  fi
-
-  # npx / node (required for installing skills)
+  # npx / node (required for installing agent skills)
   if command -v npx >/dev/null 2>&1; then
     _ok "npx (for installing agent skills)"
   else
     _warn "npx not found (node/npm required) — cannot install SigNoz agent skills"
     all_ok=false
+  fi
+
+  # curl (optional — the gateway readiness probe degrades gracefully without it)
+  if command -v curl >/dev/null 2>&1; then
+    _ok "curl (for the gateway readiness probe)"
+  else
+    _info "curl not found — gateway readiness probe will be skipped"
   fi
 
   if [[ "${all_ok}" == "false" ]]; then

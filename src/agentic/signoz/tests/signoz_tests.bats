@@ -102,3 +102,53 @@ print('MCP:OK')
   run grep -q '_shared/functions.sh' "${MODULE_DIR}/functions.sh"
   assert_success
 }
+
+# ── Update: the retired per-machine binary must be gone from every script ─────
+
+@test "no signoz script references the retired per-machine binary" {
+  # Regression (review F1): the binary removal was swept through install.sh but
+  # not update.sh, which kept calling the deleted _signoz_archive_name under
+  # `set -e` and died with exit 127 on every `devbot update`.
+  run grep -rn '_signoz_archive_name\|signoz-mcp-server' "${MODULE_DIR}" --include='*.sh'
+  assert_failure
+}
+
+@test "update.sh executes cleanly with a sandboxed DEV_BOT_ROOT" {
+  # Executes the script rather than grepping it: the file-shape assertions above
+  # are exactly what let a script that exits 127 pass the suite.
+  sandbox="$(mktemp -d)"
+  mockbin="${sandbox}/mockbin"
+  mkdir -p "${mockbin}" "${sandbox}/storage/signoz/skills"
+
+  # Stub npx so the skills step succeeds without touching the network, laying
+  # down the .agents/skills layout the real CLI produces.
+  cat > "${mockbin}/npx" <<'MOCK'
+#!/usr/bin/env bash
+mkdir -p .agents/skills/signoz-skill
+: > .agents/skills/signoz-skill/SKILL.md
+exit 0
+MOCK
+  chmod +x "${mockbin}/npx"
+
+  # Fail loudly if the retired download path is ever attempted.
+  local tool
+  for tool in curl wget tar; do
+    cat > "${mockbin}/${tool}" <<MOCK
+#!/usr/bin/env bash
+echo "UNEXPECTED ${tool} invocation" >&2
+exit 1
+MOCK
+    chmod +x "${mockbin}/${tool}"
+  done
+
+  run env DEV_BOT_ROOT="${sandbox}" PATH="${mockbin}:${PATH}" \
+    bash "${MODULE_DIR}/update.sh"
+
+  assert_success
+  refute_output --partial "UNEXPECTED"
+  refute_output --partial "command not found"
+  # The skills actually landed in the sandboxed storage.
+  [ -f "${sandbox}/storage/signoz/skills/signoz-skill/SKILL.md" ]
+
+  rm -rf "${sandbox}"
+}
