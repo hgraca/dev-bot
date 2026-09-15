@@ -64,6 +64,7 @@ Gateways bind `127.0.0.1` only (never exposed off the machine), in the `18500–
 | port  | server |
 | ----- | ------ |
 | 18501 | mdctx  |
+| 18502 | signoz |
 
 ### stdio servers behind a bridge
 

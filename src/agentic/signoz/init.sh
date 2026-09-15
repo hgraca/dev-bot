@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
 # src/agentic/signoz/init.sh
 # Set up SigNoz in a project:
-#   1. Symlink the MCP binary from devbot storage into each ENABLED harness dir
-#      (.opencode/signoz-mcp-server and .claude/signoz-mcp-server)
-#   2. Symlink agent skills from devbot storage to project's .opencode/skills/signoz/
+#   Symlink agent skills from devbot storage to the project's
+#   .opencode/skills/signoz/.
 #
-# MCP auto-registration is handled by the harness inits from the single
-# canonical manifest (src/agentic/signoz/mcp.json): the command resolves
-# {harness-dir}/signoz-mcp-server to the symlink created in step 1, and the
-# SIGNOZ_API_KEY env comes from {env:SIGNOZ_AUTH_TOKEN} — mapped by the shared
-# translator to each harness's native env expansion (opencode keeps {env:VAR},
-# claudecode's .mcp.json carries ${VAR}); both clients resolve it at launch,
-# so the token is never written into a config file.
+# The MCP server is no longer symlinked per harness: it runs as a shared
+# machine-wide container (see docker-compose.yml) and the harness connects over
+# http. MCP auto-registration is handled by the harness inits from the single
+# canonical manifest (src/agentic/signoz/mcp.json), which declares the gateway
+# URL.
 #
 # Idempotent — safe to re-run.
 #
@@ -30,7 +27,6 @@ PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 source "${MODULE_DIR}/functions.sh"
 
 STORAGE_DIR="$(_signoz_storage_dir)"
-BIN_DIR="${STORAGE_DIR}/bin"
 SKILLS_DIR="${STORAGE_DIR}/skills"
 
 _header_3 "SigNoz Init"
@@ -42,43 +38,14 @@ if [[ -z "${PROJECT_DIR}" || ! -d "${PROJECT_DIR}" ]]; then
   exit 1
 fi
 
-if [[ ! -x "${BIN_DIR}/signoz-mcp-server" ]]; then
-  _warn "SigNoz MCP binary not found at ${BIN_DIR}/signoz-mcp-server"
-  _warn "  Run 'devbot install' first to download the binary."
-  exit 1
-fi
-
 PROJECT_NAME="$(basename "${PROJECT_DIR}")"
 _disabled_raw="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null || echo '[]')"
 
-# ── Per-harness MCP binary symlink ─────────────────────────────────────────────
-# Registration comes from the canonical mcp.json ({harness-dir} token), so the
-# binary must exist in every enabled harness dir. Skills are opencode-only.
-
-_link_mcp_binary() {
-  local harness_dir="$1" # .opencode | .claude
-  local bin_symlink="${PROJECT_DIR}/${harness_dir}/signoz-mcp-server"
-
-  mkdir -p "${PROJECT_DIR}/${harness_dir}"
-  if [[ -L "${bin_symlink}" ]]; then
-    _skip "MCP binary already symlinked: ${harness_dir}/signoz-mcp-server"
-  elif [[ -f "${bin_symlink}" ]]; then
-    _warn "${harness_dir}/signoz-mcp-server exists but is not a symlink — replacing."
-    rm -f "${bin_symlink}"
-    ln -sf "${BIN_DIR}/signoz-mcp-server" "${bin_symlink}"
-    _ok "MCP binary symlinked to ${harness_dir}/signoz-mcp-server"
-  else
-    ln -sf "${BIN_DIR}/signoz-mcp-server" "${bin_symlink}"
-    _ok "MCP binary symlinked: ${harness_dir}/signoz-mcp-server → storage/signoz/bin/signoz-mcp-server"
-  fi
-}
+# ── Agent skills (opencode-only) ───────────────────────────────────────────────
 
 if echo "${_disabled_raw}" | jq -e 'index("opencode") != null' >/dev/null 2>&1; then
   _skip "opencode disabled — skipping .opencode wiring"
 else
-  _link_mcp_binary ".opencode"
-
-  # ── Agent skills (opencode-only) ────────────────────────────────────────────
   SKILLS_SYMLINK="${PROJECT_DIR}/.opencode/skills/signoz"
 
   if [[ -L "${SKILLS_SYMLINK}" ]]; then
@@ -98,22 +65,14 @@ else
   fi
 fi
 
-if echo "${_disabled_raw}" | jq -e 'index("claudecode") != null' >/dev/null 2>&1; then
-  _skip "claudecode disabled — skipping .claude MCP binary wiring"
-else
-  _link_mcp_binary ".claude"
-fi
-
 _log "SigNoz init complete for ${PROJECT_NAME}"
 
 cat <<'EOF'
 
   SigNoz MCP server wired into every enabled harness.
-  Auto-registered by the harness inits from src/agentic/signoz/mcp.json.
-  Auth env (SIGNOZ_URL, SIGNOZ_API_KEY, SIGNOZ_SSL_VERIFY, LOG_LEVEL) lives in
-  that manifest's "env" block. SIGNOZ_API_KEY is set from the SIGNOZ_AUTH_TOKEN
-  environment variable via {env:SIGNOZ_AUTH_TOKEN}, mapped per harness:
-    - opencode keeps {env:SIGNOZ_AUTH_TOKEN} (native expansion at launch)
-    - claudecode's .mcp.json carries ${SIGNOZ_AUTH_TOKEN} (Claude Code native
-      expansion at launch — the token is never written into the file)
+  Auto-registered by the harness inits from src/agentic/signoz/mcp.json, which
+  points at the shared gateway (http://127.0.0.1:18502/mcp) started by
+  `devbot up` from this module's docker-compose.yml.
+  The API token comes from SIGNOZ_AUTH_TOKEN in the environment when `devbot up`
+  runs — it is never written into a config file.
 EOF

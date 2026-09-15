@@ -1,53 +1,25 @@
 #!/usr/bin/env bash
 # src/agentic/signoz/install.sh
-# Install SigNoz MCP server and agent skills.
+# Install SigNoz agent skills.
 #
-# 1. Downloads the SigNoz MCP server binary from GitHub releases.
-# 2. Extracts the binary and README into storage/signoz/bin/.
-# 3. Installs SigNoz agent skills via npx into storage/signoz/skills/.
+# The MCP server itself is no longer downloaded per machine: it runs as a shared
+# machine-wide container from the official image (see docker-compose.yml), so
+# there is no binary to fetch or symlink into each harness dir.
 #
-# Idempotent — skips if binary already present and skills already installed.
+# 1. Installs SigNoz agent skills via npx into storage/signoz/skills/.
 #
-# GATE: Requires curl (or wget), tar, npx.
+# Idempotent — skips when the skills are already installed.
+#
+# GATE: Requires npx.
 
 set -euo pipefail
 
-MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODULE_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
 STORAGE_DIR="$(_signoz_storage_dir)"
-BIN_DIR="${STORAGE_DIR}/bin"
 SKILLS_DIR="${STORAGE_DIR}/skills"
-
-# ── Download helpers ───────────────────────────────────────────────────────────
-
-_download_binary() {
-  local archive_name="$1"
-  local download_url="https://github.com/SigNoz/signoz-mcp-server/releases/latest/download/${archive_name}"
-
-  mkdir -p "${BIN_DIR}"
-
-  if command -v curl >/dev/null 2>&1; then
-    _info "Downloading SigNoz MCP server (${download_url})..."
-    curl -fsSL "${download_url}" 2>/dev/null | tar xz --strip-components=2 -C "${BIN_DIR}" 2>/dev/null
-    return $?
-  elif command -v wget >/dev/null 2>&1; then
-    _info "Downloading SigNoz MCP server (${download_url})..."
-    local tmpfile
-    tmpfile="$(mktemp "${TMPDIR:-/tmp}/devbot.XXXXXX")"
-    if wget -q -O "${tmpfile}" "${download_url}" 2>/dev/null; then
-      tar xzf "${tmpfile}" --strip-components=2 -C "${BIN_DIR}" 2>/dev/null
-      rm -f "${tmpfile}"
-      return $?
-    fi
-    rm -f "${tmpfile}"
-    return 1
-  else
-    _error "Neither curl nor wget found — cannot download SigNoz MCP binary"
-    return 1
-  fi
-}
 
 _install_skills() {
   _info "Installing SigNoz agent skills via npx..."
@@ -103,20 +75,6 @@ _install_skills() {
 main() {
   echo
   _info "SigNoz (observability MCP server + agent skills)"
-
-  local archive_name
-  archive_name="$(_signoz_archive_name)"
-
-  # ── Binary ───────────────────────────────────────────────────────────────────
-  if [[ -x "${BIN_DIR}/signoz-mcp-server" ]]; then
-    _skip "SigNoz MCP server binary already installed (${BIN_DIR}/signoz-mcp-server)"
-  else
-    _download_binary "${archive_name}" && _ok "SigNoz MCP server installed to ${BIN_DIR}" || _warn "Binary download failed."
-    # Make binary executable if present
-    if [[ -f "${BIN_DIR}/signoz-mcp-server" ]]; then
-      chmod +x "${BIN_DIR}/signoz-mcp-server"
-    fi
-  fi
 
   # ── Skills ───────────────────────────────────────────────────────────────────
   if [[ -d "${SKILLS_DIR}" ]] && [[ -n "$(ls -A "${SKILLS_DIR}" 2>/dev/null)" ]]; then

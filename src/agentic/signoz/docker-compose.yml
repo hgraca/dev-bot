@@ -1,0 +1,35 @@
+# src/agentic/signoz/docker-compose.yml
+# Shared SigNoz MCP gateway. Auto-discovered by bin/up.sh (maxdepth 2 under each
+# module dir) and gated by disabled_modules — the container starts only when the
+# signoz module is enabled.
+#
+# The server speaks HTTP natively (TRANSPORT_MODE=http), so no stdio→http bridge
+# is needed. It is a thin client to the SigNoz API, so one container serves every
+# harness instance on the machine.
+#
+# `name: devbot` — the compose project name is read from the FIRST -f file;
+# every dev-bot compose file declares the same name so all containers land in
+# one project regardless of which file is first.
+#
+# IMAGE PIN: the tag is the pin (docker never re-resolves a tag). Bump it here
+# deliberately; `devbot update` does not rewrite it yet.
+name: devbot
+
+services:
+  signoz-mcp:
+    image: signoz/signoz-mcp-server:v0.14.0
+    container_name: dev-bot-signoz-mcp
+    restart: "no"
+    ports:
+      # Host-local only — the gateway is never exposed off the machine.
+      - "127.0.0.1:18502:8000"
+    environment:
+      TRANSPORT_MODE: http
+      MCP_SERVER_PORT: "8000"
+      SIGNOZ_URL: ${SIGNOZ_URL:-https://signoz.get-e.com}
+      # The API token comes from the environment (or .env) when `devbot up`
+      # runs — it is never written into a config file. An empty token lets the
+      # container start but every SigNoz API call fails.
+      SIGNOZ_API_KEY: ${SIGNOZ_AUTH_TOKEN:-}
+      SIGNOZ_SSL_VERIFY: "true"
+      LOG_LEVEL: info
