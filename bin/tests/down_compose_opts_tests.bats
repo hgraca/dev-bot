@@ -95,6 +95,11 @@ except:
 }
 HEREDOC
 
+  # The real GPU-overlay marker parser, extracted verbatim from the shared
+  # library, so this stub cannot drift from production behaviour.
+  awk '/^_gpu_overlay_skip_if\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh" \
+    >> "${SANDBOX_DIR}/src/_shared/functions.sh"
+
   # Create .devbot.global.jsonc (production name)
   if [[ -n "${json_content}" ]]; then
     printf '%s\n' "${json_content}" > "${SANDBOX_DIR}/.devbot.global.jsonc"
@@ -213,6 +218,87 @@ _run_docker_down() {
   run cat "${DOCKER_ARGS_FILE}"
   assert_output --regexp 'compose -f src/agentic/mdctx/docker-compose\.yml down --remove-orphans'
   [[ "$output" != *"gpu"* ]]
+}
+
+# ── GPU overlay de-duplication (the skip-if-included marker) ────────────────
+
+@test "down skips a consumer GPU overlay when the compose it stands in for is in the set" {
+  # Kept in step with bin/up.sh (review F10): up and down must select the same
+  # compose set, or down operates on a different project than up created.
+  _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false}}'
+  rm -f "${SANDBOX_DIR}/docker-compose.yml" "${SANDBOX_DIR}/docker-compose.gpu.yml"
+
+  mkdir -p "${SANDBOX_DIR}/src/tools/ollama"
+  cat > "${SANDBOX_DIR}/src/tools/ollama/docker-compose.yml" <<'YAML'
+name: devbot
+services:
+  ollama:
+    image: ollama/ollama
+YAML
+  cat > "${SANDBOX_DIR}/src/tools/ollama/docker-compose.gpu.yml" <<'YAML'
+name: devbot
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+YAML
+
+  mkdir -p "${SANDBOX_DIR}/src/agentic/codebase-index"
+  cat > "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.yml" <<'YAML'
+name: devbot
+include:
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml
+YAML
+  cat > "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.gpu.yml" <<'YAML'
+# devbot:gpu-overlay-skip-if-included src/tools/ollama/docker-compose.yml
+name: devbot
+include:
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.gpu.yml
+YAML
+  MOCK_HAS_DOCKER_GPU=yes
+
+  run _run_docker_down
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial '-f src/tools/ollama/docker-compose.gpu.yml'
+  [[ "$output" != *"src/agentic/codebase-index/docker-compose.gpu.yml"* ]] \
+    || fail "consumer GPU overlay was applied on top of the provider's"
+}
+
+@test "down still applies a consumer GPU overlay when the provider's module is disabled" {
+  _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false, "ollama": false}}'
+  rm -f "${SANDBOX_DIR}/docker-compose.yml" "${SANDBOX_DIR}/docker-compose.gpu.yml"
+
+  mkdir -p "${SANDBOX_DIR}/src/tools/ollama"
+  cat > "${SANDBOX_DIR}/src/tools/ollama/docker-compose.yml" <<'YAML'
+name: devbot
+services:
+  ollama:
+    image: ollama/ollama
+YAML
+  mkdir -p "${SANDBOX_DIR}/src/agentic/codebase-index"
+  cat > "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.yml" <<'YAML'
+name: devbot
+include:
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml
+YAML
+  cat > "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.gpu.yml" <<'YAML'
+# devbot:gpu-overlay-skip-if-included src/tools/ollama/docker-compose.yml
+name: devbot
+include:
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.gpu.yml
+YAML
+  MOCK_HAS_DOCKER_GPU=yes
+
+  run _run_docker_down
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial '-f src/agentic/codebase-index/docker-compose.gpu.yml'
 }
 
 # ── Guards: no daemon, and missing global config ─────────────────────────────

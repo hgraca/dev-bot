@@ -92,6 +92,11 @@ except:
 }
 HEREDOC
 
+  # The real GPU-overlay marker parser, extracted verbatim from the shared
+  # library, so this stub cannot drift from production behaviour.
+  awk '/^_gpu_overlay_skip_if\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh" \
+    >> "${SANDBOX_DIR}/src/_shared/functions.sh"
+
   # Create .devbot.global.jsonc (production name)
   if [[ -n "${json_content}" ]]; then
     printf '%s\n' "${json_content}" > "${SANDBOX_DIR}/.devbot.global.jsonc"
@@ -371,6 +376,97 @@ YAML
   run cat "${DOCKER_ARGS_FILE}"
   assert_output --regexp 'compose -f src/agentic/mdctx/docker-compose\.yml up -d --no-recreate'
   [[ "$output" != *"gpu"* ]]
+}
+
+# ── GPU overlay de-duplication (the skip-if-included marker) ────────────────
+
+# Lay out a provider (ollama) with its own GPU overlay, plus a consumer fragment
+# whose GPU overlay carries the skip marker pointing at the provider's compose.
+_setup_provider_and_consumer() {
+  rm -f "${SANDBOX_DIR}/docker-compose.yml" "${SANDBOX_DIR}/docker-compose.gpu.yml"
+
+  mkdir -p "${SANDBOX_DIR}/src/tools/ollama"
+  cat > "${SANDBOX_DIR}/src/tools/ollama/docker-compose.yml" <<'YAML'
+name: devbot
+services:
+  ollama:
+    image: ollama/ollama
+YAML
+  cat > "${SANDBOX_DIR}/src/tools/ollama/docker-compose.gpu.yml" <<'YAML'
+name: devbot
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+YAML
+
+  mkdir -p "${SANDBOX_DIR}/src/agentic/codebase-index"
+  cat > "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.yml" <<'YAML'
+name: devbot
+include:
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml
+YAML
+  cat > "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.gpu.yml" <<'YAML'
+# devbot:gpu-overlay-skip-if-included src/tools/ollama/docker-compose.yml
+name: devbot
+include:
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.gpu.yml
+YAML
+}
+
+@test "GPU: consumer overlay is skipped when the compose it stands in for is already in the set" {
+  # Review F10. codebase-index's GPU overlay exists only to cover the case where
+  # the ollama MODULE is disabled. With ollama enabled its own overlay is
+  # applied directly and the consumer's would merge the same device reservation
+  # twice (docker compose config then shows two identical capabilities: [gpu]).
+  _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false}}'
+  _setup_provider_and_consumer
+  MOCK_HAS_DOCKER_GPU=yes
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  # The provider's overlay IS applied...
+  assert_output --partial '-f src/tools/ollama/docker-compose.gpu.yml'
+  # ...and the consumer's is skipped.
+  [[ "$output" != *"src/agentic/codebase-index/docker-compose.gpu.yml"* ]] \
+    || fail "consumer GPU overlay was applied on top of the provider's"
+}
+
+@test "GPU: consumer overlay is still applied when the provider's module is disabled" {
+  # The complement — the marker must not over-skip. With ollama disabled, its
+  # overlay is absent and the consumer's include is the only thing that gives
+  # the ollama it pulls in its GPU.
+  _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false, "ollama": false}}'
+  _setup_provider_and_consumer
+  MOCK_HAS_DOCKER_GPU=yes
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial '-f src/agentic/codebase-index/docker-compose.gpu.yml'
+}
+
+@test "GPU: _gpu_overlay_skip_if reads the marker and ignores unmarked overlays" {
+  # Source _shared/functions.sh, NOT bin/up.sh — sourcing the latter runs its
+  # trailing `main \"$@\"` and would invoke a real `devbot up`.
+  local overlay
+  overlay="$(mktemp)"
+  printf '# devbot:gpu-overlay-skip-if-included src/tools/ollama/docker-compose.yml\nname: devbot\n' > "${overlay}"
+  run bash -c "source '${PROJECT_ROOT}/src/_shared/functions.sh'; _gpu_overlay_skip_if '${overlay}'"
+  assert_success
+  assert_output 'src/tools/ollama/docker-compose.yml'
+
+  printf 'name: devbot\nservices:\n  ollama: {}\n' > "${overlay}"
+  run bash -c "source '${PROJECT_ROOT}/src/_shared/functions.sh'; _gpu_overlay_skip_if '${overlay}'"
+  assert_success
+  assert_output ''
+  rm -f "${overlay}"
 }
 
 # ── Stale container-name reclaim ─────────────────────────────────────────────

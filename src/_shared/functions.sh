@@ -2236,3 +2236,26 @@ _devbot_wait_for_mcp_gateway() {
 
   return 0
 }
+
+# =============================================================================
+# _gpu_overlay_skip_if <overlay-path>
+#
+# Print the compose path a GPU overlay declares it stands in for, via a marker
+# comment:
+#
+#   # devbot:gpu-overlay-skip-if-included src/tools/ollama/docker-compose.yml
+#
+# bin/up.sh and bin/down.sh skip such an overlay when the named compose is
+# already in the -f set. A consumer fragment (a module that runs no container of
+# its own — codebase-index) ships a GPU overlay only to stand in for a provider
+# whose MODULE may be disabled; when the provider's compose is already selected
+# its own overlay is applied, and applying the consumer's as well merges the
+# same device reservation twice.
+#
+# Prints nothing when the overlay carries no marker (or does not exist).
+# =============================================================================
+_gpu_overlay_skip_if() {
+  local overlay="$1"
+  [[ -f "${overlay}" ]] || return 0
+  sed -n 's/^#[[:space:]]*devbot:gpu-overlay-skip-if-included[[:space:]]*//p' "${overlay}" | head -1
+}

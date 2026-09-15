@@ -71,6 +71,14 @@ A service that builds its own image adds a `Dockerfile` next to the compose file
 
 A module that needs GPU passthrough adds a `docker-compose.gpu.yml` beside its compose. It is included only when GPU passthrough is available (`gpu_enabled` **and** a live probe) **and** that module's compose is selected — the overlay follows the compose it overrides, so it can never be applied without the service it targets. A module that runs no container of its own but needs a GPU provider (codebase-index needs ollama) ships an overlay that `include:`s the provider's, mirroring how its compose includes the provider's compose.
 
+Such a consumer overlay exists only for the case where the provider's **module** is disabled. When the provider's module is enabled, its own overlay is applied directly and the consumer's would merge the same device reservation a second time. A consumer overlay therefore declares which compose it stands in for, and is skipped when that compose is already in the set:
+
+```yaml
+# devbot:gpu-overlay-skip-if-included src/tools/ollama/docker-compose.yml
+```
+
+`bin/up.sh` and `bin/down.sh` read that marker via `_gpu_overlay_skip_if` and log the skip. Both scripts implement it identically, so up and down always select the same compose set.
+
 Used by the shared MCP gateways — see [MCP configuration](/mcp-config#shared-machine-wide-gateways).
 
 ### Declarative skill prunes (`skills-prune.lst`)

@@ -194,10 +194,21 @@ for m in json.loads(sys.stdin.read()):
     local rel="${f#${DEV_BOT_ROOT}/}"
     compose_opts+=("-f" "${rel}")
 
-    # The module's GPU overlay, if it ships one, follows its compose.
+    # The module's GPU overlay, if it ships one, follows its compose. An
+    # overlay may declare `devbot:gpu-overlay-skip-if-included <compose>` to say
+    # "I exist only to stand in for that compose — skip me when it is already
+    # in the set". Without it a consumer fragment and its provider would both
+    # apply the same device reservation (codebase-index's overlay include:s
+    # ollama's).
     local gpu_rel="${rel%docker-compose.yml}docker-compose.gpu.yml"
     if [[ ${gpu_ok} -eq 1 && -f "${DEV_BOT_ROOT}/${gpu_rel}" ]]; then
-      compose_opts+=("-f" "${gpu_rel}")
+      local skip_if
+      skip_if="$(_gpu_overlay_skip_if "${DEV_BOT_ROOT}/${gpu_rel}")"
+      if [[ -n "${skip_if}" ]] && printf '%s\n' "${compose_opts[@]}" | grep -Fxq "${skip_if}"; then
+        _skip "${mod_name}: GPU overlay skipped — ${skip_if} already applies it"
+      else
+        compose_opts+=("-f" "${gpu_rel}")
+      fi
     fi
   done
 
