@@ -19,6 +19,10 @@ services:
     image: dev-bot-mdctx-mcp:local
     container_name: dev-bot-mdctx-mcp
     restart: "no"
+    # Run as the HOST uid/gid, not root: the container writes the shared index,
+    # and a root-owned file there would block the host `reindex` tool. Matches
+    # the codebase-memory gateway. bin/up.sh exports DEV_UID/DEV_GID.
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
     ports:
       # Host-local only — the gateway is never exposed off the machine.
       - "127.0.0.1:18501:18501"
@@ -26,7 +30,15 @@ services:
       # The MCP server serves the machine-global memory store; the index is
       # shared with the host tools (search-memories, reindex) so both see the
       # same file.
-      - ${DEV_BOT_ROOT}/storage/global-memories:/data/global-memories
+      #
+      # READ-ONLY: the server only ever reads the markdown corpus. Its sole
+      # write is the index file — indexer.js uses readFile/readdir plus a single
+      # writeFile to the index path, and the server never imports the config
+      # writer. Least privilege: the search server must not be able to mutate
+      # the git-tracked knowledge base.
+      - ${DEV_BOT_ROOT}/storage/global-memories:/data/global-memories:ro
+      # READ-WRITE: the `refresh_index` tool — and loadIndex's auto-heal of a
+      # missing/corrupt/version-mismatched index — rewrites context-index.json.
       - ${DEV_BOT_ROOT}/storage/.mdctx:/data/.mdctx
     environment:
       MDCTX_ROOT: /data/global-memories

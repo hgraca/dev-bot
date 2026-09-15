@@ -69,6 +69,22 @@ print('MCP:OK')
   assert_success
 }
 
+@test "docker-compose.yml runs as the host uid and keeps the corpus read-only" {
+  local compose="$MODULE_DIR/docker-compose.yml"
+  # The container writes the shared index; running as root would leave a
+  # root-owned file that the host `reindex` tool could not rewrite.
+  run grep -q 'user: "\${DEV_UID' "$compose"
+  assert_success
+  # The knowledge base is git-tracked and the server only ever reads it —
+  # indexer.js uses readFile/readdir plus a single writeFile to the INDEX path.
+  run grep -q 'storage/global-memories:/data/global-memories:ro' "$compose"
+  assert_success
+  # The index must stay writable: refresh_index (and loadIndex's auto-heal)
+  # rewrites it. Asserted as NOT :ro so a stray ':ro' fails this test.
+  run grep -q 'storage/.mdctx:/data/.mdctx:ro' "$compose"
+  assert_failure
+}
+
 @test "Dockerfile pins the bridge and mdctx versions" {
   local df="$MODULE_DIR/Dockerfile"
   [ -f "$df" ]
