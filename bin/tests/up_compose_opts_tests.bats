@@ -100,7 +100,15 @@ HEREDOC
   fi
 
   # Compose files: root base + GPU override, tool-specific under src/tools/
-  touch "${SANDBOX_DIR}/docker-compose.yml"
+  # The root base defines the `ollama` service so the GPU overlay (which only
+  # overrides `ollama`) is applicable — the overlay is appended only when
+  # ollama is actually in the set.
+  cat > "${SANDBOX_DIR}/docker-compose.yml" <<'YAML'
+name: devbot
+services:
+  ollama:
+    image: ollama/ollama
+YAML
   touch "${SANDBOX_DIR}/docker-compose.gpu.yml"
   touch "${SANDBOX_DIR}/src/tools/litellm/docker-compose.yml"
 
@@ -301,6 +309,45 @@ _run_docker_up() {
   assert_success
   # The mock docker must never have been invoked.
   [ ! -s "${DOCKER_ARGS_FILE}" ]
+}
+
+@test "GPU enabled but ollama absent from the set — no overlay (invalid project guard)" {
+  # ollama disabled while another module (mdctx) ships a compose fragment: the
+  # GPU overlay only overrides `ollama`, so appending it makes compose reject
+  # the whole project — "service ollama has neither an image nor a build
+  # context specified: invalid compose project".
+  _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false, "ollama": false}}'
+  rm -f "${SANDBOX_DIR}/docker-compose.yml"
+  mkdir -p "${SANDBOX_DIR}/src/agentic/mdctx"
+  touch "${SANDBOX_DIR}/src/agentic/mdctx/docker-compose.yml"
+  MOCK_HAS_DOCKER_GPU=yes
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --regexp 'compose -f src/agentic/mdctx/docker-compose\.yml up -d --no-recreate'
+  [[ "$output" != *"gpu"* ]]
+}
+
+@test "GPU overlay appended when a consumer fragment includes ollama" {
+  # codebase-index's fragment `include:`s ollama's compose, so ollama IS in the
+  # set even though the ollama module is disabled — the overlay is valid.
+  _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false, "ollama": false}}'
+  rm -f "${SANDBOX_DIR}/docker-compose.yml"
+  mkdir -p "${SANDBOX_DIR}/src/agentic/codebase-index"
+  cat > "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.yml" <<'YAML'
+name: devbot
+include:
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml
+YAML
+  MOCK_HAS_DOCKER_GPU=yes
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --regexp 'compose -f src/agentic/codebase-index/docker-compose\.yml -f docker-compose\.gpu\.yml up -d --no-recreate'
 }
 
 # ── Stale container-name reclaim ─────────────────────────────────────────────

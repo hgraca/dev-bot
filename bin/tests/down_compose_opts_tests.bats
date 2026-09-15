@@ -103,7 +103,15 @@ HEREDOC
   fi
 
   # Compose files: root base + GPU override, tool + agentic consumer fragments
-  touch "${SANDBOX_DIR}/docker-compose.yml"
+  # The root base defines the `ollama` service so the GPU overlay (which only
+  # overrides `ollama`) is applicable — the overlay is appended only when
+  # ollama is actually in the set.
+  cat > "${SANDBOX_DIR}/docker-compose.yml" <<'YAML'
+name: devbot
+services:
+  ollama:
+    image: ollama/ollama
+YAML
   touch "${SANDBOX_DIR}/docker-compose.gpu.yml"
   touch "${SANDBOX_DIR}/src/tools/litellm/docker-compose.yml"
   touch "${SANDBOX_DIR}/src/agentic/codebase-index/docker-compose.yml"
@@ -187,6 +195,23 @@ _run_docker_down() {
   assert_success
   # The mock docker must never have been invoked.
   [ ! -s "${DOCKER_ARGS_FILE}" ]
+}
+
+@test "down omits the GPU override when ollama is absent from the set" {
+  # Mirrors bin/up.sh: the overlay only overrides `ollama`, so appending it
+  # when ollama is not in the set makes compose reject the project.
+  _setup_sandbox '{"gpu_enabled": true, "modules": {"litellm": false, "codebase-index": false, "ollama": false}}'
+  rm -f "${SANDBOX_DIR}/docker-compose.yml"
+  mkdir -p "${SANDBOX_DIR}/src/agentic/mdctx"
+  touch "${SANDBOX_DIR}/src/agentic/mdctx/docker-compose.yml"
+  MOCK_HAS_DOCKER_GPU=yes
+
+  run _run_docker_down
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --regexp 'compose -f src/agentic/mdctx/docker-compose\.yml down --remove-orphans'
+  [[ "$output" != *"gpu"* ]]
 }
 
 # ── Guards: no daemon, and missing global config ─────────────────────────────
