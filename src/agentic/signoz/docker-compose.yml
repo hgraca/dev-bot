@@ -19,6 +19,15 @@ services:
   signoz-mcp:
     image: signoz/signoz-mcp-server:v0.14.0
     container_name: dev-bot-signoz-mcp
+    # Started on demand by `devbot up` and left running. Deliberately NOT
+    # `unless-stopped`: the gateway is a dev machine service tied to the dev-bot
+    # services around it, so it should not come back on its own after a reboot
+    # without `devbot up` having started its neighbours.
+    #
+    # NO healthcheck: this image is distroless — it has no shell and none of
+    # curl/wget/python3/node — so there is nothing to run a probe with. Readiness
+    # is covered by signoz/up.sh, which performs a real MCP handshake and reports
+    # DEGRADED when the API token is missing.
     restart: "no"
     ports:
       # Host-local only — the gateway is never exposed off the machine.

@@ -18,6 +18,10 @@ services:
       context: .
     image: dev-bot-mdctx-mcp:local
     container_name: dev-bot-mdctx-mcp
+    # Started on demand by `devbot up` and left running. Deliberately NOT
+    # `unless-stopped`: the gateway is a dev machine service tied to the dev-bot
+    # services around it, so it should not come back on its own after a reboot
+    # without `devbot up` having started its neighbours.
     restart: "no"
     # Run as the HOST uid/gid, not root: the container writes the shared index,
     # and a root-owned file there would block the host `reindex` tool. Matches
@@ -43,3 +47,27 @@ services:
     environment:
       MDCTX_ROOT: /data/global-memories
       MDCTX_INDEX: /data/.mdctx/context-index.json
+    healthcheck:
+      # Liveness via a real MCP handshake on the container's own port, so
+      # `docker ps` shows a gateway that has stopped answering as unhealthy.
+      # python3, not curl: the bridge images install python3 for mcp-proxy and
+      # carry no HTTP client.
+      test:
+        - CMD
+        - python3
+        - -c
+        - |
+          import json, sys, urllib.request
+          body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                             "params": {"protocolVersion": "2024-11-05",
+                                        "capabilities": {},
+                                        "clientInfo": {"name": "healthcheck", "version": "1"}}}).encode()
+          req = urllib.request.Request(
+              "http://127.0.0.1:18501/mcp", data=body,
+              headers={"Content-Type": "application/json",
+                       "Accept": "application/json, text/event-stream"})
+          sys.exit(0 if urllib.request.urlopen(req, timeout=3).status == 200 else 1)
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

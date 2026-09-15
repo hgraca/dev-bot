@@ -82,6 +82,34 @@ _gateways() {
   [ "${fail}" -eq 0 ]
 }
 
+@test "every gateway declares a healthcheck or says why it cannot" {
+  # Review F14 / devbot:architecture-rules: a container must define its restart
+  # policy and a health check. signoz's image is distroless — no shell, and none
+  # of curl/wget/python3/node — so no probe can run inside it; that exception
+  # must be stated in the file rather than left implicit.
+  local entry mod compose fail=0
+  for entry in $(_gateways); do
+    mod="${entry%%:*}"
+    compose="${PROJECT_ROOT}/src/agentic/${mod}/docker-compose.yml"
+
+    if grep -qE '^    healthcheck:' "${compose}"; then
+      # The probe must hit this gateway's own port.
+      grep -q "127.0.0.1:${entry##*:}/mcp" "${compose}" \
+        || { echo "${mod}: healthcheck does not probe its own port"; fail=1; }
+    else
+      grep -qi 'NO healthcheck' "${compose}" \
+        || { echo "${mod}: no healthcheck and no explanation why"; fail=1; }
+    fi
+
+    # Restart policy must be deliberate and documented, not incidental.
+    grep -qE '^    restart: "no"' "${compose}" \
+      || { echo "${mod}: unexpected restart policy"; fail=1; }
+    grep -q 'Deliberately NOT' "${compose}" \
+      || { echo "${mod}: restart policy is not documented"; fail=1; }
+  done
+  [ "${fail}" -eq 0 ]
+}
+
 # ── 2. Readiness wait helper ─────────────────────────────────────────────────
 
 # Build a PATH whose only tool is a `curl` stub with the given exit code.

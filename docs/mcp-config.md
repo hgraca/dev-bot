@@ -79,6 +79,14 @@ Changing a credential needs a container recreate — `devbot up` runs compose wi
 
 A missing credential is **not** reliably visible to a readiness probe: an MCP `initialize` handshake succeeds against a gateway with no working credential. So `signoz/up.sh` reports `DEGRADED` rather than `reachable` when `SIGNOZ_AUTH_TOKEN` is unset.
 
+### Lifecycle and health
+
+Gateways are started on demand by `devbot up` and left running. They use `restart: "no"` **deliberately** rather than `unless-stopped`: a gateway is a dev-machine service tied to the dev-bot services around it, so it should not come back on its own after a reboot without `devbot up` having started its neighbours.
+
+Each gateway declares a healthcheck that performs a real MCP handshake on its own port, so `docker ps` reports a gateway that has stopped answering as `unhealthy`. The probe runs `python3` — the bridge images install it for `mcp-proxy` and carry no HTTP client.
+
+`signoz` is the exception: its official image is **distroless** (no shell, and none of `curl`/`wget`/`python3`/`node`), so nothing can run a probe inside it. Its readiness is covered by `signoz/up.sh` instead, which handshakes over the network and reports `DEGRADED` when the API token is missing. The compose file states this rather than leaving it implicit.
+
 ### stdio servers behind a bridge
 
 A server that only speaks stdio runs behind `mcp-proxy` inside its container, which exposes streamable-http at `/mcp`:
