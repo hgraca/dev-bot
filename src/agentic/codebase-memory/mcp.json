@@ -1,12 +1,8 @@
 {
   "mcp": {
     "codebase-memory": {
-      "type": "stdio",
-      "command": [
-        "bash",
-        "-c",
-        "mkdir -p .agents/logs && exec codebase-memory-mcp --ui=false 2>>.agents/logs/codebase-memory-mcp.log"
-      ]
+      "type": "http",
+      "url": "http://127.0.0.1:18504/mcp"
     }
   }
 }

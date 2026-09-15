@@ -17,6 +17,12 @@ set -euo pipefail
 DEV_BOT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEV_BOT_ROOT
 
+# The codebase-memory gateway runs as the HOST uid/gid, not root: its
+# cache-ancestry check refuses to start when the process does not own the
+# mounted index store. Compose interpolates these into `user:`.
+export DEV_UID="$(id -u)"
+export DEV_GID="$(id -g)"
+
 # ── Source shared library ──────────────────────────────────────────────────────
 # shellcheck source=../src/_shared/functions.sh
 source "${DEV_BOT_ROOT}/src/_shared/functions.sh"

@@ -31,21 +31,18 @@ setup() {
   [ ! -f "$MODULE_DIR/mcp.opencode.json" ]
   [ ! -f "$MODULE_DIR/mcp.claudecode.json" ]
   [ ! -f "$MODULE_DIR/plugin.opencode.json" ]
-  run grep -q 'codebase-memory-mcp' "$mcp_config"
+  run grep -q '"codebase-memory"' "$mcp_config"
   assert_success
 }
 
-@test "canonical mcp.json declares the codebase-memory key as a stdio server" {
+@test "canonical mcp.json declares the codebase-memory key as a shared http gateway" {
   run python3 -c "
 import json
 d = json.load(open('${MODULE_DIR}/mcp.json'))
 m = d['mcp']['codebase-memory']
-assert m['type'] == 'stdio', m
-assert m['command'][0:2] == ['bash', '-c'], m
-# --ui=false: the bundled graph UI binds a fixed loopback port (9749) per
-# instance. dev-bot launches one MCP server per project, so the collision
-# spams ui.unavailable/retry-scheduled warnings. dev-bot never uses the UI.
-assert 'exec codebase-memory-mcp --ui=false' in m['command'][2], m
+assert m['type'] == 'http', m
+assert m['url'] == 'http://127.0.0.1:18504/mcp', m
+assert 'command' not in m, m
 assert 'enabled' not in m, m
 print('MCP:OK')
 "
@@ -75,13 +72,52 @@ print('MCP:OK')
   [ -x "$MODULE_DIR/init.sh" ]
 }
 
-@test "no up.sh / reset.sh — nothing docker/Ollama" {
-  # codebase-memory-mcp bundles its embeddings and stores settings
-  # account-wide (config set); no Ollama/docker deps means no up.sh, and
-  # nothing stateful to reset. init.sh exists solely as a dependency
-  # self-heal (tested below).
-  [ ! -f "$MODULE_DIR/up.sh" ]
-  [ ! -f "$MODULE_DIR/reset.sh" ]
+@test "docker-compose.yml declares the shared gateway on the 18500+ block" {
+  local compose="$MODULE_DIR/docker-compose.yml"
+  [ -f "$compose" ]
+  # Host-local port mapping only — never exposed off the machine.
+  run grep -q '127.0.0.1:18504:18504' "$compose"
+  assert_success
+  # Every dev-bot compose file declares the same project name.
+  run grep -q 'name: devbot' "$compose"
+  assert_success
+  # The container runs as the HOST uid/gid: the binary's cache-ancestry check
+  # refuses to start when the process does not own the mounted store.
+  run grep -q 'user: "\${DEV_UID' "$compose"
+  assert_success
+  # The store is shared with the host session-start hook, so it must be
+  # mounted read-write or the gateway sees an empty index.
+  run grep -q 'codebase-memory-mcp:\${HOME}/.cache/codebase-memory-mcp' "$compose"
+  assert_success
+}
+
+@test "Dockerfile pins the server and the bridge" {
+  local df="$MODULE_DIR/Dockerfile"
+  [ -f "$df" ]
+  run grep -qE 'npm install -g codebase-memory-mcp@[0-9]+\.[0-9]+\.[0-9]+' "$df"
+  assert_success
+  # mcp-proxy 0.12.0 needs mcp<2 (the SDK moved request_ctx).
+  run grep -q 'mcp-proxy==0.12.0' "$df"
+  assert_success
+  run grep -q '"mcp<2"' "$df"
+  assert_success
+  # The bridge must bind 0.0.0.0 inside the container for the host mapping.
+  run grep -q -- '--host=0.0.0.0' "$df"
+  assert_success
+}
+
+@test "up.sh waits for the shared gateway" {
+  [ -f "${MODULE_DIR}/up.sh" ]
+  [ -x "${MODULE_DIR}/up.sh" ]
+  run grep -q '18504/mcp' "${MODULE_DIR}/up.sh"
+  assert_success
+}
+
+@test "no lifecycle script launches a per-instance stdio MCP process" {
+  # The host session-start hook still runs `codebase-memory-mcp cli ...` (a
+  # one-shot index, not the MCP server) — only the server launch must be gone.
+  run grep -rn 'exec codebase-memory-mcp' "${MODULE_DIR}" --include='*.sh' --include='*.json'
+  assert_failure
 }
 
 # ── install.sh behaviour (npm guarded by binary presence) ────────────────────

@@ -1,0 +1,59 @@
+# src/agentic/codebase-memory/docker-compose.yml
+# Shared codebase-memory MCP gateway. Auto-discovered by bin/up.sh (maxdepth 2
+# under each module dir) and gated by disabled_modules — the container starts
+# only when the codebase-memory module is enabled.
+#
+# `name: devbot` — the compose project name is read from the FIRST -f file;
+# every dev-bot compose file declares the same name so all containers land in
+# one project regardless of which file is first.
+#
+# The image is built on first `devbot up` (compose builds a `build:` service
+# whose image is missing); later runs reuse it. Rebuild after a Dockerfile
+# change with `docker compose -f src/agentic/codebase-memory/docker-compose.yml build`.
+#
+# MOUNTS — why these two, and why a single root:
+#   * The index store is shared with the host. The module's session-start hook
+#     (tools/index-project.sh) indexes via the HOST binary into
+#     ~/.cache/codebase-memory-mcp, and each repo's DB is named after its host
+#     path. Mounting the store read-write is what keeps the gateway reading the
+#     same index the hook wrote — without it the gateway sees an empty index.
+#   * The server's tools take `repo_path` per call, so repos must appear at
+#     their real absolute paths inside the container. Docker fixes mounts at
+#     container CREATION (there is no live attach), and this gateway is shared
+#     by every instance — so the mount set is a machine-level property, not a
+#     per-instance one. A single root, defaulting to $HOME, means every project
+#     path already resolves with no per-project action. Narrow it (e.g. to
+#     ~/Development) by exporting CODEBASE_MEMORY_ROOT before `devbot up`;
+#     changing it requires recreating the container (`devbot down && devbot up`),
+#     because bin/up.sh runs compose with --no-recreate.
+#
+# USER — the container runs as the HOST uid/gid, not root. codebase-memory-mcp
+# validates the ownership ancestry of its cache dir and refuses to start when it
+# does not match the running user ("exact executable identity could not be
+# verified (cache-private) ... ancestry component validation failed"). The store
+# is owned by the host user, so the process must be too. bin/up.sh exports
+# DEV_UID/DEV_GID; the 1000 fallback covers a bare `docker compose up`.
+name: devbot
+
+services:
+  codebase-memory-mcp:
+    build:
+      context: .
+    image: dev-bot-codebase-memory-mcp:local
+    container_name: dev-bot-codebase-memory-mcp
+    restart: "no"
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
+    ports:
+      # Host-local only — the gateway is never exposed off the machine.
+      - "127.0.0.1:18504:18504"
+    volumes:
+      # Shared index store (read-write) — see the MOUNTS note above. Mounted at
+      # the host path so the cache-ancestry check sees the host user's tree.
+      - ${HOME}/.cache/codebase-memory-mcp:${HOME}/.cache/codebase-memory-mcp
+      # Repos, read-only, at their real absolute paths. The gateway only reads
+      # source to build the graph; it never writes into a repo.
+      - ${CODEBASE_MEMORY_ROOT:-$HOME}:${CODEBASE_MEMORY_ROOT:-$HOME}:ro
+    environment:
+      # HOME must be the host home: the store lives under it, and the cache
+      # ancestry check walks that path.
+      HOME: ${HOME}
