@@ -210,7 +210,12 @@ for k in data.get('mcp', {}):
     done
     [[ -n "${mod_dir}" ]] || continue
 
-    # Plugin array entries (plugin.opencode.json = ["name", ...])
+    # Plugin array entries (plugin.opencode.json = ["name", ...]).
+    # Deliberately opencode.jsonc-only: only the SERVER plugin surface is
+    # module-managed. No module declares TUI plugins today, so .opencode/tui.json
+    # has nothing to prune; the day one does it needs a plugin.tui.json manifest
+    # and a matching prune here (see init.sh's _write_tui_config for why the two
+    # plugin surfaces must stay in separate files).
     if [[ -f "${mod_dir}/plugin.opencode.json" && -f "${REMOVE_PLUGIN_PY}" ]]; then
       while IFS= read -r plugin_name; do
         [[ -n "${plugin_name}" ]] || continue

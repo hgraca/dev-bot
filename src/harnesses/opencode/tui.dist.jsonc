@@ -1,0 +1,30 @@
+{
+  "$schema": "https://opencode.ai/tui.json",
+  // TUI plugins only. opencode loads TWO separate plugin surfaces: this file's
+  // `plugin` array takes TUI plugins, while opencode.jsonc's takes SERVER
+  // plugins. A TUI plugin listed in opencode.jsonc is schema-invalid (that
+  // schema declares no "tui" key and sets additionalProperties:false), so
+  // opencode refuses to start — keep each list in its own file.
+  //
+  // `plugin_enabled` switches off opencode's BUILT-IN TUI blocks by slot id.
+  // Both sidebar blocks below are disabled because each is already available
+  // elsewhere: the footer shows context usage, and opencode-dir-tree-tui
+  // renders the file tree. Other slots: internal:sidebar-context / -files /
+  // -footer / -lsp / -mcp / -todo, internal:home-footer / -tips,
+  // internal:notifications, internal:plugin-manager.
+  "plugin_enabled": {
+    "internal:sidebar-context": false,
+    "internal:sidebar-files": false
+  },
+  // Deliberately NOT listed (each was evaluated and rejected — re-adding one
+  // needs a fix first, not just a line here):
+  //   opencode-user-timeline          declares engines.opencode >=2.0.0; this
+  //                                   toolkit targets the 1.x line
+  //   @streetturtle/opencode-open-in  macOS-only (bails on anything but darwin
+  //                                   and shells out to `open -a`), and its Zed
+  //                                   lookup misses ~/.local/bin/zed
+  //   @streetturtle/opencode-recap    button renders but produces nothing here
+  //   @streetturtle/opencode-context-progress, -session-tokens
+  //                                   no value in this setup
+  "plugin": ["opencode-tabs", "opencode-dir-tree-tui"]
+}

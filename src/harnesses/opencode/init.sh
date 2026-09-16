@@ -32,6 +32,7 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
 OPENCODE_TPL="${MODULE_DIR}/_opencode.tpl"
 DIST_CONFIG="${MODULE_DIR}/opencode.dist.jsonc"
+DIST_TUI_CONFIG="${MODULE_DIR}/tui.dist.jsonc"
 OPENCODE_DIR="${PROJECT_DIR}/.opencode"
 
 # ── Merge .opencode/ template directory ───────────────────────────────────────
@@ -136,37 +137,43 @@ sys.exit(1)
   done < <(find "${hook_dir}" -maxdepth 1 -type f -print0 2>/dev/null)
 }
 
-# ── Write opencode.jsonc from template ─────────────────────────────────────────
-# NOTE (audit-54 F3): opencode loads TWO config surfaces — this file
-# (opencode.jsonc, dev-bot's managed config: mcp/agent/plugin blocks) and the
-# opencode-owned `.opencode/opencode.json` project config it creates/reads on
-# first run. Both are loaded and their plugin arrays union; `.opencode/
-# opencode.json` is NOT dev-bot managed (never written here) and is inert when
-# its plugin array is empty. Don't "clean up" that file — opencode recreates
-# it; treat opencode.jsonc as authoritative for dev-bot wiring.
-_write_opencode_config() {
-  local config="${PROJECT_DIR}/opencode.jsonc"
+# ── Write a runtime JSONC config from a dist template ──────────────────────────
+# Usage:  _write_jsonc_from_dist <dist-template> <target-config>
+#
+# Shared generator for every dist-backed config surface (opencode.jsonc,
+# .opencode/tui.json). It is a one-shot seed, never re-applied: an existing
+# target is treated as user-owned and left alone.
+#
+# The template is copied with comments stripped — string-aware, so URLs
+# (https://…) survive — and __GPU_ENABLED__ / __DEV_BOT_ROOT__ substituted.
+# __GPU_ENABLED__ becomes a qmd-valid value (metal|cuda|vulkan|false); qmd
+# 2.8.3 rejects the plain boolean "true". __DEV_BOT_ROOT__ becomes the absolute
+# dev-bot install root (e.g. mdctx MCP MDCTX_ROOT/MDCTX_INDEX env). A caller
+# that needs those tokens exports them as a VAR=value prefix on the call;
+# templates that use none are unaffected.
+#
+# Only two comments survive this comment strip, so keep template comments to
+# full lines.
+_write_jsonc_from_dist() {
+  local dist="$1"
+  local config="$2"
+  local name
+  name="$(basename "${config}")"
 
   if [[ -f "${config}" ]]; then
-    _skip "opencode.jsonc already exists"
+    _skip "${name} already exists"
     return 0
   fi
 
-  if [[ ! -f "${DIST_CONFIG}" ]]; then
-    _warn "Template not found at ${DIST_CONFIG}"
+  if [[ ! -f "${dist}" ]]; then
+    _warn "Template not found at ${dist}"
     return 1
   fi
 
-  _info "Writing opencode.jsonc..."
+  _info "Writing ${name}..."
 
-  # Copy the dist, substituting __GPU_ENABLED__ and stripping comments. The
-  # dist is a template full of commented-out model/provider options; the project
-  # config should be clean. Stripping is string-aware so URLs (https://…) survive.
-  # __GPU_ENABLED__ becomes a qmd-valid value (metal|cuda|vulkan|false) — qmd
-  # 2.8.3 rejects the plain boolean "true"; __DEV_BOT_ROOT__ becomes the
-  # absolute dev-bot install root (e.g. mdctx MCP MDCTX_ROOT/MDCTX_INDEX env).
-  GPU_ENABLED="$(_qmd_gpu_value)" DEV_BOT_ROOT="${DEV_BOT_ROOT}" \
-    DIST_CONFIG="${DIST_CONFIG}" CONFIG="${config}" python3 - <<'PY'
+  GPU_ENABLED="${GPU_ENABLED:-false}" DEV_BOT_ROOT="${DEV_BOT_ROOT:-}" \
+    DIST_CONFIG="${dist}" CONFIG="${config}" python3 - <<'PY'
 import os
 import tempfile
 raw = open(os.environ["DIST_CONFIG"]).read()
@@ -209,13 +216,42 @@ stripped = "".join(out).replace("__GPU_ENABLED__", os.environ["GPU_ENABLED"]).re
 lines = [line.rstrip() for line in stripped.splitlines() if line.strip()]
 data = "\n".join(lines) + "\n"
 # Atomic write (temp + rename) so concurrent reinits can never interleave a
-# partially-written config — last writer wins whole-file.
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.environ["CONFIG"]), prefix=".opencode.jsonc.")
+# partially-written config — last writer wins whole-file. The temp prefix is
+# derived from the target so the temp file always sits beside it.
+fd, tmp = tempfile.mkstemp(
+    dir=os.path.dirname(os.environ["CONFIG"]),
+    prefix="." + os.path.basename(os.environ["CONFIG"]) + ".",
+)
 with os.fdopen(fd, "w") as f:
     f.write(data)
 os.replace(tmp, os.environ["CONFIG"])
 PY
-  _ok "opencode.jsonc written"
+  _ok "${name} written"
+}
+
+# ── Write opencode.jsonc from template ─────────────────────────────────────────
+# NOTE (audit-54 F3): opencode loads TWO config surfaces — this file
+# (opencode.jsonc, dev-bot's managed config: mcp/agent/plugin blocks) and the
+# opencode-owned `.opencode/opencode.json` project config it creates/reads on
+# first run. Both are loaded and their plugin arrays union; `.opencode/
+# opencode.json` is NOT dev-bot managed (never written here) and is inert when
+# its plugin array is empty. Don't "clean up" that file — opencode recreates
+# it; treat opencode.jsonc as authoritative for dev-bot wiring.
+#
+# Its `plugin` array is opencode's SERVER plugin surface; the TUI half is
+# generated by _write_tui_config below.
+_write_opencode_config() {
+  GPU_ENABLED="$(_qmd_gpu_value)" \
+    _write_jsonc_from_dist "${DIST_CONFIG}" "${PROJECT_DIR}/opencode.jsonc"
+}
+
+# ── Write .opencode/tui.json from template ─────────────────────────────────────
+# opencode's TUI plugins load from tui.json, NOT from opencode.jsonc: that
+# schema declares no "tui" key and sets additionalProperties:false, so a TUI
+# plugin listed there makes opencode refuse to start. The two plugin lists are
+# generated from two separate templates and must never be merged into one.
+_write_tui_config() {
+  _write_jsonc_from_dist "${DIST_TUI_CONFIG}" "${OPENCODE_DIR}/tui.json"
 }
 
 _link_plugins_modules() {
@@ -532,6 +568,7 @@ _delegate_harness_dirs() {
 # ── main ───────────────────────────────────────────────────────────────────────
 _copy_opencode_dir
 _write_opencode_config
+_write_tui_config
 _ensure_agents_md
 _delegate_harness_dirs
 _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
