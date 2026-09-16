@@ -34,7 +34,9 @@ setup() {
   run python3 "$READER" "$DIST" plugin
   assert_success
   assert_output --partial '.opencode/plugins/on-hooks.ts'
-  assert_output --partial '"opencode-pty"'
+  # opencode-pty backs agent capability (non-blocking PTY sessions), so it
+  # ships PINNED — an unpinned spec would silently follow upstream `latest`.
+  assert_output --partial '"opencode-pty@'
 }
 
 @test "opencode.dist.jsonc plugin array excludes TUI plugins" {
