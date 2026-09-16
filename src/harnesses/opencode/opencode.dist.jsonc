@@ -29,7 +29,7 @@
   //    }
   //  },
   "instructions": ["AGENTS.md", ".agents/memory/active/**/*.md"],
-  "plugin": [".opencode/plugins/on-hooks.ts"],
+  "plugin": [".opencode/plugins/on-hooks.ts", "opencode-pty"],
   "default_agent": "DevBot",
   // Provider-level timeouts: aborts requests that hang without emitting
   // (cortecs/kimi-k3 was observed to stall silently for minutes — see
