@@ -99,7 +99,10 @@ _reset_symlinks_in_dir() {
   find "${dir}" -type d -empty -delete 2>/dev/null || true
 }
 
-for subdir in agents commands skills plugins tools; do
+# tui-plugins is dev-bot's own TUI plugin farm (init.sh's _link_tui_plugins):
+# opencode loads TUI plugins from tui.json's plugin array rather than by
+# auto-discovery, so these are symlinks like any other and must be cleaned here.
+for subdir in agents commands skills plugins tui-plugins tools; do
   _reset_symlinks_in_dir "${OPENCODE_DIR}/${subdir}"
 done
 

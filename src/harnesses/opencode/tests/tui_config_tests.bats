@@ -61,6 +61,10 @@ SHARED_EOF
   mkdir -p "${SANDBOX_DIR}/.opencode"
   cp "${DIST_TUI}" "${SANDBOX_DIR}/tui.dist.jsonc"
   cp "${HARNESS_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.dist.jsonc"
+  # _link_tui_plugins farms its source out of DEV_BOT_ROOT (= the sandbox), so the
+  # module has to exist there.
+  mkdir -p "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor"
+  : > "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor/index.ts"
 }
 
 # Source the stripped init.sh with PROJECT_DIR pinned to the sandbox, so
@@ -78,11 +82,16 @@ _source_init() {
   assert_success
 }
 
-@test "tui.dist.jsonc plugin array carries the TUI plugins" {
+@test "tui.dist.jsonc carries the third-party TUI plugins, pinned" {
+  # Pinned for the same reason opencode-pty is: these are version-sensitive, and
+  # an unpinned spec silently follows upstream latest. The assertion matches the
+  # pinned form, so it covers both presence and pinning — an unpinned regression
+  # fails it. This caught a real inconsistency: opencode-pty was pinned while
+  # these two were not.
   run python3 "$READER" "$DIST_TUI" plugin
   assert_success
-  assert_output --partial '"opencode-tabs"'
-  assert_output --partial '"opencode-dir-tree-tui"'
+  assert_output --partial '"opencode-tabs@'
+  assert_output --partial '"opencode-dir-tree-tui@'
 }
 
 @test "tui.dist.jsonc disables the duplicate built-in sidebar blocks" {
@@ -125,8 +134,9 @@ _source_init() {
   fi
   run python3 "$READER" "$tui" plugin
   assert_success
-  assert_output --partial '"opencode-tabs"'
-  assert_output --partial '"opencode-dir-tree-tui"'
+  assert_output --partial 'opencode-tabs@'
+  assert_output --partial 'opencode-dir-tree-tui@'
+  assert_output --partial 'tui-plugins/pty-monitor'
   # the built-in-slot switches must survive generation too
   run python3 "$READER" "$tui" plugin_enabled
   assert_success
@@ -175,4 +185,94 @@ _source_init() {
   assert_output --partial 'opencode-pty'
   # and it must never carry TUI plugins — that is the split this file guards
   refute_output --partial 'opencode-tabs'
+}
+
+# ── the dev-bot TUI plugin farm (init.sh / reset.sh / the dist entry) ─────────
+
+@test "tui.dist.jsonc references the PTY monitor by a RELATIVE path" {
+  # A shipped template must not bake in an install path: an absolute path (or a
+  # file:// URL) would break on every consumer machine.
+  run python3 "$READER" "$DIST_TUI" plugin
+  assert_success
+  assert_output --partial '"./tui-plugins/pty-monitor/index.ts"'
+  refute_output --partial 'file://'
+  refute_output --partial '/home/'
+}
+
+@test "_link_tui_plugins symlinks the module into .opencode/tui-plugins" {
+  _setup_sandbox
+  _source_init
+
+  run _link_tui_plugins
+  assert_success
+
+  local link="${SANDBOX_DIR}/.opencode/tui-plugins/pty-monitor"
+  [[ -L "$link" ]] || fail "symlink not created at ${link}"
+  assert_equal "$(readlink "$link")" "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor"
+}
+
+@test "_link_tui_plugins is idempotent" {
+  _setup_sandbox
+  _source_init
+
+  run _link_tui_plugins
+  assert_success
+  run _link_tui_plugins
+  assert_success
+  assert_output --partial "already linked"
+}
+
+@test "_link_tui_plugins relinks when the target differs" {
+  _setup_sandbox
+  _source_init
+  mkdir -p "${SANDBOX_DIR}/.opencode/tui-plugins"
+  ln -sfn /somewhere/else "${SANDBOX_DIR}/.opencode/tui-plugins/pty-monitor"
+
+  run _link_tui_plugins
+  assert_success
+  assert_output --partial "relinked"
+  assert_equal "$(readlink "${SANDBOX_DIR}/.opencode/tui-plugins/pty-monitor")" \
+    "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor"
+}
+
+@test "_link_tui_plugins leaves a real directory alone rather than replacing it" {
+  _setup_sandbox
+  _source_init
+  mkdir -p "${SANDBOX_DIR}/.opencode/tui-plugins/pty-monitor"
+  : > "${SANDBOX_DIR}/.opencode/tui-plugins/pty-monitor/user-file.ts"
+
+  run _link_tui_plugins
+  assert_success
+  assert_output --partial "not a symlink"
+
+  local link="${SANDBOX_DIR}/.opencode/tui-plugins/pty-monitor"
+  assert [ ! -L "$link" ]
+  assert [ -f "${link}/user-file.ts" ]
+}
+
+@test "init.sh main wires the tui-plugins farm" {
+  run grep -q '^_link_tui_plugins$' "${HARNESS_DIR}/init.sh"
+  assert_success
+}
+
+@test "reset.sh's subdir loop actually covers tui-plugins" {
+  # Deliberately asserts the LOOP LINE, not the file. The first version grepped
+  # the whole file, which matched the explanatory comment above the loop — so
+  # dropping tui-plugins from the loop left the test green.
+  run grep -E '^for subdir in ' "${HARNESS_DIR}/reset.sh"
+  assert_success
+  assert_output --partial 'tui-plugins'
+}
+
+@test "_link_tui_plugins warns loudly when the source is missing" {
+  # The dist lists the module unconditionally, so a missing source means a
+  # tui.json entry pointing at nothing — that must be visible, not a shrug.
+  _setup_sandbox
+  _source_init
+  rm -rf "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor"
+
+  run _link_tui_plugins
+  assert_success
+  assert_output --partial "source missing"
+  assert_output --partial "does not exist"
 }

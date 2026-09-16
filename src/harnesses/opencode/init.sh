@@ -137,6 +137,45 @@ sys.exit(1)
   done < <(find "${hook_dir}" -maxdepth 1 -type f -print0 2>/dev/null)
 }
 
+# ── Link dev-bot TUI plugins into .opencode/tui-plugins/ ───────────────────────
+# Unlike hooks, TUI plugins are NOT auto-discovered: opencode loads them from the
+# `plugin` array in tui.json. So this farm plus the entry in tui.dist.jsonc are
+# both required. The entry is a path RELATIVE to .opencode/tui.json, which keeps
+# the shipped template portable instead of baking in an install path.
+_link_tui_plugins() {
+  local name="pty-monitor"
+  local src_dir="${DEV_BOT_ROOT}/src/harnesses/opencode/${name}"
+  local link="${PROJECT_DIR}/.opencode/tui-plugins/${name}"
+
+  if [[ ! -d "${src_dir}" ]]; then
+    # Louder than a plain "missing": tui.dist.jsonc unconditionally lists this
+    # module, so skipping the link leaves the generated tui.json pointing at a
+    # plugin that is not there.
+    _warn "tui-plugins/${name}: source missing at ${src_dir} — tui.json will reference a plugin that does not exist"
+    return 0
+  fi
+
+  if [[ -L "${link}" ]]; then
+    if [[ "$(readlink "${link}")" == "${src_dir}" ]]; then
+      _skip "tui-plugins/${name} already linked"
+      return 0
+    fi
+    rm -f "${link}"
+    ln -sf "${src_dir}" "${link}"
+    _ok "tui-plugins/${name} relinked"
+    return 0
+  fi
+
+  if [[ -e "${link}" ]]; then
+    _warn "tui-plugins/${name} exists but is not a symlink — leaving it alone"
+    return 0
+  fi
+
+  mkdir -p "$(dirname "${link}")"
+  ln -sf "${src_dir}" "${link}"
+  _ok "tui-plugins/${name} linked"
+}
+
 # ── Write a runtime JSONC config from a dist template ──────────────────────────
 # Usage:  _write_jsonc_from_dist <dist-template> <target-config>
 #
@@ -575,6 +614,7 @@ _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_D
 _link_plugins_modules
 _link_module_plugins
 _link_harness_hooks
+_link_tui_plugins
 _register_dynamic_mcps
 _reconcile_watcher_ignore
 _reconcile_external_directory

@@ -26,5 +26,18 @@
   //   @streetturtle/opencode-recap    button renders but produces nothing here
   //   @streetturtle/opencode-context-progress, -session-tokens
   //                                   no value in this setup
-  "plugin": ["opencode-tabs", "opencode-dir-tree-tui"]
+  // Third-party TUI plugins are PINNED, for the same reason opencode-pty is in
+  // opencode.dist.jsonc: they are version-sensitive, and an unpinned spec
+  // silently follows upstream `latest`. Both were verified against opencode
+  // 1.18.31 — opencode-tabs declares engines.opencode >=1.17.20.
+  // dev-bot's own PTY monitor is symlinked into .opencode/tui-plugins/ by
+  // init.sh; the entry is RELATIVE to this file so the template stays portable —
+  // an absolute install path would break every consumer. It watches
+  // opencode-pty's HTTP API (a hard dependency), so with no PTY session it
+  // simply shows none.
+  "plugin": [
+    "opencode-tabs@0.3.0",
+    "opencode-dir-tree-tui@0.5.1",
+    "./tui-plugins/pty-monitor/index.ts"
+  ]
 }
