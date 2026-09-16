@@ -132,6 +132,30 @@ Disable the ones a project doesn't need by turning `lsp` into an object — the 
 
 See [MCP configuration](/mcp-config#reducing-the-footprint) — heavy servers are dropped by disabling their module.
 
+### TUI plugins
+
+opencode loads **two separate plugin surfaces**, and the distinction is enforced by their schemas:
+
+| Surface | File                            | Takes                                       |
+| ------- | ------------------------------- | ------------------------------------------- |
+| Server  | `opencode.jsonc` → `plugin`     | plugins that hook events and register tools |
+| TUI     | `.opencode/tui.json` → `plugin` | plugins that render into the terminal UI    |
+
+`opencode.json`'s schema declares no `tui` key and sets `additionalProperties: false`, so a TUI plugin listed there is **schema-invalid and opencode refuses to start**. Each surface therefore gets its own template: `opencode.dist.jsonc` and `tui.dist.jsonc`, both applied by `_write_jsonc_from_dist` on first init and user-owned afterwards.
+
+Unlike hooks, **TUI plugins are not auto-discovered** — they only load if named in `tui.json`'s `plugin` array. dev-bot's own TUI plugins are symlinked into `.opencode/tui-plugins/` by `init.sh` (`_link_tui_plugins`), removed by `reset.sh`, and referenced from the template by a path **relative** to `tui.json`, so the shipped template carries no install path.
+
+`tui.json` also accepts `plugin_enabled`, which switches off opencode's **built-in** TUI blocks by slot id (`internal:sidebar-context`, `-files`, `-footer`, `-lsp`, `-mcp`, `-todo`, `internal:home-footer`, `-tips`, `internal:notifications`, `internal:plugin-manager`). The shipped template disables `sidebar-context` and `sidebar-files` because the footer already shows context usage and `opencode-dir-tree-tui` renders the file tree.
+
+#### PTY monitor
+
+`src/harnesses/opencode/pty-monitor/` is dev-bot's own TUI plugin: it lists `opencode-pty` sessions in the sidebar (collapsible, with a bullet tinted green while running, red on a non-zero exit, muted otherwise) and opens a session's live output in a dialog on click.
+
+`opencode-pty` is a **hard dependency** — its HTTP API is the only window onto PTY sessions. Two consequences worth knowing:
+
+- Its server binds a **random port and publishes it only by posting a message into the session**. dev-bot reads the port from `/proc` instead (its own listening sockets), and when the server isn't running yet it starts it inside a **throwaway session** and deletes it — so the URL message never litters your transcript. Off Linux there is no `/proc`, so that bootstrap is what resolves it.
+- With no PTY session the panel is legitimately empty.
+
 ## See also
 
 - [Hooks](/hooks) — the manifest schema and semantic events
