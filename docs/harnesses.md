@@ -147,7 +147,11 @@ Unlike hooks, **TUI plugins are not auto-discovered** — they only load if name
 
 `tui.json` also accepts `plugin_enabled`, which switches off opencode's **built-in** TUI blocks by slot id (`internal:sidebar-context`, `-files`, `-footer`, `-lsp`, `-mcp`, `-todo`, `internal:home-footer`, `-tips`, `internal:notifications`, `internal:plugin-manager`). The shipped template disables `sidebar-context` only — the footer already shows context usage, so the sidebar copy is a duplicate. `internal:sidebar-files` is deliberately left **enabled**: it is the only file tree, since a third-party plugin that also drew one was dropped rather than carried as a duplicate.
 
-A TUI plugin entry added to the dist reaches **new** projects only: the dist-backed configs are seed-once (skip-if-exists), so `init.sh` also _reconciles_ the dist's npm-spec plugin entries into an already-seeded config on every init/reinit — that is what repairs a project seeded before a dependency existed. Note also that the reinit-on-start is gated by a hash of the **config** files, not of harness code, so a wiring change reaches existing projects only through a released update or an explicit `devbot reinit`.
+A dist-backed config is **seed-once**: `init.sh` writes it only when the file is absent, so from then on it is user-owned and a later change to a dist never reaches an existing project. That cuts both ways, and both were hit in practice — a plugin entry added to a dist never arrived (leaving a shipped feature wired without its dependency), and one **removed** from a dist never left (leaving a project running something the toolkit had dropped).
+
+Additions are reconciled, removals are not. Missing entries from `required-plugins.jsonc` — the plugins dev-bot's _own_ features depend on, as opposed to the ergonomics a dist ships for new projects — are re-added to an already-seeded config on every init/reinit. Nothing is ever removed or overwritten: the dist's other keys (agent models, permissions, `watcher.ignore`, `lsp`) and every plugin a project added itself are left exactly as set, because those are the user's. A project that has diverged by keeping something no longer shipped can only be corrected deliberately, by hand — "remove anything the dist does not list" would delete a project's own plugins.
+
+Note also that the reinit-on-start is gated by a hash of the **config** files, not of harness code, so a wiring change reaches existing projects only through a released update or an explicit `devbot reinit`.
 
 #### PTY monitor
 

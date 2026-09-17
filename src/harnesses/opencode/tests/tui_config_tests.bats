@@ -61,12 +61,13 @@ SHARED_EOF
   mkdir -p "${SANDBOX_DIR}/.opencode"
   cp "${DIST_TUI}" "${SANDBOX_DIR}/tui.dist.jsonc"
   cp "${HARNESS_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.dist.jsonc"
+  cp "${HARNESS_DIR}/required-plugins.jsonc" "${SANDBOX_DIR}/required-plugins.jsonc"
   # _link_tui_plugins farms its source out of DEV_BOT_ROOT (= the sandbox), so the
   # module has to exist there.
   mkdir -p "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor"
   : > "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor/index.ts"
 
-  # _ensure_dist_plugins calls the REAL _upsert_opencode_plugin and reads the
+  # _ensure_required_plugins calls the REAL _upsert_opencode_plugin and reads the
   # template with the real read_jsonc.py. Copy both in rather than stubbing them,
   # so these tests exercise the code that actually runs.
   awk '/^_upsert_opencode_plugin\(\)/,/^}/' \
@@ -281,19 +282,19 @@ _source_init() {
   assert_output --partial "does not exist"
 }
 
-# ── _ensure_dist_plugins: reconcile dist entries into an existing config ──────
+# ── _ensure_required_plugins: dev-bot-owned entries only ─────────────────────
 # Regression guard for the shipped-dependency gap: _write_*_config are seed-once,
 # so opencode-pty (required by the PTY monitor) never reached any project seeded
 # before it was added to the dist. The panel was wired while its dependency was
 # not, and the only symptom was "server unavailable".
 
-@test "_ensure_dist_plugins adds a missing npm-spec entry to an existing config" {
+@test "_ensure_required_plugins adds a required plugin missing from an existing config" {
   _setup_sandbox
   _source_init
   # A project seeded before opencode-pty existed.
   printf '{\n  "plugin": [".opencode/plugins/on-hooks.ts"]\n}\n' > "${SANDBOX_DIR}/opencode.jsonc"
 
-  run _ensure_dist_plugins "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.jsonc"
+  run _ensure_required_plugins server "${SANDBOX_DIR}/opencode.jsonc"
   assert_success
   assert_output --partial "added 'opencode-pty@"
 
@@ -302,14 +303,14 @@ _source_init() {
   assert_output --partial '"opencode-pty@0.3.6"'
 }
 
-@test "_ensure_dist_plugins is idempotent" {
+@test "_ensure_required_plugins is idempotent" {
   _setup_sandbox
   _source_init
   printf '{\n  "plugin": [".opencode/plugins/on-hooks.ts"]\n}\n' > "${SANDBOX_DIR}/opencode.jsonc"
 
-  run _ensure_dist_plugins "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.jsonc"
+  run _ensure_required_plugins server "${SANDBOX_DIR}/opencode.jsonc"
   assert_success
-  run _ensure_dist_plugins "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.jsonc"
+  run _ensure_required_plugins server "${SANDBOX_DIR}/opencode.jsonc"
   assert_success
   # second pass reports nothing — the entry is already there
   refute_output --partial "added"
@@ -322,26 +323,62 @@ print(raw.count('opencode-pty'))
   assert_output "1"
 }
 
-@test "_ensure_dist_plugins skips local paths (owned by the symlink farms)" {
+@test "_ensure_required_plugins adds the dev-bot TUI module (a local path)" {
+  # The TUI surface's requirement IS a local path — dev-bot's own module, reached
+  # through the symlink farm. Local paths are not skipped: that rule applied to the
+  # earlier dist-driven version, and dev-bot's own wiring is exactly what must
+  # reach an existing project.
   _setup_sandbox
   _source_init
-  printf '{\n  "plugin": []\n}\n' > "${SANDBOX_DIR}/opencode.jsonc"
+  printf '{\n  "plugin": []\n}\n' > "${SANDBOX_DIR}/.opencode/tui.json"
 
-  run _ensure_dist_plugins "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.jsonc"
+  run _ensure_required_plugins tui "${SANDBOX_DIR}/.opencode/tui.json"
   assert_success
-  refute_output --partial "on-hooks"
+
+  run python3 "$READER" "${SANDBOX_DIR}/.opencode/tui.json" plugin
+  assert_success
+  assert_output --partial 'tui-plugins/pty-monitor'
 }
 
-@test "_ensure_dist_plugins does nothing without a config to reconcile" {
+@test "_ensure_required_plugins leaves convenience plugins as the user set them" {
+  # The whole point of the narrow scope: opencode-tabs ships in the dist for NEW
+  # projects, but it is ergonomics, not a dev-bot dependency — so an existing
+  # project without it keeps it that way.
   _setup_sandbox
   _source_init
-  run _ensure_dist_plugins "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/does-not-exist.jsonc"
+  printf '{\n  "plugin": []\n}\n' > "${SANDBOX_DIR}/.opencode/tui.json"
+
+  run _ensure_required_plugins tui "${SANDBOX_DIR}/.opencode/tui.json"
+  assert_success
+  refute_output --partial "opencode-tabs"
+
+  run python3 "$READER" "${SANDBOX_DIR}/.opencode/tui.json" plugin
+  assert_success
+  refute_output --partial "opencode-tabs"
+}
+
+@test "required-plugins.jsonc stays a subset of the dists" {
+  # If dev-bot requires something the dists do not ship, a NEW project would lack
+  # it while an existing one had it reconciled in — the two paths must agree.
+  run python3 "$READER" "${HARNESS_DIR}/required-plugins.jsonc" server
+  assert_success
+  assert_output --partial 'opencode-pty'
+  run grep -qF 'opencode-pty@0.3.6' "${HARNESS_DIR}/opencode.dist.jsonc"
+  assert_success
+  run grep -qF 'tui-plugins/pty-monitor/index.ts' "${HARNESS_DIR}/tui.dist.jsonc"
+  assert_success
+}
+
+@test "_ensure_required_plugins does nothing without a config to reconcile" {
+  _setup_sandbox
+  _source_init
+  run _ensure_required_plugins server "${SANDBOX_DIR}/does-not-exist.jsonc"
   assert_success
   [[ ! -f "${SANDBOX_DIR}/does-not-exist.jsonc" ]] || fail "created a config it should not have"
 }
 
-@test "init.sh main reconciles both dist surfaces" {
-  run grep -c '^_ensure_dist_plugins ' "${HARNESS_DIR}/init.sh"
+@test "init.sh main reconciles both surfaces" {
+  run grep -c '^_ensure_required_plugins ' "${HARNESS_DIR}/init.sh"
   assert_success
   assert_output "2"
 }

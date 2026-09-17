@@ -293,7 +293,7 @@ _write_tui_config() {
   _write_jsonc_from_dist "${DIST_TUI_CONFIG}" "${OPENCODE_DIR}/tui.json"
 }
 
-# ── Reconcile dist plugin entries into an already-seeded config ───────────────
+# ── Reconcile dev-bot's REQUIRED plugins into an already-seeded config ────────
 # _write_*_config are seed-once (skip-if-exists), so a plugin entry ADDED to a
 # dist after a project was first seeded never reaches that project. That is not
 # theoretical: opencode-pty is required by the PTY monitor TUI plugin, and every
@@ -301,32 +301,32 @@ _write_tui_config() {
 # server half missing — the panel shows "server unavailable" and the real cause
 # (a command that does not exist) is invisible.
 #
-# Re-adds missing npm-spec entries from the dist, idempotently. Local paths are
-# skipped deliberately: those are symlink farms owned by _link_harness_hooks and
-# _link_tui_plugins, already reconciled by relinking.
-_ensure_dist_plugins() {
-  local dist="$1"
+# Scope is deliberately narrow: only the plugins dev-bot's OWN features depend on
+# (required-plugins.jsonc), never the dist's full plugin array. Convenience
+# plugins ship to NEW projects, but an existing project's plugin choices are the
+# user's and are left exactly as set.
+#
+# Usage: _ensure_required_plugins <surface: server|tui> <target-config>
+_ensure_required_plugins() {
+  local surface="$1"
   local config="$2"
-  [[ -f "${dist}" && -f "${config}" ]] || return 0
-
+  local manifest="${MODULE_DIR}/required-plugins.jsonc"
   local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
-  [[ -f "${reader}" ]] || return 0
+
+  [[ -f "${manifest}" && -f "${config}" && -f "${reader}" ]] || return 0
 
   local spec
   while IFS= read -r spec; do
     [[ -n "${spec}" ]] || continue
-    case "${spec}" in
-      .* | /* | file:*) continue ;;
-    esac
     # Pre-check against the plugin array only (a whole-file grep would match
     # comments or other sections and then report a phantom addition).
     if python3 "${reader}" "${config}" plugin 2>/dev/null | grep -qF "\"${spec}\""; then
       continue
     fi
     _upsert_opencode_plugin "${config}" "${spec}"
-    _ok "$(basename "${config}"): added '${spec}' (dist entry absent from an existing config)"
+    _ok "$(basename "${config}"): added '${spec}' (required by dev-bot, absent from an existing config)"
   done < <(
-    python3 "${reader}" "${dist}" plugin 2>/dev/null |
+    python3 "${reader}" "${manifest}" "${surface}" 2>/dev/null |
       python3 -c 'import json,sys
 try: data = json.load(sys.stdin)
 except Exception: sys.exit(0)
@@ -648,9 +648,9 @@ _delegate_harness_dirs() {
 # ── main ───────────────────────────────────────────────────────────────────────
 _copy_opencode_dir
 _write_opencode_config
-_ensure_dist_plugins "${DIST_CONFIG}" "${PROJECT_DIR}/opencode.jsonc"
+_ensure_required_plugins server "${PROJECT_DIR}/opencode.jsonc"
 _write_tui_config
-_ensure_dist_plugins "${DIST_TUI_CONFIG}" "${OPENCODE_DIR}/tui.json"
+_ensure_required_plugins tui "${OPENCODE_DIR}/tui.json"
 _ensure_agents_md
 _delegate_harness_dirs
 _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
