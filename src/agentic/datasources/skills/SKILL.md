@@ -90,5 +90,9 @@ Add one and reinit (`devbot reinit`; the next bare `devbot` start does it).
 the environment — put anything secret behind a reference so it exists in no
 file at all.
 
+**Redis is not available**, by design: toolbox's redis tool runs a fixed,
+pre-declared command list rather than accepting a command, so there is no
+free-form surface to give you.
+
 MongoDB notes: one datasource covers **one database** (its aggregate tool
 requires one), declared as `MONGODB_DATABASE`.

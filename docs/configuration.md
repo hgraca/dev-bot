@@ -397,6 +397,12 @@ tool requires a database, so one mongo datasource covers one database.
 
 `type` is `mysql` (MariaDB included), `postgres`, `sqlite` or `mongodb`.
 
+**Redis is deliberately absent.** Toolbox's `redis` tool runs a fixed,
+pre-declared command list with parameterised arguments — there is no free-form
+"run any command" surface, so there is nothing to expose without authoring each
+command by hand. A MySQL, Postgres or MongoDB datasource covers the same ground
+wherever the data allows.
+
 Two behaviours are worth knowing before relying on it:
 
 - **An unreachable database is left out**, and joins when it comes up. Toolbox
