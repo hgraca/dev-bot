@@ -62,19 +62,38 @@ ENGINES = {
         },
     },
 }
-
 # Datasource names become tool and toolset names, and a URL path segment.
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
-# `read_only` note: upstream documents protocol-level enforcement only for
-# Cloud SQL / AlloyDB / BigQuery
-# (docs/en/documentation/configuration/security/read-only.md), so on the
-# self-hosted engines the database credential remains the real barrier. The
-# flag is still emitted — it is toolbox's own mechanism — but the module docs
-# must not present it as a guarantee there.
+# Every key a datasource definition may carry.
+KNOWN_KEYS = frozenset({"type", "env"})
+
+# A datasource deliberately has NO read-only affordance. Upstream enforces
+# read-only at the protocol level only for Cloud SQL / AlloyDB / BigQuery
+# (docs/en/documentation/configuration/security/read-only.md); on the
+# self-hosted engines the scope of the database user's credential is the only
+# real defence. These keys are rejected loudly rather than silently ignored,
+# so nobody believes writes are blocked when they are not.
+READ_ONLY_KEYS = frozenset({"read_only", "readOnly"})
+
+
 def _fail(message: str) -> NoReturn:
     print(f"ERROR: {message}", file=sys.stderr)
     sys.exit(1)
+
+
+def _reject_unknown_keys(name: str, spec: dict) -> None:
+    for key in sorted(set(spec) - KNOWN_KEYS):
+        if key in READ_ONLY_KEYS:
+            _fail(
+                f"datasource '{name}': '{key}' is not supported — dev-bot cannot enforce "
+                "read-only on this engine. Scope the database user's credential instead; "
+                "that is the only real defence."
+            )
+        _fail(
+            f"datasource '{name}': unknown key '{key}' "
+            f"(known: {', '.join(sorted(KNOWN_KEYS))})"
+        )
 
 
 def render_source(name, spec, engine):
@@ -93,10 +112,6 @@ def render_source(name, spec, engine):
         var = database.get(engine_var, engine_var)
         lines.append(f"{field}: ${{{var}:{default}}}" if default is not None else f"{field}: ${{{var}}}")
 
-    # Defaults to true: fail-safe. Emitted only when true, so an engine that
-    # rejects the field is unaffected by an explicit read_only: false.
-    if spec.get("read_only", True):
-        lines.append("readOnly: true")
     return lines
 
 
@@ -107,6 +122,7 @@ def render(catalogue):
     docs = []
     for name in sorted(catalogue):
         spec = catalogue[name]
+        _reject_unknown_keys(name, spec)
         if not NAME_RE.match(name):
             _fail(f"datasource name '{name}' must match {NAME_RE.pattern}")
 
@@ -119,8 +135,6 @@ def render(catalogue):
 
         if not isinstance(spec.get("env", {}), dict):
             _fail(f"datasource '{name}': 'env' must be an object")
-        if not isinstance(spec.get("read_only", True), bool):
-            _fail(f"datasource '{name}': 'read_only' must be a boolean")
 
         tool_name = f"{name}_{engine['tool']['name']}"
         tool = engine["tool"]

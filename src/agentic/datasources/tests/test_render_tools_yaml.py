@@ -91,17 +91,30 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertIn("port: ${POSTGRES_PORT:5432}", out)
         self.assertIn("type: postgres-execute-sql", out)
 
-    def test_read_only_defaults_to_true(self):
+    def test_no_read_only_field_is_ever_emitted(self):
+        # There is deliberately no read-only affordance. Upstream enforces
+        # read-only at the protocol level only for Cloud SQL / AlloyDB /
+        # BigQuery; on the self-hosted engines the scope of the database user's
+        # credential is the only real defence. Emitting the flag would imply a
+        # guarantee the module cannot keep.
         code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
 
         self.assertEqual(code, 0)
-        self.assertIn("readOnly: true", out)
-
-    def test_read_only_false_omits_the_field(self):
-        code, out, _ = render({"hotels": {"type": "mysql", "env": {}, "read_only": False}})
-
-        self.assertEqual(code, 0)
         self.assertNotIn("readOnly", out)
+
+    def test_read_only_key_is_rejected_with_an_explanation(self):
+        code, out, err = render({"hotels": {"type": "mysql", "env": {}, "read_only": True}})
+
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("read_only", err)
+        self.assertIn("credential", err)
+
+    def test_unknown_datasource_key_is_rejected(self):
+        code, _, err = render({"hotels": {"type": "mysql", "env": {}, "writable": False}})
+
+        self.assertEqual(code, 1)
+        self.assertIn("writable", err)
 
     def test_unknown_engine_is_an_error(self):
         code, out, err = render({"legacy": {"type": "oracle", "env": {}}})
