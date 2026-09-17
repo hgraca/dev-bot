@@ -31,6 +31,17 @@ READER="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
 main() {
   mkdir -p "${RUNTIME_DIR}"
   mkdir -p "${CONF_DIR}"
+
+  # The availability filter must see the SAME environment the container gets.
+  # Compose takes its values from the environment up.sh builds (which includes
+  # the repo .env), so the filter has to read it too — otherwise a datasource
+  # whose values live there is judged env-incomplete and never activates.
+  if [[ -f "${DEV_BOT_ROOT}/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${DEV_BOT_ROOT}/.env"
+    set +a
+  fi
   # Where file-backed engines (sqlite) keep their databases — the compose
   # template mounts this at /data. Created as the host user, which is also the
   # uid/gid the container runs as, so it can write there.

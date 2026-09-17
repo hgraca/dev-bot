@@ -44,6 +44,18 @@ _available_names() {
 
 main() {
   mkdir -p "${RUNTIME_DIR}"
+
+  # The same environment render.sh and the container work from, so the
+  # availability set this loop compares is the one that will actually be
+  # rendered. Without it, values held in the repo .env would look missing and
+  # the loop would believe nothing ever changes.
+  if [[ -f "${DEV_BOT_ROOT}/.env" ]]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "${DEV_BOT_ROOT}/.env"
+    set +a
+  fi
+
   printf '%s\n' "$$" > "${PIDFILE}"
   trap 'rm -f "${PIDFILE}"' EXIT
 
