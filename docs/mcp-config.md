@@ -208,7 +208,7 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 
 - **codebase-index — plugin-provided on opencode.** opencode integrates it via `plugin.opencode.json` (the plugin spawns the server), so the opencode registration adapter skips modules that declare a plugin manifest — registering the server as an MCP too would double-load it. Its canonical `mcp.json` (using `{harness-dir}` + `--host {host}`) serves claudecode.
 - **Dynamic runtime manifests** (`.opencode/*.mcp.json`, `.claude/*.mcp.json` written by module inits for values only known at runtime, e.g. jetbrains' IDE port) stay harness-native and are unchanged.
-- **Docker-only servers** — skipped when no docker daemon is available; hybrid definitions with an `npx` fallback (playwright) are kept (their wrapper picks the path).
+- **Docker-only servers** — skipped when no docker daemon is available. A hybrid definition (docker plus a non-docker fallback its own launcher picks — playwright) is kept: it declares `"_hybrid": true` in its canonical manifest, which is what the guard reads, never the fallback's command text.
 
 ## Harness differences
 
