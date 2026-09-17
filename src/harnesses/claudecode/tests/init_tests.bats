@@ -118,7 +118,11 @@ assert d == {'agent': 'DevBot', 'hooks': {}}, d
   _setup_sandbox
   printf '{\n  "agent": "build"\n}\n' > "${SANDBOX_DIR}/.claude/settings.json"
 
-  run _run _ensure_default_agent
+  # stdin from /dev/null, explicitly: the branch under test is chosen by
+  # whether stdin is a TTY, so without this the assertion depends on how the
+  # suite was invoked — run from a terminal the function prompts instead, and
+  # the test blocks on read forever.
+  run _run _ensure_default_agent </dev/null
   assert_success
   assert_output --partial "leaving as-is (non-interactive)"
   refute_output --partial "default agent set to DevBot"

@@ -125,7 +125,10 @@ test: ## Run the full test suite
 		npm install -g bats bats-assert bats-support &>/dev/null; \
 		echo "  bats installed."; \
 	fi
-	BATS_LIB_PATH="$$(npm root -g)" bats -T -r src/ bin/
+	# stdin from /dev/null: harness inits legitimately prompt when stdin is a
+	# TTY (claudecode asks before changing an existing default agent), so a
+	# suite run from a terminal would block on that read instead of asserting.
+	BATS_LIB_PATH="$$(npm root -g)" bats -T -r src/ bin/ </dev/null
 	@echo -e "\n\033[1m\033[34m━━━ Running bun tests... ━━━\033[0m"
 	@if ! command -v bun &>/dev/null; then \
 		echo "  bun not found — install via: curl -fsSL https://bun.sh/install | bash"; \
