@@ -43,7 +43,6 @@ CLAUDE.md
 # <<< DEVBOT
 
 # >>> DEVBOT - graphify
-.graphifyignore
 # graphify-out/ must be in .gitignore (not only .git/info/exclude): the
 # codebase-index file watcher (chokidar) reads .gitignore to skip paths,
 # but never reads .git/info/exclude. Without this it watches all ~80K AST
