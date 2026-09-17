@@ -166,6 +166,23 @@ _run_docker_up() {
   _docker_up
 }
 
+# Swap the sandbox stub of _devbot_get_disabled_modules for the REAL
+# implementation, extracted verbatim from the shared library together with the
+# two provider helpers it calls and the JSONC reader they resolve beside
+# functions.sh.
+#
+# The stub reads only the global modules map, so it accepts a project_dir
+# argument and ignores it — which makes it structurally incapable of observing
+# whether the caller passed one. Appended after the stub, these definitions win.
+_use_real_disabled_modules() {
+  cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX_DIR}/src/_shared/read_jsonc.py"
+  {
+    awk '/^_devbot_get_codebase_provider\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_devbot_get_memory_search_provider\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_devbot_get_disabled_modules\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+  } >> "${SANDBOX_DIR}/src/_shared/functions.sh"
+}
+
 # ── Tests ──────────────────────────────────────────────────────────────────
 
 @test "litellm included by default (no disabled_modules)" {
@@ -317,6 +334,44 @@ _run_docker_up() {
   run cat "${DOCKER_ARGS_FILE}"
   assert_output --regexp 'compose -f docker-compose\.yml -f src/tools/litellm/docker-compose\.yml up -d --no-recreate'
   [[ "$output" != *"codebase-index"* ]]
+}
+
+@test "per-project module enable overrides a global disable — compose is started" {
+  # Regression: _docker_up must resolve disabled modules WITH the project dir.
+  # Calling _devbot_get_disabled_modules with no argument reads only the global
+  # modules map, so a module that is false globally and true per-project — which
+  # is exactly how `signoz` is configured — had its compose silently excluded
+  # from every `devbot up`, no matter which directory it ran in.
+  mkdir -p "${SANDBOX_DIR}/src/agentic/signoz"
+  touch "${SANDBOX_DIR}/src/agentic/signoz/docker-compose.yml"
+  _setup_sandbox '{"modules": {"litellm": false, "signoz": false}}'
+  printf '%s\n' '{"modules": {"signoz": true}}' > "${SANDBOX_DIR}/.devbot.project.jsonc"
+  _use_real_disabled_modules
+  cd "${SANDBOX_DIR}"
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial 'src/agentic/signoz/docker-compose.yml'
+}
+
+@test "per-project module enable is not honoured for a module left disabled in both" {
+  # The complement: honouring the project override must not degenerate into
+  # "always enabled". A module false globally and absent from the project stays
+  # disabled.
+  mkdir -p "${SANDBOX_DIR}/src/agentic/signoz"
+  touch "${SANDBOX_DIR}/src/agentic/signoz/docker-compose.yml"
+  _setup_sandbox '{"modules": {"litellm": false, "signoz": false}}'
+  printf '%s\n' '{"modules": {"mdctx": true}}' > "${SANDBOX_DIR}/.devbot.project.jsonc"
+  _use_real_disabled_modules
+  cd "${SANDBOX_DIR}"
+
+  run _run_docker_up
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  [[ "$output" != *"signoz"* ]] || fail "globally-disabled signoz compose was started"
 }
 
 @test "no enabled module ships a compose file — docker section is skipped entirely" {

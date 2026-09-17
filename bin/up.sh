@@ -51,8 +51,10 @@ _rebuild_external_module_config() {
   fi
 
   # ── Resolve disabled modules ──────────────────────────────────────────────
+  # Pass the project dir: the effective set is global ∘ per-project, so omitting
+  # it would read the global map alone and ignore a module this project enables.
   local disabled_raw
-  disabled_raw=$(_devbot_get_disabled_modules)
+  disabled_raw=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
   local disabled_modules
   disabled_modules=$(echo "${disabled_raw}" | python3 -c "
 import json, sys
@@ -143,8 +145,11 @@ _docker_up() {
   # the provider boots even when its own module is disabled). If NO enabled
   # module ships a compose file, docker has nothing to start — skip the whole
   # section silently (no header, no `docker compose` invocation).
+  # Pass the project dir: the effective set is global ∘ per-project, so omitting
+  # it would read the global map alone — silently excluding the compose of any
+  # module that is false globally and enabled by this project (e.g. signoz).
   local disabled_modules_list
-  disabled_modules_list=$(_devbot_get_disabled_modules)
+  disabled_modules_list=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
   local disabled_lines
   disabled_lines=$(echo "${disabled_modules_list}" | python3 -c "
 import json, sys

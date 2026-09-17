@@ -39,8 +39,11 @@ _docker_down() {
   # enabled modules (consumer fragments may `include:` a disabled provider's
   # compose). Same scan + disabled filter; skip silently when nothing is
   # enabled — there is nothing to stop.
+  # Pass the project dir, mirroring bin/up.sh: the effective set is
+  # global ∘ per-project, so omitting it would read the global map alone and
+  # miss the compose of a module this project enables.
   local disabled_modules_list
-  disabled_modules_list=$(_devbot_get_disabled_modules)
+  disabled_modules_list=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
   local disabled_lines
   disabled_lines=$(echo "${disabled_modules_list}" | python3 -c "
 import json, sys
