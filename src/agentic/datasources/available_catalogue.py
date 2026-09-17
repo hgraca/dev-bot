@@ -67,9 +67,11 @@ def _field_values(spec: dict, engine: dict, environ) -> tuple:
     declared = spec.get("env", {})
     values, missing = {}, []
     for field in engine["fields"]:
-        _yaml_field, engine_var, default, _where = field_parts(field)
+        _yaml_field, engine_var, default, _where, optional = field_parts(field)
         source = declared[engine_var] if engine_var in declared else "${" + engine_var + "}"
         value, absent = _resolve_field(source, default, environ)
+        if absent and optional:
+            absent = None  # an optional field being absent is not a failure
         values[engine_var] = value
         if absent:
             missing.append(absent)
@@ -91,6 +93,16 @@ def _uri_host_port(uri: str) -> tuple:
         rest = rest.rsplit("@", 1)[1]
     host, _, port = rest.split(",", 1)[0].partition(":")
     return (host or None), (port or "27017")
+
+
+def _address_host_port(address, default_port="") -> tuple:
+    """(host, port) from a `host:port` endpoint — redis' `address` field."""
+    if not isinstance(address, str) or not address.strip():
+        return None, None
+    host, sep, port = address.rpartition(":")
+    if not sep:
+        return address, default_port
+    return (host or None), (port or default_port)
 
 
 def _tcp_reachable(host: str, port: str, timeout: float) -> bool:
@@ -126,6 +138,13 @@ def probe(name: str, spec: dict, engine: dict, timeout: float, environ) -> tuple
         host, port = _uri_host_port(values.get(uri_field))
         if not host:
             return False, f"no host in '{uri_field}'"
+    elif kind == "tcp-address":
+        address_field = probe_spec["field"]
+        host, port = _address_host_port(
+            values.get(address_field), probe_spec.get("default_port", "")
+        )
+        if not host:
+            return False, f"no host in '{address_field}'"
     else:
         host = str(values.get(probe_spec["host"]) or "")
         port = str(values.get(probe_spec["port"]) or "")

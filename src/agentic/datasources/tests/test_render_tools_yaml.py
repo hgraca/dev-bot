@@ -300,6 +300,66 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertIn("database: ${EVENTS_DB}", doc_with(out, "tool"))
         self.assertIn("name: events_aggregate", doc_with(out, "tool"))
 
+    def test_mongodb_array_parameter_declares_its_items(self):
+        # Regression: without a fully-formed `items` the image refuses the WHOLE
+        # config ("unable to parse 'items' field"), which takes the shared
+        # gateway — and every project's database access — down.
+        code, out, _ = render({"events": {"type": "mongodb", "env": {"MONGODB_DATABASE": "d"}}})
+
+        self.assertEqual(code, 0)
+        tool = doc_with(out, "tool")
+        self.assertIn("items:", tool)
+        self.assertIn("name: stage", tool)
+
+    def test_redis_is_one_free_form_tool(self):
+        # Redis has no free-form tool of its own — `commands` is fixed at config
+        # time. An ARRAY argument is flattened into the command, so templating
+        # the whole command with one array parameter makes the command NAME a
+        # runtime value too. Verified against the pinned image.
+        code, out, _ = render(
+            {"cache": {"type": "redis", "env": {"REDIS_ADDRESS": "127.0.0.1:6379"}}}
+        )
+
+        self.assertEqual(code, 0)
+        tool = doc_with(out, "tool")
+        self.assertIn("type: redis", tool)
+        self.assertIn("- [$args]", tool)
+        self.assertIn("items:", tool)
+
+    def test_redis_address_is_a_sequence(self):
+        code, out, _ = render(
+            {"cache": {"type": "redis", "env": {"REDIS_ADDRESS": "127.0.0.1:6379"}}}
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("address:\n  - '127.0.0.1:6379'", doc_with(out, "source"))
+
+    def test_redis_optional_credentials_are_omitted(self):
+        # The source documents "omit this field if you do not have a password":
+        # an emitted ${VAR} would be a hard requirement, and an empty AUTH
+        # string is not the same as none at all.
+        code, out, _ = render(
+            {"cache": {"type": "redis", "env": {"REDIS_ADDRESS": "127.0.0.1:6379"}}}
+        )
+
+        self.assertEqual(code, 0)
+        source = doc_with(out, "source")
+        self.assertNotIn("username", source)
+        self.assertNotIn("password", source)
+
+    def test_redis_optional_credentials_appear_when_declared(self):
+        code, out, _ = render(
+            {
+                "cache": {
+                    "type": "redis",
+                    "env": {"REDIS_ADDRESS": "127.0.0.1:6379", "REDIS_PASSWORD": "${REDIS_PW}"},
+                }
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("password: ${REDIS_PW}", doc_with(out, "source"))
+
     def test_malformed_catalogue_is_an_error(self):
         proc = subprocess.run(
             [sys.executable, RENDERER], input="not json", capture_output=True, text=True

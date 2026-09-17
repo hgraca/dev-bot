@@ -249,6 +249,35 @@ class TestAvailableCatalogue(unittest.TestCase):
         self.assertEqual(json.loads(out), {})
         self.assertIn("no host", err)
 
+    def test_probes_a_redis_address(self):
+        # redis names the endpoint in one `address` value rather than host/port.
+        code, out, _ = self.run_filter(
+            {"cache": {"type": "redis", "env": {"REDIS_ADDRESS": f"127.0.0.1:{self.live_port}"}}}
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(list(json.loads(out)), ["cache"])
+
+    def test_redis_optional_credentials_do_not_gate(self):
+        # No username/password declared and none in the environment: the source
+        # omits them, so the datasource is still usable.
+        code, out, _ = self.run_filter(
+            {"cache": {"type": "redis", "env": {"REDIS_ADDRESS": f"127.0.0.1:{self.live_port}"}}}
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(list(json.loads(out)), ["cache"])
+
+    def test_a_redis_address_without_a_port_uses_the_default(self):
+        # A bare host still probes — on 6379, where nothing is listening here.
+        code, out, err = self.run_filter(
+            {"cache": {"type": "redis", "env": {"REDIS_ADDRESS": "127.0.0.1-not-here"}}}
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {})
+        self.assertIn("unreachable", err)
+
     def test_drops_a_non_numeric_port(self):
         catalogue, env = self.mysql()
         env["T_PORT"] = "not-a-port"

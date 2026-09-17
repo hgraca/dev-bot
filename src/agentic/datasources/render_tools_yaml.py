@@ -111,6 +111,13 @@ ENGINES = {
         # The free-form surface: the agent supplies the entire pipeline, which
         # toolbox renders straight into the payload. Appended verbatim — this
         # is the one place a tool needs more than scalar key/values.
+        #
+        # An array parameter REQUIRES a fully-formed `items` (name, type AND
+        # description): without it the image refuses the whole config with
+        # "unable to parse 'items' field", which would take the shared gateway
+        # down. `collection` is deliberately omitted — upstream documents that
+        # it then has to be supplied at runtime, which is what lets the agent
+        # choose the collection rather than pinning one.
         "tool_body": [
             "pipelinePayload: |",
             "  {{json .pipeline}}",
@@ -118,10 +125,51 @@ ENGINES = {
             "  - name: pipeline",
             "    type: array",
             "    description: The aggregation pipeline, as a JSON array of stage documents.",
+            "    items:",
+            "      name: stage",
+            "      type: map",
+            "      description: One aggregation stage, for example a $match filter.",
         ],
         # The URI has to be parsed for host:port — there is no host/port field.
         # Like the tcp probe above, `field` names the engine VARIABLE.
         "probe": {"kind": "tcp-uri", "field": "MONGODB_URI"},
+    },
+    "redis": {
+        "type": "redis",
+        "fields": [
+            # A YAML SEQUENCE upstream, even for a single endpoint.
+            ("address", "REDIS_ADDRESS", None),
+            # Optional upstream, and to be OMITTED rather than emptied: the
+            # redis source documents "omit this field if you do not have a
+            # password", and an empty AUTH string is not the same as none.
+            ("username", "REDIS_USERNAME", None, "source", True),
+            ("password", "REDIS_PASSWORD", None, "source", True),
+        ],
+        "list_fields": frozenset({"REDIS_ADDRESS"}),
+        "tool": {
+            "name": "run",
+            "type": "redis",
+            "description": "Run a Redis command.",
+        },
+        # Redis has no free-form tool of its own: its `commands` list is fixed
+        # at config time. But an ARRAY argument is flattened into the command,
+        # so templating the whole command with one array parameter makes the
+        # command NAME a runtime value too — which is what gives Redis the same
+        # free-form surface the SQL engines have, rather than a menu of
+        # hand-picked commands. Verified against the pinned image.
+        "tool_body": [
+            "commands:",
+            "  - [$args]",
+            "parameters:",
+            "  - name: args",
+            "    type: array",
+            "    description: 'The command and its arguments, e.g. [\"GET\", \"some-key\"].'",
+            "    items:",
+            "      name: arg",
+            "      type: string",
+            "      description: One token — the command name first, then its arguments.",
+        ],
+        "probe": {"kind": "tcp-address", "field": "REDIS_ADDRESS", "default_port": "6379"},
     },
 }
 # Datasource names become tool and toolset names, and a URL path segment.
@@ -160,15 +208,23 @@ def _yaml_scalar(value) -> str:
 
 
 def field_parts(field) -> tuple:
-    """(yaml_field, env_var, default, where).
+    """(yaml_field, env_var, default, where, optional).
 
     `where` says which document the field belongs to: the `source` (a
     connection parameter) or the `tool` (a tool-level parameter — MongoDB's
     `database`, which its aggregate tool requires). Fields are declared as
     3-tuples and default to the source; a 4th element marks a tool field.
+
+    `optional` means: when the datasource does not declare it, OMIT it rather
+    than emitting a bare `${VAR}`. That distinction matters — toolbox treats an
+    emitted `${VAR}` as a hard requirement, and for a field like redis
+    `password` an empty value is not the same as an absent one.
     """
-    yaml_field, engine_var, default = field[:3]
-    return yaml_field, engine_var, default, field[3] if len(field) > 3 else "source"
+    yaml_field, engine_var = field[0], field[1]
+    default = field[2] if len(field) > 2 else None
+    where = field[3] if len(field) > 3 else "source"
+    optional = field[4] if len(field) > 4 else False
+    return yaml_field, engine_var, default, where, optional
 
 # Every key a datasource definition may carry.
 KNOWN_KEYS = frozenset({"type", "env"})
@@ -238,7 +294,9 @@ def effective_env_names(catalogue: dict) -> list:
     for _name, spec, engine in validated_items(catalogue):
         declared = spec.get("env", {})
         for field in engine["fields"]:
-            _yaml_field, engine_var, _default, _where = field_parts(field)
+            _yaml_field, engine_var, default, _where, optional = field_parts(field)
+            if optional and default is None and engine_var not in declared:
+                continue  # omitted from the config, so nothing to pass in
             if engine_var in declared:
                 ref = env_ref(declared[engine_var])
                 if ref is not None:
@@ -272,9 +330,10 @@ def _validate_env(name, spec, engine):
 def _render_fields(spec, engine, where) -> list:
     """The rendered lines for the fields that belong to one document."""
     database = spec.get("env", {})
+    list_fields = engine.get("list_fields", ())
     lines = []
     for field in engine["fields"]:
-        yaml_field, engine_var, default, target = field_parts(field)
+        yaml_field, engine_var, default, target, optional = field_parts(field)
         if target != where:
             continue
 
@@ -283,24 +342,33 @@ def _render_fields(spec, engine, where) -> list:
             if ref is not None:
                 # The value stays out of the file: toolbox reads the variable
                 # from the container's environment when it loads this config.
-                lines.append(
-                    f"{yaml_field}: ${{{ref}:{default}}}"
-                    if default is not None
-                    else f"{yaml_field}: ${{{ref}}}"
+                value = (
+                    f"${{{ref}:{default}}}" if default is not None else f"${{{ref}}}"
                 )
             else:
                 # A literal, written straight in. Non-secret values (host, port,
                 # database, user) read far better inline; a secret belongs
                 # behind a ${VAR} reference.
-                lines.append(f"{yaml_field}: {_yaml_scalar(database[engine_var])}")
+                value = _yaml_scalar(database[engine_var])
         elif default is not None:
             # Undeclared: the engine's own variable, defaulted — exporting
             # MYSQL_HOST still works without declaring anything.
-            lines.append(f"{yaml_field}: ${{{engine_var}:{default}}}")
+            value = f"${{{engine_var}:{default}}}"
+        elif optional:
+            # Absent by design. Emitting ${VAR} here would turn an optional
+            # field into a hard requirement the image refuses to start without.
+            continue
         else:
             # Undeclared, no default: still emitted, so exporting the engine's
             # own name works. available_catalogue gates it out when unset.
-            lines.append(f"{yaml_field}: ${{{engine_var}}}")
+            value = f"${{{engine_var}}}"
+
+        if engine_var in list_fields:
+            # Upstream expects a sequence here even for one endpoint.
+            lines.append(f"{yaml_field}:")
+            lines.append(f"  - {value}")
+        else:
+            lines.append(f"{yaml_field}: {value}")
     return lines
 
 
