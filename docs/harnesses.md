@@ -145,7 +145,9 @@ opencode loads **two separate plugin surfaces**, and the distinction is enforced
 
 Unlike hooks, **TUI plugins are not auto-discovered** — they only load if named in `tui.json`'s `plugin` array. dev-bot's own TUI plugins are symlinked into `.opencode/tui-plugins/` by `init.sh` (`_link_tui_plugins`), removed by `reset.sh`, and referenced from the template by a path **relative** to `tui.json`, so the shipped template carries no install path.
 
-`tui.json` also accepts `plugin_enabled`, which switches off opencode's **built-in** TUI blocks by slot id (`internal:sidebar-context`, `-files`, `-footer`, `-lsp`, `-mcp`, `-todo`, `internal:home-footer`, `-tips`, `internal:notifications`, `internal:plugin-manager`). The shipped template disables `sidebar-context` and `sidebar-files` because the footer already shows context usage and `opencode-dir-tree-tui` renders the file tree.
+`tui.json` also accepts `plugin_enabled`, which switches off opencode's **built-in** TUI blocks by slot id (`internal:sidebar-context`, `-files`, `-footer`, `-lsp`, `-mcp`, `-todo`, `internal:home-footer`, `-tips`, `internal:notifications`, `internal:plugin-manager`). The shipped template disables `sidebar-context` only — the footer already shows context usage, so the sidebar copy is a duplicate. `internal:sidebar-files` is deliberately left **enabled**: it is the only file tree, since a third-party plugin that also drew one was dropped rather than carried as a duplicate.
+
+A TUI plugin entry added to the dist reaches **new** projects only: the dist-backed configs are seed-once (skip-if-exists), so `init.sh` also _reconciles_ the dist's npm-spec plugin entries into an already-seeded config on every init/reinit — that is what repairs a project seeded before a dependency existed. Note also that the reinit-on-start is gated by a hash of the **config** files, not of harness code, so a wiring change reaches existing projects only through a released update or an explicit `devbot reinit`.
 
 #### PTY monitor
 

@@ -89,26 +89,24 @@ _source_init() {
   assert_success
 }
 
-@test "tui.dist.jsonc carries the third-party TUI plugins, pinned" {
+@test "tui.dist.jsonc carries the pinned third-party TUI plugins" {
   # Pinned for the same reason opencode-pty is: these are version-sensitive, and
   # an unpinned spec silently follows upstream latest. The assertion matches the
   # pinned form, so it covers both presence and pinning — an unpinned regression
-  # fails it. This caught a real inconsistency: opencode-pty was pinned while
-  # these two were not.
+  # fails it.
   run python3 "$READER" "$DIST_TUI" plugin
   assert_success
   assert_output --partial '"opencode-tabs@'
-  assert_output --partial '"opencode-dir-tree-tui@'
 }
 
-@test "tui.dist.jsonc disables the duplicate built-in sidebar blocks" {
-  # The footer already reports context usage and opencode-dir-tree-tui renders
-  # the file tree, so the built-in sidebar equivalents are switched off via
-  # plugin_enabled — opencode's slot-level switch for its own TUI blocks.
+@test "tui.dist.jsonc leaves the built-in file tree enabled" {
+  # internal:sidebar-files is the ONLY file tree now that opencode-dir-tree-tui
+  # has been removed — disabling it (as was once correct, when that plugin drew
+  # one) would leave the sidebar with no file tree at all.
   run python3 "$READER" "$DIST_TUI" plugin_enabled
   assert_success
   assert_output --partial '"internal:sidebar-context": false'
-  assert_output --partial '"internal:sidebar-files": false'
+  refute_output --partial '"internal:sidebar-files"'
 }
 
 @test "tui.dist.jsonc plugin array excludes server plugins" {
@@ -142,7 +140,6 @@ _source_init() {
   run python3 "$READER" "$tui" plugin
   assert_success
   assert_output --partial 'opencode-tabs@'
-  assert_output --partial 'opencode-dir-tree-tui@'
   assert_output --partial 'tui-plugins/pty-monitor'
   # the built-in-slot switches must survive generation too
   run python3 "$READER" "$tui" plugin_enabled

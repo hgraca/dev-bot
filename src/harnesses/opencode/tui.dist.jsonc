@@ -7,17 +7,20 @@
   // opencode refuses to start — keep each list in its own file.
   //
   // `plugin_enabled` switches off opencode's BUILT-IN TUI blocks by slot id.
-  // Both sidebar blocks below are disabled because each is already available
-  // elsewhere: the footer shows context usage, and opencode-dir-tree-tui
-  // renders the file tree. Other slots: internal:sidebar-context / -files /
-  // -footer / -lsp / -mcp / -todo, internal:home-footer / -tips,
-  // internal:notifications, internal:plugin-manager.
+  // Only the sidebar context block is disabled: the footer already shows context
+  // usage, so the sidebar copy is a duplicate. `internal:sidebar-files` is
+  // deliberately LEFT ENABLED — it is the only file tree, since
+  // opencode-dir-tree-tui was removed. Other slots:
+  // internal:sidebar-context / -files / -footer / -lsp / -mcp / -todo,
+  // internal:home-footer / -tips, internal:notifications,
+  // internal:plugin-manager.
   "plugin_enabled": {
-    "internal:sidebar-context": false,
-    "internal:sidebar-files": false
+    "internal:sidebar-context": false
   },
   // Deliberately NOT listed (each was evaluated and rejected — re-adding one
   // needs a fix first, not just a line here):
+  //   opencode-dir-tree-tui          replaced the built-in file tree, and that
+  //                                   duplication is not worth carrying
   //   opencode-user-timeline          declares engines.opencode >=2.0.0; this
   //                                   toolkit targets the 1.x line
   //   @streetturtle/opencode-open-in  macOS-only (bails on anything but darwin
@@ -28,16 +31,12 @@
   //                                   no value in this setup
   // Third-party TUI plugins are PINNED, for the same reason opencode-pty is in
   // opencode.dist.jsonc: they are version-sensitive, and an unpinned spec
-  // silently follows upstream `latest`. Both were verified against opencode
-  // 1.18.31 — opencode-tabs declares engines.opencode >=1.17.20.
+  // silently follows upstream `latest`. opencode-tabs was verified against
+  // opencode 1.18.31 and declares engines.opencode >=1.17.20.
   // dev-bot's own PTY monitor is symlinked into .opencode/tui-plugins/ by
   // init.sh; the entry is RELATIVE to this file so the template stays portable —
   // an absolute install path would break every consumer. It watches
   // opencode-pty's HTTP API (a hard dependency), so with no PTY session it
   // simply shows none.
-  "plugin": [
-    "opencode-tabs@0.3.0",
-    "opencode-dir-tree-tui@0.5.1",
-    "./tui-plugins/pty-monitor/index.ts"
-  ]
+  "plugin": ["opencode-tabs@0.3.0", "./tui-plugins/pty-monitor/index.ts"]
 }
