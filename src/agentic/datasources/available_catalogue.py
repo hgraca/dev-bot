@@ -30,7 +30,7 @@ import socket
 import sys
 from typing import NoReturn
 
-from render_tools_yaml import env_ref, load_catalogue, validated_items
+from render_tools_yaml import env_ref, field_parts, load_catalogue, validated_items
 
 DEFAULT_TIMEOUT = 1.0
 
@@ -66,13 +66,31 @@ def _field_values(spec: dict, engine: dict, environ) -> tuple:
     """
     declared = spec.get("env", {})
     values, missing = {}, []
-    for _field, engine_var, default in engine["fields"]:
+    for field in engine["fields"]:
+        _yaml_field, engine_var, default, _where = field_parts(field)
         source = declared[engine_var] if engine_var in declared else "${" + engine_var + "}"
         value, absent = _resolve_field(source, default, environ)
         values[engine_var] = value
         if absent:
             missing.append(absent)
     return values, missing
+
+
+def _uri_host_port(uri: str) -> tuple:
+    """(host, port) from a connection URI — `mongodb://user:pw@h1:27017,h2/db?opts`.
+
+    Only what a reachability probe needs: credentials, further replica-set
+    hosts and options are dropped, and the first host is used. An SRV URI
+    carries no port, so 27017 is assumed — which is where SRV records resolve
+    in practice.
+    """
+    if not isinstance(uri, str) or "://" not in uri:
+        return None, None
+    rest = uri.split("://", 1)[1].split("/", 1)[0].split("?", 1)[0]
+    if "@" in rest:
+        rest = rest.rsplit("@", 1)[1]
+    host, _, port = rest.split(",", 1)[0].partition(":")
+    return (host or None), (port or "27017")
 
 
 def _tcp_reachable(host: str, port: str, timeout: float) -> bool:
@@ -98,12 +116,20 @@ def probe(name: str, spec: dict, engine: dict, timeout: float, environ) -> tuple
         return False, f"required env not set: {', '.join(sorted(missing))}"
 
     probe_spec = engine.get("probe", {"kind": "none"})
-    if probe_spec["kind"] != "tcp":
+    kind = probe_spec["kind"]
+    if kind == "none":
         # No server to reach (sqlite): being resolvable is enough.
         return True, "usable"
 
-    host = str(values.get(probe_spec["host"]) or "")
-    port = str(values.get(probe_spec["port"]) or "")
+    if kind == "tcp-uri":
+        uri_field = probe_spec["field"]
+        host, port = _uri_host_port(values.get(uri_field))
+        if not host:
+            return False, f"no host in '{uri_field}'"
+    else:
+        host = str(values.get(probe_spec["host"]) or "")
+        port = str(values.get(probe_spec["port"]) or "")
+
     if _tcp_reachable(host, port, timeout):
         return True, "usable"
     return False, f"unreachable: {host}:{port}"

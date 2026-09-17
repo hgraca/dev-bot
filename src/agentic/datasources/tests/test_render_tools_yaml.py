@@ -31,6 +31,14 @@ def docs_of(stdout):
     return [d.strip() for d in stdout.split("\n---\n") if d.strip() and not d.lstrip().startswith("#")]
 
 
+def doc_with(stdout, kind):
+    """The single document of a given kind, or an assertion failure."""
+    for doc in docs_of(stdout):
+        if doc.splitlines()[0] == f"kind: {kind}":
+            return doc
+    raise AssertionError(f"no '{kind}' document in:\n{stdout}")
+
+
 class TestRenderToolsYaml(unittest.TestCase):
     def test_emits_source_tool_and_toolset_per_datasource(self):
         code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
@@ -248,6 +256,49 @@ class TestRenderToolsYaml(unittest.TestCase):
         names = json.loads(proc.stdout)
         self.assertIn("HOTELS_DB_HOST", names)
         self.assertNotIn("MYSQL_HOST", names)
+
+    def test_mongodb_puts_the_database_on_the_tool_not_the_source(self):
+        # mongodb-aggregate REQUIRES a database, so one mongo datasource covers
+        # one database — unlike mysql, whose source may have no default schema.
+        code, out, _ = render(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {
+                        "MONGODB_URI": "${EVENTS_MONGO_URI}",
+                        "MONGODB_DATABASE": "events",
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("uri: ${EVENTS_MONGO_URI}", doc_with(out, "source"))
+        self.assertNotIn("database", doc_with(out, "source"))
+        self.assertIn("database: 'events'", doc_with(out, "tool"))
+
+    def test_mongodb_pipeline_is_the_free_form_surface(self):
+        # The agent supplies the whole pipeline, so `collection` is deliberately
+        # left out and stays a runtime parameter.
+        code, out, _ = render(
+            {"events": {"type": "mongodb", "env": {"MONGODB_DATABASE": "d"}}}
+        )
+
+        self.assertEqual(code, 0)
+        tool = doc_with(out, "tool")
+        self.assertIn("type: mongodb-aggregate", tool)
+        self.assertIn("pipelinePayload: |", tool)
+        self.assertIn("{{json .pipeline}}", tool)
+        self.assertNotIn("collection:", tool)
+
+    def test_a_tool_level_field_can_be_a_reference(self):
+        code, out, _ = render(
+            {"events": {"type": "mongodb", "env": {"MONGODB_DATABASE": "${EVENTS_DB}"}}}
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("database: ${EVENTS_DB}", doc_with(out, "tool"))
+        self.assertIn("name: events_aggregate", doc_with(out, "tool"))
 
     def test_malformed_catalogue_is_an_error(self):
         proc = subprocess.run(

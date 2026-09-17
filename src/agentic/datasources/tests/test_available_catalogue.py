@@ -206,6 +206,49 @@ class TestAvailableCatalogue(unittest.TestCase):
         self.assertEqual(json.loads(out), {})
         self.assertIn("unreachable", err)
 
+    def test_probes_a_mongodb_uri(self):
+        # The whole connection is one URI, so host and port come from parsing
+        # it. Credentials and query options are part of the real thing.
+        code, out, _ = self.run_filter(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {
+                        "MONGODB_URI": f"mongodb://user:pw@127.0.0.1:{self.live_port}/events?retryWrites=true",
+                        "MONGODB_DATABASE": "events",
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(list(json.loads(out)), ["events"])
+
+    def test_mongodb_database_is_required(self):
+        # mongodb-aggregate requires a database and the field has no default,
+        # so a datasource without one must be kept out of the gateway config.
+        code, out, err = self.run_filter(
+            {"events": {"type": "mongodb", "env": {"MONGODB_URI": "mongodb://127.0.0.1:1/db"}}}
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {})
+        self.assertIn("MONGODB_DATABASE", err)
+
+    def test_a_mongodb_uri_without_a_host_is_not_usable(self):
+        code, out, err = self.run_filter(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {"MONGODB_URI": "not-a-uri", "MONGODB_DATABASE": "d"},
+                }
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {})
+        self.assertIn("no host", err)
+
     def test_drops_a_non_numeric_port(self):
         catalogue, env = self.mysql()
         env["T_PORT"] = "not-a-port"

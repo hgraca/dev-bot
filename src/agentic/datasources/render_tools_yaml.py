@@ -49,8 +49,8 @@ ENGINES = {
             "description": "Execute a single SQL statement.",
         },
         # How to tell whether this datasource is usable right now — see
-        # available_catalogue.py. Host/port name engine fields, not env vars:
-        # the operator's own variable names are resolved through `env`.
+        # available_catalogue.py. Host/port name the engine's OWN variables
+        # (not the operator's, and not the YAML field names).
         "probe": {"kind": "tcp", "host": "MYSQL_HOST", "port": "MYSQL_PORT"},
     },
     "postgres": {
@@ -91,6 +91,38 @@ ENGINES = {
         # unreachable. Being env-complete is all it takes to be usable.
         "probe": {"kind": "none"},
     },
+    "mongodb": {
+        "type": "mongodb",
+        "fields": [
+            # The whole connection lives in the URI, credentials included —
+            # hence a ${VAR} reference for it in practice.
+            ("uri", "MONGODB_URI", None),
+            # Tool-level: mongodb-aggregate requires a database, so one mongo
+            # datasource covers ONE database (unlike mysql, whose source may
+            # have no default schema). `collection` is deliberately not set, so
+            # it stays a runtime parameter the agent chooses.
+            ("database", "MONGODB_DATABASE", None, "tool"),
+        ],
+        "tool": {
+            "name": "aggregate",
+            "type": "mongodb-aggregate",
+            "description": "Run a MongoDB aggregation pipeline against a collection.",
+        },
+        # The free-form surface: the agent supplies the entire pipeline, which
+        # toolbox renders straight into the payload. Appended verbatim — this
+        # is the one place a tool needs more than scalar key/values.
+        "tool_body": [
+            "pipelinePayload: |",
+            "  {{json .pipeline}}",
+            "pipelineParams:",
+            "  - name: pipeline",
+            "    type: array",
+            "    description: The aggregation pipeline, as a JSON array of stage documents.",
+        ],
+        # The URI has to be parsed for host:port — there is no host/port field.
+        # Like the tcp probe above, `field` names the engine VARIABLE.
+        "probe": {"kind": "tcp-uri", "field": "MONGODB_URI"},
+    },
 }
 # Datasource names become tool and toolset names, and a URL path segment.
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
@@ -125,6 +157,18 @@ def _literal_text(value) -> str:
 def _yaml_scalar(value) -> str:
     """A single-quoted YAML scalar — a literal may contain ':', '#' or spaces."""
     return "'" + _literal_text(value).replace("'", "''") + "'"
+
+
+def field_parts(field) -> tuple:
+    """(yaml_field, env_var, default, where).
+
+    `where` says which document the field belongs to: the `source` (a
+    connection parameter) or the `tool` (a tool-level parameter — MongoDB's
+    `database`, which its aggregate tool requires). Fields are declared as
+    3-tuples and default to the source; a 4th element marks a tool field.
+    """
+    yaml_field, engine_var, default = field[:3]
+    return yaml_field, engine_var, default, field[3] if len(field) > 3 else "source"
 
 # Every key a datasource definition may carry.
 KNOWN_KEYS = frozenset({"type", "env"})
@@ -193,7 +237,8 @@ def effective_env_names(catalogue: dict) -> list:
     names = set()
     for _name, spec, engine in validated_items(catalogue):
         declared = spec.get("env", {})
-        for _field, engine_var, _default in engine["fields"]:
+        for field in engine["fields"]:
+            _yaml_field, engine_var, _default, _where = field_parts(field)
             if engine_var in declared:
                 ref = env_ref(declared[engine_var])
                 if ref is not None:
@@ -203,17 +248,18 @@ def effective_env_names(catalogue: dict) -> list:
     return sorted(names)
 
 
-def render_source(name, spec, engine):
-    # `env` is optional: a datasource may rely entirely on the engine's own
-    # default variable names (export MYSQL_HOST and declare nothing).
+def _validate_env(name, spec, engine):
+    """Every `env` key must be a real field, with a scalar value."""
     database = spec.get("env", {})
-    known = {var for _, var, _ in engine["fields"]}
+    # Index 1 is the engine's variable name, whether the field is a 3-tuple
+    # (source) or a 4-tuple (source/tool).
+    known = {field[1] for field in engine["fields"]}
 
     for var, declared in database.items():
         if var not in known:
             _fail(
                 f"datasource '{name}': env key '{var}' is not a {engine['type']} "
-                f"source field (known: {', '.join(sorted(known))})"
+                f"field (known: {', '.join(sorted(known))})"
             )
         if declared is None or isinstance(declared, (dict, list)):
             _fail(
@@ -222,33 +268,59 @@ def render_source(name, spec, engine):
                 "environment variable"
             )
 
-    lines = ["kind: source", f"name: {name}", f"type: {engine['type']}"]
-    for field, engine_var, default in engine["fields"]:
+
+def _render_fields(spec, engine, where) -> list:
+    """The rendered lines for the fields that belong to one document."""
+    database = spec.get("env", {})
+    lines = []
+    for field in engine["fields"]:
+        yaml_field, engine_var, default, target = field_parts(field)
+        if target != where:
+            continue
+
         if engine_var in database:
             ref = env_ref(database[engine_var])
             if ref is not None:
                 # The value stays out of the file: toolbox reads the variable
                 # from the container's environment when it loads this config.
                 lines.append(
-                    f"{field}: ${{{ref}:{default}}}"
+                    f"{yaml_field}: ${{{ref}:{default}}}"
                     if default is not None
-                    else f"{field}: ${{{ref}}}"
+                    else f"{yaml_field}: ${{{ref}}}"
                 )
             else:
                 # A literal, written straight in. Non-secret values (host, port,
                 # database, user) read far better inline; a secret belongs
                 # behind a ${VAR} reference.
-                lines.append(f"{field}: {_yaml_scalar(database[engine_var])}")
+                lines.append(f"{yaml_field}: {_yaml_scalar(database[engine_var])}")
         elif default is not None:
             # Undeclared: the engine's own variable, defaulted — exporting
             # MYSQL_HOST still works without declaring anything.
-            lines.append(f"{field}: ${{{engine_var}:{default}}}")
+            lines.append(f"{yaml_field}: ${{{engine_var}:{default}}}")
         else:
             # Undeclared, no default: still emitted, so exporting the engine's
             # own name works. available_catalogue gates it out when unset.
-            lines.append(f"{field}: ${{{engine_var}}}")
-
+            lines.append(f"{yaml_field}: ${{{engine_var}}}")
     return lines
+
+
+def render_source(name, spec, engine) -> list:
+    # `env` is optional: a datasource may rely entirely on the engine's own
+    # default variable names (export MYSQL_HOST and declare nothing).
+    lines = ["kind: source", f"name: {name}", f"type: {engine['type']}"]
+    return lines + _render_fields(spec, engine, "source")
+
+
+def render_tool(name, spec, engine) -> list:
+    tool = engine["tool"]
+    lines = [
+        "kind: tool",
+        f"name: {name}_{tool['name']}",
+        f"type: {tool['type']}",
+        f"source: {name}",
+        f"description: {tool['description']}",
+    ]
+    return lines + _render_fields(spec, engine, "tool") + list(engine.get("tool_body", []))
 
 
 def render(catalogue):
@@ -257,21 +329,11 @@ def render(catalogue):
 
     docs = []
     for name, spec, engine in validated_items(catalogue):
+        _validate_env(name, spec, engine)
         tool_name = f"{name}_{engine['tool']['name']}"
-        tool = engine["tool"]
 
         docs.append("\n".join(render_source(name, spec, engine)))
-        docs.append(
-            "\n".join(
-                [
-                    "kind: tool",
-                    f"name: {tool_name}",
-                    f"type: {tool['type']}",
-                    f"source: {name}",
-                    f"description: {tool['description']}",
-                ]
-            )
-        )
+        docs.append("\n".join(render_tool(name, spec, engine)))
         docs.append("\n".join(["kind: toolset", f"name: {name}", "tools:", f"- {tool_name}"]))
 
     if not docs:
