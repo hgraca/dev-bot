@@ -18,8 +18,25 @@ source "${MODULE_DIR}/versions.env"
 
 RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
 COMPOSE_FILE="${RUNTIME_DIR}/docker-compose.yml"
+POLLER_PID="${RUNTIME_DIR}/refresh.pid"
+
+# Stop the availability poller first: leaving it running would keep rewriting
+# the config for a gateway that is no longer up.
+_stop_poller() {
+  if [[ ! -f "${POLLER_PID}" ]]; then
+    return 0
+  fi
+  local pid
+  pid="$(cat "${POLLER_PID}")"
+  if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+    kill "${pid}" 2>/dev/null && _ok "datasources — refresh poller stopped"
+  fi
+  rm -f "${POLLER_PID}"
+}
 
 main() {
+  _stop_poller
+
   if [[ ! -f "${COMPOSE_FILE}" ]]; then
     _skip "datasources — no generated compose file, nothing to stop"
     return 0

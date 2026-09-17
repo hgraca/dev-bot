@@ -90,7 +90,11 @@ class TestRenderCompose(unittest.TestCase):
         self.assertEqual(code, 0)
         lines = out.splitlines()
         idx = lines.index("    command:")
-        self.assertEqual(lines[idx + 1].strip(), "- --config")
+        # The entry after `command:` must be a list item, not a scalar string:
+        # exec form. A shell string would need /bin/sh, which the distroless
+        # image does not have.
+        self.assertTrue(lines[idx + 1].startswith("      - "), lines[idx + 1])
+        self.assertIn("- --config-folder", [line.strip() for line in lines])
 
     def test_template_without_the_marker_is_an_error(self):
         with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as handle:

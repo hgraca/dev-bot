@@ -44,6 +44,10 @@ ENGINES = {
             "type": "mysql-execute-sql",
             "description": "Execute a single SQL statement.",
         },
+        # How to tell whether this datasource is usable right now — see
+        # available_catalogue.py. Host/port name engine fields, not env vars:
+        # the operator's own variable names are resolved through `env`.
+        "probe": {"kind": "tcp", "host": "MYSQL_HOST", "port": "MYSQL_PORT"},
     },
     "postgres": {
         "type": "postgres",
@@ -60,6 +64,11 @@ ENGINES = {
             "type": "postgres-execute-sql",
             "description": "Execute a single SQL statement.",
         },
+        "probe": {
+            "kind": "tcp",
+            "host": "POSTGRES_HOST",
+            "port": "POSTGRES_PORT",
+        },
     },
     # SQLite is here for the same reason it is useful to operators: it needs no
     # server and no credentials, which makes it the only engine the module can
@@ -74,6 +83,9 @@ ENGINES = {
             "type": "sqlite-execute-sql",
             "description": "Execute a single SQL statement.",
         },
+        # No probe: sqlite is a file, needs no server, and is never
+        # unreachable. Being env-complete is all it takes to be usable.
+        "probe": {"kind": "none"},
     },
 }
 # Datasource names become tool and toolset names, and a URL path segment.
@@ -125,6 +137,20 @@ def _engine_for(name: str, spec: dict) -> dict:
     return engine
 
 
+def validated_items(catalogue: dict):
+    """Yield (name, spec, engine) for each datasource, failing loudly on
+    anything invalid. The single validation path, shared by every renderer."""
+    for name in sorted(catalogue):
+        spec = catalogue[name]
+        _reject_unknown_keys(name, spec)
+        if not NAME_RE.match(name):
+            _fail(f"datasource name '{name}' must match {NAME_RE.pattern}")
+        engine = _engine_for(name, spec)
+        if not isinstance(spec.get("env", {}), dict):
+            _fail(f"datasource '{name}': 'env' must be an object")
+        yield name, spec, engine
+
+
 def effective_env_names(catalogue: dict) -> list:
     """Every env var name the rendered tools.yaml will reference.
 
@@ -134,22 +160,17 @@ def effective_env_names(catalogue: dict) -> list:
     the compose renderer passes through.
     """
     names = set()
-    for name in sorted(catalogue):
-        spec = catalogue[name]
-        _reject_unknown_keys(name, spec)
-        if not NAME_RE.match(name):
-            _fail(f"datasource name '{name}' must match {NAME_RE.pattern}")
-        engine = _engine_for(name, spec)
+    for _name, spec, engine in validated_items(catalogue):
         declared = spec.get("env", {})
-        if not isinstance(declared, dict):
-            _fail(f"datasource '{name}': 'env' must be an object")
         for _field, engine_var, _default in engine["fields"]:
             names.add(declared.get(engine_var, engine_var))
     return sorted(names)
 
 
 def render_source(name, spec, engine):
-    database = spec["env"]
+    # `env` is optional: a datasource may rely entirely on the engine's own
+    # default variable names (export MYSQL_HOST and declare nothing).
+    database = spec.get("env", {})
     known = {var for _, var, _ in engine["fields"]}
 
     for var, ref in database.items():
@@ -177,17 +198,7 @@ def render(catalogue):
         _fail("catalogue must be an object of datasource name -> definition")
 
     docs = []
-    for name in sorted(catalogue):
-        spec = catalogue[name]
-        _reject_unknown_keys(name, spec)
-        if not NAME_RE.match(name):
-            _fail(f"datasource name '{name}' must match {NAME_RE.pattern}")
-
-        engine = _engine_for(name, spec)
-
-        if not isinstance(spec.get("env", {}), dict):
-            _fail(f"datasource '{name}': 'env' must be an object")
-
+    for name, spec, engine in validated_items(catalogue):
         tool_name = f"{name}_{engine['tool']['name']}"
         tool = engine["tool"]
 

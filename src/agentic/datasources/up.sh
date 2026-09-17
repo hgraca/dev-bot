@@ -24,7 +24,22 @@ source "${MODULE_DIR}/versions.env"
 
 RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
 COMPOSE_FILE="${RUNTIME_DIR}/docker-compose.yml"
+POLLER_PID="${RUNTIME_DIR}/refresh.pid"
 MCP_URL="${DATASOURCES_MCP_URL:-http://127.0.0.1:18510/mcp}"
+
+# Keep the running gateway in step with what is reachable. This is what lets a
+# database that comes up AFTER `devbot up` activate without a restart — the
+# usual case, since the dev environment is often booted later than devbot.
+_start_poller() {
+  if [[ -f "${POLLER_PID}" ]] && kill -0 "$(cat "${POLLER_PID}")" 2>/dev/null; then
+    _skip "datasources — refresh poller already running"
+    return 0
+  fi
+  # Detached, so it outlives `devbot up`; down.sh stops it through the PID file.
+  # Output goes to its own log, never to the terminal.
+  nohup bash "${MODULE_DIR}/poller.sh" >> "${RUNTIME_DIR}/refresh.log" 2>&1 &
+  _ok "datasources — refresh poller started (every ${DATASOURCES_REFRESH_INTERVAL:-10}s)"
+}
 
 main() {
   _info "datasources — up"
@@ -60,6 +75,8 @@ main() {
     _warn "datasources gateway failed to start — continuing without it."
     return 0
   fi
+
+  _start_poller
 
   # An `if`, not `&&`: under `set -e` a short-circuited `&&` would abort here.
   if _devbot_wait_for_mcp_gateway datasources "${MCP_URL}"; then
