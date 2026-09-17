@@ -61,6 +61,20 @@ ENGINES = {
             "description": "Execute a single SQL statement.",
         },
     },
+    # SQLite is here for the same reason it is useful to operators: it needs no
+    # server and no credentials, which makes it the only engine the module can
+    # exercise end to end inside the test suite.
+    "sqlite": {
+        "type": "sqlite",
+        "fields": [
+            ("database", "SQLITE_DATABASE", None),
+        ],
+        "tool": {
+            "name": "execute_sql",
+            "type": "sqlite-execute-sql",
+            "description": "Execute a single SQL statement.",
+        },
+    },
 }
 # Datasource names become tool and toolset names, and a URL path segment.
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")

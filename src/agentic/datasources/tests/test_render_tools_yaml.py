@@ -91,6 +91,14 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertIn("port: ${POSTGRES_PORT:5432}", out)
         self.assertIn("type: postgres-execute-sql", out)
 
+    def test_sqlite_uses_the_database_path_field(self):
+        code, out, _ = render({"scratch": {"type": "sqlite", "env": {}}})
+
+        self.assertEqual(code, 0)
+        self.assertIn("type: sqlite\n", out)
+        self.assertIn("database: ${SQLITE_DATABASE}\n", out)
+        self.assertIn("type: sqlite-execute-sql", out)
+
     def test_no_read_only_field_is_ever_emitted(self):
         # There is deliberately no read-only affordance. Upstream enforces
         # read-only at the protocol level only for Cloud SQL / AlloyDB /
