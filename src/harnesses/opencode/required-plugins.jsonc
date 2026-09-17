@@ -1,16 +1,16 @@
 {
-  // Plugins dev-bot's OWN features depend on — not ergonomics. init.sh reconciles
-  // exactly this list into an already-seeded project config, because the dist is
-  // applied only at first seed: an entry added to a dist afterwards never reaches
-  // a project that already has the file.
+  // The plugins an existing project's config is reconciled up to, so a project
+  // seeded before a plugin existed does not silently diverge from the dist.
   //
-  // Membership test: if dev-bot's own code breaks without it, it belongs here.
-  //   opencode-pty  the PTY monitor TUI plugin calls its `pty-show-server-url`
-  //                 command; without it the panel shows "server unavailable"
-  //                 and the cause is invisible.
-  // Deliberately NOT here: opencode-tabs and any other convenience plugin. Those
-  // ship in the dist for NEW projects, but an existing project's plugin choices
-  // are the user's, so they are left exactly as set.
-  "server": ["opencode-pty@0.3.6"],
-  "tui": ["./tui-plugins/pty-monitor/index.ts"]
+  // Scope is EVERY plugin the dists ship, deliberately: the dist's `plugin`
+  // arrays are the source of truth for what the dev-bot harness runs with, and a
+  // project that was seeded earlier should converge on them rather than keep a
+  // subset. Additions only — a removal from a dist cannot propagate, because
+  // "remove anything the dist does not list" would delete plugins a project
+  // added itself. Removing something already seeded is a deliberate hand edit.
+  //
+  // Keep this in step with the dists: the test suite asserts each dist plugin
+  // appears here, so a new dist entry cannot be forgotten.
+  "server": [".opencode/plugins/on-hooks.ts", "opencode-pty@0.3.6"],
+  "tui": ["opencode-tabs@0.3.0", "./tui-plugins/pty-monitor/index.ts"]
 }

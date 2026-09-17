@@ -340,33 +340,46 @@ print(raw.count('opencode-pty'))
   assert_output --partial 'tui-plugins/pty-monitor'
 }
 
-@test "_ensure_required_plugins leaves convenience plugins as the user set them" {
-  # The whole point of the narrow scope: opencode-tabs ships in the dist for NEW
-  # projects, but it is ergonomics, not a dev-bot dependency — so an existing
-  # project without it keeps it that way.
+@test "_ensure_required_plugins converges a project on the dists' full plugin set" {
+  # Scope decision (stakeholder): every plugin the dists ship is reconciled in, so
+  # a project seeded earlier converges on what the harness runs with rather than
+  # keeping a stale subset. opencode-tabs is the case that distinguishes this from
+  # the earlier narrow scope, which deliberately left it alone.
   _setup_sandbox
   _source_init
   printf '{\n  "plugin": []\n}\n' > "${SANDBOX_DIR}/.opencode/tui.json"
 
   run _ensure_required_plugins tui "${SANDBOX_DIR}/.opencode/tui.json"
   assert_success
-  refute_output --partial "opencode-tabs"
+  assert_output --partial "opencode-tabs@"
 
   run python3 "$READER" "${SANDBOX_DIR}/.opencode/tui.json" plugin
   assert_success
-  refute_output --partial "opencode-tabs"
+  assert_output --partial 'opencode-tabs@0.3.0'
+  assert_output --partial 'tui-plugins/pty-monitor'
 }
 
-@test "required-plugins.jsonc stays a subset of the dists" {
-  # If dev-bot requires something the dists do not ship, a NEW project would lack
-  # it while an existing one had it reconciled in — the two paths must agree.
-  run python3 "$READER" "${HARNESS_DIR}/required-plugins.jsonc" server
-  assert_success
-  assert_output --partial 'opencode-pty'
-  run grep -qF 'opencode-pty@0.3.6' "${HARNESS_DIR}/opencode.dist.jsonc"
-  assert_success
-  run grep -qF 'tui-plugins/pty-monitor/index.ts' "${HARNESS_DIR}/tui.dist.jsonc"
-  assert_success
+@test "required-plugins.jsonc covers every plugin the dists ship" {
+  # The manifest is what an existing project converges on, so a dist entry missing
+  # from it would mean new projects get a plugin that seeded ones never do — the
+  # exact divergence this reconciliation exists to remove.
+  for pair in "server:opencode.dist.jsonc" "tui:tui.dist.jsonc"; do
+    local surface="${pair%%:*}" dist_file="${pair##*:}"
+    run python3 -c "
+import json, subprocess, sys
+reader = '${READER}'
+surface, dist_file = sys.argv[1], sys.argv[2]
+def arr(path, key):
+    out = subprocess.run(['python3', reader, path, key], capture_output=True, text=True)
+    return json.loads(out.stdout) if out.returncode == 0 else []
+dist = arr('${HARNESS_DIR}/' + dist_file, 'plugin')
+manifest = arr('${HARNESS_DIR}/required-plugins.jsonc', surface)
+missing = [p for p in dist if p not in manifest]
+print('MISSING:' + ','.join(missing) if missing else 'OK')
+" "${surface}" "${dist_file}"
+    assert_success
+    assert_output "OK"
+  done
 }
 
 @test "_ensure_required_plugins does nothing without a config to reconcile" {
