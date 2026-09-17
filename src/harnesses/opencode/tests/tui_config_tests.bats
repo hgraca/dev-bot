@@ -65,6 +65,13 @@ SHARED_EOF
   # module has to exist there.
   mkdir -p "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor"
   : > "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor/index.ts"
+
+  # _ensure_dist_plugins calls the REAL _upsert_opencode_plugin and reads the
+  # template with the real read_jsonc.py. Copy both in rather than stubbing them,
+  # so these tests exercise the code that actually runs.
+  awk '/^_upsert_opencode_plugin\(\)/,/^}/' \
+    "${PROJECT_ROOT}/src/_shared/functions.sh" >> "${SANDBOX_DIR}/src/_shared/functions.sh"
+  cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX_DIR}/src/_shared/read_jsonc.py"
 }
 
 # Source the stripped init.sh with PROJECT_DIR pinned to the sandbox, so
@@ -275,4 +282,69 @@ _source_init() {
   assert_success
   assert_output --partial "source missing"
   assert_output --partial "does not exist"
+}
+
+# ── _ensure_dist_plugins: reconcile dist entries into an existing config ──────
+# Regression guard for the shipped-dependency gap: _write_*_config are seed-once,
+# so opencode-pty (required by the PTY monitor) never reached any project seeded
+# before it was added to the dist. The panel was wired while its dependency was
+# not, and the only symptom was "server unavailable".
+
+@test "_ensure_dist_plugins adds a missing npm-spec entry to an existing config" {
+  _setup_sandbox
+  _source_init
+  # A project seeded before opencode-pty existed.
+  printf '{\n  "plugin": [".opencode/plugins/on-hooks.ts"]\n}\n' > "${SANDBOX_DIR}/opencode.jsonc"
+
+  run _ensure_dist_plugins "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.jsonc"
+  assert_success
+  assert_output --partial "added 'opencode-pty@"
+
+  run python3 "$READER" "${SANDBOX_DIR}/opencode.jsonc" plugin
+  assert_success
+  assert_output --partial '"opencode-pty@0.3.6"'
+}
+
+@test "_ensure_dist_plugins is idempotent" {
+  _setup_sandbox
+  _source_init
+  printf '{\n  "plugin": [".opencode/plugins/on-hooks.ts"]\n}\n' > "${SANDBOX_DIR}/opencode.jsonc"
+
+  run _ensure_dist_plugins "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.jsonc"
+  assert_success
+  run _ensure_dist_plugins "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.jsonc"
+  assert_success
+  # second pass reports nothing — the entry is already there
+  refute_output --partial "added"
+
+  run python3 -c "
+import json, sys
+raw = open(sys.argv[1]).read()
+print(raw.count('opencode-pty'))
+" "${SANDBOX_DIR}/opencode.jsonc"
+  assert_output "1"
+}
+
+@test "_ensure_dist_plugins skips local paths (owned by the symlink farms)" {
+  _setup_sandbox
+  _source_init
+  printf '{\n  "plugin": []\n}\n' > "${SANDBOX_DIR}/opencode.jsonc"
+
+  run _ensure_dist_plugins "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.jsonc"
+  assert_success
+  refute_output --partial "on-hooks"
+}
+
+@test "_ensure_dist_plugins does nothing without a config to reconcile" {
+  _setup_sandbox
+  _source_init
+  run _ensure_dist_plugins "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/does-not-exist.jsonc"
+  assert_success
+  [[ ! -f "${SANDBOX_DIR}/does-not-exist.jsonc" ]] || fail "created a config it should not have"
+}
+
+@test "init.sh main reconciles both dist surfaces" {
+  run grep -c '^_ensure_dist_plugins ' "${HARNESS_DIR}/init.sh"
+  assert_success
+  assert_output "2"
 }
