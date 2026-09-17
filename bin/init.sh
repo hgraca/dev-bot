@@ -99,10 +99,14 @@ print(json.dumps(d['${mcp_key}']))
 
     # Docker-only MCPs can't run without a docker daemon (e.g. inside a
     # container) — skip registering them so the client never starts them and
-    # never logs connection errors. Hybrid defs (docker with an npx fallback,
-    # like playwright) are still registered; their wrapper picks the path.
+    # never logs connection errors. A hybrid def (docker with a non-docker
+    # fallback its own launcher picks at runtime, like playwright) is still
+    # registered; its canonical manifest declares that with `"_hybrid": true`,
+    # read by _mcp_declares_hybrid. Never key this on the fallback's command
+    # text: e7e7cd40 replaced playwright's fallback and the old literal grep
+    # left it misclassified as docker-only.
     if echo "${mcp_def}" | grep -q 'docker run' \
-      && ! echo "${mcp_def}" | grep -q 'npx -y @playwright/mcp' \
+      && ! _mcp_declares_hybrid "${mcp_file}" "${mcp_key}" \
       && ! docker info >/dev/null 2>&1; then
       _skip "${mod_name}: MCP '${mcp_key}' needs a docker daemon — skipping registration" >&2
       continue

@@ -1,0 +1,9 @@
+---
+date: 2026-09-17
+keywords: ["mcp", "hybrid", "manifest", "playwright", "guard"]
+see: ["learnings/20260917212800-refresh-list-drop-needs-a-registration-path.md"]
+---
+
+## Hybrid MCP servers declare `"_hybrid": true` instead of being sniffed from their command
+
+Both harness registration paths must keep a server registered when it can also run without a docker daemon, and skip it when docker is its only launch path. That distinction was inferred by grepping the translated command for the literal `npx -y @playwright/mcp` — an incidental implementation string rather than a declaration. `e7e7cd40` replaced playwright's npm fallback with an explicitly-resolved pinned binary, the literal stopped matching, and playwright was silently classified docker-only: on any host without a daemon it was registered nowhere (`bin/init.sh`, with the same defect in `src/harnesses/claudecode/init.sh`). Decision: a hybrid server declares itself with `"_hybrid": true` on its canonical manifest entry, and both guards ask `_mcp_declares_hybrid` (`src/_shared/functions.sh`) instead of reading the command. Underscore-prefixed keys are already schema-legal and semantically inert — `mcp_translate._validate_entry` ignores them and `_substitute` drops them at every level — so the annotation needs no schema change and never reaches a generated config (verified: the translated entry's keys are exactly `type` + `command`). The opencode guard passes a server key (it is per-server); claudecode's omits it (its guard is per-module). Docker-only third-party servers are still skipped by the first half of the condition (`grep 'docker run'`), so the guard keeps its protective intent. The caveat that made this urgent rather than cosmetic: a misclassified guard is harmless while the stale entry survives, but adding playwright to reset's `REFRESH_MODULES` (`8cf7b905`) made reset drop that entry — so a reinit on a daemon-less host would have removed playwright entirely.

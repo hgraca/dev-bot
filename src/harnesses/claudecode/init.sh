@@ -289,11 +289,15 @@ _wire_mcp() {
     [[ -f "${mcp_file}" ]] || continue
 
     # Docker-only MCPs can't run without a docker daemon (e.g. inside a
-    # container) — skip the module's MCPs so the client never starts them.
-    # Hybrid defs (docker with an npx fallback, like playwright) are kept;
-    # their wrapper picks the path.
+    # container) — skip the module's MCPs so the client never starts them. A
+    # hybrid def (docker with a non-docker fallback its own launcher picks at
+    # runtime, like playwright) is kept; its canonical manifest declares that
+    # with `"_hybrid": true`, read by _mcp_declares_hybrid (per-module form —
+    # this guard is per-module, unlike opencode's per-server one). Never key
+    # this on the fallback's command text: e7e7cd40 replaced playwright's
+    # fallback and the old literal grep left it misclassified as docker-only.
     if grep -q 'docker run' "${mcp_file}" \
-      && ! grep -q 'npx -y @playwright/mcp' "${mcp_file}" \
+      && ! _mcp_declares_hybrid "${mcp_file}" \
       && ! docker info >/dev/null 2>&1; then
       _skip "${mod_name}: MCP needs a docker daemon — skipping registration"
       continue

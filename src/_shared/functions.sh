@@ -2259,3 +2259,43 @@ _gpu_overlay_skip_if() {
   [[ -f "${overlay}" ]] || return 0
   sed -n 's/^#[[:space:]]*devbot:gpu-overlay-skip-if-included[[:space:]]*//p' "${overlay}" | head -1
 }
+
+# =============================================================================
+# _mcp_declares_hybrid <manifest> [<server-key>]
+#
+# True (exit 0) when a canonical MCP manifest declares a hybrid server: one
+# carrying a docker launch path AND a non-docker fallback its own launcher
+# picks at runtime. Such a server must stay REGISTERED even with no docker
+# daemon — the harness guard that skips docker-only servers so the client never
+# logs connection errors for a server that cannot start must not claim it.
+#
+# Declared with a `"_hybrid": true` annotation on the server entry. Underscore-
+# prefixed keys are ignored by the translator (mcp_translate._substitute drops
+# them at every level), so the annotation is guard input and documentation only
+# — it never reaches a generated config.
+#
+# With <server-key>, that server's annotation decides. Without it, any server in
+# the manifest declaring one decides — the claudecode guard is per-module.
+#
+# The guard must NOT be keyed on the fallback command text: e7e7cd40 replaced
+# playwright's `npx -y @playwright/mcp` fallback and left the literal-based
+# guard misclassifying it as docker-only, which silently dropped the server on
+# every host without a docker daemon.
+# =============================================================================
+_mcp_declares_hybrid() {
+  local manifest="$1" key="${2:-}"
+  [[ -f "${manifest}" ]] || return 1
+  python3 -c "
+import json, sys
+
+try:
+    with open(sys.argv[1]) as f:
+        servers = json.load(f).get('mcp', {})
+except Exception:
+    sys.exit(1)
+
+key = sys.argv[2]
+entries = [servers.get(key, {})] if key else list(servers.values())
+sys.exit(0 if any(e.get('_hybrid') is True for e in entries if isinstance(e, dict)) else 1)
+" "${manifest}" "${key}" 2>/dev/null
+}

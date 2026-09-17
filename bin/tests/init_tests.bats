@@ -52,6 +52,7 @@ _header_1() { echo "HEADER1: $1"; }
 _header_2() { echo "HEADER2: $1"; }
 _header_3() { echo "HEADER3: $*"; }
 _fmt_duration() { echo "0s"; }
+_qmd_gpu_value() { echo "false"; }
 
 _devbot_get_disabled_modules() {
   local config="${DEV_BOT_ROOT}/.devbot.jsonc"
@@ -85,6 +86,17 @@ except Exception:
 " 2>/dev/null || true
 }
 FUNCTIONS_EOF
+
+  # Append the REAL _mcp_declares_hybrid from the shipped library: the docker
+  # guard tests below must exercise the actual predicate, not a copy that can
+  # drift from it. The rest of functions.sh stays stubbed for isolation.
+  sed -n '/^_mcp_declares_hybrid() {/,/^}$/p' \
+    "${PROJECT_ROOT}/src/_shared/functions.sh" \
+    >> "${SANDBOX_DIR}/src/_shared/functions.sh"
+
+  # The real python helpers the registration path invokes (mcp_translate,
+  # merge_mcp_jsonc, read_jsonc) so _register_module_mcp runs unfaked.
+  cp "${PROJECT_ROOT}"/src/_shared/*.py "${SANDBOX_DIR}/src/_shared/"
 
   # Copy init.sh (without main call)
   sed '/^main "\$@"/d' "${PROJECT_ROOT}/bin/init.sh" > "${SANDBOX_DIR}/bin/init.sh"
@@ -397,4 +409,127 @@ EOF
   assert_success
 
   assert [ -d "${SANDBOX_DIR}/storage/external-agentic-modules/shared-name" ]
+}
+
+# ── Tests: docker-only MCP registration guard ──────────────────────────────
+# The guard skips an MCP that can only run under docker when no daemon is
+# available, so the client never starts a server that cannot come up. A hybrid
+# server — a docker path plus a non-docker fallback its own launcher picks —
+# must stay REGISTERED. The guard used to grep the translated command for the
+# literal `npx -y @playwright/mcp`; e7e7cd40 replaced that fallback, so the
+# literal stopped matching and playwright was silently dropped from every
+# daemon-less host. It now consults the manifest's `"_hybrid": true`
+# declaration (via the real _mcp_declares_hybrid appended in _setup).
+
+# _add_docker_mcp_module <name> <hybrid|plain> — a module whose MCP declares a
+# docker launch path (and, for "hybrid", a runtime-picked non-docker fallback).
+_add_docker_mcp_module() {
+  local name="$1" kind="$2"
+  local dir="${SANDBOX_DIR}/src/agentic/${name}"
+  mkdir -p "${dir}"
+
+  local annotation=""
+  [[ "${kind}" == "hybrid" ]] && annotation='"_hybrid": true,'
+
+  cat > "${dir}/mcp.json" <<JSON_EOF
+{
+  "mcp": {
+    "${name}": {
+      "type": "stdio",
+      ${annotation}
+      "command": ["bash", "-c", "if docker info >/dev/null 2>&1; then exec docker run --rm -i img; else exec fallback --serve; fi"]
+    }
+  }
+}
+JSON_EOF
+}
+
+# _stub_docker <status> — a fake `docker` on PATH whose every invocation exits
+# with the given status, so the guard's daemon probe is deterministic.
+_stub_docker() {
+  local status="$1"
+  mkdir -p "${SANDBOX_DIR}/stub-bin"
+  cat > "${SANDBOX_DIR}/stub-bin/docker" <<EOF
+#!/usr/bin/env bash
+exit ${status}
+EOF
+  chmod +x "${SANDBOX_DIR}/stub-bin/docker"
+  export PATH="${SANDBOX_DIR}/stub-bin:${PATH}"
+}
+
+# _register_mcp <module-name> — run the real registration for a sandbox module.
+_register_mcp() {
+  local name="$1"
+
+  # merge_mcp_jsonc.py requires the config to exist (it does not create it).
+  printf '{}\n' > "${SANDBOX_DIR}/opencode.jsonc"
+
+  export DEV_BOT_ROOT="${SANDBOX_DIR}"
+  source "${SANDBOX_DIR}/src/_shared/functions.sh"
+  # init.sh's top-level code resolves PROJECT_DIR from $1 — clear the leaked
+  # positional parameter first (same hazard _run documents).
+  set --
+  source "${SANDBOX_DIR}/bin/init.sh"
+  export PROJECT_DIR="${SANDBOX_DIR}"
+
+  # mod_dir must keep its trailing slash: _register_module_mcp derives
+  # mcp_file="${mod_dir}mcp.json" (the real caller's `"${base_dir}/"*/` glob
+  # supplies one).
+  _register_module_mcp "${SANDBOX_DIR}/src/agentic/${name}/" \
+    "${SANDBOX_DIR}/opencode.jsonc" "opencode.jsonc"
+}
+
+# _assert_registered <module-name> <ok|absent>
+_assert_registered() {
+  local name="$1" expect="$2"
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+present = '${name}' in mcp
+assert present == (('${expect}' == 'ok')), (present, mcp)
+print('MCP-STATE:OK')
+"
+  assert_success
+  grep -qF 'MCP-STATE:OK' <<< "$output" || fail "${name} registration state wrong (expected ${expect})"
+}
+
+@test "docker guard: a hybrid MCP is registered when no docker daemon is available" {
+  # The e7e7cd40 regression: playwright's fallback no longer matched the old
+  # literal, so it was classified docker-only and dropped where the fallback
+  # is the whole point.
+  _setup '{}'
+  _add_docker_mcp_module "hybrid-mod" hybrid
+  _stub_docker 1
+
+  run _register_mcp "hybrid-mod"
+  assert_success
+
+  refute_output --partial "needs a docker daemon"
+  _assert_registered "hybrid-mod" ok
+}
+
+@test "docker guard: a docker-only MCP is skipped when no docker daemon is available" {
+  _setup '{}'
+  _add_docker_mcp_module "dockeronly-mod" plain
+  _stub_docker 1
+
+  run _register_mcp "dockeronly-mod"
+  assert_success
+
+  assert_output --partial "needs a docker daemon"
+  _assert_registered "dockeronly-mod" absent
+}
+
+@test "docker guard: a docker-only MCP is registered when a docker daemon is available" {
+  _setup '{}'
+  _add_docker_mcp_module "dockeronly-mod" plain
+  _stub_docker 0
+
+  run _register_mcp "dockeronly-mod"
+  assert_success
+
+  refute_output --partial "needs a docker daemon"
+  _assert_registered "dockeronly-mod" ok
 }
