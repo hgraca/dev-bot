@@ -395,13 +395,17 @@ on the instance, reachable by qualifying names
 (`SELECT ... FROM otherdb.sometable`). MongoDB is the exception: its aggregate
 tool requires a database, so one mongo datasource covers one database.
 
-`type` is `mysql` (MariaDB included), `postgres`, `sqlite` or `mongodb`.
+`type` is `mysql` (MariaDB included), `postgres`, `sqlite`, `mongodb` or
+`redis`.
 
-**Redis is deliberately absent.** Toolbox's `redis` tool runs a fixed,
-pre-declared command list with parameterised arguments — there is no free-form
-"run any command" surface, so there is nothing to expose without authoring each
-command by hand. A MySQL, Postgres or MongoDB datasource covers the same ground
-wherever the data allows.
+**Redis** fits the same one-free-form-tool shape, by a different route. Its
+toolbox tool runs a _fixed_ command list — but an array argument is flattened
+into the command, so a single array parameter templating the whole command makes
+the command **name** a runtime value too: the agent supplies
+`["GET", "some-key"]`, exactly as it supplies a SQL statement elsewhere. One
+endpoint per datasource (`address` is a sequence upstream, even for a single
+host), and `username` / `password` are omitted unless declared — an empty AUTH
+string is not the same as no AUTH.
 
 Two behaviours are worth knowing before relying on it:
 

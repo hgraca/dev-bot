@@ -85,14 +85,14 @@ out and added when the server comes up (usually within ~10s). So:
 ```
 
 Add one and reinit (`devbot reinit`; the next bare `devbot` start does it).
-`type` is one of `mysql`, `postgres`, `sqlite`, `mongodb`; MariaDB uses
+`type` is one of `mysql`, `postgres`, `sqlite`, `mongodb`, `redis`; MariaDB uses
 `mysql`. Every value is either a literal or a `${VAR}` reference resolved from
 the environment — put anything secret behind a reference so it exists in no
 file at all.
 
-**Redis is not available**, by design: toolbox's redis tool runs a fixed,
-pre-declared command list rather than accepting a command, so there is no
-free-form surface to give you.
+**Redis** takes the command and its arguments as one array:
+`["GET", "some-key"]`, `["HGETALL", "cart:42"]`, `["SCAN", "0", "MATCH", "user:*"]`.
+The array becomes the command, so anything Redis understands works.
 
 MongoDB notes: one datasource covers **one database** (its aggregate tool
 requires one), declared as `MONGODB_DATABASE`.
