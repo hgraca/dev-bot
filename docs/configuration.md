@@ -343,6 +343,70 @@ Absolute paths of projects registered with DevBot. Managed by the project-regist
 
 ---
 
+### `datasources`
+
+```jsonc
+// .devbot.global.jsonc — the catalogue, declared once
+"datasources": {
+  "hotels-dev": {
+    "type": "mysql",
+    "env": {
+      "MYSQL_HOST": "localhost",
+      "MYSQL_USER": "root",
+      "MYSQL_PASSWORD": "${HOTELS_DEV_DB_PASSWORD}"
+    }
+  }
+}
+```
+
+```jsonc
+// .devbot.project.jsonc — opt in, by name
+"datasources": ["hotels-dev"]
+```
+
+**Type:** `object` (global) / `array` of names (project)
+**Default:** `{}` / `[]`
+**Required:** no
+**Scope:** the catalogue is global-only; the selection is per project
+
+Database access for agents, through one shared MCP Toolbox gateway on
+`127.0.0.1:18510`. The catalogue is declared once; each project opts in by name.
+A datasource a project does not name is never registered with its harness, so it
+costs nothing — not even context.
+
+The `env` map names the engine's own variables (`MYSQL_HOST`, `MONGODB_URI`,
+`MONGODB_DATABASE`, …). Each **value** is either a literal or a `${VAR}`
+reference to an environment variable:
+
+| Value                         | Meaning                                                   |
+| ----------------------------- | --------------------------------------------------------- |
+| `"localhost"`                 | A literal, written into the rendered config               |
+| `"${HOTELS_DEV_DB_PASSWORD}"` | Resolved from the environment — the value reaches no file |
+
+A reference must be the **whole** value: `pre-${VAR}` is a literal, so a password
+containing `${` is never mistaken for one. Non-secret values read best inline,
+and anything secret belongs behind a reference. The environment is the repo
+`.env` (which `devbot up` loads) or your shell.
+
+Fields left out fall back to the engine's defaults, so declare only what
+differs: `MYSQL_PORT` defaults to 3306, and an omitted `MYSQL_DATABASE` leaves
+the source with **no default schema** — one datasource then covers every database
+on the instance, reachable by qualifying names
+(`SELECT ... FROM otherdb.sometable`). MongoDB is the exception: its aggregate
+tool requires a database, so one mongo datasource covers one database.
+
+`type` is `mysql` (MariaDB included), `postgres`, `sqlite` or `mongodb`.
+
+Two behaviours are worth knowing before relying on it:
+
+- **An unreachable database is left out**, and joins when it comes up. Toolbox
+  refuses to start against an unreachable source, so an unavailable one is
+  excluded rather than taking the whole gateway down with it. Reasons are logged
+  to `storage/datasources/refresh.log`.
+- **Nothing blocks writes.** A datasource is exactly as writable as the database
+  user it is given — which is how one config serves a writable dev database and
+  a read-only production one. Point production at a read-only user.
+
 ## Example: full project config
 
 ```jsonc
@@ -358,6 +422,9 @@ Absolute paths of projects registered with DevBot. Managed by the project-regist
 
   // Commit the memory vault to version control
   "commit_memory": false,
+
+  // Data sources this project may use, by name (see `datasources` above)
+  "datasources": ["hotels-dev"],
 
   // Per-module enablement — `false` skips a module during lifecycle scripts
   "modules": { "claudecode": false, "react": false, "signoz": false, "svelte": false },

@@ -67,6 +67,18 @@ Gateways bind `127.0.0.1` only (never exposed off the machine), in the `18500–
 | 18502 | signoz          |
 | 18503 | svelte          |
 | 18504 | codebase-memory |
+| 18510 | datasources     |
+
+The `datasources` gateway is the one gateway whose compose file is **generated**
+(`storage/datasources/docker-compose.yml`) rather than shipped in its module
+directory: it must receive every env var the declared datasources reference, and
+those names come from the config at run time. It therefore brings its own compose
+up and down from `up.sh`/`down.sh` instead of being discovered by `bin/up.sh`,
+and for the same reason it uses **host networking** — so a database running on
+this machine is reachable at the address the host sees. The toolbox image is
+distroless, so its readiness check lives in `up.sh` rather than in a container
+healthcheck, and its config is rewritten in place while running so that a
+database which comes up later activates without a restart.
 
 ### Credentials
 
