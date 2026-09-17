@@ -60,7 +60,11 @@ services:
       # guarantee explicit rather than incidental.
       - 127.0.0.1
       - --port
-      - "18510"
+      # One source for the port: both this and the harness URL the module
+      # writes derive from DATASOURCES_PORT, so overriding it actually
+      # reconfigures the gateway rather than re-pointing a client at a port
+      # nothing binds.
+      - "${DATASOURCES_PORT:-18510}"
       # Reject Host headers that are not local. The server holds free-form DB
       # access, so DNS-rebinding protection matters even on 127.0.0.1.
       - --allowed-hosts
@@ -68,7 +72,7 @@ services:
       # Same reasoning for browser origins — upstream warns that the default
       # wildcard lets any website reach the gateway.
       - --allowed-origins
-      - http://127.0.0.1:18510
+      - "http://127.0.0.1:${DATASOURCES_PORT:-18510}"
       # Poll for config changes. Required, not a nicety: the config is a bind
       # mount that the refresh poller rewrites from the host, and inotify
       # events across a bind mount are unreliable — precisely the case

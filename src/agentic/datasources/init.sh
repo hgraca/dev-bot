@@ -40,7 +40,7 @@ PROJECT_CONFIG="${PROJECT_DIR}/.devbot.project.jsonc"
 # overridden to a sandbox root in tests (see _devbot_get_disabled_modules).
 READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
 REMOVE_KEY="${MODULE_DIR}/../../_shared/remove_mcp_key.py"
-MCP_BASE="${DATASOURCES_MCP_BASE:-http://127.0.0.1:18510/mcp}"
+MCP_BASE="http://127.0.0.1:${DATASOURCES_PORT:-18510}/mcp"
 
 # Server names and manifest files are prefixed, so a datasource can never
 # collide with a module-declared MCP server of the same name.
@@ -170,8 +170,8 @@ main() {
 
   for name in ${selected}; do
     if ! printf ' %s ' "${declared}" | grep -Fq " ${name} "; then
-      # A typo would otherwise register a server whose URL 404s, and the cause
-      # would be invisible from the harness side.
+      # A typo would otherwise register a server that answers 200 and then a
+      # JSON-RPC error — visible only at call time, never at connect time.
       _warn "datasources — '${name}' is selected but not declared in .devbot.global.jsonc"
     fi
   done

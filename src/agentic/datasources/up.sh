@@ -25,15 +25,24 @@ source "${MODULE_DIR}/versions.env"
 RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
 COMPOSE_FILE="${RUNTIME_DIR}/docker-compose.yml"
 POLLER_PID="${RUNTIME_DIR}/refresh.pid"
-MCP_URL="${DATASOURCES_MCP_URL:-http://127.0.0.1:18510/mcp}"
+MCP_URL="http://127.0.0.1:${DATASOURCES_PORT:-18510}/mcp"
 
 # Keep the running gateway in step with what is reachable. This is what lets a
 # database that comes up AFTER `devbot up` activate without a restart — the
 # usual case, since the dev environment is often booted later than devbot.
 _start_poller() {
-  if [[ -f "${POLLER_PID}" ]] && kill -0 "$(cat "${POLLER_PID}")" 2>/dev/null; then
-    _skip "datasources — refresh poller already running"
-    return 0
+  # Restart any existing poller rather than leaving it. It snapshots the
+  # environment at start, and this run may have just loaded a new .env
+  # variable: the container is recreated with the new environment, so the
+  # poller must see the same one — otherwise the two disagree about what is
+  # reachable, which is the mismatch that makes activation untrustworthy.
+  if [[ -f "${POLLER_PID}" ]]; then
+    local previous
+    previous="$(cat "${POLLER_PID}")"
+    if [[ -n "${previous}" ]]; then
+      kill "${previous}" 2>/dev/null || true
+    fi
+    rm -f "${POLLER_PID}"
   fi
   # Detached, so it outlives `devbot up`; down.sh stops it through the PID file.
   # Output goes to its own log, never to the terminal.

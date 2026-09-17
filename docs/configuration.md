@@ -393,7 +393,9 @@ differs: `MYSQL_PORT` defaults to 3306, and an omitted `MYSQL_DATABASE` leaves
 the source with **no default schema** — one datasource then covers every database
 on the instance, reachable by qualifying names
 (`SELECT ... FROM otherdb.sometable`). MongoDB is the exception: its aggregate
-tool requires a database, so one mongo datasource covers one database.
+tool requires a database, so one mongo datasource covers one database. A
+`mongodb+srv://` URI carries no port, so the reachability probe assumes
+**27017** — where SRV records resolve in practice.
 
 `type` is `mysql` (MariaDB included), `postgres`, `sqlite`, `mongodb` or
 `redis`.
