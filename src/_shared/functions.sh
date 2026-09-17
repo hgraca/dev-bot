@@ -731,8 +731,8 @@ print(json.dumps(sorted(disabled)))
 # ── External modules (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_external_modules
-#   Prints the names of configured external modules (keys of `modules` in
-#   .devbot.global.jsonc), one per line. The config is the single source of
+#   Prints the names of configured external modules (keys of `external_modules`
+#   in .devbot.global.jsonc), one per line. The config is the single source of
 #   truth for which external modules exist — never the vendor/ or
 #   storage/external-agentic-modules/ filesystem directories.
 

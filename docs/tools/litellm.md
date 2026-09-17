@@ -9,7 +9,7 @@ Proxy that provides unified API access to multiple model providers. Optional —
 
 ## Configuration
 
-Enable by removing from `disabled_modules` in `.devbot.global.jsonc`. Depends on Ollama service health.
+Enable by setting it to `true` (or removing it) in the `modules` map of `.devbot.global.jsonc`. Depends on Ollama service health.
 
 `install.sh` copies the working config (`config.yaml`) to a `litellm.config.yaml` at the dev-bot root; edit that copy (not the module template) to tune providers, keys, and routing.
 

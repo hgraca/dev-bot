@@ -104,12 +104,12 @@ Declare the MCP server(s) once in a canonical, harness-agnostic `mcp.json` — b
 
 ```json
 {
-    "mcp": {
-        "my-mcp": {
-            "type": "stdio",
-            "command": ["bash", "-c", "exec {harness-dir}/my-mcp-serve.sh"]
-        }
+  "mcp": {
+    "my-mcp": {
+      "type": "stdio",
+      "command": ["bash", "-c", "exec {harness-dir}/my-mcp-serve.sh"]
     }
+  }
 }
 ```
 
@@ -172,13 +172,13 @@ devbot module add /path/to/your-module
 
 ```jsonc
 {
-    "your-module": {
-        "url": "https://github.com/you/your-module.git",
-        "paths": {
-            "skills": "skills",
-            "agents": "agents",
-        },
+  "your-module": {
+    "url": "https://github.com/you/your-module.git",
+    "paths": {
+      "skills": "skills",
+      "agents": "agents",
     },
+  },
 }
 ```
 
@@ -190,10 +190,10 @@ devbot module sync     # or: devbot init <path>
 
 ### Config format
 
-Registration writes an entry under the `modules` key of `.devbot.global.jsonc`:
+Registration writes an entry under the `external_modules` key of `.devbot.global.jsonc`:
 
 ```jsonc
-"modules": {
+"external_modules": {
   "your-module": {
     "url": "https://github.com/you/your-module.git",
     "paths": {

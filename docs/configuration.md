@@ -20,11 +20,11 @@ Two files exist at different scopes, both optional:
 
 ## Resolution
 
-Scalar settings resolve project-over-global, falling back to a built-in default when neither is set (`devbot_dir`, `harness`). List settings are merged: `disabled_modules` as a union of both files, `devbot:guards` as a concatenation evaluated first-match-wins (project rules first, then global). `search-memories` reads only the project config. If a file is missing, its settings are skipped.
+Scalar settings resolve project-over-global, falling back to a built-in default when neither is set (`devbot_dir`, `harness`). Map settings (`modules`) merge per key, the project value winning; list settings (`devbot:guards`) are concatenated and evaluated first-match-wins (project rules first, then global). `search-memories` reads only the project config. If a file is missing, its settings are skipped.
 
 ### Auto-reinit on config change
 
-Both config files are the source of truth for wiring — changing one (e.g. a `disabled_modules` flip, a provider key, `gpu_enabled`) only takes effect after a reinit. Rather than requiring a manual `devbot reinit`, the next **bare `devbot` start** detects the change and reinits the current project automatically, **before** `up.sh` runs, so the whole start sequence runs on freshly wired state.
+Both config files are the source of truth for wiring — changing one (e.g. a `modules` flip, a provider key, `gpu_enabled`) only takes effect after a reinit. Rather than requiring a manual `devbot reinit`, the next **bare `devbot` start** detects the change and reinits the current project automatically, **before** `up.sh` runs, so the whole start sequence runs on freshly wired state.
 
 Detection is a single per-project content hash over **both** configs, stored at `<project>/.devbot.project.sha` (the project config path with its `.jsonc` extension **replaced** — never committed). `init`/`reinit` refresh the baseline at the end of every run, so an unchanged wiring starts without re-running reinit. A project with no `.sha` yet (freshly added, or upgraded from before this feature) triggers one reinit to establish it.
 
@@ -137,17 +137,18 @@ Used by memory init and the devbot init gitignore step.
 
 ---
 
-### `disabled_modules`
+### `modules`
 
 ```jsonc
-{ "disabled_modules": ["claudecode", "litellm"] }
+{ "modules": { "claudecode": false, "litellm": false } }
 ```
 
-**Type:** `array` of `string`
-**Default:** `[]`
+**Type:** `object` (map of module name → `boolean`)
+**Default:** `{}` (every module enabled)
 **Required:** no
+**Scope:** project overrides global **per key**
 
-Module names to skip during lifecycle scripts (init, install, update, prereq checks). Global and project lists are merged as a union. When a module name appears, all its scripts and symlink wiring are skipped.
+Per-module enablement. A module set to `false` is skipped during lifecycle scripts (init, install, update, prereq checks) — its scripts, symlink wiring, and declared MCP servers are all skipped. A module absent from both files is enabled. The global and project maps merge per key, with the project value winning, so a project can re-enable a globally disabled module, or vice versa.
 
 Disabling a module also removes its MCP servers from every harness config — this is the lever for dropping a heavy server's tool-schema and process cost (see [MCP configuration](/mcp-config#reducing-the-footprint)).
 
@@ -358,8 +359,8 @@ Absolute paths of projects registered with DevBot. Managed by the project-regist
   // Commit the memory vault to version control
   "commit_memory": false,
 
-  // Modules to skip during lifecycle scripts
-  "disabled_modules": ["claudecode", "react", "signoz", "svelte"],
+  // Per-module enablement — `false` skips a module during lifecycle scripts
+  "modules": { "claudecode": false, "react": false, "signoz": false, "svelte": false },
 
   // Guard rules for bash commands
   "guards": [

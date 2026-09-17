@@ -36,7 +36,7 @@ To stop paying for a server in a project, **disable its module** — module enab
 
 ```jsonc
 // .devbot.project.jsonc
-{ "disabled_modules": ["chrome-devtools", "playwright"] }
+{ "modules": { "chrome-devtools": false, "playwright": false } }
 ```
 
 Its servers then appear in no harness config (opencode reset prunes them on reinit; claudecode regenerates without them). This also drops the module's skills and tools — for the browser modules the MCP server is essentially the whole module, so the trade is usually free.
@@ -47,7 +47,7 @@ LSP servers are the other per-instance cost — see [Harnesses](/harnesses#runti
 
 ## Shared machine-wide gateways
 
-A dev-bot MCP server must never launch its own per-instance process. Servers that are stateless and machine-global run **once per machine** as a docker compose service; every harness instance connects over streamable-http instead of spawning its own stdio copy. This follows the module-owned compose pattern (`docker-compose.yml` in the module dir, auto-discovered by `devbot up`/`down`, gated by `disabled_modules`).
+A dev-bot MCP server must never launch its own per-instance process. Servers that are stateless and machine-global run **once per machine** as a docker compose service; every harness instance connects over streamable-http instead of spawning its own stdio copy. This follows the module-owned compose pattern (`docker-compose.yml` in the module dir, auto-discovered by `devbot up`/`down`, gated by the `modules` map).
 
 The canonical manifest declares such a server as `http`:
 

@@ -65,7 +65,7 @@ Modules that install an external CLI/MCP dependency globally (e.g. chrome-devtoo
 
 ### Module-owned docker services (`docker-compose.yml`)
 
-A module that needs a long-running service ships its own `docker-compose.yml`; `bin/up.sh`/`down.sh` discover it (maxdepth 2 under each module dir) and start/stop it, gated by `disabled_modules` — the service runs only while the module is enabled. Every dev-bot compose file declares `name: devbot` so all containers land in one compose project regardless of which file is listed first.
+A module that needs a long-running service ships its own `docker-compose.yml`; `bin/up.sh`/`down.sh` discover it (maxdepth 2 under each module dir) and start/stop it, gated by the `modules` map — the service runs only while the module is enabled. Every dev-bot compose file declares `name: devbot` so all containers land in one compose project regardless of which file is listed first.
 
 A service that builds its own image adds a `Dockerfile` next to the compose file (`build: { context: . }`). `docker compose up` builds it on first start when the image is missing; rebuild after a Dockerfile change with `docker compose -f <module>/docker-compose.yml build`.
 
@@ -258,10 +258,10 @@ devbot module sync
 
 #### Configuration format
 
-External modules are defined in `.devbot.global.jsonc` under the `"modules"` key. Each entry maps a name to a source and optional paths:
+External modules are defined in `.devbot.global.jsonc` under the `"external_modules"` key. Each entry maps a name to a source and optional paths:
 
 ```jsonc
-"modules": {
+"external_modules": {
   "addyosmani": {
     "url": "https://github.com/addyosmani/agent-skills.git",
     "paths": {
@@ -286,7 +286,7 @@ External modules are defined in `.devbot.global.jsonc` under the `"modules"` key
 
 | Path                                       | Purpose                                          |
 | ------------------------------------------ | ------------------------------------------------ |
-| `<devbot-root>/.devbot.global.jsonc`       | Module registry (under `modules` key)            |
+| `<devbot-root>/.devbot.global.jsonc`       | Module registry (under `external_modules` key)   |
 | `<devbot-root>/vendor/<org>/<repo>/`       | Cloned repository                                |
 | `storage/external-agentic-modules/<name>/` | Wired module with full lifecycle (init.sh, etc.) |
 | `<project>/.agents/<type>/<name>`          | Symlink wired into each project                  |
@@ -294,7 +294,7 @@ External modules are defined in `.devbot.global.jsonc` under the `"modules"` key
 
 #### How it works
 
-1. `add` registers the module in `.devbot.global.jsonc` under the `"modules"` key
+1. `add` registers the module in `.devbot.global.jsonc` under the `"external_modules"` key
 2. For git URLs: clones into `vendor/<org>/<repo>`
 3. For local paths: symlinks into `vendor/`
 4. Discovers all initialized projects (those with `.devbot.project.jsonc`)

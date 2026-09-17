@@ -18,9 +18,9 @@ If you want a different configuration, you can create the `.devbot.global.jsonc`
 
 Configs you might want to change:
 
-- `disabled_modules`: list of modules and tools to skip during install/update/init
+- `modules`: map of module name to `true`/`false` — set `false` to skip a module during install/update/init
 - `guards`: add or remove guards for commands that the LLM might want to run
-- `modules`: add external git repos with extra `agents`, `commands` or `skills` that you might want to import
+- `external_modules`: add external git repos with extra `agents`, `commands` or `skills` that you might want to import
 
 Then you can install:
 

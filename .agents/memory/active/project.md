@@ -64,7 +64,7 @@ src/_shared/functions.sh         ← root shared library (15+ utility functions)
   └── bin/*.sh                   ← lifecycle scripts: source _shared directly
 ```
 
-- **Docker Compose pattern**: compose files live per-module (`src/tools/ollama/docker-compose.yml`, `src/agentic/mdctx/docker-compose.yml`, …), auto-discovered by `bin/up.sh`/`bin/down.sh` (filtered by `disabled_modules`); a module's `docker-compose.gpu.yml` is included when GPU passthrough is available and that module's compose is selected. Ollama `127.0.0.1:18434`, optional LiteLLM `127.0.0.1:18000`, shared MCP gateways `127.0.0.1:18500–18599`.
+- **Docker Compose pattern**: compose files live per-module (`src/tools/ollama/docker-compose.yml`, `src/agentic/mdctx/docker-compose.yml`, …), auto-discovered by `bin/up.sh`/`bin/down.sh` (filtered by the `modules` map); a module's `docker-compose.gpu.yml` is included when GPU passthrough is available and that module's compose is selected. Ollama `127.0.0.1:18434`, optional LiteLLM `127.0.0.1:18000`, shared MCP gateways `127.0.0.1:18500–18599`.
 - **External modules**: git repos (addyosmani/agent-skills, mattpocock/skills) cloned into `vendor/` via `external_modules` config, symlinked into `.agents/` and `.opencode/` by install.
 - **Plugin hooks centralize in the harness**: harness-level dispatch in `src/harnesses/opencode/hooks/on-hooks.ts`; only auto-recover carries module-scoped `hooks/opencode/on-*.ts` (session-error recovery, silent-stall watchdog).
 
@@ -140,7 +140,7 @@ Two layers interact: agent instructions (the persona — rules the LLM follows) 
 
 ## Lifecycle & workflows
 
-`bin/devbot` CLI delegates to `bin/<command>.sh`; each lifecycle script loops `src/tools/*/` and `src/agentic/*/` running the matching script, honoring `disabled_modules` (project + global config merged).
+`bin/devbot` CLI delegates to `bin/<command>.sh`; each lifecycle script loops `src/tools/*/` and `src/agentic/*/` running the matching script, honoring the `modules` map (project + global config merged per key).
 
 | Command                                     | Purpose                                                                                                                                                                               |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
