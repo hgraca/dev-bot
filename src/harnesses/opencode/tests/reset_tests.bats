@@ -242,3 +242,94 @@ print('D7-PRUNE:OK')
 
   assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
 }
+
+# ── playwright: stale npm-fallback entry must be refreshed ──────────────────
+# e7e7cd40 repinned the canonical playwright manifest's npm fallback (bare
+# `npx -y @playwright/mcp@0.0.79` -> an explicitly-resolved binary at the
+# pinned version), so existing opencode.jsonc entries carry the old shape.
+# playwright must be on REFRESH_MODULES: reset drops the stale entry so init
+# re-registers the canonical one. Off the list, the old command survives
+# forever (registration is skip-if-exists).
+
+# The pre-e7e7cd40 canonical command, with {harness-dir} resolved to .opencode.
+_PLAYWRIGHT_STALE_CMD='mkdir -p .agents/logs && if docker info >/dev/null 2>&1; then exec node .opencode/playwright-mcp-wrapper.js docker run --rm -i mcp/playwright 2>>.agents/logs/playwright-mcp.log; else exec node .opencode/playwright-mcp-wrapper.js npx -y @playwright/mcp@0.0.79 --browser chromium 2>>.agents/logs/playwright-mcp.log; fi'
+
+# _write_playwright_fixture <stale|current>: playwright explicitly enabled at
+# project level so the test is hermetic (the project modules map overrides the
+# real global config). "current" generates the entry from the canonical
+# manifest — a hand-written literal would read as stale and be pruned.
+_write_playwright_fixture() {
+  local mode="$1"
+
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
+{
+  "modules": {
+    "opencode": true,
+    "playwright": true
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode"
+  python3 - "${PROJECT_ROOT}/src/_shared" "${PROJECT_ROOT}" "${SANDBOX_DIR}" "${mode}" "${_PLAYWRIGHT_STALE_CMD}" <<'PY_EOF'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from mcp_translate import load_canonical, server_map, translate
+
+root, sandbox, mode, stale_cmd = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+entry = translate(
+    server_map(load_canonical(root + "/src/agentic/playwright/mcp.json"))["playwright"],
+    "opencode",
+)
+if mode == "stale":
+    entry = {"type": entry["type"], "command": ["bash", "-c", stale_cmd]}
+
+with open(sandbox + "/opencode.jsonc", "w") as f:
+    json.dump({"mcp": {"playwright": entry}}, f, indent=2)
+    f.write("\n")
+PY_EOF
+}
+
+@test "playwright: stale npm-fallback entry is dropped by reset (on the refresh list)" {
+  _write_playwright_fixture stale
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'playwright' not in mcp, mcp
+print('PLAYWRIGHT-REFRESHED:OK')
+"
+  assert_success
+  grep -qF 'PLAYWRIGHT-REFRESHED:OK' <<< "$output" || fail "stale playwright entry not refreshed"
+}
+
+@test "playwright: current entry is kept and stays byte-idempotent" {
+  _write_playwright_fixture current
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'playwright' in mcp, mcp
+print('PLAYWRIGHT-KEPT:OK')
+"
+  assert_success
+  grep -qF 'PLAYWRIGHT-KEPT:OK' <<< "$output" || fail "current playwright entry was churned"
+
+  local after_first
+  after_first="$(cat "${SANDBOX_DIR}/opencode.jsonc")"
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
+}

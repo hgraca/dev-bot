@@ -128,6 +128,10 @@ _reset_symlinks_in_dir "${OPENCODE_DIR}"
 # url or env var is not stale — review F2). Add a module here when a release
 # changes its mcp.json in a way existing configs must pick up. Disabled
 # modules are pruned unconditionally in the block below, refresh-list or not.
+#
+# playwright is listed for e7e7cd40: the npm fallback was repinned from bare
+# `npx -y @playwright/mcp@0.0.79` to an explicitly-resolved binary at the
+# pinned version, so pre-existing entries keep the old command until refreshed.
 OPENCODE_CONFIG="${PROJECT_DIR}/opencode.jsonc"
 if [[ -f "${OPENCODE_CONFIG}" ]]; then
   REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
@@ -138,7 +142,7 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
     # manifest; no module on the refresh list below declares one (qmd, the only
     # one, had its MCP server removed).
     GPU_VALUE="$(_qmd_gpu_value)"
-    REFRESH_MODULES=(codebase-memory mdctx signoz svelte tools-mcp)
+    REFRESH_MODULES=(codebase-memory mdctx signoz svelte tools-mcp playwright)
     for mod_name in "${REFRESH_MODULES[@]}"; do
       local_tpl="${DEV_BOT_ROOT}/src/agentic/${mod_name}/mcp.json"
       [[ -f "${local_tpl}" ]] || continue
