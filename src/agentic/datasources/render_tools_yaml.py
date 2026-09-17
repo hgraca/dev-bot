@@ -79,6 +79,10 @@ ENGINES = {
 # Datasource names become tool and toolset names, and a URL path segment.
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
+# Names the operator's environment must provide. Validated because they are
+# passed straight through compose to the container.
+ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 # Every key a datasource definition may carry.
 KNOWN_KEYS = frozenset({"type", "env"})
 
@@ -110,15 +114,54 @@ def _reject_unknown_keys(name: str, spec: dict) -> None:
         )
 
 
+def _engine_for(name: str, spec: dict) -> dict:
+    engine_type = spec.get("type")
+    engine = ENGINES.get(engine_type) if isinstance(engine_type, str) else None
+    if engine is None:
+        _fail(
+            f"datasource '{name}': unknown type '{engine_type}' "
+            f"(known: {', '.join(sorted(ENGINES))})"
+        )
+    return engine
+
+
+def effective_env_names(catalogue: dict) -> list:
+    """Every env var name the rendered tools.yaml will reference.
+
+    Declared names, plus each engine's own default variable for fields the
+    datasource leaves undeclared. The gateway container has to receive all of
+    them — compose cannot express "the whole environment" — so this is the set
+    the compose renderer passes through.
+    """
+    names = set()
+    for name in sorted(catalogue):
+        spec = catalogue[name]
+        _reject_unknown_keys(name, spec)
+        if not NAME_RE.match(name):
+            _fail(f"datasource name '{name}' must match {NAME_RE.pattern}")
+        engine = _engine_for(name, spec)
+        declared = spec.get("env", {})
+        if not isinstance(declared, dict):
+            _fail(f"datasource '{name}': 'env' must be an object")
+        for _field, engine_var, _default in engine["fields"]:
+            names.add(declared.get(engine_var, engine_var))
+    return sorted(names)
+
+
 def render_source(name, spec, engine):
     database = spec["env"]
     known = {var for _, var, _ in engine["fields"]}
 
-    for var in database:
+    for var, ref in database.items():
         if var not in known:
             _fail(
                 f"datasource '{name}': env key '{var}' is not a {engine['type']} "
                 f"source field (known: {', '.join(sorted(known))})"
+            )
+        if not isinstance(ref, str) or not ENV_NAME_RE.match(ref):
+            _fail(
+                f"datasource '{name}': env var name '{ref}' for '{var}' is not a "
+                "valid environment variable name"
             )
 
     lines = ["kind: source", f"name: {name}", f"type: {engine['type']}"]
@@ -140,12 +183,7 @@ def render(catalogue):
         if not NAME_RE.match(name):
             _fail(f"datasource name '{name}' must match {NAME_RE.pattern}")
 
-        engine = ENGINES.get(spec.get("type"))
-        if engine is None:
-            _fail(
-                f"datasource '{name}': unknown type '{spec.get('type')}' "
-                f"(known: {', '.join(sorted(ENGINES))})"
-            )
+        engine = _engine_for(name, spec)
 
         if not isinstance(spec.get("env", {}), dict):
             _fail(f"datasource '{name}': 'env' must be an object")
@@ -172,17 +210,29 @@ def render(catalogue):
     return "\n---\n".join(docs) + "\n"
 
 
-def main():
-    raw = sys.stdin.read().strip()
-    if not raw:
+def load_catalogue(raw: str) -> dict:
+    """Parse a catalogue from JSON text, failing loudly on anything unusable."""
+    if not raw.strip():
         _fail("no catalogue on stdin")
     try:
         catalogue = json.loads(raw)
     except json.JSONDecodeError as exc:
         _fail(f"catalogue is not valid JSON: {exc}")
-    if catalogue in (None, {}):
-        catalogue = {}
-    sys.stdout.write(render(catalogue))
+    if catalogue is None:
+        return {}
+    if not isinstance(catalogue, dict):
+        _fail("catalogue must be an object of datasource name -> definition")
+    return catalogue
+
+
+def main():
+    catalogue = load_catalogue(sys.stdin.read())
+
+    # `--env-names` prints just the env var name set, for the compose renderer.
+    if "--env-names" in sys.argv[1:]:
+        sys.stdout.write(json.dumps(effective_env_names(catalogue)) + "\n")
+    else:
+        sys.stdout.write(render(catalogue))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,55 @@
+# src/agentic/datasources/compose.tpl.yml
+# TEMPLATE — rendered by render.sh into storage/datasources/docker-compose.yml.
+#
+# Not a plain module docker-compose.yml, for one reason: the gateway must
+# receive every env var the declared datasources reference, and those names are
+# dynamic (they come from .devbot.global.jsonc). A static compose file cannot
+# enumerate them. Because the rendered file lives under storage/, bin/up.sh's
+# compose discovery (src/{tools,agentic,harnesses}) does not see it — this
+# module brings its own compose up and down in up.sh / down.sh.
+#
+# Only env var NAMES are written here, never values: compose interpolates the
+# values from the environment `devbot up` builds, so no credential touches disk.
+name: devbot
+
+services:
+  datasources-mcp:
+    image: ${TOOLBOX_IMAGE}:${TOOLBOX_VERSION}
+    container_name: dev-bot-datasources-mcp
+    # Started on demand by `devbot up` and left running, like every other
+    # dev-bot gateway: deliberately not `unless-stopped`, so it does not return
+    # on its own after a reboot without `devbot up` starting its neighbours.
+    restart: "no"
+    # Host uid/gid, so a file-backed engine (sqlite) can write its journal
+    # beside the database. bin/up.sh exports DEV_UID/DEV_GID.
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
+    ports:
+      # Host-local only — the gateway is never exposed off the machine.
+      - "127.0.0.1:18510:18510"
+    volumes:
+      - ${DEV_BOT_ROOT}/storage/datasources/tools.yaml:/app/tools.yaml:ro
+      # File-backed engines (sqlite) read and write their database under /data
+      # — sqlite also needs the directory writable, to create its journal
+      # beside the file. A sqlite datasource's SQLITE_DATABASE must therefore
+      # be a path like /data/<name>.db. Network engines ignore this mount.
+      - ${DEV_BOT_ROOT}/storage/datasources/data:/data
+    # Exec form, never a shell string: the toolbox image is distroless, so a
+    # command run through a shell would fail for want of /bin/sh.
+    command:
+      - --config
+      - /app/tools.yaml
+      - --address
+      # Required: toolbox defaults to binding 127.0.0.1, which the port mapping
+      # cannot reach from the host.
+      - 0.0.0.0
+      - --port
+      - "18510"
+      # Reject Host headers that are not local. The server holds free-form DB
+      # access, so DNS-rebinding protection matters even on 127.0.0.1.
+      - --allowed-hosts
+      - 127.0.0.1,localhost
+      # Same reasoning for browser origins — upstream warns that the default
+      # wildcard lets any website reach the gateway.
+      - --allowed-origins
+      - http://127.0.0.1:18510
+    environment: __DATASOURCE_ENV__

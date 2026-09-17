@@ -153,6 +153,52 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("kind:", out)
 
+    def test_env_names_flag_prints_a_json_array(self):
+        # Consumed by the compose renderer via the shell.
+        proc = subprocess.run(
+            [sys.executable, RENDERER, "--env-names"],
+            input=json.dumps({"hotels": {"type": "mysql", "env": {}}}),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(
+            json.loads(proc.stdout),
+            [
+                "MYSQL_DATABASE",
+                "MYSQL_HOST",
+                "MYSQL_PASSWORD",
+                "MYSQL_PORT",
+                "MYSQL_QUERY_PARAMS",
+                "MYSQL_USER",
+            ],
+        )
+
+    def test_env_names_use_declared_names_over_engine_defaults(self):
+        proc = subprocess.run(
+            [sys.executable, RENDERER, "--env-names"],
+            input=json.dumps(
+                {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "HOTELS_DB_HOST"}}}
+            ),
+            capture_output=True,
+            text=True,
+        )
+
+        names = json.loads(proc.stdout)
+        self.assertIn("HOTELS_DB_HOST", names)
+        self.assertNotIn("MYSQL_HOST", names)
+
+    def test_invalid_env_var_name_is_rejected(self):
+        # These names are passed straight through compose, so they must look
+        # like variable names rather than arbitrary strings.
+        code, _, err = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "not a name"}}}
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("not a valid environment variable name", err)
+
     def test_malformed_catalogue_is_an_error(self):
         proc = subprocess.run(
             [sys.executable, RENDERER], input="not json", capture_output=True, text=True
