@@ -60,21 +60,25 @@ class TestRenderCompose(unittest.TestCase):
             ],
         )
 
-    def test_declared_names_replace_the_engine_defaults(self):
+    def test_references_appear_in_the_env_list(self):
         code, out, _ = render(
-            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "HOTELS_DB_HOST"}}}
+            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "${HOTELS_DB_HOST}"}}}
         )
 
         self.assertEqual(code, 0)
         self.assertIn("HOTELS_DB_HOST", env_line(out))
         self.assertNotIn("MYSQL_HOST", env_line(out))
 
-    def test_names_are_never_values(self):
-        # The one hard rule: only the operator's variable NAMES are written.
-        code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
+    def test_literals_contribute_no_env_name(self):
+        # A literal is not a variable: it is inlined into tools.yaml, so it is
+        # never passed through the container's environment.
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "db.internal"}}}
+        )
 
         self.assertEqual(code, 0)
-        self.assertNotIn("secret", out)
+        self.assertNotIn("MYSQL_HOST", env_line(out))
+        self.assertNotIn("db.internal", env_line(out))
 
     def test_no_datasources_renders_an_empty_list(self):
         code, out, _ = render({})

@@ -95,9 +95,36 @@ ENGINES = {
 # Datasource names become tool and toolset names, and a URL path segment.
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
-# Names the operator's environment must provide. Validated because they are
-# passed straight through compose to the container.
-ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# A datasource's `env` VALUE is either a `${VAR}` REFERENCE to an environment
+# variable or a LITERAL, written straight into the rendered config:
+#
+#     "MYSQL_HOST": "db.internal",              <- literal, reads well inline
+#     "MYSQL_PASSWORD": "${HOTELS_DB_PASSWORD}" <- reference, never hits disk
+#
+# A reference must be the whole value: there is no interpolation inside a
+# longer string, so a password containing "${" can never be mistaken for one.
+# References are resolved by toolbox from the container's environment at load
+# time, so a secret behind one exists in no file at all.
+ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+
+
+def env_ref(value):
+    """The referenced variable name, or None when the value is a literal."""
+    if not isinstance(value, str):
+        return None
+    match = ENV_REF_RE.match(value)
+    return match.group(1) if match else None
+
+
+def _literal_text(value) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+def _yaml_scalar(value) -> str:
+    """A single-quoted YAML scalar — a literal may contain ':', '#' or spaces."""
+    return "'" + _literal_text(value).replace("'", "''") + "'"
 
 # Every key a datasource definition may carry.
 KNOWN_KEYS = frozenset({"type", "env"})
@@ -156,18 +183,23 @@ def validated_items(catalogue: dict):
 
 
 def effective_env_names(catalogue: dict) -> list:
-    """Every env var name the rendered tools.yaml will reference.
+    """Every env var name the rendered tools.yaml will actually reference.
 
-    Declared names, plus each engine's own default variable for fields the
-    datasource leaves undeclared. The gateway container has to receive all of
-    them — compose cannot express "the whole environment" — so this is the set
-    the compose renderer passes through.
+    `${VAR}` references, plus each engine's own default variable for fields the
+    datasource leaves undeclared, which is what makes "export MYSQL_HOST" work.
+    A literal needs no variable at all, so it contributes nothing here — the
+    container is handed fewer variables, not more.
     """
     names = set()
     for _name, spec, engine in validated_items(catalogue):
         declared = spec.get("env", {})
         for _field, engine_var, _default in engine["fields"]:
-            names.add(declared.get(engine_var, engine_var))
+            if engine_var in declared:
+                ref = env_ref(declared[engine_var])
+                if ref is not None:
+                    names.add(ref)
+            else:
+                names.add(engine_var)
     return sorted(names)
 
 
@@ -177,22 +209,44 @@ def render_source(name, spec, engine):
     database = spec.get("env", {})
     known = {var for _, var, _ in engine["fields"]}
 
-    for var, ref in database.items():
+    for var, declared in database.items():
         if var not in known:
             _fail(
                 f"datasource '{name}': env key '{var}' is not a {engine['type']} "
                 f"source field (known: {', '.join(sorted(known))})"
             )
-        if not isinstance(ref, str) or not ENV_NAME_RE.match(ref):
+        if declared is None or isinstance(declared, (dict, list)):
             _fail(
-                f"datasource '{name}': env var name '{ref}' for '{var}' is not a "
-                "valid environment variable name"
+                f"datasource '{name}': the value for '{var}' must be a string or a "
+                "number — either a literal or a ${VAR} reference to an "
+                "environment variable"
             )
 
     lines = ["kind: source", f"name: {name}", f"type: {engine['type']}"]
     for field, engine_var, default in engine["fields"]:
-        var = database.get(engine_var, engine_var)
-        lines.append(f"{field}: ${{{var}:{default}}}" if default is not None else f"{field}: ${{{var}}}")
+        if engine_var in database:
+            ref = env_ref(database[engine_var])
+            if ref is not None:
+                # The value stays out of the file: toolbox reads the variable
+                # from the container's environment when it loads this config.
+                lines.append(
+                    f"{field}: ${{{ref}:{default}}}"
+                    if default is not None
+                    else f"{field}: ${{{ref}}}"
+                )
+            else:
+                # A literal, written straight in. Non-secret values (host, port,
+                # database, user) read far better inline; a secret belongs
+                # behind a ${VAR} reference.
+                lines.append(f"{field}: {_yaml_scalar(database[engine_var])}")
+        elif default is not None:
+            # Undeclared: the engine's own variable, defaulted — exporting
+            # MYSQL_HOST still works without declaring anything.
+            lines.append(f"{field}: ${{{engine_var}:{default}}}")
+        else:
+            # Undeclared, no default: still emitted, so exporting the engine's
+            # own name works. available_catalogue gates it out when unset.
+            lines.append(f"{field}: ${{{engine_var}}}")
 
     return lines
 

@@ -59,15 +59,67 @@ class TestRenderToolsYaml(unittest.TestCase):
         toolset = [d for d in docs_of(out) if d.startswith("kind: toolset")][0]
         self.assertIn("name: hotels-dev", toolset)
 
-    def test_env_mapping_replaces_the_toolbox_var_name(self):
+    def test_a_reference_is_emitted_with_the_engine_default(self):
         code, out, _ = render(
-            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "HOTELS_DEV_DB_HOST"}}}
+            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "${HOTELS_DEV_DB_HOST}"}}}
         )
 
         self.assertEqual(code, 0)
-        # The engine default is preserved alongside the operator's var name.
+        # The reference is kept, so the value never lands in a file — and the
+        # engine default rides along beside it.
         self.assertIn("host: ${HOTELS_DEV_DB_HOST:localhost}", out)
         self.assertNotIn("${MYSQL_HOST", out)
+
+    def test_a_literal_is_written_in_quoted(self):
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "db.internal"}}}
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("host: 'db.internal'\n", out)
+
+    def test_a_literal_that_merely_contains_a_reference_is_a_literal(self):
+        # Only a value that is EXACTLY ${VAR} is a reference: there is no
+        # interpolation inside a longer string, so a password containing "${"
+        # can never be mistaken for one.
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_PASSWORD": "pre-${NOT_A_REF}"}}}
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("password: 'pre-${NOT_A_REF}'\n", out)
+
+    def test_a_literal_with_yaml_specials_is_escaped(self):
+        # A literal may hold ':', '#' or a quote — quoted, it stays one scalar.
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_PASSWORD": "pa:ss#word's"}}}
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("password: 'pa:ss#word''s'\n", out)
+
+    def test_a_non_scalar_value_is_rejected(self):
+        code, _, err = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": {"nested": "no"}}}}
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("must be a string or a number", err)
+
+    def test_a_literal_contributes_no_environment_variable(self):
+        # A literal needs no variable, so the container is handed fewer, not more.
+        proc = subprocess.run(
+            [sys.executable, RENDERER, "--env-names"],
+            input=json.dumps(
+                {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "db.internal"}}}
+            ),
+            capture_output=True,
+            text=True,
+        )
+
+        names = json.loads(proc.stdout)
+        self.assertNotIn("MYSQL_HOST", names)
+        self.assertNotIn("db.internal", names)
 
     def test_undeclared_fields_use_the_toolbox_var_name(self):
         code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
@@ -183,11 +235,11 @@ class TestRenderToolsYaml(unittest.TestCase):
             ],
         )
 
-    def test_env_names_use_declared_names_over_engine_defaults(self):
+    def test_env_names_follow_references_not_literals(self):
         proc = subprocess.run(
             [sys.executable, RENDERER, "--env-names"],
             input=json.dumps(
-                {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "HOTELS_DB_HOST"}}}
+                {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "${HOTELS_DB_HOST}"}}}
             ),
             capture_output=True,
             text=True,
@@ -196,16 +248,6 @@ class TestRenderToolsYaml(unittest.TestCase):
         names = json.loads(proc.stdout)
         self.assertIn("HOTELS_DB_HOST", names)
         self.assertNotIn("MYSQL_HOST", names)
-
-    def test_invalid_env_var_name_is_rejected(self):
-        # These names are passed straight through compose, so they must look
-        # like variable names rather than arbitrary strings.
-        code, _, err = render(
-            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "not a name"}}}
-        )
-
-        self.assertEqual(code, 1)
-        self.assertIn("not a valid environment variable name", err)
 
     def test_malformed_catalogue_is_an_error(self):
         proc = subprocess.run(

@@ -30,7 +30,7 @@ import socket
 import sys
 from typing import NoReturn
 
-from render_tools_yaml import load_catalogue, validated_items
+from render_tools_yaml import env_ref, load_catalogue, validated_items
 
 DEFAULT_TIMEOUT = 1.0
 
@@ -40,26 +40,39 @@ def fail(message: str) -> NoReturn:
     sys.exit(1)
 
 
-def _effective_values(spec: dict, engine: dict, environ) -> dict:
-    """Each engine field resolved to its value, falling back to the field's
-    own default. Mirrors how the tools.yaml renderer resolves variables."""
-    declared = spec.get("env", {})
-    values = {}
-    for _field, engine_var, default in engine["fields"]:
-        raw = environ.get(declared.get(engine_var, engine_var))
-        values[engine_var] = raw if raw else default
-    return values
+def _resolve_field(declared_value, default, environ) -> tuple:
+    """(value, missing_var).
+
+    A literal is always present, whatever the environment says. A `${VAR}`
+    reference is missing when the variable is unset or empty and the field has
+    no default — which is exactly when toolbox would refuse to start.
+    """
+    ref = env_ref(declared_value)
+    if ref is None:
+        return declared_value, None
+    value = environ.get(ref)
+    if value:
+        return value, None
+    if default is not None:
+        return default, None
+    return None, ref
 
 
-def _missing_required(spec: dict, engine: dict, environ) -> list:
-    """The operator's variable names for required fields that are unset or
-    empty — toolbox fails to start on any of these, so they gate inclusion."""
+def _field_values(spec: dict, engine: dict, environ) -> tuple:
+    """(field -> value, missing var names).
+
+    An undeclared field is treated as a reference to the engine's own variable
+    name, which is what the renderer emits for it.
+    """
     declared = spec.get("env", {})
-    missing = []
+    values, missing = {}, []
     for _field, engine_var, default in engine["fields"]:
-        if default is None and not environ.get(declared.get(engine_var, engine_var)):
-            missing.append(declared.get(engine_var, engine_var))
-    return missing
+        source = declared[engine_var] if engine_var in declared else "${" + engine_var + "}"
+        value, absent = _resolve_field(source, default, environ)
+        values[engine_var] = value
+        if absent:
+            missing.append(absent)
+    return values, missing
 
 
 def _tcp_reachable(host: str, port: str, timeout: float) -> bool:
@@ -80,16 +93,15 @@ def _tcp_reachable(host: str, port: str, timeout: float) -> bool:
 
 def probe(name: str, spec: dict, engine: dict, timeout: float, environ) -> tuple:
     """Returns (usable, reason)."""
-    missing = _missing_required(spec, engine, environ)
+    values, missing = _field_values(spec, engine, environ)
     if missing:
         return False, f"required env not set: {', '.join(sorted(missing))}"
 
     probe_spec = engine.get("probe", {"kind": "none"})
     if probe_spec["kind"] != "tcp":
-        # No server to reach (sqlite): being env-complete is enough.
+        # No server to reach (sqlite): being resolvable is enough.
         return True, "usable"
 
-    values = _effective_values(spec, engine, environ)
     host = str(values.get(probe_spec["host"]) or "")
     port = str(values.get(probe_spec["port"]) or "")
     if _tcp_reachable(host, port, timeout):

@@ -76,15 +76,23 @@ class TestAvailableCatalogue(unittest.TestCase):
         return proc.returncode, proc.stdout, proc.stderr
 
     def mysql(self, port=None):
-        return {
-            "db": {"type": "mysql", "env": dict(MYSQL_ENV_KEYS)},
-        }, {
-            "T_HOST": "127.0.0.1",
-            "T_PORT": str(port if port is not None else self.live_port),
-            "T_DB": "d",
-            "T_USER": "u",
-            "T_PASS": "p",
-        }
+        # Values are ${VAR} REFERENCES, so the tests drive them from the
+        # environment exactly as an operator would.
+        return (
+            {
+                "db": {
+                    "type": "mysql",
+                    "env": {key: "${" + val + "}" for key, val in MYSQL_ENV_KEYS.items()},
+                }
+            },
+            {
+                "T_HOST": "127.0.0.1",
+                "T_PORT": str(port if port is not None else self.live_port),
+                "T_DB": "d",
+                "T_USER": "u",
+                "T_PASS": "p",
+            },
+        )
 
     def test_keeps_a_reachable_datasource(self):
         catalogue, env = self.mysql()
@@ -156,6 +164,47 @@ class TestAvailableCatalogue(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out), {})
         self.assertIn("SQLITE_DATABASE", err)
+
+    def test_a_literal_satisfies_a_required_field(self):
+        # A literal can never be missing, so it must never gate a datasource
+        # out — and it needs no environment variable at all.
+        code, out, _ = self.run_filter(
+            {
+                "db": {
+                    "type": "mysql",
+                    "env": {
+                        "MYSQL_HOST": "127.0.0.1",
+                        "MYSQL_PORT": self.live_port,
+                        "MYSQL_USER": "root",
+                        "MYSQL_PASSWORD": "literal-pass",
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(list(json.loads(out)), ["db"])
+
+    def test_a_literal_host_is_probed(self):
+        # A literal is a real value, so the probe uses it — an unreachable
+        # literal host must still exclude the datasource.
+        code, out, err = self.run_filter(
+            {
+                "db": {
+                    "type": "mysql",
+                    "env": {
+                        "MYSQL_HOST": "127.0.0.1",
+                        "MYSQL_PORT": self.dead_port,
+                        "MYSQL_USER": "root",
+                        "MYSQL_PASSWORD": "p",
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {})
+        self.assertIn("unreachable", err)
 
     def test_drops_a_non_numeric_port(self):
         catalogue, env = self.mysql()
