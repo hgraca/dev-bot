@@ -3,6 +3,10 @@
   "harness": "opencode",
   "devbot_dir": ".agents",
   "commit_memory": false,
+  // Opt in BY NAME to datasources declared in .devbot.global.jsonc. Only these
+  // are registered with this project's harness — the rest cost nothing, not
+  // even context.
+  "datasources": [],
   "modules": {
     "react": false,
     "signoz": false,

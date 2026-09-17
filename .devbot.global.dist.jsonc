@@ -20,6 +20,12 @@
     "max_attempts": 5
   },
   "projects": [],
+  // Data sources offered to agents, through the shared MCP Toolbox gateway.
+  // Declared once here; each project opts in by NAME in .devbot.project.jsonc.
+  // Every value is either a literal or a "${VAR}" reference to an environment
+  // variable — put a secret behind a reference and it exists in no file at
+  // all. See docs/configuration.md.
+  "datasources": {},
   "guards": [
     {
       "regex": "rm -rf",
