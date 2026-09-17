@@ -76,11 +76,19 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertIn("host: ${MYSQL_HOST:localhost}", out)
         self.assertIn("port: ${MYSQL_PORT:3306}", out)
 
+    def test_mysql_database_is_optional_and_empty_by_default(self):
+        # One MySQL/MariaDB instance usually holds several databases; a source
+        # with no default schema can still query them all by qualifying names.
+        code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
+
+        self.assertEqual(code, 0)
+        self.assertIn("database: ${MYSQL_DATABASE:}\n", out)
+
     def test_required_fields_carry_no_default(self):
         code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
 
         self.assertEqual(code, 0)
-        self.assertIn("database: ${MYSQL_DATABASE}\n", out)
+        self.assertIn("user: ${MYSQL_USER}\n", out)
         self.assertIn("password: ${MYSQL_PASSWORD}\n", out)
 
     def test_postgres_uses_its_own_field_names_and_tool(self):

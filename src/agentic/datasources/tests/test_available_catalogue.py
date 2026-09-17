@@ -105,22 +105,32 @@ class TestAvailableCatalogue(unittest.TestCase):
 
     def test_drops_a_datasource_missing_a_required_var(self):
         catalogue, env = self.mysql()
-        del env["T_DB"]
+        del env["T_PASS"]
 
         code, out, err = self.run_filter(catalogue, env)
 
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out), {})
-        self.assertIn("T_DB", err)
+        self.assertIn("T_PASS", err)
 
     def test_an_empty_required_var_counts_as_missing(self):
         catalogue, env = self.mysql()
-        env["T_DB"] = ""
+        env["T_PASS"] = ""
 
         code, out, err = self.run_filter(catalogue, env)
 
         self.assertEqual(json.loads(out), {})
-        self.assertIn("T_DB", err)
+        self.assertIn("T_PASS", err)
+
+    def test_database_is_not_required_for_mysql(self):
+        # One instance holds several DBs; no default schema is a valid setup.
+        catalogue, env = self.mysql()
+        del env["T_DB"]
+
+        code, out, _ = self.run_filter(catalogue, env)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(list(json.loads(out)), ["db"])
 
     def test_keeps_an_env_complete_sqlite_datasource(self):
         # sqlite has no server, so env-completeness alone decides.

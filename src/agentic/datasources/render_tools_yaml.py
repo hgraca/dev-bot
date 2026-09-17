@@ -34,7 +34,11 @@ ENGINES = {
         "fields": [
             ("host", "MYSQL_HOST", "localhost"),
             ("port", "MYSQL_PORT", "3306"),
-            ("database", "MYSQL_DATABASE", None),
+            # Optional, defaulting to empty: one MySQL/MariaDB instance usually
+            # holds several databases, and a source with no default schema can
+            # still query all of them by qualifying names (SELECT ... FROM db.t).
+            # Required fields (no default) gate inclusion; see available_catalogue.
+            ("database", "MYSQL_DATABASE", ""),
             ("user", "MYSQL_USER", None),
             ("password", "MYSQL_PASSWORD", None),
             ("queryParams", "MYSQL_QUERY_PARAMS", ""),
