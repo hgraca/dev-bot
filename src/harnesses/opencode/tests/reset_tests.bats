@@ -183,6 +183,10 @@ _write_d7_fixture() {
 JSONC_EOF
 
   mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  # A user file keeps .opencode/ alive through reset's empty-directory cleanup;
+  # without it the second reset exits early and the idempotency assertion below
+  # compares against a file reset never touched.
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
   ln -s "${PROJECT_ROOT}/src/agentic/devbot/agents" "${SANDBOX_DIR}/.opencode/agents/devbot"
   # chrome-devtools entry must equal its canonical template translated to the
   # opencode shape, so reset's stale-refresh keeps it — a simplified literal
@@ -240,6 +244,7 @@ print('D7-PRUNE:OK')
   run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
   assert_success
 
+  refute_output --partial "nothing to reset"
   assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
 }
 
@@ -270,7 +275,14 @@ _write_playwright_fixture() {
 }
 JSONC_EOF
 
-  mkdir -p "${SANDBOX_DIR}/.opencode"
+  # Keep a user file so .opencode/ survives reset's empty-directory cleanup
+  # (reset.sh: `find "${dir}" -type d -empty -delete`). An empty .opencode/ is
+  # deleted by the first reset, and the second then exits at
+  # `[[ ! -d "${OPENCODE_DIR}" ]]` before the refresh loop — which made the
+  # byte-idempotency assertion below compare against a file the second reset
+  # never touched.
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
   python3 - "${PROJECT_ROOT}/src/_shared" "${PROJECT_ROOT}" "${SANDBOX_DIR}" "${mode}" "${_PLAYWRIGHT_STALE_CMD}" <<'PY_EOF'
 import json, sys
 sys.path.insert(0, sys.argv[1])
@@ -331,5 +343,9 @@ print('PLAYWRIGHT-KEPT:OK')
   run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
   assert_success
 
+  # The comparison only means something if the second reset reached the refresh
+  # loop: a missing .opencode/ makes reset exit early, and this assertion would
+  # then pass while proving nothing.
+  refute_output --partial "nothing to reset"
   assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
 }
