@@ -71,6 +71,29 @@ const KV_COLLAPSED = "pty-monitor.sidebar.collapsed"
  */
 let cachedOrigin = null
 
+/**
+ * The reason the last bootstrap failed, kept so the panel can report the CAUSE
+ * rather than just "server unavailable". The most common one is real and
+ * actionable: `command not found: pty-show-server-url` means opencode-pty — the
+ * server plugin this depends on — is not registered in opencode.jsonc, which
+ * makes retrying pointless and is otherwise invisible.
+ */
+let lastBootstrapError = null
+
+/**
+ * The sidebar status while the PTY server cannot be reached.
+ *
+ * Reports the CAUSE once the retries have been exhausted. `command not found:
+ * pty-show-server-url` in particular means opencode-pty — the server plugin this
+ * depends on — is not registered in the project's opencode.jsonc, so the panel
+ * says that instead of inviting a retry that cannot possibly work.
+ */
+function bootstrapFailureStatus(failures) {
+  if (failures < MAX_BOOTSTRAP_FAILURES) return "starting server…"
+  if (!lastBootstrapError) return "server unavailable — /pty-monitor to retry"
+  return "unavailable: " + String(lastBootstrapError).split("\n")[0].slice(0, 44)
+}
+
 // A TUI plugin has no console, so a small event log on disk is the only way to
 // diagnose interaction problems. OFF BY DEFAULT: it appends unboundedly, and
 // shipping a plugin that quietly grows a file in /tmp forever is not acceptable.
@@ -246,7 +269,10 @@ async function bootstrapOrigin(api) {
       arguments: "",
     })
   } catch (e) {
-    debug("bootstrap.command.failed", { error: String(e) })
+    // Remember why: opencode's message is the difference between "the server is
+    // slow" and "the plugin you depend on is not installed".
+    lastBootstrapError = e && e.message ? String(e) : String(e)
+    debug("bootstrap.command.failed", { error: lastBootstrapError })
   }
 
   let origin = null
@@ -381,18 +407,14 @@ const tui = async (api) => {
       // Checked BEFORE the attempt, so "backed off" actually means no further
       // create-session/delete-session cycles until the user retries.
       if (!origin && bootstrapFailures >= MAX_BOOTSTRAP_FAILURES) {
-        setStatus("server unavailable — /pty-monitor to retry")
+        setStatus(bootstrapFailureStatus(bootstrapFailures))
         return
       }
       if (!origin) origin = await resolveOrigin(api)
       if (!origin) {
         bootstrapFailures++
         debug("refresh.bootstrap-failed", { bootstrapFailures })
-        setStatus(
-          bootstrapFailures >= MAX_BOOTSTRAP_FAILURES
-            ? "server unavailable — /pty-monitor to retry"
-            : "starting server…",
-        )
+        setStatus(bootstrapFailureStatus(bootstrapFailures))
         setSessions([])
         return
       }
@@ -601,9 +623,11 @@ const tui = async (api) => {
       description: "Re-scan the PTY server for sessions",
       slash: { name: "pty-monitor" },
       onSelect: () => {
-        // Explicit user retry: clear both the cached origin and the backoff.
+        // Explicit user retry: clear the cached origin, the backoff, and the
+        // remembered cause so a stale message cannot outlive the fix.
         origin = null
         bootstrapFailures = 0
+        lastBootstrapError = null
         refresh().catch(() => {})
       },
     },
