@@ -26,7 +26,8 @@ LOG="${RUNTIME_DIR}/refresh.log"
 PIDFILE="${RUNTIME_DIR}/refresh.pid"
 INTERVAL="${DATASOURCES_REFRESH_INTERVAL:-10}"
 GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
-READER="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+# Beside this module, not under DEV_BOT_ROOT (sandboxed in tests).
+READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
 
 # The usable datasource names, space-separated, in a stable order. Comparing
 # this string is what tells the loop whether anything actually changed.

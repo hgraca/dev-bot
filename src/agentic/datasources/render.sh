@@ -26,7 +26,10 @@ RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
 # bind-mounted file keeps pointing at the inode `mv` replaced.
 CONF_DIR="${RUNTIME_DIR}/conf"
 GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
-READER="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+# The reader lives beside this module, never under DEV_BOT_ROOT — which is
+# overridden to a sandbox root in tests. Same reasoning as
+# _devbot_get_disabled_modules.
+READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
 
 main() {
   mkdir -p "${RUNTIME_DIR}"

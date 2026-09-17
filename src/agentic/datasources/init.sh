@@ -36,7 +36,10 @@ source "${MODULE_DIR}/functions.sh"
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd)"
 GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 PROJECT_CONFIG="${PROJECT_DIR}/.devbot.project.jsonc"
-READER="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+# Shared helpers live beside this module, never under DEV_BOT_ROOT — which is
+# overridden to a sandbox root in tests (see _devbot_get_disabled_modules).
+READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
+REMOVE_KEY="${MODULE_DIR}/../../_shared/remove_mcp_key.py"
 MCP_BASE="${DATASOURCES_MCP_BASE:-http://127.0.0.1:18510/mcp}"
 
 # Server names and manifest files are prefixed, so a datasource can never
@@ -103,6 +106,41 @@ _datasources_write_manifests() {
   fi
 }
 
+# Reconcile the opencode config with the selection. The harness merges dynamic
+# manifests APPEND-ONLY into opencode.jsonc (merge_mcp_jsonc.py is
+# insert/skip-exists) and nothing removes them, so deleting a manifest is not
+# enough: the key stays live and the project keeps a server for a datasource it
+# has removed. Scanning the CONFIG rather than the manifests also cleans up a
+# key left behind by an earlier init. claudecode needs nothing — its .mcp.json
+# is regenerated from scratch.
+_datasources_reconcile_opencode() {
+  local selected="$1" config="${PROJECT_DIR}/opencode.jsonc"
+  [[ -f "${config}" ]] || return 0
+
+  local key name
+  for key in $(
+    python3 "${READER}" "${config}" mcp 2>/dev/null |
+      python3 -c '
+import json, sys
+try:
+    print(" ".join(json.load(sys.stdin)))
+except Exception:
+    pass
+' 2>/dev/null
+  ); do
+    case "${key}" in
+      "${PREFIX}"*) ;;
+      *) continue ;; # a server this module does not own
+    esac
+    name="${key#"${PREFIX}"}"
+    if ! printf ' %s ' "${selected}" | grep -Fq " ${name} "; then
+      python3 "${REMOVE_KEY}" "${config}" "${key}" \
+        >/dev/null 2>&1 || true
+      _skip "datasources — unregistered ${key} (no longer selected)"
+    fi
+  done
+}
+
 # Remove manifests for datasources no longer selected. Without this, dropping a
 # datasource from the project config would leave its server registered forever.
 _datasources_prune() {
@@ -149,6 +187,7 @@ main() {
 
   # An `if`, not `&&`: under `set -e` a short-circuited `&&` would abort here.
   if ! _datasources_harness_disabled opencode; then
+    _datasources_reconcile_opencode "${selected}"
     _datasources_prune "${PROJECT_DIR}/.opencode" "${selected}"
   fi
   if ! _datasources_harness_disabled claudecode; then

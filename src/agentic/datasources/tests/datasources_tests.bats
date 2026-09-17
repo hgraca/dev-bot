@@ -33,11 +33,9 @@ setup() {
 
   command -v python3 &>/dev/null || skip "python3 not installed"
 
-  # The sandbox plays the devbot root: it holds the fixture global config plus
-  # the real read_jsonc.py reader, and receives the rendered artifacts.
-  mkdir -p "${SANDBOX_DIR}/src/_shared"
-  cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX_DIR}/src/_shared/read_jsonc.py"
-
+  # The sandbox plays the devbot root: it holds the fixture global config and
+  # receives the rendered artifacts. Shared helpers are resolved beside the
+  # module (not under DEV_BOT_ROOT), so they need no copying here.
   export DEV_BOT_ROOT="${SANDBOX_DIR}"
   RUNTIME_DIR="${SANDBOX_DIR}/storage/datasources"
   CONF_DIR="${RUNTIME_DIR}/conf"
@@ -186,6 +184,31 @@ _sqlite_catalogue() {
   assert_output --partial "pruned mariadb-dev"
 
   [ ! -e "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json" ]
+}
+
+@test "init: deselecting also unregisters the harness key" {
+  # The harness merges manifests append-only, so removing the manifest alone
+  # left a live server for a datasource the project had dropped.
+  _catalogue '{}'
+  _project_config '["mariadb-dev"]'
+
+  cat > "${PROJECT_DIR}/opencode.jsonc" <<'JSON'
+{
+  "mcp": {
+    "datasources-mariadb-dev": { "type": "remote", "url": "http://127.0.0.1:18510/mcp/mariadb-dev" },
+    "mdctx": { "type": "remote", "url": "http://127.0.0.1:18501/mcp" }
+  }
+}
+JSON
+
+  _project_config '[]'
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${PROJECT_DIR}/opencode.jsonc"
+  refute_output --partial "datasources-mariadb-dev"
+  # A server this module does not own must be left alone.
+  assert_output --partial "mdctx"
 }
 
 @test "init: a selection absent from the catalogue is warned about" {
