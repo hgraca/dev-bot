@@ -1,0 +1,216 @@
+#!/usr/bin/env bats
+# =============================================================================
+# src/agentic/datasources/tests/datasources_tests.bats
+# Lifecycle tests for the datasources module.
+#
+# Covers the two shell behaviours that carry the design:
+#
+#   render.sh — the availability gate. Toolbox treats an unresolvable or
+#               unreachable source as a FATAL startup error, so only usable
+#               datasources may reach the gateway config. And the compose env
+#               list must carry variable NAMES, never literals.
+#   init.sh   — per-project wiring: a manifest for each selected datasource,
+#               pruning for the deselected, and the harness gate.
+#
+# No docker and no network. Where a "usable" datasource is needed the fixtures
+# use sqlite, which has no server to reach; where an unreachable one is needed
+# they use port 1, which is reserved and never listening.
+#
+# Run from project root:
+#   bats src/agentic/datasources/tests/datasources_tests.bats
+# =============================================================================
+
+setup() {
+  bats_load_library bats-support
+  bats_load_library bats-assert
+
+  # Four levels: tests -> datasources -> agentic -> src -> repo root.
+  PROJECT_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../../../.." && pwd)"
+  MODULE_DIR="${PROJECT_ROOT}/src/agentic/datasources"
+
+  SANDBOX_DIR="$(mktemp -d)"
+  PROJECT_DIR="$(mktemp -d)"
+
+  command -v python3 &>/dev/null || skip "python3 not installed"
+
+  # The sandbox plays the devbot root: it holds the fixture global config plus
+  # the real read_jsonc.py reader, and receives the rendered artifacts.
+  mkdir -p "${SANDBOX_DIR}/src/_shared"
+  cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX_DIR}/src/_shared/read_jsonc.py"
+
+  export DEV_BOT_ROOT="${SANDBOX_DIR}"
+  RUNTIME_DIR="${SANDBOX_DIR}/storage/datasources"
+  CONF_DIR="${RUNTIME_DIR}/conf"
+
+  # Nothing may leak in from the developer's own shell, or a test that expects
+  # a variable to be missing would pass for the wrong reason.
+  unset SQLITE_DATABASE MYSQL_HOST MYSQL_USER MYSQL_PASSWORD DB_PASS
+}
+
+teardown() {
+  rm -rf "${SANDBOX_DIR}" "${PROJECT_DIR}" 2>/dev/null || true
+}
+
+# ── fixtures ─────────────────────────────────────────────────────────────────
+
+# The global catalogue. The argument is JSON, so it is passed single-quoted and
+# a "${VAR}" reference survives to the config file untouched.
+_catalogue() {
+  printf '{"datasources": %s}\n' "$1" > "${SANDBOX_DIR}/.devbot.global.jsonc"
+}
+
+_project_config() {
+  local datasources="$1" modules="${2:-}"
+  [[ -z "${modules}" ]] && modules='{}'
+  printf '{"modules": %s, "datasources": %s}\n' "${modules}" "${datasources}" \
+    > "${PROJECT_DIR}/.devbot.project.jsonc"
+}
+
+# A datasource that is usable with no environment at all: a literal path, and
+# no server to reach.
+_sqlite_catalogue() {
+  _catalogue '{ "scratch": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/scratch.db" } } }'
+}
+
+# ── render.sh ────────────────────────────────────────────────────────────────
+
+@test "render: a usable datasource becomes a source, a tool and a toolset" {
+  _sqlite_catalogue
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+  assert_output --partial "1/1 datasource(s) usable"
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output --partial "kind: source"
+  assert_output --partial "name: scratch"
+  assert_output --partial "type: sqlite-execute-sql"
+  assert_output --partial "kind: toolset"
+}
+
+@test "render: a literal is written inline and needs no environment" {
+  _sqlite_catalogue
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output --partial "database: '/data/scratch.db'"
+}
+
+@test "render: an unset \${VAR} reference keeps the datasource out" {
+  # toolbox refuses to START on a missing variable, so letting this through
+  # would take the whole shared gateway — and every project — down with it.
+  # The reference is on a field with NO default: on a defaulted field (host,
+  # port, database) an unset variable legitimately falls back to the default,
+  # which the Python tests cover.
+  _catalogue '{ "db": { "type": "mysql", "env": { "MYSQL_HOST": "127.0.0.1", "MYSQL_USER": "root", "MYSQL_PASSWORD": "${NOT_SET_ANYWHERE}" } } }'
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+  assert_output --partial "not usable"
+  assert_output --partial "NOT_SET_ANYWHERE"
+
+  run cat "${CONF_DIR}/tools.yaml"
+  refute_output --partial "kind: source"
+}
+
+@test "render: an unreachable host keeps the datasource out" {
+  # Port 1 is reserved and never listening, so the connect is refused at once.
+  _catalogue '{ "db": { "type": "mysql", "env": { "MYSQL_HOST": "127.0.0.1", "MYSQL_PORT": "1", "MYSQL_USER": "root", "MYSQL_PASSWORD": "p" } } }'
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+  assert_output --partial "unreachable"
+
+  run cat "${CONF_DIR}/tools.yaml"
+  refute_output --partial "kind: source"
+}
+
+@test "render: the compose env list carries references, never literals" {
+  # Port 1 keeps the probe off the network: the env list is rendered from the
+  # full catalogue regardless of whether the datasource is usable.
+  _catalogue '{ "db": { "type": "mysql", "env": { "MYSQL_HOST": "127.0.0.1", "MYSQL_PORT": "1", "MYSQL_USER": "root", "MYSQL_PASSWORD": "${DB_PASS}" } } }'
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  run grep '^    environment:' "${RUNTIME_DIR}/docker-compose.yml"
+  assert_success
+  assert_output --partial "DB_PASS"
+  refute_output --partial "db.internal"
+}
+
+@test "render: an invalid catalogue fails and leaves the working config alone" {
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+  local before
+  before="$(cat "${CONF_DIR}/tools.yaml")"
+
+  _catalogue '{ "db": { "type": "oracle", "env": {} } }'
+  run bash "${MODULE_DIR}/render.sh"
+  assert_failure
+  assert_output --partial "unknown type"
+
+  # The running gateway must still be reading the last good config.
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output "${before}"
+}
+
+# ── init.sh ──────────────────────────────────────────────────────────────────
+
+@test "init: a selected datasource gets a harness manifest" {
+  _catalogue '{}'
+  _project_config '["mariadb-dev"]'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "datasources-mariadb-dev"
+
+  run cat "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json"
+  assert_success
+  assert_output --partial '"url": "http://127.0.0.1:18510/mcp/mariadb-dev"'
+}
+
+@test "init: selecting nothing prunes the manifest" {
+  _catalogue '{}'
+  _project_config '["mariadb-dev"]'
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  _project_config '[]'
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "none selected"
+  assert_output --partial "pruned mariadb-dev"
+
+  [ ! -e "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json" ]
+}
+
+@test "init: a selection absent from the catalogue is warned about" {
+  _catalogue '{}'
+  _project_config '["typo-db"]'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "not declared"
+}
+
+@test "init: nothing is written for a disabled harness" {
+  _catalogue '{}'
+  _project_config '["mariadb-dev"]' '{"opencode": false}'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  [ ! -e "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json" ]
+}
+
+# ── down.sh ──────────────────────────────────────────────────────────────────
+
+@test "down: no generated compose file is a clean no-op" {
+  run bash "${MODULE_DIR}/down.sh"
+  assert_success
+  assert_output --partial "nothing to stop"
+}
