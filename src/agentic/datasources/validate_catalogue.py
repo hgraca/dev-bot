@@ -43,6 +43,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
@@ -204,6 +205,31 @@ def _run(args: List[str], timeout: float = DOCKER_TIMEOUT) -> Optional[subproces
         return None
 
 
+CANARY_PREFIX = "dev-bot-datasources-canary-"
+
+
+def _sweep_stale_canaries(runner, docker: str) -> None:
+    """Best-effort removal of canaries an earlier run left behind.
+
+    Only STOPPED containers are swept: a running one may belong to a
+    concurrent validate (the render lock makes that unlikely, but a manual run
+    does not hold it). A canary that was SIGKILLed while running is left for the
+    operator — its random name means it cannot collide with a later run.
+    """
+    listing = runner(
+        [
+            docker, "ps", "-a",
+            "--filter", f"name={CANARY_PREFIX}",
+            "--filter", "status=exited",
+            "--format", "{{.Names}}",
+        ]
+    )
+    if listing is None or listing.returncode != 0:
+        return
+    for stale in (listing.stdout or "").split():
+        runner([docker, "rm", "-f", stale])
+
+
 def docker_canary(
     tools_yaml: str,
     *,
@@ -224,8 +250,11 @@ def docker_canary(
     without docker.
     """
     work_dir = tempfile.mkdtemp(prefix="datasources-canary-")
-    name = f"dev-bot-datasources-canary-{os.getpid()}"
+    # A random suffix, not the PID alone: a recycled PID would otherwise make
+    # `docker run` fail with "name already in use" and abort every render.
+    name = f"{CANARY_PREFIX}{os.getpid()}-{uuid.uuid4().hex[:8]}"
     port = _free_port()
+    _sweep_stale_canaries(runner, docker)
 
     try:
         with open(os.path.join(work_dir, "tools.yaml"), "w", encoding="utf-8") as handle:

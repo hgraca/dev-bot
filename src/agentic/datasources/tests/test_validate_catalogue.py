@@ -227,12 +227,14 @@ class FakeDocker:
         inspect="true",
         inspect_none=False,
         logs="",
+        ps_output="",
     ):
         self.run_rc = run_rc
         self.run_none = run_none
         self.inspect = inspect
         self.inspect_none = inspect_none
         self.logs = logs
+        self.ps_output = ps_output
         self.commands = []
 
     def __call__(self, args):
@@ -248,6 +250,8 @@ class FakeDocker:
             )
         if action == "logs":
             return subprocess.CompletedProcess(args, 0, self.logs, "")
+        if action == "ps":
+            return subprocess.CompletedProcess(args, 0, self.ps_output, "")
         return subprocess.CompletedProcess(args, 0, "", "")
 
 
@@ -308,6 +312,30 @@ class TestDockerCanaryLifecycle(unittest.TestCase):
         self.assertFalse(result.accepted)
         self.assertIn("did not return", result.error or "")
         self.assertTrue(self._removed(fake))
+
+    def test_stale_canaries_are_swept(self):
+        fake = FakeDocker(
+            ps_output="dev-bot-datasources-canary-999-deadbeef\n",
+            inspect="false",
+            logs='ERROR "unable to initialize source \\"x\\": refused"',
+        )
+
+        self._canary(fake)
+
+        swept = [
+            c for c in fake.commands if len(c) > 1 and c[1] == "rm" and c[-1].endswith("deadbeef")
+        ]
+        self.assertEqual(len(swept), 1)
+
+    def test_canary_names_are_unique_per_run(self):
+        names = []
+        for _ in range(2):
+            fake = FakeDocker(run_rc=1)
+            self._canary(fake)
+            run = next(c for c in fake.commands if len(c) > 1 and c[1] == "run")
+            names.append(run[run.index("--name") + 1])
+
+        self.assertNotEqual(names[0], names[1])
 
     def test_a_dead_container_is_not_accepted_even_when_readiness_answers(self):
         # The freed scratch port could be answered by another process; a
