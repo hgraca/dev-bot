@@ -308,6 +308,11 @@ def main() -> int:
     state = quarantine.load(state_path)
     now = time.time()
 
+    # A source removed or renamed in the config must not keep its old entry: the
+    # entry's retry is permanently due, which would peg the poller to a
+    # re-validation every cycle.
+    quarantine.prune(state, catalogue)
+
     # Nothing declared, or nothing survived the env filter: record the
     # validation time so the poller settles, and emit the empty catalogue.
     if not catalogue:

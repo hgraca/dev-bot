@@ -114,6 +114,28 @@ class TestQuarantine(unittest.TestCase):
         self.assertFalse(quarantine.record_success(self.state, "db"))
         self.assertEqual(self.state["sources"], {})
 
+    def test_prune_forgets_an_undeclared_source(self):
+        quarantine.record_failure(self.state, "gone", "refused", self.now)
+        quarantine.record_failure(self.state, "kept", "refused", self.now)
+
+        removed = quarantine.prune(self.state, ["kept"])
+
+        self.assertEqual(removed, 1)
+        self.assertEqual(sorted(self.state["sources"]), ["kept"])
+
+    def test_pruning_a_stale_entry_stops_the_revalidation_loop(self):
+        # The stale entry's retry is permanently due; without the prune the
+        # poller would re-validate every cycle forever.
+        self.state["validated_at"] = self.now
+        quarantine.record_failure(self.state, "gone", "refused", self.now)
+        later = self.now + quarantine.MAX_DELAY + 1
+        # A far-away interval, so only the stale entry can make it due.
+        self.assertTrue(quarantine.needs_revalidation(self.state, later, 3600))
+
+        quarantine.prune(self.state, [])
+
+        self.assertFalse(quarantine.needs_revalidation(self.state, later, 3600))
+
     # ── revalidation trigger ─────────────────────────────────────────────────
 
     def test_a_due_retry_triggers_revalidation(self):

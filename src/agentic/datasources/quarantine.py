@@ -124,6 +124,21 @@ def record_success(state: dict, name: str) -> bool:
     return state["sources"].pop(name, None) is not None
 
 
+def prune(state: dict, declared) -> int:
+    """Drop entries for sources no longer declared. Returns how many went.
+
+    A stale entry's retry is permanently in the past, so `needs_revalidation`
+    would stay true forever and the poller would run the canary every cycle —
+    exactly what the backoff exists to avoid. Callers pass the names the
+    catalogue currently declares.
+    """
+    keep = set(declared)
+    stale = [name for name in state["sources"] if name not in keep]
+    for name in stale:
+        del state["sources"][name]
+    return len(stale)
+
+
 def needs_revalidation(state: dict, now: float, interval: float) -> bool:
     """Whether the poller should re-render.
 
