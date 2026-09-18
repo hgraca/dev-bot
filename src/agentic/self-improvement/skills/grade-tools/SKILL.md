@@ -7,7 +7,7 @@ description: "Records per-session tool quality into .agents/logs/tools-grades.cs
 
 Every row feeds the tool-roster decisions: keep, remove, substitute, or improve an MCP server or a
 skill — especially our own `devbot-tools`, which is graded per tool for exactly that reason. A grade
-without the reasoning behind it cannot drive that decision, so the `notes` column carries the *why*.
+without the reasoning behind it cannot drive that decision, so the `notes` column carries the _why_.
 
 ## When to Apply
 
@@ -36,25 +36,25 @@ that slice only.
 
 ### Step 2 — Enumerate the tools used in the slice
 
-| What you used                   | Flag                        | Column written                |
-| ------------------------------- | --------------------------- | ----------------------------- |
-| An MCP server                   | `--mcp <server>=<grade>`    | `mcp:<server>`                |
-| One of the `devbot-tools` tools | `--mcp-tool <tool>=<grade>` | `mcp:devbot-tools:<tool>`     |
-| A skill                         | `--skill <name>=<grade>`    | `skill:<name>`                |
+| What you used                   | Flag                        | Column written            |
+| ------------------------------- | --------------------------- | ------------------------- |
+| An MCP server                   | `--mcp <server>=<grade>`    | `mcp:<server>`            |
+| One of the `devbot-tools` tools | `--mcp-tool <tool>=<grade>` | `mcp:devbot-tools:<tool>` |
+| A skill                         | `--skill <name>=<grade>`    | `skill:<name>`            |
 
 List only tools actually invoked. Built-in tools (`bash`, `edit`, `read`, `grep`, `task`, …) are out
 of scope — this matrix covers MCP servers and skills only.
 
 ### Step 3 — Grade each tool
 
-| Grade | Meaning                                                            | Note it needs                          |
-| ----- | ------------------------------------------------------------------ | -------------------------------------- |
-| 0     | Not used in this slice (only ever written for existing columns)    | —                                      |
-| 1     | Used, but the outcome was not relevant to the task                 | Tool limitation, or config/usage issue |
-| 2     | Used, marginal / redundant — another tool covered the need         | Which tool made it redundant           |
-| 3     | Used, helpful, but a substitute existed                            | Which tool could have substituted      |
-| 4     | Used, significant contribution; hard to replace                    | —                                      |
-| 5     | Critical; the task was very likely impossible without it           | —                                      |
+| Grade | Meaning                                                         | Note it needs                          |
+| ----- | --------------------------------------------------------------- | -------------------------------------- |
+| 0     | Not used in this slice (only ever written for existing columns) | —                                      |
+| 1     | Used, but the outcome was not relevant to the task              | Tool limitation, or config/usage issue |
+| 2     | Used, marginal / redundant — another tool covered the need      | Which tool made it redundant           |
+| 3     | Used, helpful, but a substitute existed                         | Which tool could have substituted      |
+| 4     | Used, significant contribution; hard to replace                 | —                                      |
+| 5     | Critical; the task was very likely impossible without it        | —                                      |
 
 ### Step 4 — Write the notes
 
