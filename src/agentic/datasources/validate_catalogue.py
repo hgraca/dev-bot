@@ -416,11 +416,15 @@ def main() -> int:
         sys.stderr.write(f"ERROR: {exc}\n")
         return exc.code
 
+    # Record from completion, not from before the canary: a run that took
+    # seconds would otherwise back-date next_retry (retrying sooner than
+    # intended) and validated_at (inviting an early re-validation).
+    finished_at = time.time()
     for name, reason in rejected:
-        quarantine.record_failure(state, name, reason, now)
+        quarantine.record_failure(state, name, reason, finished_at)
     for name in accepted:
         quarantine.record_success(state, name)
-    state["validated_at"] = now
+    state["validated_at"] = finished_at
     quarantine.save(state_path, state)
 
     for name, reason in rejected:
