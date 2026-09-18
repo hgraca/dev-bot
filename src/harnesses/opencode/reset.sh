@@ -264,6 +264,29 @@ for k in data.get('mcp', {}):
         print(k)
 " 2>/dev/null)
     fi
+
+    # Dynamic runtime manifests (<name>.mcp.json / <name>-*.mcp.json) written
+    # by the module's own init and merged append-only by init.sh's
+    # _register_dynamic_mcps. They are regular files (not symlinks) and no
+    # canonical mcp.json exists to key the prune above on (jetbrains declares
+    # none) — so without this a disabled module's server stays registered.
+    for dyn_manifest in "${OPENCODE_DIR}/${disabled_name}.mcp.json" "${OPENCODE_DIR}/${disabled_name}-"*.mcp.json; do
+      [[ -f "${dyn_manifest}" ]] || continue
+
+      if [[ -f "${REMOVE_MCP_PY}" ]]; then
+        while IFS= read -r dyn_key; do
+          [[ -n "${dyn_key}" ]] || continue
+          if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
+            | grep -q "\"${dyn_key}\""; then
+            python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${dyn_key}" 2>/dev/null || true
+            _ok "${disabled_name}: removed dynamic MCP '${dyn_key}' (module disabled)"
+          fi
+        done < <(jq -r 'keys[]' "${dyn_manifest}" 2>/dev/null)
+      fi
+
+      rm -f "${dyn_manifest}"
+      _ok "${disabled_name}: removed $(basename "${dyn_manifest}") (module disabled)"
+    done
   done < <(echo "${_disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
   unset REMOVE_PLUGIN_PY
 fi

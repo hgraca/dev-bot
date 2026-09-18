@@ -339,8 +339,16 @@ PY_EOF
 
   # Dynamic manifests written by module inits (e.g. jetbrains detects the
   # runtime port). Same mcpServers shape as the claudecode runtime config.
+  # A disabled module's init did not run, so a leftover manifest is stale and
+  # must not be wired (reset.sh also prunes it).
   for dyn_file in "${PROJECT_DIR}/.claude/"*.mcp.json; do
     [[ -f "${dyn_file}" ]] || continue
+
+    if _devbot_manifest_owner_disabled "$(basename "${dyn_file}")" "${disabled_modules}"; then
+      _skip "$(basename "${dyn_file}"): owning module disabled — not wiring"
+      continue
+    fi
+
     python3 -c "
 import json
 with open('${tmp_servers}') as f:

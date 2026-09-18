@@ -735,6 +735,37 @@ print(json.dumps(sorted(disabled)))
 ' 2>/dev/null || echo "[]"
 }
 
+# ── Dynamic MCP manifest ownership ────────────────────────────────────────────
+#
+# _devbot_manifest_owner_disabled <manifest-basename> <disabled-names>
+#
+# A module init may emit a runtime MCP manifest its harness applies:
+# .opencode/<name>.mcp.json (opencode) or .claude/<name>.mcp.json (claudecode),
+# per ADR harness-agnostic-module-init. A module owning several servers prefixes
+# them with its name: <name>-<detail>.mcp.json (datasources).
+#
+# Echo nothing; exit 0 when a module in <disabled-names> (newline-separated)
+# owns the manifest, 1 when none does or the basename is not a *.mcp.json
+# manifest. Ownership is exact-or-hyphen-prefixed: "<name>.mcp.json" and
+# "<name>-<detail>.mcp.json" belong to <name>; a bare prefix without the
+# hyphen ("toolsx" vs "tools") is not a match.
+_devbot_manifest_owner_disabled() {
+  local base="$1"
+  local disabled_names="$2"
+  local stem="${base%.mcp.json}"
+  [[ "${stem}" != "${base}" ]] || return 1
+
+  local name
+  while IFS= read -r name; do
+    [[ -n "${name}" ]] || continue
+    if [[ "${stem}" == "${name}" || "${stem}" == "${name}-"* ]]; then
+      return 0
+    fi
+  done <<< "${disabled_names}"
+
+  return 1
+}
+
 # ── External modules (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_external_modules

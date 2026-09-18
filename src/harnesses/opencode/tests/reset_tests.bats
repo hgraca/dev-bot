@@ -349,3 +349,84 @@ print('PLAYWRIGHT-KEPT:OK')
   refute_output --partial "nothing to reset"
   assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
 }
+
+# ── dynamic runtime manifests (module emits, harness merges) ────────────────
+# A module init writes .opencode/<name>.mcp.json for init-time values (jetbrains'
+# detected IDE port); _register_dynamic_mcps merges it append-only. That file is
+# a regular file, not a symlink, and a module declaring no canonical
+# mcp.json/plugin.opencode.json has no path into the disabled-module prune above
+# (jetbrains declares neither) — so disabling it left both the manifest and its
+# opencode.jsonc key live across every reinit.
+
+_write_dynamic_manifest_fixture() {
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "modules": {
+    "opencode": true,
+    "jetbrains": false
+  }
+}
+JSONC_EOF
+
+  # Keep .opencode/ non-empty: reset prunes empty dirs, and an empty .opencode/
+  # would make the second reset exit before the block under test.
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  # Owned by the disabled module.
+  cat > "${SANDBOX_DIR}/.opencode/jetbrains.mcp.json" <<'JSON_EOF'
+{"jetbrains": {"type": "remote", "url": "http://127.0.0.1:64442/stream", "enabled": true}}
+JSON_EOF
+
+  # Owner not disabled — must survive (guards against over-pruning).
+  cat > "${SANDBOX_DIR}/.opencode/other.mcp.json" <<'JSON_EOF'
+{"other": {"type": "local", "command": ["other-mcp"]}}
+JSON_EOF
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "jetbrains": {"type": "remote", "url": "http://127.0.0.1:64442/stream", "enabled": true},
+    "other": {"type": "local", "command": ["other-mcp"]}
+  }
+}
+JSONC_EOF
+}
+
+@test "D8: reset removes a disabled module's dynamic manifest and its MCP key" {
+  _write_dynamic_manifest_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  refute [ -e "${SANDBOX_DIR}/.opencode/jetbrains.mcp.json" ]
+  assert [ -e "${SANDBOX_DIR}/.opencode/other.mcp.json" ]
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'jetbrains' not in mcp, mcp
+assert 'other' in mcp, mcp
+print('D8-DYNAMIC-PRUNE:OK')
+"
+  assert_success
+  grep -qF 'D8-DYNAMIC-PRUNE:OK' <<< "$output" || fail "disabled module's dynamic manifest not pruned"
+}
+
+@test "D8: second reset is byte-idempotent (dynamic manifest prune)" {
+  _write_dynamic_manifest_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  local after_first
+  after_first="$(cat "${SANDBOX_DIR}/opencode.jsonc")"
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  refute_output --partial "nothing to reset"
+  assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
+}

@@ -210,3 +210,44 @@ print('hooks cleared')
   # Non-dispatcher dev-bot symlink is still removed.
   refute [ -e "${SANDBOX_DIR}/.claude/agents/devbot" ]
 }
+
+# ── dynamic runtime manifests (module emits, harness merges) ────────────────
+# A module init writes .claude/<name>.mcp.json for init-time values
+# (jetbrains' detected IDE port); _wire_mcp merges it into .mcp.json. That
+# manifest is a regular file, not a symlink, and it has no canonical mcp.json to
+# key the .mcp.json prune on — so disabling the module left it on disk, and
+# _wire_mcp re-wired its server on every reinit.
+
+_write_dynamic_manifest_fixture() {
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "modules": {
+    "claudecode": true,
+    "jetbrains": false
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.claude/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.claude/agents/user-agent.md"
+
+  # Owned by the disabled module.
+  cat > "${SANDBOX_DIR}/.claude/jetbrains.mcp.json" <<'JSON_EOF'
+{"mcpServers": {"jetbrains": {"type": "http", "url": "http://127.0.0.1:64442/stream", "enabled": true}}}
+JSON_EOF
+
+  # Owner not disabled — must survive (guards against over-pruning).
+  cat > "${SANDBOX_DIR}/.claude/other.mcp.json" <<'JSON_EOF'
+{"mcpServers": {"other": {"type": "stdio", "command": "other-mcp"}}}
+JSON_EOF
+}
+
+@test "D8: reset removes a disabled module's dynamic manifest, keeps others" {
+  _write_dynamic_manifest_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  refute [ -e "${SANDBOX_DIR}/.claude/jetbrains.mcp.json" ]
+  assert [ -e "${SANDBOX_DIR}/.claude/other.mcp.json" ]
+}

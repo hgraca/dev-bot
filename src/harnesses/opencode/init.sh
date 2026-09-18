@@ -390,9 +390,22 @@ _register_dynamic_mcps() {
   local merge_script="${DEV_BOT_ROOT}/src/_shared/merge_mcp_jsonc.py"
   [[ -f "${merge_script}" ]] || return 0
 
+  # A disabled module's init did not run, so any manifest it still owns is
+  # stale — registering it would resurrect a server the user turned off. The
+  # manifest itself is pruned by reset.sh; this gate also covers init called
+  # without a preceding reset.
+  local disabled_names
+  disabled_names=$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null \
+    | jq -r '.[]' 2>/dev/null || true)
+
   local manifest key def
   for manifest in "${PROJECT_DIR}/.opencode/"*.mcp.json; do
     [[ -f "${manifest}" ]] || continue
+
+    if _devbot_manifest_owner_disabled "$(basename "${manifest}")" "${disabled_names}"; then
+      _skip "$(basename "${manifest}"): owning module disabled — not registering"
+      continue
+    fi
 
     key=$(jq -r 'keys[0]' "${manifest}" 2>/dev/null || true)
     [[ -z "${key}" || "${key}" == "null" ]] && continue

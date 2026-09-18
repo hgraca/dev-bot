@@ -149,6 +149,24 @@ done
 # Some modules (tools-mcp) create MCP wrapper symlinks at the root
 _reset_symlinks_in_dir "${CLAUDE_DIR}"
 
+# ── Remove dynamic MCP manifests of disabled modules ────────────────────────
+# A module init emits .claude/<name>.mcp.json (e.g. jetbrains' runtime port)
+# and _wire_mcp merges it into .mcp.json. The manifest is a regular file, so
+# the symlink sweep above leaves it, and the .mcp.json prune below keys on
+# canonical mcp.json manifests only — so a disabled module's manifest survived
+# and _wire_mcp re-wired its server on every reinit. The .mcp.json key needs no
+# explicit removal here: init regenerates .mcp.json from scratch, skipping the
+# manifests this block deletes.
+disabled_name=""
+while IFS= read -r disabled_name; do
+  [[ -n "${disabled_name}" ]] || continue
+  for dyn_manifest in "${CLAUDE_DIR}/${disabled_name}.mcp.json" "${CLAUDE_DIR}/${disabled_name}-"*.mcp.json; do
+    [[ -f "${dyn_manifest}" ]] || continue
+    rm -f "${dyn_manifest}"
+    _ok "${disabled_name}: removed $(basename "${dyn_manifest}") (module disabled)"
+  done
+done < <(echo "${_disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
+
 # ── Remove .mcp.json module-managed MCP servers ────────────────────────────
 MCP_CONFIG="${PROJECT_DIR}/.mcp.json"
 if [[ -f "${MCP_CONFIG}" ]]; then
