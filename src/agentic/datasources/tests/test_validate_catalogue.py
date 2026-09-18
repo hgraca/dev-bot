@@ -93,7 +93,7 @@ class TestValidate(unittest.TestCase):
         accepted, rejected = validate(catalogue, canary)
 
         self.assertEqual(sorted(accepted), ["a", "b"])
-        self.assertEqual([name for name, _ in rejected], ["bad"])
+        self.assertEqual([name for name, _, _ in rejected], ["bad"])
         self.assertEqual(rejected[0][1], "refused")
         # It re-validates the reduced candidate, never the original again.
         self.assertEqual(canary.calls, [["a", "b", "bad"], ["a", "b"]])
@@ -105,7 +105,19 @@ class TestValidate(unittest.TestCase):
         accepted, rejected = validate(catalogue, canary)
 
         self.assertEqual(list(accepted), ["b"])
-        self.assertEqual([name for name, _ in rejected], ["a", "c"])
+        self.assertEqual([name for name, *_ in rejected], ["a", "c"])
+
+    def test_a_blocked_canary_marks_the_rejection(self):
+        def canary(candidate):
+            if "bad" in candidate:
+                return CanaryResult(
+                    accepted=False, culprit="bad", error="refused", blocked=True
+                )
+            return CanaryResult(accepted=True)
+
+        _, rejected = validate({"bad": {}, "good": {}}, canary)
+
+        self.assertTrue(rejected[0][2])
 
     def test_returns_empty_when_every_source_fails(self):
         catalogue = {"a": {}, "b": {}}
@@ -295,6 +307,23 @@ class TestDockerCanaryLifecycle(unittest.TestCase):
         self.assertFalse(result.accepted)
         self.assertIn("did not return", result.error or "")
         self.assertTrue(self._removed(fake))
+
+    def test_a_blocked_host_is_flagged_from_the_whole_log(self):
+        # The 1129 marker is on a different line than the extracted culprit, so
+        # scanning only the reason would miss it.
+        fake = FakeDocker(
+            inspect="false",
+            logs=(
+                'WARN "earlier: Error 1129, host is blocked because of many connection errors"\n'
+                'ERROR "unable to initialize source \\"prod\\": refused"'
+            ),
+        )
+
+        result = self._canary(fake)
+
+        self.assertEqual(result.culprit, "prod")
+        self.assertTrue(result.blocked)
+        self.assertNotIn("1129", result.error or "")
 
 
 class TestIsReady(unittest.TestCase):

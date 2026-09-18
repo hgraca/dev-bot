@@ -103,19 +103,23 @@ def due_names(state: dict, now: float) -> list:
     )
 
 
-def record_failure(state: dict, name: str, reason: str, now: float) -> None:
+def record_failure(
+    state: dict, name: str, reason: str, now: float, blocked=None
+) -> None:
+    """Park a failed source. `blocked` overrides the reason-based detection.
+
+    Callers that hold the raw driver output pass `blocked` explicitly, so a
+    MariaDB 1129 wrapped across log lines still parks for the long delay.
+    """
     entry = state["sources"].get(name, {})
     fails = int(entry.get("fails", 0)) + 1
-    blocked = is_blocked(reason)
-    if blocked:
-        delay = BLOCKED_DELAY
-    else:
-        delay = min(BASE_DELAY * (2 ** (fails - 1)), MAX_DELAY)
+    is_block = is_blocked(reason) if blocked is None else bool(blocked)
+    delay = BLOCKED_DELAY if is_block else min(BASE_DELAY * (2 ** (fails - 1)), MAX_DELAY)
     state["sources"][name] = {
         "fails": fails,
         "next_retry": now + delay,
         "reason": reason or "",
-        "blocked": blocked,
+        "blocked": is_block,
     }
 
 

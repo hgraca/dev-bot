@@ -91,6 +91,7 @@ class CanaryResult:
     culprit: Optional[str] = None
     error: Optional[str] = None
     output: str = ""
+    blocked: bool = False
 
 
 def parse_culprit(output: str) -> Optional[str]:
@@ -129,8 +130,8 @@ def redact(text: str) -> str:
 
 def validate(
     catalogue: dict, run_canary: Callable[[dict], CanaryResult]
-) -> Tuple[dict, List[Tuple[str, str]]]:
-    """Return (accepted catalogue, [(rejected name, reason), ...]).
+) -> Tuple[dict, List[Tuple[str, str, bool]]]:
+    """Return (accepted catalogue, [(rejected name, reason, blocked), ...]).
 
     `run_canary(candidate)` must run the oracle against a candidate and report
     the result; injecting it is what makes this unit-testable without docker.
@@ -138,7 +139,7 @@ def validate(
     catalogue size — it can never spin.
     """
     candidate = dict(catalogue)
-    rejected: List[Tuple[str, str]] = []
+    rejected: List[Tuple[str, str, bool]] = []
     max_rounds = len(catalogue) + 1
 
     for _ in range(max_rounds):
@@ -160,7 +161,7 @@ def validate(
 
         reason = result.error or "toolbox could not initialize it"
         del candidate[result.culprit]
-        rejected.append((result.culprit, reason))
+        rejected.append((result.culprit, reason, result.blocked))
 
     # Unreachable while every round deletes a source, but kept as a guard in
     # case the bound above is ever changed.
@@ -296,6 +297,9 @@ def docker_canary(
                 culprit=culprit,
                 error=redact(culprit_reason(output)),
                 output=output,
+                # Scan the WHOLE log: a wrapped MariaDB 1129 would not be in the
+                # one-line reason extracted above.
+                blocked=quarantine.is_blocked(output),
             )
         return CanaryResult(
             accepted=False,
@@ -420,14 +424,14 @@ def main() -> int:
     # seconds would otherwise back-date next_retry (retrying sooner than
     # intended) and validated_at (inviting an early re-validation).
     finished_at = time.time()
-    for name, reason in rejected:
-        quarantine.record_failure(state, name, reason, finished_at)
+    for name, reason, blocked in rejected:
+        quarantine.record_failure(state, name, reason, finished_at, blocked=blocked)
     for name in accepted:
         quarantine.record_success(state, name)
     state["validated_at"] = finished_at
     quarantine.save(state_path, state)
 
-    for name, reason in rejected:
+    for name, reason, _blocked in rejected:
         sys.stderr.write(f"INFO: datasource '{name}' is not usable — {reason}\n")
     sys.stdout.write(json.dumps(accepted, indent=2) + "\n")
     return EXIT_OK

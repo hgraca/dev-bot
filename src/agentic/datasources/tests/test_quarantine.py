@@ -107,6 +107,15 @@ class TestQuarantine(unittest.TestCase):
         self.assertTrue(entry["blocked"])
         self.assertEqual(entry["next_retry"], self.now + quarantine.BLOCKED_DELAY)
 
+    def test_an_explicit_blocked_flag_overrides_the_reason(self):
+        # The caller holds the raw driver log, where a wrapped 1129 may sit on
+        # another line than the extracted reason.
+        quarantine.record_failure(self.state, "db", "refused", self.now, blocked=True)
+
+        entry = self.state["sources"]["db"]
+        self.assertTrue(entry["blocked"])
+        self.assertEqual(entry["next_retry"], self.now + quarantine.BLOCKED_DELAY)
+
     def test_a_success_clears_the_entry(self):
         quarantine.record_failure(self.state, "db", "refused", self.now)
 
