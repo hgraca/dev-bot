@@ -30,6 +30,10 @@ GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 # overridden to a sandbox root in tests. Same reasoning as
 # _devbot_get_disabled_modules.
 READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
+# The oracle: runs the real toolbox against the candidate and keeps only the
+# sources it can actually initialize. Overridable so the unit tests stay
+# docker-free (they point this at a stub); production uses the real validator.
+VALIDATOR="${DATASOURCES_VALIDATOR:-${MODULE_DIR}/validate_catalogue.py}"
 
 main() {
   mkdir -p "${RUNTIME_DIR}"
@@ -79,12 +83,15 @@ main() {
   # datasource's env vars must already be in the container when it later
   # becomes available, because a changed env list forces a container recreate —
   # which would defeat hot-reload activation.
-  # Two stages: available_catalogue.py emits the usable subset as JSON, which
-  # render_tools_yaml.py turns into the multi-document YAML toolbox reads.
-  # `pipefail` (set above) means a failing filter aborts before the mv, so a
-  # bad render can never replace a working config.
+  # Three stages: available_catalogue.py emits the env-complete subset as JSON;
+  # validate_catalogue.py asks the real toolbox which of those it can actually
+  # initialize, and emits the survivors; render_tools_yaml.py turns those into
+  # the multi-document YAML toolbox reads. `pipefail` (set above) means a
+  # failing stage aborts before anything is written, so a bad render can never
+  # replace a working config.
   printf '%s' "${catalogue}" |
     python3 "${MODULE_DIR}/available_catalogue.py" |
+    python3 "${VALIDATOR}" |
     python3 "${MODULE_DIR}/render_tools_yaml.py" > "${CONF_DIR}/tools.yaml.tmp"
 
   # Never replace a published config with an empty one. All declared sources

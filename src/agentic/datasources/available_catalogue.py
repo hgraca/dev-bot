@@ -1,38 +1,33 @@
 #!/usr/bin/env python3
 # =============================================================================
 # src/agentic/datasources/available_catalogue.py
-# Filter the datasources catalogue down to what is usable RIGHT NOW.
+# Filter the datasources catalogue down to the ones complete enough to hand to
+# the gateway.
 #
-# A datasource is usable when every required env var is set and its server is
-# reachable. The gateway's config may contain only usable datasources, because
-# toolbox initialises sources eagerly and treats an env-incomplete or
-# unreachable source as a FATAL startup error — which would take the whole
-# shared gateway, and with it every project's database access, down.
+# A datasource is a CANDIDATE when every required env var is set. That is a
+# pure environment check — this script opens no connections.
 #
-# Filtering at render time is what makes activation lazy. The gateway starts
-# with whatever is up; when a database comes up later the refresh poller
-# re-renders and toolbox hot-reloads the new source into the running server.
-# A reload that still turns out unavailable is rejected by toolbox while the
-# previous config keeps serving, so this filter can never break the gateway:
-# the worst case is a stale tool list.
+# It deliberately does NOT decide reachability. dev-bot used to probe with a
+# bare TCP connect+close, which made MariaDB count handshake aborts per client
+# host until `max_connect_errors` blocked the host (Error 1129) — the
+# 2026-09-18 outage. Reachability is decided by validate_catalogue.py, which
+# runs the real toolbox against the candidate: the only program that talks to a
+# database is the one that will actually serve it, and its connections are
+# authenticated — so they neither poison a host nor keep a blocked one alive.
 #
 # Usage:
-#     available_catalogue.py [--timeout SECONDS] < catalogue.json
+#     available_catalogue.py < catalogue.json
 #
-# The usable subset is written as JSON on stdout; each rejection, with its
-# reason, is written to stderr so the poller's log shows why a datasource is
-# missing.
+# The candidate subset is written as JSON on stdout; each rejection, with its
+# reason, goes to stderr so the poller log shows why a datasource is missing.
 # =============================================================================
 
 import json
 import os
-import socket
 import sys
 from typing import NoReturn
 
 from render_tools_yaml import env_ref, field_parts, load_catalogue, validated_items
-
-DEFAULT_TIMEOUT = 1.0
 
 
 def fail(message: str) -> NoReturn:
@@ -78,104 +73,34 @@ def _field_values(spec: dict, engine: dict, environ) -> tuple:
     return values, missing
 
 
-def _uri_host_port(uri: str) -> tuple:
-    """(host, port) from a connection URI — `mongodb://user:pw@h1:27017,h2/db?opts`.
+def is_candidate(spec: dict, engine: dict, environ) -> tuple:
+    """(candidate, reason) — the environment is the only judge here.
 
-    Only what a reachability probe needs: credentials, further replica-set
-    hosts and options are dropped, and the first host is used. An SRV URI
-    carries no port, so 27017 is assumed — which is where SRV records resolve
-    in practice.
+    Whether toolbox can actually initialize the datasource is not decidable
+    from the environment; validate_catalogue.py answers that against the real
+    gateway.
     """
-    if not isinstance(uri, str) or "://" not in uri:
-        return None, None
-    rest = uri.split("://", 1)[1].split("/", 1)[0].split("?", 1)[0]
-    if "@" in rest:
-        rest = rest.rsplit("@", 1)[1]
-    host, _, port = rest.split(",", 1)[0].partition(":")
-    return (host or None), (port or "27017")
-
-
-def _address_host_port(address, default_port="") -> tuple:
-    """(host, port) from a `host:port` endpoint — redis' `address` field."""
-    if not isinstance(address, str) or not address.strip():
-        return None, None
-    host, sep, port = address.rpartition(":")
-    if not sep:
-        return address, default_port
-    return (host or None), (port or default_port)
-
-
-def _tcp_reachable(host: str, port: str, timeout: float) -> bool:
-    # The gateway shares the host's network namespace (compose.tpl.yml), so a
-    # host-side connect tests exactly what the container can reach. No
-    # address translation is needed — or wanted: a translation would let the
-    # probe and the container disagree about reachability.
-    try:
-        port_number = int(port)
-    except (TypeError, ValueError):
-        return False
-    try:
-        with socket.create_connection((host, port_number), timeout=timeout):
-            return True
-    except OSError:
-        return False
-
-
-def probe(name: str, spec: dict, engine: dict, timeout: float, environ) -> tuple:
-    """Returns (usable, reason)."""
-    values, missing = _field_values(spec, engine, environ)
+    _values, missing = _field_values(spec, engine, environ)
     if missing:
         return False, f"required env not set: {', '.join(sorted(missing))}"
-
-    probe_spec = engine.get("probe", {"kind": "none"})
-    kind = probe_spec["kind"]
-    if kind == "none":
-        # No server to reach (sqlite): being resolvable is enough.
-        return True, "usable"
-
-    if kind == "tcp-uri":
-        uri_field = probe_spec["field"]
-        host, port = _uri_host_port(values.get(uri_field))
-        if not host:
-            return False, f"no host in '{uri_field}'"
-    elif kind == "tcp-address":
-        address_field = probe_spec["field"]
-        host, port = _address_host_port(
-            values.get(address_field), probe_spec.get("default_port", "")
-        )
-        if not host:
-            return False, f"no host in '{address_field}'"
-    else:
-        host = str(values.get(probe_spec["host"]) or "")
-        port = str(values.get(probe_spec["port"]) or "")
-
-    if _tcp_reachable(host, port, timeout):
-        return True, "usable"
-    return False, f"unreachable: {host}:{port}"
+    return True, "usable"
 
 
 def main():
-    timeout = DEFAULT_TIMEOUT
-    argv = sys.argv[1:]
-    if argv:
-        if argv[0] != "--timeout" or len(argv) < 2:
-            fail("usage: available_catalogue.py [--timeout SECONDS]")
-        try:
-            timeout = float(argv[1])
-        except ValueError:
-            fail(f"invalid timeout: {argv[1]}")
+    if sys.argv[1:]:
+        fail("usage: available_catalogue.py (reads the catalogue on stdin, takes no arguments)")
 
     catalogue = load_catalogue(sys.stdin.read())
 
-    usable = {}
+    candidates = {}
     for name, spec, engine in validated_items(catalogue):
-        is_usable, reason = probe(name, spec, engine, timeout, os.environ)
-        if is_usable:
-            usable[name] = spec
+        ok, reason = is_candidate(spec, engine, os.environ)
+        if ok:
+            candidates[name] = spec
         else:
             sys.stderr.write(f"INFO: datasource '{name}' is not usable — {reason}\n")
 
-    sys.stdout.write(json.dumps(usable, indent=2) + "\n")
+    sys.stdout.write(json.dumps(candidates, indent=2) + "\n")
 
 
 if __name__ == "__main__":

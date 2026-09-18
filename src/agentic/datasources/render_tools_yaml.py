@@ -48,10 +48,6 @@ ENGINES = {
             "type": "mysql-execute-sql",
             "description": "Execute a single SQL statement.",
         },
-        # How to tell whether this datasource is usable right now — see
-        # available_catalogue.py. Host/port name the engine's OWN variables
-        # (not the operator's, and not the YAML field names).
-        "probe": {"kind": "tcp", "host": "MYSQL_HOST", "port": "MYSQL_PORT"},
     },
     "postgres": {
         "type": "postgres",
@@ -68,11 +64,6 @@ ENGINES = {
             "type": "postgres-execute-sql",
             "description": "Execute a single SQL statement.",
         },
-        "probe": {
-            "kind": "tcp",
-            "host": "POSTGRES_HOST",
-            "port": "POSTGRES_PORT",
-        },
     },
     # SQLite is here for the same reason it is useful to operators: it needs no
     # server and no credentials, which makes it the only engine the module can
@@ -87,9 +78,6 @@ ENGINES = {
             "type": "sqlite-execute-sql",
             "description": "Execute a single SQL statement.",
         },
-        # No probe: sqlite is a file, needs no server, and is never
-        # unreachable. Being env-complete is all it takes to be usable.
-        "probe": {"kind": "none"},
     },
     "mongodb": {
         "type": "mongodb",
@@ -130,9 +118,6 @@ ENGINES = {
             "      type: map",
             "      description: One aggregation stage, for example a $match filter.",
         ],
-        # The URI has to be parsed for host:port — there is no host/port field.
-        # Like the tcp probe above, `field` names the engine VARIABLE.
-        "probe": {"kind": "tcp-uri", "field": "MONGODB_URI"},
     },
     "redis": {
         "type": "redis",
@@ -169,7 +154,6 @@ ENGINES = {
             "      type: string",
             "      description: One token — the command name first, then its arguments.",
         ],
-        "probe": {"kind": "tcp-address", "field": "REDIS_ADDRESS", "default_port": "6379"},
     },
 }
 # Datasource names become tool and toolset names, and a URL path segment.

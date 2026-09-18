@@ -40,6 +40,17 @@ setup() {
   RUNTIME_DIR="${SANDBOX_DIR}/storage/datasources"
   CONF_DIR="${RUNTIME_DIR}/conf"
 
+  # The real validator runs the pinned toolbox image in docker. These tests
+  # stay docker-free, so the oracle is stubbed by default with a passthrough —
+  # test_validate_catalogue.py covers its logic and test-render.sh's own tests
+  # cover the wiring; the real container path is the committed e2e.
+  VALIDATOR_STUB="${SANDBOX_DIR}/validator-passthrough.py"
+  cat > "${VALIDATOR_STUB}" <<'PY'
+import json, sys
+json.dump(json.load(sys.stdin), sys.stdout)
+PY
+  export DATASOURCES_VALIDATOR="${VALIDATOR_STUB}"
+
   # Nothing may leak in from the developer's own shell, or a test that expects
   # a variable to be missing would pass for the wrong reason.
   unset SQLITE_DATABASE MYSQL_HOST MYSQL_USER MYSQL_PASSWORD DB_PASS
@@ -113,8 +124,19 @@ _sqlite_catalogue() {
   refute_output --partial "kind: source"
 }
 
-@test "render: an unreachable host keeps the datasource out" {
-  # Port 1 is reserved and never listening, so the connect is refused at once.
+@test "render: a source the oracle rejects is dropped" {
+  # The oracle decides what toolbox can initialize. Stub it to drop "db" and
+  # report a reason, exactly as validate_catalogue.py does.
+  local drop="${SANDBOX_DIR}/validator-drop-db.py"
+  cat > "${drop}" <<'PY'
+import json, sys
+data = json.load(sys.stdin)
+data.pop("db", None)
+sys.stderr.write("INFO: datasource 'db' is not usable — unreachable: 127.0.0.1:1\n")
+json.dump(data, sys.stdout)
+PY
+  export DATASOURCES_VALIDATOR="${drop}"
+
   _catalogue '{ "db": { "type": "mysql", "env": { "MYSQL_HOST": "127.0.0.1", "MYSQL_PORT": "1", "MYSQL_USER": "root", "MYSQL_PASSWORD": "p" } } }'
 
   run bash "${MODULE_DIR}/render.sh"
@@ -250,6 +272,31 @@ _sqlite_catalogue() {
 
   run cat "${CONF_DIR}/tools.yaml"
   assert_output --partial "No datasources configured"
+}
+
+@test "render: a validator failure keeps the last good config" {
+  # An oracle that cannot run (docker down, inconclusive, or a render bug) must
+  # abort the render and leave the published config alone.
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  local before
+  before="$(cat "${CONF_DIR}/tools.yaml")"
+
+  local boom="${SANDBOX_DIR}/validator-boom.py"
+  cat > "${boom}" <<'PY'
+import sys
+sys.stderr.write("ERROR: docker not found; cannot validate the catalogue\n")
+sys.exit(2)
+PY
+  export DATASOURCES_VALIDATOR="${boom}"
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_failure
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output "${before}"
 }
 
 # ── init.sh ──────────────────────────────────────────────────────────────────

@@ -53,12 +53,15 @@ _start_poller() {
 main() {
   _info "datasources — up"
 
-  bash "${MODULE_DIR}/render.sh"
-
+  # Docker first: rendering now validates the candidate by running the pinned
+  # toolbox, so a machine without docker cannot render — and has no gateway to
+  # render for.
   if ! command -v docker >/dev/null 2>&1; then
     _warn "docker not found — datasources gateway not started."
     return 0
   fi
+
+  bash "${MODULE_DIR}/render.sh"
 
   # Compose interpolates ${VAR} from THIS process's environment, and it only
   # auto-reads a .env beside the compose file — which is storage/, not the repo
