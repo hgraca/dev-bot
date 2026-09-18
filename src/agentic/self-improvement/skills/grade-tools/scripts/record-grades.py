@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import fcntl
 import os
 import sys
 import tempfile
@@ -40,6 +41,7 @@ SKILL_PREFIX = "skill:"
 GRADE_MIN, GRADE_MAX = 0, 5
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 TMP_PREFIX = ".tools-grades-"
+LOCK_SUFFIX = ".lock"
 
 
 def _fail(prefix: str, message: str, code: int) -> NoReturn:
@@ -181,26 +183,36 @@ def main(argv: list[str]) -> int:
     if args.file is None and not os.path.isdir(os.path.join(args.project_root, ".agents")):
         _fail("ERROR", f"{args.project_root} is not a dev-bot project (no .agents/)", 2)
     csv_path = args.file or os.path.join(args.project_root, *DEFAULT_CSV_PARTS)
+    os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
 
     session = resolve_session_id(args.session_id)
     now = args.now or datetime.now().strftime(DATETIME_FORMAT)
 
-    header, rows = read_existing(csv_path)
-    tool_columns = [column for column in header if column not in BASE_COLUMNS]
-    for column, grade in tools.items():
-        if grade >= 1 and column not in tool_columns:
-            tool_columns.append(column)
+    # Exclusive lock around the whole read-modify-write: write_csv is atomic
+    # per write, but two concurrent appends would otherwise read the same base
+    # and the later os.replace would silently drop the earlier row.
+    with open(csv_path + LOCK_SUFFIX, "w", encoding="utf-8") as lock_fh:
+        fcntl.flock(lock_fh, fcntl.LOCK_EX)
+        try:
+            header, rows = read_existing(csv_path)
+            tool_columns = [column for column in header if column not in BASE_COLUMNS]
+            for column, grade in tools.items():
+                if grade >= 1 and column not in tool_columns:
+                    tool_columns.append(column)
 
-    new_row: dict[str, object] = {
-        "session_id": next_row_id(rows, session),
-        "datetime": now,
-        "notes": " ".join(args.notes.split()),
-    }
-    for column in tool_columns:
-        new_row[column] = tools.get(column, 0)
-    rows.append(new_row)
+            new_row: dict[str, object] = {
+                "session_id": next_row_id(rows, session),
+                "datetime": now,
+                "notes": " ".join(args.notes.split()),
+            }
+            for column in tool_columns:
+                new_row[column] = tools.get(column, 0)
+            rows.append(new_row)
 
-    write_csv(csv_path, canonical_columns(tool_columns), rows)
+            write_csv(csv_path, canonical_columns(tool_columns), rows)
+        finally:
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
+
     if args.verbose:
         print(f"{csv_path}: appended {new_row['session_id']}")
     return 0
