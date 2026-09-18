@@ -73,20 +73,20 @@ class TestValidate(unittest.TestCase):
     def test_accepts_a_working_catalogue(self):
         catalogue = {"a": {}, "b": {}}
 
-        accepted, reasons = validate(catalogue, FakeCanary())
+        accepted, rejected = validate(catalogue, FakeCanary())
 
         self.assertEqual(accepted, catalogue)
-        self.assertEqual(reasons, [])
+        self.assertEqual(rejected, [])
 
     def test_drops_a_named_source_and_retries(self):
         catalogue = {"a": {}, "bad": {}, "b": {}}
         canary = FakeCanary(reject=["bad"])
 
-        accepted, reasons = validate(catalogue, canary)
+        accepted, rejected = validate(catalogue, canary)
 
         self.assertEqual(sorted(accepted), ["a", "b"])
-        self.assertEqual(len(reasons), 1)
-        self.assertIn("bad", reasons[0])
+        self.assertEqual([name for name, _ in rejected], ["bad"])
+        self.assertEqual(rejected[0][1], "refused")
         # It re-validates the reduced candidate, never the original again.
         self.assertEqual(canary.calls, [["a", "b", "bad"], ["a", "b"]])
 
@@ -94,25 +94,26 @@ class TestValidate(unittest.TestCase):
         catalogue = {"a": {}, "b": {}, "c": {}}
         canary = FakeCanary(reject=["a", "c"])
 
-        accepted, reasons = validate(catalogue, canary)
+        accepted, rejected = validate(catalogue, canary)
 
         self.assertEqual(list(accepted), ["b"])
-        self.assertEqual(len(reasons), 2)
+        self.assertEqual([name for name, _ in rejected], ["a", "c"])
 
     def test_returns_empty_when_every_source_fails(self):
         catalogue = {"a": {}, "b": {}}
 
-        accepted, reasons = validate(catalogue, FakeCanary(reject=["a", "b"]))
+        accepted, rejected = validate(catalogue, FakeCanary(reject=["a", "b"]))
 
         self.assertEqual(accepted, {})
-        self.assertEqual(len(reasons), 2)
+        self.assertEqual(len(rejected), 2)
 
     def test_empty_catalogue_needs_no_canary(self):
         canary = FakeCanary()
 
-        accepted, reasons = validate({}, canary)
+        accepted, rejected = validate({}, canary)
 
         self.assertEqual(accepted, {})
+        self.assertEqual(rejected, [])
         self.assertEqual(canary.calls, [])
 
     def test_the_reason_carries_the_toolbox_error(self):
@@ -125,9 +126,9 @@ class TestValidate(unittest.TestCase):
                 )
             return CanaryResult(accepted=True)
 
-        _, reasons = validate({"bad": {}, "good": {}}, canary)
+        _, rejected = validate({"bad": {}, "good": {}}, canary)
 
-        self.assertIn("connection refused", reasons[0])
+        self.assertIn("connection refused", rejected[0][1])
 
     def test_a_failure_without_a_culprit_is_fatal(self):
         # A config toolbox cannot even parse is a render bug, not a source to

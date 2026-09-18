@@ -23,8 +23,11 @@
 # happens within the timeout the result is INCONCLUSIVE and no config is
 # published.
 #
+# A source the oracle rejects is parked in quarantine.json and retried on a
+# backoff rather than on every poll — see quarantine.py.
+#
 # Usage:
-#     validate_catalogue.py [--timeout SECONDS] < catalogue.json
+#     validate_catalogue.py [--timeout SECONDS] [--state FILE] < catalogue.json
 #
 # The accepted subset is written as JSON on stdout; each dropped source, with
 # the reason toolbox gave, is written to stderr.
@@ -44,6 +47,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
+import quarantine
 from render_tools_yaml import effective_env_names, load_catalogue, render
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -106,8 +110,8 @@ def culprit_reason(output: str) -> str:
 
 def validate(
     catalogue: dict, run_canary: Callable[[dict], CanaryResult]
-) -> Tuple[dict, List[str]]:
-    """Return (accepted catalogue, rejection reasons).
+) -> Tuple[dict, List[Tuple[str, str]]]:
+    """Return (accepted catalogue, [(rejected name, reason), ...]).
 
     `run_canary(candidate)` must run the oracle against a candidate and report
     the result; injecting it is what makes this unit-testable without docker.
@@ -115,16 +119,16 @@ def validate(
     catalogue size — it can never spin.
     """
     candidate = dict(catalogue)
-    reasons: List[str] = []
+    rejected: List[Tuple[str, str]] = []
     max_rounds = len(catalogue) + 1
 
     for _ in range(max_rounds):
         if not candidate:
-            return {}, reasons
+            return {}, rejected
 
         result = run_canary(candidate)
         if result.accepted:
-            return candidate, reasons
+            return candidate, rejected
 
         if result.culprit is None:
             raise ValidationError(
@@ -135,11 +139,9 @@ def validate(
                 f"toolbox named '{result.culprit}', which is not in the catalogue"
             )
 
+        reason = result.error or "toolbox could not initialize it"
         del candidate[result.culprit]
-        reasons.append(
-            f"INFO: datasource '{result.culprit}' is not usable — "
-            f"{result.error or 'toolbox could not initialize it'}"
-        )
+        rejected.append((result.culprit, reason))
 
     raise ValidationError("toolbox kept rejecting the config; giving up")
 
@@ -270,21 +272,47 @@ def load_versions(path: str) -> dict:
     return values
 
 
-def main() -> int:
+def _parse_args(argv: List[str]) -> Tuple[float, str]:
+    """(timeout, state path). Fails loudly on anything unexpected."""
     timeout = DEFAULT_TIMEOUT
-    argv = sys.argv[1:]
-    if argv:
-        if argv[0] != "--timeout" or len(argv) < 2:
-            sys.stderr.write("ERROR: usage: validate_catalogue.py [--timeout SECONDS]\n")
-            return EXIT_INPUT
-        try:
-            timeout = float(argv[1])
-        except ValueError:
-            sys.stderr.write(f"ERROR: invalid timeout: {argv[1]}\n")
-            return EXIT_INPUT
+    state_path = quarantine.default_state_path()
+    index = 0
+    while index < len(argv):
+        flag = argv[index]
+        if flag in ("--timeout", "--state") and index + 1 < len(argv):
+            value = argv[index + 1]
+            if flag == "--timeout":
+                try:
+                    timeout = float(value)
+                except ValueError:
+                    raise ValidationError(f"invalid timeout: {value}", EXIT_INPUT)
+            else:
+                state_path = value
+            index += 2
+        else:
+            raise ValidationError(
+                "usage: validate_catalogue.py [--timeout SECONDS] [--state FILE]",
+                EXIT_INPUT,
+            )
+    return timeout, state_path
+
+
+def main() -> int:
+    try:
+        timeout, state_path = _parse_args(sys.argv[1:])
+    except ValidationError as exc:
+        sys.stderr.write(f"ERROR: {exc}\n")
+        return exc.code
 
     catalogue = load_catalogue(sys.stdin.read())
+    state = quarantine.load(state_path)
+    now = time.time()
+
+    # Nothing declared, or nothing survived the env filter: record the
+    # validation time so the poller settles, and emit the empty catalogue.
     if not catalogue:
+        state["validated_at"] = now
+        quarantine.save(state_path, state)
         sys.stdout.write("{}\n")
         return EXIT_OK
 
@@ -301,6 +329,21 @@ def main() -> int:
         sys.stderr.write("ERROR: docker not found; cannot validate the catalogue\n")
         return EXIT_INFRA
 
+    # A parked source is neither offered nor re-tested until its backoff
+    # expires — that is what keeps a down database from costing a container run
+    # on every poll.
+    held = quarantine.held_names(state, now)
+    for name in held:
+        reason = state["sources"][name].get("reason", "")
+        sys.stderr.write(f"INFO: datasource '{name}' is quarantined — {reason}\n")
+    attempt = {name: spec for name, spec in catalogue.items() if name not in held}
+
+    if not attempt:
+        state["validated_at"] = now
+        quarantine.save(state_path, state)
+        sys.stdout.write("{}\n")
+        return EXIT_OK
+
     data_dir = os.path.join(DEV_BOT_ROOT, "storage", "datasources", "data")
 
     def run_canary(candidate: dict) -> CanaryResult:
@@ -314,13 +357,20 @@ def main() -> int:
         )
 
     try:
-        accepted, reasons = validate(catalogue, run_canary)
+        accepted, rejected = validate(attempt, run_canary)
     except ValidationError as exc:
         sys.stderr.write(f"ERROR: {exc}\n")
         return exc.code
 
-    for reason in reasons:
-        sys.stderr.write(reason + "\n")
+    for name, reason in rejected:
+        quarantine.record_failure(state, name, reason, now)
+    for name in accepted:
+        quarantine.record_success(state, name)
+    state["validated_at"] = now
+    quarantine.save(state_path, state)
+
+    for name, reason in rejected:
+        sys.stderr.write(f"INFO: datasource '{name}' is not usable — {reason}\n")
     sys.stdout.write(json.dumps(accepted, indent=2) + "\n")
     return EXIT_OK
 
