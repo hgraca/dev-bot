@@ -461,8 +461,8 @@ describe("createKindResolver", () => {
 // injects it so skills writing per-session artefacts can identify the session.
 
 describe("sessionEnvVars", () => {
-  test("maps a session id to the DEVBOT_SESSION_ID env var", () => {
-    expect(sessionEnvVars("ses_123")).toEqual({ DEVBOT_SESSION_ID: "ses_123" })
+  test("maps a session id to the DEV_BOT_SESSION_ID env var", () => {
+    expect(sessionEnvVars("ses_123")).toEqual({ DEV_BOT_SESSION_ID: "ses_123" })
   })
 
   test("returns an empty object when the session id is missing or blank", () => {

@@ -207,15 +207,15 @@ class RecordGradesTest(unittest.TestCase):
     # ── session id resolution ────────────────────────────────────────────────
 
     def test_explicit_session_id_wins(self) -> None:
-        with patch.dict(os.environ, {"DEVBOT_SESSION_ID": "ses_env"}):
+        with patch.dict(os.environ, {"DEV_BOT_SESSION_ID": "ses_env"}):
             self.assertEqual(record_grades.resolve_session_id("ses_explicit"), "ses_explicit")
 
     def test_env_session_id_is_used(self) -> None:
-        with patch.dict(os.environ, {"DEVBOT_SESSION_ID": "ses_env"}):
+        with patch.dict(os.environ, {"DEV_BOT_SESSION_ID": "ses_env"}):
             self.assertEqual(record_grades.resolve_session_id(None), "ses_env")
 
     def test_missing_session_id_falls_back_with_a_warning(self) -> None:
-        env = {k: v for k, v in os.environ.items() if k != "DEVBOT_SESSION_ID"}
+        env = {k: v for k, v in os.environ.items() if k != "DEV_BOT_SESSION_ID"}
         stderr = io.StringIO()
         with patch.dict(os.environ, env, clear=True), contextlib.redirect_stderr(stderr):
             resolved = record_grades.resolve_session_id(None)

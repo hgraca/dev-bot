@@ -79,10 +79,10 @@ python3 <skill-base-dir>/scripts/record-grades.py \
   --skill <name>=<grade>
 ```
 
-The script reads `$DEVBOT_SESSION_ID`, resolves the next `<session-id>-NN` id, adds any new tool
+The script reads `$DEV_BOT_SESSION_ID`, resolves the next `<session-id>-NN` id, adds any new tool
 column (backfilling earlier rows with `0`), and rewrites `.agents/logs/tools-grades.csv` atomically.
 
-If it prints `WARN: DEVBOT_SESSION_ID is not set`, the harness did not export the session id — the
+If it prints `WARN: DEV_BOT_SESSION_ID is not set`, the harness did not export the session id — the
 row is grouped under `unknown` until opencode is restarted with the shell.env hook loaded.
 
 ## MUST NOT

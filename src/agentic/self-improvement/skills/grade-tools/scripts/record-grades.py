@@ -33,7 +33,7 @@ from typing import NoReturn
 
 BASE_COLUMNS = ["session_id", "datetime", "notes"]
 DEV_TOOLS = "devbot-tools"
-SESSION_ID_ENV = "DEVBOT_SESSION_ID"
+SESSION_ID_ENV = "DEV_BOT_SESSION_ID"
 UNKNOWN_SESSION = "unknown"
 DEFAULT_CSV_PARTS = (".agents", "logs", "tools-grades.csv")
 MCP_PREFIX = "mcp:"
