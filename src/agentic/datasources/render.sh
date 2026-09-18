@@ -25,6 +25,13 @@ RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
 # directory (not the file) is what makes a replaced config visible: a
 # bind-mounted file keeps pointing at the inode `mv` replaced.
 CONF_DIR="${RUNTIME_DIR}/conf"
+# The previously-published config, kept OUTSIDE the conf dir on purpose:
+# toolbox loads every .yaml/.yml in that dir, and a rollback target must never
+# be one of them.
+CONF_BACKUP="${RUNTIME_DIR}/tools.yaml.last"
+# The gateway's fixed container name (compose.tpl.yml), used to confirm that a
+# published config was actually accepted.
+CONTAINER_NAME="dev-bot-datasources-mcp"
 GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 # The reader lives beside this module, never under DEV_BOT_ROOT — which is
 # overridden to a sandbox root in tests. Same reasoning as
@@ -34,6 +41,34 @@ READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
 # sources it can actually initialize. Overridable so the unit tests stay
 # docker-free (they point this at a stub); production uses the real validator.
 VALIDATOR="${DATASOURCES_VALIDATOR:-${MODULE_DIR}/validate_catalogue.py}"
+
+# Confirm the running gateway accepted the reload. toolbox rejects a config it
+# cannot initialize and keeps serving the previous one — but it retries the bad
+# file on every poll interval, so a rejected publish is undone straight away
+# rather than left for the gateway to hammer.
+#
+# Skipped when the gateway is not running: install.sh and up.sh render before
+# the container exists.
+_verify_reload() {
+  if ! docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null | grep -qx true; then
+    return 0
+  fi
+  # toolbox reloads on its --poll-interval (5s); give it one pass to react.
+  sleep "${DATASOURCES_RELOAD_WAIT:-6}"
+  local rejection
+  rejection="$(docker logs --since 7s "${CONTAINER_NAME}" 2>&1 |
+    grep 'unable to initialize source' | tail -1 || true)"
+  if [[ -z "${rejection}" ]]; then
+    return 0
+  fi
+  if [[ -f "${CONF_BACKUP}" ]]; then
+    cp "${CONF_BACKUP}" "${CONF_DIR}/tools.yaml"
+    _error "datasources — the gateway rejected the new config; rolled back. ${rejection}"
+  else
+    _error "datasources — the gateway rejected the new config with no previous one to restore. ${rejection}"
+  fi
+  return 1
+}
 
 main() {
   mkdir -p "${RUNTIME_DIR}"
@@ -111,6 +146,21 @@ main() {
     return 1
   fi
 
+  # Nothing changed: skipping the publish also skips the reload — and the
+  # verification wait — it would trigger.
+  if [[ -f "${CONF_DIR}/tools.yaml" ]] &&
+    cmp -s "${CONF_DIR}/tools.yaml.tmp" "${CONF_DIR}/tools.yaml"; then
+    rm -f "${CONF_DIR}/tools.yaml.tmp"
+    mv "${RUNTIME_DIR}/docker-compose.yml.tmp" "${RUNTIME_DIR}/docker-compose.yml"
+    _skip "datasources — ${available}/${declared} datasource(s) usable; config unchanged"
+    return 0
+  fi
+
+  # Keep the previous config so a rejected reload can be undone.
+  if [[ -f "${CONF_DIR}/tools.yaml" ]]; then
+    cp "${CONF_DIR}/tools.yaml" "${CONF_BACKUP}"
+  fi
+
   # IN PLACE, never `mv`: toolbox tracks the config file by inode, so a
   # replaced file is invisible to its reloader and the change would silently
   # never take effect. `cp` truncates the destination, preserving the inode.
@@ -119,6 +169,10 @@ main() {
   cp "${CONF_DIR}/tools.yaml.tmp" "${CONF_DIR}/tools.yaml"
   rm -f "${CONF_DIR}/tools.yaml.tmp"
   mv "${RUNTIME_DIR}/docker-compose.yml.tmp" "${RUNTIME_DIR}/docker-compose.yml"
+
+  if ! _verify_reload; then
+    return 1
+  fi
 
   _ok "datasources — ${available}/${declared} datasource(s) usable, rendered into ${RUNTIME_DIR}"
 }

@@ -51,6 +51,19 @@ json.dump(json.load(sys.stdin), sys.stdout)
 PY
   export DATASOURCES_VALIDATOR="${VALIDATOR_STUB}"
 
+  # No unit test may touch a real docker daemon or the developer's running
+  # gateway: stub `docker` so the post-publish check sees "not running" and
+  # skips. The rollback test prepends its own stub to override this.
+  FAKEBIN="${SANDBOX_DIR}/fakebin"
+  mkdir -p "${FAKEBIN}"
+  cat > "${FAKEBIN}/docker" <<'SH'
+#!/usr/bin/env bash
+[[ "$1" == "inspect" ]] && echo false
+exit 0
+SH
+  chmod +x "${FAKEBIN}/docker"
+  export PATH="${FAKEBIN}:${PATH}"
+
   # Nothing may leak in from the developer's own shell, or a test that expects
   # a variable to be missing would pass for the wrong reason.
   unset SQLITE_DATABASE MYSQL_HOST MYSQL_USER MYSQL_PASSWORD DB_PASS
@@ -228,6 +241,36 @@ PY
   assert_output "${before}"
 }
 
+@test "poller: a due re-validation re-renders with no set change" {
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  # An ancient last-validation makes a re-validation due on every cycle.
+  printf '{"sources": {}, "validated_at": 0}\n' > "${RUNTIME_DIR}/quarantine.json"
+
+  DATASOURCES_REFRESH_INTERVAL=1 DATASOURCES_VALIDATE_INTERVAL=1 \
+    timeout 2 bash "${MODULE_DIR}/poller.sh" >/dev/null 2>&1 || true
+
+  run grep -c 'revalidating:' "${RUNTIME_DIR}/refresh.log"
+  assert_success
+}
+
+@test "poller: without state it re-renders only when the set changes" {
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  DATASOURCES_REFRESH_INTERVAL=1 timeout 2 bash "${MODULE_DIR}/poller.sh" >/dev/null 2>&1 || true
+
+  # It did run (a first pass always renders)...
+  run grep -c 'usable:' "${RUNTIME_DIR}/refresh.log"
+  assert_success
+  # ...but nothing asked for a re-validation, so it never re-rendered.
+  run grep -c 'revalidating:' "${RUNTIME_DIR}/refresh.log"
+  assert_failure
+}
+
 @test "render: an all-unusable catalogue keeps the last good config" {
   # Declared datasources that are all unusable is a transient failure, not a
   # removal: publishing the empty render would take every toolset down.
@@ -294,6 +337,53 @@ PY
 
   run bash "${MODULE_DIR}/render.sh"
   assert_failure
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output "${before}"
+}
+
+@test "render: an unchanged config is not republished" {
+  # Re-publishing identical content makes toolbox reload for nothing, and pays
+  # the verification wait on every poll.
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+  assert_output --partial "1/1"
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+  assert_output --partial "config unchanged"
+}
+
+@test "render: a config the gateway rejects is rolled back" {
+  # Fake docker: a gateway that is running and refuses the reload. The previous
+  # config must be restored — toolbox would otherwise retry the bad file on
+  # every poll interval.
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  local before
+  before="$(cat "${CONF_DIR}/tools.yaml")"
+
+  # A changed catalogue, so the render has something to publish.
+  _catalogue '{ "scratch": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/other.db" } } }'
+
+  local fake="${SANDBOX_DIR}/rejectbin"
+  mkdir -p "${fake}"
+  cat > "${fake}/docker" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  inspect) echo true ;;
+  logs) echo 'WARN "unable to initialize reloaded configs: unable to initialize source \"x\": boom"' ;;
+esac
+exit 0
+SH
+  chmod +x "${fake}/docker"
+
+  run env PATH="${fake}:${PATH}" DATASOURCES_RELOAD_WAIT=0 bash "${MODULE_DIR}/render.sh"
+  assert_failure
+  assert_output --partial "rolled back"
 
   run cat "${CONF_DIR}/tools.yaml"
   assert_output "${before}"

@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
 # src/agentic/datasources/poller.sh
-# Keeps the gateway's tools.yaml in step with what is actually reachable.
+# Keeps the gateway's tools.yaml in step with what the oracle accepts.
 #
-# Toolbox initialises sources eagerly and treats an unreachable or
-# env-incomplete source as a FATAL error, so the config may only ever contain
-# usable datasources. This loop re-checks availability and re-renders when the
-# usable set changes; toolbox hot-reloads the rewritten config, so a database
-# that comes up after `devbot up` activates WITHOUT a restart, and one that
-# goes away simply drops out.
+# Toolbox initialises sources eagerly and treats a source it cannot initialize
+# as a FATAL error, so the config may only ever contain sources it accepts.
+# render.sh decides that against the real toolbox; this loop decides WHEN to
+# re-render:
+#
+#   * the env-complete candidate set changed, or
+#   * quarantine.py says a re-validation is due — a parked source's backoff
+#     elapsed, or the periodic re-validation came round (which is how a source
+#     that died while published is eventually pruned, and one that came back is
+#     re-added).
+#
+# toolbox hot-reloads the rewritten config, so a database that comes up after
+# `devbot up` activates WITHOUT a restart, and one that goes away drops out.
 #
 # Started detached by up.sh, stopped by down.sh through refresh.pid.
-# It renders only when the usable set actually changes, so the log stays
-# readable instead of gaining a line every interval.
 set -euo pipefail
 
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -68,13 +73,15 @@ main() {
   # A sentinel, so the first pass always renders and syncs the config to
   # reality rather than trusting whatever is on disk.
   local previous="__unset__"
+  local state_file="${RUNTIME_DIR}/quarantine.json"
+  local validate_interval="${DATASOURCES_VALIDATE_INTERVAL:-300}"
 
   while true; do
     local now
     if ! now="$(_available_names)"; then
-      # The catalogue could not be read, so the usable set is unknown. Publish
-      # nothing and leave the last good config serving. Log once per failure
-      # spell rather than every cycle.
+      # The catalogue could not be read, so the candidate set is unknown.
+      # Publish nothing and leave the last good config serving. Log once per
+      # failure spell rather than every cycle.
       if [[ "${previous}" != "__read_failed__" ]]; then
         printf '%s WARN: could not read the datasource catalogue; leaving the config untouched\n' \
           "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${LOG}"
@@ -83,9 +90,26 @@ main() {
       sleep "${INTERVAL}"
       continue
     fi
+
+    local changed=0
     if [[ "${now}" != "${previous}" ]]; then
+      changed=1
+    fi
+    # No state file yet means no render has validated anything: the set-change
+    # path already covers the first render.
+    local due=0
+    if [[ -f "${state_file}" ]] &&
+      python3 "${MODULE_DIR}/quarantine.py" needs-revalidation "${state_file}" "${validate_interval}"; then
+      due=1
+    fi
+
+    if (( changed || due )); then
       {
-        printf '%s usable: [%s]\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${now}"
+        if (( changed )); then
+          printf '%s usable: [%s]\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${now}"
+        else
+          printf '%s revalidating: [%s]\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${now}"
+        fi
         bash "${MODULE_DIR}/render.sh" || printf 'render failed\n'
       } >> "${LOG}" 2>&1
       previous="${now}"
