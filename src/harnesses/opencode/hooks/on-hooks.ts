@@ -16,7 +16,7 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { defaultHookLog, createFileEditGate, createKindResolver, createRewriteEchoTracker, guardDecision, resolveGlobalConfigPath, routeHookOutput, type HookDecl } from "../on-hooks-utils"
+import { defaultHookLog, createFileEditGate, createKindResolver, createRewriteEchoTracker, guardDecision, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -304,6 +304,10 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
           }
         }
       }
+    },
+
+    "shell.env": async (input: any, output: any) => {
+      Object.assign(output.env, sessionEnvVars(input?.sessionID))
     },
   }
 }

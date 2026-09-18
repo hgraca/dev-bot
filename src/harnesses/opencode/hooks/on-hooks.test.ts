@@ -18,6 +18,7 @@ import {
   guardDecision,
   resolveGlobalConfigPath,
   routeHookOutput,
+  sessionEnvVars,
   type HookDecl,
 } from "../on-hooks-utils"
 
@@ -452,5 +453,20 @@ describe("createKindResolver", () => {
     resolver.onWatcher("a.yml", "change")
     await wait(5)
     expect(kinds.sort()).toEqual(["a:change", "b:add"])
+  })
+})
+
+// ── sessionEnvVars (grade-tools: name the session a row belongs to) ─────────
+// opencode does not export the session id to the AI's shell. The shell.env hook
+// injects it so skills writing per-session artefacts can identify the session.
+
+describe("sessionEnvVars", () => {
+  test("maps a session id to the DEVBOT_SESSION_ID env var", () => {
+    expect(sessionEnvVars("ses_123")).toEqual({ DEVBOT_SESSION_ID: "ses_123" })
+  })
+
+  test("returns an empty object when the session id is missing or blank", () => {
+    expect(sessionEnvVars(undefined)).toEqual({})
+    expect(sessionEnvVars("   ")).toEqual({})
   })
 })

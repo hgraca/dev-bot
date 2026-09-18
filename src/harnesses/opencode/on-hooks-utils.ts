@@ -300,3 +300,13 @@ export function guardDecision(result: CommandResult, blocking?: boolean): { bloc
   }
   return { blocked: false, message: "" }
 }
+
+// opencode does not export the session id to the AI's shell, so a skill that
+// writes per-session artefacts (grade-tools) cannot name its own session. The
+// adapter injects it via the shell.env hook (verified to reach bash tool calls).
+export const SESSION_ID_ENV = "DEVBOT_SESSION_ID"
+
+export function sessionEnvVars(sessionID?: string): Record<string, string> {
+  const id = sessionID?.trim()
+  return id ? { [SESSION_ID_ENV]: id } : {}
+}
