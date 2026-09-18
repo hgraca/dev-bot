@@ -87,6 +87,23 @@ main() {
     python3 "${MODULE_DIR}/available_catalogue.py" |
     python3 "${MODULE_DIR}/render_tools_yaml.py" > "${CONF_DIR}/tools.yaml.tmp"
 
+  # Never replace a published config with an empty one. All declared sources
+  # being unusable at once is a transient failure, not a removal — publishing
+  # the empty render would take every toolset down. Two other cases are NOT
+  # that failure and must still publish empty: the first render (nothing
+  # published yet) so boot and the poller keep working, and a deliberate
+  # removal (nothing declared) so it cannot deadlock.
+  local declared previous_sources available
+  declared="$(printf '%s' "${catalogue}" | python3 -c \
+    'import json, sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)"
+  previous_sources="$(grep -c '^kind: source' "${CONF_DIR}/tools.yaml" 2>/dev/null || true)"
+  available="$(grep -c '^kind: source' "${CONF_DIR}/tools.yaml.tmp" || true)"
+  if (( declared > 0 && available == 0 && previous_sources > 0 )); then
+    rm -f "${CONF_DIR}/tools.yaml.tmp" "${RUNTIME_DIR}/docker-compose.yml.tmp"
+    _error "datasources — all ${declared} declared datasource(s) are unusable; keeping the last good config"
+    return 1
+  fi
+
   # IN PLACE, never `mv`: toolbox tracks the config file by inode, so a
   # replaced file is invisible to its reloader and the change would silently
   # never take effect. `cp` truncates the destination, preserving the inode.
@@ -96,10 +113,6 @@ main() {
   rm -f "${CONF_DIR}/tools.yaml.tmp"
   mv "${RUNTIME_DIR}/docker-compose.yml.tmp" "${RUNTIME_DIR}/docker-compose.yml"
 
-  local declared available
-  declared="$(printf '%s' "${catalogue}" | python3 -c \
-    'import json, sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)"
-  available="$(grep -c '^kind: source' "${CONF_DIR}/tools.yaml" || true)"
   _ok "datasources — ${available}/${declared} datasource(s) usable, rendered into ${RUNTIME_DIR}"
 }
 

@@ -206,6 +206,52 @@ _sqlite_catalogue() {
   assert_output "${before}"
 }
 
+@test "render: an all-unusable catalogue keeps the last good config" {
+  # Declared datasources that are all unusable is a transient failure, not a
+  # removal: publishing the empty render would take every toolset down.
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  local before
+  before="$(cat "${CONF_DIR}/tools.yaml")"
+
+  # Declared but env-incomplete (no SQLITE_DATABASE), so nothing is usable.
+  _catalogue '{ "scratch": { "type": "sqlite", "env": {} } }'
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_failure
+  assert_output --partial "unusable"
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output "${before}"
+}
+
+@test "render: an explicitly empty catalogue still publishes the empty config" {
+  # The no-regression guard must not deadlock a deliberate removal.
+  _catalogue '{}'
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output --partial "No datasources configured"
+}
+
+@test "render: removing every datasource publishes the empty config" {
+  # A removal AFTER a good config was published must still take effect.
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  _catalogue '{}'
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output --partial "No datasources configured"
+}
+
 # ── init.sh ──────────────────────────────────────────────────────────────────
 
 @test "init: a selected datasource gets a harness manifest" {
