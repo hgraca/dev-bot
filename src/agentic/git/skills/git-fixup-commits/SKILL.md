@@ -9,6 +9,12 @@ When a change corrects a commit that is unique to the current branch, record it 
 
 The core distinction: **creating a fixup commit is always safe** — it only adds a commit. **Squashing it rewrites history** — it does not.
 
+## Branch scope (MUST)
+
+- **Feature branch** — correcting a commit unique to the branch MUST be recorded as a fixup against that commit. This is the default workflow, not an option.
+- **Default branch** (`main`, `master`, …) — never record a fixup. Its commits are shared; a correction there is a normal follow-up commit.
+- **Before merging** — fixup commits MUST be squashed into their targets first; they must never reach the default branch. Projects commonly enforce this with a CI check that fails a PR whose branch still contains `fixup!`/`squash!`/`amend!` commits, so an unsquashed fixup is expected to fail that check until it is folded in.
+
 ## Workflow
 
 ### 1. Identify the target commit

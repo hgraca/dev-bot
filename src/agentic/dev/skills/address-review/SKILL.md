@@ -36,10 +36,10 @@ If the user requests a revised proposal for some comments, present a new round c
 Once **all** comments have a decision, and not before:
 
 1. **No code change needed** (per comment) — do not touch the code; the resolution is the explanation itself.
-2. **Code change needed** (per comment) — make the change and commit. One commit per comment addressed. Use a descriptive commit message referencing the review comment.
+2. **Code change needed** (per comment) — make the change and commit it. One commit per comment addressed.
 3. **Record each decision locally** — an issue is resolved only after the user decided it and the code (if any) is committed.
 
-When committing fixes to the changeset, use atomic fixup commits.
+When a comment's fix corrects code that a commit unique to the current feature branch introduced, record it as an **atomic fixup commit** against that commit (`git commit --fixup=<sha>`), one fixup per comment. On a feature branch this is the required form, not a preference — the fixups are squashed into their targets before the branch is merged (see `devbot:git-fixup-commits`). Never record a fixup on the default branch; a correction there is a normal follow-up commit. Do not bundle multiple comments into one commit.
 
 ## MUST
 
@@ -49,7 +49,7 @@ When committing fixes to the changeset, use atomic fixup commits.
 - Defer all implementation until every comment has a decision — never write code or commit mid-discussion.
 - Obtain an explicit decision from the user on each comment.
 - Keep all actions local — never post replies, comments, or resolutions back to the review source.
-- Make atomic fixup commits — keep changes atomic, squashable to the original commit, and traceable.
+- Record each comment fix as an atomic fixup commit against the branch commit that introduced the code — keep it atomic, squashable into its target, and traceable. On a feature branch this is required; squash before merging, and never record a fixup on the default branch.
 
 ## MUST NOT
 
