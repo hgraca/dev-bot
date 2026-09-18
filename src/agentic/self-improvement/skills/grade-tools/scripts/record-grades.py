@@ -152,6 +152,16 @@ def canonical_columns(tool_columns: list[str]) -> list[str]:
     return BASE_COLUMNS + sorted(tool_columns, key=tool_sort_key)
 
 
+def target_mode(path: str) -> int:
+    # mkstemp creates the temp file 0600; restore an existing file's mode, or
+    # the umask default for a new one, so the CSV is never left owner-only.
+    if os.path.exists(path):
+        return os.stat(path).st_mode & 0o7777
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o644 & ~umask
+
+
 def write_csv(path: str, columns: list[str], rows: list[dict[str, object]]) -> None:
     dirpath = os.path.dirname(path) or "."
     os.makedirs(dirpath, exist_ok=True)
@@ -169,6 +179,7 @@ def write_csv(path: str, columns: list[str], rows: list[dict[str, object]]) -> N
                     else:
                         values.append(row.get(column, ""))
                 writer.writerow(values)
+        os.chmod(tmp, target_mode(path))
         os.replace(tmp, path)
     except OSError as exc:
         if os.path.exists(tmp):

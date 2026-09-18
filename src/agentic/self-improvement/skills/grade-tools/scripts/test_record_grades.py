@@ -14,6 +14,7 @@ import csv
 import importlib.util
 import io
 import os
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -149,6 +150,26 @@ class RecordGradesTest(unittest.TestCase):
         self.run_main()
 
         self.assertEqual(self.read_rows()[1][2], "")
+
+    # ── file permissions ─────────────────────────────────────────────────────
+
+    def test_new_csv_permissions_follow_umask_not_mkstemp(self) -> None:
+        self.run_main("--skill", "git-report=1")
+
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = stat.S_IMODE(os.stat(self.csv_path).st_mode)
+        self.assertEqual(mode, 0o644 & ~umask)
+
+    def test_existing_file_permissions_are_preserved(self) -> None:
+        os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
+        with open(self.csv_path, "w", encoding="utf-8") as fh:
+            fh.write("session_id,datetime,notes\n")
+        os.chmod(self.csv_path, 0o640)
+
+        self.run_main("--skill", "git-report=1")
+
+        self.assertEqual(stat.S_IMODE(os.stat(self.csv_path).st_mode), 0o640)
 
     # ── validation ───────────────────────────────────────────────────────────
 
