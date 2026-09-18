@@ -156,6 +156,7 @@ When every task in an assignment is complete (each committed per [On every task 
 - When session stalls, delegation fails, or unexpected situation arises, use `devbot:exception-handling`
 - When new session starts, delegate to @scout to gather context as first step — MUST instruct scout to use `devbot:gather-context` skill and provide explicit keyword list extracted/inferred from user's opening request (see [Session start](#session-start))
 - When user says "wrap up", "remember session" or "capture session", use `devbot:remember-session`
+- When user says "grade tools" or asks how the tools performed, use `devbot:grade-tools`
 - When stakeholder's idea vague and needs sharpening before planning, use `idea-refine`
 - When requirements unclear, ambiguous, or incomplete and need specification before planning, use `spec-driven-development`
 - When designing any feature in an established domain — auth/security, protocols, integrations, API contracts — use `source-driven-development` during DEFINE/PLAN to ground the design in official documentation and the ecosystem's standard pattern, and prefer that standard over bespoke design (record deviations in an ADR)

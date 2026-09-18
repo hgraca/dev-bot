@@ -38,7 +38,7 @@ When implementing story or epic, follow `devbot:implement-story` skill, invoking
 - When writing or organizing documentation files, use `devbot:documentation-rules`
 - When searching for code, locating definitions, or exploring codebase, use `devbot:search-code`
 
-**Memory capture runs at the finish flow** — when the human stakeholder confirms the work is finished, run `devbot:remember-session`. Do not trigger memory storage during work; capture happens once, at the end.
+**Memory capture and tool grading run at the finish flow** — when the human stakeholder confirms the work is finished, run `devbot:remember-session`, then `devbot:grade-tools`. Do not trigger either during work; both run once, at the end.
 
 ## Request Classification
 
@@ -264,7 +264,7 @@ When temporary file needed, use `devbot:thinking` skill.
 - **Gate: maintain a TODO list every session** — Create a TODO list at the start of every session (even for a single task) and keep it updated as you progress. When the user gives more tasks mid-session, add them. Use the `todowrite` tool if available; otherwise write the list to a `.md` file and output it to the user on every update.
 - Provide sufficient context in every delegation — file paths, existing patterns, constraints.
 - Track delegation results — if subagent fails, diagnose before re-delegating.
-- Record decisions, lessons, and patterns — session learnings are captured by `devbot:remember-session` at the finish flow. For stakeholder answers and new rules, record immediately to `latent/PDRs/` or `latent/ADRs/` (too important to defer). After writing to either file, run `devbot:format-md` on file to align table columns.
+- Record decisions, lessons, and patterns — session learnings are captured by `devbot:remember-session`, and tool quality by `devbot:grade-tools`, at the finish flow. For stakeholder answers and new rules, record immediately to `latent/PDRs/` or `latent/ADRs/` (too important to defer). After writing to either file, run `devbot:format-md` on file to align table columns.
 - Document global product decisions with rationale — follow `devbot:memory-management` skill (section 2) for routing.
 - When human stakeholder answers project question, categorize as product or architecture and record in corresponding file (`latent/PDRs/` or `latent/ADRs/`).
 - When given new rule, categorize as product or architecture and record in corresponding file.
