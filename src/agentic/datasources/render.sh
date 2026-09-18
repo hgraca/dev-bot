@@ -29,9 +29,6 @@ CONF_DIR="${RUNTIME_DIR}/conf"
 # toolbox loads every .yaml/.yml in that dir, and a rollback target must never
 # be one of them.
 CONF_BACKUP="${RUNTIME_DIR}/tools.yaml.last"
-# The gateway's fixed container name (compose.tpl.yml), used to confirm that a
-# published config was actually accepted.
-CONTAINER_NAME="dev-bot-datasources-mcp"
 GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 # The reader lives beside this module, never under DEV_BOT_ROOT — which is
 # overridden to a sandbox root in tests. Same reasoning as
@@ -41,6 +38,15 @@ READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
 # sources it can actually initialize. Overridable so the unit tests stay
 # docker-free (they point this at a stub); production uses the real validator.
 VALIDATOR="${DATASOURCES_VALIDATOR:-${MODULE_DIR}/validate_catalogue.py}"
+
+# The gateway's container name, read from the generated compose file so
+# compose.tpl.yml stays the single source of truth. Empty when there is no
+# compose file yet.
+_container_name() {
+  local compose="${RUNTIME_DIR}/docker-compose.yml"
+  [[ -f "${compose}" ]] || return 0
+  grep -m1 '^[[:space:]]*container_name:' "${compose}" | awk '{print $2}'
+}
 
 # Confirm the running gateway accepted the reload. toolbox rejects a config it
 # cannot initialize and keeps serving the previous one — but it retries the bad
@@ -55,23 +61,26 @@ VALIDATOR="${DATASOURCES_VALIDATOR:-${MODULE_DIR}/validate_catalogue.py}"
 # Skipped when the gateway is not running: install.sh and up.sh render before
 # the container exists.
 _verify_reload() {
-  if ! docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null | grep -qx true; then
+  local container
+  container="$(_container_name)"
+  [[ -n "${container}" ]] || return 0
+  if ! docker inspect -f '{{.State.Running}}' "${container}" 2>/dev/null | grep -qx true; then
     return 0
   fi
   local wait="${DATASOURCES_RELOAD_WAIT:-6}"
   sleep "${wait}"
-  if ! _reload_rejected; then
+  if ! _reload_rejected "${container}"; then
     return 0
   fi
   # One rejection may be a partial read of the in-place `cp`. If the file on
   # disk is good, the gateway's next retry succeeds and the rejections stop.
   sleep "${wait}"
-  if ! _reload_rejected; then
+  if ! _reload_rejected "${container}"; then
     return 0
   fi
 
   local rejection
-  rejection="$(docker logs --since "$(( wait + 1 ))s" "${CONTAINER_NAME}" 2>&1 |
+  rejection="$(docker logs --since "$(( wait + 1 ))s" "${container}" 2>&1 |
     grep 'unable to initialize source' | tail -1 || true)"
   if [[ -f "${CONF_BACKUP}" ]]; then
     cp "${CONF_BACKUP}" "${CONF_DIR}/tools.yaml"
@@ -85,7 +94,8 @@ _verify_reload() {
 # True when the gateway logged a source-initialization failure in the last
 # reload cycle.
 _reload_rejected() {
-  docker logs --since "$(( ${DATASOURCES_RELOAD_WAIT:-6} + 1 ))s" "${CONTAINER_NAME}" 2>&1 |
+  local container="$1"
+  docker logs --since "$(( ${DATASOURCES_RELOAD_WAIT:-6} + 1 ))s" "${container}" 2>&1 |
     grep -q 'unable to initialize source'
 }
 
@@ -100,6 +110,10 @@ main() {
     _error "datasources — another render is in progress; skipping this one"
     return 1
   fi
+
+  # A stage that aborts under `pipefail` leaves its .tmp behind; never leave a
+  # half-written artifact on disk.
+  trap 'rm -f "${CONF_DIR}/tools.yaml.tmp" "${RUNTIME_DIR}/docker-compose.yml.tmp"' EXIT
 
   # The availability filter must see the SAME environment the container gets.
   # Compose takes its values from the environment up.sh builds (which includes
