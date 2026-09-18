@@ -55,12 +55,16 @@ in credentials. So:
 
 ## When a datasource seems to be missing
 
-A datasource whose database is unreachable is deliberately **absent** from the
-gateway — toolbox refuses to start with an unreachable source, so it is left
-out and added when the server comes up (usually within ~10s). So:
+A datasource the gateway cannot initialize is deliberately **absent** — toolbox
+refuses to start with such a source, so it is left out and added when the server
+comes up. dev-bot does not probe with a connection of its own: it runs the real
+toolbox against the candidate and keeps only what that accepts, so a wrong
+credential or a blocked host is excluded too, not just a down database.
 
 - No tool for a database you expected usually means **the database is down**,
   not a misconfiguration. Boot the environment and retry.
+- A rejected source is retried on a backoff: within ~10s of a failure, growing
+  to ~5min while it stays down.
 - Reasons are logged to `<devbot-root>/storage/datasources/refresh.log`, and
   the gateway's own log shows config rejections.
 - Changes take effect on the next `devbot up`, which renders the config and

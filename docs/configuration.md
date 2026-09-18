@@ -394,8 +394,8 @@ the source with **no default schema** — one datasource then covers every datab
 on the instance, reachable by qualifying names
 (`SELECT ... FROM otherdb.sometable`). MongoDB is the exception: its aggregate
 tool requires a database, so one mongo datasource covers one database. A
-`mongodb+srv://` URI carries no port, so the reachability probe assumes
-**27017** — where SRV records resolve in practice.
+`mongodb+srv://` URI is resolved by the toolbox itself — dev-bot never parses
+the URI, so SRV records need no port assumption.
 
 `type` is `mysql` (MariaDB included), `postgres`, `sqlite`, `mongodb` or
 `redis`.
@@ -411,10 +411,13 @@ string is not the same as no AUTH.
 
 Two behaviours are worth knowing before relying on it:
 
-- **An unreachable database is left out**, and joins when it comes up. Toolbox
-  refuses to start against an unreachable source, so an unavailable one is
-  excluded rather than taking the whole gateway down with it. Reasons are logged
-  to `storage/datasources/refresh.log`.
+- **A database the gateway cannot initialize is left out**, and joins when it
+  comes up. dev-bot opens no database connections of its own: it runs the real
+  toolbox (the only DB client) against the declared sources and publishes only
+  the ones it accepts — so a down database, a missing credential or a blocked
+  host is excluded rather than taking the whole gateway down with it. A rejected
+  source is retried on a backoff (~10s after a failure, growing to ~5min).
+  Reasons are logged to `storage/datasources/refresh.log`.
 - **Nothing blocks writes.** A datasource is exactly as writable as the database
   user it is given — which is how one config serves a writable dev database and
   a read-only production one. Point production at a read-only user.
