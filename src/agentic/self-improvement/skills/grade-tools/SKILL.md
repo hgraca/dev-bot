@@ -30,9 +30,13 @@ without the reasoning behind it cannot drive that decision, so the `notes` colum
 
 ### Step 1 — Determine the slice
 
-If no `tools-grades` row exists for this session yet, the slice is the whole session so far;
-otherwise it is the work done since the previous row (the trigger prompt usually marks it). Grade
-that slice only.
+Resolve the session id and its last row:
+
+1. Read the session id from the shell: `echo "$DEV_BOT_SESSION_ID"` — if it is empty, the session id is `unknown`.
+2. Read `.agents/logs/tools-grades.csv` and take the highest row id starting with `<session-id>-`.
+
+If no such row exists, the slice is the whole session so far. Otherwise the slice is the work done
+after that row. Grade that slice only.
 
 ### Step 2 — Enumerate the tools used in the slice
 
