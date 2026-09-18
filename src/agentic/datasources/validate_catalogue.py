@@ -110,6 +110,23 @@ def culprit_reason(output: str) -> str:
     return ""
 
 
+# A rejection reason is driver text copied out of the toolbox log and then
+# written to refresh.log and quarantine.json. MongoDB carries its credentials
+# inside the URI, so mask credential-shaped fragments before anything persists.
+_URI_CREDENTIALS_RE = re.compile(
+    r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*://)(?P<user>[^:/@\s]+):(?P<secret>[^@/\s]+)@"
+)
+_PASSWORD_PARAM_RE = re.compile(r"(?i)\b(password|passwd|pwd)=\S+")
+
+
+def redact(text: str) -> str:
+    """Mask credentials a driver error may have echoed."""
+    if not text:
+        return ""
+    text = _URI_CREDENTIALS_RE.sub(r"\g<scheme>\g<user>:***@", text)
+    return _PASSWORD_PARAM_RE.sub(lambda match: f"{match.group(1)}=***", text)
+
+
 def validate(
     catalogue: dict, run_canary: Callable[[dict], CanaryResult]
 ) -> Tuple[dict, List[Tuple[str, str]]]:
@@ -273,12 +290,12 @@ def docker_canary(
             return CanaryResult(
                 accepted=False,
                 culprit=culprit,
-                error=culprit_reason(output),
+                error=redact(culprit_reason(output)),
                 output=output,
             )
         return CanaryResult(
             accepted=False,
-            error=output.strip()[-2000:] or "toolbox exited without a reason",
+            error=redact(output.strip()[-2000:]) or "toolbox exited without a reason",
             output=output,
         )
     finally:

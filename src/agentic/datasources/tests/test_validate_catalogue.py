@@ -25,6 +25,7 @@ from validate_catalogue import (  # noqa: E402
     _run,
     culprit_reason,
     parse_culprit,
+    redact,
     validate,
 )
 
@@ -163,6 +164,29 @@ class TestValidate(unittest.TestCase):
         validate(catalogue, FakeCanary(reject=["a"]))
 
         self.assertEqual(sorted(catalogue), ["a", "b"])
+
+
+class TestRedact(unittest.TestCase):
+    def test_masks_uri_credentials(self):
+        masked = redact("failed: mongodb://user:s3cr3t@db.example:27017/app")
+
+        self.assertNotIn("s3cr3t", masked)
+        self.assertIn("user:***@", masked)
+
+    def test_masks_password_parameters(self):
+        masked = redact("auth failed (password=hunter2 host=x)")
+
+        self.assertNotIn("hunter2", masked)
+        self.assertIn("password=***", masked)
+
+    def test_leaves_a_clean_reason_alone(self):
+        self.assertEqual(
+            redact("dial tcp 127.0.0.1:1: connection refused"),
+            "dial tcp 127.0.0.1:1: connection refused",
+        )
+
+    def test_empty_input(self):
+        self.assertEqual(redact(""), "")
 
 
 class TestRun(unittest.TestCase):
