@@ -721,6 +721,23 @@ img { max-width: 100%; height: auto; }
 
   .hero { padding: 4rem 0 3rem; }
 
+  /* The install command is wider than a phone viewport. Wrap it so the whole
+     command stays visible instead of hiding behind a horizontal scroll. */
+  .hero-install .hero-install-cmd-text {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  /* Anchor the copy icon to the first line of the wrapped command instead of
+     the vertical middle of the block. */
+  .hero-install .hero-install-cmd {
+    align-items: flex-start;
+  }
+
+  .hero-install-copy-status {
+    margin-top: .3rem;
+  }
+
   .feature-grid { grid-template-columns: 1fr; }
 
   .footer-inner {
