@@ -269,8 +269,6 @@ def docker_canary(
         deadline = time.monotonic() + timeout
         exited = False
         while time.monotonic() < deadline:
-            if _is_ready(port):
-                return CanaryResult(accepted=True)
             state = runner([docker, "inspect", "-f", "{{.State.Running}}", name])
             if state is None:
                 return CanaryResult(
@@ -280,6 +278,11 @@ def docker_canary(
             if state.returncode != 0 or state.stdout.strip() != "true":
                 exited = True
                 break
+            # Only trust /healthz once the container is confirmed running: the
+            # freed scratch port could otherwise be answered by an unrelated
+            # local process.
+            if _is_ready(port):
+                return CanaryResult(accepted=True)
             time.sleep(POLL_INTERVAL)
 
         if not exited:

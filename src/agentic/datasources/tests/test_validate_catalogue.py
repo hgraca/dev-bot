@@ -19,6 +19,7 @@ from unittest import mock
 MODULE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, MODULE_DIR)
 
+import validate_catalogue  # noqa: E402
 from validate_catalogue import (  # noqa: E402
     CanaryResult,
     ValidationError,
@@ -307,6 +308,17 @@ class TestDockerCanaryLifecycle(unittest.TestCase):
         self.assertFalse(result.accepted)
         self.assertIn("did not return", result.error or "")
         self.assertTrue(self._removed(fake))
+
+    def test_a_dead_container_is_not_accepted_even_when_readiness_answers(self):
+        # The freed scratch port could be answered by another process; a
+        # container that has exited must never be reported as accepted.
+        fake = FakeDocker(
+            inspect="false", logs='ERROR "unable to initialize source \\"x\\": refused"'
+        )
+        with mock.patch.object(validate_catalogue, "_is_ready", return_value=True):
+            result = self._canary(fake)
+
+        self.assertFalse(result.accepted)
 
     def test_a_blocked_host_is_flagged_from_the_whole_log(self):
         # The 1129 marker is on a different line than the extracted culprit, so
