@@ -52,9 +52,17 @@ main() {
 
   # read_jsonc.py prints nothing when the key is absent — a machine with no
   # datasources declared. The renderers treat that as an empty catalogue.
-  local catalogue="{}"
+  #
+  # A FAILED read is not the same thing. Swallowing it as "{}" is how a
+  # transient read error once replaced a good config with an empty one and took
+  # every toolset down. Abort instead — nothing is written, so the running
+  # gateway keeps serving the last good config.
+  local catalogue=""
   if [[ -f "${GLOBAL_CONFIG}" ]]; then
-    catalogue="$(python3 "${READER}" "${GLOBAL_CONFIG}" datasources 2>/dev/null || true)"
+    if ! catalogue="$(python3 "${READER}" "${GLOBAL_CONFIG}" datasources)"; then
+      _error "datasources — could not read the catalogue from ${GLOBAL_CONFIG}; keeping the last good config"
+      return 1
+    fi
   fi
   [[ -z "${catalogue}" || "${catalogue}" == "null" ]] && catalogue="{}"
 

@@ -32,9 +32,14 @@ READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
 # The usable datasource names, space-separated, in a stable order. Comparing
 # this string is what tells the loop whether anything actually changed.
 _available_names() {
-  local catalogue="{}"
+  local catalogue
   if [[ -f "${GLOBAL_CONFIG}" ]]; then
-    catalogue="$(python3 "${READER}" "${GLOBAL_CONFIG}" datasources 2>/dev/null || true)"
+    # A failed read returns non-zero so the caller skips the cycle. Treating it
+    # as an empty set is what let a transient read failure publish an empty
+    # config over a good one.
+    catalogue="$(python3 "${READER}" "${GLOBAL_CONFIG}" datasources)" || return 1
+  else
+    catalogue="{}"
   fi
   [[ -z "${catalogue}" || "${catalogue}" == "null" ]] && catalogue="{}"
 
@@ -66,7 +71,18 @@ main() {
 
   while true; do
     local now
-    now="$(_available_names)"
+    if ! now="$(_available_names)"; then
+      # The catalogue could not be read, so the usable set is unknown. Publish
+      # nothing and leave the last good config serving. Log once per failure
+      # spell rather than every cycle.
+      if [[ "${previous}" != "__read_failed__" ]]; then
+        printf '%s WARN: could not read the datasource catalogue; leaving the config untouched\n' \
+          "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${LOG}"
+        previous="__read_failed__"
+      fi
+      sleep "${INTERVAL}"
+      continue
+    fi
     if [[ "${now}" != "${previous}" ]]; then
       {
         printf '%s usable: [%s]\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${now}"

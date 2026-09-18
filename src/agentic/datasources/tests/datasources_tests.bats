@@ -156,6 +156,56 @@ _sqlite_catalogue() {
   assert_output "${before}"
 }
 
+@test "render: an unreadable catalogue is an error and leaves the working config alone" {
+  # A read failure must never look like "no datasources declared": collapsing
+  # it to an empty catalogue is how an empty config once replaced a good one
+  # and took every toolset down with it.
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  local before
+  before="$(cat "${CONF_DIR}/tools.yaml")"
+
+  printf 'this is not json\n' > "${SANDBOX_DIR}/.devbot.global.jsonc"
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_failure
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output "${before}"
+}
+
+@test "render: a config without a datasources key writes an empty catalogue" {
+  # Legitimately no datasources declared. This must still succeed and render
+  # the empty config, so the read-integrity guard cannot deadlock a removal.
+  printf '{"modules": {}}\n' > "${SANDBOX_DIR}/.devbot.global.jsonc"
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output --partial "No datasources configured"
+}
+
+@test "poller: an unreadable catalogue leaves the published config alone" {
+  # The poller must not turn a transient read failure into an empty render.
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  local before
+  before="$(cat "${CONF_DIR}/tools.yaml")"
+
+  printf 'this is not json\n' > "${SANDBOX_DIR}/.devbot.global.jsonc"
+
+  DATASOURCES_REFRESH_INTERVAL=1 timeout 2 bash "${MODULE_DIR}/poller.sh" \
+    >/dev/null 2>&1 || true
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output "${before}"
+}
+
 # ── init.sh ──────────────────────────────────────────────────────────────────
 
 @test "init: a selected datasource gets a harness manifest" {
