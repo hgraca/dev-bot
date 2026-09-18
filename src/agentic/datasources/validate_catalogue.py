@@ -162,6 +162,8 @@ def validate(
         del candidate[result.culprit]
         rejected.append((result.culprit, reason))
 
+    # Unreachable while every round deletes a source, but kept as a guard in
+    # case the bound above is ever changed.
     raise ValidationError("toolbox kept rejecting the config; giving up")
 
 
@@ -210,13 +212,15 @@ def docker_canary(
     timeout: float,
     data_dir: Optional[str] = None,
     docker: str = "docker",
+    runner: Callable[[List[str]], Optional[subprocess.CompletedProcess]] = _run,
 ) -> CanaryResult:
     """Run the pinned toolbox against `tools_yaml` and report the outcome.
 
     The container is started detached, then polled: `/healthz` 200 means the
     server came up, a stopped container means it refused the config. The name
     is unique and the container is always removed, so a timeout cannot leave an
-    orphan behind.
+    orphan behind. `runner` is injected so the lifecycle is unit-testable
+    without docker.
     """
     work_dir = tempfile.mkdtemp(prefix="datasources-canary-")
     name = f"dev-bot-datasources-canary-{os.getpid()}"
@@ -249,7 +253,7 @@ def docker_canary(
             "--disable-version-check",
         ]
 
-        started = _run(args)
+        started = runner(args)
         if started is None:
             return CanaryResult(
                 accepted=False,
@@ -266,7 +270,7 @@ def docker_canary(
         while time.monotonic() < deadline:
             if _is_ready(port):
                 return CanaryResult(accepted=True)
-            state = _run([docker, "inspect", "-f", "{{.State.Running}}", name])
+            state = runner([docker, "inspect", "-f", "{{.State.Running}}", name])
             if state is None:
                 return CanaryResult(
                     accepted=False,
@@ -283,7 +287,7 @@ def docker_canary(
                 error=f"toolbox did not become ready within {timeout:.0f}s",
             )
 
-        logs = _run([docker, "logs", name])
+        logs = runner([docker, "logs", name])
         output = "" if logs is None else (logs.stdout or "") + (logs.stderr or "")
         culprit = parse_culprit(output)
         if culprit:
@@ -299,7 +303,7 @@ def docker_canary(
             output=output,
         )
     finally:
-        _run([docker, "rm", "-f", name])
+        runner([docker, "rm", "-f", name])
         shutil.rmtree(work_dir, ignore_errors=True)
 
 

@@ -9,6 +9,7 @@
 # =============================================================================
 
 import os
+import subprocess
 import sys
 import threading
 import unittest
@@ -24,6 +25,7 @@ from validate_catalogue import (  # noqa: E402
     _is_ready,
     _run,
     culprit_reason,
+    docker_canary,
     parse_culprit,
     redact,
     validate,
@@ -199,6 +201,100 @@ class TestRun(unittest.TestCase):
     def test_a_hanging_command_times_out_to_none(self):
         # A wedged daemon must surface as a value, not hang the caller forever.
         self.assertIsNone(_run(["sleep", "5"], timeout=0.2))
+
+
+class FakeDocker:
+    """A scripted docker CLI, so the canary lifecycle is testable without one."""
+
+    def __init__(
+        self,
+        *,
+        run_rc=0,
+        run_none=False,
+        inspect="true",
+        inspect_none=False,
+        logs="",
+    ):
+        self.run_rc = run_rc
+        self.run_none = run_none
+        self.inspect = inspect
+        self.inspect_none = inspect_none
+        self.logs = logs
+        self.commands = []
+
+    def __call__(self, args):
+        self.commands.append(list(args))
+        action = args[1] if len(args) > 1 else ""
+        if action == "run":
+            return None if self.run_none else subprocess.CompletedProcess(
+                args, self.run_rc, "", "boom"
+            )
+        if action == "inspect":
+            return None if self.inspect_none else subprocess.CompletedProcess(
+                args, 0, self.inspect, ""
+            )
+        if action == "logs":
+            return subprocess.CompletedProcess(args, 0, self.logs, "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+
+class TestDockerCanaryLifecycle(unittest.TestCase):
+    def _canary(self, runner, timeout=0.4):
+        return docker_canary(
+            "x", image="img", version="1", env_names=[], timeout=timeout, runner=runner
+        )
+
+    def _removed(self, fake):
+        return any(len(c) > 1 and c[1] == "rm" and "-f" in c for c in fake.commands)
+
+    def test_a_failed_start_is_reported_and_cleaned_up(self):
+        fake = FakeDocker(run_rc=1)
+
+        result = self._canary(fake)
+
+        self.assertFalse(result.accepted)
+        self.assertIn("could not start", result.error or "")
+        self.assertTrue(self._removed(fake), "docker rm -f was not called")
+
+    def test_a_start_timeout_is_reported(self):
+        fake = FakeDocker(run_none=True)
+
+        result = self._canary(fake)
+
+        self.assertFalse(result.accepted)
+        self.assertIn("did not return", result.error or "")
+        self.assertTrue(self._removed(fake))
+
+    def test_a_culprit_is_named(self):
+        fake = FakeDocker(
+            inspect="false",
+            logs='ERROR "unable to initialize source \\"bad\\": refused"',
+        )
+
+        result = self._canary(fake)
+
+        self.assertFalse(result.accepted)
+        self.assertEqual(result.culprit, "bad")
+        self.assertTrue(self._removed(fake))
+
+    def test_not_ready_within_the_timeout_is_cleaned_up(self):
+        # inspect stays "running", so the canary runs out the clock.
+        fake = FakeDocker(inspect="true")
+
+        result = self._canary(fake)
+
+        self.assertFalse(result.accepted)
+        self.assertIn("did not become ready", result.error or "")
+        self.assertTrue(self._removed(fake))
+
+    def test_an_unresponsive_daemon_is_reported(self):
+        fake = FakeDocker(inspect_none=True)
+
+        result = self._canary(fake)
+
+        self.assertFalse(result.accepted)
+        self.assertIn("did not return", result.error or "")
+        self.assertTrue(self._removed(fake))
 
 
 class TestIsReady(unittest.TestCase):
