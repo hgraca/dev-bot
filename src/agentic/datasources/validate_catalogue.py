@@ -33,6 +33,7 @@
 # the reason toolbox gave, is written to stderr.
 # =============================================================================
 
+import http.client
 import json
 import os
 import re
@@ -42,8 +43,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
@@ -153,13 +152,21 @@ def _free_port() -> int:
 
 
 def _is_ready(port: int, timeout: float = 0.5) -> bool:
+    """True when the canary answers /healthz with 200.
+
+    Uses http.client rather than urllib on purpose: urllib honours the ambient
+    http_proxy / no_proxy, and render.sh exports .env into this process. A
+    proxy without 127.0.0.1 in no_proxy would send the loopback check to the
+    proxy, time every canary out, and abort every render.
+    """
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     try:
-        with urllib.request.urlopen(
-            f"http://127.0.0.1:{port}/healthz", timeout=timeout
-        ) as response:
-            return response.getcode() == 200
-    except (urllib.error.URLError, OSError):
+        connection.request("GET", "/healthz")
+        return connection.getresponse().status == 200
+    except (OSError, http.client.HTTPException):
         return False
+    finally:
+        connection.close()
 
 
 def _run(args: List[str]) -> subprocess.CompletedProcess:

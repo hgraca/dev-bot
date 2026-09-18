@@ -10,7 +10,10 @@
 
 import os
 import sys
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from unittest import mock
 
 MODULE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, MODULE_DIR)
@@ -18,6 +21,7 @@ sys.path.insert(0, MODULE_DIR)
 from validate_catalogue import (  # noqa: E402
     CanaryResult,
     ValidationError,
+    _is_ready,
     culprit_reason,
     parse_culprit,
     validate,
@@ -158,6 +162,36 @@ class TestValidate(unittest.TestCase):
         validate(catalogue, FakeCanary(reject=["a"]))
 
         self.assertEqual(sorted(catalogue), ["a", "b"])
+
+
+class TestIsReady(unittest.TestCase):
+    def test_ignores_an_environment_proxy(self):
+        # render.sh exports .env into this process, so a proxy set there must
+        # not capture the loopback health check.
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200 if self.path == "/healthz" else 404)
+                self.end_headers()
+
+            def log_message(self, format, *args):  # noqa: A002 (base signature)
+                pass
+
+        server = HTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "http_proxy": "http://127.0.0.1:1",
+                    "HTTP_PROXY": "http://127.0.0.1:1",
+                },
+            ):
+                self.assertTrue(_is_ready(server.server_address[1], timeout=2))
+        finally:
+            server.shutdown()
+
+    def test_a_closed_port_is_not_ready(self):
+        self.assertFalse(_is_ready(1, timeout=0.5))
 
 
 if __name__ == "__main__":
