@@ -33,6 +33,11 @@ setup() {
 
   command -v python3 &>/dev/null || skip "python3 not installed"
 
+  # The real docker (if any), captured before the stub below is prepended, for
+  # the container e2e that must talk to a real daemon.
+  ORIGINAL_PATH="${PATH}"
+  REAL_DOCKER="$(command -v docker || true)"
+
   # The sandbox plays the devbot root: it holds the fixture global config and
   # receives the rendered artifacts. Shared helpers are resolved beside the
   # module (not under DEV_BOT_ROOT), so they need no copying here.
@@ -496,4 +501,37 @@ PY
   run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
   assert_success
   assert_output --partial "render failed; starting the gateway with the previous config"
+}
+
+# ── container e2e (real docker) ──────────────────────────────────────────────
+
+@test "e2e: the oracle accepts a working source and names a bad one" {
+  # The only test that runs the pinned image for real. It is what proves the
+  # oracle's verdict matches the gateway, which the docker-free unit tests
+  # deliberately cannot.
+  [[ -n "${REAL_DOCKER}" ]] || skip "docker not available"
+  # shellcheck source=./versions.env
+  source "${MODULE_DIR}/versions.env"
+  "${REAL_DOCKER}" image inspect "${TOOLBOX_IMAGE}:${TOOLBOX_VERSION}" >/dev/null 2>&1 ||
+    skip "pinned toolbox image not present"
+
+  # sqlite writes its database under /data, which the canary mounts.
+  mkdir -p "${RUNTIME_DIR}/data"
+
+  local catalogue
+  catalogue='{"good":{"type":"sqlite","env":{"SQLITE_DATABASE":"/data/good.db"}},"bad":{"type":"mysql","env":{"MYSQL_HOST":"127.0.0.1","MYSQL_PORT":"1","MYSQL_USER":"u","MYSQL_PASSWORD":"p"}}}'
+  printf '%s' "${catalogue}" > "${SANDBOX_DIR}/e2e-catalogue.json"
+
+  local out err code
+  # ORIGINAL_PATH, so this talks to the REAL docker rather than the stub above.
+  out="$(env PATH="${ORIGINAL_PATH}" python3 "${MODULE_DIR}/validate_catalogue.py" \
+    --state "${RUNTIME_DIR}/e2e-state.json" --timeout 15 \
+    < "${SANDBOX_DIR}/e2e-catalogue.json" 2>"${SANDBOX_DIR}/e2e-stderr")"
+  code=$?
+  err="$(cat "${SANDBOX_DIR}/e2e-stderr")"
+
+  [ "${code}" -eq 0 ] || fail "validate exited ${code}: ${err}"
+  [[ "${out}" == *'"good"'* ]] || fail "accepted set is missing 'good': ${out}"
+  [[ "${out}" != *'"bad"'* ]] || fail "the bad source was accepted: ${out}"
+  [[ "${err}" == *"datasource 'bad' is not usable"* ]] || fail "no reason for 'bad': ${err}"
 }
