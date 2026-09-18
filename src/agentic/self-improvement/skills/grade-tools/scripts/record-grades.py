@@ -65,8 +65,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         help="project root holding .agents/ (default: cwd)")
     parser.add_argument("--session-id", default=None, help="override the harness session id")
     parser.add_argument("--now", default=None, help="row timestamp (default: now, local)")
-    parser.add_argument("--file", default=None, help="explicit CSV path (default: <root>/.agents/logs/tools-grades.csv)")
-    parser.add_argument("--verbose", action="store_true", help="print the appended row id")
+    parser.add_argument("--verbose", action="store_true", help="print the appended row id (debug aid)")
     return parser.parse_args(argv)
 
 
@@ -191,9 +190,9 @@ def main(argv: list[str]) -> int:
     args = parse_args(argv)
     tools = collect_tools(args)
 
-    if args.file is None and not os.path.isdir(os.path.join(args.project_root, ".agents")):
+    if not os.path.isdir(os.path.join(args.project_root, ".agents")):
         _fail("ERROR", f"{args.project_root} is not a dev-bot project (no .agents/)", 2)
-    csv_path = args.file or os.path.join(args.project_root, *DEFAULT_CSV_PARTS)
+    csv_path = os.path.join(args.project_root, *DEFAULT_CSV_PARTS)
     os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
 
     session = resolve_session_id(args.session_id)
