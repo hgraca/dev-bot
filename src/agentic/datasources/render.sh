@@ -163,8 +163,14 @@ main() {
   # published yet) so boot and the poller keep working, and a deliberate
   # removal (nothing declared) so it cannot deadlock.
   local declared previous_sources available
-  declared="$(printf '%s' "${catalogue}" | python3 -c \
-    'import json, sys; print(len(json.load(sys.stdin)))' 2>/dev/null || echo 0)"
+  # A parse failure here must abort, not default to 0: 0 would skip the
+  # no-regression guard below, which is the unsafe direction.
+  if ! declared="$(printf '%s' "${catalogue}" | python3 -c \
+    'import json, sys; print(len(json.load(sys.stdin)))' 2>/dev/null)"; then
+    rm -f "${CONF_DIR}/tools.yaml.tmp" "${RUNTIME_DIR}/docker-compose.yml.tmp"
+    _error "datasources — could not count the declared datasources; keeping the last good config"
+    return 1
+  fi
   previous_sources="$(grep -c '^kind: source' "${CONF_DIR}/tools.yaml" 2>/dev/null || true)"
   available="$(grep -c '^kind: source' "${CONF_DIR}/tools.yaml.tmp" || true)"
   if (( declared > 0 && available == 0 && previous_sources > 0 )); then
