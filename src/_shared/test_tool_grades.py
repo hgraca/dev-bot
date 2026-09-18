@@ -143,9 +143,12 @@ class ToolGradesTest(unittest.TestCase):
         self.assertEqual(signoz["avg"], 4.0)
         self.assertEqual(signoz["uses"], 2)
 
-    def test_all_zero_tool_is_omitted(self):
+    def test_unused_tool_is_listed_without_usage(self):
         rows = [row(grades={"mcp:signoz": 0}), row(grades={"mcp:signoz": 0})]
-        self.assertEqual(tg.aggregate(HEADER, rows)["tools"], [])
+        signoz = self._tool(tg.aggregate(HEADER, rows), "mcp:signoz")
+        self.assertIsNone(signoz["avg"])
+        self.assertEqual(signoz["uses"], 0)
+        self.assertEqual(signoz["reasons"], [])
 
     def test_reasons_come_only_from_poor_graded_rows(self):
         rows = [
@@ -165,15 +168,16 @@ class ToolGradesTest(unittest.TestCase):
         self.assertEqual(makefile["reasons"][0]["count"], 2)
         self.assertEqual(makefile["reasons"][0]["text"], "The Makefile covered it.")
 
-    def test_tools_sorted_worst_average_first(self):
+    def test_tools_sorted_by_average_descending_with_unused_last(self):
         rows = [
             row(grades={"mcp:signoz": 5, "mcp:datasources": 3, "skill:devbot:makefile": 1})
         ]
-        block = tg.aggregate(HEADER, rows)
+        tools = tg.aggregate(HEADER, rows)["tools"]
         self.assertEqual(
-            [t["name"] for t in block["tools"]],
-            ["devbot:makefile", "datasources", "signoz"],
+            [t["name"] for t in tools[:3]], ["signoz", "datasources", "devbot:makefile"]
         )
+        self.assertTrue(all(t["uses"] == 0 for t in tools[3:]))
+        self.assertEqual(len(tools), len(HEADER) - len(BASE))
 
     def test_scope_project_filters_rows(self):
         rows = [
@@ -194,6 +198,18 @@ class ToolGradesTest(unittest.TestCase):
         self.assertEqual(self._tool(block, "mcp:signoz")["uses"], 2)
         self.assertEqual(block["rows"], 2)
 
+    def test_block_reports_total_rows_and_distinct_sessions(self):
+        first = row(project="Get-e/dev-bot", grades={"mcp:signoz": 5})
+        first["session_id"] = "ses_a-01"
+        second = row(project="Get-e/core", grades={"mcp:signoz": 1})
+        second["session_id"] = "ses_a-02"
+        third = row(project="Get-e/core", grades={"mcp:signoz": 3})
+        third["session_id"] = "ses_b-01"
+        block = tg.aggregate(HEADER, [first, second, third], scope_project="Get-e/dev-bot")
+        self.assertEqual(block["rows"], 1)
+        self.assertEqual(block["total_rows"], 3)
+        self.assertEqual(block["sessions"], 2)
+
     # ── build_tool_grades ─────────────────────────────────────────────────────
 
     def test_build_returns_none_when_csv_missing(self):
@@ -204,6 +220,25 @@ class ToolGradesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = write_csv(os.path.join(tmp, "g.csv"), HEADER, [])
             self.assertIsNone(tg.build_tool_grades(path, "all", tmp))
+
+    def test_build_returns_none_when_scope_matches_no_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_csv(
+                os.path.join(tmp, "g.csv"),
+                HEADER,
+                [row(project="Other/proj", grades={"mcp:signoz": 5})],
+            )
+            self.assertIsNone(tg.build_tool_grades(path, "current", tmp))
+
+    def test_build_lists_every_column_even_when_unused_in_scope(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_csv(
+                os.path.join(tmp, "g.csv"), HEADER, [row(grades={"mcp:signoz": 5})]
+            )
+            block = tg.build_tool_grades(path, "all", tmp)
+        assert block is not None
+        self.assertEqual(self._tool(block, "mcp:datasources")["uses"], 0)
+        self.assertIn("datasources", [t["name"] for t in block["tools"]])
 
     def test_build_warns_and_returns_none_on_bad_header(self):
         with tempfile.TemporaryDirectory() as tmp:

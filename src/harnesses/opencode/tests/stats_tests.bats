@@ -98,7 +98,7 @@ print(eval(sys.argv[1]))
 # ── Contract ──────────────────────────────────────────────────────────────────
 
 @test "adapter emits canonical JSON with harness, scope and cost_kind" {
-  run run_adapter --days=30
+  run run_adapter --days=30 --project "${PROJECT_DIR}"
   [ "${status}" -eq 0 ]
   assert_output --partial '"schema": 1'
 
@@ -108,7 +108,7 @@ print(eval(sys.argv[1]))
 }
 
 @test "adapter counts tools and splits step cost/tokens across the step's tools" {
-  run run_adapter --days=30
+  run run_adapter --days=30 --project "${PROJECT_DIR}"
   [ "${status}" -eq 0 ]
 
   # demo_foo + bash share step 1 (cost 1.0 / tokens 100) → 0.5 / 50 each
@@ -118,21 +118,25 @@ print(eval(sys.argv[1]))
 }
 
 @test "adapter aggregates MCP tools by configured server" {
-  run run_adapter --days=30
+  run run_adapter --days=30 --project "${PROJECT_DIR}"
   [ "${status}" -eq 0 ]
 
   echo "${output}" | json "[(s['server'], s['count']) for s in data['mcp_servers']]" | grep -Fqx "[('demo', 1)]"
   echo "${output}" | json "[(t['name'], t['count']) for s in data['mcp_servers'] if s['server']=='demo' for t in s['tools']]" | grep -Fqx "[('foo', 1)]"
 }
 
-@test "adapter excludes other projects by default and includes them with --all" {
+@test "adapter defaults to every project and narrows with --project" {
   run run_adapter --days=30
-  refute_output --partial '"demo_bar"'
-
-  run run_adapter --days=30 --all
   [ "${status}" -eq 0 ]
   assert_output --partial '"demo_bar"'
+  echo "${output}" | json "data['scope']" | grep -Fqx "all"
   echo "${output}" | json "[(s['server'], s['count']) for s in data['mcp_servers']]" | grep -Fqx "[('demo', 2)]"
+
+  run run_adapter --days=30 --project "${PROJECT_DIR}"
+  [ "${status}" -eq 0 ]
+  refute_output --partial '"demo_bar"'
+  echo "${output}" | json "data['scope']" | grep -Fqx "current"
+  echo "${output}" | json "[(s['server'], s['count']) for s in data['mcp_servers']]" | grep -Fqx "[('demo', 1)]"
 }
 
 @test "adapter excludes tool calls older than the day window" {

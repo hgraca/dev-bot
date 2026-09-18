@@ -28,6 +28,7 @@ source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 DEFAULT_DAYS=30
 DAYS="${DEFAULT_DAYS}"
 SCOPE_ALL=false
+PROJECT_DIR=""
 HARNESS_OVERRIDE=""
 
 # Where harness adapters live. Overridable for tests / out-of-tree adapters.
@@ -42,15 +43,19 @@ GRADES_HELPER="${DEV_BOT_ROOT}/src/_shared/tool_grades.py"
 
 _usage() {
   cat <<'EOF'
-Usage: devbot stats [--days=N] [--all|-a] [--harness=HARNESS]
+Usage: devbot stats [--days=N] [--project=DIR] [--all|-a] [--harness=HARNESS]
 
 Tool and MCP-server usage report, rendered as Markdown.
 
 Options:
   --days=N        Report window in days (default: 30)
-  --all, -a       Aggregate every project (default: current project)
+  --project=DIR   Restrict the report to one project directory
+  --all, -a       Aggregate every project (the default; kept for compatibility)
   --harness=NAME  Force a harness adapter (default: configured harness)
   --help, -h      Show this help
+
+Without --project the report covers every project recorded by the harness and
+every row of the shared grade matrix.
 EOF
 }
 
@@ -72,6 +77,18 @@ while [[ $# -gt 0 ]]; do
     --all|-a)
       SCOPE_ALL=true
       shift
+      ;;
+    --project=*)
+      PROJECT_DIR="${1#--project=}"
+      shift
+      ;;
+    --project)
+      if [[ $# -lt 2 || "${2:-}" == -* ]]; then
+        _fatal "--project requires a value"
+        exit 1
+      fi
+      PROJECT_DIR="$2"
+      shift 2
       ;;
     --harness=*)
       HARNESS_OVERRIDE="${1#--harness=}"
@@ -102,6 +119,18 @@ if ! [[ "${DAYS}" =~ ^[1-9][0-9]*$ ]]; then
   exit 1
 fi
 
+if [[ -n "${PROJECT_DIR}" && "${SCOPE_ALL}" == "true" ]]; then
+  _fatal "--project and --all are mutually exclusive"
+  exit 1
+fi
+
+# Resolve a project directory to an absolute path so it matches the directory
+# the harness recorded. A value that is not a directory is passed through
+# (a bare <parent>/<folder> label still works for the grades section).
+if [[ -n "${PROJECT_DIR}" && -d "${PROJECT_DIR}" ]]; then
+  PROJECT_DIR="$(cd "${PROJECT_DIR}" && pwd)"
+fi
+
 # ── Detect the harness and locate its adapter ─────────────────────────────────
 harness="${HARNESS_OVERRIDE:-$(_devbot_get_harness "$(pwd)")}"
 adapter="${HARNESS_DIR}/${harness}/stats.sh"
@@ -115,7 +144,9 @@ _info "Gathering ${harness} usage for the last ${DAYS} day(s)…" >&2
 
 # ── Gather: delegate to the harness adapter (canonical JSON on stdout) ────────
 adapter_args=(--days "${DAYS}")
-if [[ "${SCOPE_ALL}" == "true" ]]; then
+if [[ -n "${PROJECT_DIR}" ]]; then
+  adapter_args+=(--project "${PROJECT_DIR}")
+else
   adapter_args+=(--all)
 fi
 
@@ -162,13 +193,16 @@ fi
 # rather than by an adapter. A missing CSV is silent; a helper failure degrades
 # to the ungraded report instead of aborting it.
 if [[ -f "${GRADES_CSV}" && -f "${GRADES_HELPER}" ]]; then
-  grades_scope="current"
-  if [[ "${SCOPE_ALL}" == "true" ]]; then
+  if [[ -n "${PROJECT_DIR}" ]]; then
+    grades_scope="current"
+    grades_root="${PROJECT_DIR}"
+  else
     grades_scope="all"
+    grades_root="$(pwd)"
   fi
 
   if merged="$(printf '%s' "${json}" | python3 "${GRADES_HELPER}" \
-      --csv "${GRADES_CSV}" --scope "${grades_scope}" --project-root "$(pwd)")"; then
+      --csv "${GRADES_CSV}" --scope "${grades_scope}" --project-root "${grades_root}")"; then
     json="${merged}"
   else
     # _warn prints to stdout; redirect to stderr so the Markdown report stays clean.

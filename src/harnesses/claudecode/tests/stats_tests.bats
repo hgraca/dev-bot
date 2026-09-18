@@ -133,13 +133,16 @@ print(eval(sys.argv[1]))
   echo "${output}" | json "len([s for s in data['mcp_servers'] if s['server']=='Read'])" | grep -Fqx "0"
 }
 
-@test "adapter excludes other projects by default and includes them with --all" {
+@test "adapter defaults to every project and narrows with --project" {
   run run_adapter --days=30
-  refute_output --partial '"Bash"'
-
-  run run_adapter --days=30 --all
   [ "${status}" -eq 0 ]
   assert_output --partial '"Bash"'
+  echo "${output}" | json "data['scope']" | grep -Fqx "all"
+
+  run run_adapter --days=30 --project "${PROJECT_DIR}"
+  [ "${status}" -eq 0 ]
+  refute_output --partial '"Bash"'
+  echo "${output}" | json "data['scope']" | grep -Fqx "current"
 }
 
 @test "adapter excludes messages older than the day window" {
@@ -152,7 +155,7 @@ print(eval(sys.argv[1]))
 
 @test "adapter reports an empty window when the project has no transcripts" {
   mkdir -p "${SANDBOX}/empty"
-  run bash -c "cd '${SANDBOX}/empty' && bash '${MODULE_DIR}/stats.sh' --days=30"
+  run bash -c "cd '${SANDBOX}/empty' && bash '${MODULE_DIR}/stats.sh' --days=30 --project '${SANDBOX}/empty'"
   [ "${status}" -eq 0 ]
   echo "${output}" | json "data['tools']" | grep -Fqx "[]"
 }

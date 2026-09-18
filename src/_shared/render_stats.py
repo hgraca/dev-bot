@@ -178,15 +178,17 @@ def render(data: dict) -> str:
     grades = data.get("tool_grades") or {}
     grade_tools = grades.get("tools") or []
     if grade_tools:
-        scope_word = "all rows" if grades.get("scope") == "all" else "current project"
-        row_count = grades.get("rows")
-        rows_label = f"{row_count} row(s)" if isinstance(row_count, int) else "rows"
+        scope_word = "all projects" if grades.get("scope") == "all" else "one project"
+        rows_label = f"{_int(grades.get('rows'))} row(s)"
+        total_label = f"{_int(grades.get('total_rows'))} row(s)"
+        sessions_label = f"{_int(grades.get('sessions'))} session(s)"
         out += [
             "",
             "## Tool Grades",
             "",
-            f"_Averaged over rows where the tool was used (grade ≥ 1); lowest first. "
-            f"{rows_label} in scope ({scope_word}); not windowed by --days._",
+            f"Averaged over rows where the tool was used (grade ≥ 1); highest first, unused last. "
+            f"{rows_label} in scope ({scope_word}); {total_label} from {sessions_label} in the CSV; "
+            f"not windowed by --days.",
             "",
         ]
         rows = [

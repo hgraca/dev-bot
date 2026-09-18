@@ -134,6 +134,43 @@ CSV
   assert_output --partial "claudecode"
 }
 
+@test "devbot stats defaults to every project" {
+  write_fixture
+  install_fake_adapter "opencode" "${SANDBOX}/fixture.json"
+  make_project "opencode"
+
+  run bash -c "cd '${SANDBOX}' && bash '${PROJECT_ROOT}/bin/devbot' stats --days=7"
+  [ "${status}" -eq 0 ]
+
+  run cat "${FAKE_ARGS_FILE}"
+  assert_line "--days"
+  assert_line "7"
+  assert_line "--all"
+  refute_line "--project"
+}
+
+@test "devbot stats passes --project to the harness adapter" {
+  write_fixture
+  install_fake_adapter "opencode" "${SANDBOX}/fixture.json"
+  make_project "opencode"
+  local resolved
+  resolved="$(cd "${SANDBOX}" && pwd)"
+
+  run bash -c "cd '${SANDBOX}' && bash '${PROJECT_ROOT}/bin/devbot' stats --project='${SANDBOX}'"
+  [ "${status}" -eq 0 ]
+
+  run cat "${FAKE_ARGS_FILE}"
+  assert_line "--project"
+  assert_line "${resolved}"
+  refute_line "--all"
+}
+
+@test "devbot stats rejects --project together with --all" {
+  run bash "${PROJECT_ROOT}/bin/devbot" stats --project=/tmp --all
+  [ "${status}" -ne 0 ]
+  assert_output --partial "mutually exclusive"
+}
+
 # ── Adapter invocation + rendering ────────────────────────────────────────────
 
 @test "devbot stats passes --days and --all to the harness adapter" {
@@ -362,13 +399,15 @@ JSON
   "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
   "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
   "tool_grades": {
-    "rows": 3, "scope": "current",
+    "rows": 1, "total_rows": 3, "sessions": 3, "scope": "current",
     "tools": [
+      {"column": "mcp:signoz", "name": "signoz", "kind": "mcp",
+       "avg": 5.0, "uses": 1, "reasons": []},
       {"column": "skill:devbot:makefile", "name": "devbot:makefile", "kind": "skill",
        "avg": 2.33, "uses": 3,
        "reasons": [{"text": "Makefile covered it.", "count": 2}]},
-      {"column": "mcp:signoz", "name": "signoz", "kind": "mcp",
-       "avg": 5.0, "uses": 1, "reasons": []}
+      {"column": "mcp:datasources", "name": "datasources", "kind": "mcp",
+       "avg": null, "uses": 0, "reasons": []}
     ]
   }
 }
@@ -378,8 +417,11 @@ JSON
   [ "${status}" -eq 0 ]
 
   assert_output --partial "## Tool Grades"
+  assert_output --partial "highest first"
   assert_output --partial "not windowed"
+  assert_output --partial "3 session(s)"
   assert_output --partial "2.33"
+  assert_output --partial "—"
   assert_output --partial "devbot:makefile"
   assert_output --partial "signoz"
   assert_output --partial "### Poor ratings (1–3)"
@@ -418,7 +460,7 @@ assert 'signoz' not in poor, poor
   assert_output --partial "## Tool Grades"
   assert_output --partial "devbot:makefile"
   assert_output --partial "the Makefile covered it."
-  assert_output --partial "(all rows)"
+  assert_output --partial "(all projects)"
 }
 
 @test "devbot stats omits the Tool Grades section when the CSV is absent" {
@@ -432,7 +474,7 @@ assert 'signoz' not in poor, poor
   refute_output --partial "## Tool Grades"
 }
 
-@test "devbot stats filters tool grades to the current project by default" {
+@test "devbot stats includes grades from every project by default" {
   write_fixture
   install_fake_adapter "opencode" "${SANDBOX}/fixture.json"
   make_project "opencode"
@@ -440,6 +482,19 @@ assert 'signoz' not in poor, poor
   export DEV_BOT_STATS_GRADES_CSV="${SANDBOX}/tools-grades.csv"
 
   run bash -c "cd '${SANDBOX}' && bash '${PROJECT_ROOT}/bin/devbot' stats"
+  [ "${status}" -eq 0 ]
+  assert_output --partial "## Tool Grades"
+  assert_output --partial "devbot:makefile"
+}
+
+@test "devbot stats narrows tool grades with --project" {
+  write_fixture
+  install_fake_adapter "opencode" "${SANDBOX}/fixture.json"
+  make_project "opencode"
+  write_grades_csv "Some-Other/project"
+  export DEV_BOT_STATS_GRADES_CSV="${SANDBOX}/tools-grades.csv"
+
+  run bash -c "cd '${SANDBOX}' && bash '${PROJECT_ROOT}/bin/devbot' stats --project '${SANDBOX}'"
   [ "${status}" -eq 0 ]
   refute_output --partial "## Tool Grades"
 }

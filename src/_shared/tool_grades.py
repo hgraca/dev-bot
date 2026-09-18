@@ -40,6 +40,12 @@ def project_name(project_root: str) -> str:
     return "/".join(parts[-2:])
 
 
+def _session_of(row_id: str) -> str:
+    """The session id behind a ``<session-id>-NN`` row id."""
+    base, sep, suffix = row_id.rpartition("-")
+    return base if sep and suffix.isdigit() else row_id
+
+
 def tool_columns(header: list[str]) -> list[str]:
     """The graded tool columns — every ``mcp:``/``skill:`` column."""
     return [
@@ -203,20 +209,24 @@ def aggregate(
     tools: list[dict] = []
     for column in columns:
         tool_grades = grades[column]
-        if not tool_grades:
-            continue
+        used = len(tool_grades)
         tools.append(
             {
                 "column": column,
                 "name": display_name(column),
                 "kind": tool_kind(column),
-                "avg": round(sum(tool_grades) / len(tool_grades), 2),
-                "uses": len(tool_grades),
+                "avg": round(sum(tool_grades) / used, 2) if used else None,
+                "uses": used,
                 "reasons": _dedupe_reasons(reasons[column]),
             }
         )
-    tools.sort(key=lambda tool: (tool["avg"], -tool["uses"], tool["name"]))
-    return {"rows": in_scope, "tools": tools}
+    tools.sort(key=lambda tool: (tool["uses"] == 0, -(tool["avg"] or 0), tool["name"]))
+    return {
+        "rows": in_scope,
+        "total_rows": len(rows),
+        "sessions": len({_session_of(row.get("session_id", "")) for row in rows}),
+        "tools": tools,
+    }
 
 
 def build_tool_grades(
@@ -243,7 +253,7 @@ def build_tool_grades(
     scope_project = None if scope == SCOPE_ALL else project_name(project_root)
     block = aggregate(header, rows, scope_project)
     block["scope"] = scope
-    if not block["tools"]:
+    if block["rows"] == 0 or not block["tools"]:
         return None
     return block
 

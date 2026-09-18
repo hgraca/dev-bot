@@ -76,11 +76,12 @@ def classify(tool):
     return parts[1], "__".join(parts[2:])
 
 
-def transcript_files(scope_all, cwd):
-    if scope_all:
+def transcript_files(project_dir):
+    """Transcript files for one project's slug, or every project when ``None``."""
+    if project_dir is None:
         pattern = os.path.join(PROJECTS_DIR, "*", "**", "*.jsonl")
     else:
-        pattern = os.path.join(PROJECTS_DIR, cwd.replace("/", "-"), "**", "*.jsonl")
+        pattern = os.path.join(PROJECTS_DIR, project_dir.replace("/", "-"), "**", "*.jsonl")
     return sorted(glob.glob(pattern, recursive=True))
 
 
@@ -199,23 +200,28 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="claudecode stats adapter")
     parser.add_argument("--days", type=int, default=30)
     parser.add_argument("--all", action="store_true", dest="scope_all")
+    parser.add_argument("--project", default=None,
+                        help="restrict the report to this project directory (default: all projects)")
     args = parser.parse_args()
 
     if args.days < 1:
         print(f"ERROR: --days must be a positive integer (got {args.days})", file=sys.stderr)
         return 1
+    if args.project and args.scope_all:
+        print("ERROR: --project and --all are mutually exclusive", file=sys.stderr)
+        return 1
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
-    cwd = os.getcwd()
+    project_dir = args.project
 
-    tools, mcp_servers, tool_arguments = gather(transcript_files(args.scope_all, cwd), cutoff)
+    tools, mcp_servers, tool_arguments = gather(transcript_files(project_dir), cutoff)
 
     data = {
         "schema": 1,
         "harness": "claudecode",
         "days": args.days,
-        "scope": "all" if args.scope_all else "current",
-        "scope_label": "all projects" if args.scope_all else cwd,
+        "scope": "all" if project_dir is None else "current",
+        "scope_label": "all projects" if project_dir is None else project_dir,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "cost_kind": None,
         "tools": tools,

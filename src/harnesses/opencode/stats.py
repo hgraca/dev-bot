@@ -80,15 +80,16 @@ def classify(tool, servers):
     return None, None
 
 
-def gather(cutoff_ms, scope_all, cwd, db_path):
+def gather(cutoff_ms, project_dir, db_path):
+    """Aggregate sessions in the window; ``project_dir=None`` means every project."""
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
     try:
-        if scope_all:
+        if project_dir is None:
             dirs = [r[0] for r in conn.execute(
                 "SELECT DISTINCT directory FROM session WHERE time_created >= ?", (cutoff_ms,)
             )]
         else:
-            dirs = [cwd]
+            dirs = [project_dir]
         servers = sorted(known_servers(dirs), key=len, reverse=True)
 
         sql = (
@@ -102,9 +103,9 @@ def gather(cutoff_ms, scope_all, cwd, db_path):
             "AND json_extract(p.data,'$.type') IN ('tool','step-finish')"
         )
         params = [cutoff_ms]
-        if not scope_all:
+        if project_dir is not None:
             sql += " AND s.directory = ?"
-            params.append(cwd)
+            params.append(project_dir)
         sql += " ORDER BY p.session_id, p.time_created, p.id"
 
         counts = Counter()
@@ -203,20 +204,25 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="opencode stats adapter")
     parser.add_argument("--days", type=int, default=30)
     parser.add_argument("--all", action="store_true", dest="scope_all")
+    parser.add_argument("--project", default=None,
+                        help="restrict the report to this project directory (default: all projects)")
     args = parser.parse_args()
 
     if args.days < 1:
         print(f"ERROR: --days must be a positive integer (got {args.days})", file=sys.stderr)
+        return 1
+    if args.project and args.scope_all:
+        print("ERROR: --project and --all are mutually exclusive", file=sys.stderr)
         return 1
     if not os.path.isfile(DB_PATH):
         print(f"ERROR: opencode database not found at {DB_PATH}", file=sys.stderr)
         return 1
 
     cutoff_ms = int((time.time() - args.days * 86400) * 1000)
-    cwd = os.getcwd()
+    project_dir = args.project
 
     try:
-        tools, mcp_servers, tool_arguments = gather(cutoff_ms, args.scope_all, cwd, DB_PATH)
+        tools, mcp_servers, tool_arguments = gather(cutoff_ms, project_dir, DB_PATH)
     except sqlite3.Error as exc:
         print(f"ERROR: failed to read opencode database: {exc}", file=sys.stderr)
         return 1
@@ -225,8 +231,8 @@ def main() -> int:
         "schema": 1,
         "harness": "opencode",
         "days": args.days,
-        "scope": "all" if args.scope_all else "current",
-        "scope_label": "all projects" if args.scope_all else cwd,
+        "scope": "all" if project_dir is None else "current",
+        "scope_label": "all projects" if project_dir is None else project_dir,
         "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "cost_kind": "estimated",
         "tools": tools,
