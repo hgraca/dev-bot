@@ -364,6 +364,41 @@ PY
   assert_output --partial "config unchanged"
 }
 
+@test "render: a transient reload rejection does not roll back" {
+  # `cp` rewrites in place, so toolbox can read a partial document mid-write and
+  # report a source failure for a config that is actually fine. A rejection that
+  # does not survive a second reload cycle must be ignored.
+  _sqlite_catalogue
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+
+  # A changed catalogue, so the render publishes.
+  _catalogue '{ "scratch": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/other.db" } } }'
+
+  local fake="${SANDBOX_DIR}/transientbin"
+  mkdir -p "${fake}"
+  cat > "${fake}/docker" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  inspect) echo true ;;
+  logs)
+    # Reject on the first check only, like a mid-write read.
+    if [[ ! -f "${FAKE_STATE}" ]]; then
+      touch "${FAKE_STATE}"
+      echo 'WARN "unable to initialize source \"x\": partial read"'
+    fi
+    ;;
+esac
+exit 0
+SH
+  chmod +x "${fake}/docker"
+
+  run env PATH="${fake}:${PATH}" DATASOURCES_RELOAD_WAIT=0 \
+    FAKE_STATE="${SANDBOX_DIR}/rejected.marker" bash "${MODULE_DIR}/render.sh"
+  assert_success
+  refute_output --partial "rolled back"
+}
+
 @test "render: a config the gateway rejects is rolled back" {
   # Fake docker: a gateway that is running and refuses the reload. The previous
   # config must be restored — toolbox would otherwise retry the bad file on

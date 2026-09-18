@@ -44,8 +44,13 @@ VALIDATOR="${DATASOURCES_VALIDATOR:-${MODULE_DIR}/validate_catalogue.py}"
 
 # Confirm the running gateway accepted the reload. toolbox rejects a config it
 # cannot initialize and keeps serving the previous one — but it retries the bad
-# file on every poll interval, so a rejected publish is undone straight away
-# rather than left for the gateway to hammer.
+# file on every poll interval, so a rejected publish is undone rather than left
+# for the gateway to hammer.
+#
+# A single rejection is NOT enough to act on. `cp` truncates and rewrites the
+# file in place, so toolbox can read a partial document mid-write and report a
+# source failure for a config that is actually fine; only a rejection that
+# survives one more reload cycle is treated as real.
 #
 # Skipped when the gateway is not running: install.sh and up.sh render before
 # the container exists.
@@ -53,14 +58,21 @@ _verify_reload() {
   if ! docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null | grep -qx true; then
     return 0
   fi
-  # toolbox reloads on its --poll-interval (5s); give it one pass to react.
-  sleep "${DATASOURCES_RELOAD_WAIT:-6}"
-  local rejection
-  rejection="$(docker logs --since 7s "${CONTAINER_NAME}" 2>&1 |
-    grep 'unable to initialize source' | tail -1 || true)"
-  if [[ -z "${rejection}" ]]; then
+  local wait="${DATASOURCES_RELOAD_WAIT:-6}"
+  sleep "${wait}"
+  if ! _reload_rejected; then
     return 0
   fi
+  # One rejection may be a partial read of the in-place `cp`. If the file on
+  # disk is good, the gateway's next retry succeeds and the rejections stop.
+  sleep "${wait}"
+  if ! _reload_rejected; then
+    return 0
+  fi
+
+  local rejection
+  rejection="$(docker logs --since "$(( wait + 1 ))s" "${CONTAINER_NAME}" 2>&1 |
+    grep 'unable to initialize source' | tail -1 || true)"
   if [[ -f "${CONF_BACKUP}" ]]; then
     cp "${CONF_BACKUP}" "${CONF_DIR}/tools.yaml"
     _error "datasources — the gateway rejected the new config; rolled back. ${rejection}"
@@ -68,6 +80,13 @@ _verify_reload() {
     _error "datasources — the gateway rejected the new config with no previous one to restore. ${rejection}"
   fi
   return 1
+}
+
+# True when the gateway logged a source-initialization failure in the last
+# reload cycle.
+_reload_rejected() {
+  docker logs --since "$(( ${DATASOURCES_RELOAD_WAIT:-6} + 1 ))s" "${CONTAINER_NAME}" 2>&1 |
+    grep -q 'unable to initialize source'
 }
 
 main() {
