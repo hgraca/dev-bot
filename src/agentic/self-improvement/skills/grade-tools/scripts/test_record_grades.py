@@ -2,9 +2,10 @@
 """Unit tests for record-grades.py.
 
 Covers the CSV contract the grade-tools skill relies on: canonical column
-order, session-scoped -NN ids, column union with 0 backfill, notes quoting and
-line-break preservation, grade validation, the rule that a 1-3 grade must be
-explained in the notes, devbot-root resolution, and session-id resolution.
+order, the project column, session-scoped -NN ids, column union with 0
+backfill, notes quoting and line-break preservation, grade validation, the
+rule that a 1-3 grade must be explained in the notes, devbot-root resolution,
+and session-id resolution.
 
 Usage:
     python3 -m unittest test_record_grades.py -v
@@ -28,20 +29,30 @@ record_grades = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(record_grades)
 
 NOW = "2026-01-02 03:04:05"
+PROJECT = "Get-e/positioning-activities"
 
 
 class RecordGradesTest(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         self.root = self._tmp.name
-        self.csv_path = os.path.join(self.root, "storage", "logs", "tools-grades.csv")
+        # A project root two levels deep, so the derived name is deterministic.
+        self.project_root = os.path.join(self.root, "Get-e", "positioning-activities")
+        os.makedirs(self.project_root, exist_ok=True)
+        self.csv_path = os.path.join(self.root, ".agents", "logs", "tools-grades.csv")
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
     def run_main(self, *args: str, session: str = "ses_test", now: str = NOW) -> int:
         return record_grades.main(
-            ["--devbot-root", self.root, "--now", now, "--session-id", session, *args]
+            [
+                "--devbot-root", self.root,
+                "--project-root", self.project_root,
+                "--now", now,
+                "--session-id", session,
+                *args,
+            ]
         )
 
     def read_rows(self) -> list[list[str]]:
@@ -56,10 +67,17 @@ class RecordGradesTest(unittest.TestCase):
         self.assertTrue(os.path.isfile(self.csv_path), self.csv_path)
         self.assertEqual(
             os.path.relpath(self.csv_path, self.root),
-            os.path.join("storage", "logs", "tools-grades.csv"),
+            os.path.join(".agents", "logs", "tools-grades.csv"),
         )
         # The calling project must not be where the row lands any more.
-        self.assertFalse(os.path.exists(os.path.join(self.root, ".agents", "logs")))
+        self.assertFalse(os.path.exists(os.path.join(self.project_root, ".agents")))
+
+    def test_column_order_puts_the_project_after_the_datetime(self) -> None:
+        self.run_main("--notes", "graphify: marginal here", "--mcp", "graphify=2")
+
+        header = self.read_rows()[0]
+        self.assertEqual(header[:4], ["session_id", "datetime", "project", "notes"])
+        self.assertEqual(header[4:], ["mcp:graphify"])
 
     def test_fresh_run_creates_header_and_first_row(self) -> None:
         self.run_main(
@@ -70,10 +88,12 @@ class RecordGradesTest(unittest.TestCase):
 
         header, first = self.read_rows()
         self.assertEqual(
-            header, ["session_id", "datetime", "notes", "mcp:graphify", "skill:git-report"]
+            header,
+            ["session_id", "datetime", "project", "notes", "mcp:graphify", "skill:git-report"],
         )
         self.assertEqual(
-            first, ["ses_test-01", NOW, "graphify: marginal, grep covered it", "2", "4"]
+            first,
+            ["ses_test-01", NOW, PROJECT, "graphify: marginal, grep covered it", "2", "4"],
         )
 
     def test_second_run_in_same_session_increments_the_suffix(self) -> None:
@@ -104,6 +124,44 @@ class RecordGradesTest(unittest.TestCase):
         self.assertEqual(rows[1][0], "ses_a2-01")
         self.assertEqual(rows[2][0], "ses_a-01")
 
+    # ── the project column ───────────────────────────────────────────────────
+
+    def test_project_name_is_the_project_parent_folder_and_folder(self) -> None:
+        self.assertEqual(
+            record_grades.project_name("/home/herberto/Development/Get-e/positioning-activities"),
+            PROJECT,
+        )
+
+    def test_project_name_handles_a_single_segment_path(self) -> None:
+        self.assertEqual(record_grades.project_name("/solo"), "solo")
+
+    def test_project_root_defaults_to_the_current_directory(self) -> None:
+        with patch("os.getcwd", return_value=self.project_root):
+            record_grades.main(
+                ["--devbot-root", self.root, "--now", NOW, "--session-id", "ses_cwd",
+                 "--skill", "git-report=5"]
+            )
+
+        self.assertEqual(self.read_rows()[1][2], PROJECT)
+
+    def test_explicit_project_root_wins_over_the_current_directory(self) -> None:
+        with patch("os.getcwd", return_value="/somewhere/else/entirely"):
+            self.run_main("--skill", "git-report=5")
+
+        self.assertEqual(self.read_rows()[1][2], PROJECT)
+
+    def test_rows_written_without_the_project_column_keep_an_empty_value(self) -> None:
+        os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
+        with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("session_id,datetime,notes,skill:git-report\nlegacy-01,2026-01-01 00:00:00,old,3\n")
+
+        self.run_main("--skill", "git-report=5")
+
+        header, legacy, fresh = self.read_rows()
+        self.assertEqual(header[:4], ["session_id", "datetime", "project", "notes"])
+        self.assertEqual(legacy[2], "")  # the script cannot invent a project
+        self.assertEqual(fresh[2], PROJECT)
+
     # ── column union and canonical order ─────────────────────────────────────
 
     def test_new_tool_column_backfills_prior_rows_with_zero(self) -> None:
@@ -111,9 +169,12 @@ class RecordGradesTest(unittest.TestCase):
         self.run_main("--notes", "graphify: marginal here", "--mcp", "graphify=1")
 
         header, first, second = self.read_rows()
-        self.assertEqual(header, ["session_id", "datetime", "notes", "mcp:graphify", "skill:git-report"])
-        self.assertEqual(first[3:], ["0", "5"])  # graphify column backfilled
-        self.assertEqual(second[3:], ["1", "0"])  # git-report untouched by the new row
+        self.assertEqual(
+            header,
+            ["session_id", "datetime", "project", "notes", "mcp:graphify", "skill:git-report"],
+        )
+        self.assertEqual(first[4:], ["0", "5"])  # graphify column backfilled
+        self.assertEqual(second[4:], ["1", "0"])  # git-report untouched by the new row
 
     def test_columns_are_regrouped_mcp_before_skill(self) -> None:
         # Skill arrives first; MCP must still be ordered before it.
@@ -132,6 +193,7 @@ class RecordGradesTest(unittest.TestCase):
             [
                 "session_id",
                 "datetime",
+                "project",
                 "notes",
                 "mcp:codebase-memory",
                 "skill:remember-session",
@@ -151,6 +213,7 @@ class RecordGradesTest(unittest.TestCase):
             [
                 "session_id",
                 "datetime",
+                "project",
                 "notes",
                 "mcp:devbot-tools:git-report",
                 "mcp:devbot-tools:search-memories",
@@ -161,7 +224,7 @@ class RecordGradesTest(unittest.TestCase):
         self.run_main("--mcp", "graphify=0")
 
         header = self.read_rows()[0]
-        self.assertEqual(header, ["session_id", "datetime", "notes"])
+        self.assertEqual(header, ["session_id", "datetime", "project", "notes"])
 
     # ── notes: quoting and line breaks ───────────────────────────────────────
 
@@ -169,35 +232,35 @@ class RecordGradesTest(unittest.TestCase):
         note = 'grade 3: a "substitute", e.g. codebase-memory'
         self.run_main("--notes", note)
 
-        self.assertEqual(self.read_rows()[1][2], note)
+        self.assertEqual(self.read_rows()[1][3], note)
 
     def test_notes_keep_their_line_breaks(self) -> None:
         self.run_main("--notes", "line one\nline two\nline three")
 
-        self.assertEqual(self.read_rows()[1][2], "line one\nline two\nline three")
+        self.assertEqual(self.read_rows()[1][3], "line one\nline two\nline three")
 
     def test_notes_line_breaks_survive_a_second_append(self) -> None:
         self.run_main("--notes", "first\nsecond")
         self.run_main("--notes", "third")
 
         rows = self.read_rows()
-        self.assertEqual(rows[1][2], "first\nsecond")
-        self.assertEqual(rows[2][2], "third")
+        self.assertEqual(rows[1][3], "first\nsecond")
+        self.assertEqual(rows[2][3], "third")
 
     def test_notes_trailing_whitespace_and_blank_edges_are_trimmed(self) -> None:
         self.run_main("--notes", "\nline one   \nline two\t\n\n")
 
-        self.assertEqual(self.read_rows()[1][2], "line one\nline two")
+        self.assertEqual(self.read_rows()[1][3], "line one\nline two")
 
     def test_notes_carriage_returns_are_normalised_to_line_feeds(self) -> None:
         self.run_main("--notes", "line one\r\nline two\rline three")
 
-        self.assertEqual(self.read_rows()[1][2], "line one\nline two\nline three")
+        self.assertEqual(self.read_rows()[1][3], "line one\nline two\nline three")
 
     def test_empty_notes_are_allowed(self) -> None:
         self.run_main()
 
-        self.assertEqual(self.read_rows()[1][2], "")
+        self.assertEqual(self.read_rows()[1][3], "")
 
     # ── a 1-3 grade must be explained in the notes ───────────────────────────
 
@@ -234,7 +297,7 @@ class RecordGradesTest(unittest.TestCase):
             "--mcp-tool", "format-md=2",
         )
 
-        self.assertEqual(self.read_rows()[1][3], "2")
+        self.assertEqual(self.read_rows()[1][4], "2")
 
     def test_naming_a_namespaced_skill_by_its_last_segment_is_enough(self) -> None:
         self.run_main(
@@ -242,12 +305,12 @@ class RecordGradesTest(unittest.TestCase):
             "--skill", "devbot:makefile=3",
         )
 
-        self.assertEqual(self.read_rows()[1][3], "3")
+        self.assertEqual(self.read_rows()[1][4], "3")
 
     def test_grade_explanation_matching_is_case_insensitive(self) -> None:
         self.run_main("--notes", "Graphify: marginal here", "--mcp", "graphify=2")
 
-        self.assertEqual(self.read_rows()[1][3], "2")
+        self.assertEqual(self.read_rows()[1][4], "2")
 
     def test_grades_0_4_and_5_need_no_explanation(self) -> None:
         self.run_main(
@@ -257,7 +320,7 @@ class RecordGradesTest(unittest.TestCase):
             "--skill", "git-report=5",
         )
 
-        self.assertEqual(self.read_rows()[1][2], "")
+        self.assertEqual(self.read_rows()[1][3], "")
 
     # ── file permissions ─────────────────────────────────────────────────────
 

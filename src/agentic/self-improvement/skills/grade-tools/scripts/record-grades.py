@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Append one tool-grading row to <DEV_BOT_ROOT>/storage/logs/tools-grades.csv.
+"""Append one tool-grading row to <DEV_BOT_ROOT>/.agents/logs/tools-grades.csv.
 
 The CSV is install-level, not per-project: every project's sessions land in the
-same file, so tool quality accumulates across the whole workspace instead of
-fragmenting into one file per consumer.
+same file, each row tagged with the project it came from, so tool quality
+accumulates across the whole workspace instead of fragmenting per consumer.
 
 The script owns the CSV so the calling agent only supplies judgement:
 
-  * canonical column order — session_id, datetime, notes, then every tool
-    column, MCP columns (`mcp:`) before skill columns (`skill:`)
+  * canonical column order — session_id, datetime, project, notes, then every
+    tool column, MCP columns (`mcp:`) before skill columns (`skill:`)
   * a session-scoped row id `<session-id>-NN`, NN starting at 01
   * column union — a tool used for the first time becomes a new column and
     every earlier row is backfilled with 0 ("not used")
@@ -22,9 +22,11 @@ Usage:
         [--mcp <server>=<grade>]... \\
         [--mcp-tool <tool>=<grade>]... \\
         [--skill <name>=<grade>]... \\
-        [--devbot-root DIR] [--session-id ID] [--now "YYYY-MM-DD HH:MM:SS"]
+        [--devbot-root DIR] [--project-root DIR] \\
+        [--session-id ID] [--now "YYYY-MM-DD HH:MM:SS"]
 
 `--mcp-tool` targets the self-owned `devbot-tools` server, one column per tool.
+`--project-root` defaults to the current directory — run from the project root.
 """
 
 from __future__ import annotations
@@ -40,12 +42,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import NoReturn
 
-BASE_COLUMNS = ["session_id", "datetime", "notes"]
+BASE_COLUMNS = ["session_id", "datetime", "project", "notes"]
 DEV_TOOLS = "devbot-tools"
 SESSION_ID_ENV = "DEV_BOT_SESSION_ID"
 ROOT_ENV_VAR = "DEV_BOT_ROOT"
 UNKNOWN_SESSION = "unknown"
-CSV_PARTS = ("storage", "logs", "tools-grades.csv")
+CSV_PARTS = (".agents", "logs", "tools-grades.csv")
 # A directory holding this marker is a devbot install root. Used only for the
 # walk-up fallback, when DEV_BOT_ROOT was not exported into the agent's shell.
 ROOT_MARKER = ("src", "agentic")
@@ -79,6 +81,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         help="grade a skill (repeatable)")
     parser.add_argument("--devbot-root", default=None,
                         help=f"devbot install root (default: ${ROOT_ENV_VAR}, else discover it)")
+    parser.add_argument("--project-root", default=None,
+                        help="project the session belongs to (default: the current directory)")
     parser.add_argument("--session-id", default=None, help="override the harness session id")
     parser.add_argument("--now", default=None, help="row timestamp (default: now, local)")
     parser.add_argument("--verbose", action="store_true", help="print the appended row id (debug aid)")
@@ -162,6 +166,18 @@ def normalise_notes(raw: str) -> str:
     while lines and not lines[-1]:
         lines.pop()
     return "\n".join(lines)
+
+
+def project_name(project_root: str) -> str:
+    """`<parent folder>/<folder>` for the project a session belongs to.
+
+    From /home/me/Get-e/positioning-activities that is
+    `Get-e/positioning-activities`: enough to tell sibling checkouts apart
+    without carrying an absolute path into the CSV. A root with a single
+    component yields just that component.
+    """
+    parts = [part for part in Path(project_root).parts if part not in (os.sep, "")]
+    return "/".join(parts[-2:])
 
 
 def resolve_devbot_root(
@@ -285,6 +301,7 @@ def main(argv: list[str]) -> int:
     os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
 
     session = resolve_session_id(args.session_id)
+    project = project_name(args.project_root or os.getcwd())
     now = args.now or datetime.now().strftime(DATETIME_FORMAT)
 
     # Exclusive lock around the whole read-modify-write: write_csv is atomic
@@ -304,6 +321,7 @@ def main(argv: list[str]) -> int:
             new_row: dict[str, object] = {
                 "session_id": next_row_id(rows, session),
                 "datetime": now,
+                "project": project,
                 "notes": notes,
             }
             for column in tool_columns:

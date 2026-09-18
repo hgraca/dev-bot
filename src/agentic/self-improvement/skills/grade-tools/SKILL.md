@@ -1,6 +1,6 @@
 ---
 name: devbot:grade-tools
-description: "Records per-session tool quality into the shared <DEV_BOT_ROOT>/storage/logs/tools-grades.csv: one row per run, 0-5 per MCP server/skill, multi-line notes explaining every 1-3 grade. Use this skill whenever the primary agent finishes a session, right after devbot:remember-session — and on 'wrap up', 'grade tools', or 'remember this session' — even if the user does not ask for it."
+description: "Records per-session tool quality into <DEV_BOT_ROOT>/.agents/logs/tools-grades.csv: one project-tagged row per run, 0-5 per MCP server/skill, multi-line notes explaining every 1-3 grade. Use this skill whenever the primary agent finishes a session, right after devbot:remember-session — and on 'wrap up', 'grade tools', or 'remember this session' — even if the user does not ask for it."
 ---
 
 # Grade Tools
@@ -10,8 +10,8 @@ skill — especially our own `devbot-tools`, which is graded per tool for exactl
 without the reasoning behind it cannot drive that decision, so the `notes` column carries the _why_.
 
 The CSV is **install-level, not per-project**: rows from every project land in one file at
-`<DEV_BOT_ROOT>/storage/logs/tools-grades.csv`, so tool quality accumulates across the whole
-workspace instead of fragmenting into one file per consumer.
+`<DEV_BOT_ROOT>/.agents/logs/tools-grades.csv`, each row tagged with the `project` it came from, so
+tool quality accumulates across the whole workspace instead of fragmenting into one file per consumer.
 
 ## When to Apply
 
@@ -25,15 +25,16 @@ workspace instead of fragmenting into one file per consumer.
 - **Silent on the finish flow**: emit ZERO narrative text — no status line, no "graded N tools".
   The script call is the only visible effect.
 - **Always add a row**, even when the slice used no MCP server or skill (all-zero grades, note says so).
-- **Grade the slice in isolation**: only work since the previous `tools-grades` row in this session.
-  A tool used earlier but not in this slice is `0`.
+- **Grade the slice in isolation**: only work since the previous row for _this project_ in this
+  session. A tool used earlier but not in this slice is `0`.
 - **Explain every `1`, `2` and `3`** in the notes, naming the tool. Those grades mean "used, but
   something was wrong with it", and that something is the entire signal. The script rejects the row
   otherwise.
 - **Write the notes as several lines, not one long line.** A single line is unreadable once the CSV
   is opened in a spreadsheet. One line per tool, blank line between blocks of related tools.
+- **Run the script from the project root** so the `project` column is right, or pass `--project-root`.
 - **Never hand-edit the CSV** — the script owns column order, the `-NN` id, and quoting.
-- **Never commit the CSV** — it lives under devbot's own `storage/`, which is gitignored, and it
+- **Never commit the CSV** — it lives under devbot's own `.agents/logs/`, which is gitignored, and it
   spans every project, so it belongs to none of them.
 
 ## Procedure
@@ -43,7 +44,7 @@ workspace instead of fragmenting into one file per consumer.
 Resolve the session id and its last row:
 
 1. Read the session id from the shell: `echo "$DEV_BOT_SESSION_ID"` — if it is empty, the session id is `unknown`.
-2. Read `<DEV_BOT_ROOT>/storage/logs/tools-grades.csv` and take the highest row id starting with `<session-id>-`.
+2. Read `<DEV_BOT_ROOT>/.agents/logs/tools-grades.csv` and take the highest row id starting with `<session-id>-`.
 
 If no such row exists, the slice is the whole session so far. Otherwise the slice is the work done
 after that row. Grade that slice only.
@@ -58,6 +59,8 @@ after that row. Grade that slice only.
 
 List only tools actually invoked. Built-in tools (`bash`, `edit`, `read`, `grep`, `task`, …) are out
 of scope — this matrix covers MCP servers and skills only.
+
+`project` is not a tool: it is written automatically from the working directory (see Step 5).
 
 ### Step 3 — Grade each tool
 
@@ -89,8 +92,8 @@ case-insensitive.
 
 ### Step 5 — Append the row
 
-Run the script with the notes as one multi-line argument. `$'…'` is the reliable shell form for
-embedding real line breaks:
+Run the script **from the project root**, with the notes as one multi-line argument. `$'…'` is the
+reliable shell form for embedding real line breaks:
 
 ```bash
 python3 <skill-base-dir>/scripts/record-grades.py \
@@ -100,10 +103,14 @@ python3 <skill-base-dir>/scripts/record-grades.py \
   --skill devbot:makefile=3
 ```
 
+The `project` column is derived from the working directory as `<parent folder>/<folder>` — run from
+`/home/me/Get-e/positioning-activities` and the row records `Get-e/positioning-activities`. Pass
+`--project-root DIR` to override it (or when invoking from anywhere else).
+
 The script resolves the install root from `$DEV_BOT_ROOT`, falling back to walking up from its own
 (real) location. It reads `$DEV_BOT_SESSION_ID`, resolves the next `<session-id>-NN` id, adds any new
 tool column (backfilling earlier rows with `0`), and rewrites the shared CSV atomically. Pass
-`--devbot-root DIR` to override the location deliberately.
+`--devbot-root DIR` to override the install root deliberately.
 
 If it prints `WARN: DEV_BOT_SESSION_ID is not set`, the harness did not export the session id, and the
 row is grouped under `unknown`. The shell.env hook supplies that variable, so a session started before
