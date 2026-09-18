@@ -27,23 +27,28 @@ COMPOSE_FILE="${RUNTIME_DIR}/docker-compose.yml"
 POLLER_PID="${RUNTIME_DIR}/refresh.pid"
 MCP_URL="http://127.0.0.1:${DATASOURCES_PORT:-18510}/mcp"
 
+# Stop the detached poller, if one is running. Called BEFORE rendering, so a
+# manual `devbot up` cannot render concurrently with the poller — they would
+# race on tools.yaml, the rollback backup and the quarantine state.
+_stop_poller() {
+  [[ -f "${POLLER_PID}" ]] || return 0
+  local previous
+  previous="$(cat "${POLLER_PID}")"
+  if [[ -n "${previous}" ]]; then
+    kill "${previous}" 2>/dev/null || true
+  fi
+  rm -f "${POLLER_PID}"
+}
+
 # Keep the running gateway in step with what is reachable. This is what lets a
 # database that comes up AFTER `devbot up` activate without a restart — the
 # usual case, since the dev environment is often booted later than devbot.
+#
+# The poller is restarted rather than reused: it snapshots the environment at
+# start, and this run may have just loaded a new .env variable — the container
+# is recreated with the new environment, so the poller must see the same one,
+# otherwise the two disagree about what is reachable.
 _start_poller() {
-  # Restart any existing poller rather than leaving it. It snapshots the
-  # environment at start, and this run may have just loaded a new .env
-  # variable: the container is recreated with the new environment, so the
-  # poller must see the same one — otherwise the two disagree about what is
-  # reachable, which is the mismatch that makes activation untrustworthy.
-  if [[ -f "${POLLER_PID}" ]]; then
-    local previous
-    previous="$(cat "${POLLER_PID}")"
-    if [[ -n "${previous}" ]]; then
-      kill "${previous}" 2>/dev/null || true
-    fi
-    rm -f "${POLLER_PID}"
-  fi
   # Detached, so it outlives `devbot up`; down.sh stops it through the PID file.
   # Output goes to its own log, never to the terminal.
   nohup bash "${MODULE_DIR}/poller.sh" >> "${RUNTIME_DIR}/refresh.log" 2>&1 &
@@ -60,6 +65,9 @@ main() {
     _warn "docker not found — datasources gateway not started."
     return 0
   fi
+
+  # Stop any poller before rendering, so the two cannot overlap.
+  _stop_poller
 
   # Rendering validates the candidate against the real toolbox, which can fail
   # (an unreadable catalogue, docker down, or an inconclusive run). Keep going

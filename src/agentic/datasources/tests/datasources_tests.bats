@@ -538,6 +538,36 @@ PY
   assert_output --partial "render failed; starting the gateway with the previous config"
 }
 
+@test "up: stops an existing poller before rendering" {
+  # A live poller must not render concurrently with this boot.
+  sleep 60 &
+  local sleeper=$!
+  mkdir -p "${RUNTIME_DIR}"
+  printf '%s\n' "${sleeper}" > "${RUNTIME_DIR}/refresh.pid"
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+
+  run kill -0 "${sleeper}"
+  assert_failure
+
+  kill "${sleeper}" 2>/dev/null || true
+}
+
+@test "render: skips when another render holds the lock" {
+  command -v flock >/dev/null 2>&1 || skip "flock not available"
+  mkdir -p "${RUNTIME_DIR}"
+  flock "${RUNTIME_DIR}/render.lock" sleep 5 &
+  local holder=$!
+  sleep 0.3
+
+  run env DATASOURCES_RENDER_LOCK_WAIT=0 bash "${MODULE_DIR}/render.sh"
+  assert_failure
+  assert_output --partial "another render is in progress"
+
+  kill "${holder}" 2>/dev/null || true
+}
+
 # ── container e2e (real docker) ──────────────────────────────────────────────
 
 @test "e2e: the oracle accepts a working source and names a bad one" {

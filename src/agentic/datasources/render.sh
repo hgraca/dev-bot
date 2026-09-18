@@ -93,6 +93,14 @@ main() {
   mkdir -p "${RUNTIME_DIR}"
   mkdir -p "${CONF_DIR}"
 
+  # One render at a time: a manual `devbot up` and the detached poller must not
+  # interleave publishes, the rollback backup, or the quarantine state. The lock
+  # is held for this shell's lifetime. A cap of 0 means fail fast, not wait.
+  if ! _devbot_lock_wait "${RUNTIME_DIR}/render.lock" "${DATASOURCES_RENDER_LOCK_WAIT:-60}"; then
+    _error "datasources — another render is in progress; skipping this one"
+    return 1
+  fi
+
   # The availability filter must see the SAME environment the container gets.
   # Compose takes its values from the environment up.sh builds (which includes
   # the repo .env), so the filter has to read it too — otherwise a datasource
