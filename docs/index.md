@@ -39,6 +39,41 @@ title: DevBot
   </div>
 </section>
 
+<section class="section section-alt" style="border-top: 1px solid var(--border-subtle);">
+  <div class="container">
+    <div class="section-header">
+      <h2>Why DevBot?</h2>
+      <p>If any of these sound like your setup, DevBot was built for it.</p>
+    </div>
+    <ul class="highlight-list highlight-list-scenarios">
+      <li>
+        <span class="check">&#x2192;</span>
+        <span>You work in several projects, each should have their own memory and also a shared global memory</span>
+      </li>
+      <li>
+        <span class="check">&#x2192;</span>
+        <span>You work in a team and you want to share and build your projects knowledge bases (memories) together</span>
+      </li>
+      <li>
+        <span class="check">&#x2192;</span>
+        <span>You work in a team where members are using different harnesses but you want everyone's agents working in the same way, with similar outputs and outcomes</span>
+      </li>
+      <li>
+        <span class="check">&#x2192;</span>
+        <span>You want your agents to have all skills they need to develop projects following industry best practices</span>
+      </li>
+      <li>
+        <span class="check">&#x2192;</span>
+        <span>You want a set of curated MCPs for your agents to use</span>
+      </li>
+      <li>
+        <span class="check">&#x2192;</span>
+        <span>You work with several harness instances open but don't want to duplicate MCP servers with each instance</span>
+      </li>
+    </ul>
+  </div>
+</section>
+
 <section class="section">
   <div class="container">
     <div class="section-header">
@@ -101,44 +136,6 @@ title: DevBot
 </section>
 
 <section class="section">
-  <div class="container">
-    <div class="section-header">
-      <h2>What you get</h2>
-    </div>
-    <ul class="highlight-list">
-      <li>
-        <span class="check">&#x2713;</span>
-        <span><strong>Pair programming agent</strong> &mdash; the DevBot agent is your default experience. Thinks with you, never autonomously. Remembers past sessions, recalls gotchas, loads the right skills.</span>
-      </li>
-      <li>
-        <span class="check">&#x2713;</span>
-        <span><strong>Shared memory and instructions</strong> &mdash; the memories, agents, commands, skills and tools are shareable across projects and developers.</span>
-      </li>
-      <li>
-        <span class="check">&#x2713;</span>
-        <span><strong>Full delegation when you need it</strong> &mdash; switch to TeamLead for structured multi-agent workflows: plan &rarr; implement &rarr; review with 8 specialized subagents.</span>
-      </li>
-      <li>
-        <span class="check">&#x2713;</span>
-        <span><strong>Works with OpenCode and Claude Code</strong> &mdash; dual harness support with consistent agent behavior across platforms. Bring your own harness if not yet supported.</span>
-      </li>
-      <li>
-        <span class="check">&#x2713;</span>
-        <span><strong>Automatic knowledge capture</strong> &mdash; learnings promoted to memory after each commit. No manual intervention.</span>
-      </li>
-      <li>
-        <span class="check">&#x2713;</span>
-        <span><strong>Rich MCP integrations</strong> &mdash; browser DevTools, Playwright, semantic code search, library docs, web search, and more.</span>
-      </li>
-      <li>
-        <span class="check">&#x2713;</span>
-        <span><strong>Extensible with modules</strong> &mdash; add third-party agents, commands, skills, and tools from any git repo. One command wires them into every project.</span>
-      </li>
-    </ul>
-  </div>
-</section>
-
-<section class="section section-alt">
   <div class="container">
     <div class="section-header">
       <h2>Tools under the hood</h2>

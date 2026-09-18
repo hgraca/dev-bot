@@ -1,0 +1,8 @@
+---
+date: 2026-09-18
+keywords: ["docs-site", "jekyll", "screenshot", "chrome-devtools", "visual-verification"]
+---
+
+# Verifying the docs site visually when the chrome-devtools MCP is not exposed
+
+The `browser-testing-with-devtools` skill assumes a configured `chrome-devtools` MCP, but an opencode session may expose no `chrome-devtools_*` tool at all and the primary agent cannot judge rendering on a non-vision model, so screenshots must be produced locally and the verdict delegated. Working recipe: build with `cd docs && bundle exec jekyll build`, then serve the output with its `baseurl` intact — `_config.yml` sets `baseurl: /dev-bot`, so serving `docs/_site` at the server root breaks every asset URL; instead mount it under that name (`mkdir -p /tmp/opencode/srv && ln -sfn <repo>/docs/_site /tmp/opencode/srv/dev-bot`) and serve with `python3 -m http.server 8899 --directory /tmp/opencode/srv`, loading `http://127.0.0.1:8899/dev-bot/`. Capture headlessly, no DevTools required: `google-chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=<W>,<H> --virtual-time-budget=6000 --screenshot=<out.png> --user-data-dir=<fresh dir> <url>`. Three traps: reuse a stale `--user-data-dir` and the cached build is served (always pass a fresh one), under-size the window and the capture silently truncates mid-page so the footer goes unverified (desktop ~5200px, mobile ~8000px), and `rm -rf` is blocked by the guards so prepare the served directory with `ln -sfn` on a fresh path rather than delete-and-recreate. `--enable-logging=stderr --log-level=0` surfaces console errors on stderr — a real behaviour check the agent can do — while the visual verdict stays with @Designer, passed the saved PNG's absolute path.

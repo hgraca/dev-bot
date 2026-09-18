@@ -469,6 +469,17 @@ img { max-width: 100%; height: auto; }
   margin-top: .15rem;
 }
 
+/* Scenario variant: a neutral marker, not a checkbox — the items are conditions
+   the reader recognises, not features the product claims to include. */
+.highlight-list-scenarios .check {
+  width: auto;
+  height: auto;
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-size: 1rem;
+}
+
 .highlight-list strong {
   color: var(--text);
 }
