@@ -22,6 +22,7 @@ from validate_catalogue import (  # noqa: E402
     CanaryResult,
     ValidationError,
     _is_ready,
+    _run,
     culprit_reason,
     parse_culprit,
     validate,
@@ -162,6 +163,18 @@ class TestValidate(unittest.TestCase):
         validate(catalogue, FakeCanary(reject=["a"]))
 
         self.assertEqual(sorted(catalogue), ["a", "b"])
+
+
+class TestRun(unittest.TestCase):
+    def test_a_fast_command_returns_its_result(self):
+        result = _run(["true"], timeout=5)
+
+        assert result is not None
+        self.assertEqual(result.returncode, 0)
+
+    def test_a_hanging_command_times_out_to_none(self):
+        # A wedged daemon must surface as a value, not hang the caller forever.
+        self.assertIsNone(_run(["sleep", "5"], timeout=0.2))
 
 
 class TestIsReady(unittest.TestCase):

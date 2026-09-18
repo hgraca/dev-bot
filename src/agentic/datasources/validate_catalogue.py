@@ -57,6 +57,9 @@ VERSIONS_FILE = os.path.join(MODULE_DIR, "versions.env")
 
 DEFAULT_TIMEOUT = 10.0
 POLL_INTERVAL = 0.25
+# Every docker invocation is bounded, so an unresponsive daemon cannot hang the
+# render (and with it `devbot up` or the poller).
+DOCKER_TIMEOUT = 30.0
 
 # toolbox fails fast on the first source it cannot initialize and names it.
 # It appears twice in the logs — escaped inside the logger line
@@ -169,8 +172,16 @@ def _is_ready(port: int, timeout: float = 0.5) -> bool:
         connection.close()
 
 
-def _run(args: List[str]) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True)
+def _run(args: List[str], timeout: float = DOCKER_TIMEOUT) -> Optional[subprocess.CompletedProcess]:
+    """Run a docker command, returning None if it does not finish in time.
+
+    Every call is bounded: a wedged daemon must not hang `devbot up` or stall
+    the refresh poller.
+    """
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None
 
 
 def docker_canary(
@@ -222,6 +233,11 @@ def docker_canary(
         ]
 
         started = _run(args)
+        if started is None:
+            return CanaryResult(
+                accepted=False,
+                error=f"docker run did not return within {DOCKER_TIMEOUT:.0f}s",
+            )
         if started.returncode != 0:
             return CanaryResult(
                 accepted=False,
@@ -234,6 +250,11 @@ def docker_canary(
             if _is_ready(port):
                 return CanaryResult(accepted=True)
             state = _run([docker, "inspect", "-f", "{{.State.Running}}", name])
+            if state is None:
+                return CanaryResult(
+                    accepted=False,
+                    error="docker inspect did not return; the daemon may be unresponsive",
+                )
             if state.returncode != 0 or state.stdout.strip() != "true":
                 exited = True
                 break
@@ -246,7 +267,7 @@ def docker_canary(
             )
 
         logs = _run([docker, "logs", name])
-        output = (logs.stdout or "") + (logs.stderr or "")
+        output = "" if logs is None else (logs.stdout or "") + (logs.stderr or "")
         culprit = parse_culprit(output)
         if culprit:
             return CanaryResult(
