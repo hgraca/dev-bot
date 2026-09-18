@@ -170,9 +170,10 @@ PY
 }
 
 @test "render: the compose env list carries references, never literals" {
-  # Port 1 keeps the probe off the network: the env list is rendered from the
-  # full catalogue regardless of whether the datasource is usable.
-  _catalogue '{ "db": { "type": "mysql", "env": { "MYSQL_HOST": "127.0.0.1", "MYSQL_PORT": "1", "MYSQL_USER": "root", "MYSQL_PASSWORD": "${DB_PASS}" } } }'
+  # The env list is rendered from the FULL catalogue, regardless of what the
+  # oracle accepts. It must carry variable NAMES only: a literal value here
+  # would put a host or credential into the compose file.
+  _catalogue '{ "db": { "type": "mysql", "env": { "MYSQL_HOST": "db.internal", "MYSQL_PORT": "3306", "MYSQL_USER": "root", "MYSQL_PASSWORD": "${DB_PASS}" } } }'
 
   run bash "${MODULE_DIR}/render.sh"
   assert_success
@@ -180,6 +181,8 @@ PY
   run grep '^    environment:' "${RUNTIME_DIR}/docker-compose.yml"
   assert_success
   assert_output --partial "DB_PASS"
+  # `db.internal` is a literal in the catalogue; if the renderer ever wrote
+  # values instead of names it would appear here.
   refute_output --partial "db.internal"
 }
 
