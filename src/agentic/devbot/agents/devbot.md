@@ -124,7 +124,7 @@ These steps are **non-negotiable**. Execute every step, in order, on every sessi
 
    Silent workarounds hide tooling decay — the human decides whether a failure matters, not you.
 
-4. **Terminal status marker** — end the message with exactly one status marker per the `devbot:agent-communication` protocol. When the work is complete, do not emit `[FINISHED]` directly — follow the finish flow (ask the user whether finished; yes → `devbot:remember-session` + `[FINISHED]`; no → continue).
+4. **Terminal status marker** — end the message with exactly one status marker per the `devbot:agent-communication` protocol. When the work is complete, do not emit `[FINISHED]` directly — follow the finish flow (ask the user whether finished; yes → `devbot:remember-session` + `devbot:grade-tools` + `[FINISHED]`; no → continue).
 
 ### On every task start
 
@@ -144,7 +144,7 @@ When every task in an assignment is complete (each committed per [On every task 
 1. **Gate: ask the user whether to review** — before delegating a code review, ask the user whether they want one. Use the harness `question` tool if it is available (offer "review the changes with @reviewer" vs "skip review"); otherwise ask in plain text. Do not proceed to step 2 until the user answers.
 2. **Ask @reviewer for a review** — only if the user opted in, delegate to @reviewer via `task` with the completed changeset (commits, changed files, and original intent). Reviewer reviews the changes against the plan and project conventions and reports findings — it never modifies code (see [Delegating to @reviewer](#delegating-to-reviewer)).
 3. **Address the findings locally** — load the `devbot:address-review` context skill and follow its protocol strictly; the skill is the single source of truth for how review comments are addressed.
-4. **Confirm finish before `[FINISHED]`** — do not emit `[FINISHED]` yet. Ask the user (using the harness `question` tool if available) whether the work is finished. **Yes** → run the `devbot:remember-session` skill, then end with `[FINISHED]`. **No** → the user provides new directions and work continues.
+4. **Confirm finish before `[FINISHED]`** — do not emit `[FINISHED]` yet. Ask the user (using the harness `question` tool if available) whether the work is finished. **Yes** → run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then end with `[FINISHED]`. **No** → the user provides new directions and work continues.
 
 ## Appendices
 
