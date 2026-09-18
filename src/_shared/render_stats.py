@@ -28,6 +28,10 @@ def _cost(value, estimated: bool) -> str:
     return f"{'~' if estimated else ''}${value:,.2f}"
 
 
+def _avg(value) -> str:
+    return f"{value:.2f}" if isinstance(value, (int, float)) else _MISSING
+
+
 def _shares(counts) -> list[str]:
     """Percentage labels (1 decimal) that sum to exactly 100.0%.
 
@@ -170,6 +174,38 @@ def render(data: dict) -> str:
         out += render_table(header, aligns, rows)
     else:
         out.append("_No MCP server usage in this window._")
+
+    grades = data.get("tool_grades") or {}
+    grade_tools = grades.get("tools") or []
+    if grade_tools:
+        scope_word = "all rows" if grades.get("scope") == "all" else "current project"
+        row_count = grades.get("rows")
+        rows_label = f"{row_count} row(s)" if isinstance(row_count, int) else "rows"
+        out += [
+            "",
+            "## Tool Grades",
+            "",
+            f"_Averaged over rows where the tool was used (grade ≥ 1); lowest first. "
+            f"{rows_label} in scope ({scope_word}); not windowed by --days._",
+            "",
+        ]
+        rows = [
+            [t.get("name", "?"), t.get("kind", "?"), _avg(t.get("avg")), _int(t.get("uses", 0))]
+            for t in grade_tools
+        ]
+        out += render_table(["Tool", "Kind", "Avg", "Uses"], ["l", "l", "r", "r"], rows)
+
+        poor = [t for t in grade_tools if t.get("reasons")]
+        if poor:
+            out += ["", "### Poor ratings (1–3)", ""]
+            for tool in poor:
+                out.append(
+                    f"- **{tool.get('name', '?')}** ({tool.get('kind', '?')}, "
+                    f"overall avg {_avg(tool.get('avg'))}) — {_int(tool.get('uses', 0))} use(s)"
+                )
+                for reason in tool["reasons"]:
+                    suffix = f" (×{reason['count']})" if reason.get("count", 1) > 1 else ""
+                    out.append(f"  - {reason.get('text', '')}{suffix}")
 
     arguments = data.get("tool_arguments") or {}
     argument_tools = [k for k in ("bash", "skill", "grep", "glob") if arguments.get(k)]

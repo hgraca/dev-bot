@@ -90,6 +90,16 @@ write_fixture() {
   printf '%s\n' "${FIXTURE_JSON}" > "${SANDBOX}/fixture.json"
 }
 
+# A one-row tools-grades.csv whose single row belongs to $1 (a project label).
+# The label deliberately never matches the sandbox's own project name, so the
+# "current scope" tests can rely on the row being filtered out.
+write_grades_csv() {
+  cat > "${SANDBOX}/tools-grades.csv" <<CSV
+session_id,datetime,project,notes,skill:devbot:makefile
+s-01,2026-09-18 12:00:00,$1,"makefile (2): the Makefile covered it.",2
+CSV
+}
+
 # ── CLI surface ───────────────────────────────────────────────────────────────
 
 @test "devbot stats --help prints usage" {
@@ -342,3 +352,109 @@ JSON
   assert_output --partial "### skill"
   assert_output --partial "devbot:make-plan"
 }
+
+# ── Tool Grades section ───────────────────────────────────────────────────────
+
+@test "renderer emits a Tool Grades section with averages and poor-rating reasons" {
+  cat > "${SANDBOX}/grades.json" <<'JSON'
+{
+  "schema": 1, "harness": "x", "days": 30, "scope": "current", "scope_label": "/p",
+  "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
+  "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
+  "tool_grades": {
+    "rows": 3, "scope": "current",
+    "tools": [
+      {"column": "skill:devbot:makefile", "name": "devbot:makefile", "kind": "skill",
+       "avg": 2.33, "uses": 3,
+       "reasons": [{"text": "Makefile covered it.", "count": 2}]},
+      {"column": "mcp:signoz", "name": "signoz", "kind": "mcp",
+       "avg": 5.0, "uses": 1, "reasons": []}
+    ]
+  }
+}
+JSON
+
+  run python3 "${PROJECT_ROOT}/src/_shared/render_stats.py" < "${SANDBOX}/grades.json"
+  [ "${status}" -eq 0 ]
+
+  assert_output --partial "## Tool Grades"
+  assert_output --partial "not windowed"
+  assert_output --partial "2.33"
+  assert_output --partial "devbot:makefile"
+  assert_output --partial "signoz"
+  assert_output --partial "### Poor ratings (1–3)"
+  assert_output --partial "overall avg"
+  assert_output --partial "Makefile covered it."
+  assert_output --partial "(×2)"
+
+  # Only the poorly-rated tool gets a reason bullet.
+  echo "${output}" | python3 -c "
+import sys
+text = sys.stdin.read()
+poor = text.split('### Poor ratings')[1]
+assert 'devbot:makefile' in poor, poor
+assert 'signoz' not in poor, poor
+"
+}
+
+@test "renderer omits the Tool Grades section when the block is absent" {
+  write_fixture
+  run python3 "${PROJECT_ROOT}/src/_shared/render_stats.py" < "${SANDBOX}/fixture.json"
+  [ "${status}" -eq 0 ]
+  refute_output --partial "## Tool Grades"
+}
+
+# ── Tool Grades integration (parent reads the CSV) ────────────────────────────
+
+@test "devbot stats appends the Tool Grades section when the grades CSV exists" {
+  write_fixture
+  install_fake_adapter "opencode" "${SANDBOX}/fixture.json"
+  make_project "opencode"
+  write_grades_csv "Some-Other/project"
+  export DEV_BOT_STATS_GRADES_CSV="${SANDBOX}/tools-grades.csv"
+
+  run bash -c "cd '${SANDBOX}' && bash '${PROJECT_ROOT}/bin/devbot' stats --all"
+  [ "${status}" -eq 0 ]
+  assert_output --partial "## Tool Grades"
+  assert_output --partial "devbot:makefile"
+  assert_output --partial "the Makefile covered it."
+  assert_output --partial "(all rows)"
+}
+
+@test "devbot stats omits the Tool Grades section when the CSV is absent" {
+  write_fixture
+  install_fake_adapter "opencode" "${SANDBOX}/fixture.json"
+  make_project "opencode"
+  export DEV_BOT_STATS_GRADES_CSV="${SANDBOX}/does-not-exist.csv"
+
+  run bash -c "cd '${SANDBOX}' && bash '${PROJECT_ROOT}/bin/devbot' stats"
+  [ "${status}" -eq 0 ]
+  refute_output --partial "## Tool Grades"
+}
+
+@test "devbot stats filters tool grades to the current project by default" {
+  write_fixture
+  install_fake_adapter "opencode" "${SANDBOX}/fixture.json"
+  make_project "opencode"
+  write_grades_csv "Some-Other/project"
+  export DEV_BOT_STATS_GRADES_CSV="${SANDBOX}/tools-grades.csv"
+
+  run bash -c "cd '${SANDBOX}' && bash '${PROJECT_ROOT}/bin/devbot' stats"
+  [ "${status}" -eq 0 ]
+  refute_output --partial "## Tool Grades"
+}
+
+@test "devbot stats warns and omits the section for a malformed grades CSV" {
+  write_fixture
+  install_fake_adapter "opencode" "${SANDBOX}/fixture.json"
+  make_project "opencode"
+  printf 'this is not,a grades csv\n' > "${SANDBOX}/bad-grades.csv"
+  export DEV_BOT_STATS_GRADES_CSV="${SANDBOX}/bad-grades.csv"
+
+  run bash -c "cd '${SANDBOX}' && bash '${PROJECT_ROOT}/bin/devbot' stats --all"
+  [ "${status}" -eq 0 ]
+  refute_output --partial "## Tool Grades"
+  assert_output --partial "WARN:"
+}
+
+

@@ -34,6 +34,12 @@ HARNESS_OVERRIDE=""
 HARNESS_DIR="${DEV_BOT_STATS_HARNESS_DIR:-${DEV_BOT_ROOT}/src/harnesses}"
 RENDERER="${DEV_BOT_ROOT}/src/_shared/render_stats.py"
 
+# Install-level grade matrix written by devbot:grade-tools, and the helper that
+# folds it into the canonical JSON. The CSV path is overridable for tests /
+# out-of-tree installs.
+GRADES_CSV="${DEV_BOT_STATS_GRADES_CSV:-${DEV_BOT_ROOT}/.agents/logs/tools-grades.csv}"
+GRADES_HELPER="${DEV_BOT_ROOT}/src/_shared/tool_grades.py"
+
 _usage() {
   cat <<'EOF'
 Usage: devbot stats [--days=N] [--all|-a] [--harness=HARNESS]
@@ -149,6 +155,25 @@ if data.get("schema") != 1:
 if [[ -n "${validation_error}" ]]; then
   _fatal "Stats adapter for '${harness}' returned ${validation_error}"
   exit 1
+fi
+
+# ── Optionally attach the tool-grades block (install-level CSV) ───────────────
+# The grade matrix is harness-agnostic, so it is folded in here by the parent
+# rather than by an adapter. A missing CSV is silent; a helper failure degrades
+# to the ungraded report instead of aborting it.
+if [[ -f "${GRADES_CSV}" && -f "${GRADES_HELPER}" ]]; then
+  grades_scope="current"
+  if [[ "${SCOPE_ALL}" == "true" ]]; then
+    grades_scope="all"
+  fi
+
+  if merged="$(printf '%s' "${json}" | python3 "${GRADES_HELPER}" \
+      --csv "${GRADES_CSV}" --scope "${grades_scope}" --project-root "$(pwd)")"; then
+    json="${merged}"
+  else
+    # _warn prints to stdout; redirect to stderr so the Markdown report stays clean.
+    _warn "could not attach tool grades from ${GRADES_CSV}; continuing without them" >&2
+  fi
 fi
 
 # ── Render: format the canonical JSON as a Markdown report ────────────────────
