@@ -39,6 +39,10 @@ _read() {
   python3 "${READER}" "${CONFIG}" "$1"
 }
 
+_inode() {
+  python3 -c 'import os, sys; print(os.stat(sys.argv[1]).st_ino)' "$1"
+}
+
 # ── _devbot_set_global_value ──────────────────────────────────────────────────
 
 @test "set inserts a new key as the first property" {
@@ -98,6 +102,24 @@ _read() {
 @test "set fails when the config file is missing" {
   run _devbot_set_global_value version '"1.0.0"'
   assert_failure
+}
+
+@test "set replaces the file atomically, leaving no temp behind" {
+  _write_config '{
+  "version": "1.0.0"
+}'
+  local before
+  before="$(_inode "${CONFIG}")"
+
+  _devbot_set_global_value version '"2.0.0"'
+
+  assert_equal "$(_read version)" "2.0.0"
+  # A rename installs a new inode; a truncate-in-place write keeps this one, and
+  # a concurrent reader could have seen the file mid-write.
+  [ "$(_inode "${CONFIG}")" != "${before}" ]
+  # Only the config itself is left in the directory.
+  run python3 -c 'import os, sys; print(len(os.listdir(sys.argv[1])))' "${DEV_BOT_ROOT}"
+  assert_output "1"
 }
 
 # ── _devbot_ensure_global_value ───────────────────────────────────────────────

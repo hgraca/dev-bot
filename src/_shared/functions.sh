@@ -601,6 +601,7 @@ _devbot_set_global_value() {
 
   python3 - "${config}" "${key}" "${raw}" "${reader_dir}" <<'PY' 2>/dev/null || return 1
 import re
+import os
 import sys
 
 path, key, raw, reader_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
@@ -637,12 +638,18 @@ else:
     sep = "" if rest.lstrip().startswith("}") else ","
     text = text[:brace] + '\n  "%s": %s%s' % (key, raw, sep) + rest
 
-open(path, "w").write(text)
+# Write to a temp and rename: a concurrent reader (the datasources renderer
+# reads this file) must never observe a truncated .devbot.global.jsonc — a
+# valid prefix missing the key it wants is indistinguishable from "not set".
+tmp = "%s.%s.tmp" % (path, os.getpid())
+with open(tmp, "w") as handle:
+    handle.write(text)
 try:
-    load_jsonc(path)
+    load_jsonc(tmp)
 except Exception:
-    open(path, "w").write(original)  # never leave the config unparseable
+    os.unlink(tmp)  # never leave the config unparseable
     raise SystemExit(1)
+os.replace(tmp, path)
 PY
 }
 
