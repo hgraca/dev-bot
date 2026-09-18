@@ -61,7 +61,13 @@ main() {
     return 0
   fi
 
-  bash "${MODULE_DIR}/render.sh"
+  # Rendering validates the candidate against the real toolbox, which can fail
+  # (an unreadable catalogue, docker down, or an inconclusive run). Keep going
+  # with the config already on disk: a gateway up on the last good config with
+  # the poller retrying beats no gateway at all.
+  if ! bash "${MODULE_DIR}/render.sh"; then
+    _warn "datasources — render failed; starting the gateway with the previous config."
+  fi
 
   # Compose interpolates ${VAR} from THIS process's environment, and it only
   # auto-reads a .env beside the compose file — which is storage/, not the repo

@@ -70,6 +70,10 @@ SH
 }
 
 teardown() {
+  # up.sh starts the poller detached; make sure a test never leaks one.
+  if [[ -f "${RUNTIME_DIR}/refresh.pid" ]]; then
+    kill "$(cat "${RUNTIME_DIR}/refresh.pid")" 2>/dev/null || true
+  fi
   rm -rf "${SANDBOX_DIR}" "${PROJECT_DIR}" 2>/dev/null || true
 }
 
@@ -469,4 +473,27 @@ JSON
   run bash "${MODULE_DIR}/down.sh"
   assert_success
   assert_output --partial "nothing to stop"
+}
+
+# ── up.sh ────────────────────────────────────────────────────────────────────
+
+@test "up: a failed render warns but still starts the gateway" {
+  # A render failure (docker down, inconclusive validation) must not abort the
+  # boot: a gateway up on the last good config, with the poller retrying, beats
+  # no gateway at all.
+  _sqlite_catalogue
+
+  local boom="${SANDBOX_DIR}/validator-boom.py"
+  cat > "${boom}" <<'PY'
+import sys
+sys.stderr.write("ERROR: docker not found; cannot validate the catalogue\n")
+sys.exit(2)
+PY
+  export DATASOURCES_VALIDATOR="${boom}"
+
+  # A dead port keeps the readiness check instant, and never touches a real
+  # gateway.
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+  assert_output --partial "render failed; starting the gateway with the previous config"
 }

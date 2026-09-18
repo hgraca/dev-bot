@@ -104,15 +104,24 @@ main() {
     fi
 
     if (( changed || due )); then
+      local render_status=0
       {
         if (( changed )); then
           printf '%s usable: [%s]\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${now}"
         else
           printf '%s revalidating: [%s]\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${now}"
         fi
-        bash "${MODULE_DIR}/render.sh" || printf 'render failed\n'
+        bash "${MODULE_DIR}/render.sh" || render_status=1
       } >> "${LOG}" 2>&1
-      previous="${now}"
+      if (( render_status == 0 )); then
+        previous="${now}"
+      else
+        # The published config was left untouched. Retry next cycle rather than
+        # waiting for the next set change — a failed render must not stall
+        # activation.
+        printf '%s WARN: render failed; will retry\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "${LOG}"
+        previous="__render_failed__"
+      fi
     fi
     sleep "${INTERVAL}"
   done
