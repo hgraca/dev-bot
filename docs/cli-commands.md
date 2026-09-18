@@ -111,9 +111,11 @@ Prune old OpenCode sessions (default: 30 days).
 
 ### `devbot stats [--days=N] [--all|-a] [--harness=HARNESS]`
 
-Report tool usage, MCP-server usage, and the most-used arguments for `bash`/`skill`/`grep`/`glob`, as a Markdown report for the last `N` days (default: 30).
+Report tool usage, MCP-server usage, tool grades, and the most-used arguments for `bash`/`skill`/`grep`/`glob`, as a Markdown report for the last `N` days (default: 30).
 
 The command is harness-agnostic: it detects the harness (the `harness` setting, or `--harness`), delegates data gathering to that harness's stats adapter (`src/harnesses/<harness>/stats.sh`), validates the canonical JSON it returns, and renders the report. Without an adapter for the detected harness the command fails with a `FATAL`.
+
+When the install-level grade matrix exists (`.agents/logs/tools-grades.csv`, written by `devbot:grade-tools`), the report gains a **Tool Grades** section: each tool's average grade over the rows where it was used (grade ≥ 1), plus a `Poor ratings (1–3)` list of the de-duplicated reasons behind its low grades, taken from the matrix's `notes`. Grades follow the same scope as the rest of the report — the current project by default, every project with `--all`.
 
 | Flag             | Description                                           |
 | ---------------- | ----------------------------------------------------- |
