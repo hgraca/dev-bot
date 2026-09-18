@@ -450,6 +450,7 @@ img { max-width: 100%; height: auto; }
   gap: .75rem;
   padding: .75rem 0;
   font-size: .95rem;
+  line-height: 1.55;
   border-bottom: 1px solid var(--border-subtle);
 }
 .highlight-list li:last-child { border-bottom: none; }
