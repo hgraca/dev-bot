@@ -46,8 +46,10 @@ See the `devbot:create-devbot-module` skill's annex (`references/harness-adapter
 A stats adapter is invoked as:
 
 ```
-stats.sh --days <N> [--all]
+stats.sh --days <N> [--all | --project <dir>]
 ```
+
+Without a scope flag (or with `--all`) the adapter aggregates every project; `--project` restricts it to one project directory. `--all` and `--project` are mutually exclusive.
 
 and must print a single JSON object on stdout:
 
@@ -84,7 +86,7 @@ and must print a single JSON object on stdout:
 | `schema`         | yes      | Contract version; currently `1`.                                                                                                                                                                                    |
 | `harness`        | yes      | Harness name (shown in the report title).                                                                                                                                                                           |
 | `days`           | yes      | Window, echoed into the report.                                                                                                                                                                                     |
-| `scope`          | yes      | `current` or `all`.                                                                                                                                                                                                 |
+| `scope`          | yes      | `all` (every project, the default) or `current` (one project, via `--project`).                                                                                                                                     |
 | `scope_label`    | yes      | Human label (project path, or `all projects`).                                                                                                                                                                      |
 | `generated_at`   | yes      | ISO-8601 timestamp.                                                                                                                                                                                                 |
 | `cost_kind`      | yes      | `estimated`, `exact`, or `null`. Selects the cost column header — `estimated` renders `Cost (est.)`, anything else renders `Cost`. The column itself appears whenever any tool or MCP server has a non-null `cost`. |
@@ -101,7 +103,7 @@ The parent additionally reads the install-level grade matrix (`.agents/logs/tool
 ### Adding a stats adapter for a new harness
 
 1. Create `src/harnesses/<name>/stats.sh` — a thin wrapper that runs your helper with `"$@"` (mirror the existing adapters).
-2. Gather the data for the requested window (`--days`) and scope (`--all` vs the current project) and print the canonical JSON above, including `tool_arguments` when the harness exposes tool arguments.
+2. Gather the data for the requested window (`--days`) and scope (every project by default, or the `--project` directory) and print the canonical JSON above, including `tool_arguments` when the harness exposes tool arguments.
 3. Attribute cost/tokens as accurately as the harness allows. When cost can only be estimated, set `cost_kind` to `estimated`.
 4. Keep presentation out of the adapter — the parent renders the Markdown.
 5. Add BATS tests under `src/harnesses/<name>/tests/` using fixtures; never point tests at real user data.

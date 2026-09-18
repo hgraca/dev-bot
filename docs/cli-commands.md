@@ -109,24 +109,25 @@ List agentic artifacts as a markdown table. `type` is one of:
 
 Prune old OpenCode sessions (default: 30 days).
 
-### `devbot stats [--days=N] [--all|-a] [--harness=HARNESS]`
+### `devbot stats [--days=N] [--project=DIR] [--all|-a] [--harness=HARNESS]`
 
 Report tool usage, MCP-server usage, tool grades, and the most-used arguments for `bash`/`skill`/`grep`/`glob`, as a Markdown report for the last `N` days (default: 30).
 
 The command is harness-agnostic: it detects the harness (the `harness` setting, or `--harness`), delegates data gathering to that harness's stats adapter (`src/harnesses/<harness>/stats.sh`), validates the canonical JSON it returns, and renders the report. Without an adapter for the detected harness the command fails with a `FATAL`.
 
-When the install-level grade matrix exists (`.agents/logs/tools-grades.csv`, written by `devbot:grade-tools`), the report gains a **Tool Grades** section: each tool's average grade over the rows where it was used (grade ≥ 1), plus a `Poor ratings (1–3)` list of the de-duplicated reasons behind its low grades, taken from the matrix's `notes`. Grades follow the same scope as the rest of the report — the current project by default, every project with `--all`.
+When the install-level grade matrix exists (`.agents/logs/tools-grades.csv`, written by `devbot:grade-tools`), the report gains a **Tool Grades** section: every tool's average grade over the rows where it was used (grade ≥ 1), highest first, plus a `Poor ratings (1–3)` list of the de-duplicated reasons behind its low grades, taken from the matrix's `notes`. Tools never used are listed too, with a `—` average and zero uses. Grades follow the same scope as the rest of the report — every project by default, or one project with `--project`.
 
-| Flag             | Description                                           |
-| ---------------- | ----------------------------------------------------- |
-| `--days=N`       | Report window in days (default: 30)                   |
-| `--all`, `-a`    | Aggregate every project (default: current project)    |
-| `--harness=NAME` | Force a harness adapter (default: configured harness) |
+| Flag             | Description                                                 |
+| ---------------- | ----------------------------------------------------------- |
+| `--days=N`       | Report window in days (default: 30)                         |
+| `--project=DIR`  | Restrict the report to one project directory                |
+| `--all`, `-a`    | Aggregate every project (the default; accepted for clarity) |
+| `--harness=NAME` | Force a harness adapter (default: configured harness)       |
 
 ```bash
-devbot stats                      # last 30 days, current project, configured harness
-devbot stats --days=7             # last week
-devbot stats --days=90 --all      # every project, last quarter
+devbot stats                          # last 30 days, every project
+devbot stats --days=7                 # last week
+devbot stats --project=../other-repo  # one project only
 devbot stats --harness=claudecode
 ```
 
