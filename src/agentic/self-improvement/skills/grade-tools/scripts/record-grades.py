@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Append one tool-grading row to <project>/.agents/logs/tools-grades.csv.
+"""Append one tool-grading row to <DEV_BOT_ROOT>/storage/logs/tools-grades.csv.
+
+The CSV is install-level, not per-project: every project's sessions land in the
+same file, so tool quality accumulates across the whole workspace instead of
+fragmenting into one file per consumer.
 
 The script owns the CSV so the calling agent only supplies judgement:
 
@@ -8,14 +12,17 @@ The script owns the CSV so the calling agent only supplies judgement:
   * a session-scoped row id `<session-id>-NN`, NN starting at 01
   * column union — a tool used for the first time becomes a new column and
     every earlier row is backfilled with 0 ("not used")
-  * RFC-4180 quoting for the free-text notes, written atomically
+  * RFC-4180 quoting for the free-text notes, embedded line breaks included,
+    written atomically
+  * the notes keep their line breaks, and every grade of 1-3 must name its
+    tool there
 
 Usage:
-    record-grades.py --notes "..." \\
+    record-grades.py --notes $'tool-a: why it scored 3\\n\\ntool-b: why it scored 2' \\
         [--mcp <server>=<grade>]... \\
         [--mcp-tool <tool>=<grade>]... \\
         [--skill <name>=<grade>]... \\
-        [--project-root DIR] [--session-id ID] [--now "YYYY-MM-DD HH:MM:SS"]
+        [--devbot-root DIR] [--session-id ID] [--now "YYYY-MM-DD HH:MM:SS"]
 
 `--mcp-tool` targets the self-owned `devbot-tools` server, one column per tool.
 """
@@ -28,17 +35,26 @@ import fcntl
 import os
 import sys
 import tempfile
+from collections.abc import Mapping
 from datetime import datetime
+from pathlib import Path
 from typing import NoReturn
 
 BASE_COLUMNS = ["session_id", "datetime", "notes"]
 DEV_TOOLS = "devbot-tools"
 SESSION_ID_ENV = "DEV_BOT_SESSION_ID"
+ROOT_ENV_VAR = "DEV_BOT_ROOT"
 UNKNOWN_SESSION = "unknown"
-DEFAULT_CSV_PARTS = (".agents", "logs", "tools-grades.csv")
+CSV_PARTS = ("storage", "logs", "tools-grades.csv")
+# A directory holding this marker is a devbot install root. Used only for the
+# walk-up fallback, when DEV_BOT_ROOT was not exported into the agent's shell.
+ROOT_MARKER = ("src", "agentic")
 MCP_PREFIX = "mcp:"
 SKILL_PREFIX = "skill:"
 GRADE_MIN, GRADE_MAX = 0, 5
+# 1-3 mean "used, but something was wrong with it" — that something is what
+# drives the keep/remove/substitute decision, so it must be written down.
+GRADES_NEEDING_EXPLANATION = (1, 2, 3)
 DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 TMP_PREFIX = ".tools-grades-"
 LOCK_SUFFIX = ".lock"
@@ -52,17 +68,17 @@ def _fail(prefix: str, message: str, code: int) -> NoReturn:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         prog="record-grades.py",
-        description="Append one tool-grading row to tools-grades.csv.",
+        description="Append one tool-grading row to the shared tools-grades.csv.",
     )
-    parser.add_argument("--notes", default="", help="free-text notes for this row")
+    parser.add_argument("--notes", default="", help="free-text notes for this row (line breaks kept)")
     parser.add_argument("--mcp", action="append", default=[], metavar="NAME=GRADE",
                         help="grade an MCP server (repeatable)")
     parser.add_argument("--mcp-tool", action="append", default=[], metavar="TOOL=GRADE",
                         help=f"grade one {DEV_TOOLS} tool (repeatable)")
     parser.add_argument("--skill", action="append", default=[], metavar="NAME=GRADE",
                         help="grade a skill (repeatable)")
-    parser.add_argument("--project-root", default=os.getcwd(),
-                        help="project root holding .agents/ (default: cwd)")
+    parser.add_argument("--devbot-root", default=None,
+                        help=f"devbot install root (default: ${ROOT_ENV_VAR}, else discover it)")
     parser.add_argument("--session-id", default=None, help="override the harness session id")
     parser.add_argument("--now", default=None, help="row timestamp (default: now, local)")
     parser.add_argument("--verbose", action="store_true", help="print the appended row id (debug aid)")
@@ -102,6 +118,78 @@ def collect_tools(args: argparse.Namespace) -> dict[str, int]:
         name, grade = _parse_grade("--skill", pair)
         _put(tools, SKILL_PREFIX + name, grade, "--skill")
     return tools
+
+
+def explanation_key(column: str) -> str:
+    """The name the notes must mention for a graded tool.
+
+    The last colon-separated segment, so `mcp:devbot-tools:format-md` only
+    requires `format-md` and `skill:devbot:makefile` only `makefile`.
+    """
+    return column.rpartition(":")[2]
+
+
+def assert_grades_explained(tools: dict[str, int], notes: str) -> None:
+    lowered = notes.lower()
+    unexplained = sorted(
+        column
+        for column, grade in tools.items()
+        if grade in GRADES_NEEDING_EXPLANATION and explanation_key(column).lower() not in lowered
+    )
+    if unexplained:
+        grades = "/".join(str(grade) for grade in GRADES_NEEDING_EXPLANATION)
+        detail = ", ".join(
+            f"{column} (mention {explanation_key(column)!r})" for column in unexplained
+        )
+        _fail(
+            "ERROR",
+            f"a grade of {grades} must be explained in --notes, naming the tool: {detail}",
+            2,
+        )
+
+
+def normalise_notes(raw: str) -> str:
+    """Keep the author's line breaks; drop only incidental whitespace.
+
+    Line breaks are the point — a row whose notes run to a single long line is
+    unreadable once the CSV is opened. So CRLF/CR become LF and each line's
+    trailing whitespace is stripped, but the breaks themselves survive, along
+    with a blank line between tool blocks.
+    """
+    lines = [line.rstrip() for line in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
+
+
+def resolve_devbot_root(
+    explicit: str | None, environ: Mapping[str, str], script_path: Path
+) -> str:
+    """Locate the devbot install root that owns the shared CSV.
+
+    Precedence: an explicit override, then $DEV_BOT_ROOT, then a walk up from
+    this script's *real* location. Resolving the location matters because a
+    project reaches the skill through a symlink
+    (`.agents/skills/devbot/<area>` -> `<root>/src/agentic/<area>/skills`), so
+    the unresolved path would point back into the project.
+    """
+    if explicit:
+        return explicit
+    env = (environ.get(ROOT_ENV_VAR) or "").strip()
+    if env:
+        return env
+    for candidate in Path(script_path).resolve().parents:
+        if candidate.joinpath(*ROOT_MARKER).is_dir():
+            return str(candidate)
+    marker = "/".join(ROOT_MARKER)
+    _fail(
+        "FATAL",
+        f"cannot locate the devbot install root: ${ROOT_ENV_VAR} is unset and no ancestor of "
+        f"{script_path} contains {marker}/",
+        3,
+    )
 
 
 def resolve_session_id(explicit: str | None) -> str:
@@ -189,10 +277,11 @@ def write_csv(path: str, columns: list[str], rows: list[dict[str, object]]) -> N
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     tools = collect_tools(args)
+    notes = normalise_notes(args.notes)
+    assert_grades_explained(tools, notes)
 
-    if not os.path.isdir(os.path.join(args.project_root, ".agents")):
-        _fail("ERROR", f"{args.project_root} is not a dev-bot project (no .agents/)", 2)
-    csv_path = os.path.join(args.project_root, *DEFAULT_CSV_PARTS)
+    root = resolve_devbot_root(args.devbot_root, os.environ, Path(__file__))
+    csv_path = os.path.join(root, *CSV_PARTS)
     os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
 
     session = resolve_session_id(args.session_id)
@@ -200,7 +289,9 @@ def main(argv: list[str]) -> int:
 
     # Exclusive lock around the whole read-modify-write: write_csv is atomic
     # per write, but two concurrent appends would otherwise read the same base
-    # and the later os.replace would silently drop the earlier row.
+    # and the later os.replace would silently drop the earlier row. With the
+    # CSV shared across projects this serialises unrelated sessions too, which
+    # is exactly why the lock is keyed off the CSV path rather than a project.
     with open(csv_path + LOCK_SUFFIX, "w", encoding="utf-8") as lock_fh:
         fcntl.flock(lock_fh, fcntl.LOCK_EX)
         try:
@@ -213,7 +304,7 @@ def main(argv: list[str]) -> int:
             new_row: dict[str, object] = {
                 "session_id": next_row_id(rows, session),
                 "datetime": now,
-                "notes": " ".join(args.notes.split()),
+                "notes": notes,
             }
             for column in tool_columns:
                 new_row[column] = tools.get(column, 0)
