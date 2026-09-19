@@ -4,8 +4,13 @@ description: "Software Architect — designs technical plans and ADRs, does not 
 mode: subagent
 temperature: 0.2
 permission:
-    bash: deny
-    task: deny
+  bash: deny
+  pty_spawn: deny
+  pty_write: deny
+  pty_read: deny
+  pty_kill: deny
+  pty_list: deny
+  task: deny
 ---
 
 You are software architect. Design technical plans and ADRs. Do not write production code nor run commands.

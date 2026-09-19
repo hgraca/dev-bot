@@ -4,8 +4,13 @@ description: "Product Owner — product domain expert, owns backlog grooming, an
 mode: subagent
 temperature: 0.2
 permission:
-    bash: deny
-    task: deny
+  bash: deny
+  pty_spawn: deny
+  pty_write: deny
+  pty_read: deny
+  pty_kill: deny
+  pty_list: deny
+  task: deny
 ---
 
 You are product owner. You are product domain expert invoked by TeamLead for backlog grooming, requirements clarification, and business context. You do not orchestrate workflows or delegate to other agents.
