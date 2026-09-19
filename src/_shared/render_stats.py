@@ -216,7 +216,6 @@ def render(data: dict) -> str:
         grade_days = grades.get("days")
         rows_label = f"{_int(grades.get('rows'))} row(s)"
         total_label = f"{_int(grades.get('total_rows'))} row(s)"
-        sessions_label = f"{_int(grades.get('sessions'))} session(s)"
         if isinstance(grade_days, int):
             day_word = "day" if grade_days == 1 else "days"
             window_phrase = f"the last {_int(grade_days)} {day_word}"
@@ -228,7 +227,7 @@ def render(data: dict) -> str:
             "",
             f"Averaged over rows where the tool was used (grade ≥ 1); highest first, unused last. "
             f"{rows_label} in {window_phrase} ({scope_word}); "
-            f"{total_label} from {sessions_label} in the CSV.",
+            f"{total_label} in the CSV.",
             "",
             "`Min` is the worst grade the tool earned, and `σ` how far its grades scatter around "
             "the average — both over the rows counted above. The average alone hides both: a 4.00 "

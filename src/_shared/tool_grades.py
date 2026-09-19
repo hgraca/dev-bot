@@ -62,12 +62,6 @@ def project_name(project_root: str) -> str:
     return "/".join(parts[-2:])
 
 
-def _session_of(row_id: str) -> str:
-    """The session id behind a ``<session-id>-NN`` row id."""
-    base, sep, suffix = row_id.rpartition("-")
-    return base if sep and suffix.isdigit() else row_id
-
-
 def tool_columns(header: list[str]) -> list[str]:
     """The graded tool columns — every ``mcp:``/``skill:`` column."""
     return [
@@ -282,10 +276,9 @@ def aggregate(
     columns = tool_columns(header)
     grades: dict[str, list[int]] = {column: [] for column in columns}
     reasons: dict[str, list[str]] = {column: [] for column in columns}
-    # Both totals stay all-time, so the report can say how much of the matrix
-    # the window actually covers.
+    # The total stays all-time, so the report can say how much of the matrix the
+    # window actually covers.
     total_rows = len(rows)
-    total_sessions = len({_session_of(row.get("session_id", "")) for row in rows})
     if days is not None:
         rows = window_rows(rows, days, now)
     in_scope = 0
@@ -341,7 +334,6 @@ def aggregate(
     return {
         "rows": in_scope,
         "total_rows": total_rows,
-        "sessions": total_sessions,
         "days": days,
         "demand_bar": bar,
         "quality_threshold": QUALITY_THRESHOLD,

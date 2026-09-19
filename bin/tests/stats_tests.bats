@@ -405,7 +405,7 @@ JSON
   "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
   "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
   "tool_grades": {
-    "rows": 1, "total_rows": 3, "sessions": 3, "scope": "current", "days": 30,
+    "rows": 1, "total_rows": 3, "scope": "current", "days": 30,
     "demand_bar": 3, "quality_threshold": 3.5,
     "tools": [
       {"column": "mcp:signoz", "name": "signoz", "kind": "mcp",
@@ -426,7 +426,7 @@ JSON
   assert_output --partial "## Tool Grades"
   assert_output --partial "highest first"
   assert_output --partial "the last 30 days"
-  assert_output --partial "3 session(s)"
+  refute_output --partial "session(s)"
   assert_output --partial "failed you at least once"
   assert_output --partial "2.33"
   assert_output --partial "—"
@@ -458,7 +458,7 @@ assert 'signoz' not in poor, poor
   "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
   "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
   "tool_grades": {
-    "rows": 5, "total_rows": 5, "sessions": 5, "scope": "all",
+    "rows": 5, "total_rows": 5, "scope": "all",
     "demand_bar": 3, "quality_threshold": 3.5,
     "tools": [
       {"column": "mcp:datasources", "name": "datasources", "kind": "mcp",
@@ -513,7 +513,7 @@ assert low.index('improve') < low.index('unproven'), low
   "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
   "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
   "tool_grades": {
-    "rows": 1, "total_rows": 1, "sessions": 1, "scope": "all",
+    "rows": 1, "total_rows": 1, "scope": "all",
     "tools": [{"column": "mcp:signoz", "name": "signoz", "kind": "mcp",
                "avg": 5.0, "uses": 1, "reasons": []}]
   }
@@ -569,7 +569,7 @@ CSV
   assert_output --partial "1 row(s) in the last 30 days"
   # Both rows are slice rows of one session (s-01, s-02), so the CSV totals two
   # rows but a single session.
-  assert_output --partial "2 row(s) from 1 session(s) in the CSV"
+  assert_output --partial "2 row(s) in the CSV"
   refute_output --partial "ancient row, dropped"
   refute_output --partial "### Poor ratings"
 }

@@ -206,7 +206,7 @@ class ToolGradesTest(unittest.TestCase):
         self.assertEqual(self._tool(block, "mcp:signoz")["uses"], 2)
         self.assertEqual(block["rows"], 2)
 
-    def test_block_reports_total_rows_and_distinct_sessions(self):
+    def test_block_reports_the_scoped_count_against_the_all_time_total(self):
         first = row(project="Get-e/dev-bot", grades={"mcp:signoz": 5})
         first["session_id"] = "ses_a-01"
         second = row(project="Get-e/core", grades={"mcp:signoz": 1})
@@ -216,7 +216,10 @@ class ToolGradesTest(unittest.TestCase):
         block = tg.aggregate(HEADER, [first, second, third], scope_project="Get-e/dev-bot")
         self.assertEqual(block["rows"], 1)
         self.assertEqual(block["total_rows"], 3)
-        self.assertEqual(block["sessions"], 2)
+        # The rows are the measure; how many session ids they span is not
+        # reported, because subagents each add one and it says nothing about
+        # how much evidence backs the table.
+        self.assertNotIn("sessions", block)
 
     # ── build_tool_grades ─────────────────────────────────────────────────────
 
