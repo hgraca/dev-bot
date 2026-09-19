@@ -1,0 +1,8 @@
+---
+date: 2026-09-19
+keywords: ["memory-index", "branch", "mdctx", "search-memories", "reindex"]
+---
+
+## Memory index is keyed to the git checkout
+
+The memory search index was content-addressed but not checkout-addressed, so after a branch switch (or a vault-changing pull) `search-memories` returned files deleted on the current branch, or missed notes that only existed there. It is now keyed to the checkout: after every successful project-index build the engine records `{branch, provider, tree_sha, recorded_at}` in `<project>/<devbot-dir>/logs/memory-index-branch.json`, and `search-memories` runs the engine's `--ensure` before dispatch — a no-op when the record matches, a synchronous rebuild when it does not. `tree_sha` is `git rev-parse HEAD:<devbot-dir>/memory/latent` (committed vault content), so an unrelated commit on the same branch does not invalidate the record while a vault-changing pull does; `provider` makes an engine switch invalidate too. The record is JSON, not `.log`, because session-log rotation moves only `*.log`. Reindex logic has one source of truth — `reindex-passive-memories.sh` (provider dispatch, build lock, background/`--sync`/`--ensure`, record write); `reindex-memories.mcp.sh` delegates to it and the two `file.edited` hooks collapsed into one. Refresh is fail-open but honest: a failed rebuild warns on stderr, the caller proceeds on the existing index, and the script reports `{"status":"stale"}` so a failed refresh is never read as success. The flock the background job holds (via its inherited fd) is a build lock, so the foreground modes take it before building rather than building unlocked.

@@ -18,6 +18,7 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -125,6 +126,109 @@ def resolve_provider() -> str:
 
     provider = _read_jsonc_scalar(DEVBOT_ROOT / ".devbot.global.jsonc", "memory_search_provider")
     return provider if provider in ("qmd", "mdctx") else "mdctx"
+
+
+# Outer cap (seconds) for the query-time freshness check. It must exceed the
+# engine script's own bounds — its build-lock wait (REINDEX_ENSURE_WAIT,
+# default 300s) plus a build budget; a real reindex has been observed taking
+# ~10 minutes. The previous 300s default sat *below* the script's own wait, so
+# python killed a legitimate refresh mid-build and the stale index stayed in
+# place — the exact case the check exists to catch.
+INDEX_ENSURE_TIMEOUT = int(os.environ.get("SEARCH_MEMORIES_ENSURE_TIMEOUT", "1800"))
+
+
+def _kill_process_group(proc: subprocess.Popen) -> None:
+    """SIGKILL the refresh's whole process group and reap it.
+
+    The script runs in its own session (start_new_session), so its pgid is its
+    pid. Killing only the direct child would orphan the engine grandchild
+    (mdctx/qmd), leaving it running and holding the build lock.
+    """
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        proc.kill()
+    try:
+        proc.communicate(timeout=10)
+    except Exception:  # noqa: BLE001 — best-effort reap, never propagate
+        pass
+
+
+def index_engine_script() -> Path:
+    """Path to the canonical memory-index engine (single source of truth)."""
+    return DEVBOT_ROOT / "src" / "agentic" / "memory" / "tools" / "reindex-passive-memories.sh"
+
+
+def ensure_index_current(project_root: Path, provider: str) -> tuple[bool, str]:
+    """Make sure the memory index was built for the current checkout.
+
+    Delegates the branch/provider/tree-sha comparison to the canonical engine
+    script (`--ensure`), which no-ops when the index is already current and
+    rebuilds synchronously when it is not — so a search after a branch switch
+    (or a vault-changing pull) never reads a stale index.
+
+    Fail-open: a missing script, a timeout, or a non-zero exit leaves the
+    existing index in place, warns on stderr, and never blocks the search.
+    SEARCH_MEMORIES_SKIP_INDEX_CHECK=1 disables the check (hermetic tests).
+    Returns (ok, detail) where ok is True only when the index is confirmed
+    current (status current/rebuilt/no-vault) — it means "the index is
+    current", not merely "the process exited 0".
+    """
+    if os.environ.get("SEARCH_MEMORIES_SKIP_INDEX_CHECK"):
+        return True, "skipped"
+
+    script = index_engine_script()
+    if not script.is_file():
+        return True, "no-engine-script"
+
+    env = os.environ.copy()
+    env["DEVBOT_MEMORY_SEARCH_PROVIDER"] = provider
+    try:
+        proc = subprocess.Popen(
+            ["bash", str(script), "--ensure"],
+            cwd=str(project_root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            # Own session: a timeout must be able to reap the engine grandchild
+            # (mdctx/qmd), not just the bash script.
+            start_new_session=True,
+        )
+    except OSError as e:  # noqa: BLE001 — any spawn failure is fail-open
+        detail = f"memory index refresh could not run: {e}"
+        print(f"WARN: {detail}", file=sys.stderr)
+        return False, detail
+
+    try:
+        stdout, stderr = proc.communicate(timeout=INDEX_ENSURE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        _kill_process_group(proc)
+        detail = f"memory index refresh timed out after {INDEX_ENSURE_TIMEOUT}s"
+        print(f"WARN: {detail}", file=sys.stderr)
+        return False, detail
+
+    if proc.returncode != 0:
+        detail = (stderr or "").strip() or f"exit {proc.returncode}"
+        print(f"WARN: memory index refresh failed: {detail}", file=sys.stderr)
+        return False, detail
+
+    out = (stdout or "").strip()
+    try:
+        payload = json.loads(out)
+    except ValueError:
+        payload = {}
+    status = payload.get("status", "") if isinstance(payload, dict) else ""
+
+    # Fail-open, but honest: the script exits 0 with {"status":"stale"} when it
+    # could not refresh, so `ok` means "the index is current" — not merely "the
+    # process exited 0". Surface the failure instead of silently serving a
+    # possibly-stale index.
+    if status == "stale":
+        reason = payload.get("reason", "stale")
+        print(f"WARN: memory index may be stale: {reason}", file=sys.stderr)
+        return False, reason
+    return status in ("current", "rebuilt", "no-vault"), (status or out)
 
 
 def run_mdctx_cli(args: list[str]) -> tuple[str | None, str | None]:
@@ -503,6 +607,12 @@ def main() -> None:
 
     project_root = Path(os.getcwd())
     provider = resolve_provider()
+
+    # Branch awareness: never query an index built for a different checkout.
+    # The canonical engine script no-ops when the recorded {branch, provider,
+    # tree_sha} matches and rebuilds synchronously when it does not. Fail-open
+    # (a failed refresh only warns — the search proceeds).
+    ensure_index_current(project_root, provider)
 
     # Engine dispatch: qmd and mdctx are interchangeable behind this CLI,
     # selected by memory_search_provider. Each engine's search covers the

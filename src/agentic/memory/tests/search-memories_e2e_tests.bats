@@ -37,6 +37,12 @@ setup() {
   # the tool dispatches on the host config (absent key => mdctx) and the isolated
   # qmd fixtures are never searched.
   export SEARCH_MEMORIES_PROVIDER=qmd
+  # The query path now runs the branch-freshness check (search-memories.py →
+  # reindex-passive-memories.sh --ensure) before dispatching. This suite runs
+  # from the repo root, whose real vault would look stale and trigger a live
+  # reindex mid-test; disable the check — it has dedicated coverage in
+  # memory-index-branch_tests.bats + test_search_memories.py.
+  export SEARCH_MEMORIES_SKIP_INDEX_CHECK=1
   export QMD_CONFIG_DIR="$E2E_CONFIG"
   export DEVBOT_ROOT
 

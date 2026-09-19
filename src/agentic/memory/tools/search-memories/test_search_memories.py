@@ -10,9 +10,12 @@ Usage:
 """
 
 import importlib.util
+import io
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -791,6 +794,123 @@ class TestFetchMdctxBody(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
+def _fake_proc(returncode=0, stdout="", stderr="", timeout=False):
+    """A Popen stand-in: communicate() yields canned output, or times out."""
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.returncode = returncode
+    if timeout:
+        proc.communicate.side_effect = subprocess.TimeoutExpired(cmd="bash", timeout=1)
+    else:
+        proc.communicate.return_value = (stdout, stderr)
+    return proc
+
+
+class TestEnsureIndexCurrent(unittest.TestCase):
+    """The query-time branch check delegates to the canonical engine script:
+    no-op when the record is current, blocking rebuild when stale, fail-open on
+    any error (a failed refresh never blocks the search)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        os.environ.pop("SEARCH_MEMORIES_SKIP_INDEX_CHECK", None)
+        self.addCleanup(os.environ.pop, "SEARCH_MEMORIES_SKIP_INDEX_CHECK", None)
+
+    def test_env_override_skips_without_running_anything(self):
+        os.environ["SEARCH_MEMORIES_SKIP_INDEX_CHECK"] = "1"
+        with patch("subprocess.Popen") as run_mock:
+            ok, detail = _search_memories.ensure_index_current(self.tmp, "mdctx")
+        self.assertTrue(ok)
+        self.assertEqual(detail, "skipped")
+        run_mock.assert_not_called()
+
+    def test_missing_engine_script_is_fail_open(self):
+        missing = self.tmp / "nope.sh"
+        with patch.object(_search_memories, "index_engine_script", return_value=missing):
+            with patch("subprocess.Popen") as run_mock:
+                ok, detail = _search_memories.ensure_index_current(self.tmp, "mdctx")
+        self.assertTrue(ok)
+        self.assertEqual(detail, "no-engine-script")
+        run_mock.assert_not_called()
+
+    def test_invokes_canonical_script_ensure_in_project_root(self):
+        script = self.tmp / "reindex-passive-memories.sh"
+        script.write_text("#!/usr/bin/env bash\n")
+        proc = _fake_proc(returncode=0, stdout='{"status":"rebuilt"}')
+        with patch.object(_search_memories, "index_engine_script", return_value=script):
+            with patch("subprocess.Popen", return_value=proc) as popen_mock:
+                ok, _ = _search_memories.ensure_index_current(self.tmp, "qmd")
+        self.assertTrue(ok)
+        args, kwargs = popen_mock.call_args
+        self.assertEqual(args[0], ["bash", str(script), "--ensure"])
+        self.assertEqual(kwargs["cwd"], str(self.tmp))
+        # The resolved provider is handed to the script so both agree.
+        self.assertEqual(kwargs["env"]["DEVBOT_MEMORY_SEARCH_PROVIDER"], "qmd")
+        # Own session, so a timeout can reap the engine grandchild too.
+        self.assertTrue(kwargs["start_new_session"])
+
+    def test_nonzero_exit_warns_and_is_fail_open(self):
+        script = self.tmp / "reindex-passive-memories.sh"
+        script.write_text("#!/usr/bin/env bash\n")
+        proc = _fake_proc(returncode=1, stderr="boom")
+        with patch.object(_search_memories, "index_engine_script", return_value=script):
+            with patch("subprocess.Popen", return_value=proc):
+                with patch("sys.stderr", new_callable=io.StringIO) as err:
+                    ok, detail = _search_memories.ensure_index_current(self.tmp, "mdctx")
+        self.assertFalse(ok)
+        self.assertIn("boom", detail)
+        self.assertIn("WARN", err.getvalue())
+
+    def test_timeout_kills_the_process_group_and_is_fail_open(self):
+        script = self.tmp / "reindex-passive-memories.sh"
+        script.write_text("#!/usr/bin/env bash\n")
+        proc = _fake_proc(timeout=True)
+        with patch.object(_search_memories, "index_engine_script", return_value=script):
+            with patch("subprocess.Popen", return_value=proc):
+                with patch.object(_search_memories.os, "killpg") as killpg:
+                    with patch("sys.stderr", new_callable=io.StringIO) as err:
+                        ok, detail = _search_memories.ensure_index_current(self.tmp, "mdctx")
+        self.assertFalse(ok)
+        self.assertIn("timed out", detail)
+        self.assertIn("WARN", err.getvalue())
+        killpg.assert_called_once()
+
+    def test_current_status_is_confirmed_current(self):
+        script = self.tmp / "reindex-passive-memories.sh"
+        script.write_text("#!/usr/bin/env bash\n")
+        proc = _fake_proc(returncode=0, stdout='{"status":"current"}')
+        with patch.object(_search_memories, "index_engine_script", return_value=script):
+            with patch("subprocess.Popen", return_value=proc):
+                ok, _ = _search_memories.ensure_index_current(self.tmp, "mdctx")
+        self.assertTrue(ok)
+
+    def test_stale_status_warns_on_stderr_and_is_not_ok(self):
+        # The script is fail-open (exit 0) on a failed refresh and reports it in
+        # the JSON status — the caller must not read that as success.
+        script = self.tmp / "reindex-passive-memories.sh"
+        script.write_text("#!/usr/bin/env bash\n")
+        proc = _fake_proc(returncode=0, stdout='{"status":"stale","reason":"rebuild-failed"}')
+        with patch.object(_search_memories, "index_engine_script", return_value=script):
+            with patch("subprocess.Popen", return_value=proc):
+                with patch("sys.stderr", new_callable=io.StringIO) as err:
+                    ok, detail = _search_memories.ensure_index_current(self.tmp, "mdctx")
+        self.assertFalse(ok)
+        self.assertEqual(detail, "rebuild-failed")
+        self.assertIn("WARN", err.getvalue())
+
+    def test_default_timeout_exceeds_the_engine_lock_wait(self):
+        # F1: the outer cap must exceed the engine's own lock wait plus a build
+        # budget, or python kills a legitimate rebuild mid-flight.
+        if "SEARCH_MEMORIES_ENSURE_TIMEOUT" in os.environ:
+            self.skipTest("SEARCH_MEMORIES_ENSURE_TIMEOUT overrides the default")
+        engine = _MODULE_PATH.parent.parent / "reindex-passive-memories.sh"
+        found = re.search(r"REINDEX_ENSURE_WAIT:-(\d+)", engine.read_text())
+        engine_wait = int(found.group(1)) if found else 0
+        self.assertGreater(engine_wait, 0, "engine lock-wait default not found in the script")
+        self.assertGreater(_search_memories.INDEX_ENSURE_TIMEOUT, engine_wait)
+
+
 class TestMainEngineDispatch(unittest.TestCase):
     """main() routes to search_qmd under provider qmd and search_mdctx under
     provider mdctx — the two engines are interchangeable behind one CLI."""
@@ -813,6 +933,7 @@ class TestMainEngineDispatch(unittest.TestCase):
             return body_ret
 
         with patch.object(_search_memories, "resolve_provider", return_value=provider), \
+             patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
              patch.object(_search_memories, "search_qmd", side_effect=fake_search_qmd), \
              patch.object(_search_memories, "search_mdctx", side_effect=fake_search_mdctx), \
              patch.object(_search_memories, "fetch_file_body", side_effect=fake_fetch), \
