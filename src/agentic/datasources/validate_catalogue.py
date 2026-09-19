@@ -151,15 +151,24 @@ def culprit_reason(output: str) -> str:
 _URI_CREDENTIALS_RE = re.compile(
     r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*://)(?P<user>[^:/@\s]+):(?P<secret>[^@/\s]+)@"
 )
-_PASSWORD_PARAM_RE = re.compile(r"(?i)\b(password|passwd|pwd)=\S+")
+# Both shapes a password reaches the log in: a DSN parameter (`password=x`) and
+# a rendered config line (`password: x`). toolbox pretty-prints the offending
+# document when it cannot parse a config, so the YAML form is the one that
+# leaks a literal password from the catalogue.
+#
+# A `${VAR}` value is left visible on purpose: it is a reference, not a secret,
+# and seeing it says the render was correct.
+_PASSWORD_PARAM_RE = re.compile(r"(?i)\b(password|passwd|pwd)([=:]\s*)(?!\$\{)\S+")
 
 
 def redact(text: str) -> str:
-    """Mask credentials a driver error may have echoed."""
+    """Mask credentials a driver error or config dump may have echoed."""
     if not text:
         return ""
     text = _URI_CREDENTIALS_RE.sub(r"\g<scheme>\g<user>:***@", text)
-    return _PASSWORD_PARAM_RE.sub(lambda match: f"{match.group(1)}=***", text)
+    return _PASSWORD_PARAM_RE.sub(
+        lambda match: f"{match.group(1)}{match.group(2)}***", text
+    )
 
 
 def validate(

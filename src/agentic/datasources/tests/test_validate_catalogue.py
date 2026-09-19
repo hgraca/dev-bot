@@ -230,6 +230,24 @@ class TestRedact(unittest.TestCase):
         self.assertNotIn("hunter2", masked)
         self.assertIn("password=***", masked)
 
+    def test_masks_a_password_in_a_dumped_config(self):
+        # toolbox pretty-prints the offending document when it cannot parse a
+        # config, which echoes a LITERAL password from the catalogue. That dump
+        # becomes the render's error message, so it has to be masked here.
+        masked = redact("  6 | password: hunter2\n  7 | queryParams: timeout=1s")
+
+        self.assertNotIn("hunter2", masked)
+        self.assertIn("password: ***", masked)
+        # The rest of the dump is diagnostics, and stays.
+        self.assertIn("queryParams: timeout=1s", masked)
+
+    def test_leaves_a_reference_visible(self):
+        # A ${VAR} is a reference, not a secret — and seeing it says the render
+        # did the right thing.
+        self.assertEqual(
+            redact("password: ${MYSQL_PASSWORD}"), "password: ${MYSQL_PASSWORD}"
+        )
+
     def test_leaves_a_clean_reason_alone(self):
         self.assertEqual(
             redact("dial tcp 127.0.0.1:1: connection refused"),
