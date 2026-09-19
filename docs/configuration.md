@@ -420,8 +420,9 @@ Two behaviours are worth knowing before relying on it:
   next `devbot up`. Reasons are printed on `devbot up`.
 - **A connection that hangs is bounded.** mysql and postgres carry a 2s connect
   timeout, so a firewalled host fails fast instead of stalling the gateway's
-  startup. MongoDB takes its timeout in the URI — add `connectTimeoutMS` and
-  `serverSelectionTimeoutMS` if the host may silently drop packets. The redis
+  startup. MongoDB gets the same bound in its URI (`connectTimeoutMS` /
+  `serverSelectionTimeoutMS`) — set one yourself in the URI, or in the variable
+  behind it, to override it for a cluster that honestly needs longer. The redis
   source exposes no dial timeout at all in toolbox 1.11.0, so a blackholed redis
   host is still excluded, but only after the canary's full 5s deadline.
 - **Nothing blocks writes.** A datasource is exactly as writable as the database

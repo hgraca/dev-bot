@@ -23,6 +23,7 @@
 # =============================================================================
 
 import json
+import os
 import re
 import sys
 from typing import NoReturn
@@ -46,12 +47,13 @@ from typing import NoReturn
 # (tens of milliseconds when it is up, so 2s is already generous); the budget
 # answers "is it slow to become ready" (which is why the budget is the larger).
 #
-# Two engines stay unbounded, deliberately and visibly:
-#   * mongodb has no queryParams field; its timeout lives inside the URI
-#     (`connectTimeoutMS` / `serverSelectionTimeoutMS`), and dev-bot passes the
-#     operator's URI through untouched rather than rewriting it.
-#   * redis exposes no dial timeout in 1.11.0 — both `timeout` and
-#     `dialTimeout` are rejected as unknown fields.
+# One engine stays unbounded, deliberately and visibly: redis exposes no dial
+# timeout in 1.11.0 — both `timeout` and `dialTimeout` are rejected as unknown
+# fields — so a blackholed redis host can only be caught by the canary budget.
+#
+# mongodb is bounded too, but through a different door: it has no queryParams
+# field, so its timeouts ride inside the URI (see the engine's
+# `uri_timeout_params`).
 # A blackholed host for either is bounded only by the canary's own deadline —
 # which costs that whole deadline on every render. validate_catalogue.py still
 # attributes it (by probing the source on its own), it just cannot do so
@@ -121,6 +123,20 @@ ENGINES = {
             # it stays a runtime parameter the agent chooses.
             ("database", "MONGODB_DATABASE", None, "tool"),
         ],
+        # The driver's dial bound has to ride INSIDE the URI: the source has no
+        # timeout field of its own (`timeout:` is rejected as unknown), and the
+        # driver's default server selection is 30s — far past the canary budget,
+        # which made an unreachable host unattributable. Same 2s as the SQL
+        # engines, and for the same reason.
+        #
+        # _uri_timeout_suffix appends these and SKIPS any the URI already sets,
+        # so putting `serverSelectionTimeoutMS` in your own URI (or in the
+        # variable behind it) is the escape hatch for a cluster that
+        # legitimately needs longer.
+        "uri_timeout_params": {
+            "connectTimeoutMS": "2000",
+            "serverSelectionTimeoutMS": "2000",
+        },
         "tool": {
             "name": "aggregate",
             "type": "mongodb-aggregate",
@@ -342,6 +358,52 @@ def _validate_env(name, spec, engine):
             )
 
 
+def _uri_query_keys(uri: str) -> set:
+    """The parameter names a mongodb URI already sets."""
+    _base, separator, query = uri.partition("?")
+    if not separator:
+        return set()
+    return {part.partition("=")[0] for part in query.split("&") if part}
+
+
+def _uri_has_path(uri: str) -> bool:
+    """Whether the URI carries a path between its authority and its query.
+
+    `mongodb://localhost` carries none, and the driver refuses a query string
+    without one — "must have a / before the query ?" — so a `?` cannot simply be
+    appended to it.
+    """
+    scheme_end = uri.find("://")
+    start = scheme_end + 3 if scheme_end != -1 else 0
+    slash = uri.find("/", start)
+    query = uri.find("?", start)
+    return slash != -1 and (query == -1 or slash < query)
+
+
+def _uri_timeout_suffix(engine, yaml_field, uri) -> str:
+    """The suffix that makes `uri` carry the engine's timeout parameters.
+
+    Empty for any field but `uri`, for an engine that declares no params, for a
+    URI it cannot read, and for one that already sets everything — an operator's
+    own `serverSelectionTimeoutMS` is theirs to choose.
+
+    The separator follows the URI it will be appended to, so a connection string
+    that already has a query is not broken, and a path is inserted when there is
+    none, which a query string requires.
+    """
+    params = engine.get("uri_timeout_params")
+    if not params or yaml_field != "uri" or not isinstance(uri, str) or not uri:
+        return ""
+    present = _uri_query_keys(uri)
+    missing = {key: value for key, value in params.items() if key not in present}
+    if not missing:
+        return ""
+    joined = "&".join(f"{key}={value}" for key, value in missing.items())
+    if "?" in uri:
+        return "&" + joined
+    return ("/" if not _uri_has_path(uri) else "") + "?" + joined
+
+
 def _render_fields(spec, engine, where) -> list:
     """The rendered lines for the fields that belong to one document."""
     database = spec.get("env", {})
@@ -360,11 +422,22 @@ def _render_fields(spec, engine, where) -> list:
                 value = (
                     f"${{{ref}:{default}}}" if default is not None else f"${{{ref}}}"
                 )
+                # Toolbox substitutes ${VAR} mid-string (verified against the
+                # pinned image), so a suffix can ride along — but the separator
+                # has to be chosen from what the URI already sets, which means
+                # reading it from the environment the container will be handed.
+                # The value itself is never written out.
+                value += _uri_timeout_suffix(
+                    engine, yaml_field, os.environ.get(ref) or default
+                )
             else:
                 # A literal, written straight in. Non-secret values (host, port,
                 # database, user) read far better inline; a secret belongs
                 # behind a ${VAR} reference.
-                value = _yaml_scalar(database[engine_var])
+                literal = _literal_text(database[engine_var])
+                value = _yaml_scalar(
+                    literal + _uri_timeout_suffix(engine, yaml_field, literal)
+                )
         elif default is not None:
             # Undeclared: the engine's own variable, defaulted — exporting
             # MYSQL_HOST still works without declaring anything.

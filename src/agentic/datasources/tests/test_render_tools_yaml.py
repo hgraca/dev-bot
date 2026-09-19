@@ -15,13 +15,18 @@ RENDERER = os.path.join(
 )
 
 
-def render(catalogue):
-    """Run the generator over a catalogue dict. Returns (exit_code, stdout, stderr)."""
+def render(catalogue, env=None):
+    """Run the generator over a catalogue dict. Returns (exit_code, stdout, stderr).
+
+    `env` merges over the inherited environment, so a test can control what a
+    ${VAR} reference resolves to.
+    """
     proc = subprocess.run(
         [sys.executable, RENDERER],
         input=json.dumps(catalogue),
         capture_output=True,
         text=True,
+        env={**os.environ, **(env or {})},
     )
     return proc.returncode, proc.stdout, proc.stderr
 
@@ -308,6 +313,126 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertIn("uri: ${EVENTS_MONGO_URI}", doc_with(out, "source"))
         self.assertNotIn("database", doc_with(out, "source"))
         self.assertIn("database: 'events'", doc_with(out, "tool"))
+
+    def test_mongodb_uri_gains_the_dial_bound(self):
+        # The mongodb source has no timeout field, so the dial bound rides in
+        # the connection string. Without it the driver's 30s server selection
+        # outlasts the canary budget and an unreachable host cannot be named.
+        code, out, _ = render(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {"MONGODB_URI": "mongodb://localhost", "MONGODB_DATABASE": "d"},
+                }
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn(
+            "uri: 'mongodb://localhost/?connectTimeoutMS=2000&serverSelectionTimeoutMS=2000'",
+            out,
+        )
+
+    def test_mongodb_uri_without_a_path_gets_one(self):
+        # The driver refuses a query string with no path — "must have a / before
+        # the query ?" — so a bare host must gain the slash, or every such
+        # datasource is rejected as unparseable.
+        code, out, _ = render(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {"MONGODB_URI": "mongodb://h:27017", "MONGODB_DATABASE": "d"},
+                }
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn(
+            "uri: 'mongodb://h:27017/?connectTimeoutMS=2000&serverSelectionTimeoutMS=2000'",
+            out,
+        )
+
+    def test_mongodb_uri_keeps_an_existing_query(self):
+        code, out, _ = render(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {
+                        "MONGODB_URI": "mongodb://h/db?replicaSet=rs0",
+                        "MONGODB_DATABASE": "d",
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn(
+            "uri: 'mongodb://h/db?replicaSet=rs0&connectTimeoutMS=2000&serverSelectionTimeoutMS=2000'",
+            out,
+        )
+
+    def test_mongodb_uri_keeps_the_operators_own_timeout(self):
+        # Setting your own value is the escape hatch for a cluster that needs
+        # longer, so it must not be overwritten.
+        code, out, _ = render(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {
+                        "MONGODB_URI": "mongodb://h/db?serverSelectionTimeoutMS=9000",
+                        "MONGODB_DATABASE": "d",
+                    },
+                }
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn(
+            "uri: 'mongodb://h/db?serverSelectionTimeoutMS=9000&connectTimeoutMS=2000'",
+            out,
+        )
+
+    def test_mongodb_reference_uri_gains_the_bound_without_being_resolved(self):
+        # The reference stays a reference: the URI usually carries credentials.
+        # The suffix only needs to know whether a query is already there.
+        code, out, _ = render(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {
+                        "MONGODB_URI": "${EVENTS_MONGO_URI}",
+                        "MONGODB_DATABASE": "d",
+                    },
+                }
+            },
+            env={"EVENTS_MONGO_URI": "mongodb://user:s3cr3t@h:27017/db"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn(
+            "uri: ${EVENTS_MONGO_URI}?connectTimeoutMS=2000&serverSelectionTimeoutMS=2000",
+            out,
+        )
+        self.assertNotIn("s3cr3t", out)
+
+    def test_mongodb_reference_uri_is_untouched_when_it_cannot_be_read(self):
+        # Nothing to choose the separator from, so the URI is written exactly as
+        # given rather than risk corrupting it.
+        code, out, _ = render(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {
+                        "MONGODB_URI": "${EVENTS_MONGO_URI}",
+                        "MONGODB_DATABASE": "d",
+                    },
+                }
+            },
+            env={"EVENTS_MONGO_URI": ""},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("uri: ${EVENTS_MONGO_URI}", out)
 
     def test_mongodb_pipeline_is_the_free_form_surface(self):
         # The agent supplies the whole pipeline, so `collection` is deliberately
