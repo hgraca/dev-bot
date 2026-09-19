@@ -49,6 +49,7 @@ Do immediately on activation:
 
 | Situation                               | Skill                          |
 | --------------------------------------- | ------------------------------ |
+| Picking a shell channel (bash vs PTY)   | `devbot:shell-strategy`        |
 | Signalling completion or blockers       | `devbot:agent-communication`   |
 | Session stalls or tools fail            | `devbot:exception-handling`    |
 | Architecture concerns, design rules     | `devbot:architecture-rules`    |

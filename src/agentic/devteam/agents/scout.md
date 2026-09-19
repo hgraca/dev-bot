@@ -19,6 +19,7 @@ If either section was not provided, ask for it.
 
 ## Skills
 
+- Always load `devbot:shell-strategy` at session start — it picks the channel for every shell command: quick, deterministic commands on the `bash` tool; long-running, interactive, or watched-while-running commands in a PTY session.
 - When gathering context for topic or session, use `devbot:gather-context` skill
 - When signalling completion or blockers, use `devbot:agent-communication` skill
 - When session stalls or tools fail, use `devbot:exception-handling` skill

@@ -20,6 +20,7 @@ When implementing story or epic, follow `devbot:implement-story` skill, invoking
 
 ## Skills
 
+- Always load `devbot:shell-strategy` at session start — it picks the channel for every shell command: quick, deterministic commands on the `bash` tool; long-running, interactive, or watched-while-running commands in a PTY session.
 - When delegating work to subagent or receiving status signals, use `devbot:agent-communication`
 - When session stalls, delegation fails, or unexpected situation arises, use `devbot:exception-handling`
 - When new session starts and user request is non-trivial and about project, delegate to @scout to gather context as first step — MUST instruct scout to use `devbot:gather-context` skill and provide explicit keyword list extracted/inferred from request
