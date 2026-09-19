@@ -11,11 +11,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs
 import { tmpdir } from "os"
 import { join } from "path"
 import {
+  commandString,
   createFileEditGate,
   createKindResolver,
   createRewriteEchoTracker,
   defaultHookLog,
   guardDecision,
+  hasCommand,
   resolveGlobalConfigPath,
   routeHookOutput,
   sessionEnvVars,
@@ -468,5 +470,57 @@ describe("sessionEnvVars", () => {
   test("returns an empty object when the session id is missing or blank", () => {
     expect(sessionEnvVars(undefined)).toEqual({})
     expect(sessionEnvVars("   ")).toEqual({})
+  })
+})
+
+// ── commandString (guards must see the whole command on every shell channel) ─
+// The bash tool passes one `command` string; a PTY is two tools with different
+// shapes — `pty_spawn(command, args[])` and `pty_write(data)`. The guard hook
+// feeds this normalised string to the rules engine, so a command must not slip
+// past the guards just because it was launched through a PTY.
+
+describe("commandString", () => {
+  test("bash uses the command argument", () => {
+    expect(commandString("bash", { command: "git status" })).toBe("git status")
+  })
+
+  test("pty_spawn joins the executable with its argument array", () => {
+    expect(commandString("pty_spawn", { command: "make", args: ["test"] })).toBe("make test")
+  })
+
+  test("pty_spawn handles a missing or empty args array", () => {
+    expect(commandString("pty_spawn", { command: "git" })).toBe("git")
+    expect(commandString("pty_spawn", { command: "git", args: [] })).toBe("git")
+  })
+
+  test("pty_write guards the interactive input channel", () => {
+    expect(commandString("pty_write", { data: "rm -rf /tmp/x" })).toBe("rm -rf /tmp/x")
+  })
+
+  test("missing values normalise to empty, never the string 'undefined'", () => {
+    expect(commandString("pty_spawn", {})).toBe("")
+    expect(commandString("bash", undefined)).toBe("")
+    expect(commandString("pty_write", {})).toBe("")
+  })
+})
+
+// ── hasCommand (an empty command has nothing for the guards to evaluate) ────
+// The guards tool exits non-zero on an empty --command, and a blocking guard
+// maps that to "blocked". Without this predicate an empty pty_write — a no-op —
+// surfaced as "guard temporarily unavailable".
+
+describe("hasCommand", () => {
+  test("accepts a real command", () => {
+    expect(hasCommand("git status")).toBe(true)
+  })
+
+  test("rejects empty and whitespace-only commands", () => {
+    expect(hasCommand("")).toBe(false)
+    expect(hasCommand("   ")).toBe(false)
+    expect(hasCommand("\n")).toBe(false)
+  })
+
+  test("an empty pty_write normalises to no command at all", () => {
+    expect(hasCommand(commandString("pty_write", { data: "" }))).toBe(false)
   })
 })

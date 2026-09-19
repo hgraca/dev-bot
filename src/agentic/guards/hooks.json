@@ -3,7 +3,7 @@
     {
       "id": "guards",
       "event": "command.before",
-      "match": { "tool": ["bash", "shell"] },
+      "match": { "tool": ["bash", "shell", "pty_spawn", "pty_write"] },
       "run": [
         "bun",
         "{module}/tools/guards.ts",

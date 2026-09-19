@@ -310,3 +310,30 @@ export function sessionEnvVars(sessionID?: string): Record<string, string> {
   const id = sessionID?.trim()
   return id ? { [SESSION_ID_ENV]: id } : {}
 }
+
+// The guard hook needs one command string per shell channel. The bash tool
+// supplies `command`; a PTY splits the invocation across two tools — `pty_spawn`
+// carries the executable plus an args array, `pty_write` carries raw input typed
+// into a running session. Normalise all of them so a command cannot slip past
+// the guards merely by being launched through a PTY.
+export function commandString(tool: string, args: unknown): string {
+  const a = (args ?? {}) as { command?: unknown; args?: unknown; data?: unknown }
+  switch (String(tool || "").toLowerCase()) {
+    case "pty_spawn": {
+      const rest = Array.isArray(a.args) ? a.args.map((value) => String(value)) : []
+      return [String(a.command ?? ""), ...rest].filter(Boolean).join(" ")
+    }
+    case "pty_write":
+      return String(a.data ?? "")
+    default:
+      return String(a.command ?? "")
+  }
+}
+
+// An empty command has nothing for the guards to evaluate. The guards tool
+// exits non-zero on an empty --command, and a blocking guard maps a non-zero
+// exit to "blocked" — so an empty pty_write (a no-op) would surface as
+// "guard temporarily unavailable" instead of passing through.
+export function hasCommand(command: string): boolean {
+  return command.trim().length > 0
+}

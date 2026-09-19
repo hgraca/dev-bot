@@ -16,7 +16,7 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { defaultHookLog, createFileEditGate, createKindResolver, createRewriteEchoTracker, guardDecision, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
+import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -228,7 +228,12 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
     "tool.execute.before": async (input: any, output: any) => {
       for (const fn of pluginHandlers["tool.execute.before"] ?? []) await fn(input, output)
       const tool = String(input?.tool ?? "").toLowerCase()
-      const command = String((output?.args as any)?.command ?? (input?.args as any)?.command ?? "")
+      // Every shell channel must reach the guards — bash, and the two PTY tools
+      // that carry an invocation (see commandString).
+      const command = commandString(tool, output?.args ?? input?.args)
+      // Nothing to evaluate — the guards tool would exit non-zero on an empty
+      // command, which a blocking guard reads as "blocked".
+      if (!hasCommand(command)) return
       for (const { moduleDir, hooks } of manifests) {
         for (const hook of hooks) {
           if (hook.event !== "command.before" || !hook.run) continue

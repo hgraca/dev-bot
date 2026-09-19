@@ -29,6 +29,22 @@ print('MANIFEST:OK')
   grep -qF 'MANIFEST:OK' <<< "$output" || fail "manifest missing or malformed"
 }
 
+# The bash tool is not the only shell channel: a PTY session launches commands
+# too. A matcher that omits the PTY tools silently drops every guard for
+# long-running commands — precisely the traffic the shell strategy sends to a PTY.
+@test "hooks.json guards every shell channel, not just bash" {
+  run python3 -c "
+import json
+data = json.load(open('${MANIFEST}'))
+tools = data['hooks'][0]['match']['tool']
+for required in ('bash', 'shell', 'pty_spawn', 'pty_write'):
+    assert required in tools, (required, tools)
+print('CHANNELS:OK')
+"
+  assert_success
+  grep -qF 'CHANNELS:OK' <<< "$output" || fail "guards matcher is missing a shell channel"
+}
+
 @test "shared guards tool exists" { [ -f "$TOOL" ]; }
 @test "skill file exists" { [ -f "$SKILL_FILE" ]; }
 
