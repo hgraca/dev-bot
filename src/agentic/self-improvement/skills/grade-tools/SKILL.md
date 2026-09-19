@@ -12,8 +12,8 @@ without the reasoning behind it cannot drive that decision, so the `notes` colum
 The CSV is **install-level, not per-project**: rows from every project land in one file at
 `<DEV_BOT_ROOT>/.agents/logs/tools-grades.csv`, each row tagged with the `project` it came from, so
 tool quality accumulates across the whole workspace instead of fragmenting into one file per consumer.
-`devbot stats` reads this matrix back, reporting each tool's average grade and the reasons behind its
-poor (1–3) ratings.
+`devbot stats` reads this matrix back, reporting each tool's average grade, its worst grade and the
+spread across uses, a keep/improve quadrant verdict, and the reasons behind its poor (1–3) ratings.
 
 ## When to Apply
 
