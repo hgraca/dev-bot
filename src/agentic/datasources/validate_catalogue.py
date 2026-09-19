@@ -4,13 +4,19 @@
 # Validate a candidate catalogue against the REAL gateway.
 #
 # dev-bot does not open database connections: the pinned toolbox is the only DB
-# client, and it is the oracle. This runs the toolbox image once against the
-# rendered candidate config and reports what it does:
+# client, and it is the oracle. Each declared source is run against the image ON
+# ITS OWN, in parallel with the others, and what that run does is the verdict:
 #
-#   * it reaches readiness  -> every source initialized, keep the candidate;
-#   * it exits non-zero     -> it names the source it could not initialize
-#                              (`unable to initialize source "X"`), so drop X
-#                              and try again, bounded by the catalogue size.
+#   * it reaches readiness  -> keep the source;
+#   * it exits non-zero     -> drop it, with the reason toolbox gave.
+#
+# Sources are independent — a source toolbox cannot initialize alone is not one
+# the merged config can serve — so a per-source run is equivalent to the
+# combined run it replaces, and it makes every verdict attributable without
+# parsing `unable to initialize source "X"` out of somebody else's failure.
+# Validating all of them at once is what keeps the cost at max(one source)
+# rather than sum(N): with a single failing source the combined form burned its
+# whole deadline once per source it had to eliminate.
 #
 # That is what makes the filter's invariant true: "usable" now means exactly
 # "toolbox can initialize it", and the connections spent deciding are real
@@ -19,11 +25,10 @@
 # database the way the old bare TCP dial did.
 #
 # Readiness is `/healthz` (toolbox >= 1.8), not a timed guess: a good config
-# serves within a second, a bad one exits in about the same time. A run that
-# does neither is inconclusive — it names nobody, which is what a driver with
-# no dial timeout of its own does (redis always; mongodb unless its URI bounds
-# it). Rather than give up, each source is then probed on its own, so the run
-# still ends in a decision instead of aborting the whole render.
+# serves within a second, a bad one exits in about the same time. A source that
+# does neither — a driver with no dial timeout of its own, which is redis
+# always and mongodb unless its URI bounds it — has no verdict, but it is
+# still only that source's problem: it is dropped and named like any other.
 #
 # A source the oracle rejects is dropped and named on stderr. There is no
 # retry state: the catalogue is evaluated once, at startup, so a rejected
@@ -45,10 +50,12 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from render_tools_yaml import effective_env_names, load_catalogue, render
 
@@ -58,23 +65,33 @@ DEV_BOT_ROOT = os.environ.get("DEV_BOT_ROOT") or os.path.dirname(
 )
 VERSIONS_FILE = os.path.join(MODULE_DIR, "versions.env")
 
-DEFAULT_TIMEOUT = 10.0
+# How long one source has to reach readiness. A good config serves within a
+# second; a host that blackholes the dial does not, and waiting longer than this
+# only delays the boot. Kept deliberately tight — a source that needs longer
+# than this is dropped for the session and returns on the next `devbot up`.
+DEFAULT_TIMEOUT = 2.0
 POLL_INTERVAL = 0.25
 # Every docker invocation is bounded, so an unresponsive daemon cannot hang the
 # render (and with it `devbot up`).
 DOCKER_TIMEOUT = 30.0
+# One canary container per source, all at once. Capped so a large catalogue
+# cannot turn a boot into a container stampede; the sources beyond the cap run
+# in a second wave.
+MAX_PARALLEL_CANARIES = 8
 
-# toolbox fails fast on the first source it cannot initialize and names it.
-# It appears twice in the logs — escaped inside the logger line
+# toolbox names the source it could not initialize. It appears twice in the
+# logs — escaped inside the logger line
 #   ERROR "toolbox failed to initialize: ... unable to initialize source
 #   \"bad-mysql\": unable to connect successfully: ..."
-# and plain on the CLI error line — so tolerate the optional backslashes.
+# and plain on the CLI error line — so tolerate the optional backslashes. The
+# verdict no longer depends on this (every source is asked about on its own);
+# it is how the REASON shown to the operator is extracted.
+CULPRIT_RE = re.compile(r'unable to initialize source \\?"([^"\\]+)\\?"')
+
 # toolbox refuses a config it cannot read at all — a renderer bug, or a spec
 # this image does not accept. That is never a source to blame, and conflating
 # the two would publish a broken render as "every datasource is unusable".
 CONFIG_ERROR_RE = re.compile(r"unable to parse config file")
-
-CULPRIT_RE = re.compile(r'unable to initialize source \\?"([^"\\]+)\\?"')
 
 EXIT_OK = 0
 EXIT_INPUT = 1
@@ -142,88 +159,71 @@ def redact(text: str) -> str:
     return _PASSWORD_PARAM_RE.sub(lambda match: f"{match.group(1)}=***", text)
 
 
-def _probe_individually(
-    candidate: dict, run_canary: Callable[[dict], CanaryResult]
+def validate(
+    catalogue: dict, run_canary: Callable[[dict], CanaryResult]
 ) -> Tuple[dict, List[Tuple[str, str]]]:
-    """Run each source through the oracle on its own: (accepted, rejected).
+    """Return (accepted catalogue, [(rejected name, reason), ...]).
 
-    Used when a combined run was inconclusive. A source toolbox cannot
-    initialize ALONE is not one the merged config can serve — sources are
-    independent — so each is judged on its own and the working ones are kept.
+    Every source is judged ON ITS OWN, and all of them at once. Sources are
+    independent — one toolbox cannot initialize alone is not one the merged
+    config can serve — so a single-source run per source is equivalent to the
+    combined run it replaces, and it makes every verdict attributable without
+    parsing a culprit out of somebody else's failure. Running them concurrently
+    keeps the cost at max(one source) instead of sum(N).
 
-    An infra failure while probing aborts rather than blaming the source.
+    `run_canary(candidate)` must run the oracle against a candidate and report
+    the result; injecting it is what makes this unit-testable without docker.
     """
+    if not catalogue:
+        return {}, []
+
+    results: Dict[str, CanaryResult] = {}
+    with ThreadPoolExecutor(
+        max_workers=min(len(catalogue), MAX_PARALLEL_CANARIES)
+    ) as pool:
+        pending = {
+            pool.submit(run_canary, {name: spec}): name
+            for name, spec in catalogue.items()
+        }
+        for future in as_completed(pending):
+            results[pending[future]] = future.result()
+
+    # Read the verdicts back in catalogue order, so the reported order is stable
+    # however the threads happened to finish.
     accepted: dict = {}
     rejected: List[Tuple[str, str]] = []
-    for name, spec in candidate.items():
-        result = run_canary({name: spec})
+    for name, spec in catalogue.items():
+        result = results[name]
         if result.accepted:
             accepted[name] = spec
         elif result.infra or result.config_error:
+            # No evidence about any source — the oracle could not run, or
+            # toolbox could not read the config we rendered. Dropping sources
+            # here would mask either as "unusable".
             raise ValidationError(result.error or "the oracle could not run")
         else:
             rejected.append((name, result.error or "toolbox could not initialize it"))
     return accepted, rejected
 
 
-def validate(
-    catalogue: dict, run_canary: Callable[[dict], CanaryResult]
-) -> Tuple[dict, List[Tuple[str, str]]]:
-    """Return (accepted catalogue, [(rejected name, reason), ...]).
-
-    `run_canary(candidate)` must run the oracle against a candidate and report
-    the result; injecting it is what makes this unit-testable without docker.
-    Each round drops exactly one source, so the loop is bounded by the
-    catalogue size — it can never spin.
-    """
-    candidate = dict(catalogue)
-    rejected: List[Tuple[str, str]] = []
-    max_rounds = len(catalogue) + 1
-
-    for _ in range(max_rounds):
-        if not candidate:
-            return {}, rejected
-
-        result = run_canary(candidate)
-        if result.accepted:
-            return candidate, rejected
-
-        if result.culprit is None:
-            if result.infra or result.config_error:
-                # No evidence about any source — the oracle could not run, or
-                # toolbox could not read the config we rendered. Dropping
-                # sources here would mask either as "unusable".
-                raise ValidationError(result.error or "the oracle could not run")
-            if len(candidate) > 1:
-                # Toolbox exited or stalled without naming a source. That is
-                # what a driver without a dial timeout does (redis always,
-                # mongodb unless its URI bounds it) and also what a config-level
-                # error looks like. Attribution needs a single-source run.
-                accepted, probed = _probe_individually(candidate, run_canary)
-                return accepted, rejected + probed
-            name = next(iter(candidate))
-            rejected.append((name, result.error or "toolbox could not initialize it"))
-            del candidate[name]
-            continue
-
-        if result.culprit not in candidate:
-            raise ValidationError(
-                f"toolbox named '{result.culprit}', which is not in the catalogue"
-            )
-
-        reason = result.error or "toolbox could not initialize it"
-        del candidate[result.culprit]
-        rejected.append((result.culprit, reason))
-
-    # Unreachable while every round deletes a source, but kept as a guard in
-    # case the bound above is ever changed.
-    raise ValidationError("toolbox kept rejecting the config; giving up")
+# Ports handed out so far in this process. `_free_port` closes the socket before
+# docker binds the port, so two canaries starting at once could otherwise be
+# handed the same one — one of them would fail to start, and a start failure is
+# infra, which aborts the whole render. Never reused; the set is bounded by the
+# number of canaries one process runs.
+_PORT_LOCK = threading.Lock()
+_PORTS_TAKEN: set = set()
 
 
 def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+    while True:
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        with _PORT_LOCK:
+            if port not in _PORTS_TAKEN:
+                _PORTS_TAKEN.add(port)
+                return port
 
 
 def _is_ready(port: int, timeout: float = 0.5) -> bool:
@@ -261,10 +261,10 @@ CANARY_PREFIX = "dev-bot-datasources-canary-"
 def _sweep_stale_canaries(runner, docker: str) -> None:
     """Best-effort removal of canaries an earlier run left behind.
 
-    Only STOPPED containers are swept: a running one may belong to a
-    concurrent validate (the render lock makes that unlikely, but a manual run
-    does not hold it). A canary that was SIGKILLed while running is left for the
-    operator — its random name means it cannot collide with a later run.
+    Only STOPPED containers are swept. Called ONCE before the sources are
+    validated, never per canary: with the canaries running concurrently, a
+    sweep from one of them would remove a sibling that had just exited, before
+    that sibling had read its own logs.
     """
     listing = runner(
         [
@@ -304,7 +304,6 @@ def docker_canary(
     # `docker run` fail with "name already in use" and abort every render.
     name = f"{CANARY_PREFIX}{os.getpid()}-{uuid.uuid4().hex[:8]}"
     port = _free_port()
-    _sweep_stale_canaries(runner, docker)
 
     try:
         with open(os.path.join(work_dir, "tools.yaml"), "w", encoding="utf-8") as handle:
@@ -457,6 +456,10 @@ def main() -> int:
         return EXIT_INFRA
 
     data_dir = os.path.join(DEV_BOT_ROOT, "storage", "datasources", "data")
+
+    # Clear leftovers from a run that was killed, once, before the canaries
+    # start — see _sweep_stale_canaries for why this cannot be per canary.
+    _sweep_stale_canaries(_run, "docker")
 
     def run_canary(candidate: dict) -> CanaryResult:
         return docker_canary(

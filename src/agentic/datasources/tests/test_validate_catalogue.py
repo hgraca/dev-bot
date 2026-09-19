@@ -39,16 +39,23 @@ PLAIN = 'Error: toolbox failed to initialize: unable to initialize source "bad-m
 
 
 class FakeCanary:
-    """A scripted canary: rejects the given sources in order, then accepts."""
+    """A scripted canary: rejects the named sources, accepts every other one.
+
+    Rejection is keyed on the source NAME, never on call order — validate()
+    asks about every source at once, so the order the calls arrive in is not
+    deterministic. `calls` is locked for the same reason.
+    """
 
     def __init__(self, reject=None):
-        self.reject = list(reject or [])
+        self.reject = set(reject or [])
         self.calls = []
+        self._lock = threading.Lock()
 
     def __call__(self, candidate):
-        self.calls.append(sorted(candidate))
-        if self.reject:
-            name = self.reject.pop(0)
+        with self._lock:
+            self.calls.append(sorted(candidate))
+        name = next(iter(candidate))
+        if name in self.reject:
             return CanaryResult(accepted=False, culprit=name, error="refused")
         return CanaryResult(accepted=True)
 
@@ -87,7 +94,18 @@ class TestValidate(unittest.TestCase):
         self.assertEqual(accepted, catalogue)
         self.assertEqual(rejected, [])
 
-    def test_drops_a_named_source_and_retries(self):
+    def test_each_source_is_judged_on_its_own(self):
+        # Sources are independent, so every one of them gets its own
+        # single-source canary — that is what makes each verdict attributable,
+        # with no culprit to parse out of a combined failure.
+        canary = FakeCanary()
+        catalogue = {"a": {}, "b": {}, "c": {}}
+
+        validate(catalogue, canary)
+
+        self.assertEqual(sorted(canary.calls), [["a"], ["b"], ["c"]])
+
+    def test_drops_the_sources_the_oracle_rejects(self):
         catalogue = {"a": {}, "bad": {}, "b": {}}
         canary = FakeCanary(reject=["bad"])
 
@@ -96,49 +114,42 @@ class TestValidate(unittest.TestCase):
         self.assertEqual(sorted(accepted), ["a", "b"])
         self.assertEqual([name for name, _ in rejected], ["bad"])
         self.assertEqual(rejected[0][1], "refused")
-        # It re-validates the reduced candidate, never the original again.
-        self.assertEqual(canary.calls, [["a", "b", "bad"], ["a", "b"]])
 
-    def test_drops_several_sources_in_turn(self):
+    def test_drops_several_sources(self):
         catalogue = {"a": {}, "b": {}, "c": {}}
         canary = FakeCanary(reject=["a", "c"])
 
         accepted, rejected = validate(catalogue, canary)
 
         self.assertEqual(list(accepted), ["b"])
-        self.assertEqual([name for name, *_ in rejected], ["a", "c"])
+        self.assertEqual([name for name, _ in rejected], ["a", "c"])
 
-    def test_an_inconclusive_run_probes_each_source_individually(self):
-        # A driver with no dial timeout of its own never becomes ready and
-        # names nobody. The run is inconclusive, but the sources are still
-        # judged: the one that cannot initialize on its own is dropped and the
-        # rest are kept — rather than aborting the render.
-        calls = []
-
+    def test_a_source_that_never_becomes_ready_is_dropped(self):
+        # A driver with no dial timeout of its own never reaches readiness and
+        # names nobody — that is still only that source's problem, and it does
+        # not take the render down with it.
         def canary(candidate):
-            calls.append(sorted(candidate))
-            if len(candidate) > 1 or "hang" in candidate:
-                return CanaryResult(accepted=False, error="did not become ready")
+            if "hang" in candidate:
+                return CanaryResult(
+                    accepted=False, error="toolbox did not become ready within 2s"
+                )
             return CanaryResult(accepted=True)
 
         accepted, rejected = validate({"hang": {}, "good": {}}, canary)
 
         self.assertEqual(list(accepted), ["good"])
         self.assertEqual([name for name, _ in rejected], ["hang"])
-        self.assertEqual(calls[0], ["good", "hang"])
-        self.assertEqual(sorted(calls[1:]), [["good"], ["hang"]])
 
-    def test_a_single_unready_source_is_dropped(self):
+    def test_verdicts_are_reported_in_catalogue_order(self):
+        # The canaries finish in whatever order the threads do; the report must
+        # not, or the boot output would reorder itself run to run.
         def canary(candidate):
-            return CanaryResult(
-                accepted=False,
-                error="toolbox did not become ready within 10s",
-            )
+            name = next(iter(candidate))
+            return CanaryResult(accepted=False, error=f"{name} refused")
 
-        accepted, rejected = validate({"hang": {}}, canary)
+        _, rejected = validate({"a": {}, "b": {}, "c": {}}, canary)
 
-        self.assertEqual(accepted, {})
-        self.assertEqual(rejected, [("hang", "toolbox did not become ready within 10s")])
+        self.assertEqual([name for name, _ in rejected], ["a", "b", "c"])
 
     def test_an_infra_failure_is_never_attributed_to_a_source(self):
         # docker unreachable, or the canary would not start: no evidence about
@@ -197,19 +208,6 @@ class TestValidate(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             validate({"a": {}}, canary)
-
-    def test_an_unknown_culprit_is_fatal(self):
-        def canary(_candidate):
-            return CanaryResult(accepted=False, culprit="ghost")
-
-        with self.assertRaises(ValidationError):
-            validate({"a": {}}, canary)
-
-    def test_a_repeated_culprit_terminates(self):
-        # Once every source is gone the loop ends; it can never spin.
-        accepted, _ = validate({"a": {}}, FakeCanary(reject=["a"]))
-
-        self.assertEqual(accepted, {})
 
     def test_does_not_mutate_the_input_catalogue(self):
         catalogue = {"a": {}, "b": {}}
@@ -366,18 +364,25 @@ class TestDockerCanaryLifecycle(unittest.TestCase):
         self.assertTrue(self._removed(fake))
 
     def test_stale_canaries_are_swept(self):
-        fake = FakeDocker(
-            ps_output="dev-bot-datasources-canary-999-deadbeef\n",
-            inspect="false",
-            logs='ERROR "unable to initialize source \\"x\\": refused"',
-        )
+        # The sweep is a separate step now, run once before the canaries start:
+        # per-canary it would remove a concurrently-running sibling's container
+        # the moment that sibling exited, before it had read its own logs.
+        fake = FakeDocker(ps_output="dev-bot-datasources-canary-999-deadbeef\n")
 
-        self._canary(fake)
+        validate_catalogue._sweep_stale_canaries(fake, "docker")
 
         swept = [
             c for c in fake.commands if len(c) > 1 and c[1] == "rm" and c[-1].endswith("deadbeef")
         ]
         self.assertEqual(len(swept), 1)
+
+    def test_the_canary_itself_never_sweeps(self):
+        # A canary must not touch its siblings' containers.
+        fake = FakeDocker(inspect="false", logs="nothing useful")
+
+        self._canary(fake)
+
+        self.assertEqual([c for c in fake.commands if c[:2] == ["docker", "ps"]], [])
 
     def test_canary_names_are_unique_per_run(self):
         names = []

@@ -423,7 +423,7 @@ Two behaviours are worth knowing before relying on it:
   startup. MongoDB takes its timeout in the URI — add `connectTimeoutMS` and
   `serverSelectionTimeoutMS` if the host may silently drop packets. The redis
   source exposes no dial timeout at all in toolbox 1.11.0, so a blackholed redis
-  host is still excluded, but only after the canary's full 10s deadline.
+  host is still excluded, but only after the canary's full 2s deadline.
 - **Nothing blocks writes.** A datasource is exactly as writable as the database
   user it is given — which is how one config serves a writable dev database and
   a read-only production one. Point production at a read-only user.
