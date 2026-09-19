@@ -34,6 +34,8 @@ poor (1–3) ratings.
   otherwise.
 - **Write the notes as several lines, not one long line.** A single line is unreadable once the CSV
   is opened in a spreadsheet. One line per tool, blank line between blocks of related tools.
+- **Close the notes with the tools you did not reach for** — the unused alternative is the one signal a
+  grade cannot carry, and where improvement and removal candidates come from.
 - **Run the script from the project root** so the `project` column is right, or pass `--project-root`.
 - **Never hand-edit the CSV** — the script owns column order, the `-NN` id, and quoting.
 - **Never commit the CSV** — it lives under devbot's own `.agents/logs/`, which is gitignored, and it
@@ -66,17 +68,31 @@ of scope — this matrix covers MCP servers and skills only.
 
 ### Step 3 — Grade each tool
 
-| Grade | Meaning                                                         | Note it needs                          |
-| ----- | --------------------------------------------------------------- | -------------------------------------- |
-| 0     | Not used in this slice (only ever written for existing columns) | —                                      |
-| 1     | Used, but the outcome was not relevant to the task              | Tool limitation, or config/usage issue |
-| 2     | Used, marginal / redundant — another tool covered the need      | Which tool made it redundant           |
-| 3     | Used, helpful, but a substitute existed                         | Which tool could have substituted      |
-| 4     | Used, significant contribution; hard to replace                 | —                                      |
-| 5     | Critical; the task was very likely impossible without it        | —                                      |
+| Grade | Meaning                                                                   | Note it needs                            |
+| ----- | ------------------------------------------------------------------------- | ---------------------------------------- |
+| 0     | Not used in this slice (only ever written for existing columns)           | —                                        |
+| 1     | Used, but the outcome was not relevant to the task                        | Tool limitation, or config/usage issue   |
+| 2     | Used, marginal / redundant — another tool covered the need                | Which tool made it redundant             |
+| 3     | Used, helpful — a replacement you would actually have reached for existed | Which replacement could have substituted |
+| 4     | Used, significant contribution; hard to replace                           | —                                        |
+| 5     | Critical — without it the outcome would have been materially wrong        | —                                        |
 
 A `1`, `2` or `3` must name its tool in the notes — that is exactly what the script checks for. `0`,
 `4` and `5` need no explanation.
+
+**The two boundaries people call lazily.** They decide most rows, so pin them:
+
+- **3 vs 4 — "a substitute existed."** A replacement counts only if you would actually have reached for
+  it in that session, with no extra setup. Almost anything _can_ be replaced by something; that is not a 3. `format-md` sits at 3 beside `npx prettier --write`; a tool whose result the session depended on
+  does not.
+- **5 vs 4 — "critical."** Reserve 5 for tools whose absence would have made the outcome materially
+  _wrong_ rather than merely less tidy: a commit that sweeps in a colleague's uncommitted work, a
+  behaviour change shipped on manual evidence. A tool that kept the work organised but still correct is
+  a 4.
+
+**A flat row is an unexamined row.** When five or more tools are graded and none lands below 4, re-read
+them before writing. A session in which every tool was excellent is rare; the likelier cause is that the
+weakest one was never identified. Find it, and give it the grade it earned.
 
 ### Step 4 — Write the notes
 
@@ -92,6 +108,11 @@ the tool's **short name** — the last colon-separated segment — so `skill:dev
 by mentioning `makefile`, and `mcp:devbot-tools:format-md` by mentioning `format-md`. Matching is
 case-insensitive.
 
+**Close the notes with the tools you did NOT reach for.** The matrix carries a grade only for tools that
+were used, so the most useful signal of all has nowhere else to live: "used `bash git` for ~15
+operations and never touched `git-report`" is an improvement or removal candidate that no grade can
+express. One line, naming what fitted the slice and went unused, and what it would have covered.
+
 ### Step 5 — Append the row
 
 Run the script **from the project root**, with the notes as one multi-line argument. `$'…'` is the
@@ -99,7 +120,7 @@ reliable shell form for embedding real line breaks:
 
 ```bash
 python3 <skill-base-dir>/scripts/record-grades.py \
-  --notes $'graphify: marginal, grep covered the same ground\ncodebase-memory: grep substituted\n\nsignoz: critical, the only verification path left' \
+  --notes $'graphify: marginal, grep covered the same ground\ncodebase-memory: grep substituted\n\nmakefile: its container targets do not apply to this repo; the Makefile itself covered running the suite\n\nsignoz: critical, the only verification path left' \
   --mcp graphify=2 \
   --mcp-tool format-md=4 \
   --skill devbot:makefile=3
