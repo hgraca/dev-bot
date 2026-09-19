@@ -400,14 +400,15 @@ JSON
   "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
   "tool_grades": {
     "rows": 1, "total_rows": 3, "sessions": 3, "scope": "current",
+    "demand_bar": 3, "quality_threshold": 3.5,
     "tools": [
       {"column": "mcp:signoz", "name": "signoz", "kind": "mcp",
-       "avg": 5.0, "uses": 1, "reasons": []},
+       "avg": 5.0, "uses": 1, "min": 5, "stdev": null, "bucket": "specialist", "reasons": []},
       {"column": "skill:devbot:makefile", "name": "devbot:makefile", "kind": "skill",
-       "avg": 2.33, "uses": 3,
+       "avg": 2.33, "uses": 3, "min": 2, "stdev": 0.47, "bucket": "improve",
        "reasons": [{"text": "Makefile covered it.", "count": 2}]},
       {"column": "mcp:datasources", "name": "datasources", "kind": "mcp",
-       "avg": null, "uses": 0, "reasons": []}
+       "avg": null, "uses": 0, "min": null, "stdev": null, "bucket": "unused", "reasons": []}
     ]
   }
 }
@@ -424,6 +425,10 @@ JSON
   assert_output --partial "—"
   assert_output --partial "devbot:makefile"
   assert_output --partial "signoz"
+  assert_output --partial "Min"
+  assert_output --partial "σ"
+  assert_output --partial "### Tool Quadrants"
+  assert_output --partial "uses ≥ 3"
   assert_output --partial "### Poor ratings (1–3)"
   assert_output --partial "overall avg"
   assert_output --partial "Makefile covered it."
@@ -437,6 +442,81 @@ poor = text.split('### Poor ratings')[1]
 assert 'devbot:makefile' in poor, poor
 assert 'signoz' not in poor, poor
 "
+}
+
+@test "renderer places every tool in its quadrant bucket" {
+  cat > "${SANDBOX}/quadrants.json" <<'JSON'
+{
+  "schema": 1, "harness": "x", "days": 30, "scope": "all", "scope_label": "all",
+  "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
+  "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
+  "tool_grades": {
+    "rows": 5, "total_rows": 5, "sessions": 5, "scope": "all",
+    "demand_bar": 3, "quality_threshold": 3.5,
+    "tools": [
+      {"column": "mcp:datasources", "name": "datasources", "kind": "mcp",
+       "avg": 5.0, "uses": 5, "min": 5, "stdev": 0.0, "bucket": "workhorse", "reasons": []},
+      {"column": "mcp:devbot-tools:search-memories", "name": "search-memories",
+       "kind": "devbot-tool", "avg": 1.0, "uses": 4, "min": 1, "stdev": 0.0,
+       "bucket": "improve", "reasons": []},
+      {"column": "mcp:signoz", "name": "signoz", "kind": "mcp",
+       "avg": 5.0, "uses": 2, "min": 5, "stdev": null, "bucket": "specialist", "reasons": []},
+      {"column": "skill:devbot:makefile", "name": "devbot:makefile", "kind": "skill",
+       "avg": 1.0, "uses": 1, "min": 1, "stdev": null, "bucket": "unproven", "reasons": []},
+      {"column": "skill:devbot:agent-communication", "name": "devbot:agent-communication",
+       "kind": "skill", "avg": null, "uses": 0, "min": null, "stdev": null,
+       "bucket": "unused", "reasons": []}
+    ]
+  }
+}
+JSON
+
+  run python3 "${PROJECT_ROOT}/src/_shared/render_stats.py" < "${SANDBOX}/quadrants.json"
+  [ "${status}" -eq 0 ]
+
+  assert_output --partial "### Tool Quadrants"
+  assert_output --partial "Avg > 3.5"
+  assert_output --partial "uses ≥ 3"
+  assert_output --partial "**Never used**"
+  assert_output --partial "devbot:agent-communication"
+
+  # Position, not just presence: the top row is the high-avg pair, the bottom
+  # row the low-avg pair, and only the unused tool falls outside the grid.
+  echo "${output}" | python3 -c "
+import sys
+section = sys.stdin.read().split('### Tool Quadrants')[1].split('**Never used**')[0]
+rows = [line for line in section.splitlines() if line.startswith('| **')]
+assert len(rows) == 2, rows
+high, low = rows
+# Many uses must be the first demand column, so high-grade x many-uses is top-left.
+assert section.index('Many uses') < section.index('Few uses'), section
+assert 'workhorse' in high and 'datasources (5.00, 5)' in high, high
+assert 'specialist' in high and 'signoz (5.00, 2)' in high, high
+assert high.index('workhorse') < high.index('specialist'), high
+assert 'improve' in low and 'search-memories (1.00, 4)' in low, low
+assert 'unproven' in low and 'devbot:makefile (1.00, 1)' in low, low
+assert low.index('improve') < low.index('unproven'), low
+"
+}
+
+@test "renderer omits the quadrant grid when the block carries no buckets" {
+  cat > "${SANDBOX}/nobuckets.json" <<'JSON'
+{
+  "schema": 1, "harness": "x", "days": 30, "scope": "all", "scope_label": "all",
+  "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
+  "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
+  "tool_grades": {
+    "rows": 1, "total_rows": 1, "sessions": 1, "scope": "all",
+    "tools": [{"column": "mcp:signoz", "name": "signoz", "kind": "mcp",
+               "avg": 5.0, "uses": 1, "reasons": []}]
+  }
+}
+JSON
+
+  run python3 "${PROJECT_ROOT}/src/_shared/render_stats.py" < "${SANDBOX}/nobuckets.json"
+  [ "${status}" -eq 0 ]
+  assert_output --partial "## Tool Grades"
+  refute_output --partial "### Tool Quadrants"
 }
 
 @test "renderer omits the Tool Grades section when the block is absent" {

@@ -76,15 +76,30 @@ def _separator(width: int, align: str) -> str:
     return ":" + "-" * (width - 1)
 
 
+def _cell_lines(cell) -> list[str]:
+    """A cell split into the lines it renders as — ``<br>`` stacks a cell."""
+    return str(cell).split("<br>")
+
+
 def render_table(header, aligns, rows) -> list[str]:
-    """Render a pipe table with per-column padding so every row aligns."""
+    """Render a pipe table, padding every column so the source stays aligned.
+
+    A cell may stack content with ``<br>``. Such a cell keeps one physical line
+    — a markdown table row must not wrap — so its column sizes to the longest
+    segment while the cell itself is the longer joined string. That cell gets no
+    padding, leaving the trailing pipes of a stacked table unaligned in the
+    source. Renderers ignore pipe alignment, so the output is unaffected, and
+    the well-formed-table invariant the suite asserts on the other tables does
+    not apply to stacked ones.
+    """
     ncol = len(header)
     # Markdown needs at least 3 dashes in the separator row, so every column is
     # at least that wide — otherwise the separator and the padded rows disagree.
     widths = [max(len(str(h)), 3) for h in header]
     for row in rows:
         for i in range(ncol):
-            widths[i] = max(widths[i], len(str(row[i])))
+            for segment in _cell_lines(row[i]):
+                widths[i] = max(widths[i], len(segment))
 
     lines = [
         "| " + " | ".join(_pad(header[i], widths[i], aligns[i]) for i in range(ncol)) + " |",
@@ -95,6 +110,25 @@ def render_table(header, aligns, rows) -> list[str]:
             "| " + " | ".join(_pad(row[i], widths[i], aligns[i]) for i in range(ncol)) + " |"
         )
     return lines
+
+
+_BUCKET_VERDICT = {
+    "workhorse": "keep",
+    "specialist": "keep",
+    "improve": "fix the implementation",
+    "unproven": "not enough data",
+}
+
+
+def _quadrant_cell(bucket: str, tools: list[dict]) -> str:
+    """One quadrant: the bucket's name and verdict, then one line per tool."""
+    lines = [f"**{bucket}** · {_BUCKET_VERDICT[bucket]}"]
+    lines += [
+        f"{t.get('name', '?')} ({_avg(t.get('avg'))}, {_int(t.get('uses', 0))})" for t in tools
+    ]
+    if len(lines) == 1:
+        lines.append(_MISSING)
+    return "<br>".join(lines)
 
 
 def render(data: dict) -> str:
@@ -187,15 +221,65 @@ def render(data: dict) -> str:
             "## Tool Grades",
             "",
             f"Averaged over rows where the tool was used (grade ≥ 1); highest first, unused last. "
+            f"`Min` is the worst grade ever recorded and `σ` the spread across uses "
+            f"(`—` when there are too few uses to tell). "
             f"{rows_label} in scope ({scope_word}); {total_label} from {sessions_label} in the CSV; "
             f"not windowed by --days.",
             "",
         ]
         rows = [
-            [t.get("name", "?"), t.get("kind", "?"), _avg(t.get("avg")), _int(t.get("uses", 0))]
+            [
+                t.get("name", "?"),
+                t.get("kind", "?"),
+                _avg(t.get("avg")),
+                _int(t.get("uses", 0)),
+                _int(t.get("min")),
+                _avg(t.get("stdev")),
+            ]
             for t in grade_tools
         ]
-        out += render_table(["Tool", "Kind", "Avg", "Uses"], ["l", "l", "r", "r"], rows)
+        out += render_table(
+            ["Tool", "Kind", "Avg", "Uses", "Min", "σ"], ["l", "l", "r", "r", "r", "r"], rows
+        )
+
+        # Every tool must be on the grid, or the grid is a lie. A block where
+        # only some tools carry a bucket would silently drop the rest, so it
+        # renders no grid at all rather than a partial one.
+        if all(t.get("bucket") for t in grade_tools):
+            bar = grades.get("demand_bar")
+            threshold = grades.get("quality_threshold")
+            out += ["", "### Tool Quadrants", ""]
+            if isinstance(bar, int) and isinstance(threshold, (int, float)):
+                out += [
+                    f"Quality: `Avg > {threshold:g}` is high. Demand: `uses ≥ {bar}` is often — "
+                    f"the median use count of the tools in scope, floored.",
+                    "",
+                ]
+            by_bucket: dict[str, list[dict]] = {}
+            for tool in grade_tools:
+                by_bucket.setdefault(tool.get("bucket", ""), []).append(tool)
+            out += render_table(
+                ["Quality", "Many uses", "Few uses"],
+                ["l", "l", "l"],
+                [
+                    [
+                        "**High avg**",
+                        _quadrant_cell("workhorse", by_bucket.get("workhorse", [])),
+                        _quadrant_cell("specialist", by_bucket.get("specialist", [])),
+                    ],
+                    [
+                        "**Low avg**",
+                        _quadrant_cell("improve", by_bucket.get("improve", [])),
+                        _quadrant_cell("unproven", by_bucket.get("unproven", [])),
+                    ],
+                ],
+            )
+            unused = by_bucket.get("unused") or []
+            if unused:
+                out += [
+                    "",
+                    "**Never used** — " + ", ".join(t.get("name", "?") for t in unused),
+                ]
 
         poor = [t for t in grade_tools if t.get("reasons")]
         if poor:
