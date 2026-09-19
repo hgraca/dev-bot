@@ -98,7 +98,7 @@ The parent validates the payload before rendering — a non-zero adapter exit, m
 
 The report contains a **Tool Usage** table, an **MCP Server Usage** table (shares are relative to MCP calls, not all tool calls), and a **Tool Arguments** section with one sub-table per aggregated tool.
 
-The parent additionally reads the install-level grade matrix (`.agents/logs/tools-grades.csv`, written by `devbot:grade-tools`) and, after validation, injects an optional `tool_grades` block — **adapters must never emit it**. When present, the report gains a **Tool Grades** table and a **Poor ratings (1–3)** list. The CSV path is overridable with `DEV_BOT_STATS_GRADES_CSV` (tests / out-of-tree installs); a missing or malformed CSV leaves the report unchanged.
+The parent additionally reads the install-level grade matrix (`.agents/logs/tools-grades.csv`, written by `devbot:grade-tools`) and, after validation, injects an optional `tool_grades` block — **adapters must never emit it**. When present, the report gains a **Tool Grades** table (average, uses, worst grade, spread), a **Tool Quadrants** grid, and a **Poor ratings (1–3)** list; every tool in the block carries a `bucket`, and the block's `demand_bar` and `quality_threshold` are what the grid is drawn against. The CSV path is overridable with `DEV_BOT_STATS_GRADES_CSV` (tests / out-of-tree installs); a missing or malformed CSV leaves the report unchanged.
 
 ### Adding a stats adapter for a new harness
 
