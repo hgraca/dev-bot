@@ -5,6 +5,8 @@ keywords: ["datasources", "oracle", "mcp-toolbox", "quarantine", "validate-catal
 
 # datasources: the toolbox oracle, its safety envelope, and how to test it
 
+**Superseded in part (2026-09-19).** The pipeline below is the poller/quarantine era: datasources are now evaluated once at startup, the poller and the quarantine state are gone, and each source is canaried on its own rather than as one combined candidate — see `ADRs/20260919091226-datasources-evaluate-once-at-startup.md`. The mcp-toolbox facts and the docker-free testing notes below still hold.
+
 ## The pipeline that decides what the gateway serves
 
 `render.sh` pipes the catalogue through `available_catalogue.py` (env-completeness only — it opens no socket), then `validate_catalogue.py` (the oracle), then `render_tools_yaml.py`; it skips the publish when the result is byte-identical, and otherwise `cp`s it in place (inode preserved for toolbox's reloader). The oracle runs the pinned image detached (`docker run -d`, deliberately **without** `--rm` so `docker logs` still works after it exits) and polls `inspect` then `/healthz`; a named culprit is dropped and the reduced candidate re-tried, bounded by the catalogue size. Failures are recorded in `storage/datasources/quarantine.json` — an entry is excluded (and not re-tested) until its backoff elapses, and entries for sources no longer declared are pruned, otherwise a stale entry's retry is permanently due and the poller re-runs a canary every cycle. The poller re-renders on a candidate-set change OR when `quarantine.py needs-revalidation` says a retry is due (default 300s). Renders are serialized by a `flock` (`_devbot_lock_wait`), and `up.sh` stops any existing poller before rendering.
