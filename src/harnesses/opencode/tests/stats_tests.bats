@@ -184,7 +184,7 @@ PY
   echo "${output}" | json "[(t['name'], round(t['cost'],2), t['tokens']) for t in data['tools'] if t['name']=='demo_foo'][0]" | grep -Fqx "('demo_foo', 1.0, 100)"
 }
 
-@test "adapter aggregates bash/skill/grep/glob arguments" {
+@test "adapter aggregates shell (bash and PTY) and search arguments" {
   local db3="${SANDBOX}/args.db"
   python3 - "${db3}" "${PROJECT_DIR}" <<'PY'
 import json, sqlite3, sys, time
@@ -205,6 +205,9 @@ part(1, {"type": "tool", "tool": "bash", "state": {"input": {"command": "cd /x &
 part(2, {"type": "tool", "tool": "skill", "state": {"input": {"name": "devbot:make-plan"}}})
 part(3, {"type": "tool", "tool": "grep", "state": {"input": {"pattern": "foo"}}})
 part(4, {"type": "tool", "tool": "glob", "state": {"input": {"pattern": "**/*.bats"}}})
+# PTY is a shell channel too: its invocation is command + args, and must land
+# in the same `program subcommand` shape the bash tool uses.
+part(5, {"type": "tool", "tool": "pty_spawn", "state": {"input": {"command": "make", "args": ["test"]}}})
 c.commit()
 c.close()
 PY
@@ -217,4 +220,5 @@ PY
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['skill']]" | grep -Fqx "[('devbot:make-plan', 1)]"
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['grep']]" | grep -Fqx "[('foo', 1)]"
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['glob']]" | grep -Fqx "[('**/*.bats', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['pty_spawn']]" | grep -Fqx "[('make test', 1)]"
 }

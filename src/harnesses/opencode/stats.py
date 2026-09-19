@@ -38,9 +38,15 @@ _CONFIG_NAMES = (
     ".opencode/opencode.jsonc",
 )
 
-# Tools whose arguments we aggregate, and the input key holding the value.
-_ARG_TOOLS = ("bash", "skill", "grep", "glob")
+# Tools whose arguments we aggregate, mapped to the input key holding the value.
+# This mapping is the single source for the SQL gate, the counter set, and the
+# value extraction — _ARG_TOOLS is derived from it, so a tool cannot be added to
+# one place and silently missed in another.
 _ARG_KEYS = {"bash": "command", "skill": "name", "grep": "pattern", "glob": "pattern"}
+# pty_spawn is a shell channel too, but has no single input key: its executable
+# and argument array are rejoined in _arg_value.
+_PTY_TOOLS = ("pty_spawn",)
+_ARG_TOOLS = (*_ARG_KEYS, *_PTY_TOOLS)
 _ARG_TOP = 20
 
 
@@ -49,6 +55,14 @@ def _arg_value(tool: str, input_obj) -> str:
         return ""
     if tool == "bash":
         return bash_value(input_obj.get("command"))
+    if tool == "pty_spawn":
+        # A PTY invocation arrives split: the executable in `command`, the rest
+        # in `args`. Rejoin them so the value matches the bash shape.
+        rest = input_obj.get("args")
+        parts = [str(input_obj.get("command") or "")]
+        if isinstance(rest, list):
+            parts += [str(value) for value in rest]
+        return bash_value(" ".join(parts).strip())
     return str(input_obj.get(_ARG_KEYS[tool]) or "")
 
 
@@ -96,13 +110,13 @@ def gather(cutoff_ms, project_dir, db_path):
             "SELECT p.session_id, "
             "json_extract(p.data,'$.type'), json_extract(p.data,'$.tool'), "
             "json_extract(p.data,'$.cost'), json_extract(p.data,'$.tokens'), "
-            "CASE WHEN json_extract(p.data,'$.tool') IN ('bash','skill','grep','glob') "
+            f"CASE WHEN json_extract(p.data,'$.tool') IN ({','.join('?' * len(_ARG_TOOLS))}) "
             "THEN json_extract(p.data,'$.state.input') END "
             "FROM part p JOIN session s ON s.id = p.session_id "
             "WHERE p.time_created >= ? "
             "AND json_extract(p.data,'$.type') IN ('tool','step-finish')"
         )
-        params = [cutoff_ms]
+        params = [*_ARG_TOOLS, cutoff_ms]
         if project_dir is not None:
             sql += " AND s.directory = ?"
             params.append(project_dir)

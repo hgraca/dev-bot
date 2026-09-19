@@ -111,7 +111,7 @@ Prune old OpenCode sessions (default: 30 days).
 
 ### `devbot stats [--days=N] [--project=DIR] [--all|-a] [--harness=HARNESS]`
 
-Report tool usage, MCP-server usage, tool grades, and the most-used arguments for `bash`/`skill`/`grep`/`glob`, as a Markdown report for the last `N` days (default: 30).
+Report tool usage, MCP-server usage, tool grades, and the most-used arguments for `bash`/`pty_spawn`/`skill`/`grep`/`glob`, as a Markdown report for the last `N` days (default: 30).
 
 The command is harness-agnostic: it detects the harness (the `harness` setting, or `--harness`), delegates data gathering to that harness's stats adapter (`src/harnesses/<harness>/stats.sh`), validates the canonical JSON it returns, and renders the report. Without an adapter for the detected harness the command fails with a `FATAL`.
 

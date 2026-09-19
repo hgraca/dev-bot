@@ -377,6 +377,7 @@ JSON
   "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
   "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
   "tool_arguments": {"bash": [{"value": "git status", "count": 338}],
+                     "pty_spawn": [{"value": "make test", "count": 12}],
                      "skill": [{"value": "devbot:make-plan", "count": 5}]}
 }
 JSON
@@ -386,6 +387,8 @@ JSON
   assert_output --partial "## Tool Arguments"
   assert_output --partial "### bash"
   assert_output --partial "git status"
+  assert_output --partial "### pty_spawn"
+  assert_output --partial "make test"
   assert_output --partial "### skill"
   assert_output --partial "devbot:make-plan"
 }

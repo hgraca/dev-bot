@@ -294,7 +294,12 @@ def render(data: dict) -> str:
                     out.append(f"  - {reason.get('text', '')}{suffix}")
 
     arguments = data.get("tool_arguments") or {}
-    argument_tools = [k for k in ("bash", "skill", "grep", "glob") if arguments.get(k)]
+    # Render every tool the adapter supplied, known tools first. A hardcoded
+    # allow-list here silently hid a newly aggregated tool (pty_spawn) even
+    # though the adapter had collected it.
+    known = ("bash", "pty_spawn", "skill", "grep", "glob")
+    argument_tools = [tool for tool in known if arguments.get(tool)]
+    argument_tools += [tool for tool in arguments if tool not in known and arguments.get(tool)]
     if argument_tools:
         out += ["", "## Tool Arguments", ""]
         for tool in argument_tools:

@@ -92,7 +92,7 @@ and must print a single JSON object on stdout:
 | `cost_kind`      | yes      | `estimated`, `exact`, or `null`. Selects the cost column header — `estimated` renders `Cost (est.)`, anything else renders `Cost`. The column itself appears whenever any tool or MCP server has a non-null `cost`. |
 | `tools[]`        | yes      | Every tool, native and MCP. `name` and `count` are required; `tokens` and `cost` may be `null`.                                                                                                                     |
 | `mcp_servers[]`  | yes      | MCP aggregation: `server`, `count`, `tokens`, `cost`, and `tools[]` holding short tool names.                                                                                                                       |
-| `tool_arguments` | no       | Optional argument aggregation for `bash`/`skill`/`grep`/`glob` — a map of tool name to `[{ "value", "count" }]`. Tools absent from the map render no sub-table.                                                     |
+| `tool_arguments` | no       | Optional argument aggregation for `bash`/`pty_spawn`/`skill`/`grep`/`glob` — a map of tool name to `[{ "value", "count" }]`. Tools absent from the map render no sub-table.                                         |
 
 The parent validates the payload before rendering — a non-zero adapter exit, malformed JSON, missing required keys, or an unsupported `schema` fails the command.
 
@@ -110,7 +110,7 @@ The parent additionally reads the install-level grade matrix (`.agents/logs/tool
 
 ### Reference implementations
 
-- **OpenCode** — `src/harnesses/opencode/stats.py`: reads the OpenCode SQLite database read-only. Cost and tokens are recorded per assistant step, so they are split evenly across the tools that step invoked (`cost_kind: estimated`). MCP tools are recognised by the server names declared in the project's OpenCode config (`mcp` block and `.opencode/*.mcp.json`), so native tools whose names contain underscores are not mistaken for MCP tools. It also aggregates `bash`/`skill`/`grep`/`glob` arguments — bash commands are normalised to `program subcommand` (first two tokens) after stripping a leading `cd … &&`.
+- **OpenCode** — `src/harnesses/opencode/stats.py`: reads the OpenCode SQLite database read-only. Cost and tokens are recorded per assistant step, so they are split evenly across the tools that step invoked (`cost_kind: estimated`). MCP tools are recognised by the server names declared in the project's OpenCode config (`mcp` block and `.opencode/*.mcp.json`), so native tools whose names contain underscores are not mistaken for MCP tools. It also aggregates `bash`/`pty_spawn`/`skill`/`grep`/`glob` arguments — shell invocations are normalised to `program subcommand` (first two tokens) after stripping a leading `cd … &&`, with `pty_spawn`'s executable and argument array re-joined first so both channels read alike.
 - **Claude Code** — `src/harnesses/claudecode/stats.py`: parses the session transcripts under `~/.claude/projects/<slug>/**/*.jsonl` (including subagents). Tokens come from each assistant message's `usage`; transcripts carry no cost data, so `cost_kind` is `null` and the report shows a Tokens column instead of Cost. It aggregates `Bash`/`Skill`/`Grep`/`Glob` arguments with the same normalisation.
 
 ## Runtime footprint
