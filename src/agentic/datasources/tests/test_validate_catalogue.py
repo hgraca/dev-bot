@@ -108,6 +108,51 @@ class TestValidate(unittest.TestCase):
         self.assertEqual(list(accepted), ["b"])
         self.assertEqual([name for name, *_ in rejected], ["a", "c"])
 
+    def test_an_inconclusive_run_probes_each_source_individually(self):
+        # A driver with no dial timeout of its own never becomes ready and
+        # names nobody. The run is inconclusive, but the sources are still
+        # judged: the one that cannot initialize on its own is dropped and the
+        # rest are kept — rather than aborting the render.
+        calls = []
+
+        def canary(candidate):
+            calls.append(sorted(candidate))
+            if len(candidate) > 1 or "hang" in candidate:
+                return CanaryResult(accepted=False, error="did not become ready")
+            return CanaryResult(accepted=True)
+
+        accepted, rejected = validate({"hang": {}, "good": {}}, canary)
+
+        self.assertEqual(list(accepted), ["good"])
+        self.assertEqual([name for name, _ in rejected], ["hang"])
+        self.assertEqual(calls[0], ["good", "hang"])
+        self.assertEqual(sorted(calls[1:]), [["good"], ["hang"]])
+
+    def test_a_single_unready_source_is_dropped(self):
+        def canary(candidate):
+            return CanaryResult(
+                accepted=False,
+                error="toolbox did not become ready within 10s",
+            )
+
+        accepted, rejected = validate({"hang": {}}, canary)
+
+        self.assertEqual(accepted, {})
+        self.assertEqual(rejected, [("hang", "toolbox did not become ready within 10s")])
+
+    def test_an_infra_failure_is_never_attributed_to_a_source(self):
+        # docker unreachable, or the canary would not start: no evidence about
+        # any source, so nothing may be dropped and the render must abort.
+        def canary(candidate):
+            return CanaryResult(
+                accepted=False,
+                error="could not start the toolbox canary",
+                infra=True,
+            )
+
+        with self.assertRaises(ValidationError):
+            validate({"a": {}, "b": {}}, canary)
+
     def test_returns_empty_when_every_source_fails(self):
         catalogue = {"a": {}, "b": {}}
 
@@ -139,11 +184,16 @@ class TestValidate(unittest.TestCase):
 
         self.assertIn("connection refused", rejected[0][1])
 
-    def test_a_failure_without_a_culprit_is_fatal(self):
-        # A config toolbox cannot even parse is a render bug, not a source to
-        # drop silently.
+    def test_a_config_error_is_fatal(self):
+        # A config toolbox cannot even parse is a renderer bug, not a source to
+        # drop silently — including on a single-source candidate, where the
+        # failure would otherwise look like that source being unusable.
         def canary(_candidate):
-            return CanaryResult(accepted=False, error="unable to parse config file")
+            return CanaryResult(
+                accepted=False,
+                error="unable to parse config file at /app/conf",
+                config_error=True,
+            )
 
         with self.assertRaises(ValidationError):
             validate({"a": {}}, canary)
@@ -291,6 +341,20 @@ class TestDockerCanaryLifecycle(unittest.TestCase):
         self.assertFalse(result.accepted)
         self.assertIn("did not become ready", result.error or "")
         self.assertTrue(self._removed(fake))
+
+    def test_a_config_parse_error_is_flagged_not_blamed_on_a_source(self):
+        # A config the image cannot read is a renderer bug; validate() must be
+        # able to tell it apart from a source failure.
+        fake = FakeDocker(
+            inspect="false",
+            logs='ERROR "unable to parse config file at \\"/app/conf\\": bad yaml"',
+        )
+
+        result = self._canary(fake)
+
+        self.assertFalse(result.accepted)
+        self.assertIsNone(result.culprit)
+        self.assertTrue(result.config_error)
 
     def test_an_unresponsive_daemon_is_reported(self):
         fake = FakeDocker(inspect_none=True)

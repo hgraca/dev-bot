@@ -19,9 +19,11 @@
 # database the way the old bare TCP dial did.
 #
 # Readiness is `/healthz` (toolbox >= 1.8), not a timed guess: a good config
-# serves within a second, a bad one exits in about the same time. If neither
-# happens within the timeout the result is INCONCLUSIVE and no config is
-# published.
+# serves within a second, a bad one exits in about the same time. A run that
+# does neither is inconclusive — it names nobody, which is what a driver with
+# no dial timeout of its own does (redis always; mongodb unless its URI bounds
+# it). Rather than give up, each source is then probed on its own, so the run
+# still ends in a decision instead of aborting the whole render.
 #
 # A source the oracle rejects is dropped and named on stderr. There is no
 # retry state: the catalogue is evaluated once, at startup, so a rejected
@@ -67,6 +69,11 @@ DOCKER_TIMEOUT = 30.0
 #   ERROR "toolbox failed to initialize: ... unable to initialize source
 #   \"bad-mysql\": unable to connect successfully: ..."
 # and plain on the CLI error line — so tolerate the optional backslashes.
+# toolbox refuses a config it cannot read at all — a renderer bug, or a spec
+# this image does not accept. That is never a source to blame, and conflating
+# the two would publish a broken render as "every datasource is unusable".
+CONFIG_ERROR_RE = re.compile(r"unable to parse config file")
+
 CULPRIT_RE = re.compile(r'unable to initialize source \\?"([^"\\]+)\\?"')
 
 EXIT_OK = 0
@@ -92,6 +99,13 @@ class CanaryResult:
     culprit: Optional[str] = None
     error: Optional[str] = None
     output: str = ""
+    # The oracle itself could not run (docker unreachable, the canary would not
+    # start). That is a fact about this machine, not about any source, so it
+    # must never be read as "the source is unusable".
+    infra: bool = False
+    # toolbox could not READ the rendered config — a renderer bug. Also never a
+    # source to blame.
+    config_error: bool = False
 
 
 def parse_culprit(output: str) -> Optional[str]:
@@ -128,6 +142,30 @@ def redact(text: str) -> str:
     return _PASSWORD_PARAM_RE.sub(lambda match: f"{match.group(1)}=***", text)
 
 
+def _probe_individually(
+    candidate: dict, run_canary: Callable[[dict], CanaryResult]
+) -> Tuple[dict, List[Tuple[str, str]]]:
+    """Run each source through the oracle on its own: (accepted, rejected).
+
+    Used when a combined run was inconclusive. A source toolbox cannot
+    initialize ALONE is not one the merged config can serve — sources are
+    independent — so each is judged on its own and the working ones are kept.
+
+    An infra failure while probing aborts rather than blaming the source.
+    """
+    accepted: dict = {}
+    rejected: List[Tuple[str, str]] = []
+    for name, spec in candidate.items():
+        result = run_canary({name: spec})
+        if result.accepted:
+            accepted[name] = spec
+        elif result.infra or result.config_error:
+            raise ValidationError(result.error or "the oracle could not run")
+        else:
+            rejected.append((name, result.error or "toolbox could not initialize it"))
+    return accepted, rejected
+
+
 def validate(
     catalogue: dict, run_canary: Callable[[dict], CanaryResult]
 ) -> Tuple[dict, List[Tuple[str, str]]]:
@@ -151,9 +189,23 @@ def validate(
             return candidate, rejected
 
         if result.culprit is None:
-            raise ValidationError(
-                result.error or "toolbox refused the config without naming a source"
-            )
+            if result.infra or result.config_error:
+                # No evidence about any source — the oracle could not run, or
+                # toolbox could not read the config we rendered. Dropping
+                # sources here would mask either as "unusable".
+                raise ValidationError(result.error or "the oracle could not run")
+            if len(candidate) > 1:
+                # Toolbox exited or stalled without naming a source. That is
+                # what a driver without a dial timeout does (redis always,
+                # mongodb unless its URI bounds it) and also what a config-level
+                # error looks like. Attribution needs a single-source run.
+                accepted, probed = _probe_individually(candidate, run_canary)
+                return accepted, rejected + probed
+            name = next(iter(candidate))
+            rejected.append((name, result.error or "toolbox could not initialize it"))
+            del candidate[name]
+            continue
+
         if result.culprit not in candidate:
             raise ValidationError(
                 f"toolbox named '{result.culprit}', which is not in the catalogue"
@@ -286,11 +338,13 @@ def docker_canary(
             return CanaryResult(
                 accepted=False,
                 error=f"docker run did not return within {DOCKER_TIMEOUT:.0f}s",
+                infra=True,
             )
         if started.returncode != 0:
             return CanaryResult(
                 accepted=False,
                 error=f"could not start the toolbox canary: {started.stderr.strip()}",
+                infra=True,
             )
 
         deadline = time.monotonic() + timeout
@@ -301,6 +355,7 @@ def docker_canary(
                 return CanaryResult(
                     accepted=False,
                     error="docker inspect did not return; the daemon may be unresponsive",
+                    infra=True,
                 )
             if state.returncode != 0 or state.stdout.strip() != "true":
                 exited = True
@@ -332,6 +387,7 @@ def docker_canary(
             accepted=False,
             error=redact(output.strip()[-2000:]) or "toolbox exited without a reason",
             output=output,
+            config_error=CONFIG_ERROR_RE.search(output) is not None,
         )
     finally:
         runner([docker, "rm", "-f", name])

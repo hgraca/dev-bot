@@ -45,8 +45,10 @@ from typing import NoReturn
 #     operator's URI through untouched rather than rewriting it.
 #   * redis exposes no dial timeout in 1.11.0 — both `timeout` and
 #     `dialTimeout` are rejected as unknown fields.
-# A blackholed host for either is only bounded by the canary's own deadline, so
-# it cannot be attributed. See docs/configuration.md.
+# A blackholed host for either is bounded only by the canary's own deadline —
+# which costs that whole deadline on every render. validate_catalogue.py still
+# attributes it (by probing the source on its own), it just cannot do so
+# cheaply. See docs/configuration.md.
 ENGINES = {
     "mysql": {
         "type": "mysql",
