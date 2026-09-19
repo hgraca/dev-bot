@@ -26,7 +26,11 @@ from pathlib import Path
 
 # Must stay in sync with BASE_COLUMNS in grade-tools' record-grades.py, which
 # owns the CSV's column order.
-BASE_COLUMNS = ("session_id", "datetime", "project", "notes")
+BASE_COLUMNS = ("session_id", "datetime", "project", "notes", "actor")
+# What the reader needs present to make sense of a matrix. `actor` arrived later,
+# so requiring every base column would reject a matrix written before it and drop
+# the whole Tool Grades section on every existing install.
+REQUIRED_COLUMNS = ("session_id", "datetime", "project", "notes")
 MCP_PREFIX = "mcp:"
 SKILL_PREFIX = "skill:"
 DEV_TOOLS = "devbot-tools"
@@ -364,7 +368,7 @@ def build_tool_grades(
         return None
     if not header:
         return None
-    missing = [column for column in BASE_COLUMNS if column not in header]
+    missing = [column for column in REQUIRED_COLUMNS if column not in header]
     if missing:
         warn(f"WARN: {csv_path} is not a tool-grades CSV (missing {', '.join(sorted(missing))})")
         return None

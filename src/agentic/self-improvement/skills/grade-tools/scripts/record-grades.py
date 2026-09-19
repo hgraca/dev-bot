@@ -7,8 +7,8 @@ accumulates across the whole workspace instead of fragmenting per consumer.
 
 The script owns the CSV so the calling agent only supplies judgement:
 
-  * canonical column order — session_id, datetime, project, notes, then every
-    tool column, MCP columns (`mcp:`) before skill columns (`skill:`)
+  * canonical column order — session_id, datetime, project, notes, actor, then
+    every tool column, MCP columns (`mcp:`) before skill columns (`skill:`)
   * a session-scoped row id `<session-id>-NN`, NN starting at 01
   * column union — a tool used for the first time becomes a new column and
     every earlier row is backfilled with 0 ("not used")
@@ -23,7 +23,7 @@ Usage:
         [--mcp-tool <tool>=<grade>]... \\
         [--skill <name>=<grade>]... \\
         [--devbot-root DIR] [--project-root DIR] \\
-        [--session-id ID] [--now "YYYY-MM-DD HH:MM:SS"]
+        [--actor NAME] [--session-id ID] [--now "YYYY-MM-DD HH:MM:SS"]
 
 `--mcp-tool` targets the self-owned `devbot-tools` server, one column per tool.
 `--project-root` defaults to the current directory — run from the project root.
@@ -42,11 +42,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import NoReturn
 
-BASE_COLUMNS = ["session_id", "datetime", "project", "notes"]
+BASE_COLUMNS = ["session_id", "datetime", "project", "notes", "actor"]
 DEV_TOOLS = "devbot-tools"
 SESSION_ID_ENV = "DEV_BOT_SESSION_ID"
+AGENT_NAME_ENV = "DEV_BOT_AGENT_NAME"
 ROOT_ENV_VAR = "DEV_BOT_ROOT"
 UNKNOWN_SESSION = "unknown"
+UNKNOWN_ACTOR = "unknown"
+# Rows written before the actor column existed all came from the primary agent,
+# so a blank actor is backfilled with that rather than left to read as unknown.
+DEFAULT_ACTOR = "DevBot"
 CSV_PARTS = (".agents", "logs", "tools-grades.csv")
 # A directory holding this marker is a devbot install root. Used only for the
 # walk-up fallback, when DEV_BOT_ROOT was not exported into the agent's shell.
@@ -84,6 +89,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--project-root", default=None,
                         help="project the session belongs to (default: the current directory)")
     parser.add_argument("--session-id", default=None, help="override the harness session id")
+    parser.add_argument(
+        "--actor", default=None, help=f"agent owning this row (default: ${AGENT_NAME_ENV})"
+    )
     parser.add_argument("--now", default=None, help="row timestamp (default: now, local)")
     parser.add_argument("--verbose", action="store_true", help="print the appended row id (debug aid)")
     return parser.parse_args(argv)
@@ -221,6 +229,26 @@ def resolve_session_id(explicit: str | None) -> str:
     return UNKNOWN_SESSION
 
 
+def resolve_actor(explicit: str | None) -> str:
+    """The agent that owns this row.
+
+    A blank value never reaches the CSV, unlike the session id: a blank actor
+    reads as "written before the column existed" and would be backfilled later,
+    mislabelling the row.
+    """
+    candidate = (explicit or "").strip()
+    if candidate:
+        return candidate
+    env = os.environ.get(AGENT_NAME_ENV, "").strip()
+    if env:
+        return env
+    print(
+        f"WARN: {AGENT_NAME_ENV} is not set — recording this row under {UNKNOWN_ACTOR!r}",
+        file=sys.stderr,
+    )
+    return UNKNOWN_ACTOR
+
+
 def read_existing(path: str) -> tuple[list[str], list[dict[str, object]]]:
     if not os.path.isfile(path):
         return [], []
@@ -301,6 +329,7 @@ def main(argv: list[str]) -> int:
     os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
 
     session = resolve_session_id(args.session_id)
+    actor = resolve_actor(args.actor)
     project = project_name(args.project_root or os.getcwd())
     now = args.now or datetime.now().strftime(DATETIME_FORMAT)
 
@@ -318,11 +347,21 @@ def main(argv: list[str]) -> int:
                 if grade >= 1 and column not in tool_columns:
                     tool_columns.append(column)
 
+            # A matrix with no `actor` column predates it, so every row it holds
+            # came from the primary agent and is stamped accordingly. This is a
+            # one-time migration keyed on the header, not a rule about empty
+            # cells: once the column exists, a blank actor means "not known" and
+            # is left alone.
+            if "actor" not in header:
+                for row in rows:
+                    row["actor"] = DEFAULT_ACTOR
+
             new_row: dict[str, object] = {
                 "session_id": next_row_id(rows, session),
                 "datetime": now,
                 "project": project,
                 "notes": notes,
+                "actor": actor,
             }
             for column in tool_columns:
                 new_row[column] = tools.get(column, 0)

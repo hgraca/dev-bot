@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import tool_grades as tg  # noqa: E402
 
-BASE = ["session_id", "datetime", "project", "notes"]
+BASE = ["session_id", "datetime", "project", "notes", "actor"]
 HEADER = BASE + [
     "mcp:datasources",
     "mcp:devbot-tools:search-memories",
@@ -247,6 +247,22 @@ class ToolGradesTest(unittest.TestCase):
         assert block is not None
         self.assertEqual(self._tool(block, "mcp:datasources")["uses"], 0)
         self.assertIn("datasources", [t["name"] for t in block["tools"]])
+
+    def test_a_matrix_written_before_the_actor_column_still_reads(self):
+        # `actor` was added after the matrix shipped, so every existing install
+        # has rows without it. Reading must survive that, or the upgrade makes
+        # the whole Tool Grades section disappear until the next grade write.
+        legacy_base = ["session_id", "datetime", "project", "notes", "skill:devbot:makefile"]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_csv(
+                os.path.join(tmp, "g.csv"),
+                legacy_base,
+                [row(grades={"skill:devbot:makefile": 5})],
+            )
+            block = tg.build_tool_grades(path, "all", tmp)
+
+        assert block is not None
+        self.assertEqual(self._tool(block, "skill:devbot:makefile")["uses"], 1)
 
     def test_build_warns_and_returns_none_on_bad_header(self):
         with tempfile.TemporaryDirectory() as tmp:

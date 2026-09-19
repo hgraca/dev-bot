@@ -28,6 +28,14 @@ assert _spec is not None and _spec.loader is not None, f"cannot load {_MODULE_PA
 record_grades = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(record_grades)
 
+# The reader keeps its own copy of the CSV contract. Loaded here so the two
+# copies can be compared rather than trusted to a source comment.
+_SHARED_PATH = Path(__file__).resolve().parents[5] / "_shared" / "tool_grades.py"
+_shared_spec = importlib.util.spec_from_file_location("tool_grades_shared", _SHARED_PATH)
+assert _shared_spec is not None and _shared_spec.loader is not None, f"cannot load {_SHARED_PATH}"
+tool_grades_shared = importlib.util.module_from_spec(_shared_spec)
+_shared_spec.loader.exec_module(tool_grades_shared)
+
 NOW = "2026-01-02 03:04:05"
 PROJECT = "Get-e/positioning-activities"
 
@@ -44,16 +52,22 @@ class RecordGradesTest(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def run_main(self, *args: str, session: str = "ses_test", now: str = NOW) -> int:
-        return record_grades.main(
-            [
-                "--devbot-root", self.root,
-                "--project-root", self.project_root,
-                "--now", now,
-                "--session-id", session,
-                *args,
-            ]
-        )
+    def run_main(
+        self, *args: str, session: str = "ses_test", now: str = NOW, actor: str | None = "DevBot"
+    ) -> int:
+        argv = [
+            "--devbot-root", self.root,
+            "--project-root", self.project_root,
+            "--now", now,
+            "--session-id", session,
+            *args,
+        ]
+        # Most tests do not care who wrote the row, so pin it rather than let
+        # them depend on the ambient DEV_BOT_AGENT_NAME (or trip its WARN). Pass
+        # actor=None to exercise the env-var fallback instead.
+        if actor is not None:
+            argv += ["--actor", actor]
+        return record_grades.main(argv)
 
     def read_rows(self) -> list[list[str]]:
         with open(self.csv_path, newline="", encoding="utf-8") as fh:
@@ -77,7 +91,7 @@ class RecordGradesTest(unittest.TestCase):
 
         header = self.read_rows()[0]
         self.assertEqual(header[:4], ["session_id", "datetime", "project", "notes"])
-        self.assertEqual(header[4:], ["mcp:graphify"])
+        self.assertEqual(header[5:], ["mcp:graphify"])
 
     def test_fresh_run_creates_header_and_first_row(self) -> None:
         self.run_main(
@@ -89,11 +103,11 @@ class RecordGradesTest(unittest.TestCase):
         header, first = self.read_rows()
         self.assertEqual(
             header,
-            ["session_id", "datetime", "project", "notes", "mcp:graphify", "skill:git-report"],
+            ["session_id", "datetime", "project", "notes", "actor", "mcp:graphify", "skill:git-report"],
         )
         self.assertEqual(
             first,
-            ["ses_test-01", NOW, PROJECT, "graphify: marginal, grep covered it", "2", "4"],
+            ["ses_test-01", NOW, PROJECT, "graphify: marginal, grep covered it", "DevBot", "2", "4"],
         )
 
     def test_second_run_in_same_session_increments_the_suffix(self) -> None:
@@ -124,6 +138,86 @@ class RecordGradesTest(unittest.TestCase):
         self.assertEqual(rows[1][0], "ses_a2-01")
         self.assertEqual(rows[2][0], "ses_a-01")
 
+    # ── the actor column ─────────────────────────────────────────────────────
+
+    def test_actor_is_appended_to_the_base_columns(self) -> None:
+        self.assertEqual(
+            record_grades.BASE_COLUMNS,
+            ["session_id", "datetime", "project", "notes", "actor"],
+        )
+
+    def test_actor_comes_from_the_flag(self) -> None:
+        self.run_main("--notes", "", actor="scout")
+        self.assertEqual(self.read_rows()[1][4], "scout")
+
+    def test_actor_falls_back_to_the_env_var(self) -> None:
+        with patch.dict(os.environ, {"DEV_BOT_AGENT_NAME": "developer"}):
+            self.run_main("--notes", "", actor=None)
+        self.assertEqual(self.read_rows()[1][4], "developer")
+
+    def test_actor_flag_wins_over_the_env_var(self) -> None:
+        with patch.dict(os.environ, {"DEV_BOT_AGENT_NAME": "developer"}):
+            self.run_main("--notes", "", actor="reviewer")
+        self.assertEqual(self.read_rows()[1][4], "reviewer")
+
+    def test_actor_warns_and_uses_unknown_when_unset(self) -> None:
+        stderr = io.StringIO()
+        with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stderr(stderr):
+            self.run_main("--notes", "", actor=None)
+
+        self.assertEqual(self.read_rows()[1][4], "unknown")
+        self.assertIn("DEV_BOT_AGENT_NAME", stderr.getvalue())
+
+    def test_blank_actor_never_reaches_the_csv(self) -> None:
+        # A blank cell reads as "written before the column existed", so writing
+        # one now would get the row backfilled and mislabelled later.
+        with patch.dict(os.environ, {}, clear=True):
+            self.run_main("--notes", "", actor="   ")
+        self.assertEqual(self.read_rows()[1][4], "unknown")
+
+    def test_blank_actor_falls_through_to_the_env_var(self) -> None:
+        with patch.dict(os.environ, {"DEV_BOT_AGENT_NAME": "architect"}):
+            self.run_main("--notes", "", actor="")
+        self.assertEqual(self.read_rows()[1][4], "architect")
+
+    def test_a_row_written_before_the_actor_column_is_backfilled_with_devbot(self) -> None:
+        os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
+        with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("session_id,datetime,project,notes,skill:git-report\n")
+            fh.write(f"ses_old-01,{NOW},{PROJECT},legacy row,4\n")
+
+        # A pre-column row cannot say who wrote it — and every one of them came
+        # from the primary agent, so that is what it is stamped.
+        self.run_main("--notes", "", actor="scout")
+
+        rows = self.read_rows()
+        self.assertEqual(rows[0][4], "actor")
+        self.assertEqual(rows[1][4], "DevBot")
+        self.assertEqual(rows[2][4], "scout")
+
+    def test_a_named_actor_is_never_rewritten(self) -> None:
+        os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
+        with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("session_id,datetime,project,notes,actor,skill:git-report\n")
+            fh.write(f"ses_old-01,{NOW},{PROJECT},already named,devbot,4\n")
+
+        self.run_main("--notes", "", actor="scout")
+
+        self.assertEqual(self.read_rows()[1][4], "devbot")
+
+    def test_a_blank_actor_on_a_matrix_that_has_the_column_is_left_blank(self) -> None:
+        # The backfill is a one-time migration keyed on the header, not a rule
+        # about empty cells. Once the column exists, a blank actor means "not
+        # known" — stamping it DevBot would mislabel whoever actually wrote it.
+        os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
+        with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("session_id,datetime,project,notes,actor,skill:git-report\n")
+            fh.write(f"ses_old-01,{NOW},{PROJECT},unnamed row,,4\n")
+
+        self.run_main("--notes", "", actor="scout")
+
+        self.assertEqual(self.read_rows()[1][4], "")
+
     # ── the project column ───────────────────────────────────────────────────
 
     def test_project_name_is_the_project_parent_folder_and_folder(self) -> None:
@@ -139,7 +233,7 @@ class RecordGradesTest(unittest.TestCase):
         with patch("os.getcwd", return_value=self.project_root):
             record_grades.main(
                 ["--devbot-root", self.root, "--now", NOW, "--session-id", "ses_cwd",
-                 "--skill", "git-report=5"]
+                 "--actor", "DevBot", "--skill", "git-report=5"]
             )
 
         self.assertEqual(self.read_rows()[1][2], PROJECT)
@@ -171,10 +265,10 @@ class RecordGradesTest(unittest.TestCase):
         header, first, second = self.read_rows()
         self.assertEqual(
             header,
-            ["session_id", "datetime", "project", "notes", "mcp:graphify", "skill:git-report"],
+            ["session_id", "datetime", "project", "notes", "actor", "mcp:graphify", "skill:git-report"],
         )
-        self.assertEqual(first[4:], ["0", "5"])  # graphify column backfilled
-        self.assertEqual(second[4:], ["1", "0"])  # git-report untouched by the new row
+        self.assertEqual(first[5:], ["0", "5"])  # graphify column backfilled
+        self.assertEqual(second[5:], ["1", "0"])  # git-report untouched by the new row
 
     def test_columns_are_regrouped_mcp_before_skill(self) -> None:
         # Skill arrives first; MCP must still be ordered before it.
@@ -195,6 +289,7 @@ class RecordGradesTest(unittest.TestCase):
                 "datetime",
                 "project",
                 "notes",
+                "actor",
                 "mcp:codebase-memory",
                 "skill:remember-session",
             ],
@@ -215,6 +310,7 @@ class RecordGradesTest(unittest.TestCase):
                 "datetime",
                 "project",
                 "notes",
+                "actor",
                 "mcp:devbot-tools:git-report",
                 "mcp:devbot-tools:search-memories",
             ],
@@ -224,7 +320,7 @@ class RecordGradesTest(unittest.TestCase):
         self.run_main("--mcp", "graphify=0")
 
         header = self.read_rows()[0]
-        self.assertEqual(header, ["session_id", "datetime", "project", "notes"])
+        self.assertEqual(header, ["session_id", "datetime", "project", "notes", "actor"])
 
     # ── notes: quoting and line breaks ───────────────────────────────────────
 
@@ -297,7 +393,7 @@ class RecordGradesTest(unittest.TestCase):
             "--mcp-tool", "format-md=2",
         )
 
-        self.assertEqual(self.read_rows()[1][4], "2")
+        self.assertEqual(self.read_rows()[1][5], "2")
 
     def test_naming_a_namespaced_skill_by_its_last_segment_is_enough(self) -> None:
         self.run_main(
@@ -305,12 +401,12 @@ class RecordGradesTest(unittest.TestCase):
             "--skill", "devbot:makefile=3",
         )
 
-        self.assertEqual(self.read_rows()[1][4], "3")
+        self.assertEqual(self.read_rows()[1][5], "3")
 
     def test_grade_explanation_matching_is_case_insensitive(self) -> None:
         self.run_main("--notes", "Graphify: marginal here", "--mcp", "graphify=2")
 
-        self.assertEqual(self.read_rows()[1][4], "2")
+        self.assertEqual(self.read_rows()[1][5], "2")
 
     def test_grades_0_4_and_5_need_no_explanation(self) -> None:
         self.run_main(
@@ -436,6 +532,16 @@ class RecordGradesTest(unittest.TestCase):
 
         self.assertEqual(resolved, "unknown")
         self.assertIn("WARN:", stderr.getvalue())
+
+    # ── the shared CSV contract ──────────────────────────────────────────────
+
+    def test_the_reader_agrees_on_the_csv_contract(self) -> None:
+        # tool_grades.py holds its own copy of the column order and the timestamp
+        # format, kept in sync by a source comment alone. A drift between the two
+        # would silently mis-read the matrix, so compare them instead of trusting
+        # the comment.
+        self.assertEqual(list(tool_grades_shared.BASE_COLUMNS), record_grades.BASE_COLUMNS)
+        self.assertEqual(tool_grades_shared.DATETIME_FORMAT, record_grades.DATETIME_FORMAT)
 
 
 if __name__ == "__main__":

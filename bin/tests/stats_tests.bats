@@ -98,8 +98,8 @@ write_fixture() {
 # these tests weeks later.
 write_grades_csv() {
   cat > "${SANDBOX}/tools-grades.csv" <<CSV
-session_id,datetime,project,notes,skill:devbot:makefile
-s-01,$(date '+%Y-%m-%d %H:%M:%S'),$1,"makefile (2): the Makefile covered it.",2
+session_id,datetime,project,notes,actor,skill:devbot:makefile
+s-01,$(date '+%Y-%m-%d %H:%M:%S'),$1,"makefile (2): the Makefile covered it.",DevBot,2
 CSV
 }
 
@@ -558,9 +558,9 @@ JSON
   # A fixed ancient stamp is portable (no GNU `date -d`) and unambiguously
   # outside any window the command applies.
   cat > "${SANDBOX}/tools-grades.csv" <<CSV
-session_id,datetime,project,notes,skill:devbot:makefile
-s-01,$(date '+%Y-%m-%d %H:%M:%S'),Some-Other/project,"makefile (4): current row, kept.",4
-s-02,2020-01-01 00:00:00,Some-Other/project,"makefile (2): ancient row, dropped.",2
+session_id,datetime,project,notes,actor,skill:devbot:makefile
+s-01,$(date '+%Y-%m-%d %H:%M:%S'),Some-Other/project,"makefile (4): current row, kept.",DevBot,4
+s-02,2020-01-01 00:00:00,Some-Other/project,"makefile (2): ancient row, dropped.",DevBot,2
 CSV
   export DEV_BOT_STATS_GRADES_CSV="${SANDBOX}/tools-grades.csv"
 
@@ -572,6 +572,23 @@ CSV
   assert_output --partial "2 row(s) from 1 session(s) in the CSV"
   refute_output --partial "ancient row, dropped"
   refute_output --partial "### Poor ratings"
+}
+
+@test "devbot stats still renders grades from a CSV written before the actor column" {
+  write_fixture
+  install_fake_adapter "opencode" "${SANDBOX}/fixture.json"
+  make_project "opencode"
+  # The four-column shape every install had before `actor` was added.
+  cat > "${SANDBOX}/tools-grades.csv" <<CSV
+session_id,datetime,project,notes,skill:devbot:makefile
+s-01,$(date '+%Y-%m-%d %H:%M:%S'),Some-Other/project,"makefile (2): the Makefile covered it.",2
+CSV
+  export DEV_BOT_STATS_GRADES_CSV="${SANDBOX}/tools-grades.csv"
+
+  run bash -c "cd '${SANDBOX}' && bash '${PROJECT_ROOT}/bin/devbot' stats --all"
+  [ "${status}" -eq 0 ]
+  assert_output --partial "## Tool Grades"
+  assert_output --partial "devbot:makefile"
 }
 
 @test "devbot stats omits the Tool Grades section when the CSV is absent" {
