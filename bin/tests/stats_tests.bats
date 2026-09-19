@@ -93,10 +93,13 @@ write_fixture() {
 # A one-row tools-grades.csv whose single row belongs to $1 (a project label).
 # The label deliberately never matches the sandbox's own project name, so the
 # "current scope" tests can rely on the row being filtered out.
+# The stamp is generated rather than fixed: the grades section is windowed by
+# --days, so a hardcoded date would age out of the window and start failing
+# these tests weeks later.
 write_grades_csv() {
   cat > "${SANDBOX}/tools-grades.csv" <<CSV
 session_id,datetime,project,notes,skill:devbot:makefile
-s-01,2026-09-18 12:00:00,$1,"makefile (2): the Makefile covered it.",2
+s-01,$(date '+%Y-%m-%d %H:%M:%S'),$1,"makefile (2): the Makefile covered it.",2
 CSV
 }
 
@@ -402,7 +405,7 @@ JSON
   "generated_at": "2026-09-10T16:40:00Z", "cost_kind": null,
   "tools": [{"name": "bash", "count": 1}], "mcp_servers": [],
   "tool_grades": {
-    "rows": 1, "total_rows": 3, "sessions": 3, "scope": "current",
+    "rows": 1, "total_rows": 3, "sessions": 3, "scope": "current", "days": 30,
     "demand_bar": 3, "quality_threshold": 3.5,
     "tools": [
       {"column": "mcp:signoz", "name": "signoz", "kind": "mcp",
@@ -422,8 +425,9 @@ JSON
 
   assert_output --partial "## Tool Grades"
   assert_output --partial "highest first"
-  assert_output --partial "not windowed"
+  assert_output --partial "the last 30 days"
   assert_output --partial "3 session(s)"
+  assert_output --partial "failed you at least once"
   assert_output --partial "2.33"
   assert_output --partial "—"
   assert_output --partial "devbot:makefile"
@@ -519,6 +523,7 @@ JSON
   run python3 "${PROJECT_ROOT}/src/_shared/render_stats.py" < "${SANDBOX}/nobuckets.json"
   [ "${status}" -eq 0 ]
   assert_output --partial "## Tool Grades"
+  assert_output --partial "the whole CSV"
   refute_output --partial "### Tool Quadrants"
 }
 
@@ -544,6 +549,29 @@ JSON
   assert_output --partial "devbot:makefile"
   assert_output --partial "the Makefile covered it."
   assert_output --partial "(all projects)"
+}
+
+@test "devbot stats windows tool grades by --days" {
+  write_fixture
+  install_fake_adapter "opencode" "${SANDBOX}/fixture.json"
+  make_project "opencode"
+  # A fixed ancient stamp is portable (no GNU `date -d`) and unambiguously
+  # outside any window the command applies.
+  cat > "${SANDBOX}/tools-grades.csv" <<CSV
+session_id,datetime,project,notes,skill:devbot:makefile
+s-01,$(date '+%Y-%m-%d %H:%M:%S'),Some-Other/project,"makefile (4): current row, kept.",4
+s-02,2020-01-01 00:00:00,Some-Other/project,"makefile (2): ancient row, dropped.",2
+CSV
+  export DEV_BOT_STATS_GRADES_CSV="${SANDBOX}/tools-grades.csv"
+
+  run bash -c "cd '${SANDBOX}' && bash '${PROJECT_ROOT}/bin/devbot' stats --all"
+  [ "${status}" -eq 0 ]
+  assert_output --partial "1 row(s) in the last 30 days"
+  # Both rows are slice rows of one session (s-01, s-02), so the CSV totals two
+  # rows but a single session.
+  assert_output --partial "2 row(s) from 1 session(s) in the CSV"
+  refute_output --partial "ancient row, dropped"
+  refute_output --partial "### Poor ratings"
 }
 
 @test "devbot stats omits the Tool Grades section when the CSV is absent" {

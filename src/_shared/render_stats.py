@@ -213,18 +213,34 @@ def render(data: dict) -> str:
     grade_tools = grades.get("tools") or []
     if grade_tools:
         scope_word = "all projects" if grades.get("scope") == "all" else "one project"
+        grade_days = grades.get("days")
         rows_label = f"{_int(grades.get('rows'))} row(s)"
         total_label = f"{_int(grades.get('total_rows'))} row(s)"
         sessions_label = f"{_int(grades.get('sessions'))} session(s)"
+        if isinstance(grade_days, int):
+            day_word = "day" if grade_days == 1 else "days"
+            window_phrase = f"the last {_int(grade_days)} {day_word}"
+        else:
+            window_phrase = "the whole CSV"
         out += [
             "",
             "## Tool Grades",
             "",
             f"Averaged over rows where the tool was used (grade ≥ 1); highest first, unused last. "
-            f"`Min` is the worst grade ever recorded and `σ` the spread across uses "
-            f"(`—` when there are too few uses to tell). "
-            f"{rows_label} in scope ({scope_word}); {total_label} from {sessions_label} in the CSV; "
-            f"not windowed by --days.",
+            f"{rows_label} in {window_phrase} ({scope_word}); "
+            f"{total_label} from {sessions_label} in the CSV.",
+            "",
+            "`Min` is the worst grade the tool earned, and `σ` how far its grades scatter around "
+            "the average — both over the rows counted above. The average alone hides both: a 4.00 "
+            "built from four 4s is a different tool from one that scored 5 every time but once "
+            "scored 3.",
+            "",
+            "Read them before leaning on a number. A **low `Min`** means the tool has failed you at "
+            "least once — check its reason under Poor ratings before trusting it unsupervised. A "
+            "**high `σ`** means the average is not a promise: the outcome varies, so look for a "
+            "shared cause in the bad uses. A **high `Min` with a low `σ`** is the strongest signal "
+            "in the table — never disappointed, and behaves the same way every time. `σ` is "
+            "withheld below three uses, where a spread means nothing.",
             "",
         ]
         rows = [
@@ -252,7 +268,7 @@ def render(data: dict) -> str:
             if isinstance(bar, int) and isinstance(threshold, (int, float)):
                 out += [
                     f"Quality: `Avg > {threshold:g}` is high. Demand: `uses ≥ {bar}` is often — "
-                    f"the median use count of the tools in scope, floored.",
+                    f"the median use count of the tools actually used, floored.",
                     "",
                 ]
             by_bucket: dict[str, list[dict]] = {}
