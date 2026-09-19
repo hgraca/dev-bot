@@ -238,7 +238,6 @@ class TestRenderToolsYaml(unittest.TestCase):
                 "MYSQL_HOST",
                 "MYSQL_PASSWORD",
                 "MYSQL_PORT",
-                "MYSQL_QUERY_PARAMS",
                 "MYSQL_USER",
             ],
         )
@@ -256,6 +255,39 @@ class TestRenderToolsYaml(unittest.TestCase):
         names = json.loads(proc.stdout)
         self.assertIn("HOTELS_DB_HOST", names)
         self.assertNotIn("MYSQL_HOST", names)
+
+    def test_mysql_carries_a_connect_timeout(self):
+        # Without one, a host that silently drops packets dials on the OS
+        # default: the gateway hangs at startup and the availability canary can
+        # neither become ready nor name the source, so the render never settles.
+        code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
+
+        self.assertEqual(code, 0)
+        self.assertIn("queryParams:\n  timeout: 5s", out)
+
+    def test_postgres_carries_a_connect_timeout(self):
+        code, out, _ = render({"hotels": {"type": "postgres", "env": {}}})
+
+        self.assertEqual(code, 0)
+        self.assertIn("queryParams:\n  connect_timeout: 5", out)
+
+    def test_the_retired_query_params_env_key_is_rejected(self):
+        # `queryParams` is a MAP to toolbox; the old string form was a hard
+        # parse error for any non-empty value, so the field is gone rather than
+        # silently ignored.
+        code, _out, err = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_QUERY_PARAMS": "timeout=1s"}}}
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("MYSQL_QUERY_PARAMS", err)
+
+    def test_engines_without_a_dial_timeout_emit_no_query_params(self):
+        # mongodb takes its timeout in the URI, redis exposes none at all.
+        code, out, _ = render({"cache": {"type": "redis", "env": {"REDIS_ADDRESS": "a:1"}}})
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("queryParams", out)
 
     def test_mongodb_puts_the_database_on_the_tool_not_the_source(self):
         # mongodb-aggregate REQUIRES a database, so one mongo datasource covers

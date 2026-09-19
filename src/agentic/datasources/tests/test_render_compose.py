@@ -55,7 +55,6 @@ class TestRenderCompose(unittest.TestCase):
                 "MYSQL_HOST",
                 "MYSQL_PASSWORD",
                 "MYSQL_PORT",
-                "MYSQL_QUERY_PARAMS",
                 "MYSQL_USER",
             ],
         )

@@ -28,6 +28,25 @@ import sys
 from typing import NoReturn
 
 # (yaml_field, toolbox_env_var, default) — default None means REQUIRED.
+# Toolbox reads a source's `queryParams` as a MAP, and it is the only place a
+# connection timeout can live. Without one the driver dials on the OS default
+# (~2 minutes for a host that silently drops packets), which hangs the
+# gateway's startup — and makes the availability canary unattributable: it
+# never becomes ready and never exits, so no culprit can be named and the
+# source is neither dropped nor reported. The render then aborts forever.
+#
+# Verified against the pinned 1.11.0 image: with these, a firewalled host fails
+# in ~5s and names itself. Units are per driver — the Go MySQL driver takes a
+# duration (`5s`), pgx takes seconds (`5`).
+#
+# Two engines stay unbounded, deliberately and visibly:
+#   * mongodb has no queryParams field; its timeout lives inside the URI
+#     (`connectTimeoutMS` / `serverSelectionTimeoutMS`), and dev-bot passes the
+#     operator's URI through untouched rather than rewriting it.
+#   * redis exposes no dial timeout in 1.11.0 — both `timeout` and
+#     `dialTimeout` are rejected as unknown fields.
+# A blackholed host for either is only bounded by the canary's own deadline, so
+# it cannot be attributed. See docs/configuration.md.
 ENGINES = {
     "mysql": {
         "type": "mysql",
@@ -41,8 +60,9 @@ ENGINES = {
             ("database", "MYSQL_DATABASE", ""),
             ("user", "MYSQL_USER", None),
             ("password", "MYSQL_PASSWORD", None),
-            ("queryParams", "MYSQL_QUERY_PARAMS", ""),
         ],
+        # Go MySQL driver dial timeout — see the queryParams note above.
+        "query_params": {"timeout": "5s"},
         "tool": {
             "name": "execute_sql",
             "type": "mysql-execute-sql",
@@ -57,8 +77,9 @@ ENGINES = {
             ("database", "POSTGRES_DATABASE", None),
             ("user", "POSTGRES_USER", None),
             ("password", "POSTGRES_PASSWORD", None),
-            ("queryParams", "POSTGRES_QUERY_PARAMS", ""),
         ],
+        # pgx connect timeout, in SECONDS — see the queryParams note above.
+        "query_params": {"connect_timeout": "5"},
         "tool": {
             "name": "execute_sql",
             "type": "postgres-execute-sql",
@@ -357,11 +378,26 @@ def _render_fields(spec, engine, where) -> list:
     return lines
 
 
+def _render_query_params(engine) -> list:
+    """The engine's fixed `queryParams` mapping — see the note above ENGINES.
+
+    Emitted as a mapping, never a scalar: toolbox expects a map here and
+    refuses the whole config if it finds a string.
+    """
+    params = engine.get("query_params")
+    if not params:
+        return []
+    lines = ["queryParams:"]
+    for key, value in params.items():
+        lines.append(f"  {key}: {value}")
+    return lines
+
+
 def render_source(name, spec, engine) -> list:
     # `env` is optional: a datasource may rely entirely on the engine's own
     # default variable names (export MYSQL_HOST and declare nothing).
     lines = ["kind: source", f"name: {name}", f"type: {engine['type']}"]
-    return lines + _render_fields(spec, engine, "source")
+    return lines + _render_fields(spec, engine, "source") + _render_query_params(engine)
 
 
 def render_tool(name, spec, engine) -> list:
