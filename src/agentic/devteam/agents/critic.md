@@ -4,7 +4,9 @@ description: "Critic — evaluates plans and audits the codebase for inconsisten
 mode: subagent
 temperature: 0.1
 permission:
-  bash: deny
+  bash:
+    "*": deny
+    "*record-grades.py*": allow
   pty_spawn: deny
   pty_write: deny
   pty_read: deny

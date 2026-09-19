@@ -89,4 +89,15 @@ The primary agent (devbot or teamlead) must not emit `[FINISHED]` on its own ini
 - **Yes** → run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then end with `[FINISHED]`.
 - **No** → the user provides new directions and the agent continues working.
 
-This replaces the automatic post-commit memory capture — `devbot:remember-session` (memory) and `devbot:grade-tools` (tool quality) run once, at the end, only after the user confirms the work is finished. Subagents signal `[FINISHED]` to the orchestrator as normal; this flow applies only to the human-facing primary agent.
+This replaces the automatic post-commit memory capture — `devbot:remember-session` (memory) and `devbot:grade-tools` (tool quality) run once, at the end, only after the user confirms the work is finished. This flow applies only to the human-facing primary agent.
+
+## Finish Flow (subagent)
+
+A subagent has no memory capture — only its own tool grades. Before signalling `[FINISHED]`,
+`[BLOCKED]` or `[PARTIAL]` back to the orchestrator, run the `devbot:grade-tools` skill once for the
+assignment.
+
+- Grade **the assignment only**, not the session: the slice is the work since the last row whose
+  session and actor both match yours, as the skill's Step 1 describes.
+- The row's `actor` is your own name, resolved from `$DEV_BOT_AGENT_NAME`. Do not pass `--actor`.
+- Do not run `devbot:remember-session` — memory capture is the orchestrator's.

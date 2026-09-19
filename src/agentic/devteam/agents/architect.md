@@ -4,7 +4,9 @@ description: "Software Architect — designs technical plans and ADRs, does not 
 mode: subagent
 temperature: 0.2
 permission:
-  bash: deny
+  bash:
+    "*": deny
+    "*record-grades.py*": allow
   pty_spawn: deny
   pty_write: deny
   pty_read: deny

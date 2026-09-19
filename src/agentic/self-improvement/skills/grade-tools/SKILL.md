@@ -1,6 +1,6 @@
 ---
 name: devbot:grade-tools
-description: "Records per-session tool quality into <DEV_BOT_ROOT>/.agents/logs/tools-grades.csv: one project-tagged row per run, 0-5 per MCP server/skill, multi-line notes explaining every 1-3 grade. Use this skill whenever the primary agent finishes a session, right after devbot:remember-session — and on 'wrap up', 'grade tools', or 'remember this session' — even if the user does not ask for it."
+description: "Records per-slice tool quality into <DEV_BOT_ROOT>/.agents/logs/tools-grades.csv: one row per graded slice, tagged with its project and actor, 0-5 per MCP server/skill, notes explaining every 1-3 grade. Use when the primary agent finishes a session, a subagent finishes an assignment, or the user says 'wrap up' / 'grade tools' / 'remember this session'."
 ---
 
 # Grade Tools
@@ -10,8 +10,10 @@ skill — especially our own `devbot-tools`, which is graded per tool for exactl
 without the reasoning behind it cannot drive that decision, so the `notes` column carries the _why_.
 
 The CSV is **install-level, not per-project**: rows from every project land in one file at
-`<DEV_BOT_ROOT>/.agents/logs/tools-grades.csv`, each row tagged with the `project` it came from, so
-tool quality accumulates across the whole workspace instead of fragmenting into one file per consumer.
+`<DEV_BOT_ROOT>/.agents/logs/tools-grades.csv`, each row tagged with the `project` it came from and the
+`actor` that wrote it, so tool quality accumulates across the whole workspace instead of fragmenting
+into one file per consumer — and a subagent's experience of a tool counts as much as the primary
+agent's.
 `devbot stats` reads this matrix back, reporting each tool's average grade, its worst grade and the
 spread across uses, a keep/improve quadrant verdict, and the reasons behind its poor (1–3) ratings.
 
@@ -19,6 +21,8 @@ spread across uses, a keep/improve quadrant verdict, and the reasons behind its 
 
 - **Primary trigger**: the finish flow (see `devbot:agent-communication`), immediately after
   `devbot:remember-session` and before `[FINISHED]`.
+- **Subagent trigger**: finishing a delegated assignment, immediately before signalling `[FINISHED]`
+  back to the orchestrator. A subagent runs this skill only — never `devbot:remember-session`.
 - The user says "wrap up", "grade tools", "how did the tools do", or "remember this session".
 - Any time the agent wants to record tool quality for a completed slice of work.
 
@@ -27,8 +31,8 @@ spread across uses, a keep/improve quadrant verdict, and the reasons behind its 
 - **Silent on the finish flow**: emit ZERO narrative text — no status line, no "graded N tools".
   The script call is the only visible effect.
 - **Always add a row**, even when the slice used no MCP server or skill (all-zero grades, note says so).
-- **Grade the slice in isolation**: only work since the previous row for _this project_ in this
-  session. A tool used earlier but not in this slice is `0`.
+- **Grade the slice in isolation**: only work since the previous row for _this project_, in this
+  session, with your actor. A tool used earlier but not in this slice is `0`.
 - **Explain every `1`, `2` and `3`** in the notes, naming the tool. Those grades mean "used, but
   something was wrong with it", and that something is the entire signal. The script rejects the row
   otherwise.
@@ -45,10 +49,12 @@ spread across uses, a keep/improve quadrant verdict, and the reasons behind its 
 
 ### Step 1 — Determine the slice
 
-Resolve the session id and its last row:
+Resolve the session id, your own actor, and the last row belonging to both:
 
 1. Read the session id from the shell: `echo "$DEV_BOT_SESSION_ID"` — if it is empty, the session id is `unknown`.
-2. Read `<DEV_BOT_ROOT>/.agents/logs/tools-grades.csv` and take the highest row id starting with `<session-id>-`.
+2. Read your actor the same way: `echo "$DEV_BOT_AGENT_NAME"`. `record-grades.py` resolves that variable
+   by itself, so you only need it here to find your own boundary.
+3. Read `<DEV_BOT_ROOT>/.agents/logs/tools-grades.csv` and take the highest row id **whose session and actor both match yours** — the id starts with `<session-id>-`, and its `actor` column is your name. Compare the actor case-insensitively: rows written before that column existed carry `DevBot`, and the harness may report your name in any case.
 
 If no such row exists, the slice is the whole session so far. Otherwise the slice is the work done
 after that row. Grade that slice only.
@@ -131,13 +137,14 @@ The `project` column is derived from the working directory as `<parent folder>/<
 `--project-root DIR` to override it (or when invoking from anywhere else).
 
 The script resolves the install root from `$DEV_BOT_ROOT`, falling back to walking up from its own
-(real) location. It reads `$DEV_BOT_SESSION_ID`, resolves the next `<session-id>-NN` id, adds any new
-tool column (backfilling earlier rows with `0`), and rewrites the shared CSV atomically. Pass
-`--devbot-root DIR` to override the install root deliberately.
+(real) location. It reads `$DEV_BOT_SESSION_ID` and `$DEV_BOT_AGENT_NAME`, resolves the next
+`<session-id>-NN` id, adds any new tool column (backfilling earlier rows with `0`), and rewrites the
+shared CSV atomically. Pass `--devbot-root DIR` to override the install root deliberately, or
+`--actor NAME` to override the agent.
 
-If it prints `WARN: DEV_BOT_SESSION_ID is not set`, the harness did not export the session id, and the
-row is grouped under `unknown`. The shell.env hook supplies that variable, so a session started before
-the hook was (re)loaded will not have it — restart opencode to pick it up.
+If it prints a `WARN:` about `DEV_BOT_SESSION_ID` or `DEV_BOT_AGENT_NAME`, the harness did not export
+that variable, and the row falls back to `unknown`. The shell.env hook supplies both, so a session
+started before the hook was (re)loaded will not have them — restart opencode to pick them up.
 
 ## MUST NOT
 
