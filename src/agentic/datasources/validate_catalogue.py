@@ -66,10 +66,13 @@ DEV_BOT_ROOT = os.environ.get("DEV_BOT_ROOT") or os.path.dirname(
 VERSIONS_FILE = os.path.join(MODULE_DIR, "versions.env")
 
 # How long one source has to reach readiness. A good config serves within a
-# second; a host that blackholes the dial does not, and waiting longer than this
-# only delays the boot. Kept deliberately tight — a source that needs longer
-# than this is dropped for the session and returns on the next `devbot up`.
-DEFAULT_TIMEOUT = 2.0
+# second; a host that blackholes the dial is caught first by the driver's own
+# connect timeout (2s, see render_tools_yaml.py) and exits NAMING itself.
+# This budget is the backstop for a source that has no such timeout — redis
+# always, mongodb unless its URI bounds it — so it must stay comfortably ABOVE
+# the connect timeout, or the budget pre-empts the driver and the reason
+# degrades from `i/o timeout` to `did not become ready within Ns`.
+DEFAULT_TIMEOUT = 5.0
 POLL_INTERVAL = 0.25
 # Every docker invocation is bounded, so an unresponsive daemon cannot hang the
 # render (and with it `devbot up`).

@@ -36,8 +36,15 @@ from typing import NoReturn
 # source is neither dropped nor reported. The render then aborts forever.
 #
 # Verified against the pinned 1.11.0 image: with these, a firewalled host fails
-# in ~5s and names itself. Units are per driver — the Go MySQL driver takes a
-# duration (`5s`), pgx takes seconds (`5`).
+# in ~2s and names itself. Units are per driver — the Go MySQL driver takes a
+# duration (`2s`), pgx takes seconds (`2`).
+#
+# These MUST stay well under validate_catalogue.py's DEFAULT_TIMEOUT. The dial
+# bound is what turns an unreachable host into a NAMED rejection; a budget
+# shorter than it pre-empts the driver and the reason degrades to "did not
+# become ready within Ns". Dial timeout answers "can we reach the host at all"
+# (tens of milliseconds when it is up, so 2s is already generous); the budget
+# answers "is it slow to become ready" (which is why the budget is the larger).
 #
 # Two engines stay unbounded, deliberately and visibly:
 #   * mongodb has no queryParams field; its timeout lives inside the URI
@@ -64,7 +71,7 @@ ENGINES = {
             ("password", "MYSQL_PASSWORD", None),
         ],
         # Go MySQL driver dial timeout — see the queryParams note above.
-        "query_params": {"timeout": "5s"},
+        "query_params": {"timeout": "2s"},
         "tool": {
             "name": "execute_sql",
             "type": "mysql-execute-sql",
@@ -81,7 +88,7 @@ ENGINES = {
             ("password", "POSTGRES_PASSWORD", None),
         ],
         # pgx connect timeout, in SECONDS — see the queryParams note above.
-        "query_params": {"connect_timeout": "5"},
+        "query_params": {"connect_timeout": "2"},
         "tool": {
             "name": "execute_sql",
             "type": "postgres-execute-sql",

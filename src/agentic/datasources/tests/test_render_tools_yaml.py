@@ -263,13 +263,13 @@ class TestRenderToolsYaml(unittest.TestCase):
         code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
 
         self.assertEqual(code, 0)
-        self.assertIn("queryParams:\n  timeout: 5s", out)
+        self.assertIn("queryParams:\n  timeout: 2s", out)
 
     def test_postgres_carries_a_connect_timeout(self):
         code, out, _ = render({"hotels": {"type": "postgres", "env": {}}})
 
         self.assertEqual(code, 0)
-        self.assertIn("queryParams:\n  connect_timeout: 5", out)
+        self.assertIn("queryParams:\n  connect_timeout: 2", out)
 
     def test_the_retired_query_params_env_key_is_rejected(self):
         # `queryParams` is a MAP to toolbox; the old string form was a hard
