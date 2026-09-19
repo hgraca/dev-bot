@@ -1,7 +1,7 @@
 ---
 date: 2026-09-17
 keywords: ["devbot", "datasources", "mcp", "docker", "networking", "toolbox"]
-see: ["ADRs/20260914222815-share-machine-wide-mcp-servers-via-compose-gate-per-project.md", "ADRs/20260908213000-mcp-manifest-consolidation.md"]
+see: ["ADRs/20260914222815-share-machine-wide-mcp-servers-via-compose-gate-per-project.md", "ADRs/20260908213000-mcp-manifest-consolidation.md", "ADRs/20260919091226-datasources-evaluate-once-at-startup.md"]
 ---
 
 ## Run the datasources gateway on the host network, from a generated compose file

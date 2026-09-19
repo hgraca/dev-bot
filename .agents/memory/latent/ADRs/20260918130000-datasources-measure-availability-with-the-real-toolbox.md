@@ -1,7 +1,7 @@
 ---
 date: 2026-09-18
 keywords: ["datasources", "mcp-toolbox", "availability", "oracle", "quarantine"]
-see: ["ADRs/20260917204927-datasources-gateway-host-network-generated-compose.md"]
+see: ["ADRs/20260917204927-datasources-gateway-host-network-generated-compose.md", "ADRs/20260919091226-datasources-evaluate-once-at-startup.md"]
 ---
 
 ## Measure datasource availability with the real toolbox, never predict it with a probe

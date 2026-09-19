@@ -184,6 +184,7 @@ Single GitHub Actions workflow — `.github/workflows/jekyll-gh-pages.yml`: buil
 - Two config worlds: committed `*.dist.jsonc` vs gitignored runtime `*.jsonc`/`*.json` — easy to edit the wrong one.
 - Symlink-heavy wiring: tools that don't follow symlinks break on `.opencode/`/`.agents/` farms (glob, qmd index — verified gotchas in memory).
 - No CI gate for tests or lint — `make test` is the only check, so regressions ship to `main` silently if not run locally.
+- **Waiting on upstream `--allow-partial-sources` (mcp-toolbox).** The `datasources` module filters its config to sources the gateway can actually initialize, because toolbox treats an unreachable source as fatal at startup _and_ on reload — one down database would otherwise take the whole shared gateway down. Verified not in `1.11.0` or `1.12.0` (`--help`); the feature is in flight upstream (mcp-toolbox PRs #2662 / #2959). Once released, the filter + canary + quarantine machinery can be deleted and the gateway can serve the full catalogue, degrading only the tools of the unreachable source. This is the intended simplification — do not build new filtering machinery before it lands.
 
 ## When to read docs vs code
 
