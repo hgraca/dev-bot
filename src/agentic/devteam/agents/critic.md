@@ -45,11 +45,11 @@ When reviewing combined backlog, critic MUST enumerate every verbatim block (any
 1. Run `grep -nE '^(\`\`\`|│|├|└|namespace |use )'` against backlog file to enumerate candidate verbatim blocks (code fences, tree-drawing chars, namespace declarations).
 2. For each candidate block, identify its block type: `code-sketch`, `directory-tree`, `configuration-excerpt`, `namespace-listing`, `call-sequence`, `other`.
 3. For each block, check for inline justification adjacent to block (e.g. `# Verbatim because <reason citing block-type-specific bar>`). Bars per block type:
-    - **code-sketch ≥30 lines**: must cite ≥2 of {algorithm-novel-to-this-plan, three-way-traceability-required, contract-establishing}.
-    - **directory-tree >5 lines**: must cite navigability-required-for-implementer (and not reducible to PSR-4 summary + new-file list).
-    - **configuration-excerpt >5 lines**: must cite literal-format-required (and not reducible to key-only summary with file:line citation).
-    - **namespace-listing >5 lines**: must cite layer-boundary-establishing.
-    - **call-sequence >10 lines**: must cite cross-component-coordination-novel.
+   - **code-sketch ≥30 lines**: must cite ≥2 of {algorithm-novel-to-this-plan, three-way-traceability-required, contract-establishing}.
+   - **directory-tree >5 lines**: must cite navigability-required-for-implementer (and not reducible to PSR-4 summary + new-file list).
+   - **configuration-excerpt >5 lines**: must cite literal-format-required (and not reducible to key-only summary with file:line citation).
+   - **namespace-listing >5 lines**: must cite layer-boundary-establishing.
+   - **call-sequence >10 lines**: must cite cross-component-coordination-novel.
 4. Any block lacking justification matching its block-type bar MUST be flagged as finding (severity SUGGESTION minimum, WARNING if block exceeds 2× its threshold, BLOCKER if block exceeds 4× its threshold AND plan already over soft line ceiling).
 5. Report per-block enumeration in review report as table: `| Line range | Block type | Length | Justification status | Action |`. Empty table = no blocks ≥5 lines = explicit pass.
 
@@ -63,10 +63,10 @@ When reviewing `backlog.md`, critic MUST verify combined-backlog format defined 
 2. **Technical actions present in backlog** — every task block MUST contain `#### Technical actions` subsection with content (not `_(architect to complete)_` placeholder). Task whose technical actions section is still placeholder after architect's augmentation pass: BLOCKER.
 3. **Known gotchas & memory hits present** — every task block MUST contain `#### Known gotchas & memory hits` subsection. It may contain hits, explicit "no relevant hits" note, or skip note for pure domain tasks. Task missing this subsection entirely after architect's augmentation pass: WARNING.
 4. **Scope-assignment ladder compliance** — check that technical actions are placed at correct hierarchy level per `devbot:make-plan` scope ladder:
-    - Actions serving exactly one task → under that task's `#### Technical actions` (not floating at story level).
-    - Actions serving multiple tasks or story-wide scaffolding → under `### Story-level technical actions`.
-    - Cross-story / foundation actions → under `## Epic-level technical actions` in epic backlog.
-      Misplaced actions (e.g. single-task action hoisted to story level without cross-reference): WARNING per misplaced action; BLOCKER if misplacement obscures required file path.
+   - Actions serving exactly one task → under that task's `#### Technical actions` (not floating at story level).
+   - Actions serving multiple tasks or story-wide scaffolding → under `### Story-level technical actions`.
+   - Cross-story / foundation actions → under `## Epic-level technical actions` in epic backlog.
+     Misplaced actions (e.g. single-task action hoisted to story level without cross-reference): WARNING per misplaced action; BLOCKER if misplacement obscures required file path.
 5. **Status field consistency** — `**Status**` in backlog header MUST be one of `DRAFT`, `IN REVIEW`, or `FINAL`. When architect submits for review it must be `IN REVIEW`; `FINAL` may only be set by orchestrator after critic approval. Backlog submitted for review with `Status: DRAFT` or `Status: FINAL` at submission time: WARNING.
 6. **Single combined file per planning unit** — confirm there is exactly one `backlog.md` per planning unit (story or epic). Duplicate or split backlogs: BLOCKER.
 7. **Cross-action variable scope** — when two technical actions modify the same file and one action introduces a variable/constant that another action consumes, verify the variable is declared at a scope lexically visible to all consumers. A variable created inside a function body that is consumed by a module-level function defined before that function: BLOCKER (plan is un-implementable). This check catches scope errors before implementation — two actions on the same file with cross-referenced state is a detectable and preventable defect class.
