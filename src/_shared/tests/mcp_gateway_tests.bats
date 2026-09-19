@@ -157,6 +157,61 @@ MOCK
   rm -rf "${stub}"
 }
 
+@test "wait helper stops as soon as the gateway container has exited" {
+  # A container that has exited will never answer, so spending the retry budget
+  # on it only delays the boot by that many seconds.
+  local curlstub dkrstub start elapsed
+  curlstub="$(_curl_stub_path 1)"
+  dkrstub="$(mktemp -d)"
+  cat > "${dkrstub}/docker" <<'SH'
+#!/usr/bin/env bash
+[[ "$1" == "inspect" ]] && echo false
+exit 0
+SH
+  chmod +x "${dkrstub}/docker"
+
+  start="$(date +%s)"
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    PATH='${dkrstub}:${curlstub}:'\$PATH
+    _devbot_wait_for_mcp_gateway testgw http://127.0.0.1:1/mcp 30 dev-bot-test
+    echo \"rc=\$?\"
+  "
+  elapsed=$(( $(date +%s) - start ))
+
+  assert_output --partial 'rc=1'
+  assert_output --partial 'has exited'
+  if [ "${elapsed}" -ge 5 ]; then
+    rm -rf "${curlstub}" "${dkrstub}"
+    fail "waited ${elapsed}s on an exited container instead of returning"
+  fi
+  rm -rf "${curlstub}" "${dkrstub}"
+}
+
+@test "wait helper keeps retrying when the container state is unreadable" {
+  # Only a definite "not running" may stop the wait: an inspect that fails
+  # (docker busy, container already removed) must not be read as a dead gateway.
+  local curlstub dkrstub
+  curlstub="$(_curl_stub_path 1)"
+  dkrstub="$(mktemp -d)"
+  cat > "${dkrstub}/docker" <<'SH'
+#!/usr/bin/env bash
+exit 1
+SH
+  chmod +x "${dkrstub}/docker"
+
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    PATH='${dkrstub}:${curlstub}:'\$PATH
+    DEV_BOT_MCP_WAIT_TRIES=1 _devbot_wait_for_mcp_gateway testgw http://127.0.0.1:1/mcp '' dev-bot-test
+    echo \"rc=\$?\"
+  "
+
+  assert_output --partial 'rc=1'
+  assert_output --partial 'not reachable'
+  rm -rf "${curlstub}" "${dkrstub}"
+}
+
 @test "wait helper skips when curl is unavailable" {
   run bash -c "
     source '${PROJECT_ROOT}/src/_shared/functions.sh'

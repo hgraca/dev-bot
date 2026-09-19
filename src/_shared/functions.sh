@@ -2229,7 +2229,7 @@ _prune_stale_skill_copies() {
 }
 
 # =============================================================================
-# _devbot_wait_for_mcp_gateway <name> <mcp-url> [tries]
+# _devbot_wait_for_mcp_gateway <name> <mcp-url> [tries] [container]
 #
 # Wait until a shared MCP gateway — a docker compose service fronted by a
 # module's up.sh — answers an MCP `initialize` request, so the harness that
@@ -2240,6 +2240,13 @@ _prune_stale_skill_copies() {
 # that server unavailable rather than failing the boot. Prints nothing on
 # success, so the caller owns the success message — signoz downgrades it to
 # DEGRADED when its API token is unset.
+#
+# `container` is optional and is what makes the failure fast: a container that
+# has already EXITED will never answer, so retrying the URL for the remaining
+# tries only delays the boot by that many seconds. Pass "" for `tries` to use
+# the default and still name a container. Only a definite "not running" stops
+# the wait — an inspect that fails (docker busy, container already removed)
+# keeps retrying, so this can never report a gateway down on a bad reading.
 #
 # The probe is a real MCP handshake, not a bare TCP/HTTP check. NOTE: a
 # successful handshake proves the TRANSPORT, never the server's configuration —
@@ -2252,10 +2259,18 @@ _devbot_wait_for_mcp_gateway() {
   # $3 / DEV_BOT_MCP_WAIT_TRIES exist so tests can exercise the timeout path
   # without waiting the real 30s.
   local tries="${3:-${DEV_BOT_MCP_WAIT_TRIES:-30}}"
+  local container="${4:-}"
 
   if ! command -v curl >/dev/null 2>&1; then
     _skip "${name}: curl not available — skipping gateway readiness check"
     return 1
+  fi
+
+  # docker is not required: a gateway may not be a container at all, and the
+  # check simply does not apply when it is absent.
+  local probing_container=0
+  if [[ -n "${container}" ]] && command -v docker >/dev/null 2>&1; then
+    probing_container=1
   fi
 
   local attempt=0
@@ -2264,6 +2279,14 @@ _devbot_wait_for_mcp_gateway() {
     -H 'Content-Type: application/json' \
     -H 'Accept: application/json, text/event-stream' \
     -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"devbot-up","version":"1"}}}'; do
+    if ((probing_container)); then
+      local running
+      running="$(docker inspect -f '{{.State.Running}}' "${container}" 2>/dev/null || true)"
+      if [[ "${running}" == "false" ]]; then
+        _skip "${name}: gateway container '${container}' has exited — MCP server will be unavailable"
+        return 1
+      fi
+    fi
     attempt=$((attempt + 1))
     if [[ ${attempt} -ge ${tries} ]]; then
       _skip "${name}: gateway not reachable at ${url} after ${tries}s — MCP server will be unavailable"
