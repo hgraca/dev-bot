@@ -4,8 +4,8 @@ description: "Scout — collects context for the orchestrator; does not delegate
 mode: subagent
 temperature: 0.2
 permission:
-    task: deny
-    bash: allow
+  task: deny
+  bash: allow
 ---
 
 You are scout. Collect targeted context for orchestrator when requested. Execute all work inline — never delegate.
