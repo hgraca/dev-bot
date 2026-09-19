@@ -13,16 +13,60 @@
 #   post-bash  → PostToolUse (Bash)         → command.after
 #   stop       → Stop                       → session.idle
 #   startup    → SessionStart               → session.created
+#
+# Every phase also publishes the session id and the running agent to
+# $CLAUDE_ENV_FILE — see write_session_env().
 # =============================================================================
 
 import datetime
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 
 DEV_BOT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "..", ".."))
+
+# Claude Code exports no session-id environment variable to the shell (upstream
+# issue 47018), so a per-session artefact (grade-tools) cannot name its own
+# session from Bash. A hook may instead write shell assignments to
+# $CLAUDE_ENV_FILE, which Claude Code runs as a preamble before every Bash
+# command — the claudecode equivalent of opencode's shell.env hook.
+ENV_FILE_VAR = "CLAUDE_ENV_FILE"
+SESSION_ID_ENV = "DEV_BOT_SESSION_ID"
+AGENT_NAME_ENV = "DEV_BOT_AGENT_NAME"
+# Outside a subagent the payload carries no agent_type; the session is then the
+# primary agent, which claudecode pins to DevBot (audit §0c).
+PRIMARY_AGENT_NAME = "DevBot"
+
+
+def write_session_env(data):
+    """Publish the session id and the running agent to the Bash preamble.
+
+    Called from every phase rather than only at session start: the payload
+    carries `agent_type` only inside a subagent, so the name has to be refreshed
+    from whichever hook fires last before the next Bash command. The file is
+    rewritten whole, never appended, so it stays a fixed two lines.
+    """
+    path = (os.environ.get(ENV_FILE_VAR) or "").strip()
+    session_id = (data.get("session_id") or "").strip()
+    if not path or not session_id:
+        return
+    agent = (data.get("agent_type") or "").strip() or PRIMARY_AGENT_NAME
+    preamble = "".join(
+        [
+            "export %s=%s\n" % (SESSION_ID_ENV, shlex.quote(session_id)),
+            "export %s=%s\n" % (AGENT_NAME_ENV, shlex.quote(agent)),
+        ]
+    )
+    try:
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(preamble)
+    except OSError:
+        # A missing or unwritable preamble file must not break the phase the
+        # harness is actually running — the identity is best-effort.
+        pass
 
 
 def load_manifests():
@@ -131,6 +175,7 @@ def main():
     phase = sys.argv[1] if len(sys.argv) > 1 else ""
     data = json.load(sys.stdin)
     worktree = data.get("cwd") or os.getcwd()
+    write_session_env(data)
 
     if phase == "pre-tool":
         command = (data.get("tool_input") or {}).get("command") or ""
