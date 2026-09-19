@@ -16,14 +16,14 @@ For `run` hooks the business logic lives once in each module's `tools/` entry; t
 
 ## Semantic events
 
-| Event             | Meaning                         | Modules                                         |
-| ----------------- | ------------------------------- | ----------------------------------------------- |
-| `file.edited`     | A file was saved                | format-md, format-json, format-yml, k8s, memory |
-| `command.before`  | A shell command is about to run | guards                                          |
-| `command.after`   | A shell command finished        | graphify (git-commit detect)                    |
-| `session.idle`    | The session went quiet          | graphify (commit check)                         |
-| `session.created` | A session started               | graphify (update)                               |
-| `session.error`   | A transient provider error      | auto-recover                                    |
+| Event             | Meaning                                                    | Modules                                         |
+| ----------------- | ---------------------------------------------------------- | ----------------------------------------------- |
+| `file.edited`     | A file was saved                                           | format-md, format-json, format-yml, k8s, memory |
+| `command.before`  | A shell command is about to run (bash or a PTY invocation) | guards                                          |
+| `command.after`   | A shell command finished                                   | graphify (git-commit detect)                    |
+| `session.idle`    | The session went quiet                                     | graphify (commit check)                         |
+| `session.created` | A session started                                          | graphify (update)                               |
+| `session.error`   | A transient provider error                                 | auto-recover                                    |
 
 ## Manifest
 
@@ -31,14 +31,14 @@ A module declares its hooks in `<module>/hooks.json`:
 
 ```json
 {
-    "hooks": [
-        {
-            "id": "format-md",
-            "event": "file.edited",
-            "match": { "file": "\\.md$" },
-            "run": ["python3", "{module}/tools/format-md.py", "{file}"]
-        }
-    ]
+  "hooks": [
+    {
+      "id": "format-md",
+      "event": "file.edited",
+      "match": { "file": "\\.md$" },
+      "run": ["python3", "{module}/tools/format-md.py", "{file}"]
+    }
+  ]
 }
 ```
 
@@ -61,17 +61,17 @@ A manifest entry either `run`s a command or delegates to a TypeScript plugin:
 
 ```json
 {
-    "hooks": [
-        {
-            "id": "auto-recover",
-            "event": "session.error",
-            "plugin": "{module}/hooks/opencode/on-session_error-auto-recover.ts"
-        },
-        {
-            "id": "watchdog-silent-stall",
-            "plugin": "{module}/hooks/opencode/on-watchdog-silent-stall.ts"
-        }
-    ]
+  "hooks": [
+    {
+      "id": "auto-recover",
+      "event": "session.error",
+      "plugin": "{module}/hooks/opencode/on-session_error-auto-recover.ts"
+    },
+    {
+      "id": "watchdog-silent-stall",
+      "plugin": "{module}/hooks/opencode/on-watchdog-silent-stall.ts"
+    }
+  ]
 }
 ```
 

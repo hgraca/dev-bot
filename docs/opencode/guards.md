@@ -1,10 +1,10 @@
 # guards
 
-Evaluates bash commands against configurable guard rules from global and project config files.
+Evaluates shell commands against configurable guard rules from global and project config files.
 
 ## OpenCode
 
-Registered in `opencode.jsonc` as `tool.execute.before` plugin. Intercepts every bash/shell tool call automatically.
+Registered in `opencode.jsonc` as `tool.execute.before` plugin. Intercepts every shell tool call automatically — bash, and the PTY tools that launch or feed a command (`pty_spawn`, `pty_write`).
 
 No manual configuration needed.
 

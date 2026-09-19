@@ -5,7 +5,7 @@ description: Prevent dangerous commands from being executed by agents.
 nav_section: docs
 ---
 
-Guards evaluate bash commands against configurable regex patterns before they run — blocking dangerous operations before execution.
+Guards evaluate shell commands against configurable regex patterns before they run — blocking dangerous operations before execution. Every shell channel is covered: the bash tool, and the PTY tools that carry a command (`pty_spawn`'s executable plus argument array, and `pty_write`'s typed input).
 
 ## What it does
 
@@ -18,17 +18,17 @@ Guards evaluate bash commands against configurable regex patterns before they ru
 
 ```jsonc
 {
-    "guards": [
-        { "regex": "rm -rf", "message": "rm -rf is blocked" },
-        { "regex": "sudo .*", "message": "sudo requires approval" },
-        { "regex": "git push --force", "message": "force push is prohibited" },
-    ],
+  "guards": [
+    { "regex": "rm -rf", "message": "rm -rf is blocked" },
+    { "regex": "sudo .*", "message": "sudo requires approval" },
+    { "regex": "git push --force", "message": "force push is prohibited" },
+  ],
 }
 ```
 
 ## How it works
 
-The `on-tool_execute_before` hook fires before every bash command. Guards checks the command against all configured patterns and blocks it if a match is found.
+The `command.before` hook fires before every shell command. Guards checks the normalised command against all configured patterns and blocks it if a match is found.
 
 ## See also
 

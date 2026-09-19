@@ -11,10 +11,10 @@ DevBot ships **12 agents** across two modules: **2 primary agents** (invoked dir
 
 Start here. Pick the experience that fits your workflow.
 
-| Agent                                                           | Location                      | Description                                                                                                                                                                                                           |
-|-----------------------------------------------------------------|-------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Agent                                                           | Location                      | Description                                                                                                                                                                                                                      |
+| --------------------------------------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`devbot`** <span class="badge-recommended">Recommended</span> | `src/agentic/devbot/agents/`  | **Pair programming partner.** Works alongside you incrementally — suggests, doesn't decide. Primes context at session start, recalls past decisions, loads the right tech skills. <em>Never autonomous — you're the driver.</em> |
-| **`teamlead`** <span class="badge-power">Power User</span>      | `src/agentic/devteam/agents/` | **Full-delegation orchestrator.** Classifies work, routes to specialists, leads planning and implementation workflows, makes product decisions. <em>For the full multi-agent experience.</em>                          |
+| **`teamlead`** <span class="badge-power">Power User</span>      | `src/agentic/devteam/agents/` | **Full-delegation orchestrator.** Classifies work, routes to specialists, leads planning and implementation workflows, makes product decisions. <em>For the full multi-agent experience.</em>                                    |
 
 ## Subagents
 
@@ -22,21 +22,21 @@ Primary agents delegate to these 10 subagents.
 
 ### DevBot module
 
-| Agent          | Location                     | Description                                                                                                                |
-|----------------|------------------------------|----------------------------------------------------------------------------------------------------------------------------|
-| **`expert`**   | `src/agentic/devbot/agents/` | **Consultant subagent.** Deep technical problem analysis on a higher-grade LLM. Proposes options; never implements.        |
+| Agent          | Location                     | Description                                                                                                                  |
+| -------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **`expert`**   | `src/agentic/devbot/agents/` | **Consultant subagent.** Deep technical problem analysis on a higher-grade LLM. Proposes options; never implements.          |
 | **`designer`** | `src/agentic/devbot/agents/` | **Design subagent.** Designs UX flows, interaction specs, screen designs, and visual acceptance criteria. Never writes code. |
 
 ### DevTeam module
 
-| Agent           | Location                      | Description                                                                                                                       |
-|-----------------|-------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| **`architect`** | `src/agentic/devteam/agents/` | **Software Architect.** Designs technical plans and ADRs. Does not write production code.                                         |
-| **`critic`**    | `src/agentic/devteam/agents/` | **Critic.** Evaluates plans and audits the codebase for inconsistencies, architectural erosion, and pattern drift.                |
-| **`developer`** | `src/agentic/devteam/agents/` | **Developer.** Implements the architect's plan into production code, following plans precisely.                                   |
-| **`po`**        | `src/agentic/devteam/agents/` | **Product Owner.** Product domain expert; owns backlog grooming and answers business/requirements questions.                      |
+| Agent           | Location                      | Description                                                                                                                        |
+| --------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| **`architect`** | `src/agentic/devteam/agents/` | **Software Architect.** Designs technical plans and ADRs. Does not write production code.                                          |
+| **`critic`**    | `src/agentic/devteam/agents/` | **Critic.** Evaluates plans and audits the codebase for inconsistencies, architectural erosion, and pattern drift.                 |
+| **`developer`** | `src/agentic/devteam/agents/` | **Developer.** Implements the architect's plan into production code, following plans precisely.                                    |
+| **`po`**        | `src/agentic/devteam/agents/` | **Product Owner.** Product domain expert; owns backlog grooming and answers business/requirements questions.                       |
 | **`reviewer`**  | `src/agentic/devteam/agents/` | **Reviewer.** Reviews changes against the combined backlog and project conventions; reports issues without modifying code.         |
-| **`scout`**     | `src/agentic/devteam/agents/` | **Scout.** Collects context for the orchestrator at session start. Does not delegate.                                             |
+| **`scout`**     | `src/agentic/devteam/agents/` | **Scout.** Collects context for the orchestrator at session start. Does not delegate.                                              |
 | **`security`**  | `src/agentic/devteam/agents/` | **Security Engineer.** Security audits, threat modelling, vulnerability assessment, and secure code review without modifying code. |
 | **`tester`**    | `src/agentic/devteam/agents/` | **Tester.** Validates implementations against requirements; writes and executes automated tests.                                   |
 
@@ -61,3 +61,14 @@ src/agentic/devteam/agents/
 ├── security.md      — Security Engineer
 └── tester.md        — Tester
 ```
+
+## Shell strategy
+
+Every agent that can run a shell command loads the shared `devbot:shell-strategy` skill, so the bash-vs-PTY decision lives in one place instead of being restated per agent:
+
+- **bash tool** — quick, deterministic, non-interactive commands.
+- **PTY session** (`pty_spawn`/`pty_write`/`pty_read`/`pty_kill`) — commands that may outlive the bash timeout (test suites, builds, migrations), prompt for input, or need their output watched while they run. The distinction is time, not command length.
+
+The skill also carries the PTY output and stdin rules and the gotchas a PTY hides (a commit run in a PTY skips the post-commit hooks; PTY sessions do not inherit `DEV_BOT_SESSION_ID`).
+
+`architect`, `critic`, and `po` deny the bash tool and also deny the whole PTY tool family — the PTY tools are plugin tools that never consult the runtime permission prompt, so a bash-only deny would have left them a shell.
