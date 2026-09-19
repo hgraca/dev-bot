@@ -14,8 +14,10 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import os
 import re
+import statistics
 import sys
 from pathlib import Path
 
@@ -26,6 +28,16 @@ MCP_PREFIX = "mcp:"
 SKILL_PREFIX = "skill:"
 DEV_TOOLS = "devbot-tools"
 POOR_GRADES = (1, 2, 3)
+# Quality is absolute — the 0-5 rubric is. Demand is relative: "often used" only
+# means anything against the rest of the dataset, so the bar is recomputed per
+# report rather than fixed.
+#
+# 3.5 is the midpoint between the rubric's 3 ("poor" — see POOR_GRADES) and 4
+# ("good"). At 3.0 a tool graded predominantly 3 counted as high quality while
+# the same report listed it under Poor ratings.
+QUALITY_THRESHOLD = 3.5
+MIN_MANY_USES = 3
+MIN_USES_FOR_STDEV = 3
 SCOPE_CURRENT = "current"
 SCOPE_ALL = "all"
 
@@ -173,6 +185,28 @@ def read_rows(path: str) -> tuple[list[str], list[dict[str, str]]]:
     return header, rows
 
 
+def demand_bar(uses: list[int]) -> int:
+    """The "often used" cut: the median use count of the tools actually used.
+
+    Recomputed per report so the bar tracks the dataset instead of a fixed
+    number. The floor keeps a thin CSV — where nearly everything sits at one
+    use — from declaring a single use "often used".
+    """
+    used = [count for count in uses if count > 0]
+    if not used:
+        return MIN_MANY_USES
+    return max(MIN_MANY_USES, math.ceil(statistics.median(used)))
+
+
+def classify_bucket(avg: float | None, uses: int, bar: int) -> str:
+    """Place a tool on the quality x demand grid."""
+    if uses < 1 or avg is None:
+        return "unused"
+    if avg > QUALITY_THRESHOLD:
+        return "workhorse" if uses >= bar else "specialist"
+    return "improve" if uses >= bar else "unproven"
+
+
 def aggregate(
     header: list[str], rows: list[dict[str, str]], scope_project: str | None = None
 ) -> dict:
@@ -206,17 +240,26 @@ def aggregate(
             for column in poor_columns:
                 reasons[column].extend(attributed[column])
 
+    bar = demand_bar([len(tool_grades) for tool_grades in grades.values()])
     tools: list[dict] = []
     for column in columns:
         tool_grades = grades[column]
         used = len(tool_grades)
+        avg = round(sum(tool_grades) / used, 2) if used else None
         tools.append(
             {
                 "column": column,
                 "name": display_name(column),
                 "kind": tool_kind(column),
-                "avg": round(sum(tool_grades) / used, 2) if used else None,
+                "avg": avg,
                 "uses": used,
+                "min": min(tool_grades) if used else None,
+                "stdev": (
+                    round(statistics.pstdev(tool_grades), 2)
+                    if used >= MIN_USES_FOR_STDEV
+                    else None
+                ),
+                "bucket": classify_bucket(avg, used, bar),
                 "reasons": _dedupe_reasons(reasons[column]),
             }
         )
@@ -225,6 +268,8 @@ def aggregate(
         "rows": in_scope,
         "total_rows": len(rows),
         "sessions": len({_session_of(row.get("session_id", "")) for row in rows}),
+        "demand_bar": bar,
+        "quality_threshold": QUALITY_THRESHOLD,
         "tools": tools,
     }
 

@@ -292,6 +292,140 @@ class ToolGradesTest(unittest.TestCase):
         reindex = self._tool(block, "mcp:devbot-tools:reindex-memories")
         self.assertEqual(reindex["reasons"][0]["text"], '"prune" launched a full build.')
 
+    # ── derived metrics ───────────────────────────────────────────────────────
+
+    def test_min_is_the_worst_grade_recorded(self):
+        rows = [
+            row(grades={"mcp:signoz": 5}),
+            row(grades={"mcp:signoz": 3}),
+            row(grades={"mcp:signoz": 4}),
+        ]
+        signoz = self._tool(tg.aggregate(HEADER, rows), "mcp:signoz")
+        self.assertEqual(signoz["min"], 3)
+
+    def test_min_is_none_for_an_unused_tool(self):
+        signoz = self._tool(tg.aggregate(HEADER, [row(grades={"mcp:signoz": 0})]), "mcp:signoz")
+        self.assertIsNone(signoz["min"])
+
+    def test_stdev_is_none_below_the_minimum_uses(self):
+        rows = [row(grades={"mcp:signoz": 5}), row(grades={"mcp:signoz": 1})]
+        signoz = self._tool(tg.aggregate(HEADER, rows), "mcp:signoz")
+        self.assertEqual(signoz["uses"], 2)
+        self.assertIsNone(signoz["stdev"])
+
+    def test_stdev_is_none_for_an_unused_tool(self):
+        signoz = self._tool(tg.aggregate(HEADER, [row(grades={"mcp:signoz": 0})]), "mcp:signoz")
+        self.assertIsNone(signoz["stdev"])
+
+    def test_stdev_is_zero_when_every_use_scored_the_same(self):
+        rows = [row(grades={"mcp:signoz": 4}) for _ in range(3)]
+        signoz = self._tool(tg.aggregate(HEADER, rows), "mcp:signoz")
+        self.assertEqual(signoz["stdev"], 0.0)
+
+    def test_stdev_is_the_population_spread_not_the_sample_spread(self):
+        # Grades [1, 3, 5]: population stdev 1.63, sample stdev 2.00.
+        rows = [
+            row(grades={"mcp:signoz": 1}),
+            row(grades={"mcp:signoz": 3}),
+            row(grades={"mcp:signoz": 5}),
+        ]
+        signoz = self._tool(tg.aggregate(HEADER, rows), "mcp:signoz")
+        self.assertEqual(signoz["stdev"], 1.63)
+
+    # ── demand bar ────────────────────────────────────────────────────────────
+
+    def test_demand_bar_never_drops_below_the_floor(self):
+        self.assertEqual(tg.demand_bar([1, 1, 2, 7]), tg.MIN_MANY_USES)
+
+    def test_demand_bar_ignores_unused_tools(self):
+        self.assertEqual(tg.demand_bar([0, 0, 1, 1, 2, 7]), tg.MIN_MANY_USES)
+
+    def test_demand_bar_falls_back_to_the_floor_when_nothing_was_used(self):
+        self.assertEqual(tg.demand_bar([]), tg.MIN_MANY_USES)
+        self.assertEqual(tg.demand_bar([0, 0]), tg.MIN_MANY_USES)
+
+    def test_demand_bar_accepts_a_median_equal_to_the_floor(self):
+        self.assertEqual(tg.demand_bar([3, 3]), tg.MIN_MANY_USES)
+
+    def test_demand_bar_uses_the_median_once_it_exceeds_the_floor(self):
+        self.assertEqual(tg.demand_bar([4, 5, 6, 7]), 6)
+
+    def test_demand_bar_rounds_an_even_median_up(self):
+        self.assertEqual(tg.demand_bar([6, 7]), 7)
+
+    # ── buckets ───────────────────────────────────────────────────────────────
+
+    def test_bucket_is_unused_when_the_tool_was_never_used(self):
+        self.assertEqual(tg.classify_bucket(None, 0, 3), "unused")
+
+    def test_bucket_workhorse_needs_an_average_above_the_quality_threshold(self):
+        self.assertEqual(tg.classify_bucket(tg.QUALITY_THRESHOLD + 0.01, 5, 3), "workhorse")
+
+    def test_bucket_treats_an_exactly_neutral_average_as_poor(self):
+        self.assertEqual(tg.classify_bucket(tg.QUALITY_THRESHOLD, 5, 3), "improve")
+
+    def test_bucket_quality_bar_sits_between_the_rubric_poor_and_good(self):
+        # 3 is "poor" per POOR_GRADES and 4 is "good", so the bar is their midpoint.
+        self.assertEqual(tg.QUALITY_THRESHOLD, 3.5)
+        self.assertEqual(tg.classify_bucket(3.4, 5, 3), "improve")
+
+    def test_bucket_workhorse_needs_at_least_the_demand_bar(self):
+        self.assertEqual(tg.classify_bucket(4.0, 3, 3), "workhorse")
+        self.assertEqual(tg.classify_bucket(4.0, 2, 3), "specialist")
+
+    def test_bucket_improve_needs_at_least_the_demand_bar(self):
+        self.assertEqual(tg.classify_bucket(2.5, 3, 3), "improve")
+        self.assertEqual(tg.classify_bucket(2.5, 2, 3), "unproven")
+
+    def test_block_emits_the_resolved_bar_and_the_quality_threshold(self):
+        block = tg.aggregate(HEADER, [row(grades={"mcp:signoz": 5})])
+        self.assertEqual(block["demand_bar"], tg.MIN_MANY_USES)
+        self.assertEqual(block["quality_threshold"], tg.QUALITY_THRESHOLD)
+
+    def test_block_places_every_tool_in_exactly_one_bucket(self):
+        # Uses 5/4/2/1/0/3 give a median of 3, so the bar resolves to 3.
+        rows = [
+            row(
+                grades={
+                    "mcp:datasources": 5,
+                    "mcp:devbot-tools:search-memories": 1,
+                    "mcp:signoz": 5,
+                    "skill:devbot:makefile": 1,
+                    "skill:test-driven-development": 3,
+                }
+            ),
+            row(
+                grades={
+                    "mcp:datasources": 5,
+                    "mcp:devbot-tools:search-memories": 1,
+                    "mcp:signoz": 5,
+                    "skill:test-driven-development": 3,
+                }
+            ),
+            row(
+                grades={
+                    "mcp:datasources": 5,
+                    "mcp:devbot-tools:search-memories": 1,
+                    "skill:test-driven-development": 3,
+                }
+            ),
+            row(grades={"mcp:datasources": 5, "mcp:devbot-tools:search-memories": 1}),
+            row(grades={"mcp:datasources": 5}),
+        ]
+        block = tg.aggregate(HEADER, rows)
+        self.assertEqual(block["demand_bar"], 3)
+        self.assertEqual(
+            {t["name"]: t["bucket"] for t in block["tools"]},
+            {
+                "datasources": "workhorse",
+                "devbot-tools:search-memories": "improve",
+                "signoz": "specialist",
+                "devbot:makefile": "unproven",
+                "devbot:agent-communication": "unused",
+                "test-driven-development": "improve",
+            },
+        )
+
     # ── CLI ──────────────────────────────────────────────────────────────────
 
     def _run_cli(self, *argv, stdin: str):
