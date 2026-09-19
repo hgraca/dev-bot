@@ -23,11 +23,12 @@
 # happens within the timeout the result is INCONCLUSIVE and no config is
 # published.
 #
-# A source the oracle rejects is parked in quarantine.json and retried on a
-# backoff rather than on every poll — see quarantine.py.
+# A source the oracle rejects is dropped and named on stderr. There is no
+# retry state: the catalogue is evaluated once, at startup, so a rejected
+# source is simply not loaded until the next `devbot up`.
 #
 # Usage:
-#     validate_catalogue.py [--timeout SECONDS] [--state FILE] < catalogue.json
+#     validate_catalogue.py [--timeout SECONDS] < catalogue.json
 #
 # The accepted subset is written as JSON on stdout; each dropped source, with
 # the reason toolbox gave, is written to stderr.
@@ -47,7 +48,6 @@ import uuid
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
 
-import quarantine
 from render_tools_yaml import effective_env_names, load_catalogue, render
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -59,7 +59,7 @@ VERSIONS_FILE = os.path.join(MODULE_DIR, "versions.env")
 DEFAULT_TIMEOUT = 10.0
 POLL_INTERVAL = 0.25
 # Every docker invocation is bounded, so an unresponsive daemon cannot hang the
-# render (and with it `devbot up` or the poller).
+# render (and with it `devbot up`).
 DOCKER_TIMEOUT = 30.0
 
 # toolbox fails fast on the first source it cannot initialize and names it.
@@ -92,7 +92,6 @@ class CanaryResult:
     culprit: Optional[str] = None
     error: Optional[str] = None
     output: str = ""
-    blocked: bool = False
 
 
 def parse_culprit(output: str) -> Optional[str]:
@@ -102,7 +101,7 @@ def parse_culprit(output: str) -> Optional[str]:
 
 
 def culprit_reason(output: str) -> str:
-    """The message toolbox gave for the named source, for the poller log."""
+    """The message toolbox gave for the named source, for the operator."""
     for line in (output or "").splitlines():
         match = CULPRIT_RE.search(line)
         if match:
@@ -113,8 +112,8 @@ def culprit_reason(output: str) -> str:
 
 
 # A rejection reason is driver text copied out of the toolbox log and then
-# written to refresh.log and quarantine.json. MongoDB carries its credentials
-# inside the URI, so mask credential-shaped fragments before anything persists.
+# printed. MongoDB carries its credentials inside the URI, so mask
+# credential-shaped fragments before anything is surfaced.
 _URI_CREDENTIALS_RE = re.compile(
     r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*://)(?P<user>[^:/@\s]+):(?P<secret>[^@/\s]+)@"
 )
@@ -131,8 +130,8 @@ def redact(text: str) -> str:
 
 def validate(
     catalogue: dict, run_canary: Callable[[dict], CanaryResult]
-) -> Tuple[dict, List[Tuple[str, str, bool]]]:
-    """Return (accepted catalogue, [(rejected name, reason, blocked), ...]).
+) -> Tuple[dict, List[Tuple[str, str]]]:
+    """Return (accepted catalogue, [(rejected name, reason), ...]).
 
     `run_canary(candidate)` must run the oracle against a candidate and report
     the result; injecting it is what makes this unit-testable without docker.
@@ -140,7 +139,7 @@ def validate(
     catalogue size — it can never spin.
     """
     candidate = dict(catalogue)
-    rejected: List[Tuple[str, str, bool]] = []
+    rejected: List[Tuple[str, str]] = []
     max_rounds = len(catalogue) + 1
 
     for _ in range(max_rounds):
@@ -162,7 +161,7 @@ def validate(
 
         reason = result.error or "toolbox could not initialize it"
         del candidate[result.culprit]
-        rejected.append((result.culprit, reason, result.blocked))
+        rejected.append((result.culprit, reason))
 
     # Unreachable while every round deletes a source, but kept as a guard in
     # case the bound above is ever changed.
@@ -196,8 +195,7 @@ def _is_ready(port: int, timeout: float = 0.5) -> bool:
 def _run(args: List[str], timeout: float = DOCKER_TIMEOUT) -> Optional[subprocess.CompletedProcess]:
     """Run a docker command, returning None if it does not finish in time.
 
-    Every call is bounded: a wedged daemon must not hang `devbot up` or stall
-    the refresh poller.
+    Every call is bounded: a wedged daemon must not hang `devbot up`.
     """
     try:
         return subprocess.run(args, capture_output=True, text=True, timeout=timeout)
@@ -329,9 +327,6 @@ def docker_canary(
                 culprit=culprit,
                 error=redact(culprit_reason(output)),
                 output=output,
-                # Scan the WHOLE log: a wrapped MariaDB 1129 would not be in the
-                # one-line reason extracted above.
-                blocked=quarantine.is_blocked(output),
             )
         return CanaryResult(
             accepted=False,
@@ -357,52 +352,38 @@ def load_versions(path: str) -> dict:
     return values
 
 
-def _parse_args(argv: List[str]) -> Tuple[float, str]:
-    """(timeout, state path). Fails loudly on anything unexpected."""
+def _parse_args(argv: List[str]) -> float:
+    """The canary timeout. Fails loudly on anything unexpected."""
     timeout = DEFAULT_TIMEOUT
-    state_path = quarantine.default_state_path()
     index = 0
     while index < len(argv):
         flag = argv[index]
-        if flag in ("--timeout", "--state") and index + 1 < len(argv):
+        if flag == "--timeout" and index + 1 < len(argv):
             value = argv[index + 1]
-            if flag == "--timeout":
-                try:
-                    timeout = float(value)
-                except ValueError:
-                    raise ValidationError(f"invalid timeout: {value}", EXIT_INPUT)
-            else:
-                state_path = value
+            try:
+                timeout = float(value)
+            except ValueError:
+                raise ValidationError(f"invalid timeout: {value}", EXIT_INPUT)
             index += 2
         else:
             raise ValidationError(
-                "usage: validate_catalogue.py [--timeout SECONDS] [--state FILE]",
-                EXIT_INPUT,
+                "usage: validate_catalogue.py [--timeout SECONDS]", EXIT_INPUT
             )
-    return timeout, state_path
+    return timeout
 
 
 def main() -> int:
     try:
-        timeout, state_path = _parse_args(sys.argv[1:])
+        timeout = _parse_args(sys.argv[1:])
     except ValidationError as exc:
         sys.stderr.write(f"ERROR: {exc}\n")
         return exc.code
 
     catalogue = load_catalogue(sys.stdin.read())
-    state = quarantine.load(state_path)
-    now = time.time()
 
-    # A source removed or renamed in the config must not keep its old entry: the
-    # entry's retry is permanently due, which would peg the poller to a
-    # re-validation every cycle.
-    quarantine.prune(state, catalogue)
-
-    # Nothing declared, or nothing survived the env filter: record the
-    # validation time so the poller settles, and emit the empty catalogue.
+    # Nothing declared, or nothing survived the env filter: emit the empty
+    # catalogue so the render settles on "no toolsets".
     if not catalogue:
-        state["validated_at"] = now
-        quarantine.save(state_path, state)
         sys.stdout.write("{}\n")
         return EXIT_OK
 
@@ -419,21 +400,6 @@ def main() -> int:
         sys.stderr.write("ERROR: docker not found; cannot validate the catalogue\n")
         return EXIT_INFRA
 
-    # A parked source is neither offered nor re-tested until its backoff
-    # expires — that is what keeps a down database from costing a container run
-    # on every poll.
-    held = quarantine.held_names(state, now)
-    for name in held:
-        reason = state["sources"][name].get("reason", "")
-        sys.stderr.write(f"INFO: datasource '{name}' is quarantined — {reason}\n")
-    attempt = {name: spec for name, spec in catalogue.items() if name not in held}
-
-    if not attempt:
-        state["validated_at"] = now
-        quarantine.save(state_path, state)
-        sys.stdout.write("{}\n")
-        return EXIT_OK
-
     data_dir = os.path.join(DEV_BOT_ROOT, "storage", "datasources", "data")
 
     def run_canary(candidate: dict) -> CanaryResult:
@@ -447,23 +413,12 @@ def main() -> int:
         )
 
     try:
-        accepted, rejected = validate(attempt, run_canary)
+        accepted, rejected = validate(catalogue, run_canary)
     except ValidationError as exc:
         sys.stderr.write(f"ERROR: {exc}\n")
         return exc.code
 
-    # Record from completion, not from before the canary: a run that took
-    # seconds would otherwise back-date next_retry (retrying sooner than
-    # intended) and validated_at (inviting an early re-validation).
-    finished_at = time.time()
-    for name, reason, blocked in rejected:
-        quarantine.record_failure(state, name, reason, finished_at, blocked=blocked)
-    for name in accepted:
-        quarantine.record_success(state, name)
-    state["validated_at"] = finished_at
-    quarantine.save(state_path, state)
-
-    for name, reason, _blocked in rejected:
+    for name, reason in rejected:
         sys.stderr.write(f"INFO: datasource '{name}' is not usable — {reason}\n")
     sys.stdout.write(json.dumps(accepted, indent=2) + "\n")
     return EXIT_OK

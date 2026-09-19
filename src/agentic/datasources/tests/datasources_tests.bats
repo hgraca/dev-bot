@@ -552,7 +552,7 @@ PY
   local out err code
   # ORIGINAL_PATH, so this talks to the REAL docker rather than the stub above.
   out="$(env PATH="${ORIGINAL_PATH}" python3 "${MODULE_DIR}/validate_catalogue.py" \
-    --state "${RUNTIME_DIR}/e2e-state.json" --timeout 15 \
+    --timeout 15 \
     < "${SANDBOX_DIR}/e2e-catalogue.json" 2>"${SANDBOX_DIR}/e2e-stderr")"
   code=$?
   err="$(cat "${SANDBOX_DIR}/e2e-stderr")"
