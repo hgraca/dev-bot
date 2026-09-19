@@ -18,6 +18,8 @@ import {
   defaultHookLog,
   guardDecision,
   hasCommand,
+  MAX_TRACKED_SESSIONS,
+  rememberAgent,
   resolveGlobalConfigPath,
   routeHookOutput,
   sessionEnvVars,
@@ -458,9 +460,11 @@ describe("createKindResolver", () => {
   })
 })
 
-// ── sessionEnvVars (grade-tools: name the session a row belongs to) ─────────
+// ── sessionEnvVars (grade-tools: name the session and the agent of a row) ───
 // opencode does not export the session id to the AI's shell. The shell.env hook
 // injects it so skills writing per-session artefacts can identify the session.
+// The agent that wrote a row is recorded too, but the hook that can see it
+// (chat.params) has no shell environment — so it is cached and read back here.
 
 describe("sessionEnvVars", () => {
   test("maps a session id to the DEV_BOT_SESSION_ID env var", () => {
@@ -470,6 +474,70 @@ describe("sessionEnvVars", () => {
   test("returns an empty object when the session id is missing or blank", () => {
     expect(sessionEnvVars(undefined)).toEqual({})
     expect(sessionEnvVars("   ")).toEqual({})
+  })
+})
+
+describe("rememberAgent", () => {
+  test("injects the agent name beside the session id", () => {
+    const cache = new Map<string, string>()
+    rememberAgent("ses_1", "scout", cache)
+
+    expect(sessionEnvVars("ses_1", cache)).toEqual({
+      DEV_BOT_SESSION_ID: "ses_1",
+      DEV_BOT_AGENT_NAME: "scout",
+    })
+  })
+
+  test("omits the agent var for a session it has not seen", () => {
+    expect(sessionEnvVars("ses_unseen", new Map())).toEqual({ DEV_BOT_SESSION_ID: "ses_unseen" })
+  })
+
+  test("ignores a blank agent name and a blank session id", () => {
+    const cache = new Map<string, string>()
+    rememberAgent("ses_2", "   ", cache)
+    rememberAgent("   ", "scout", cache)
+
+    expect(cache.size).toBe(0)
+  })
+
+  test("keeps the latest name when it sees the same session again", () => {
+    const cache = new Map<string, string>()
+    rememberAgent("ses_3", "po", cache)
+    rememberAgent("ses_3", "architect", cache)
+
+    expect(sessionEnvVars("ses_3", cache).DEV_BOT_AGENT_NAME).toBe("architect")
+  })
+
+  test("evicts the oldest session once the cache is full", () => {
+    const cache = new Map<string, string>()
+    for (let i = 0; i <= MAX_TRACKED_SESSIONS; i++) rememberAgent(`ses_fill_${i}`, "scout", cache)
+
+    expect(cache.size).toBe(MAX_TRACKED_SESSIONS)
+    expect(sessionEnvVars("ses_fill_0", cache).DEV_BOT_AGENT_NAME).toBeUndefined()
+    expect(sessionEnvVars(`ses_fill_${MAX_TRACKED_SESSIONS}`, cache).DEV_BOT_AGENT_NAME).toBe(
+      "scout",
+    )
+  })
+
+  test("fills the module cache the adapter reads, so wiring needs no injection", () => {
+    // The one test that exercises the default cache, so its session id must stay
+    // unique across the file — module state outlives a single test.
+    rememberAgent("ses_adapter_wiring_default", "developer")
+
+    expect(sessionEnvVars("ses_adapter_wiring_default")).toEqual({
+      DEV_BOT_SESSION_ID: "ses_adapter_wiring_default",
+      DEV_BOT_AGENT_NAME: "developer",
+    })
+  })
+
+  test("an injected cache never reads or writes the module cache", () => {
+    const cache = new Map<string, string>()
+    rememberAgent("ses_isolated", "scout", cache)
+
+    // Written to the injected map, so the default cache must not have seen it…
+    expect(sessionEnvVars("ses_isolated")).toEqual({ DEV_BOT_SESSION_ID: "ses_isolated" })
+    // …while reading through the injected map still finds it.
+    expect(sessionEnvVars("ses_isolated", cache).DEV_BOT_AGENT_NAME).toBe("scout")
   })
 })
 

@@ -304,11 +304,46 @@ export function guardDecision(result: CommandResult, blocking?: boolean): { bloc
 // opencode does not export the session id to the AI's shell, so a skill that
 // writes per-session artefacts (grade-tools) cannot name its own session. The
 // adapter injects it via the shell.env hook (verified to reach bash tool calls).
+//
+// Which agent wrote a row matters as much — grade-tools records it as the row's
+// actor — but the hooks that see the agent name (chat.message, chat.params,
+// chat.headers) have no shell environment to write to. chat.params carries it as
+// a required field, so cache it there and read it back here.
 export const SESSION_ID_ENV = "DEV_BOT_SESSION_ID"
+export const AGENT_NAME_ENV = "DEV_BOT_AGENT_NAME"
+// Without a bound, a long-lived server accumulates one entry per session it has
+// ever seen.
+export const MAX_TRACKED_SESSIONS = 512
 
-export function sessionEnvVars(sessionID?: string): Record<string, string> {
+const agentBySession = new Map<string, string>()
+
+export function rememberAgent(
+  sessionID?: string,
+  agent?: string,
+  cache: Map<string, string> = agentBySession,
+): void {
   const id = sessionID?.trim()
-  return id ? { [SESSION_ID_ENV]: id } : {}
+  const name = agent?.trim()
+  if (!id || !name) return
+  // Re-inserting moves the session to the young end, so eviction stays LRU-ish.
+  cache.delete(id)
+  cache.set(id, name)
+  if (cache.size > MAX_TRACKED_SESSIONS) {
+    const oldest = cache.keys().next()
+    if (!oldest.done) cache.delete(oldest.value)
+  }
+}
+
+export function sessionEnvVars(
+  sessionID?: string,
+  cache: Map<string, string> = agentBySession,
+): Record<string, string> {
+  const id = sessionID?.trim()
+  if (!id) return {}
+  const env: Record<string, string> = { [SESSION_ID_ENV]: id }
+  const agent = cache.get(id)
+  if (agent) env[AGENT_NAME_ENV] = agent
+  return env
 }
 
 // The guard hook needs one command string per shell channel. The bash tool

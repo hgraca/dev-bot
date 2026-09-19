@@ -16,7 +16,7 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
+import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -307,6 +307,13 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
           }
         }
       }
+    },
+
+    // chat.params carries the running agent as a required field and has no shell
+    // environment to write to — so stash the name for shell.env to attach to
+    // that session's bash calls.
+    "chat.params": async (input: any) => {
+      rememberAgent(input?.sessionID, input?.agent)
     },
 
     "shell.env": async (input: any, output: any) => {
