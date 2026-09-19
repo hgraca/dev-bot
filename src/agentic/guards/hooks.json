@@ -12,9 +12,7 @@
         "--global-config",
         "{global-config}",
         "--project-config",
-        "{project-config}",
-        "--agent",
-        "{agent}"
+        "{project-config}"
       ],
       "blocking": true
     }

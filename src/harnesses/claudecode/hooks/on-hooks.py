@@ -153,7 +153,6 @@ def main():
                 "module": hook["_module"],
                 "worktree": worktree,
                 "command": command,
-                "agent": "",
                 "global-config": os.path.join(DEV_BOT_ROOT, ".devbot.global.jsonc"),
                 "project-config": os.path.join(worktree, ".devbot.project.jsonc"),
             }

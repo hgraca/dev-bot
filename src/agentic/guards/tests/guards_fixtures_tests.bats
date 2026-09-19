@@ -2,8 +2,8 @@
 # =============================================================================
 # src/agentic/guards/tests/guards_fixtures_tests.bats
 # Guards engine behaviour driven by the static fixtures in test-fixtures/:
-# first-match, agent filter, malformed/missing config fail-open, invalid regex
-# skipped, and the global+project union.
+# first-match, stale-key tolerance, malformed/missing config fail-open, invalid
+# regex skipped, and the global+project union.
 # =============================================================================
 
 setup() {
@@ -15,14 +15,13 @@ setup() {
   TOOL="${MODULE_DIR}/tools/guards.ts"
 }
 
-# _guard <command> <global-fixture> <project-fixture> [agent]
+# _guard <command> <global-fixture> <project-fixture>
 # Runs the engine against the named fixtures and captures output/status.
 _guard() {
-  local command="$1" global="$2" project="$3" agent="${4:-}"
+  local command="$1" global="$2" project="$3"
   local args=(--command "${command}")
   [[ -n "${global}" ]] && args+=(--global-config "${FIXTURES}/${global}")
   [[ -n "${project}" ]] && args+=(--project-config "${FIXTURES}/${project}")
-  [[ -n "${agent}" ]] && args+=(--agent "${agent}")
   run bun "${TOOL}" "${args[@]}"
 }
 
@@ -34,13 +33,16 @@ _guard() {
   refute_output --partial 'never reached'
 }
 
-@test "agent filter: a rule scoped to another agent does not match" {
-  _guard "git push --force origin main" "" "guards-basic.jsonc" "developer"
+# Rules carried an optional `agent` field, but neither harness ever supplied an
+# agent name — opencode read an env var nothing set, claudecode hardcoded "" —
+# so a scoped rule could never match. The field is gone; a config still carrying
+# the stale key must keep working, with the rule applying to every caller. That
+# is fail-closed: it blocks more than before, never less.
+@test "a stale agent key on a rule is ignored, not fatal" {
+  _guard "git push --force origin main" "" "guards-basic.jsonc"
+  assert_success
   assert_output --partial '"blocked":true'
   assert_output --partial 'Force push not allowed from developer agent'
-
-  _guard "git push --force origin main" "" "guards-basic.jsonc" "reviewer"
-  assert_output --partial '"blocked":false'
 }
 
 @test "malformed global config fails open (no rules loaded)" {

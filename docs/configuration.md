@@ -270,7 +270,6 @@ Each guard rule has:
 | --------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | `regex`   | `string` | Regex pattern matched against the shell command (case-sensitive) — the bash tool, or a PTY invocation normalised to `command args` |
 | `message` | `string` | Block reason shown to the user when the rule matches                                                                               |
-| `agent`   | `string` | Optional — only apply the rule to a specific agent                                                                                 |
 
 Used by the **guards** module (`on-tool_execute_before-guards.ts` opencode hook, `on_tool_execute_before-guards.sh` claudecode hook). Guards from the global config and the project config are concatenated; the first matching rule wins (project rules are evaluated before global rules).
 

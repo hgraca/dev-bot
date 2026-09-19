@@ -239,7 +239,6 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
           if (hook.event !== "command.before" || !hook.run) continue
           if (hook.match?.tool && !hook.match.tool.includes(tool)) continue
 
-          const agent = process.env.OPENCODE_AGENT ?? ""
           // audit-32 FAIL: guards silently disabled — env is DEV_BOT_ROOT, not
           // DEVBOT_ROOT. Resolve from the plugin's own root (realpath, already
           // used for manifest loading above) so guards run with rules.
@@ -249,7 +248,6 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
             module: moduleDir,
             worktree: root,
             command,
-            agent,
             "global-config": globalConfig,
             "project-config": projectConfig,
           })

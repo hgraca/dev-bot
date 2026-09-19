@@ -30,7 +30,6 @@ guards --command "<command>"
 | `--command`        | yes      | The shell command string to evaluate against guard rules                   |
 | `--global-config`  | no       | Path to the global `.devbot.global.jsonc` (auto-resolved if omitted)       |
 | `--project-config` | no       | Path to the per-project `.devbot.project.jsonc` (auto-resolved if omitted) |
-| `--agent`          | no       | Agent name for agent-filtered guard rules                                  |
 
 Output is Markdown by default. Add `--json` for programmatic use.
 
@@ -63,9 +62,6 @@ guards --command "docker system prune" \
 
 # Check as JSON for scripting
 guards --command "rm -rf /" --json
-
-# Check with agent filter
-guards --command "git push --force" --agent developer
 ```
 
 ## Matching semantics

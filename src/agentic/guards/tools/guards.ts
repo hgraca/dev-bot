@@ -3,7 +3,7 @@
 // src/agentic/guards/tools/guards.ts
 // Harness-agnostic guards engine — the single home of guard-rule logic.
 //
-// Evaluates a bash command against guard rules merged from a global config
+// Evaluates a shell command against guard rules merged from a global config
 // (`.devbot.global.jsonc`) and a project config (`.devbot.project.jsonc`).
 //
 // Two entry points:
@@ -18,7 +18,6 @@ import fs from "fs"
 interface GuardRule {
   regex: string
   message: string
-  agent?: string
 }
 
 interface GuardResult {
@@ -84,7 +83,7 @@ const COMMAND_RUNNERS = new Set([
 ])
 
 /** Evaluate a command against guard rules. First matching rule wins. */
-function evaluate(command: string, guards: GuardRule[], agent: string): GuardResult {
+function evaluate(command: string, guards: GuardRule[]): GuardResult {
   // A raw substring match blocks ANY command whose TEXT contains the pattern —
   // including a safe `echo "rm -rf"` (the pattern is an argument, not an
   // invocation). That is fail-closed (never lets a real danger through) but
@@ -95,7 +94,6 @@ function evaluate(command: string, guards: GuardRule[], agent: string): GuardRes
   const segments = command.split(SEGMENT_SPLIT)
   for (const g of guards) {
     if (typeof g !== "object" || !g?.regex || !g?.message) continue
-    if (g.agent !== undefined && g.agent !== agent) continue
     try {
       const anchored = new RegExp("^" + (g.regex.startsWith("^") ? g.regex.slice(1) : g.regex))
       for (const seg of segments) {
@@ -119,7 +117,6 @@ export function checkCommand(
   command: string,
   globalConfig?: string,
   projectConfig?: string,
-  agent = "",
 ): GuardResult {
   // Project guards come FIRST so they override global defaults on first match
   // (audit-59 FAIL-1): a project rule reusing a global regex — typically to
@@ -132,7 +129,7 @@ export function checkCommand(
   // rules, and order only decides WHICH message is reported. A project rule can
   // add rules or reword a match, never weaken a global guard.
   const guards = [...loadGuards(projectConfig), ...loadGuards(globalConfig)]
-  return evaluate(command, guards, agent)
+  return evaluate(command, guards)
 }
 
 // ── CLI entry (for shell hooks, e.g. claudecode) ────────────────────────────
@@ -153,7 +150,6 @@ if (import.meta.main) {
     command,
     get("--global-config"),
     get("--project-config"),
-    get("--agent") ?? "",
   )
   console.log(JSON.stringify(result))
 }

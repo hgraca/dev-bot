@@ -11,7 +11,6 @@ Guards evaluate shell commands against configurable regex patterns before they r
 
 - **Regex-based rules**: match commands against patterns you define
 - **Global + project config**: shared defaults in `.devbot.global.jsonc`, project overrides in `.devbot.jsonc`
-- **Agent filtering**: (future) restrict rules to specific agents
 - **First match wins**: rules evaluated in order, first matching pattern blocks the command
 
 ## Configuration
