@@ -202,7 +202,8 @@ if [[ -f "${GRADES_CSV}" && -f "${GRADES_HELPER}" ]]; then
   fi
 
   if merged="$(printf '%s' "${json}" | python3 "${GRADES_HELPER}" \
-      --csv "${GRADES_CSV}" --scope "${grades_scope}" --project-root "${grades_root}")"; then
+      --csv "${GRADES_CSV}" --scope "${grades_scope}" --project-root "${grades_root}" \
+      --days "${DAYS}")"; then
     json="${merged}"
   else
     # _warn prints to stdout; redirect to stderr so the Markdown report stays clean.

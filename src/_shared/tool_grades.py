@@ -4,7 +4,9 @@
 Reads the shared grade matrix (``<DEV_BOT_ROOT>/.agents/logs/tools-grades.csv``,
 written by the ``devbot:grade-tools`` skill) and appends an optional
 ``tool_grades`` block to the stats document on stdin, so ``devbot stats`` can
-report the quality signal next to raw usage.
+report the quality signal next to raw usage. The block honours the report's
+window and project scope, so the grades describe the same slice of time as the
+usage figures beside them.
 
 The block is produced by ``bin/stats.sh`` (the parent) — harness adapters never
 emit it. A missing or malformed CSV degrades to a pass-through, never an error.
@@ -19,6 +21,7 @@ import os
 import re
 import statistics
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # Must stay in sync with BASE_COLUMNS in grade-tools' record-grades.py, which
@@ -38,6 +41,9 @@ POOR_GRADES = (1, 2, 3)
 QUALITY_THRESHOLD = 3.5
 MIN_MANY_USES = 3
 MIN_USES_FOR_STDEV = 3
+# Must stay in sync with DATETIME_FORMAT in grade-tools' record-grades.py, which
+# owns the format the matrix is written in.
+DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 SCOPE_CURRENT = "current"
 SCOPE_ALL = "all"
 
@@ -185,6 +191,60 @@ def read_rows(path: str) -> tuple[list[str], list[dict[str, str]]]:
     return header, rows
 
 
+def row_datetime(row: dict[str, str]) -> datetime | None:
+    """The row's stamp, or ``None`` when it is missing or unreadable."""
+    try:
+        return datetime.strptime((row.get("datetime") or "").strip(), DATETIME_FORMAT)
+    except ValueError:
+        return None
+
+
+def window_rows(
+    rows: list[dict[str, str]], days: int, now: datetime | None = None
+) -> list[dict[str, str]]:
+    """The rows stamped within the last ``days`` days.
+
+    The matrix is append-ordered, so an undated row is placed by its neighbours:
+    it is kept only when the nearest dated row before it and the nearest dated
+    row after it are both inside the window. Rows sharing those bounds — a run of
+    undated rows, and every row when the matrix carries no stamps at all — are
+    kept or dropped together; one sitting before the first dated row or after the
+    last has no placement and is dropped.
+    """
+    cutoff = (now or datetime.now()) - timedelta(days=days)
+    stamps = [row_datetime(row) for row in rows]
+
+    before: list[datetime | None] = [None] * len(rows)
+    latest: datetime | None = None
+    for index, stamp in enumerate(stamps):
+        before[index] = latest
+        if stamp is not None:
+            latest = stamp
+
+    after: list[datetime | None] = [None] * len(rows)
+    latest = None
+    for index in range(len(stamps) - 1, -1, -1):
+        after[index] = latest
+        if stamps[index] is not None:
+            latest = stamps[index]
+
+    kept: list[dict[str, str]] = []
+    for index, stamp in enumerate(stamps):
+        if stamp is None:
+            preceding, following = before[index], after[index]
+            in_window = (
+                preceding is not None
+                and preceding >= cutoff
+                and following is not None
+                and following >= cutoff
+            )
+        else:
+            in_window = stamp >= cutoff
+        if in_window:
+            kept.append(rows[index])
+    return kept
+
+
 def demand_bar(uses: list[int]) -> int:
     """The "often used" cut: the median use count of the tools actually used.
 
@@ -208,12 +268,22 @@ def classify_bucket(avg: float | None, uses: int, bar: int) -> str:
 
 
 def aggregate(
-    header: list[str], rows: list[dict[str, str]], scope_project: str | None = None
+    header: list[str],
+    rows: list[dict[str, str]],
+    scope_project: str | None = None,
+    days: int | None = None,
+    now: datetime | None = None,
 ) -> dict:
     """Average per tool over used rows; collect poor-grade reasons per tool."""
     columns = tool_columns(header)
     grades: dict[str, list[int]] = {column: [] for column in columns}
     reasons: dict[str, list[str]] = {column: [] for column in columns}
+    # Both totals stay all-time, so the report can say how much of the matrix
+    # the window actually covers.
+    total_rows = len(rows)
+    total_sessions = len({_session_of(row.get("session_id", "")) for row in rows})
+    if days is not None:
+        rows = window_rows(rows, days, now)
     in_scope = 0
 
     for row in rows:
@@ -266,8 +336,9 @@ def aggregate(
     tools.sort(key=lambda tool: (tool["uses"] == 0, -(tool["avg"] or 0), tool["name"]))
     return {
         "rows": in_scope,
-        "total_rows": len(rows),
-        "sessions": len({_session_of(row.get("session_id", "")) for row in rows}),
+        "total_rows": total_rows,
+        "sessions": total_sessions,
+        "days": days,
         "demand_bar": bar,
         "quality_threshold": QUALITY_THRESHOLD,
         "tools": tools,
@@ -275,7 +346,12 @@ def aggregate(
 
 
 def build_tool_grades(
-    csv_path: str, scope: str, project_root: str, warn=None
+    csv_path: str,
+    scope: str,
+    project_root: str,
+    days: int | None = None,
+    now: datetime | None = None,
+    warn=None,
 ) -> dict | None:
     """The ``tool_grades`` block, or ``None`` when there is nothing to report."""
     warn = warn or _warn_default
@@ -296,7 +372,7 @@ def build_tool_grades(
         return None
 
     scope_project = None if scope == SCOPE_ALL else project_name(project_root)
-    block = aggregate(header, rows, scope_project)
+    block = aggregate(header, rows, scope_project, days=days, now=now)
     block["scope"] = scope
     if block["rows"] == 0 or not block["tools"]:
         return None
@@ -311,7 +387,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--csv", required=True, help="path to tools-grades.csv")
     parser.add_argument("--scope", choices=(SCOPE_CURRENT, SCOPE_ALL), default=SCOPE_CURRENT)
     parser.add_argument("--project-root", default=os.getcwd())
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=None,
+        help="only count rows from the last N days (default: no window)",
+    )
     args = parser.parse_args(argv)
+
+    if args.days is not None and args.days < 1:
+        print("ERROR: --days must be a positive integer", file=sys.stderr)
+        return 2
 
     try:
         stats = json.load(sys.stdin)
@@ -322,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
         print("ERROR: stats JSON must be an object", file=sys.stderr)
         return 1
 
-    block = build_tool_grades(args.csv, args.scope, args.project_root)
+    block = build_tool_grades(args.csv, args.scope, args.project_root, days=args.days)
     if block is not None:
         stats["tool_grades"] = block
 

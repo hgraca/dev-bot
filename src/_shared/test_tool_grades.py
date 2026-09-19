@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -48,6 +49,13 @@ def row(project: str = "Get-e/dev-bot", notes: str = "", grades: dict | None = N
     # Cells are strings, exactly as read_rows() yields them from the CSV.
     base.update({column: str(grade) for column, grade in (grades or {}).items()})
     return base
+
+
+def dated(when: str, project: str = "Get-e/dev-bot", grades: dict | None = None) -> dict:
+    """A row stamped with an explicit datetime — or deliberately stripped of one."""
+    stamped = row(project=project, grades=grades)
+    stamped["datetime"] = when
+    return stamped
 
 
 class ToolGradesTest(unittest.TestCase):
@@ -425,6 +433,111 @@ class ToolGradesTest(unittest.TestCase):
                 "test-driven-development": "improve",
             },
         )
+
+    # ── window ────────────────────────────────────────────────────────────────
+
+    def test_window_keeps_only_rows_inside_the_window(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        rows = [
+            dated("2026-09-19 11:00:00"),
+            dated("2026-09-10 12:00:00"),
+            dated("2026-08-01 12:00:00"),
+        ]
+        kept = [r["datetime"] for r in tg.window_rows(rows, 30, now)]
+        self.assertEqual(kept, ["2026-09-19 11:00:00", "2026-09-10 12:00:00"])
+
+    def test_window_includes_a_row_exactly_on_the_cutoff(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        rows = [dated("2026-08-20 12:00:00"), dated("2026-08-20 11:59:59")]
+        kept = [r["datetime"] for r in tg.window_rows(rows, 30, now)]
+        self.assertEqual(kept, ["2026-08-20 12:00:00"])
+
+    def test_window_keeps_an_undated_row_between_two_rows_inside(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        rows = [dated("2026-09-18 12:00:00"), dated(""), dated("2026-09-17 12:00:00")]
+        self.assertEqual(len(tg.window_rows(rows, 30, now)), 3)
+
+    def test_window_drops_an_undated_row_whose_preceding_row_is_outside(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        rows = [dated("2026-01-01 12:00:00"), dated(""), dated("2026-09-17 12:00:00")]
+        self.assertEqual(len(tg.window_rows(rows, 30, now)), 1)
+
+    def test_window_drops_an_undated_row_whose_following_row_is_outside(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        # The window's bound is a lower one, so with the matrix in append order
+        # a following row is inside whenever the preceding one is. Only an
+        # out-of-order stamp can push it out — which is what this pins.
+        rows = [dated("2026-09-18 12:00:00"), dated(""), dated("2026-01-01 12:00:00")]
+        kept = [r["datetime"] for r in tg.window_rows(rows, 30, now)]
+        self.assertEqual(kept, ["2026-09-18 12:00:00"])
+
+    def test_window_treats_an_unparseable_datetime_as_undated(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        rows = [dated("2026-09-18 12:00:00"), dated("whenever"), dated("2026-09-17 12:00:00")]
+        self.assertEqual(len(tg.window_rows(rows, 30, now)), 3)
+
+    def test_window_keeps_a_run_of_undated_rows_between_rows_inside(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        rows = [
+            dated("2026-09-18 12:00:00"),
+            dated(""),
+            dated(""),
+            dated("2026-09-17 12:00:00"),
+        ]
+        self.assertEqual(len(tg.window_rows(rows, 30, now)), 4)
+
+    def test_window_drops_an_undated_row_at_the_head(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        rows = [dated(""), dated("2026-09-18 12:00:00")]
+        kept = [r["datetime"] for r in tg.window_rows(rows, 30, now)]
+        self.assertEqual(kept, ["2026-09-18 12:00:00"])
+
+    def test_window_drops_an_undated_row_at_the_tail(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        rows = [dated("2026-09-18 12:00:00"), dated("")]
+        kept = [r["datetime"] for r in tg.window_rows(rows, 30, now)]
+        self.assertEqual(kept, ["2026-09-18 12:00:00"])
+
+    def test_window_drops_every_row_when_none_is_dated(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        self.assertEqual(tg.window_rows([dated(""), dated("")], 30, now), [])
+
+    def test_aggregate_windows_the_rows_but_keeps_the_all_time_total(self):
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        rows = [
+            dated("2026-09-18 12:00:00", grades={"mcp:signoz": 5}),
+            dated("2026-01-01 12:00:00", grades={"mcp:signoz": 1}),
+        ]
+        block = tg.aggregate(HEADER, rows, days=30, now=now)
+        self.assertEqual(block["rows"], 1)
+        self.assertEqual(block["total_rows"], 2)
+        signoz = self._tool(block, "mcp:signoz")
+        self.assertEqual(signoz["avg"], 5.0)
+        self.assertEqual(signoz["uses"], 1)
+
+    def test_aggregate_emits_the_window_it_applied(self):
+        rows = [dated("2026-09-18 12:00:00", grades={"mcp:signoz": 5})]
+        self.assertEqual(tg.aggregate(HEADER, rows, days=7, now=datetime(2026, 9, 19))["days"], 7)
+
+    def test_aggregate_reports_no_window_when_none_is_applied(self):
+        rows = [dated("2026-09-18 12:00:00", grades={"mcp:signoz": 5})]
+        self.assertIsNone(tg.aggregate(HEADER, rows)["days"])
+
+    def test_build_windows_the_csv_rows_when_days_is_given(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_csv(
+                os.path.join(tmp, "g.csv"),
+                HEADER,
+                [
+                    dated("2026-09-18 12:00:00", grades={"mcp:signoz": 5}),
+                    dated("2026-01-01 12:00:00", grades={"mcp:signoz": 1}),
+                ],
+            )
+            block = tg.build_tool_grades(path, "all", tmp, days=30, now=datetime(2026, 9, 19, 12, 0, 0))
+        assert block is not None
+        self.assertEqual(block["rows"], 1)
+        self.assertEqual(block["total_rows"], 2)
+        self.assertEqual(self._tool(block, "mcp:signoz")["uses"], 1)
 
     # ── CLI ──────────────────────────────────────────────────────────────────
 
