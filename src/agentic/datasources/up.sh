@@ -24,35 +24,43 @@ source "${MODULE_DIR}/versions.env"
 
 RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
 COMPOSE_FILE="${RUNTIME_DIR}/docker-compose.yml"
-POLLER_PID="${RUNTIME_DIR}/refresh.pid"
+# A poller left behind by an older dev-bot. Refresh is no longer backgrounded —
+# datasources are evaluated once, at startup — so the only poller that can
+# exist is one an older install started and never stopped. It is detached, so
+# it would outlive the upgrade and keep rewriting the config for the gateway we
+# are about to restart.
+LEGACY_POLLER_PID="${RUNTIME_DIR}/refresh.pid"
 MCP_URL="http://127.0.0.1:${DATASOURCES_PORT:-18510}/mcp"
 
-# Stop the detached poller, if one is running. Called BEFORE rendering, so a
-# manual `devbot up` cannot render concurrently with the poller — they would
-# race on tools.yaml, the rollback backup and the quarantine state.
-_stop_poller() {
-  [[ -f "${POLLER_PID}" ]] || return 0
+_stop_legacy_poller() {
+  [[ -f "${LEGACY_POLLER_PID}" ]] || return 0
   local previous
-  previous="$(cat "${POLLER_PID}")"
+  previous="$(cat "${LEGACY_POLLER_PID}")"
   if [[ -n "${previous}" ]]; then
     kill "${previous}" 2>/dev/null || true
   fi
-  rm -f "${POLLER_PID}"
+  rm -f "${LEGACY_POLLER_PID}"
 }
 
-# Keep the running gateway in step with what is reachable. This is what lets a
-# database that comes up AFTER `devbot up` activate without a restart — the
-# usual case, since the dev environment is often booted later than devbot.
-#
-# The poller is restarted rather than reused: it snapshots the environment at
-# start, and this run may have just loaded a new .env variable — the container
-# is recreated with the new environment, so the poller must see the same one,
-# otherwise the two disagree about what is reachable.
-_start_poller() {
-  # Detached, so it outlives `devbot up`; down.sh stops it through the PID file.
-  # Output goes to its own log, never to the terminal.
-  nohup bash "${MODULE_DIR}/poller.sh" >> "${RUNTIME_DIR}/refresh.log" 2>&1 &
-  _ok "datasources — refresh poller started (every ${DATASOURCES_REFRESH_INTERVAL:-10}s)"
+# Take the gateway down before rendering. render.sh verifies a publish against
+# a RUNNING gateway by waiting a reload interval — twice, if the first read
+# looks like a rejection — so a container left over from the previous session
+# would add that wait to every boot. Rendering cold also guarantees the
+# container comes back up on the config just validated, rather than depending
+# on toolbox to hot-reload it.
+_stop_gateway() {
+  [[ -f "${COMPOSE_FILE}" ]] || return 0
+  (
+    cd "${RUNTIME_DIR}" &&
+      TOOLBOX_IMAGE="${TOOLBOX_IMAGE}" TOOLBOX_VERSION="${TOOLBOX_VERSION}" \
+        docker compose -f "${COMPOSE_FILE}" down
+  ) >/dev/null 2>&1 || true
+}
+
+# The gateway's container name, read from the template so compose.tpl.yml stays
+# the single source of truth for it.
+_container_name() {
+  grep -m1 '^[[:space:]]*container_name:' "${MODULE_DIR}/compose.tpl.yml" | awk '{print $2}'
 }
 
 main() {
@@ -66,13 +74,15 @@ main() {
     return 0
   fi
 
-  # Stop any poller before rendering, so the two cannot overlap.
-  _stop_poller
+  # Both must be gone before render.sh runs: the legacy poller would race it,
+  # and a running gateway would make it pay the reload-verification wait.
+  _stop_legacy_poller
+  _stop_gateway
 
   # Rendering validates the candidate against the real toolbox, which can fail
   # (an unreadable catalogue, docker down, or an inconclusive run). Keep going
-  # with the config already on disk: a gateway up on the last good config with
-  # the poller retrying beats no gateway at all.
+  # with the config already on disk: a gateway up on the last good config beats
+  # no gateway at all, and the next `devbot up` re-renders.
   if ! bash "${MODULE_DIR}/render.sh"; then
     _warn "datasources — render failed; starting the gateway with the previous config."
   fi
@@ -87,11 +97,11 @@ main() {
     set +a
   fi
 
-  # Deliberately no --no-recreate (unlike the other gateways): the whole point
-  # of this container is the credentials it is handed, so rotating a value in
-  # .env must take effect on the next `devbot up` rather than silently requiring
-  # a manual container removal. A tools.yaml edit needs no recreate at all —
-  # toolbox hot-reloads a mounted config.
+  # No --no-recreate (unlike the other gateways): the whole point of this
+  # container is the credentials it is handed, so rotating a value in .env must
+  # take effect on the next `devbot up` rather than silently requiring a manual
+  # container removal. The gateway was taken down above, so this always starts
+  # it fresh on the config render.sh just validated.
   if ! (
     cd "${RUNTIME_DIR}" &&
       DEV_UID="${DEV_UID:-$(id -u)}" DEV_GID="${DEV_GID:-$(id -g)}" \
@@ -102,10 +112,10 @@ main() {
     return 0
   fi
 
-  _start_poller
-
   # An `if`, not `&&`: under `set -e` a short-circuited `&&` would abort here.
-  if _devbot_wait_for_mcp_gateway datasources "${MCP_URL}"; then
+  # The container name lets the wait stop as soon as the gateway has exited,
+  # instead of retrying a URL nothing can answer.
+  if _devbot_wait_for_mcp_gateway datasources "${MCP_URL}" "" "$(_container_name)"; then
     _ok "datasources gateway reachable at ${MCP_URL}"
   fi
 

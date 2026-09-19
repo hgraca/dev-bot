@@ -75,10 +75,6 @@ SH
 }
 
 teardown() {
-  # up.sh starts the poller detached; make sure a test never leaks one.
-  if [[ -f "${RUNTIME_DIR}/refresh.pid" ]]; then
-    kill "$(cat "${RUNTIME_DIR}/refresh.pid")" 2>/dev/null || true
-  fi
   rm -rf "${SANDBOX_DIR}" "${PROJECT_DIR}" 2>/dev/null || true
 }
 
@@ -235,73 +231,24 @@ PY
   assert_output --partial "No datasources configured"
 }
 
-@test "poller: an unreadable catalogue leaves the published config alone" {
-  # The poller must not turn a transient read failure into an empty render.
+@test "render: an all-unusable catalogue publishes the empty config" {
+  # Datasources are evaluated once, at startup: a source that is not usable now
+  # is simply not loaded. Keeping the previous config instead would leave the
+  # gateway pointed at sources it cannot initialize — which is fatal to it.
   _sqlite_catalogue
   run bash "${MODULE_DIR}/render.sh"
   assert_success
-
-  local before
-  before="$(cat "${CONF_DIR}/tools.yaml")"
-
-  printf 'this is not json\n' > "${SANDBOX_DIR}/.devbot.global.jsonc"
-
-  DATASOURCES_REFRESH_INTERVAL=1 timeout 2 bash "${MODULE_DIR}/poller.sh" \
-    >/dev/null 2>&1 || true
-
-  run cat "${CONF_DIR}/tools.yaml"
-  assert_output "${before}"
-}
-
-@test "poller: a due re-validation re-renders with no set change" {
-  _sqlite_catalogue
-  run bash "${MODULE_DIR}/render.sh"
-  assert_success
-
-  # An ancient last-validation makes a re-validation due on every cycle.
-  printf '{"sources": {}, "validated_at": 0}\n' > "${RUNTIME_DIR}/quarantine.json"
-
-  DATASOURCES_REFRESH_INTERVAL=1 DATASOURCES_VALIDATE_INTERVAL=1 \
-    timeout 2 bash "${MODULE_DIR}/poller.sh" >/dev/null 2>&1 || true
-
-  run grep -c 'revalidating:' "${RUNTIME_DIR}/refresh.log"
-  assert_success
-}
-
-@test "poller: without state it re-renders only when the set changes" {
-  _sqlite_catalogue
-  run bash "${MODULE_DIR}/render.sh"
-  assert_success
-
-  DATASOURCES_REFRESH_INTERVAL=1 timeout 2 bash "${MODULE_DIR}/poller.sh" >/dev/null 2>&1 || true
-
-  # It did run (a first pass always renders)...
-  run grep -c 'usable:' "${RUNTIME_DIR}/refresh.log"
-  assert_success
-  # ...but nothing asked for a re-validation, so it never re-rendered.
-  run grep -c 'revalidating:' "${RUNTIME_DIR}/refresh.log"
-  assert_failure
-}
-
-@test "render: an all-unusable catalogue keeps the last good config" {
-  # Declared datasources that are all unusable is a transient failure, not a
-  # removal: publishing the empty render would take every toolset down.
-  _sqlite_catalogue
-  run bash "${MODULE_DIR}/render.sh"
-  assert_success
-
-  local before
-  before="$(cat "${CONF_DIR}/tools.yaml")"
+  assert_output --partial "1/1"
 
   # Declared but env-incomplete (no SQLITE_DATABASE), so nothing is usable.
   _catalogue '{ "scratch": { "type": "sqlite", "env": {} } }'
 
   run bash "${MODULE_DIR}/render.sh"
-  assert_failure
-  assert_output --partial "unusable"
+  assert_success
+  assert_output --partial "0/1 datasource(s) usable"
 
   run cat "${CONF_DIR}/tools.yaml"
-  assert_output "${before}"
+  assert_output --partial "No datasources configured"
 }
 
 @test "render: an explicitly empty catalogue still publishes the empty config" {
@@ -522,8 +469,7 @@ JSON
 
 @test "up: a failed render warns but still starts the gateway" {
   # A render failure (docker down, inconclusive validation) must not abort the
-  # boot: a gateway up on the last good config, with the poller retrying, beats
-  # no gateway at all.
+  # boot: a gateway up on the last good config beats no gateway at all.
   _sqlite_catalogue
 
   local boom="${SANDBOX_DIR}/validator-boom.py"
@@ -541,8 +487,9 @@ PY
   assert_output --partial "render failed; starting the gateway with the previous config"
 }
 
-@test "up: stops an existing poller before rendering" {
-  # A live poller must not render concurrently with this boot.
+@test "up: reaps a poller left behind by an older dev-bot" {
+  # Refresh is no longer backgrounded, so a PID file can only be a leftover —
+  # and a detached poller would keep rewriting the config for the new gateway.
   sleep 60 &
   local sleeper=$!
   mkdir -p "${RUNTIME_DIR}"
@@ -554,7 +501,19 @@ PY
   run kill -0 "${sleeper}"
   assert_failure
 
+  [ ! -f "${RUNTIME_DIR}/refresh.pid" ]
+
   kill "${sleeper}" 2>/dev/null || true
+}
+
+@test "up: starts no background refresh of its own" {
+  # Datasources are evaluated once, at startup — nothing is left running.
+  _sqlite_catalogue
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+
+  [ ! -f "${RUNTIME_DIR}/refresh.pid" ]
 }
 
 @test "render: skips when another render holds the lock" {

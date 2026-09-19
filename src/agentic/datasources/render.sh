@@ -103,9 +103,9 @@ main() {
   mkdir -p "${RUNTIME_DIR}"
   mkdir -p "${CONF_DIR}"
 
-  # One render at a time: a manual `devbot up` and the detached poller must not
-  # interleave publishes, the rollback backup, or the quarantine state. The lock
-  # is held for this shell's lifetime. A cap of 0 means fail fast, not wait.
+  # One render at a time: `devbot up`, install and update can each render, and
+  # they must not interleave publishes or the rollback backup. The lock is held
+  # for this shell's lifetime. A cap of 0 means fail fast, not wait.
   if ! _devbot_lock_wait "${RUNTIME_DIR}/render.lock" "${DATASOURCES_RENDER_LOCK_WAIT:-60}"; then
     _error "datasources — another render is in progress; skipping this one"
     return 1
@@ -170,28 +170,23 @@ main() {
     python3 "${VALIDATOR}" |
     python3 "${MODULE_DIR}/render_tools_yaml.py" > "${CONF_DIR}/tools.yaml.tmp"
 
-  # Never replace a published config with an empty one. All declared sources
-  # being unusable at once is a transient failure, not a removal — publishing
-  # the empty render would take every toolset down. Two other cases are NOT
-  # that failure and must still publish empty: the first render (nothing
-  # published yet) so boot and the poller keep working, and a deliberate
-  # removal (nothing declared) so it cannot deadlock.
-  local declared previous_sources available
-  # A parse failure here must abort, not default to 0: 0 would skip the
-  # no-regression guard below, which is the unsafe direction.
+  # Publishing empty is the right answer when every declared source was
+  # rejected: datasources are evaluated once, at startup, so "not usable now"
+  # means "not loaded". Keeping a previous config instead would leave the
+  # gateway pointed at sources it cannot initialize — which is fatal to it.
+  #
+  # An INCONCLUSIVE validation (docker down, or a canary that never became
+  # ready) is a different thing and never reaches here: the validator exits
+  # non-zero, `pipefail` fails the pipeline, and nothing is published.
+  local declared available
+  # A parse failure here must abort, not default to a datasource count.
   if ! declared="$(printf '%s' "${catalogue}" | python3 -c \
     'import json, sys; print(len(json.load(sys.stdin)))' 2>/dev/null)"; then
     rm -f "${CONF_DIR}/tools.yaml.tmp" "${RUNTIME_DIR}/docker-compose.yml.tmp"
     _error "datasources — could not count the declared datasources; keeping the last good config"
     return 1
   fi
-  previous_sources="$(grep -c '^kind: source' "${CONF_DIR}/tools.yaml" 2>/dev/null || true)"
   available="$(grep -c '^kind: source' "${CONF_DIR}/tools.yaml.tmp" || true)"
-  if (( declared > 0 && available == 0 && previous_sources > 0 )); then
-    rm -f "${CONF_DIR}/tools.yaml.tmp" "${RUNTIME_DIR}/docker-compose.yml.tmp"
-    _error "datasources — all ${declared} declared datasource(s) are unusable; keeping the last good config"
-    return 1
-  fi
 
   # Nothing changed: skipping the publish also skips the reload — and the
   # verification wait — it would trigger.
