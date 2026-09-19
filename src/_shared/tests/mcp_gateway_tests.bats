@@ -30,34 +30,62 @@ _gateways() {
   echo "mdctx:18501 signoz:18502 svelte:18503 codebase-memory:18504"
 }
 
+# Gateways whose compose file and MCP manifest are GENERATED rather than shipped
+# in the module directory: datasources renders both into storage/ at init/up, so
+# the checks that read those files cannot apply. The port, the module files that
+# name it, and the docs row must still line up.
+_generated_gateways() {
+  echo "datasources:18510"
+}
+
+_is_generated_gateway() {
+  local entry
+  for entry in $(_generated_gateways); do
+    [[ "${entry%%:*}" == "$1" ]] && return 0
+  done
+  return 1
+}
+
 # ── 1. Port consistency ──────────────────────────────────────────────────────
 
 @test "each gateway's port agrees across compose, manifest, up.sh, EXPOSE and docs" {
   local entry mod port fail=0
-  for entry in $(_gateways); do
+  for entry in $(_gateways) $(_generated_gateways); do
     mod="${entry%%:*}"
     port="${entry##*:}"
     local dir="${PROJECT_ROOT}/src/agentic/${mod}"
 
-    # Canonical manifest URL.
-    grep -q "127.0.0.1:${port}/mcp" "${dir}/mcp.json" 2>/dev/null \
-      || { echo "manifest: ${mod} does not use 127.0.0.1:${port}/mcp"; fail=1; }
+    if _is_generated_gateway "${mod}"; then
+      # Nothing shipped to read: the manifest URL (init.sh), the port the
+      # server binds (compose.tpl.yml) and the URL up.sh probes all have to
+      # agree on ONE number, or the harness talks to nothing.
+      grep -q "${port}" "${dir}/up.sh" \
+        || { echo "up.sh: ${mod} does not name port ${port}"; fail=1; }
+      grep -q "${port}" "${dir}/init.sh" \
+        || { echo "init.sh: ${mod} does not name port ${port}"; fail=1; }
+      grep -q "${port}" "${dir}/compose.tpl.yml" \
+        || { echo "compose.tpl.yml: ${mod} does not name port ${port}"; fail=1; }
+    else
+      # Canonical manifest URL.
+      grep -q "127.0.0.1:${port}/mcp" "${dir}/mcp.json" 2>/dev/null \
+        || { echo "manifest: ${mod} does not use 127.0.0.1:${port}/mcp"; fail=1; }
 
-    # Compose host-side port mapping (the container-side port may differ).
-    grep -q "127.0.0.1:${port}:" "${dir}/docker-compose.yml" 2>/dev/null \
-      || { echo "compose: ${mod} does not map 127.0.0.1:${port}"; fail=1; }
+      # Compose host-side port mapping (the container-side port may differ).
+      grep -q "127.0.0.1:${port}:" "${dir}/docker-compose.yml" 2>/dev/null \
+        || { echo "compose: ${mod} does not map 127.0.0.1:${port}"; fail=1; }
 
-    # Module up.sh probes the same URL.
-    grep -q "127.0.0.1:${port}/mcp" "${dir}/up.sh" 2>/dev/null \
-      || { echo "up.sh: ${mod} does not probe 127.0.0.1:${port}/mcp"; fail=1; }
+      # Module up.sh probes the same URL.
+      grep -q "127.0.0.1:${port}/mcp" "${dir}/up.sh" 2>/dev/null \
+        || { echo "up.sh: ${mod} does not probe 127.0.0.1:${port}/mcp"; fail=1; }
 
-    # Dockerfile, when the module builds its own image, must EXPOSE it.
-    if [[ -f "${dir}/Dockerfile" ]]; then
-      grep -q "EXPOSE ${port}" "${dir}/Dockerfile" \
-        || { echo "Dockerfile: ${mod} does not EXPOSE ${port}"; fail=1; }
+      # Dockerfile, when the module builds its own image, must EXPOSE it.
+      if [[ -f "${dir}/Dockerfile" ]]; then
+        grep -q "EXPOSE ${port}" "${dir}/Dockerfile" \
+          || { echo "Dockerfile: ${mod} does not EXPOSE ${port}"; fail=1; }
+      fi
     fi
 
-    # Documented in the port registry.
+    # Documented in the port registry — for every gateway, however it is built.
     grep -qE "\| *${port} *\| *${mod} *\|" "${PROJECT_ROOT}/docs/mcp-config.md" \
       || { echo "docs: port registry has no row for ${port} ${mod}"; fail=1; }
   done
@@ -67,7 +95,7 @@ _gateways() {
 
 @test "documented ports are unique and inside the 18500-18599 block" {
   local entry port seen="" fail=0
-  for entry in $(_gateways); do
+  for entry in $(_gateways) $(_generated_gateways); do
     port="${entry##*:}"
     if [[ "${port}" -lt 18500 || "${port}" -gt 18599 ]]; then
       echo "port ${port} is outside the reserved block"
@@ -88,9 +116,22 @@ _gateways() {
   # of curl/wget/python3/node — so no probe can run inside it; that exception
   # must be stated in the file rather than left implicit.
   local entry mod compose fail=0
-  for entry in $(_gateways); do
+  for entry in $(_gateways) $(_generated_gateways); do
     mod="${entry%%:*}"
     compose="${PROJECT_ROOT}/src/agentic/${mod}/docker-compose.yml"
+
+    if _is_generated_gateway "${mod}"; then
+      # Nothing shipped: the template is what gets rendered, so the rationale
+      # has to live there.
+      compose="${PROJECT_ROOT}/src/agentic/${mod}/compose.tpl.yml"
+      grep -qi 'NO healthcheck' "${compose}" \
+        || { echo "${mod}: no healthcheck and no explanation why"; fail=1; }
+      grep -qE '^    restart: "no"' "${compose}" \
+        || { echo "${mod}: unexpected restart policy"; fail=1; }
+      grep -qi 'deliberately not' "${compose}" \
+        || { echo "${mod}: restart policy is not documented"; fail=1; }
+      continue
+    fi
 
     if grep -qE '^    healthcheck:' "${compose}"; then
       # The probe must hit this gateway's own port.
@@ -228,7 +269,7 @@ SH
   # Guards against a module re-inlining its own wait loop (four copies is what
   # made the behaviour untestable in the first place).
   local entry mod fail=0
-  for entry in $(_gateways); do
+  for entry in $(_gateways) $(_generated_gateways); do
     mod="${entry%%:*}"
     grep -q '_devbot_wait_for_mcp_gateway' "${PROJECT_ROOT}/src/agentic/${mod}/up.sh" \
       || { echo "${mod}/up.sh does not call _devbot_wait_for_mcp_gateway"; fail=1; }

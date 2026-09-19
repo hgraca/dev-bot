@@ -16,6 +16,10 @@ services:
   datasources-mcp:
     image: ${TOOLBOX_IMAGE}:${TOOLBOX_VERSION}
     container_name: dev-bot-datasources-mcp
+    # NO healthcheck: the toolbox image is distroless — no shell, and none of
+    # curl/wget/python3/node — so no probe can run inside it. Readiness is
+    # checked from outside instead, by up.sh waiting on a real MCP handshake,
+    # which is the same substitute signoz uses for the same reason.
     # Started on demand by `devbot up` and left running, like every other
     # dev-bot gateway: deliberately not `unless-stopped`, so it does not return
     # on its own after a reboot without `devbot up` starting its neighbours.
