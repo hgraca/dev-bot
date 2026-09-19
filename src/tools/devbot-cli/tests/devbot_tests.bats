@@ -173,8 +173,15 @@ PY
     [[ -L "$link" ]] || continue
     actual_skills="$actual_skills$(basename "$link")\n"
   done
-  diff <(printf "$expected_skills" | sort) <(printf "$actual_skills" | sort) \
-    || fail "skills mismatch between source and symlink"
+  # The lists are printed on failure: this assertion has been seen to fail
+  # intermittently in a full-suite run (never in isolation) with `actual`
+  # empty, and the cause was not reproducible from the diff alone.
+  if ! diff <(printf "$expected_skills" | sort) <(printf "$actual_skills" | sort); then
+    fail "skills mismatch between source and symlink
+      disabled: [$(printf '%s' "${disabled_names}" | tr '\n' ' ')]
+      expected: [$(printf "$expected_skills" | tr '\n' ' ')]
+      actual:   [$(printf "$actual_skills" | tr '\n' ' ')]"
+  fi
 
   # ── Verify external module symlinks (from devbot root config) ────────────
   # addyosmani module configured in .devbot.jsonc should be cloned and wired.
