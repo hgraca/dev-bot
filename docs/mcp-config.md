@@ -77,8 +77,9 @@ up and down from `up.sh`/`down.sh` instead of being discovered by `bin/up.sh`,
 and for the same reason it uses **host networking** — so a database running on
 this machine is reachable at the address the host sees. The toolbox image is
 distroless, so its readiness check lives in `up.sh` rather than in a container
-healthcheck, and its config is rewritten in place while running so that a
-database which comes up later activates without a restart.
+healthcheck. Its config holds only the sources the gateway can initialize right
+now, decided once when `devbot up` runs — see `datasources` in
+`docs/configuration.md`.
 
 ### Credentials
 

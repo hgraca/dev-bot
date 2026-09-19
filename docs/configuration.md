@@ -411,13 +411,19 @@ string is not the same as no AUTH.
 
 Two behaviours are worth knowing before relying on it:
 
-- **A database the gateway cannot initialize is left out**, and joins when it
-  comes up. dev-bot opens no database connections of its own: it runs the real
-  toolbox (the only DB client) against the declared sources and publishes only
-  the ones it accepts — so a down database, a missing credential or a blocked
-  host is excluded rather than taking the whole gateway down with it. A rejected
-  source is retried on a backoff (~10s after a failure, growing to ~5min).
-  Reasons are logged to `storage/datasources/refresh.log`.
+- **Only the databases reachable at startup are loaded.** dev-bot opens no
+  database connections of its own: it runs the real toolbox (the only DB client)
+  against the declared sources and loads only the ones it accepts — so a down
+  database, a missing credential or a blocked host is excluded rather than
+  taking the whole gateway down with it. The set is decided **once**, when
+  `devbot up` runs: a database that comes up later is not picked up until the
+  next `devbot up`. Reasons are printed on `devbot up`.
+- **A connection that hangs is bounded.** mysql and postgres carry a 5s connect
+  timeout, so a firewalled host fails fast instead of stalling the gateway's
+  startup. MongoDB takes its timeout in the URI — add `connectTimeoutMS` and
+  `serverSelectionTimeoutMS` if the host may silently drop packets. The redis
+  source exposes no dial timeout at all in toolbox 1.11.0, so a blackholed
+  redis host cannot be bounded.
 - **Nothing blocks writes.** A datasource is exactly as writable as the database
   user it is given — which is how one config serves a writable dev database and
   a read-only production one. Point production at a read-only user.
