@@ -19,7 +19,7 @@
 #     available_catalogue.py < catalogue.json
 #
 # The candidate subset is written as JSON on stdout; each rejection, with its
-# reason, goes to stderr so the poller log shows why a datasource is missing.
+# reason, goes to stderr so the render shows why a datasource is missing.
 # =============================================================================
 
 import json

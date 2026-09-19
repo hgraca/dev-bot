@@ -153,7 +153,7 @@ main() {
   # tools.yaml carries ONLY the datasources that are usable right now: toolbox
   # treats an env-incomplete or unreachable source as a fatal startup error, so
   # an unusable one in here would take the whole shared gateway down. Exclusion
-  # reasons print to stderr (visible on `devbot up`, captured in the poller log).
+  # reasons print to stderr (visible on `devbot up`).
   #
   # compose, by contrast, is rendered from the FULL catalogue: every
   # datasource's env vars must already be in the container when it later

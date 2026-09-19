@@ -38,10 +38,10 @@ services:
     network_mode: host
     volumes:
       # Mounted as a DIRECTORY rather than a single file, so the config can
-      # grow to several files without touching the container spec. The poller
-      # also rewrites tools.yaml IN PLACE (see render.sh): toolbox tracks the
-      # config file by inode, so a replaced file is invisible to its reloader
-      # and the change would silently never take effect.
+      # grow to several files without touching the container spec. The config
+      # is rewritten IN PLACE (see render.sh): toolbox tracks the file by
+      # inode, so a file replaced by `mv` is invisible to its reloader and the
+      # change would silently never take effect.
       - ${DEV_BOT_ROOT}/storage/datasources/conf:/app/conf:ro
       # File-backed engines (sqlite) read and write their database under /data
       # — sqlite also needs the directory writable, to create its journal
@@ -73,12 +73,13 @@ services:
       # wildcard lets any website reach the gateway.
       - --allowed-origins
       - "http://127.0.0.1:${DATASOURCES_PORT:-18510}"
-      # Poll for config changes. Required, not a nicety: the config is a bind
-      # mount that the refresh poller rewrites from the host, and inotify
-      # events across a bind mount are unreliable — precisely the case
-      # upstream documents --poll-interval for. Together with the in-place
-      # rewrite this is what makes a database that comes up later activate
-      # WITHOUT a restart.
+      # Poll for config changes. Datasources are evaluated once, at startup, so
+      # `devbot up` takes this container down and starts it fresh on the config
+      # just rendered — but `install.sh` and `update.sh` re-render while it is
+      # already running, and inotify events across a bind mount are unreliable.
+      # That is the case upstream documents `--poll-interval` for; with the
+      # in-place rewrite it lets a running gateway pick up a new config with no
+      # restart.
       - --poll-interval
       - "5"
     environment: __DATASOURCE_ENV__
