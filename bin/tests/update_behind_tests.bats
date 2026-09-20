@@ -11,6 +11,7 @@
 
 load update_helpers
 
+setup_file() { _update_file_setup; }
 setup() { _update_setup; }
 teardown() { _update_teardown; }
 
