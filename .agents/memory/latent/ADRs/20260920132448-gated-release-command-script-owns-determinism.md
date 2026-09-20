@@ -1,6 +1,7 @@
 ---
 date: 2026-09-20
 keywords: ["release", "git", "slash-command", "git-changelog"]
+see: ["ADRs/20260920135609-release-merges-squash-fixups-before-tagging.md"]
 ---
 
 ## `devbot:release`: a command that gates, a script that determines
