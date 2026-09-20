@@ -33,7 +33,7 @@ setup() {
 @test "python script missing: clear error when search-memories.py not found" {
   # Run the wrapper from an isolated copy WITHOUT search-memories.py, so its
   # SCRIPT_DIR lookup finds no implementation. (Don't mv the real source — a
-  # failing assertion would leave it deleted, and teardown would wipe the copy.)
+  # failing assertion would leave it deleted.)
   local iso_dir
   iso_dir="$(mktemp -d "$FIXTURES/tmpdir.XXXXXX")"
   cp "$TOOL" "$iso_dir/search-memories.mcp.sh"
