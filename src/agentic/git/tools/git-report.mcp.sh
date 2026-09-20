@@ -3,7 +3,7 @@
 # description: Capture a snapshot of the current git state: current branch, default branch, recent commits, working tree status, staged diff, commits unique to the current branch, and index integrity
 # ---
 # =============================================================================
-# src/agentic/git-report/tools/git-report.mcp.sh
+# src/agentic/git/tools/git-report.mcp.sh
 # CLI wrapper for the git-report tool — snapshots current git state.
 # Output format: Markdown, with the following structure:
 #

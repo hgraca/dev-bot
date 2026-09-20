@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# src/tools/claudecode/reset.sh
+# src/harnesses/claudecode/reset.sh
 # Removes dev-bot-managed symlinks from .claude/, clears dev-bot hook entries
 # from .claude/settings.local.json, and removes the generated .mcp.json.
 # Leaves user-created files and non-devbot symlinks intact.

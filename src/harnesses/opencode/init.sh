@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# src/tools/opencode/init.sh
+# src/harnesses/opencode/init.sh
 # Sets up opencode in a project: copies the .opencode/ template directory,
 # writes opencode.jsonc from the dist template, creates symlinks for agents,
 # commands, skills, tools, and plugins, and removes .gitkeep files.

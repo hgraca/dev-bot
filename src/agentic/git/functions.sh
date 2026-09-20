@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# src/agentic/git-report/functions.sh
+# src/agentic/git/functions.sh
 # Shared helpers — delegates to src/_shared/functions.sh for boilerplate.
 
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

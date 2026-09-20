@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# src/agentic/git-report/tests/git-report_tests.bats
+# src/agentic/git/tests/git-report_tests.bats
 # Tests for the git-report bash entrypoint.
 # Tests from the bash entrypoint, covering all options and outputs.
 # =============================================================================

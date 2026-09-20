@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# src/tools/claudecode/init.sh
+# src/harnesses/claudecode/init.sh
 # Sets up Claude Code in a project: copies the .claude/ template directory,
 # writes .claude/settings.local.json from the dist template, creates symlinks
 # for agents, commands, skills, tools, and plugins, and removes .gitkeep files.

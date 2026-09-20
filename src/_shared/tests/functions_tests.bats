@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # =============================================================================
-# src/functions/tests/functions_tests.bats
+# src/_shared/tests/functions_tests.bats
 # Tests for the _upsert_opencode_plugin function in src/_shared/functions.sh.
 #
 # Run from project root:

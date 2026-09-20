@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# src/tools/opencode/reset.sh
+# src/harnesses/opencode/reset.sh
 # Removes dev-bot-managed symlinks from .opencode/ and cleans up MCP entries
 # from opencode.jsonc. Leaves user-created files and non-devbot symlinks intact.
 #
