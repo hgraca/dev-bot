@@ -109,9 +109,25 @@ def format_file(path: str) -> None:
 
     formatted = format_json_text(original, file_path=path, extra_args=["--stdin-filepath", path])
 
-    if formatted != original:
-        with open(path, 'w', encoding='utf-8') as f:
-            f.write(formatted)
+    if formatted == original:
+        return
+
+    # Formatting spans a prettier subprocess, so the file can change while it
+    # runs — the agent's next edit landing in that window. Writing the result
+    # computed from the stale read would silently discard that edit, so re-read
+    # and back off; the next edit event formats the newer content.
+    with open(path, 'r', encoding='utf-8') as f:
+        current = f.read()
+
+    if current != original:
+        print(
+            f"WARN: {path} changed while it was being formatted — not overwriting",
+            file=sys.stderr,
+        )
+        return
+
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write(formatted)
 
 
 def format_files_batch(file_paths: list[str]) -> None:

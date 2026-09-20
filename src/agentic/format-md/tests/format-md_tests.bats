@@ -203,3 +203,43 @@ setup() {
 
   rm -f "$tmpfile"
 }
+
+# ── Concurrent-write safety ───────────────────────────────────────────────────
+
+@test "single file: a change landing while prettier runs is not overwritten" {
+  # The file.edited hook runs this tool, so a format run can overlap the agent's
+  # next edit. The stub prettier simulates exactly that: it writes to the file
+  # mid-run, then returns a "formatted" result the tool used to write back —
+  # silently discarding the newer content.
+  local sb="$BATS_TEST_TMPDIR/stub"
+  mkdir -p "$sb"
+
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$sb/node"
+  cat > "$sb/prettier" <<'STUB'
+#!/usr/bin/env bash
+path=""
+prev=""
+for a in "$@"; do
+  [[ "$prev" == "--stdin-filepath" ]] && path="$a"
+  prev="$a"
+done
+[[ -n "$path" ]] && printf 'concurrent write\n' >> "$path"
+cat
+printf '\n'
+STUB
+  chmod +x "$sb/node" "$sb/prettier"
+
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
+  printf '# Title\n' > "$tmpfile"
+
+  export PATH="$sb:$PATH"
+  run bash "$TOOL" "$tmpfile"
+  assert_output --partial "WARN:"
+
+  run cat "$tmpfile"
+  assert_output --partial "# Title"
+  assert_output --partial "concurrent write"
+
+  rm -f "$tmpfile"
+}

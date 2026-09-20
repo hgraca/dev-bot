@@ -113,6 +113,20 @@ def format_file(path: str) -> None:
     if formatted == original:
         return
 
+    # Formatting spans a prettier subprocess, so the file can change while it
+    # runs — the agent's next edit landing in that window. Writing the result
+    # computed from the stale read would silently discard that edit, so re-read
+    # and back off; the next edit event formats the newer content.
+    with open(path, 'r', encoding='utf-8') as f:
+        current = f.read()
+
+    if current != original:
+        print(
+            f"WARN: {path} changed while it was being formatted — not overwriting",
+            file=sys.stderr,
+        )
+        return
+
     with open(path, 'w', encoding='utf-8') as f:
         f.write(formatted)
 
