@@ -7,7 +7,7 @@
 #
 #   version  — resolve the version to release (remote's newest tag, or validate)
 #   plan     — print the approval preview (read-only, mutates nothing)
-#   merge    — merge the source branch into the default branch
+#   merge    — squash the branch's fixups, then merge it into the default branch
 #   tag      — create the annotated release tag from the notes file
 #   push     — push the default branch and the tag to the chosen remotes
 #   release  — publish a GitHub release for the pushed tag
@@ -88,6 +88,52 @@ _default_branch() {
   else
     printf 'main\n'
   fi
+}
+
+# The ref the release compares the source branch against: the remote-tracking
+# default branch once it exists (what `merge` will integrate), else the local
+# one. Read-only — safe for `plan`.
+_default_base_ref() {
+  if git rev-parse --verify --quiet "refs/remotes/origin/$1" >/dev/null; then
+    printf 'origin/%s\n' "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
+# Subjects of the fixup/squash/amend! commits on <source> that are not yet on
+# <base> — the corrections a release folds into their targets. Empty when there
+# are none.
+_fixup_subjects() {
+  git log --format='%s' "$1..$2" 2>/dev/null \
+    | grep -E '^(fixup|squash|amend)!' || true
+}
+
+_fixup_count() {
+  local subjects
+  subjects="$(_fixup_subjects "$1" "$2")"
+  if [[ -z "${subjects}" ]]; then
+    printf '0\n'
+  else
+    printf '%s\n' "${subjects}" | grep -c .
+  fi
+}
+
+# Folds every fixup/squash/amend! commit not yet on the default branch into its
+# target, so a release tag never freezes a commit that only ever corrected an
+# earlier one. No fixups means no rebase — the branch's commit ids survive.
+# On failure the rebase is aborted and the branch is left as it was.
+_squash_fixups() {
+  local source="$1" default_branch="$2" base count
+  base="$(_default_base_ref "${default_branch}")"
+  count="$(_fixup_count "${base}" "${source}")"
+  [[ "${count}" -gt 0 ]] || return 0
+
+  if ! GIT_SEQUENCE_EDITOR=: git rebase --quiet --interactive --autosquash "${base}" >/dev/null; then
+    git rebase --abort >/dev/null 2>&1 || true
+    _fatal "merge: could not squash the fixup commits on '${source}'"
+  fi
+  printf 'squashed %s fixup commit(s) on %s\n' "${count}" "${source}"
 }
 
 # "host path" for a remote URL, empty when the URL carries no repository (a
@@ -255,14 +301,16 @@ cmd_plan() {
   [[ -n "${SOURCE}" ]] || _fatal "plan: cannot determine the source branch (detached HEAD)"
 
   local default_branch="${DEFAULT_BRANCH:-$(_default_branch)}"
-  local base_ref="${default_branch}"
-  git rev-parse --verify --quiet "refs/heads/${default_branch}" >/dev/null 2>&1 \
-    || base_ref="origin/${default_branch}"
+  local base_ref
+  base_ref="$(_default_base_ref "${default_branch}")"
 
   local merge_kind="merge commit"
   if git merge-base --is-ancestor "${base_ref}" HEAD 2>/dev/null; then
     merge_kind="fast-forward"
   fi
+
+  local fixup_count
+  fixup_count="$(_fixup_count "${base_ref}" "${SOURCE}")"
 
   local remotes release_remotes remote slug
   remotes="$(_remotes_to_use)"
@@ -274,6 +322,11 @@ cmd_plan() {
   printf -- '- **Source branch:** `%s`\n' "${SOURCE}"
   printf -- '- **Default branch:** `%s`\n' "${default_branch}"
   printf -- '- **Merge:** %s\n' "${merge_kind}"
+  if [[ "${fixup_count}" -eq 0 ]]; then
+    printf -- '- **Squash:** none\n'
+  else
+    printf -- '- **Squash:** %s fixup commit(s) folded into their targets\n' "${fixup_count}"
+  fi
   printf -- '- **After the release:** the checkout stays on `%s`\n' "${default_branch}"
 
   printf '\n### Remotes\n\n'
@@ -304,7 +357,12 @@ cmd_plan() {
   fi
 
   printf '\n### What happens on approval\n\n'
-  printf '1. Merge `%s` into `%s` and switch to it.\n' "${SOURCE}" "${default_branch}"
+  if [[ "${fixup_count}" -gt 0 ]]; then
+    printf '1. Squash %s fixup commit(s) on `%s`, then merge it into `%s` and switch to it.\n' \
+      "${fixup_count}" "${SOURCE}" "${default_branch}"
+  else
+    printf '1. Merge `%s` into `%s` and switch to it.\n' "${SOURCE}" "${default_branch}"
+  fi
   printf '2. Create the annotated tag `%s`.\n' "${version}"
   printf '3. Push `%s` and `%s` to:%s.\n' "${default_branch}" "${version}" \
     "$(for r in ${remotes}; do printf ' `%s`' "${r}"; done)"
@@ -347,6 +405,9 @@ cmd_merge() {
   trap '_restore_branch "$MERGE_SOURCE"' EXIT
 
   git fetch --tags --quiet || _fatal "merge: git fetch failed"
+
+  _squash_fixups "${source}" "${default_branch}"
+
   # When the local default branch does not exist yet, this creates it. If the
   # pull or the merge then fails, the trap restores the source branch but that
   # new branch stays behind, sitting at the same commit as origin/<default> —
@@ -489,7 +550,7 @@ Usage: release.sh <subcommand> [options]
 Subcommands:
   version  [--version V] [--remote R]                     resolve the version to release
   plan     --version V [--notes-file F] [--remotes a,b]   print the approval preview
-  merge    [--source B] [--default D]                      merge into the default branch
+  merge    [--source B] [--default D]                      squash fixups, then merge into the default branch
   tag      --version V --notes-file F                      create the annotated tag
   push     --version V [--branch B] --remotes a,b          push the branch and the tag
   release  --version V --notes-file F --remotes a,b        publish GitHub releases

@@ -48,8 +48,8 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/release.sh" plan \
   --remotes <comma-separated remotes>
 ```
 
-Show the output **verbatim** — it is the exact plan, including the tag name and the full tag
-description. Ask for approval or change requests. A change request (a different version, a different
+Show the output **verbatim** — it is the exact plan, including the tag name, the fixups it will
+squash, and the full tag description. Ask for approval or change requests. A change request (a different version, a different
 description, other remotes) means going back to the relevant step, re-rendering the plan, and asking
 again.
 
@@ -66,11 +66,12 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/release.sh" release --version "<versio
 
 Run them one at a time, in that order, and report each step's outcome.
 
-- **`merge`** merges the branch you were on into the default branch and switches to it. On a conflict
-  it aborts, restores your original branch, and exits `FATAL:` — stop there, nothing was tagged, and
-  hand the conflicting paths to the user. If the local default branch had to be created and the merge
-  then failed, it is left behind at the same commit as `origin/<default branch>` — harmless, and left
-  deliberately.
+- **`merge`** first folds every `fixup!`/`squash!`/`amend!` commit not yet on the default branch into
+  its target — a branch with none is left untouched — then merges the branch you were on into the
+  default branch and switches to it. On a conflict it aborts, restores your original branch, and exits
+  `FATAL:` — stop there, nothing was tagged, and hand the conflicting paths to the user. If the local
+  default branch had to be created and the merge then failed, it is left behind at the same commit as
+  `origin/<default branch>` — harmless, and left deliberately.
 - **`tag`** creates the annotated tag, its description being the notes file verbatim.
 - **`push`** pushes the default branch and the tag to each remote. A failing remote does not stop the
   others; report which failed and the remediation the script printed. A pushed tag is never deleted.

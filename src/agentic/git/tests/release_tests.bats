@@ -338,6 +338,66 @@ release() {
   assert_equal "$(git -C "$WORK" branch --show-current)" "main"
 }
 
+# ── merge: fixup squashing ───────────────────────────────────────────────────
+
+@test "merge: folds fixup commits into their targets before merging" {
+  git -C "$WORK" switch -q feature/v1.5
+  printf 'more\n' >> "$WORK/feature.txt"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "more feature work"
+  printf 'fixed\n' >> "$WORK/feature.txt"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "fixup! more feature work"
+
+  release merge --source feature/v1.5
+
+  assert_success
+  assert_equal "$(git -C "$WORK" branch --show-current)" "main"
+  run git -C "$WORK" log --format=%s main
+  refute_output --partial 'fixup!'
+  assert_output --partial 'more feature work'
+  # The fixup's content is folded into its target, not lost.
+  assert_equal "$(cat "$WORK/feature.txt")" "$(printf 'feature\nmore\nfixed')"
+  # 5 tagged commits + "feature work" + "more feature work" (fixup folded in).
+  assert_equal "$(git -C "$WORK" rev-list --count main)" "7"
+}
+
+@test "merge: reports the fixups it squashed" {
+  git -C "$WORK" switch -q feature/v1.5
+  printf 'more\n' >> "$WORK/feature.txt"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "more feature work"
+  git -C "$WORK" commit -q --allow-empty -m "fixup! more feature work"
+
+  release merge --source feature/v1.5
+
+  assert_success
+  assert_output --partial 'squashed'
+}
+
+@test "plan: reports the fixup commits that will be squashed, mutating nothing" {
+  git -C "$WORK" switch -q feature/v1.5
+  printf 'more\n' >> "$WORK/feature.txt"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "more feature work"
+  git -C "$WORK" commit -q --allow-empty -m "fixup! more feature work"
+  local head_before
+  head_before="$(git -C "$WORK" rev-parse HEAD)"
+
+  release plan --version 1.5.0 --notes-file "$NOTES"
+
+  assert_success
+  assert_output --partial '1 fixup commit'
+  assert_equal "$(git -C "$WORK" rev-parse HEAD)" "$head_before"
+}
+
+@test "plan: a branch with no fixups reports none to squash" {
+  release plan --version 1.5.0 --notes-file "$NOTES"
+
+  assert_success
+  assert_output --partial 'Squash:** none'
+}
+
 # ── tag ──────────────────────────────────────────────────────────────────────
 
 @test "tag: creates an annotated tag carrying the notes' markdown heading" {
