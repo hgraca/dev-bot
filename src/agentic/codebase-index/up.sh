@@ -13,7 +13,7 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
-OLLAMA_API="${OLLAMA_LOCAL_API:-http://localhost:18434}"
+OLLAMA_API="${OLLAMA_API_URL:-http://localhost:18434}"
 MODEL="nomic-embed-text"
 
 # The project directory is passed as $1 by bin/up.sh; fall back to cwd.

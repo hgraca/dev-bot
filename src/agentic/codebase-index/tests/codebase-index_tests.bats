@@ -73,6 +73,24 @@ setup() {
   rm -rf "${tmpdir}"
 }
 
+@test "init.sh: the config endpoint comes from OLLAMA_API_URL" {
+  # One env var names the Ollama endpoint everywhere: the model-pull helper reads
+  # OLLAMA_API_URL (src/_shared/functions.sh) and this module's config must use
+  # the same name (OLLAMA_LOCAL_API was drift).
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  printf '{\n  "modules": { "opencode": true, "claudecode": false }\n}\n' \
+    > "${tmpdir}/.devbot.project.jsonc"
+
+  run env OLLAMA_API_URL="http://ollama.example:9999" bash "$MODULE_DIR/init.sh" "${tmpdir}"
+
+  assert_success
+  run grep -q '"baseUrl": "http://ollama.example:9999/v1"' "${tmpdir}/.opencode/codebase-index.json"
+  assert_success
+
+  rm -rf "${tmpdir}"
+}
+
 # ── Stale-index migration on init ─────────────────────────────────────────────
 
 # Fake `npx` on PATH that records its argv and succeeds — lets the tests assert

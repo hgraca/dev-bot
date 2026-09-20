@@ -11,7 +11,7 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
-OLLAMA_API="${OLLAMA_LOCAL_API:-http://localhost:18434}"
+OLLAMA_API="${OLLAMA_API_URL:-http://localhost:18434}"
 
 main() {
   _info "litellm — up"

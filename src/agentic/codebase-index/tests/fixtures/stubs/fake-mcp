@@ -32,7 +32,7 @@ print(p.get('name','') if isinstance(p,dict) else '')" 2>/dev/null || echo "")
         # No response for notifications
         :
     elif [[ "$method" == "tools/call" ]]; then
-        local ollama_api="${OLLAMA_LOCAL_API:-http://localhost:18434}"
+        local ollama_api="${OLLAMA_API_URL:-http://localhost:18434}"
     case "$tool_name" in
             index_status)
                 echo '{"jsonrpc":"2.0","id":'"$msg_id"',"result":{"status":"ok","chunkCount":42,"model":"nomic-embed-text","baseUrl":"'"${ollama_api}"'/v1","embeddingDimension":768}}'

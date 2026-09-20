@@ -39,7 +39,7 @@ if [[ ! -f "${DIST_CONFIG}" ]]; then
   exit 1
 fi
 
-ollama_api="${OLLAMA_LOCAL_API:-http://localhost:18434}"
+ollama_api="${OLLAMA_API_URL:-http://localhost:18434}"
 # Append /v1 if not already present
 [[ "${ollama_api}" != */v1 ]] && ollama_api="${ollama_api}/v1"
 
