@@ -220,14 +220,17 @@ _assert_detached_at_newest_tag() {
 
 @test "fetch timeout: a stalled fetch is killed and exits 1" {
   _new_sandbox "1.0.0:1.1.0"
-  # Fake git: hang on `fetch`, delegate every other subcommand to the real git.
+  # Fake git: stall on `fetch`, delegate every other subcommand to the real git.
+  # The stall stays just past the 1s cap: the timeout must be what ends the
+  # fetch, and a longer sleep would only outlive the assertion — it keeps the
+  # captured stdout open, so the test would wait for it in full.
   local real_git
   real_git="$(command -v git)"
   mkdir -p "${SANDBOX}/mockbin"
   cat > "${SANDBOX}/mockbin/git" <<EOF
 #!/usr/bin/env bash
 for a in "\$@"; do
-  if [[ "\$a" == "fetch" ]]; then sleep 30; exit 0; fi
+  if [[ "\$a" == "fetch" ]]; then sleep 3; exit 0; fi
 done
 exec "${real_git}" "\$@"
 EOF
