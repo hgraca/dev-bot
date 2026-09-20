@@ -30,6 +30,8 @@ EOF
 
 teardown() {
   rm -rf "${FAKE_BIN}"
+  [[ -n "${SKILL_ROOT:-}" ]] && rm -rf "${SKILL_ROOT}" || true
+  return 0
 }
 
 # ── init.sh: .opencode/opencode.json legacy-plugin cleanup (audit-37 §4) ──────
@@ -513,4 +515,198 @@ JSON
   refute [ -e "$tmpdir/.claude/skills/graphify" ]
 
   rm -rf "$tmpdir"
+}
+
+# ── _graphify_ensure_skill: version-matched generated skill ──────────────────
+# The CLI ships the skill for its own release; dev-bot's committed skill drifts
+# as the CLI is upgraded. The generator rebuilds it into
+# <DEV_BOT_ROOT>/storage/graphify/skills — dev-bot's frontmatter + the package's
+# generic skill.md body and references — stamped with the CLI version, and
+# leaves the committed skill as the fallback when the package is unavailable.
+setup_ensure_skill() {
+  SKILL_ROOT="$(mktemp -d)"
+  mkdir -p "${SKILL_ROOT}/src/agentic/graphify/skills"
+  cat > "${SKILL_ROOT}/src/agentic/graphify/skills/SKILL.md" <<'EOF'
+---
+name: devbot:graphify
+description: "dev-bot bundled fallback"
+trigger: /graphify
+---
+
+# /graphify
+
+bundled fallback body
+EOF
+
+  GRAPHIFY_PKG="${SKILL_ROOT}/pkg"
+  mkdir -p "${GRAPHIFY_PKG}/skills/opencode/references"
+  cat > "${GRAPHIFY_PKG}/skill.md" <<'EOF'
+---
+name: graphify
+description: "package skill"
+trigger: /graphify
+---
+
+# /graphify
+
+package body v9
+EOF
+  printf 'ref body\n' > "${GRAPHIFY_PKG}/skills/opencode/references/query.md"
+
+  # Replace the shared echo stub with a version-reporting CLI.
+  cat > "${FAKE_BIN}/graphify" <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == "--version" ]] && { echo "graphify 9.9.9"; exit 0; }
+exit 0
+EOF
+  chmod +x "${FAKE_BIN}/graphify"
+
+  export DEV_BOT_ROOT="${SKILL_ROOT}"
+  export GRAPHIFY_PACKAGE_DIR="${GRAPHIFY_PKG}"
+  # shellcheck source=../functions.sh
+  source "${MODULE_DIR}/functions.sh"
+}
+
+@test "_graphify_ensure_skill: regenerates the skill from the installed package" {
+  setup_ensure_skill
+
+  run _graphify_ensure_skill
+  assert_success
+
+  local out="${SKILL_ROOT}/storage/graphify/skills"
+  assert [ -f "${out}/SKILL.md" ]
+  assert [ -f "${out}/VERSION" ]
+  assert [ -f "${out}/references/query.md" ]
+  assert [ -f "${out}/.devbot-generated" ] # the opt-in sentinel the farm checks
+
+  run cat "${out}/VERSION"
+  assert_output "9.9.9"
+
+  run cat "${out}/SKILL.md"
+  assert_output --partial "name: devbot:graphify" # dev-bot's frontmatter is kept
+  assert_output --partial "package body v9"       # the package body is adopted
+  refute_output --partial "package skill"         # the package frontmatter is dropped
+  refute_output --partial "bundled fallback body" # the fallback body is not used
+}
+
+@test "_graphify_ensure_skill: no-op when the store already matches (no rewrite)" {
+  setup_ensure_skill
+  _graphify_ensure_skill
+  local out="${SKILL_ROOT}/storage/graphify/skills"
+  local before after
+  before="$(ls -i "${out}/SKILL.md")"
+
+  run _graphify_ensure_skill
+  assert_success
+  # A real no-op does not re-swap the dir, so the inode is unchanged.
+  after="$(ls -i "${out}/SKILL.md")"
+  [ "${before}" = "${after}" ]
+}
+
+@test "_graphify_ensure_skill: writes nothing when the package ships no skill" {
+  setup_ensure_skill
+  rm -f "${GRAPHIFY_PKG}/skill.md"
+
+  run _graphify_ensure_skill
+  assert_failure
+  assert [ ! -e "${SKILL_ROOT}/storage/graphify/skills" ]
+}
+
+@test "_graphify_ensure_skill: fails when the graphify CLI is absent" {
+  setup_ensure_skill
+  # Drop the stub AND any real graphify outside /usr/bin|/bin so the probe is
+  # hermetic (the developer machine has graphify installed on PATH).
+  PATH="/usr/bin:/bin"
+
+  run _graphify_ensure_skill
+  assert_failure
+  assert [ ! -e "${SKILL_ROOT}/storage/graphify/skills" ]
+}
+
+@test "_graphify_ensure_skill: regenerates when dev-bot's frontmatter changes (same CLI version)" {
+  setup_ensure_skill
+  _graphify_ensure_skill
+  local out="${SKILL_ROOT}/storage/graphify/skills"
+  local before
+  before="$(ls -i "${out}/SKILL.md")"
+
+  # Same CLI version, changed committed frontmatter — must not be treated as current.
+  cat > "${SKILL_ROOT}/src/agentic/graphify/skills/SKILL.md" <<'EOF'
+---
+name: devbot:graphify
+description: "dev-bot bundled fallback v2"
+trigger: /graphify
+---
+
+# /graphify
+
+bundled fallback body
+EOF
+
+  run _graphify_ensure_skill
+  assert_success
+  run cat "${out}/SKILL.md"
+  assert_output --partial "dev-bot bundled fallback v2"
+  [ "$(ls -i "${out}/SKILL.md")" != "${before}" ]
+}
+
+@test "_graphify_ensure_skill: a failed regeneration drops the sentinel (fallback restored)" {
+  setup_ensure_skill
+  _graphify_ensure_skill
+  local out="${SKILL_ROOT}/storage/graphify/skills"
+  assert [ -f "${out}/.devbot-generated" ]
+
+  # Force a regeneration attempt (committed frontmatter changed) with the
+  # package skill gone — regeneration is impossible.
+  cat > "${SKILL_ROOT}/src/agentic/graphify/skills/SKILL.md" <<'EOF'
+---
+name: devbot:graphify
+description: "changed"
+trigger: /graphify
+---
+
+# /graphify
+EOF
+  rm -f "${GRAPHIFY_PKG}/skill.md"
+
+  run _graphify_ensure_skill
+  assert_failure
+  # Un-sentineled, so the farm serves the committed fallback instead.
+  assert [ ! -e "${out}/.devbot-generated" ]
+}
+
+@test "_graphify_relink_skill: points the farm entry at the generated skill" {
+  setup_ensure_skill
+  _graphify_ensure_skill
+  local project="${SKILL_ROOT}/project"
+  mkdir -p "${project}/.agents/skills/devbot"
+  ln -sf "${SKILL_ROOT}/src/agentic/graphify/skills" "${project}/.agents/skills/devbot/graphify"
+
+  run _graphify_relink_skill "${project}"
+  assert_success
+  [ "$(readlink "${project}/.agents/skills/devbot/graphify")" = "${SKILL_ROOT}/storage/graphify/skills" ]
+}
+
+@test "_graphify_relink_skill: no-op when no generated skill exists" {
+  setup_ensure_skill
+  local project="${SKILL_ROOT}/project"
+  mkdir -p "${project}/.agents/skills/devbot"
+  ln -sf "${SKILL_ROOT}/src/agentic/graphify/skills" "${project}/.agents/skills/devbot/graphify"
+
+  run _graphify_relink_skill "${project}"
+  assert_success
+  [ "$(readlink "${project}/.agents/skills/devbot/graphify")" = "${SKILL_ROOT}/src/agentic/graphify/skills" ]
+}
+
+@test "_graphify_relink_skill: falls back to the committed skill when the store is unsentineled" {
+  setup_ensure_skill
+  _graphify_ensure_skill
+  rm -f "${SKILL_ROOT}/storage/graphify/skills/.devbot-generated"
+  local project="${SKILL_ROOT}/project"
+  mkdir -p "${project}/.agents/skills/devbot"
+  ln -sf "${SKILL_ROOT}/storage/graphify/skills" "${project}/.agents/skills/devbot/graphify"
+
+  run _graphify_relink_skill "${project}"
+  assert_success
+  [ "$(readlink "${project}/.agents/skills/devbot/graphify")" = "${SKILL_ROOT}/src/agentic/graphify/skills" ]
 }

@@ -637,10 +637,31 @@ _link_claude_skills_flat() {
   }
 
   local f
-  # dev-bot module skills (agentic + tools)
+  # dev-bot module skills (agentic + tools). A module that produces a
+  # sentinel-marked generated skill dir (storage/<module>/skills — see
+  # _link_skills) is flattened from there instead of its committed tree copy, so
+  # claudecode serves the same version-matched skill opencode does.
+  _has_generated_skill_override() {
+    local d mod
+    d="$(dirname "$1")"                   # …/<module>/skills
+    mod="$(basename "$(dirname "${d}")")" # <module>
+    [[ -f "${DEV_BOT_ROOT}/storage/${mod}/skills/.devbot-generated" ]]
+  }
+
   while IFS= read -r -d '' f; do
+    _has_generated_skill_override "${f}" && continue
     _link_skill_file "${f}"
   done < <(find "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/tools" -name SKILL.md -print0 2>/dev/null)
+
+  while IFS= read -r -d '' mdir; do
+    local mname gen
+    mname="$(basename "${mdir}")"
+    gen="${DEV_BOT_ROOT}/storage/${mname}/skills"
+    [[ -f "${gen}/.devbot-generated" ]] || continue
+    while IFS= read -r -d '' f; do
+      _link_skill_file "${f}"
+    done < <(find "${gen}" -name SKILL.md -print0 2>/dev/null)
+  done < <(find "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/tools" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
 
   # External-module skills (addyosmani, mattpocock-grilling, ...): flatten only
   # the WIRED external modules. `.agents/skills` holds exactly one entry per

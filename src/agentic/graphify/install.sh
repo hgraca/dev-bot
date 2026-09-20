@@ -67,6 +67,12 @@ main() {
     _skip "Could not resolve graphify Python path — MCP server will fall back to system python3"
   fi
 
+  # ── Version-matched skill ──────────────────────────────────────────────────
+  # Regenerate dev-bot's graphify skill from the installed CLI so it tracks the
+  # installed version; the committed skill is the fallback when generation fails.
+  _graphify_ensure_skill || true
+  _graphify_log_skill_result
+
   # ── Register MCP server for Claude Code ────────────────────────────────────
   # The mcp-server.js proxy handles both stub and proxy modes.
   # Registration in .mcp.json is manual (per-project).

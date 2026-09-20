@@ -79,10 +79,20 @@ _link_commands() {
 # ── Link skills into .agents/ ───────────────────────────────────────────────────
 _link_skills() {
   local mod_dir="$1"
-  local skill_dir="${mod_dir}skills"
-  [[ ! -d "${skill_dir}" ]] && return
   local mod_name
   mod_name="$(basename "${mod_dir}")"
+  local skill_dir="${mod_dir}skills"
+
+  # A module may produce a machine-local, generated skill dir (e.g. graphify's
+  # version-matched skill at storage/graphify/skills). It is preferred ONLY when
+  # it carries the `.devbot-generated` sentinel — an explicit opt-in, so an
+  # unrelated module's storage/<name>/skills (e.g. signoz, which wires its own
+  # skills elsewhere) is never farmed here. The committed skills/ dir stays the
+  # fallback.
+  local generated="${DEV_BOT_ROOT}/storage/${mod_name}/skills"
+  [[ -f "${generated}/.devbot-generated" ]] && skill_dir="${generated}"
+
+  [[ ! -d "${skill_dir}" ]] && return
   local link_name="${AGENTS_DIR}/skills/devbot/${mod_name}"
 
   if [[ -L "${link_name}" ]]; then

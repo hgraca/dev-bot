@@ -92,6 +92,10 @@ graphify .graphify_version
 
 Harness inits run `_prune_stale_skill_copies` (`src/_shared/functions.sh`) on every skills location they own — opencode prunes `<devbot_dir>/skills` after delegation; claudecode prunes `.claude/skills` **and** `<devbot_dir>/skills` before the skills flatten. A directory named `<skill-name>` or `<skill-name>.bkp*` is removed only when it carries the declared marker (the installing tool's own signature file), so user content is never touched. Declarations are honoured regardless of module enablement — pruning a disabled module's leftovers is exactly the point.
 
+### Machine-local skill overrides (`storage/<module>/skills`)
+
+A module can produce a machine-local, generated skill under `<DEV_BOT_ROOT>/storage/<module>/skills` — graphify regenerates its `devbot:graphify` skill from the installed CLI so it tracks the installed graphify version, in or outside the dev-bot lifecycle. When that directory carries a `.devbot-generated` sentinel, `_link_skills` (`src/tools/devbot-cli/functions.sh`) and the claudecode flatten point the module's farm entry at it instead of the committed `<module>/skills/` (under `src/agentic` or `src/tools`), which stays the fallback whenever generation is impossible. The sentinel is the opt-in: a module that merely writes `storage/<name>/skills` for its own wiring (e.g. signoz) is never farmed here. The generated dir is gitignored (under `storage/`); the committed skill is never rewritten.
+
 ### Hooks
 
 Hooks are declared in a per-module `hooks.json` manifest (harness-agnostic) and wired by one generic adapter per harness — `on-hooks.ts` (OpenCode) and `on-hooks.py` (Claude Code). Business logic lives in `tools/`; the manifest's `run` command references it via `{module}/tools/…`. See [Hooks](/hooks) for the schema, the six semantic events, and the hand-written `devbot:auto-recover` exception.

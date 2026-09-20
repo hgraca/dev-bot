@@ -301,3 +301,42 @@ _add_user_skill() {
     fail "disabled module skill leaked into .claude/skills"
   fi
 }
+
+# ── Generated skill overrides (storage/<module>/skills) ─────────────────────
+# Mirrors _link_skills: a module whose generated skill dir carries the
+# `.devbot-generated` sentinel is flattened from there, so claudecode serves
+# the same version-matched skill opencode does; without the sentinel the
+# committed tree copy is flattened.
+
+_setup_graphify_skills() {
+  mkdir -p "${SANDBOX_DIR}/src/agentic/graphify/skills" "${SANDBOX_DIR}/storage/graphify/skills"
+  printf '%s\n' "---" "name: devbot:graphify" "---" "" "# committed" \
+    > "${SANDBOX_DIR}/src/agentic/graphify/skills/SKILL.md"
+  printf '%s\n' "---" "name: devbot:graphify" "---" "" "# generated" \
+    > "${SANDBOX_DIR}/storage/graphify/skills/SKILL.md"
+}
+
+@test "generated: a sentinel-marked storage skill overrides the committed tree copy" {
+  _setup_sandbox
+  _setup_graphify_skills
+  : > "${SANDBOX_DIR}/storage/graphify/skills/.devbot-generated"
+
+  _run_flat
+
+  local link="${SANDBOX_DIR}/.claude/skills/devbot:graphify/SKILL.md"
+  [ -L "${link}" ] || fail "graphify skill not flattened"
+  [ "$(readlink "${link}")" = "${SANDBOX_DIR}/storage/graphify/skills/SKILL.md" ] \
+    || fail "flatten did not prefer the sentinel-marked generated skill"
+}
+
+@test "generated: without the sentinel the committed tree copy is flattened" {
+  _setup_sandbox
+  _setup_graphify_skills
+
+  _run_flat
+
+  local link="${SANDBOX_DIR}/.claude/skills/devbot:graphify/SKILL.md"
+  [ -L "${link}" ] || fail "graphify skill not flattened"
+  [ "$(readlink "${link}")" = "${SANDBOX_DIR}/src/agentic/graphify/skills/SKILL.md" ] \
+    || fail "committed skill must be flattened when no sentinel is present"
+}

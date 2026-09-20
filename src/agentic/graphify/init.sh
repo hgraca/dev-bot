@@ -76,6 +76,17 @@ else
   _skip "Claude Code disabled — skipping .claude/ MCP wrapper symlink"
 fi
 
+# ── Version-matched skill ─────────────────────────────────────────────────────
+# Ensure the skill matches the installed graphify version before wiring. This
+# covers a graphify upgrade done OUTSIDE the dev-bot lifecycle (a bare
+# `graphify install` / `uv tool upgrade`), which install.sh/update.sh never see.
+# On success the skills-farm entry is pointed at the generated skill — the
+# linking pass ran earlier, so on a first-run reinit the dir may appear only
+# now; on failure the relink restores dev-bot's bundled skill.
+_graphify_ensure_skill || true
+_graphify_log_skill_result
+_graphify_relink_skill "${PROJECT_DIR}"
+
 # ── Install tools ────────────────────────────────────────────────────────────
 cd "${PROJECT_DIR}"
 

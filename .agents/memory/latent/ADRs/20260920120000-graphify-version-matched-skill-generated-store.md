@@ -1,0 +1,8 @@
+---
+date: 2026-09-20
+keywords: ["graphify", "skill", "sentinel", "skills-farm", "reinit"]
+---
+
+## dev-bot regenerates the graphify skill from the installed CLI into a sentinel-marked machine-local store
+
+dev-bot's committed `src/agentic/graphify/skills/SKILL.md` was a vendored fork of the graphify CLI's skill that never tracked the installed CLI version (added once in `2c90db67` as 1358 lines, while the shipped `graphifyy` 0.8.35 skill is a 616-line `skill.md` plus `skills/<platform>/references/`). `_graphify_ensure_skill` (`src/agentic/graphify/functions.sh`) now regenerates the skill — dev-bot's committed frontmatter + the package's generic `skill.md` body and `skills/opencode/references/` — into `<DEV_BOT_ROOT>/storage/graphify/skills`, stamped with the CLI version. It runs from `install.sh`, `update.sh` AND `init.sh`, because a `graphify` / `uv tool upgrade` performed outside the dev-bot lifecycle is only observed at init. The store carries a `.devbot-generated` sentinel; `_link_skills` (`src/tools/devbot-cli/functions.sh`) and the claudecode flatten prefer it only when the sentinel is present, and the committed skill is the fallback. `_graphify_ensure_skill` returns 0 only when the store is confirmed current (CLI version AND committed frontmatter both match), otherwise it drops the sentinel so the farm falls back; the swap is a non-destructive sidecar rename so a failed `mv` never leaves a dangling farm link. Caveat: the shared `devbot:graphify` skill cannot be ideal for both harnesses (opencode's `skill-opencode.md` uses `@mention` dispatch while the generic `skill.md` uses Agent-tool wording), so the generic body was chosen deliberately.

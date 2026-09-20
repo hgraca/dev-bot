@@ -40,6 +40,12 @@ main() {
     else
       _ok "Graphify upgraded: ${before} → ${after}"
     fi
+
+    # ── Version-matched skill ────────────────────────────────────────────────
+    # The packaged skill changes with the release — regenerate dev-bot's copy so
+    # it tracks the new version; the committed skill is the fallback.
+    _graphify_ensure_skill || true
+    _graphify_log_skill_result
   else
     _fatal "Graphify upgrade failed — try: uv tool upgrade graphifyy"
     exit 1
