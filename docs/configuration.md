@@ -323,7 +323,7 @@ A module that needs GPU passthrough ships a `docker-compose.gpu.yml` beside its 
 **Required:** no
 **Scope:** global only
 
-Local Ollama API endpoint. Reserved — currently present in the shipped config but not yet read by any module.
+Local Ollama API endpoint, read by the ollama model-pull helper (`_ensure_ollama_models_detached` in `src/_shared/functions.sh`) when it fetches missing models; the `OLLAMA_API_URL` environment variable overrides it for a single run. It is dormant unless the codebase-index engine is enabled.
 
 ---
 
