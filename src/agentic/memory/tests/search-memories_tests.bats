@@ -12,13 +12,8 @@ setup() {
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
   TOOL="$MODULE_DIR/tools/search-memories/search-memories.mcp.sh"
-  FIXTURES="$TEST_DIR/fixtures"
+  FIXTURES="$BATS_TEST_TMPDIR"   # per-test; no shared fixtures dir (parallel-safe)
   BASH="$(command -v bash)"
-}
-
-teardown() {
-  # Clean up any temp files/dirs left by test failures (early assertion exits)
-  find "$FIXTURES" -maxdepth 1 -name 'tmp.*' -exec rm -rf {} + 2>/dev/null || true
 }
 
 # ── Help flag ─────────────────────────────────────────────────────────────────

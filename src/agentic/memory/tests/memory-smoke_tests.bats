@@ -10,17 +10,12 @@ setup() {
 
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
-  FIXTURES="$TEST_DIR/fixtures"
+  FIXTURES="$BATS_TEST_TMPDIR"   # per-test; no shared fixtures dir (parallel-safe)
   # Neutral init.sh tests must not depend on the host's live engine pin:
   # the default engine is mdctx, which would run a real mdctx build of the
   # actual global store on an mdctx-default host. Pin qmd here; the mdctx
   # tests override with a sandboxed DEV_BOT_ROOT + provider env.
   export DEVBOT_MEMORY_SEARCH_PROVIDER=qmd
-}
-
-teardown() {
-  # Clean up any temp files/dirs left by test failures (early assertion exits)
-  find "$FIXTURES" -maxdepth 1 -name 'tmp.*' -exec rm -rf {} + 2>/dev/null || true
 }
 
 # ── init.sh scaffold ──────────────────────────────────────────────────────────
