@@ -34,8 +34,10 @@ commit-by-commit log.
 - **Omit internal churn** — test-only, fixup, and pure-docs commits that change
   nothing a user or downstream module sees. Mention docs/infra only when they
   change visible behaviour.
-- Keep it tight — a handful of bullets. A second line under a bullet is fine
-  when a decision needs one sentence of rationale.
+- **Cap every bullet line at 72 characters** — the whole line including the
+  `- ` marker. Keep a bullet to a single line; a second line is allowed only
+  when a decision needs one sentence of rationale, and it is capped at 72 too.
+- Keep it tight — a handful of bullets.
 
 ## Procedure
 
@@ -68,17 +70,19 @@ commit-by-commit log.
 # Release v1.5.0
 
 - Removed model downloads, embeddings and MCP from QMD module.
-  BM25 or semantic search, is a decision for the upstream modules.
 - Agents instructions hardened
 - Clarified the memory paths that are not tracked in VCS
 ```
 
 Note how the four groups above became three bullets (the memory-docs change
-folded in), and no commit hash, prefix, or file path appears in the file.
+folded in), no commit hash, prefix, or file path appears in the file, and every
+line stays within 72 characters.
 
 ## Anti-patterns
 
 - A commit-by-commit changelog (one bullet per commit).
 - Commit hashes, `type(scope):` prefixes, or file paths in the release file.
+- Bullet lines longer than 72 characters.
+- Wrapping a bullet onto a second line when it fits on one.
 - Listing every test/refactor/docs commit.
 - Committing the `.no-vcs.md` file, or asking whether to.
