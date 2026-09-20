@@ -1,0 +1,9 @@
+---
+date: 2026-09-16
+keywords: ['git', 'rebase', 'auto-merge', 'conflict', 'verification']
+trigger-on: ['git-rebase-onto-moved-base', 'git-rebase-verify-fidelity']
+---
+
+## Rebasing onto a moved base: the auto-merged files are the risk, not the conflicted ones
+
+When you rebase a branch onto a base that has since renamed symbols or dropped columns, git's 3-way merge **silently auto-merges** every file where your change and theirs touch different regions — and that clean merge is the dangerous outcome, because your code keeps referring to a symbol or column the base has since removed while git reports no conflict at all. The files that *conflict* get your attention; the ones that merge silently get committed and break at runtime. So "rebase completed, N conflicts resolved" is not verification. Two cheap checks close the gap. (1) After the rebase, `git grep` the tree for every symbol and column the new base removed or renamed — the old names must return only intentional hits, never leftovers the auto-merge preserved. (2) Prove content fidelity per file instead of trusting the merge: for every file your branch changes that the base did **not** touch, the pre- and post-rebase blobs must be byte-identical — `for f in <files>; do a=$(git show <old-tip>:$f | git hash-object --stdin); b=$(git show HEAD:$f | git hash-object --stdin); [ "$a" = "$b" ] || echo "DRIFT: $f"; done`. The set of files that legitimately differ should equal the overlap set you computed *before* starting, via `comm -12 <(git diff --name-only <merge-base>..<old-tip> | sort) <(git diff --name-only <merge-base>..<new-base> | sort)`; if more files differ than predicted, something was lost or mangled. Also confirm the commit count is unchanged (`git rev-list --count <new-base>..HEAD`) — a dropped commit is invisible in a diff that still looks plausible otherwise.
