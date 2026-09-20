@@ -5,14 +5,6 @@ keywords: ["make-test", "test-runtime", "verification"]
 
 # `make test` can exceed a 15-minute timeout — verify in phases
 
-The full suite no longer finishes inside a 15-minute shell timeout on this machine: a single `update_tests.bats` case takes ~33s and several others run 4–7s. A run then ends with `make: *** [Makefile:127: test] Terminated` and reads as a failure when the suite was merely unfinished — one run reported 1217 of 1235 BATS cases `ok` with zero failures at the cut-off.
+**SUPERSEDED (2026-09-20) by `learnings/20260920164034-01-test-suite-is-io-contention-bound.md` and the rewritten `learnings/20260911160319-devbot-full-test-suite-invocation.md`.** The premise no longer holds: the suite now finishes in ~88 s, the 33 s `update_tests.bats` case was a mock whose orphaned `sleep` held the captured stdout, and that file has since been split into three suites. Run `make test` directly — no phase-splitting, backgrounding or polling is needed.
 
-Verify in the three phases the Makefile runs and check each separately:
-
-```bash
-BATS_LIB_PATH="$(npm root -g)" bats -T -r src/ bin/ </dev/null
-bun test src/
-for f in $(find src -name 'test_*.py' | sort); do (cd "$(dirname "$f")" && python3 -m unittest "$(basename "$f" .py)") || failed=1; done
-```
-
-Two parsing gotchas when scripting the checks: `python3 -m unittest <file> | tail -1` can print a blank line for suites whose stdout continues past the summary (`test_search_memories` does), so match `^OK$` / `^FAILED` instead of the last line; and `bats <file>` run alone needs `BATS_LIB_PATH` or every test fails in `setup()`.
+The parsing gotchas below are still true and worth keeping: `python3 -m unittest <file> | tail -1` can print a blank line for suites whose stdout continues past the summary (`test_search_memories` does), so match `^OK$` / `^FAILED` instead of the last line; and `bats <file>` run alone needs `BATS_LIB_PATH` or every test fails in `setup()`.

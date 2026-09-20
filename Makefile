@@ -128,7 +128,38 @@ test: ## Run the full test suite
 	# stdin from /dev/null: harness inits legitimately prompt when stdin is a
 	# TTY (claudecode asks before changing an existing default agent), so a
 	# suite run from a terminal would block on that read instead of asserting.
-	BATS_LIB_PATH="$$(npm root -g)" bats -T -r src/ bin/ </dev/null
+	# Parallel BATS: GNU parallel is preferred, rush is the fallback — see
+	# README, Development. bin/ runs first on purpose: the update suites
+	# (bin/tests/update_*_tests.bats) are the heaviest cluster, so starting them
+	# early keeps them off the critical path.
+	# DEV_BOT_TEST_JOBS overrides the derived job count (1 forces a serial run).
+	@jobs="$${DEV_BOT_TEST_JOBS:-}"; \
+	if [ -z "$$jobs" ]; then \
+		jobs="$$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"; \
+	fi; \
+	case "$$jobs" in ''|*[!0-9]*|0) jobs=4;; esac; \
+	if [ "$$jobs" -gt 8 ]; then jobs=8; fi; \
+	runner=""; \
+	if [ "$$jobs" -gt 1 ]; then \
+		if parallel --version 2>/dev/null | grep -q 'GNU parallel'; then \
+			runner="parallel"; \
+		elif command -v rush >/dev/null 2>&1; then \
+			runner="rush"; \
+		fi; \
+	fi; \
+	if [ "$$runner" = "parallel" ]; then \
+		echo "  bats: $$jobs parallel jobs"; \
+		BATS_LIB_PATH="$$(npm root -g)" bats -T --jobs "$$jobs" --no-parallelize-within-files -r bin/ src/ </dev/null; \
+	elif [ "$$runner" = "rush" ]; then \
+		echo "  bats: $$jobs parallel jobs (rush)"; \
+		BATS_LIB_PATH="$$(npm root -g)" bats -T --jobs "$$jobs" --parallel-binary-name rush --no-parallelize-within-files -r bin/ src/ </dev/null; \
+	else \
+		if [ "$$jobs" -gt 1 ]; then \
+			echo "  WARN: GNU parallel/rush not found — BATS runs serially (slow)."; \
+			echo "        Install GNU parallel or rush (see README, Development)."; \
+		fi; \
+		BATS_LIB_PATH="$$(npm root -g)" bats -T -r src/ bin/ </dev/null; \
+	fi
 	@echo -e "\n\033[1m\033[34m━━━ Running bun tests... ━━━\033[0m"
 	@if ! command -v bun &>/dev/null; then \
 		echo "  bun not found — install via: curl -fsSL https://bun.sh/install | bash"; \
