@@ -16,6 +16,13 @@ setup() {
   # actual global store on an mdctx-default host. Pin qmd here; the mdctx
   # tests override with a sandboxed DEV_BOT_ROOT + provider env.
   export DEVBOT_MEMORY_SEARCH_PROVIDER=qmd
+  # init.sh registers the shared collection through the real qmd CLI. qmd reads
+  # its collection config from QMD_CONFIG_DIR and its index cache from
+  # XDG_CACHE_HOME — without both sandboxed, `qmd collection add` writes into the
+  # developer's own ~/.config/qmd/index.yml. Per-test dirs keep it hermetic.
+  export QMD_CONFIG_DIR="$BATS_TEST_TMPDIR/qmd-config"
+  export XDG_CACHE_HOME="$BATS_TEST_TMPDIR/qmd-cache"
+  mkdir -p "$QMD_CONFIG_DIR" "$XDG_CACHE_HOME"
 }
 
 # ── init.sh scaffold ──────────────────────────────────────────────────────────
