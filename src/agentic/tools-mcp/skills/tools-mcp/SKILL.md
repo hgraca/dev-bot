@@ -44,27 +44,37 @@ esac
 
 ```jsonc
 {
-    "name": "greet", // required — MCP tool name (becomes devbot-tools_greet)
-    "description": "...", // required — human-readable description
-    "parameters": {
-        // required — JSON Schema for inputs
-        "type": "object",
-        "properties": {
-            "args": {
-                // all tools use a single 'args' string array
-                "type": "array",
-                "items": { "type": "string" },
-                "description": "CLI args: <name> [enthusiasm]",
-            },
-        },
-        "required": ["args"],
+  "name": "greet", // required — MCP tool name (becomes devbot-tools_greet)
+  "description": "...", // required — human-readable description
+  "parameters": {
+    // required — JSON Schema for inputs
+    "type": "object",
+    "properties": {
+      "args": {
+        // all tools use a single 'args' string array
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "CLI args: <name> [enthusiasm]",
+      },
     },
+    "required": ["args"],
+  },
 }
 ```
 
 All tools use a single `args` (string array) parameter. The LLM constructs the full CLI command as an array, and the server passes it to the script as positional arguments. This works universally regardless of each script's CLI convention (flags, positional, etc.).
 
 For tools that take no arguments (e.g. fire-and-forget), use an empty `properties: {}` and omit `required`.
+
+## Output contract
+
+- **stdout** is the tool's result — what the agent reads.
+- **stderr** carries diagnostics (`WARN:` / `ERROR:` / `FATAL:`). A non-zero exit
+  fails the call, and stderr is returned as the failure message.
+- A tool that exits **0 with empty stdout** has its stderr returned instead of a
+  generic success line, so a tool that fails open can still say why. A non-empty
+  stdout is returned as-is: keep a `--json` payload on stdout and put every
+  diagnostic on stderr.
 
 ## Adding a tool
 

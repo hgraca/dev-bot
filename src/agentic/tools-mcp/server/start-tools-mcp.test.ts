@@ -37,6 +37,22 @@ echo "fake-tool ok: $*"
 `,
   )
 
+  // Exits 0 with an empty stdout and a diagnostic on stderr — the shape a
+  // fail-open tool has (search-memories on a stale index).
+  fs.writeFileSync(
+    path.join(toolsDir, "warn-tool.mcp.sh"),
+    `#!/usr/bin/env bash
+if [[ "\${1:-}" == "mcp-meta" ]]; then
+  cat <<'EOF'
+{"name":"warn-tool","description":"A stub tool that exits 0 with only a stderr diagnostic","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"}},"required":[]}}}
+EOF
+  exit 0
+fi
+echo "WARN: the index is stale" >&2
+exit 0
+`,
+  )
+
   proc = spawn("bun", ["run", SERVER], {
     env: { ...process.env, TOOLS_MCP_PROJECT_DIR: tmpDir },
     stdio: ["pipe", "pipe", "pipe"],
@@ -123,5 +139,15 @@ describe("devbot-tools MCP server", () => {
     await new Promise((r) => setTimeout(r, 150))
     const discoveries = stderr.match(/discovered \d+ tool\(s\)/g)
     expect(discoveries ?? []).toHaveLength(1)
+  })
+
+  test("a tool that exits 0 with only a stderr diagnostic surfaces it", async () => {
+    // The response used to be "Tool 'warn-tool' completed successfully." — an
+    // agent calling a fail-open tool then saw an empty result with no reason.
+    send(7, "tools/call", { name: "warn-tool", arguments: { args: [] } })
+    const res = await next()
+    expect(res.id).toBe(7)
+    expect(res.result.content[0].text).toContain("WARN: the index is stale")
+    expect(res.result.content[0].text).not.toContain("completed successfully")
   })
 })

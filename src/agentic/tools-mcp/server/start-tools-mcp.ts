@@ -250,7 +250,14 @@ async function callTool(tool: ToolDef, args: Record<string, unknown>): Promise<s
           `Script exited with code ${exitCode}\n${errOutput || output}`.trim()
         ));
       } else {
-        resolve(output.trim() || `Tool '${tool.name}' completed successfully.`);
+        // A tool can exit 0 having produced nothing but a diagnostic on stderr
+        // — search-memories failing open on a stale index is the canonical
+        // case, and the generic "completed successfully" line used to hide the
+        // only explanation the agent could act on. Non-empty stdout is left
+        // alone: appending to it would break machine-readable (--json) output.
+        resolve(
+          output.trim() || errOutput.trim() || `Tool '${tool.name}' completed successfully.`
+        );
       }
     }).catch(reject);
   });
