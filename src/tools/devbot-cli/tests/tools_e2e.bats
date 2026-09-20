@@ -6,12 +6,7 @@ setup() {
 
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   PROJECT_ROOT="$(cd "$TEST_DIR/../../../.." && pwd)"
-  FIXTURES="$TEST_DIR/fixtures"
-  mkdir -p "$FIXTURES"
-}
-
-teardown() {
-  find "$FIXTURES" -maxdepth 1 -name 'tmp.*' -exec rm -rf {} + 2>/dev/null || true
+  FIXTURES="$BATS_TEST_TMPDIR"   # per-test; no shared fixtures dir (parallel-safe)
 }
 
 # ── tree.mcp.sh ────────────────────────────────────────────────────────────────────
