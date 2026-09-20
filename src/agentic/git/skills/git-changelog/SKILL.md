@@ -18,7 +18,9 @@ commit-by-commit log.
   e.g. `# Release v1.5.0`.
 - **The `.no-vcs.md` suffix is load-bearing:** it matches the `*no-vcs*`
   gitignore rule, so the file is **never committed**. Never `git add` it, and
-  never ask where it goes — a release file is a local artifact.
+  never ask where it goes — a release file is a local artifact. Writing or
+  refreshing the file is the explicit direction `ignore.md` requires for a
+  `no-vcs` path; do not stop to ask again.
 - Update an existing file in place; never create a second release file for the
   same version.
 
@@ -32,22 +34,38 @@ commit-by-commit log.
   ("Removed model downloads, embeddings and MCP from the QMD module", not
   "refactor(qmd): make the memory-search path BM25-only").
 - **Omit internal churn** — test-only, fixup, and pure-docs commits that change
-  nothing a user or downstream module sees. Mention docs/infra only when they
-  change visible behaviour.
+  nothing a user or downstream module sees. Judge docs/infra by the reader: a
+  docs change counts only when it changes what someone sees (the README, the
+  docs front page, the licence); internal notes, generated tables and prose
+  reflows do not.
+- **State the change, never a placeholder.** "Agents instructions hardened"
+  and "Clarified the memory paths" tell a reader nothing — replace each with
+  what actually changed, or drop it.
 - **Cap every bullet line at 72 characters** — the whole line including the
   `- ` marker. Keep a bullet to a single line; a second line is allowed only
   when a decision needs one sentence of rationale, and it is capped at 72 too.
-- Keep it tight — a handful of bullets.
+- **When 72 characters force a trade-off, keep the outcome and drop the
+  mechanism** — internal figures, full engine or flag lists, and how it works
+  go first. The second line carries rationale, never extra facts.
+- **Keep it tight:** one bullet per user-facing change — roughly 10–15 for a
+  release of a few hundred commits, a handful for a small one. Merge changes
+  only when they share a subsystem _and_ an outcome; never merge unrelated
+  changes to hit a number, and never split one change across two bullets.
 
 ## Procedure
 
-1. Determine the release range — commits since the previous release/tag
-   (`git log --oneline <last-tag>..HEAD`), or the branch's unique commits
-   (`devbot:git-report` returns them).
+1. Determine the release range — **the entire range since the previous release
+   tag**, `git log --oneline <last-tag>..HEAD`. Use the tag, not the default
+   branch: `main` can lag the last tag. When refreshing an existing release
+   file, re-audit that whole range — the file's age is not a boundary, and a
+   change it omits may predate the file's last write.
 2. Group the commits into logical changes.
 3. Phrase each group as a product/decision statement.
 4. Write or refresh `release.v<MAJOR>-<MINOR>.no-vcs.md`.
 5. Do not commit it.
+6. Verify the format before finishing — every line at most 72 characters.
+   Nothing enforces this: the markdown formatter runs prettier with wrapping
+   disabled, and no test parses release files.
 
 ## Worked example — release v1.5
 
@@ -69,14 +87,15 @@ commit-by-commit log.
 ```markdown
 # Release v1.5.0
 
-- Removed model downloads, embeddings and MCP from QMD module.
-- Agents instructions hardened
-- Clarified the memory paths that are not tracked in VCS
+- Removed model downloads, embeddings and MCP from the QMD module.
+- Agents instructions hardened: plan confirmation, no circumvention
+- Memory notes split by tracking: work/ and thinking/ stay out of VCS
 ```
 
 Note how the four groups above became three bullets (the memory-docs change
-folded in), no commit hash, prefix, or file path appears in the file, and every
-line stays within 72 characters.
+folded in), every bullet names a concrete change rather than a placeholder, no
+commit hash, prefix, or file path appears, and every line stays within 72
+characters.
 
 ## Anti-patterns
 
@@ -84,5 +103,6 @@ line stays within 72 characters.
 - Commit hashes, `type(scope):` prefixes, or file paths in the release file.
 - Bullet lines longer than 72 characters.
 - Wrapping a bullet onto a second line when it fits on one.
+- A bullet that names no change — a placeholder the reader cannot act on.
 - Listing every test/refactor/docs commit.
 - Committing the `.no-vcs.md` file, or asking whether to.
