@@ -30,7 +30,7 @@ setup() {
 
 @test "single file: formats table content" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.md)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
   printf '| a | b |\n| --- | --- |\n| 1 | 2 |\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -47,7 +47,7 @@ setup() {
 
 @test "single file: handles headings and text" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.md)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
   printf '# Heading\n\nSome text.\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -62,7 +62,7 @@ setup() {
 
 @test "single file: preserves code fences" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.md)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
   printf '# Example\n\n```\ncode block\n```\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -79,7 +79,7 @@ setup() {
 
 @test "directory: formats all .md files recursively" {
   local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmpdir.XXXXXX")"
+  tmpdir="$(mktemp -d "$BATS_TEST_TMPDIR/tmpdir.XXXXXX")"
   mkdir -p "$tmpdir/sub"
   printf '| x | y |\n| --- | --- |\n| 1 | 2 |\n' > "$tmpdir/file1.md"
   printf '# no table\n' > "$tmpdir/sub/file2.md"
@@ -101,8 +101,8 @@ setup() {
 
 @test "multiple files: formats each in-place" {
   local tmp1 tmp2
-  tmp1="$(mktemp -p "$FIXTURES" tmp.XXXXXX.md)"
-  tmp2="$(mktemp -p "$FIXTURES" tmp.XXXXXX.md)"
+  tmp1="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
+  tmp2="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
   printf '| a | b |\n| --- | --- |\n| 1 | 2 |\n' > "$tmp1"
   printf '| c | d |\n| --- | --- |\n| 3 | 4 |\n' > "$tmp2"
 
@@ -143,7 +143,7 @@ setup() {
 
 @test "empty file: no crash, clean exit" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.md)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
   touch "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -154,7 +154,7 @@ setup() {
 
 @test "table with colon-aligned separator preserved" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.md)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
   printf '| a | b | c |\n| :-- | :-: | --: |\n| 1 | 2 | 3 |\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -170,7 +170,7 @@ setup() {
 
 @test "non-md file extension: ignored in directory mode" {
   local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmpdir.XXXXXX")"
+  tmpdir="$(mktemp -d "$BATS_TEST_TMPDIR/tmpdir.XXXXXX")"
   printf '| a | b |\n| --- | --- |\n| 1 | 2 |\n' > "$tmpdir/file.txt"
   printf '| a | b |\n| --- | --- |\n| 1 | 2 |\n' > "$tmpdir/file.md"
 
@@ -191,7 +191,7 @@ setup() {
 
 @test "file with crlf line endings: no crash, content preserved" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.md)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
   printf '| a | b |\r\n| --- | --- |\r\n| 1 | 2 |\r\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"

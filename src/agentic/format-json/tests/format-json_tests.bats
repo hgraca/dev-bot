@@ -31,7 +31,7 @@ setup() {
 
 @test "single file: expands compact JSON to indented" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.json)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.json)"
   printf '{"name":"test","value":42}\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -46,7 +46,7 @@ setup() {
 
 @test "single file: nested objects are indented correctly" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.json)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.json)"
   printf '{"a":{"b":{"c":1}}}\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -62,7 +62,7 @@ setup() {
 
 @test "single file: already formatted file is unchanged (no-op)" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.json)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.json)"
   printf '{\n  "a": 1\n}\n' > "$tmpfile"
   local before
   before="$(cat "$tmpfile")"
@@ -78,7 +78,7 @@ setup() {
 
 @test "single file: arrays are formatted" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.json)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.json)"
   printf '{"items":[1,2,3]}\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -96,7 +96,7 @@ setup() {
 
 @test "jsonc single file: preserves line comments" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.jsonc)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.jsonc)"
   printf '{\n  // This is a comment\n  "name": "test"\n}\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -112,7 +112,7 @@ setup() {
 
 @test "jsonc single file: preserves block comments" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.jsonc)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.jsonc)"
   printf '{\n  /* block comment */\n  "value": 42\n}\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -127,7 +127,7 @@ setup() {
 
 @test "jsonc single file: trailing commas are stripped" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.jsonc)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.jsonc)"
   printf '{\n  "a": 1,\n  "b": 2,\n}\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -142,7 +142,7 @@ setup() {
 
 @test "jsonc single file: comments inside strings are preserved" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.jsonc)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.jsonc)"
   printf '{\n  "path": "http://example.com/foo"\n}\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -158,7 +158,7 @@ setup() {
 
 @test "directory: formats all .json files recursively" {
   local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmpdir.XXXXXX")"
+  tmpdir="$(mktemp -d "$BATS_TEST_TMPDIR/tmpdir.XXXXXX")"
   mkdir -p "$tmpdir/sub"
   printf '{"a":1}\n' > "$tmpdir/file.json"
   printf '{"b":2}\n' > "$tmpdir/sub/nested.json"
@@ -177,7 +177,7 @@ setup() {
 
 @test "directory: formats .jsonc files too" {
   local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmpdir.XXXXXX")"
+  tmpdir="$(mktemp -d "$BATS_TEST_TMPDIR/tmpdir.XXXXXX")"
   printf '{"a":1}\n' > "$tmpdir/config.jsonc"
 
   run bash "$TOOL" "$tmpdir"
@@ -193,8 +193,8 @@ setup() {
 
 @test "multiple files: formats each in-place" {
   local tmp1 tmp2
-  tmp1="$(mktemp -p "$FIXTURES" tmp.XXXXXX.json)"
-  tmp2="$(mktemp -p "$FIXTURES" tmp.XXXXXX.json)"
+  tmp1="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.json)"
+  tmp2="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.json)"
   printf '{"a":1}\n' > "$tmp1"
   printf '{"b":2}\n' > "$tmp2"
 
@@ -241,7 +241,7 @@ setup() {
 
 @test "empty file: no crash, clean exit" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.json)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.json)"
   touch "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -256,7 +256,7 @@ setup() {
 
 @test "invalid JSON: prints parse error" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.json)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.json)"
   printf '{invalid}\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -268,7 +268,7 @@ setup() {
 
 @test "file with crlf line endings: no crash, formatted correctly" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.json)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.json)"
   printf '{"a":1,"b":2}\r\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -282,7 +282,7 @@ setup() {
 
 @test "non-json extension: ignored in directory mode" {
   local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmpdir.XXXXXX")"
+  tmpdir="$(mktemp -d "$BATS_TEST_TMPDIR/tmpdir.XXXXXX")"
   printf '{"a":1}\n' > "$tmpdir/config.json"
   printf 'not json at all\n' > "$tmpdir/config.txt"
 
@@ -302,7 +302,7 @@ setup() {
 
 @test "larger json: preserves key ordering" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.json)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.json)"
   printf '{"z":1,"a":2,"m":3}\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"

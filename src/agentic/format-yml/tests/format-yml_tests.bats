@@ -33,7 +33,7 @@ setup() {
 
 @test "single file: expands compact YAML to 2-space indented" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yml)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
   printf 'name: test\nvalue: 42\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -48,7 +48,7 @@ setup() {
 
 @test "single file: nested mappings are indented correctly" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yml)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
   printf 'a:\n  b:\n    c: 1\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -64,7 +64,7 @@ setup() {
 
 @test "single file: already formatted file is unchanged (no-op)" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yml)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
   printf 'name: test\nvalue: 42\n' > "$tmpfile"
   local before
   before="$(cat "$tmpfile")"
@@ -80,7 +80,7 @@ setup() {
 
 @test "single file: sequences are formatted" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yml)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
   printf 'items:\n  - 1\n  - 2\n  - 3\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -96,7 +96,7 @@ setup() {
 
 @test "single file: .yaml extension works" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yaml)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yaml)"
   printf 'name: test\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -109,7 +109,7 @@ setup() {
 
 @test "comments: line comments are preserved" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yml)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
   printf '# This is a comment\nname: test\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -126,7 +126,7 @@ setup() {
 
 @test "directory: formats all .yml files recursively" {
   local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmpdir.XXXXXX")"
+  tmpdir="$(mktemp -d "$BATS_TEST_TMPDIR/tmpdir.XXXXXX")"
   mkdir -p "$tmpdir/sub"
   printf 'a: 1\n' > "$tmpdir/file.yml"
   printf 'b: 2\n' > "$tmpdir/sub/nested.yml"
@@ -145,7 +145,7 @@ setup() {
 
 @test "directory: formats .yaml files too" {
   local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmpdir.XXXXXX")"
+  tmpdir="$(mktemp -d "$BATS_TEST_TMPDIR/tmpdir.XXXXXX")"
   printf 'a: 1\n' > "$tmpdir/config.yaml"
 
   run bash "$TOOL" "$tmpdir"
@@ -161,8 +161,8 @@ setup() {
 
 @test "multiple files: formats each in-place" {
   local tmp1 tmp2
-  tmp1="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yml)"
-  tmp2="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yml)"
+  tmp1="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
+  tmp2="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
   printf 'a: 1\n' > "$tmp1"
   printf 'b: 2\n' > "$tmp2"
 
@@ -201,7 +201,7 @@ setup() {
 
 @test "empty file: no crash, clean exit" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yml)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
   touch "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -212,7 +212,7 @@ setup() {
 
 @test "invalid YAML: prints parse error" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yml)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
   printf '{invalid yaml\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
@@ -224,7 +224,7 @@ setup() {
 
 @test "non-yaml extension: ignored in directory mode" {
   local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmpdir.XXXXXX")"
+  tmpdir="$(mktemp -d "$BATS_TEST_TMPDIR/tmpdir.XXXXXX")"
   printf 'a: 1\n' > "$tmpdir/config.yml"
   printf 'not yaml\n' > "$tmpdir/config.txt"
 
@@ -244,7 +244,7 @@ setup() {
 
 @test "key ordering: preserved after formatting" {
   local tmpfile
-  tmpfile="$(mktemp -p "$FIXTURES" tmp.XXXXXX.yml)"
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
   printf 'z: 1\na: 2\nm: 3\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
