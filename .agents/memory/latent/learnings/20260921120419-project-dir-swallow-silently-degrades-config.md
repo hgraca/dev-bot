@@ -1,0 +1,8 @@
+---
+date: 2026-09-21
+keywords: ["devbot", "PROJECT_DIR", "up.sh", "down.sh", "cli-dispatch"]
+---
+
+# An empty `PROJECT_DIR` silently degrades the config to global-only, and the `cd … || true` read is what hides it
+
+`bin/up.sh:27` and `bin/down.sh:19` both compute `PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"`. The `|| true` is the trap: any unresolvable `$1` leaves `PROJECT_DIR` **empty**, with only a stray `cd:` line on stderr, and an empty project dir makes `_devbot_get_disabled_modules` and `_run_service_scripts` read the global config alone — dropping every per-project `modules` override and every module `up.sh`/`down.sh` script, silently, while the run still looks successful. This was reached through a CLI bug of the same shape: the arms of `bin/devbot`'s `main()` case each `shift` before forwarding (`up`, `prune`, `stats`, …), and `down)` was the only one missing it, so `devbot down` invoked `down.sh down` — the subcommand name itself became the project dir, giving `bin/down.sh: line 19: cd: down: No such file or directory` plus the empty `PROJECT_DIR`; `devbot down <path>` was worse and never saw the real path. Two rules follow. Test CLI dispatch through the real entry point (`bin/devbot down`, not a sourced `bin/down.sh`), because argument-mangling bugs live in the dispatch layer that unit-level tests bypass — the existing `down_compose_opts_tests.bats` stubs `down.sh` and could never have caught it. And treat an empty `PROJECT_DIR` as something to report (`WARN:`/`FATAL:`) rather than trusting `|| true` to be harmless: the degradation is silent by construction, so nothing downstream will ever surface it.

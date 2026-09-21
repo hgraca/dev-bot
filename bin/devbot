@@ -625,6 +625,7 @@ main() {
       cmd_up "$@"
       ;;
     down)
+      shift
       cmd_down "$@"
       ;;
     prune)
