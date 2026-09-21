@@ -5,7 +5,7 @@ keywords: ["no-vcs", "release-file", "gitignore", "ignore-md", "git-changelog"]
 
 # The `*no-vcs*` rule lives in the user's global gitignore, not the repo's
 
-`git check-ignore -v release.v1-5.no-vcs.md` resolves to
+`git check-ignore -v release.v1-5-2.no-vcs.md` resolves to
 `/home/herberto/.gitignore:2:*no-vcs*` — the pattern is in the developer's
 **global** `~/.gitignore`, not in this repo's `.gitignore` (which has no
 `no-vcs` rule). So a grep of the repo for the rule that makes release files
@@ -15,7 +15,7 @@ would happily commit them.
 This compounds with `.agents/memory/active/ignore.md` ("NEVER read nor modify
 any file or folder with `no-vcs` in the name, unless explicitly directed"), and
 devbot's own release convention collides with it: `devbot:git-changelog` writes
-`release.v<MAJOR>-<MINOR>.no-vcs.md` at the repo root, so the artifact the skill
+`release.v<MAJOR>-<MINOR>-<PATCH>.no-vcs.md` at the repo root, so the artifact the skill
 produces is also an artifact agents are forbidden to open. Checking whether an
 existing release file complies with the skill's rules (e.g. the 72-character
 bullet cap) therefore requires explicit user direction first — scout read one
