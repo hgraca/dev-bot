@@ -47,9 +47,19 @@ services:
       # writeFile to the index path, and the server never imports the config
       # writer. Least privilege: the search server must not be able to mutate
       # the git-tracked knowledge base.
-      - ${DEV_BOT_ROOT}/storage/global-memories:/data/global-memories:ro
+      # create_host_path: false — the store is tracked, so it always exists; a
+      # missing one is a misconfiguration and must fail loudly.
+      - type: bind
+        source: ${DEV_BOT_ROOT}/storage/global-memories
+        target: /data/global-memories
+        read_only: true
+        bind:
+          create_host_path: false
       # READ-WRITE: the `refresh_index` tool — and loadIndex's auto-heal of a
       # missing/corrupt/version-mismatched index — rewrites context-index.json.
+      # Its source is pre-created by bin/up.sh (_ensure_writable_bind_sources):
+      # a MISSING bind source is created by the daemon as root:root, and this
+      # container runs as the host uid, which then cannot write the index.
       - ${DEV_BOT_ROOT}/storage/.mdctx:/data/.mdctx
     environment:
       MDCTX_ROOT: /data/global-memories

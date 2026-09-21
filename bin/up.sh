@@ -129,13 +129,20 @@ _reclaim_stale_containers() {
 
 # ── Docker services ────────────────────────────────────────────────────────────
 
-_docker_up() {
-  # dev-bot must be installed (global config) — report before doing anything,
-  # regardless of whether any compose files are discovered.
-  if [[ ! -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]]; then
-    _fatal "No .devbot.global.jsonc found at ${DEV_BOT_ROOT}/.devbot.global.jsonc — run 'make install' first."
-    exit 1
+# ── Compose `-f` list (memoised) ───────────────────────────────────────────────
+# Fills COMPOSE_OPTS (the -f list) and SELECTED_COMPOSES (the module-relative
+# paths of the selected composes, for the image rebuild). Memoised because
+# main() needs the same set to pre-create bind-mount sources before _docker_up
+# runs, and the "disabled per config" messages must be printed once.
+COMPOSE_OPTS=()
+SELECTED_COMPOSES=()
+_COMPOSE_OPTS_BUILT=0
+
+_compose_opts() {
+  if [[ "${_COMPOSE_OPTS_BUILT}" -eq 1 ]]; then
+    return 0
   fi
+  _COMPOSE_OPTS_BUILT=1
 
   # ── Discover docker-compose.yml files across every module base dir ─────
   # (tools + agentic + harnesses). Since v1.4 docker services start only when
@@ -177,7 +184,7 @@ for m in json.loads(sys.stdin.read()):
     gpu_ok=1
   fi
 
-  local compose_opts=()
+  COMPOSE_OPTS=()
   # Root-compose support is generic, not vestigial: a consumer that ships a root
   # docker-compose.yml gets it FIRST, because compose reads the project `name:`
   # from the first -f file, plus its GPU overlay when passthrough is available.
@@ -186,13 +193,13 @@ for m in json.loads(sys.stdin.read()):
   # are what actually apply. Covered by the root-compose tests in
   # bin/tests/up_compose_opts_tests.bats.
   if [[ -f "${DEV_BOT_ROOT}/docker-compose.yml" ]]; then
-    compose_opts=("-f" "docker-compose.yml")
+    COMPOSE_OPTS=("-f" "docker-compose.yml")
     if [[ ${gpu_ok} -eq 1 && -f "${DEV_BOT_ROOT}/docker-compose.gpu.yml" ]]; then
-      compose_opts+=("-f" "docker-compose.gpu.yml")
+      COMPOSE_OPTS+=("-f" "docker-compose.gpu.yml")
     fi
   fi
 
-  local selected_composes=()
+  SELECTED_COMPOSES=()
   for f in "${compose_files[@]}"; do
     local mod_dir mod_name
     mod_dir="$(dirname "${f}")"
@@ -205,8 +212,8 @@ for m in json.loads(sys.stdin.read()):
 
     # Use path relative to DEV_BOT_ROOT so docker compose resolves correctly
     local rel="${f#${DEV_BOT_ROOT}/}"
-    compose_opts+=("-f" "${rel}")
-    selected_composes+=("${rel}")
+    COMPOSE_OPTS+=("-f" "${rel}")
+    SELECTED_COMPOSES+=("${rel}")
 
     # The module's GPU overlay, if it ships one, follows its compose. An
     # overlay may declare `devbot:gpu-overlay-skip-if-included <compose>` to say
@@ -218,15 +225,28 @@ for m in json.loads(sys.stdin.read()):
     if [[ ${gpu_ok} -eq 1 && -f "${DEV_BOT_ROOT}/${gpu_rel}" ]]; then
       local skip_if
       skip_if="$(_gpu_overlay_skip_if "${DEV_BOT_ROOT}/${gpu_rel}")"
-      if [[ -n "${skip_if}" ]] && printf '%s\n' "${compose_opts[@]}" | grep -Fxq "${skip_if}"; then
+      if [[ -n "${skip_if}" ]] && printf '%s\n' "${COMPOSE_OPTS[@]}" | grep -Fxq "${skip_if}"; then
         _skip "${mod_name}: GPU overlay skipped — ${skip_if} already applies it"
       else
-        compose_opts+=("-f" "${gpu_rel}")
+        COMPOSE_OPTS+=("-f" "${gpu_rel}")
       fi
     fi
   done
+}
 
-  if [[ ${#compose_opts[@]} -eq 0 ]]; then
+# ── Docker services ────────────────────────────────────────────────────────────
+
+_docker_up() {
+  # dev-bot must be installed (global config) — report before doing anything,
+  # regardless of whether any compose files are discovered.
+  if [[ ! -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]]; then
+    _fatal "No .devbot.global.jsonc found at ${DEV_BOT_ROOT}/.devbot.global.jsonc — run 'make install' first."
+    exit 1
+  fi
+
+  _compose_opts
+
+  if [[ ${#COMPOSE_OPTS[@]} -eq 0 ]]; then
     _skip "no docker services needed by enabled modules"
     return 0
   fi
@@ -245,15 +265,87 @@ for m in json.loads(sys.stdin.read()):
 
   cd "${DEV_BOT_ROOT}"
   _reclaim_stale_containers
-  _log "docker compose ${compose_opts[*]} up -d --no-recreate"
-  if ! docker compose "${compose_opts[@]}" up -d --no-recreate; then
+  _log "docker compose ${COMPOSE_OPTS[*]} up -d --no-recreate"
+  if ! docker compose "${COMPOSE_OPTS[@]}" up -d --no-recreate; then
     _error "docker compose up failed — docker services not started"
     return 1
   fi
   _ok "Docker services started"
 
-  _rebuild_changed_module_images ${selected_composes[@]+"${selected_composes[@]}"}
+  _rebuild_changed_module_images ${SELECTED_COMPOSES[@]+"${SELECTED_COMPOSES[@]}"}
   _reconcile_ollama_gpu
+}
+
+# ── Writable bind-mount sources ────────────────────────────────────────────────
+# Docker creates a missing bind-mount SOURCE on the host as root:root. A module
+# service that runs as the host uid (codebase-memory-mcp, mdctx-mcp) then finds
+# its own writable state dir owned by root and refuses to start — observed on a
+# fresh macOS install as:
+#   codebase-memory-mcp: exact executable identity could not be verified
+#   (cache-private) - <dir>: owner uid 0, expected euid 501
+# It only ever bites where nothing created the dir first: on a warm machine the
+# dir already exists, so nobody looks. Create the WRITABLE sources ourselves, as
+# the host user, before compose can get there.
+# Deliberately one-sided: a missing READ-ONLY source is a misconfiguration (the
+# module would mount an empty dir), so it must fail loudly — those mounts declare
+# create_host_path: false — and is never fabricated here.
+_ensure_writable_bind_sources() {
+  if [[ ! -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]]; then
+    return 0
+  fi
+
+  _compose_opts
+  if [[ ${#COMPOSE_OPTS[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  # Inside a container there is no docker daemon — the host starts the services.
+  if ! docker info >/dev/null 2>&1; then
+    return 0
+  fi
+
+  # Relative -f paths (and compose's .env lookup) are anchored at DEV_BOT_ROOT.
+  cd "${DEV_BOT_ROOT}"
+
+  local model
+  model="$(docker compose "${COMPOSE_OPTS[@]}" config --format json 2>/dev/null)" || {
+    _warn "could not resolve the compose model — writable mount sources not pre-created"
+    return 0
+  }
+
+  local source
+  while IFS= read -r source; do
+    if [[ -z "${source}" ]]; then
+      continue
+    fi
+    if [[ -d "${source}" ]]; then
+      continue
+    fi
+    if mkdir -p -m 700 "${source}" 2>/dev/null; then
+      _ok "created writable mount source ${source}"
+    else
+      _warn "could not create mount source ${source}"
+    fi
+  done < <(printf '%s' "${model}" | python3 -c '
+import json, sys
+
+try:
+    model = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+
+seen = set()
+for service in model.get("services", {}).values():
+    for volume in service.get("volumes") or []:
+        if volume.get("type") != "bind" or volume.get("read_only"):
+            continue
+        source = volume.get("source")
+        if source and source not in seen:
+            seen.add(source)
+            print(source)
+' 2>/dev/null)
+
+  return 0
 }
 
 # ── Rebuild module images whose build input changed ───────────────────────────
@@ -370,6 +462,7 @@ main() {
   _header_1 "DevBot Up"
 
   _load_env_file
+  _ensure_writable_bind_sources
   _docker_up
   _rebuild_external_module_config
   _run_up_scripts

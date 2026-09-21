@@ -60,10 +60,20 @@ services:
     volumes:
       # Shared index store (read-write) — see the MOUNTS note above. Mounted at
       # the host path so the cache-ancestry check sees the host user's tree.
+      # Its source is pre-created by bin/up.sh (_ensure_writable_bind_sources):
+      # a MISSING bind source is created by the daemon as root:root, and the
+      # server then refuses to start ("owner uid 0, expected euid <host uid>").
       - ${HOME}/.cache/codebase-memory-mcp:${HOME}/.cache/codebase-memory-mcp
       # Repos, read-only, at their real absolute paths. The gateway only reads
       # source to build the graph; it never writes into a repo.
-      - ${CODEBASE_MEMORY_ROOT:-$HOME}:${CODEBASE_MEMORY_ROOT:-$HOME}:ro
+      # create_host_path: false — a missing source here is a misconfiguration,
+      # so fail loudly rather than mount an empty, root-owned directory.
+      - type: bind
+        source: ${CODEBASE_MEMORY_ROOT:-$HOME}
+        target: ${CODEBASE_MEMORY_ROOT:-$HOME}
+        read_only: true
+        bind:
+          create_host_path: false
     environment:
       # HOME must be the host home: the store lives under it, and the cache
       # ancestry check walks that path.

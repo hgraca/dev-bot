@@ -77,8 +77,14 @@ print('MCP:OK')
   assert_success
   # The knowledge base is git-tracked and the server only ever reads it —
   # indexer.js uses readFile/readdir plus a single writeFile to the INDEX path.
-  run grep -q 'storage/global-memories:/data/global-memories:ro' "$compose"
+  # Long syntax, so the read-only flag and create_host_path are asserted on the
+  # corpus mount itself rather than on a ':ro' suffix. create_host_path: false
+  # matters: a missing tracked store is a misconfiguration, and compose would
+  # otherwise mount an empty, root-owned directory in its place.
+  run grep -A6 'source: ${DEV_BOT_ROOT}/storage/global-memories' "$compose"
   assert_success
+  assert_line --partial 'read_only: true'
+  assert_line --partial 'create_host_path: false'
   # The index must stay writable: refresh_index (and loadIndex's auto-heal)
   # rewrites it. Asserted as NOT :ro so a stray ':ro' fails this test.
   run grep -q 'storage/.mdctx:/data/.mdctx:ro' "$compose"

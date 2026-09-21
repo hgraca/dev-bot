@@ -145,6 +145,19 @@ if [[ "$1" == "compose" ]]; then
       [[ "${MOCK_REBUILD_CHANGES_ID:-no}" == "yes" ]] && echo "sha256:rebuilt" > "${IMAGE_ID_FILE}"
       ;;
   esac
+  # `config --format json` answers from ${MOCK_COMPOSE_CONFIG_FILE} (nothing
+  # when unset); ${MOCK_COMPOSE_CONFIG_RC} forces a resolution failure.
+  case " $* " in
+    *" config "*)
+      if [[ -n "${MOCK_COMPOSE_CONFIG_RC:-}" ]]; then
+        exit "${MOCK_COMPOSE_CONFIG_RC}"
+      fi
+      if [[ -n "${MOCK_COMPOSE_CONFIG_FILE:-}" && -f "${MOCK_COMPOSE_CONFIG_FILE}" ]]; then
+        cat "${MOCK_COMPOSE_CONFIG_FILE}"
+      fi
+      exit 0
+      ;;
+  esac
 fi
 exit 0
 MOCK
@@ -164,6 +177,28 @@ _run_docker_up() {
   # shellcheck disable=SC1091
   source "${SANDBOX_DIR}/bin/up.sh"
   _docker_up
+}
+
+# Seed the model `docker compose config --format json` answers with, as
+# "SOURCE|rw" / "SOURCE|ro" rows — one service, one bind mount each.
+_seed_compose_model() {
+  local row source ro vols=""
+  for row in "$@"; do
+    source="${row%%|*}"
+    ro=false
+    [[ "${row##*|}" == "ro" ]] && ro=true
+    vols="${vols}${vols:+, }{\"type\": \"bind\", \"source\": \"${source}\", \"target\": \"/t\", \"read_only\": ${ro}}"
+  done
+  MOCK_COMPOSE_CONFIG_FILE="${SANDBOX_DIR}/compose-model.json"
+  printf '{"services": {"svc": {"volumes": [%s]}}}\n' "${vols}" > "${MOCK_COMPOSE_CONFIG_FILE}"
+  export MOCK_COMPOSE_CONFIG_FILE
+}
+
+# Run the bind-source pre-create the way main() does.
+_run_ensure_sources() {
+  # shellcheck disable=SC1091
+  source "${SANDBOX_DIR}/bin/up.sh"
+  _ensure_writable_bind_sources
 }
 
 # Swap the sandbox stub of _devbot_get_disabled_modules for the REAL
@@ -704,4 +739,86 @@ YAML
   run grep -A6 '^main()' "${PROJECT_ROOT}/bin/up.sh"
   assert_success
   assert_output --partial '_load_env_file'
+}
+
+# ── Writable bind-mount sources ────────────────────────────────────────────────
+# Docker creates a missing bind-mount SOURCE on the host as root:root. A module
+# service that runs as the host uid (codebase-memory-mcp, mdctx-mcp) then finds
+# its own state dir owned by root and refuses to start — a fresh-machine failure
+# that never shows where the dir already exists (an existing image/dir means
+# nobody looks). `_ensure_writable_bind_sources` creates the WRITABLE sources as
+# the host user before compose can get there. READ-ONLY sources are deliberately
+# left alone: a missing one is a misconfiguration (the module would read an empty
+# dir), so it must fail loudly rather than be fabricated.
+
+@test "a missing writable bind source is created 0700 before compose runs" {
+  _setup_sandbox '{}'
+  local missing="${SANDBOX_DIR}/state/writable"
+  _seed_compose_model "${missing}|rw"
+
+  run _run_ensure_sources
+
+  assert_success
+  [ -d "${missing}" ] || fail "writable bind source was not created"
+  assert_equal "$(ls -ld "${missing}" | awk '{print $1}')" "drwx------"
+}
+
+@test "an existing bind source keeps its mode and contents" {
+  _setup_sandbox '{}'
+  local existing="${SANDBOX_DIR}/state/existing"
+  mkdir -p -m 755 "${existing}"
+  : > "${existing}/keep"
+  _seed_compose_model "${existing}|rw"
+
+  run _run_ensure_sources
+
+  assert_success
+  assert_equal "$(ls -ld "${existing}" | awk '{print $1}')" "drwxr-xr-x"
+  [ -f "${existing}/keep" ] || fail "existing content was disturbed"
+}
+
+@test "a READ-ONLY bind source is never created" {
+  _setup_sandbox '{}'
+  local ro="${SANDBOX_DIR}/state/ro-missing"
+  _seed_compose_model "${ro}|ro"
+
+  run _run_ensure_sources
+
+  assert_success
+  [ ! -e "${ro}" ] || fail "a read-only bind source must not be fabricated"
+}
+
+@test "a failing compose config creates nothing and does not block the up" {
+  _setup_sandbox '{}'
+  local target="${SANDBOX_DIR}/state/x"
+  _seed_compose_model "${target}|rw"
+  export MOCK_COMPOSE_CONFIG_RC=1
+
+  run _run_ensure_sources
+  assert_success
+  [ ! -e "${target}" ] || fail "nothing should be created when the model cannot be resolved"
+
+  # A resolver failure is never fatal: the compose up must still run.
+  run _run_docker_up
+  assert_success
+  run grep -E 'compose .*up -d --no-recreate' "${DOCKER_ARGS_FILE}"
+  assert_success
+}
+
+@test "the read-only module mounts declare create_host_path: false" {
+  # The counterpart of the writable pre-create: a missing READ-ONLY source must
+  # error instead of being mounted as an empty root-owned directory.
+  local f
+  for f in "${PROJECT_ROOT}/src/agentic/codebase-memory/docker-compose.yml" \
+    "${PROJECT_ROOT}/src/agentic/mdctx/docker-compose.yml"; do
+    run python3 -c "
+import re, sys
+text = open(sys.argv[1]).read()
+blocks = re.split(r'\n\s*-\s*type:', text)[1:]
+ro = [b for b in blocks if re.search(r'read_only:\s*true', b)]
+assert ro, 'no read-only long-syntax bind mount found'
+assert not [b for b in ro if not re.search(r'create_host_path:\s*false', b)], 'a read-only mount is missing create_host_path: false'
+" "${f}"
+    assert_success
+  done
 }
