@@ -170,3 +170,61 @@ teardown() {
   [ "${found}" -gt 0 ] \
     || fail "found no container_name in any compose file — the discovery glob is wrong"
 }
+
+# ── Build contexts: a build module must resolve its OWN directory ─────────────
+# bin/up.sh passes every selected compose as ONE `-f` list, and docker compose
+# resolves a relative `build.context` against the FIRST file's directory — so a
+# `context: .` pointed at whichever module happened to be -f'd first, and the
+# build died with "failed to solve: failed to read dockerfile: open Dockerfile:
+# no such file or directory". It only bites where no image exists yet (a fresh
+# install, or after `docker rmi`), because an existing image means compose never
+# builds — which is why every warm dev machine was fine.
+# Convention: every `build.context` is anchored on the absolute ${DEV_BOT_ROOT},
+# so it resolves to the module's own directory whichever file is -f'd first —
+# the same rule the fragments' `include:` already follows.
+
+# Compose files that declare a `build:` section, discovered the way bin/up.sh
+# discovers them — `docker-compose*.yml`, so a GPU overlay counts too: up.sh
+# appends an overlay to the same -f list as the compose it overrides.
+# Derived, not enumerated, so a new build module is covered.
+_build_compose_files() {
+  local f
+  shopt -s nullglob
+  for f in "${PROJECT_ROOT}"/src/tools/*/docker-compose*.yml \
+    "${PROJECT_ROOT}"/src/agentic/*/docker-compose*.yml \
+    "${PROJECT_ROOT}"/src/harnesses/*/docker-compose*.yml; do
+    grep -qE '^[[:space:]]*build:' "${f}" 2>/dev/null && printf '%s\n' "${f}"
+  done
+  shopt -u nullglob
+}
+
+@test "every build.context is anchored on an absolute path, not a relative '.'" {
+  local f context found=0
+  while IFS= read -r f; do
+    found=$((found + 1))
+    context="$(sed -n 's/^[[:space:]]*context:[[:space:]]*//p' "${f}" | head -1)"
+    if [[ "${context}" != *'${DEV_BOT_ROOT}'* ]]; then
+      fail "${f#"${PROJECT_ROOT}/"}: build.context '${context}' is not anchored on \${DEV_BOT_ROOT} — a relative context follows the FIRST -f file's directory, not this module's"
+    fi
+  done < <(_build_compose_files)
+  [ "${found}" -gt 0 ] || fail "no compose with a build: section matched — the glob is stale"
+  return 0
+}
+
+@test "a build service resolves its own directory as context when its compose is NOT the first -f" {
+  # The fresh-install regression: ollama's compose first (up.sh discovery order
+  # whenever ollama is enabled), a build module second — compose read the
+  # Dockerfile out of ollama's directory instead of the module's.
+  local first="${PROJECT_ROOT}/src/tools/ollama/docker-compose.yml"
+  local f expected actual found=0
+  while IFS= read -r f; do
+    found=$((found + 1))
+    expected="$(cd "$(dirname "${f}")" && pwd)"
+    actual="$(docker compose -f "${first}" -f "${f}" config --format json 2>/dev/null \
+      | python3 -c 'import json,sys; d=json.load(sys.stdin); [print(v["build"]["context"]) for v in d.get("services", {}).values() if v.get("build")]')"
+    [ "${actual}" = "${expected}" ] \
+      || fail "${f#"${PROJECT_ROOT}/"}: as a non-first -f its build context resolved to '${actual}', expected its own directory '${expected}'"
+  done < <(_build_compose_files)
+  [ "${found}" -gt 0 ] || fail "no compose with a build: section matched — the glob is stale"
+  return 0
+}

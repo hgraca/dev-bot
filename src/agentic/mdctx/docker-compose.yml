@@ -8,14 +8,21 @@
 # one project regardless of which file is first.
 #
 # The image is built on first `devbot up` (compose builds a `build:` service
-# whose image is missing); later runs reuse it. Rebuild after a Dockerfile
-# change with `docker compose -f src/agentic/mdctx/docker-compose.yml build`.
+# whose image is missing); later runs reuse it, and bin/up.sh rebuilds it when
+# the Dockerfile changes. A manual rebuild needs DEV_BOT_ROOT set — see the
+# build.context note below:
+#   DEV_BOT_ROOT="$(pwd)" docker compose -f src/agentic/mdctx/docker-compose.yml build
 name: devbot
 
 services:
   mdctx-mcp:
     build:
-      context: .
+      # ABSOLUTE, via ${DEV_BOT_ROOT}: compose resolves a relative context
+      # against the FIRST -f file's directory, not this module's. With up.sh's
+      # single -f list, `context: .` pointed at src/tools/ollama and the build
+      # died with "failed to read dockerfile" whenever no image existed yet.
+      # Same rule the consumer fragments' `include:` already documents.
+      context: ${DEV_BOT_ROOT}/src/agentic/mdctx
     image: dev-bot-mdctx-mcp:local
     container_name: dev-bot-mdctx-mcp
     # Started on demand by `devbot up` and left running. Deliberately NOT
