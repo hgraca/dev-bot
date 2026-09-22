@@ -350,6 +350,87 @@ print('PLAYWRIGHT-KEPT:OK')
   assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
 }
 
+# ── chrome-devtools: the entry must pick up its declared `enabled: false` ────
+# Its canonical manifest started declaring `enabled`, which changes the
+# translated shape, so entries registered before the field existed are stale and
+# must be dropped for init to re-register them disabled. Off the refresh list
+# the server stays enabled forever (registration is skip-if-exists).
+
+# _write_chrome_devtools_fixture <stale|current>: chrome-devtools explicitly
+# enabled at project level so the test is hermetic. "stale" is the pre-`enabled`
+# shape; "current" is generated from the canonical manifest — a hand-written
+# literal would read as stale and be pruned.
+_write_chrome_devtools_fixture() {
+  local mode="$1"
+
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
+{
+  "modules": {
+    "opencode": true,
+    "chrome-devtools": true
+  }
+}
+JSONC_EOF
+
+  # Keep a user file so .opencode/ survives reset's empty-directory cleanup
+  # (see the playwright fixture above for why this matters).
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+  python3 - "${PROJECT_ROOT}/src/_shared" "${PROJECT_ROOT}" "${SANDBOX_DIR}" "${mode}" <<'PY_EOF'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from mcp_translate import load_canonical, server_map, translate
+
+root, sandbox, mode = sys.argv[2], sys.argv[3], sys.argv[4]
+entry = translate(
+    server_map(load_canonical(root + "/src/agentic/chrome-devtools/mcp.json"))["chrome-devtools"],
+    "opencode",
+)
+if mode == "stale":
+    entry.pop("enabled", None)
+
+with open(sandbox + "/opencode.jsonc", "w") as f:
+    json.dump({"mcp": {"chrome-devtools": entry}}, f, indent=2)
+    f.write("\n")
+PY_EOF
+}
+
+@test "chrome-devtools: an entry predating enabled is dropped (on the refresh list)" {
+  _write_chrome_devtools_fixture stale
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'chrome-devtools' not in mcp, mcp
+print('CDT-REFRESHED:OK')
+"
+  assert_success
+  grep -qF 'CDT-REFRESHED:OK' <<< "$output" || fail "stale chrome-devtools entry not refreshed"
+}
+
+@test "chrome-devtools: the canonical entry is kept (no churn)" {
+  _write_chrome_devtools_fixture current
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+entry = load_jsonc('${SANDBOX_DIR}/opencode.jsonc')['mcp']['chrome-devtools']
+assert entry.get('enabled') is False, entry
+print('CDT-KEPT:OK')
+"
+  assert_success
+  grep -qF 'CDT-KEPT:OK' <<< "$output" || fail "current chrome-devtools entry was churned"
+}
+
 # ── dynamic runtime manifests (module emits, harness merges) ────────────────
 # A module init writes .opencode/<name>.mcp.json for init-time values (jetbrains'
 # detected IDE port); _register_dynamic_mcps merges it append-only. That file is
