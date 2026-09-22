@@ -14,10 +14,15 @@ Canonical module manifest (src/agentic/<module>/mcp.json):
                              "command": [argv...],   // stdio — uniform argv
                              "url": "...",           // http
                              "oauth": bool,          // http passthrough
+                             "enabled": bool,        // opencode-only (see below)
                              "env": { "K": "V" } } } }
 
-No `enabled` field: module enablement (disabled_modules) is the only gate, so
-an enabled module's servers are always wired into every harness.
+`enabled` (optional, defaults to true) ships a server wired but not started, so
+a module can declare a heavy or optional server off by default without forcing
+the user to disable the whole module. It is honored by opencode only: Claude
+Code's `.mcp.json` has no per-server on/off — an `enabled` key in it is ignored
+upstream — so the translator DROPS the key for claudecode, and that harness
+wires the server enabled.
 
 Tokens resolved at translation time:
   {harness-dir}  -> .opencode | .claude   (wrapper/serve-script paths)
@@ -29,8 +34,10 @@ and applies its own placeholder-insensitive comparison afterwards.
 Output shapes:
   opencode   stdio -> {type: local, command, environment}   (env renamed)
              http  -> {type: remote, url, oauth?}
+             either also carries `enabled` when the manifest declares it
   claudecode stdio -> {type: stdio, command: argv[0], args: argv[1:], env}
-             http  -> {type: http, url, env?}               (oauth dropped)
+             http  -> {type: http, url, env?}               (oauth and enabled
+                                                             dropped)
 
 Usage:
   mcp_translate.py <manifest> <harness> [--gpu VAL] [--root PATH]
@@ -49,9 +56,9 @@ TRANSPORTS = ("stdio", "http")
 # Canonical entry keys the translator understands. Underscore-prefixed keys are
 # annotations at any level and are ignored (hooks.json convention). Anything
 # else is a migration mistake — a leftover harness-specific field such as
-# "enabled" or "environment" — and fails loudly rather than being silently
+# "environment" or "headers" — and fails loudly rather than being silently
 # dropped.
-ENTRY_KEYS = ("type", "command", "url", "oauth", "env")
+ENTRY_KEYS = ("type", "command", "url", "oauth", "enabled", "env")
 
 HARNESS_DIRS = {"opencode": ".opencode", "claudecode": ".claude"}
 # {host} resolves to the PRODUCT name each harness is known by — opencode, and
@@ -94,6 +101,8 @@ def _validate_entry(server: str, entry: Any) -> None:
             f"server '{server}': unknown key(s) {', '.join(sorted(unknown))} — "
             f"canonical keys: {', '.join(ENTRY_KEYS)}"
         )
+    if "enabled" in entry and not isinstance(entry["enabled"], bool):
+        raise ValueError(f"server '{server}': enabled must be a boolean")
     transport = entry.get("type")
     if transport not in TRANSPORTS:
         raise ValueError(
@@ -201,6 +210,8 @@ def translate(
             }
             if "oauth" in entry:
                 out["oauth"] = entry["oauth"]
+        if "enabled" in entry:
+            out["enabled"] = entry["enabled"]
         env = entry.get("env")
         if isinstance(env, dict) and env:
             out["environment"] = {
@@ -209,7 +220,9 @@ def translate(
             }
         return out
 
-    # claudecode
+    # claudecode. `enabled` is deliberately dropped: .mcp.json has no per-server
+    # on/off — an `enabled` key in it is ignored upstream — so a server the
+    # canonical manifest marks disabled stays wired (enabled) on this harness.
     if transport == "stdio":
         argv = _substitute(entry["command"], harness, gpu, root)
         out = {"type": "stdio", "command": argv[0]}

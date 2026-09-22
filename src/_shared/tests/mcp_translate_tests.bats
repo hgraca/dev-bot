@@ -10,6 +10,8 @@
 #                            "command": [argv...],   // stdio
 #                            "url": "...",           // http
 #                            "oauth": bool,          // http passthrough
+#                            "enabled": bool,        // per-server on/off — opencode
+#                                                    // only; claudecode drops it
 #                            "env": { "K": "V" } } } }
 #
 # Tokens resolved at translation: {harness-dir} → .opencode/.claude,
@@ -150,6 +152,39 @@ JSON_EOF
   }
 }
 JSON_EOF
+
+  # Per-server enablement: a module can ship its server wired but not started.
+  cat > "$WORK/enabled-false.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": ["bash", "-c", "exec bash {harness-dir}/chrome-devtools-serve.mcp.sh"],
+      "enabled": false
+    }
+  }
+}
+JSON_EOF
+
+  cat > "$WORK/enabled-true.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "signoz": {
+      "type": "http",
+      "url": "http://127.0.0.1:18502/mcp",
+      "enabled": true
+    }
+  }
+}
+JSON_EOF
+
+  cat > "$WORK/enabled-nonbool.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": { "type": "stdio", "command": ["qmd", "mcp"], "enabled": "no" }
+  }
+}
+JSON_EOF
 }
 
 teardown() {
@@ -272,6 +307,34 @@ assert_json_eq() {
   run python3 "$TOOL" "$WORK/env-indirect.json" claudecode
   assert_success
   assert_output --partial '"SIGNOZ_API_KEY": "${SIGNOZ_AUTH_TOKEN}"'
+}
+
+@test "enabled: false is emitted for opencode (wired, not started)" {
+  run python3 "$TOOL" "$WORK/enabled-false.json" opencode
+  assert_success
+  assert_json_eq "$output" '{"chrome-devtools": {"type": "local", "command": ["bash", "-c", "exec bash .opencode/chrome-devtools-serve.mcp.sh"], "enabled": false}}'
+}
+
+@test "claudecode drops enabled (no per-server flag in .mcp.json)" {
+  # Claude Code has no per-server on/off in .mcp.json — an `enabled` key there
+  # is ignored upstream, so writing it would leave the server running while the
+  # config claims otherwise. The translator must never emit it.
+  run python3 "$TOOL" "$WORK/enabled-false.json" claudecode
+  assert_success
+  refute_output --partial "enabled"
+  assert_json_eq "$output" '{"chrome-devtools": {"type": "stdio", "command": "bash", "args": ["-c", "exec bash .claude/chrome-devtools-serve.mcp.sh"]}}'
+}
+
+@test "enabled: true passes through unchanged for opencode (http)" {
+  run python3 "$TOOL" "$WORK/enabled-true.json" opencode
+  assert_success
+  assert_json_eq "$output" '{"signoz": {"type": "remote", "url": "http://127.0.0.1:18502/mcp", "enabled": true}}'
+}
+
+@test "a non-boolean enabled fails loudly" {
+  run python3 "$TOOL" "$WORK/enabled-nonbool.json" opencode
+  assert_failure
+  assert_output --partial "boolean"
 }
 
 @test "unsupported harness fails loudly" {
