@@ -73,17 +73,17 @@ print('MCP:OK')
   assert_success
 }
 
-# ── Lifecycle scripts exist ──────────────────────────────────────────────────
+# ── Module structure (continued) ─────────────────────────────────────────────
 
-@test "install/update/pre/init scripts exist and are executable" {
-  [ -f "$MODULE_DIR/install.sh" ]
-  [ -f "$MODULE_DIR/update.sh" ]
-  [ -f "$MODULE_DIR/pre.sh" ]
-  [ -f "$MODULE_DIR/init.sh" ]
-  [ -x "$MODULE_DIR/install.sh" ]
-  [ -x "$MODULE_DIR/update.sh" ]
-  [ -x "$MODULE_DIR/pre.sh" ]
-  [ -x "$MODULE_DIR/init.sh" ]
+@test "the module ships no host-side lifecycle scripts" {
+  # There is nothing to install or update on the host: the server runs in the
+  # gateway container and the index goes through it over MCP, so the npm binary
+  # and its install/update/pre/init plumbing were removed. `_run_service_scripts`
+  # skips a module whose script file is absent.
+  local script
+  for script in pre.sh install.sh init.sh update.sh; do
+    [ ! -f "$MODULE_DIR/$script" ] || fail "$script should have been removed"
+  done
 }
 
 @test "docker-compose.yml declares the shared gateway on the 18500+ block" {
@@ -170,157 +170,11 @@ print('MCP:OK')
 }
 
 @test "no lifecycle script launches a per-instance stdio MCP process" {
-  # The host session-start hook still runs `codebase-memory-mcp cli ...` (a
-  # one-shot index, not the MCP server) — only the server launch must be gone.
+  # The server runs once per machine in the shared gateway; nothing in the
+  # module may exec a per-instance stdio copy of it.
   run grep -rn 'exec codebase-memory-mcp' "${MODULE_DIR}" --include='*.sh' --include='*.json'
   assert_failure
 }
-
-# ── install.sh behaviour (npm guarded by binary presence) ────────────────────
-
-_setup_sandbox() {
-  SANDBOX="$(mktemp -d)"
-  MOCKBIN="${SANDBOX}/mockbin"
-  mkdir -p "${MOCKBIN}"
-  export NPM_ARGS_FILE="${SANDBOX}/npm.args"
-  : > "${NPM_ARGS_FILE}"
-  # Build a PATH with only the dirs that hold python3/node/npm plus mockbin —
-  # deliberately excluding any dir that also holds codebase-memory-mcp, so the
-  # test can control whether `command -v codebase-memory-mcp` succeeds.
-  local dirs=""
-  local bin d
-  for bin in python3 node npm; do
-    d="$(dirname "$(command -v "$bin")")"
-    case ":$dirs:" in
-      *":$d:"*) ;;
-      *) dirs="${dirs}:${d}" ;;
-    esac
-  done
-  export PATH="${MOCKBIN}:${dirs#:}"
-}
-
-_mock_npm() {
-  cat > "${MOCKBIN}/npm" <<'MOCK'
-#!/usr/bin/env bash
-echo "$@" >> "${NPM_ARGS_FILE}"
-MOCK
-  chmod +x "${MOCKBIN}/npm"
-}
-
-_stub_binary() {
-  cat > "${MOCKBIN}/codebase-memory-mcp" <<'MOCK'
-#!/usr/bin/env bash
-echo "0.10.8"
-MOCK
-  chmod +x "${MOCKBIN}/codebase-memory-mcp"
-}
-
-# Stub node on PATH reporting an old major (pre.sh must reject < 18).
-_stub_old_node() {
-  cat > "${MOCKBIN}/node" <<'MOCK'
-#!/usr/bin/env bash
-echo "v16.20.2"
-MOCK
-  chmod +x "${MOCKBIN}/node"
-}
-
-@test "install.sh: installs codebase-memory-mcp via npm when binary is missing" {
-  _setup_sandbox
-  _mock_npm
-
-  run bash "$MODULE_DIR/install.sh"
-
-  assert_success
-  run cat "${NPM_ARGS_FILE}"
-  assert_output --regexp '^install -g codebase-memory-mcp$'
-}
-
-@test "install.sh: skips npm install when binary is already present" {
-  _setup_sandbox
-  _mock_npm
-  _stub_binary
-
-  run bash "$MODULE_DIR/install.sh"
-
-  assert_success
-  [ ! -s "${NPM_ARGS_FILE}" ]
-}
-
-@test "update.sh: updates codebase-memory-mcp via npm" {
-  _setup_sandbox
-  _mock_npm
-  _stub_binary
-
-  run bash "$MODULE_DIR/update.sh"
-
-  assert_success
-  run cat "${NPM_ARGS_FILE}"
-  assert_output --regexp '^update -g codebase-memory-mcp$'
-}
-
-@test "update.sh: installs via npm when binary is missing (self-healing)" {
-  # `npm update -g` on a never-installed package is a silent no-op, and devbot
-  # update never runs module install.sh — so update must fall back to install
-  # when the binary is absent, or an adopting install registers the MCP server
-  # with no binary (review F1).
-  _setup_sandbox
-  _mock_npm
-
-  run bash "$MODULE_DIR/update.sh"
-
-  assert_success
-  run cat "${NPM_ARGS_FILE}"
-  assert_output --regexp '^install -g codebase-memory-mcp$'
-}
-
-# ── init.sh behaviour (dependency self-heal at reinit) ───────────────────────
-# devbot update never runs module install.sh, and devbot init runs init.sh —
-# so without an init.sh an install that adopts codebase-memory via update+reinit
-# registers the MCP server with no binary (review F1). init.sh delegates to the
-# idempotent install.sh when the binary is absent.
-
-@test "init.sh: installs codebase-memory-mcp when the binary is missing" {
-  _setup_sandbox
-  _mock_npm
-
-  run bash "$MODULE_DIR/init.sh"
-
-  assert_success
-  run cat "${NPM_ARGS_FILE}"
-  assert_output --regexp '^install -g codebase-memory-mcp$'
-}
-
-@test "init.sh: skips install when the binary is already present" {
-  _setup_sandbox
-  _mock_npm
-  _stub_binary
-
-  run bash "$MODULE_DIR/init.sh"
-
-  assert_success
-  [ ! -s "${NPM_ARGS_FILE}" ]
-}
-
-@test "pre.sh: passes when node and npm are present" {
-  _setup_sandbox
-
-  run bash "$MODULE_DIR/pre.sh"
-
-  assert_success
-}
-
-@test "pre.sh: fails when node major is below 18" {
-  # pre.sh documents a Node >= 18 gate (review F5) — an old node must be
-  # rejected loudly at prereq time, not surface later at npm install.
-  _setup_sandbox
-  _stub_old_node
-
-  run bash "$MODULE_DIR/pre.sh"
-
-  assert_failure
-  assert_output --partial "Node.js >= 18 is required"
-}
-
 
 # ── Session-start src|app auto-index (operator directive; audit-52/54/55/56) ──
 
