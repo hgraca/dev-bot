@@ -149,10 +149,13 @@ _detect_mcp_port() {
   return 1
 }
 
+# The IDE's MCP server only exists while an IDE is running, so opencode ships
+# it disabled by default. The claude shape below keeps `enabled: true`: .mcp.json
+# has no per-server on/off, and _wire_mcp treats `false` as "do not wire".
 _build_opencode_sse() {
   local port="$1"
   cat <<EOF
-{"type":"remote","url":"http://127.0.0.1:${port}/stream","headers":{"IJ_MCP_SERVER_PROJECT_PATH":"$(_project_path_ref)"},"enabled":true}
+{"type":"remote","url":"http://127.0.0.1:${port}/stream","headers":{"IJ_MCP_SERVER_PROJECT_PATH":"$(_project_path_ref)"},"enabled":false}
 EOF
 }
 
