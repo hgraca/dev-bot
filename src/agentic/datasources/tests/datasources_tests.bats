@@ -398,6 +398,27 @@ SH
   assert_output --partial '"url": "http://127.0.0.1:18510/mcp/mariadb-dev"'
 }
 
+@test "init: opencode manifest ships disabled, claude manifest enabled" {
+  # The datasource gateways are optional per project, so the opencode manifest
+  # opts the server out by default — one flag turns it on without a reinit.
+  # .mcp.json has no per-server on/off, and _wire_mcp reads `enabled` as a
+  # wire/don't-wire gate, so the claude manifest must stay true or the server
+  # would silently disappear from that harness.
+  _catalogue '{}'
+  _project_config '["mariadb-dev"]'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json"
+  assert_success
+  assert_output --partial '"enabled": false'
+
+  run cat "${PROJECT_DIR}/.claude/datasources-mariadb-dev.mcp.json"
+  assert_success
+  assert_output --partial '"enabled": true'
+}
+
 @test "init: selecting nothing prunes the manifest" {
   _catalogue '{}'
   _project_config '["mariadb-dev"]'

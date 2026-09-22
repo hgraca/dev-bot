@@ -86,6 +86,12 @@ _datasources_harness_disabled() {
 # Write the dynamic MCP manifests for one datasource. opencode's shape is
 # opencode-native (what _register_dynamic_mcps merges verbatim); claudecode's
 # matches the .mcp.json contract. Both mirror the jetbrains module.
+#
+# The gateways are optional per project, so the opencode manifest ships the
+# server disabled by default — one flag turns it on without a reinit. The
+# claudecode entry keeps `true`: .mcp.json has no per-server on/off, and
+# _wire_mcp reads `enabled` as a wire/don't-wire gate, so `false` there would
+# silently drop the server from that harness.
 _datasources_write_manifests() {
   local name="$1"
   local url="${MCP_BASE}/${name}"
@@ -94,7 +100,7 @@ _datasources_write_manifests() {
   if ! _datasources_harness_disabled opencode; then
     local dir="${PROJECT_DIR}/.opencode"
     mkdir -p "${dir}"
-    printf '{"%s": {"type": "remote", "url": "%s", "enabled": true}}\n' \
+    printf '{"%s": {"type": "remote", "url": "%s", "enabled": false}}\n' \
       "${server}" "${url}" > "${dir}/${PREFIX}${name}.mcp.json"
   fi
 
