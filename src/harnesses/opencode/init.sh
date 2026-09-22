@@ -385,9 +385,13 @@ _link_module_plugins() {
 
 # ── Register dynamic MCP manifests written by module inits (e.g. jetbrains) ──
 # Module inits emit .opencode/<name>.mcp.json (a {key: def} object) instead of
-# editing opencode.jsonc directly — this harness step applies them.
+# editing opencode.jsonc directly — this harness step applies them. A def that
+# changed since it was registered replaces the stale entry, so a release can
+# change what a module emits and existing configs pick it up on reinit.
 _register_dynamic_mcps() {
   local merge_script="${DEV_BOT_ROOT}/src/_shared/merge_mcp_jsonc.py"
+  local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+  local remove_script="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
   [[ -f "${merge_script}" ]] || return 0
 
   # A disabled module's init did not run, so any manifest it still owns is
@@ -411,6 +415,22 @@ _register_dynamic_mcps() {
     [[ -z "${key}" || "${key}" == "null" ]] && continue
     def=$(jq -c --arg k "${key}" '.[$k]' "${manifest}" 2>/dev/null || true)
     [[ -z "${def}" || "${def}" == "null" ]] && continue
+
+    # merge_mcp_jsonc.py is insert-only (SKIP_EXISTS), so a module that changes
+    # the def it emits — e.g. flipping `enabled` — could never reach an already
+    # registered config: the change would be fresh-install-only. A dynamic entry
+    # is machine-generated, not user-owned, so replace it when it differs.
+    # Compared key-order-insensitively (jq -S): a matching def must not be
+    # touched, since a removal re-appends the entry and reorders the mcp map.
+    if [[ -f "${remove_script}" ]]; then
+      local existing def_sorted
+      existing=$(python3 "${reader}" "${PROJECT_DIR}/opencode.jsonc" mcp 2>/dev/null \
+        | jq -Sc --arg k "${key}" '.[$k] // empty' 2>/dev/null || true)
+      def_sorted=$(jq -Sc . <<<"${def}" 2>/dev/null || true)
+      if [[ -n "${existing}" && "${existing}" != "${def_sorted}" ]]; then
+        python3 "${remove_script}" "${PROJECT_DIR}/opencode.jsonc" "${key}" >/dev/null 2>&1 || true
+      fi
+    fi
 
     if python3 "${merge_script}" "${PROJECT_DIR}/opencode.jsonc" "${key}" "${def}" >/dev/null 2>&1; then
       _ok "Registered dynamic MCP '${key}' from $(basename "${manifest}")"

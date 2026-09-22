@@ -54,6 +54,15 @@ _put_manifest() {
 JSON_EOF
 }
 
+# _put_manifest_with <enabled>: a manifest whose def can be made to differ from
+# what a pre-existing config holds, so the upsert path is exercised.
+_put_manifest_with() {
+  mkdir -p "${SANDBOX_DIR}/.opencode"
+  cat > "${SANDBOX_DIR}/.opencode/jetbrains.mcp.json" <<JSON_EOF
+{"jetbrains": {"type": "remote", "url": "http://127.0.0.1:64442/stream", "enabled": $1}}
+JSON_EOF
+}
+
 # _assert_mcp <present|absent>
 _assert_mcp() {
   run python3 -c "
@@ -88,4 +97,73 @@ print('DYN-MCP:OK')
   assert_success
 
   _assert_mcp present
+}
+
+@test "dynamic MCP: a changed manifest def replaces the registered entry" {
+  # merge_mcp_jsonc.py is insert-only (SKIP_EXISTS), so a module that changes
+  # the def it emits — e.g. flipping `enabled` true → false — could never reach
+  # an existing config: the change would be fresh-install-only.
+  _write_project_config true
+  _put_manifest_with false
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "jetbrains": { "type": "remote", "url": "http://127.0.0.1:64442/stream", "enabled": true }
+  }
+}
+JSONC_EOF
+
+  run bash "${INIT_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+entry = load_jsonc('${SANDBOX_DIR}/opencode.jsonc')['mcp']['jetbrains']
+assert entry.get('enabled') is False, entry
+print('UPSERTED:OK')
+"
+  assert_success
+  grep -qF 'UPSERTED:OK' <<< "$output" || fail "stale dynamic def was not replaced"
+}
+
+@test "dynamic MCP: a matching def is left in place (no churn, no reorder)" {
+  # A removal re-appends the entry, so a def that already matches must not be
+  # touched — otherwise every reinit reorders the mcp map. jetbrains must NOT be
+  # last in the fixture: a re-append would land it back in the same place and
+  # the ordering assertion would hold either way (a vacuous test).
+  _write_project_config true
+  _put_manifest_with false
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "mdctx": { "type": "remote", "url": "http://127.0.0.1:18501/mcp" },
+    "jetbrains": { "type": "remote", "url": "http://127.0.0.1:64442/stream", "enabled": false },
+    "tools-mcp": { "type": "remote", "url": "http://127.0.0.1:18505/mcp" }
+  }
+}
+JSONC_EOF
+
+  run bash "${INIT_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+keys = list(load_jsonc('${SANDBOX_DIR}/opencode.jsonc')['mcp'])
+assert keys == ['mdctx', 'jetbrains', 'tools-mcp'], keys
+print('NO-REORDER:OK')
+"
+  assert_success
+  grep -qF 'NO-REORDER:OK' <<< "$output" || fail "a matching dynamic def was churned"
+
+  # A second run leaves the file byte-identical (the reinit idempotency claim).
+  local after_first
+  after_first="$(cat "${SANDBOX_DIR}/opencode.jsonc")"
+
+  run bash "${INIT_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+  assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
 }
