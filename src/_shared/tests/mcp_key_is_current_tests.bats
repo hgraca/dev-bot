@@ -53,6 +53,19 @@ JSON_EOF
 }
 JSON_EOF
 
+  # A module that ships its server disabled by default.
+  cat > "$WORK/disabled-module.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": ["bash", "-c", "exec bash {harness-dir}/chrome-devtools-serve.mcp.sh"],
+      "enabled": false
+    }
+  }
+}
+JSON_EOF
+
   # opencode runtime config with module-managed servers registered.
   cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
 {
@@ -67,6 +80,43 @@ JSONC_EOF
 
 teardown() {
   rm -rf "$WORK" 2>/dev/null || true
+}
+
+@test "exit 0 when the config's enabled differs from the module default (user-owned)" {
+  # `enabled` is the user's switch. Once the config carries one, the module's
+  # declared default must not make the entry stale — otherwise reset drops it,
+  # init re-registers the default, and a routine reinit silently undoes the
+  # user's choice.
+  cat > "$WORK/user-enabled.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "chrome-devtools": {
+      "type": "local",
+      "command": ["bash", "-c", "exec bash .opencode/chrome-devtools-serve.mcp.sh"],
+      "enabled": true
+    }
+  }
+}
+JSONC_EOF
+  run python3 "$TOOL" "$WORK/user-enabled.jsonc" "$WORK/disabled-module.json" "chrome-devtools" opencode
+  assert_success
+}
+
+@test "exit 1 when the config has no enabled opinion yet (the default must land)" {
+  # The other half of the rule: a config that expresses no opinion IS stale, so
+  # a release newly declaring `enabled` still reaches existing installs.
+  cat > "$WORK/no-enabled.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "chrome-devtools": {
+      "type": "local",
+      "command": ["bash", "-c", "exec bash .opencode/chrome-devtools-serve.mcp.sh"]
+    }
+  }
+}
+JSONC_EOF
+  run python3 "$TOOL" "$WORK/no-enabled.jsonc" "$WORK/disabled-module.json" "chrome-devtools" opencode
+  assert_failure
 }
 
 @test "exit 0 when opencode def matches translated canonical (no removal)" {

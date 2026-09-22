@@ -101,8 +101,67 @@ print('DYN-MCP:OK')
 
 @test "dynamic MCP: a changed manifest def replaces the registered entry" {
   # merge_mcp_jsonc.py is insert-only (SKIP_EXISTS), so a module that changes
-  # the def it emits — e.g. flipping `enabled` true → false — could never reach
-  # an existing config: the change would be fresh-install-only.
+  # the def it emits could never reach an existing config: the change would be
+  # fresh-install-only. The config carries no `enabled` opinion, so the module's
+  # declared default is introduced along with the new def.
+  _write_project_config true
+  _put_manifest_with false
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "jetbrains": { "type": "remote", "url": "http://127.0.0.1:64442/OLD" }
+  }
+}
+JSONC_EOF
+
+  run bash "${INIT_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+entry = load_jsonc('${SANDBOX_DIR}/opencode.jsonc')['mcp']['jetbrains']
+assert entry['url'] == 'http://127.0.0.1:64442/stream', entry
+print('UPSERTED:OK')
+"
+  assert_success
+  grep -qF 'UPSERTED:OK' <<< "$output" || fail "stale dynamic def was not replaced"
+}
+
+@test "dynamic MCP: a config with no enabled opinion receives the module default" {
+  # Propagation, isolated: nothing differs but the module newly declaring
+  # `enabled: false`, and the entry must still be refreshed for it to land.
+  _write_project_config true
+  _put_manifest_with false
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "jetbrains": { "type": "remote", "url": "http://127.0.0.1:64442/stream" }
+  }
+}
+JSONC_EOF
+
+  run bash "${INIT_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+entry = load_jsonc('${SANDBOX_DIR}/opencode.jsonc')['mcp']['jetbrains']
+assert entry.get('enabled') is False, entry
+print('DEFAULT-LANDED:OK')
+"
+  assert_success
+  grep -qF 'DEFAULT-LANDED:OK' <<< "$output" || fail "the module default did not reach a config with no opinion"
+}
+
+@test "dynamic MCP: a user's enabled choice is not undone by the module default" {
+  # `enabled` is the user's switch. The module emitting `false` must not revert
+  # a `true` the user set: the default-disabled servers are exactly the ones a
+  # user switches on, and a routine reinit silently undoing it would make the
+  # documented toggle useless.
   _write_project_config true
   _put_manifest_with false
   cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
@@ -121,11 +180,11 @@ import sys
 sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
 from read_jsonc import load_jsonc
 entry = load_jsonc('${SANDBOX_DIR}/opencode.jsonc')['mcp']['jetbrains']
-assert entry.get('enabled') is False, entry
-print('UPSERTED:OK')
+assert entry.get('enabled') is True, entry
+print('USER-ENABLED-KEPT:OK')
 "
   assert_success
-  grep -qF 'UPSERTED:OK' <<< "$output" || fail "stale dynamic def was not replaced"
+  grep -qF 'USER-ENABLED-KEPT:OK' <<< "$output" || fail "the user's enabled choice was overwritten"
 }
 
 @test "dynamic MCP: a matching def is left in place (no churn, no reorder)" {

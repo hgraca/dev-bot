@@ -33,6 +33,13 @@ when the caller supplies the expected host value (--gpu):
                         {env:VAR}, claudecode's .mcp.json carries ${VAR}) —
                         current whether the config holds the literal token in
                         either spelling, or omits the key
+  - enabled             user-owned WHERE THE MODULE DECLARES THE FIELD: an
+                        explicit value in the config is the user's switch, so it
+                        is ignored by the comparison and reinit cannot undo it.
+                        A config that omits the key is still stale, so a newly
+                        declared default reaches existing installs. A config
+                        carrying the key for a module that does NOT declare it
+                        is a legacy leftover and stays stale.
 
 Usage:
   mcp_key_is_current.py <config_file> <module_mcp.json> <key> <harness> [--gpu VALUE]
@@ -123,6 +130,18 @@ def _normalize(entry, config_entry, gpu=None):
     Other differences stay visible.
     """
     entry = json.loads(json.dumps(entry))  # deep copy
+
+    # `enabled` is user-owned, but only where the module has adopted the field:
+    # once the config carries a value, the module's declared default must not
+    # make the entry stale, or a routine reinit would silently undo a server the
+    # user switched on. Both sides are dropped from the comparison so the value
+    # itself is never a staleness signal. When the config omits the key the
+    # comparison runs whole, so a release newly declaring `enabled` still lands —
+    # and an `enabled` on an entry whose module declares none stays stale (the
+    # pre-consolidation leftover this tool already cleans up).
+    if "enabled" in entry and "enabled" in config_entry:
+        entry.pop("enabled", None)
+        config_entry.pop("enabled", None)
 
     # The env block is named `environment` (opencode) or `env` (claudecode)
     # depending on the harness the template was translated for.

@@ -26,7 +26,7 @@ DevBot wires **12 module-declared MCP servers** plus dynamic per-project harness
 | (harness)       | `jetbrains`             | IDE integration — inspections, debugging, database tools (dynamic, runtime port)                       |
 | (harness)       | `datasources-<name>`    | Project databases through the shared MCP Toolbox gateway (dynamic, one server per opted-in datasource) |
 
-Five of these ship **disabled by default** on opencode: `chrome-devtools`, `playwright`, `signoz`, and the dynamic `jetbrains` and `datasources-<name>` servers. They are registered but not started, so a session that does not use them pays none of their tool-schema context or per-instance process cost. Flip `enabled` to `true` in the generated `opencode.jsonc` (or toggle it in the harness) and restart to switch one on. Claude Code has no per-server on/off in `.mcp.json`, so there they stay enabled — see [MCP configuration](/mcp-config#per-server-enablement).
+Five of these ship **disabled by default** on opencode: `chrome-devtools`, `playwright`, `signoz`, and the dynamic `jetbrains` and `datasources-<name>` servers. They are registered but not started, so a session that does not use them pays none of their tool-schema context or per-instance process cost. Flip `enabled` to `true` in the generated `opencode.jsonc` (or toggle it in the harness) and restart to switch one on — the value you set is preserved across `reinit`, which only fills in a default where the entry has none. Claude Code has no per-server on/off in `.mcp.json`, so there they stay enabled — see [MCP configuration](/mcp-config#per-server-enablement).
 
 ## devbot-tools MCP tools
 

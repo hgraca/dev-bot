@@ -423,12 +423,28 @@ _register_dynamic_mcps() {
     # Compared key-order-insensitively (jq -S): a matching def must not be
     # touched, since a removal re-appends the entry and reorders the mcp map.
     if [[ -f "${remove_script}" ]]; then
-      local existing def_sorted
+      local existing def_cmp existing_cmp
       existing=$(python3 "${reader}" "${PROJECT_DIR}/opencode.jsonc" mcp 2>/dev/null \
         | jq -Sc --arg k "${key}" '.[$k] // empty' 2>/dev/null || true)
-      def_sorted=$(jq -Sc . <<<"${def}" 2>/dev/null || true)
-      if [[ -n "${existing}" && "${existing}" != "${def_sorted}" ]]; then
-        python3 "${remove_script}" "${PROJECT_DIR}/opencode.jsonc" "${key}" >/dev/null 2>&1 || true
+      if [[ -n "${existing}" ]]; then
+        # `enabled` is user-owned where the module has adopted the field: carry
+        # the config's value onto the def so an emitted default cannot undo the
+        # user's choice, and compare without it. A def that does NOT declare
+        # `enabled` is compared whole, so a legacy key on the entry is still
+        # treated as stale.
+        if [[ "$(jq -r 'has("enabled")' <<<"${existing}" 2>/dev/null)" == "true" ]] \
+          && [[ "$(jq -r 'has("enabled")' <<<"${def}" 2>/dev/null)" == "true" ]]; then
+          def=$(jq -c --argjson e "$(jq -c .enabled <<<"${existing}")" \
+            '. + {enabled: $e}' <<<"${def}" 2>/dev/null || printf '%s' "${def}")
+          existing_cmp=$(jq -Sc 'del(.enabled)' <<<"${existing}" 2>/dev/null || true)
+          def_cmp=$(jq -Sc 'del(.enabled)' <<<"${def}" 2>/dev/null || true)
+        else
+          existing_cmp=$(jq -Sc . <<<"${existing}" 2>/dev/null || true)
+          def_cmp=$(jq -Sc . <<<"${def}" 2>/dev/null || true)
+        fi
+        if [[ "${existing_cmp}" != "${def_cmp}" ]]; then
+          python3 "${remove_script}" "${PROJECT_DIR}/opencode.jsonc" "${key}" >/dev/null 2>&1 || true
+        fi
       fi
     fi
 

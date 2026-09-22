@@ -60,6 +60,8 @@ Five servers ship disabled by default — `chrome-devtools`, `playwright`, `sign
 
 `enabled` is optional and defaults to **true** — a manifest that omits it is wired and started exactly as before. Declare it only to opt out. To switch one on, set its `enabled` to `true` in the generated `opencode.jsonc` entry (or toggle it in the harness) and restart.
 
+An `enabled` value in the config is **yours**: `reinit` never reverts it. The module's declared default applies only to an entry that expresses no opinion — so a release newly declaring `enabled` still reaches an existing install, while a server you switched on stays on.
+
 ## Shared machine-wide gateways
 
 A dev-bot MCP server must never launch its own per-instance process. Servers that are stateless and machine-global run **once per machine** as a docker compose service; every harness instance connects over streamable-http instead of spawning its own stdio copy. This follows the module-owned compose pattern (`docker-compose.yml` in the module dir, auto-discovered by `devbot up`/`down`, gated by the `modules` map).
