@@ -127,11 +127,103 @@ _stub_npm_kit() {
   assert_success
 }
 
-@test "mcp.json: docker path unchanged" {
-  run grep -q 'docker run --rm -i mcp/playwright' "${MODULE_DIR}/mcp.json"
+@test "mcp.json: docker path launches the pinned image, labelled for reaping" {
+  run grep -qF 'docker run --rm -i --label dev-bot.mcp=playwright mcp/playwright' "${MODULE_DIR}/mcp.json"
   assert_success
   run grep -q 'docker info' "${MODULE_DIR}/mcp.json"
   assert_success
+}
+
+# ── down.sh: orphan reaping ───────────────────────────────────────────────────
+
+# A docker stub that records every call and answers `ps -q` with the ids in the
+# given file (empty file = no containers).
+_stub_docker() {
+  local bin_dir="$1" ids_file="$2"
+  mkdir -p "${bin_dir}"
+  cat > "${bin_dir}/docker" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${DOCKER_CALL_LOG}"
+if [[ "\$1" == "ps" ]]; then cat "${ids_file}"; fi
+exit 0
+SH
+  chmod +x "${bin_dir}/docker"
+}
+
+@test "down.sh: the label is the contract between launcher and reaper" {
+  # A one-sided edit silently stops collecting orphans, and nothing else would
+  # notice until the containers pile up again. down.sh reaches the value through
+  # LABEL=, so assert on the value, not on a literal filter expression.
+  local label="dev-bot.mcp=playwright"
+  run grep -qF -- "--label ${label}" "${MODULE_DIR}/mcp.json"
+  assert_success
+  run grep -qF -- "${label}" "${MODULE_DIR}/down.sh"
+  assert_success
+}
+
+@test "down.sh: removes every container carrying the dev-bot label" {
+  local bin_dir tmpdir
+  bin_dir="$(mktemp -d)"
+  tmpdir="$(mktemp -d)"
+  export DOCKER_CALL_LOG="${tmpdir}/docker.log"
+  printf 'abc123\ndef456\n' > "${tmpdir}/ids"
+  _stub_docker "${bin_dir}" "${tmpdir}/ids"
+  export PATH="${bin_dir}:${PATH}"
+
+  run bash "${MODULE_DIR}/down.sh"
+
+  assert_success
+  assert_output --partial "reaped 2 orphaned container(s)"
+  run cat "${DOCKER_CALL_LOG}"
+  assert_output --partial "ps -aq --filter label=dev-bot.mcp=playwright"
+  assert_output --partial "rm -f abc123"
+  assert_output --partial "rm -f def456"
+
+  rm -rf "${bin_dir}" "${tmpdir}"
+}
+
+@test "down.sh: a container that will not die is warned about, not counted" {
+  local bin_dir tmpdir
+  bin_dir="$(mktemp -d)"
+  tmpdir="$(mktemp -d)"
+  export DOCKER_CALL_LOG="${tmpdir}/docker.log"
+  printf 'abc123\ndef456\n' > "${tmpdir}/ids"
+  mkdir -p "${bin_dir}"
+  cat > "${bin_dir}/docker" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${DOCKER_CALL_LOG}"
+if [[ "\$1" == "ps" ]]; then cat "${tmpdir}/ids"; exit 0; fi
+if [[ "\$*" == "rm -f abc123" ]]; then exit 1; fi
+exit 0
+SH
+  chmod +x "${bin_dir}/docker"
+  export PATH="${bin_dir}:${PATH}"
+
+  run bash "${MODULE_DIR}/down.sh"
+
+  assert_success
+  assert_output --partial "reaped 1 orphaned container(s)"
+  assert_output --partial "could not remove container abc123"
+
+  rm -rf "${bin_dir}" "${tmpdir}"
+}
+
+@test "down.sh: a clean no-op when nothing carries the label" {
+  local bin_dir tmpdir
+  bin_dir="$(mktemp -d)"
+  tmpdir="$(mktemp -d)"
+  export DOCKER_CALL_LOG="${tmpdir}/docker.log"
+  : > "${tmpdir}/ids"
+  _stub_docker "${bin_dir}" "${tmpdir}/ids"
+  export PATH="${bin_dir}:${PATH}"
+
+  run bash "${MODULE_DIR}/down.sh"
+
+  assert_success
+  assert_output --partial "no orphaned containers"
+  refute grep -q "rm -f" "${DOCKER_CALL_LOG}"
+
+  rm -rf "${bin_dir}" "${tmpdir}"
 }
 
 @test "mcp.json: ships the server disabled by default (enabled: false)" {

@@ -7,7 +7,7 @@
       "command": [
         "bash",
         "-c",
-        "mkdir -p .agents/logs && if docker info >/dev/null 2>&1; then exec node {harness-dir}/playwright-mcp-wrapper.js docker run --rm -i mcp/playwright 2>>.agents/logs/playwright-mcp.log; else PW_BIN=\"\"; for c in \"$(npm config get prefix 2>/dev/null)/bin/playwright-mcp\" \"$HOME/.npm-global/bin/playwright-mcp\" /usr/local/bin/playwright-mcp; do if [ -x \"$c\" ]; then PW_BIN=\"$c\"; break; fi; done; if [ -z \"$PW_BIN\" ]; then echo \"FATAL: @playwright/mcp not installed — run 'devbot install' (module playwright)\" >&2; exit 1; fi; exec node {harness-dir}/playwright-mcp-wrapper.js node \"$PW_BIN\" --browser chromium 2>>.agents/logs/playwright-mcp.log; fi"
+        "mkdir -p .agents/logs && if docker info >/dev/null 2>&1; then exec node {harness-dir}/playwright-mcp-wrapper.js docker run --rm -i --label dev-bot.mcp=playwright mcp/playwright 2>>.agents/logs/playwright-mcp.log; else PW_BIN=\"\"; for c in \"$(npm config get prefix 2>/dev/null)/bin/playwright-mcp\" \"$HOME/.npm-global/bin/playwright-mcp\" /usr/local/bin/playwright-mcp; do if [ -x \"$c\" ]; then PW_BIN=\"$c\"; break; fi; done; if [ -z \"$PW_BIN\" ]; then echo \"FATAL: @playwright/mcp not installed — run 'devbot install' (module playwright)\" >&2; exit 1; fi; exec node {harness-dir}/playwright-mcp-wrapper.js node \"$PW_BIN\" --browser chromium 2>>.agents/logs/playwright-mcp.log; fi"
       ]
     }
   }
