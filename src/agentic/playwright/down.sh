@@ -13,12 +13,9 @@
 # (proven: `docker compose down --remove-orphans` needs the full fabricated
 # com.docker.compose.* label set, config-hash included, to collect one).
 #
-# bin/down.sh discovers this script like any other module down.sh, which means it
-# is skipped when the module is disabled: a container orphaned while playwright
-# was enabled and then disabled is not collected here. That case has no
-# collection point, so it is a documented manual step:
-#
-#   docker ps -aq --filter label=dev-bot.mcp=playwright | xargs -r docker rm -f
+# bin/down.sh runs this script on every teardown, disabled modules included (it
+# passes `--all`) — so a container orphaned while playwright was enabled and then
+# disabled is still collected here, with no manual step.
 #
 # Non-fatal by design: a container that will not die must not fail `devbot down`.
 set -euo pipefail

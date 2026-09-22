@@ -30,6 +30,7 @@ teardown() {
     kill "${STUB_PID}" 2>/dev/null || true
     wait "${STUB_PID}" 2>/dev/null || true
   fi
+  [ -n "${SANDBOX:-}" ] && rm -rf "${SANDBOX}" 2>/dev/null || true
 }
 
 # ── Module structure ──────────────────────────────────────────────────────────
@@ -167,6 +168,71 @@ print('MCP:OK')
   [ -x "${MODULE_DIR}/up.sh" ]
   run grep -q '18504/mcp' "${MODULE_DIR}/up.sh"
   assert_success
+}
+
+# ── Repo-mount reconciliation (CODEBASE_MEMORY_ROOT drift) ────────────────────
+# Docker fixes a bind mount at container creation and `devbot up` runs compose
+# with --no-recreate, so a changed CODEBASE_MEMORY_ROOT must be applied by
+# force-recreating the gateway. `devbot down && devbot up` is not an option:
+# down is gated on the session registry and keeps the containers.
+
+_setup_up_sandbox() {
+  SANDBOX="$(mktemp -d)"
+  mkdir -p "${SANDBOX}/mockbin"
+  cp "${MODULE_DIR}/up.sh" "${SANDBOX}/up.sh"
+
+  # up.sh sources functions.sh from its own dir — stub it, so the test exercises
+  # the reconcile logic and not the shared library.
+  cat > "${SANDBOX}/functions.sh" <<'EOF'
+#!/usr/bin/env bash
+_info() { true; }
+_ok()   { true; }
+_skip() { true; }
+_warn() { echo "WARN: $*" >&2; }
+_devbot_wait_for_mcp_gateway() { return 0; }
+EOF
+
+  touch "${SANDBOX}/docker-compose.yml"
+  export DOCKER_ARGS_FILE="${SANDBOX}/docker.args"
+  : > "${DOCKER_ARGS_FILE}"
+
+  # Mock docker: `ps -aq` yields a container id; `inspect` yields the bind-mount
+  # source the test asked for (MOCK_ACTUAL_MOUNT).
+  cat > "${SANDBOX}/mockbin/docker" <<'EOF'
+#!/usr/bin/env bash
+echo "$@" >> "${DOCKER_ARGS_FILE}"
+case "$1" in
+  ps)      echo "c0ffee"; exit 0 ;;
+  inspect) echo "${MOCK_ACTUAL_MOUNT:-/desired}"; exit 0 ;;
+esac
+exit 0
+EOF
+  chmod +x "${SANDBOX}/mockbin/docker"
+  PATH="${SANDBOX}/mockbin:${PATH}"
+}
+
+@test "up.sh force-recreates the gateway when the repo mount drifted from the desired root" {
+  _setup_up_sandbox
+  export MOCK_ACTUAL_MOUNT="/old/root"
+  export CODEBASE_MEMORY_ROOT="/new/root"
+
+  run bash "${SANDBOX}/up.sh"
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial 'up -d --force-recreate codebase-memory-mcp'
+}
+
+@test "up.sh leaves the gateway alone when the repo mount already matches" {
+  _setup_up_sandbox
+  export MOCK_ACTUAL_MOUNT="/same/root"
+  export CODEBASE_MEMORY_ROOT="/same/root"
+
+  run bash "${SANDBOX}/up.sh"
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  refute_output --partial 'force-recreate'
 }
 
 @test "no lifecycle script launches a per-instance stdio MCP process" {

@@ -34,7 +34,7 @@ setup() {
   mkdir -p "${DEV_BOT_ROOT}/bin"
   cat > "${DEV_BOT_ROOT}/bin/down.sh" <<EOF
 #!/usr/bin/env bash
-echo "down-called" >> "${DOWN_MARKER}"
+echo "down-called lock-held=\${_DEVBOT_REGISTRY_LOCK_HELD:-0}" >> "${DOWN_MARKER}"
 exit 0
 EOF
   chmod +x "${DEV_BOT_ROOT}/bin/down.sh"
@@ -84,12 +84,30 @@ teardown() {
   exec 210>&- 2>/dev/null || true
 }
 
+@test "register releases the registry lock after publishing its file" {
+  # register takes the registry lock to publish atomically; if it kept the lock,
+  # the directory would stay locked for the whole session.
+  _devbot_session_register
+  run flock -n "${SESSIONS_DIR}" -c true
+  assert_success
+  exec 210>&- 2>/dev/null || true
+}
+
 # ── Release: last session tears down ─────────────────────────────────────────
 
 @test "release tears the containers down when it was the LAST session" {
   _devbot_session_register
   _devbot_session_release
   [ -f "${DOWN_MARKER}" ]
+}
+
+@test "teardown tells down.sh the registry lock is already held" {
+  # The release path holds the registry lock across the teardown, so down.sh
+  # must be told not to re-lock the same directory — that would deadlock.
+  _devbot_session_register
+  _devbot_session_release
+  run cat "${DOWN_MARKER}"
+  assert_output --partial "lock-held=1"
 }
 
 @test "release leaves containers up when ANOTHER session is still live" {

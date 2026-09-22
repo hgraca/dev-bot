@@ -105,7 +105,13 @@ A gateway's credentials are interpolated from the **environment `devbot up` buil
 - `bin/up.sh` loads the repo-root `.env` before invoking compose. This matters because compose interpolation reads the **project directory's** `.env`, and with a module-first `-f` list (the norm — there is no root compose) that directory is the _module's_. Without the explicit load, the repo `.env` is ignored and `${VAR}` silently interpolates to empty.
 - Put the value in the repo-root `.env`, or export it in the shell that runs `devbot up`.
 
-Changing a credential needs a container recreate — `devbot up` runs compose with `--no-recreate`.
+Changing a credential needs a container recreate — `devbot up` runs compose with `--no-recreate`, and `devbot down` removes nothing while any devbot session is alive (it is gated on the install-level session registry). Recreate that one service explicitly instead:
+
+```bash
+docker compose -f src/agentic/<module>/docker-compose.yml up -d --force-recreate <service>
+```
+
+A recreate is not a removal, so the lifetime gate does not apply to it. (The codebase-memory gateway reconciles its own repo mount on `devbot up` — see its module `up.sh` — so no manual recreate is needed there.)
 
 A missing credential is **not** reliably visible to a readiness probe: an MCP `initialize` handshake succeeds against a gateway with no working credential. So `signoz/up.sh` reports `DEGRADED` rather than `reachable` when `SIGNOZ_AUTH_TOKEN` is unset.
 

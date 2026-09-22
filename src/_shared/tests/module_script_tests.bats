@@ -243,3 +243,43 @@ _add_init_module() {
   assert_success
   [ -z "${output}" ]
 }
+
+# ── _run_service_scripts ───────────────────────────────────────────────────
+
+@test "_run_service_scripts skips disabled modules without --all" {
+  # Contrast case for --all: the default is still the per-project filter.
+  _source_lib
+  command -v jq &>/dev/null || skip "jq not installed"
+  export MOCK_DISABLED_MODULES='["skip-me"]'
+  _add_module "src/tools" "skip-me" "down.sh" 'echo "skip_me_ran"'
+  _add_module "src/tools" "keep-me" "down.sh" 'echo "keep_me_ran"'
+
+  run _run_service_scripts "down.sh" "/fake/project"
+  assert_success
+  refute_output --partial "skip_me_ran"
+  assert_output --partial "keep_me_ran"
+}
+
+@test "_run_service_scripts --all runs disabled modules' scripts too" {
+  # Machine-wide teardown needs this: a module disabled in this project may
+  # still own a non-compose container (playwright reaps its own by label).
+  _source_lib
+  export MOCK_DISABLED_MODULES='["skip-me"]'
+  _add_module "src/tools" "skip-me" "down.sh" 'echo "skip_me_ran"'
+  _add_module "src/tools" "keep-me" "down.sh" 'echo "keep_me_ran"'
+
+  run _run_service_scripts --all "down.sh" "/fake/project"
+  assert_success
+  assert_output --partial "skip_me_ran"
+  assert_output --partial "keep_me_ran"
+}
+
+@test "_run_service_scripts --all passes remaining args through" {
+  _source_lib
+  export MOCK_DISABLED_MODULES='[]'
+  _add_module "src/tools" "mod-a" "down.sh" 'echo "args: $*"'
+
+  run _run_service_scripts --all "down.sh" "/my/project"
+  assert_success
+  assert_output --partial "args: /my/project"
+}

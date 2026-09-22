@@ -36,11 +36,13 @@
 #   the mount set is a machine-level property, not a per-instance one. A single
 #   root, defaulting to $HOME, means every project path already resolves with no
 #   per-project action. Narrow it (e.g. to ~/Development) by exporting
-#   CODEBASE_MEMORY_ROOT before `devbot up`; changing it requires recreating the
-#   container (`devbot down && devbot up`), because bin/up.sh runs compose with
-#   --no-recreate. create_host_path: false — a missing source here is a
-#   misconfiguration, so fail loudly rather than mount an empty, root-owned
-#   directory.
+#   CODEBASE_MEMORY_ROOT before `devbot up` — the module's up.sh detects the
+#   drift and force-recreates this service automatically, because Docker fixes
+#   mounts at creation and bin/up.sh runs compose with --no-recreate. (The old
+#   `devbot down && devbot up` no longer works: down is gated on the session
+#   registry and removes nothing while any devbot instance is alive.)
+#   create_host_path: false — a missing source here is a misconfiguration, so
+#   fail loudly rather than mount an empty, root-owned directory.
 #
 # USER — the server runs as the HOST uid/gid, but not via `user:`.
 #   The named volume's owner cannot be baked into the image (the host uid is only

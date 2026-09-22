@@ -1,10 +1,34 @@
 #!/usr/bin/env bash
 # =============================================================================
 # bin/down.sh
-# Tears down docker compose services for dev-bot.
+# Removes all containers in the `devbot` compose project, plus the non-compose
+# ones a module's down.sh reaps (playwright's labelled `docker run` containers).
+# Containers stranded under a DIFFERENT compose project — the retired `dev-bot`
+# name, or a bare `docker run` — are not reached here: bin/up.sh's stale-name
+# reclaim owns those.
+#
+# Lifetime is install-level, not project-level: every module's services live in
+# ONE compose project (`devbot`), shared by every harness session on this
+# machine. So removal is machine-wide — never "this project's services". mdctx
+# and codebase-memory serve every project, and stopping "this project's" copy
+# would stop another live session's.
+#
+# Invariant (see the registry note in src/_shared/functions.sh):
+#   remove dev-bot containers  ⟺  live devbot session count == 0
+#   live > 0  ⟹  nothing is removed. `bin/up.sh` may ADD containers but never
+#               removes one belonging to project `devbot` (it does reclaim
+#               containers stranded under other project names, and force-
+#               recreates ollama to reconcile its GPU state).
+#
+# The last session to exit reaches the count-0 path via
+# _devbot_session_teardown; an explicit `devbot down` while instances are alive
+# is a no-op that warns.
 #
 # Usage:
-#   bin/down.sh
+#   bin/down.sh [project-dir]
+#
+# [project-dir] does NOT scope the teardown — removal is always machine-wide.
+# It is only forwarded to each module's down.sh (none currently reads it).
 # =============================================================================
 
 set -euo pipefail
@@ -18,11 +42,65 @@ source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 
+# ── Lifetime gate ──────────────────────────────────────────────────────────────
+# Gates the WHOLE teardown, module down-scripts included: playwright's reaper
+# removes this machine's playwright containers, and those belong to whichever
+# instance is using them (playwright is per-instance, not shared). Removing
+# anything before the last exit would break a live session.
+#
+# The gate takes the registry lock and HOLDS it for the whole removal, so the
+# session count cannot change between the probe and the containers going away.
+# A session registering concurrently either publishes its file before our probe
+# (count >= 1 → we abort) or blocks on the lock until we are done (its
+# containers then start after our removal — harmless). Probing without the lock
+# would be check-then-act: a session could register in the window and have its
+# containers removed underneath it.
+#
+# No escape hatch by design (user decision, 2026-09-22): a project-scoped
+# override cannot be safe while the containers are machine-wide.
+#
+# _devbot_session_teardown calls us from inside its own critical section and
+# sets _DEVBOT_REGISTRY_LOCK_HELD; re-locking the same directory from a second
+# process would block forever, so honour the flag and never re-lock.
+_down_lock_held() { [[ "${_DEVBOT_REGISTRY_LOCK_HELD:-0}" == "1" ]]; }
+
+_down_guard() {
+  local dir
+  dir="$(_devbot_sessions_dir)"
+
+  if ! _down_lock_held; then
+    mkdir -p "${dir}" 2>/dev/null || true
+    if ! _devbot_lock_wait "${dir}" 30 \
+      "session registry lock held >30s by another process — skipping teardown"; then
+      return 1
+    fi
+  fi
+
+  local live
+  live="$(_devbot_live_session_count)"
+  if [[ "${live}" -gt 0 ]]; then
+    _warn "${live} devbot instance(s) still running — containers kept"
+    _down_release_lock
+    return 1
+  fi
+  return 0
+}
+
+# Release the registry lock, but only if WE took it — never yank the caller's.
+_down_release_lock() {
+  _down_lock_held && return 0
+  exec 200>&- 2>/dev/null || true
+}
+
 # ── Module down scripts ────────────────────────────────────────────────────────
+# EVERY module's down.sh runs, including disabled ones (--all): a module
+# disabled in this project may still own a NON-compose container — playwright
+# reaps its own by label, and `docker compose down` cannot collect those.
+# Covered by the disabled-module regression test.
 
 _run_down_scripts() {
   _header_2 "Down Scripts"
-  _run_service_scripts "down.sh" "${PROJECT_DIR}"
+  _run_service_scripts --all "down.sh" "${PROJECT_DIR}"
 }
 
 # ── Docker services ────────────────────────────────────────────────────────────
@@ -35,84 +113,32 @@ _docker_down() {
     exit 1
   fi
 
-  # Mirror bin/up.sh discovery: docker services are only ever started for
-  # enabled modules (consumer fragments may `include:` a disabled provider's
-  # compose). Same scan + disabled filter; skip silently when nothing is
-  # enabled — there is nothing to stop.
-  # Pass the project dir, mirroring bin/up.sh: the effective set is
-  # global ∘ per-project, so omitting it would read the global map alone and
-  # miss the compose of a module this project enables.
-  local disabled_modules_list
-  disabled_modules_list=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
-  local disabled_lines
-  disabled_lines=$(echo "${disabled_modules_list}" | python3 -c "
-import json, sys
-for m in json.loads(sys.stdin.read()):
-    print(m)
-" 2>/dev/null || true)
-
-  local compose_files=()
-  local base_dir
+  # ── Discover EVERY module compose ────────────────────────────────────────
+  # No disabled-module filter and no project argument: the disabled set is a
+  # per-project view, but removal is machine-wide — a module disabled HERE may
+  # still own a container (signoz enabled elsewhere). Config-independent, so a
+  # project that enables no docker modules still tears the machine down (the
+  # old project-scoped set early-returned and removed nothing).
+  local compose_opts=()
+  local base_dir f
   for base_dir in "${DEV_BOT_ROOT}/src/tools" "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/harnesses"; do
     [[ -d "${base_dir}" ]] || continue
     while IFS= read -r -d '' f; do
-      compose_files+=("${f}")
+      # Path relative to DEV_BOT_ROOT so docker compose resolves correctly.
+      compose_opts+=("-f" "${f#${DEV_BOT_ROOT}/}")
     done < <(find "${base_dir}" -maxdepth 2 -name 'docker-compose.yml' -type f -print0 2>/dev/null)
   done
 
-  # ── Build compose file list, filtering disabled modules ──────────────────
-  # Mirrors bin/up.sh: a module's docker-compose.gpu.yml is included only when
-  # GPU passthrough is available AND that module's compose is selected.
-  local gpu_ok=0
-  if _devbot_is_true "gpu_enabled" && _has_docker_gpu; then
-    gpu_ok=1
-  fi
-
-  local compose_opts=()
-  # Kept in step with bin/up.sh: a consumer that ships a root docker-compose.yml
-  # gets it first (compose reads the project `name:` from the first -f file),
-  # plus its GPU overlay. dev-bot ships no root compose, so this is normally
-  # skipped; down must still select the same set up did when one exists.
+  # A consumer's own root compose is a member of the same project and belongs in
+  # the set (compose reads the project `name:` from the first -f file). No GPU
+  # overlays: `down` needs no device reservations, so the up.sh overlay logic
+  # has no counterpart here.
   if [[ -f "${DEV_BOT_ROOT}/docker-compose.yml" ]]; then
-    compose_opts=("-f" "docker-compose.yml")
-    if [[ ${gpu_ok} -eq 1 && -f "${DEV_BOT_ROOT}/docker-compose.gpu.yml" ]]; then
-      compose_opts+=("-f" "docker-compose.gpu.yml")
-    fi
+    compose_opts=("-f" "docker-compose.yml" "${compose_opts[@]}")
   fi
-
-  for f in "${compose_files[@]}"; do
-    local mod_dir mod_name
-    mod_dir="$(dirname "${f}")"
-    mod_name="$(basename "${mod_dir}")"    # e.g. "ollama", "codebase-index"
-
-    if echo "${disabled_lines}" | grep -Fxq "${mod_name}" 2>/dev/null; then
-      _skip "${mod_name}: disabled per config — skipping ${mod_dir}/docker-compose.yml"
-      continue
-    fi
-
-    # Use path relative to DEV_BOT_ROOT so docker compose resolves correctly
-    local rel="${f#${DEV_BOT_ROOT}/}"
-    compose_opts+=("-f" "${rel}")
-
-    # The module's GPU overlay, if it ships one, follows its compose. Kept in
-    # step with bin/up.sh: an overlay may declare
-    # `devbot:gpu-overlay-skip-if-included <compose>` and is then skipped when
-    # that compose is already in the set, so a consumer fragment and its
-    # provider never both apply the same device reservation.
-    local gpu_rel="${rel%docker-compose.yml}docker-compose.gpu.yml"
-    if [[ ${gpu_ok} -eq 1 && -f "${DEV_BOT_ROOT}/${gpu_rel}" ]]; then
-      local skip_if
-      skip_if="$(_gpu_overlay_skip_if "${DEV_BOT_ROOT}/${gpu_rel}")"
-      if [[ -n "${skip_if}" ]] && printf '%s\n' "${compose_opts[@]}" | grep -Fxq "${skip_if}"; then
-        _skip "${mod_name}: GPU overlay skipped — ${skip_if} already applies it"
-      else
-        compose_opts+=("-f" "${gpu_rel}")
-      fi
-    fi
-  done
 
   if [[ ${#compose_opts[@]} -eq 0 ]]; then
-    _skip "no docker services needed by enabled modules"
+    _skip "no docker services to stop"
     return 0
   fi
 
@@ -120,7 +146,7 @@ for m in json.loads(sys.stdin.read()):
 
   # Inside a container there is no docker daemon — the containers run on the
   # host, so they cannot be stopped from here. Skip instead of failing
-  # `docker compose down` (mirrors bin/up.sh's guard).
+  # `docker compose down`.
   if ! docker info >/dev/null 2>&1; then
     _skip "no docker daemon (inside a container?) — docker services not stopped here; stop them on the host"
     return 0
@@ -129,19 +155,29 @@ for m in json.loads(sys.stdin.read()):
   _header_3 "Stopping docker services..."
 
   cd "${DEV_BOT_ROOT}"
+  # --remove-orphans collects the containers no selected compose declares —
+  # including datasources, whose generated compose lives under storage/ and is
+  # outside the discovery path.
   _log "docker compose ${compose_opts[*]} down --remove-orphans"
   docker compose "${compose_opts[@]}" down --remove-orphans
   _ok "Docker services stopped"
 }
 
 # ── main ───────────────────────────────────────────────────────────────────────
+
 main() {
   local total_start=${SECONDS}
 
   _header_1 "DevBot Down"
 
+  # Holds the registry lock until _down_release_lock below — the whole teardown
+  # (module down-scripts included) stays inside the critical section.
+  _down_guard || return 0
+
   _run_down_scripts
   _docker_down
+
+  _down_release_lock
 
   echo -e "  ${TEXT_DIM}⏱  Total: $(_fmt_duration $(( SECONDS - total_start )))${TEXT_CLEAR}"
   echo

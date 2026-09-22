@@ -241,16 +241,22 @@ _devbot_lock_wait() {
 # model pulls): the probe opens each file fresh, and a session unlinks its own
 # file on release, so an inherited fd on the old inode cannot keep it "live".
 #
-# _devbot_session_register — record this session. Call BEFORE up.sh so a
-#   concurrent last-exit teardown cannot race the containers this session is
-#   about to use. Holds fd 210 until release (or process exit).
+# _devbot_session_register — record this session. Call BEFORE up.sh. Publishes
+#   the session file while holding the registry lock, so it can never land
+#   inside a teardown's probe+removal window: either the teardown sees it and
+#   aborts, or the teardown finished and this session's containers start after
+#   it. Holds fd 210 until release (or process exit).
 #
 # _devbot_session_release — release this session; if it was the last, tear the
-#   containers down. Idempotent (guarded) — safe to call from a trap that may
+#   containers down. The probe AND the teardown both run INSIDE the registry
+#   lock — that is what makes "remove iff no live session" atomic rather than a
+#   check-then-act. Idempotent (guarded) — safe to call from a trap that may
 #   fire alongside an explicit call.
 #
 # _devbot_session_teardown — docker down for the devbot project (skipped when
-#   there is no docker daemon). Delegates to bin/down.sh.
+#   there is no docker daemon). Delegates to bin/down.sh, telling it the
+#   registry lock is already held (_DEVBOT_REGISTRY_LOCK_HELD) so it never
+#   re-locks the same directory and deadlocks.
 
 _devbot_sessions_dir() {
   echo "${DEV_BOT_ROOT}/storage/run/sessions"
@@ -283,10 +289,23 @@ _devbot_session_register() {
   local dir
   dir="$(_devbot_sessions_dir)"
   mkdir -p "${dir}" 2>/dev/null || return 0
+
+  # Publish our session file while holding the registry lock, the same lock a
+  # teardown holds across its probe+removal. That serializes the two: either we
+  # get the lock first and our file is already visible when the teardown probes
+  # (count >= 1 → it aborts), or the teardown finishes first and our containers
+  # start after its removal (harmless). Proceeding on lock timeout rather than
+  # failing the session — a 30s-held lock means the teardown is wedged, and a
+  # session that refuses to start is worse than a narrowed race.
+  _devbot_lock_wait "${dir}" 30 \
+    "session registry lock held >30s — registering this session without it" || true
+
   # Hold an exclusive flock on this session's file for the process lifetime.
   # fd 210 is distinct from _devbot_lock_wait's fd 200.
-  exec 210>"${dir}/session-$$" 2>/dev/null || return 0
+  exec 210>"${dir}/session-$$" 2>/dev/null || true
   flock -x 210 2>/dev/null || true
+
+  exec 200>&- 2>/dev/null || true  # release the registry lock
 }
 
 _devbot_session_release() {
@@ -313,17 +332,20 @@ _devbot_session_release() {
   _devbot_lock_wait "${dir}" 30 \
     "session registry lock held >30s by another process — skipping teardown" || return 0
 
-  # Count (and prune) the remaining sessions while still holding the registry
-  # lock, so the count and the teardown decision are serialized against other
-  # releases.
+  # Count (and prune) the remaining sessions, and run the teardown, all INSIDE
+  # the registry lock. A session registering concurrently either publishes its
+  # file before this probe (we see it and skip) or blocks on the lock until we
+  # are done (its containers then start after our removal — harmless). The
+  # probe and the removal must not be split across the lock release: that gap
+  # is exactly what let a starting session lose its containers.
   local live
   live="$(_devbot_live_session_count)"
-
-  exec 200>&- 2>/dev/null || true  # release the registry lock
 
   if [[ ${live} -eq 0 ]]; then
     _devbot_session_teardown
   fi
+
+  exec 200>&- 2>/dev/null || true  # release the registry lock
   return 0
 }
 
@@ -339,7 +361,10 @@ _devbot_session_teardown() {
   if [[ "${_DEVBOT_START_FAILED:-0}" != "1" ]]; then
     _info "Last devbot session ended — removing devbot containers"
   fi
-  bash "${down_script}" >/dev/null 2>&1 || true
+  # Our caller still holds the registry lock (see _devbot_session_release).
+  # Tell down.sh so it treats the lock as held rather than opening the same
+  # directory and blocking forever on an flock it can never get.
+  _DEVBOT_REGISTRY_LOCK_HELD=1 bash "${down_script}" >/dev/null 2>&1 || true
 }
 
 # ── Harness selection (config-driven) ─────────────────────────────────────────────
@@ -1430,22 +1455,34 @@ _devbot_passthrough_args() {
 
 # ── Service lifecycle runner (up.sh / down.sh) ──────────────────────────────────
 #
-# _run_service_scripts <script_name> [args...]
+# _run_service_scripts [--all] <script_name> [args...]
 #   Runs <script_name> (e.g. up.sh, down.sh) in every module directory —
 #   internal (src/tools, src/agentic, src/harnesses) and external
 #   (storage/external-agentic-modules) — skipping disabled modules.
 #   Remaining args are passed to each script.
+#   --all: run disabled modules' scripts too. Machine-wide teardown needs this
+#   — a module disabled in this project may still have left a NON-compose
+#   container behind (playwright reaps its own), and the disabled filter would
+#   otherwise leave it uncollected.
 
 _run_service_scripts() {
+  local include_disabled=0
+  if [[ "${1:-}" == "--all" ]]; then
+    include_disabled=1
+    shift
+  fi
+
   local script_name="$1"
   shift
 
   local -a base_dirs=("${DEV_BOT_ROOT}/src/tools" "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/harnesses")
   [[ -d "${DEV_BOT_ROOT}/storage/external-agentic-modules" ]] && base_dirs+=("${DEV_BOT_ROOT}/storage/external-agentic-modules")
 
-  local disabled_raw disabled_modules
-  disabled_raw=$(_devbot_get_disabled_modules "${1:-}")
-  disabled_modules=$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
+  local disabled_raw="" disabled_modules=""
+  if [[ ${include_disabled} -eq 0 ]]; then
+    disabled_raw=$(_devbot_get_disabled_modules "${1:-}")
+    disabled_modules=$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
+  fi
 
   local count=0
   local skipped=0
@@ -1456,7 +1493,7 @@ _run_service_scripts() {
       local module_name
       module_name="$(basename "${module_dir}")"
 
-      if echo "${disabled_modules}" | grep -Fxq "${module_name}" 2>/dev/null; then
+      if [[ ${include_disabled} -eq 0 ]] && echo "${disabled_modules}" | grep -Fxq "${module_name}" 2>/dev/null; then
         skipped=$((skipped + 1))
         continue
       fi
