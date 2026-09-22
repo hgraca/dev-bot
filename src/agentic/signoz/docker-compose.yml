@@ -19,6 +19,12 @@ services:
   signoz-mcp:
     image: signoz/signoz-mcp-server:v0.14.0
     container_name: dev-bot-signoz-mcp
+    # Host uid/gid. The image is distroless and declares no user, so without
+    # this the gateway runs as root. Nothing it mounts is host-writable today,
+    # so it cannot drop root-owned files into a shared store — but that is a
+    # property of today's spec, not a guarantee. Running unprivileged makes a
+    # future writable mount safe by construction.
+    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
     # Started on demand by `devbot up` and left running. Deliberately NOT
     # `unless-stopped`: the gateway is a dev machine service tied to the dev-bot
     # services around it, so it should not come back on its own after a reboot

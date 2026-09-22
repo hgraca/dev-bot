@@ -66,6 +66,14 @@ print('MCP:OK')
   assert_success
 }
 
+@test "docker-compose.yml runs the gateway as the host uid, not root" {
+  # The image is distroless and declares no user, so omitting this runs the
+  # gateway as root. It has no writable mount today; the point is that adding
+  # one later cannot produce root-owned files in a shared store.
+  run grep -qF 'user: "${DEV_UID:-1000}:${DEV_GID:-1000}"' "$MODULE_DIR/docker-compose.yml"
+  assert_success
+}
+
 @test "up.sh waits for the shared gateway" {
   [ -f "${MODULE_DIR}/up.sh" ]
   [ -x "${MODULE_DIR}/up.sh" ]
