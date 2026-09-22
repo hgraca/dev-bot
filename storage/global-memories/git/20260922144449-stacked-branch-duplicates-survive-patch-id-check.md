@@ -1,0 +1,9 @@
+---
+date: 2026-09-22
+keywords: ["git", "rebase", "stacked-branch", "patch-id", "git-cherry"]
+trigger-on: ["stacked-branch-rebase", "rebase-duplicate-commits"]
+---
+
+## A stacked branch's base lands on main in *evolved* form — patch-id detection misses it and the rebase replays duplicates into conflicts
+
+When a branch is stacked on another branch whose work is merged (rebased/reviewed) into the default branch, the base's commits reappear on main with the **same subjects but different content**. `git cherry -v origin/main HEAD` marks the byte-identical ones `-` (the rebase auto-drops them: *"warning: skipped previously applied commit"*), but the ones whose patch changed stay `+` — so `git rebase origin/main` replays them and stops on conflicts in exactly the files main already rewrote. That conflict burst is a false alarm: it means main holds a *later revision* of your own work. Diagnose before resolving: match each `+` commit's subject against `git log --oneline origin/main`; on a match, compare revisions with `git diff origin/main:<file> HEAD:<file>` (and `git show <main-sha>` vs `git show <yours>`) — main's copy is normally the newer, review-fixed one, so yours must be **dropped, not merged** (merging re-introduces the bugs the later revision fixed; here: a `static` cache purge that could not clear an instance memo, and `Cache::remember` hiding hit/miss). Resolve without a conflict loop: when the redundant commits are consecutive ancestors of the ones you keep, `git rebase --onto origin/main <last-redundant-sha>` replays only the genuinely new commits — zero conflicts, versus `git rebase origin/main` which stopped five times on this branch. Afterwards prove nothing was lost by confirming each kept commit's patch is unchanged (`git show <sha> | git patch-id --stable`) and that the result diffs against main only in the expected files.
