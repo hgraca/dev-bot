@@ -99,6 +99,21 @@ _sqlite_catalogue() {
   _catalogue '{ "scratch": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/scratch.db" } } }'
 }
 
+# A docker stub that records every invocation, so a test can tell whether the
+# gateway was actually started. Prepended over the setup stub.
+_record_docker() {
+  DOCKER_LOG="${SANDBOX_DIR}/docker-calls.log"
+  mkdir -p "${SANDBOX_DIR}/recbin"
+  cat > "${SANDBOX_DIR}/recbin/docker" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${DOCKER_LOG}"
+[[ "\$1" == "inspect" ]] && echo false
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/recbin/docker"
+  export PATH="${SANDBOX_DIR}/recbin:${PATH}"
+}
+
 # ── render.sh ────────────────────────────────────────────────────────────────
 
 @test "render: a usable datasource becomes a source, a tool and a toolset" {
@@ -488,10 +503,14 @@ JSON
 
 # ── up.sh ────────────────────────────────────────────────────────────────────
 
-@test "up: a failed render warns but still starts the gateway" {
+@test "up: a failed render still starts on the last good config" {
   # A render failure (docker down, inconclusive validation) must not abort the
-  # boot: a gateway up on the last good config beats no gateway at all.
+  # boot: the config already on disk keeps serving. Only an EMPTY on-disk
+  # catalogue means there is nothing to serve, whatever the render did.
   _sqlite_catalogue
+  mkdir -p "${CONF_DIR}"
+  printf 'kind: source\nname: scratch\n' > "${CONF_DIR}/tools.yaml"
+  _record_docker
 
   local boom="${SANDBOX_DIR}/validator-boom.py"
   cat > "${boom}" <<'PY'
@@ -506,6 +525,53 @@ PY
   run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
   assert_success
   assert_output --partial "render failed; starting the gateway with the previous config"
+  grep -q "up -d" "${DOCKER_LOG}"
+}
+
+@test "up: a failed render over an empty catalogue starts nothing" {
+  # The render's exit status and the catalogue DISAGREE here, and this is the
+  # case that matters: the render failed, but what is on disk is the empty
+  # placeholder — exactly the zero-tool gateway the guard exists to prevent.
+  _catalogue '{}'
+  mkdir -p "${CONF_DIR}"
+  printf '# No datasources configured in .devbot.global.jsonc.\n' > "${CONF_DIR}/tools.yaml"
+  _record_docker
+
+  local boom="${SANDBOX_DIR}/validator-boom.py"
+  cat > "${boom}" <<'PY'
+import sys
+sys.exit(2)
+PY
+  export DATASOURCES_VALIDATOR="${boom}"
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+  assert_output --partial "no usable datasources; gateway not started"
+  refute grep -q "up -d" "${DOCKER_LOG}"
+}
+
+@test "up: an empty catalogue does not start the gateway" {
+  # Nothing to serve: a successfully rendered catalogue with no sources means
+  # zero tools, so the gateway is pure cost — and on macOS/Windows Docker
+  # Desktop it is unreachable anyway (host networking is a Linux capability).
+  _catalogue '{}'
+  _record_docker
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+  assert_output --partial "no usable datasources; gateway not started"
+
+  refute grep -q "up -d" "${DOCKER_LOG}"
+}
+
+@test "up: a usable datasource still starts the gateway" {
+  _sqlite_catalogue
+  _record_docker
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+
+  grep -q "up -d" "${DOCKER_LOG}"
 }
 
 @test "up: reaps a poller left behind by an older dev-bot" {

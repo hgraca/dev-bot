@@ -24,6 +24,7 @@ source "${MODULE_DIR}/versions.env"
 
 RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
 COMPOSE_FILE="${RUNTIME_DIR}/docker-compose.yml"
+CONF_FILE="${RUNTIME_DIR}/conf/tools.yaml"
 # A poller left behind by an older dev-bot. Refresh is no longer backgrounded —
 # datasources are evaluated once, at startup — so the only poller that can
 # exist is one an older install started and never stopped. It is detached, so
@@ -63,6 +64,13 @@ _container_name() {
   grep -m1 '^[[:space:]]*container_name:' "${MODULE_DIR}/compose.tpl.yml" | awk '{print $2}'
 }
 
+# The rendered catalogue holds one `kind: source` document per usable
+# datasource. The empty catalogue is a single comment line, so a missing file
+# and a placeholder both count as "nothing to serve".
+_catalogue_has_sources() {
+  [[ -f "$1" ]] && grep -q '^kind: source' "$1"
+}
+
 main() {
   _info "datasources — up"
 
@@ -85,6 +93,20 @@ main() {
   # no gateway at all, and the next `devbot up` re-renders.
   if ! bash "${MODULE_DIR}/render.sh"; then
     _warn "datasources — render failed; starting the gateway with the previous config."
+  fi
+
+  # ...but the config on disk has to have something to serve. An empty catalogue
+  # — no datasources declared, or every one rejected — means zero tools:
+  # starting the gateway is pure cost, and on macOS/Windows Docker Desktop it is
+  # cost with no upside, because host networking is a Linux capability and the
+  # container comes up answering nobody.
+  #
+  # Keyed on the catalogue, never on the render's exit status: the two disagree
+  # exactly when it matters. A failed render over a stale EMPTY catalogue would
+  # otherwise start the zero-tool gateway this guard exists to prevent.
+  if ! _catalogue_has_sources "${CONF_FILE}"; then
+    _skip "datasources — no usable datasources; gateway not started"
+    return 0
   fi
 
   # Compose interpolates ${VAR} from THIS process's environment, and it only
