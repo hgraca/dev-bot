@@ -83,7 +83,14 @@ else
   CHROME_REAL="$(ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | head -1)"
 fi
 
-ARGS=(--headless)
+# --isolated: give each instance its own temporary user-data-dir, removed when
+# the browser closes. Without it every instance targets the server's default
+# profile ($HOME/.cache/chrome-devtools-mcp/chrome-profile) and Chromium refuses
+# to share one: a second concurrent instance dies with
+#   Failed to create .../SingletonLock: File exists (17)
+#   Aborting now to avoid profile corruption.
+# (exit 21), so its browser never starts at all.
+ARGS=(--headless --isolated)
 if [[ -n "${CHROME_REAL}" ]]; then
   WRAP="${HOME}/.cache/ms-playwright/chrome-nosandbox"
   printf '#!/bin/bash\nexec "%s" --no-sandbox "$@"\n' "${CHROME_REAL}" > "${WRAP}"

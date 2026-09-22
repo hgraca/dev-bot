@@ -185,6 +185,19 @@ print('DISABLED-BY-DEFAULT:OK')
   assert_success
 }
 
+@test "serve.mcp.sh: isolates the browser profile per instance" {
+  # This is a stdio server, so one is spawned per harness instance — and two
+  # concurrent instances would otherwise share the server's default
+  # user-data-dir. Chromium refuses that: the second dies with "Failed to
+  # create .../SingletonLock: File exists ... Aborting now to avoid profile
+  # corruption", so its browser never starts. --isolated gives each instance its
+  # own temporary profile. Order-tolerant: assert on the ARGS assignment.
+  local args_line
+  args_line="$(grep -m1 '^ARGS=' "${MODULE_DIR}/serve.mcp.sh")"
+  [[ "${args_line}" == *--headless* ]]
+  [[ "${args_line}" == *--isolated* ]]
+}
+
 # ── audit-25 F4: Chromium discovery must be platform-aware ────────────────────
 # The wrapper's CHROME_REAL glob was Linux-only (chromium-*/chrome-linux*/chrome)
 # so it never matched macOS's chrome-mac/Chromium.app layout, and with no
