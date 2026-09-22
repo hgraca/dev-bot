@@ -53,7 +53,7 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
 
 **up.sh**: Post-docker startup script. Use for pulling models, waiting for services, seeding data.
 
-**down.sh**: Pre-teardown script. Run by `bin/down.sh` before docker services stop.
+**down.sh**: Pre-teardown script. Run by `bin/down.sh` before docker services stop — for **every** module, disabled ones included (`--all`), because a module disabled in this project may still own a non-compose container to reap (playwright's `docker run` orphans).
 
 **reset.sh**: Resets per-project state. Run by `bin/reinit.sh` (`devbot reinit`) before re-running init.
 
@@ -65,7 +65,7 @@ Modules that install an external CLI/MCP dependency globally (e.g. chrome-devtoo
 
 ### Module-owned docker services (`docker-compose.yml`)
 
-A module that needs a long-running service ships its own `docker-compose.yml`; `bin/up.sh`/`down.sh` discover it (maxdepth 2 under each module dir) and start/stop it, gated by the `modules` map — the service runs only while the module is enabled. Every dev-bot compose file declares `name: devbot` so all containers land in one compose project regardless of which file is listed first.
+A module that needs a long-running service ships its own `docker-compose.yml`; `bin/up.sh`/`down.sh` discover it (maxdepth 2 under each module dir) and start/stop it. **`up` is gated by the `modules` map** — the service starts only while the module is enabled. **`down` is not**: containers are install-level, so removal selects every discovered compose and is gated on the session registry instead (see [CLI commands](/cli-commands#devbot-up--devbot-down)). Every dev-bot compose file declares `name: devbot` so all containers land in one compose project regardless of which file is listed first.
 
 A service that builds its own image adds a `Dockerfile` next to the compose file, and anchors the build context on the absolute `DEV_BOT_ROOT` — `build: { context: ${DEV_BOT_ROOT}/src/<area>/<module> }`. Never a relative `.`: `bin/up.sh` lists every selected module compose as one `-f` list, and compose resolves a relative context against the **first** file's directory rather than the file's own, so the build reads whichever module is listed first — the fresh-install failure `failed to read dockerfile: open Dockerfile: no such file or directory`, which appears only where no image exists yet (an existing image means compose never builds). The same rule governs a relative `include:`. `docker compose up` builds the image on first start when it is missing, and `bin/up.sh` rebuilds it when the Dockerfile changes; a manual rebuild needs the variable set (`bin/up.sh` and `bin/down.sh` both export it): `DEV_BOT_ROOT="$(pwd)" docker compose -f <module>/docker-compose.yml build`.
 
@@ -77,7 +77,7 @@ Such a consumer overlay exists only for the case where the provider's **module**
 # devbot:gpu-overlay-skip-if-included src/tools/ollama/docker-compose.yml
 ```
 
-`bin/up.sh` and `bin/down.sh` read that marker via `_gpu_overlay_skip_if` and log the skip. Both scripts implement it identically, so up and down always select the same compose set.
+`bin/up.sh` reads that marker via `_gpu_overlay_skip_if` and logs the skip. Only `up` needs it: `down` applies no GPU overlays at all (a teardown needs no device reservations), so the two commands do not select the same compose set — `up` is module-filtered and overlay-aware, `down` is machine-wide.
 
 Used by the shared MCP gateways — see [MCP configuration](/mcp-config#shared-machine-wide-gateways).
 
