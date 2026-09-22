@@ -1,0 +1,9 @@
+---
+date: 2026-09-22
+keywords: ["otel", "log-rules", "source-scoping", "collector-config"]
+trigger-on: ["otel-log-rule-scoping", "collector-source-guard", "log-pipeline-rule-design"]
+---
+
+## Scope a log rule by source only where content-keying over-matches
+
+Two ways to make a log rule specific: key on a field the dialect emits, or guard on the source (`k8s.container.name` = the log **dialect**, `service.name` = the **application**). Content-keying is usually better, and source guards are for the cases it cannot cover. A regex that matches a line shape *is* the dialect test — the container name does not tell you which line shape arrived, so format parsers (nginx/Gotenberg/PHP text parsers, `json_parser`, time parsers) should stay content-driven. Semantic fields a dialect deliberately emits are likewise safe to key on unguarded: `status`, `level_name`, `level`, `context`, `log_type`, `logger`. Data point from one estate: `status` appears on ~1.6M nginx and ~1.6M php-fpm records a day plus `booking-tool`, `worker` and `dashboard-metrics-scraper` — all genuine HTTP statuses following the intended mapping, so guarding that block by container would have changed severity for ~1.5M records/day to fix nothing. Guard where content-keying over-matches: prose (see the body-matching note), or a field whose only owner is one dialect when another service could plausibly log it (`log_type == "access"`). Write guards to **fail open** — a record missing the attribute keeps its lookup result, so a scoping mistake degrades to the previous behaviour instead of mis-transforming — and keep each source's rules together under a `# >>> SOURCE` / `# <<< SOURCE` banner with the source check leading the condition, since a group must still sit after the prerequisites it reads (a group reading a `json_parser` output above that parser goes dead with no error anywhere).
