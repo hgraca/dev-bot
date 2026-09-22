@@ -10,10 +10,10 @@
   "memory_search_provider": "mdctx", // qmd | mdctx (absent => mdctx); pin "qmd" to keep the semantic/GPU engine
   "modules": {
     "claudecode": false,
+    "jetbrains": false,
     "litellm": false,
     "ollama": false,
     "react": false,
-    "signoz": false,
     "svelte": false
   },
   "auto_recover": {

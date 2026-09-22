@@ -7,11 +7,6 @@
   // are registered with this project's harness — the rest cost nothing, not
   // even context.
   "datasources": [],
-  "modules": {
-    "react": false,
-    "signoz": false,
-    "svelte": false
-  },
   "auto_recover": {
     "max_attempts": 5
   },
