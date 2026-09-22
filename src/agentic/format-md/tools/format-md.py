@@ -91,6 +91,15 @@ def format_md_text(text: str, extra_args: list[str] | None = None) -> str:
 EXCLUDED_DIRS = frozenset({'.git', 'no-vcs', 'node_modules', 'storage', 'tests', 'vendor', '__pycache__', '.opencode', '.ai', 'graphify-out'})
 
 
+def _warn_missing(path: str) -> None:
+    """Report a path that has nothing to format.
+
+    The file.edited hook can fire for a path that is renamed or deleted before
+    — or while — the formatter runs, so this is a warning, never a failure.
+    """
+    print(f"WARN: {path!r} is not a file or directory — nothing to format", file=sys.stderr)
+
+
 def format_file(path: str) -> None:
     """Format a single markdown file in-place via prettier pipe.
 
@@ -192,12 +201,18 @@ def main() -> int:
         elif os.path.isfile(path):
             try:
                 format_file(path)
+            except FileNotFoundError:
+                # Renamed or deleted while prettier was running — the same
+                # "nothing to format" case as below, one window later.
+                _warn_missing(path)
             except Exception as e:
                 print(f"Error formatting {path}: {e}", file=sys.stderr)
                 errors += 1
         else:
-            print(f"Error: {path!r} is not a file or directory.", file=sys.stderr)
-            errors += 1
+            # Nothing to format: the hook can fire for a path that is renamed
+            # or deleted before it runs. Warn, but exit 0 — a vanished file
+            # must not fail the hook.
+            _warn_missing(path)
 
     return 0 if errors == 0 else 1
 

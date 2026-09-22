@@ -132,11 +132,13 @@ setup() {
 
 # ── Non-existent file ──────────────────────────────────────────────────────────
 
-@test "non-existent file: prints error to stderr" {
+@test "non-existent file: warns and exits 0 (vanished-file race)" {
+  # file.edited can fire for a path renamed or deleted before the hook runs.
+  # There is nothing to format — a warning, never a failure.
   run bash "$TOOL" "$FIXTURES/does_not_exist.md"
 
-  assert_failure
-  assert_output --partial "Error"
+  assert_success
+  assert_output --partial "WARN"
 }
 
 # ── Edge cases ─────────────────────────────────────────────────────────────────
@@ -242,4 +244,36 @@ STUB
   assert_output --partial "concurrent write"
 
   rm -f "$tmpfile"
+}
+
+@test "single file: a file deleted while prettier runs warns and exits 0" {
+  # The other half of the vanished-file race: the path passed the isfile()
+  # check and is gone by the time the formatted result is written back.
+  local sb="$BATS_TEST_TMPDIR/stub-del"
+  mkdir -p "$sb"
+
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$sb/node"
+  cat > "$sb/prettier" <<'STUB'
+#!/usr/bin/env bash
+path=""
+prev=""
+for a in "$@"; do
+  [[ "$prev" == "--stdin-filepath" ]] && path="$a"
+  prev="$a"
+done
+[[ -n "$path" ]] && rm -f "$path"
+cat
+printf '\n'
+STUB
+  chmod +x "$sb/node" "$sb/prettier"
+
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
+  printf '# Title\n' > "$tmpfile"
+
+  export PATH="$sb:$PATH"
+  run bash "$TOOL" "$tmpfile"
+  assert_success
+  assert_output --partial "WARN"
+  [ ! -f "$tmpfile" ]
 }
