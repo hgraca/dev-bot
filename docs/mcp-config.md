@@ -15,10 +15,12 @@ Each module declares its MCP servers **once** in a **`mcp.json` manifest** (harn
 
 ## Module gate
 
-There is **no per-server `enabled` field** and no per-harness enablement. Module enablement is the only gate:
+Module enablement is the primary gate:
 
 - module **enabled** → all servers it declares are wired into _every_ harness;
 - module **disabled** → its servers appear in _no_ harness config (opencode reset prunes them on reinit; claudecode regenerates without them).
+
+Within an enabled module a server can additionally ship **wired but not started** — see [Per-server enablement](#per-server-enablement).
 
 ## Reducing the footprint
 
@@ -32,7 +34,7 @@ Every enabled server's tool schemas are injected into the session context, and e
 | devbot-tools    | 11    | ~1.1k             |
 | mdctx           | 3     | ~0.3k             |
 
-To stop paying for a server in a project, **disable its module** — module enablement is the only gate:
+The five heaviest or most situational servers already ship **disabled by default** — `chrome-devtools`, `playwright`, `signoz`, `jetbrains` and each `datasources-<name>` gateway — so an enabled project pays nothing for them until they are switched on ([Per-server enablement](#per-server-enablement)). To remove a server from the config entirely, **disable its module**:
 
 ```jsonc
 // .devbot.project.jsonc
@@ -44,6 +46,19 @@ Its servers then appear in no harness config (opencode reset prunes them on rein
 `mcp.<name>.enabled: false` in the runtime `opencode.jsonc` is a **local escape hatch** for disabling an inherited server without unregistering it. opencode reads its config once at startup (no hot-reload), so a change requires a restart.
 
 LSP servers are the other per-instance cost — see [Harnesses](/harnesses#runtime-footprint).
+
+## Per-server enablement
+
+A server entry may carry `"enabled": false`. The server is still **registered** in the harness config — the flag means "wired, do not start yet" — so turning it on is a config edit, not a re-run of `devbot init`.
+
+| Harness    | What `enabled: false` does                                                                                                                                                                                                                                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| opencode   | Emitted as `mcp.<name>.enabled: false` in `opencode.jsonc` — registered but not started. Flip it to `true` (or toggle it in the harness) and restart; opencode reads its config once at startup.                                                                                                                                                                    |
+| claudecode | **Ignored.** The translator drops the key and the server stays wired enabled. `.mcp.json` has no per-server on/off, and Claude Code itself ignores a `disabled`/`enabled` key in it, so writing one would only claim a state the client does not honor. Its real levers are a hard reject (`disabledMcpjsonServers`) or per-project user state (the `/mcp` toggle). |
+
+Five servers ship disabled by default — `chrome-devtools`, `playwright`, `signoz`, the per-datasource `datasources-<name>` gateways, and `jetbrains`. On opencode that keeps ~10k tokens of tool schema and one process per server out of a session that never uses them; on Claude Code they are simply always on, the accepted cost of that harness having no per-server switch.
+
+`enabled` is optional and defaults to **true** — a manifest that omits it is wired and started exactly as before. Declare it only to opt out. To switch one on, set its `enabled` to `true` in the generated `opencode.jsonc` entry (or toggle it in the harness) and restart.
 
 ## Shared machine-wide gateways
 
@@ -138,15 +153,16 @@ If the container is not running the server is simply unavailable; there is no st
 }
 ```
 
-| Field     | Required | Meaning                                                                         |
-| --------- | -------- | ------------------------------------------------------------------------------- |
-| `type`    | yes      | Transport: `stdio` (spawn a local command) or `http` (remote endpoint).         |
-| `command` | stdio    | Uniform argv array launching the server (claudecode splits `argv[0]`/`args`).   |
-| `url`     | http     | Remote MCP endpoint.                                                            |
-| `oauth`   | http     | Optional `false` to disable opencode's automatic OAuth detection.               |
-| `env`     | no       | Environment for the server process — single source of truth for both harnesses. |
+| Field     | Required | Meaning                                                                                                                                                                            |
+| --------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`    | yes      | Transport: `stdio` (spawn a local command) or `http` (remote endpoint).                                                                                                            |
+| `command` | stdio    | Uniform argv array launching the server (claudecode splits `argv[0]`/`args`).                                                                                                      |
+| `url`     | http     | Remote MCP endpoint.                                                                                                                                                               |
+| `oauth`   | http     | Optional `false` to disable opencode's automatic OAuth detection.                                                                                                                  |
+| `enabled` | no       | `false` ships the server **wired but not started**. Honored by opencode only — claudecode drops the key (see [Per-server enablement](#per-server-enablement)). Defaults to `true`. |
+| `env`     | no       | Environment for the server process — single source of truth for both harnesses.                                                                                                    |
 
-Any other key (e.g. a leftover `enabled` or `environment`) fails translation loudly — a migration safety net. Keys starting with `_` are ignored (annotation convention, as in `hooks.json`).
+Any other key (e.g. a leftover `environment` or `headers`) fails translation loudly — a migration safety net. Keys starting with `_` are ignored (annotation convention, as in `hooks.json`).
 
 ## Tokens and placeholders
 
@@ -186,8 +202,9 @@ The notice tells the user to add the vars to their shell profile (`~/.bashrc` or
 | --------- | ------------------------------------- | ----------------------------------- |
 | `stdio`   | `{type: local, command, environment}` | `{type: stdio, command, args, env}` |
 | `http`    | `{type: remote, url, oauth?}`         | `{type: http, url, env?}`           |
+| `enabled` | carried when declared                 | dropped — no equivalent field       |
 
-The canonical `env` block is renamed per harness (`environment` for opencode, `env` for claudecode); placeholders resolve at registration except when comparing templates (below).
+The canonical `env` block is renamed per harness (`environment` for opencode, `env` for claudecode); placeholders resolve at registration except when comparing templates (below). `enabled` is carried to opencode and dropped for claudecode, whose entry shape has no equivalent field.
 
 ### Registration
 
@@ -195,7 +212,7 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 
 ### Reset / reinit
 
-`src/_shared/mcp_key_is_current.py` compares a registered entry against its module's canonical manifest _translated to that harness_ and reports stale entries, so `reset.sh` drops only what init would re-register differently — keeping reinit byte-idempotent (audit-32). The opencode refresh is scoped to an **explicit list** of modules whose canonical manifest changed (`codebase-memory`, `mdctx`, `signoz`, `svelte`, `tools-mcp`, `playwright` — add a module here when a release changes its `mcp.json`); every other module's entry is user-owned and never dropped by reset, only pruned when its module is disabled. A refreshed entry that was not the last key in the `mcp` map is re-appended at the end, so the reinit that refreshes it reorders keys once; the re-registered entry then matches, so later reinits are no-ops. A module that **drops** its MCP server entirely is additionally pruned by reset's retired-key list (`RETIRED_MCP_KEYS`), since its canonical manifest is gone and the other prune paths are keyed on it — qmd's `qmd mcp` server is retired this way. It normalizes the machine-dependent placeholders before comparing:
+`src/_shared/mcp_key_is_current.py` compares a registered entry against its module's canonical manifest _translated to that harness_ and reports stale entries, so `reset.sh` drops only what init would re-register differently — keeping reinit byte-idempotent (audit-32). The opencode refresh is scoped to an **explicit list** of modules whose canonical manifest changed (`codebase-memory`, `mdctx`, `signoz`, `svelte`, `tools-mcp`, `playwright`, `chrome-devtools` — add a module here when a release changes its `mcp.json`); every other module's entry is user-owned and never dropped by reset, only pruned when its module is disabled. A refreshed entry that was not the last key in the `mcp` map is re-appended at the end, so the reinit that refreshes it reorders keys once; the re-registered entry then matches, so later reinits are no-ops. A module that **drops** its MCP server entirely is additionally pruned by reset's retired-key list (`RETIRED_MCP_KEYS`), since its canonical manifest is gone and the other prune paths are keyed on it — qmd's `qmd mcp` server is retired this way. It normalizes the machine-dependent placeholders before comparing:
 
 - `__GPU_ENABLED__` — with `--gpu` supplied (both resets pass `_qmd_gpu_value()`, the same source init resolves the placeholder with), the config value must equal that host value or the entry is stale, so a stale/wrong GPU value self-heals; without `--gpu`, any resolved string is current (GPU value is machine-dependent);
 - `__DEV_BOT_ROOT__` — the suffix after the placeholder must still match (root layout drift is stale);
@@ -208,7 +225,8 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 ## Special cases
 
 - **codebase-index — plugin-provided on opencode.** opencode integrates it via `plugin.opencode.json` (the plugin spawns the server), so the opencode registration adapter skips modules that declare a plugin manifest — registering the server as an MCP too would double-load it. Its canonical `mcp.json` (using `{harness-dir}` + `--host {host}`) serves claudecode.
-- **Dynamic runtime manifests** (`.opencode/*.mcp.json`, `.claude/*.mcp.json` written by module inits for values only known at runtime, e.g. jetbrains' IDE port) stay harness-native and are unchanged.
+- **Dynamic runtime manifests** (`.opencode/*.mcp.json`, `.claude/*.mcp.json` written by module inits for values only known at runtime, e.g. jetbrains' IDE port) stay harness-native. opencode registration **upserts**: a def that differs from the registered entry replaces it, so a release can change what a module emits (e.g. flipping `enabled`) and existing configs pick it up on reinit — while a def that already matches is left untouched, keeping reinit byte-idempotent.
+- **Dynamic manifests on claudecode** — `_wire_mcp` reads `enabled` on a dynamic entry as a wire/don't-wire gate, so a module that ships its opencode manifest disabled keeps `enabled: true` in the claude one: `.mcp.json` cannot carry the state, and `false` there would silently drop the server.
 - **Docker-only servers** — skipped when no docker daemon is available. A hybrid definition (docker plus a non-docker fallback its own launcher picks — playwright) is kept: it declares `"_hybrid": true` in its canonical manifest, which is what the guard reads, never the fallback's command text.
 
 ## Harness differences

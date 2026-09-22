@@ -1,0 +1,22 @@
+---
+date: 2026-09-22
+keywords: ["devbot", "mcp", "manifest", "harness", "enabled"]
+supersedes: ["ADRs/20260908213000-mcp-manifest-consolidation.md"]
+see: ["ADRs/20260917212754-hybrid-mcp-declared-not-sniffed.md"]
+---
+
+## MCP servers may ship wired but not started: a canonical per-server `enabled` field
+
+The manifest consolidation (ADR `20260908213000`) made module enablement the **only** gate: an enabled module's servers are wired into every harness, and `mcp_translate.py` rejected any `enabled` key outright as a migration mistake. The cost of that purity grew with the tool-schema footprint — chrome-devtools (~6.5k tokens of schema) and playwright (~3.5k) inject into every session, and signoz, the per-datasource gateways and jetbrains' IDE port start a process per harness instance whether or not the project uses them. The only off-switch was disabling the module, which also drops its skills and tools (for the browser modules the MCP server is essentially the whole module), or hand-editing a gitignored `opencode.jsonc`.
+
+**Scope of the reversal**: the consolidation ADR's architecture stands unchanged — one canonical `mcp.json` per module, one shared translator, tokens for divergence, structural exceptions. What this ADR reverses is its _module gate policy_ clause: "no per-server `enabled` field and no per-harness enablement".
+
+**Decision**: `enabled` is a first-class optional canonical key (`ENTRY_KEYS` in `src/_shared/mcp_translate.py`), defaulting to **true** when absent so no existing manifest changes shape. A manifest declaring `"enabled": false` ships its server **wired but not started**. The three static manifests (`chrome-devtools`, `playwright`, `signoz`) declare it directly; `datasources` and `jetbrains` emit it in the runtime manifests their inits generate.
+
+**The field is honored by opencode only, and that asymmetry is deliberate.** opencode's `mcp.<name>.enabled` is a real per-server flag: the server stays registered and one config edit (or the harness UI) turns it on without re-running init. Claude Code's `.mcp.json` has no per-server on/off — an `enabled`/`disabled` key there is ignored upstream (anthropics/claude-code#33958 and #43865: servers carrying `"disabled": true` still connect) — so the translator **drops** the key and the server stays wired enabled on that harness. Writing the key into `.mcp.json` would be worse than useless: it would claim a state the client does not honor. Claude Code's own levers are not a substitute a manifest can carry either — `disabledMcpjsonServers` is a hard reject (the server could never be re-enabled from the UI), and the `/mcp` toggle is per-project user state in `~/.claude.json`.
+
+**Rejected alternatives**: (a) hardcoding a module list in the registration scripts — keeps the schema pure but scatters the same knowledge across both harness inits and keeps it out of the module; (b) writing `disabledMcpjsonServers` for claudecode — see above, it blocks re-enabling; (c) omitting the server from `.mcp.json` for claudecode — the server would silently vanish rather than be off, and the dynamic-manifest path already reads `enabled` as a wire/don't-wire gate, so `false` would have that effect by accident.
+
+**Propagation is part of the change, not a follow-up.** opencode registration is merge-only (skip-if-exists), so a manifest that changes shape does not reach an installed config on its own. Two mechanisms close that: `chrome-devtools` joins reset's `REFRESH_MODULES` (stale entries are dropped so init re-registers the canonical shape — `playwright` and `signoz` were already listed), and `_register_dynamic_mcps` in `src/harnesses/opencode/init.sh` now **upserts** — a dynamic def that differs from the registered entry replaces it, while a matching def is left untouched so reinit stays byte-idempotent. The upsert also fixes a latent bug independent of this change: a dynamic module could previously never change what it emits.
+
+**Consequences**: a project that wants chrome-devtools or playwright sets `mcp.<name>.enabled: true` in `opencode.jsonc` (restart required — opencode reads its config once at startup) or toggles it in the harness; on Claude Code the same servers are always on. `docs/mcp-config.md` carries the schema and the asymmetry, `docs/mcps.md` marks the disabled-by-default servers, and the module manifest test for signoz flipped from asserting the key's absence to asserting its value.

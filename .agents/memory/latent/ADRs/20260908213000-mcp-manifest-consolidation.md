@@ -6,6 +6,8 @@ see: ["ADRs/20260822115731-manifest-driven-hooks-architecture.md", "ADRs/2026082
 
 ## MCP servers are manifest-driven: one canonical mcp.json per module + a shared translator
 
+> **Superseded in part.** The _module gate policy_ clause below — "no per-server `enabled` field and no per-harness enablement" — is reversed by ADR `20260922144031-mcp-per-server-enabled.md`, which makes `enabled` an optional canonical key so a heavy or optional server can ship wired but not started. The consolidation architecture this ADR describes (one canonical `mcp.json`, one shared translator, tokens for divergence, structural exceptions) still stands.
+
 MCP registration followed the pre-hooks pattern the hooks manifest ADR replaced: every module shipped **two** harness-shaped manifests (`mcp.opencode.json` `{key: {type: local|remote, …}}` and `mcp.claudecode.json` `{mcpServers: {key: {type: stdio|http, …}}}`) and each harness read its own file. The pair drifted in the wild — signoz's claudecode file pointed at `.opencode/signoz-mcp-server`, qmd/mdctx env vars existed only on the opencode side, react/svelte/signoz disagreed on `enabled` between harnesses.
 
 Consolidation (13 modules): each module now declares its servers **once** in a canonical, harness-agnostic `src/agentic/<module>/mcp.json` (`{"mcp": {<server>: {type: stdio|http, command|url, env}}}`), and **one shared translator** (`src/_shared/mcp_translate.py`) maps it to each harness shape — opencode (`stdio→local`/`environment`, `http→remote`) and claudecode (`command`+`args`/`env`, `http→http`). Both harness inits, `reset.sh` stale detection (`mcp_key_is_current.py`) and `devbot list mcps` consume the translator; no consumer re-implements the mapping.
