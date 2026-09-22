@@ -256,6 +256,29 @@ _devbot_sessions_dir() {
   echo "${DEV_BOT_ROOT}/storage/run/sessions"
 }
 
+# _devbot_live_session_count — print the number of live devbot sessions.
+#   Install-level (see the registry note above): every harness session on this
+#   machine counts, whichever project it serves. A session file whose flock is
+#   acquirable has no live holder → stale → pruned, and not counted. Prints 0
+#   when the registry does not exist.
+_devbot_live_session_count() {
+  local dir
+  dir="$(_devbot_sessions_dir)"
+  [[ -d "${dir}" ]] || { echo 0; return 0; }
+
+  local live=0 f
+  for f in "${dir}"/session-*; do
+    [[ -e "${f}" ]] || continue
+    # A file we can lock has no live holder → stale → prune.
+    if flock -n "${f}" -c true 2>/dev/null; then
+      rm -f "${f}" 2>/dev/null || true
+    else
+      live=$((live + 1))
+    fi
+  done
+  echo "${live}"
+}
+
 _devbot_session_register() {
   local dir
   dir="$(_devbot_sessions_dir)"
@@ -290,16 +313,11 @@ _devbot_session_release() {
   _devbot_lock_wait "${dir}" 30 \
     "session registry lock held >30s by another process — skipping teardown" || return 0
 
-  local live=0 f
-  for f in "${dir}"/session-*; do
-    [[ -e "${f}" ]] || continue
-    # A file we can lock has no live holder → stale → prune.
-    if flock -n "${f}" -c true 2>/dev/null; then
-      rm -f "${f}" 2>/dev/null || true
-    else
-      live=$((live + 1))
-    fi
-  done
+  # Count (and prune) the remaining sessions while still holding the registry
+  # lock, so the count and the teardown decision are serialized against other
+  # releases.
+  local live
+  live="$(_devbot_live_session_count)"
 
   exec 200>&- 2>/dev/null || true  # release the registry lock
 
