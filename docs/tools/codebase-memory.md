@@ -20,10 +20,10 @@ Find code by structure and meaning — call graphs, architecture, impact — bac
 
 Instead of grepping for keywords or reading files one at a time, agents query the graph: trace callers of a function, map what a change touches, or get a whole-codebase architecture summary in a single structured call.
 
-**Cold start:** the module's `session.created` hook now background-indexes the
-project's `src` or `app` folder (whichever exists at the project root) via the
-engine CLI, so structural tools work out of the box after a `devbot`-launched
-session. Without a src/app dir — or on a bare harness launch — run
+**Cold start:** the module's `session.created` hook background-indexes the
+project's `src` or `app` folder (whichever exists at the project root) through
+the shared gateway over MCP, so structural tools work out of the box after a
+`devbot`-launched session. Without a src/app dir — or on a bare harness launch — run
 `index_repository <dir>` once when the structural tools first error
 (audit-51/52 NOTE).
 
@@ -38,7 +38,7 @@ session. Without a src/app dir — or on a bare harness launch — run
 
 ## Engine
 
-Powered by `codebase-memory-mcp` (DeusData) — a single native binary with embeddings compiled in. No Ollama, no Docker, no GPU, no API key. Index persists under `~/.cache/codebase-memory-mcp/`.
+Powered by `codebase-memory-mcp` (DeusData) — a single native binary with embeddings compiled in. No Ollama, no GPU, no API key. dev-bot runs it as a shared Docker gateway (`devbot up`), and the index persists on the `devbot-codebase-memory-store` named volume rather than under your home directory.
 
 ## Selecting the engine
 

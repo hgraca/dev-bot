@@ -7,9 +7,10 @@ description: "Codebase understanding via the codebase-memory engine — structur
 
 Fast codebase intelligence backed by a persistent tree-sitter knowledge graph
 (functions, classes, call chains, HTTP routes, cross-service links). The native
-binary bundles its own nomic embeddings — **no Ollama, no API key, no GPU, no
-Docker**. Indexes to `~/.cache/codebase-memory-mcp/` and serves MCP tools for
-searching, tracing, and analysing the graph.
+binary bundles its own nomic embeddings — **no Ollama, no API key, no GPU**.
+dev-bot runs it as a shared gateway container (`devbot up`) whose index lives on
+the `devbot-codebase-memory-store` named volume; the gateway serves the MCP tools
+for searching, tracing, and analysing the graph.
 
 ## When to Use
 
@@ -28,8 +29,9 @@ searching, tracing, and analysing the graph.
 
 **Cold start (auto-primed since the src|app index hook):** at session start the
 codebase-memory module's `session.created` hook background-indexes the
-project's `src` or `app` folder (whichever exists at the root) via the engine
-CLI — so structural tools usually work out of the box. If they still report
+project's `src` or `app` folder (whichever exists at the root) through the
+shared gateway over MCP — see the module's docker-compose.yml STORE note — so
+structural tools usually work out of the box. If they still report
 "project not found or not indexed" (no src/app dir, or a bare `opencode`
 launch that bypassed `devbot` start.sh), run `index_status` then
 `index_repository <dir>` yourself. `auto_watch` keeps the index fresh
@@ -122,13 +124,17 @@ RETURN f.name` — anything outside the subset fails with a clear `unsupported`
 
 - **Never run `codebase-memory-mcp install` / `uninstall` from devbot context** —
   the engine's own installer edits client configs and installs agents/skills.
-  The devbot module handles registration (MCP manifests) and lifecycle (npm
-  global install); settings are managed with `codebase-memory-mcp config set`
-  if needed (e.g. `auto_index`, `auto_watch`).
-- Index data lives under `~/.cache/codebase-memory-mcp/`. An optional
-  `.codebase-memory/graph.db.zst` artifact can be committed to a repo so
-  teammates skip reindexing — treat it as a deliberate, low-cadence commit.
+  The devbot module handles registration (MCP manifests) and runs the server in
+  the shared gateway; set engine settings (`auto_index`, `auto_watch`) with
+  `codebase-memory-mcp config set` inside that container.
+- Index data lives on the `devbot-codebase-memory-store` Docker named volume
+  (mounted at `/srv/cbm` in the gateway) — `devbot down` keeps it, while
+  `docker compose down -v` or `docker volume rm` deletes it and costs a
+  re-index. The store is machine-local and repos are mounted read-only, so the
+  gateway cannot write a `.codebase-memory/graph.db.zst` publish artifact into a
+  repo for teammates to reuse; that was only possible while a host-side indexer
+  could write to the working tree. Indexing itself is unaffected.
 - Keep heavy generated dirs (`graphify-out/`, `node_modules/`, `no-vcs/`)
   gitignored so the watcher and index stay lean.
-- Requires Node.js >= 18 (the npm package); the native runtime is installed and
-  verified by the npm package on first use.
+- Nothing is required on the host: the server and its pinned engine run in the
+  gateway image.

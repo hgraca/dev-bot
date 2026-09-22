@@ -743,7 +743,7 @@ YAML
 
 # ── Writable bind-mount sources ────────────────────────────────────────────────
 # Docker creates a missing bind-mount SOURCE on the host as root:root. A module
-# service that runs as the host uid (codebase-memory-mcp, mdctx-mcp) then finds
+# service that runs as the host uid (e.g. mdctx-mcp) then finds
 # its own state dir owned by root and refuses to start — a fresh-machine failure
 # that never shows where the dir already exists (an existing image/dir means
 # nobody looks). `_ensure_writable_bind_sources` creates the WRITABLE sources as

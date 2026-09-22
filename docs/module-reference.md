@@ -49,7 +49,7 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
 
 **pre.sh**: Checks module prerequisites (Python 3, API reachability, etc.). Run automatically by `bin/install.sh` and `bin/update.sh`. Must be idempotent and non-destructive. Warnings (not errors) for optional deps.
 
-**init.sh**: Per-project initialization and idempotent dependency self-heal. Run by `bin/init.sh`. Modules whose engine ships as a global CLI (e.g. codebase-memory) use this hook to install a missing binary so the harness can launch it on the next start.
+**init.sh**: Per-project initialization and idempotent dependency self-heal. Run by `bin/init.sh`. Use this hook to close the update/reinit gap — `devbot update` runs only `update.sh` while `devbot reinit` runs only `init.sh`, so anything an adopting install would otherwise miss has to be healed here.
 
 **up.sh**: Post-docker startup script. Use for pulling models, waiting for services, seeding data.
 
