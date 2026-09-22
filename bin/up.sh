@@ -17,9 +17,10 @@ set -euo pipefail
 DEV_BOT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export DEV_BOT_ROOT
 
-# The codebase-memory gateway runs as the HOST uid/gid, not root: its
-# cache-ancestry check refuses to start when the process does not own the
-# mounted index store. Compose interpolates these into `user:`.
+# Two consumers. Compose interpolates these into `user:` for a service that
+# starts directly as the host uid (mdctx); codebase-memory passes them to its
+# entrypoint instead, which chowns the store volume and then drops privileges to
+# them — its store is a named volume, so `user:` would remove the chown it needs.
 export DEV_UID="$(id -u)"
 export DEV_GID="$(id -g)"
 
@@ -278,11 +279,12 @@ _docker_up() {
 
 # ── Writable bind-mount sources ────────────────────────────────────────────────
 # Docker creates a missing bind-mount SOURCE on the host as root:root. A module
-# service that runs as the host uid (codebase-memory-mcp, mdctx-mcp) then finds
-# its own writable state dir owned by root and refuses to start — observed on a
-# fresh macOS install as:
-#   codebase-memory-mcp: exact executable identity could not be verified
-#   (cache-private) - <dir>: owner uid 0, expected euid 501
+# service that runs as the host uid (e.g. mdctx-mcp) then finds its own writable
+# state dir owned by root and refuses to start:
+#   exact executable identity could not be verified (cache-private)
+#   - <dir>: owner uid 0, expected euid <uid>
+# (codebase-memory used to be the other case; its store is a named volume now, so
+# it is out of this path.)
 # It only ever bites where nothing created the dir first: on a warm machine the
 # dir already exists, so nobody looks. Create the WRITABLE sources ourselves, as
 # the host user, before compose can get there.
