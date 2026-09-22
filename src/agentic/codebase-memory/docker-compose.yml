@@ -13,28 +13,43 @@
 # build.context note below:
 #   DEV_BOT_ROOT="$(pwd)" docker compose -f src/agentic/codebase-memory/docker-compose.yml build
 #
-# MOUNTS — why these two, and why a single root:
-#   * The index store is shared with the host. The module's session-start hook
-#     (tools/index-project.sh) indexes via the HOST binary into
-#     ~/.cache/codebase-memory-mcp, and each repo's DB is named after its host
-#     path. Mounting the store read-write is what keeps the gateway reading the
-#     same index the hook wrote — without it the gateway sees an empty index.
-#   * The server's tools take `repo_path` per call, so repos must appear at
-#     their real absolute paths inside the container. Docker fixes mounts at
-#     container CREATION (there is no live attach), and this gateway is shared
-#     by every instance — so the mount set is a machine-level property, not a
-#     per-instance one. A single root, defaulting to $HOME, means every project
-#     path already resolves with no per-project action. Narrow it (e.g. to
-#     ~/Development) by exporting CODEBASE_MEMORY_ROOT before `devbot up`;
-#     changing it requires recreating the container (`devbot down && devbot up`),
-#     because bin/up.sh runs compose with --no-recreate.
+# STORE — a named volume, NOT a host bind mount.
+#   The index store lives on the Docker named volume below, mounted at /srv/cbm,
+#   so it sits on the VM's own filesystem where chmod is a real syscall. A host
+#   bind mount cannot be used here: on Docker Desktop for macOS a container
+#   chmod on a bind-mounted directory is emulated by writing
+#   `user.containers.override_stat` on the host with uid:gid ALWAYS 0:0,
+#   whichever uid the container runs as. codebase-memory-mcp chmods its cache
+#   dir 0700 on every start and validates that it owns it, so the first start
+#   poisons the directory to root-owned and every later start refuses
+#   ("exact executable identity could not be verified (cache-private)" /
+#   "CBM daemon could not start within 30000 ms"). Clearing the xattr does not
+#   stick — the next start rewrites it.
+#   The volume survives `docker rm`, `docker compose down` (dev-bot never passes
+#   -v) and reboots; only `docker compose down -v`, `docker volume rm` and
+#   `docker system prune --volumes` delete it, costing a re-index.
 #
-# USER — the container runs as the HOST uid/gid, not root. codebase-memory-mcp
-# validates the ownership ancestry of its cache dir and refuses to start when it
-# does not match the running user ("exact executable identity could not be
-# verified (cache-private) ... ancestry component validation failed"). The store
-# is owned by the host user, so the process must be too. bin/up.sh exports
-# DEV_UID/DEV_GID; the 1000 fallback covers a bare `docker compose up`.
+# MOUNTS — repos are still bind-mounted, read-only, at their real absolute paths.
+#   The server's tools take `repo_path` per call, so repos must appear at their
+#   real paths inside the container. Docker fixes mounts at container CREATION
+#   (there is no live attach), and this gateway is shared by every instance — so
+#   the mount set is a machine-level property, not a per-instance one. A single
+#   root, defaulting to $HOME, means every project path already resolves with no
+#   per-project action. Narrow it (e.g. to ~/Development) by exporting
+#   CODEBASE_MEMORY_ROOT before `devbot up`; changing it requires recreating the
+#   container (`devbot down && devbot up`), because bin/up.sh runs compose with
+#   --no-recreate. create_host_path: false — a missing source here is a
+#   misconfiguration, so fail loudly rather than mount an empty, root-owned
+#   directory.
+#
+# USER — the server runs as the HOST uid/gid, but not via `user:`.
+#   The named volume's owner cannot be baked into the image (the host uid is only
+#   known at run time) and the server validates that it owns the store. So the
+#   image's entrypoint starts as root, chowns the store to DEV_UID/DEV_GID, and
+#   drops to that uid with setpriv before exec'ing the server (entrypoint.sh).
+#   Root is confined to the container: the repo mount is read-only and the
+#   volume is the only writable target. bin/up.sh exports DEV_UID/DEV_GID; the
+#   1000 fallback covers a bare `docker compose up`.
 name: devbot
 
 services:
@@ -53,21 +68,13 @@ services:
     # services around it, so it should not come back on its own after a reboot
     # without `devbot up` having started its neighbours.
     restart: "no"
-    user: "${DEV_UID:-1000}:${DEV_GID:-1000}"
     ports:
       # Host-local only — the gateway is never exposed off the machine.
       - "127.0.0.1:18504:18504"
     volumes:
-      # Shared index store (read-write) — see the MOUNTS note above. Mounted at
-      # the host path so the cache-ancestry check sees the host user's tree.
-      # Its source is pre-created by bin/up.sh (_ensure_writable_bind_sources):
-      # a MISSING bind source is created by the daemon as root:root, and the
-      # server then refuses to start ("owner uid 0, expected euid <host uid>").
-      - ${HOME}/.cache/codebase-memory-mcp:${HOME}/.cache/codebase-memory-mcp
-      # Repos, read-only, at their real absolute paths. The gateway only reads
-      # source to build the graph; it never writes into a repo.
-      # create_host_path: false — a missing source here is a misconfiguration,
-      # so fail loudly rather than mount an empty, root-owned directory.
+      # Index store — a named volume, see the STORE note above.
+      - devbot-codebase-memory-store:/srv/cbm
+      # Repos, read-only, at their real absolute paths, see the MOUNTS note.
       - type: bind
         source: ${CODEBASE_MEMORY_ROOT:-$HOME}
         target: ${CODEBASE_MEMORY_ROOT:-$HOME}
@@ -75,9 +82,15 @@ services:
         bind:
           create_host_path: false
     environment:
-      # HOME must be the host home: the store lives under it, and the cache
-      # ancestry check walks that path.
-      HOME: ${HOME}
+      # The container's own home, on the volume — NOT the host home. The repo
+      # mount target above is a path, independent of this.
+      HOME: /srv/cbm
+      # Set explicitly so the store path does not depend on the server's own
+      # defaulting. Its parent (/srv/cbm) is the volume root, owned by DEV_UID.
+      CBM_CACHE_DIR: /srv/cbm/store
+      # Consumed by entrypoint.sh to chown the volume before dropping root.
+      DEV_UID: "${DEV_UID:-1000}"
+      DEV_GID: "${DEV_GID:-1000}"
     healthcheck:
       # Liveness via a real MCP handshake on the container's own port, so
       # `docker ps` shows a gateway that has stopped answering as unhealthy.
@@ -89,16 +102,39 @@ services:
         - -c
         - |
           import json, sys, urllib.request
+          url = "http://127.0.0.1:18504/mcp"
+          accept = "application/json, text/event-stream"
           body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize",
                              "params": {"protocolVersion": "2024-11-05",
                                         "capabilities": {},
                                         "clientInfo": {"name": "healthcheck", "version": "1"}}}).encode()
           req = urllib.request.Request(
-              "http://127.0.0.1:18504/mcp", data=body,
-              headers={"Content-Type": "application/json",
-                       "Accept": "application/json, text/event-stream"})
-          sys.exit(0 if urllib.request.urlopen(req, timeout=3).status == 200 else 1)
+              url, data=body,
+              headers={"Content-Type": "application/json", "Accept": accept})
+          with urllib.request.urlopen(req, timeout=3) as resp:
+              ok = resp.status == 200
+              sid = resp.headers.get("Mcp-Session-Id")
+          # mcp-proxy holds every session until it is told to drop it, and this
+          # probe runs every 30s — without the DELETE they accumulate for the
+          # container's whole lifetime.
+          if sid:
+              try:
+                  urllib.request.urlopen(
+                      urllib.request.Request(
+                          url, method="DELETE",
+                          headers={"Accept": accept, "Mcp-Session-Id": sid}),
+                      timeout=3).close()
+              except Exception:
+                  pass
+          sys.exit(0 if ok else 1)
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 20s
+
+volumes:
+  devbot-codebase-memory-store:
+    # Pinned. Without `name:` compose prefixes the project ("devbot_"), so the
+    # documented name would not resolve and every reference to it — the audit
+    # check, the SKILL's `docker volume rm` guidance — would fail.
+    name: devbot-codebase-memory-store

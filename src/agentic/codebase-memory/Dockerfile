@@ -33,6 +33,17 @@ RUN codebase-memory-mcp config list >/dev/null
 # keys off it), so make the forwarding explicit rather than relying on the
 # proxy's incidental HOME pass-through.
 EXPOSE 18504
+
+# The store is a named volume mounted here (see docker-compose.yml). Create the
+# mount point so a first mount starts from a known mode, and install the
+# entrypoint that chowns it to the host uid before dropping privileges — the
+# volume's owner cannot be baked, and the server refuses to start unless it
+# owns its cache dir.
+RUN mkdir -p /srv/cbm
+COPY entrypoint.sh /usr/local/bin/cbm-entrypoint.sh
+RUN chmod +x /usr/local/bin/cbm-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/cbm-entrypoint.sh"]
 # --ui=false: the bundled graph UI binds a fixed loopback port (9749). dev-bot
 # never uses the UI, and a shared gateway must not squat that port.
 CMD ["mcp-proxy", "--port=18504", "--host=0.0.0.0", "--pass-environment", "--", "codebase-memory-mcp", "--ui=false"]

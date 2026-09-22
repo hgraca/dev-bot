@@ -87,14 +87,48 @@ print('MCP:OK')
   # Every dev-bot compose file declares the same project name.
   run grep -q 'name: devbot' "$compose"
   assert_success
-  # The container runs as the HOST uid/gid: the binary's cache-ancestry check
-  # refuses to start when the process does not own the mounted store.
-  run grep -q 'user: "\${DEV_UID' "$compose"
+}
+
+@test "docker-compose.yml stores the index on a named volume, not a host bind" {
+  local compose="$MODULE_DIR/docker-compose.yml"
+  # A host bind mount is fatal on Docker Desktop for macOS: a container chmod on
+  # it is emulated as `user.containers.override_stat: 0:0:<mode>` whatever uid
+  # the container runs as, and the server's private-directory check then reads
+  # the directory back as root-owned and refuses to start. A named volume lives
+  # on the VM's own filesystem, where chmod is a real syscall.
+  run grep -qE '^      - devbot-codebase-memory-store:/srv/cbm$' "$compose"
   assert_success
-  # The store is shared with the host session-start hook, so it must be
-  # mounted read-write or the gateway sees an empty index.
   run grep -q 'codebase-memory-mcp:\${HOME}/.cache/codebase-memory-mcp' "$compose"
+  assert_failure
+  run grep -qE '^  devbot-codebase-memory-store:$' "$compose"
   assert_success
+  # The repos are still visible at their real host paths, read-only.
+  run grep -q 'source: \${CODEBASE_MEMORY_ROOT:-\$HOME}' "$compose"
+  assert_success
+}
+
+@test "the gateway fixes the store's ownership then drops to DEV_UID" {
+  local compose="$MODULE_DIR/docker-compose.yml"
+  local df="$MODULE_DIR/Dockerfile"
+  local ep="$MODULE_DIR/entrypoint.sh"
+  # The volume's owner cannot be baked into the image (the host uid is only
+  # known at run time) and the server validates that it owns the store — so the
+  # container starts as root only long enough to chown it, then drops.
+  [ -f "$ep" ]
+  run grep -q 'chown' "$ep"
+  assert_success
+  run grep -q 'setpriv' "$ep"
+  assert_success
+  run grep -q 'DEV_UID' "$ep"
+  assert_success
+  run grep -q 'ENTRYPOINT' "$df"
+  assert_success
+  # ... and the uid reaches it as env, not via `user:` (which would remove the
+  # privilege the chown needs).
+  run grep -q 'DEV_UID' "$compose"
+  assert_success
+  run grep -q 'user: "\${DEV_UID' "$compose"
+  assert_failure
 }
 
 @test "Dockerfile pins the server and the bridge" {

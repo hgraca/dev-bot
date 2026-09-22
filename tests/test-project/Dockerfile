@@ -62,9 +62,10 @@ RUN su - ubuntu -c 'curl -fsSL https://opencode.ai/install | bash' \
 # native modules present, no load error). Keep the pinned version in sync with
 # test-reinit.sh.
 
-# codebase-memory-mcp refuses to trust a private state dir whose ancestor is
-# group-writable. ~/.cache defaults to 0775 here, so drop group write to
-# silence the daemon's hardening warning (audit-60 NOTE-2).
+# A private state dir under a group-writable ancestor trips the hardening check
+# an engine applies to its cache, so keep ~/.cache owner-private (it defaults to
+# 0775 here). Belt-and-braces: the codebase-memory store is a Docker named volume
+# now, so nothing in this image writes its cache here. (audit-60 NOTE-2)
 RUN chmod g-w /home/ubuntu/.cache
 
 # CUDA user-space libs (runtime + cuBLAS) for GPU-accelerated containers
