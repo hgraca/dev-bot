@@ -356,8 +356,13 @@ with open('${tmp_servers}') as f:
 with open('${dyn_file}') as f:
     new_mcp = json.load(f)
 for name, entry in new_mcp.get('mcpServers', {}).items():
-    if entry.get('enabled', True):
-        current[name] = entry
+    if not entry.get('enabled', True):
+        continue
+    # `enabled` is dev-bot's wire/don't-wire gate, not a Claude Code field:
+    # .mcp.json has no per-server on/off, so carrying the key would only claim a
+    # state the client ignores — and an unrecognized key risks the whole file,
+    # which Claude Code validates strictly.
+    current[name] = {k: v for k, v in entry.items() if k != 'enabled'}
 with open('${tmp_servers}', 'w') as f:
     json.dump(current, f)
 " 2>/dev/null

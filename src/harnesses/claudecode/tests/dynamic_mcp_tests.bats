@@ -51,6 +51,19 @@ _put_manifest() {
 JSON_EOF
 }
 
+# _put_dynamic_manifests: the runtime manifests jetbrains and datasources emit.
+# Both carry `enabled` — on the claudecode side that key is dev-bot's
+# wire/don't-wire gate, not a Claude Code field.
+_put_dynamic_manifests() {
+  mkdir -p "${SANDBOX_DIR}/.claude"
+  cat > "${SANDBOX_DIR}/.claude/jetbrains.mcp.json" <<'JSON_EOF'
+{"mcpServers": {"jetbrains": {"type": "http", "url": "http://127.0.0.1:64442/stream", "enabled": true}}}
+JSON_EOF
+  cat > "${SANDBOX_DIR}/.claude/datasources-mariadb-dev.mcp.json" <<'JSON_EOF'
+{"mcpServers": {"datasources-mariadb-dev": {"type": "http", "url": "http://127.0.0.1:18510/mcp/mariadb-dev", "enabled": true}}}
+JSON_EOF
+}
+
 # _assert_mcp <present|absent>
 _assert_mcp() {
   run python3 -c "
@@ -106,4 +119,32 @@ print('CC-ENABLED-DROPPED:OK')
 "
   assert_success
   grep -qF 'CC-ENABLED-DROPPED:OK' <<< "$output" || fail ".mcp.json carries enabled or is missing a server"
+}
+
+@test "dynamic MCP: the enabled gate is not written into .mcp.json" {
+  # `enabled` is dev-bot's wire/don't-wire gate on a dynamic manifest, not a
+  # Claude Code field. Carrying it into .mcp.json would claim a state the client
+  # ignores — and an unrecognized key in a strictly validated .mcp.json risks
+  # the whole file.
+  #
+  # Both dynamic owners are named explicitly so the test cannot inherit a
+  # developer config that has datasources disabled.
+  printf '{\n  "modules": { "opencode": true, "claudecode": true, "jetbrains": true, "datasources": true }\n}\n' \
+    > "${SANDBOX_DIR}/.devbot.project.jsonc"
+  _put_dynamic_manifests
+
+  run bash "${INIT_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import json
+servers = json.load(open('${SANDBOX_DIR}/.mcp.json'))['mcpServers']
+for name in ('jetbrains', 'datasources-mariadb-dev'):
+    entry = servers.get(name)
+    assert entry is not None, (name, sorted(servers))
+    assert 'enabled' not in entry, (name, entry)
+print('CC-DYN-GATE-DROPPED:OK')
+"
+  assert_success
+  grep -qF 'CC-DYN-GATE-DROPPED:OK' <<< "$output" || fail ".mcp.json carries the dev-bot enabled gate"
 }
