@@ -10,9 +10,14 @@
 # project's `src` or `app` folder — whichever exists at the project root — so
 # structural search works out of the box and never hits the too-broad guard.
 #
+# The index goes through the shared gateway over MCP, NOT a host binary: the
+# store lives on a Docker named volume, which only the gateway can write (see
+# the module's docker-compose.yml STORE note). mcp-index.py speaks the
+# streamable-http conversation.
+#
 # Invoked by the module's session.created hook (both harnesses). Fail-open and
 # silent like the graphify background updater: no codebase-memory provider, no
-# engine binary, or no src/app dir means "nothing to do here" — exit 0 quietly.
+# gateway, or no src/app dir means "nothing to do here" — exit 0 quietly.
 # Runs detached and logs to .agents/logs/codebase-memory-index.log.
 #
 # Usage: index-project.sh <project-path>
@@ -41,7 +46,18 @@ source "${SCRIPT_DIR}/../functions.sh"
 if [[ "$(_devbot_get_codebase_provider "${PROJECT_PATH}")" != "codebase-memory" ]]; then
   exit 0
 fi
-command -v codebase-memory-mcp >/dev/null 2>&1 || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+
+# The shared gateway must already be up — a bare harness boot without
+# `devbot up` has nothing to index into. /dev/tcp is a bash builtin, so this
+# probe needs nothing on PATH.
+CBM_URL="${CODEBASE_MEMORY_MCP_URL:-http://127.0.0.1:18504/mcp}"
+_hostport="${CBM_URL#*://}"
+_hostport="${_hostport%%/*}"
+CBM_HOST="${_hostport%%:*}"
+CBM_PORT="${_hostport##*:}"
+[[ "${CBM_PORT}" =~ ^[0-9]+$ ]] || CBM_PORT=18504
+(exec 3<>"/dev/tcp/${CBM_HOST}/${CBM_PORT}") 2>/dev/null || exit 0
 
 # Index only `src` or `app`, whichever exists at the project root — the engine
 # rejects whole mount roots, and these are the conventional source dirs.
@@ -66,14 +82,16 @@ exec 200>"${LOCK_FILE}" 2>/dev/null || exit 0
 { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; } || exit 0
 
 # ── Launch the one-shot index in the background ───────────────────────────────
-# `codebase-memory-mcp cli index_repository` runs a temporary supervised worker
-# (CLI mode — no daemon). Re-indexing an already-indexed project is incremental
-# (the watcher keeps it fresh afterwards).
+# Re-indexing an already-indexed project is incremental (the gateway's watcher
+# keeps it fresh afterwards).
 (
   {
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] index-project start root=${INDEX_ROOT}"
-    codebase-memory-mcp cli index_repository --repo-path "${INDEX_ROOT}"
-    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] index-project finished rc=$?"
+    python3 "${SCRIPT_DIR}/mcp-index.py" "${CBM_URL}" "${INDEX_ROOT}"
+    # Capture before the $(date) substitution below: expanding a command
+    # substitution resets $?, so `rc=$?` inline would always report date's 0.
+    rc=$?
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] index-project finished rc=${rc}"
   } >> "${LOG_FILE}" 2>&1
 ) &
 disown 2>/dev/null || true

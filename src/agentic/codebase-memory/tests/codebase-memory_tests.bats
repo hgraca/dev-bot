@@ -24,6 +24,14 @@ setup() {
   PROJECT_ROOT="$(cd "$TEST_DIR/../../../.." && pwd)"
 }
 
+teardown() {
+  # The session-start index tests run a stub gateway as a background process.
+  if [ -n "${STUB_PID:-}" ]; then
+    kill "${STUB_PID}" 2>/dev/null || true
+    wait "${STUB_PID}" 2>/dev/null || true
+  fi
+}
+
 # ── Module structure ──────────────────────────────────────────────────────────
 
 @test "MCP integration is a single canonical mcp.json, not a plugin" {
@@ -319,22 +327,95 @@ MOCK
 _setup_idx_sandbox() {
   SANDBOX="$(mktemp -d)"
   export DEV_BOT_ROOT="${SANDBOX}"
-  MOCKBIN="${SANDBOX}/mockbin"
-  mkdir -p "${MOCKBIN}" "${SANDBOX}/src"
+  mkdir -p "${SANDBOX}/src"
   # Pin codebase-memory as the active engine (real reader used by the helper).
   echo '{"codebase_index_provider": "codebase-memory"}' > "${SANDBOX}/.devbot.global.jsonc"
-  export CBM_ARGS_FILE="${SANDBOX}/cbm.args"
-  : > "${CBM_ARGS_FILE}"
-  cat > "${MOCKBIN}/codebase-memory-mcp" <<'MOCK'
-#!/usr/bin/env bash
-echo "$*" >> "${CBM_ARGS_FILE}"
-exit 0
-MOCK
-  chmod +x "${MOCKBIN}/codebase-memory-mcp"
+  export CBM_CALLS_FILE="${SANDBOX}/cbm.calls"
+  : > "${CBM_CALLS_FILE}"
   # A project rooted inside the sandbox (kept outside the mocked devbot root).
   PROJ="${SANDBOX}/project"
   mkdir -p "${PROJ}"
-  export PATH="${MOCKBIN}:$(dirname "$(command -v python3)")"
+  # Only python3's own directory: the hook's reachability guard is a bash
+  # /dev/tcp connect and needs no PATH entry, so nothing else has to be present
+  # for the hook to run — this is what the index helper is invoked with.
+  export PATH="$(dirname "$(command -v python3)")"
+
+  # Stub gateway. The hook indexes through the shared gateway over MCP now, not
+  # a host binary, so exercise the real streamable-http conversation: the
+  # initialize handshake hands out a session id, and every tools/call is
+  # recorded so the test can assert the repo_path that was asked for.
+  STUB_PORT=$(( 20000 + RANDOM % 20000 ))
+  cat > "${SANDBOX}/stub-gateway.py" <<'STUB'
+import http.server
+import json
+import sys
+
+PORT, CALLS, MODE = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get("content-length", 0) or 0)
+        body = json.loads(self.rfile.read(length) or b"{}")
+        method = body.get("method")
+        if method == "initialize":
+            try:
+                flag = open(MODE).read().strip()
+            except OSError:
+                flag = ""
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            if flag != "nosession":
+                self.send_header("Mcp-Session-Id", "stub-session")
+            self.end_headers()
+            self.wfile.write(b'{"jsonrpc":"2.0","id":1,"result":{}}')
+        elif method == "tools/call":
+            # Streamable HTTP requires the id handed out by `initialize` on
+            # every later request. Enforcing it here is what makes the positive
+            # tests actually prove the echo — otherwise a bare call is accepted
+            # and a regression that dropped the header would stay green.
+            if self.headers.get("Mcp-Session-Id") != "stub-session":
+                self.send_response(400)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(b'{"error":"Missing session ID"}')
+                return
+            with open(CALLS, "a") as fh:
+                fh.write(json.dumps(body.get("params", {})) + "\n")
+            try:
+                flag = open(MODE).read().strip()
+            except OSError:
+                flag = ""
+            payload = (
+                b'{"jsonrpc":"2.0","id":2,"result":{"isError":true,"content":[]}}'
+                if flag == "error"
+                else b'{"jsonrpc":"2.0","id":2,"result":{"content":[]}}'
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(payload)
+        else:
+            self.send_response(202)
+            self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+http.server.HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+STUB
+  : > "${SANDBOX}/stub-mode"
+  python3 "${SANDBOX}/stub-gateway.py" "${STUB_PORT}" "${CBM_CALLS_FILE}" "${SANDBOX}/stub-mode" &
+  STUB_PID=$!
+  export CODEBASE_MEMORY_MCP_URL="http://127.0.0.1:${STUB_PORT}/mcp"
+
+  local i
+  for i in $(seq 1 50); do
+    (exec 3<>"/dev/tcp/127.0.0.1/${STUB_PORT}") 2>/dev/null && return 0
+    sleep 0.1
+  done
+  return 0
 }
 
 @test "index-project.sh: hooks.json declares the session.created index hook" {
@@ -351,7 +432,7 @@ print('HOOK:OK')
   [ -x "$MODULE_DIR/tools/index-project.sh" ]
 }
 
-@test "index-project.sh: indexes <project>/src when it exists" {
+@test "index-project.sh: indexes <project>/src through the gateway" {
   _setup_idx_sandbox
   mkdir -p "${PROJ}/src"
 
@@ -359,12 +440,13 @@ print('HOOK:OK')
   assert_success
 
   local i
-  for i in $(seq 1 30); do
-    [[ -s "${CBM_ARGS_FILE}" ]] && break
+  for i in $(seq 1 50); do
+    [[ -s "${CBM_CALLS_FILE}" ]] && break
     sleep 0.1
   done
-  run cat "${CBM_ARGS_FILE}"
-  assert_output --regexp '^cli index_repository --repo-path .*/project/src$'
+  run cat "${CBM_CALLS_FILE}"
+  assert_output --partial '"name": "index_repository"'
+  assert_output --partial "${PROJ}/src"
 
   run cat "${PROJ}/.agents/logs/codebase-memory-index.log"
   assert_output --partial "index-project start"
@@ -379,19 +461,60 @@ print('HOOK:OK')
   assert_success
 
   local i
-  for i in $(seq 1 30); do
-    [[ -s "${CBM_ARGS_FILE}" ]] && break
+  for i in $(seq 1 50); do
+    [[ -s "${CBM_CALLS_FILE}" ]] && break
     sleep 0.1
   done
-  run cat "${CBM_ARGS_FILE}"
-  assert_output --regexp 'index_repository --repo-path .*/project/app'
+  run cat "${CBM_CALLS_FILE}"
+  assert_output --partial '"name": "index_repository"'
+  assert_output --partial "${PROJ}/app"
+}
+
+@test "index-project.sh: logs a non-zero rc when the index fails" {
+  # A JSON-RPC success can still carry a failed tool result. The hook logs the
+  # helper's return code, so a failed index must not read as rc=0.
+  _setup_idx_sandbox
+  mkdir -p "${PROJ}/src"
+  echo error > "${SANDBOX}/stub-mode"
+
+  run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
+  assert_success
+
+  local i
+  for i in $(seq 1 50); do
+    grep -q 'index-project finished' "${PROJ}/.agents/logs/codebase-memory-index.log" 2>/dev/null && break
+    sleep 0.1
+  done
+  run cat "${PROJ}/.agents/logs/codebase-memory-index.log"
+  assert_output --partial "index-project finished rc=1"
+}
+
+@test "index-project.sh: fails when the gateway never hands out a session id" {
+  # The stubbed gateway enforces the session header on tools/call, so a call
+  # made without one is rejected. Drives the same path a gateway that did not
+  # return a session id would.
+  _setup_idx_sandbox
+  mkdir -p "${PROJ}/src"
+  echo nosession > "${SANDBOX}/stub-mode"
+
+  run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
+  assert_success
+
+  local i
+  for i in $(seq 1 50); do
+    grep -q 'index-project finished' "${PROJ}/.agents/logs/codebase-memory-index.log" 2>/dev/null && break
+    sleep 0.1
+  done
+  run cat "${PROJ}/.agents/logs/codebase-memory-index.log"
+  assert_output --partial "index-project finished rc=1"
+  [ ! -s "${CBM_CALLS_FILE}" ]
 }
 
 @test "index-project.sh: skips silently when neither src nor app exists" {
   _setup_idx_sandbox
   run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
   assert_success
-  [ ! -s "${CBM_ARGS_FILE}" ]
+  [ ! -s "${CBM_CALLS_FILE}" ]
   [ ! -f "${PROJ}/.agents/logs/codebase-memory-index.log" ]
 }
 
@@ -402,15 +525,18 @@ print('HOOK:OK')
 
   run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
   assert_success
-  [ ! -s "${CBM_ARGS_FILE}" ]
+  [ ! -s "${CBM_CALLS_FILE}" ]
 }
 
-@test "index-project.sh: skips when the engine binary is missing" {
+@test "index-project.sh: skips when the gateway is not reachable" {
   _setup_idx_sandbox
-  rm -f "${MOCKBIN}/codebase-memory-mcp"
   mkdir -p "${PROJ}/src"
+  # Nothing listens here. A bare harness boot without `devbot up` must be a
+  # silent no-op — not a log line written on every session start.
+  export CODEBASE_MEMORY_MCP_URL="http://127.0.0.1:1/mcp"
 
   run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
   assert_success
+  [ ! -s "${CBM_CALLS_FILE}" ]
   [ ! -f "${PROJ}/.agents/logs/codebase-memory-index.log" ]
 }
