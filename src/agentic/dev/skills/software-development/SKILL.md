@@ -83,6 +83,7 @@ On first load, load these context skills preemptively if not already loaded:
 
 ### Comments
 
+- **The _why_ belongs in the commit description, not the code.** A comment explaining why a line exists, what workaround it encodes, or what would break without it is a commit-body line in the wrong file — invisible to `git log`, and a duplicate of the message. Put the reasoning in the body; reserve in-code comments for the 1–2 lines of mechanics a reader genuinely cannot infer.
 - **No prose in the middle of code.** Narration ("now we iterate and build the map…") restates what the code already says and rots as it moves. Let names and structure carry the meaning; delete the rest.
 - **Docblocks only when they earn their place** — the function/method signature is not self-documenting (non-obvious contract, side effects, ordering, units, a surprising return), or a static-analysis tool requires one. A docblock that merely restates the name and parameters is noise.
 - **At most 1–2 lines for genuinely unreadable code** — a little-known native function or a dense chain of calls. Prefer instead to extract it into a function with a short, meaningful name (≤ ~32 chars): the name states the intent, and the extraction is testable.
@@ -93,9 +94,9 @@ On first load, load these context skills preemptively if not already loaded:
 
 - Classify the task before coding: adding new behaviour; changing existing behaviour (a bug fix is changing incorrect behaviour); or changing code without changing behaviour (refactor, cleanup).
 - Before writing any implementation code, write the automated tests. Writing tests is the standing exception to the ask-first rule and cadence — write the full suite without pausing. Then:
-    - **New behaviour** — write a comprehensive set of tests asserting the future code complies with the desired behaviour. Confirm they fail against current behaviour (red), then implement to make them pass (green).
-    - **Changed behaviour, including bug fix** — write a test asserting the desired behaviour; for a bug, a test that replicates the bug and fails against the current code. Then change the code and confirm the test now passes.
-    - **Refactor (no behaviour change)** — first assert the code to be refactored has a comprehensive set of tests; if not, write them or add the missing tests before touching the code. Only then refactor, and confirm the new code still passes the tests.
+  - **New behaviour** — write a comprehensive set of tests asserting the future code complies with the desired behaviour. Confirm they fail against current behaviour (red), then implement to make them pass (green).
+  - **Changed behaviour, including bug fix** — write a test asserting the desired behaviour; for a bug, a test that replicates the bug and fails against the current code. Then change the code and confirm the test now passes.
+  - **Refactor (no behaviour change)** — first assert the code to be refactored has a comprehensive set of tests; if not, write them or add the missing tests before touching the code. Only then refactor, and confirm the new code still passes the tests.
 
 ### Test craft
 

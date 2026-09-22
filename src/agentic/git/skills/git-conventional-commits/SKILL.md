@@ -95,6 +95,8 @@ requests we know are safe to repeat.
 Non-idempotent calls are deliberately excluded.
 ```
 
+**The body is where the _why_ belongs — not the code.** A comment that explains why a line exists, what workaround it encodes, or what would break without it is a commit-description line that ended up in the wrong file: it is invisible to `git log`, it rots in place, and it duplicates a message the body could carry once. Put the reasoning here, and leave the code to say what it does — reserve in-code comments for the 1–2 lines of non-obvious mechanics a reader cannot infer (see the Comments rules in `devbot:software-development`).
+
 ## Footers
 
 Footers go last, one per line, as `Token: value`:

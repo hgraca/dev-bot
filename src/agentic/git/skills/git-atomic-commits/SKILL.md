@@ -132,6 +132,6 @@ Never drop/rename in place, and never bundle a destructive migration with an add
 
 ## Related skills
 
-- **conventional-commits** — the `<type>(<scope>): <description>` message format, type reference, and breaking-change notation
+- **conventional-commits** — the `<type>(<scope>): <description>` message format, type reference, breaking-change notation, and where the _why_ goes: in the commit body, not in code comments
 - **advanced-operations** — partial staging with `git add -p`, stash isolation, splitting a commit that was already made, verifying each commit builds
 - **fixup-commits** — when the change corrects a commit that already exists on this branch, rather than being new work
