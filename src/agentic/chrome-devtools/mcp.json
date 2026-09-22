@@ -2,6 +2,7 @@
   "mcp": {
     "chrome-devtools": {
       "type": "stdio",
+      "enabled": false,
       "command": [
         "bash",
         "-c",

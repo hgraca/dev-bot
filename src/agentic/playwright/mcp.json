@@ -2,6 +2,7 @@
   "mcp": {
     "playwright": {
       "type": "stdio",
+      "enabled": false,
       "_hybrid": true,
       "command": [
         "bash",

@@ -30,7 +30,8 @@ assert m['type'] == 'http', m
 assert m['url'] == 'http://127.0.0.1:18502/mcp', m
 assert 'command' not in m, m
 assert 'env' not in m, m
-assert 'enabled' not in m, m
+# Wired but not started: opencode honors the flag, claudecode drops it.
+assert m['enabled'] is False, m
 print('MCP:OK')
 "
   assert_success

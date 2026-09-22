@@ -533,3 +533,28 @@ print('MCP-STATE:OK')
   refute_output --partial "needs a docker daemon"
   _assert_registered "dockeronly-mod" ok
 }
+
+@test "registration: a canonical enabled:false reaches opencode.jsonc" {
+  # End-to-end through the real translator + registration with a SHIPPED
+  # manifest: the server is wired (present) AND marked disabled, so the user can
+  # turn it on from the harness without re-running init.
+  _setup '{}'
+  mkdir -p "${SANDBOX_DIR}/src/agentic/chrome-devtools"
+  cp "${PROJECT_ROOT}/src/agentic/chrome-devtools/mcp.json" \
+    "${SANDBOX_DIR}/src/agentic/chrome-devtools/mcp.json"
+
+  run _register_mcp "chrome-devtools"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+entry = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {}).get('chrome-devtools')
+assert entry is not None, 'chrome-devtools not registered'
+assert entry.get('enabled') is False, entry
+print('REGISTERED-DISABLED:OK')
+"
+  assert_success
+  grep -qF 'REGISTERED-DISABLED:OK' <<< "$output" || fail "chrome-devtools must register disabled"
+}

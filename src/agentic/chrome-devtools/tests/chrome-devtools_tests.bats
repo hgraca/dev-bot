@@ -105,6 +105,20 @@ _stub_runtime_kit() {
   refute grep -q 'npm exec' "${MODULE_DIR}/mcp.json"
 }
 
+@test "mcp.json: ships the server disabled by default (enabled: false)" {
+  # Wired in every harness but not started, so the ~6.5k tokens of tool schema
+  # are costed only when the user turns it on. opencode honors the flag;
+  # claudecode drops it — .mcp.json has no per-server on/off.
+  run python3 -c "
+import json
+m = json.load(open('${MODULE_DIR}/mcp.json'))['mcp']['chrome-devtools']
+assert m['enabled'] is False, m
+print('DISABLED-BY-DEFAULT:OK')
+"
+  assert_success
+  grep -qF 'DISABLED-BY-DEFAULT:OK' <<< "$output" || fail "chrome-devtools must ship enabled: false"
+}
+
 # ── T1.2: version pinning ─────────────────────────────────────────────────────
 
 @test "versions.env: exists and pins a semver chrome-devtools-mcp version" {

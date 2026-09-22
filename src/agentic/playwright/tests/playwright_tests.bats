@@ -133,3 +133,17 @@ _stub_npm_kit() {
   run grep -q 'docker info' "${MODULE_DIR}/mcp.json"
   assert_success
 }
+
+@test "mcp.json: ships the server disabled by default (enabled: false)" {
+  # Wired in every harness but not started, so the ~3.5k tokens of tool schema
+  # are costed only when the user turns it on. opencode honors the flag;
+  # claudecode drops it — .mcp.json has no per-server on/off.
+  run python3 -c "
+import json
+m = json.load(open('${MODULE_DIR}/mcp.json'))['mcp']['playwright']
+assert m['enabled'] is False, m
+print('DISABLED-BY-DEFAULT:OK')
+"
+  assert_success
+  grep -qF 'DISABLED-BY-DEFAULT:OK' <<< "$output" || fail "playwright must ship enabled: false"
+}
