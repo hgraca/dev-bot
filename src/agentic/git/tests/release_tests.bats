@@ -158,6 +158,36 @@ release() {
   assert_output --partial "FATAL:"
 }
 
+@test "version: a four-part remote tag bumps the third component" {
+  git -C "$WORK" tag 0.7.4.0
+  git -C "$WORK" push -q empty main refs/tags/0.7.4.0
+
+  release version --remote empty
+
+  assert_success
+  assert_output "0.7.5.0"
+}
+
+@test "version: the unstable major-zero prefix shifts the bump to the third component" {
+  git -C "$WORK" tag 0.1.2.3
+  git -C "$WORK" push -q empty main refs/tags/0.1.2.3
+
+  release version --remote empty
+
+  assert_success
+  assert_output "0.1.3.0"
+}
+
+@test "version: a three-part major-zero tag is not a version tag" {
+  git -C "$WORK" tag 0.7.5
+  git -C "$WORK" push -q empty main refs/tags/0.7.5
+
+  release version --remote empty
+
+  assert_failure
+  assert_output --partial "FATAL:"
+}
+
 # ── version: explicit argument ───────────────────────────────────────────────
 
 @test "version: accepts a full semver argument" {
@@ -188,8 +218,36 @@ release() {
   assert_output --partial "FATAL:"
 }
 
-@test "version: rejects a four-component argument" {
+@test "version: rejects a four-component argument when the major is non-zero" {
   release version --version 1.2.3.4
+
+  assert_failure
+  assert_output --partial "FATAL:"
+}
+
+@test "version: accepts a four-component argument when the major is zero" {
+  release version --version 0.1.2.3
+
+  assert_success
+  assert_output "0.1.2.3"
+}
+
+@test "version: rejects a two-component argument when the major is zero" {
+  release version --version 0.7
+
+  assert_failure
+  assert_output --partial "FATAL:"
+}
+
+@test "version: rejects a three-component argument when the major is zero" {
+  release version --version 0.7.5
+
+  assert_failure
+  assert_output --partial "FATAL:"
+}
+
+@test "version: rejects a five-component argument" {
+  release version --version 0.1.2.3.4
 
   assert_failure
   assert_output --partial "FATAL:"

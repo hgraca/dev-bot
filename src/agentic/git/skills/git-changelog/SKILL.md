@@ -11,11 +11,14 @@ commit-by-commit log.
 
 ## Output contract
 
-- **File name:** `release.v<MAJOR>-<MINOR>-<PATCH>.no-vcs.md` at the repo root —
-  the full release version with dots turned into dashes, e.g. release `v1.5.2`
-  → `release.v1-5-2.no-vcs.md`.
-- **Heading:** `# Release v<MAJOR>.<MINOR>.<PATCH>` — the full three-part semver,
-  e.g. `# Release v1.5.0`.
+- **File name:** `release.v<VERSION>.no-vcs.md` at the repo root — the full
+  release version with dots turned into dashes, e.g. release `v1.5.2` →
+  `release.v1-5-2.no-vcs.md`, and the unstable four-part `v0.7.5.0` →
+  `release.v0-7-5-0.no-vcs.md`.
+- **Heading:** `# Release v<VERSION>` — the full version, e.g.
+  `# Release v1.5.0`. A major of `0` marks a release as still unstable and
+  carries four components, so the heading is `# Release v0.7.5.0` there and the
+  file is `release.v0-7-5-0.no-vcs.md`.
 - **The `.no-vcs.md` suffix is load-bearing:** it matches the `*no-vcs*`
   gitignore rule, so the file is **never committed**. Never `git add` it, and
   never ask where it goes — a release file is a local artifact. Writing or
@@ -61,7 +64,7 @@ commit-by-commit log.
    change it omits may predate the file's last write.
 2. Group the commits into logical changes.
 3. Phrase each group as a product/decision statement.
-4. Write or refresh `release.v<MAJOR>-<MINOR>-<PATCH>.no-vcs.md`.
+4. Write or refresh `release.v<VERSION>.no-vcs.md`.
 5. Do not commit it.
 6. Verify the format before finishing — every line at most 72 characters.
    Nothing enforces this: the markdown formatter runs prettier with wrapping

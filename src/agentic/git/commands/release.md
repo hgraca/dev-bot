@@ -31,7 +31,7 @@ version) — tell the user and stop.
 ## 2. Write the release notes
 
 Load the `devbot:git-changelog` context skill and produce the release file for that version. It
-writes `release.v<MAJOR>-<MINOR>-<PATCH>.no-vcs.md` at the repo root.
+writes `release.v<VERSION>.no-vcs.md` (the version with dots turned into dashes) at the repo root.
 
 That file is the **single source** for both the tag description and the GitHub release notes, so
 pass its path to every later step. It is gitignored: never `git add` it, never commit it.
@@ -44,7 +44,7 @@ asking.
 
 ```
 bash "$DEV_BOT_ROOT/src/agentic/git/tools/release.sh" plan \
-  --version "<version>" --notes-file "release.v<MAJOR>-<MINOR>-<PATCH>.no-vcs.md" \
+  --version "<version>" --notes-file "release.v<VERSION>.no-vcs.md" \
   --remotes <comma-separated remotes>
 ```
 

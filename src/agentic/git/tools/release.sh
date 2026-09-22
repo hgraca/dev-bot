@@ -31,17 +31,26 @@ _warn() { echo "WARN: $*" >&2; }
 
 # ── git plumbing helpers ─────────────────────────────────────────────────────
 
-# Newest *version* tag on a remote, version-sorted by git itself. Non-version
-# tags (`nightly`, a date) are ignored: bumping one would silently produce a
-# release named `nightly.1.0`. Annotated tags emit a peeled `^{}` ref alongside
-# the real one — that must be filtered, or the ref reads back as `1.5.0^{}`.
+# Newest *version-shaped* tag on a remote, version-sorted by git itself. The
+# shape rule lives in `_normalise_version` alone and is applied per candidate,
+# so a major-zero repo's four-part tags and a stable repo's three-part tags are
+# both recognised without a second copy of the rule here. Non-version tags
+# (`nightly`, a date) are ignored: bumping one would silently produce a release
+# named `nightly.1.0`. Annotated tags emit a peeled `^{}` ref alongside the real
+# one — that must be filtered, or the ref reads back as `1.5.0^{}`.
 _last_remote_tag() {
-  local remote="$1"
-  git ls-remote --tags --sort=-v:refname "${remote}" 2>/dev/null \
+  local remote="$1" tag candidates
+  candidates="$(git ls-remote --tags --sort=-v:refname "${remote}" 2>/dev/null \
     | sed -n 's#.*refs/tags/##p' \
     | grep -v '\^{}$' \
-    | grep -E '^[0-9]+\.[0-9]+(\.[0-9]+)?$' \
-    | head -1 || true
+    | grep -E '^[0-9]+(\.[0-9]+)+$' || true)"
+  [[ -n "${candidates}" ]] || return 0
+  while IFS= read -r tag; do
+    if _normalise_version "${tag}" >/dev/null 2>&1; then
+      printf '%s\n' "${tag}"
+      return 0
+    fi
+  done <<<"${candidates}"
 }
 
 _tag_exists_on_remote() {
@@ -54,26 +63,45 @@ _tag_exists_locally() {
   git rev-parse --verify --quiet "refs/tags/$1" >/dev/null 2>&1
 }
 
-# X.Y.Z (or X.Y) → X.Y.Z; non-semver → non-zero.
+# Version shapes. A stable release has three components (X.Y.Z; X.Y normalises
+# to X.Y.0). An unstable one is marked by a leading zero and has four
+# (0.X.Y.Z), whose last three components behave as major.minor.patch — the
+# leading zero only records that the release is still unstable. Only digits and
+# dots are allowed; anything else, or any other component count, is not a
+# version.
 _normalise_version() {
-  local major minor patch
-  IFS=. read -r major minor patch <<<"$1"
-  [[ -n "${major}" && -n "${minor}" ]] || return 1
-  case "${major}" in *[!0-9]*) return 1 ;; esac
-  case "${minor}" in *[!0-9]*) return 1 ;; esac
-  if [[ -z "${patch}" ]]; then
-    patch=0
-  else
-    case "${patch}" in *[!0-9]*) return 1 ;; esac
+  local value="$1" major minor third fourth extra
+  case "${value}" in
+    '' | *[!0-9.]* | .* | *. | *..*) return 1 ;;
+  esac
+  # `read` folds everything past the named fields into the last one, so a fifth
+  # component (or a malformed one) leaves `extra` set.
+  IFS=. read -r major minor third fourth extra <<<"${value}"
+  [[ -z "${extra}" ]] || return 1
+  if [[ -z "${fourth}" ]]; then
+    [[ -n "${minor}" && "${major}" != "0" ]] || return 1
+    if [[ -z "${third}" ]]; then
+      printf '%s.%s.0\n' "${major}" "${minor}"
+    else
+      printf '%s.%s.%s\n' "${major}" "${minor}" "${third}"
+    fi
+    return 0
   fi
-  printf '%s.%s.%s\n' "${major}" "${minor}" "${patch}"
+  [[ "${major}" == "0" && -n "${minor}" && -n "${third}" ]] || return 1
+  printf '%s\n' "${value}"
 }
 
-# X.Y.Z → X.(Y+1).0
+# Next minor: X.Y.Z → X.(Y+1).0, and for the unstable shape 0.X.Y.Z →
+# 0.X.(Y+1).0.
 _bump_minor() {
-  local major minor patch
-  IFS=. read -r major minor patch <<<"$1"
-  printf '%s.%s.0\n' "${major}" "$((minor + 1))"
+  local normalised major minor third fourth
+  normalised="$(_normalise_version "$1")" || return 1
+  IFS=. read -r major minor third fourth <<<"${normalised}"
+  if [[ "${major}" == "0" ]]; then
+    printf '0.%s.%s.0\n' "${minor}" "$((third + 1))"
+  else
+    printf '%s.%s.0\n' "${major}" "$((minor + 1))"
+  fi
 }
 
 # Read-only: resolves the default branch without writing
@@ -247,7 +275,7 @@ _remotes_to_use() {
 _resolve_version() {
   [[ -n "${VERSION}" ]] || _fatal "$SUBCOMMAND: --version is required"
   local normalised
-  normalised="$(_normalise_version "${VERSION}")" || _fatal "not a valid version: '${VERSION}' (expected X.Y or X.Y.Z)"
+  normalised="$(_normalise_version "${VERSION}")" || _fatal "not a valid version: '${VERSION}' (expected X.Y or X.Y.Z, or X.Y.Z.W when the major is 0)"
   printf '%s\n' "${normalised}"
 }
 
@@ -274,7 +302,7 @@ cmd_version() {
 
   if [[ -n "${VERSION:-}" ]]; then
     local normalised
-    normalised="$(_normalise_version "${VERSION}")" || _fatal "not a valid version: '${VERSION}' (expected X.Y or X.Y.Z)"
+    normalised="$(_normalise_version "${VERSION}")" || _fatal "not a valid version: '${VERSION}' (expected X.Y or X.Y.Z, or X.Y.Z.W when the major is 0)"
     if _tag_exists_on_remote "${remote}" "${normalised}"; then
       _fatal "tag ${normalised} already exists on '${remote}'"
     fi

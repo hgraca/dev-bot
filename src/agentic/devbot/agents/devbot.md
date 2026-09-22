@@ -167,7 +167,7 @@ When every task in an assignment is complete (each committed per [On every task 
 - When creating, reviewing, or optimizing agent instruction files, use `devbot:optimize-instructions`
 - When optimizing agent context setup, rules files, or MCP integration, use `context-engineering`
 - When preparing to deploy to production or coordinating launch, use `shipping-and-launch`
-- When creating a new release or git tag, use `devbot:git-changelog` to write the release file — grouped release notes (`release.v<MAJOR>-<MINOR>-<PATCH>.no-vcs.md`, heading `# Release vX.Y.Z`) from the release range's commits; the file is gitignored and never committed
+- When creating a new release or git tag, use `devbot:git-changelog` to write the release file — grouped release notes (`release.v<VERSION>.no-vcs.md`, dots turned into dashes, heading `# Release v<VERSION>`) from the release range's commits; the file is gitignored and never committed
 - When addressing review findings from @reviewer at assignment completion, use `devbot:address-review`
 - When writing or organizing documentation files, use `devbot:documentation-rules`
 - When searching for code, locating definitions, or exploring codebase, use `devbot:search-code`
