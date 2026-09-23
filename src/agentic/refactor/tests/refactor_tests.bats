@@ -168,7 +168,6 @@ setup() {
   assert_output --partial '"lang":"php"'
   assert_output --partial '".php"'
   assert_output --partial '"rename-method"'
-  assert_output --partial '"rename-class"'
   assert_output --partial '"rename-static-method"'
   assert_output --partial '"rename-property"'
 }
@@ -287,4 +286,142 @@ setup() {
 
   assert_success
   assert_output --partial "mounted"
+}
+
+# ── PHP plugin: config rendering + the real rename (T7) ────────────────────────
+
+# Build a request JSON via python — avoids nested shell-quoting entirely.
+_req() {
+  python3 - "$@" <<'PY'
+import json, sys
+args = (sys.argv[1:] + ["", "", "", ""])[:4]
+op, klass, old, new = args
+print(json.dumps({"op": op, "class": klass or None, "from": old, "to": new,
+                  "apply": False, "scope": ["/app/src"]}))
+PY
+}
+
+# True when a real end-to-end run is possible.
+_e2e_ready() {
+  command -v docker >/dev/null 2>&1 || return 1
+  docker info >/dev/null 2>&1 || return 1
+  bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/bare" 2>/dev/null |
+    grep -q '"via": "scratch"'
+}
+
+@test "render-config: emits exactly one configured rule" {
+  run bash -c "printf '%s' '{\"op\":\"rename-method\",\"class\":\"Demo\\\\Greeter\",\"from\":\"greet\",\"to\":\"salute\",\"scope\":[\"/app/src\"]}' | python3 '${MODULE_DIR}/langs/php/render-config.py'"
+
+  assert_success
+  assert_output --partial "RenameMethodRector::class"
+  assert_output --partial "new MethodCallRename("
+  assert_output --partial "withPaths(['/app/src'])"
+  # Our config must never carry the project's rule sets.
+  refute_output --partial "withPreparedSets"
+  refute_output --partial "SetList"
+}
+
+@test "render-config: rename-class is not supported yet" {
+  # RenameClassRector rewrites references but not the class declaration, so a
+  # class rename would emit broken code. Refuse rather than half-rename.
+  run bash -c "printf '%s' '{\"op\":\"rename-class\",\"from\":\"App\\\\Old\",\"to\":\"App\\\\New\"}' | python3 '${MODULE_DIR}/langs/php/render-config.py'"
+
+  assert_failure
+  assert_output --partial "unsupported op"
+}
+
+@test "render-config: rejects an unsupported op" {
+  run bash -c "printf '%s' '{\"op\":\"rename-everything\",\"from\":\"a\",\"to\":\"b\"}' | python3 '${MODULE_DIR}/langs/php/render-config.py'"
+
+  assert_failure
+  assert_output --partial "unsupported op"
+}
+
+@test "end-to-end: plan reports both sites and writes nothing" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-method 'Demo\Greeter' greet salute > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' plan < '${work}/request.json'"
+
+  local leaked
+  leaked="$({ grep -rho salute "${work}/src" || true; } | wc -l | tr -d ' ')"
+  rm -r "${work}"
+
+  assert_success
+  assert_output --partial '"ok": true'
+  assert_output --partial "Would rename greet -> salute in 2 file(s)"
+  # A dry run must not have touched the tree.
+  [ "${leaked}" = "0" ]
+}
+
+@test "end-to-end: apply renames the declaration and the call site" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-method 'Demo\Greeter' greet salute > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local decl call
+  decl="$(grep -c 'function salute' "${work}/src/Greeter.php" || true)"
+  call="$(grep -c '\->salute(' "${work}/src/UseGreeter.php" || true)"
+  rm -r "${work}"
+
+  assert_success
+  assert_output --partial '"ok": true'
+  assert_output --partial "Renamed greet -> salute in 2 file(s)"
+  # The declaration AND the call site must both have moved.
+  [ "${decl}" = "1" ]
+  [ "${call}" = "1" ]
+}
+
+@test "end-to-end: rename-static-method rewrites the declaration too" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-static-method 'Demo\Widget' make build > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local decl leftover call
+  decl="$(grep -c 'function build' "${work}/src/Widget.php" || true)"
+  leftover="$(grep -c 'function make' "${work}/src/Widget.php" || true)"
+  call="$(grep -c 'Widget::build()' "${work}/src/UsesWidget.php" || true)"
+  rm -r "${work}"
+
+  assert_success
+  assert_output --partial '"ok": true'
+  # A call-site-only rename would leave 'function make' behind — broken code.
+  [ "${decl}" = "1" ]
+  [ "${leftover}" = "0" ]
+  [ "${call}" = "1" ]
+}
+
+@test "end-to-end: rename-property rewrites the declaration and the access" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-property 'Demo\Widget' label caption > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local decl access
+  decl="$(grep -c '\$caption' "${work}/src/Widget.php" || true)"
+  access="$(grep -c '\->caption' "${work}/src/UsesWidget.php" || true)"
+  rm -r "${work}"
+
+  assert_success
+  assert_output --partial '"ok": true'
+  [ "${decl}" = "1" ]
+  [ "${access}" = "1" ]
 }

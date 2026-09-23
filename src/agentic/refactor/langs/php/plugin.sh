@@ -25,7 +25,7 @@ REFACTOR_DIR="$(cd "${PLUGIN_DIR}/../.." && pwd)"
 # Overridable for tests, and to relocate the scratch install.
 STORAGE_DIR="${REFACTOR_STORAGE_DIR:-${REFACTOR_DIR}/../../../storage/refactor}"
 
-OPS='["rename-method","rename-class","rename-static-method","rename-property"]'
+OPS='["rename-method","rename-static-method","rename-property"]'
 
 # ── Engine resolution ─────────────────────────────────────────────────────────
 
@@ -68,6 +68,26 @@ PY
   echo ""
 }
 
+# The scratch engine root — the directory CONTAINING vendor/bin/rector, so that
+# <root>/vendor/bin/rector resolves once mounted.
+_scratch_root() {
+  local root="${STORAGE_DIR}/rector"
+  [[ -d "${root}" ]] || return 1
+
+  # The canonical layout created by `provision`.
+  if [[ -x "${root}/vendor/bin/rector" ]]; then
+    echo "${root}"
+    return 0
+  fi
+
+  # A versioned/nested layout. Exclude a package's own nested vendor.
+  local bin
+  bin="$(find "${root}" -maxdepth 6 -type f -path '*/vendor/bin/rector' \
+    ! -path '*/vendor/rector/*' 2>/dev/null | sort | head -1 || true)"
+  [[ -n "${bin}" ]] || return 1
+  echo "${bin%/vendor/bin/rector}"
+}
+
 # Resolve the engine. Echoes tab-separated: <via> <path> <version>.
 # `via` is "project" or "scratch"; for scratch, <path> points into STORAGE_DIR.
 _resolve_engine() {
@@ -82,15 +102,11 @@ _resolve_engine() {
   fi
 
   # 2. A pinned scoped install in the scratch dir.
-  local scratch=""
-  if [[ -d "${STORAGE_DIR}/rector" ]]; then
-    scratch="$(find "${STORAGE_DIR}/rector" -maxdepth 6 -type f \
-      -path '*/vendor/bin/rector' 2>/dev/null | sort | head -1 || true)"
-  fi
-  if [[ -n "${scratch}" ]]; then
-    local lock
-    lock="$(dirname "$(dirname "$(dirname "${scratch}")")")/composer.lock"
-    printf 'scratch\t%s\t%s\n' "${scratch}" "$(_rector_version_from_lock "${lock}")"
+  local root
+  if root="$(_scratch_root)"; then
+    printf 'scratch\t%s\t%s\n' \
+      "${root}/vendor/bin/rector" \
+      "$(_rector_version_from_lock "${root}/composer.lock")"
     return 0
   fi
 
@@ -100,12 +116,17 @@ _resolve_engine() {
 # ── Container runner ──────────────────────────────────────────────────────────
 
 # The Rector rule class for an op.
+#
+# rename-static-method deliberately uses RenameMethodRector: it handles
+# StaticCall AND rewrites the declaration (Class_/Trait_/Interface_), whereas
+# RenameStaticMethodRector renames only the call sites and leaves the
+# declaration behind — a half-rename that produces broken code.
 _rule_for_op() {
   case "$1" in
-    rename-method)        echo 'Rector\Renaming\Rector\MethodCall\RenameMethodRector' ;;
-    rename-class)         echo 'Rector\Renaming\Rector\Name\RenameClassRector' ;;
-    rename-static-method) echo 'Rector\Renaming\Rector\StaticCall\RenameStaticMethodRector' ;;
-    rename-property)      echo 'Rector\Renaming\Rector\PropertyFetch\RenamePropertyRector' ;;
+    rename-method | rename-static-method)
+      echo 'Rector\Renaming\Rector\MethodCall\RenameMethodRector' ;;
+    rename-property)
+      echo 'Rector\Renaming\Rector\PropertyFetch\RenamePropertyRector' ;;
     *) return 1 ;;
   esac
 }
@@ -156,8 +177,7 @@ _build_argv() {
 
   local engine_host="${project}" engine_in_container="/app"
   if [[ "${via}" == "scratch" ]]; then
-    engine_host="$(find "${STORAGE_DIR}/rector" -maxdepth 6 -type d -path '*/vendor/bin' 2>/dev/null | sort | head -1)"
-    engine_host="$(dirname "${engine_host}")"
+    engine_host="$(_scratch_root)"
     engine_in_container="/refactor-engine"
   fi
 
@@ -273,10 +293,119 @@ cmd_provision() {
   printf '{"ok":true,"scratch":"%s","version":"%s"}\n' "${dir}" "${version}"
 }
 
+# Run a refactor: render the single-rule config, execute Rector, map its JSON
+# output onto the plugin response contract.
+#
+#   $1    = plan (dry-run) | apply
+#   stdin = the request JSON
+cmd_run() {
+  local mode="$1" request op klass from to
+  request="$(cat)"
+
+  # Split on the ASCII unit separator, not a tab: tab counts as IFS whitespace,
+  # so bash would collapse the empty `class` field rename-class legitimately has.
+  IFS=$'\x1f' read -r op klass from to < <(printf '%s' "${request}" | python3 -c '
+import json, sys
+r = json.load(sys.stdin)
+print("\x1f".join([str(r.get("op") or ""), str(r.get("class") or ""),
+                   str(r.get("from") or ""), str(r.get("to") or "")]))')
+
+  if [[ -z "${op}" || -z "${from}" || -z "${to}" ]]; then
+    echo '{"ok":false,"error":"op, from and to are required"}' >&2
+    exit 1
+  fi
+
+  local project="${REFACTOR_PROJECT:-${PWD}}"
+
+  local engine
+  if ! engine="$(_resolve_engine "${project}")"; then
+    echo '{"ok":false,"error":"no Rector engine found","hint":"run: plugin.sh provision"}' >&2
+    exit 1
+  fi
+  local via _path version
+  IFS=$'\t' read -r via _path version <<<"${engine}"
+
+  local image cfg
+  image="$(_resolve_image "${project}" "${REFACTOR_PHP_IMAGE:-}")"
+  cfg="$(mktemp)"
+
+  if ! printf '%s' "${request}" | python3 "${PLUGIN_DIR}/render-config.py" > "${cfg}"; then
+    rm -f "${cfg}"
+    echo '{"ok":false,"error":"could not render the Rector config"}' >&2
+    exit 1
+  fi
+
+  local dry="true"
+  [[ "${mode}" == "apply" ]] && dry="false"
+
+  local -a cmd
+  mapfile -d '' -t cmd < <(_build_argv "${via}" "${project}" "${image}" "${cfg}" "${dry}" "${op}" |
+    python3 -c 'import json,sys; sys.stdout.write("\0".join(json.load(sys.stdin)))')
+
+  local outfile errfile rc
+  outfile="$(mktemp)"
+  errfile="$(mktemp)"
+  set +e
+  "${cmd[@]}" >"${outfile}" 2>"${errfile}"
+  rc=$?
+  set -e
+  rm -f "${cfg}"
+
+  python3 - "${outfile}" "${errfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" "${rc}" <<'PY'
+import json, sys
+
+outfile, errfile, via, version, mode, old, new, rc = sys.argv[1:9]
+
+try:
+    raw = open(outfile, encoding="utf-8", errors="replace").read().strip()
+except Exception:
+    raw = ""
+try:
+    err = open(errfile, encoding="utf-8", errors="replace").read()
+except Exception:
+    err = ""
+
+warnings = [line for line in err.splitlines() if line.strip()]
+
+if not raw:
+    print(json.dumps({"ok": False, "error": "no output from Rector", "warnings": warnings}))
+    raise SystemExit
+
+try:
+    data = json.loads(raw)
+except Exception as exc:
+    print(json.dumps({"ok": False, "error": "unparseable Rector output: %s" % exc, "warnings": warnings}))
+    raise SystemExit
+
+totals = data.get("totals") or {}
+errors = totals.get("errors") or 0
+files = data.get("changed_files") or []
+
+# Rector exits 2 when --dry-run finds changes to make (0 = nothing to do,
+# 1 = error). A plan that found changes is a success, not a failure.
+changes_pending = int(rc) == 2 and mode == "plan"
+result = {
+    "ok": errors == 0 and (int(rc) == 0 or changes_pending),
+    "engine": "rector %s (%s)" % (version, via),
+    "applied": mode == "apply",
+    "summary": "%s %s -> %s in %d file(s)" % (
+        "Renamed" if mode == "apply" else "Would rename", old, new, len(files)),
+    "files": files,
+    "warnings": warnings,
+}
+if not result["ok"]:
+    result["error"] = "rector exited %s with %d error(s)" % (rc, errors)
+print(json.dumps(result))
+PY
+  rm -f "${outfile}" "${errfile}"
+}
+
 case "${1:-}" in
   meta)      cmd_meta ;;
   doctor)    shift; cmd_doctor "$@" ;;
   provision) shift; cmd_provision "$@" ;;
+  plan)      shift; cmd_run plan ;;
+  apply)     shift; cmd_run apply ;;
   *)
     echo "ERROR: php plugin: unsupported subcommand '${1:-}' (expected meta|doctor|plan|apply)" >&2
     exit 1

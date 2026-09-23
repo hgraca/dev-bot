@@ -1,0 +1,11 @@
+{
+  "name": "fixture/rename-demo",
+  "require": {
+    "php": "^8.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Demo\\": "src/"
+    }
+  }
+}
