@@ -5,25 +5,9 @@ description: Write commit messages in Conventional Commits format — 'type(scop
 
 # Conventional Commits
 
-A commit message format that makes history scannable and can drive automated versioning and changelogs.
-
-## Structure
-
-```
-<type>(<scope>)<!>: <description>
-
-[optional body]
-
-[optional footer(s)]
-```
-
-Only `<type>` and `<description>` are required. The `!` marks a breaking change.
-
-```
-feat(auth): add OAuth2 support
-fix: handle null response from /users
-refactor(utils)!: drop callback API from date helpers
-```
+The `<type>(<scope>): <description>` taxonomy for commit messages — it makes history scannable and
+can drive automated versioning and changelogs. The message skeleton and the body format live in
+`devbot:git-commits`; this skill defines the types, the scope rules, and the footers.
 
 ## Types
 
@@ -62,40 +46,6 @@ docs(readme): add installation instructions
 refactor(utils): extract date formatting
 test(cart): add checkout flow tests
 ```
-
-## Description
-
-The description is the subject line after the colon:
-
-- Imperative mood — "add", not "added" or "adds". It should complete the sentence "this commit will _____".
-- Lowercase start, no trailing period.
-- Aim for a subject line under ~72 characters total.
-- Say what changed and why it matters, not which files moved.
-
-```
-feat(auth): add OAuth2 support                    <- good
-feat(auth): Added OAuth2 Support.                 <- wrong mood, capitalized, period
-feat(auth): update auth.ts and config.ts          <- describes files, not the change
-fix: stuff                                        <- says nothing
-```
-
-If the description needs "and", the commit probably needs splitting — see the atomic-commits skill.
-
-## Body
-
-Add a body when the _why_ isn't obvious from the subject. Separate it from the subject with a blank line, wrap around 72 characters, and explain the reasoning and any consequences rather than restating the diff:
-
-```
-fix(api): retry idempotent requests on 503
-
-The upstream gateway returns 503 during its rolling deploys, which
-surfaced to users as failed checkouts. Retry twice with backoff for
-requests we know are safe to repeat.
-
-Non-idempotent calls are deliberately excluded.
-```
-
-**The body is where the _why_ belongs — not the code.** A comment that explains why a line exists, what workaround it encodes, or what would break without it is a commit-description line that ended up in the wrong file: it is invisible to `git log`, it rots in place, and it duplicates a message the body could carry once. Put the reasoning here, and leave the code to say what it does — reserve in-code comments for the 1–2 lines of non-obvious mechanics a reader cannot infer (see the Comments rules in `devbot:software-development`).
 
 ## Footers
 
@@ -148,9 +98,3 @@ mention the option rather than silently switching formats.
 Some projects prefix the subject with a ticket ID instead of the conventional type — e.g. `POS-666: add user authentication`.
 When a task carries a ticket ID, use it as the subject prefix; when there is no ticket, use plain Conventional Commits.
 Check existing history to confirm the repo's ticket-prefix format before assuming one.
-
-## Related skills
-
-- **atomic-commits** — deciding what belongs in each commit before writing its message
-- **fixup-commits** — replacing a wrong message on an earlier commit via `--fixup=reword:`
-- **advanced-operations** — rewording messages across a range of commits

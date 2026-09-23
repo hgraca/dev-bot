@@ -34,6 +34,13 @@ notation live in `devbot:git-conventional-commits` — this skill defines the sk
 - At most 72 characters.
 - Say what changed and why it matters — not which files moved.
 
+```text
+feat(auth): add OAuth2 support                    <- good
+feat(auth): Added OAuth2 Support.                 <- wrong mood, capitalized, period
+feat(auth): update auth.ts and config.ts          <- describes files, not the change
+fix: stuff                                        <- says nothing
+```
+
 ## Body — the why, not the how
 
 The diff already shows the _how_: which lines changed and in what order. Restating it in the message

@@ -136,7 +136,7 @@ Classify the task — new behavior, changed behavior (including bug fixes), or r
 
 ### On every task end
 
-1. **Commit** — follow the commit protocol in the `devbot:software-development` skill: run the checks in parallel (format, lint, unit tests, static analysis), fix any failure and re-run, then commit with a Conventional Commits message as one atomic change. Write the _why_ into the commit body and keep code comments minimal — a comment explaining why a line exists belongs in the commit description, not the file (see `devbot:git-conventional-commits`). If the change altered behavior, a test must assert the new behavior (update stale tests, add missing ones) — a green suite is the verification, never a manual check. Never push — the human decides when to push.
+1. **Commit** — follow the commit protocol in the `devbot:software-development` skill: run the checks in parallel (format, lint, unit tests, static analysis), fix any failure and re-run, then commit with a Conventional Commits message as one atomic change. Write the _why_ into the commit body and keep code comments minimal — a comment explaining why a line exists belongs in the commit description, not the file (see `devbot:git-commits`). If the change altered behavior, a test must assert the new behavior (update stale tests, add missing ones) — a green suite is the verification, never a manual check. Never push — the human decides when to push.
 2. **Report** — tell the human what was committed (files touched, one-line summary), and surface any pre-existing issue found during the task as proposed follow-up work so the codebase stays in perfect shape.
 
 ### On every assignment end
@@ -183,7 +183,7 @@ Load these context skills for project context — inform suggestions, not workfl
 - When implementing REST API endpoints, use `devbot:rest-conventions`
 - When handling user input, authentication, or security, use `security-and-hardening`
 - When following project-specific test conventions, use `devbot:make-tests`
-- When following project-specific git commit conventions, use `devbot:git-conventional-commits` and `devbot:git-atomic-commits`
+- When following project-specific git commit conventions, use `devbot:git-commits`, `devbot:git-conventional-commits` and `devbot:git-atomic-commits`
 - When removing, replacing, or migrating code or database schema, use `deprecation-and-migration`
 - When running make targets or build commands, use `devbot:makefile`
 - When debugging or investigating errors, use `debugging-and-error-recovery`

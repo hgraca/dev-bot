@@ -7,14 +7,9 @@ description: Advanced git history surgery — partial staging with git add -p, s
 
 Techniques for cases where a plain `git add` + `git commit` isn't enough: changes tangled inside one file, commits that need breaking apart after the fact, and recovery when a rewrite goes wrong.
 
-**Safety rule that governs everything below:** anything that rewrites history is safe on unpushed commits and dangerous on shared ones. Check before rewriting:
-
-```bash
-git branch -r --contains <sha>   # empty output means not pushed anywhere
-git log --oneline @{upstream}..HEAD   # the range that is yours alone
-```
-
-If a commit is on a remote, rewriting forces every collaborator to reset. Get explicit approval, and on protected branches prefer a normal follow-up commit.
+**Safety rule that governs everything below** — anything that rewrites history is safe on unpushed
+commits and dangerous on shared ones. The check to run before rewriting is in `devbot:git-commits`
+under **Rewriting history (MUST)**.
 
 ## Partial staging
 
@@ -159,9 +154,3 @@ git cherry-pick --abort
 ```
 
 The one genuinely destructive case is uncommitted changes lost to `git reset --hard` or `git checkout -- <file>`: those were never in the object database and cannot be recovered. Commit or stash before any risky operation.
-
-## Related skills
-
-- **atomic-commits** — grouping changes into logical commits in the first place
-- **fixup-commits** — the `--fixup` and `--autosquash` workflow for correcting earlier commits
-- **conventional-commits** — message format for the new messages these operations produce

@@ -31,7 +31,7 @@ Do immediately:
 - When unexpected issue, error, or unfamiliar failure is encountered, use `devbot:search-memory` to find proven solution from past experiences before attempting fresh fix
 - When implementing new logic or fixing bugs, use `test-driven-development`
 - When committing, branching, or organizing changes, use `git-workflow-and-versioning`
-- When following project-specific git commit conventions, use `devbot:git-conventional-commits` and `devbot:git-atomic-commits`
+- When following project-specific git commit conventions, use `devbot:git-commits`, `devbot:git-conventional-commits` and `devbot:git-atomic-commits`
 - When correcting or rewriting an earlier commit unique to the current branch, use `devbot:git-fixup-commits` and `devbot:git-advanced-operations`
 - When building or modifying user-facing interfaces, use `frontend-ui-engineering`
 - When implementing API endpoints or module contracts, use `api-and-interface-design`

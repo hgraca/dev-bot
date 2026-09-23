@@ -77,15 +77,8 @@ GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash <base>
 
 ### 7. Never rewrite shared or already-pushed history without explicit approval
 
-Check before proposing anything in step 5:
-
-```bash
-git branch -r --contains <target-sha>   # empty output means not pushed anywhere
-git log --oneline main..HEAD            # the list of commits unique to the current branch
-git status -sb                          # ahead/behind counts
-```
-
-If the target commit exists on a remote, say so plainly and explain the consequence: everyone tracking the branch will need to reset or force-pull. A force push needs the user's explicit go-ahead, and on a protected or shared branch the right answer is usually a normal follow-up commit instead.
+The check and the rule are in `devbot:git-commits` under **Rewriting history (MUST)** — run it before
+proposing anything in step 5, and state plainly whether any target has been pushed.
 
 ## Verify the result
 
@@ -161,9 +154,3 @@ Conflicts during an autosquash rebase usually mean the fixup was aimed at the wr
 - **The target is the most recent commit with nothing stacked on it** → `git commit --amend` is simpler
 - **The branch is under review with per-commit comments** → rewriting detaches them; ask first
 - **The project squash-merges every PR** → final history has one commit anyway, though fixups still help reviewers follow an in-progress branch
-
-## Related skills
-
-- **atomic-commits** — splitting new work into logical commits
-- **advanced-operations** — partial staging, splitting an existing commit, reflog recovery in depth
-- **conventional-commits** — message format for the replacement messages used by `amend:` and `reword:`

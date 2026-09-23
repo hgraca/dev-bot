@@ -43,16 +43,10 @@ Read the diff before grouping. Grouping by directory or filename is a guess; gro
 
 ### 2. Group changes by intent
 
-Sort the changes into logical units, one commit per unit:
+Sort the changes into logical units, one commit per unit, labelled by the type that matches the
+change's user-visible effect — the taxonomy is in `devbot:git-conventional-commits`.
 
-- **feat** — new capability
-- **fix** — corrected behaviour
-- **refactor** — restructuring with no behaviour change
-- **docs** — documentation
-- **test** — tests
-- **chore** — maintenance, deps, config
-
-One file often contains two intents (a bug fix plus an unrelated rename). That's a signal to stage in pieces rather than to give up and combine — see the advanced-operations skill for `git add -p` and stash isolation.
+One file often contains two intents (a bug fix plus an unrelated rename). That's a signal to stage in pieces rather than to give up and combine — see `devbot:git-advanced-operations` for `git add -p` and stash isolation.
 
 ### 3. Commit each group
 
@@ -129,9 +123,3 @@ A database migration is a special atomic-commit case with a hard rule: it never 
 3. **Contract** — a follow-up migration removing now-unused columns/tables once the old code is retired.
 
 Never drop/rename in place, and never bundle a destructive migration with an additive one. See `deprecation-and-migration` for the schema mechanics.
-
-## Related skills
-
-- **conventional-commits** — the `<type>(<scope>): <description>` message format, type reference, breaking-change notation, and where the _why_ goes: in the commit body, not in code comments
-- **advanced-operations** — partial staging with `git add -p`, stash isolation, splitting a commit that was already made, verifying each commit builds
-- **fixup-commits** — when the change corrects a commit that already exists on this branch, rather than being new work
