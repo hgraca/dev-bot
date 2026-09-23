@@ -615,3 +615,70 @@ PHP
   [ "${added}" = "2" ]
   [ "${removed}" = "0" ]
 }
+
+# ── D1: the custom declaration-rename rule ─────────────────────────────────────
+#
+# Rector's own renaming rules are usages-only; this rule supplies the missing
+# declaration half. It is exercised directly here, mounted alongside a config,
+# because it is a shipped PHP artifact rather than a rule Rector already has.
+
+@test "declaration rule: renames a function declaration" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work cfg rules scratch
+  work="$(mktemp -d)"
+  cfg="$(mktemp)"
+  rules="${MODULE_DIR}/langs/php/rules"
+  scratch="${MODULE_DIR}/../../../storage/refactor/rector"
+
+  mkdir -p "${work}/src"
+  cat > "${work}/src/Helpers.php" <<'SRC'
+<?php
+
+declare(strict_types=1);
+
+namespace Demo;
+
+function oldHelper(string $value): string
+{
+    return $value;
+}
+SRC
+
+  cat > "${cfg}" <<'CFG'
+<?php
+
+declare(strict_types=1);
+
+use Devbot\Refactor\RenameDeclarationRector;
+use Rector\Config\RectorConfig;
+
+require_once '/refactor/rules/RenameDeclarationRector.php';
+
+return RectorConfig::configure()
+    ->withPaths(['/app/src'])
+    ->withConfiguredRule(RenameDeclarationRector::class, [
+        'kind' => 'function',
+        'from' => 'oldHelper',
+        'to' => 'newHelperDecl',
+    ]);
+CFG
+
+  run docker run --rm \
+    -v "${work}:/app" \
+    -v "${cfg}:/refactor/rector.php:ro" \
+    -v "${rules}:/refactor/rules:ro" \
+    -v "${scratch}:/refactor-engine" \
+    -w /app php:8.4-cli \
+    php /refactor-engine/vendor/bin/rector process \
+    --config /refactor/rector.php --clear-cache --no-progress-bar --output-format=json
+
+  local renamed stale
+  renamed="$(grep -c 'function newHelperDecl' "${work}/src/Helpers.php" || true)"
+  stale="$(grep -c 'function oldHelper' "${work}/src/Helpers.php" || true)"
+  rm -rf "${work}" "${cfg}"
+
+  assert_success
+  [ "${renamed}" = "1" ]
+  [ "${stale}" = "0" ]
+}
