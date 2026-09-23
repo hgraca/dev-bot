@@ -193,6 +193,24 @@ function render(res: PluginResponse, format: Format, op: string): string {
   return `${lines.join("\n")}\n`;
 }
 
+// Refuse to write onto a dirty working tree: an automated rename stacked on top
+// of uncommitted work is hard to review and harder to reverse.
+//
+// Untracked files are deliberately ignored: unrelated stray files (a shared repo
+// accumulates notes it never tracked) must not block a rename, and the rename
+// does not touch them. Only changes to tracked files count.
+async function workingTreeIsDirty(): Promise<boolean | null> {
+  const proc = Bun.spawn(
+    ["git", "status", "--porcelain", "--untracked-files=no"],
+    { stdout: "pipe", stderr: "ignore" },
+  );
+  const out = await new Response(proc.stdout).text();
+  const code = await proc.exited;
+  // Not a git repo (or git unavailable): nothing to guard.
+  if (code !== 0) return null;
+  return out.trim().length > 0;
+}
+
 async function main(): Promise<number> {
   const args = parse(process.argv.slice(2));
 
@@ -254,6 +272,16 @@ async function main(): Promise<number> {
     to: args.to,
     apply: args.apply,
   };
+
+  if (args.apply && !args.force) {
+    const dirty = await workingTreeIsDirty();
+    if (dirty) {
+      process.stderr.write(
+        "ERROR: the git working tree is dirty (uncommitted changes to tracked files) — commit or stash first, or pass --force\n",
+      );
+      return 1;
+    }
+  }
 
   const result = await runPlugin(
     plugin.dir,

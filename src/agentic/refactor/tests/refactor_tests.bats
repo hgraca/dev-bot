@@ -102,10 +102,16 @@ setup() {
 
 @test "plugin seam: forwards --apply to the plugin" {
   command -v bun >/dev/null 2>&1 || skip "bun not installed"
-  export REFACTOR_LANGS_DIR="${FIXTURE_LANGS}"
+  command -v git >/dev/null 2>&1 || skip "git not installed"
 
-  run bash "${TOOL}" --lang stublang --op rename-method \
-    --class 'App\Foo' --method old --to new --apply --json
+  # Inside a clean throwaway repo: the core refuses --apply on a dirty tree, and
+  # this test must not depend on the surrounding checkout's state.
+  local repo
+  repo="$(mktemp -d)"
+  git -C "${repo}" init -q
+
+  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --method old --to new --apply --json"
+  rm -r "${repo}"
 
   assert_success
   assert_output --partial '"applied": true'
@@ -424,4 +430,62 @@ _e2e_ready() {
   assert_output --partial '"ok": true'
   [ "${decl}" = "1" ]
   [ "${access}" = "1" ]
+}
+
+# ── Safety gates (T12) ─────────────────────────────────────────────────────────
+
+# A throwaway git repo, optionally dirtied, for the working-tree guard.
+_make_repo() {
+  local repo="$1" dirty="$2"
+  git -C "${repo}" init -q
+  git -C "${repo}" config user.email t@example.com
+  git -C "${repo}" config user.name tester
+  printf 'clean\n' > "${repo}/a.txt"
+  git -C "${repo}" add a.txt
+  git -C "${repo}" commit -qm init
+  [[ "${dirty}" == "dirty" ]] && printf 'dirty\n' >> "${repo}/a.txt"
+  return 0
+}
+
+@test "safety: refuses --apply on a dirty working tree" {
+  command -v bun >/dev/null 2>&1 || skip "bun not installed"
+  command -v git >/dev/null 2>&1 || skip "git not installed"
+
+  local repo
+  repo="$(mktemp -d)"
+  _make_repo "${repo}" dirty
+
+  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --method a --to b --apply"
+  rm -r "${repo}"
+
+  assert_failure
+  assert_output --partial "working tree is dirty"
+}
+
+@test "safety: --force overrides the dirty-tree refusal" {
+  command -v bun >/dev/null 2>&1 || skip "bun not installed"
+  command -v git >/dev/null 2>&1 || skip "git not installed"
+
+  local repo
+  repo="$(mktemp -d)"
+  _make_repo "${repo}" dirty
+
+  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --method a --to b --apply --force"
+  rm -r "${repo}"
+
+  assert_success
+}
+
+@test "safety: a dry run is allowed on a dirty working tree" {
+  command -v bun >/dev/null 2>&1 || skip "bun not installed"
+  command -v git >/dev/null 2>&1 || skip "git not installed"
+
+  local repo
+  repo="$(mktemp -d)"
+  _make_repo "${repo}" dirty
+
+  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --method a --to b"
+  rm -r "${repo}"
+
+  assert_success
 }
