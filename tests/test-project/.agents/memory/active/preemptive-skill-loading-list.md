@@ -12,5 +12,6 @@ The agent must preemptively load the following context skills at the start of ev
 - `devbot:architecture-rules` — architecture priority order, security constraints, and forbidden patterns for this hexagonal codebase.
 - `devbot:make-tests` — test strategy and conventions for the PHPUnit suite (unit/integration placement, naming).
 - `test-driven-development` — tests written before implementation; the kata's refactoring work is TDD-shaped.
+- `devbot:git-commits` — the shared commit rules (subject, Problems/Solutions body, history-rewrite safety); every commit depends on them.
 - `devbot:git-conventional-commits` — conventional commit message format (types, scope); needed before any commit.
 - `devbot:git-atomic-commits` — one logical change per commit; keeps the refactoring history reviewable.

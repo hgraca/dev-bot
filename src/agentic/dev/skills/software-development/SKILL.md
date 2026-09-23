@@ -32,10 +32,10 @@ On first load, load these context skills preemptively if not already loaded:
 
 - `devbot:make-tests` — test strategy and conventions
 - `test-driven-development` — tests-first discipline
-- `devbot:git-conventional-commits` — commit message format
-- `git-atomic-commits` — one logical change per commit
+- `devbot:git-commits` — the shared commit rules: subject form, the Problems/Solutions body, and the history-rewrite safety rule
+- `devbot:git-conventional-commits` — commit message taxonomy
+- `devbot:git-atomic-commits` — one logical change per commit
 - `devbot:git-fixup-commits` — correcting earlier commits on the branch
-- `devbot:git-advanced-operations` — partial staging, history surgery
 
 ## Code-Quality Principles
 

@@ -120,25 +120,25 @@ If it does not exist, create it.
 
 **How to infer the skill list**: Examine the technology signals gathered in Step 2 and reflected in `project.md`:
 
-| Signal (from project exploration)                                                                      | Concrete skills to list                                                                       |
-| ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------- |
-| Message bus / CQRS (Command/Query/Event handlers)                                                      | `devbot:software-development`                                                                 |
-| Language / framework (dedicated rules + test + framework skills — see Language-specific signals below) | the language's dedicated skills                                                               |
-| DDD / Hexagonal architecture (layered `src/`, ports/adapters)                                          | `devbot:explicit-architecture`, `devbot:architecture-rules`                                   |
-| Git version control (`.git/` present)                                                                  | `devbot:git-conventional-commits`, `devbot:git-atomic-commits`, `git-workflow-and-versioning` |
-| Makefile (`Makefile` with test/build targets)                                                          | `devbot:makefile`                                                                             |
-| Tests (test directory present)                                                                         | `test-driven-development`, `devbot:make-tests`                                                |
-| REST API (API routes/controllers)                                                                      | `devbot:rest-conventions`, `api-and-interface-design`                                         |
-| Docker containers (`docker-compose.yml`, `Dockerfile*`)                                                | `devbot:dockerfile-authoring`                                                                 |
-| Security-sensitive (auth, payments, PII handling)                                                      | `security-and-hardening`                                                                      |
-| Frontend UI (React, Vue, Svelte, etc.)                                                                 | `frontend-ui-engineering`                                                                     |
-| React specifically                                                                                     | `devbot:explicit-react`                                                                       |
-| Svelte specifically                                                                                    | `devbot:explicit-svelte`                                                                      |
-| Documentation (`docs/`, ADRs)                                                                          | `devbot:documentation-rules`                                                                  |
-| CI/CD (`.github/workflows/`, `.gitlab-ci.yml`)                                                         | `ci-cd-and-automation`                                                                        |
-| Kubernetes manifests (`k8s/`, `deploy/`)                                                               | `devbot:lint-k8s`                                                                             |
-| Git hooks / automation (post-commit, pre-push scripts)                                                 | `git-workflow-and-versioning`                                                                 |
-| Observability / logging tooling                                                                        | `observability-and-instrumentation`                                                           |
+| Signal (from project exploration)                                                                      | Concrete skills to list                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Message bus / CQRS (Command/Query/Event handlers)                                                      | `devbot:software-development`                                                                                                                   |
+| Language / framework (dedicated rules + test + framework skills — see Language-specific signals below) | the language's dedicated skills                                                                                                                 |
+| DDD / Hexagonal architecture (layered `src/`, ports/adapters)                                          | `devbot:explicit-architecture`, `devbot:architecture-rules`                                                                                     |
+| Git version control (`.git/` present)                                                                  | `devbot:git-commits`, `devbot:git-conventional-commits`, `devbot:git-atomic-commits`, `devbot:git-fixup-commits`, `git-workflow-and-versioning` |
+| Makefile (`Makefile` with test/build targets)                                                          | `devbot:makefile`                                                                                                                               |
+| Tests (test directory present)                                                                         | `test-driven-development`, `devbot:make-tests`                                                                                                  |
+| REST API (API routes/controllers)                                                                      | `devbot:rest-conventions`, `api-and-interface-design`                                                                                           |
+| Docker containers (`docker-compose.yml`, `Dockerfile*`)                                                | `devbot:dockerfile-authoring`                                                                                                                   |
+| Security-sensitive (auth, payments, PII handling)                                                      | `security-and-hardening`                                                                                                                        |
+| Frontend UI (React, Vue, Svelte, etc.)                                                                 | `frontend-ui-engineering`                                                                                                                       |
+| React specifically                                                                                     | `devbot:explicit-react`                                                                                                                         |
+| Svelte specifically                                                                                    | `devbot:explicit-svelte`                                                                                                                        |
+| Documentation (`docs/`, ADRs)                                                                          | `devbot:documentation-rules`                                                                                                                    |
+| CI/CD (`.github/workflows/`, `.gitlab-ci.yml`)                                                         | `ci-cd-and-automation`                                                                                                                          |
+| Kubernetes manifests (`k8s/`, `deploy/`)                                                               | `devbot:lint-k8s`                                                                                                                               |
+| Git hooks / automation (post-commit, pre-push scripts)                                                 | `git-workflow-and-versioning`                                                                                                                   |
+| Observability / logging tooling                                                                        | `observability-and-instrumentation`                                                                                                             |
 
 Language-specific signals are handled separately: for each detected language/framework, map to its dedicated skills (rules, test conventions, framework conventions). See the PHP/Laravel example below for the pattern.
 
@@ -185,6 +185,7 @@ The agent must preemptively load the following context skills at the start of ev
 
 - `devbot:software-development` — generic craft hub for code-quality, tests-first, and commit protocol; carries language-specific rules.
 - `devbot:explicit-architecture` — DDD + Hexagonal layering; needed for correct file placement.
+- `devbot:git-commits` — the shared commit rules (subject, Problems/Solutions body, history-rewrite safety); every commit depends on them.
 - `devbot:git-conventional-commits` — conventional commit message format (types, scope, ticket IDs); needed before any commit.
 - `devbot:makefile` — all test/build commands run via `make` inside containers.
 - `test-driven-development` — TDD workflow; tests must be written before implementation.
