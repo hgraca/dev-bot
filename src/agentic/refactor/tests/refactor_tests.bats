@@ -583,3 +583,35 @@ PHP
   [ "${decoy}" = "1" ]
   [ "${decl}" = "1" ]
 }
+
+# ── Tier 1: rename-annotation (B3) ─────────────────────────────────────────────
+
+@test "ops.py render: rename-annotation renders the by-type value object" {
+  run bash -c "printf '%s' '{\"op\":\"rename-annotation\",\"class\":\"Demo\\\\AnnotatedCase\",\"from\":\"test\",\"to\":\"scenario\",\"scope\":[\"/app/src\"]}' | python3 '${MODULE_DIR}/langs/php/ops.py' render"
+
+  assert_success
+  assert_output --partial "RenameAnnotationRector::class"
+  assert_output --partial "new RenameAnnotationByType("
+}
+
+@test "end-to-end: rename-annotation rewrites the docblock annotations" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-annotation 'Demo\AnnotatedCase' test scenario > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local added removed
+  added="$(grep -c '@scenario' "${work}/src/AnnotatedCase.php" || true)"
+  removed="$(grep -c '@test' "${work}/src/AnnotatedCase.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"ok": true'
+  # Both annotated methods moved, and no stale annotation remains.
+  [ "${added}" = "2" ]
+  [ "${removed}" = "0" ]
+}

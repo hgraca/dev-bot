@@ -27,7 +27,7 @@ holding exactly one rename rule, runs it, and reports what changed.
 
 ```
 devbot-tools_refactor --lang php --op <op> \
-  [--class <FQCN>] [--method <old> | --property <old>] \
+  [--class <FQCN>] [--from <old> | --method <old> | --property <old>] \
   --to <new> [--apply] [--json] [--force]
 ```
 
@@ -38,11 +38,12 @@ devbot-tools_refactor --lang php --op <op> \
 
 ## Ops
 
-| op                     | what it renames                  | Rector rule            |
-| ---------------------- | -------------------------------- | ---------------------- |
-| `rename-method`        | the declaration + instance calls | `RenameMethodRector`   |
-| `rename-static-method` | the declaration + static calls   | `RenameMethodRector`   |
-| `rename-property`      | the declaration + accesses       | `RenamePropertyRector` |
+| op                     | what it renames                  | Rector rule              |
+| ---------------------- | -------------------------------- | ------------------------ |
+| `rename-method`        | the declaration + instance calls | `RenameMethodRector`     |
+| `rename-static-method` | the declaration + static calls   | `RenameMethodRector`     |
+| `rename-annotation`    | a docblock annotation on a class | `RenameAnnotationRector` |
+| `rename-property`      | the declaration + accesses       | `RenamePropertyRector`   |
 
 `rename-class` is **not supported yet**. Rector's `RenameClassRector` rewrites
 references but leaves the class declaration and the PSR-4 filename behind, which

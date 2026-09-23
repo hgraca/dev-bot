@@ -44,6 +44,14 @@ OPS = {
         "shape": "vo",
         "args": ["class", "from", "to"],
     },
+    # Annotations live in doc-comments, so there is no separate declaration to
+    # miss — unlike the function/constant/class renamers, this one is symmetric.
+    "rename-annotation": {
+        "rule": "Rector\\Renaming\\Rector\\ClassMethod\\RenameAnnotationRector",
+        "vo": "Rector\\Renaming\\ValueObject\\RenameAnnotationByType",
+        "shape": "vo",
+        "args": ["class", "from", "to"],
+    },
 }
 
 LANG = "php"

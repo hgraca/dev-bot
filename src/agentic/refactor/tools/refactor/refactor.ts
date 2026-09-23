@@ -27,6 +27,7 @@ interface Args {
   klass: string | null;
   method: string | null;
   property: string | null;
+  from: string | null;
   to: string | null;
   apply: boolean;
   force: boolean;
@@ -62,7 +63,7 @@ const USAGE = `refactor — deterministic, agent-callable refactoring
 
 Usage:
   refactor --lang <lang> --op <rename-method|rename-static-method|rename-property> \\
-           --class <FQCN> [--method <old> | --property <old>] \\
+           --class <FQCN> [--from <old> | --method <old> | --property <old>] \\
            --to <new> [--apply] [--json] [--force]
 
 Options:
@@ -87,6 +88,7 @@ function parse(argv: string[]): Args {
     klass: null,
     method: null,
     property: null,
+    from: null,
     to: null,
     apply: false,
     force: false,
@@ -107,6 +109,7 @@ function parse(argv: string[]): Args {
     else if (arg === "--class") a.klass = next();
     else if (arg === "--method") a.method = next();
     else if (arg === "--property") a.property = next();
+    else if (arg === "--from") a.from = next();
     else if (arg === "--to") a.to = next();
   }
   return a;
@@ -267,11 +270,12 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // The op-specific selector: the method/property name to rename.
-  const from = args.method ?? args.property;
+  // The op-specific selector: what to rename. `--from` is the generic form;
+  // --method/--property read better for their own ops.
+  const from = args.from ?? args.method ?? args.property;
   if (!from) {
     process.stderr.write(
-      "ERROR: one of --class, --method or --property is required\n",
+      "ERROR: one of --from, --method or --property is required\n",
     );
     return 1;
   }

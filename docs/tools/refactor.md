@@ -14,7 +14,7 @@ Dry run by default. `--apply` is the only thing that writes.
 
 ```
 devbot-tools_refactor --lang php --op <op> \
-  [--class <FQCN>] [--method <old> | --property <old>] \
+  [--class <FQCN>] [--from <old> | --method <old> | --property <old>] \
   --to <new> [--apply] [--json] [--force]
 ```
 
@@ -22,6 +22,7 @@ devbot-tools_refactor --lang php --op <op> \
 | ---------------------- | -------------------------------- |
 | `rename-method`        | the declaration + instance calls |
 | `rename-static-method` | the declaration + static calls   |
+| `rename-annotation`    | a docblock annotation on a class |
 | `rename-property`      | the declaration + accesses       |
 
 `rename-class` is not supported yet — see [Limits](#limits).
@@ -88,6 +89,8 @@ prove additivity).
 
 - **Dynamic references are invisible** to static analysis: string callables,
   `__call`, container bindings and variable method names are not renamed.
+- **`rename-annotation` re-appends the annotation**, so it can shift order
+  relative to other annotations in the same docblock. Content is preserved.
 - **The tool does not run tests**, by design — the target may not be a GET-e
   project and may not test the way we do. Run your own suite after applying.
 - **`rename-class` is not supported yet.** Rector's rule rewrites references but
