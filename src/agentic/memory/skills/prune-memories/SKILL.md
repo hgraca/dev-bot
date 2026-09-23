@@ -1,6 +1,6 @@
 ---
 name: devbot:prune-memories
-description: "Prune the memory vault: remove stale/superseded entries, merge complementary notes into single actionable files, rewrite incomplete entries. Use this skill whenever the vault has grown noisy, after major project milestones, or when 'prune memories' or /devbot:prune-memories is invoked."
+description: "Use when the memory vault has grown noisy or after a major milestone. Triggers on 'prune memories'."
 ---
 
 # Prune Memories

@@ -1,6 +1,6 @@
 ---
 name: devbot:remember-session
-description: "Unified memory capture — the sole storage trigger besides checkpoints. Scans the session for new learnings, routes findings to latent/ notes, promotes thinking/ drafts. Use this skill when the primary agent finishes (finish-flow confirmation) or whenever the user says 'wrap up', 'wrapping up', 'let's wrap', 'remember this session', or 'remember this'."
+description: "Use when a session ends or the user asks to capture it. Triggers on 'wrap up', 'remember this session', 'let's wrap'."
 ---
 
 # Remember Session

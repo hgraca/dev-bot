@@ -1,6 +1,6 @@
 ---
 name: devbot:mdctx
-description: "Use this skill whenever the user asks to search notes, find documents, or look up information in markdown knowledge bases using mdctx — keyword (BM25) search over a flat, git-diffable index of notes, docs, and transcripts. Use it even if they do not say 'mdctx'."
+description: "Use when searching notes, docs, or transcripts in a markdown knowledge base. Triggers on 'search notes', 'find in the docs', 'mdctx'."
 ---
 
 # mdctx — Markdown Context Keyword Search

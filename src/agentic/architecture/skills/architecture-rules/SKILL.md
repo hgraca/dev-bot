@@ -1,6 +1,6 @@
 ---
 name: devbot:architecture-rules
-description: "Architecture universal rules: priority order, security, forbidden patterns, code quality, design rules, defaults. Use this skill whenever making architectural decisions, reviewing code quality, checking security constraints, or when uncertain about design direction — even if you are only writing a single new file."
+description: "Use when making an architectural decision, reviewing code quality, or checking security constraints. Triggers on 'architecture rules', 'design direction', 'security constraints'."
 ---
 
 # Architecture Universal Rules

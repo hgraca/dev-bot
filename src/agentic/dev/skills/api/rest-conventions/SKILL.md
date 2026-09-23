@@ -1,6 +1,6 @@
 ---
 name: devbot:rest-conventions
-description: "RESTful API conventions: URL structure, HTTP methods, response envelopes, pagination, errors (RFC 9457), filtering, sorting, headers, naming, versioning. Use this skill whenever designing or reviewing API endpoints, writing controllers, defining route structures, or choosing an HTTP status code — even if you are only adding one endpoint."
+description: "Use when designing or reviewing API endpoints, writing controllers, or choosing an HTTP status code. Triggers on 'REST', 'status code', 'response envelope'."
 ---
 
 # RESTful API Conventions

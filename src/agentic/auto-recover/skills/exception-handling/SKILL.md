@@ -1,6 +1,6 @@
 ---
 name: devbot:exception-handling
-description: "Provides structured error taxonomy and recovery strategies for agent failures. Use this skill whenever a session stalls, a tool fails, instructions conflict, tests loop, or any unexpected situation arises during agent work."
+description: "Use when a session stalls, a tool fails, instructions conflict, or tests loop."
 ---
 
 # Skill: Exception Handling and Recovery

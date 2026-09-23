@@ -1,6 +1,6 @@
 ---
 name: devbot:create-claudecode-tool
-description: "Use when someone asks about adding custom tools to Claude Code agents via MCP — extending the tool palette, MCP servers in Claude Code, writing an MCP server, .mcp.json configuration, tool naming (mcp__server__tool), giving Claude access to an API or database, subagent tool restrictions, or domain-specific tools. The Claude Code equivalent of opencode's custom-tools."
+description: "Use when adding custom tools to Claude Code agents via MCP. Triggers on 'custom tool', 'MCP server', '.mcp.json'."
 ---
 
 # Custom Tools in Claude Code via MCP

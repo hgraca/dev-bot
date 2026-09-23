@@ -1,6 +1,6 @@
 ---
 name: devbot:make-retrospective
-description: "Evaluates the quality of completed work and runs post-iteration retrospectives. Use this skill after completing a task or iteration to assess quality, capture metrics, and identify process improvements."
+description: "Use after completing a task or iteration to assess quality and capture improvements."
 ---
 
 # Skill: Evaluation and Monitoring

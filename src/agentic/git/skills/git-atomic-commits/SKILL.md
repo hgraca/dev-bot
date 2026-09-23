@@ -1,6 +1,6 @@
 ---
 name: devbot:git-atomic-commits
-description: Split accumulated git changes into clean, atomic commits — each a single logical change that builds and reviews on its own. Use when a working tree has piled up unrelated edits, many files are staged together, or the user asks to 'commit my changes', 'split this up', 'organize my changes', 'make atomic commits', 'clean up before the PR', or is about to make one large catch-all commit.
+description: "Use when splitting accumulated changes into commits. Triggers on 'commit my changes', 'split this up', 'make atomic commits', 'clean up before the PR'."
 ---
 
 # Atomic Commits

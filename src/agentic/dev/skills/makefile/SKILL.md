@@ -1,6 +1,6 @@
 ---
 name: devbot:makefile
-description: "Make-based project lifecycle: running commands inside the app container, and creating the DevTools makefiles structure (main Makefile + per-language .mk files). Use this skill whenever running project commands via make, starting/stopping the dev environment, or setting up/extending a project's makefiles."
+description: "Use when running project commands through make or setting up makefiles. Triggers on 'make test', 'make up', 'makefile'."
 ---
 
 # Makefile

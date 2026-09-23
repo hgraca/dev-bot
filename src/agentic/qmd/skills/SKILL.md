@@ -1,6 +1,6 @@
 ---
 name: devbot:qmd
-description: "Reference for the qmd (Quick Markdown) memory-search engine — BM25-only, used internally by the memory module. Consult when you need to understand qmd's index/collections or maintain it. For memory recall use the search-memories tool; the qmd CLI is not available to agents."
+description: "Use when you need to understand or maintain the qmd memory-search index. Triggers on 'qmd', 'memory index'."
 ---
 
 # QMD — Quick Markdown Search (engine reference)

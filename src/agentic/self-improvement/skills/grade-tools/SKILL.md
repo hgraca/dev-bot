@@ -1,6 +1,6 @@
 ---
 name: devbot:grade-tools
-description: "Records per-slice tool quality into <DEV_BOT_ROOT>/.agents/logs/tools-grades.csv: one row per graded slice, tagged with its project and actor, 0-5 per MCP server/skill, notes explaining every 1-3 grade. Use when the primary agent finishes a session, a subagent finishes an assignment, or the user says 'wrap up' / 'grade tools' / 'remember this session'."
+description: "Use when a session or assignment finishes and tool quality must be recorded. Triggers on 'grade tools', 'wrap up'."
 ---
 
 # Grade Tools

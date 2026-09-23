@@ -1,6 +1,6 @@
 ---
 name: devbot:summarize-plan
-description: "Produces a planning summary report after a planning stage completes. Use this skill whenever a planning stage finishes and a summary must be written to <issue-folder>/summary.md and presented to the human stakeholder."
+description: "Use when a planning stage finishes and its summary must be written."
 ---
 
 # Skill: Planning Summary

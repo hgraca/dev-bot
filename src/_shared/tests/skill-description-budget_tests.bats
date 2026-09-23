@@ -4,9 +4,11 @@
 # T2.2: every first-party SCR skill description fits a 400-byte always-on
 # budget. Skill descriptions are injected into every session's context (name +
 # location + description); oversized descriptions cost tokens on EVERY
-# conversation, not only when the skill fires. 400 bytes ≈ one trigger-rich
-# sentence. Vendor skills stay read-only and are excluded by scanning
-# src/agentic only.
+# conversation, not only when the skill fires. The description carries the
+# trigger only — an imperative clause (ideally ~72 chars, an ideal rather than
+# an enforced limit) plus the literal trigger phrases — so 400 bytes is a
+# runaway guard, not a target. Vendor skills stay read-only and are excluded by
+# scanning src/agentic only.
 # =============================================================================
 
 setup() {

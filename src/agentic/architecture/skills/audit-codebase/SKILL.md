@@ -1,6 +1,6 @@
 ---
 name: devbot:audit-codebase
-description: "Audits a codebase for pattern drift, inconsistencies, and architectural erosion. Use this skill whenever you need a holistic review of codebase health rather than a single-changeset review — e.g. 'audit the codebase', 'check for drift', 'is the architecture eroding', or onboarding to a codebase that has drifted over time."
+description: "Use when auditing a codebase for pattern drift, inconsistencies, or architectural erosion. Triggers on 'audit the codebase', 'check for drift', 'is the architecture eroding'."
 ---
 
 # Skill: Codebase Audit

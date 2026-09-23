@@ -1,6 +1,6 @@
 ---
 name: devbot:improve-implementation
-description: "Analyzes completed implementation iterations and produces a coding quality report: compares iteration outcomes, grades quality, traces each weakness back to a specific gap in instruction/context files, and logs a grading table. Use this skill after one or more implementation iterations complete to assess quality trends and find the root causes of remaining issues."
+description: "Use after implementation iterations complete, to grade quality and trace weaknesses to instruction gaps."
 ---
 
 # Create coding quality report
@@ -15,10 +15,10 @@ description: "Analyzes completed implementation iterations and produces a coding
    For gap between last iteration and 100% grade, map gaps with changes applied to skills files (`.ai/*.md`)
 
 4. In `./reports/01-implementation_iterations_quality.md`, in grading table, log row with:
-    - iteration number
-    - quality grade
-    - issues addressed in this iteration
-    - issues still to address to reach 100% grade
+   - iteration number
+   - quality grade
+   - issues addressed in this iteration
+   - issues still to address to reach 100% grade
 
 5. Commit all changes
 

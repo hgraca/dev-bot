@@ -1,6 +1,6 @@
 ---
 name: devbot:format-yml
-description: "Format YAML files with consistent 2-space indentation via prettier. Use this skill after writing or editing any .yml or .yaml file to keep formatting consistent."
+description: "Use when a .yml or .yaml file was just written or edited."
 ---
 
 # Format-yml

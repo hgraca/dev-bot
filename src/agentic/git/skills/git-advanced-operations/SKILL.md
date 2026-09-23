@@ -1,6 +1,6 @@
 ---
 name: devbot:git-advanced-operations
-description: Advanced git history surgery — partial staging with git add -p, stash pathspecs, splitting a commit after the fact, reordering or rewording a range, recovering from a bad rebase or reset with reflog. Use when one file holds unrelated changes, a commit needs breaking apart, or the user asks to reorder, reword, drop, or rewrite commits — or 'how do I undo this', 'I lost a commit'.
+description: "Use when staging part of a file, splitting a made commit, or recovering lost history. Triggers on 'git add -p', 'undo this', 'I lost a commit', 'reorder commits'."
 ---
 
 # Advanced Git Operations

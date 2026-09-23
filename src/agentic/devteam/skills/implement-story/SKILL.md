@@ -1,6 +1,6 @@
 ---
 name: devbot:implement-story
-description: "Implements an approved plan by orchestrating Tester, Developer, and Reviewer in a structured cycle per task. Use this skill after the human stakeholder approves the plan produced by the make-plan skill."
+description: "Use after a plan is approved, to run the Tester/Developer/Reviewer cycle per task."
 ---
 
 # Skill: Implement Plan
@@ -51,25 +51,25 @@ Provide plan (`backlog.md` and any architecture/UI specifications) to @developer
 For each task in backlog:
 
 1. **Test** — Delegate to @tester:
-    - Before delegating, check whether the expected test file already exists (e.g. `tests/<name>/test-<task>.sh`). If it does, skip Tester delegation and proceed to Developer.
-    - Create test for each acceptance criterion
-    - Create additional automated tests deemed necessary
-    - When tests involve parsing structured text (frontmatter, markdown, YAML, config files), always include edge cases: valid input, missing/absent structure, and malformed structure (e.g. test with frontmatter, without frontmatter, and with malformed frontmatter).
-    - For infrastructure tasks (shell scripts, YAML configs, markdown) where unit tests do not apply, create simple integration test (e.g. `test-init.sh` pattern) validating install/init/doctor chain programmatically. If no integration test feasible, document why in session report.
-    - **Config-test ordering** — for tasks where tests are grep-based config validation (checking YAML keys, Makefile targets, file existence), consider delegating tester AFTER developer so grep patterns match actual implementation rather than speculative predicted output. Speculative patterns cause false negatives and tester stalls that waste debugging cycles. If a test script already exists as a stub with `# TODO:` markers, extend it post-implementation.
-    - Save session report to task folder, signal [FINISHED] with report
+   - Before delegating, check whether the expected test file already exists (e.g. `tests/<name>/test-<task>.sh`). If it does, skip Tester delegation and proceed to Developer.
+   - Create test for each acceptance criterion
+   - Create additional automated tests deemed necessary
+   - When tests involve parsing structured text (frontmatter, markdown, YAML, config files), always include edge cases: valid input, missing/absent structure, and malformed structure (e.g. test with frontmatter, without frontmatter, and with malformed frontmatter).
+   - For infrastructure tasks (shell scripts, YAML configs, markdown) where unit tests do not apply, create simple integration test (e.g. `test-init.sh` pattern) validating install/init/doctor chain programmatically. If no integration test feasible, document why in session report.
+   - **Config-test ordering** — for tasks where tests are grep-based config validation (checking YAML keys, Makefile targets, file existence), consider delegating tester AFTER developer so grep patterns match actual implementation rather than speculative predicted output. Speculative patterns cause false negatives and tester stalls that waste debugging cycles. If a test script already exists as a stub with `# TODO:` markers, extend it post-implementation.
+   - Save session report to task folder, signal [FINISHED] with report
 
 2. **Implement** — When Tester finished, delegate to @developer:
-    - Implement task following plan
-    - Ensure tests pass before considering task complete
-    - **Commit changeset** before signalling [FINISHED] — use `git add <specific-files>` (never `git add -A` or `git add .`), verify `git diff --staged --stat`, then commit with clear message
-    - **Verify git index health when committing 10+ new files** — Run `git fsck` before `git add`. If `invalid object` errors appear, recover with `git rm --cached <affected-file>` and re-stage. This prevents index corruption from rapid file creation across multiple delegations.
-    - If task introduces new user-facing feature (plugin, tool, command, skill), create documentation page even if task description does not explicitly require it. Follow existing doc structure in `docs/`.
-    - Signal [FINISHED] with a one-line summary of what was committed (e.g. "Committed: feat(litellm): add install.sh — 3 files, 20 assertions pass")
+   - Implement task following plan
+   - Ensure tests pass before considering task complete
+   - **Commit changeset** before signalling [FINISHED] — use `git add <specific-files>` (never `git add -A` or `git add .`), verify `git diff --staged --stat`, then commit with clear message
+   - **Verify git index health when committing 10+ new files** — Run `git fsck` before `git add`. If `invalid object` errors appear, recover with `git rm --cached <affected-file>` and re-stage. This prevents index corruption from rapid file creation across multiple delegations.
+   - If task introduces new user-facing feature (plugin, tool, command, skill), create documentation page even if task description does not explicitly require it. Follow existing doc structure in `docs/`.
+   - Signal [FINISHED] with a one-line summary of what was committed (e.g. "Committed: feat(litellm): add install.sh — 3 files, 20 assertions pass")
 
 3. **Review** — When Developer finished, delegate to @reviewer:
-    - **Gate**: If task modifies 2+ files (excluding test fixtures, config files, and markdown docs), reviewer delegation is REQUIRED — MUST NOT skip. Single-file changes that are purely wiring, config, or documentation may skip reviewer delegation at orchestrator's discretion.
-    - Save Review Report to task folder, signal [FINISHED]
+   - **Gate**: If task modifies 2+ files (excluding test fixtures, config files, and markdown docs), reviewer delegation is REQUIRED — MUST NOT skip. Single-file changes that are purely wiring, config, or documentation may skip reviewer delegation at orchestrator's discretion.
+   - Save Review Report to task folder, signal [FINISHED]
 
 4. **Address findings** — When Reviewer finished, delegate to @developer to address issues. Developer MUST commit fixes before signalling [FINISHED]. After fixes committed, create architecture spec addendum file referring differences from architecture spec plan to actual final implementation. Iterate from step 2.3 until no remaining issues.
 
@@ -77,7 +77,7 @@ For each task in backlog:
 
 6. **Progress report** — Output to human stakeholder:
 
-    > **Progress**: \<completed\>/\<total\> tasks done | \<blocked\> blocked | \<remaining\> remaining
+   > **Progress**: \<completed\>/\<total\> tasks done | \<blocked\> blocked | \<remaining\> remaining
 
 7. **Capture lessons** — When task complete, follow `remember_task` skill immediately. Do not defer to end of session.
 
@@ -112,9 +112,9 @@ When all tasks done:
 
 - When unexpected situation arises, use `devbot:exception-handling` skill for structured recovery.
 - If developer session stalls or produces no usable output:
-    1. Inspect working directory for partial progress
-    2. Re-delegate only incomplete work to fresh session with explicit specifications (concrete class signatures, constructor parameters, test file locations)
-    3. Never re-delegate already-completed work
+  1. Inspect working directory for partial progress
+  2. Re-delegate only incomplete work to fresh session with explicit specifications (concrete class signatures, constructor parameters, test file locations)
+  3. Never re-delegate already-completed work
 - Orchestrator may terminate early if requirements change or task deprioritized.
 
 ## Parallelization

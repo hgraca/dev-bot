@@ -1,6 +1,6 @@
 ---
 name: devbot:git-fixup-commits
-description: Record a correction against the earlier commit it belongs to with git commit --fixup, then fold it in with an approved autosquash rebase. Use when a change fixes something introduced by a commit unique to the current branch — 'fixup', 'squash this into', 'amend an earlier commit', 'fold this in', 'autosquash', 'fix that typo from three commits ago', 'tidy my branch before review'.
+description: "Use when correcting a commit unique to the branch. Triggers on 'fixup', 'squash this into', 'autosquash', 'amend an earlier commit'."
 ---
 
 # Fixup Commits

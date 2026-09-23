@@ -1,6 +1,6 @@
 ---
 name: devbot:audit-security
-description: "Web application security review methodology: STRIDE threat modelling, OWASP Top 10, auth deep-dive, dependency audit, structured reporting, and language-specific checklists. Use this skill whenever performing a security review, code audit, threat modelling, or vulnerability assessment on a web application."
+description: "Use when performing a security review, threat model, or vulnerability assessment on a web application."
 ---
 
 # Web Application Security Review Methodology

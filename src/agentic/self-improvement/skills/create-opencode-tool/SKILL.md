@@ -1,6 +1,6 @@
 ---
 name: devbot:create-opencode-tool
-description: "Use when the user asks to create a new tool, add a custom tool, write a tool definition, or extend agent capabilities with a new function — e.g. 'I need the agent to query our database', 'make the agent send Slack messages'. Triggers on 'create tool', 'new tool', 'custom tool', 'tool definition', 'write a tool', 'add a tool', or a capability the agent should have."
+description: "Use when creating a custom opencode tool. Triggers on 'create tool', 'new tool', 'tool definition'."
 ---
 
 # Skill: Create OpenCode Custom Tool

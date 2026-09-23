@@ -1,6 +1,6 @@
 ---
 name: devbot:format-json
-description: "Format JSON and JSONC files with consistent 2-space indentation via prettier. Use this skill after writing or editing any .json or .jsonc file to keep formatting consistent."
+description: "Use when a .json or .jsonc file was just written or edited."
 ---
 
 # Format-json

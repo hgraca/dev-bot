@@ -1,6 +1,6 @@
 ---
 name: devbot:search-memory
-description: "Search memory about past learnings, decisions, and technology, and understand codebase relationships, patterns, and architecture. Use this skill whenever you need to recall past context, decisions, or solutions before solving a problem."
+description: "Use when you need to recall past decisions, learnings, or solutions before solving a problem."
 ---
 
 # Search Memory

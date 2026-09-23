@@ -1,6 +1,6 @@
 ---
 name: devbot:git-changelog
-description: "Write a release file (release notes / changelog) for a version from the branch's commits. Use whenever a new release or git tag is being created, or the user asks for 'release notes', 'a release file', 'the changelog', 'sum up what changed this release', or to update an existing release*.no-vcs.md — even if they do not say 'changelog'."
+description: "Use when a release or tag is being cut. Triggers on 'release notes', 'the changelog', 'sum up what changed'."
 ---
 
 # Git Changelog (release file)

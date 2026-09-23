@@ -1,6 +1,6 @@
 ---
 name: devbot:auto-recover
-description: "Automatically recovers from transient provider errors (MidStreamFallbackError, APIConnectionError, ECONNRESET, etc.) by injecting a silent recovery prompt on session.error events. Use this skill whenever a session errors out, stalls, or disconnects mid-response."
+description: "Use when a session errors out, stalls, or disconnects mid-response."
 ---
 
 # Auto-Recover
@@ -45,9 +45,9 @@ Optional: set `auto_recover.max_attempts` in `.devbot.project.jsonc` to override
 
 ```jsonc
 {
-    "auto_recover": {
-        "max_attempts": 5,
-    },
+  "auto_recover": {
+    "max_attempts": 5,
+  },
 }
 ```
 

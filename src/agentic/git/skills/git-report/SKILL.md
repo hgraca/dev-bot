@@ -1,6 +1,6 @@
 ---
 name: devbot:git-report
-description: "Return a git state snapshot: current branch, default branch, recent commits, working-tree status, staged diff, commits unique to the current branch, and index integrity check. Use this skill whenever you need to understand what has changed before committing, reviewing, or planning next steps."
+description: "Use when you need the git state before committing, reviewing, or planning. Triggers on 'git status', 'what changed', 'current branch'."
 ---
 
 # Git Report

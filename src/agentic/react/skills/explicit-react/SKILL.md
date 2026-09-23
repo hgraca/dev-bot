@@ -1,6 +1,6 @@
 ---
 name: devbot:explicit-react
-description: "React 18+ + Next.js + TypeScript development conventions. Use when building, scaffolding, or modifying any React project — scaffolding, routing, atomic component design, clean architecture, styling, server vs client separation, TypeScript rules, data access. Triggers on 'react', 'nextjs', 'create react app', 'react component', 'react project', or working in a React codebase."
+description: "Use when building, scaffolding, or modifying a React or Next.js project. Triggers on 'react', 'nextjs', 'create react app', 'react component'."
 ---
 
 # Skill: React + Next.js + TypeScript

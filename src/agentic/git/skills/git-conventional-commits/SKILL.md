@@ -1,6 +1,6 @@
 ---
 name: devbot:git-conventional-commits
-description: Write commit messages in Conventional Commits format — 'type(scope) then description', plus bodies, footers, and breaking-change notation. Use when a commit message needs writing or reviewing, when the user asks about prefixes, types, scopes, 'how should I word this commit', 'what prefix do I use', or semantic versioning from commit messages.
+description: "Use when writing or reviewing a commit message. Triggers on 'what type is this', 'scope', 'breaking change', 'how should I word this commit'."
 ---
 
 # Conventional Commits

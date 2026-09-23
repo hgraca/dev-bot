@@ -1,6 +1,6 @@
 ---
 name: devbot:explicit-svelte
-description: "Svelte 5 + SvelteKit + TypeScript development conventions. Use when building, scaffolding, or modifying any Svelte project — scaffolding, routing, atomic component design, ports/adapters architecture, SMUI theming, server vs client separation, TypeScript rules, data access. Triggers on 'svelte', 'sveltekit', 'create svelte app', 'svelte component', 'svelte project', or a Svelte codebase."
+description: "Use when building, scaffolding, or modifying a Svelte or SvelteKit project. Triggers on 'svelte', 'sveltekit', 'create svelte app', 'svelte component'."
 ---
 
 # Skill: Svelte 5 + SvelteKit + TypeScript

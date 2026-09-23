@@ -1,6 +1,6 @@
 ---
 name: devbot:audit-testsuite
-description: "Produces test reports documenting test results, bugs found, and coverage assessment. Use this skill whenever you finish writing or running a test suite and need to document the results — even if you do not say 'audit' explicitly."
+description: "Use when a test suite run needs documenting — results, bugs found, coverage assessment. Triggers on 'document the test results', 'test report', 'coverage assessment'."
 ---
 
 # Skill: Test Reporting

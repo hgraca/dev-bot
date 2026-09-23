@@ -1,6 +1,6 @@
 ---
 name: devbot:dockerfile-authoring
-description: Patterns for writing, refactoring, reviewing, and debugging Dockerfiles. Use when creating, editing, optimizing, or reviewing a Dockerfile or container build — multi-stage builds, layer caching, image size, native extensions, version pinning, build secrets, or builds that are slow, stuck, or bloated. Trigger even if the user only mentions 'Dockerfile', 'docker build', or 'container image'.
+description: "Use when writing, reviewing, or debugging a Dockerfile or container build. Triggers on 'Dockerfile', 'docker build', 'container image'."
 ---
 
 # Building, refactoring, and reviewing Dockerfiles

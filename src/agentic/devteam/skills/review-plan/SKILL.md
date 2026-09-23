@@ -1,6 +1,6 @@
 ---
 name: devbot:review-plan
-description: "Reviews an architect's implementation plan for correctness, completeness, and architectural consistency. Use this skill whenever evaluating a draft plan before code is written."
+description: "Use when evaluating a draft plan before code is written."
 ---
 
 # Skill: Plan Review

@@ -1,6 +1,6 @@
 ---
 name: devbot:search-code
-description: "Code search tool selection guide. Use this skill whenever you need to find code, understand architecture, locate definitions, or explore the codebase — helps choose the right tool (grep vs semantic search vs call graph) for each search scenario."
+description: "Use when you need to find code, locate a definition, or understand the architecture."
 ---
 
 # Code Search

@@ -1,6 +1,6 @@
 ---
 name: devbot:address-retrospective
-description: "Addresses retrospective findings by suggesting workflow improvements, asking for approval, and implementing approved changes. Use this skill after a retrospective is completed or via the /address-retro command."
+description: "Use after a retrospective completes. Triggers on 'address the retrospective', '/address-retro'."
 ---
 
 # Skill: Address Retrospective
@@ -34,20 +34,20 @@ Ignore items about specific code changes, bugs, or feature work — those belong
 For each extracted improvement:
 
 1. **Identify target files** — determine which skill, agent, or workflow file(s) need changes. Common targets:
-    - `src/instructions/skills/workflow/*.md` — workflow skills
-    - `src/instructions/skills/dev/**/*.md` — development convention skills
-    - `src/instructions/skills/memory/**/*.md` — memory management skills
-    - `src/instructions/agents/*.md` — agent role definitions
-    - `src/instructions/commands/*.md` — command definitions
-    - `.agents/memory/active/*.md` — bootstrap files
+   - `src/instructions/skills/workflow/*.md` — workflow skills
+   - `src/instructions/skills/dev/**/*.md` — development convention skills
+   - `src/instructions/skills/memory/**/*.md` — memory management skills
+   - `src/instructions/agents/*.md` — agent role definitions
+   - `src/instructions/commands/*.md` — command definitions
+   - `.agents/memory/active/*.md` — bootstrap files
 
 2. **Read target files** — understand current content before proposing changes.
 
 3. **Draft concrete suggestion** — specify:
-    - What file to change
-    - What section to modify (quote existing text)
-    - What new text should be
-    - Why this change addresses retro finding
+   - What file to change
+   - What section to modify (quote existing text)
+   - What new text should be
+   - Why this change addresses retro finding
 
 ### Step 3: Present suggestions for approval
 

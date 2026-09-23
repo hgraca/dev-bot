@@ -1,6 +1,6 @@
 ---
 name: devbot:make-tests
-description: "Test strategy and conventions independent of language or test framework: what to test by layer, integration vs unit placement, naming, and MUST/MUST NOT rules. Use this skill whenever writing tests, choosing a test strategy, or reviewing test structure and conventions."
+description: "Use when writing tests or choosing a test strategy."
 ---
 
 # Testing

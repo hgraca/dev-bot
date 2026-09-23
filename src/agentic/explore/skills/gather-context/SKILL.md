@@ -1,6 +1,6 @@
 ---
 name: devbot:gather-context
-description: "Gather session context for the orchestrator at session start. Use this skill whenever the scout agent is activated to prime context about a topic or project area."
+description: "Use when the scout agent primes context about a topic or project area at session start."
 ---
 
 # Gather Context

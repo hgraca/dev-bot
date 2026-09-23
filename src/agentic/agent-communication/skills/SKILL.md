@@ -1,6 +1,6 @@
 ---
 name: devbot:agent-communication
-description: "Structured inter-agent communication protocol with terminal status markers ([FINISHED], [BLOCKED], [NEEDS_INPUT], [PARTIAL]). Use this skill whenever you are about to delegate work to a subagent, or when you have been delegated a task as a subagent — before sending or responding to any inter-agent message."
+description: "Load at session start in every project that runs subagents. Use when delegating to or receiving work from a subagent."
 ---
 
 # Agent Communication

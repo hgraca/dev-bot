@@ -1,6 +1,6 @@
 ---
 name: devbot:create-devbot-module
-description: "Use when the user asks to create a new DevBot module, add a module to dev-bot, scaffold a new agentic capability, or bootstrap a module with skills, hooks, tools, or commands — even if they don't say 'module'. Triggers on 'create module', 'new devbot module', 'scaffold module', 'add agentic module', or a capability needing a dedicated module in src/agentic/."
+description: "Use when creating a new DevBot module. Triggers on 'create module', 'new devbot module', 'scaffold module'."
 ---
 
 # Skill: Create DevBot Module

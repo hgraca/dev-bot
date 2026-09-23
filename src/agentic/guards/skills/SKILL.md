@@ -1,6 +1,6 @@
 ---
 name: devbot:guards
-description: "Evaluate a shell command against configurable guard rules from global and project config files. Use this skill whenever you need to check whether a command would be blocked by security/guard rules, or before running a potentially dangerous command."
+description: "Use before running a potentially dangerous command, to check it against the guard rules."
 ---
 
 # Guards

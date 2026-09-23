@@ -1,6 +1,6 @@
 ---
 name: devbot:codebase-index
-description: "Semantic code search, implementation lookup, call graph, and codebase indexing via Ollama embeddings. Use this skill whenever finding code by meaning rather than keywords — e.g. 'where is the payment handler', 'who calls this function', 'how do these parts connect'. Run index_codebase before the first search in a session."
+description: "Use when finding code by meaning rather than keywords. Triggers on 'where is the payment handler', 'who calls this function', 'how do these parts connect'."
 ---
 
 # Codebase Index

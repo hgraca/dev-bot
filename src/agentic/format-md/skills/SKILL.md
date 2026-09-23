@@ -1,6 +1,6 @@
 ---
 name: devbot:format-md
-description: "Format markdown files with consistent formatting via prettier. Use this skill after writing or editing any .md file to keep formatting consistent."
+description: "Use when a .md file was just written or edited."
 ---
 
 # Format-md

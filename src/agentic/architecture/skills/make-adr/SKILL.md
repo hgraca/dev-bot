@@ -1,6 +1,6 @@
 ---
 name: devbot:make-adr
-description: "Creates Architecture Decision Records (ADRs). Use this skill whenever the user asks to create, write, or draft an ADR, document an architecture decision, record a technical decision, or capture why a choice was made — even if they do not use the term 'ADR'."
+description: "Use when recording an architecture decision. Triggers on 'create an ADR', 'document this decision', 'record why we chose'."
 ---
 
 # Skill: Create Architecture Decision Record (ADR)

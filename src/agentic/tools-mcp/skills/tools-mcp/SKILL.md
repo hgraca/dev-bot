@@ -1,6 +1,6 @@
 ---
 name: devbot:tools-mcp
-description: "MCP server (devbot-tools) exposing custom tool scripts from .agents/tools — only *.mcp.sh scripts are exposed. Each tool self-describes via a mcp-meta subcommand returning JSON metadata. Use this skill whenever working with or extending the devbot-tools MCP server."
+description: "Use when working with or extending the devbot-tools MCP server. Triggers on 'mcp server', 'mcp-meta', 'custom tool'."
 ---
 
 # Tools MCP

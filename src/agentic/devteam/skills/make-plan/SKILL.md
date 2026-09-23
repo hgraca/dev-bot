@@ -1,6 +1,6 @@
 ---
 name: devbot:make-plan
-description: "Plans work of any size and folds its technical implementation plan into the backlog. Detects epic (list of stories), trivial (skip planning), or story (single brief needing a plan), then writes one combined backlog.md. Use when a stakeholder provides a story, epic, feature request, or initiative needing planning before implementation, or a technical plan must be designed across layers."
+description: "Use when a story, epic, or feature request needs planning. Triggers on 'make a plan', 'plan this'."
 ---
 
 # Skill: Plan

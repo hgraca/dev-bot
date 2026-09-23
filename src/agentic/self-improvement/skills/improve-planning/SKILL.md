@@ -1,6 +1,6 @@
 ---
 name: devbot:improve-planning
-description: "Drives a continuous improvement loop for the multi-agent planning system: generates a plan in an isolated task-solver session, evaluates it against absolute quality criteria, traces each weakness to a specific instruction gap, and proposes edits to the agent files and planning skills. Use on 'improve planning', 'planning quality', or after a planning iteration completes poorly."
+description: "Use when planning quality must be improved. Triggers on 'improve planning', 'planning quality'."
 ---
 
 # Improve Planning Instructions

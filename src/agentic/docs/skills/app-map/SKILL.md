@@ -1,6 +1,6 @@
 ---
 name: devbot:app-map
-description: "Use when the user wants to create, view, or edit an interactive architecture diagram or application map — a zoomable canvas for arranging modules, groups, and connectors with drag-and-drop, saving to JSON. Triggers on 'app map', 'application map', 'architecture canvas', 'visual architecture', 'interactive diagram', or manually creating/editing an architecture overview."
+description: "Use when creating or editing an interactive application map. Triggers on 'app map', 'architecture canvas', 'visual architecture'."
 ---
 
 # app-map

@@ -1,6 +1,6 @@
 ---
 name: devbot:explicit-architecture
-description: "Project directory structure and dependency rules: DDD + Hexagonal + CQRS layers, component boundaries, port/adapter layout. Use this skill whenever understanding project structure, placing new files, checking layer dependencies, or reviewing code placement — especially in a clean/hexagonal architecture codebase."
+description: "Use when placing new files, checking layer dependencies, or reviewing code placement in a layered codebase."
 ---
 
 # Explicit Architecture

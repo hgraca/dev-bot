@@ -1,6 +1,6 @@
 ---
 name: devbot:lint-k8s
-description: "Use this skill whenever reviewing, auditing, or validating Kubernetes, Kustomize, or Helm manifests with kubeconform (schema validation) and kube-linter (best practices). Triggers on 'audit k8s', 'lint kubernetes', 'validate manifest', 'check helm chart', 'kustomize validation', or when working with K8s infrastructure-as-code — even if they do not say 'lint'."
+description: "Use when reviewing, auditing, or validating Kubernetes, Kustomize, or Helm manifests. Triggers on 'lint k8s', 'validate manifest', 'check helm chart'."
 ---
 
 # lint-k8s
@@ -52,19 +52,19 @@ The tool returns a JSON object:
 
 ```json
 {
-    "success": true,
-    "path": "/abs/path/to/manifests",
-    "kubeconform": {
-        "valid": true,
-        "summary": "...",
-        "results": [{ "filename": "...", "status": "valid|invalid|error", "message": "..." }]
-    },
-    "kubelinter": {
-        "valid": true,
-        "summary": "N violation(s) across M file(s)",
-        "violations": 0,
-        "report": {/* full kube-linter JSON report */}
-    }
+  "success": true,
+  "path": "/abs/path/to/manifests",
+  "kubeconform": {
+    "valid": true,
+    "summary": "...",
+    "results": [{ "filename": "...", "status": "valid|invalid|error", "message": "..." }]
+  },
+  "kubelinter": {
+    "valid": true,
+    "summary": "N violation(s) across M file(s)",
+    "violations": 0,
+    "report": {/* full kube-linter JSON report */}
+  }
 }
 ```
 
@@ -81,8 +81,8 @@ The tool returns a JSON object:
 1. **Identify** all YAML/YML/JSON manifest files under the target path. Directory sweeps gather only files that look like Kubernetes manifests (contain an `apiVersion` and a `kind` key) — non-manifest YAML/JSON (config files, editor/tool caches such as `.opencode/index/` or `graphify-out`) is skipped, so a sweep never drowns real findings in "missing 'kind' key" noise. Pass an explicit file path to lint a file that the sweep would skip.
 2. **Invoke** `lint-k8s(path: "<target-path>")` using your built-in tool
 3. **Parse** the JSON result:
-    - Report kubeconform errors with filename + message
-    - Report kube-linter violations grouped by severity (from `kubelinter.report`)
+   - Report kubeconform errors with filename + message
+   - Report kube-linter violations grouped by severity (from `kubelinter.report`)
 4. **Fix** each finding or explain why it is acceptable
 5. **Re-run** `devbot:lint-k8s` after fixes — confirm `success: true` and zero failures
 

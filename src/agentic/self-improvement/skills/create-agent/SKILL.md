@@ -1,6 +1,6 @@
 ---
 name: devbot:create-agent
-description: "Use when the user asks to create a new agent, add an agent to a module, refactor or restructure an agent's instructions, harden agent behavior rules, or A/B-test a new agent variant — even if they don't say 'agent' (e.g. 'write the developer role', 'split the architect responsibilities'). Covers runtime wiring, reference verification, and the optimize-instructions review gate."
+description: "Use when creating or restructuring an agent's instructions. Triggers on 'create an agent', 'write the developer role', 'harden the agent'."
 ---
 
 # Create Agent

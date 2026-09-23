@@ -1,6 +1,6 @@
 ---
 name: devbot:tree
-description: "Use the built-in `tree` tool to inspect directory structure — shows all subfolders and files in one or more paths. Use this skill instead of raw shell commands like `ls -R` or `find` whenever you need to see a directory's structure."
+description: "Use when you need to see a directory's structure."
 ---
 
 # Tree

@@ -1,6 +1,6 @@
 ---
 name: devbot:thinking
-description: "Scratch files, drafts, and WIP content management. Use this skill whenever creating temporary files, ephemeral notes, partial-progress checkpoints, or any non-formal artifact during a session. Triggers on 'scratch file', 'temp file', 'draft', 'WIP', 'partial progress'."
+description: "Use when creating temporary files, drafts, or WIP notes. Triggers on 'scratch file', 'temp file', 'draft', 'WIP'."
 ---
 
 # Thinking -- Scratch Files & Drafts

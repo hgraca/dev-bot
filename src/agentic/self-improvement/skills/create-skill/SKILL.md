@@ -1,6 +1,6 @@
 ---
 name: devbot:create-skill
-description: Use when the user asks to create, write, add, scaffold, modify, or improve a skill — even without saying 'skill' (e.g. 'write a SKILL.md', 'scaffold a skill from commit X', 'make this workflow a skill', 'turn this into a skill'). Covers SKILL.md authoring (frontmatter, description, body), eval-prompt testing, benchmarking, and optimizing the description for triggering accuracy.
+description: "Use when creating, modifying, or improving a skill. Triggers on 'write a SKILL.md', 'scaffold a skill', 'make this a skill'."
 ---
 
 # Skill Creator

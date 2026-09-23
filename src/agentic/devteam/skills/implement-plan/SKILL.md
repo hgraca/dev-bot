@@ -1,6 +1,6 @@
 ---
 name: devbot:implement-plan
-description: "Executes implementation plan steps systematically. Use this skill whenever implementing an architect's plan step-by-step, signalling completion, and handling review feedback."
+description: "Use when executing an architect's plan step by step."
 ---
 
 # Skill: Plan Execution

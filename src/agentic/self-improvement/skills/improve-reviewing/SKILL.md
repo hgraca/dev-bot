@@ -1,6 +1,6 @@
 ---
 name: devbot:improve-reviewing
-description: "Improves how the reviewer reviews changesets so that issues detected by an external reviewer will be caught by our reviewer next time. Use this skill when the TeamLead orchestrator completes a PR review resolution session."
+description: "Use after a PR review resolution session, to improve what the reviewer catches."
 ---
 
 # Skill: Improve Reviewing from External Feedback

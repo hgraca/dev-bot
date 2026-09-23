@@ -1,6 +1,6 @@
 ---
 name: devbot:gh-docs-website
-description: "Use when the user wants to create, build, or publish a documentation website — a static docs site on GitHub Pages generated with Jekyll — even if they don't say 'documentation' or 'Jekyll' (e.g. 'make a docs site', 'publish the README as a website', 'gh-pages'). Guides the full flow: Jekyll structure, _config.yml, layouts, and the GitHub Actions deploy workflow."
+description: "Use when publishing a documentation website to GitHub Pages. Triggers on 'make a docs site', 'gh-pages', 'publish the README as a website'."
 ---
 
 # gh-docs-website

@@ -1,6 +1,6 @@
 ---
 name: devbot:software-development
-description: "Generic software development craft — code-quality principles, tests-first discipline, and the commit protocol. Load this context skill at the start of any session that writes, changes, or commits code; it is the hub for generic craft, with PHP annexes under annexes/php/ read on demand."
+description: "Load at session start in every project where code is written, changed, or committed."
 ---
 
 # Software Development

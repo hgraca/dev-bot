@@ -1,6 +1,6 @@
 ---
 name: devbot:shell-strategy
-description: "Choose the channel for a shell command: quick, deterministic commands on the bash tool; long-running (test suites, builds, migrations), interactive, or output-while-running commands in a PTY session. Use whenever running any shell command."
+description: "Use when running any shell command — picking between the bash tool and a PTY session."
 ---
 
 # Shell Strategy

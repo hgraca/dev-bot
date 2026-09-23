@@ -1,6 +1,6 @@
 ---
 name: devbot:datasources
-description: "Use this skill whenever you need to query or explore a project's databases — MySQL, MariaDB, Postgres or MongoDB — through the shared MCP Toolbox gateway. Covers the free-form query tools, reaching every database on one instance, and why the database credential is the only barrier to writes."
+description: "Use when querying or exploring a project's databases — MySQL, MariaDB, Postgres, MongoDB."
 ---
 
 # datasources — Database Access

@@ -1,6 +1,6 @@
 ---
 name: devbot:review-implementation
-description: "Reviews a code changeset against a plan and project conventions. Use this skill whenever reviewing code changes from a developer, after implementation is complete and ready for review."
+description: "Use when reviewing a code changeset against a plan before it merges."
 ---
 
 # Skill: Changeset Review
@@ -152,13 +152,13 @@ Issue types that apply regardless of technology stack.
 3. **Migration correctness** — `down()` must restore the **exact prior schema** (including nullability/index changes); run precondition checks **before destructive operations** (MySQL DDL commits per statement); document intentional asymmetry.
 4. **API contract round-trip** — every field required by a request must appear in the response representation (clients cannot round-trip otherwise); computed flags must handle **null vs empty** explicitly; cover with response tests.
 5. **Documentation must match implementation** — verify docs against the code: failure semantics (what retries vs fails immediately), external endpoint formats (official, not remembered), configuration behaviour. A doc that contradicts the code is a finding.
-    - Code comments and docblocks are docs too: a docblock that contradicts the implementation (e.g. says OPTIONS is included while the code removes it), or a **duplicated stale docblock** left behind an edit, is a finding.
+   - Code comments and docblocks are docs too: a docblock that contradicts the implementation (e.g. says OPTIONS is included while the code removes it), or a **duplicated stale docblock** left behind an edit, is a finding.
 6. **Architecture/design smells** — ports named by domain/area (not by implementation); API inputs reduced to what cannot be derived; no duplicated output or duplicated invariants (single source of truth); queries/logic in intent-named private methods; **compare values before mutating** them; check mutation order (comparing post-mutation values is always equal).
 7. **Atomic commit structure** — one logical change per commit; migration-only commits; related cleanup grouped with its change; unrelated changes not bundled.
 8. **Configuration & rollout** — only non-default config values should be specified (do not replicate package defaults); env switches/flags must be safe for fresh environments (provisioning must be part of the rollout, or the switch stays off).
 9. **Per-request performance** — request-path code must not do work proportional to a global structure per request:
-    - Do not scan the full route collection (hundreds of routes × regex) per fallback/404 request — use the framework's compiled matcher.
-    - Keep synchronous waits (e.g. Kafka `flush()`, external calls) short for request-path observers/loops; a 10s per-call stall on outage exhausts workers. Long delivery/retry windows belong in a background/outbox path, and the config comment must state which is which.
+   - Do not scan the full route collection (hundreds of routes × regex) per fallback/404 request — use the framework's compiled matcher.
+   - Keep synchronous waits (e.g. Kafka `flush()`, external calls) short for request-path observers/loops; a 10s per-call stall on outage exhausts workers. Long delivery/retry windows belong in a background/outbox path, and the config comment must state which is which.
 10. **Deployment/queue rollout compatibility** — deleting a queued job class breaks payloads already waiting/retrying in the queue (they must unserialize the old FQCN): keep a **compatibility shim** class delegating to the new implementation until the queue retention window elapses (note the removal date in the class), or document an explicit drain/migration rollout.
 11. **Concurrent-race recovery guards the actual failing operation** — when code catches a DB constraint violation (e.g. MySQL 1062 unique-key) to recover a concurrent race (re-fetch instead of failing):
     - Verify the guarded call is where the exception is actually thrown. In Eloquent, `Model::new()` builds an **unsaved** model — the insert happens at `save()`, so a try/catch around a repository `create()` only works if that method persists before returning. A recovery wrapped around a non-persisting "create" is dead code: the losing request still surfaces an uncaught `QueryException`.
@@ -174,81 +174,81 @@ Apply the section for each technology the project uses. Each list merges issue t
 #### PHP
 
 1. **Untrusted remote input (SSRF & derived-value validation)** — when code fetches or parses external URLs/metadata:
-    - Enforce the URL **scheme (https)** at the adapter layer, not only in request validation (async/internal paths bypass validation).
-    - Resolve and validate **all A + AAAA records** are public (private/loopback/link-local/reserved) **before** connecting; pin the validated address for the request and **disable redirects** (or validate every hop). DNS-rebinding defeats a resolve-then-connect check that does not pin.
-    - Bound the response size (write callback, not unbuffered `CURLOPT_RETURNTRANSFER`) so a streaming endpoint cannot exhaust memory.
-    - Validate every value parsed from the external document **before persisting** (format, length vs column size, scheme, count). Fail loudly rather than silently dropping/truncating trusted data.
-    - Verify third-party API contracts against the installed code: callback **signatures** (e.g. libcurl passes the handle first), **byte counts** vs character counts in byte-oriented APIs, option value formats (e.g. IPv6 literals must be bracketed in `CURLOPT_RESOLVE`).
+   - Enforce the URL **scheme (https)** at the adapter layer, not only in request validation (async/internal paths bypass validation).
+   - Resolve and validate **all A + AAAA records** are public (private/loopback/link-local/reserved) **before** connecting; pin the validated address for the request and **disable redirects** (or validate every hop). DNS-rebinding defeats a resolve-then-connect check that does not pin.
+   - Bound the response size (write callback, not unbuffered `CURLOPT_RETURNTRANSFER`) so a streaming endpoint cannot exhaust memory.
+   - Validate every value parsed from the external document **before persisting** (format, length vs column size, scheme, count). Fail loudly rather than silently dropping/truncating trusted data.
+   - Verify third-party API contracts against the installed code: callback **signatures** (e.g. libcurl passes the handle first), **byte counts** vs character counts in byte-oriented APIs, option value formats (e.g. IPv6 literals must be bracketed in `CURLOPT_RESOLVE`).
 2. **Static Analysis Baseline Hygiene** — when a PHP static-analysis baseline file (`phparkitect.baseline.json`, `phpstan-baseline.neon`, or similar) is modified:
-    - Any new entry added is BLOCKER — architecture rule states baselines must not grow (see ARCHITECTURE.md "Do not add issues to static analysis tools baselines").
-    - Accept only removals. Require developer to fix violation or update architectural rule instead.
+   - Any new entry added is BLOCKER — architecture rule states baselines must not grow (see ARCHITECTURE.md "Do not add issues to static analysis tools baselines").
+   - Accept only removals. Require developer to fix violation or update architectural rule instead.
 3. **`@phpstan-ignore` and Type-Masking** — when `@phpstan-ignore` or `@phpstan-ignore-next-line` comment added or already present on modified code:
-    - Identify what error suppressed and whether indicates genuine type mismatch rather than PHPStan false positive.
-    - Under `strict_types=1`, passing `string` where `int` declared raises `TypeError` at runtime. Eloquent commonly returns numeric strings for integer columns when attribute lacks cast. Callback typed as `fn (int $id)` applied to plucked integer column is unsafe without cast — flag as WARNING and suggest `fn (string|int $id): T => new T((int) $id)`.
-    - `@phpstan-ignore` that hides real type mismatch rather than PHPStan false positive is WARNING, not acceptable suppression.
-    - **Do NOT declare an existing `@phpstan-ignore` dead without verification.** Inspect the _installed_ vendor stubs for the suppressed call (`@param`/`@psalm-param`/`@phpstan-param` constraints) and run PHPStan with the referenced dependency actually installed. A suppression satisfying a stub-level constraint stricter than the raw PHP signature (e.g. `non-empty-string`, enum-like unions such as `0|1|2|3|4`) is a REAL suppression — proposing its removal without that verification is a false finding.
-    - An `argument.type` error surfacing only when a dependency is missing (`class.notFound`) does NOT prove an annotation is dead — it proves the dependency was never installed.
+   - Identify what error suppressed and whether indicates genuine type mismatch rather than PHPStan false positive.
+   - Under `strict_types=1`, passing `string` where `int` declared raises `TypeError` at runtime. Eloquent commonly returns numeric strings for integer columns when attribute lacks cast. Callback typed as `fn (int $id)` applied to plucked integer column is unsafe without cast — flag as WARNING and suggest `fn (string|int $id): T => new T((int) $id)`.
+   - `@phpstan-ignore` that hides real type mismatch rather than PHPStan false positive is WARNING, not acceptable suppression.
+   - **Do NOT declare an existing `@phpstan-ignore` dead without verification.** Inspect the _installed_ vendor stubs for the suppressed call (`@param`/`@psalm-param`/`@phpstan-param` constraints) and run PHPStan with the referenced dependency actually installed. A suppression satisfying a stub-level constraint stricter than the raw PHP signature (e.g. `non-empty-string`, enum-like unions such as `0|1|2|3|4`) is a REAL suppression — proposing its removal without that verification is a false finding.
+   - An `argument.type` error surfacing only when a dependency is missing (`class.notFound`) does NOT prove an annotation is dead — it proves the dependency was never installed.
 4. **Extension Dependency Guards** — when test uses functions from optional PHP extensions (`pcntl_*`, `posix_*`, `rdkafka_*`, `imagick_*`, etc.):
-    - Verify that `extension_loaded()` checks cover **all** required extensions, not just primary one. Test using both `pcntl_signal()` and `posix_kill()` must guard both `pcntl` and `posix` — flag missing guard as WARNING.
-    - Check for functions from secondary extensions easy to miss (e.g. `posix_kill`/`posix_getpid` alongside `pcntl_signal`).
+   - Verify that `extension_loaded()` checks cover **all** required extensions, not just primary one. Test using both `pcntl_signal()` and `posix_kill()` must guard both `pcntl` and `posix` — flag missing guard as WARNING.
+   - Check for functions from secondary extensions easy to miss (e.g. `posix_kill`/`posix_getpid` alongside `pcntl_signal`).
 5. **Global State Restoration** — when test modifies global PHP process state (`pcntl_async_signals()`, `pcntl_signal()`, `ini_set()`, `putenv()`, `date_default_timezone_set()`, `error_reporting()`, or similar):
-    - Verify test captures previous value before modifying and restores in `finally` block.
-    - Bare restore at end of method body (not wrapped in `finally`) is WARNING — if test fails or throws, restore skipped and subsequent tests run with polluted global state.
+   - Verify test captures previous value before modifying and restores in `finally` block.
+   - Bare restore at end of method body (not wrapped in `finally`) is WARNING — if test fails or throws, restore skipped and subsequent tests run with polluted global state.
 6. **tearDown Lifecycle Safety** — when `tearDown()` or `tearDownAfterClass()` method performs multiple cleanup steps (e.g. calls external teardown, restores handler stacks, calls `parent::tearDown()`):
-    - Verify steps wrapped in nested `try/finally` blocks so every cleanup step runs even if earlier one throws.
-    - `parent::tearDown()` must be in innermost `finally` to guarantee PHPUnit's own cleanup always executes.
-    - `tearDown()` that calls external method (framework factory, application kernel, etc.) before other cleanup without `try/finally` is WARNING — if external call throws, remaining cleanup skipped and corrupted state cascades into subsequent tests.
+   - Verify steps wrapped in nested `try/finally` blocks so every cleanup step runs even if earlier one throws.
+   - `parent::tearDown()` must be in innermost `finally` to guarantee PHPUnit's own cleanup always executes.
+   - `tearDown()` that calls external method (framework factory, application kernel, etc.) before other cleanup without `try/finally` is WARNING — if external call throws, remaining cleanup skipped and corrupted state cascades into subsequent tests.
 7. **PSR-3 Exception Logging** — when `catch` block logs via PSR-3 logger method (`->warning()`, `->error()`, `->critical()`, `->alert()`, `->emergency()`):
-    - Verify context array includes `'exception' => $catchVariable`. PSR-3 spec reserves `'exception'` key so log handlers can extract full stack trace — without it, only message string captured.
-    - Missing exception object in `->warning()` or `->error()` call inside catch block is WARNING.
-    - Catch block that logs `$e->getMessage()` but omits `'exception' => $e` is most common pattern to flag.
+   - Verify context array includes `'exception' => $catchVariable`. PSR-3 spec reserves `'exception'` key so log handlers can extract full stack trace — without it, only message string captured.
+   - Missing exception object in `->warning()` or `->error()` call inside catch block is WARNING.
+   - Catch block that logs `$e->getMessage()` but omits `'exception' => $e` is most common pattern to flag.
 8. **Error Suppression Operator** — when `@` operator used on any function or method call:
-    - Flag as WARNING — `@` operator suppresses all PHP errors indiscriminately, hiding potentially important warnings and making debugging difficult.
-    - Require targeted `set_error_handler`/`restore_error_handler` pair in `try/finally` block instead, so only expected warnings suppressed and unexpected ones remain observable.
-    - Only acceptable use of `@` is on trivially safe operations where failure immediately checked (e.g. `@unlink()` followed by existence check).
+   - Flag as WARNING — `@` operator suppresses all PHP errors indiscriminately, hiding potentially important warnings and making debugging difficult.
+   - Require targeted `set_error_handler`/`restore_error_handler` pair in `try/finally` block instead, so only expected warnings suppressed and unexpected ones remain observable.
+   - Only acceptable use of `@` is on trivially safe operations where failure immediately checked (e.g. `@unlink()` followed by existence check).
 9. **Assumed third-party security defaults** — when a change relies on a security property of a third-party library (signature requirements, validation guarantees, atomic single-use operations):
-    - Verify the library's actual defaults in the installed vendor code and flag properties that are **assumed but not explicitly set**. Example: onelogin/php-saml `strict => true` does NOT imply `wantAssertionsSigned` (defaults false) — a signed response carrying an unsigned assertion is accepted unless the setting is explicit.
-    - The same principle applies to any security-relevant library knob the change depends on: check the default, set it explicitly, and say so.
+   - Verify the library's actual defaults in the installed vendor code and flag properties that are **assumed but not explicitly set**. Example: onelogin/php-saml `strict => true` does NOT imply `wantAssertionsSigned` (defaults false) — a signed response carrying an unsigned assertion is accepted unless the setting is explicit.
+   - The same principle applies to any security-relevant library knob the change depends on: check the default, set it explicitly, and say so.
 10. **Credentials hashed before persistence** — for every path that writes a password or credential (provisioning services, factories, seeders, imports):
     - Verify the value is hashed (`Hash::make`, bcrypt, etc.) before storage. A generated credential (`Str::random(...)`) passed raw to a model constructor or repository is stored as plaintext — flag as BLOCKER even when the password is unusable (e.g. SAML-provisioned users excluded from password login).
 
 #### Laravel
 
 1. **Async/distributed command correctness** — for commands dispatched async (message-bus/queue):
-    - Derive behaviour from **persisted state**, not a flag carried on a single queued message (a lost/retry-exhausted message silently loses the intent).
-    - Make dispatch **idempotent**: a retried command must re-enqueue the lost side-effect when the persisted state says it is still pending.
-    - Check-then-act races: an existence check is not atomic with a later insert — convert the resulting DB constraint failure into the intended domain exception (e.g. non-retryable conflict) instead of leaking a generic DB error that retries forever.
-    - Cancellation paths must **clear persisted flags/states** — a cancelled operation must not leave a flag that permanently blocks the feature.
-    - A retried command must **re-validate every dispatch-time precondition from persisted state**, not just one field. Distinguish **terminal no-op states** (cancelled, never eligible — return silently, a later re-dispatch is impossible or unnecessary) from **retryable not-ready states** (e.g. awaiting confirmation or dependency sync — throw so the bus retries). A retry that swallows a not-ready state as success permanently loses the intent.
-    - Verify the **re-dispatch path exists** for every state that becomes ready without saving the aggregate that triggers the observer (e.g. confirmation or group-sync rows saved without a `Trip::save()`): if no later observer fires, the ride/job is permanently missed unless the command retries itself.
+   - Derive behaviour from **persisted state**, not a flag carried on a single queued message (a lost/retry-exhausted message silently loses the intent).
+   - Make dispatch **idempotent**: a retried command must re-enqueue the lost side-effect when the persisted state says it is still pending.
+   - Check-then-act races: an existence check is not atomic with a later insert — convert the resulting DB constraint failure into the intended domain exception (e.g. non-retryable conflict) instead of leaking a generic DB error that retries forever.
+   - Cancellation paths must **clear persisted flags/states** — a cancelled operation must not leave a flag that permanently blocks the feature.
+   - A retried command must **re-validate every dispatch-time precondition from persisted state**, not just one field. Distinguish **terminal no-op states** (cancelled, never eligible — return silently, a later re-dispatch is impossible or unnecessary) from **retryable not-ready states** (e.g. awaiting confirmation or dependency sync — throw so the bus retries). A retry that swallows a not-ready state as success permanently loses the intent.
+   - Verify the **re-dispatch path exists** for every state that becomes ready without saving the aggregate that triggers the observer (e.g. confirmation or group-sync rows saved without a `Trip::save()`): if no later observer fires, the ride/job is permanently missed unless the command retries itself.
 2. **Test coverage of security-critical and infrastructure code** — adapters, middleware, and security-critical branches need **direct tests**, not only handler-level tests with fakes; cover the happy path and every rejection path; verify security claims at runtime (e.g. a signature validated by the _secondary_ key when multi-cert support is claimed).
-    - A test must exercise the **real middleware stack on the path under test** — `WithoutMiddleware` (or a fake auth guard) masks exactly the auth/preflight behaviour the change is about; add a middleware-enabled test for auth-gated routes (e.g. an OPTIONS preflight must be answered before auth rejects it).
-    - A test that **passes via type coercion** (e.g. asserting a `string` where an `int` column stores `0`, MySQL coerces `'PHPUNIT_RIDE_ID'` to `0`) proves nothing — assert the real persisted value in its true type so the test fails if the value is never written.
+   - A test must exercise the **real middleware stack on the path under test** — `WithoutMiddleware` (or a fake auth guard) masks exactly the auth/preflight behaviour the change is about; add a middleware-enabled test for auth-gated routes (e.g. an OPTIONS preflight must be answered before auth rejects it).
+   - A test that **passes via type coercion** (e.g. asserting a `string` where an `int` column stores `0`, MySQL coerces `'PHPUNIT_RIDE_ID'` to `0`) proves nothing — assert the real persisted value in its true type so the test fails if the value is never written.
 3. **HTTP error/exception semantics** — a domain exception mapped to an HTTP status must carry that semantics itself and behave consistently across every response path:
-    - Extend `HttpException` with the status (e.g. 409) so any path that falls through to the default renderer still returns 4xx instead of 500 — do not rely only on named handlers matching the exception.
-    - Bound status-range checks to **400–499**: a `< 500` check accepts 1xx/2xx/3xx and renders a non-error page for e.g. a 302 without its `Location` header.
-    - Preserve `HttpException` headers (`Allow` on 405, `WWW-Authenticate` on 401, `Retry-After` on 429) on the rendered response.
-    - Only render **vetted messages** (the explicit domain exception) to signed-out users; arbitrary 4xx messages may carry internal context.
-    - Apply the same exception type across **all sibling code paths** (e.g. `updateCost` and `updateSales` both throw `InvoicePeriodClosedException`), not just the path under test.
+   - Extend `HttpException` with the status (e.g. 409) so any path that falls through to the default renderer still returns 4xx instead of 500 — do not rely only on named handlers matching the exception.
+   - Bound status-range checks to **400–499**: a `< 500` check accepts 1xx/2xx/3xx and renders a non-error page for e.g. a 302 without its `Location` header.
+   - Preserve `HttpException` headers (`Allow` on 405, `WWW-Authenticate` on 401, `Retry-After` on 429) on the rendered response.
+   - Only render **vetted messages** (the explicit domain exception) to signed-out users; arbitrary 4xx messages may carry internal context.
+   - Apply the same exception type across **all sibling code paths** (e.g. `updateCost` and `updateSales` both throw `InvoicePeriodClosedException`), not just the path under test.
 4. **Catch-all fallback & HTTP-method semantics** — when a catch-all/fallback route is added or changed:
-    - Preserve real-route **405 + `Allow`** for paths registered under another verb; map only truly-unknown paths to 404. A catch-all matching every verb turns legitimate method mismatches into 404s.
-    - Derive the `Allow` header from **non-fallback routes only**; if the catch-all matches every verb, an OPTIONS probe advertises methods that do not exist.
-    - Answer OPTIONS **before auth middleware** for authenticated groups: register a dedicated pre-auth OPTIONS route (a fallback inside an auth group makes preflight return 401). Keep every fallback's OPTIONS branch reachable — excluding OPTIONS from a shared helper silently disables the controllers' OPTIONS handling.
-    - Route registration order decides precedence for same-URI patterns; verify with a middleware-enabled test, not just a `WithoutMiddleware` one.
+   - Preserve real-route **405 + `Allow`** for paths registered under another verb; map only truly-unknown paths to 404. A catch-all matching every verb turns legitimate method mismatches into 404s.
+   - Derive the `Allow` header from **non-fallback routes only**; if the catch-all matches every verb, an OPTIONS probe advertises methods that do not exist.
+   - Answer OPTIONS **before auth middleware** for authenticated groups: register a dedicated pre-auth OPTIONS route (a fallback inside an auth group makes preflight return 401). Keep every fallback's OPTIONS branch reachable — excluding OPTIONS from a shared helper silently disables the controllers' OPTIONS handling.
+   - Route registration order decides precedence for same-URI patterns; verify with a middleware-enabled test, not just a `WithoutMiddleware` one.
 5. **View/layout rendering** — a view rendered as a response must extend a layout: a Blade file containing only `@section` blocks produces an **empty body** when used as the top-level view. Wrap it in the layout's `viewContent`/`contentView` slots, and add a test asserting the rendered body contains the intended content.
 6. **Laravel Authorization & Policies** — when a Laravel controller's `authorize()` calls or policy methods are added or modified:
-    - Verify controller `authorize()` calls pass VOs to policies, not raw primitives, when VO already constructed in controller.
-    - Verify policy methods accept corresponding VO type, not primitive.
+   - Verify controller `authorize()` calls pass VOs to policies, not raw primitives, when VO already constructed in controller.
+   - Verify policy methods accept corresponding VO type, not primitive.
 7. **API resource serialization is scalar** — for every field in a resource `toArray()` or a JSON response array:
-    - Verify the value is scalar (string/int/bool/array). Backed enums must use `->value`; value objects must use `->getValue()` (or an explicit string conversion). Never rely on implicit `JsonSerializable`.
-    - json_encode of a PHP backed enum (no `JsonSerializable`, no public properties) silently yields `{}` — clients receive `"status": {}` with no error. A VO that implements `JsonSerializable` works but relies on the interface staying present.
-    - Response tests must assert the serialized field value (`assertJsonPath('data.status', 'active')`), not just presence — the bug only surfaces when a test reads the field.
+   - Verify the value is scalar (string/int/bool/array). Backed enums must use `->value`; value objects must use `->getValue()` (or an explicit string conversion). Never rely on implicit `JsonSerializable`.
+   - json_encode of a PHP backed enum (no `JsonSerializable`, no public properties) silently yields `{}` — clients receive `"status": {}` with no error. A VO that implements `JsonSerializable` works but relies on the interface staying present.
+   - Response tests must assert the serialized field value (`assertJsonPath('data.status', 'active')`), not just presence — the bug only surfaces when a test reads the field.
 8. **Validation bounded to DB schema** — for every string field validated by a FormRequest:
-    - Verify a `max` rule matches its DB column length (`string(255)` column → `max:255`); oversized input must fail validation (4xx) before reaching the DB (500).
-    - Check list-item rules too (`email_domains.*`), not just scalar top-level strings. A unique-index column (`string(255)`) exceeded by input is the common 500 leak.
+   - Verify a `max` rule matches its DB column length (`string(255)` column → `max:255`); oversized input must fail validation (4xx) before reaching the DB (500).
+   - Check list-item rules too (`email_domains.*`), not just scalar top-level strings. A unique-index column (`string(255)`) exceeded by input is the common 500 leak.
 9. **DB constraint-violation → field mapping** — when a handler converts a unique-key `QueryException` (MySQL 1062) into a 4xx validation error:
-    - Verify the mapped field matches the actually-violated constraint, not a hardcoded field. Parse the key name from the error message (`for key 'schema.table_index'`) and map it (e.g. `*_slug_unique` → `slug`, `*_owner_key_unique` → `owner_type`); fall back to a default only for unknown keys.
-    - A 400 that blames the wrong field (always `email_domains` when `slug`/`owner_key`/`idp_entity_id` was violated) misleads clients and makes conflicts unresolvable.
+   - Verify the mapped field matches the actually-violated constraint, not a hardcoded field. Parse the key name from the error message (`for key 'schema.table_index'`) and map it (e.g. `*_slug_unique` → `slug`, `*_owner_key_unique` → `owner_type`); fall back to a default only for unknown keys.
+   - A 400 that blames the wrong field (always `email_domains` when `slug`/`owner_key`/`idp_entity_id` was violated) misleads clients and makes conflicts unresolvable.
 10. **Case-sensitive identifiers need binary collation** — when a migration creates a column that stores identifiers matched server-side (SAML entity IDs, codes, tokens):
     - Verify the column uses a case-sensitive (binary) collation, e.g. `->collation('utf8mb4_bin')`. The default `utf8mb4_unicode_ci` is case-insensitive: a UNIQUE index and lookups (`WHERE col = ?`) conflate values differing only by case.
 11. **Single-use cache consumption must be atomic** — when a one-time token/correlation value is consumed from the cache:
@@ -259,9 +259,9 @@ Apply the section for each technology the project uses. Each list merges issue t
 #### Kubernetes
 
 1. **Kubernetes Manifest Consistency** — when changeset includes Kubernetes YAML manifests (any file with `apiVersion` and `kind`):
-    - When multiple resources share same `apiVersion`/`kind`, verify they have consistent ArgoCD annotations (`sync-wave`, `sync-options`). Inconsistent annotations across resources of same kind is WARNING.
-    - When resource uses Custom Resource `apiVersion` (not core `v1`, `apps/v1`, `batch/v1`, `networking.k8s.io/v1`, etc.), verify it has `argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true` if CRD installed by another Application in same changeset. Missing this annotation causes ArgoCD dry-run failures on first sync — flag as WARNING.
-    - When `kustomization.yaml` exists in same directory as new resource file, verify new file listed in `resources:`. Unlisted resource in Kustomize-managed directory will not be synced — flag as BLOCKER.
+   - When multiple resources share same `apiVersion`/`kind`, verify they have consistent ArgoCD annotations (`sync-wave`, `sync-options`). Inconsistent annotations across resources of same kind is WARNING.
+   - When resource uses Custom Resource `apiVersion` (not core `v1`, `apps/v1`, `batch/v1`, `networking.k8s.io/v1`, etc.), verify it has `argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true` if CRD installed by another Application in same changeset. Missing this annotation causes ArgoCD dry-run failures on first sync — flag as WARNING.
+   - When `kustomization.yaml` exists in same directory as new resource file, verify new file listed in `resources:`. Unlisted resource in Kustomize-managed directory will not be synced — flag as BLOCKER.
 
 ## Review Report
 

@@ -1,6 +1,6 @@
 ---
 name: devbot:graphify
-description: "any input (code, docs, papers, images) → knowledge graph → clustered communities → HTML + JSON + audit report. Use this skill whenever the user asks any question about a codebase, project content, architecture, or file relationships — especially if graphify-out/ exists. Provides persistent graph with god nodes, community detection, and BFS/DFS query tools."
+description: "Use when a question is about a codebase, its architecture, or file relationships. Triggers on 'graphify', 'knowledge graph', 'file relationships'."
 trigger: /graphify
 ---
 

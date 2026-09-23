@@ -1,6 +1,6 @@
 ---
 name: devbot:address-review
-description: "Addresses code review comments by presenting every comment with an assessment and a proposed resolution in a single round, collecting all decisions in one reply, then implementing the approved changes — all locally. Use this skill whenever review comments (from GitHub, another agent, or a human) need resolving."
+description: "Use when code review comments need resolving. Triggers on 'address the review', 'resolve the comments'."
 ---
 
 # Skill: Address Review Comments
