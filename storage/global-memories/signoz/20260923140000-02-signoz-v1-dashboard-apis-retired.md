@@ -1,0 +1,9 @@
+---
+date: 2026-09-23
+keywords: ["signoz", "dashboard", "v2-api", "deprecation"]
+trigger-on: ["signoz-dashboard-import", "signoz-dashboard-schema"]
+---
+
+## SigNoz retires the V1 dashboard APIs at v0.135.0 — dashboards move to a Perses-style V2
+
+SigNoz v0.135.0+ **permanently disables** `/api/v1/dashboards` and its sub-routes: every call returns `501` with error code `dashboard_deprecated` and no grace period, so any script posting there (e.g. a create-only dashboard importer) breaks outright on upgrade. The successor is the **V2** API on `/api/v2/dashboards` (`GET`/`POST`/`PUT`/`PATCH`/`DELETE`, plus `/lock`), carrying a Perses-style payload of `{tags:[{key,value}], spec:{display, panels, layouts, variables}}` rather than the flat V1 object. Useful migration facts: the **UI and the import path accept V1 and convert it server-side** ("SigNoz detects the V1 format and converts it"), so the cheapest migration is re-import-then-re-export rather than hand-reshaping; both schema versions are offered as template downloads with V1 marked deprecated; and V2 adds validation that V1 tolerated — the `image` field accepts only `/assets/Icons/<name>`, `/assets/Logos/<name>` or a base64 image data URI (a remote URL or raw markup is rejected at the JSON editor, import and API layers), enums may be omitted but an empty string `""` is rejected with `400 dashboard_invalid_input`, and scalar panels (value/pie/table) require `reduceTo` on each metric aggregation. Alert rules share the same query format, so their GET responses also begin always emitting `disabled: false`, `legend: ""` and `[]` for explicitly-empty arrays — anything detecting "unset" by key absence must switch to checking the value. Determine the instance's version before assuming either API: an instance can serve V1 without the deprecation error while `/api/v2/dashboards/{id}` already returns `501 dashboard_invalid_data … not in v6 schema` for a V1 dashboard, which is the transition window.
