@@ -32,6 +32,7 @@ interface Args {
   apply: boolean;
   force: boolean;
   image: string | null;
+  namespace: string | null;
 }
 
 interface PluginMeta {
@@ -47,6 +48,7 @@ interface RefactorRequest {
   to: string;
   apply: boolean;
   image: string | null;
+  namespace: string | null;
 }
 
 interface PluginResponse {
@@ -74,6 +76,8 @@ Options:
   --json         machine-readable output
   --force        proceed despite a dirty working tree
   --image <ref>  container image to run the engine in (default: resolved per project)
+  --namespace <ns>  symbol's namespace, for ops on free functions/constants
+                    (derived from the declaration when omitted)
   --help, -h     show this help
   --version      show version
 `;
@@ -93,6 +97,7 @@ function parse(argv: string[]): Args {
     apply: false,
     force: false,
     image: null,
+    namespace: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -104,6 +109,7 @@ function parse(argv: string[]): Args {
     else if (arg === "--apply") a.apply = true;
     else if (arg === "--force") a.force = true;
     else if (arg === "--image") a.image = next();
+    else if (arg === "--namespace") a.namespace = next();
     else if (arg === "--lang") a.lang = next();
     else if (arg === "--op") a.op = next();
     else if (arg === "--class") a.klass = next();
@@ -287,6 +293,7 @@ async function main(): Promise<number> {
     to: args.to,
     apply: args.apply,
     image: args.image,
+    namespace: args.namespace,
   };
 
   if (args.apply && !args.force) {

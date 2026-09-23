@@ -14,18 +14,25 @@ Dry run by default. `--apply` is the only thing that writes.
 
 ```
 devbot-tools_refactor --lang php --op <op> \
-  [--class <FQCN>] [--from <old> | --method <old> | --property <old>] \
+  [--class <FQCN>] [--from <old> | --method <old> | --property <old>] [--namespace <ns>] \
   --to <new> [--apply] [--json] [--force]
 ```
 
-| Op                     | Renames                          |
-| ---------------------- | -------------------------------- |
-| `rename-method`        | the declaration + instance calls |
-| `rename-static-method` | the declaration + static calls   |
-| `rename-annotation`    | a docblock annotation on a class |
-| `rename-property`      | the declaration + accesses       |
+| Op                     | Renames                              |
+| ---------------------- | ------------------------------------ |
+| `rename-method`        | the declaration + instance calls     |
+| `rename-static-method` | the declaration + static calls       |
+| `rename-annotation`    | a docblock annotation on a class     |
+| `rename-property`      | the declaration + accesses           |
+| `rename-function`      | a free function: declaration + calls |
 
 `rename-class` is not supported yet — see [Limits](#limits).
+
+Ops on **free functions and (later) global constants** need the symbol's
+namespace, because Rector resolves those calls by fully-qualified name. Pass
+`--namespace` or let the tool derive it from the declaration under `app/` or
+`src/`; it errors rather than guesses when the declaration is missing or
+ambiguous.
 
 ## Engine policy
 

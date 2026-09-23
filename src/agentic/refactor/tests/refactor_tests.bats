@@ -358,15 +358,15 @@ _e2e_ready() {
   assert_output --partial '"rename-property"'
 }
 
-@test "ops.py rule: resolves the rule class for an op" {
-  run python3 "${MODULE_DIR}/langs/php/ops.py" rule rename-property
+@test "ops.py rules: resolves the rule classes for an op" {
+  run python3 "${MODULE_DIR}/langs/php/ops.py" rules rename-property
 
   assert_success
   assert_output --partial "RenamePropertyRector"
 }
 
-@test "ops.py rule: rejects an unknown op" {
-  run python3 "${MODULE_DIR}/langs/php/ops.py" rule rename-everything
+@test "ops.py rules: rejects an unknown op" {
+  run python3 "${MODULE_DIR}/langs/php/ops.py" rules rename-everything
 
   assert_failure
   assert_output --partial "unsupported op"
@@ -681,4 +681,83 @@ CFG
   assert_success
   [ "${renamed}" = "1" ]
   [ "${stale}" = "0" ]
+}
+
+# ── D2: rename-function (usages rule + declaration rule) ───────────────────────
+
+@test "ops.py render: rename-function step 0 is the qualified usages rule" {
+  run bash -c "printf '%s' '{\"op\":\"rename-function\",\"from\":\"demoHelper\",\"to\":\"assistHelper\",\"scope\":[\"/app/src\"],\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render 0"
+
+  assert_success
+  assert_output --partial "RenameFunctionRector::class"
+  assert_output --partial "assistHelper"
+  refute_output --partial "RenameDeclarationRector"
+}
+
+@test "ops.py render: rename-function step 1 is the declaration rule" {
+  run bash -c "printf '%s' '{\"op\":\"rename-function\",\"from\":\"demoHelper\",\"to\":\"assistHelper\",\"scope\":[\"/app/src\"],\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render 1"
+
+  assert_success
+  assert_output --partial "RenameDeclarationRector::class"
+  assert_output --partial "'kind' => 'function'"
+  assert_output --partial "require_once"
+}
+
+@test "ops.py rules: rename-function registers two rules" {
+  run python3 "${MODULE_DIR}/langs/php/ops.py" rules rename-function
+
+  assert_success
+  assert_output --partial "RenameFunctionRector"
+  assert_output --partial "RenameDeclarationRector"
+}
+
+@test "ops.py render: a missing declaration errors with a hint" {
+  run bash -c "printf '%s' '{\"op\":\"rename-function\",\"from\":\"nope\",\"to\":\"x\",\"scope\":[\"/app/src\"],\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render"
+
+  assert_failure
+  assert_output --partial "could not find a declaration of 'nope'"
+}
+
+@test "ops.py render: every generated step is valid PHP" {
+  command -v docker >/dev/null 2>&1 || skip "docker not installed"
+  docker info >/dev/null 2>&1 || skip "docker daemon not reachable"
+
+  # Substring assertions cannot catch a structurally broken config — an earlier
+  # renderer bug emitted unbalanced parentheses that passed them. Lint each step.
+  local step cfg
+  for step in 0 1; do
+    cfg="$(mktemp)"
+    printf '%s' "{\"op\":\"rename-function\",\"from\":\"demoHelper\",\"to\":\"assistHelper\",\"scope\":[\"/app/src\"],\"project\":\"${PHP_FIXTURES}/rename-demo\"}" |
+      python3 "${MODULE_DIR}/langs/php/ops.py" render "${step}" > "${cfg}"
+
+    run docker run --rm -v "${cfg}:/r/rector.php:ro" php:8.4-cli php -l /r/rector.php
+    rm -rf "${cfg}"
+
+    assert_success
+    assert_output --partial "No syntax errors"
+  done
+}
+
+@test "end-to-end: rename-function rewrites the declaration and the call" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-function '' demoHelper assistHelper > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local decl call stale
+  decl="$(grep -c 'function assistHelper' "${work}/src/Helpers.php" || true)"
+  stale="$(grep -c 'function demoHelper' "${work}/src/Helpers.php" || true)"
+  call="$(grep -c 'assistHelper(' "${work}/src/UsesHelper.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"ok": true'
+  # Both halves: the declaration and the call site.
+  [ "${decl}" = "1" ]
+  [ "${stale}" = "0" ]
+  [ "${call}" = "1" ]
 }

@@ -117,9 +117,15 @@ _resolve_engine() {
 
 # ── Container runner ──────────────────────────────────────────────────────────
 
-# The Rector rule class for an op, read from the op table.
-_rule_for_op() {
-  python3 "${PLUGIN_DIR}/ops.py" rule "$1"
+# The Rector rule classes an op registers, in step order.
+_rules_for_op() {
+  python3 "${PLUGIN_DIR}/ops.py" rules "$1"
+}
+
+# An op's first rule — used for the doctor's example command.
+_first_rule() {
+  python3 "${PLUGIN_DIR}/ops.py" rules "$1" |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)[0])'
 }
 
 # Resolve the PHP container image.
@@ -161,9 +167,7 @@ PY
 # config registers exactly one rule, `--only` is a belt-and-braces guarantee that
 # nothing else in the run can change code.
 _build_argv() {
-  local via="$1" project="$2" image="$3" config="$4" dry="$5" op="$6"
-  local rule
-  rule="$(_rule_for_op "${op}")"
+  local via="$1" project="$2" image="$3" config="$4" dry="$5" rule="$6"
 
   local engine_host="${project}" engine_in_container="/app"
   if [[ "${via}" == "scratch" ]]; then
@@ -172,23 +176,24 @@ _build_argv() {
   fi
 
   python3 - "${project}" "${image}" "${engine_host}" "${engine_in_container}" \
-    "${config}" "${dry}" "${rule}" <<'PY'
+    "${config}" "${dry}" "${rule}" "${PLUGIN_DIR}/rules" <<'PY'
 import json, sys
-project, image, engine_host, engine_in_container, config, dry, rule = sys.argv[1:]
+project, image, engine_host, engine_in_container, config, dry, rule, rules_dir = sys.argv[1:]
 
 # A dry run must not be able to write, so the project is mounted read-only then;
 # Rector's cache lives in the container, not the project.
 mount_suffix = "" if dry == "false" else ":ro"
 argv = ["docker", "run", "--rm",
         "-v", f"{project}:/app{mount_suffix}",
-        "-v", f"{config}:/refactor/rector.php:ro"]
+        "-v", f"{config}:/refactor/rector.php:ro",
+        "-v", f"{rules_dir}:/refactor/rules:ro"]
 if engine_in_container != "/app":
     argv += ["-v", f"{engine_host}:{engine_in_container}"]
 argv += ["-w", "/app", image,
          "php", f"{engine_in_container}/vendor/bin/rector", "process",
-         "--config", "/refactor/rector.php",
-         "--only", rule,
-         "--clear-cache", "--no-progress-bar", "--output-format=json"]
+         "--config", "/refactor/rector.php"]
+argv += ["--only", rule]
+argv += ["--clear-cache", "--no-progress-bar", "--output-format=json"]
 if dry == "true":
     argv.append("--dry-run")
 print(json.dumps(argv))
@@ -243,7 +248,7 @@ PY
   local command=""
   if [[ "${want_command}" == "true" ]]; then
     command="$(_build_argv "${via}" "${project}" "${resolved_image}" \
-      "/tmp/rector.php" "true" "rename-method")"
+      "/tmp/rector.php" "true" "$(_first_rule rename-method)")"
   fi
 
   python3 - "${project}" "${via}" "${path}" "${version}" \
@@ -325,10 +330,13 @@ print("\x1f".join([str(r.get("op") or ""), str(r.get("class") or ""),
   fi
   local scope_json
   scope_json="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${roots[@]}")"
-  request="$(SCOPE="${scope_json}" python3 -c '
+  # Carry the scope and the host project dir into the request: the renderer needs
+  # the project to derive a namespace when none was given.
+  request="$(SCOPE="${scope_json}" PROJECT="${project}" python3 -c '
 import json, os, sys
 r = json.load(sys.stdin)
 r["scope"] = json.loads(os.environ["SCOPE"])
+r["project"] = os.environ["PROJECT"]
 print(json.dumps(r))' <<<"${request}")"
 
   local engine
@@ -346,75 +354,111 @@ print(json.dumps(r))' <<<"${request}")"
     echo "ERROR: invalid container image reference '${image}'" >&2
     exit 1
   fi
-  cfg="$(mktemp)"
-
-  if ! printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" render > "${cfg}"; then
-    rm -f "${cfg}"
-    echo '{"ok":false,"error":"could not render the Rector config"}' >&2
-    exit 1
-  fi
-
   local dry="true"
   [[ "${mode}" == "apply" ]] && dry="false"
 
-  local -a cmd
-  mapfile -d '' -t cmd < <(_build_argv "${via}" "${project}" "${image}" "${cfg}" "${dry}" "${op}" |
-    python3 -c 'import json,sys; sys.stdout.write("\0".join(json.load(sys.stdin)))')
+  # One Rector run per rule. A single config carrying both a usages rule and the
+  # declaration rule does not compose: the declaration rename invalidates the
+  # reflection the usages rule resolves calls through, so the calls silently stay
+  # put. One rule per run also matches the --only posture used everywhere else.
+  local -a rules
+  mapfile -t rules < <(python3 "${PLUGIN_DIR}/ops.py" rules "${op}" |
+    python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)))')
 
-  local outfile errfile rc
+  local outfile errfile rcfile rc step
   outfile="$(mktemp)"
   errfile="$(mktemp)"
-  set +e
-  "${cmd[@]}" >"${outfile}" 2>"${errfile}"
-  rc=$?
-  set -e
-  rm -f "${cfg}"
+  rcfile="$(mktemp)"
 
-  python3 - "${outfile}" "${errfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" "${rc}" <<'PY'
+  for ((step = 0; step < ${#rules[@]}; step++)); do
+    local cfg step_out step_err
+    cfg="$(mktemp)"
+    step_out="$(mktemp)"
+    step_err="$(mktemp)"
+
+    if ! printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" render "${step}" > "${cfg}"; then
+      rm -f "${cfg}" "${step_out}" "${step_err}" "${outfile}" "${errfile}" "${rcfile}"
+      echo '{"ok":false,"error":"could not render the Rector config"}' >&2
+      exit 1
+    fi
+
+    local -a cmd
+    mapfile -d '' -t cmd < <(_build_argv "${via}" "${project}" "${image}" "${cfg}" "${dry}" "${rules[$step]}" |
+      python3 -c 'import json,sys; sys.stdout.write("\0".join(json.load(sys.stdin)))')
+
+    set +e
+    "${cmd[@]}" >"${step_out}" 2>"${step_err}"
+    rc=$?
+    set -e
+    rm -f "${cfg}"
+
+    cat "${step_out}" >> "${outfile}"
+    printf '\n' >> "${outfile}"
+    cat "${step_err}" >> "${errfile}"
+    printf '%s\n' "${rc}" >> "${rcfile}"
+    rm -f "${step_out}" "${step_err}"
+  done
+
+  python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY'
 import json, sys
 
-outfile, errfile, via, version, mode, old, new, rc = sys.argv[1:9]
+outfile, errfile, rcfile, via, version, mode, old, new = sys.argv[1:9]
 
-try:
-    raw = open(outfile, encoding="utf-8", errors="replace").read().strip()
-except Exception:
-    raw = ""
-try:
-    err = open(errfile, encoding="utf-8", errors="replace").read()
-except Exception:
-    err = ""
+def _read(path):
+    try:
+        return open(path, encoding="utf-8", errors="replace").read()
+    except Exception:
+        return ""
+
+raw = _read(outfile)
+err = _read(errfile)
+rcs = [int(line) for line in _read(rcfile).split()]
 
 warnings = [line for line in err.splitlines() if line.strip()]
 
-if not raw:
-    print(json.dumps({"ok": False, "error": "no output from Rector", "warnings": warnings}))
-    raise SystemExit
+# Each step printed one JSON document; parse them in sequence.
+decoder = json.JSONDecoder()
+docs = []
+index = 0
+while index < len(raw):
+    while index < len(raw) and raw[index] in " \t\r\n":
+        index += 1
+    if index >= len(raw):
+        break
+    try:
+        doc, index = decoder.raw_decode(raw, index)
+    except Exception as exc:
+        print(json.dumps({"ok": False, "error": "unparseable Rector output: %s" % exc, "warnings": warnings}))
+        raise SystemExit
+    docs.append(doc)
 
-try:
-    data = json.loads(raw)
-except Exception as exc:
-    print(json.dumps({"ok": False, "error": "unparseable Rector output: %s" % exc, "warnings": warnings}))
+if not docs:
+    print(json.dumps({"ok": False, "error": "no output from Rector", "warnings": warnings}))
     raise SystemExit
 
 # Rector reports config failures as stdout {"fatal_errors":[...]} with exit 1.
 # Without this the agent sees only "exited 1 with 0 error(s)", which says nothing.
-fatal = data.get("fatal_errors") or []
+fatal = [str(message) for doc in docs for message in (doc.get("fatal_errors") or [])]
 if fatal:
     print(json.dumps({
         "ok": False,
-        "error": "Rector could not build its config: %s" % "; ".join(str(f) for f in fatal),
+        "error": "Rector could not build its config: %s" % "; ".join(fatal),
         "warnings": warnings,
     }))
     raise SystemExit
 
-totals = data.get("totals") or {}
-errors = totals.get("errors") or 0
-files = data.get("changed_files") or []
+files = []
+errors = 0
+for doc in docs:
+    for path in doc.get("changed_files") or []:
+        if path not in files:
+            files.append(path)
+    errors += (doc.get("totals") or {}).get("errors") or 0
 
 # Rector exits 2 when --dry-run finds changes to make (0 = nothing to do,
 # 1 = error). A plan that found changes is a success, not a failure.
-changes_pending = int(rc) == 2 and mode == "plan"
-ok = errors == 0 and (int(rc) == 0 or changes_pending)
+hard_fail = any(rc not in (0, 2) for rc in rcs)
+ok = not hard_fail and errors == 0
 result = {
     "ok": ok,
     "engine": "rector %s (%s)" % (version, via),
@@ -427,10 +471,10 @@ result = {
     "warnings": [] if ok else warnings,
 }
 if not ok:
-    result["error"] = "rector exited %s with %d error(s)" % (rc, errors)
+    result["error"] = "rector exit codes %s with %d error(s)" % (rcs, errors)
 print(json.dumps(result))
 PY
-  rm -f "${outfile}" "${errfile}"
+  rm -f "${outfile}" "${errfile}" "${rcfile}"
 }
 
 case "${1:-}" in
