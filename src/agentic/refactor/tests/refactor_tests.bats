@@ -171,11 +171,15 @@ setup() {
 @test "php plugin: meta declares php, the .php extension and all renamer ops" {
   run bash "${PHP_PLUGIN}" meta
   assert_success
-  assert_output --partial '"lang":"php"'
-  assert_output --partial '".php"'
-  assert_output --partial '"rename-method"'
-  assert_output --partial '"rename-static-method"'
-  assert_output --partial '"rename-property"'
+  # Parse rather than match raw text: json.dumps spacing must not matter.
+  printf '%s' "${output}" | python3 -c '
+import json, sys
+m = json.load(sys.stdin)
+assert m["lang"] == "php", m
+assert ".php" in m["extensions"], m
+for op in ("rename-method", "rename-static-method", "rename-property"):
+    assert op in m["ops"], m
+'
 }
 
 @test "php plugin: doctor prefers the project's own Rector" {
@@ -315,8 +319,8 @@ _e2e_ready() {
     grep -q '"via": "scratch"'
 }
 
-@test "render-config: emits exactly one configured rule" {
-  run bash -c "printf '%s' '{\"op\":\"rename-method\",\"class\":\"Demo\\\\Greeter\",\"from\":\"greet\",\"to\":\"salute\",\"scope\":[\"/app/src\"]}' | python3 '${MODULE_DIR}/langs/php/render-config.py'"
+@test "ops.py render: emits exactly one configured rule" {
+  run bash -c "printf '%s' '{\"op\":\"rename-method\",\"class\":\"Demo\\\\Greeter\",\"from\":\"greet\",\"to\":\"salute\",\"scope\":[\"/app/src\"]}' | python3 '${MODULE_DIR}/langs/php/ops.py' render"
 
   assert_success
   assert_output --partial "RenameMethodRector::class"
@@ -327,17 +331,42 @@ _e2e_ready() {
   refute_output --partial "SetList"
 }
 
-@test "render-config: rename-class is not supported yet" {
+@test "ops.py render: rename-class is not supported yet" {
   # RenameClassRector rewrites references but not the class declaration, so a
   # class rename would emit broken code. Refuse rather than half-rename.
-  run bash -c "printf '%s' '{\"op\":\"rename-class\",\"from\":\"App\\\\Old\",\"to\":\"App\\\\New\"}' | python3 '${MODULE_DIR}/langs/php/render-config.py'"
+  run bash -c "printf '%s' '{\"op\":\"rename-class\",\"from\":\"App\\\\Old\",\"to\":\"App\\\\New\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render"
 
   assert_failure
   assert_output --partial "unsupported op"
 }
 
-@test "render-config: rejects an unsupported op" {
-  run bash -c "printf '%s' '{\"op\":\"rename-everything\",\"from\":\"a\",\"to\":\"b\"}' | python3 '${MODULE_DIR}/langs/php/render-config.py'"
+@test "ops.py render: rejects an unsupported op" {
+  run bash -c "printf '%s' '{\"op\":\"rename-everything\",\"from\":\"a\",\"to\":\"b\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render"
+
+  assert_failure
+  assert_output --partial "unsupported op"
+}
+
+@test "ops.py meta: declares the language, extension and current op set" {
+  run python3 "${MODULE_DIR}/langs/php/ops.py" meta
+
+  assert_success
+  assert_output --partial '"lang": "php"'
+  assert_output --partial '".php"'
+  assert_output --partial '"rename-method"'
+  assert_output --partial '"rename-static-method"'
+  assert_output --partial '"rename-property"'
+}
+
+@test "ops.py rule: resolves the rule class for an op" {
+  run python3 "${MODULE_DIR}/langs/php/ops.py" rule rename-property
+
+  assert_success
+  assert_output --partial "RenamePropertyRector"
+}
+
+@test "ops.py rule: rejects an unknown op" {
+  run python3 "${MODULE_DIR}/langs/php/ops.py" rule rename-everything
 
   assert_failure
   assert_output --partial "unsupported op"

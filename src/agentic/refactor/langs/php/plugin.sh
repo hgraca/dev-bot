@@ -25,7 +25,9 @@ REFACTOR_DIR="$(cd "${PLUGIN_DIR}/../.." && pwd)"
 # Overridable for tests, and to relocate the scratch install.
 STORAGE_DIR="${REFACTOR_STORAGE_DIR:-${REFACTOR_DIR}/../../../storage/refactor}"
 
-OPS='["rename-method","rename-static-method","rename-property"]'
+# The op table — including each op's rule class (`meta` and the `--only` value) —
+# lives in ops.py, the single source of truth shared with the config renderer.
+# Adding an op is one entry there, not edits across this file and the renderer.
 
 # ── Engine resolution ─────────────────────────────────────────────────────────
 
@@ -115,20 +117,9 @@ _resolve_engine() {
 
 # ── Container runner ──────────────────────────────────────────────────────────
 
-# The Rector rule class for an op.
-#
-# rename-static-method deliberately uses RenameMethodRector: it handles
-# StaticCall AND rewrites the declaration (Class_/Trait_/Interface_), whereas
-# RenameStaticMethodRector renames only the call sites and leaves the
-# declaration behind — a half-rename that produces broken code.
+# The Rector rule class for an op, read from the op table.
 _rule_for_op() {
-  case "$1" in
-    rename-method | rename-static-method)
-      echo 'Rector\Renaming\Rector\MethodCall\RenameMethodRector' ;;
-    rename-property)
-      echo 'Rector\Renaming\Rector\PropertyFetch\RenamePropertyRector' ;;
-    *) return 1 ;;
-  esac
+  python3 "${PLUGIN_DIR}/ops.py" rule "$1"
 }
 
 # Resolve the PHP container image.
@@ -207,7 +198,7 @@ PY
 # ── Subcommands ───────────────────────────────────────────────────────────────
 
 cmd_meta() {
-  printf '{"lang":"php","extensions":[".php"],"ops":%s}\n' "${OPS}"
+  python3 "${PLUGIN_DIR}/ops.py" meta
 }
 
 cmd_doctor() {
@@ -357,7 +348,7 @@ print(json.dumps(r))' <<<"${request}")"
   fi
   cfg="$(mktemp)"
 
-  if ! printf '%s' "${request}" | python3 "${PLUGIN_DIR}/render-config.py" > "${cfg}"; then
+  if ! printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" render > "${cfg}"; then
     rm -f "${cfg}"
     echo '{"ok":false,"error":"could not render the Rector config"}' >&2
     exit 1
