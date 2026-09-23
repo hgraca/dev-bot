@@ -20,6 +20,12 @@ nav_section: docs
 | [Codebase Memory](/tools/codebase-memory) | Structural code intelligence via tree-sitter graph     |
 | [Repomix](/tools/repomix)                 | Packs many files into a single compressed context dump |
 
+## Code Modification
+
+| Tool                        | Description                                           |
+| --------------------------- | ----------------------------------------------------- |
+| [Refactor](/tools/refactor) | Deterministic, agent-callable PHP renaming via Rector |
+
 ## Knowledge Vault
 
 | Tool                  | Description                                     |
