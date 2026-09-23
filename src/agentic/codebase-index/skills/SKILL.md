@@ -7,6 +7,12 @@ description: "Use when finding code by meaning rather than keywords. Triggers on
 
 Semantic code search powered by Ollama embeddings (`nomic-embed-text`). Provides 5 MCP tools for searching, peeking, and tracing code.
 
+> **Shared slot.** This skill declares the name `devbot:codebase-index` — the same
+> slot the `codebase-memory` module fills. The two engines are mutually exclusive:
+> `codebase_index_provider` selects one and disables the other, so exactly one is
+> wired, and every reference to `devbot:codebase-index` resolves to whichever
+> engine is active. The duplicated `name:` is deliberate, not a collision.
+
 ## When to Use
 
 | Situation                                               | Tool                           |

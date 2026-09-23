@@ -12,6 +12,12 @@ dev-bot runs it as a shared gateway container (`devbot up`) whose index lives on
 the `devbot-codebase-memory-store` named volume; the gateway serves the MCP tools
 for searching, tracing, and analysing the graph.
 
+> **Shared slot.** This skill declares the name `devbot:codebase-index` — the same
+> slot the `codebase-index` module fills. The two engines are mutually exclusive:
+> `codebase_index_provider` selects one and disables the other, so exactly one is
+> wired, and every reference to `devbot:codebase-index` resolves to whichever
+> engine is active. The duplicated `name:` is deliberate, not a collision.
+
 ## When to Use
 
 | Situation                                                    | Tool                                   |
