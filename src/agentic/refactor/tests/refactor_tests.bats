@@ -200,18 +200,91 @@ setup() {
 @test "php plugin: doctor reports an actionable error when no engine exists" {
   local empty_storage
   empty_storage="$(mktemp -d)"
-  export REFACTOR_STORAGE_DIR="${empty_storage}"
 
   run env REFACTOR_STORAGE_DIR="${empty_storage}" bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/bare"
   rm -r "${empty_storage}"
 
   assert_failure
-  assert_output --partial '"ok":false'
   assert_output --partial "no Rector engine found"
+  # Parse rather than match the raw text: json.dumps spacing must not matter.
+  printf '%s' "${output}" | python3 -c 'import json,sys; sys.exit(json.load(sys.stdin)["ok"] is not False)'
 }
 
 @test "php plugin: doctor rejects a missing project directory" {
   run bash "${PHP_PLUGIN}" doctor --project "/nonexistent/project"
   assert_failure
   assert_output --partial "project directory not found"
+}
+
+# ── PHP plugin: container runner (T6) ──────────────────────────────────────────
+
+@test "php plugin: doctor resolves the image from the project's compose file" {
+  local project
+  project="$(mktemp -d)"
+  mkdir -p "${project}/vendor/bin"
+  printf '#!/usr/bin/env bash\necho stub\n' > "${project}/vendor/bin/rector"
+  chmod +x "${project}/vendor/bin/rector"
+  printf '{"require":{"php":"^8.2"}}' > "${project}/composer.json"
+  printf 'services:\n  app:\n    image: gete/php-runtime:8.2\n' > "${project}/docker-compose.yml"
+
+  run bash "${PHP_PLUGIN}" doctor --project "${project}"
+  rm -r "${project}"
+
+  assert_success
+  assert_output --partial '"image": "gete/php-runtime:8.2"'
+}
+
+@test "php plugin: doctor falls back to php:<version>-cli without a compose file" {
+  run bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/with-rector"
+  assert_success
+  assert_output --partial '"image": "php:8.4-cli"'
+}
+
+@test "php plugin: --image overrides the resolved image" {
+  run bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/with-rector" --image custom/php:9.9
+  assert_success
+  assert_output --partial '"image": "custom/php:9.9"'
+}
+
+@test "php plugin: the runner argv mounts the project and pins the rule" {
+  run bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/with-rector" --command
+  assert_success
+  assert_output --partial "${PHP_FIXTURES}/with-rector:/app"
+  assert_output --partial '"--only"'
+  assert_output --partial "RenameMethodRector"
+  assert_output --partial '"--clear-cache"'
+  assert_output --partial '"--dry-run"'
+}
+
+@test "php plugin: the scratch engine is mounted at /refactor-engine" {
+  local scratch engine
+  scratch="$(mktemp -d)"
+  engine="${scratch}/rector/2.6.4"
+  mkdir -p "${engine}/vendor/bin"
+  printf '#!/usr/bin/env bash\necho stub\n' > "${engine}/vendor/bin/rector"
+  chmod +x "${engine}/vendor/bin/rector"
+  printf '{"packages-dev":[{"name":"rector/rector","version":"2.6.4"}]}' > "${engine}/composer.lock"
+
+  run env REFACTOR_STORAGE_DIR="${scratch}" bash "${PHP_PLUGIN}" doctor \
+    --project "${PHP_FIXTURES}/bare" --command
+  rm -r "${scratch}"
+
+  assert_success
+  assert_output --partial '"via": "scratch"'
+  assert_output --partial "/refactor-engine"
+}
+
+@test "php plugin: the resolved image runs php against the mounted project" {
+  command -v docker >/dev/null 2>&1 || skip "docker not installed"
+  docker info >/dev/null 2>&1 || skip "docker daemon not reachable"
+
+  local image
+  image="$(bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/with-rector" |
+    python3 -c 'import json,sys; print(json.load(sys.stdin)["image"])')"
+
+  run docker run --rm -v "${PHP_FIXTURES}/with-rector:/app" -w /app "${image}" \
+    php -r 'echo file_exists("composer.json") ? "mounted" : "missing";'
+
+  assert_success
+  assert_output --partial "mounted"
 }
