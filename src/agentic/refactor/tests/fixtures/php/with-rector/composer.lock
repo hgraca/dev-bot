@@ -1,0 +1,9 @@
+{
+  "packages": [],
+  "packages-dev": [
+    {
+      "name": "rector/rector",
+      "version": "2.6.4"
+    }
+  ]
+}

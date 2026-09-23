@@ -13,6 +13,8 @@ setup() {
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
   TOOL="${MODULE_DIR}/tools/refactor/refactor.mcp.sh"
   FIXTURE_LANGS="${TEST_DIR}/fixtures/langs"
+  PHP_PLUGIN="${MODULE_DIR}/langs/php/plugin.sh"
+  PHP_FIXTURES="${TEST_DIR}/fixtures/php"
 }
 
 # ── Skeleton ───────────────────────────────────────────────────────────────────
@@ -156,4 +158,60 @@ setup() {
   assert_failure
   assert_output --partial "unknown language 'php'"
   assert_output --partial "available: none"
+}
+
+# ── PHP plugin: engine resolution (T5) ─────────────────────────────────────────
+
+@test "php plugin: meta declares php, the .php extension and all renamer ops" {
+  run bash "${PHP_PLUGIN}" meta
+  assert_success
+  assert_output --partial '"lang":"php"'
+  assert_output --partial '".php"'
+  assert_output --partial '"rename-method"'
+  assert_output --partial '"rename-class"'
+  assert_output --partial '"rename-static-method"'
+  assert_output --partial '"rename-property"'
+}
+
+@test "php plugin: doctor prefers the project's own Rector" {
+  run bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/with-rector"
+  assert_success
+  assert_output --partial '"via": "project"'
+  assert_output --partial '"version": "2.6.4"'
+  assert_output --partial '"php_version": "8.4"'
+}
+
+@test "php plugin: doctor reads .php-version ahead of composer.json" {
+  local project
+  project="$(mktemp -d)"
+  mkdir -p "${project}/vendor/bin"
+  printf '8.5.1\n' > "${project}/.php-version"
+  printf '{"require":{"php":"^8.1"}}' > "${project}/composer.json"
+  printf '#!/usr/bin/env bash\necho stub\n' > "${project}/vendor/bin/rector"
+  chmod +x "${project}/vendor/bin/rector"
+
+  run bash "${PHP_PLUGIN}" doctor --project "${project}"
+  rm -r "${project}"
+
+  assert_success
+  assert_output --partial '"php_version": "8.5.1"'
+}
+
+@test "php plugin: doctor reports an actionable error when no engine exists" {
+  local empty_storage
+  empty_storage="$(mktemp -d)"
+  export REFACTOR_STORAGE_DIR="${empty_storage}"
+
+  run env REFACTOR_STORAGE_DIR="${empty_storage}" bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/bare"
+  rm -r "${empty_storage}"
+
+  assert_failure
+  assert_output --partial '"ok":false'
+  assert_output --partial "no Rector engine found"
+}
+
+@test "php plugin: doctor rejects a missing project directory" {
+  run bash "${PHP_PLUGIN}" doctor --project "/nonexistent/project"
+  assert_failure
+  assert_output --partial "project directory not found"
 }

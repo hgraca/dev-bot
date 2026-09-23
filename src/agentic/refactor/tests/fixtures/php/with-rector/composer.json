@@ -1,0 +1,6 @@
+{
+  "name": "fixture/with-rector",
+  "require": {
+    "php": "^8.4"
+  }
+}
