@@ -64,7 +64,7 @@ Check available MCPs — if useful for research (searching docs, finding similar
 Based on user interview, fill in these components:
 
 - **name**: Skill identifier. Must match parent directory name. Max 64 chars. Lowercase letters, numbers, and hyphens only. Must not start or end with hyphen. No consecutive hyphens.
-- **description**: When to trigger, what it does. Max 1024 chars. Primary triggering mechanism — include both what skill does AND specific contexts for when to use. All "when to use" info goes here, not in body. Note: agents tend to "undertrigger" skills. To combat this, make descriptions a bit "pushy". Instead of "How to build simple fast dashboard to display internal data.", write "How to build simple fast dashboard to display internal data. Use this skill whenever user mentions dashboards, data visualization, internal metrics, or wants to display any kind of company data, even if not explicitly asking for 'dashboard.'"
+- **description**: When to trigger — the trigger only, never a summary of the skill. Max 1024 chars. One imperative clause (`Load at session start in every project under <signal>.`, or `Use when <situation>.`), ideally ~72 chars but not enforced, followed by the literal trigger phrases that make it fire (which don't count toward the 72). All "when to use" info goes here, not in the body — see [Writing effective descriptions](#writing-effective-descriptions).
 - **compatibility**: Required tools, dependencies (optional, 1-500 chars, rarely needed)
 - **license**: License name or reference to bundled license file (optional)
 - **metadata**: Arbitrary key-value mapping (optional, e.g. author, version)
@@ -91,7 +91,7 @@ skill-name/
 | Field           | Required | Constraints                                                                                                          |
 | --------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
 | `name`          | Yes      | Max 64 chars. Lowercase, numbers, hyphens only. Must match parent dir name. No leading/trailing/consecutive hyphens. |
-| `description`   | Yes      | Max 1024 chars. Non-empty. Describes what skill does AND when to use it.                                             |
+| `description`   | Yes      | Max 1024 chars. Non-empty. The trigger only: one imperative clause plus literal trigger phrases.                     |
 | `license`       | No       | License name or reference to bundled license file.                                                                   |
 | `compatibility` | No       | Max 500 chars. Environment requirements (product, packages, network access).                                         |
 | `metadata`      | No       | Arbitrary key-value mapping.                                                                                         |
@@ -507,35 +507,52 @@ Important nuance: agents typically only consult skills for tasks requiring knowl
 
 ### Writing effective descriptions
 
-- **Use imperative phrasing**: "Use this skill when..." rather than "This skill does..."
-- **Focus on user intent, not implementation**: Describe what user is trying to achieve.
-- **Err on the side of being pushy**: Explicitly list contexts where skill applies, including cases where user doesn't name the domain directly.
-- **Keep it concise**: A few sentences to a short paragraph. Max 1024 chars.
+The description is the only part of a skill the agent sees before deciding to read it, so it carries
+the entire trigger. Write the trigger, and nothing else — the skill body already says what the skill
+does, and repeating it there makes the agent read the same thing twice.
 
-Follow this canonical pattern for every skill description:
+Two canonical forms, both opening with a verb:
 
 ```
-<What the skill does> (1 short sentence). Use this skill whenever <the user's intent,
-phrased in user terms, not implementation terms> — <specific trigger contexts and example
-phrasings> — even if they don't say "<domain keyword>" explicitly.
+Load at session start in every project under <project signal>.
 ```
 
-Worked example — before vs after:
+For a **preemptively-loaded** skill — one the agent should always have loaded rather than
+"discover". The signal is the project property that makes the skill relevant: `git`, PHP, Docker, a
+message bus.
 
-- **Before**: "Format JSON and JSONC files with consistent 2-space indentation via prettier."
-- **After**: "Format JSON and JSONC files with consistent 2-space indentation via prettier. Use this skill after writing or editing any .json or .jsonc file to keep formatting consistent."
+```
+Use when <the situation that calls for this skill>.
+```
 
-- **Before**: "React 18+ + Next.js + TypeScript development conventions. Use when building a React project."
-- **After**: "React 18+ + Next.js + TypeScript development conventions. Use this skill whenever building, scaffolding, or modifying any React project — covers scaffolding, routing, atomic component design, and data access patterns. Triggers on 'react', 'nextjs', 'create react app', 'react component', or when working in a React codebase — even if they only say 'Next.js'."
+For a **reactive** skill — one triggered by what the user is doing.
+
+Then append the trigger phrases that make it fire:
+
+```
+Use when splitting accumulated changes into atomic commits. Triggers on 'commit my changes',
+'split this up', 'make atomic commits', 'clean up before the PR'.
+```
 
 Rules that make the pattern work:
 
-- **Lead with "what", then "when"** — one sentence saying what the skill does, then "Use this skill whenever ..." carrying the trigger. Do not put the trigger phrase last as an afterthought.
-- **Use "Use this skill whenever"** (not bare "Use when") — the word "skill" anchors the invocation intent.
-- **List literal trigger phrases** — the actual words a user types, in quotes, e.g. "make a docs site", "commit my changes", "wrap up". These are the highest-signal tokens.
-- **Add "even if they don't say X"** — one explicit anti-miss clause naming the domain keyword the user might omit, so the skill fires on near-miss phrasing.
-- **End with coverage, not scope** — finish with "Use it for X, not just Y" or an "also use when" clause to widen the trigger rather than narrow it.
-- **Keep under 1024 chars** and avoid YAML-breaking characters — wrap the whole value in double quotes and use single quotes for any quoted example phrases inside.
+- **~72 characters for the imperative clause** — about one terminal line. This is an **ideal, not a
+  budget**: nothing enforces it, and a clear 80-character sentence beats a cryptic 60-character one.
+- **Trigger phrases don't count toward the 72** — the clause listing literal things a user might type
+  is additive. Append as many as are genuinely useful, and let the imperative clause stay short.
+- **Never describe what the skill does** — "Formats JSON and JSONC files with 2-space indentation" is
+  a summary of the body. State when to reach for the skill instead.
+- **Open with a verb** — `Load …` or `Use …`; not "This skill does …" and not a bare noun phrase.
+- **Keep the whole value under 1024 chars** and avoid YAML-breaking characters — wrap the value in
+  double quotes and use single quotes for any quoted example phrases inside.
+
+Worked example — before vs after:
+
+- **Before** (reactive): "Write commit messages in Conventional Commits format — 'type(scope) then description', plus bodies, footers, and breaking-change notation. Use when a commit message needs writing or reviewing, when the user asks about prefixes, types, scopes, 'how should I word this commit', 'what prefix do I use', or semantic versioning from commit messages."
+- **After** (reactive): "Use when writing or reviewing a commit message. Triggers on 'what type is this', 'scope', 'breaking change', 'how should I word this commit'."
+
+- **Before** (preemptive): "Generic software development craft — code-quality principles, tests-first discipline, and the commit protocol. Load this context skill at the start of any session that writes, changes, or commits code; it is the hub for generic craft, with PHP annexes under annexes/php/ read on demand."
+- **After** (preemptive): "Load at session start in every project where code is written or committed."
 
 ### Step 1: Generate trigger eval queries
 

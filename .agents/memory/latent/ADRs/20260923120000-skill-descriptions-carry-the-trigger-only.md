@@ -1,0 +1,9 @@
+---
+date: 2026-09-23
+keywords: ["skill-description", "skills", "create-skill", "trigger"]
+see: ["learnings/20260920000940-skill-description-400-byte-budget-is-enforced.md", "learnings/20260910185716-docs-skills-table-mirrors-skill-descriptions.md"]
+---
+
+## A skill description carries the trigger only, in up to three ordered pieces
+
+A `SKILL.md` frontmatter `description` states **when to reach for the skill — never what it does**. The body already says what it does, so a leading summary ("Formats JSON files with…") makes the agent read the same thing twice and is banned. The description is composed of up to three pieces, always in this order, any of which may be skipped per skill intent: (1) `Load at session start in every project under <project signal>.` — only for skills that are preemptively loaded rather than discovered (`git`, PHP, Docker, a message bus); (2) `Use when/for <the situation that calls for the skill>.`; (3) `Triggers on '<phrase>', '<phrase>'.` — literal things a user types. The imperative clause targets ~72 characters, but that is an **advisory ideal, not enforced** — nothing tests it, and a clear 80-character sentence beats a cryptic 60-character one. Literal trigger phrases are **excluded** from that count, so appending them never inflates the imperative: this is how the earlier "even if they don't say X" anti-miss clauses were replaced. The 400-byte budget test remains a runaway guard only (see `see`). Where several skills share one project signal, only the umbrella skill takes the `Load at` piece (e.g. `git-commits`), and the subject-specific ones use `Use when` + `Triggers on` so they stay distinguishable in the palette. All 68 first-party skills were retrofitted in one commit, and `devbot:create-skill` §"Writing effective descriptions" is the single source of truth for the convention.
