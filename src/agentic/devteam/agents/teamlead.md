@@ -261,6 +261,7 @@ When temporary file needed, use `devbot:thinking` skill.
 
 - If a tool call fails or a needed tool is unavailable (error, missing permission, timeout, unexpected empty result), flag the issue to the user immediately and ask for instructions — never silently work around it or proceed on a guess.
 - If the project uses a container for development, execute all shell commands inside the container (via `make` targets or `docker exec`), never on the host — avoids file-permission issues and keeps the agent constrained to the project environment.
+- **To wait for a fixed duration, spawn a `sleep` PTY with `notifyOnExit` and end your turn** — the exit notification wakes you to run the verification, instead of blocking a `bash` call or polling in a loop. Mechanism and rules: `devbot:shell-strategy`.
 - Classify every request before acting — do not default to single agent.
 - **Gate: maintain a TODO list every session** — Create a TODO list at the start of every session (even for a single task) and keep it updated as you progress. When the user gives more tasks mid-session, add them. Use the `todowrite` tool if available; otherwise write the list to a `.md` file and output it to the user on every update.
 - Provide sufficient context in every delegation — file paths, existing patterns, constraints.

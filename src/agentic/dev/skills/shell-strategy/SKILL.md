@@ -38,6 +38,16 @@ The distinction is **time, not command length**. A one-liner that runs for ten m
 - **`pty_spawn` execs the command directly, without a shell — wrap yourself in one when you need shell syntax.** `pty_spawn(command: "make", args: ["test", "</dev/null"])` hands `make` the literal argument `</dev/null`; the redirect never happens. Spawn a shell instead: `pty_spawn(command: "bash", args: ["-c", "make test </dev/null"])`.
 - **Wire stdin from `/dev/null` for commands that expect a non-interactive shell.** A PTY makes stdin a tty, so a command that branches on `[ -t 0 ]` or prompts blocks forever waiting for input that never comes. Redirecting _stdin_ is right; redirecting _stdout_ is what hides the run.
 
+## Waiting for a duration
+
+When something must be verified after a fixed delay — a deploy settling, a CI run finishing, a cache entry expiring — spawn a PTY running `sleep` and let its exit wake you:
+
+```text
+pty_spawn(command: "sleep", args: ["300"], notifyOnExit: true, title: "wait 5m")
+```
+
+Then end your turn. The `<pty_exited>` notification wakes you; run the verification then. Do not `pty_read`-poll the sleeping session, block a `bash` call with `sleep`, or loop on `timeout` — the notification is the signal. `sleep` is a binary, so the no-shell spawn rule above is satisfied without a wrapper. Kill the session with `pty_kill(id, cleanup: true)` once it has woken you.
+
 ## Gotchas
 
 - **Commit through bash, never a PTY.** The post-commit hooks (memory capture, graph indexing) are wired to the bash tool's after-hook — a commit run in a PTY silently skips them. `git commit` is quick, so bash is the right channel anyway.
