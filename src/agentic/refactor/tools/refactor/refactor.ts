@@ -8,7 +8,7 @@
  * JSON request on stdin and a JSON response on stdout. Adding a language means
  * adding a directory under `langs/` — this file never changes.
  *
- * See langs/README.md for the plugin contract.
+ * See docs/tools/refactor.md for the plugin contract.
  */
 
 import * as fs from "node:fs";
@@ -30,6 +30,7 @@ interface Args {
   to: string | null;
   apply: boolean;
   force: boolean;
+  image: string | null;
 }
 
 interface PluginMeta {
@@ -44,6 +45,7 @@ interface RefactorRequest {
   from: string;
   to: string;
   apply: boolean;
+  image: string | null;
 }
 
 interface PluginResponse {
@@ -59,8 +61,8 @@ interface PluginResponse {
 const USAGE = `refactor — deterministic, agent-callable refactoring
 
 Usage:
-  refactor --lang <lang> --op <rename-method|rename-class|rename-static-method|rename-property> \\
-           [--class <FQCN>] [--method <old> | --property <old>] \\
+  refactor --lang <lang> --op <rename-method|rename-static-method|rename-property> \\
+           --class <FQCN> [--method <old> | --property <old>] \\
            --to <new> [--apply] [--json] [--force]
 
 Options:
@@ -70,6 +72,7 @@ Options:
   --apply        write changes (default: dry-run plan only)
   --json         machine-readable output
   --force        proceed despite a dirty working tree
+  --image <ref>  container image to run the engine in (default: resolved per project)
   --help, -h     show this help
   --version      show version
 `;
@@ -87,6 +90,7 @@ function parse(argv: string[]): Args {
     to: null,
     apply: false,
     force: false,
+    image: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -97,6 +101,7 @@ function parse(argv: string[]): Args {
     else if (arg === "--version") a.version = true;
     else if (arg === "--apply") a.apply = true;
     else if (arg === "--force") a.force = true;
+    else if (arg === "--image") a.image = next();
     else if (arg === "--lang") a.lang = next();
     else if (arg === "--op") a.op = next();
     else if (arg === "--class") a.klass = next();
@@ -255,9 +260,15 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // The op-specific selector: a method/property name, or the class itself for a
-  // class rename. The core stays op-agnostic; the plugin interprets `from`.
-  const from = args.method ?? args.property ?? args.klass;
+  // Every shipped op targets a class; without it the generated config is invalid
+  // and Rector reports an opaque fatal error.
+  if (!args.klass) {
+    process.stderr.write(`ERROR: --class is required for op '${args.op}'\n`);
+    return 1;
+  }
+
+  // The op-specific selector: the method/property name to rename.
+  const from = args.method ?? args.property;
   if (!from) {
     process.stderr.write(
       "ERROR: one of --class, --method or --property is required\n",
@@ -271,6 +282,7 @@ async function main(): Promise<number> {
     from,
     to: args.to,
     apply: args.apply,
+    image: args.image,
   };
 
   if (args.apply && !args.force) {
@@ -307,13 +319,15 @@ async function main(): Promise<number> {
     return 1;
   }
 
+  // Warnings first: a failure's diagnostics matter more, not less, than a
+  // success's.
+  for (const warning of response.warnings ?? []) {
+    process.stderr.write(`WARN: ${warning}\n`);
+  }
+
   if (!response.ok) {
     process.stderr.write(`ERROR: ${response.error ?? "refactor failed"}\n`);
     return 1;
-  }
-
-  for (const warning of response.warnings ?? []) {
-    process.stderr.write(`WARN: ${warning}\n`);
   }
 
   process.stdout.write(render(response, args.format, args.op));

@@ -3,9 +3,10 @@
 # src/agentic/refactor/install.sh
 # Idempotent install for the refactor module.
 #
-# There is no OS package to install: the Rector phar is provisioned at runtime
-# by the tool itself (pinned version + sha256). Install only prepares the shared
-# phar cache directory and reports the runtime prerequisites (docker, bun).
+# There is no OS package to install: Rector is provisioned at runtime by the
+# plugin (a pinned scoped Composer install, or the project's own copy). Install
+# only prepares the shared engine cache directory and reports the runtime
+# prerequisites (docker, bun).
 # =============================================================================
 
 set -euo pipefail
@@ -16,14 +17,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/functions.sh"
 main() {
   _info "refactor"
 
-  # Shared, project-independent phar cache (keyed by Rector/PHP version at
-  # runtime). Lives under the dev-bot storage dir, which is gitignored.
-  local cache="${MODULE_DIR}/../../../storage/refactor/phars"
+  # Shared, project-independent engine cache. Lives under the dev-bot storage
+  # dir, which is gitignored.
+  local cache="${MODULE_DIR}/../../../storage/refactor/rector"
   if [[ -d "${cache}" ]]; then
-    _skip "phar cache (${cache})"
+    _skip "engine cache (${cache})"
   else
     mkdir -p "${cache}"
-    _ok "phar cache created (${cache})"
+    _ok "engine cache created (${cache})"
   fi
 
   if command -v docker >/dev/null 2>&1; then

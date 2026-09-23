@@ -152,6 +152,7 @@ Located at `src/agentic/<name>/`. Each provides agent skills, tools, hooks, agen
 | playwright          | —   | —   | —   | —   | —   | ✓   | Browser automation via Playwright MCP — drive real browser sessions for E2E testing                                                                                                                                                                                                      |
 | qmd                 | 1   | 1   | —   | —   | —   | —   | BM25 keyword search over markdown vaults (used only through the memory module — no models/embeddings) — interchangeable with mdctx via memory_search_provider                                                                                                                            |
 | react               | 1   | —   | —   | —   | —   | ✓   | React 18+ and Next.js development conventions + next-devtools MCP                                                                                                                                                                                                                        |
+| refactor            | 1   | 1   | —   | —   | —   | —   | Deterministic, agent-callable PHP refactoring — rename a method, static method or property and every genuine reference, via Rector in a container                                                                                                                                        |
 | repomix             | —   | —   | —   | —   | —   | —   | Directory packing into single structured file for full-context analysis                                                                                                                                                                                                                  |
 | security            | 1   | —   | —   | —   | —   | —   | Security auditing: STRIDE threat modelling, OWASP Top 10, PHP vulnerability assessment                                                                                                                                                                                                   |
 | self-improvement    | 13  | —   | 1   | —   | —   | —   | Meta-optimization: create-skill/agent/module, create-opencode/claudecode hook/tool, make-retrospective, improve-planning/reviewer/implementation, optimize-instructions                                                                                                                  |
@@ -165,7 +166,7 @@ Located at `src/agentic/<name>/`. Each provides agent skills, tools, hooks, agen
 
 Tool modules (`src/tools/`) ship commands too: `devbot-cli` provides `devbot:audit` and `devbot:audit-fix`.
 
-**Module count**: 36 modules.
+**Module count**: 37 modules.
 
 ---
 

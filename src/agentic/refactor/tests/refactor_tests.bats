@@ -111,7 +111,7 @@ setup() {
   git -C "${repo}" init -q
 
   run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --method old --to new --apply --json"
-  rm -r "${repo}"
+  rm -rf "${repo}"
 
   assert_success
   assert_output --partial '"applied": true'
@@ -159,7 +159,7 @@ setup() {
   export REFACTOR_LANGS_DIR="${empty}"
 
   run bash "${TOOL}" --lang php --op rename-method --class X --method a --to b
-  rm -r "${empty}"
+  rm -rf "${empty}"
 
   assert_failure
   assert_output --partial "unknown language 'php'"
@@ -196,7 +196,7 @@ setup() {
   chmod +x "${project}/vendor/bin/rector"
 
   run bash "${PHP_PLUGIN}" doctor --project "${project}"
-  rm -r "${project}"
+  rm -rf "${project}"
 
   assert_success
   assert_output --partial '"php_version": "8.5.1"'
@@ -207,7 +207,7 @@ setup() {
   empty_storage="$(mktemp -d)"
 
   run env REFACTOR_STORAGE_DIR="${empty_storage}" bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/bare"
-  rm -r "${empty_storage}"
+  rm -rf "${empty_storage}"
 
   assert_failure
   assert_output --partial "no Rector engine found"
@@ -233,7 +233,7 @@ setup() {
   printf 'services:\n  app:\n    image: gete/php-runtime:8.2\n' > "${project}/docker-compose.yml"
 
   run bash "${PHP_PLUGIN}" doctor --project "${project}"
-  rm -r "${project}"
+  rm -rf "${project}"
 
   assert_success
   assert_output --partial '"image": "gete/php-runtime:8.2"'
@@ -272,7 +272,7 @@ setup() {
 
   run env REFACTOR_STORAGE_DIR="${scratch}" bash "${PHP_PLUGIN}" doctor \
     --project "${PHP_FIXTURES}/bare" --command
-  rm -r "${scratch}"
+  rm -rf "${scratch}"
 
   assert_success
   assert_output --partial '"via": "scratch"'
@@ -355,7 +355,7 @@ _e2e_ready() {
 
   local leaked
   leaked="$({ grep -rho salute "${work}/src" || true; } | wc -l | tr -d ' ')"
-  rm -r "${work}"
+  rm -rf "${work}"
 
   assert_success
   assert_output --partial '"ok": true'
@@ -377,7 +377,7 @@ _e2e_ready() {
   local decl call
   decl="$(grep -c 'function salute' "${work}/src/Greeter.php" || true)"
   call="$(grep -c '\->salute(' "${work}/src/UseGreeter.php" || true)"
-  rm -r "${work}"
+  rm -rf "${work}"
 
   assert_success
   assert_output --partial '"ok": true'
@@ -401,7 +401,7 @@ _e2e_ready() {
   decl="$(grep -c 'function build' "${work}/src/Widget.php" || true)"
   leftover="$(grep -c 'function make' "${work}/src/Widget.php" || true)"
   call="$(grep -c 'Widget::build()' "${work}/src/UsesWidget.php" || true)"
-  rm -r "${work}"
+  rm -rf "${work}"
 
   assert_success
   assert_output --partial '"ok": true'
@@ -424,7 +424,7 @@ _e2e_ready() {
   local decl access
   decl="$(grep -c '\$caption' "${work}/src/Widget.php" || true)"
   access="$(grep -c '\->caption' "${work}/src/UsesWidget.php" || true)"
-  rm -r "${work}"
+  rm -rf "${work}"
 
   assert_success
   assert_output --partial '"ok": true'
@@ -456,7 +456,7 @@ _make_repo() {
   _make_repo "${repo}" dirty
 
   run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --method a --to b --apply"
-  rm -r "${repo}"
+  rm -rf "${repo}"
 
   assert_failure
   assert_output --partial "working tree is dirty"
@@ -471,7 +471,7 @@ _make_repo() {
   _make_repo "${repo}" dirty
 
   run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --method a --to b --apply --force"
-  rm -r "${repo}"
+  rm -rf "${repo}"
 
   assert_success
 }
@@ -485,7 +485,72 @@ _make_repo() {
   _make_repo "${repo}" dirty
 
   run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --method a --to b"
-  rm -r "${repo}"
+  rm -rf "${repo}"
 
   assert_success
+}
+
+@test "end-to-end: the tool itself renames through the real php plugin" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  # The full user path: core (registry, guard, mapping) -> php plugin -> Rector.
+  # The other end-to-end tests call the plugin directly; this one does not.
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  git -C "${work}" init -q
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang php --op rename-method --class 'Demo\\Greeter' --method greet --to salute --apply"
+
+  local decl call
+  decl="$(grep -c 'function salute' "${work}/src/Greeter.php" || true)"
+  call="$(grep -c '\->salute(' "${work}/src/UseGreeter.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "## refactor: rename-method"
+  assert_output --partial "Renamed greet -> salute"
+  [ "${decl}" = "1" ]
+  [ "${call}" = "1" ]
+}
+
+@test "end-to-end: files outside app/ and src/ are never rewritten" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  # Regression guard: Rector is scoped to app/ and src/ precisely so it never
+  # descends into vendor/, which it does not exclude by default and would
+  # otherwise rewrite. The decoy carries a same-named method. It is created here
+  # rather than committed because the repo gitignores vendor/.
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  mkdir -p "${work}/vendor/acme"
+  cat > "${work}/vendor/acme/Decoy.php" <<'PHP'
+<?php
+
+declare(strict_types=1);
+
+namespace Acme;
+
+final class Decoy
+{
+    public function greet(): string
+    {
+        return 'decoy';
+    }
+}
+PHP
+
+  _req rename-method 'Demo\Greeter' greet salute > "${work}/request.json"
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local decoy decl
+  decoy="$(grep -c 'function greet' "${work}/vendor/acme/Decoy.php" || true)"
+  decl="$(grep -c 'function salute' "${work}/src/Greeter.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  # The dependency keeps its name; the in-scope declaration moved.
+  [ "${decoy}" = "1" ]
+  [ "${decl}" = "1" ]
 }

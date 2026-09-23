@@ -171,7 +171,6 @@ PY
 # nothing else in the run can change code.
 _build_argv() {
   local via="$1" project="$2" image="$3" config="$4" dry="$5" op="$6"
-  shift 6
   local rule
   rule="$(_rule_for_op "${op}")"
 
@@ -182,23 +181,25 @@ _build_argv() {
   fi
 
   python3 - "${project}" "${image}" "${engine_host}" "${engine_in_container}" \
-    "${config}" "${dry}" "${rule}" "$@" <<'PY'
+    "${config}" "${dry}" "${rule}" <<'PY'
 import json, sys
-project, image, engine_host, engine_in_container, config, dry, rule, *paths = sys.argv[1:]
+project, image, engine_host, engine_in_container, config, dry, rule = sys.argv[1:]
 
+# A dry run must not be able to write, so the project is mounted read-only then;
+# Rector's cache lives in the container, not the project.
+mount_suffix = "" if dry == "false" else ":ro"
 argv = ["docker", "run", "--rm",
-        "-v", f"{project}:/app",
+        "-v", f"{project}:/app{mount_suffix}",
         "-v", f"{config}:/refactor/rector.php:ro"]
 if engine_in_container != "/app":
     argv += ["-v", f"{engine_host}:{engine_in_container}"]
 argv += ["-w", "/app", image,
          "php", f"{engine_in_container}/vendor/bin/rector", "process",
          "--config", "/refactor/rector.php",
-         "--only", rule.replace("\\\\", "\\"),
+         "--only", rule,
          "--clear-cache", "--no-progress-bar", "--output-format=json"]
 if dry == "true":
     argv.append("--dry-run")
-argv += paths
 print(json.dumps(argv))
 PY
 }
@@ -299,16 +300,17 @@ cmd_provision() {
 #   $1    = plan (dry-run) | apply
 #   stdin = the request JSON
 cmd_run() {
-  local mode="$1" request op klass from to
+  local mode="$1" request op klass from to req_image
   request="$(cat)"
 
   # Split on the ASCII unit separator, not a tab: tab counts as IFS whitespace,
   # so bash would collapse the empty `class` field rename-class legitimately has.
-  IFS=$'\x1f' read -r op klass from to < <(printf '%s' "${request}" | python3 -c '
+  IFS=$'\x1f' read -r op klass from to req_image < <(printf '%s' "${request}" | python3 -c '
 import json, sys
 r = json.load(sys.stdin)
 print("\x1f".join([str(r.get("op") or ""), str(r.get("class") or ""),
-                   str(r.get("from") or ""), str(r.get("to") or "")]))')
+                   str(r.get("from") or ""), str(r.get("to") or ""),
+                   str(r.get("image") or "")]))')
 
   if [[ -z "${op}" || -z "${from}" || -z "${to}" ]]; then
     echo '{"ok":false,"error":"op, from and to are required"}' >&2
@@ -316,6 +318,27 @@ print("\x1f".join([str(r.get("op") or ""), str(r.get("class") or ""),
   fi
 
   local project="${REFACTOR_PROJECT:-${PWD}}"
+
+  # Scope Rector to the project's source roots. `app/` (Laravel) and `src/`
+  # (library) are mutually exclusive, so at most one exists. Scoping at the mount
+  # root instead would descend into vendor/ — which Rector does not exclude by
+  # default, and would happily rewrite.
+  local -a roots=()
+  local d
+  for d in app src; do
+    [[ -d "${project}/${d}" ]] && roots+=("/app/${d}")
+  done
+  if [[ ${#roots[@]} -eq 0 ]]; then
+    echo '{"ok":false,"error":"no source root found — expected app/ or src/ at the project root"}' >&2
+    exit 1
+  fi
+  local scope_json
+  scope_json="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${roots[@]}")"
+  request="$(SCOPE="${scope_json}" python3 -c '
+import json, os, sys
+r = json.load(sys.stdin)
+r["scope"] = json.loads(os.environ["SCOPE"])
+print(json.dumps(r))' <<<"${request}")"
 
   local engine
   if ! engine="$(_resolve_engine "${project}")"; then
@@ -326,7 +349,12 @@ print("\x1f".join([str(r.get("op") or ""), str(r.get("class") or ""),
   IFS=$'\t' read -r via _path version <<<"${engine}"
 
   local image cfg
-  image="$(_resolve_image "${project}" "${REFACTOR_PHP_IMAGE:-}")"
+  image="$(_resolve_image "${project}" "${req_image}")"
+  # A malformed ref would go straight to docker as an argument.
+  if [[ -z "${image}" || "${image}" =~ [[:space:]] ]]; then
+    echo "ERROR: invalid container image reference '${image}'" >&2
+    exit 1
+  fi
   cfg="$(mktemp)"
 
   if ! printf '%s' "${request}" | python3 "${PLUGIN_DIR}/render-config.py" > "${cfg}"; then
@@ -377,6 +405,17 @@ except Exception as exc:
     print(json.dumps({"ok": False, "error": "unparseable Rector output: %s" % exc, "warnings": warnings}))
     raise SystemExit
 
+# Rector reports config failures as stdout {"fatal_errors":[...]} with exit 1.
+# Without this the agent sees only "exited 1 with 0 error(s)", which says nothing.
+fatal = data.get("fatal_errors") or []
+if fatal:
+    print(json.dumps({
+        "ok": False,
+        "error": "Rector could not build its config: %s" % "; ".join(str(f) for f in fatal),
+        "warnings": warnings,
+    }))
+    raise SystemExit
+
 totals = data.get("totals") or {}
 errors = totals.get("errors") or 0
 files = data.get("changed_files") or []
@@ -384,16 +423,19 @@ files = data.get("changed_files") or []
 # Rector exits 2 when --dry-run finds changes to make (0 = nothing to do,
 # 1 = error). A plan that found changes is a success, not a failure.
 changes_pending = int(rc) == 2 and mode == "plan"
+ok = errors == 0 and (int(rc) == 0 or changes_pending)
 result = {
-    "ok": errors == 0 and (int(rc) == 0 or changes_pending),
+    "ok": ok,
     "engine": "rector %s (%s)" % (version, via),
     "applied": mode == "apply",
     "summary": "%s %s -> %s in %d file(s)" % (
         "Renamed" if mode == "apply" else "Would rename", old, new, len(files)),
     "files": files,
-    "warnings": warnings,
+    # On success Rector's stderr is noise (docker pull progress, notices) that
+    # says nothing the agent can act on. On failure it is the diagnosis.
+    "warnings": [] if ok else warnings,
 }
-if not result["ok"]:
+if not ok:
     result["error"] = "rector exited %s with %d error(s)" % (rc, errors)
 print(json.dumps(result))
 PY
