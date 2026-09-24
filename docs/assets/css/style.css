@@ -285,7 +285,7 @@ img { max-width: 100%; height: auto; }
 
 /* ── Hero ──────────────────────────────────────────────────────────── */
 .hero {
-  padding: 6rem 0 5rem;
+  padding: 4rem 0 4rem;
   text-align: center;
   background: linear-gradient(180deg, var(--hero-gradient-start), var(--hero-gradient-end));
 }
@@ -318,7 +318,7 @@ img { max-width: 100%; height: auto; }
   font-size: clamp(1rem, 2vw, 1.2rem);
   color: var(--text-muted);
   max-width: 600px;
-  margin: 0 auto 2.5rem;
+  margin: 0 auto 1.5rem;
   line-height: 1.6;
 }
 
@@ -335,6 +335,35 @@ img { max-width: 100%; height: auto; }
   font-size: .9rem;
   color: var(--code-text);
   overflow-x: auto;
+}
+
+/* "Why DevBot?" sits inside the hero, just above the install block, so it
+   needs its own width and left alignment against the hero's centering. */
+.hero-why {
+  max-width: 780px;
+  margin: 0 auto 2.5rem;
+  text-align: left;
+}
+.hero-why h2 {
+  font-size: clamp(1.35rem, 2.5vw, 1.75rem);
+  font-weight: 650;
+  letter-spacing: -.01em;
+  text-align: center;
+  margin-bottom: .5rem;
+}
+.hero-why-lead {
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+/* Tighter than the section variant, which has more vertical room to fill. */
+.hero-why .highlight-list li { padding: .5rem 0; }
+/* The install command must not scroll out of sight on a narrow screen. */
+@media (max-width: 640px) {
+  .hero-install .hero-install-cmd-text {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .hero-install .prompt {

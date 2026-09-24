@@ -13,6 +13,36 @@ title: DevBot
       Install once, use in every project.<br>
       Use with OpenCode or ClaudeCode.<br>
     </p>
+    <div class="hero-why">
+      <h2>Why DevBot?</h2>
+      <p class="hero-why-lead">If any of these sound like your setup, DevBot was built for it.</p>
+      <ul class="highlight-list highlight-list-scenarios">
+        <li>
+          <span class="check" aria-hidden="true">&#x2192;</span>
+          <span>You work in several projects, each should have their own memory and also a shared global memory</span>
+        </li>
+        <li>
+          <span class="check" aria-hidden="true">&#x2192;</span>
+          <span>You work in a team and you want to share and build your projects knowledge bases (memories) together</span>
+        </li>
+        <li>
+          <span class="check" aria-hidden="true">&#x2192;</span>
+          <span>You work in a team where members are using different harnesses but you want everyone's agents working in the same way, with similar outputs and outcomes</span>
+        </li>
+        <li>
+          <span class="check" aria-hidden="true">&#x2192;</span>
+          <span>You want your agents to have all skills they need to develop projects following industry best practices</span>
+        </li>
+        <li>
+          <span class="check" aria-hidden="true">&#x2192;</span>
+          <span>You want a set of curated MCPs for your agents to use</span>
+        </li>
+        <li>
+          <span class="check" aria-hidden="true">&#x2192;</span>
+          <span>You work with several harness instances open but don't want to duplicate MCP servers with each instance</span>
+        </li>
+      </ul>
+    </div>
     <div class="hero-install">
       <button type="button" class="hero-install-cmd" id="hero-install-cmd"
               data-install-org="{{ site.install_org | default: 'GET-E' }}"
@@ -36,41 +66,6 @@ title: DevBot
         View on GitHub
       </a>
     </div>
-  </div>
-</section>
-
-<section class="section section-alt" style="border-top: 1px solid var(--border-subtle);">
-  <div class="container">
-    <div class="section-header">
-      <h2>Why DevBot?</h2>
-      <p>If any of these sound like your setup, DevBot was built for it.</p>
-    </div>
-    <ul class="highlight-list highlight-list-scenarios">
-      <li>
-        <span class="check">&#x2192;</span>
-        <span>You work in several projects, each should have their own memory and also a shared global memory</span>
-      </li>
-      <li>
-        <span class="check">&#x2192;</span>
-        <span>You work in a team and you want to share and build your projects knowledge bases (memories) together</span>
-      </li>
-      <li>
-        <span class="check">&#x2192;</span>
-        <span>You work in a team where members are using different harnesses but you want everyone's agents working in the same way, with similar outputs and outcomes</span>
-      </li>
-      <li>
-        <span class="check">&#x2192;</span>
-        <span>You want your agents to have all skills they need to develop projects following industry best practices</span>
-      </li>
-      <li>
-        <span class="check">&#x2192;</span>
-        <span>You want a set of curated MCPs for your agents to use</span>
-      </li>
-      <li>
-        <span class="check">&#x2192;</span>
-        <span>You work with several harness instances open but don't want to duplicate MCP servers with each instance</span>
-      </li>
-    </ul>
   </div>
 </section>
 
