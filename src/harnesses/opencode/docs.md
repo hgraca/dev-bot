@@ -76,6 +76,12 @@ A dist-backed config is **seed-once**: `init.sh` writes it only when the file is
 
 `opencode-pty` is a **hard dependency** — its HTTP API is the only window onto PTY sessions. Its server binds a random port and publishes it only by posting a message into the session; dev-bot reads the port from `/proc` instead (its own listening sockets), and when the server isn't running yet it starts it inside a throwaway session and deletes it — so the URL message never litters your transcript. Off Linux there is no `/proc`, so that bootstrap is what resolves it.
 
+#### Tool-details default
+
+`src/harnesses/opencode/tui-defaults/` seeds dev-bot's opinion that **tool details start hidden**. "Hide tool details" is TUI runtime state — the `tool_details_visibility` boolean in opencode's kv store — not a config key, so no dist template can set it and a fresh install opens with details shown. The plugin writes the value at startup through the same reactive kv store opencode's own toggle uses.
+
+The seed fires **only while the key is absent**: a value already in kv is an explicit choice and is never overridden, and the key being present makes every later start a no-op. Toggling the setting in the TUI is therefore the opt-out — an install or update never undoes it.
+
 ## Configuration
 
 `opencode.jsonc` and `.opencode/tui.json` are written once from the harness templates (`opencode.dist.jsonc`, `tui.dist.jsonc`), then treated as user-owned — this is why an `lsp` override survives `devbot reinit`. Config is read once at startup: restart opencode after editing.
