@@ -92,6 +92,7 @@ inclusive; a missing column reads to the end of the line.
 | `remove-argument`       | `--file`, `--from`, `--index`         | signature |
 | `move-module`           | `--file`, `--to` (a folder)           | move      |
 | `remove-unused-imports` | `--file`                              | cleanup   |
+| `privatise`             | `--file`, `--from`                    | cleanup   |
 
 ## Cleanup ops
 

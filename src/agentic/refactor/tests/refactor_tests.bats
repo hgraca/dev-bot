@@ -1360,7 +1360,7 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "py", m
 assert m["extensions"] == [".py"], m
-assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline", "encapsulate-field", "add-argument", "remove-argument", "move-module", "remove-unused-imports"], m
+assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline", "encapsulate-field", "add-argument", "remove-argument", "move-module", "remove-unused-imports", "privatise"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["extract-method"] == ["file", "start", "end", "to"], m
 assert m["requires"]["inline"] == ["from"], m
@@ -1369,6 +1369,7 @@ assert m["requires"]["add-argument"] == ["file", "from", "to", "index"], m
 assert m["requires"]["remove-argument"] == ["file", "from", "index"], m
 assert m["requires"]["move-module"] == ["file", "to"], m
 assert m["requires"]["remove-unused-imports"] == ["file"], m
+assert m["requires"]["privatise"] == ["file", "from"], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["extract-method"] == "extract", m
 assert m["risks"]["inline"] == "inline", m
@@ -1377,6 +1378,7 @@ assert m["risks"]["add-argument"] == "signature", m
 assert m["risks"]["remove-argument"] == "signature", m
 assert m["risks"]["move-module"] == "move", m
 assert m["risks"]["remove-unused-imports"] == "cleanup", m
+assert m["risks"]["privatise"] == "cleanup", m
 '
 }
 
@@ -1723,4 +1725,46 @@ JSON
   # `sys` is used; `os` and `OrderedDict` are not.
   [ "${kept}" = "1" ]
   [ "${dropped}" = "0" ]
+}
+
+@test "end-to-end (py): privatise prefixes a module-internal name" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/privatise-demo/." "${work}/"
+  printf '{"op":"privatise","file":"src/util.py","from":"helper"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local def call
+  def="$(grep -c 'def _helper()' "${work}/src/util.py" || true)"
+  call="$(grep -c 'return _helper()' "${work}/src/util.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  [ "${def}" = "1" ]
+  [ "${call}" = "1" ]
+}
+
+@test "end-to-end (py): privatise refuses a name used outside its module" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/privatise-exposed-demo/." "${work}/"
+  printf '{"op":"privatise","file":"src/util.py","from":"helper"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local unchanged
+  unchanged="$(grep -c 'def helper()' "${work}/src/util.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'main.py'
+  # Refused, so the definition is untouched.
+  [ "${unchanged}" = "1" ]
 }

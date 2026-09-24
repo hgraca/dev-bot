@@ -99,6 +99,7 @@ to the end of the line.
 | `remove-argument`       | `--file`, `--from`, `--index`         | signature |
 | `move-module`           | `--file`, `--to` (a folder)           | move      |
 | `remove-unused-imports` | `--file`                              | cleanup   |
+| `privatise`             | `--file`, `--from`                    | cleanup   |
 
 As for PHP, a Python rename reports quoted occurrences of the old name as
 `string_references` (rope cannot rewrite a name held in a string), and an apply

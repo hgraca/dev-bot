@@ -314,6 +314,33 @@ def _remove_unused_imports(project, request):
     return changes
 
 
+def _privatise(project, request, Rename):
+    name = request.get("from") or ""
+    if not name:
+        fail("from is required")
+    if name.startswith("_"):
+        fail("'%s' is already private" % name)
+
+    target, offset, _line = _definitions(request, name)
+    resource = project.get_file(os.path.relpath(target, PROJECT_DIR))
+    changes = Rename(project, resource, offset).get_changes("_" + name)
+
+    # The rename's own change set is the project-wide reference set: if it reaches
+    # another file, the name is used outside its module and must stay public.
+    module = os.path.relpath(target, PROJECT_DIR)
+    outside = sorted(
+        path
+        for path in changed_paths(changes, PROJECT_DIR)
+        if path != module
+    )
+    if outside:
+        fail(
+            "'%s' is used outside its module — cannot privatise:\n%s"
+            % (name, "\n".join("  " + path for path in outside))
+        )
+    return changes
+
+
 def _extract(project, request, extractor):
     name_to = request.get("to") or ""
     if not name_to:
@@ -367,6 +394,10 @@ def build_changes(project, request):
         return _move_module(project, request, MoveModule)
     if op == "remove-unused-imports":
         return _remove_unused_imports(project, request)
+    if op == "privatise":
+        from rope.refactor.rename import Rename
+
+        return _privatise(project, request, Rename)
     fail("py plugin: unsupported op: %s" % op)
 
 
@@ -408,6 +439,9 @@ def summarize(op, request, files, apply):
     if op == "remove-unused-imports":
         verb = "Removed unused imports" if apply else "Would remove unused imports"
         return "%s in %d file(s)" % (verb, len(files))
+    if op == "privatise":
+        verb = "Privatised" if apply else "Would privatise"
+        return "%s %s in %d file(s)" % (verb, old, len(files))
     verb = "Extracted" if apply else "Would extract"
     return "%s %s in %d file(s)" % (verb, new, len(files))
 
