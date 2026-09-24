@@ -1,6 +1,6 @@
 ---
 name: devbot:refactor
-description: "Use when renaming a PHP method, static method or property across a codebase and updating every call site, or when asking what to refactor. Triggers on 'rename this method', 'rename everywhere', 'what should I refactor'."
+description: "Use when renaming a PHP or TypeScript symbol across a codebase and updating every call site, or when asking what to refactor. Triggers on 'rename this method', 'rename everywhere', 'what should I refactor'."
 ---
 
 # Refactor
@@ -51,7 +51,23 @@ devbot-tools_refactor --lang php --op <op> \
 | `move-class`            | a class's namespace + its file (name kept)   | `RenameClassRector`           |
 | `rename-constant`       | a global constant: declaration + uses        | `RenameConstantRector`        |
 
-### Cleanup ops
+### Languages
+
+`--lang` selects the plugin. The core knows **no op names** — it discovers
+`langs/<lang>/plugin.sh` and validates against whatever that plugin declares — so
+adding a language is additive.
+
+| lang  | ops                                                  | engine                        |
+| ----- | ---------------------------------------------------- | ----------------------------- |
+| `php` | the ops above                                        | Rector, in a PHP container    |
+| `ts`  | `rename-symbol` (`--from`/`--to`, optional `--file`) | ts-morph, in a Node container |
+
+The TypeScript plugin needs a one-time `bash langs/ts/plugin.sh provision`
+(npm installs ts-morph into the shared scratch dir); `doctor` reports whether it
+is present. ts-morph resolves the symbol through the TypeScript compiler, so one
+run renames the declaration and every reference — no per-rule steps.
+
+## Cleanup ops
 
 These take no `--from`/`--to`: they run across the whole scope and change
 whatever they find. **Read the plan before applying** — they are not targeted at

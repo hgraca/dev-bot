@@ -60,6 +60,22 @@ tool derive it from the declaration under `app/` or `src/`; it errors rather
 than guesses when the declaration is missing or ambiguous. **Constants** are
 matched by bare name instead, so they need no namespace.
 
+## Languages
+
+`--lang` selects the plugin. The core knows no op names: it discovers
+`langs/<lang>/plugin.sh`, reads that plugin's `meta`, and validates against it —
+which is what makes a new language additive.
+
+| Lang  | Ops             | Engine                        |
+| ----- | --------------- | ----------------------------- |
+| `php` | the ops above   | Rector, in a PHP container    |
+| `ts`  | `rename-symbol` | ts-morph, in a Node container |
+
+Run `bash langs/ts/plugin.sh provision` once to install the TypeScript engine into
+the shared scratch dir; `doctor` reports whether it is there. ts-morph drives the
+TypeScript compiler, so a single run renames the declaration and every reference —
+and, unlike the PHP plugin, it needs no per-rule steps.
+
 ## Engine policy
 
 Two sources of Rector, in order:

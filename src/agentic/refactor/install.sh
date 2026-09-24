@@ -17,15 +17,19 @@ source "$(dirname "${BASH_SOURCE[0]}")/functions.sh"
 main() {
   _info "refactor"
 
-  # Shared, project-independent engine cache. Lives under the dev-bot storage
-  # dir, which is gitignored.
-  local cache="${MODULE_DIR}/../../../storage/refactor/rector"
-  if [[ -d "${cache}" ]]; then
-    _skip "engine cache (${cache})"
-  else
-    mkdir -p "${cache}"
-    _ok "engine cache created (${cache})"
-  fi
+  # Shared, project-independent engine caches. Live under the dev-bot storage
+  # dir, which is gitignored. The engines themselves are provisioned on demand
+  # (each language plugin's `provision`), not at install time.
+  local cache
+  for cache in "${MODULE_DIR}/../../../storage/refactor/rector" \
+    "${MODULE_DIR}/../../../storage/refactor/ts"; do
+    if [[ -d "${cache}" ]]; then
+      _skip "engine cache (${cache})"
+    else
+      mkdir -p "${cache}"
+      _ok "engine cache created (${cache})"
+    fi
+  done
 
   if command -v docker >/dev/null 2>&1; then
     _ok "docker found ($(docker --version 2>/dev/null | head -1 || echo installed))"

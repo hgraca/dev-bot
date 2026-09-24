@@ -15,6 +15,15 @@ setup() {
   FIXTURE_LANGS="${TEST_DIR}/fixtures/langs"
   PHP_PLUGIN="${MODULE_DIR}/langs/php/plugin.sh"
   PHP_FIXTURES="${TEST_DIR}/fixtures/php"
+  TS_PLUGIN="${MODULE_DIR}/langs/ts/plugin.sh"
+  TS_FIXTURES="${TEST_DIR}/fixtures/ts"
+}
+
+# True when the TypeScript plugin can run for real.
+_ts_e2e_ready() {
+  command -v docker >/dev/null 2>&1 || return 1
+  docker info >/dev/null 2>&1 || return 1
+  bash "${TS_PLUGIN}" doctor --project "${TS_FIXTURES}/rename-demo" >/dev/null 2>&1
 }
 
 # ── Skeleton ───────────────────────────────────────────────────────────────────
@@ -1152,4 +1161,55 @@ assert set(m["risks"].values()) <= {"rename", "cleanup", "signature"}, m
   assert_success
   [ "${gone}" = "0" ]
   [ "${kept}" = "1" ]
+}
+
+# ── L1: the TypeScript plugin ──────────────────────────────────────────────────
+
+@test "ts plugin: meta declares the language, extensions and its op" {
+  run bash "${TS_PLUGIN}" meta
+  assert_success
+
+  printf '%s' "${output}" | python3 -c '
+import json, sys
+m = json.load(sys.stdin)
+assert m["lang"] == "ts", m
+assert ".ts" in m["extensions"], m
+assert m["ops"] == ["rename-symbol"], m
+assert m["requires"]["rename-symbol"] == ["from", "to"], m
+assert m["risks"]["rename-symbol"] == "rename", m
+'
+}
+
+@test "core: a second language needs no core change" {
+  command -v bun >/dev/null 2>&1 || skip "bun not installed"
+
+  # The core knows no op names: it validates against whatever the plugin declares,
+  # which is what makes `langs/<lang>/` additive.
+  run bash "${TOOL}" --lang ts --op rename-symbol --from greet
+
+  assert_failure
+  assert_output --partial "requires --to"
+}
+
+@test "end-to-end (ts): rename-symbol renames the declaration and the reference" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op rename-symbol --from greet --to salute --apply"
+
+  local decl call stale
+  decl="$(grep -c 'salute(name: string)' "${work}/src/Greeter.ts" || true)"
+  call="$(grep -c '\.salute(' "${work}/src/UseGreeter.ts" || true)"
+  stale="$(grep -c 'greet' "${work}/src/Greeter.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  # ts-morph resolves the symbol through the TypeScript compiler, so the
+  # declaration and the cross-file reference both move.
+  [ "${decl}" = "1" ]
+  [ "${call}" = "1" ]
+  [ "${stale}" = "0" ]
 }
