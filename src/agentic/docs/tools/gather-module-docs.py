@@ -306,18 +306,17 @@ def aggregate_tables(root, inventory):
     events = {}
 
     for entry in inventory:
+        # A module without a docs.md gets no page and no reference anywhere on
+        # the site — the aggregates included.
+        if not entry["documented"]:
+            continue
         area, name, details = entry["area"], entry["name"], entry["details"]
         link = module_link(area, name, entry["documented"])
         purposes = entry["mcp_purposes"]
-        # One capability set feeds every generated view: a documented module's
-        # declared manifest, otherwise what its files reveal. Deriving here too
-        # is what keeps the index, the page Contents and these tables in step.
-        if entry["documented"]:
-            capabilities = entry["declared"]
-        else:
-            capabilities = {
-                key: sorted(details[key]) for key in CAPABILITY_KEYS if details[key]
-            }
+        # One capability set feeds every generated view: the module's declared
+        # manifest. Deriving here too is what keeps the index, the page
+        # Contents and these tables in step.
+        capabilities = entry["declared"]
 
         for agent in capabilities.get("agents", []):
             row = [f"`{agent}`", link, cell(details["agents"].get(agent, ""))]

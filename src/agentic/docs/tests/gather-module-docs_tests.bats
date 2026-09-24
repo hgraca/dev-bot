@@ -289,3 +289,19 @@ EOF
   grep -qF 'reads a \| b' "${OUT}/modules/index.md"
   grep -qF 'handles x \| y' "${OUT}/modules/agentic/alpha.md"
 }
+
+@test "an undocumented module is absent from the aggregates too" {
+  mkdir -p "${FIXTURE}/src/agentic/beta/skills/beta-skill"
+  cat >"${FIXTURE}/src/agentic/beta/skills/beta-skill/SKILL.md" <<'EOF'
+---
+name: devbot:beta-skill
+description: "Beta skill"
+---
+EOF
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -eq 0 ]
+  ! grep -q 'beta' "${OUT}/skills.md"
+  ! grep -q 'beta' "${OUT}/module-reference.md"
+  ! grep -q 'beta' "${OUT}/_data/modules.yml"
+  ! grep -q 'beta' "${OUT}/modules/index.md"
+}
