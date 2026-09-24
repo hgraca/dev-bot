@@ -30,12 +30,16 @@ def fail(message):
 
 
 def definition_offsets(text, name):
-    """Offset of every definition of `name` in `text`."""
+    """Offset of every definition of `name` in `text`.
+
+    `def`/`class` may be indented (methods); a bare assignment must not be, or a
+    function-local `name = ...` would count as a module-level definition.
+    """
     escaped = re.escape(name)
     offsets = []
     for pattern in (
         r"(?:^|\n)\s*(?:async\s+)?(?:def|class)\s*(" + escaped + r")\b",
-        r"(?:^|\n)\s*(" + escaped + r")\s*=",
+        r"(?:^|\n)(" + escaped + r")\s*=",
     ):
         offsets.extend(match.start(1) for match in re.finditer(pattern, text))
     return sorted(set(offsets))
