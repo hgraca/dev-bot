@@ -135,6 +135,7 @@ def render_index(modules):
         'title: "Modules"',
         'description: "Every documented DevBot module."',
         "nav_section: docs",
+        "nav_modules: true",
         "---",
     ])
     return f"{front}\n\n{GENERATED_NOTE}\n\n" + "\n".join(rows)

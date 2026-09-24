@@ -150,6 +150,15 @@ img { max-width: 100%; height: auto; }
   border-radius: 0;
 }
 .nav-dropdown-menu a:hover { background: var(--bg-subtle); }
+/* Modules menu carries one entry per module — cap its height and scroll. */
+.nav-dropdown-menu--scroll { max-height: 70vh; overflow-y: auto; }
+.nav-dropdown-heading {
+  padding: .5rem 1rem .25rem;
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--text-dim);
+}
 
 /* Mobile toggle */
 .nav-toggle {

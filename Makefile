@@ -7,7 +7,7 @@ EXEC_SHELL=/bin/bash
 # Declare all non-file targets as phony so a same-named file or directory in the
 # repo root never shadows them (e.g. a stray `test` dir would otherwise make
 # `make test` silently report "up to date" and run nothing).
-.PHONY: help install update uninstall up down restart test logs docs app
+.PHONY: help install update uninstall up down restart test logs docs docs-gather app
 # SECONDEXPANSION is needed to be able to resolve `psr4: .docker-wrap-$$@` to `psr4: .docker-wrap-psr4`
 .SECONDEXPANSION:
 
@@ -182,5 +182,8 @@ logs:
 	tail -f "$$(ls -t ~/.local/share/opencode/log/*.log | head -1)" -n 100
 
 
-docs:
+docs: docs-gather
 	cd docs && bundle install && bundle exec jekyll serve
+
+docs-gather:
+	src/agentic/docs/tools/gather-module-docs.sh

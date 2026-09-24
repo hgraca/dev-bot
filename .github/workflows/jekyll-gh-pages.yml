@@ -35,6 +35,10 @@ jobs:
         id: pages
         uses: actions/configure-pages@v5
 
+      - name: Gather module docs
+        # Build the per-module pages / index / nav data from src/<area>/<module>/docs.md.
+        run: src/agentic/docs/tools/gather-module-docs.sh
+
       - name: Build with Jekyll
         run: |
           printf 'url: "%s"\n' "${{ steps.pages.outputs.origin }}" > /tmp/pages-url.yml
