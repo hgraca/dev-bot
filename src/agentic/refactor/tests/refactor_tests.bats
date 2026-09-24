@@ -1426,3 +1426,45 @@ assert all(h["text"] == "greet" for h in hits), hits
   # Nothing the rename could reach is left: the verification pass is silent.
   refute_output --partial "remaining_changes"
 }
+
+@test "py plugin: rename.py finds every definition of a name, not just the first" {
+  local probe
+  probe="$(mktemp)"
+  cat > "${probe}" <<PY
+import sys
+sys.path.insert(0, "${MODULE_DIR}/langs/py")
+import rename
+
+text = "def greet():\n    pass\n\ndef greet():\n    pass\n"
+found = rename.definition_offsets(text, "greet")
+assert found == [4, 27], found
+PY
+  run python3 "${probe}"
+  rm -f "${probe}"
+
+  assert_success
+}
+
+@test "end-to-end (py): an ambiguous name is refused, naming the candidates" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/ambiguous-demo/." "${work}/"
+  printf '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local a b
+  a="$(grep -c 'def greet' "${work}/src/a.py" || true)"
+  b="$(grep -c 'def greet' "${work}/src/b.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'a.py'
+  assert_output --partial 'b.py'
+  # Refused, so neither definition was rewritten.
+  [ "${a}" = "1" ]
+  [ "${b}" = "1" ]
+}

@@ -17,7 +17,6 @@ import re
 import sys
 
 PROJECT_DIR = os.environ.get("REFACTOR_PROJECT_DIR", "/app")
-SOURCE_ROOTS = ("src", "app", ".")
 
 
 def fail(message):
@@ -25,28 +24,30 @@ def fail(message):
     sys.exit(1)
 
 
-def definition_offset(text, name):
-    """Offset of a definition of `name`, or None."""
+def definition_offsets(text, name):
+    """Offset of every definition of `name` in `text`."""
     escaped = re.escape(name)
+    offsets = []
     for pattern in (
-        r"(?:^|\n)\s*(?:async\s+)?(?:def|class)\s+(" + escaped + r")\b",
+        r"(?:^|\n)\s*(?:async\s+)?(?:def|class)\s*(" + escaped + r")\b",
         r"(?:^|\n)\s*(" + escaped + r")\s*=",
     ):
-        match = re.search(pattern, text)
-        if match:
-            return match.start(1)
-    return None
+        offsets.extend(match.start(1) for match in re.finditer(pattern, text))
+    return sorted(set(offsets))
 
 
 def candidate_files(project_dir, file):
     if file:
         return [os.path.join(project_dir, file)]
 
+    # `app/` (Laravel) and `src/` (library) are alternatives; walking `.` as
+    # well would find every definition under them a second time.
+    roots = [
+        name for name in ("src", "app") if os.path.isdir(os.path.join(project_dir, name))
+    ]
     found = []
-    for root in SOURCE_ROOTS:
+    for root in roots or ["."]:
         base = os.path.join(project_dir, root)
-        if not os.path.isdir(base):
-            continue
         for dirpath, _dirs, names in os.walk(base):
             for name in sorted(names):
                 if name.endswith(".py"):
@@ -79,19 +80,32 @@ def main():
     except ImportError as error:
         fail("rope is not available: %s (run: plugin.sh provision)" % error)
 
-    target = None
+    # Every definition of the name, across the candidate files. Several matches
+    # are ambiguous — renaming an arbitrary one silently would edit the wrong
+    # symbol, so the caller is told to pick with --file instead.
+    candidates = []
     for path in candidate_files(PROJECT_DIR, file):
         try:
             with open(path, encoding="utf-8", errors="replace") as handle:
                 text = handle.read()
         except OSError:
             continue
-        if definition_offset(text, name_from) is not None:
-            target = path
-            break
+        for offset in definition_offsets(text, name_from):
+            candidates.append((path, offset, text.count("\n", 0, offset) + 1))
 
-    if target is None:
+    if not candidates:
         fail("no definition of '%s' found" % name_from)
+    if len(candidates) > 1:
+        listing = "\n".join(
+            "  %s:%d" % (os.path.relpath(path, PROJECT_DIR), line)
+            for path, _offset, line in candidates
+        )
+        fail(
+            "'%s' is defined in %d places — pass --file to pick one:\n%s"
+            % (name_from, len(candidates), listing)
+        )
+
+    target, offset, _line = candidates[0]
 
     # ropefolder=None: rope otherwise writes a .ropeproject/ directory into the
     # caller's project. That pollutes the tree, and since the driver runs in a
@@ -99,8 +113,6 @@ def main():
     project = Project(PROJECT_DIR, ropefolder=None)
     try:
         resource = project.get_file(os.path.relpath(target, PROJECT_DIR))
-        with open(target, encoding="utf-8", errors="replace") as handle:
-            offset = definition_offset(handle.read(), name_from)
 
         changes = Rename(project, resource, offset).get_changes(name_to)
         files = changed_paths(changes, PROJECT_DIR)
