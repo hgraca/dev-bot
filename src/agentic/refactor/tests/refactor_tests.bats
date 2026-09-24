@@ -1871,3 +1871,110 @@ JSON
   # Refused, so the definition is untouched.
   [ "${unchanged}" = "1" ]
 }
+
+@test "end-to-end (py): move-module refuses a destination that does not exist" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/move-demo/." "${work}/"
+  printf '{"op":"move-module","file":"pkg/helpers.py","to":"pkg/nope"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local intact
+  intact="$(test -f "${work}/pkg/helpers.py" && echo 1 || echo 0)"
+  rm -rf "${work}" "${req}"
+
+  [ "${status}" -ne 0 ]
+  assert_output --partial 'no such destination folder'
+  # Refused, so the module was not deleted.
+  [ "${intact}" = "1" ]
+}
+
+@test "end-to-end (py): encapsulate-field refuses a field shared by two classes" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/field-ambiguous-demo/." "${work}/"
+  printf '{"op":"encapsulate-field","file":"src/two.py","from":"value"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local unchanged
+  unchanged="$(grep -c 'self.value = 0' "${work}/src/two.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  [ "${status}" -ne 0 ]
+  assert_output --partial '2 classes'
+  [ "${unchanged}" = "1" ]
+}
+
+@test "end-to-end (py): encapsulate-field tolerates a parameter shadowing the field" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/field-shadow-demo/." "${work}/"
+  printf '{"op":"encapsulate-field","file":"src/counter.py","from":"value"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local getter
+  getter="$(grep -c 'def get_value' "${work}/src/counter.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  [ "${getter}" = "1" ]
+}
+
+@test "end-to-end (py): a rename ignores a function-local with the same name" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/local-shadow-demo/." "${work}/"
+  printf '{"op":"rename-symbol","file":"src/mod.py","from":"greet","to":"salute"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local def local_var
+  def="$(grep -c 'def salute()' "${work}/src/mod.py" || true)"
+  local_var="$(grep -c 'greet = 5' "${work}/src/mod.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  # The module-level function renamed; the function-local binding did not.
+  [ "${def}" = "1" ]
+  [ "${local_var}" = "1" ]
+}
+
+@test "plugin seam: the core forwards --start/--end/--index/--default" {
+  export REFACTOR_LANGS_DIR="${FIXTURE_LANGS}"
+  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --from a --to b --start 2:3 --end 9 --index 4 --default 'z' --json"
+
+  assert_success
+  assert_output --partial '"start": "2:3"'
+  assert_output --partial '"end": "9"'
+  assert_output --partial '"index": "4"'
+  assert_output --partial '"default": "z"'
+}
+
+@test "plugin seam: an extract op drives through the core to the py plugin" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PY_FIXTURES}/extract-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && REFACTOR_LANGS_DIR='${MODULE_DIR}/langs' bash '${TOOL}' --lang py --op extract-method --file src/calc.py --start 2 --end 3 --to compute --json"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"ok": true'
+}
