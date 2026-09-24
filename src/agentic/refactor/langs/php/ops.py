@@ -138,6 +138,59 @@ OPS = {
         "shape": "rules",
         "requires": [],
     },
+    "privatize-final-class-methods": {
+        "rule": "Rector\\Privatization\\Rector\\ClassMethod\\PrivatizeFinalClassMethodRector",
+        "shape": "rules",
+        "requires": [],
+    },
+    "privatize-final-class-constants": {
+        "rule": "Rector\\Privatization\\Rector\\ClassConst\\PrivatizeFinalClassConstantRector",
+        "shape": "rules",
+        "requires": [],
+    },
+    "remove-unused-private-class-constants": {
+        "rule": "Rector\\DeadCode\\Rector\\ClassConst\\RemoveUnusedPrivateClassConstantRector",
+        "shape": "rules",
+        "requires": [],
+    },
+    # These two are classified `signature` below: dropping a constructor parameter
+    # changes the callable, not just what is inside it.
+    "remove-unused-constructor-params": {
+        "rule": "Rector\\DeadCode\\Rector\\ClassMethod\\RemoveUnusedConstructorParamRector",
+        "shape": "rules",
+        "requires": [],
+    },
+    "remove-unused-promoted-properties": {
+        "rule": "Rector\\DeadCode\\Rector\\ClassMethod\\RemoveUnusedPromotedPropertyRector",
+        "shape": "rules",
+        "requires": [],
+    },
+}
+
+# How much care an op needs. The tool never runs the caller's tests, so this is
+# the signal an agent uses to judge how much its own suite must back the change.
+#   rename    — behaviour preserving; the symbol keeps its role
+#   cleanup   — deletes dead code or tightens visibility; safe for correct code
+#   signature — changes a callable's signature or a type; can break callers
+RISKS = {
+    "rename-method": "rename",
+    "rename-static-method": "rename",
+    "rename-property": "rename",
+    "rename-annotation": "rename",
+    "rename-function": "rename",
+    "rename-constant": "rename",
+    "rename-class": "rename",
+    "rename-class-constant": "rename",
+    "rename-string": "rename",
+    "move-class": "rename",
+    "remove-unused-private-methods": "cleanup",
+    "remove-unused-private-properties": "cleanup",
+    "remove-unused-private-class-constants": "cleanup",
+    "privatize-final-class-properties": "cleanup",
+    "privatize-final-class-methods": "cleanup",
+    "privatize-final-class-constants": "cleanup",
+    "remove-unused-constructor-params": "signature",
+    "remove-unused-promoted-properties": "signature",
 }
 
 LANG = "php"
@@ -429,6 +482,7 @@ def main(argv: list) -> int:
             "extensions": EXTENSIONS,
             "ops": list(OPS),
             "requires": {op: spec.get("requires", []) for op, spec in OPS.items()},
+            "risks": {op: RISKS.get(op, "cleanup") for op in OPS},
         }))
         return 0
 

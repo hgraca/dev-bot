@@ -1107,3 +1107,49 @@ assert m["requires"]["remove-unused-private-methods"] == [], m
   [ "${fetch}" = "1" ]
   [ "${stale}" = "0" ]
 }
+
+# ── C1: the risk class ─────────────────────────────────────────────────────────
+
+@test "ops.py meta: every op declares a risk class" {
+  run python3 "${MODULE_DIR}/langs/php/ops.py" meta
+  assert_success
+
+  printf '%s' "${output}" | python3 -c '
+import json, sys
+m = json.load(sys.stdin)
+assert set(m["risks"]) == set(m["ops"]), "every op needs a risk"
+assert m["risks"]["rename-method"] == "rename", m
+assert m["risks"]["privatize-final-class-constants"] == "cleanup", m
+# Dropping a constructor parameter changes the callable, not just its body.
+assert m["risks"]["remove-unused-constructor-params"] == "signature", m
+assert set(m["risks"].values()) <= {"rename", "cleanup", "signature"}, m
+'
+}
+
+@test "ops.py render: a signature-risk op still uses withRules" {
+  run bash -c "printf '%s' '{\"op\":\"remove-unused-constructor-params\",\"scope\":[\"/app/src\"],\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render 0"
+
+  assert_success
+  assert_output --partial "withRules("
+  assert_output --partial "RemoveUnusedConstructorParamRector::class"
+}
+
+@test "end-to-end: remove-unused-private-class-constants deletes only the unused one" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"remove-unused-private-class-constants","scope":["/app/src"]}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local gone kept
+  gone="$(grep -c 'UNUSED_CONST' "${work}/src/CleanupTarget.php" || true)"
+  kept="$(grep -c 'PROMOTABLE_CONST' "${work}/src/CleanupTarget.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${gone}" = "0" ]
+  [ "${kept}" = "1" ]
+}

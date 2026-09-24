@@ -36,11 +36,16 @@ devbot-tools_refactor --lang php --op <op> \
 No `--from`/`--to`: these run across the whole scope and change whatever they
 find, so **read the plan before applying**.
 
-| Op                                 | What it does                                       |
-| ---------------------------------- | -------------------------------------------------- |
-| `remove-unused-private-methods`    | deletes private methods nothing calls              |
-| `remove-unused-private-properties` | deletes private properties nothing reads           |
-| `privatize-final-class-properties` | tightens `protected` to `private` on final classes |
+| Op                                      | What it does                                       |
+| --------------------------------------- | -------------------------------------------------- |
+| `remove-unused-private-methods`         | deletes private methods nothing calls              |
+| `remove-unused-private-properties`      | deletes private properties nothing reads           |
+| `privatize-final-class-methods`         | tightens visibility on final-class methods         |
+| `privatize-final-class-constants`       | tightens visibility on final-class constants       |
+| `remove-unused-private-class-constants` | deletes class constants nothing reads              |
+| `remove-unused-constructor-params`      | deletes constructor parameters nothing uses        |
+| `remove-unused-promoted-properties`     | deletes promoted properties nothing reads          |
+| `privatize-final-class-properties`      | tightens `protected` to `private` on final classes |
 
 `rename-class` also **moves the file** to match the class name. `move-class`
 takes both names fully qualified (`--from Demo\Widget --to Demo\Frontend\Widget`)
@@ -74,6 +79,17 @@ PHPUnit, Carbon, PHP upgrade) and running them would rewrite unrelated code.
 Instead the tool renders a config holding **exactly one rule**, and pins it with
 `--only`. The run also passes `--clear-cache`, because PHPStan's per-file result
 cache can otherwise let a warm cache mask drift.
+
+## Risk class
+
+`meta` reports a `risks` entry per op, because the tool never runs your tests and
+how much your suite must back the change depends on the op:
+
+| Class       | Meaning                                                          |
+| ----------- | ---------------------------------------------------------------- |
+| `rename`    | behaviour preserving — the symbol keeps its role                 |
+| `cleanup`   | deletes dead code or tightens visibility; safe for correct code  |
+| `signature` | changes a callable's signature or a type — **can break callers** |
 
 ## Container
 

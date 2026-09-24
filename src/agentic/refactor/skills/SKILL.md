@@ -57,11 +57,16 @@ These take no `--from`/`--to`: they run across the whole scope and change
 whatever they find. **Read the plan before applying** — they are not targeted at
 one symbol.
 
-| op                                 | what it does                                       | Rector rule                         |
-| ---------------------------------- | -------------------------------------------------- | ----------------------------------- |
-| `remove-unused-private-methods`    | deletes private methods nothing calls              | `RemoveUnusedPrivateMethodRector`   |
-| `remove-unused-private-properties` | deletes private properties nothing reads           | `RemoveUnusedPrivatePropertyRector` |
-| `privatize-final-class-properties` | tightens `protected` to `private` on final classes | `PrivatizeFinalClassPropertyRector` |
+| op                                      | what it does                                                | Rector rule                              |
+| --------------------------------------- | ----------------------------------------------------------- | ---------------------------------------- |
+| `remove-unused-private-methods`         | deletes private methods nothing calls                       | `RemoveUnusedPrivateMethodRector`        |
+| `remove-unused-private-properties`      | deletes private properties nothing reads                    | `RemoveUnusedPrivatePropertyRector`      |
+| `privatize-final-class-methods`         | tightens `public`/`protected` to `private` on final classes | `PrivatizeFinalClassMethodRector`        |
+| `privatize-final-class-constants`       | tightens `protected` to `private` on final classes          | `PrivatizeFinalClassConstantRector`      |
+| `remove-unused-private-class-constants` | deletes class constants nothing reads                       | `RemoveUnusedPrivateClassConstantRector` |
+| `remove-unused-constructor-params`      | deletes constructor parameters nothing uses                 | `RemoveUnusedConstructorParamRector`     |
+| `remove-unused-promoted-properties`     | deletes promoted properties nothing reads                   | `RemoveUnusedPromotedPropertyRector`     |
+| `privatize-final-class-properties`      | tightens `protected` to `private` on final classes          | `PrivatizeFinalClassPropertyRector`      |
 
 `rename-class` additionally **moves the file** (`Widget.php` → `Gadget.php`):
 Rector rewrites the declaration and the references but moves no files, and a

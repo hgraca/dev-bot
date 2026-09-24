@@ -6,6 +6,10 @@ namespace Demo;
 
 final class CleanupTarget
 {
+    protected const PROMOTABLE_CONST = 'p';
+
+    private const UNUSED_CONST = 'unused';
+
     protected string $promotable = 'x';
 
     private string $unusedProperty = 'y';
