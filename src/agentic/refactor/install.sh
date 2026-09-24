@@ -22,7 +22,8 @@ main() {
   # (each language plugin's `provision`), not at install time.
   local cache
   for cache in "${MODULE_DIR}/../../../storage/refactor/rector" \
-    "${MODULE_DIR}/../../../storage/refactor/ts"; do
+    "${MODULE_DIR}/../../../storage/refactor/ts" \
+    "${MODULE_DIR}/../../../storage/refactor/py"; do
     if [[ -d "${cache}" ]]; then
       _skip "engine cache (${cache})"
     else
@@ -34,7 +35,7 @@ main() {
   if command -v docker >/dev/null 2>&1; then
     _ok "docker found ($(docker --version 2>/dev/null | head -1 || echo installed))"
   else
-    _warn "docker not found — the refactor tool needs it at runtime (PHP container runner)"
+    _warn "docker not found — the refactor tool needs it at runtime (container runner)"
   fi
 
   _ok "refactor installed"
