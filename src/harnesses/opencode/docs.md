@@ -74,7 +74,7 @@ A dist-backed config is **seed-once**: `init.sh` writes it only when the file is
 
 `src/harnesses/opencode/pty-monitor/` is dev-bot's own TUI plugin: it lists `opencode-pty` sessions in the sidebar (collapsible, with a bullet tinted green while running, red on a non-zero exit, muted otherwise) and opens a session's live output in a dialog on click.
 
-`opencode-pty` is a **hard dependency** — its HTTP API is the only window onto PTY sessions. Its server binds a random port and publishes it only by posting a message into the session; dev-bot reads the port from `/proc` instead (its own listening sockets), and when the server isn't running yet it starts it inside a throwaway session and deletes it — so the URL message never litters your transcript. Off Linux there is no `/proc`, so that bootstrap is what resolves it.
+`opencode-pty` is a **hard dependency** — its HTTP API is the only window onto PTY sessions. Its server binds a random port and publishes it only by posting a message into the session; dev-bot reads the port from `/proc` instead (its own listening sockets). Starting the server is **never a side effect of load**: opencode awaits every TUI plugin factory before the TUI is usable, and a start goes through one of opencode-pty's commands, which runs server initialisation and needs a throwaway session. So loading resolves an already-running server by discovery alone, and a start happens only when asked — expanding the panel (collapsed by default) or running `/pty-monitor` starts it inside a throwaway session that is then deleted, so the URL message never litters your transcript. Off Linux there is no `/proc`, so that bootstrap is what resolves the origin.
 
 #### Tool-details default
 

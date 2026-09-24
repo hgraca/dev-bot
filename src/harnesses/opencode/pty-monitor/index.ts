@@ -616,6 +616,10 @@ const tui = async (api) => {
       const next = !collapsed()
       setCollapsed(next)
       api.kv.set(KV_COLLAPSED, next)
+      // Expanding is the user asking to see the sessions, so it is the lazy
+      // trigger for starting the server. The panel defaults to collapsed, which
+      // is what keeps a start off the load path.
+      if (!next) refresh(true).catch(() => {})
     })
     return el
   }
