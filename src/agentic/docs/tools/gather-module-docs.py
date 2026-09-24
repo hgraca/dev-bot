@@ -92,9 +92,7 @@ def bare_name(name):
     return name.split(":", 1)[1] if ":" in name else name
 
 
-def read_scalar(path, key):
-    """Read one scalar from front matter or a `#`-comment header; else None."""
-    pattern = re.compile(r"^#?\s*" + re.escape(key) + r":\s*(.*)$")
+def _read_key(path, pattern):
     try:
         with path.open(encoding="utf-8") as handle:
             for _ in range(25):
@@ -107,6 +105,20 @@ def read_scalar(path, key):
     except OSError:
         pass
     return None
+
+
+def read_scalar(path, key):
+    """Read one scalar from a file's front matter; None when absent."""
+    return _read_key(path, re.compile(r"^" + re.escape(key) + r":\s*(.*)$"))
+
+
+def read_comment_scalar(path, key):
+    """Read one scalar from a `# <key>: …` comment header; None when absent.
+
+    Tool scripts carry their purpose in a comment, so requiring the `#` keeps a
+    code line such as `description: z.string(),` from being mistaken for it.
+    """
+    return _read_key(path, re.compile(r"^#\s*" + re.escape(key) + r":\s*(.*)$"))
 
 
 def read_json(path):
@@ -155,12 +167,12 @@ def capability_details(root, area, name, meta):
             if entry.name.startswith((".", "__")):
                 continue  # caches and editor droppings are not tools
             if entry.is_file():
-                details["tools"][entry.name.split(".")[0]] = read_scalar(entry, "description") or ""
+                details["tools"][entry.name.split(".")[0]] = read_comment_scalar(entry, "description") or ""
             elif entry.is_dir():
                 wrappers = sorted(entry.glob("*.mcp.sh"))
                 if wrappers:
                     name = wrappers[0].name[: -len(".mcp.sh")]
-                    details["tools"][name] = read_scalar(wrappers[0], "description") or ""
+                    details["tools"][name] = read_comment_scalar(wrappers[0], "description") or ""
                 elif any(entry.glob("*.sh")) or any(entry.glob("*.py")) or any(entry.glob("*.ts")):
                     details["tools"][entry.name] = ""
                 # else: a data-only directory (the generator's templates/) is not a tool
@@ -243,7 +255,7 @@ def mcp_tool_entries(root, area, name):
     if not tools_dir.is_dir():
         return []
     return [
-        (path.name[: -len(".mcp.sh")], read_scalar(path, "description") or "")
+        (path.name[: -len(".mcp.sh")], read_comment_scalar(path, "description") or "")
         for path in sorted(tools_dir.rglob("*.mcp.sh"))
     ]
 

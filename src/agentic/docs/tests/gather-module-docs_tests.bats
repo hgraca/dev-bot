@@ -305,3 +305,27 @@ EOF
   ! grep -q 'beta' "${OUT}/_data/modules.yml"
   ! grep -q 'beta' "${OUT}/modules/index.md"
 }
+
+@test "a non-comment description in a tool file is not used as its purpose" {
+  mkdir -p "${FIXTURE}/src/tools/gamma/tools"
+  cat >"${FIXTURE}/src/tools/gamma/tools/thing.ts" <<'EOF'
+const schema = z.object({
+  description: z.string(),
+});
+EOF
+  cat >"${FIXTURE}/src/tools/gamma/docs.md" <<'EOF'
+---
+description: Does gamma things.
+tools: [thing]
+---
+
+Gamma lede.
+
+## Configuration
+
+None.
+EOF
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -eq 0 ]
+  ! grep -q 'z.string' "${OUT}/modules/tools/gamma.md"
+}
