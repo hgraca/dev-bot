@@ -99,8 +99,7 @@ Options:
   --namespace <ns>  symbol's namespace, for ops on free functions/constants
                     (derived from the declaration when omitted)
   --file <path>  source file declaring the symbol, to pick among duplicates
-  --kind <kind>  declaration kind to pick (class|interface|function|type|enum|
-                 variable|method|property)
+  --kind <kind>  declaration kind to pick, for plugins that distinguish kinds
   --start <line[:col]>  first line (optionally column) of a range, for extract ops
   --end <line[:col]>    last line (optionally column) of a range, for extract ops
   --index <n>    parameter position (1-based), for signature ops

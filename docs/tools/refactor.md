@@ -17,7 +17,7 @@ Dry run by default. `--apply` is the only thing that writes.
 ```
 devbot-tools_refactor --lang <lang> --op <op> \
   [--class <FQCN>] [--from <old> | --method <old> | --property <old>] [--namespace <ns>] \
-  [--file <path>] [--start <line[:col]>] [--end <line[:col]>] \
+  [--file <path>] [--kind <kind>] [--start <line[:col]>] [--end <line[:col]>] \
   [--index <n>] [--default <expr>] \
   --to <new> [--apply] [--json] [--force]
 ```
@@ -79,7 +79,10 @@ which is what makes a new language additive.
 Run `bash langs/ts/plugin.sh provision` once to install the TypeScript engine into
 the shared scratch dir; `doctor` reports whether it is there. ts-morph drives the
 TypeScript compiler, so a single run renames the declaration and every reference —
-and, unlike the PHP plugin, it needs no per-rule steps.
+and, unlike the PHP plugin, it needs no per-rule steps. `rename-symbol` refuses a
+name declared in several places rather than guessing: pass `--file` to pick a file,
+or `--kind` (`class`, `interface`, `function`, `type`, `enum`, `variable`,
+`method`, `property`) to pick a declaration kind.
 
 ### Python ops
 

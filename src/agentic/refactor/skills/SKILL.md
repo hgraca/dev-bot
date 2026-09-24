@@ -64,16 +64,18 @@ devbot-tools_refactor --lang <lang> --op <op> \
 `langs/<lang>/plugin.sh` and validates against whatever that plugin declares — so
 adding a language is additive.
 
-| lang  | ops                                                  | engine                        |
-| ----- | ---------------------------------------------------- | ----------------------------- |
-| `php` | the ops above                                        | Rector, in a PHP container    |
-| `py`  | the Python ops below                                 | rope, in a Python container   |
-| `ts`  | `rename-symbol` (`--from`/`--to`, optional `--file`) | ts-morph, in a Node container |
+| lang  | ops                                                           | engine                        |
+| ----- | ------------------------------------------------------------- | ----------------------------- |
+| `php` | the ops above                                                 | Rector, in a PHP container    |
+| `py`  | the Python ops below                                          | rope, in a Python container   |
+| `ts`  | `rename-symbol` (`--from`/`--to`, optional `--file`/`--kind`) | ts-morph, in a Node container |
 
 The TypeScript plugin needs a one-time `bash langs/ts/plugin.sh provision`
 (npm installs ts-morph into the shared scratch dir; `langs/py/plugin.sh provision` does the same for rope); `doctor` reports whether it
 is present. ts-morph resolves the symbol through the TypeScript compiler, so one
-run renames the declaration and every reference — no per-rule steps.
+run renames the declaration and every reference — no per-rule steps. A name
+declared in several places is refused rather than guessed: pass `--file` to pick
+a file, or `--kind` to pick a declaration kind.
 
 ### Python ops
 

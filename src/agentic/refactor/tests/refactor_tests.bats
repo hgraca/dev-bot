@@ -1358,6 +1358,85 @@ assert m["risks"]["rename-symbol"] == "rename", m
   assert_output --partial "unknown --kind 'widget'"
 }
 
+@test "end-to-end (ts): --kind method covers interface members" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/interface-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute","kind":"method"}' > "${work}/request.json"
+
+  # An interface member is a MethodSignature, not a MethodDeclaration — it must
+  # still count, so the class method is never renamed silently in its place.
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "declared in 2 places"
+  assert_output --partial "Port.ts"
+  assert_output --partial "Impl.ts"
+}
+
+@test "end-to-end (ts): --file picks an interface member over a class method" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/interface-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute","kind":"method","file":"src/Port.ts"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+
+  local port impl
+  port="$(grep -c 'salute(name: string)' "${work}/src/Port.ts" || true)"
+  impl="$(grep -c 'greet(name: string)' "${work}/src/Impl.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${port}" = "1" ]
+  # The class method in the other file is left alone.
+  [ "${impl}" = "1" ]
+}
+
+@test "end-to-end (ts): a declaration inside a namespace is not missed" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/namespace-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"Marker","to":"Tag"}' > "${work}/request.json"
+
+  # A namespaced class is a real second declaration; missing it would rename the
+  # top-level one silently instead of asking which was meant.
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "declared in 2 places"
+  assert_output --partial "ns.ts"
+  assert_output --partial "top.ts"
+}
+
+@test "end-to-end (ts): a scoped re-plan does not report the other declaration" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/interface-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute","kind":"method","file":"src/Port.ts"}' > "${work}/request.json"
+
+  bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'" >/dev/null 2>&1
+
+  # The class method in the other file was deliberately out of scope, so it is
+  # not residue of this rename.
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  refute_output --partial "remaining_changes"
+  assert_output --partial "already renamed"
+}
+
 @test "end-to-end (ts): an apply reports the string reference and leaves it" {
   _ts_e2e_ready || skip "docker + ts-morph engine not available"
 

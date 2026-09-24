@@ -59,18 +59,32 @@ const DECLARATION_KINDS = [
   ["getVariableDeclarations", (node) => node.getName()],
 ];
 
-// The `--kind` values a caller can target, mapped to the node kind each selects —
-// the complete set findDeclarations can return, so any ambiguity is resolvable.
+// The `--kind` values a caller can target, mapped to the node kinds each selects —
+// a family, because a class member and its interface counterpart are different
+// node kinds (`method` is both MethodDeclaration and MethodSignature).
 const KINDS_BY_FLAG = new Map([
-  ["class", SyntaxKind.ClassDeclaration],
-  ["interface", SyntaxKind.InterfaceDeclaration],
-  ["function", SyntaxKind.FunctionDeclaration],
-  ["type", SyntaxKind.TypeAliasDeclaration],
-  ["enum", SyntaxKind.EnumDeclaration],
-  ["variable", SyntaxKind.VariableDeclaration],
-  ["method", SyntaxKind.MethodDeclaration],
-  ["property", SyntaxKind.PropertyDeclaration],
+  ["class", [SyntaxKind.ClassDeclaration]],
+  ["interface", [SyntaxKind.InterfaceDeclaration]],
+  ["function", [SyntaxKind.FunctionDeclaration]],
+  ["type", [SyntaxKind.TypeAliasDeclaration]],
+  ["enum", [SyntaxKind.EnumDeclaration]],
+  ["variable", [SyntaxKind.VariableDeclaration]],
+  ["method", [SyntaxKind.MethodDeclaration, SyntaxKind.MethodSignature]],
+  ["property", [SyntaxKind.PropertyDeclaration, SyntaxKind.PropertySignature]],
 ]);
+
+// The nodes whose direct children are declarations: the file itself plus each
+// namespace/module body. Deliberately not a full descendant walk — a declaration
+// inside a function shadows rather than competes, and counting every local would
+// make common names ambiguous.
+function declarationScopes(sourceFile) {
+  const scopes = [sourceFile];
+  for (const module of sourceFile.getDescendantsOfKind(SyntaxKind.ModuleDeclaration)) {
+    const body = module.getBody();
+    if (body) scopes.push(body);
+  }
+  return scopes;
+}
 
 // Every declaration of `name` in the project, or in `file` when given, of the
 // node kind `kind` selects (every kind when it is omitted). A list, because more
@@ -85,21 +99,23 @@ function findDeclarations(project, name, file, kind) {
   for (const sourceFile of files) {
     if (!sourceFile) continue;
 
-    for (const [getter, read] of DECLARATION_KINDS) {
-      for (const node of sourceFile[getter]()) {
-        if (read(node) === name) found.push(node);
+    for (const scope of declarationScopes(sourceFile)) {
+      for (const [getter, read] of DECLARATION_KINDS) {
+        for (const node of scope[getter]()) {
+          if (read(node) === name) found.push(node);
+        }
       }
-    }
 
-    for (const container of [...sourceFile.getClasses(), ...sourceFile.getInterfaces()]) {
-      for (const member of [...container.getMethods(), ...container.getProperties()]) {
-        if (member.getName() === name) found.push(member);
+      for (const container of [...scope.getClasses(), ...scope.getInterfaces()]) {
+        for (const member of [...container.getMethods(), ...container.getProperties()]) {
+          if (member.getName() === name) found.push(member);
+        }
       }
     }
   }
 
   const unique = [...new Set(found)];
-  return kind ? unique.filter((node) => node.getKind() === KINDS_BY_FLAG.get(kind)) : unique;
+  return kind ? unique.filter((node) => KINDS_BY_FLAG.get(kind).includes(node.getKind())) : unique;
 }
 
 function relative(filePath) {
@@ -144,11 +160,14 @@ function findStringReferences(project, name) {
 }
 
 // Identifiers still named `name` — the residue of a rename that could not reach
-// every reference.
-function findResidualReferences(project, name) {
+// every reference. Restricted to `scope` when given (the request's --file): a
+// rename asked to touch one file must not report the same name elsewhere as its
+// residue.
+function findResidualReferences(project, name, scope) {
   const files = new Set();
   for (const sourceFile of project.getSourceFiles()) {
     const file = relative(sourceFile.getFilePath());
+    if (scope && !scope.has(file)) continue;
     for (const identifier of sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
       if (identifier.getText() === name) {
         files.add(file);
@@ -185,7 +204,7 @@ async function main() {
       .sort()
       .join("\n");
     return fail(
-      `'${from}' is declared in ${declarations.length} places — pass --file to pick one:\n${listing}`,
+      `'${from}' is declared in ${declarations.length} places — pass --file or --kind to pick one:\n${listing}`,
     );
   }
 
@@ -198,7 +217,7 @@ async function main() {
     if (findDeclarations(project, to, null, kind).length === 0) {
       return fail("no declaration of '" + from + "' found" + (file ? " in " + file : ""));
     }
-    const residual = findResidualReferences(project, from);
+    const residual = findResidualReferences(project, from, file ? new Set([file]) : null);
     const result = {
       ok: true,
       engine: ENGINE,
