@@ -150,9 +150,23 @@ print(json.dumps(r))')"
   # what it left behind rather than dropping it silently. Not a `warning`: this
   # is actionable on success too.
   local string_hits
-  string_hits="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/string_refs.py" 2>/dev/null || echo '{"hits": []}')"
+  string_hits="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/scan.py" 2>/dev/null || echo '{"hits": []}')"
 
-  printf '%s' "${output}" | REFACTOR_STRING_HITS="${string_hits}" python3 -c '
+  # Confirm the apply finished: scan the tree for identifier occurrences of the
+  # old name that the rename could not reach. A partial rename — a reference rope
+  # could not resolve — shows up here rather than downstream. It reads the whole
+  # scope again, so a large project can opt out with REFACTOR_SKIP_VERIFY=1.
+  local remaining="0"
+  if [[ "${mode}" == "apply" && -z "${REFACTOR_SKIP_VERIFY:-}" ]]; then
+    remaining="$(printf '%s' "${request}" | python3 -c '
+import json, sys
+r = json.load(sys.stdin)
+r["kind"] = "names"
+print(json.dumps(r))' | python3 "${PLUGIN_DIR}/scan.py" 2>/dev/null |
+      python3 -c 'import json, sys; print(len(json.load(sys.stdin).get("hits") or []))' 2>/dev/null || echo 0)"
+  fi
+
+  printf '%s' "${output}" | REFACTOR_STRING_HITS="${string_hits}" REFACTOR_REMAINING="${remaining}" python3 -c '
 import json, os, sys
 
 raw = sys.stdin.read()
@@ -162,12 +176,20 @@ except ValueError:
     sys.stdout.write(raw)
     raise SystemExit
 
-try:
-    hits = json.loads(os.environ.get("REFACTOR_STRING_HITS") or "{}").get("hits") or []
-except ValueError:
-    hits = []
-if hits and result.get("ok"):
-    result["string_references"] = hits
+if result.get("ok"):
+    try:
+        hits = json.loads(os.environ.get("REFACTOR_STRING_HITS") or "{}").get("hits") or []
+    except ValueError:
+        hits = []
+    if hits:
+        result["string_references"] = hits
+
+    try:
+        remaining = int(os.environ.get("REFACTOR_REMAINING") or "0")
+    except ValueError:
+        remaining = 0
+    if remaining:
+        result["remaining_changes"] = remaining
 sys.stdout.write(json.dumps(result) + "\n")'
 }
 

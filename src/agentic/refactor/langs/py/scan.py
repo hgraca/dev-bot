@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""String-reference scan for the refactor tool's Python plugin.
+"""Tokenize-based occurrence scans for the refactor tool's Python plugin.
 
-Reads {project, from} as JSON on stdin and writes {"hits": [{file, line, text}]}
-on stdout, the same shape the PHP plugin's `string-refs` uses.
+Reads {project, from, kind} as JSON on stdin and writes {"hits": [{file, line,
+text}]} on stdout. `kind` selects what counts:
 
-Every rename is blind to a name held in a string — a dict key, a getattr()
-argument, an f-string label. Those are exactly the dynamic references rope's
-symbol table cannot see, so they are surfaced for the caller to judge rather
-than silently left behind. Nothing here writes: the scan only reports.
+    strings (default) — the text inside a string literal: the dynamic references
+                        a rename cannot reach (a dict key, a getattr() argument,
+                        an f-string label). Reported for the caller, never
+                        rewritten.
+    names             — identifier occurrences of the name. Used after an apply
+                        to confirm nothing was left behind.
 
-Python's own tokenizer classifies the source, so a name in a comment or in code
-is never mistaken for a string reference.
+Python's own tokenizer classifies the source, so a name in a comment is never
+mistaken for a reference, and a name held in a string is never mistaken for an
+identifier. Nothing here writes: the scan only reports.
 """
 
 import io
@@ -24,17 +27,26 @@ PROJECT_DIR = os.environ.get("REFACTOR_PROJECT_DIR", "/app")
 _PREFIX_RE = re.compile(r"^[rRbBuUfF]{0,2}")
 
 
-def _string_token_types():
-    """Token types carrying literal string text, across Python versions.
+def _token_types(kind):
+    """The token types `kind` scans, across Python versions.
 
     Python 3.12 splits an f-string into FSTRING_START/MIDDLE/END; earlier
     versions emit it as one STRING. Both carry the literal text being scanned.
     """
+    if kind == "names":
+        return {tokenize.NAME}
+
     types = {tokenize.STRING}
     middle = getattr(tokenize, "FSTRING_MIDDLE", None)
     if middle is not None:
         types.add(middle)
     return types
+
+
+def _matches(token_string, name, kind):
+    # A string hit is a substring (the name nested in a larger literal); a name
+    # hit is the whole identifier, so `greeter` never counts for `greet`.
+    return token_string == name if kind == "names" else name in token_string
 
 
 def _literal_text(token_string):
@@ -53,7 +65,7 @@ def _source_roots(project):
     return roots or ["."]
 
 
-def _hits_in(path, name):
+def _hits_in(path, project, name, kind):
     try:
         with open(path, encoding="utf-8", errors="replace") as handle:
             source = handle.read()
@@ -61,16 +73,16 @@ def _hits_in(path, name):
         return []
 
     hits = []
-    string_types = _string_token_types()
+    token_types = _token_types(kind)
     try:
         for token in tokenize.generate_tokens(io.StringIO(source).readline):
-            if token.type not in string_types or name not in token.string:
+            if token.type not in token_types or not _matches(token.string, name, kind):
                 continue
             hits.append(
                 {
-                    "file": os.path.relpath(path, PROJECT_DIR),
+                    "file": os.path.relpath(path, project),
                     "line": token.start[0],
-                    "text": _literal_text(token.string),
+                    "text": _literal_text(token.string) if kind != "names" else token.string,
                 }
             )
     except (tokenize.TokenError, IndentationError, SyntaxError):
@@ -80,7 +92,7 @@ def _hits_in(path, name):
     return hits
 
 
-def find_string_references(project, name):
+def find_occurrences(project, name, kind):
     if not project or not os.path.isdir(project) or not name:
         return []
 
@@ -90,7 +102,7 @@ def find_string_references(project, name):
         for dirpath, _dirs, files in os.walk(root):
             for filename in sorted(files):
                 if filename.endswith(".py"):
-                    hits.extend(_hits_in(os.path.join(dirpath, filename), name))
+                    hits.extend(_hits_in(os.path.join(dirpath, filename), project, name, kind))
     return hits
 
 
@@ -98,7 +110,8 @@ def main():
     request = json.loads(sys.stdin.read() or "{}")
     project = request.get("project") or PROJECT_DIR
     name = request.get("from") or ""
-    print(json.dumps({"hits": find_string_references(project, name)}))
+    kind = request.get("kind") or "strings"
+    print(json.dumps({"hits": find_occurrences(project, name, kind)}))
     return 0
 
 

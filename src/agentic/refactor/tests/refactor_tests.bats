@@ -1357,13 +1357,13 @@ assert m["risks"]["rename-symbol"] == "rename", m
   req="$(mktemp)"
   printf '{"project":"%s","from":"greet"}' "${PY_FIXTURES}/rename-demo" > "${req}"
 
-  run bash -c "python3 '${MODULE_DIR}/langs/py/string_refs.py' < '${req}'"
+  run bash -c "python3 '${MODULE_DIR}/langs/py/scan.py' < '${req}'"
   rm -f "${req}"
 
   assert_success
   printf '%s' "${output}" | python3 -c '
 import json, sys
-hits = [h for h in json.load(sys.stdin)["hits"] if h["file"].endswith("registry.py")]
+hits = [h for h in json.load(sys.stdin)["hits"] if h["file"] == "src/registry.py"]
 lines = sorted(h["line"] for h in hits)
 assert lines == [4, 8, 9], hits
 assert all("comment" not in h["text"] for h in hits), hits
@@ -1390,4 +1390,39 @@ assert all("comment" not in h["text"] for h in hits), hits
   assert_output --partial '"string_references"'
   assert_output --partial 'registry.py'
   [ "${untouched}" = "1" ]
+}
+
+@test "py plugin: the names scan counts identifiers and ignores strings" {
+  local req
+  req="$(mktemp)"
+  printf '{"project":"%s","from":"greet","kind":"names"}' "${PY_FIXTURES}/rename-demo" > "${req}"
+
+  run bash -c "python3 '${MODULE_DIR}/langs/py/scan.py' < '${req}'"
+  rm -f "${req}"
+
+  assert_success
+  printf '%s' "${output}" | python3 -c '
+import json, sys
+hits = json.load(sys.stdin)["hits"]
+# The definition and the call are identifiers; the registry holds only strings.
+assert sorted(h["file"] for h in hits) == ["src/greeter.py", "src/use_greeter.py"], hits
+assert all(h["text"] == "greet" for h in hits), hits
+'
+}
+
+@test "end-to-end (py): a clean apply verifies itself" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/rename-demo/." "${work}/"
+  printf '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  # Nothing the rename could reach is left: the verification pass is silent.
+  refute_output --partial "remaining_changes"
 }
