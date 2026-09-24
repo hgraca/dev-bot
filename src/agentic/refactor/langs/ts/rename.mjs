@@ -59,10 +59,24 @@ const DECLARATION_KINDS = [
   ["getVariableDeclarations", (node) => node.getName()],
 ];
 
-// Every declaration of `name` in the project, or in `file` when given. A list,
-// because more than one is ambiguous: renaming an arbitrary one would touch the
-// wrong symbol, so the caller is asked to pick with --file.
-function findDeclarations(project, name, file) {
+// The `--kind` values a caller can target, mapped to the node kind each selects —
+// the complete set findDeclarations can return, so any ambiguity is resolvable.
+const KINDS_BY_FLAG = new Map([
+  ["class", SyntaxKind.ClassDeclaration],
+  ["interface", SyntaxKind.InterfaceDeclaration],
+  ["function", SyntaxKind.FunctionDeclaration],
+  ["type", SyntaxKind.TypeAliasDeclaration],
+  ["enum", SyntaxKind.EnumDeclaration],
+  ["variable", SyntaxKind.VariableDeclaration],
+  ["method", SyntaxKind.MethodDeclaration],
+  ["property", SyntaxKind.PropertyDeclaration],
+]);
+
+// Every declaration of `name` in the project, or in `file` when given, of the
+// node kind `kind` selects (every kind when it is omitted). A list, because more
+// than one is ambiguous: renaming an arbitrary one would touch the wrong symbol,
+// so the caller is asked to pick with --file or --kind.
+function findDeclarations(project, name, file, kind) {
   const files = file
     ? [project.getSourceFile(path.join(PROJECT_DIR, file))]
     : project.getSourceFiles();
@@ -83,7 +97,9 @@ function findDeclarations(project, name, file) {
       }
     }
   }
-  return [...new Set(found)];
+
+  const unique = [...new Set(found)];
+  return kind ? unique.filter((node) => node.getKind() === KINDS_BY_FLAG.get(kind)) : unique;
 }
 
 function relative(filePath) {
@@ -148,14 +164,18 @@ async function main() {
   const from = request.from || "";
   const to = request.to || "";
   const file = request.file || null;
+  const kind = request.kind || null;
   const apply = Boolean(request.apply);
 
   if (!from || !to) {
     return fail("from and to are required");
   }
+  if (kind && !KINDS_BY_FLAG.has(kind)) {
+    return fail(`unknown --kind '${kind}' (expected ${[...KINDS_BY_FLAG.keys()].join("|")})`);
+  }
 
   const project = createProject();
-  const declarations = findDeclarations(project, from, file);
+  const declarations = findDeclarations(project, from, file, kind);
 
   // Several declarations of the same name: picking one silently would rename the
   // wrong symbol, so name the candidates and let the caller choose.
@@ -175,7 +195,7 @@ async function main() {
     // the rename happened, so report whatever still holds the old name rather
     // than claiming the symbol never existed. With neither name declared the
     // name was simply wrong, which stays an error.
-    if (findDeclarations(project, to, null).length === 0) {
+    if (findDeclarations(project, to, null, kind).length === 0) {
       return fail("no declaration of '" + from + "' found" + (file ? " in " + file : ""));
     }
     const residual = findResidualReferences(project, from);

@@ -1302,6 +1302,62 @@ assert m["risks"]["rename-symbol"] == "rename", m
   [ "${other}" = "1" ]
 }
 
+@test "end-to-end (ts): --kind class picks the class over a same-named method" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/ambiguous-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"Marker","to":"Tag","kind":"class"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+
+  local klass method
+  klass="$(grep -c 'class Tag' "${work}/src/Marker.ts" || true)"
+  method="$(grep -c 'Marker(): string' "${work}/src/User.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${klass}" = "1" ]
+  # The same-named method is not the one that was renamed.
+  [ "${method}" = "1" ]
+}
+
+@test "end-to-end (ts): --kind method picks the method over a same-named class" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/ambiguous-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"Marker","to":"Tag","kind":"method"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+
+  local klass method
+  klass="$(grep -c 'class Marker' "${work}/src/Marker.ts" || true)"
+  method="$(grep -c 'Tag(): string' "${work}/src/User.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${klass}" = "1" ]
+  [ "${method}" = "1" ]
+}
+
+@test "end-to-end (ts): an unknown --kind is refused" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/ambiguous-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"Marker","to":"Tag","kind":"widget"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "unknown --kind 'widget'"
+}
+
 @test "end-to-end (ts): an apply reports the string reference and leaves it" {
   _ts_e2e_ready || skip "docker + ts-morph engine not available"
 
@@ -1567,6 +1623,13 @@ PY
 
   assert_success
   assert_output --partial '"file": "stub/x.stub"'
+}
+
+@test "plugin seam: the core forwards --kind to the plugin" {
+  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --from a --to b --kind class --json"
+
+  assert_success
+  assert_output --partial '"kind": "class"'
 }
 
 @test "end-to-end (py): --file picks one of several same-named definitions" {

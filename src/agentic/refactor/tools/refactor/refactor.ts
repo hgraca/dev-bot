@@ -34,6 +34,7 @@ interface Args {
   image: string | null;
   namespace: string | null;
   file: string | null;
+  kind: string | null;
   start: string | null;
   end: string | null;
   index: string | null;
@@ -58,6 +59,7 @@ interface RefactorRequest {
   image: string | null;
   namespace: string | null;
   file: string | null;
+  kind: string | null;
   start: string | null;
   end: string | null;
   index: string | null;
@@ -92,6 +94,8 @@ Options:
   --namespace <ns>  symbol's namespace, for ops on free functions/constants
                     (derived from the declaration when omitted)
   --file <path>  source file declaring the symbol, to pick among duplicates
+  --kind <kind>  declaration kind to pick (class|interface|function|type|enum|
+                 variable|method|property)
   --start <n>    first line of the range (1-based, inclusive), for extract ops
   --end <n>      last line of the range (1-based, inclusive), for extract ops
   --index <n>    parameter position (1-based), for signature ops
@@ -117,6 +121,7 @@ function parse(argv: string[]): Args {
     image: null,
     namespace: null,
     file: null,
+    kind: null,
     start: null,
     end: null,
     index: null,
@@ -141,6 +146,7 @@ function parse(argv: string[]): Args {
     else if (arg === "--from") a.from = next();
     else if (arg === "--to") a.to = next();
     else if (arg === "--file") a.file = next();
+    else if (arg === "--kind") a.kind = next();
     else if (arg === "--start") a.start = next();
     else if (arg === "--end") a.end = next();
     else if (arg === "--index") a.index = next();
@@ -301,6 +307,7 @@ async function main(): Promise<number> {
     from: args.from ?? args.method ?? args.property,
     to: args.to,
     file: args.file,
+    kind: args.kind,
     start: args.start,
     end: args.end,
     index: args.index,
@@ -323,6 +330,7 @@ async function main(): Promise<number> {
     image: args.image,
     namespace: args.namespace,
     file: args.file,
+    kind: args.kind,
     start: args.start,
     end: args.end,
     index: args.index,
