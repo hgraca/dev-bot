@@ -231,3 +231,34 @@ EOF
     }
   done
 }
+
+@test "a block scalar in front matter fails loudly" {
+  cat >"${FIXTURE}/src/agentic/beta/docs.md" <<'EOF'
+---
+title: Beta
+description: >-
+  folded across lines
+---
+
+Body.
+EOF
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q 'ERROR'
+  echo "$output" | grep -q 'block scalar'
+}
+
+@test "a block-style capability list fails loudly" {
+  cat >"${FIXTURE}/src/agentic/beta/docs.md" <<'EOF'
+---
+description: Beta things.
+skills:
+  - beta-skill
+---
+
+Body.
+EOF
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -q 'block sequence'
+}

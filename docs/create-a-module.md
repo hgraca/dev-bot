@@ -143,6 +143,7 @@ No project configuration is required.
 
 - `description` is **required** — the build fails without it.
 - `agents`, `commands`, `skills`, `hooks`, `plugins`, `tools` and `mcps` declare the module's capabilities. Each takes a plain list of names when the purpose can be read from the file itself (`SKILL.md`, an agent/command file, `hooks.json`, a tool's `# description:` header), and a `name: purpose` map where it cannot — typically `mcps`.
+- The front matter subset is deliberately small: scalars, `[a, b]` flow lists, and one level of `name: purpose`. A YAML block scalar (`description: >-`) or block sequence (`- item`) **fails the build with an error** rather than being silently mis-read.
 - The build generates a **Contents** table immediately before `## Configuration`, plus a capability-summary strip above the prose, from that manifest — so the manifest is what the reader sees.
 
 `make docs-gather` builds the pages locally; `make docs` gathers and serves the site.

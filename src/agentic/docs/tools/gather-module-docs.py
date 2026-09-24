@@ -43,6 +43,10 @@ AGGREGATE_PAGES = (
 )
 # A pipe in a cell would split the column; a newline would break the row.
 CELL_TRANSLATION = str.maketrans({"|": "\\|", "\n": " "})
+# Front matter accepts only scalars, `[a, b]` flow lists and one level of
+# `name: purpose` nesting. A block scalar would be read as its own indicator
+# and a block sequence silently dropped, so both fail loudly instead.
+BLOCK_SCALAR = re.compile(r"^[>|][+-]?$")
 
 
 def _error(msg) -> NoReturn:
@@ -366,9 +370,15 @@ def parse_front_matter(text, path):
     for raw in parts[1].splitlines():
         if not raw.strip():
             continue
+        stripped = raw.strip()
+        if stripped.startswith("- "):
+            _error(
+                f"{path}: unsupported YAML block sequence ({stripped!r}) — "
+                "write the list inline as `key: [a, b]`"
+            )
         if raw[0] in " \t":
             if block:
-                match = FM_LINE.match(raw.strip())
+                match = FM_LINE.match(stripped)
                 if match:
                     meta[block][match.group(1)] = _parse_value(match.group(2))
             continue
@@ -376,6 +386,11 @@ def parse_front_matter(text, path):
         if not match:
             continue
         key, value = match.group(1), match.group(2)
+        if BLOCK_SCALAR.match(value.strip()):
+            _error(
+                f"{path}: unsupported YAML block scalar for `{key}` ({value.strip()!r}) — "
+                "write it on a single line"
+            )
         if value == "":
             block = key
             meta[key] = {}
