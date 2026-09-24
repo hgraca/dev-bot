@@ -217,6 +217,15 @@ img { max-width: 100%; height: auto; }
   }
   .nav-megamenu-cols { flex-direction: column; gap: 0; }
   .nav-megamenu-list { max-height: none; }
+  /* 44px touch targets inside the drawer. */
+  .nav-megamenu-all,
+  .nav-megamenu-list a,
+  .nav-megamenu-col > summary {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    padding: .5rem;
+  }
 }
 
 /* Mobile toggle */
