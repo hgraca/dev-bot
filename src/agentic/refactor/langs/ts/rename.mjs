@@ -178,13 +178,84 @@ function findResidualReferences(project, name, scope) {
   return [...files].sort();
 }
 
+// Move a source file into an existing folder, rewriting its own imports and every
+// importer's path. SourceFile.move() does the rewriting; this adds the contract's
+// destination check and the report.
+async function moveFile(project, file, to, apply) {
+  if (!file || !to) {
+    return fail("file and to (the destination folder) are required");
+  }
+
+  const source = project.getSourceFile(path.join(PROJECT_DIR, file));
+  if (!source) {
+    return fail("no such file: " + file);
+  }
+
+  const destination = path.join(PROJECT_DIR, to);
+  if (!fs.existsSync(destination) || !fs.statSync(destination).isDirectory()) {
+    return fail("no such destination folder: " + to);
+  }
+
+  const target = path.join(destination, path.basename(file));
+  // move() returns early when the path is unchanged, so a same-folder move would
+  // otherwise report success without having done anything.
+  if (path.resolve(target) === path.resolve(source.getFilePath())) {
+    return fail(`'${file}' is already in '${to}'`);
+  }
+
+  // Report from the literals move() acts on — the only set that matches what
+  // changes. move() rewrites relative specifiers only, so a non-relative one (a
+  // tsconfig paths alias) survives the move and is named rather than counted as
+  // updated. Collected before the move: afterwards the rewritten specifiers no
+  // longer resolve to the moved file.
+  const referencing = source.getReferencingLiteralsInOtherSourceFiles();
+  const rewritten = referencing.filter((literal) => literal.getLiteralText().startsWith("."));
+  const importers = [
+    ...new Set(rewritten.map((literal) => relative(literal.getSourceFile().getFilePath()))),
+  ];
+  const unrewritten = referencing
+    .filter((literal) => !literal.getLiteralText().startsWith("."))
+    .map(
+      (literal) =>
+        `${relative(literal.getSourceFile().getFilePath())}:${literal.getStartLineNumber()}: '${literal.getLiteralText()}' is not a relative specifier and was not rewritten`,
+    );
+
+  source.move(target);
+  if (apply) {
+    await project.save();
+  }
+
+  process.stdout.write(
+    JSON.stringify({
+      ok: true,
+      engine: ENGINE,
+      applied: apply,
+      summary: `${apply ? "Moved" : "Would move"} ${file} -> ${relative(target)} (${importers.length} importer(s) updated)`,
+      files: [relative(target), ...importers].sort(),
+      warnings: unrewritten,
+    }) + "\n",
+  );
+  return 0;
+}
+
 async function main() {
   const request = JSON.parse((await readStdin()) || "{}");
+  const op = request.op || "rename-symbol";
   const from = request.from || "";
   const to = request.to || "";
   const file = request.file || null;
   const kind = request.kind || null;
   const apply = Boolean(request.apply);
+
+  if (op !== "rename-symbol" && op !== "move-file") {
+    return fail(`unsupported op '${op}' (expected rename-symbol|move-file)`);
+  }
+
+  const project = createProject();
+
+  if (op === "move-file") {
+    return moveFile(project, file, to, apply);
+  }
 
   if (!from || !to) {
     return fail("from and to are required");
@@ -193,7 +264,6 @@ async function main() {
     return fail(`unknown --kind '${kind}' (expected ${[...KINDS_BY_FLAG.keys()].join("|")})`);
   }
 
-  const project = createProject();
   const declarations = findDeclarations(project, from, file, kind);
 
   // Several declarations of the same name: picking one silently would rename the

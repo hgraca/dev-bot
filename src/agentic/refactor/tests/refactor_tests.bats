@@ -1183,9 +1183,11 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "ts", m
 assert ".ts" in m["extensions"], m
-assert m["ops"] == ["rename-symbol"], m
+assert m["ops"] == ["rename-symbol", "move-file"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
+assert m["requires"]["move-file"] == ["file", "to"], m
 assert m["risks"]["rename-symbol"] == "rename", m
+assert m["risks"]["move-file"] == "move", m
 '
 }
 
@@ -1435,6 +1437,122 @@ assert m["risks"]["rename-symbol"] == "rename", m
   assert_success
   refute_output --partial "remaining_changes"
   assert_output --partial "already renamed"
+}
+
+@test "end-to-end (ts): move-file relocates a file and rewrites its importers" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/move-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-file --file src/a.ts --to src/sub --apply"
+
+  local moved gone rewritten owned
+  moved="$(test -f "${work}/src/sub/a.ts" && echo 1 || echo 0)"
+  gone="$(test -f "${work}/src/a.ts" && echo 1 || echo 0)"
+  rewritten="$(grep -c 'from "./sub/a"' "${work}/src/use.ts" || true)"
+  # A moved file is a new path: it must belong to the caller, not the container.
+  owned="$(test -O "${work}/src/sub/a.ts" && echo 1 || echo 0)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${moved}" = "1" ]
+  [ "${gone}" = "0" ]
+  [ "${rewritten}" = "1" ]
+  [ "${owned}" = "1" ]
+}
+
+@test "end-to-end (ts): a move-file plan writes nothing" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/move-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-file --file src/a.ts --to src/sub"
+
+  local still spec
+  still="$(test -f "${work}/src/a.ts" && echo 1 || echo 0)"
+  spec="$(grep -c 'from "./a"' "${work}/src/use.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "Would move"
+  [ "${still}" = "1" ]
+  [ "${spec}" = "1" ]
+}
+
+@test "end-to-end (ts): move-file refuses a destination that does not exist" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/move-demo/." "${work}/"
+  printf '%s' '{"op":"move-file","file":"src/a.ts","to":"src/nope"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "no such destination folder"
+}
+
+@test "end-to-end (ts): move-file refuses the file's own folder" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/move-demo/." "${work}/"
+  printf '%s' '{"op":"move-file","file":"src/a.ts","to":"src"}' > "${work}/request.json"
+
+  # Nothing would change, so reporting a move would be a false success.
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "already in 'src'"
+}
+
+@test "end-to-end (ts): an unsupported op is refused" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/move-demo/." "${work}/"
+  printf '%s' '{"op":"frobnicate","file":"src/a.ts","to":"src/sub"}' > "${work}/request.json"
+
+  # The core rejects an op the plugin does not declare; this covers a direct
+  # plugin invocation, where nothing else would.
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "unsupported op 'frobnicate'"
+}
+
+@test "end-to-end (ts): move-file warns about an alias specifier it cannot rewrite" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/alias-demo/." "${work}/"
+  printf '%s' '{"op":"move-file","file":"src/a.ts","to":"src/sub","apply":true}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+
+  local moved alias
+  moved="$(test -f "${work}/src/sub/a.ts" && echo 1 || echo 0)"
+  alias="$(grep -c 'from "@/a"' "${work}/src/use.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${moved}" = "1" ]
+  # move() rewrites relative specifiers only, so the alias survives — and is
+  # reported rather than counted as an importer that was updated.
+  assert_output --partial "(0 importer(s) updated)"
+  assert_output --partial "not a relative specifier"
+  [ "${alias}" = "1" ]
 }
 
 @test "end-to-end (ts): an apply reports the string reference and leaves it" {

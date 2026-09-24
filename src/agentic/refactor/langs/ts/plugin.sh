@@ -23,7 +23,7 @@ STORAGE_DIR="${REFACTOR_STORAGE_DIR:-${REFACTOR_DIR}/../../../storage/refactor}"
 
 cmd_meta() {
   cat <<'JSON'
-{"lang":"ts","extensions":[".ts",".tsx",".js",".jsx"],"ops":["rename-symbol"],"requires":{"rename-symbol":["from","to"]},"risks":{"rename-symbol":"rename"}}
+{"lang":"ts","extensions":[".ts",".tsx",".js",".jsx"],"ops":["rename-symbol","move-file"],"requires":{"rename-symbol":["from","to"],"move-file":["file","to"]},"risks":{"rename-symbol":"rename","move-file":"move"}}
 JSON
 }
 
@@ -95,20 +95,10 @@ cmd_run() {
   local mode="$1" request
   request="$(cat)"
 
-  local op from to project image root
-  IFS=$'\x1f' read -r op from to < <(printf '%s' "${request}" | python3 -c '
-import json, sys
-r = json.load(sys.stdin)
-print("\x1f".join([str(r.get("op") or ""), str(r.get("from") or ""), str(r.get("to") or "")]))')
-
-  if [[ "${op}" != "rename-symbol" ]]; then
-    printf '{"ok":false,"error":"ts plugin: unsupported op: %s"}\n' "${op}" >&2
-    exit 1
-  fi
-  if [[ -z "${from}" || -z "${to}" ]]; then
-    echo '{"ok":false,"error":"from and to are required"}' >&2
-    exit 1
-  fi
+  # The core validates the op and its required fields against `meta`; the driver
+  # validates them again from the request, so the plugin adds nothing here and
+  # cannot drift from the contract it declares (matching the Python plugin).
+  local project image root
 
   project="${REFACTOR_PROJECT:-${PWD}}"
 
@@ -134,7 +124,10 @@ r = json.load(sys.stdin)
 r["apply"] = os.environ["APPLY"] == "true"
 print(json.dumps(r))')"
 
+  # Run as the invoking user: the engine writes new paths (a move creates its
+  # destination), and a root-owned file in the caller's tree is uneditable.
   printf '%s' "${payload}" | docker run --rm -i \
+    --user "$(id -u):$(id -g)" \
     -v "${project}:/app${mount_suffix}" \
     -v "${root}:/refactor" \
     -v "${PLUGIN_DIR}/rename.mjs:/refactor/rename.mjs:ro" \
