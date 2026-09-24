@@ -1,11 +1,23 @@
 ---
 layout: default
 ---
-<article class="page-content">
+<article class="page-content{% if page.module_name %} page-content--module{% endif %}">
   <div class="container">
+    {% if page.module_name %}
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <a href="{{ '/modules' | relative_url }}">Modules</a>
+      <span class="breadcrumb-sep">›</span>
+      <a href="{{ '/modules' | relative_url }}#{{ page.module_area }}">{{ page.module_area_label | default: page.module_area }}</a>
+      <span class="breadcrumb-sep">›</span>
+      <span>{{ page.title }}</span>
+    </nav>
+    {% endif %}
     <h1 class="page-title">{{ page.title }}</h1>
     {% if page.description %}
     <p class="page-description">{{ page.description }}</p>
+    {% endif %}
+    {% if page.capability_summary %}
+    <p class="capability-strip">{{ page.capability_summary }}</p>
     {% endif %}
     <div class="prose">
       {{ content }}

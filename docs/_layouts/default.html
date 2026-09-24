@@ -41,6 +41,43 @@
         }
       });
     });
+    // Modules mega-menu: click + keyboard driven, Escape closes and restores
+    // focus to the trigger. Area groups start collapsed on mobile so the
+    // drawer never renders ~46 entries at once.
+    document.querySelectorAll('.nav-megamenu-trigger').forEach(function(trigger) {
+      const panel = document.getElementById(trigger.getAttribute('aria-controls'));
+      if (!panel) return;
+
+      function setOpen(open) {
+        panel.hidden = !open;
+        trigger.setAttribute('aria-expanded', String(open));
+      }
+
+      trigger.addEventListener('click', function(event) {
+        event.preventDefault();
+        setOpen(panel.hidden);
+      });
+
+      document.addEventListener('click', function(event) {
+        if (!panel.hidden && !trigger.parentElement.contains(event.target)) setOpen(false);
+      });
+
+      document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape' && !panel.hidden) {
+          setOpen(false);
+          trigger.focus();
+        }
+      });
+
+      function syncAreas() {
+        const collapsed = window.innerWidth <= 768;
+        panel.querySelectorAll('.nav-megamenu-col').forEach(function(col) {
+          col.open = !collapsed;
+        });
+      }
+      syncAreas();
+      window.addEventListener('resize', syncAreas);
+    });
   </script>
   <script>
     // Install command + GitHub links: derive the repo location from the GitHub
