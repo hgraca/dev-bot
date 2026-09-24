@@ -1324,15 +1324,19 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "py", m
 assert m["extensions"] == [".py"], m
-assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline", "encapsulate-field"], m
+assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline", "encapsulate-field", "add-argument", "remove-argument"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["extract-method"] == ["file", "start", "end", "to"], m
 assert m["requires"]["inline"] == ["from"], m
 assert m["requires"]["encapsulate-field"] == ["file", "from"], m
+assert m["requires"]["add-argument"] == ["file", "from", "to", "index"], m
+assert m["requires"]["remove-argument"] == ["file", "from", "index"], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["extract-method"] == "extract", m
 assert m["risks"]["inline"] == "inline", m
 assert m["risks"]["encapsulate-field"] == "cleanup", m
+assert m["risks"]["add-argument"] == "signature", m
+assert m["risks"]["remove-argument"] == "signature", m
 '
 }
 
@@ -1590,4 +1594,46 @@ PY
   [ "${getter}" = "1" ]
   [ "${setter}" = "1" ]
   [ "${call}" = "1" ]
+}
+
+@test "end-to-end (py): remove-argument drops a parameter and fixes call sites" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/signature-demo/." "${work}/"
+  printf '{"op":"remove-argument","file":"src/greeter.py","from":"greet","index":"2"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local def call
+  def="$(grep -c 'def greet(name):' "${work}/src/greeter.py" || true)"
+  call="$(grep -c 'greet("world")' "${work}/src/call.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  [ "${def}" = "1" ]
+  [ "${call}" = "1" ]
+}
+
+@test "end-to-end (py): add-argument appends a parameter with a default" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/signature-demo/." "${work}/"
+  cat > "${req}" <<'JSON'
+{"op":"add-argument","file":"src/greeter.py","from":"greet","to":"suffix","index":"3","default":"\".\""}
+JSON
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local def
+  def="$(grep -c 'def greet(name, punctuation, suffix=".")' "${work}/src/greeter.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  [ "${def}" = "1" ]
 }

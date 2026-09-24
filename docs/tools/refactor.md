@@ -18,6 +18,7 @@ Dry run by default. `--apply` is the only thing that writes.
 devbot-tools_refactor --lang <lang> --op <op> \
   [--class <FQCN>] [--from <old> | --method <old> | --property <old>] [--namespace <ns>] \
   [--file <path>] [--start <line[:col]>] [--end <line[:col]>] \
+  [--index <n>] [--default <expr>] \
   --to <new> [--apply] [--json] [--force]
 ```
 
@@ -87,13 +88,15 @@ alongside `rename-symbol`. A region is selected by **line, optionally with a
 column** (`--start 12:9 --end 12:18`) — 1-based, inclusive; a missing column reads
 to the end of the line.
 
-| Op                  | Needs                                | Risk    |
-| ------------------- | ------------------------------------ | ------- |
-| `rename-symbol`     | `--from`, `--to` (optional `--file`) | rename  |
-| `extract-method`    | `--file`, `--start`, `--end`, `--to` | extract |
-| `extract-variable`  | `--file`, `--start`, `--end`, `--to` | extract |
-| `inline`            | `--from` (optional `--file`)         | inline  |
-| `encapsulate-field` | `--file`, `--from`                   | cleanup |
+| Op                  | Needs                                 | Risk      |
+| ------------------- | ------------------------------------- | --------- |
+| `rename-symbol`     | `--from`, `--to` (optional `--file`)  | rename    |
+| `extract-method`    | `--file`, `--start`, `--end`, `--to`  | extract   |
+| `extract-variable`  | `--file`, `--start`, `--end`, `--to`  | extract   |
+| `inline`            | `--from` (optional `--file`)          | inline    |
+| `encapsulate-field` | `--file`, `--from`                    | cleanup   |
+| `add-argument`      | `--file`, `--from`, `--to`, `--index` | signature |
+| `remove-argument`   | `--file`, `--from`, `--index`         | signature |
 
 As for PHP, a Python rename reports quoted occurrences of the old name as
 `string_references` (rope cannot rewrite a name held in a string), and an apply
@@ -200,6 +203,11 @@ prove additivity).
 - **`inline` on an f-string** can emit nested quotes (`f"Hello {"world"}"`), which
   only Python 3.12+ parses (PEP 701); do not inline such a method for an older
   target.
+- **Signature ops do not validate the result.** `add-argument` inserts at
+  `--index` verbatim, so a defaulted parameter placed before a non-defaulted one
+  produces a syntax error — and `remove-argument` leaves the body untouched, so a
+  parameter still used there becomes a `NameError`. Position the index and check
+  the result.
 - **`rename-constant` matches on the bare name**, because Rector's rule rejects a
   qualified key. A same-named constant in another namespace would match too.
 - **`rename-annotation` re-appends the annotation**, so it can shift order

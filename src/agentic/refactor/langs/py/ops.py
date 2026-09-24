@@ -235,6 +235,42 @@ def _encapsulate(project, request, EncapsulateField):
         fail(str(error))
 
 
+def _parameter_index(request):
+    """The 0-based parameter position rope wants, from the 1-based --index."""
+    try:
+        index = int(request.get("index") or 0)
+    except (TypeError, ValueError):
+        fail("--index must be a number")
+    if index < 1:
+        fail("--index is 1-based")
+    return index - 1
+
+
+def _signature_target(project, request):
+    name = request.get("from") or ""
+    if not name:
+        fail("from is required")
+    target, offset, _line = _definitions(request, name)
+    return project.get_file(os.path.relpath(target, PROJECT_DIR)), offset
+
+
+def _add_argument(project, request, ChangeSignature, ArgumentAdder):
+    param = request.get("to") or ""
+    if not param:
+        fail("to (the parameter name) is required")
+    resource, offset = _signature_target(project, request)
+    changer = ArgumentAdder(
+        _parameter_index(request), param, request.get("default") or None
+    )
+    return ChangeSignature(project, resource, offset).get_changes([changer])
+
+
+def _remove_argument(project, request, ChangeSignature, ArgumentRemover):
+    resource, offset = _signature_target(project, request)
+    changer = ArgumentRemover(_parameter_index(request))
+    return ChangeSignature(project, resource, offset).get_changes([changer])
+
+
 def _extract(project, request, extractor):
     name_to = request.get("to") or ""
     if not name_to:
@@ -274,6 +310,14 @@ def build_changes(project, request):
         from rope.refactor.encapsulate_field import EncapsulateField
 
         return _encapsulate(project, request, EncapsulateField)
+    if op == "add-argument":
+        from rope.refactor.change_signature import ArgumentAdder, ChangeSignature
+
+        return _add_argument(project, request, ChangeSignature, ArgumentAdder)
+    if op == "remove-argument":
+        from rope.refactor.change_signature import ArgumentRemover, ChangeSignature
+
+        return _remove_argument(project, request, ChangeSignature, ArgumentRemover)
     fail("py plugin: unsupported op: %s" % op)
 
 
@@ -301,6 +345,9 @@ def summarize(op, request, files, apply):
     if op == "encapsulate-field":
         verb = "Encapsulated" if apply else "Would encapsulate"
         return "%s %s in %d file(s)" % (verb, old, len(files))
+    if op in ("add-argument", "remove-argument"):
+        verb = "Changed" if apply else "Would change"
+        return "%s the signature of %s in %d file(s)" % (verb, old, len(files))
     verb = "Extracted" if apply else "Would extract"
     return "%s %s in %d file(s)" % (verb, new, len(files))
 

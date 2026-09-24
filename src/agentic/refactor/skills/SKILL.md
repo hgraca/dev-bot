@@ -34,6 +34,7 @@ reports what changed.
 devbot-tools_refactor --lang <lang> --op <op> \
   [--class <FQCN>] [--from <old> | --method <old> | --property <old>] [--namespace <ns>] \
   [--file <path>] [--start <line[:col]>] [--end <line[:col]>] \
+  [--index <n>] [--default <expr>] \
   --to <new> [--apply] [--json] [--force]
 ```
 
@@ -80,13 +81,15 @@ rope ships refactorings Rector has no equivalent for. A region is selected by
 **line, optionally with a column** (`--start 12:9 --end 12:18`) — 1-based,
 inclusive; a missing column reads to the end of the line.
 
-| op                  | needs                                | risk    |
-| ------------------- | ------------------------------------ | ------- |
-| `rename-symbol`     | `--from`, `--to` (optional `--file`) | rename  |
-| `extract-method`    | `--file`, `--start`, `--end`, `--to` | extract |
-| `extract-variable`  | `--file`, `--start`, `--end`, `--to` | extract |
-| `inline`            | `--from` (optional `--file`)         | inline  |
-| `encapsulate-field` | `--file`, `--from`                   | cleanup |
+| op                  | needs                                 | risk      |
+| ------------------- | ------------------------------------- | --------- |
+| `rename-symbol`     | `--from`, `--to` (optional `--file`)  | rename    |
+| `extract-method`    | `--file`, `--start`, `--end`, `--to`  | extract   |
+| `extract-variable`  | `--file`, `--start`, `--end`, `--to`  | extract   |
+| `inline`            | `--from` (optional `--file`)          | inline    |
+| `encapsulate-field` | `--file`, `--from`                    | cleanup   |
+| `add-argument`      | `--file`, `--from`, `--to`, `--index` | signature |
+| `remove-argument`   | `--file`, `--from`, `--index`         | signature |
 
 ## Cleanup ops
 
@@ -121,6 +124,10 @@ PSR-4 autoloader keys on the file name.
 - **`inline` on an f-string** can emit nested quotes (`f"Hello {"world"}"`), which
   only Python 3.12+ parses (PEP 701) — do not inline such a method for an older
   target.
+- **Signature ops do not validate the result.** `add-argument` inserts at
+  `--index` verbatim (a defaulted parameter before a non-defaulted one is a syntax
+  error); `remove-argument` leaves the body untouched (a still-used name becomes a
+  `NameError`). Check the diff.
 - **The tool does not run your tests.** Run them yourself after applying — only
   your suite can prove the rename is right in your project's terms.
 - The target project's own `vendor/bin/rector` is preferred (right version, right

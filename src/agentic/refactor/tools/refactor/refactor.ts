@@ -36,6 +36,8 @@ interface Args {
   file: string | null;
   start: string | null;
   end: string | null;
+  index: string | null;
+  default: string | null;
 }
 
 interface PluginMeta {
@@ -58,6 +60,8 @@ interface RefactorRequest {
   file: string | null;
   start: string | null;
   end: string | null;
+  index: string | null;
+  default: string | null;
 }
 
 interface PluginResponse {
@@ -90,6 +94,8 @@ Options:
   --file <path>  source file declaring the symbol, to pick among duplicates
   --start <n>    first line of the range (1-based, inclusive), for extract ops
   --end <n>      last line of the range (1-based, inclusive), for extract ops
+  --index <n>    parameter position (1-based), for signature ops
+  --default <x>  default expression for an added parameter
   --help, -h     show this help
   --version      show version
 `;
@@ -113,6 +119,8 @@ function parse(argv: string[]): Args {
     file: null,
     start: null,
     end: null,
+    index: null,
+    default: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -135,6 +143,8 @@ function parse(argv: string[]): Args {
     else if (arg === "--file") a.file = next();
     else if (arg === "--start") a.start = next();
     else if (arg === "--end") a.end = next();
+    else if (arg === "--index") a.index = next();
+    else if (arg === "--default") a.default = next();
   }
   return a;
 }
@@ -293,6 +303,8 @@ async function main(): Promise<number> {
     file: args.file,
     start: args.start,
     end: args.end,
+    index: args.index,
+    default: args.default,
   };
   const missing = requires.filter((field) => !provided[field]);
   if (missing.length > 0) {
@@ -313,6 +325,8 @@ async function main(): Promise<number> {
     file: args.file,
     start: args.start,
     end: args.end,
+    index: args.index,
+    default: args.default,
   };
 
   if (args.apply && !args.force) {
