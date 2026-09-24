@@ -161,6 +161,13 @@ img { max-width: 100%; height: auto; }
   color: inherit;
   cursor: pointer;
 }
+.nav-megamenu-trigger::after {
+  content: "▾";
+  margin-left: .3rem;
+  font-size: .7em;
+  opacity: .7;
+}
+.nav-megamenu-trigger.active { color: var(--text); }
 .nav-megamenu {
   position: absolute;
   top: 100%;
@@ -177,9 +184,16 @@ img { max-width: 100%; height: auto; }
 .nav-megamenu[hidden] { display: none; }
 .nav-megamenu-all {
   display: block;
-  padding: .35rem .5rem;
+  padding: .5rem .5rem .6rem;
+  margin-bottom: .5rem;
+  border-bottom: 1px solid var(--border);
   font-size: .85rem;
   font-weight: 600;
+}
+.nav-megamenu-all::after {
+  content: " →";
+  font-weight: 400;
+  opacity: .7;
 }
 .nav-megamenu-cols { display: flex; flex-wrap: wrap; gap: 1.5rem; }
 .nav-megamenu-col { min-width: 190px; }
@@ -189,7 +203,7 @@ img { max-width: 100%; height: auto; }
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 60vh;
+  max-height: calc(100vh - 9rem);
   overflow-y: auto;
 }
 .nav-megamenu-list a {
@@ -647,11 +661,24 @@ img { max-width: 100%; height: auto; }
 .breadcrumb a:hover { text-decoration: underline; }
 .breadcrumb-sep { opacity: .55; margin: 0 .35rem; }
 .capability-strip {
-  font-size: .85rem;
+  display: inline-block;
+  padding: .3rem .8rem;
+  border-radius: 999px;
+  background: var(--bg-subtle);
+  font-size: .78rem;
   color: var(--text-muted);
   margin-bottom: 2.5rem;
 }
-.prose table code { overflow-wrap: anywhere; }
+/* Table and list code chips are atomic — `anywhere` split identifiers mid-token. */
+.prose table code,
+.prose li code { white-space: nowrap; }
+/* Below this width a three-column table can't fit; give it a floor width and
+   let the prose column scroll horizontally, rather than squeezing every cell
+   into a tall stack. */
+@media (max-width: 640px) {
+  .prose { overflow-x: auto; }
+  .prose table { min-width: 40rem; }
+}
 
 .prose {
   max-width: 780px;

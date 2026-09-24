@@ -35,14 +35,30 @@
               {%- for area in module_areas -%}
                 {%- assign area_modules = site.data.modules | where: "area", area -%}
                 {%- if area_modules.size > 0 %}
+                {%- assign split = false -%}
+                {%- assign first_limit = area_modules.size -%}
+                {%- if area_modules.size > 15 -%}
+                  {%- assign split = true -%}
+                  {%- assign first_limit = area_modules.size | divided_by: 2 -%}
+                {%- endif %}
               <details class="nav-megamenu-col" open>
                 <summary class="nav-dropdown-heading">{% if area == "agentic" %}Agentic{% elsif area == "tools" %}Tools{% else %}Harnesses{% endif %} ({{ area_modules.size }})</summary>
                 <ul class="nav-megamenu-list">
-                  {%- for module in area_modules %}
+                  {%- for module in area_modules limit: first_limit %}
                   <li><a href="{{ module.url | relative_url }}">{{ module.title }}</a></li>
                   {%- endfor %}
                 </ul>
               </details>
+                {%- if split %}
+              <details class="nav-megamenu-col" open>
+                <summary class="nav-dropdown-heading">continued</summary>
+                <ul class="nav-megamenu-list">
+                  {%- for module in area_modules offset: first_limit %}
+                  <li><a href="{{ module.url | relative_url }}">{{ module.title }}</a></li>
+                  {%- endfor %}
+                </ul>
+              </details>
+                {%- endif %}
                 {%- endif -%}
               {%- endfor %}
             </div>
