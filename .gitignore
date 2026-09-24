@@ -11,6 +11,9 @@ Makefile.local.mk
 docs/_site/
 docs/.jekyll-cache/
 docs/vendor/
+# Generated from src/<area>/<module>/docs.md by the docs module's gather script.
+docs/modules/
+docs/_data/
 Makefile.vars.local.mk
 .env
 litellm.config.yaml
