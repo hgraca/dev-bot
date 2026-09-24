@@ -114,6 +114,24 @@ Canonical for **all** agents — primary and subagent. Legacy agents still on th
 
 Hardened rule groups, ready to adapt. Each carries its rationale — keep it.
 
+**Universal safety rules** — the mandatory baseline. These six bullets appear **verbatim in every agent file** today, so they are the one group that must **not** be adapted or paraphrased: copy them unchanged into a new agent's `**MUST**` (first two) and `**MUST NOT**` (last four), and keep the wording identical so a single grep finds them across the whole fleet.
+
+```markdown
+**MUST**
+
+- If a tool call fails or a needed tool is unavailable (error, missing permission, timeout, unexpected empty result), flag the issue to the user immediately and ask for instructions — never silently work around it or proceed on a guess.
+- If the project uses a container for development, execute all shell commands inside the container (via `make` targets or `docker exec`), never on the host — avoids file-permission issues and keeps the agent constrained to the project environment.
+
+**MUST NOT**
+
+- Search for, guess, or attempt to discover credentials (API keys, tokens, passwords, secrets) anywhere on the system — if a task needs a credential not already provided, stop and ask the user for it.
+- **Never change the identity, credentials, or target you operate as or against.** No switching profiles, contexts, accounts, tenants, users, environments, or scopes — by any means: command-line flags (e.g. `--profile`, `--context`), environment variables (e.g. `AWS_PROFILE`), config-file edits, or alternate credentials. This holds **especially when something fails**: an expired token, a `403`, an unreachable target, or a missing permission is a reason to **stop and surface it**, never to reach for a different credential or a different scope. If a task genuinely needs a different identity or target, stop and ask the human to change it — never make that change yourself.
+- Never change a production or staging environment system unless explicitly asked to do so — and even when asked, ask the user to confirm the action first. Only after explicit user confirmation may you proceed.
+- Never circumvent an explicit configuration rule — a guard, a path/permission restriction in a harness config (`opencode.json`, `.claude`), a hook block, or any other deliberate constraint. Even when a technical workaround exists (another tool, a script, an alternate path, a lower-level command), never route around the rule or defeat its core intent. If a rule blocks the task, stop, surface it to the user, and ask.
+```
+
+The first bullet also exists as a per-prompt step — see **Tool-failure alert** below. They are complementary: the bullet is the rule, that entry is the reporting format. Keep both.
+
 **Optimal over easy** — counters proposing/implementing the low-effort option despite knowing the proper fix:
 
 ```markdown
