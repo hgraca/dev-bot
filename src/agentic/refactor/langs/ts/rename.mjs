@@ -48,30 +48,42 @@ function createProject() {
   return project;
 }
 
-function candidates(sourceFile) {
-  return ["Class", "Interface", "Function", "TypeAlias", "Enum", "VariableDeclaration"];
-}
+// The plural getters that expose a source file's top-level declarations, and how
+// to read each one's name.
+const DECLARATION_KINDS = [
+  ["getClasses", (node) => node.getName()],
+  ["getInterfaces", (node) => node.getName()],
+  ["getFunctions", (node) => node.getName()],
+  ["getTypeAliases", (node) => node.getName()],
+  ["getEnums", (node) => node.getName()],
+  ["getVariableDeclarations", (node) => node.getName()],
+];
 
-function findDeclaration(project, name, file) {
+// Every declaration of `name` in the project, or in `file` when given. A list,
+// because more than one is ambiguous: renaming an arbitrary one would touch the
+// wrong symbol, so the caller is asked to pick with --file.
+function findDeclarations(project, name, file) {
   const files = file
     ? [project.getSourceFile(path.join(PROJECT_DIR, file))]
     : project.getSourceFiles();
 
+  const found = [];
   for (const sourceFile of files) {
     if (!sourceFile) continue;
 
-    for (const kind of candidates(sourceFile)) {
-      const getter = "get" + kind;
-      const node = typeof sourceFile[getter] === "function" ? sourceFile[getter](name) : undefined;
-      if (node) return node;
+    for (const [getter, read] of DECLARATION_KINDS) {
+      for (const node of sourceFile[getter]()) {
+        if (read(node) === name) found.push(node);
+      }
     }
 
     for (const container of [...sourceFile.getClasses(), ...sourceFile.getInterfaces()]) {
-      const member = container.getMethod(name) || container.getProperty(name);
-      if (member) return member;
+      for (const member of [...container.getMethods(), ...container.getProperties()]) {
+        if (member.getName() === name) found.push(member);
+      }
     }
   }
-  return null;
+  return [...new Set(found)];
 }
 
 function relative(filePath) {
@@ -116,14 +128,11 @@ function findStringReferences(project, name) {
 }
 
 // Identifiers still named `name` — the residue of a rename that could not reach
-// every reference. Restricted to `scope` when given: after an apply only the
-// files the rename touched matter, and a same-named symbol elsewhere is not this
-// rename's business.
-function findResidualReferences(project, name, scope) {
+// every reference.
+function findResidualReferences(project, name) {
   const files = new Set();
   for (const sourceFile of project.getSourceFiles()) {
     const file = relative(sourceFile.getFilePath());
-    if (scope && !scope.has(file)) continue;
     for (const identifier of sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
       if (identifier.getText() === name) {
         files.add(file);
@@ -146,17 +155,30 @@ async function main() {
   }
 
   const project = createProject();
-  const node = findDeclaration(project, from, file);
+  const declarations = findDeclarations(project, from, file);
 
+  // Several declarations of the same name: picking one silently would rename the
+  // wrong symbol, so name the candidates and let the caller choose.
+  if (declarations.length > 1) {
+    const listing = declarations
+      .map((node) => `  ${relative(node.getSourceFile().getFilePath())}:${node.getStartLineNumber()}`)
+      .sort()
+      .join("\n");
+    return fail(
+      `'${from}' is declared in ${declarations.length} places — pass --file to pick one:\n${listing}`,
+    );
+  }
+
+  const node = declarations[0];
   if (!node) {
     // A re-run after a rename: `from` is gone, but if the target is now declared
     // the rename happened, so report whatever still holds the old name rather
     // than claiming the symbol never existed. With neither name declared the
     // name was simply wrong, which stays an error.
-    if (!findDeclaration(project, to, null)) {
+    if (findDeclarations(project, to, null).length === 0) {
       return fail("no declaration of '" + from + "' found" + (file ? " in " + file : ""));
     }
-    const residual = findResidualReferences(project, from, null);
+    const residual = findResidualReferences(project, from);
     const result = {
       ok: true,
       engine: ENGINE,

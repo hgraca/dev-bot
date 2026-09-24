@@ -1262,6 +1262,46 @@ assert m["risks"]["rename-symbol"] == "rename", m
   assert_output --partial "Banner.tsx"
 }
 
+@test "end-to-end (ts): an ambiguous name is refused, naming the candidates" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/ambiguous-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${work}/request.json"
+
+  # Two declarations of the same name: renaming either one silently could touch
+  # the wrong symbol, so both are named for the caller to choose between.
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "declared in 2 places"
+  assert_output --partial "First.ts"
+  assert_output --partial "Second.ts"
+}
+
+@test "end-to-end (ts): --file picks one of several same-named methods" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/ambiguous-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute","file":"src/First.ts"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+
+  local picked other
+  picked="$(grep -c 'salute(name: string)' "${work}/src/First.ts" || true)"
+  other="$(grep -c 'greet(name: string)' "${work}/src/Second.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${picked}" = "1" ]
+  # The declaration in the other file is left alone.
+  [ "${other}" = "1" ]
+}
+
 @test "end-to-end (ts): an apply reports the string reference and leaves it" {
   _ts_e2e_ready || skip "docker + ts-morph engine not available"
 
