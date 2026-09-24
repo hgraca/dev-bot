@@ -5,6 +5,8 @@ on:
     branches: ["main"]
     paths:
       - "docs/**"
+      - "src/**/docs.md"
+      - "src/agentic/docs/tools/templates/**"
       - ".github/workflows/jekyll-gh-pages.yml"
   workflow_dispatch:
 
