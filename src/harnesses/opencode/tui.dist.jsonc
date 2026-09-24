@@ -33,10 +33,17 @@
   // opencode.dist.jsonc: they are version-sensitive, and an unpinned spec
   // silently follows upstream `latest`. opencode-tabs was verified against
   // opencode 1.18.31 and declares engines.opencode >=1.17.20.
-  // dev-bot's own PTY monitor is symlinked into .opencode/tui-plugins/ by
-  // init.sh; the entry is RELATIVE to this file so the template stays portable —
-  // an absolute install path would break every consumer. It watches
-  // opencode-pty's HTTP API (a hard dependency), so with no PTY session it
-  // simply shows none.
-  "plugin": ["opencode-tabs@0.3.0", "./tui-plugins/pty-monitor/index.ts"]
+  // dev-bot's own TUI plugins are symlinked into .opencode/tui-plugins/ by
+  // init.sh; their entries are RELATIVE to this file so the template stays
+  // portable — an absolute install path would break every consumer.
+  //   pty-monitor  watches opencode-pty's HTTP API (a hard dependency), so with
+  //                no PTY session it simply shows none
+  //   tui-defaults seeds the tool-details default (hidden) at startup, but only
+  //                while the user has not configured one — an explicit choice is
+  //                never overridden, so toggling it in the TUI is the opt-out
+  "plugin": [
+    "opencode-tabs@0.3.0",
+    "./tui-plugins/pty-monitor/index.ts",
+    "./tui-plugins/tui-defaults/index.ts"
+  ]
 }

@@ -140,10 +140,22 @@ sys.exit(1)
 # ── Link dev-bot TUI plugins into .opencode/tui-plugins/ ───────────────────────
 # Unlike hooks, TUI plugins are NOT auto-discovered: opencode loads them from the
 # `plugin` array in tui.json. So this farm plus the entry in tui.dist.jsonc are
-# both required. The entry is a path RELATIVE to .opencode/tui.json, which keeps
+# both required. Each entry is a path RELATIVE to .opencode/tui.json, which keeps
 # the shipped template portable instead of baking in an install path.
+#
+# Every name here must also appear in tui.dist.jsonc and required-plugins.jsonc;
+# a test asserts the three stay in step.
+_TUI_PLUGINS=(pty-monitor tui-defaults)
+
 _link_tui_plugins() {
-  local name="pty-monitor"
+  local name
+  for name in "${_TUI_PLUGINS[@]}"; do
+    _link_tui_plugin "${name}"
+  done
+}
+
+_link_tui_plugin() {
+  local name="$1"
   local src_dir="${DEV_BOT_ROOT}/src/harnesses/opencode/${name}"
   local link="${PROJECT_DIR}/.opencode/tui-plugins/${name}"
 

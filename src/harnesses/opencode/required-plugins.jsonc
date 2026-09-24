@@ -12,5 +12,9 @@
   // Keep this in step with the dists: the test suite asserts each dist plugin
   // appears here, so a new dist entry cannot be forgotten.
   "server": [".opencode/plugins/on-hooks.ts", "opencode-pty@0.3.6"],
-  "tui": ["opencode-tabs@0.3.0", "./tui-plugins/pty-monitor/index.ts"]
+  "tui": [
+    "opencode-tabs@0.3.0",
+    "./tui-plugins/pty-monitor/index.ts",
+    "./tui-plugins/tui-defaults/index.ts"
+  ]
 }
