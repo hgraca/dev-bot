@@ -60,10 +60,11 @@ adding a language is additive.
 | lang  | ops                                                  | engine                        |
 | ----- | ---------------------------------------------------- | ----------------------------- |
 | `php` | the ops above                                        | Rector, in a PHP container    |
+| `py`  | `rename-symbol` (`--from`/`--to`, optional `--file`) | rope, in a Python container   |
 | `ts`  | `rename-symbol` (`--from`/`--to`, optional `--file`) | ts-morph, in a Node container |
 
 The TypeScript plugin needs a one-time `bash langs/ts/plugin.sh provision`
-(npm installs ts-morph into the shared scratch dir); `doctor` reports whether it
+(npm installs ts-morph into the shared scratch dir; `langs/py/plugin.sh provision` does the same for rope); `doctor` reports whether it
 is present. ts-morph resolves the symbol through the TypeScript compiler, so one
 run renames the declaration and every reference — no per-rule steps.
 

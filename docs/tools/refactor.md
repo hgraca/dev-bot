@@ -69,6 +69,7 @@ which is what makes a new language additive.
 | Lang  | Ops             | Engine                        |
 | ----- | --------------- | ----------------------------- |
 | `php` | the ops above   | Rector, in a PHP container    |
+| `py`  | `rename-symbol` | rope, in a Python container   |
 | `ts`  | `rename-symbol` | ts-morph, in a Node container |
 
 Run `bash langs/ts/plugin.sh provision` once to install the TypeScript engine into
@@ -165,8 +166,11 @@ prove additivity).
 - **An apply verifies itself** by re-running every step as a dry run and
   reporting `remaining_changes`. That second pass doubles the runtime, so a large
   project can set `REFACTOR_SKIP_VERIFY=1`.
-- **Not yet available:** `rename-attribute` (the rule needs the qualified
-  attribute name) and `rename-cast` (its value object is built from enum kinds).
+- **`rename-attribute` and `rename-cast`** are not available (the attribute rule
+  needs the qualified name; the cast rule is configured from enum kinds).
+- **The Python plugin uses rope**, whose reference set comes from the symbol table
+  rather than a type checker — ordinary code is covered, dynamic construction is
+  not. The scratch TypeScript may also differ from a project's own.
 - **`rename-constant` matches on the bare name**, because Rector's rule rejects a
   qualified key. A same-named constant in another namespace would match too.
 - **`rename-annotation` re-appends the annotation**, so it can shift order

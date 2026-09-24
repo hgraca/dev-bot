@@ -17,6 +17,8 @@ setup() {
   PHP_FIXTURES="${TEST_DIR}/fixtures/php"
   TS_PLUGIN="${MODULE_DIR}/langs/ts/plugin.sh"
   TS_FIXTURES="${TEST_DIR}/fixtures/ts"
+  PY_PLUGIN="${MODULE_DIR}/langs/py/plugin.sh"
+  PY_FIXTURES="${TEST_DIR}/fixtures/py"
 }
 
 # True when the TypeScript plugin can run for real.
@@ -24,6 +26,13 @@ _ts_e2e_ready() {
   command -v docker >/dev/null 2>&1 || return 1
   docker info >/dev/null 2>&1 || return 1
   bash "${TS_PLUGIN}" doctor --project "${TS_FIXTURES}/rename-demo" >/dev/null 2>&1
+}
+
+# True when the Python plugin can run for real.
+_py_e2e_ready() {
+  command -v docker >/dev/null 2>&1 || return 1
+  docker info >/dev/null 2>&1 || return 1
+  bash "${PY_PLUGIN}" doctor --project "${PY_FIXTURES}/rename-demo" >/dev/null 2>&1
 }
 
 # ── Skeleton ───────────────────────────────────────────────────────────────────
@@ -1212,4 +1221,43 @@ assert m["risks"]["rename-symbol"] == "rename", m
   [ "${decl}" = "1" ]
   [ "${call}" = "1" ]
   [ "${stale}" = "0" ]
+}
+
+# ── L2: the Python plugin ──────────────────────────────────────────────────────
+
+@test "py plugin: meta declares the language, extensions and its op" {
+  run bash "${PY_PLUGIN}" meta
+  assert_success
+
+  printf '%s' "${output}" | python3 -c '
+import json, sys
+m = json.load(sys.stdin)
+assert m["lang"] == "py", m
+assert m["extensions"] == [".py"], m
+assert m["ops"] == ["rename-symbol"], m
+assert m["requires"]["rename-symbol"] == ["from", "to"], m
+assert m["risks"]["rename-symbol"] == "rename", m
+'
+}
+
+@test "end-to-end (py): rename-symbol renames the definition and the reference" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PY_FIXTURES}/rename-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang py --op rename-symbol --from greet --to salute --apply"
+
+  local decl call stray
+  decl="$(grep -c 'def salute' "${work}/src/greeter.py" || true)"
+  call="$(grep -c '\.salute(' "${work}/src/use_greeter.py" || true)"
+  # rope writes a .ropeproject/ by default; it must not reach the caller's tree.
+  stray="$(test -e "${work}/.ropeproject" && echo 1 || echo 0)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${decl}" = "1" ]
+  [ "${call}" = "1" ]
+  [ "${stray}" = "0" ]
 }
