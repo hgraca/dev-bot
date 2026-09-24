@@ -262,3 +262,30 @@ EOF
   [ "$status" -ne 0 ]
   echo "$output" | grep -q 'block sequence'
 }
+
+@test "a pipe in a description cannot break the index or Contents tables" {
+  mkdir -p "${FIXTURE}/src/agentic/alpha/skills/alpha-skill"
+  cat >"${FIXTURE}/src/agentic/alpha/skills/alpha-skill/SKILL.md" <<'EOF'
+---
+name: devbot:alpha-skill
+description: "handles x | y"
+---
+EOF
+  cat >"${FIXTURE}/src/agentic/alpha/docs.md" <<'EOF'
+---
+title: Alpha
+description: "reads a | b"
+skills: [alpha-skill]
+---
+
+Body.
+
+## Configuration
+
+None.
+EOF
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -eq 0 ]
+  grep -qF 'reads a \| b' "${OUT}/modules/index.md"
+  grep -qF 'handles x \| y' "${OUT}/modules/agentic/alpha.md"
+}

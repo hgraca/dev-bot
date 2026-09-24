@@ -186,9 +186,9 @@ def render_contents(module):
             purpose = (
                 overrides.get(kind, {}).get(name)
                 or details.get(kind, {}).get(bare_name(name))
-                or "—"
+                or ""
             )
-            rows.append(f"| {label} | `{name}` | {purpose} |")
+            rows.append(f"| {label} | `{cell(name)}` | {cell(purpose) or '—'} |")
     if not rows:
         return ""
     header = ["## Contents", "", "| Type | Name | Purpose |", "| --- | --- | --- |"]
@@ -483,8 +483,8 @@ def render_index(modules):
         for module in area_modules:
             link = "{{ '" + module["url"] + "' | relative_url }}"
             rows.append(
-                f"| [{module['title']}]({link}) | {module['description']}"
-                f" | {module.get('summary') or '—'} |"
+                f"| [{cell(module['title'])}]({link}) | {cell(module['description'])}"
+                f" | {cell(module.get('summary')) or '—'} |"
             )
         rows.append("")
 
