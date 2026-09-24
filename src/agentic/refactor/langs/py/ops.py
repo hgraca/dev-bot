@@ -289,6 +289,31 @@ def _move_module(project, request, MoveModule):
     return MoveModule(project, source_resource).get_changes(dest_resource)
 
 
+def _remove_unused_imports(project, request):
+    from rope.base.change import ChangeContents, ChangeSet
+    from rope.refactor.importutils import ImportTools
+
+    path = _target_file(request)
+    resource = project.get_file(os.path.relpath(path, PROJECT_DIR))
+    if not resource.exists():
+        fail("no such file: %s" % request.get("file"))
+
+    # Only `unused`: sort/duplicates/selfs stay off so the change is exactly the
+    # removal of names rope can prove unreferenced in this module.
+    new_source = ImportTools(project).organize_imports(
+        project.get_pymodule(resource),
+        unused=True,
+        duplicates=False,
+        selfs=False,
+        sort=False,
+    )
+
+    changes = ChangeSet("Remove unused imports from %s" % request.get("file"))
+    if new_source != resource.read():
+        changes.add_change(ChangeContents(resource, new_source))
+    return changes
+
+
 def _extract(project, request, extractor):
     name_to = request.get("to") or ""
     if not name_to:
@@ -340,6 +365,8 @@ def build_changes(project, request):
         from rope.refactor.move import MoveModule
 
         return _move_module(project, request, MoveModule)
+    if op == "remove-unused-imports":
+        return _remove_unused_imports(project, request)
     fail("py plugin: unsupported op: %s" % op)
 
 
@@ -378,6 +405,9 @@ def summarize(op, request, files, apply):
             new,
             len(files),
         )
+    if op == "remove-unused-imports":
+        verb = "Removed unused imports" if apply else "Would remove unused imports"
+        return "%s in %d file(s)" % (verb, len(files))
     verb = "Extracted" if apply else "Would extract"
     return "%s %s in %d file(s)" % (verb, new, len(files))
 
@@ -396,7 +426,9 @@ def main():
     try:
         changes = build_changes(project, request)
         files = changed_paths(changes, PROJECT_DIR)
-        if not files and request.get("file"):
+        # A rename that changed nothing still names its target; a cleanup that
+        # found nothing must not claim a file.
+        if not files and op == "rename-symbol" and request.get("file"):
             files = [request["file"]]
         # A move must report where the module landed, not the path it left.
         if op == "move-module":

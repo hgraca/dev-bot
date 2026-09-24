@@ -1376,6 +1376,7 @@ assert m["risks"]["encapsulate-field"] == "cleanup", m
 assert m["risks"]["add-argument"] == "signature", m
 assert m["risks"]["remove-argument"] == "signature", m
 assert m["risks"]["move-module"] == "move", m
+assert m["risks"]["remove-unused-imports"] == "cleanup", m
 '
 }
 
@@ -1700,4 +1701,26 @@ JSON
   [ "${rewritten}" = "1" ]
   # The report names where the module landed, not only the path it left.
   assert_output --partial 'pkg/other/helpers.py'
+}
+
+@test "end-to-end (py): remove-unused-imports drops only provably-unused names" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/unused-demo/." "${work}/"
+  printf '{"op":"remove-unused-imports","file":"src/mod.py"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local kept dropped
+  kept="$(grep -c '^import sys' "${work}/src/mod.py" || true)"
+  dropped="$(grep -cE '^import os|OrderedDict' "${work}/src/mod.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  # `sys` is used; `os` and `OrderedDict` are not.
+  [ "${kept}" = "1" ]
+  [ "${dropped}" = "0" ]
 }

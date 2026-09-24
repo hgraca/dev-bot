@@ -81,16 +81,17 @@ rope ships refactorings Rector has no equivalent for. A region is selected by
 **line, optionally with a column** (`--start 12:9 --end 12:18`) — 1-based,
 inclusive; a missing column reads to the end of the line.
 
-| op                  | needs                                 | risk      |
-| ------------------- | ------------------------------------- | --------- |
-| `rename-symbol`     | `--from`, `--to` (optional `--file`)  | rename    |
-| `extract-method`    | `--file`, `--start`, `--end`, `--to`  | extract   |
-| `extract-variable`  | `--file`, `--start`, `--end`, `--to`  | extract   |
-| `inline`            | `--from` (optional `--file`)          | inline    |
-| `encapsulate-field` | `--file`, `--from`                    | cleanup   |
-| `add-argument`      | `--file`, `--from`, `--to`, `--index` | signature |
-| `remove-argument`   | `--file`, `--from`, `--index`         | signature |
-| `move-module`       | `--file`, `--to` (a folder)           | move      |
+| op                      | needs                                 | risk      |
+| ----------------------- | ------------------------------------- | --------- |
+| `rename-symbol`         | `--from`, `--to` (optional `--file`)  | rename    |
+| `extract-method`        | `--file`, `--start`, `--end`, `--to`  | extract   |
+| `extract-variable`      | `--file`, `--start`, `--end`, `--to`  | extract   |
+| `inline`                | `--from` (optional `--file`)          | inline    |
+| `encapsulate-field`     | `--file`, `--from`                    | cleanup   |
+| `add-argument`          | `--file`, `--from`, `--to`, `--index` | signature |
+| `remove-argument`       | `--file`, `--from`, `--index`         | signature |
+| `move-module`           | `--file`, `--to` (a folder)           | move      |
+| `remove-unused-imports` | `--file`                              | cleanup   |
 
 ## Cleanup ops
 

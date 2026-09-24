@@ -88,16 +88,17 @@ alongside `rename-symbol`. A region is selected by **line, optionally with a
 column** (`--start 12:9 --end 12:18`) — 1-based, inclusive; a missing column reads
 to the end of the line.
 
-| Op                  | Needs                                 | Risk      |
-| ------------------- | ------------------------------------- | --------- |
-| `rename-symbol`     | `--from`, `--to` (optional `--file`)  | rename    |
-| `extract-method`    | `--file`, `--start`, `--end`, `--to`  | extract   |
-| `extract-variable`  | `--file`, `--start`, `--end`, `--to`  | extract   |
-| `inline`            | `--from` (optional `--file`)          | inline    |
-| `encapsulate-field` | `--file`, `--from`                    | cleanup   |
-| `add-argument`      | `--file`, `--from`, `--to`, `--index` | signature |
-| `remove-argument`   | `--file`, `--from`, `--index`         | signature |
-| `move-module`       | `--file`, `--to` (a folder)           | move      |
+| Op                      | Needs                                 | Risk      |
+| ----------------------- | ------------------------------------- | --------- |
+| `rename-symbol`         | `--from`, `--to` (optional `--file`)  | rename    |
+| `extract-method`        | `--file`, `--start`, `--end`, `--to`  | extract   |
+| `extract-variable`      | `--file`, `--start`, `--end`, `--to`  | extract   |
+| `inline`                | `--from` (optional `--file`)          | inline    |
+| `encapsulate-field`     | `--file`, `--from`                    | cleanup   |
+| `add-argument`          | `--file`, `--from`, `--to`, `--index` | signature |
+| `remove-argument`       | `--file`, `--from`, `--index`         | signature |
+| `move-module`           | `--file`, `--to` (a folder)           | move      |
+| `remove-unused-imports` | `--file`                              | cleanup   |
 
 As for PHP, a Python rename reports quoted occurrences of the old name as
 `string_references` (rope cannot rewrite a name held in a string), and an apply
