@@ -32,7 +32,11 @@ when the caller supplies the expected host value (--gpu):
   - {env:VAR}           env indirection (mapped per harness: opencode keeps
                         {env:VAR}, claudecode's .mcp.json carries ${VAR}) —
                         current whether the config holds the literal token in
-                        either spelling, or omits the key
+                        either spelling, or omits the key. A header value may
+                        EMBED the token ("Sentry-Bearer {env:T}") and its KEY
+                        gets the same tolerance — but a config omitting the
+                        whole `headers` map reads stale, since the template
+                        keeps the (emptied) map
   - enabled             user-owned WHERE THE MODULE DECLARES THE FIELD: an
                         explicit value in the config is the user's switch, so it
                         is ignored by the comparison and reinit cannot undo it.
@@ -57,6 +61,10 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
 from mcp_translate import load_canonical, server_map, translate  # noqa: E402
+
+# An env-indirection token anywhere in a string: {env:VAR} (opencode) or ${VAR}
+# (claudecode). Header values may embed one; env values are whole-value-only.
+ENV_REF_TOKEN = re.compile(r"\{env:[A-Za-z_][A-Za-z0-9_]*\}|\$\{[A-Za-z_][A-Za-z0-9_]*\}")
 
 
 def _load_jsonc(path):
@@ -142,6 +150,21 @@ def _normalize(entry, config_entry, gpu=None):
     if "enabled" in entry and "enabled" in config_entry:
         entry.pop("enabled", None)
         config_entry.pop("enabled", None)
+
+    # A header may carry an embedded {env:VAR} token — an upstream API scheme
+    # prefix plus the secret on one value ("Sentry-Bearer {env:TOKEN}"). Treat it
+    # like env indirection: current whether the config holds the token spelling
+    # or an already-resolved value, so neither reads as staleness. This runs
+    # before the env block's early return — a module may declare headers and no
+    # env at all.
+    headers = entry.get("headers")
+    if isinstance(headers, dict):
+        config_headers = config_entry.get("headers")
+        config_headers = config_headers if isinstance(config_headers, dict) else {}
+        for k, v in list(headers.items()):
+            if isinstance(v, str) and ENV_REF_TOKEN.search(v):
+                headers.pop(k)
+                config_headers.pop(k, None)
 
     # The env block is named `environment` (opencode) or `env` (claudecode)
     # depending on the harness the template was translated for.

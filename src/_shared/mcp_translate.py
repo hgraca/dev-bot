@@ -15,6 +15,8 @@ Canonical module manifest (src/agentic/<module>/mcp.json):
                              "url": "...",           // http
                              "oauth": bool,          // http passthrough
                              "enabled": bool,        // opencode-only (see below)
+                             "headers": { "K": "V" },// http-only; {env:VAR} may
+                                                     // be embedded ("Bearer {env:T}")
                              "env": { "K": "V" } } } }
 
 `enabled` (optional, defaults to true) ships a server wired but not started, so
@@ -33,11 +35,13 @@ and applies its own placeholder-insensitive comparison afterwards.
 
 Output shapes:
   opencode   stdio -> {type: local, command, environment}   (env renamed)
-             http  -> {type: remote, url, oauth?}
+             http  -> {type: remote, url, oauth?, headers?}
              either also carries `enabled` when the manifest declares it
   claudecode stdio -> {type: stdio, command: argv[0], args: argv[1:], env}
-             http  -> {type: http, url, env?}               (oauth and enabled
-                                                             dropped)
+             http  -> {type: http, url, headers?, env?}     (oauth and enabled
+                                                             dropped; an embedded
+                                                             {env:VAR} in a
+                                                             header becomes ${VAR})
 
 Usage:
   mcp_translate.py <manifest> <harness> [--gpu VAL] [--root PATH]
@@ -56,9 +60,16 @@ TRANSPORTS = ("stdio", "http")
 # Canonical entry keys the translator understands. Underscore-prefixed keys are
 # annotations at any level and are ignored (hooks.json convention). Anything
 # else is a migration mistake — a leftover harness-specific field such as
-# "environment" or "headers" — and fails loudly rather than being silently
-# dropped.
-ENTRY_KEYS = ("type", "command", "url", "oauth", "enabled", "env")
+# "environment" — and fails loudly rather than being silently dropped.
+ENTRY_KEYS = ("type", "command", "url", "oauth", "enabled", "headers", "env")
+
+# A well-formed {env:VAR} reference. An env VALUE must be exactly one of these
+# (whole-value-only); a header VALUE may embed one alongside text, because an
+# upstream API needs its scheme prefix on the same value
+# ("Sentry-Bearer {env:SENTRY_ACCESS_TOKEN}"). Both clients expand an embedded
+# token: opencode interpolates {env:VAR} natively, Claude Code substitutes
+# ${VAR} anywhere in a header.
+ENV_REF = re.compile(r"\{env:[A-Za-z_][A-Za-z0-9_]*\}")
 
 HARNESS_DIRS = {"opencode": ".opencode", "claudecode": ".claude"}
 # {host} resolves to the PRODUCT name each harness is known by — opencode, and
@@ -123,6 +134,10 @@ def _validate_entry(server: str, entry: Any) -> None:
             raise ValueError(
                 f"server '{server}': oauth is http-only — stdio servers do not use it"
             )
+        if "headers" in entry:
+            raise ValueError(
+                f"server '{server}': headers is http-only — stdio servers do not use it"
+            )
     else:  # http
         if not isinstance(entry.get("url"), str) or not entry["url"]:
             raise ValueError(f"server '{server}': http requires a url")
@@ -143,11 +158,39 @@ def _validate_entry(server: str, entry: Any) -> None:
                 # entire value (opencode and Claude Code both expand it
                 # natively at launch). An embedded or malformed token would
                 # expand on one harness and stay literal on the other — reject.
-                if not re.fullmatch(r"\{env:[A-Za-z_][A-Za-z0-9_]*\}", value):
+                if not ENV_REF.fullmatch(value):
                     raise ValueError(
                         f"server '{server}': env key '{key}' value '{value}' — "
                         f"{{env:VAR}} must be a well-formed whole value"
                     )
+    headers = entry.get("headers")
+    # Presence, not non-null, is the contract: both emitters key off presence, so
+    # a `null` would otherwise reach the harness config as `headers: null`.
+    if "headers" in entry and (
+        not isinstance(headers, dict)
+        or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in headers.items()
+        )
+    ):
+        raise ValueError(
+            f"server '{server}': headers must map string keys to string values"
+        )
+    if isinstance(headers, dict):
+        for key, value in headers.items():
+            # Embedded is allowed here, malformed is not: strip every well-formed
+            # token and reject if a fragment survives.
+            if "{env:" in ENV_REF.sub("", value):
+                raise ValueError(
+                    f"server '{server}': header '{key}' carries a malformed "
+                    f"{{env:VAR}} token — must be a well-formed {{env:NAME}}"
+                )
+            # The canonical manifest spells env indirection {env:VAR}; a ${VAR}
+            # here would stay literal on opencode while Claude Code expanded it.
+            if re.search(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", value):
+                raise ValueError(
+                    f"server '{server}': header '{key}' uses ${{VAR}} — the "
+                    f"canonical manifest spells env indirection {{env:VAR}}"
+                )
 
 
 def load_canonical(path: str) -> Any:
@@ -182,6 +225,11 @@ def _map_env_value(value: Any, harness: str) -> Any:
     return value
 
 
+def _map_env_refs(value: str) -> str:
+    """Rewrite every embedded {env:VAR} to Claude Code's native ${VAR}."""
+    return ENV_REF.sub(lambda m: "${" + m.group(0)[len("{env:") : -1] + "}", value)
+
+
 def translate(
     entry: Any,
     harness: str,
@@ -210,6 +258,8 @@ def translate(
             }
             if "oauth" in entry:
                 out["oauth"] = entry["oauth"]
+            if "headers" in entry:
+                out["headers"] = _substitute(entry["headers"], harness, gpu, root)
         if "enabled" in entry:
             out["enabled"] = entry["enabled"]
         env = entry.get("env")
@@ -230,6 +280,11 @@ def translate(
             out["args"] = argv[1:]
     else:
         out = {"type": "http", "url": _substitute(entry["url"], harness, gpu, root)}
+        if "headers" in entry:
+            out["headers"] = {
+                k: _map_env_refs(v)
+                for k, v in _substitute(entry["headers"], harness, gpu, root).items()
+            }
     env = entry.get("env")
     if isinstance(env, dict) and env:
         out["env"] = {

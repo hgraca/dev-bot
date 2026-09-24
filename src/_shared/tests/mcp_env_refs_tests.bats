@@ -6,7 +6,8 @@
 #
 #   src/_shared/mcp_env_refs.py       — extractor: parse a canonical mcp.json
 #                                       and print one `server<TAB>envkey<TAB>VAR`
-#                                       line per whole-value {env:VAR} ref.
+#                                       line per {env:VAR} ref (whole-value in
+#                                       env, possibly embedded in a header).
 #   _devbot_missing_mcp_env_vars      — bash collector: scan the enabled modules
 #                                       of a project, keep refs whose var is
 #                                       unset/empty in the current shell env.
@@ -284,4 +285,61 @@ JSON_EOF
   run _devbot_check_mcp_env_vars "${PROJECT}" ack
   assert_success
   assert_output ""
+}
+
+# ── Embedded {env:VAR} in headers ─────────────────────────────────────────────
+
+@test "extractor reads an EMBEDDED {env:VAR} from a canonical manifest's headers" {
+  # Headers relax the whole-value rule: the upstream scheme prefix lives on the
+  # same value ("Sentry-Bearer <token>"), unlike env values which stay
+  # whole-value-only.
+  cat > "${WORK}/canonical-headers.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp",
+      "headers": { "Authorization": "Sentry-Bearer {env:SENTRY_ACCESS_TOKEN}" }
+    }
+  }
+}
+JSON_EOF
+  run python3 "${EXTRACTOR}" "${WORK}/canonical-headers.json"
+  assert_success
+  assert_output "sentry	Authorization	SENTRY_ACCESS_TOKEN"
+}
+
+@test "extractor reads an EMBEDDED {env:VAR} from a runtime manifest's headers" {
+  cat > "${WORK}/runtime-embedded.mcp.json" <<'JSON_EOF'
+{
+  "jetbrains": {
+    "type": "remote",
+    "url": "http://127.0.0.1:1/stream",
+    "headers": { "Authorization": "Bearer {env:RUNTIME_EMBEDDED_SECRET}" },
+    "enabled": true
+  }
+}
+JSON_EOF
+  run python3 "${EXTRACTOR}" "${WORK}/runtime-embedded.mcp.json"
+  assert_success
+  assert_output "jetbrains	Authorization	RUNTIME_EMBEDDED_SECRET"
+}
+
+@test "collector reports an unset header token of an enabled canonical module" {
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/headermod"
+  cat > "${DEV_BOT_ROOT}/src/agentic/headermod/mcp.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "headermod-server": {
+      "type": "http",
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer {env:HEADERMOD_SECRET}" }
+    }
+  }
+}
+JSON_EOF
+  unset HEADERMOD_SECRET 2>/dev/null || true
+  run _devbot_missing_mcp_env_vars "${PROJECT}"
+  assert_success
+  assert_output --partial "headermod|headermod-server|Authorization|HEADERMOD_SECRET"
 }

@@ -340,3 +340,55 @@ JSONC_EOF
   run python3 "$TOOL" "$WORK/signoz-claude-noenv.json" "$WORK/signoz-module.json" "signoz" claudecode
   assert_success
 }
+
+@test "header {env:VAR} refs are current: token spelling or a resolved value" {
+  cat > "$WORK/sentry-module.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp",
+      "oauth": false,
+      "headers": { "Authorization": "Sentry-Bearer {env:SENTRY_ACCESS_TOKEN}" }
+    }
+  }
+}
+JSON_EOF
+
+  # opencode holds the {env:VAR} token verbatim — matches after normalization.
+  cat > "$WORK/sentry-opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "sentry": { "type": "remote", "url": "https://mcp.sentry.dev/mcp", "oauth": false,
+      "headers": { "Authorization": "Sentry-Bearer {env:SENTRY_ACCESS_TOKEN}" } }
+  }
+}
+JSONC_EOF
+  run python3 "$TOOL" "$WORK/sentry-opencode.jsonc" "$WORK/sentry-module.json" "sentry" opencode
+  assert_success
+
+  # A config holding the token already resolved is current too — no churn, the
+  # same tolerance env values get.
+  cat > "$WORK/sentry-resolved.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "sentry": { "type": "remote", "url": "https://mcp.sentry.dev/mcp", "oauth": false,
+      "headers": { "Authorization": "Sentry-Bearer sntrys_abc123" } }
+  }
+}
+JSONC_EOF
+  run python3 "$TOOL" "$WORK/sentry-resolved.jsonc" "$WORK/sentry-module.json" "sentry" opencode
+  assert_success
+
+  # Stale for a real reason (the URL moved) — the header tolerance must not mask it.
+  cat > "$WORK/sentry-stale.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "sentry": { "type": "remote", "url": "https://old.example.com/mcp", "oauth": false,
+      "headers": { "Authorization": "Sentry-Bearer {env:SENTRY_ACCESS_TOKEN}" } }
+  }
+}
+JSONC_EOF
+  run python3 "$TOOL" "$WORK/sentry-stale.jsonc" "$WORK/sentry-module.json" "sentry" opencode
+  assert_failure
+}

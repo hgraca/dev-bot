@@ -12,6 +12,8 @@
 #                            "oauth": bool,          // http passthrough
 #                            "enabled": bool,        // per-server on/off — opencode
 #                                                    // only; claudecode drops it
+#                            "headers": { "K": "V" },// http only; {env:VAR} may be
+#                                                    // embedded ("Bearer {env:T}")
 #                            "env": { "K": "V" } } } }
 #
 # Tokens resolved at translation: {harness-dir} → .opencode/.claude,
@@ -185,6 +187,83 @@ JSON_EOF
   }
 }
 JSON_EOF
+
+  # http headers carrying a token. {env:VAR} may be EMBEDDED here (unlike env
+  # values, where it stays whole-value-only): the upstream API needs a scheme
+  # prefix on the same value ("Sentry-Bearer <token>").
+  cat > "$WORK/http-headers.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp",
+      "oauth": false,
+      "enabled": false,
+      "headers": { "Authorization": "Sentry-Bearer {env:SENTRY_ACCESS_TOKEN}" }
+    }
+  }
+}
+JSON_EOF
+
+  cat > "$WORK/stdio-with-headers.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": { "type": "stdio", "command": ["qmd", "mcp"], "headers": { "X-Trace": "on" } }
+  }
+}
+JSON_EOF
+
+  cat > "$WORK/headers-malformed.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": {
+      "type": "http",
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer {env:UNCLOSED" }
+    }
+  }
+}
+JSON_EOF
+
+  cat > "$WORK/headers-nonstring.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": {
+      "type": "http",
+      "url": "https://example.com/mcp",
+      "headers": { "X-Count": 3 }
+    }
+  }
+}
+JSON_EOF
+
+  # A present-but-null headers map: both emitters key off presence, so this must
+  # be rejected rather than written into a harness config as `headers: null`.
+  cat > "$WORK/headers-null.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": {
+      "type": "http",
+      "url": "https://example.com/mcp",
+      "headers": null
+    }
+  }
+}
+JSON_EOF
+
+  # The canonical spelling is {env:VAR}; a ${VAR} here would stay literal on
+  # opencode while Claude Code expanded it — the divergence the rule prevents.
+  cat > "$WORK/headers-dollar-native.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": {
+      "type": "http",
+      "url": "https://example.com/mcp",
+      "headers": { "Authorization": "Bearer ${SENTRY_TOKEN}" }
+    }
+  }
+}
+JSON_EOF
 }
 
 teardown() {
@@ -340,4 +419,52 @@ assert_json_eq() {
 @test "unsupported harness fails loudly" {
   run python3 "$TOOL" "$WORK/stdio.json" netbeans
   assert_failure
+}
+
+@test "http headers pass to opencode remote with embedded {env:VAR} intact" {
+  # opencode interpolates {env:VAR} natively at launch, embedded included.
+  run python3 "$TOOL" "$WORK/http-headers.json" opencode
+  assert_success
+  assert_json_eq "$output" '{"sentry": {"type": "remote", "url": "https://mcp.sentry.dev/mcp", "oauth": false, "enabled": false, "headers": {"Authorization": "Sentry-Bearer {env:SENTRY_ACCESS_TOKEN}"}}}'
+}
+
+@test "http headers map to claudecode with embedded \${VAR} (oauth/enabled dropped)" {
+  # Claude Code expands ${VAR} inside headers — the token is never resolved to
+  # plaintext at registration.
+  run python3 "$TOOL" "$WORK/http-headers.json" claudecode
+  assert_success
+  assert_json_eq "$output" '{"sentry": {"type": "http", "url": "https://mcp.sentry.dev/mcp", "headers": {"Authorization": "Sentry-Bearer ${SENTRY_ACCESS_TOKEN}"}}}'
+}
+
+@test "stdio entry with headers fails loudly (http-only)" {
+  run python3 "$TOOL" "$WORK/stdio-with-headers.json" opencode
+  assert_failure
+  assert_output --partial "headers"
+}
+
+@test "malformed {env:VAR} in a header fails loudly" {
+  run python3 "$TOOL" "$WORK/headers-malformed.json" opencode
+  assert_failure
+  assert_output --partial "{env:"
+}
+
+@test "non-string header value fails loudly" {
+  run python3 "$TOOL" "$WORK/headers-nonstring.json" opencode
+  assert_failure
+  assert_output --partial "headers"
+}
+
+@test "headers: null fails loudly (present-but-invalid, not absent)" {
+  # Regression: `is not None` used to accept a null map, which the claudecode
+  # emitter then crashed on and the opencode one wrote through verbatim.
+  run python3 "$TOOL" "$WORK/headers-null.json" claudecode
+  assert_failure
+  assert_output --partial "headers"
+  refute_output --partial "Traceback"
+}
+
+@test "a canonical header written as \${VAR} fails loudly (wrong spelling)" {
+  run python3 "$TOOL" "$WORK/headers-dollar-native.json" opencode
+  assert_failure
+  assert_output --partial "env:VAR"
 }

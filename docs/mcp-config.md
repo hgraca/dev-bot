@@ -168,9 +168,10 @@ If the container is not running the server is simply unavailable; there is no st
 | `url`     | http     | Remote MCP endpoint.                                                                                                                                                               |
 | `oauth`   | http     | Optional `false` to disable opencode's automatic OAuth detection.                                                                                                                  |
 | `enabled` | no       | `false` ships the server **wired but not started**. Honored by opencode only — claudecode drops the key (see [Per-server enablement](#per-server-enablement)). Defaults to `true`. |
+| `headers` | http     | Request headers for a remote server. An `{env:VAR}` token may be **embedded** here (see [Tokens and placeholders](#tokens-and-placeholders)).                                      |
 | `env`     | no       | Environment for the server process — single source of truth for both harnesses.                                                                                                    |
 
-Any other key (e.g. a leftover `environment` or `headers`) fails translation loudly — a migration safety net. Keys starting with `_` are ignored (annotation convention, as in `hooks.json`).
+Any other key (e.g. a leftover `environment`) fails translation loudly — a migration safety net. Keys starting with `_` are ignored (annotation convention, as in `hooks.json`).
 
 ## Tokens and placeholders
 
@@ -189,11 +190,11 @@ Resolved at translation time by `mcp_translate.py`:
 - **opencode** keeps `{env:VAR}` in `opencode.jsonc` — opencode interpolates it at launch from its own process env.
 - **claudecode** `.mcp.json` carries `${VAR}` — Claude Code's native expansion (the claudecode target cannot use `{env:VAR}`, and Claude Code expands `${VAR}` in `env`, `command`, `args`, `url` and `headers`). A missing variable (no `${VAR:-default}`) loads the config with a warning and registers the unexpanded text.
 
-`{env:VAR}` is whole-value-only (it must be the entire env value, never embedded in a URL or path) — the translator rejects malformed or embedded tokens so both harnesses cannot silently diverge.
+In an `env` value `{env:VAR}` is whole-value-only (it must be the entire value, never embedded in a URL or path) — the translator rejects malformed or embedded tokens so both harnesses cannot silently diverge. A **header** value may embed one, because an upstream API needs its scheme prefix on the same value (`"Authorization": "Sentry-Bearer {env:SENTRY_ACCESS_TOKEN}"`). Both clients expand an embedded token — opencode interpolates `{env:VAR}` natively, Claude Code substitutes `${VAR}` anywhere in a header.
 
 ### Env-var presence check (init / harness start)
 
-Because the client resolves `{env:VAR}` at launch, a missing variable only surfaces when the server fails to start — long after init wrote the config. `src/_shared/mcp_env_refs.py` + the `_devbot_*_mcp_env_vars` helpers in `src/_shared/functions.sh` close that gap by checking, against the current shell env, every `{env:VAR}` referenced by the canonical manifests of **enabled** modules (plugin-provided and disabled modules are skipped, mirroring the registration skip set):
+Because the client resolves `{env:VAR}` at launch, a missing variable only surfaces when the server fails to start — long after init wrote the config. `src/_shared/mcp_env_refs.py` + the `_devbot_*_mcp_env_vars` helpers in `src/_shared/functions.sh` close that gap by checking, against the current shell env, every `{env:VAR}` referenced by the canonical manifests of **enabled** modules — `env` and `headers` values alike (plugin-provided and disabled modules are skipped, mirroring the registration skip set):
 
 - **`devbot init` / single-project `reinit`** — after MCP registration, if any referenced var is unset/empty, init prints the notice (var + module/server + `export VAR=…` in `~/.bashrc`) and waits for a **press-any-key acknowledgement** before continuing.
 - **`devbot reinit --all`** — each per-project init emits only a compact notice (`DEV_BOT_DEFER_ENV_DIALOG=1` defers the dialog); after all projects are processed, reinit shows **one** full notice for the union of missing vars across projects.
@@ -206,11 +207,11 @@ The notice tells the user to add the vars to their shell profile (`~/.bashrc` or
 
 `mcp_translate.py` output shapes:
 
-| Canonical | opencode                              | claudecode                          |
-| --------- | ------------------------------------- | ----------------------------------- |
-| `stdio`   | `{type: local, command, environment}` | `{type: stdio, command, args, env}` |
-| `http`    | `{type: remote, url, oauth?}`         | `{type: http, url, env?}`           |
-| `enabled` | carried when declared                 | dropped — no equivalent field       |
+| Canonical | opencode                                | claudecode                          |
+| --------- | --------------------------------------- | ----------------------------------- |
+| `stdio`   | `{type: local, command, environment}`   | `{type: stdio, command, args, env}` |
+| `http`    | `{type: remote, url, oauth?, headers?}` | `{type: http, url, headers?, env?}` |
+| `enabled` | carried when declared                   | dropped — no equivalent field       |
 
 The canonical `env` block is renamed per harness (`environment` for opencode, `env` for claudecode); placeholders resolve at registration except when comparing templates (below). `enabled` is carried to opencode and dropped for claudecode, whose entry shape has no equivalent field.
 
@@ -224,7 +225,7 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 
 - `__GPU_ENABLED__` — with `--gpu` supplied (both resets pass `_qmd_gpu_value()`, the same source init resolves the placeholder with), the config value must equal that host value or the entry is stale, so a stale/wrong GPU value self-heals; without `--gpu`, any resolved string is current (GPU value is machine-dependent);
 - `__DEV_BOT_ROOT__` — the suffix after the placeholder must still match (root layout drift is stale);
-- `{env:VAR}` — current whether the config holds the native token literal (opencode `{env:VAR}`, claudecode `${VAR}`) or omits the key.
+- `{env:VAR}` — current whether the config holds the native token literal (opencode `{env:VAR}`, claudecode `${VAR}`) or omits the key; the same tolerance applies to a header carrying an embedded token.
 
 ### Inventory
 
