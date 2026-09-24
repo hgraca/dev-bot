@@ -35,9 +35,6 @@ exclude:
   - Gemfile
   - Gemfile.lock
   - vendor
-  - claudecode
-  - opencode
-
 collections_dir: .
 
 permalink: pretty
