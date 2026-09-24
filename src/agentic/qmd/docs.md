@@ -1,0 +1,37 @@
+---
+title: "QMD"
+description: "Semantic search over the knowledge vault."
+skills: ["qmd"]
+tools: ["qmd"]
+---
+
+QMD (Query Markdown Documents) powers the knowledge vault — all your decisions, patterns, and gotchas are searchable by meaning.
+
+QMD is one of two interchangeable memory-search engines; it is active only
+when `memory_search_provider` is `"qmd"` in `.devbot.global.jsonc` (default is
+`mdctx`, see [mdctx](/modules/agentic/mdctx) and [Configuration](/configuration)). Agents
+search the vault through **`search-memories`**, which swaps engines
+transparently.
+
+## What it does
+
+- **Hybrid search**: combines BM25 (keyword) + vector (semantic) + LLM reranking
+- **Collections**: organize knowledge by project or topic
+- **Embeddings**: auto-embeds markdown files for semantic retrieval
+
+## How agents use it
+
+Agents search the vault to recall past decisions, known gotchas, and established patterns before acting — preventing repeated mistakes.
+
+## Local model
+
+Uses GGUF models (`embeddinggemma`, `qwen3-reranker`, `qmd-query-expansion`) self-managed by QMD.
+
+## Configuration
+
+No project configuration is required.
+
+## See also
+
+- [Memory Management](/module-reference) — vault structure and conventions
+- [Graphify](/modules/agentic/graphify) — structural knowledge graph
