@@ -29,6 +29,7 @@ import { appendFileSync, mkdirSync, readdirSync, readFileSync, readlinkSync } fr
 import { createElement, createTextNode, insert, insertNode, setProp } from "@opentui/solid"
 import { createSignal } from "solid-js"
 import {
+  bootstrapFailureCause,
   decodeBuffer,
   formatDetail,
   isPtyHealth,
@@ -269,10 +270,13 @@ async function bootstrapOrigin(api) {
       arguments: "",
     })
   } catch (e) {
-    // Remember why: opencode's message is the difference between "the server is
-    // slow" and "the plugin you depend on is not installed".
-    lastBootstrapError = e && e.message ? String(e) : String(e)
-    debug("bootstrap.command.failed", { error: lastBootstrapError })
+    // Only a REAL error is worth remembering: opencode's message is the
+    // difference between "the server is slow" and "the plugin you depend on is
+    // not installed". The sentinel is opencode-pty's normal completion signal,
+    // thrown after it has already started the server and posted the URL.
+    lastBootstrapError = bootstrapFailureCause(e)
+    if (lastBootstrapError === null) debug("bootstrap.command.handled", {})
+    else debug("bootstrap.command.failed", { error: lastBootstrapError })
   }
 
   let origin = null

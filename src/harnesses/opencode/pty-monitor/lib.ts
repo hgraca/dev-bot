@@ -51,6 +51,38 @@ export function latestServerUrl(texts: unknown): string | null {
 }
 
 /**
+ * The error opencode-pty's command handler throws to signal it handled the
+ * command itself.
+ *
+ * It is NOT a failure: the handler throws only after it has already started the
+ * PTY server and posted the URL, using the throw to stop opencode running the
+ * command's template. Reading it as an error is what made a working server look
+ * unavailable.
+ */
+export const PTY_COMMAND_SENTINEL = "Command handled by PTY plugin"
+
+export function isPtyCommandSentinel(error: unknown): boolean {
+  const message =
+    error && typeof error === "object" && "message" in error
+      ? String((error as { message: unknown }).message)
+      : String(error)
+  return message.includes(PTY_COMMAND_SENTINEL)
+}
+
+/**
+ * The message worth remembering as the bootstrap's failure cause, or null when
+ * there is nothing to report.
+ *
+ * The sentinel is not a failure — opencode-pty throws it only after it has
+ * started the server and posted the URL — so recording it would report a
+ * working server as unavailable.
+ */
+export function bootstrapFailureCause(error: unknown): string | null {
+  if (isPtyCommandSentinel(error)) return null
+  return String(error)
+}
+
+/**
  * Decode a `/api/sessions/:id/buffer/plain` response into displayable text.
  *
  * The endpoint returns a JSON envelope — `{ plain, byteLength }` — not a raw

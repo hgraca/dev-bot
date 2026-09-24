@@ -15,8 +15,10 @@
 
 import { describe, expect, test } from "bun:test"
 import {
+  bootstrapFailureCause,
   decodeBuffer,
   formatDetail,
+  isPtyCommandSentinel,
   isPtyHealth,
   latestServerUrl,
   matchServerUrl,
@@ -356,5 +358,48 @@ describe("isPtyHealth", () => {
     expect(isPtyHealth({})).toBe(false)
     expect(isPtyHealth({ status: "ok" })).toBe(false)
     expect(isPtyHealth({ status: "healthy" })).toBe(false) // no sessions object
+  })
+})
+
+describe("isPtyCommandSentinel", () => {
+  // opencode-pty throws this to say "I handled the command" — after it has
+  // already created the PTY server. Reading it as an error made a healthy
+  // server report as unavailable, so it must never be stored as a failure.
+  test("recognises the sentinel the command handler throws", () => {
+    expect(isPtyCommandSentinel(new Error("Command handled by PTY plugin"))).toBe(true)
+  })
+
+  test("recognises it when the message carries extra context", () => {
+    expect(
+      isPtyCommandSentinel({ message: "Command handled by PTY plugin\n  at <anonymous>" }),
+    ).toBe(true)
+  })
+
+  test("does not swallow a genuine failure", () => {
+    expect(isPtyCommandSentinel(new Error("Command not found: pty-show-server-url"))).toBe(false)
+    expect(isPtyCommandSentinel(new Error("fetch failed"))).toBe(false)
+  })
+
+  test("tolerates a thrown string or non-object", () => {
+    expect(isPtyCommandSentinel("Command handled by PTY plugin")).toBe(true)
+    expect(isPtyCommandSentinel(undefined)).toBe(false)
+  })
+})
+
+describe("bootstrapFailureCause", () => {
+  // This is the branch the panel's status text comes from, so a sentinel that
+  // leaked through here is exactly the bug that reported a working server as
+  // unavailable.
+  test("reports nothing for the sentinel", () => {
+    expect(bootstrapFailureCause(new Error("Command handled by PTY plugin"))).toBeNull()
+    expect(bootstrapFailureCause({ message: "Command handled by PTY plugin" })).toBeNull()
+  })
+
+  test("keeps a genuine failure", () => {
+    expect(bootstrapFailureCause(new Error("fetch failed"))).toContain("fetch failed")
+  })
+
+  test("stringifies a thrown non-Error", () => {
+    expect(bootstrapFailureCause("boom")).toBe("boom")
   })
 })
