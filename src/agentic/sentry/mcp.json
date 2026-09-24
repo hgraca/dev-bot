@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp",
+      "oauth": false,
+      "enabled": false,
+      "headers": {
+        "Authorization": "Sentry-Bearer {env:SENTRY_ACCESS_TOKEN}"
+      }
+    }
+  }
+}

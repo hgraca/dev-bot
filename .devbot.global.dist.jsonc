@@ -15,6 +15,7 @@
     "litellm": false,
     "ollama": false,
     "react": false,
+    "sentry": false,
     "svelte": false
   },
   "auto_recover": {
