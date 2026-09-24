@@ -980,3 +980,67 @@ assert m["requires"]["remove-unused-private-methods"] == [], m
   [ "${others}" = "1" ]
   [ "${ref}" = "1" ]
 }
+
+# ── S1: string references ──────────────────────────────────────────────────────
+
+@test "ops.py string-refs: finds the old name inside a quoted string" {
+  run bash -c "printf '%s' '{\"op\":\"rename-class\",\"from\":\"Widget\",\"to\":\"Gadget\",\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' string-refs"
+
+  assert_success
+  assert_output --partial "StringRegistry.php"
+  assert_output --partial "Widget"
+}
+
+@test "ops.py string-refs: nothing to report when the name appears in no string" {
+  run bash -c "printf '%s' '{\"op\":\"rename-class\",\"from\":\"NoSuchClass\",\"to\":\"Gadget\",\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' string-refs"
+
+  assert_success
+  assert_output --partial '"hits": []'
+}
+
+@test "end-to-end: a class rename reports the string reference it cannot rewrite" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-class '' Widget Gadget > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local leftover
+  leftover="$(grep -c "'Widget'" "${work}/src/StringRegistry.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  # The class and its file moved, and the string no rule can rewrite is reported
+  # rather than silently left behind.
+  assert_output --partial '"string_references"'
+  assert_output --partial "StringRegistry.php"
+  [ "${leftover}" = "1" ]
+}
+
+# ── S2: idempotence ────────────────────────────────────────────────────────────
+
+@test "end-to-end: an apply verifies itself and a re-plan finds nothing left" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-function '' demoHelper assistHelper > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  assert_success
+  # The post-apply verification pass found nothing left over.
+  refute_output --partial "remaining_changes"
+
+  # A re-plan finds nothing either — which also proves the namespace still
+  # resolves after the declaration was renamed.
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "in 0 file(s)"
+}

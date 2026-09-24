@@ -181,14 +181,21 @@ def find_declaring_namespaces(project: str, name: str, kind: str) -> list:
     return list(dict.fromkeys(ns for ns, _path in find_declarations(project, name, kind)))
 
 
-def resolve_namespace(request: dict, spec: dict, from_name: str) -> str:
+def resolve_namespace(request: dict, spec: dict, from_name: str, to_name: str = "") -> str:
     """The namespace for a qualified op: explicit, else derived, else fatal."""
     explicit = request.get("namespace")
     if explicit:
         return explicit
 
     kind = spec.get("declaration") or "function"
-    candidates = find_declaring_namespaces(request.get("project") or "", from_name, kind)
+    project = request.get("project") or ""
+    candidates = find_declaring_namespaces(project, from_name, kind)
+    if not candidates and to_name:
+        # A completed rename leaves the declaration under the NEW name, and the
+        # namespace is unchanged. Without this fallback a re-plan — including the
+        # post-apply verification pass — could not resolve the op at all, and the
+        # verification would report a clean run it never performed.
+        candidates = find_declaring_namespaces(project, to_name, kind)
 
     if not candidates:
         raise ValueError(
@@ -201,6 +208,49 @@ def resolve_namespace(request: dict, spec: dict, from_name: str) -> str:
             % (from_name, ", ".join(ns or "(global)" for ns in candidates))
         )
     return candidates[0]
+
+
+_QUOTED_RE = re.compile(r"'([^'\n]*)'|\"([^\"\n]*)\"")
+
+
+def find_string_references(project: str, name: str) -> list:
+    """Quoted occurrences of `name` under the source roots.
+
+    Every rename here is blind to a reference held in a string — a class, method
+    or function named inside quotes (`'App\\Old'`, `"oldMethod"`). Those are
+    exactly the dynamic references each op documents as invisible, so they are
+    surfaced for the caller to judge rather than silently left behind.
+    """
+    if not project or not os.path.isdir(project) or not name:
+        return []
+
+    hits = []
+    for root_name in ("app", "src"):
+        root = os.path.join(project, root_name)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirs, files in os.walk(root):
+            for filename in sorted(files):
+                if not filename.endswith(".php"):
+                    continue
+                path = os.path.join(dirpath, filename)
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as handle:
+                        text = handle.read()
+                except OSError:
+                    continue
+                for match in _QUOTED_RE.finditer(text):
+                    content = match.group(1) if match.group(1) is not None else match.group(2)
+                    if not content or name not in content:
+                        continue
+                    hits.append(
+                        {
+                            "file": os.path.relpath(path, project),
+                            "line": text.count("\n", 0, match.start()) + 1,
+                            "text": content.strip(),
+                        }
+                    )
+    return hits
 
 
 def namespace_target_dir(path: str, old_fq: str, new_fq: str):
@@ -258,7 +308,7 @@ def steps_for(request: dict, spec: dict):
 
     namespace = ""
     if spec.get("qualify"):
-        namespace = resolve_namespace(request, spec, values["from"])
+        namespace = resolve_namespace(request, spec, values["from"], values["to"])
 
     # The declaration rule is handed the same (qualified) names as the usages
     # rule, so a common short name cannot match a declaration elsewhere.
@@ -416,11 +466,19 @@ def main(argv: list) -> int:
         print(json.dumps(result))
         return 0
 
+    if command == "string-refs":
+        request = json.load(sys.stdin)
+        if OPS.get(request.get("op") or "") is None:
+            return 0
+        name = (request.get("from") or "").rsplit("\\", 1)[-1]
+        print(json.dumps({"hits": find_string_references(request.get("project") or "", name)}))
+        return 0
+
     if command == "render":
         index = int(argv[2]) if len(argv) > 2 else 0
         return render(json.load(sys.stdin), index)
 
-    print("ERROR: ops.py: expected one of meta|rules|render|move-target", file=sys.stderr)
+    print("ERROR: ops.py: expected one of meta|rules|render|move-target|string-refs", file=sys.stderr)
     return 1
 
 

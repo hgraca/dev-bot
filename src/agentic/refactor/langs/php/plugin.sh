@@ -295,6 +295,44 @@ cmd_provision() {
 #
 #   $1    = plan (dry-run) | apply
 #   stdin = the request JSON
+# Run an op's steps, one Rector invocation each, appending to the given files.
+# Reads the caller's ${rules[@]} ${project} ${image} ${via} ${request}.
+#   $1=dry  $2=outfile  $3=errfile  $4=rcfile
+_run_steps() {
+  local dry="$1" outfile="$2" errfile="$3" rcfile="$4"
+  local step cfg step_out step_err rc
+  : > "${outfile}"
+  : > "${errfile}"
+  : > "${rcfile}"
+
+  for ((step = 0; step < ${#rules[@]}; step++)); do
+    cfg="$(mktemp)"
+    step_out="$(mktemp)"
+    step_err="$(mktemp)"
+
+    if ! printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" render "${step}" > "${cfg}"; then
+      rm -f "${cfg}" "${step_out}" "${step_err}"
+      return 1
+    fi
+
+    local -a cmd
+    mapfile -d '' -t cmd < <(_build_argv "${via}" "${project}" "${image}" "${cfg}" "${dry}" "${rules[$step]}" |
+      python3 -c 'import json,sys; sys.stdout.write("\0".join(json.load(sys.stdin)))')
+
+    set +e
+    "${cmd[@]}" >"${step_out}" 2>"${step_err}"
+    rc=$?
+    set -e
+    rm -f "${cfg}"
+
+    cat "${step_out}" >> "${outfile}"
+    printf '\n' >> "${outfile}"
+    cat "${step_err}" >> "${errfile}"
+    printf '%s\n' "${rc}" >> "${rcfile}"
+    rm -f "${step_out}" "${step_err}"
+  done
+}
+
 cmd_run() {
   local mode="$1" request op klass from to req_image
   request="$(cat)"
@@ -379,39 +417,16 @@ print(json.dumps(r))' <<<"${request}")"
   mapfile -t rules < <(python3 "${PLUGIN_DIR}/ops.py" rules "${op}" |
     python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)))')
 
-  local outfile errfile rcfile rc step
+  local outfile errfile rcfile
   outfile="$(mktemp)"
   errfile="$(mktemp)"
   rcfile="$(mktemp)"
 
-  for ((step = 0; step < ${#rules[@]}; step++)); do
-    local cfg step_out step_err
-    cfg="$(mktemp)"
-    step_out="$(mktemp)"
-    step_err="$(mktemp)"
-
-    if ! printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" render "${step}" > "${cfg}"; then
-      rm -f "${cfg}" "${step_out}" "${step_err}" "${outfile}" "${errfile}" "${rcfile}"
-      echo '{"ok":false,"error":"could not render the Rector config"}' >&2
-      exit 1
-    fi
-
-    local -a cmd
-    mapfile -d '' -t cmd < <(_build_argv "${via}" "${project}" "${image}" "${cfg}" "${dry}" "${rules[$step]}" |
-      python3 -c 'import json,sys; sys.stdout.write("\0".join(json.load(sys.stdin)))')
-
-    set +e
-    "${cmd[@]}" >"${step_out}" 2>"${step_err}"
-    rc=$?
-    set -e
-    rm -f "${cfg}"
-
-    cat "${step_out}" >> "${outfile}"
-    printf '\n' >> "${outfile}"
-    cat "${step_err}" >> "${errfile}"
-    printf '%s\n' "${rc}" >> "${rcfile}"
-    rm -f "${step_out}" "${step_err}"
-  done
+  if ! _run_steps "${dry}" "${outfile}" "${errfile}" "${rcfile}"; then
+    rm -f "${outfile}" "${errfile}" "${rcfile}"
+    echo '{"ok":false,"error":"could not render the Rector config"}' >&2
+    exit 1
+  fi
 
   # Relocate the file resolved before the rules ran. Rector rewrites the
   # declaration and the references but moves no files, and a PSR-4 autoloader
@@ -453,7 +468,47 @@ PY
     fi
   fi
 
-  REFACTOR_MOVE_NOTE="${move_note}" REFACTOR_MOVE_FROM_REL="${mv_from_rel}" REFACTOR_MOVE_TO_REL="${mv_to_rel}" python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY'
+  # Confirm the apply finished: re-run every step as a dry run and count what
+  # would still change. A partial rename — a rule that did not match, a move that
+  # misfired — shows up here rather than downstream.
+  local remaining="0"
+  if [[ "${mode}" == "apply" ]]; then
+    local vout verr vrc
+    vout="$(mktemp)"
+    verr="$(mktemp)"
+    vrc="$(mktemp)"
+    if _run_steps "true" "${vout}" "${verr}" "${vrc}"; then
+      remaining="$(python3 - "${vout}" <<'PY'
+import json, sys
+
+raw = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+decoder = json.JSONDecoder()
+index = 0
+count = 0
+while index < len(raw):
+    while index < len(raw) and raw[index] in " \t\r\n":
+        index += 1
+    if index >= len(raw):
+        break
+    try:
+        doc, index = decoder.raw_decode(raw, index)
+    except Exception:
+        break
+    count += len(doc.get("changed_files") or [])
+print(count)
+PY
+)"
+    fi
+    rm -f "${vout}" "${verr}" "${vrc}"
+  fi
+
+  # Every rename here is blind to a reference held in a string. Scan for the old
+  # name after the steps, so the report reflects what is actually left behind.
+  local string_hits="[]"
+  string_hits="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" string-refs 2>/dev/null |
+    python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("hits") or []))' 2>/dev/null || echo '[]')"
+
+  REFACTOR_MOVE_NOTE="${move_note}" REFACTOR_MOVE_FROM_REL="${mv_from_rel}" REFACTOR_MOVE_TO_REL="${mv_to_rel}" REFACTOR_STRING_HITS="${string_hits}" REFACTOR_REMAINING="${remaining}" python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY'
 import json, os, sys
 
 outfile, errfile, rcfile, via, version, mode, old, new = sys.argv[1:9]
@@ -535,6 +590,23 @@ if move_note:
     new_rel = os.environ.get("REFACTOR_MOVE_TO_REL", "").strip()
     if new_rel and old_rel in files:
         files[files.index(old_rel)] = new_rel
+
+# References held in strings are invisible to every rule here, so they are
+# reported rather than silently left behind. Not a `warning`: this is actionable
+# on success too, and warnings are dropped when the run succeeds.
+try:
+    string_hits = json.loads(os.environ.get("REFACTOR_STRING_HITS") or "[]")
+except Exception:
+    string_hits = []
+if string_hits:
+    result["string_references"] = string_hits
+
+try:
+    remaining = int(os.environ.get("REFACTOR_REMAINING") or "0")
+except Exception:
+    remaining = 0
+if remaining:
+    result["remaining_changes"] = remaining
 
 print(json.dumps(result))
 PY
