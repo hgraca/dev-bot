@@ -1,17 +1,18 @@
 ---
 name: devbot:refactor
-description: "Use when renaming a PHP or TypeScript symbol across a codebase and updating every call site, or when asking what to refactor. Triggers on 'rename this method', 'rename everywhere', 'what should I refactor'."
+description: "Use when renaming or restructuring a PHP, Python or TypeScript symbol across a codebase and updating every call site, or when asking what to refactor. Triggers on 'rename this method', 'extract this method', 'inline this', 'rename everywhere', 'what should I refactor'."
 ---
 
 # Refactor
 
-Deterministic, agent-callable refactoring. Renames a PHP symbol and updates every
-genuine reference — **no LLM in the edit path**. Dry run by default: nothing is
-written unless you pass `--apply`.
+Deterministic, agent-callable refactoring. Renames or restructures a symbol and
+updates every genuine reference — **no LLM in the edit path**. Dry run by default:
+nothing is written unless you pass `--apply`.
 
-The edit is delegated to the PHP ecosystem's own engine (Rector), run in a PHP
-container against the project. The tool resolves the engine, renders a config
-holding exactly one rename rule, runs it, and reports what changed.
+The edit is delegated to the language's own engine — Rector (PHP), rope (Python),
+ts-morph (TypeScript) — run in a container against the project. For PHP the tool
+resolves the engine, renders a config holding exactly one rename rule, runs it, and
+reports what changed.
 
 ## When to Use
 
@@ -20,14 +21,19 @@ holding exactly one rename rule, runs it, and reports what changed.
 | Rename a method and all its call sites                | `--op rename-method`                   |
 | Rename a static method (declaration + calls)          | `--op rename-static-method`            |
 | Rename a property (declaration + accesses)            | `--op rename-property`                 |
-| See what a rename would touch before committing to it | run without `--apply` (the default)    |
+| Extract a block into a method (Python)                | `--op extract-method`                  |
+| Extract an expression into a variable (Python)        | `--op extract-variable`                |
+| Inline a definition into its callers (Python)         | `--op inline`                          |
+| Add accessors around a field (Python)                 | `--op encapsulate-field`               |
+| See what a change would touch before committing to it | run without `--apply` (the default)    |
 | Confirm the symbol exists and where it is declared    | run the tool's `doctor` via the plugin |
 
 ## Contract
 
 ```
-devbot-tools_refactor --lang php --op <op> \
+devbot-tools_refactor --lang <lang> --op <op> \
   [--class <FQCN>] [--from <old> | --method <old> | --property <old>] [--namespace <ns>] \
+  [--file <path>] [--start <line[:col]>] [--end <line[:col]>] \
   --to <new> [--apply] [--json] [--force]
 ```
 
@@ -60,13 +66,27 @@ adding a language is additive.
 | lang  | ops                                                  | engine                        |
 | ----- | ---------------------------------------------------- | ----------------------------- |
 | `php` | the ops above                                        | Rector, in a PHP container    |
-| `py`  | `rename-symbol` (`--from`/`--to`, optional `--file`) | rope, in a Python container   |
+| `py`  | the Python ops below                                 | rope, in a Python container   |
 | `ts`  | `rename-symbol` (`--from`/`--to`, optional `--file`) | ts-morph, in a Node container |
 
 The TypeScript plugin needs a one-time `bash langs/ts/plugin.sh provision`
 (npm installs ts-morph into the shared scratch dir; `langs/py/plugin.sh provision` does the same for rope); `doctor` reports whether it
 is present. ts-morph resolves the symbol through the TypeScript compiler, so one
 run renames the declaration and every reference — no per-rule steps.
+
+### Python ops
+
+rope ships refactorings Rector has no equivalent for. A region is selected by
+**line, optionally with a column** (`--start 12:9 --end 12:18`) — 1-based,
+inclusive; a missing column reads to the end of the line.
+
+| op                  | needs                                | risk    |
+| ------------------- | ------------------------------------ | ------- |
+| `rename-symbol`     | `--from`, `--to` (optional `--file`) | rename  |
+| `extract-method`    | `--file`, `--start`, `--end`, `--to` | extract |
+| `extract-variable`  | `--file`, `--start`, `--end`, `--to` | extract |
+| `inline`            | `--from` (optional `--file`)         | inline  |
+| `encapsulate-field` | `--file`, `--from`                   | cleanup |
 
 ## Cleanup ops
 
@@ -94,6 +114,13 @@ PSR-4 autoloader keys on the file name.
 - **Dynamic references are invisible** to static analysis: string callables
   (`[$obj, 'method']`), `__call`, container bindings, and variable method names
   are not renamed. Read the plan before applying.
+- **The Python plugin uses rope**, a symbol-table engine rather than a type
+  checker — ordinary code is covered, dynamic construction is not.
+  `rename-symbol` refuses a name defined in several places rather than guessing;
+  pass `--file` to disambiguate.
+- **`inline` on an f-string** can emit nested quotes (`f"Hello {"world"}"`), which
+  only Python 3.12+ parses (PEP 701) — do not inline such a method for an older
+  target.
 - **The tool does not run your tests.** Run them yourself after applying — only
   your suite can prove the rename is right in your project's terms.
 - The target project's own `vendor/bin/rector` is preferred (right version, right

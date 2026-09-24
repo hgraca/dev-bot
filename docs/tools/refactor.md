@@ -1,20 +1,23 @@
 ---
 layout: page
 title: Refactor
-description: Deterministic, agent-callable renaming of PHP symbols.
+description: Deterministic, agent-callable refactoring of PHP, Python and TypeScript symbols.
 nav_section: docs
 ---
 
-Renames a PHP symbol and updates every genuine reference, via Rector. The edit
-path is deterministic — the engine decides what changes, not a language model.
+Renames or restructures a symbol and updates every genuine reference, via the
+language's own engine — Rector for PHP, rope for Python, ts-morph for TypeScript.
+The edit path is deterministic — the engine decides what changes, not a language
+model.
 
 Dry run by default. `--apply` is the only thing that writes.
 
 ## Usage
 
 ```
-devbot-tools_refactor --lang php --op <op> \
+devbot-tools_refactor --lang <lang> --op <op> \
   [--class <FQCN>] [--from <old> | --method <old> | --property <old>] [--namespace <ns>] \
+  [--file <path>] [--start <line[:col]>] [--end <line[:col]>] \
   --to <new> [--apply] [--json] [--force]
 ```
 
@@ -69,13 +72,33 @@ which is what makes a new language additive.
 | Lang  | Ops             | Engine                        |
 | ----- | --------------- | ----------------------------- |
 | `php` | the ops above   | Rector, in a PHP container    |
-| `py`  | `rename-symbol` | rope, in a Python container   |
+| `py`  | the Python ops  | rope, in a Python container   |
 | `ts`  | `rename-symbol` | ts-morph, in a Node container |
 
 Run `bash langs/ts/plugin.sh provision` once to install the TypeScript engine into
 the shared scratch dir; `doctor` reports whether it is there. ts-morph drives the
 TypeScript compiler, so a single run renames the declaration and every reference —
 and, unlike the PHP plugin, it needs no per-rule steps.
+
+### Python ops
+
+rope ships refactorings Rector has no equivalent for, so `py` adds structural ops
+alongside `rename-symbol`. A region is selected by **line, optionally with a
+column** (`--start 12:9 --end 12:18`) — 1-based, inclusive; a missing column reads
+to the end of the line.
+
+| Op                  | Needs                                | Risk    |
+| ------------------- | ------------------------------------ | ------- |
+| `rename-symbol`     | `--from`, `--to` (optional `--file`) | rename  |
+| `extract-method`    | `--file`, `--start`, `--end`, `--to` | extract |
+| `extract-variable`  | `--file`, `--start`, `--end`, `--to` | extract |
+| `inline`            | `--from` (optional `--file`)         | inline  |
+| `encapsulate-field` | `--file`, `--from`                   | cleanup |
+
+As for PHP, a Python rename reports quoted occurrences of the old name as
+`string_references` (rope cannot rewrite a name held in a string), and an apply
+verifies itself, reporting `remaining_changes` when an identifier it could not
+reach is left behind.
 
 ## Engine policy
 
@@ -102,11 +125,13 @@ cache can otherwise let a warm cache mask drift.
 `meta` reports a `risks` entry per op, because the tool never runs your tests and
 how much your suite must back the change depends on the op:
 
-| Class       | Meaning                                                          |
-| ----------- | ---------------------------------------------------------------- |
-| `rename`    | behaviour preserving — the symbol keeps its role                 |
-| `cleanup`   | deletes dead code or tightens visibility; safe for correct code  |
-| `signature` | changes a callable's signature or a type — **can break callers** |
+| Class       | Meaning                                                           |
+| ----------- | ----------------------------------------------------------------- |
+| `rename`    | behaviour preserving — the symbol keeps its role                  |
+| `extract`   | moves a block or expression into a new name; behaviour preserving |
+| `inline`    | folds a definition into its callers and deletes it                |
+| `cleanup`   | deletes dead code or tightens visibility; safe for correct code   |
+| `signature` | changes a callable's signature or a type — **can break callers**  |
 
 ## Invoking it
 
@@ -170,7 +195,11 @@ prove additivity).
   needs the qualified name; the cast rule is configured from enum kinds).
 - **The Python plugin uses rope**, whose reference set comes from the symbol table
   rather than a type checker — ordinary code is covered, dynamic construction is
-  not. The scratch TypeScript may also differ from a project's own.
+  not. `rename-symbol` refuses a name defined in several places rather than
+  guessing which one, so pass `--file` to disambiguate.
+- **`inline` on an f-string** can emit nested quotes (`f"Hello {"world"}"`), which
+  only Python 3.12+ parses (PEP 701); do not inline such a method for an older
+  target.
 - **`rename-constant` matches on the bare name**, because Rector's rule rejects a
   qualified key. A same-named constant in another namespace would match too.
 - **`rename-annotation` re-appends the annotation**, so it can shift order
