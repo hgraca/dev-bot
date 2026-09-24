@@ -95,6 +95,16 @@ function bootstrapFailureStatus(failures) {
   return "unavailable: " + String(lastBootstrapError).split("\n")[0].slice(0, 44)
 }
 
+/**
+ * The sidebar status while nothing is listening and no request to start the
+ * server has been made.
+ *
+ * Starting it is not free: it goes through opencode-pty's command, which runs
+ * server initialisation and creates and deletes a throwaway session. That does
+ * not belong on the startup path, so it happens only on an explicit request.
+ */
+const IDLE_STATUS = "not running — /pty-monitor to start"
+
 // A TUI plugin has no console, so a small event log on disk is the only way to
 // diagnose interaction problems. OFF BY DEFAULT: it appends unboundedly, and
 // shipping a plugin that quietly grows a file in /tmp forever is not acceptable.
@@ -302,12 +312,13 @@ async function bootstrapOrigin(api) {
  *
  *  1. cached, while it still answers
  *  2. this process's own listening sockets (no side effects at all)
- *  3. bootstrap through a throwaway session (starts it if nothing is running)
+ *  3. bootstrap through a throwaway session — only when `allowBootstrap` is set,
+ *     because starting the server is a user decision, not a side effect of load
  *
  * A cached origin that stops answering is re-resolved, because the server is
  * bound a new random port every time it starts.
  */
-async function resolveOrigin(api) {
+async function resolveOrigin(api, allowBootstrap) {
   if (cachedOrigin && (await isHealthy(cachedOrigin))) return cachedOrigin
 
   const viaOs = await discoverViaOwnSockets()
@@ -316,6 +327,8 @@ async function resolveOrigin(api) {
     cachedOrigin = viaOs
     return viaOs
   }
+
+  if (!allowBootstrap) return null
 
   const viaBootstrap = await bootstrapOrigin(api)
   if (viaBootstrap) cachedOrigin = viaBootstrap
@@ -400,7 +413,7 @@ const tui = async (api) => {
   let refreshing = false
   let bootstrapFailures = 0
 
-  const refresh = async () => {
+  const refresh = async (allowBootstrap = false) => {
     if (disposed) return
     // Guard against overlap: a bootstrap can take ~6s while the poll ticks every
     // 2.5s, so without this a host where the server never comes up would run
@@ -410,15 +423,21 @@ const tui = async (api) => {
     try {
       // Checked BEFORE the attempt, so "backed off" actually means no further
       // create-session/delete-session cycles until the user retries.
-      if (!origin && bootstrapFailures >= MAX_BOOTSTRAP_FAILURES) {
+      if (!origin && allowBootstrap && bootstrapFailures >= MAX_BOOTSTRAP_FAILURES) {
         setStatus(bootstrapFailureStatus(bootstrapFailures))
         return
       }
-      if (!origin) origin = await resolveOrigin(api)
+      if (!origin) origin = await resolveOrigin(api, allowBootstrap)
       if (!origin) {
-        bootstrapFailures++
-        debug("refresh.bootstrap-failed", { bootstrapFailures })
-        setStatus(bootstrapFailureStatus(bootstrapFailures))
+        // Nothing is listening. Only an explicit request may start the server,
+        // so without one there is no attempt to count down — just an idle panel.
+        if (allowBootstrap) {
+          bootstrapFailures++
+          debug("refresh.bootstrap-failed", { bootstrapFailures })
+          setStatus(bootstrapFailureStatus(bootstrapFailures))
+        } else {
+          setStatus(IDLE_STATUS)
+        }
         setSessions([])
         return
       }
@@ -619,20 +638,21 @@ const tui = async (api) => {
     },
   })
 
-  // ── a command so the panel can be refreshed without waiting ───────────────
+  // ── the explicit request that may start the server ────────────────────────
   api.command.register(() => [
     {
-      title: "PTY monitor: refresh",
+      title: "PTY monitor: start or refresh",
       value: "pty-monitor-refresh",
-      description: "Re-scan the PTY server for sessions",
+      description: "Start the PTY server if it is not running, then list its sessions",
       slash: { name: "pty-monitor" },
       onSelect: () => {
-        // Explicit user retry: clear the cached origin, the backoff, and the
-        // remembered cause so a stale message cannot outlive the fix.
+        // The only path allowed to start the server. Clears the cached origin,
+        // the backoff and the remembered cause, so a stale message cannot
+        // outlive the fix.
         origin = null
         bootstrapFailures = 0
         lastBootstrapError = null
-        refresh().catch(() => {})
+        refresh(true).catch(() => {})
       },
     },
   ])
@@ -644,7 +664,7 @@ const tui = async (api) => {
   })
 
   // Deliberately not awaited: opencode's TUI plugin loader awaits this factory
-  // before the TUI is usable, and origin discovery can block for seconds.
+  // before the TUI is usable, so the factory must never wait on a refresh.
   refresh().catch(() => {})
   rootTimer = setInterval(() => {
     refresh().catch(() => {})
