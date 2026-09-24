@@ -1261,3 +1261,43 @@ assert m["risks"]["rename-symbol"] == "rename", m
   [ "${call}" = "1" ]
   [ "${stray}" = "0" ]
 }
+
+@test "py plugin: string-refs reports a name held in a string, not code or a comment" {
+  local req
+  req="$(mktemp)"
+  printf '{"project":"%s","from":"greet"}' "${PY_FIXTURES}/rename-demo" > "${req}"
+
+  run bash -c "python3 '${MODULE_DIR}/langs/py/string_refs.py' < '${req}'"
+  rm -f "${req}"
+
+  assert_success
+  printf '%s' "${output}" | python3 -c '
+import json, sys
+hits = [h for h in json.load(sys.stdin)["hits"] if h["file"].endswith("registry.py")]
+lines = sorted(h["line"] for h in hits)
+assert lines == [4, 8, 9], hits
+assert all("comment" not in h["text"] for h in hits), hits
+'
+}
+
+@test "end-to-end (py): a rename reports the string reference it cannot rewrite" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/rename-demo/." "${work}/"
+  printf '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  # rope rewrites the definition and the call, but not a name held in a string.
+  local untouched
+  untouched="$(grep -c 'getattr(Greeter(), "greet")' "${work}/src/registry.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  assert_output --partial '"string_references"'
+  assert_output --partial 'registry.py'
+  [ "${untouched}" = "1" ]
+}

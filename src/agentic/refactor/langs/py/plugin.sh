@@ -107,6 +107,14 @@ print("\x1f".join([str(r.get("op") or ""), str(r.get("from") or ""), str(r.get("
 
   project="${REFACTOR_PROJECT:-${PWD}}"
 
+  # The string-reference scan runs on the host (it needs no rope), so carry the
+  # host project path in the request for it to read the very tree rope edits.
+  request="$(PROJECT="${project}" python3 -c '
+import json, os, sys
+r = json.load(sys.stdin)
+r["project"] = os.environ["PROJECT"]
+print(json.dumps(r))' <<< "${request}")"
+
   if ! root="$(_engine_root)"; then
     echo '{"ok":false,"error":"no rope engine found","hint":"run: plugin.sh provision"}' >&2
     exit 1
@@ -129,13 +137,38 @@ r = json.load(sys.stdin)
 r["apply"] = os.environ["APPLY"] == "true"
 print(json.dumps(r))')"
 
-  printf '%s' "${payload}" | docker run --rm -i \
+  local output
+  output="$(printf '%s' "${payload}" | docker run --rm -i \
     -v "${project}:/app${mount_suffix}" \
     -v "${root}:/refactor" \
     -v "${PLUGIN_DIR}/rename.py:/refactor/rename.py:ro" \
     -e PYTHONPATH=/refactor \
     -e REFACTOR_PROJECT_DIR=/app \
-    -w /refactor "${image}" python rename.py
+    -w /refactor "${image}" python rename.py)"
+
+  # A name held in a string is invisible to rope's rename, so the report carries
+  # what it left behind rather than dropping it silently. Not a `warning`: this
+  # is actionable on success too.
+  local string_hits
+  string_hits="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/string_refs.py" 2>/dev/null || echo '{"hits": []}')"
+
+  printf '%s' "${output}" | REFACTOR_STRING_HITS="${string_hits}" python3 -c '
+import json, os, sys
+
+raw = sys.stdin.read()
+try:
+    result = json.loads(raw)
+except ValueError:
+    sys.stdout.write(raw)
+    raise SystemExit
+
+try:
+    hits = json.loads(os.environ.get("REFACTOR_STRING_HITS") or "{}").get("hits") or []
+except ValueError:
+    hits = []
+if hits and result.get("ok"):
+    result["string_references"] = hits
+sys.stdout.write(json.dumps(result) + "\n")'
 }
 
 case "${1:-}" in
