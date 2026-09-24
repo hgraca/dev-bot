@@ -162,3 +162,28 @@ EOF
   [ "$status" -eq 0 ]
   grep -q 'capability_summary: "1 skill · 1 MCP"' "${OUT}/modules/agentic/alpha.md"
 }
+
+@test "a tool purpose is derived from its comment header" {
+  mkdir -p "${FIXTURE}/src/tools/gamma/tools"
+  cat >"${FIXTURE}/src/tools/gamma/tools/thing.mcp.sh" <<'EOF'
+#!/usr/bin/env bash
+# ---
+# description: Does a thing well
+# ---
+EOF
+  cat >"${FIXTURE}/src/tools/gamma/docs.md" <<'EOF'
+---
+description: Does gamma things.
+tools: [thing]
+---
+
+Gamma lede.
+
+## Configuration
+
+None.
+EOF
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -eq 0 ]
+  grep -q 'Does a thing well' "${OUT}/modules/tools/gamma.md"
+}

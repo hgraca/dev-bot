@@ -68,8 +68,8 @@ def bare_name(name):
 
 
 def read_scalar(path, key):
-    """Read one scalar from a file's front matter; None when absent."""
-    pattern = re.compile(r"^" + re.escape(key) + r":\s*(.*)$")
+    """Read one scalar from front matter or a `#`-comment header; else None."""
+    pattern = re.compile(r"^#?\s*" + re.escape(key) + r":\s*(.*)$")
     try:
         with path.open(encoding="utf-8") as handle:
             for _ in range(25):
@@ -128,7 +128,7 @@ def capability_details(root, area, name, meta):
     if (base / "tools").is_dir():
         for tool in sorted((base / "tools").iterdir()):
             if tool.is_file():
-                details["tools"][tool.name.split(".")[0]] = ""
+                details["tools"][tool.name.split(".")[0]] = read_scalar(tool, "description") or ""
 
     plugins = read_json(base / "plugin.opencode.json")
     if isinstance(plugins, (list, dict)):
@@ -161,7 +161,7 @@ def render_contents(module):
             purpose = (
                 overrides.get(kind, {}).get(name)
                 or details.get(kind, {}).get(bare_name(name))
-                or ""
+                or "—"
             )
             rows.append(f"| {label} | `{name}` | {purpose} |")
     if not rows:
