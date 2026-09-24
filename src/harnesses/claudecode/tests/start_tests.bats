@@ -51,6 +51,16 @@ _make_env_gate_root() {
 JSON_EOF
 }
 
+# ── Hermetic root fixture ────────────────────────────────────────────────────
+# A module-free dev-bot root, so start.sh's MCP env-var gate finds nothing to
+# check. A test that omits DEV_BOT_ROOT scans the REAL module inventory instead,
+# and breaks the moment any enabled module references an unset env var — the
+# assertions below are exact-match on the forwarded args.
+_make_minimal_root() {
+  mkdir -p "${FAKE_ROOT}/src/tools" "${FAKE_ROOT}/src/agentic" "${FAKE_ROOT}/src/harnesses"
+  echo '{ "modules": { "memory": false } }' > "${FAKE_ROOT}/.devbot.global.jsonc"
+}
+
 @test "start.sh warns about unset MCP env vars and still launches (non-interactive)" {
   _make_env_gate_root
   unset DEV_TEST_MCP_TOKEN
@@ -84,7 +94,9 @@ teardown() {
 }
 
 @test "start.sh forwards extra args to claude" {
-  PATH="${FAKE_BIN}:${PATH}" run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}" --continue
+  _make_minimal_root
+  DEV_BOT_ROOT="${FAKE_ROOT}" PATH="${FAKE_BIN}:${PATH}" \
+    run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}" --continue
   assert_success
   assert_output "--continue"
 }
