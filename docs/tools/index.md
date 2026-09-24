@@ -63,6 +63,7 @@ nav_section: docs
 | [Git Report](/tools/git-report) | Git state snapshot tool            |
 | [Tree](/tools/tree)             | Directory tree inspection          |
 | [K8s Lint](/tools/k8s)          | Kubernetes manifest linting        |
+| [Sentry](/tools/sentry)         | Error monitoring and issue triage  |
 | [SigNoz](/tools/signoz)         | Observability platform integration |
 
 ## MCP Integrations

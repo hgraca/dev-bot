@@ -157,6 +157,7 @@ Located at `src/agentic/<name>/`. Each provides agent skills, tools, hooks, agen
 | repomix             | —   | —   | —   | —   | —   | —   | Directory packing into single structured file for full-context analysis                                                                                                                                                                                                                  |
 | security            | 1   | —   | —   | —   | —   | —   | Security auditing: STRIDE threat modelling, OWASP Top 10, PHP vulnerability assessment                                                                                                                                                                                                   |
 | self-improvement    | 13  | —   | 1   | —   | —   | —   | Meta-optimization: create-skill/agent/module, create-opencode/claudecode hook/tool, make-retrospective, improve-planning/reviewer/implementation, optimize-instructions                                                                                                                  |
+| sentry              | —   | —   | 1   | —   | —   | ✓   | Sentry error monitoring — hosted MCP server with token-header auth, agent skills, issue-triage command                                                                                                                                                                                   |
 | signoz              | —   | —   | 1   | —   | —   | ✓   | SigNoz observability platform — dashboards, alerts, queries, investigation                                                                                                                                                                                                               |
 | svelte              | 1   | —   | —   | —   | —   | ✓   | Svelte development conventions + Svelte MCP                                                                                                                                                                                                                                              |
 | tools-mcp           | 1   | —   | —   | —   | —   | ✓   | MCP server exposing devbot custom tools to agents — each tool self-describes via mcp-meta subcommand                                                                                                                                                                                     |
@@ -167,7 +168,7 @@ Located at `src/agentic/<name>/`. Each provides agent skills, tools, hooks, agen
 
 Tool modules (`src/tools/`) ship commands too: `devbot-cli` provides `devbot:audit` and `devbot:audit-fix`.
 
-**Module count**: 38 modules.
+**Module count**: 39 modules.
 
 ---
 
