@@ -24,8 +24,8 @@ setup() {
   assert_success
 }
 
-@test "docs hero install command uses the Pages URL in index.md and cli-commands.md" {
-  for f in "${PROJECT_ROOT}/docs/index.md" "${PROJECT_ROOT}/docs/cli-commands.md"; do
+@test "docs hero install command uses the Pages URL in index.md and the CLI module page" {
+  for f in "${PROJECT_ROOT}/docs/index.md" "${PROJECT_ROOT}/src/tools/devbot-cli/docs.md"; do
     run grep -F "${INSTALL_CMD}" "$f"
     assert_success
   done

@@ -4,9 +4,10 @@
 # Tests for the README documentation-TOC invariant.
 #
 # devbot:documentation-rules requires the root README.md to carry a TOC
-# pointing at every text doc under docs/. Nothing enforced it, so the TOC
-# drifted down to 2 of 31 pages. These tests close that gap: add a docs page
-# without linking it, or link a page that no longer exists, and the suite fails.
+# pointing at every committed doc under docs/. The module pages, the /modules
+# index and the aggregate pages are *generated* by the docs module's gather
+# script and are gitignored, so they never appear in `git ls-files docs` and
+# are not part of this TOC.
 # =============================================================================
 
 setup() {
@@ -14,21 +15,18 @@ setup() {
   README="${PROJECT_ROOT}/README.md"
 }
 
-# Pages deliberately left out of the README TOC:
-#   docs/opencode/*, docs/claudecode/* — excluded from the Jekyll build
-#     (docs/_config.yml `exclude:`), so they are not published documentation.
-#   docs/index.md — the docs frontpage itself; the README links the site root.
-doc_is_toc_excluded() {
+# docs/index.md is the docs frontpage; the README links the site root instead.
+docs_page_is_toc_excluded() {
   case "$1" in
-    docs/opencode/* | docs/claudecode/* | docs/index.md) return 0 ;;
+    docs/index.md) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-@test "README TOC links every published docs page" {
+@test "README TOC links every committed docs page" {
   local missing=()
   while IFS= read -r doc; do
-    doc_is_toc_excluded "$doc" && continue
+    docs_page_is_toc_excluded "$doc" && continue
     grep -qF "(${doc})" "$README" || missing+=("$doc")
   done < <(git -C "$PROJECT_ROOT" ls-files docs | grep '\.md$')
 

@@ -138,46 +138,27 @@ make test DEV_BOT_TEST_JOBS=4
 
 ## Documentation
 
-Every docs page lives in [`docs/`](docs/). Start at the
-[documentation site](https://get-e.github.io/dev-bot/).
+The documentation site is published at
+[get-e.github.io/dev-bot](https://get-e.github.io/dev-bot/).
 
-1. [CLI commands](docs/cli-commands.md)
-2. [Agents](docs/agents.md)
-3. [Slash commands](docs/commands.md)
-4. [Skills](docs/skills.md)
-5. [Hooks](docs/hooks.md)
-6. [MCPs](docs/mcps.md)
-7. [MCP configuration](docs/mcp-config.md)
-8. [Harnesses](docs/harnesses.md)
-9. [Tools](docs/tools/index.md)
-   1. [Agent communication](docs/tools/agent-communication.md)
-   2. [Auto-recover](docs/tools/auto-recover.md)
-   3. [Codebase index](docs/tools/codebase-index.md)
-   4. [Codebase memory](docs/tools/codebase-memory.md)
-   5. [Format JSON](docs/tools/format-json.md)
-   6. [Format Markdown](docs/tools/format-md.md)
-   7. [Format YAML](docs/tools/format-yml.md)
-   8. [Git report](docs/tools/git-report.md)
-   9. [Graphify](docs/tools/graphify.md)
-   10. [Guards](docs/tools/guards.md)
-   11. [Kubernetes](docs/tools/k8s.md)
-   12. [LiteLLM](docs/tools/litellm.md)
-   13. [mdctx](docs/tools/mdctx.md)
-   14. [Ollama](docs/tools/ollama.md)
-   15. [QMD](docs/tools/qmd.md)
-   16. [Refactor](docs/tools/refactor.md)
-   17. [Remember session](docs/tools/remember-session.md)
-   18. [Repomix](docs/tools/repomix.md)
-   19. [Sentry](docs/tools/sentry.md)
-   20. [Signoz](docs/tools/signoz.md)
-   21. [Tree](docs/tools/tree.md)
-10. [Configuration](docs/configuration.md)
-11. [Module reference](docs/module-reference.md)
-12. [Create a module](docs/create-a-module.md)
-13. [Modules & tools map](docs/modules-and-tools.html)
+Most of the site is **generated from the source modules**. Every module that
+ships a `docs.md` gets a page at `/modules/<area>/<name>`; the module index, the
+navigation menu, and the aggregate pages (Agents, Skills, Slash commands, Hooks,
+MCPs, Module Reference) are built from the module files at compile time. A module
+without a `docs.md` gets no page and no link anywhere on the site.
 
-> The per-harness pages under `docs/opencode/` and `docs/claudecode/` are
-> excluded from the docs site build and are not listed here.
+`make docs` gathers the module pages and serves the site; `make docs-gather`
+builds them without serving.
+
+The hand-written pages under [`docs/`](docs/) are:
+
+1. [Configuration](docs/configuration.md)
+2. [Create a module](docs/create-a-module.md) — module anatomy and the `docs.md` contract
+3. [MCP configuration](docs/mcp-config.md)
+4. [Modules & tools map](docs/modules-and-tools.html)
+
+> Per-module documentation lives beside each module (`src/<area>/<module>/docs.md`),
+> not under `docs/`.
 
 ---
 

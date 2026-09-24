@@ -143,23 +143,23 @@ title: DevBot
     </div>
     <div class="feature-grid">
       <div class="feature-card">
-        <h3><a href="{{ '/tools/graphify' | relative_url }}">Graphify</a></h3>
+        <h3><a href="{{ '/modules/agentic/graphify' | relative_url }}">Graphify</a></h3>
         <p>Structural knowledge graph auto-built from your codebase. Query file relationships, trace call graphs, detect community boundaries.</p>
       </div>
       <div class="feature-card">
-        <h3><a href="{{ '/tools/codebase-index' | relative_url }}">Codebase Index</a></h3>
+        <h3><a href="{{ '/modules/agentic/codebase-index' | relative_url }}">Codebase Index</a></h3>
         <p>Semantic code search &mdash; find functions, classes, and patterns by describing what they do. Embeddings via Ollama.</p>
       </div>
       <div class="feature-card">
-        <h3><a href="{{ '/tools/qmd' | relative_url }}">QMD Knowledge Vault</a></h3>
+        <h3><a href="{{ '/modules/agentic/qmd' | relative_url }}">QMD Knowledge Vault</a></h3>
         <p>Curated knowledge vault with semantic search. Goals, decisions, patterns, and gotchas in human-readable markdown notes.</p>
       </div>
       <div class="feature-card">
-        <h3><a href="{{ '/tools/mdctx' | relative_url }}">mdctx Keyword Search</a></h3>
+        <h3><a href="{{ '/modules/agentic/mdctx' | relative_url }}">mdctx Keyword Search</a></h3>
         <p>Zero-ML keyword search over the same vault &mdash; deterministic, offline, git-diffable index. The lightweight default engine.</p>
       </div>
       <div class="feature-card">
-        <h3><a href="{{ '/tools/guards' | relative_url }}">Guards</a></h3>
+        <h3><a href="{{ '/modules/agentic/guards' | relative_url }}">Guards</a></h3>
         <p>Prevent dangerous commands from being executed by agents. Configure regex patterns to block risky operations before they run.</p>
       </div>
       <div class="feature-card">
@@ -171,12 +171,12 @@ title: DevBot
         <p>Canonical per-module MCP manifests, wired into OpenCode and Claude Code through a shared translator.</p>
       </div>
       <div class="feature-card">
-        <h3><a href="{{ '/tools/agent-communication' | relative_url }}">Agent Communication</a></h3>
+        <h3><a href="{{ '/modules/agentic/agent-communication' | relative_url }}">Agent Communication</a></h3>
         <p>Structured inter-agent protocol with terminal status markers. Orchestrator delegates to specialists with verified deliverables.</p>
       </div>
     </div>
     <div class="hero-actions" style="margin-top: 2.5rem;">
-      <a href="{{ '/tools' | relative_url }}" class="btn btn-secondary">See all tools &rarr;</a>
+      <a href="{{ '/modules' | relative_url }}" class="btn btn-secondary">See all modules &rarr;</a>
       <a href="{{ '/modules-and-tools' | relative_url }}" class="btn btn-secondary">Modules &amp; Tools Map &rarr;</a>
     </div>
   </div>

@@ -205,3 +205,29 @@ EOF
     ! grep -q 'GENERATED:' "${OUT}/${page}" || { echo "unreplaced marker in ${page}" >&2; return 1; }
   done
 }
+
+@test "against the real repo: the page count matches the docs.md count" {
+  REAL_OUT="${BATS_TEST_TMPDIR}/real"
+  run "$GATHER" --out "$REAL_OUT"
+  [ "$status" -eq 0 ]
+  local docs pages
+  docs=$(find "${PROJECT_ROOT}/src" -mindepth 3 -maxdepth 3 -name docs.md | wc -l)
+  pages=$(find "${REAL_OUT}/modules" -name '*.md' ! -name index.md | wc -l)
+  [ "$docs" -eq "$pages" ]
+}
+
+@test "against the real repo: a module without docs.md gets no page" {
+  REAL_OUT="${BATS_TEST_TMPDIR}/real"
+  run "$GATHER" --out "$REAL_OUT"
+  [ "$status" -eq 0 ]
+  local dir area name
+  for dir in "${PROJECT_ROOT}"/src/agentic/*/ "${PROJECT_ROOT}"/src/tools/*/ "${PROJECT_ROOT}"/src/harnesses/*/; do
+    [ -f "${dir}docs.md" ] && continue
+    area="$(basename "$(dirname "${dir%/}")")"
+    name="$(basename "${dir%/}")"
+    [ ! -e "${REAL_OUT}/modules/${area}/${name}.md" ] || {
+      echo "page generated for undocumented ${area}/${name}" >&2
+      return 1
+    }
+  done
+}

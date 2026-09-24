@@ -115,6 +115,38 @@ Declare the MCP server(s) once in a canonical, harness-agnostic `mcp.json` — b
 
 Enabling/disabling the module is the main gate. A server can also declare `"enabled": false` to ship **wired but not started** (the manifest entry below would become `"enabled": false,` right after `type`) — opencode honors it; claudecode drops the key, since `.mcp.json` has no per-server on/off. If the module's integration with a harness is plugin-based (like codebase-index on opencode), declare it in `plugin.opencode.json` instead — the opencode registration adapter skips plugin-provided servers to avoid double-loading.
 
+### Documentation (`docs.md`)
+
+A module ships its own documentation in a `docs.md` at the module root. The docs site build gathers it and publishes one page per module at `/modules/<area>/<name>`; a module without a `docs.md` gets **no page and no link anywhere** on the site.
+
+Front matter declares the page and a concise manifest of what the module provides; the body is user-facing prose:
+
+```markdown
+---
+title: My Module
+description: One line — shown on the modules index and in the navigation.
+skills: [my-skill]
+mcps:
+  my-mcp: What the server provides
+---
+
+What the module does, in a sentence or two.
+
+## What it does
+
+…
+
+## Configuration
+
+No project configuration is required.
+```
+
+- `description` is **required** — the build fails without it.
+- `agents`, `commands`, `skills`, `hooks`, `plugins`, `tools` and `mcps` declare the module's capabilities. Each takes a plain list of names when the purpose can be read from the file itself (`SKILL.md`, an agent/command file, `hooks.json`, a tool's `# description:` header), and a `name: purpose` map where it cannot — typically `mcps`.
+- The build generates a **Contents** table immediately before `## Configuration`, plus a capability-summary strip above the prose, from that manifest — so the manifest is what the reader sees.
+
+`make docs-gather` builds the pages locally; `make docs` gathers and serves the site.
+
 ## 3. Lifecycle scripts
 
 Dev-bot runs these automatically, identically for internal and external modules:
