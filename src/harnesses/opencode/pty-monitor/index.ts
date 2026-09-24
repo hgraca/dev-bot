@@ -639,7 +639,9 @@ const tui = async (api) => {
     rootTimer = null
   })
 
-  await refresh()
+  // Deliberately not awaited: opencode's TUI plugin loader awaits this factory
+  // before the TUI is usable, and origin discovery can block for seconds.
+  refresh().catch(() => {})
   rootTimer = setInterval(() => {
     refresh().catch(() => {})
   }, POLL_MS)
