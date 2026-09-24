@@ -3,6 +3,7 @@ title: "K8s Lint"
 description: "Kubernetes manifest linting."
 skills: ["lint-k8s"]
 hooks: ["lint-k8s"]
+tools: ["lint-k8s"]
 ---
 
 Audits Kubernetes, Kustomize, and Helm manifests with `kubeconform` (schema validation) and `kube-linter` (best practices).

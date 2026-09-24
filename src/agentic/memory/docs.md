@@ -4,7 +4,7 @@ description: "The knowledge vault — recall, session capture, vault structure, 
 commands: ["audit-memory", "prune-memories", "remember-session"]
 skills: ["memory-management", "prune-memories", "remember-session", "search-memory", "thinking"]
 hooks: ["reindex-memories"]
-tools: ["generate-mcp-guide", "reindex-passive-memories"]
+tools: ["generate-mcp-guide", "reindex-memories", "reindex-passive-memories", "search-memories"]
 ---
 
 The knowledge vault: what agents learned in earlier sessions, kept where the next session can find it.

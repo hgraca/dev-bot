@@ -2,6 +2,7 @@
 title: "Refactor"
 description: "Deterministic, agent-callable refactoring of PHP, Python and TypeScript symbols."
 skills: ["refactor"]
+tools: ["refactor"]
 ---
 
 Renames or restructures a symbol and updates every genuine reference, via the

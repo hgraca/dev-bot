@@ -138,12 +138,18 @@ def capability_details(root, area, name, meta):
 
     if (base / "tools").is_dir():
         for entry in sorted((base / "tools").iterdir()):
+            if entry.name.startswith((".", "__")):
+                continue  # caches and editor droppings are not tools
             if entry.is_file():
                 details["tools"][entry.name.split(".")[0]] = read_scalar(entry, "description") or ""
             elif entry.is_dir():
                 wrappers = sorted(entry.glob("*.mcp.sh"))
-                name = wrappers[0].name[: -len(".mcp.sh")] if wrappers else entry.name
-                details["tools"][name] = read_scalar(wrappers[0], "description") if wrappers else ""
+                if wrappers:
+                    name = wrappers[0].name[: -len(".mcp.sh")]
+                    details["tools"][name] = read_scalar(wrappers[0], "description") or ""
+                elif any(entry.glob("*.sh")) or any(entry.glob("*.py")) or any(entry.glob("*.ts")):
+                    details["tools"][entry.name] = ""
+                # else: a data-only directory (the generator's templates/) is not a tool
 
     plugins = read_json(base / "plugin.opencode.json")
     if isinstance(plugins, (list, dict)):
@@ -239,11 +245,17 @@ def collect_inventory(root):
             meta = {}
             if doc.is_file():
                 meta, _ = parse_front_matter(doc.read_text(encoding="utf-8"), doc)
+            declared = {}
+            for key in CAPABILITY_KEYS:
+                names, _ = capability_entries(meta, key)
+                if names:
+                    declared[key] = names
             inventory.append({
                 "name": module_dir.name,
                 "area": area,
                 "documented": doc.is_file(),
                 "description": meta.get("description") or "",
+                "declared": declared,
                 "details": capability_details(root, area, module_dir.name, meta),
                 "mcp_purposes": meta.get("mcps") if isinstance(meta.get("mcps"), dict) else {},
             })
@@ -263,27 +275,40 @@ def aggregate_tables(root, inventory):
     for entry in inventory:
         area, name, details = entry["area"], entry["name"], entry["details"]
         link = module_link(area, name, entry["documented"])
+        purposes = entry["mcp_purposes"]
+        # One capability set feeds every generated view: a documented module's
+        # declared manifest, otherwise what its files reveal. Deriving here too
+        # is what keeps the index, the page Contents and these tables in step.
+        if entry["documented"]:
+            capabilities = entry["declared"]
+        else:
+            capabilities = {
+                key: sorted(details[key]) for key in CAPABILITY_KEYS if details[key]
+            }
 
-        for agent, description in sorted(details["agents"].items()):
-            row = [f"`{agent}`", link, cell(description)]
+        for agent in capabilities.get("agents", []):
+            row = [f"`{agent}`", link, cell(details["agents"].get(agent, ""))]
             if agent_mode(root, area, name, agent) == "primary":
                 primary.append(row)
             else:
                 subagents.append(row)
 
-        for skill, description in sorted(details["skills"].items()):
-            skills.append([link, f"`devbot:{skill}`", cell(description)])
-        for command, description in sorted(details["commands"].items()):
-            commands.append([link, f"`{command}`", cell(description)])
-        for hook, event in sorted(details["hooks"].items()):
+        for skill in capabilities.get("skills", []):
+            bare = bare_name(skill)
+            skills.append([link, f"`devbot:{bare}`", cell(details["skills"].get(bare, ""))])
+        for command in capabilities.get("commands", []):
+            commands.append([link, f"`{command}`", cell(details["commands"].get(command, ""))])
+        for hook in capabilities.get("hooks", []):
+            event = details["hooks"].get(hook, "")
             hooks.append([link, f"`{hook}`", f"`{event}`" if event else "—"])
-        for server, description in sorted(details["mcps"].items()):
-            purpose = entry["mcp_purposes"].get(server)
-            mcps.append([link, f"`{server}`", cell(purpose or description)])
+        for server in capabilities.get("mcps", []):
+            mcps.append([link, f"`{server}`", cell(purposes.get(server) or details["mcps"].get(server, ""))])
+        declared_tools = set(capabilities.get("tools", []))
         for tool, description in mcp_tool_entries(root, area, name):
-            mcp_tools.append([link, f"`{tool}`", cell(description)])
+            if tool in declared_tools:
+                mcp_tools.append([link, f"`{tool}`", cell(description)])
 
-        counts = {key: len(details[key]) for key in CAPABILITY_KEYS}
+        counts = {key: len(capabilities.get(key, [])) for key in CAPABILITY_KEYS}
         row = [
             link,
             count_cell(counts["skills"]),

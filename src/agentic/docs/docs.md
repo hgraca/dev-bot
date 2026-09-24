@@ -2,7 +2,7 @@
 title: "Docs"
 description: "Documentation tooling — the module-docs generator, documentation rules, GitHub Pages, and architecture maps."
 skills: ["app-map", "documentation-rules", "gh-docs-website", "use-case-map"]
-tools: ["gather-module-docs"]
+tools: ["gather-module-docs", "use-case-map"]
 ---
 
 How dev-bot's own documentation is written, gathered and published — plus the diagram tooling for mapping an application.
