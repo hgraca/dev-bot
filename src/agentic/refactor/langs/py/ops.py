@@ -12,6 +12,7 @@ not fully type-aware, so a rename's reference set is symbol-table based: good
 for ordinary code, blind to dynamic construction.
 """
 
+import ast
 import json
 import os
 import re
@@ -172,6 +173,68 @@ def _inline(project, request, create_inline):
     return create_inline(project, resource, offset).get_changes()
 
 
+def _self_attribute_offsets(text, name):
+    """(offset, owning-class line) for every `self.<name>` access in `text`."""
+    line_starts = [0]
+    for line in text.splitlines(keepends=True):
+        line_starts.append(line_starts[-1] + len(line))
+
+    tree = ast.parse(text)
+    classes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    found = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Attribute) and node.attr == name):
+            continue
+        if not (isinstance(node.value, ast.Name) and node.value.id == "self"):
+            continue
+        # rope wants the offset of the attribute word itself, not of `self`.
+        offset = line_starts[node.end_lineno - 1] + node.end_col_offset - len(name)
+        owner = next(
+            (cls.lineno for cls in classes if cls.lineno <= node.lineno <= cls.end_lineno),
+            None,
+        )
+        found.append((offset, owner))
+    return found
+
+
+def _encapsulate(project, request, EncapsulateField):
+    from rope.base.exceptions import RefactoringError
+
+    name = request.get("from") or ""
+    if not name:
+        fail("from is required")
+
+    path = _target_file(request)
+    try:
+        text = read_source(path)
+    except OSError as error:
+        fail("cannot read %s: %s" % (request.get("file"), error))
+
+    # Located by its `self.<name>` access, not the bare word: a parameter, local
+    # or comment that shares the name is then never mistaken for the attribute.
+    try:
+        found = _self_attribute_offsets(text, name)
+    except SyntaxError as error:
+        fail("cannot parse %s: %s" % (request.get("file"), error))
+
+    if not found:
+        fail("no 'self.%s' attribute found in %s" % (name, request.get("file")))
+    owners = {owner for _offset, owner in found if owner is not None}
+    if len(owners) > 1:
+        fail(
+            "'%s' is an attribute of %d classes in %s — narrow it to one"
+            % (name, len(owners), request.get("file"))
+        )
+
+    resource = project.get_file(os.path.relpath(path, PROJECT_DIR))
+    try:
+        return EncapsulateField(project, resource, found[0][0]).get_changes()
+    except RefactoringError as error:
+        # rope refuses an offset that is not a class attribute; surface it as an
+        # ERROR: line rather than a traceback.
+        fail(str(error))
+
+
 def _extract(project, request, extractor):
     name_to = request.get("to") or ""
     if not name_to:
@@ -207,6 +270,10 @@ def build_changes(project, request):
         from rope.refactor.inline import create_inline
 
         return _inline(project, request, create_inline)
+    if op == "encapsulate-field":
+        from rope.refactor.encapsulate_field import EncapsulateField
+
+        return _encapsulate(project, request, EncapsulateField)
     fail("py plugin: unsupported op: %s" % op)
 
 
@@ -230,6 +297,9 @@ def summarize(op, request, files, apply):
         return "%s %s -> %s in %d file(s)" % (verb, old, new, len(files))
     if op == "inline":
         verb = "Inlined" if apply else "Would inline"
+        return "%s %s in %d file(s)" % (verb, old, len(files))
+    if op == "encapsulate-field":
+        verb = "Encapsulated" if apply else "Would encapsulate"
         return "%s %s in %d file(s)" % (verb, old, len(files))
     verb = "Extracted" if apply else "Would extract"
     return "%s %s in %d file(s)" % (verb, new, len(files))

@@ -23,7 +23,7 @@ STORAGE_DIR="${REFACTOR_STORAGE_DIR:-${REFACTOR_DIR}/../../../storage/refactor}"
 
 cmd_meta() {
   cat <<'JSON'
-{"lang":"py","extensions":[".py"],"ops":["rename-symbol","extract-method","extract-variable","inline"],"requires":{"rename-symbol":["from","to"],"extract-method":["file","start","end","to"],"extract-variable":["file","start","end","to"],"inline":["from"]},"risks":{"rename-symbol":"rename","extract-method":"extract","extract-variable":"extract","inline":"inline"}}
+{"lang":"py","extensions":[".py"],"ops":["rename-symbol","extract-method","extract-variable","inline","encapsulate-field"],"requires":{"rename-symbol":["from","to"],"extract-method":["file","start","end","to"],"extract-variable":["file","start","end","to"],"inline":["from"],"encapsulate-field":["file","from"]},"risks":{"rename-symbol":"rename","extract-method":"extract","extract-variable":"extract","inline":"inline","encapsulate-field":"cleanup"}}
 JSON
 }
 

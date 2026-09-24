@@ -1324,13 +1324,15 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "py", m
 assert m["extensions"] == [".py"], m
-assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline"], m
+assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline", "encapsulate-field"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["extract-method"] == ["file", "start", "end", "to"], m
 assert m["requires"]["inline"] == ["from"], m
+assert m["requires"]["encapsulate-field"] == ["file", "from"], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["extract-method"] == "extract", m
 assert m["risks"]["inline"] == "inline", m
+assert m["risks"]["encapsulate-field"] == "cleanup", m
 '
 }
 
@@ -1565,4 +1567,27 @@ PY
   assert_success
   [ "${call}" = "1" ]
   [ "${def}" = "0" ]
+}
+
+@test "end-to-end (py): encapsulate-field adds accessors and rewrites access" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/field-demo/." "${work}/"
+  printf '{"op":"encapsulate-field","file":"src/counter.py","from":"value"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local getter setter call
+  getter="$(grep -c 'def get_value' "${work}/src/counter.py" || true)"
+  setter="$(grep -c 'def set_value' "${work}/src/counter.py" || true)"
+  call="$(grep -c 'return self.get_value()' "${work}/src/counter.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  [ "${getter}" = "1" ]
+  [ "${setter}" = "1" ]
+  [ "${call}" = "1" ]
 }
