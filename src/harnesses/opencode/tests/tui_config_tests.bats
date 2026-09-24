@@ -62,10 +62,16 @@ SHARED_EOF
   cp "${DIST_TUI}" "${SANDBOX_DIR}/tui.dist.jsonc"
   cp "${HARNESS_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/opencode.dist.jsonc"
   cp "${HARNESS_DIR}/required-plugins.jsonc" "${SANDBOX_DIR}/required-plugins.jsonc"
-  # _link_tui_plugins farms its source out of DEV_BOT_ROOT (= the sandbox), so the
-  # module has to exist there.
-  mkdir -p "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor"
-  : > "${SANDBOX_DIR}/src/harnesses/opencode/pty-monitor/index.ts"
+  # _link_tui_plugins farms its source out of DEV_BOT_ROOT (= the sandbox), so a
+  # source dir has to exist there for every plugin the farm lists. The names are
+  # read from the farm's own line rather than copied: sourcing init.sh here is not
+  # an option, because setup runs before _source_init and init.sh's top-level
+  # guards would fire on load.
+  local name
+  for name in $(sed -n 's/^_TUI_PLUGINS=(\(.*\))/\1/p' "${HARNESS_DIR}/init.sh"); do
+    mkdir -p "${SANDBOX_DIR}/src/harnesses/opencode/${name}"
+    : > "${SANDBOX_DIR}/src/harnesses/opencode/${name}/index.ts"
+  done
 
   # _ensure_required_plugins calls the REAL _upsert_opencode_plugin and reads the
   # template with the real read_jsonc.py. Copy both in rather than stubbing them,
@@ -255,6 +261,25 @@ _source_init() {
   assert [ -f "${link}/user-file.ts" ]
 }
 
+@test "_link_tui_plugins links every plugin the farm lists" {
+  # The list is the source of truth for what gets symlinked. A name that is linked
+  # but never referenced is dead weight, and one referenced but never linked is a
+  # tui.json entry pointing at nothing — so this drives the loop from the list
+  # itself rather than naming plugins by hand.
+  _setup_sandbox
+  _source_init
+
+  run _link_tui_plugins
+  assert_success
+
+  local name
+  for name in "${_TUI_PLUGINS[@]}"; do
+    local link="${SANDBOX_DIR}/.opencode/tui-plugins/${name}"
+    [[ -L "$link" ]] || fail "symlink not created at ${link}"
+    assert_equal "$(readlink "$link")" "${SANDBOX_DIR}/src/harnesses/opencode/${name}"
+  done
+}
+
 @test "init.sh main wires the tui-plugins farm" {
   run grep -q '^_link_tui_plugins$' "${HARNESS_DIR}/init.sh"
   assert_success
@@ -357,6 +382,79 @@ print(raw.count('opencode-pty'))
   assert_success
   assert_output --partial 'opencode-tabs@0.3.0'
   assert_output --partial 'tui-plugins/pty-monitor'
+  assert_output --partial 'tui-plugins/tui-defaults'
+}
+
+@test "every name in the farm list reaches the dist and the manifest" {
+  # _TUI_PLUGINS is the one list init.sh links. The dist is what makes opencode
+  # load a plugin, and the manifest is what reconciles it into an already-seeded
+  # project — so a name missing from either is linked but never loaded, or loaded
+  # only on a fresh install.
+  _setup_sandbox
+  _source_init
+
+  local name
+  for name in "${_TUI_PLUGINS[@]}"; do
+    run python3 "$READER" "$DIST_TUI" plugin
+    assert_output --partial "./tui-plugins/${name}/index.ts"
+    run python3 "$READER" "${HARNESS_DIR}/required-plugins.jsonc" tui
+    assert_output --partial "./tui-plugins/${name}/index.ts"
+  done
+}
+
+@test "every dev-bot TUI plugin the dist names is in the farm list" {
+  # The other direction of the test above, and the one that was missing: a dist
+  # entry dropped from _TUI_PLUGINS passed every check, while init would never
+  # symlink it and tui.json would still reference it — opencode logs "failed to
+  # load tui plugin", and no "source missing" warning fires because the source
+  # directory exists and only the list omits the name.
+  #
+  # Remote specs (opencode-tabs) are deliberately ignored: only a ./tui-plugins/
+  # path names a plugin the farm has to link.
+  _setup_sandbox
+  _source_init
+
+  printf '%s\n' "${_TUI_PLUGINS[@]}" > "${SANDBOX_DIR}/farm.txt"
+
+  run python3 -c "
+import json, subprocess, sys
+reader, dist, farm_file = sys.argv[1], sys.argv[2], sys.argv[3]
+out = subprocess.run(['python3', reader, dist, 'plugin'], capture_output=True, text=True)
+plugin = json.loads(out.stdout) if out.returncode == 0 else []
+farm = set(open(farm_file).read().split())
+orphans = [p for p in plugin if p.startswith('./tui-plugins/') and p.split('/')[2] not in farm]
+print('ORPHANS:' + ','.join(orphans) if orphans else 'OK')
+" "$READER" "$DIST_TUI" "${SANDBOX_DIR}/farm.txt"
+  assert_success
+  assert_output "OK"
+}
+
+@test "every plugin the generated tui.json references is actually linked" {
+  # The invariant the three list checks approximate: whatever the seeded template
+  # ends up pointing at must exist on disk. It fails both for a dist entry with
+  # no farm entry AND for a farm entry whose source is missing — the two states
+  # that make opencode log "failed to load tui plugin" at startup.
+  _setup_sandbox
+  _source_init
+
+  run _write_tui_config
+  assert_success
+  run _link_tui_plugins
+  assert_success
+
+  local tui="${SANDBOX_DIR}/.opencode/tui.json"
+  [[ -f "$tui" ]] || fail "tui.json was not written"
+
+  local dest
+  while IFS= read -r dest; do
+    [[ -e "${SANDBOX_DIR}/.opencode/${dest#./}" ]] ||
+      fail "tui.json references ${dest}, which is not linked"
+  done < <(python3 -c "
+import json, sys
+for entry in json.load(open(sys.argv[1])).get('plugin', []):
+    if isinstance(entry, str) and entry.startswith('./tui-plugins/'):
+        print(entry)
+" "$tui")
 }
 
 @test "required-plugins.jsonc covers every plugin the dists ship" {
