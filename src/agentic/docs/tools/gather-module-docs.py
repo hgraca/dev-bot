@@ -43,6 +43,16 @@ AGGREGATE_PAGES = (
 )
 # A pipe in a cell would split the column; a newline would break the row.
 CELL_TRANSLATION = str.maketrans({"|": "\\|", "\n": " "})
+# The semantic hook-event vocabulary and what each event means. This is the
+# adapter contract, not module data — the backing modules are derived.
+HOOK_EVENT_MEANINGS = {
+    "file.edited": "A file was saved",
+    "command.before": "A shell command is about to run (bash or a PTY invocation)",
+    "command.after": "A shell command finished",
+    "session.idle": "The session went quiet",
+    "session.created": "A session started",
+    "session.error": "A transient provider error",
+}
 # Front matter accepts only scalars, `[a, b]` flow lists and one level of
 # `name: purpose` nesting. A block scalar would be read as its own indicator
 # and a block sequence silently dropped, so both fail loudly instead.
@@ -271,10 +281,29 @@ def agent_mode(root, area, name, agent):
     return read_scalar(path, "mode") or "subagent"
 
 
+def render_agent_tree(root, inventory):
+    """The on-disk agent layout, derived so it cannot drift from the tables."""
+    lines = []
+    for entry in inventory:
+        agents = sorted(entry["declared"].get("agents", []))
+        if not agents:
+            continue
+        lines.append(f"src/{entry['area']}/{entry['name']}/agents/")
+        for agent in agents:
+            mode = agent_mode(root, entry["area"], entry["name"], agent)
+            description = entry["details"]["agents"].get(agent, "")
+            title = description.split(" — ")[0].strip() if " — " in description else agent
+            suffix = " (primary)" if mode == "primary" else ""
+            lines.append(f"  {agent}.md — {title}{suffix}")
+        lines.append("")
+    return "```\n" + "\n".join(lines).rstrip() + "\n```"
+
+
 def aggregate_tables(root, inventory):
     primary, subagents = [], []
     skills, commands, hooks, mcps, mcp_tools = [], [], [], [], []
     internal, tools_modules = [], []
+    events = {}
 
     for entry in inventory:
         area, name, details = entry["area"], entry["name"], entry["details"]
@@ -305,6 +334,8 @@ def aggregate_tables(root, inventory):
         for hook in capabilities.get("hooks", []):
             event = details["hooks"].get(hook, "")
             hooks.append([link, f"`{hook}`", f"`{event}`" if event else "—"])
+            if event in HOOK_EVENT_MEANINGS:
+                events.setdefault(event, []).append(link)
         for server in capabilities.get("mcps", []):
             mcps.append([link, f"`{server}`", cell(purposes.get(server) or details["mcps"].get(server, ""))])
         declared_tools = set(capabilities.get("tools", []))
@@ -331,6 +362,14 @@ def aggregate_tables(root, inventory):
     return {
         "AGENTS_PRIMARY": markdown_table(["Agent", "Module", "Description"], primary),
         "AGENTS_SUBAGENTS": markdown_table(["Agent", "Module", "Description"], subagents),
+        "AGENT_TREE": render_agent_tree(root, inventory),
+        "SEMANTIC_EVENTS": markdown_table(
+            ["Event", "Meaning", "Modules"],
+            [
+                [f"`{event}`", meaning, ", ".join(events.get(event, [])) or "—"]
+                for event, meaning in HOOK_EVENT_MEANINGS.items()
+            ],
+        ),
         "SKILLS": markdown_table(["Module", "Skill", "Description"], skills),
         "COMMANDS": markdown_table(["Module", "Command", "Description"], commands),
         "HOOKS": markdown_table(["Module", "Hook", "Event"], hooks),

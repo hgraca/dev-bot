@@ -18,14 +18,7 @@ For `run` hooks the business logic lives once in each module's `tools/` entry; t
 
 ## Semantic events
 
-| Event             | Meaning                                                    | Modules                                         |
-| ----------------- | ---------------------------------------------------------- | ----------------------------------------------- |
-| `file.edited`     | A file was saved                                           | format-md, format-json, format-yml, k8s, memory |
-| `command.before`  | A shell command is about to run (bash or a PTY invocation) | guards                                          |
-| `command.after`   | A shell command finished                                   | graphify (git-commit detect)                    |
-| `session.idle`    | The session went quiet                                     | graphify (commit check)                         |
-| `session.created` | A session started                                          | graphify (update)                               |
-| `session.error`   | A transient provider error                                 | auto-recover                                    |
+<!-- GENERATED:SEMANTIC_EVENTS -->
 
 ## Manifest
 

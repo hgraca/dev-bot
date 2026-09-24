@@ -23,23 +23,7 @@ Primary agents delegate to these.
 
 The directory layout behind the tables above:
 
-```
-src/agentic/devbot/agents/
-├── devbot.md        — DevBot (pair programming partner, primary)
-├── expert.md        — Expert (consultant subagent)
-└── designer.md      — Designer (design subagent)
-
-src/agentic/devteam/agents/
-├── teamlead.md      — TeamLead (orchestrator, primary)
-├── architect.md     — Software Architect
-├── critic.md        — Critic
-├── developer.md     — Developer
-├── po.md            — Product Owner
-├── reviewer.md      — Reviewer
-├── scout.md         — Scout
-├── security.md      — Security Engineer
-└── tester.md        — Tester
-```
+<!-- GENERATED:AGENT_TREE -->
 
 ## Shell strategy
 
