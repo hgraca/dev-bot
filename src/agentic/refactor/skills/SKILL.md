@@ -38,13 +38,14 @@ devbot-tools_refactor --lang php --op <op> \
 
 ## Ops
 
-| op                     | what it renames                      | Rector rule              |
-| ---------------------- | ------------------------------------ | ------------------------ |
-| `rename-method`        | the declaration + instance calls     | `RenameMethodRector`     |
-| `rename-static-method` | the declaration + static calls       | `RenameMethodRector`     |
-| `rename-annotation`    | a docblock annotation on a class     | `RenameAnnotationRector` |
-| `rename-property`      | the declaration + accesses           | `RenamePropertyRector`   |
-| `rename-function`      | a free function: declaration + calls | `RenameFunctionRector`   |
+| op                     | what it renames                       | Rector rule              |
+| ---------------------- | ------------------------------------- | ------------------------ |
+| `rename-method`        | the declaration + instance calls      | `RenameMethodRector`     |
+| `rename-static-method` | the declaration + static calls        | `RenameMethodRector`     |
+| `rename-annotation`    | a docblock annotation on a class      | `RenameAnnotationRector` |
+| `rename-property`      | the declaration + accesses            | `RenamePropertyRector`   |
+| `rename-function`      | a free function: declaration + calls  | `RenameFunctionRector`   |
+| `rename-constant`      | a global constant: declaration + uses | `RenameConstantRector`   |
 
 ### Cleanup ops
 

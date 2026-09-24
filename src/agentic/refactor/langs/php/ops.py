@@ -75,6 +75,14 @@ OPS = {
         "declaration": "function",
         "requires": ["from", "to"],
     },
+    # Constants: the usages rule matches on the BARE name (a qualified key is
+    # rejected outright), so no `qualify` here — unlike functions.
+    "rename-constant": {
+        "rule": "Rector\\Renaming\\Rector\\ConstFetch\\RenameConstantRector",
+        "shape": "map",
+        "declaration": "constant",
+        "requires": ["from", "to"],
+    },
     # Cleanup ops: unconfigured rules that act across the scope, changing many
     # things rather than one symbol. No from/to.
     "remove-unused-private-methods": {

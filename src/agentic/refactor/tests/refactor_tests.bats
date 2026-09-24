@@ -853,3 +853,47 @@ assert m["requires"]["remove-unused-private-methods"] == [], m
   assert_success
   [ "${tightened}" = "1" ]
 }
+
+# ── D3: rename-constant ────────────────────────────────────────────────────────
+
+@test "ops.py render: rename-constant step 0 is a bare map" {
+  run bash -c "printf '%s' '{\"op\":\"rename-constant\",\"from\":\"DEMO_LIMIT\",\"to\":\"RENAMED_LIMIT\",\"scope\":[\"/app/src\"],\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render 0"
+
+  assert_success
+  assert_output --partial "RenameConstantRector::class"
+  assert_output --partial "'DEMO_LIMIT' => 'RENAMED_LIMIT'"
+  # A qualified key is rejected by the rule outright, so it must stay bare.
+  refute_output --partial "Demo\\\\DEMO_LIMIT"
+  refute_output --partial "RenameDeclarationRector"
+}
+
+@test "ops.py render: rename-constant step 1 is the constant declaration" {
+  run bash -c "printf '%s' '{\"op\":\"rename-constant\",\"from\":\"DEMO_LIMIT\",\"to\":\"RENAMED_LIMIT\",\"scope\":[\"/app/src\"],\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render 1"
+
+  assert_success
+  assert_output --partial "RenameDeclarationRector::class"
+  assert_output --partial "'kind' => 'constant'"
+}
+
+@test "end-to-end: rename-constant rewrites the declaration and the usage" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-constant '' DEMO_LIMIT RENAMED_LIMIT > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local decl stale used
+  decl="$(grep -c 'const RENAMED_LIMIT' "${work}/src/Constants.php" || true)"
+  stale="$(grep -c 'const DEMO_LIMIT' "${work}/src/Constants.php" || true)"
+  used="$(grep -c 'RENAMED_LIMIT' "${work}/src/UsesConstant.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"ok": true'
+  [ "${decl}" = "1" ]
+  [ "${stale}" = "0" ]
+  [ "${used}" = "1" ]
+}

@@ -18,13 +18,14 @@ devbot-tools_refactor --lang php --op <op> \
   --to <new> [--apply] [--json] [--force]
 ```
 
-| Op                     | Renames                              |
-| ---------------------- | ------------------------------------ |
-| `rename-method`        | the declaration + instance calls     |
-| `rename-static-method` | the declaration + static calls       |
-| `rename-annotation`    | a docblock annotation on a class     |
-| `rename-property`      | the declaration + accesses           |
-| `rename-function`      | a free function: declaration + calls |
+| Op                     | Renames                               |
+| ---------------------- | ------------------------------------- |
+| `rename-method`        | the declaration + instance calls      |
+| `rename-static-method` | the declaration + static calls        |
+| `rename-annotation`    | a docblock annotation on a class      |
+| `rename-property`      | the declaration + accesses            |
+| `rename-function`      | a free function: declaration + calls  |
+| `rename-constant`      | a global constant: declaration + uses |
 
 ### Cleanup ops
 
@@ -107,6 +108,8 @@ prove additivity).
 
 - **Dynamic references are invisible** to static analysis: string callables,
   `__call`, container bindings and variable method names are not renamed.
+- **`rename-constant` matches on the bare name**, because Rector's rule rejects a
+  qualified key. A same-named constant in another namespace would match too.
 - **`rename-annotation` re-appends the annotation**, so it can shift order
   relative to other annotations in the same docblock. Content is preserved.
 - **The tool does not run tests**, by design — the target may not be a GET-e
