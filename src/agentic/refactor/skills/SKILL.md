@@ -46,6 +46,18 @@ devbot-tools_refactor --lang php --op <op> \
 | `rename-property`      | the declaration + accesses           | `RenamePropertyRector`   |
 | `rename-function`      | a free function: declaration + calls | `RenameFunctionRector`   |
 
+### Cleanup ops
+
+These take no `--from`/`--to`: they run across the whole scope and change
+whatever they find. **Read the plan before applying** — they are not targeted at
+one symbol.
+
+| op                                 | what it does                                       | Rector rule                         |
+| ---------------------------------- | -------------------------------------------------- | ----------------------------------- |
+| `remove-unused-private-methods`    | deletes private methods nothing calls              | `RemoveUnusedPrivateMethodRector`   |
+| `remove-unused-private-properties` | deletes private properties nothing reads           | `RemoveUnusedPrivatePropertyRector` |
+| `privatize-final-class-properties` | tightens `protected` to `private` on final classes | `PrivatizeFinalClassPropertyRector` |
+
 `rename-class` is **not supported yet**. Rector's `RenameClassRector` rewrites
 references but leaves the class declaration and the PSR-4 filename behind, which
 would emit broken code.

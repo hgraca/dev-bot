@@ -39,13 +39,16 @@ interface PluginMeta {
   lang: string;
   extensions: string[];
   ops: string[];
+  // Per-op required inputs, declared by the plugin so the core needs no
+  // language knowledge to validate them.
+  requires?: Record<string, string[]>;
 }
 
 interface RefactorRequest {
   op: string;
   class: string | null;
-  from: string;
-  to: string;
+  from: string | null;
+  to: string | null;
   apply: boolean;
   image: string | null;
   namespace: string | null;
@@ -241,10 +244,6 @@ async function main(): Promise<number> {
     process.stderr.write(`ERROR: --op is required\n${USAGE}`);
     return 1;
   }
-  if (!args.to) {
-    process.stderr.write("ERROR: --to is required\n");
-    return 1;
-  }
 
   const plugins = await discoverPlugins();
   const available = [...plugins.keys()].sort().join(", ");
@@ -269,19 +268,18 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // Every shipped op targets a class; without it the generated config is invalid
-  // and Rector reports an opaque fatal error.
-  if (!args.klass) {
-    process.stderr.write(`ERROR: --class is required for op '${args.op}'\n`);
-    return 1;
-  }
-
-  // The op-specific selector: what to rename. `--from` is the generic form;
-  // --method/--property read better for their own ops.
-  const from = args.from ?? args.method ?? args.property;
-  if (!from) {
+  // The op declares what it needs (`meta.requires`), so a rename requires a
+  // target while a cleanup op requires none.
+  const requires = plugin.meta.requires?.[args.op] ?? ["class", "from", "to"];
+  const provided: Record<string, string | null> = {
+    class: args.klass,
+    from: args.from ?? args.method ?? args.property,
+    to: args.to,
+  };
+  const missing = requires.filter((field) => !provided[field]);
+  if (missing.length > 0) {
     process.stderr.write(
-      "ERROR: one of --from, --method or --property is required\n",
+      `ERROR: op '${args.op}' requires ${missing.map((f) => `--${f}`).join(", ")}\n`,
     );
     return 1;
   }
@@ -289,8 +287,8 @@ async function main(): Promise<number> {
   const request: RefactorRequest = {
     op: args.op,
     class: args.klass,
-    from,
-    to: args.to,
+    from: provided.from,
+    to: provided.to,
     apply: args.apply,
     image: args.image,
     namespace: args.namespace,

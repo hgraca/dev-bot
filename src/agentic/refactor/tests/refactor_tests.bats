@@ -761,3 +761,95 @@ CFG
   [ "${stale}" = "0" ]
   [ "${call}" = "1" ]
 }
+
+# ── Tier 2: cleanup ops (C1 + C2) ──────────────────────────────────────────────
+
+@test "ops.py render: a cleanup op emits withRules and takes no from/to" {
+  run bash -c "printf '%s' '{\"op\":\"remove-unused-private-methods\",\"scope\":[\"/app/src\"],\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render 0"
+
+  assert_success
+  assert_output --partial "withRules("
+  assert_output --partial "RemoveUnusedPrivateMethodRector::class"
+  refute_output --partial "withConfiguredRule"
+}
+
+@test "ops.py meta: declares per-op requirements" {
+  run python3 "${MODULE_DIR}/langs/php/ops.py" meta
+  assert_success
+
+  printf '%s' "${output}" | python3 -c '
+import json, sys
+m = json.load(sys.stdin)
+assert m["requires"]["rename-method"] == ["class", "from", "to"], m
+assert m["requires"]["rename-function"] == ["from", "to"], m
+assert m["requires"]["remove-unused-private-methods"] == [], m
+'
+}
+
+@test "core: an op missing a required input is rejected before dispatch" {
+  command -v bun >/dev/null 2>&1 || skip "bun not installed"
+
+  run bash "${TOOL}" --lang php --op rename-method --class 'Demo\Greeter' --method greet
+
+  assert_failure
+  assert_output --partial "requires --to"
+}
+
+@test "end-to-end: remove-unused-private-methods deletes only the unused one" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"remove-unused-private-methods","scope":["/app/src"]}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local gone kept
+  gone="$(grep -c 'unusedMethod' "${work}/src/CleanupTarget.php" || true)"
+  kept="$(grep -c 'function used' "${work}/src/CleanupTarget.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"ok": true'
+  [ "${gone}" = "0" ]
+  [ "${kept}" = "1" ]
+}
+
+@test "end-to-end: remove-unused-private-properties deletes only the unused one" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"remove-unused-private-properties","scope":["/app/src"]}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local gone kept
+  gone="$(grep -c 'unusedProperty' "${work}/src/CleanupTarget.php" || true)"
+  kept="$(grep -c 'promotable' "${work}/src/CleanupTarget.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${gone}" = "0" ]
+  [ "${kept}" = "2" ]
+}
+
+@test "end-to-end: privatize-final-class-properties tightens visibility" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"privatize-final-class-properties","scope":["/app/src"]}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local tightened
+  tightened="$(grep -c 'private string \$promotable' "${work}/src/CleanupTarget.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${tightened}" = "1" ]
+}

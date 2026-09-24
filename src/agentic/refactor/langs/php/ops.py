@@ -40,6 +40,7 @@ OPS = {
         "vo": "Rector\\Renaming\\ValueObject\\MethodCallRename",
         "shape": "vo",
         "args": ["class", "from", "to"],
+        "requires": ["class", "from", "to"],
     },
     # RenameMethodRector (not RenameStaticMethodRector) deliberately: it rewrites
     # the declaration as well as the calls, so it needs no second step.
@@ -48,12 +49,14 @@ OPS = {
         "vo": "Rector\\Renaming\\ValueObject\\MethodCallRename",
         "shape": "vo",
         "args": ["class", "from", "to"],
+        "requires": ["class", "from", "to"],
     },
     "rename-property": {
         "rule": "Rector\\Renaming\\Rector\\PropertyFetch\\RenamePropertyRector",
         "vo": "Rector\\Renaming\\ValueObject\\RenameProperty",
         "shape": "vo",
         "args": ["class", "from", "to"],
+        "requires": ["class", "from", "to"],
     },
     # Annotations live in doc-comments: no separate declaration, so one step.
     "rename-annotation": {
@@ -61,12 +64,33 @@ OPS = {
         "vo": "Rector\\Renaming\\ValueObject\\RenameAnnotationByType",
         "shape": "vo",
         "args": ["class", "from", "to"],
+        "requires": ["class", "from", "to"],
     },
+    # A free function: Rector resolves the call by fully-qualified name, so the
+    # namespace is needed — hence `qualify`, and the class field is not.
     "rename-function": {
         "rule": "Rector\\Renaming\\Rector\\FuncCall\\RenameFunctionRector",
         "shape": "map",
         "qualify": True,
         "declaration": "function",
+        "requires": ["from", "to"],
+    },
+    # Cleanup ops: unconfigured rules that act across the scope, changing many
+    # things rather than one symbol. No from/to.
+    "remove-unused-private-methods": {
+        "rule": "Rector\\DeadCode\\Rector\\ClassMethod\\RemoveUnusedPrivateMethodRector",
+        "shape": "rules",
+        "requires": [],
+    },
+    "remove-unused-private-properties": {
+        "rule": "Rector\\DeadCode\\Rector\\Property\\RemoveUnusedPrivatePropertyRector",
+        "shape": "rules",
+        "requires": [],
+    },
+    "privatize-final-class-properties": {
+        "rule": "Rector\\Privatization\\Rector\\Property\\PrivatizeFinalClassPropertyRector",
+        "shape": "rules",
+        "requires": [],
     },
 }
 
@@ -151,7 +175,24 @@ def steps_for(request: dict, spec: dict):
         "to": request.get("to") or "",
     }
 
+    missing = [field for field in spec.get("requires", []) if not values.get(field)]
+    if missing:
+        raise ValueError(
+            "op '%s' requires %s" % (request.get("op"), ", ".join("--" + f for f in missing))
+        )
+
     steps = []
+
+    # Unconfigured rule: runs over the scope and changes whatever it finds, so it
+    # takes no from/to and needs no second step.
+    if spec["shape"] == "rules":
+        return [
+            {
+                "rule": spec["rule"],
+                "imports": ["use %s;" % spec["rule"]],
+                "body": ["    ->withRules([%s::class]);" % spec["rule"].rsplit("\\", 1)[-1]],
+            }
+        ]
 
     if spec["shape"] == "map":
         namespace = ""
@@ -251,7 +292,12 @@ def main(argv: list) -> int:
     command = argv[1] if len(argv) > 1 else ""
 
     if command == "meta":
-        print(json.dumps({"lang": LANG, "extensions": EXTENSIONS, "ops": list(OPS)}))
+        print(json.dumps({
+            "lang": LANG,
+            "extensions": EXTENSIONS,
+            "ops": list(OPS),
+            "requires": {op: spec.get("requires", []) for op, spec in OPS.items()},
+        }))
         return 0
 
     if command == "rules":

@@ -308,8 +308,8 @@ print("\x1f".join([str(r.get("op") or ""), str(r.get("class") or ""),
                    str(r.get("from") or ""), str(r.get("to") or ""),
                    str(r.get("image") or "")]))')
 
-  if [[ -z "${op}" || -z "${from}" || -z "${to}" ]]; then
-    echo '{"ok":false,"error":"op, from and to are required"}' >&2
+  if [[ -z "${op}" ]]; then
+    echo '{"ok":false,"error":"op is required"}' >&2
     exit 1
   fi
 

@@ -26,6 +26,17 @@ devbot-tools_refactor --lang php --op <op> \
 | `rename-property`      | the declaration + accesses           |
 | `rename-function`      | a free function: declaration + calls |
 
+### Cleanup ops
+
+No `--from`/`--to`: these run across the whole scope and change whatever they
+find, so **read the plan before applying**.
+
+| Op                                 | What it does                                       |
+| ---------------------------------- | -------------------------------------------------- |
+| `remove-unused-private-methods`    | deletes private methods nothing calls              |
+| `remove-unused-private-properties` | deletes private properties nothing reads           |
+| `privatize-final-class-properties` | tightens `protected` to `private` on final classes |
+
 `rename-class` is not supported yet — see [Limits](#limits).
 
 Ops on **free functions and (later) global constants** need the symbol's
