@@ -5,10 +5,17 @@
  * Reads a refactor request as JSON on stdin and writes a response as JSON on
  * stdout, in the same shape the PHP plugin uses:
  *   {ok, engine, applied, summary, files, warnings}
+ * plus optional extras: `references`, `string_references` (literal occurrences
+ * the rename cannot reach) and `remaining_changes` (files still holding the old
+ * name — where PHP counts the files that would still change).
  *
  * A dry run reports the declaration and every reference without saving. An apply
  * calls ts-morph's rename(), which is type-aware — the TypeScript compiler
- * resolves the symbol — and updates every reference across the project.
+ * resolves the symbol — and updates every reference across the project. That
+ * rename is atomic, so there is nothing to re-verify within the apply: the
+ * verification is a re-run, which reports `remaining_changes` when a reference
+ * was left behind, and treats a declaration whose target is now declared as an
+ * already-completed rename rather than an error.
  */
 import { Project, SyntaxKind } from "ts-morph";
 import fs from "node:fs";
@@ -77,28 +84,32 @@ function fail(message) {
   return 1;
 }
 
-// The kinds that carry a literal string value, and how to read it. Template
-// heads/middles/tails are the parts of an interpolated template that hold text.
-const STRING_PARTS = [
+// The node kinds that carry literal text, and how to read each one. The template
+// parts are the text segments of an interpolated template; JsxText is literal
+// text inside JSX.
+const LITERAL_READERS = new Map([
   [SyntaxKind.StringLiteral, (node) => node.getLiteralValue()],
   [SyntaxKind.NoSubstitutionTemplateLiteral, (node) => node.getLiteralValue()],
   [SyntaxKind.TemplateHead, (node) => node.getLiteralText()],
   [SyntaxKind.TemplateMiddle, (node) => node.getLiteralText()],
   [SyntaxKind.TemplateTail, (node) => node.getLiteralText()],
-];
+  [SyntaxKind.JsxText, (node) => node.getText()],
+]);
 
-// Quoted occurrences of `name`. A reference held in a string is invisible to the
-// type-aware rename, so it is reported rather than silently left behind.
+// Literal occurrences of `name`. A reference held in a string is invisible to the
+// type-aware rename, so it is reported rather than silently left behind. One
+// traversal filtered by kind: getDescendantsOfKind rebuilds the whole descendant
+// list on each call, so a pass per kind would walk every file six times.
 function findStringReferences(project, name) {
   const hits = [];
   for (const sourceFile of project.getSourceFiles()) {
     const file = relative(sourceFile.getFilePath());
-    for (const [kind, read] of STRING_PARTS) {
-      for (const node of sourceFile.getDescendantsOfKind(kind)) {
-        const text = read(node);
-        if (!text || !text.includes(name)) continue;
-        hits.push({ file, line: node.getStartLineNumber(), text: text.trim() });
-      }
+    for (const node of sourceFile.getDescendants()) {
+      const read = LITERAL_READERS.get(node.getKind());
+      if (!read) continue;
+      const text = read(node);
+      if (!text || !text.includes(name)) continue;
+      hits.push({ file, line: node.getStartLineNumber(), text: text.trim() });
     }
   }
   return hits.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1));
@@ -138,23 +149,28 @@ async function main() {
   const node = findDeclaration(project, from, file);
 
   if (!node) {
-    // The declaration may be gone because an earlier apply renamed it while a
-    // call site was left behind. Report those rather than only "no declaration".
-    const residual = findResidualReferences(project, from, null);
-    if (residual.length === 0) {
+    // A re-run after a rename: `from` is gone, but if the target is now declared
+    // the rename happened, so report whatever still holds the old name rather
+    // than claiming the symbol never existed. With neither name declared the
+    // name was simply wrong, which stays an error.
+    if (!findDeclaration(project, to, null)) {
       return fail("no declaration of '" + from + "' found" + (file ? " in " + file : ""));
     }
-    process.stdout.write(
-      JSON.stringify({
-        ok: true,
-        engine: ENGINE,
-        applied: false,
-        summary: `Nothing to rename: no declaration of '${from}' — ${residual.length} file(s) still reference it`,
-        files: residual,
-        warnings: [],
-        remaining_changes: residual.length,
-      }) + "\n",
-    );
+    const residual = findResidualReferences(project, from, null);
+    const result = {
+      ok: true,
+      engine: ENGINE,
+      applied: false,
+      summary: residual.length
+        ? `'${from}' is renamed to '${to}', but ${residual.length} file(s) still reference '${from}'`
+        : `'${from}' is already renamed to '${to}' — nothing left to do`,
+      files: [],
+      warnings: [],
+    };
+    if (residual.length) {
+      result.remaining_changes = residual.length;
+    }
+    process.stdout.write(JSON.stringify(result) + "\n");
     return 0;
   }
 
@@ -185,14 +201,6 @@ async function main() {
   const stringReferences = findStringReferences(project, from);
   if (stringReferences.length) {
     result.string_references = stringReferences;
-  }
-
-  // Verify an apply left nothing behind, scoped to the files the rename touched.
-  if (apply && !process.env.REFACTOR_SKIP_VERIFY) {
-    const residual = findResidualReferences(project, from, files);
-    if (residual.length) {
-      result.remaining_changes = residual.length;
-    }
   }
 
   process.stdout.write(JSON.stringify(result) + "\n");

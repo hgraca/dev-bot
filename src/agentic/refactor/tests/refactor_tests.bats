@@ -1246,6 +1246,22 @@ assert m["risks"]["rename-symbol"] == "rename", m
   [ "${stale}" = "1" ]
 }
 
+@test "end-to-end (ts): a name held in JSX text is reported too" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  # Literal text inside JSX is as invisible to the rename as a quoted string.
+  assert_output --partial "Banner.tsx"
+}
+
 @test "end-to-end (ts): an apply reports the string reference and leaves it" {
   _ts_e2e_ready || skip "docker + ts-morph engine not available"
 
@@ -1271,7 +1287,7 @@ assert m["risks"]["rename-symbol"] == "rename", m
   [ "${leftover}" = "1" ]
 }
 
-@test "end-to-end (ts): a clean apply verifies itself" {
+@test "end-to-end (ts): a re-plan after a clean apply finds nothing left" {
   _ts_e2e_ready || skip "docker + ts-morph engine not available"
 
   local work
@@ -1279,12 +1295,32 @@ assert m["risks"]["rename-symbol"] == "rename", m
   cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
   printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${work}/request.json"
 
-  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+  bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'" >/dev/null 2>&1
+
+  # `from` is gone and its target is declared, so a second run is a clean
+  # idempotence check — not an error about a missing declaration.
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
   rm -rf "${work}"
 
   assert_success
-  # The post-apply pass found nothing left over.
   refute_output --partial "remaining_changes"
+  assert_output --partial "already renamed"
+}
+
+@test "end-to-end (ts): a name that was never declared is an error" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"nosuchname","to":"alsonotdeclared"}' > "${work}/request.json"
+
+  # Neither name exists, so this is a typo, not a completed rename.
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "no declaration of 'nosuchname'"
 }
 
 @test "end-to-end (ts): a residual call site is reported as remaining_changes" {
@@ -1324,7 +1360,7 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "py", m
 assert m["extensions"] == [".py"], m
-assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline", "encapsulate-field", "add-argument", "remove-argument", "move-module"], m
+assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline", "encapsulate-field", "add-argument", "remove-argument", "move-module", "remove-unused-imports"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["extract-method"] == ["file", "start", "end", "to"], m
 assert m["requires"]["inline"] == ["from"], m
@@ -1332,6 +1368,7 @@ assert m["requires"]["encapsulate-field"] == ["file", "from"], m
 assert m["requires"]["add-argument"] == ["file", "from", "to", "index"], m
 assert m["requires"]["remove-argument"] == ["file", "from", "index"], m
 assert m["requires"]["move-module"] == ["file", "to"], m
+assert m["requires"]["remove-unused-imports"] == ["file"], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["extract-method"] == "extract", m
 assert m["risks"]["inline"] == "inline", m
