@@ -933,10 +933,50 @@ assert m["requires"]["remove-unused-private-methods"] == [], m
   rm -rf "${work}"
 
   assert_success
-  assert_output --partial '"file_move": "moved Widget.php -> Gadget.php"'
+  assert_output --partial '"file_move": "moved src/Widget.php -> src/Gadget.php"'
   # All three halves of a class rename: declaration, reference, and the file.
   [ "${decl}" = "1" ]
   [ "${ref}" = "1" ]
   [ "${newfile}" = "1" ]
   [ "${oldfile}" = "0" ]
+}
+
+# ── D5: move-class (namespace + file move) ─────────────────────────────────────
+
+@test "ops.py move-target: a class move reports the namespaces and the new directory" {
+  run bash -c "printf '%s' '{\"op\":\"move-class\",\"from\":\"Demo\\\\Widget\",\"to\":\"Demo\\\\Frontend\\\\Widget\",\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' move-target"
+
+  assert_success
+  assert_output --partial '"namespace_from": "Demo"'
+  assert_output --partial "Frontend"
+  assert_output --partial "src/Frontend/Widget.php"
+}
+
+@test "end-to-end: move-class moves the file and re-namespaces only that file" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req move-class '' 'Demo\Widget' 'Demo\Frontend\Widget' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local moved oldgone ns others ref
+  moved="$(test -f "${work}/src/Frontend/Widget.php" && echo 1 || echo 0)"
+  oldgone="$(test -f "${work}/src/Widget.php" && echo 0 || echo 1)"
+  ns="$(grep -c '^namespace Demo\\Frontend;' "${work}/src/Frontend/Widget.php" || true)"
+  others="$(grep -c '^namespace Demo;' "${work}/src/Greeter.php" || true)"
+  ref="$(grep -c 'Demo\\Frontend\\Widget::make()' "${work}/src/UsesWidget.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial 'moved src/Widget.php -> src/Frontend/Widget.php'
+  # The moved file gains the new namespace...
+  [ "${moved}" = "1" ]
+  [ "${oldgone}" = "1" ]
+  [ "${ns}" = "1" ]
+  # ...and every other file in the namespace keeps the old one.
+  [ "${others}" = "1" ]
+  [ "${ref}" = "1" ]
 }

@@ -46,6 +46,7 @@ devbot-tools_refactor --lang php --op <op> \
 | `rename-property`      | the declaration + accesses                   | `RenamePropertyRector`   |
 | `rename-function`      | a free function: declaration + calls         | `RenameFunctionRector`   |
 | `rename-class`         | the declaration + references + the file move | `RenameClassRector`      |
+| `move-class`           | a class's namespace + its file (name kept)   | `RenameClassRector`      |
 | `rename-constant`      | a global constant: declaration + uses        | `RenameConstantRector`   |
 
 ### Cleanup ops

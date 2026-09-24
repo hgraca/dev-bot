@@ -361,12 +361,14 @@ print(json.dumps(r))' <<<"${request}")"
   # name is gone from the file, so it can no longer be found by it.
   local move_json mv_from="" mv_to=""
   move_json="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" move-target 2>/dev/null || true)"
-  local mv_from_rel="" mv_to_rel=""
+  local mv_from_rel="" mv_to_rel="" mv_ns_from="" mv_ns_to=""
   if [[ -n "${move_json}" ]]; then
     mv_from="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["from"])')"
     mv_to="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["to"])')"
     mv_from_rel="${mv_from#"${project}"/}"
     mv_to_rel="${mv_to#"${project}"/}"
+    mv_ns_from="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("namespace_from") or "")')"
+    mv_ns_to="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("namespace_to") or "")')"
   fi
 
   # One Rector run per rule. A single config carrying both a usages rule and the
@@ -417,15 +419,37 @@ print(json.dumps(r))' <<<"${request}")"
   local move_note=""
   if [[ -n "${mv_to}" ]]; then
     if [[ "${mode}" == "apply" ]]; then
+      if [[ -n "${mv_ns_to}" ]]; then
+        # Rewrite the namespace on this file ALONE: Rector's rules are project
+        # scoped, and a namespace rule would rewrite every file in the namespace
+        # rather than the single class being moved.
+        if ! python3 - "${mv_from}" "${mv_ns_from}" "${mv_ns_to}" <<'PY'
+import re, sys
+
+path, old, new = sys.argv[1:4]
+text = open(path, encoding="utf-8").read()
+pattern = re.compile(r"^(\s*namespace\s+)" + re.escape(old) + r"(\s*;)", re.M)
+updated, count = pattern.subn(lambda m: m.group(1) + new + m.group(2), text, count=1)
+if count != 1:
+    sys.exit("could not rewrite the namespace statement in %s" % path)
+open(path, "w", encoding="utf-8").write(updated)
+PY
+        then
+          rm -f "${outfile}" "${errfile}" "${rcfile}"
+          echo "ERROR: could not rewrite the namespace in ${mv_from}" >&2
+          exit 1
+        fi
+      fi
+      mkdir -p "$(dirname "${mv_to}")"
       if mv "${mv_from}" "${mv_to}"; then
-        move_note="moved $(basename "${mv_from}") -> $(basename "${mv_to}")"
+        move_note="moved ${mv_from_rel} -> ${mv_to_rel}"
       else
         rm -f "${outfile}" "${errfile}" "${rcfile}"
         echo "ERROR: could not move ${mv_from} to ${mv_to}" >&2
         exit 1
       fi
     else
-      move_note="would move $(basename "${mv_from}") -> $(basename "${mv_to}")"
+      move_note="would move ${mv_from_rel} -> ${mv_to_rel}"
     fi
   fi
 

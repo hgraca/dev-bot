@@ -94,6 +94,17 @@ OPS = {
         "move_file": True,
         "requires": ["from", "to"],
     },
+    # A class move keeps the class name and changes its namespace. Rector rewrites
+    # the references, and ships no namespace rule at all — but a namespace rename
+    # would hit EVERY file in the namespace, whereas a move changes one file. So
+    # the namespace is rewritten by the plugin, on the declaration file alone.
+    "move-class": {
+        "rule": "Rector\\Renaming\\Rector\\Name\\RenameClassRector",
+        "shape": "map",
+        "move_file": True,
+        "namespace_move": True,
+        "requires": ["from", "to"],
+    },
     # Cleanup ops: unconfigured rules that act across the scope, changing many
     # things rather than one symbol. No from/to.
     "remove-unused-private-methods": {
@@ -190,6 +201,32 @@ def resolve_namespace(request: dict, spec: dict, from_name: str) -> str:
             % (from_name, ", ".join(ns or "(global)" for ns in candidates))
         )
     return candidates[0]
+
+
+def namespace_target_dir(path: str, old_fq: str, new_fq: str):
+    """The PSR-4 directory for a class moved to another namespace, or None.
+
+    The source directory mirrors the source namespace's tail (the namespace minus
+    its root prefix); the target is rebuilt the same way. Returns None when the
+    layout does not mirror the namespace — guessing would move the file somewhere
+    that does not match, and a wrong move is worse than no move.
+    """
+    old_ns = old_fq.split("\\")[:-1]
+    new_ns = new_fq.split("\\")[:-1]
+    tail = old_ns[1:]
+
+    # Split the absolute dir, keeping the root: normpath("/a/b").split("/") yields
+    # a leading empty segment, and joining from it would drop the leading slash.
+    segments = os.path.dirname(path).rstrip(os.sep).split(os.sep)
+    if tail and segments[-len(tail):] != tail:
+        return None
+
+    keep = segments[: len(segments) - len(tail)] if tail else segments
+    if not keep:
+        return None
+
+    root = os.sep.join(keep)
+    return os.path.join(root, *new_ns[1:]) if new_ns[1:] else root
 
 
 def steps_for(request: dict, spec: dict):
@@ -350,16 +387,33 @@ def main(argv: list) -> int:
 
         old = request.get("from") or ""
         new = request.get("to") or ""
-        found = find_declarations(request.get("project") or "", old, spec.get("declaration") or "")
+        # The declaration carries the SHORT name; `from` may be qualified.
+        found = find_declarations(
+            request.get("project") or "", old.rsplit("\\", 1)[-1], spec.get("declaration") or ""
+        )
         if len(found) != 1:
             return 0
 
         _namespace, path = found[0]
-        target = os.path.join(os.path.dirname(path), new.rsplit("\\", 1)[-1] + ".php")
-        if os.path.basename(path) == os.path.basename(target):
+        short = new.rsplit("\\", 1)[-1]
+
+        result = {"from": path}
+        if spec.get("namespace_move"):
+            target_dir = namespace_target_dir(path, old, new)
+            if target_dir is None:
+                return 0
+            # The plugin rewrites the namespace in this one file: a namespace step
+            # in Rector would hit every file in the namespace instead.
+            result["namespace_from"] = old.rsplit("\\", 1)[0] if "\\" in old else ""
+            result["namespace_to"] = new.rsplit("\\", 1)[0] if "\\" in new else ""
+            result["to"] = os.path.join(target_dir, short + ".php")
+        else:
+            result["to"] = os.path.join(os.path.dirname(path), short + ".php")
+
+        if os.path.normpath(path) == os.path.normpath(result["to"]) and not spec.get("namespace_move"):
             return 0
 
-        print(json.dumps({"from": path, "to": target}))
+        print(json.dumps(result))
         return 0
 
     if command == "render":

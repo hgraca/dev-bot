@@ -26,6 +26,7 @@ devbot-tools_refactor --lang php --op <op> \
 | `rename-property`      | the declaration + accesses                   |
 | `rename-function`      | a free function: declaration + calls         |
 | `rename-class`         | the declaration + references + the file move |
+| `move-class`           | a class's namespace + its file (name kept)   |
 | `rename-constant`      | a global constant: declaration + uses        |
 
 ### Cleanup ops
@@ -39,7 +40,12 @@ find, so **read the plan before applying**.
 | `remove-unused-private-properties` | deletes private properties nothing reads           |
 | `privatize-final-class-properties` | tightens `protected` to `private` on final classes |
 
-`rename-class` also **moves the file** to match the class name.
+`rename-class` also **moves the file** to match the class name. `move-class`
+takes both names fully qualified (`--from Demo\Widget --to Demo\Frontend\Widget`)
+and changes the class's namespace, its file's directory and its references — the
+class name itself is unchanged. The namespace is rewritten on that one file, not
+across the namespace, and the target directory is inferred from PSR-4: if the
+source directory does not mirror the namespace, the file is left for you to move.
 
 Ops on **classes and free functions** need the symbol's namespace, because
 Rector resolves those by fully-qualified name. Pass `--namespace` or let the
