@@ -34,5 +34,5 @@ No project configuration is required.
 
 ## See also
 
-- [Explore](/module-reference) — gather-context skill
+- [Explore](/modules/agentic/explore) — gather-context skill
 - [Configuration](/configuration) — commit and branch settings
