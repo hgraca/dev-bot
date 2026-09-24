@@ -17,7 +17,7 @@
  * was left behind, and treats a declaration whose target is now declared as an
  * already-completed rename rather than an error.
  */
-import { Project, SyntaxKind } from "ts-morph";
+import { Project, Node, SyntaxKind } from "ts-morph";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -238,23 +238,390 @@ async function moveFile(project, file, to, apply) {
   return 0;
 }
 
+// True when a receiver resolves to the class itself — through a plain, aliased or
+// namespace import. A string comparison cannot see through an alias, so the
+// compiler's own resolution is used.
+function resolvesToClass(node, cls) {
+  const symbol = node.getSymbol();
+  const declarations = [
+    ...(symbol?.getDeclarations() ?? []),
+    ...(symbol?.getAliasedSymbol?.()?.getDeclarations() ?? []),
+    ...(node.getType()?.getSymbol()?.getDeclarations() ?? []),
+  ];
+  return declarations.includes(cls);
+}
+
+// Whether `node` sits inside `ancestor`.
+function isInside(node, ancestor) {
+  for (let parent = node.getParent(); parent; parent = parent.getParent()) {
+    if (parent === ancestor) return true;
+  }
+  return false;
+}
+
+// What the member's body reaches on its own class, read while the member still
+// lives in its module so every reference resolves: a reference to another member
+// keeps working once the class is in scope, while one to anything else declared
+// beside the class does not travel with the member. The member's references to
+// itself are handled at the paste, by name, so they need nothing in scope.
+function bodyDependencies(member, owner, from) {
+  let keptRefs = 0;
+  for (const access of member.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+    if (!resolvesToClass(access.getExpression(), owner)) continue;
+    if (access.getName() !== from) keptRefs += 1;
+  }
+
+  const foreign = new Set();
+  for (const identifier of member.getDescendantsOfKind(SyntaxKind.Identifier)) {
+    for (const declaration of identifier.getSymbol()?.getDeclarations() ?? []) {
+      if (declaration === owner) continue;
+      if (declaration.getSourceFile() !== owner.getSourceFile()) continue;
+      if (isInside(declaration, owner)) continue;
+      foreign.add(identifier.getText());
+    }
+  }
+  return { keptRefs, foreign: [...foreign] };
+}
+
+// The moved body's references to the member itself, repointed at the new class:
+// `Old.m` cannot survive the member's departure.
+function rewriteSelfReferences(pasted, name, klass, to) {
+  for (const access of pasted.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+    if (access.getName() !== name) continue;
+    if (access.getExpression().getText() === klass) access.getExpression().replaceWithText(to);
+  }
+}
+
+// Move a class member to another class. A static member's receiver is the class
+// itself, so its call sites can be repointed; an instance member's receiver is
+// whatever owns the object, which this tool cannot supply, so that case refuses
+// and names where the member is used.
+async function moveMember(project, klass, from, to, file, apply) {
+  if (!klass || !from || !to) {
+    return fail("class, from and to are required");
+  }
+
+  const owners = findDeclarations(project, klass, file, "class");
+  if (owners.length === 0) {
+    return fail(`no class '${klass}' found${file ? " in " + file : ""}`);
+  }
+  if (owners.length > 1) {
+    const listing = owners
+      .map((node) => `  ${relative(node.getSourceFile().getFilePath())}:${node.getStartLineNumber()}`)
+      .sort()
+      .join("\n");
+    return fail(`'${klass}' is declared in ${owners.length} places — pass --file to pick one:\n${listing}`);
+  }
+  const owner = owners[0];
+
+  // A bare class name can be declared in several modules; picking one silently
+  // would move the member into the wrong class.
+  const targets = findDeclarations(project, to, null, "class");
+  if (targets.length === 0) {
+    return fail(`no class '${to}' found`);
+  }
+  if (targets.length > 1) {
+    const listing = targets
+      .map((node) => `  ${relative(node.getSourceFile().getFilePath())}:${node.getStartLineNumber()}`)
+      .sort()
+      .join("\n");
+    return fail(`target class '${to}' is declared in ${targets.length} places:\n${listing}`);
+  }
+  const target = targets[0];
+
+  // The member getters take no name argument, so the name filter is explicit. A
+  // name resolving to more than one member (a get/set pair) is ambiguous.
+  const members = [
+    ...owner.getMethods(),
+    ...owner.getProperties(),
+    ...owner.getGetAccessors(),
+    ...owner.getSetAccessors(),
+  ].filter((member) => member.getName() === from);
+
+  if (members.length === 0) {
+    return fail(`no member '${from}' in class '${klass}'`);
+  }
+  if (members.length > 1) {
+    const listing = members.map((member) => `  ${member.getKindName()}`).join("\n");
+    return fail(`'${from}' resolves to ${members.length} members in '${klass}':\n${listing}`);
+  }
+  const member = members[0];
+
+  if (!member.isStatic()) {
+    const uses = member
+      .findReferencesAsNodes()
+      .map((ref) => `  ${relative(ref.getSourceFile().getFilePath())}:${ref.getStartLineNumber()}`)
+      .sort()
+      .join("\n");
+    return fail(
+      `'${klass}.${from}' is not static — its receiver would need a new owner${uses ? ":\n" + uses : ""}`,
+    );
+  }
+
+  // Collected before the move, and only from outside the member: a reference the
+  // member's own body makes is not a call site to repoint, and its node is
+  // forgotten once the member is removed.
+  const receivers = member
+    .findReferencesAsNodes()
+    .filter((ref) => !isInside(ref, member))
+    .map((ref) => (Node.isPropertyAccessExpression(ref.getParent()) ? ref.getParent().getExpression() : null))
+    .filter(Boolean);
+
+  const warnings = [];
+  const rewritable = [];
+  for (const receiver of receivers) {
+    // A static call's receiver is the class, however it is named locally — a
+    // plain, aliased or namespace import all resolve to the same declaration.
+    if (resolvesToClass(receiver, owner)) {
+      rewritable.push(receiver);
+    } else {
+      warnings.push(
+        `${relative(receiver.getSourceFile().getFilePath())}:${receiver.getStartLineNumber()}: receiver '${receiver.getText()}' does not resolve to '${klass}' and was not rewritten`,
+      );
+    }
+  }
+
+  const body = bodyDependencies(member, owner, from);
+  for (const name of body.foreign) {
+    warnings.push(
+      `${klass}.${from}: the body references '${name}', declared beside the class, which does not travel with the member`,
+    );
+  }
+
+  const touched = new Set(rewritable.map((receiver) => relative(receiver.getSourceFile().getFilePath())));
+  const files = new Set([
+    relative(owner.getSourceFile().getFilePath()),
+    relative(target.getSourceFile().getFilePath()),
+    ...receivers.map((receiver) => relative(receiver.getSourceFile().getFilePath())),
+  ]);
+
+  if (apply) {
+    // addMember indents the pasted text itself, and formatText would reformat
+    // every member of the destination class, so the moved text is re-based here.
+    project.manipulationSettings.set({ indentationText: destinationIndent(target) });
+    const pasted = target.addMember(rebase(memberText(member), member, target));
+    member.remove();
+
+    // A body that still reaches another member of its old class needs that class
+    // in scope; its references to itself follow the member.
+    if (body.keptRefs > 0) {
+      const collision = addNamedImport(
+        target.getSourceFile(),
+        klass,
+        specifierFor(target.getSourceFile(), owner.getSourceFile()),
+      );
+      if (collision) warnings.push(collision);
+    }
+    rewriteSelfReferences(pasted, from, klass, to);
+
+    for (const receiver of rewritable) {
+      const sourceFile = receiver.getSourceFile();
+      const namespaceBinding = Node.isPropertyAccessExpression(receiver) ? rootBinding(receiver) : null;
+      receiver.replaceWithText(to);
+      // A namespace import that existed only to reach the class is now unused.
+      if (namespaceBinding) {
+        pruneUnusedImport(sourceFile, namespaceBinding);
+      }
+    }
+
+    maintainImports(project, owner, target, files, touched, klass, to, warnings);
+
+    await project.save();
+  }
+
+  process.stdout.write(
+    JSON.stringify({
+      ok: true,
+      engine: ENGINE,
+      applied: apply,
+      summary: `${apply ? "Moved" : "Would move"} static ${klass}.${from} -> ${to}.${from} (${rewritable.length} call site(s) rewritten)`,
+      files: [...files].sort(),
+      warnings,
+    }) + "\n",
+  );
+  return 0;
+}
+
+// The whitespace a node's line carries before it, or "" when that span is not
+// whitespace — a member sharing its line with the class opening has no indent of
+// its own to read.
+function leadingIndent(node) {
+  const text = node.getSourceFile().getFullText();
+  const lineStart = text.lastIndexOf("\n", node.getStart()) + 1;
+  const prefix = text.slice(lineStart, node.getStart());
+  return /^[ \t]*$/.test(prefix) ? prefix : "";
+}
+
+// The indentation the destination class's own members use. A one-line or empty
+// class offers no sibling to read, so two spaces stands in.
+function destinationIndent(cls) {
+  const anchor = [...cls.getMethods(), ...cls.getProperties()][0];
+  return (anchor && leadingIndent(anchor)) || "  ";
+}
+
+// The member's full text, docblock included, minus the newline its own line
+// starts with — getFullText() would otherwise paste as a leading blank line.
+function memberText(member) {
+  return member.getFullText().replace(/^\s*\n/, "");
+}
+
+// How many times `unit` prefixes the line.
+function indentDepth(line, unit) {
+  let depth = 0;
+  while (line.startsWith(unit, depth * unit.length)) depth += 1;
+  return depth;
+}
+
+// Re-base a member's text onto the destination's indentation unit. addMember adds
+// one level to every line, so each line is emitted one level shallower than it
+// should land — and in the destination's unit, so a tab-indented class does not
+// receive a space-indented body. A docblock's own lines carry the same offset, so
+// there is no first-line special case. Only the moved text is touched; formatText
+// would rewrite every member of the class.
+function rebase(text, member, target) {
+  const from = leadingIndent(member);
+  const to = destinationIndent(target);
+  if (!from) return text;
+  return text
+    .split("\n")
+    .map((line) => {
+      const depth = indentDepth(line, from);
+      return depth === 0 ? line : to.repeat(depth - 1) + line.slice(depth * from.length);
+    })
+    .join("\n");
+}
+
+// Point each affected file's imports at the destination class. A file keeps the
+// old class's import while it still refers to the class for another reason; only
+// a file whose last reference was a moved call site drops it. The destination is
+// imported only where a receiver was rewritten, so no file gains an unused import.
+function maintainImports(project, owner, target, files, touched, oldName, newName, warnings) {
+  const targetFile = relative(target.getSourceFile().getFilePath());
+  // The import specifier is itself a reference, so counting it would keep every
+  // import alive and nothing would ever be dropped.
+  const stillUsed = new Set(
+    owner
+      .findReferencesAsNodes()
+      .filter((ref) => !Node.isImportSpecifier(ref.getParent()))
+      .map((ref) => relative(ref.getSourceFile().getFilePath())),
+  );
+
+  for (const file of files) {
+    const sourceFile = project.getSourceFile(path.join(PROJECT_DIR, file));
+    if (!sourceFile) continue;
+
+    if (!stillUsed.has(file)) {
+      dropNamedImport(sourceFile, oldName);
+    }
+    // The destination class needs no import in its own file.
+    if (touched.has(file) && file !== targetFile) {
+      const collision = addNamedImport(sourceFile, newName, specifierFor(sourceFile, target.getSourceFile()));
+      if (collision) warnings.push(collision);
+    }
+  }
+}
+
+// The module specifier that reaches `toFile` from `fromFile`, extensionless and
+// relative — what TypeScript's own import rewriting produces.
+function specifierFor(fromFile, toFile) {
+  const relativePath = path.relative(path.dirname(fromFile.getFilePath()), toFile.getFilePath());
+  const withoutExtension = relativePath.replace(/\.[^.]+$/, "").split(path.sep).join("/");
+  return withoutExtension.startsWith(".") ? withoutExtension : "./" + withoutExtension;
+}
+
+// Remove one named binding from a file's imports, and the whole declaration when
+// it was the last thing in it.
+function dropNamedImport(sourceFile, name) {
+  for (const declaration of sourceFile.getImportDeclarations()) {
+    const specifier = declaration.getNamedImports().find((named) => named.getName() === name);
+    if (!specifier) continue;
+    specifier.remove();
+    if (
+      declaration.getNamedImports().length === 0 &&
+      !declaration.getDefaultImport() &&
+      !declaration.getNamespaceImport()
+    ) {
+      declaration.remove();
+    }
+    return;
+  }
+}
+
+// Whether the file's default or namespace imports already bind a local name.
+function isNameBound(sourceFile, name) {
+  return sourceFile.getImportDeclarations().some((declaration) => {
+    return declaration.getDefaultImport()?.getText() === name || declaration.getNamespaceImport()?.getText() === name;
+  });
+}
+
+// The local binding a receiver was written through: `Old` is its own binding,
+// while `lib.Old` is reached through `lib`.
+function rootBinding(receiver) {
+  let node = receiver;
+  while (Node.isPropertyAccessExpression(node)) node = node.getExpression();
+  return Node.isIdentifier(node) ? node.getText() : null;
+}
+
+// Drop a namespace import whose local name the rewrite left with nothing to
+// reach — the replace took the only expression that used it.
+function pruneUnusedImport(sourceFile, localName) {
+  for (const declaration of sourceFile.getImportDeclarations()) {
+    const namespace = declaration.getNamespaceImport();
+    if (!namespace || namespace.getText() !== localName) continue;
+    const stillUsed = sourceFile
+      .getDescendantsOfKind(SyntaxKind.Identifier)
+      .some(
+        (identifier) =>
+          identifier.getText() === localName && !identifier.getFirstAncestorByKind(SyntaxKind.ImportDeclaration),
+      );
+    if (stillUsed) continue;
+    declaration.remove();
+    return;
+  }
+}
+
+// Bind `name` to the destination class in `sourceFile`, unless the file already
+// binds that local name — a duplicate binding is a compile error, so it is
+// reported instead of added. Returns a warning message, or null.
+function addNamedImport(sourceFile, name, moduleSpecifier) {
+  const declarations = sourceFile.getImportDeclarations();
+  if (declarations.some((declaration) => declaration.getNamedImports().some((named) => named.getName() === name))) {
+    return null;
+  }
+  if (isNameBound(sourceFile, name)) {
+    return `${relative(sourceFile.getFilePath())}: '${name}' is already bound in the file and was not imported`;
+  }
+  const sameModule = declarations.find((declaration) => declaration.getModuleSpecifierValue() === moduleSpecifier);
+  if (sameModule) {
+    sameModule.addNamedImport(name);
+    return null;
+  }
+  sourceFile.addImportDeclaration({ namedImports: [name], moduleSpecifier });
+  return null;
+}
+
 async function main() {
   const request = JSON.parse((await readStdin()) || "{}");
   const op = request.op || "rename-symbol";
   const from = request.from || "";
   const to = request.to || "";
+  const klass = request.class || "";
   const file = request.file || null;
   const kind = request.kind || null;
   const apply = Boolean(request.apply);
 
-  if (op !== "rename-symbol" && op !== "move-file") {
-    return fail(`unsupported op '${op}' (expected rename-symbol|move-file)`);
+  if (op !== "rename-symbol" && op !== "move-file" && op !== "move-member") {
+    return fail(`unsupported op '${op}' (expected rename-symbol|move-file|move-member)`);
   }
 
   const project = createProject();
 
   if (op === "move-file") {
     return moveFile(project, file, to, apply);
+  }
+
+  if (op === "move-member") {
+    return moveMember(project, klass, from, to, file, apply);
   }
 
   if (!from || !to) {

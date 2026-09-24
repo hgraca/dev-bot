@@ -1183,11 +1183,13 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "ts", m
 assert ".ts" in m["extensions"], m
-assert m["ops"] == ["rename-symbol", "move-file"], m
+assert m["ops"] == ["rename-symbol", "move-file", "move-member"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["move-file"] == ["file", "to"], m
+assert m["requires"]["move-member"] == ["class", "from", "to"], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["move-file"] == "move", m
+assert m["risks"]["move-member"] == "move", m
 '
 }
 
@@ -1553,6 +1555,398 @@ assert m["risks"]["move-file"] == "move", m
   assert_output --partial "(0 importer(s) updated)"
   assert_output --partial "not a relative specifier"
   [ "${alias}" = "1" ]
+}
+
+@test "end-to-end (ts): move-member relocates a static method and rewrites its call sites" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from make --to New --apply"
+
+  local moved removed rewritten dropped imported
+  moved="$(grep -c 'static make' "${work}/src/new.ts" || true)"
+  removed="$(grep -c 'make(' "${work}/src/old.ts" || true)"
+  rewritten="$(grep -c 'New.make(1)' "${work}/src/use.ts" || true)"
+  # use.ts no longer references Old, so its import must be gone and New's must arrive.
+  dropped="$(grep -c 'import { Old }' "${work}/src/use.ts" || true)"
+  imported="$(grep -c 'import { New }' "${work}/src/use.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "Moved static Old.make -> New.make"
+  assert_output --partial "2 call site(s) rewritten"
+  # The response's file list reaches the report, not just the summary.
+  assert_output --partial "src/new.ts"
+  [ "${moved}" = "1" ]
+  [ "${removed}" = "0" ]
+  [ "${rewritten}" = "1" ]
+  [ "${dropped}" = "0" ]
+  [ "${imported}" = "1" ]
+}
+
+@test "end-to-end (ts): move-member refuses an instance member, listing its call sites" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+  printf '%s' '{"op":"move-member","class":"Old","from":"instanceOnly","to":"New","apply":true}' > "${work}/request.json"
+
+  # An instance member's receiver needs a new owner the tool cannot supply, so the
+  # op refuses and names where the member is used.
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+  local untouched
+  untouched="$(grep -c 'instanceOnly' "${work}/src/old.ts" || true)"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "not static"
+  assert_output --partial "mixed.ts"
+  [ "${untouched}" = "1" ]
+}
+
+@test "end-to-end (ts): move-member keeps an import the file still uses" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from make --to New --apply"
+
+  local kept call
+  # mixed.ts still constructs Old, so its import must survive the move.
+  kept="$(grep -c 'import { Old }' "${work}/src/mixed.ts" || true)"
+  call="$(grep -c 'New.make(3)' "${work}/src/mixed.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${kept}" = "1" ]
+  [ "${call}" = "1" ]
+}
+
+@test "end-to-end (ts): a move-member plan writes nothing" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from make --to New"
+
+  local still spec
+  still="$(grep -c 'static make' "${work}/src/old.ts" || true)"
+  spec="$(grep -c 'Old.make(1)' "${work}/src/use.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "Would move"
+  [ "${still}" = "1" ]
+  [ "${spec}" = "1" ]
+}
+
+@test "end-to-end (ts): move-member lists candidates when the target class name is ambiguous" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+  printf 'export class New {\n  other(): number {\n    return 2;\n  }\n}\n' > "${work}/src/dup.ts"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from make --to New --apply"
+
+  local untouched
+  untouched="$(grep -c 'static make' "${work}/src/old.ts" || true)"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "declared in 2 places"
+  assert_output --partial "dup.ts"
+  assert_output --partial "new.ts"
+  [ "${untouched}" = "1" ]
+}
+
+@test "end-to-end (ts): move-member fails when the member does not exist" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+  printf '%s' '{"op":"move-member","class":"Old","from":"missing","to":"New","apply":true}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "no member 'missing'"
+}
+
+@test "end-to-end (ts): move-member preserves the destination file's indentation" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from make --to New --apply"
+
+  local two four
+  # member-demo is two-space indented; the pasted member must match the file, not
+  # the engine's four-space default.
+  two="$(grep -c '^  static make' "${work}/src/new.ts" || true)"
+  four="$(grep -c '^    static make' "${work}/src/new.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${two}" = "1" ]
+  [ "${four}" = "0" ]
+}
+
+@test "end-to-end (ts): move-member does not reformat the members it did not touch" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from make --to Loose --apply"
+
+  local intact
+  # The destination's own spacing is not the engine's to normalise.
+  intact="$(grep -cF 'existing() : number { return 1 ; }' "${work}/src/loose.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${intact}" = "1" ]
+}
+
+@test "end-to-end (ts): move-member survives a one-line destination class" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from make --to Slim --apply"
+
+  local intact over moved
+  intact="$(grep -cF 'existing(): number { return 1; }' "${work}/src/one-line.ts" || true)"
+  # A one-line class has no sibling indent to copy; the fallback must not corrupt
+  # the class with a bogus indentation string.
+  over="$(grep -cE '^ {10,}' "${work}/src/one-line.ts" || true)"
+  moved="$(grep -c 'static make' "${work}/src/one-line.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${intact}" = "1" ]
+  [ "${over}" = "0" ]
+  [ "${moved}" = "1" ]
+}
+
+@test "end-to-end (ts): move-member carries the member's docblock with it" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from ping --to New --apply"
+
+  local arrived left
+  # The member's documentation travels with it, and does not stay behind.
+  arrived="$(grep -c 'Return the input unchanged.' "${work}/src/new.ts" || true)"
+  left="$(grep -c 'Return the input unchanged.' "${work}/src/old.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${arrived}" = "1" ]
+  [ "${left}" = "0" ]
+}
+
+@test "end-to-end (ts): move-member rewrites a call site reached through an import alias" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-alias-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from make --to New --apply"
+
+  local rewritten dropped imported
+  # The receiver resolves to the class through the alias, so it must be repointed
+  # and the alias import dropped, not left pointing at the moved member.
+  rewritten="$(grep -c 'New.make(7)' "${work}/src/aliased.ts" || true)"
+  dropped="$(grep -c 'Legacy' "${work}/src/aliased.ts" || true)"
+  imported="$(grep -c 'import { New }' "${work}/src/aliased.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${rewritten}" = "1" ]
+  [ "${dropped}" = "0" ]
+  [ "${imported}" = "1" ]
+}
+
+@test "end-to-end (ts): move-member drops a namespace import the rewrite left unused" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-alias-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from make --to New --apply"
+
+  local rewritten namespace
+  rewritten="$(grep -c 'New.make(9)' "${work}/src/namespace.ts" || true)"
+  # The namespace binding only existed to reach the class; nothing uses it now.
+  namespace="$(grep -c 'import \* as lib' "${work}/src/namespace.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${rewritten}" = "1" ]
+  [ "${namespace}" = "0" ]
+}
+
+@test "end-to-end (ts): move-member warns instead of colliding with a default import" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-alias-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from make --to New --apply"
+
+  local duplicates
+  # collide.ts already binds `New` as a default import; a named import of the same
+  # name would be a duplicate identifier, so it is reported instead of added.
+  duplicates="$(grep -c 'import { New }' "${work}/src/collide.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "is already bound in the file"
+  [ "${duplicates}" = "0" ]
+}
+
+@test "end-to-end (ts): move-member follows a body self-reference to the new class" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from ping --to New --apply"
+
+  local followed stale
+  # `Old.ping` stops existing once the member moves, so the body's own call has to
+  # follow it.
+  followed="$(grep -c 'New.ping(n - 1)' "${work}/src/new.ts" || true)"
+  stale="$(grep -c 'Old.ping' "${work}/src/new.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${followed}" = "1" ]
+  [ "${stale}" = "0" ]
+}
+
+@test "end-to-end (ts): move-member keeps a body reference to the old class and imports it" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from ping --to New --apply"
+
+  local kept imported
+  # `_v` stayed on Old, so the reference keeps working only if the class is in scope.
+  kept="$(grep -c 'Old._v' "${work}/src/new.ts" || true)"
+  imported="$(grep -c 'import { Old }' "${work}/src/new.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${kept}" = "1" ]
+  [ "${imported}" = "1" ]
+}
+
+@test "end-to-end (ts): move-member warns about a body reference that does not travel" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from measured --to New --apply"
+  rm -rf "${work}"
+
+  assert_success
+  # `scale()` is declared beside the class, not on it, so it does not come along —
+  # the move names it rather than leaving an unresolved call.
+  assert_output --partial "does not travel with the member"
+  assert_output --partial "scale"
+}
+
+@test "end-to-end (ts): move-member does not import the old class for a body self-reference" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from countdown --to New --apply"
+
+  local followed imported
+  followed="$(grep -c 'New.countdown(n - 1)' "${work}/src/new.ts" || true)"
+  # The only reference was to the member itself, and it followed the member — so
+  # the old class is not left imported and unused.
+  imported="$(grep -c 'import { Old }' "${work}/src/new.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${followed}" = "1" ]
+  [ "${imported}" = "0" ]
+}
+
+@test "end-to-end (ts): move-member moves a static property" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op move-member --class Old --from _v --to New --apply"
+
+  local moved rewritten imported
+  moved="$(grep -c 'static _v' "${work}/src/new.ts" || true)"
+  # The references that stayed behind in Old are repointed, and the class that now
+  # owns the property is imported there.
+  rewritten="$(grep -c 'New._v' "${work}/src/old.ts" || true)"
+  imported="$(grep -c 'import { New }' "${work}/src/old.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${moved}" = "1" ]
+  [ "${rewritten}" -ge 1 ]
+  [ "${imported}" = "1" ]
+}
+
+@test "end-to-end (ts): move-member refuses a name that resolves to a get/set pair" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
+  printf '%s' '{"op":"move-member","class":"Old","from":"size","to":"New","apply":true}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+  local untouched
+  untouched="$(grep -c 'get size' "${work}/src/old.ts" || true)"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "resolves to 2 members"
+  [ "${untouched}" = "1" ]
 }
 
 @test "end-to-end (ts): an apply reports the string reference and leaves it" {
