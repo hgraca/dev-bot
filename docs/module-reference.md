@@ -126,6 +126,7 @@ Located at `src/agentic/<name>/`. Each provides agent skills, tools, hooks, agen
 | ------------------- | --- | --- | --- | --- | --- | --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | agent-communication | 1   | 1   | —   | —   | 2   | —   | Structured inter-agent protocol — validates terminal status markers in messages                                                                                                                                                                                                          |
 | architecture        | 5   | —   | —   | —   | —   | —   | Architecture governance: design rules, DDD+Hex+CQRS layers, codebase audits, test suite audits, ADRs                                                                                                                                                                                     |
+| atlassian           | 1   | —   | —   | —   | —   | ✓   | Jira Cloud work items via the official Atlassian Rovo MCP server — JQL search, sprints, boards, transitions, Confluence/other Atlassian apps                                                                                                                                             |
 | auto-recover        | 2   | —   | —   | —   | 3   | —   | Automatic recovery from transient provider errors + structured exception handling                                                                                                                                                                                                        |
 | chrome-devtools     | —   | —   | —   | —   | —   | ✓   | Browser DevTools MCP — inspect DOM, console, network, performance traces                                                                                                                                                                                                                 |
 | codebase-index      | 1   | —   | —   | —   | —   | ✓   | Semantic code search via Ollama embeddings — find code by meaning, not keywords                                                                                                                                                                                                          |
@@ -166,7 +167,7 @@ Located at `src/agentic/<name>/`. Each provides agent skills, tools, hooks, agen
 
 Tool modules (`src/tools/`) ship commands too: `devbot-cli` provides `devbot:audit` and `devbot:audit-fix`.
 
-**Module count**: 37 modules.
+**Module count**: 38 modules.
 
 ---
 

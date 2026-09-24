@@ -7,26 +7,27 @@ nav_section: docs
 
 # MCPs
 
-DevBot wires **12 module-declared MCP servers** plus dynamic per-project harness servers (tagged `(harness)` below) into the agent tool palette. Each module-declared server is declared once in the module's canonical `mcp.json` (harness-agnostic — see [MCP configuration](/mcp-config) for the schema and per-harness wiring) and auto-registered during `devbot init`. The list below is generated via `devbot list mcps -a` (includes disabled modules):
+DevBot wires **13 module-declared MCP servers** plus dynamic per-project harness servers (tagged `(harness)` below) into the agent tool palette. Each module-declared server is declared once in the module's canonical `mcp.json` (harness-agnostic — see [MCP configuration](/mcp-config) for the schema and per-harness wiring) and auto-registered during `devbot init`. The list below is generated via `devbot list mcps -a` (includes disabled modules):
 
-| Module          | MCP server              | Provides                                                                                               |
-| --------------- | ----------------------- | ------------------------------------------------------------------------------------------------------ |
-| chrome-devtools | `chrome-devtools`       | Browser inspection, console, network, performance, Lighthouse                                          |
-| codebase-index  | `devbot:codebase-index` | Semantic code search, implementation lookup, call graph                                                |
-| codebase-memory | `codebase-memory`       | Codebase engine via the codebase-memory-mcp binary (no Ollama)                                         |
-| context7        | `context7`              | Version-accurate library/framework documentation                                                       |
-| graphify        | `devbot:graphify`       | Codebase knowledge graph querying                                                                      |
-| mdctx           | `devbot:mdctx`          | Keyword markdown knowledge-base search (zero-ML BM25)                                                  |
-| playwright      | `playwright`            | Browser automation and E2E testing                                                                     |
-| react           | `next-devtools`         | Next.js runtime diagnostics                                                                            |
-| signoz          | `signoz`                | Observability — dashboards, alerts, queries, investigation                                             |
-| svelte          | `svelte`                | Svelte framework integration                                                                           |
-| tools-mcp       | `devbot-tools`          | DevBot tool scripts as MCP tools (see below)                                                           |
-| websearch       | `websearch`             | Web search via Exa API                                                                                 |
-| (harness)       | `jetbrains`             | IDE integration — inspections, debugging, database tools (dynamic, runtime port)                       |
-| (harness)       | `datasources-<name>`    | Project databases through the shared MCP Toolbox gateway (dynamic, one server per opted-in datasource) |
+| Module          | MCP server              | Provides                                                                                                    |
+| --------------- | ----------------------- | ----------------------------------------------------------------------------------------------------------- |
+| atlassian       | `atlassian`             | Jira Cloud work items via the official Atlassian Rovo MCP server — JQL search, sprints, boards, transitions |
+| chrome-devtools | `chrome-devtools`       | Browser inspection, console, network, performance, Lighthouse                                               |
+| codebase-index  | `devbot:codebase-index` | Semantic code search, implementation lookup, call graph                                                     |
+| codebase-memory | `codebase-memory`       | Codebase engine via the codebase-memory-mcp binary (no Ollama)                                              |
+| context7        | `context7`              | Version-accurate library/framework documentation                                                            |
+| graphify        | `devbot:graphify`       | Codebase knowledge graph querying                                                                           |
+| mdctx           | `devbot:mdctx`          | Keyword markdown knowledge-base search (zero-ML BM25)                                                       |
+| playwright      | `playwright`            | Browser automation and E2E testing                                                                          |
+| react           | `next-devtools`         | Next.js runtime diagnostics                                                                                 |
+| signoz          | `signoz`                | Observability — dashboards, alerts, queries, investigation                                                  |
+| svelte          | `svelte`                | Svelte framework integration                                                                                |
+| tools-mcp       | `devbot-tools`          | DevBot tool scripts as MCP tools (see below)                                                                |
+| websearch       | `websearch`             | Web search via Exa API                                                                                      |
+| (harness)       | `jetbrains`             | IDE integration — inspections, debugging, database tools (dynamic, runtime port)                            |
+| (harness)       | `datasources-<name>`    | Project databases through the shared MCP Toolbox gateway (dynamic, one server per opted-in datasource)      |
 
-Five of these ship **disabled by default** on opencode: `chrome-devtools`, `playwright`, `signoz`, and the dynamic `jetbrains` and `datasources-<name>` servers. They are registered but not started, so a session that does not use them pays none of their tool-schema context or per-instance process cost. Flip `enabled` to `true` in the generated `opencode.jsonc` (or toggle it in the harness) and restart to switch one on — the value you set is preserved across `reinit`, which only fills in a default where the entry has none. Claude Code has no per-server on/off in `.mcp.json`, so there they stay enabled — see [MCP configuration](/mcp-config#per-server-enablement).
+Six of these ship **disabled by default** on opencode: `atlassian`, `chrome-devtools`, `playwright`, `signoz`, and the dynamic `jetbrains` and `datasources-<name>` servers (`atlassian` is additionally an opt-in module — it is absent entirely until enabled in the `modules` map). They are registered but not started, so a session that does not use them pays none of their tool-schema context or per-instance process cost. Flip `enabled` to `true` in the generated `opencode.jsonc` (or toggle it in the harness) and restart to switch one on — the value you set is preserved across `reinit`, which only fills in a default where the entry has none. Claude Code has no per-server on/off in `.mcp.json`, so there they stay enabled — see [MCP configuration](/mcp-config#per-server-enablement).
 
 ## devbot-tools MCP tools
 
