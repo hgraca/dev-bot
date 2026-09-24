@@ -1324,11 +1324,13 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "py", m
 assert m["extensions"] == [".py"], m
-assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable"], m
+assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["extract-method"] == ["file", "start", "end", "to"], m
+assert m["requires"]["inline"] == ["from"], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["extract-method"] == "extract", m
+assert m["risks"]["inline"] == "inline", m
 '
 }
 
@@ -1541,4 +1543,26 @@ PY
   assert_success
   [ "${assign}" = "1" ]
   [ "${use}" = "1" ]
+}
+
+@test "end-to-end (py): inline replaces a call with the body and drops the definition" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/inline-demo/." "${work}/"
+  printf '{"op":"inline","from":"double"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local call def
+  call="$(grep -c 'return 21 \* 2' "${work}/src/use_mathx.py" || true)"
+  # remove=True inlines every call and deletes the now-unused definition.
+  def="$(grep -c 'def double' "${work}/src/mathx.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  [ "${call}" = "1" ]
+  [ "${def}" = "0" ]
 }

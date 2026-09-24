@@ -122,26 +122,23 @@ def selection_offsets(text, start, end):
 # ── ops ────────────────────────────────────────────────────────────────────────
 
 
-def _rename(project, request, Rename):
-    name_from = request.get("from") or ""
-    name_to = request.get("to") or ""
-    if not name_from or not name_to:
-        fail("from and to are required")
+def _definitions(request, name):
+    """The single (path, offset, line) definition of `name`, or fail().
 
-    # Every definition of the name, across the candidate files. Several matches
-    # are ambiguous — renaming an arbitrary one silently would edit the wrong
-    # symbol, so the caller is told to pick with --file instead.
+    Several matches are ambiguous — editing an arbitrary one silently would
+    touch the wrong symbol, so the caller is told to pick with --file.
+    """
     candidates = []
     for path in candidate_files(PROJECT_DIR, request.get("file") or None):
         try:
             text = read_source(path)
         except OSError:
             continue
-        for offset in definition_offsets(text, name_from):
+        for offset in definition_offsets(text, name):
             candidates.append((path, offset, text.count("\n", 0, offset) + 1))
 
     if not candidates:
-        fail("no definition of '%s' found" % name_from)
+        fail("no definition of '%s' found" % name)
     if len(candidates) > 1:
         listing = "\n".join(
             "  %s:%d" % (os.path.relpath(path, PROJECT_DIR), line)
@@ -149,12 +146,30 @@ def _rename(project, request, Rename):
         )
         fail(
             "'%s' is defined in %d places — pass --file to pick one:\n%s"
-            % (name_from, len(candidates), listing)
+            % (name, len(candidates), listing)
         )
+    return candidates[0]
 
-    target, offset, _line = candidates[0]
+
+def _rename(project, request, Rename):
+    name_from = request.get("from") or ""
+    name_to = request.get("to") or ""
+    if not name_from or not name_to:
+        fail("from and to are required")
+
+    target, offset, _line = _definitions(request, name_from)
     resource = project.get_file(os.path.relpath(target, PROJECT_DIR))
     return Rename(project, resource, offset).get_changes(name_to)
+
+
+def _inline(project, request, create_inline):
+    name = request.get("from") or ""
+    if not name:
+        fail("from is required")
+
+    target, offset, _line = _definitions(request, name)
+    resource = project.get_file(os.path.relpath(target, PROJECT_DIR))
+    return create_inline(project, resource, offset).get_changes()
 
 
 def _extract(project, request, extractor):
@@ -188,6 +203,10 @@ def build_changes(project, request):
         from rope.refactor.extract import ExtractVariable
 
         return _extract(project, request, ExtractVariable)
+    if op == "inline":
+        from rope.refactor.inline import create_inline
+
+        return _inline(project, request, create_inline)
     fail("py plugin: unsupported op: %s" % op)
 
 
@@ -209,6 +228,9 @@ def summarize(op, request, files, apply):
     if op == "rename-symbol":
         verb = "Renamed" if apply else "Would rename"
         return "%s %s -> %s in %d file(s)" % (verb, old, new, len(files))
+    if op == "inline":
+        verb = "Inlined" if apply else "Would inline"
+        return "%s %s in %d file(s)" % (verb, old, len(files))
     verb = "Extracted" if apply else "Would extract"
     return "%s %s in %d file(s)" % (verb, new, len(files))
 
