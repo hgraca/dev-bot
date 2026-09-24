@@ -38,14 +38,15 @@ devbot-tools_refactor --lang php --op <op> \
 
 ## Ops
 
-| op                     | what it renames                       | Rector rule              |
-| ---------------------- | ------------------------------------- | ------------------------ |
-| `rename-method`        | the declaration + instance calls      | `RenameMethodRector`     |
-| `rename-static-method` | the declaration + static calls        | `RenameMethodRector`     |
-| `rename-annotation`    | a docblock annotation on a class      | `RenameAnnotationRector` |
-| `rename-property`      | the declaration + accesses            | `RenamePropertyRector`   |
-| `rename-function`      | a free function: declaration + calls  | `RenameFunctionRector`   |
-| `rename-constant`      | a global constant: declaration + uses | `RenameConstantRector`   |
+| op                     | what it renames                              | Rector rule              |
+| ---------------------- | -------------------------------------------- | ------------------------ |
+| `rename-method`        | the declaration + instance calls             | `RenameMethodRector`     |
+| `rename-static-method` | the declaration + static calls               | `RenameMethodRector`     |
+| `rename-annotation`    | a docblock annotation on a class             | `RenameAnnotationRector` |
+| `rename-property`      | the declaration + accesses                   | `RenamePropertyRector`   |
+| `rename-function`      | a free function: declaration + calls         | `RenameFunctionRector`   |
+| `rename-class`         | the declaration + references + the file move | `RenameClassRector`      |
+| `rename-constant`      | a global constant: declaration + uses        | `RenameConstantRector`   |
 
 ### Cleanup ops
 
@@ -59,9 +60,9 @@ one symbol.
 | `remove-unused-private-properties` | deletes private properties nothing reads           | `RemoveUnusedPrivatePropertyRector` |
 | `privatize-final-class-properties` | tightens `protected` to `private` on final classes | `PrivatizeFinalClassPropertyRector` |
 
-`rename-class` is **not supported yet**. Rector's `RenameClassRector` rewrites
-references but leaves the class declaration and the PSR-4 filename behind, which
-would emit broken code.
+`rename-class` additionally **moves the file** (`Widget.php` → `Gadget.php`):
+Rector rewrites the declaration and the references but moves no files, and a
+PSR-4 autoloader keys on the file name.
 
 ## Limits
 

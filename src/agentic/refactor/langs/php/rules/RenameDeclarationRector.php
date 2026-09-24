@@ -76,7 +76,15 @@ final class RenameDeclarationRector extends AbstractRector implements Configurab
 
     private function rename(Function_|Class_ $node, ?Identifier $name): ?Node
     {
-        if ($name === null || $name->toString() !== $this->from) {
+        if ($name === null) {
+            return null;
+        }
+
+        // `from` may be the short name or the fully-qualified one; the qualified
+        // form is what keeps a common short name from matching another namespace.
+        $candidate = $name->toString();
+        $namespaced = $node->namespacedName !== null ? $node->namespacedName->toString() : null;
+        if ($this->from !== $candidate && $this->from !== $namespaced) {
             return null;
         }
 
@@ -92,6 +100,14 @@ final class RenameDeclarationRector extends AbstractRector implements Configurab
     {
         $this->kind = (string) ($configuration['kind'] ?? '');
         $this->from = (string) ($configuration['from'] ?? '');
-        $this->to = (string) ($configuration['to'] ?? '');
+        // The declaration keeps the short name even when `to` is qualified.
+        $this->to = self::shortName((string) ($configuration['to'] ?? ''));
+    }
+
+    private static function shortName(string $name): string
+    {
+        $position = strrpos($name, '\\');
+
+        return $position === false ? $name : substr($name, $position + 1);
     }
 }

@@ -357,6 +357,18 @@ print(json.dumps(r))' <<<"${request}")"
   local dry="true"
   [[ "${mode}" == "apply" ]] && dry="false"
 
+  # Resolve the file move BEFORE the rules run: afterwards the old declaration
+  # name is gone from the file, so it can no longer be found by it.
+  local move_json mv_from="" mv_to=""
+  move_json="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" move-target 2>/dev/null || true)"
+  local mv_from_rel="" mv_to_rel=""
+  if [[ -n "${move_json}" ]]; then
+    mv_from="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["from"])')"
+    mv_to="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["to"])')"
+    mv_from_rel="${mv_from#"${project}"/}"
+    mv_to_rel="${mv_to#"${project}"/}"
+  fi
+
   # One Rector run per rule. A single config carrying both a usages rule and the
   # declaration rule does not compose: the declaration rename invalidates the
   # reflection the usages rule resolves calls through, so the calls silently stay
@@ -399,8 +411,26 @@ print(json.dumps(r))' <<<"${request}")"
     rm -f "${step_out}" "${step_err}"
   done
 
-  python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY'
-import json, sys
+  # Relocate the file resolved before the rules ran. Rector rewrites the
+  # declaration and the references but moves no files, and a PSR-4 autoloader
+  # keys on the file name — leaving it produces a class that no longer loads.
+  local move_note=""
+  if [[ -n "${mv_to}" ]]; then
+    if [[ "${mode}" == "apply" ]]; then
+      if mv "${mv_from}" "${mv_to}"; then
+        move_note="moved $(basename "${mv_from}") -> $(basename "${mv_to}")"
+      else
+        rm -f "${outfile}" "${errfile}" "${rcfile}"
+        echo "ERROR: could not move ${mv_from} to ${mv_to}" >&2
+        exit 1
+      fi
+    else
+      move_note="would move $(basename "${mv_from}") -> $(basename "${mv_to}")"
+    fi
+  fi
+
+  REFACTOR_MOVE_NOTE="${move_note}" REFACTOR_MOVE_FROM_REL="${mv_from_rel}" REFACTOR_MOVE_TO_REL="${mv_to_rel}" python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY'
+import json, os, sys
 
 outfile, errfile, rcfile, via, version, mode, old, new = sys.argv[1:9]
 
@@ -472,6 +502,16 @@ result = {
 }
 if not ok:
     result["error"] = "rector exit codes %s with %d error(s)" % (rcs, errors)
+
+move_note = os.environ.get("REFACTOR_MOVE_NOTE", "").strip()
+if move_note:
+    result["file_move"] = move_note
+    # Report the file under its new path — the reported old one no longer exists.
+    old_rel = os.environ.get("REFACTOR_MOVE_FROM_REL", "").strip()
+    new_rel = os.environ.get("REFACTOR_MOVE_TO_REL", "").strip()
+    if new_rel and old_rel in files:
+        files[files.index(old_rel)] = new_rel
+
 print(json.dumps(result))
 PY
   rm -f "${outfile}" "${errfile}" "${rcfile}"

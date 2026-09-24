@@ -83,6 +83,17 @@ OPS = {
         "declaration": "constant",
         "requires": ["from", "to"],
     },
+    # A class rename also has to move the file: Rector rewrites the declaration
+    # and the references but moves no files, and a PSR-4 autoloader keys on the
+    # file name, so leaving it produces a class that no longer loads.
+    "rename-class": {
+        "rule": "Rector\\Renaming\\Rector\\Name\\RenameClassRector",
+        "shape": "map",
+        "qualify": True,
+        "declaration": "class",
+        "move_file": True,
+        "requires": ["from", "to"],
+    },
     # Cleanup ops: unconfigured rules that act across the scope, changing many
     # things rather than one symbol. No from/to.
     "remove-unused-private-methods": {
@@ -125,13 +136,13 @@ def _declaration_re(name: str, kind: str) -> re.Pattern:
     return re.compile(r"^\s*(?:final\s+|abstract\s+)*class\s+" + re.escape(name) + r"\b", re.M)
 
 
-def find_declaring_namespaces(project: str, name: str, kind: str) -> list:
-    """Namespaces declaring `name` under the project's source roots ("" = global)."""
+def find_declarations(project: str, name: str, kind: str) -> list:
+    """(namespace, path) for each declaration of `name` under the source roots."""
     if not project or not os.path.isdir(project):
         return []
 
     pattern = _declaration_re(name, kind)
-    namespaces = []
+    found = []
     for root_name in ("app", "src"):
         root = os.path.join(project, root_name)
         if not os.path.isdir(root):
@@ -140,17 +151,23 @@ def find_declaring_namespaces(project: str, name: str, kind: str) -> list:
             for filename in files:
                 if not filename.endswith(".php"):
                     continue
+                path = os.path.join(dirpath, filename)
                 try:
-                    with open(os.path.join(dirpath, filename), encoding="utf-8", errors="replace") as handle:
+                    with open(path, encoding="utf-8", errors="replace") as handle:
                         text = handle.read()
                 except OSError:
                     continue
                 if not pattern.search(text):
                     continue
                 match = _NAMESPACE_RE.search(text)
-                namespaces.append(match.group(1) if match else "")
+                found.append((match.group(1) if match else "", path))
 
-    return list(dict.fromkeys(namespaces))  # dedupe, preserving order
+    return found
+
+
+def find_declaring_namespaces(project: str, name: str, kind: str) -> list:
+    """Namespaces declaring `name` under the project's source roots ("" = global)."""
+    return list(dict.fromkeys(ns for ns, _path in find_declarations(project, name, kind)))
 
 
 def resolve_namespace(request: dict, spec: dict, from_name: str) -> str:
@@ -202,13 +219,17 @@ def steps_for(request: dict, spec: dict):
             }
         ]
 
+    namespace = ""
+    if spec.get("qualify"):
+        namespace = resolve_namespace(request, spec, values["from"])
+
+    # The declaration rule is handed the same (qualified) names as the usages
+    # rule, so a common short name cannot match a declaration elsewhere.
+    declared_from = qualify(namespace, values["from"]) if namespace else values["from"]
+    declared_to = qualify(namespace, values["to"]) if namespace else values["to"]
+
     if spec["shape"] == "map":
-        namespace = ""
-        if spec.get("qualify"):
-            namespace = resolve_namespace(request, spec, values["from"])
-        key = qualify(namespace, values["from"]) if spec.get("qualify") else values["from"]
-        value = qualify(namespace, values["to"]) if spec.get("qualify") else values["to"]
-        pair = "        %s => %s," % (php_literal(key), php_literal(value))
+        pair = "        %s => %s," % (php_literal(declared_from), php_literal(declared_to))
     else:
         vo_short = spec["vo"].rsplit("\\", 1)[-1]
         args = ", ".join(php_literal(values[a]) for a in spec["args"])
@@ -239,8 +260,8 @@ def steps_for(request: dict, spec: dict):
                 "body": [
                     "    ->withConfiguredRule(RenameDeclarationRector::class, [",
                     "        'kind' => %s," % php_literal(spec["declaration"]),
-                    "        'from' => %s," % php_literal(values["from"]),
-                    "        'to' => %s," % php_literal(values["to"]),
+                    "        'from' => %s," % php_literal(declared_from),
+                    "        'to' => %s," % php_literal(declared_to),
                     "    ]);",
                 ],
             }
@@ -317,11 +338,35 @@ def main(argv: list) -> int:
         print(json.dumps(found))
         return 0
 
+    if command == "move-target":
+        # The host file a class rename must relocate: Rector moves no files, and a
+        # PSR-4 autoloader keys on the file name. Emits nothing when the op does
+        # not move files, when the declaration is absent, or when it is ambiguous
+        # (several matches) — the caller leaves those to the human.
+        request = json.load(sys.stdin)
+        spec = OPS.get(request.get("op") or "")
+        if not spec or not spec.get("move_file"):
+            return 0
+
+        old = request.get("from") or ""
+        new = request.get("to") or ""
+        found = find_declarations(request.get("project") or "", old, spec.get("declaration") or "")
+        if len(found) != 1:
+            return 0
+
+        _namespace, path = found[0]
+        target = os.path.join(os.path.dirname(path), new.rsplit("\\", 1)[-1] + ".php")
+        if os.path.basename(path) == os.path.basename(target):
+            return 0
+
+        print(json.dumps({"from": path, "to": target}))
+        return 0
+
     if command == "render":
         index = int(argv[2]) if len(argv) > 2 else 0
         return render(json.load(sys.stdin), index)
 
-    print("ERROR: ops.py: expected one of meta|rules|render", file=sys.stderr)
+    print("ERROR: ops.py: expected one of meta|rules|render|move-target", file=sys.stderr)
     return 1
 
 

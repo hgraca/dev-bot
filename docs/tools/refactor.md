@@ -18,14 +18,15 @@ devbot-tools_refactor --lang php --op <op> \
   --to <new> [--apply] [--json] [--force]
 ```
 
-| Op                     | Renames                               |
-| ---------------------- | ------------------------------------- |
-| `rename-method`        | the declaration + instance calls      |
-| `rename-static-method` | the declaration + static calls        |
-| `rename-annotation`    | a docblock annotation on a class      |
-| `rename-property`      | the declaration + accesses            |
-| `rename-function`      | a free function: declaration + calls  |
-| `rename-constant`      | a global constant: declaration + uses |
+| Op                     | Renames                                      |
+| ---------------------- | -------------------------------------------- |
+| `rename-method`        | the declaration + instance calls             |
+| `rename-static-method` | the declaration + static calls               |
+| `rename-annotation`    | a docblock annotation on a class             |
+| `rename-property`      | the declaration + accesses                   |
+| `rename-function`      | a free function: declaration + calls         |
+| `rename-class`         | the declaration + references + the file move |
+| `rename-constant`      | a global constant: declaration + uses        |
 
 ### Cleanup ops
 
@@ -38,13 +39,13 @@ find, so **read the plan before applying**.
 | `remove-unused-private-properties` | deletes private properties nothing reads           |
 | `privatize-final-class-properties` | tightens `protected` to `private` on final classes |
 
-`rename-class` is not supported yet — see [Limits](#limits).
+`rename-class` also **moves the file** to match the class name.
 
-Ops on **free functions and (later) global constants** need the symbol's
-namespace, because Rector resolves those calls by fully-qualified name. Pass
-`--namespace` or let the tool derive it from the declaration under `app/` or
-`src/`; it errors rather than guesses when the declaration is missing or
-ambiguous.
+Ops on **classes and free functions** need the symbol's namespace, because
+Rector resolves those by fully-qualified name. Pass `--namespace` or let the
+tool derive it from the declaration under `app/` or `src/`; it errors rather
+than guesses when the declaration is missing or ambiguous. **Constants** are
+matched by bare name instead, so they need no namespace.
 
 ## Engine policy
 
@@ -114,9 +115,8 @@ prove additivity).
   relative to other annotations in the same docblock. Content is preserved.
 - **The tool does not run tests**, by design — the target may not be a GET-e
   project and may not test the way we do. Run your own suite after applying.
-- **`rename-class` is not supported yet.** Rector's rule rewrites references but
-  not the class declaration or the PSR-4 filename, so a class rename would leave
-  broken code. It needs declaration and file handling first.
+- **`rename-class` moves the file** but does not rewrite `composer.json` autoload
+  maps, non-PSR-4 includes, or a class referenced by string elsewhere.
 
 ## See also
 

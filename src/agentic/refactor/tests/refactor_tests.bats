@@ -331,15 +331,6 @@ _e2e_ready() {
   refute_output --partial "SetList"
 }
 
-@test "ops.py render: rename-class is not supported yet" {
-  # RenameClassRector rewrites references but not the class declaration, so a
-  # class rename would emit broken code. Refuse rather than half-rename.
-  run bash -c "printf '%s' '{\"op\":\"rename-class\",\"from\":\"App\\\\Old\",\"to\":\"App\\\\New\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render"
-
-  assert_failure
-  assert_output --partial "unsupported op"
-}
-
 @test "ops.py render: rejects an unsupported op" {
   run bash -c "printf '%s' '{\"op\":\"rename-everything\",\"from\":\"a\",\"to\":\"b\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render"
 
@@ -896,4 +887,56 @@ assert m["requires"]["remove-unused-private-methods"] == [], m
   [ "${decl}" = "1" ]
   [ "${stale}" = "0" ]
   [ "${used}" = "1" ]
+}
+
+# ── D4: rename-class (declaration + references + file move) ────────────────────
+
+@test "ops.py render: rename-class step 0 is the qualified reference map" {
+  run bash -c "printf '%s' '{\"op\":\"rename-class\",\"from\":\"Widget\",\"to\":\"Gadget\",\"scope\":[\"/app/src\"],\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' render 0"
+
+  assert_success
+  assert_output --partial "RenameClassRector::class"
+  assert_output --partial "Gadget"
+  refute_output --partial "RenameDeclarationRector"
+}
+
+@test "ops.py move-target: reports the file a class rename must move" {
+  run bash -c "printf '%s' '{\"op\":\"rename-class\",\"from\":\"Widget\",\"to\":\"Gadget\",\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' move-target"
+
+  assert_success
+  assert_output --partial "Widget.php"
+  assert_output --partial "Gadget.php"
+}
+
+@test "ops.py move-target: silent for an op that moves no files" {
+  run bash -c "printf '%s' '{\"op\":\"rename-method\",\"from\":\"greet\",\"to\":\"salute\",\"project\":\"${PHP_FIXTURES}/rename-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' move-target"
+
+  assert_success
+  [ -z "${output}" ]
+}
+
+@test "end-to-end: rename-class renames the declaration, references and file" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-class '' Widget Gadget > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local decl ref newfile oldfile
+  decl="$(grep -c 'final class Gadget' "${work}/src/Gadget.php" 2>/dev/null || true)"
+  ref="$(grep -c 'Gadget::make()' "${work}/src/UsesWidget.php" || true)"
+  newfile="$(test -f "${work}/src/Gadget.php" && echo 1 || echo 0)"
+  oldfile="$(test -f "${work}/src/Widget.php" && echo 1 || echo 0)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"file_move": "moved Widget.php -> Gadget.php"'
+  # All three halves of a class rename: declaration, reference, and the file.
+  [ "${decl}" = "1" ]
+  [ "${ref}" = "1" ]
+  [ "${newfile}" = "1" ]
+  [ "${oldfile}" = "0" ]
 }
