@@ -1978,3 +1978,18 @@ JSON
   assert_success
   assert_output --partial '"ok": true'
 }
+
+@test "plugin seam: the markdown report shows the references a rename cannot reach" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PY_FIXTURES}/rename-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && REFACTOR_LANGS_DIR='${MODULE_DIR}/langs' bash '${TOOL}' --lang py --op rename-symbol --from greet --to salute"
+  rm -rf "${work}"
+
+  assert_success
+  # Default (markdown), not --json: the residual string references must show.
+  assert_output --partial 'String references'
+}

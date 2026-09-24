@@ -74,19 +74,24 @@ interface PluginResponse {
   files?: string[];
   warnings?: string[];
   error?: string;
+  // References a rename cannot reach, and what it left behind — plugin extras
+  // that must survive into the default (markdown) report, not only --json.
+  string_references?: { file: string; line: number; text: string }[];
+  remaining_changes?: number;
 }
 
 const USAGE = `refactor — deterministic, agent-callable refactoring
 
 Usage:
-  refactor --lang <lang> --op <rename-method|rename-static-method|rename-property> \\
-           --class <FQCN> [--from <old> | --method <old> | --property <old>] \\
-           --to <new> [--apply] [--json] [--force]
+  refactor --lang <lang> --op <op> [op inputs] [--apply] [--json] [--force]
+
+  The inputs an op needs are declared by its plugin — commonly --class, --from,
+  --to, --file, --start, --end, --index, --default, --namespace.
 
 Options:
-  --lang <lang>  target language plugin (e.g. php)
+  --lang <lang>  target language plugin (e.g. php, py, ts)
   --op <op>      refactoring to perform
-  --to <new>     new name
+  --to <new>     new name (or destination, for a move op)
   --apply        write changes (default: dry-run plan only)
   --json         machine-readable output
   --force        proceed despite a dirty working tree
@@ -96,8 +101,8 @@ Options:
   --file <path>  source file declaring the symbol, to pick among duplicates
   --kind <kind>  declaration kind to pick (class|interface|function|type|enum|
                  variable|method|property)
-  --start <n>    first line of the range (1-based, inclusive), for extract ops
-  --end <n>      last line of the range (1-based, inclusive), for extract ops
+  --start <line[:col]>  first line (optionally column) of a range, for extract ops
+  --end <line[:col]>    last line (optionally column) of a range, for extract ops
   --index <n>    parameter position (1-based), for signature ops
   --default <x>  default expression for an added parameter
   --help, -h     show this help
@@ -236,6 +241,19 @@ function render(res: PluginResponse, format: Format, op: string): string {
   if (res.files && res.files.length > 0) {
     lines.push("### Files");
     for (const f of res.files) lines.push(`- ${f}`);
+    lines.push("");
+  }
+  if (res.string_references && res.string_references.length > 0) {
+    lines.push("### String references (reported, not rewritten)");
+    for (const hit of res.string_references) {
+      lines.push(`- ${hit.file}:${hit.line} — ${hit.text}`);
+    }
+    lines.push("");
+  }
+  if (res.remaining_changes) {
+    lines.push(
+      `**Remaining changes:** ${res.remaining_changes} — references the rename could not reach`,
+    );
     lines.push("");
   }
   return `${lines.join("\n")}\n`;
