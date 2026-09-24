@@ -101,3 +101,64 @@ EOF
   echo "$output" | grep -q 'ERROR'
   echo "$output" | grep -q 'description'
 }
+
+@test "capability front matter is carried into the data file" {
+  cat >"${FIXTURE}/src/tools/gamma/docs.md" <<'EOF'
+---
+description: Does gamma things.
+skills: ["devbot:gamma-skill"]
+tools: [gamma-tool]
+---
+Gamma body line.
+EOF
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -eq 0 ]
+  grep -q 'skills:' "${OUT}/_data/modules.yml"
+  grep -q 'devbot:gamma-skill' "${OUT}/_data/modules.yml"
+  grep -q 'gamma-tool' "${OUT}/_data/modules.yml"
+}
+
+@test "a Contents section is generated before Configuration" {
+  cat >"${FIXTURE}/src/agentic/alpha/docs.md" <<'EOF'
+---
+title: Alpha Module
+description: Does alpha things.
+skills: [alpha-skill]
+---
+
+Alpha lede.
+
+## What it does
+
+Body.
+
+## Configuration
+
+None.
+EOF
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -eq 0 ]
+  page="${OUT}/modules/agentic/alpha.md"
+  grep -q '^## Contents' "$page"
+  grep -q 'alpha-skill' "$page"
+  contents_line=$(grep -n '^## Contents' "$page" | cut -d: -f1)
+  config_line=$(grep -n '^## Configuration' "$page" | cut -d: -f1)
+  [ "$contents_line" -lt "$config_line" ]
+}
+
+@test "the capability summary is emitted as page front matter" {
+  cat >"${FIXTURE}/src/agentic/alpha/docs.md" <<'EOF'
+---
+title: Alpha Module
+description: Does alpha things.
+skills: [alpha-skill]
+mcps:
+  alpha-mcp: Serves alpha
+---
+
+Alpha lede.
+EOF
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -eq 0 ]
+  grep -q 'capability_summary: "1 skill · 1 MCP"' "${OUT}/modules/agentic/alpha.md"
+}
