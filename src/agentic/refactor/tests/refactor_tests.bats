@@ -1468,3 +1468,33 @@ PY
   [ "${a}" = "1" ]
   [ "${b}" = "1" ]
 }
+
+@test "plugin seam: the core forwards --file to the plugin" {
+  export REFACTOR_LANGS_DIR="${FIXTURE_LANGS}"
+  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang --op rename-method --class X --from a --to b --file stub/x.stub --json"
+
+  assert_success
+  assert_output --partial '"file": "stub/x.stub"'
+}
+
+@test "end-to-end (py): --file picks one of several same-named definitions" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/ambiguous-demo/." "${work}/"
+  printf '{"op":"rename-symbol","from":"greet","to":"salute","file":"src/a.py"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local a b
+  a="$(grep -c 'def salute' "${work}/src/a.py" || true)"
+  b="$(grep -c 'def greet' "${work}/src/b.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  [ "${a}" = "1" ]
+  # The definition in the other file was left alone.
+  [ "${b}" = "1" ]
+}

@@ -33,6 +33,7 @@ interface Args {
   force: boolean;
   image: string | null;
   namespace: string | null;
+  file: string | null;
 }
 
 interface PluginMeta {
@@ -52,6 +53,7 @@ interface RefactorRequest {
   apply: boolean;
   image: string | null;
   namespace: string | null;
+  file: string | null;
 }
 
 interface PluginResponse {
@@ -81,6 +83,7 @@ Options:
   --image <ref>  container image to run the engine in (default: resolved per project)
   --namespace <ns>  symbol's namespace, for ops on free functions/constants
                     (derived from the declaration when omitted)
+  --file <path>  source file declaring the symbol, to pick among duplicates
   --help, -h     show this help
   --version      show version
 `;
@@ -101,6 +104,7 @@ function parse(argv: string[]): Args {
     force: false,
     image: null,
     namespace: null,
+    file: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -120,6 +124,7 @@ function parse(argv: string[]): Args {
     else if (arg === "--property") a.property = next();
     else if (arg === "--from") a.from = next();
     else if (arg === "--to") a.to = next();
+    else if (arg === "--file") a.file = next();
   }
   return a;
 }
@@ -292,6 +297,7 @@ async function main(): Promise<number> {
     apply: args.apply,
     image: args.image,
     namespace: args.namespace,
+    file: args.file,
   };
 
   if (args.apply && !args.force) {
