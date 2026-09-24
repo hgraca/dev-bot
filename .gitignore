@@ -14,6 +14,12 @@ docs/vendor/
 # Generated from src/<area>/<module>/docs.md by the docs module's gather script.
 docs/modules/
 docs/_data/
+docs/agents.md
+docs/skills.md
+docs/commands.md
+docs/hooks.md
+docs/mcps.md
+docs/module-reference.md
 Makefile.vars.local.mk
 .env
 litellm.config.yaml

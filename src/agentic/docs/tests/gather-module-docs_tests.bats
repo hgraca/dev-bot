@@ -187,3 +187,21 @@ EOF
   [ "$status" -eq 0 ]
   grep -q 'Does a thing well' "${OUT}/modules/tools/gamma.md"
 }
+
+@test "the aggregate pages are rendered from their templates" {
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -eq 0 ]
+  for page in agents.md skills.md commands.md hooks.md mcps.md module-reference.md; do
+    [ -f "${OUT}/${page}" ] || { echo "missing ${page}" >&2; return 1; }
+  done
+  grep -q 'alpha' "${OUT}/module-reference.md"
+  grep -q 'gamma' "${OUT}/module-reference.md"
+}
+
+@test "no generated markers are left unreplaced in the aggregate pages" {
+  run "$GATHER" --root "$FIXTURE" --out "$OUT"
+  [ "$status" -eq 0 ]
+  for page in agents.md skills.md commands.md hooks.md mcps.md module-reference.md; do
+    ! grep -q 'GENERATED:' "${OUT}/${page}" || { echo "unreplaced marker in ${page}" >&2; return 1; }
+  done
+}
