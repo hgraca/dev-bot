@@ -90,6 +90,7 @@ inclusive; a missing column reads to the end of the line.
 | `encapsulate-field` | `--file`, `--from`                    | cleanup   |
 | `add-argument`      | `--file`, `--from`, `--to`, `--index` | signature |
 | `remove-argument`   | `--file`, `--from`, `--index`         | signature |
+| `move-module`       | `--file`, `--to` (a folder)           | move      |
 
 ## Cleanup ops
 

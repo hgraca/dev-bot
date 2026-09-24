@@ -271,6 +271,24 @@ def _remove_argument(project, request, ChangeSignature, ArgumentRemover):
     return ChangeSignature(project, resource, offset).get_changes([changer])
 
 
+def _move_module(project, request, MoveModule):
+    source = request.get("file") or ""
+    dest = request.get("to") or ""
+    if not source or not dest:
+        fail("file and to (the destination folder) are required")
+
+    source_resource = project.get_file(source)
+    if not source_resource.exists():
+        fail("no such file: %s" % source)
+    dest_resource = project.get_folder(dest)
+    # rope's get_folder() returns a Folder that may not exist, and is_folder() is
+    # always True — exists() is the real test, or move deletes the module.
+    if not dest_resource.exists() or not dest_resource.is_folder():
+        fail("no such destination folder: %s" % dest)
+
+    return MoveModule(project, source_resource).get_changes(dest_resource)
+
+
 def _extract(project, request, extractor):
     name_to = request.get("to") or ""
     if not name_to:
@@ -318,6 +336,10 @@ def build_changes(project, request):
         from rope.refactor.change_signature import ArgumentRemover, ChangeSignature
 
         return _remove_argument(project, request, ChangeSignature, ArgumentRemover)
+    if op == "move-module":
+        from rope.refactor.move import MoveModule
+
+        return _move_module(project, request, MoveModule)
     fail("py plugin: unsupported op: %s" % op)
 
 
@@ -348,6 +370,14 @@ def summarize(op, request, files, apply):
     if op in ("add-argument", "remove-argument"):
         verb = "Changed" if apply else "Would change"
         return "%s the signature of %s in %d file(s)" % (verb, old, len(files))
+    if op == "move-module":
+        verb = "Moved" if apply else "Would move"
+        return "%s %s to %s in %d file(s)" % (
+            verb,
+            request.get("file") or "",
+            new,
+            len(files),
+        )
     verb = "Extracted" if apply else "Would extract"
     return "%s %s in %d file(s)" % (verb, new, len(files))
 
@@ -368,6 +398,11 @@ def main():
         files = changed_paths(changes, PROJECT_DIR)
         if not files and request.get("file"):
             files = [request["file"]]
+        # A move must report where the module landed, not the path it left.
+        if op == "move-module":
+            source = request.get("file") or ""
+            moved = os.path.join(request.get("to") or "", os.path.basename(source))
+            files = sorted([path for path in files if path != source] + [moved])
 
         if apply:
             changes.do()

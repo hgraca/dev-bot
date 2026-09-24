@@ -97,6 +97,7 @@ to the end of the line.
 | `encapsulate-field` | `--file`, `--from`                    | cleanup   |
 | `add-argument`      | `--file`, `--from`, `--to`, `--index` | signature |
 | `remove-argument`   | `--file`, `--from`, `--index`         | signature |
+| `move-module`       | `--file`, `--to` (a folder)           | move      |
 
 As for PHP, a Python rename reports quoted occurrences of the old name as
 `string_references` (rope cannot rewrite a name held in a string), and an apply
@@ -135,6 +136,7 @@ how much your suite must back the change depends on the op:
 | `inline`    | folds a definition into its callers and deletes it                |
 | `cleanup`   | deletes dead code or tightens visibility; safe for correct code   |
 | `signature` | changes a callable's signature or a type — **can break callers**  |
+| `move`      | relocates a module and rewrites the imports that point at it      |
 
 ## Invoking it
 

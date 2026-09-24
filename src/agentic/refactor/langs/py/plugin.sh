@@ -23,7 +23,7 @@ STORAGE_DIR="${REFACTOR_STORAGE_DIR:-${REFACTOR_DIR}/../../../storage/refactor}"
 
 cmd_meta() {
   cat <<'JSON'
-{"lang":"py","extensions":[".py"],"ops":["rename-symbol","extract-method","extract-variable","inline","encapsulate-field","add-argument","remove-argument"],"requires":{"rename-symbol":["from","to"],"extract-method":["file","start","end","to"],"extract-variable":["file","start","end","to"],"inline":["from"],"encapsulate-field":["file","from"],"add-argument":["file","from","to","index"],"remove-argument":["file","from","index"]},"risks":{"rename-symbol":"rename","extract-method":"extract","extract-variable":"extract","inline":"inline","encapsulate-field":"cleanup","add-argument":"signature","remove-argument":"signature"}}
+{"lang":"py","extensions":[".py"],"ops":["rename-symbol","extract-method","extract-variable","inline","encapsulate-field","add-argument","remove-argument","move-module"],"requires":{"rename-symbol":["from","to"],"extract-method":["file","start","end","to"],"extract-variable":["file","start","end","to"],"inline":["from"],"encapsulate-field":["file","from"],"add-argument":["file","from","to","index"],"remove-argument":["file","from","index"],"move-module":["file","to"]},"risks":{"rename-symbol":"rename","extract-method":"extract","extract-variable":"extract","inline":"inline","encapsulate-field":"cleanup","add-argument":"signature","remove-argument":"signature","move-module":"move"}}
 JSON
 }
 

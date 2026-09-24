@@ -1324,19 +1324,21 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "py", m
 assert m["extensions"] == [".py"], m
-assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline", "encapsulate-field", "add-argument", "remove-argument"], m
+assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline", "encapsulate-field", "add-argument", "remove-argument", "move-module"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["extract-method"] == ["file", "start", "end", "to"], m
 assert m["requires"]["inline"] == ["from"], m
 assert m["requires"]["encapsulate-field"] == ["file", "from"], m
 assert m["requires"]["add-argument"] == ["file", "from", "to", "index"], m
 assert m["requires"]["remove-argument"] == ["file", "from", "index"], m
+assert m["requires"]["move-module"] == ["file", "to"], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["extract-method"] == "extract", m
 assert m["risks"]["inline"] == "inline", m
 assert m["risks"]["encapsulate-field"] == "cleanup", m
 assert m["risks"]["add-argument"] == "signature", m
 assert m["risks"]["remove-argument"] == "signature", m
+assert m["risks"]["move-module"] == "move", m
 '
 }
 
@@ -1636,4 +1638,29 @@ JSON
 
   assert_success
   [ "${def}" = "1" ]
+}
+
+@test "end-to-end (py): move-module relocates a module and rewrites imports" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/move-demo/." "${work}/"
+  printf '{"op":"move-module","file":"pkg/helpers.py","to":"pkg/other"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local moved gone rewritten
+  moved="$(test -f "${work}/pkg/other/helpers.py" && echo 1 || echo 0)"
+  gone="$(test -f "${work}/pkg/helpers.py" && echo 1 || echo 0)"
+  rewritten="$(grep -c 'from pkg.other.helpers import area' "${work}/pkg/main.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  [ "${moved}" = "1" ]
+  [ "${gone}" = "0" ]
+  [ "${rewritten}" = "1" ]
+  # The report names where the module landed, not only the path it left.
+  assert_output --partial 'pkg/other/helpers.py'
 }
