@@ -1223,6 +1223,96 @@ assert m["risks"]["rename-symbol"] == "rename", m
   [ "${stale}" = "0" ]
 }
 
+# ── S1/S2 (ts): string references and post-apply verification ─────────────────
+
+@test "end-to-end (ts): a plan reports the string reference it cannot rewrite" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+
+  # A plan writes nothing: the old name is still on the declaration.
+  local stale
+  stale="$(grep -c 'greet' "${work}/src/Greeter.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"string_references"'
+  assert_output --partial "Registry.ts"
+  [ "${stale}" = "1" ]
+}
+
+@test "end-to-end (ts): an apply reports the string reference and leaves it" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+
+  local decl call leftover
+  decl="$(grep -c 'salute(name: string)' "${work}/src/Greeter.ts" || true)"
+  call="$(grep -c '\.salute(' "${work}/src/UseGreeter.ts" || true)"
+  leftover="$(grep -c '"greet"' "${work}/src/Registry.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"string_references"'
+  assert_output --partial "Registry.ts"
+  [ "${decl}" = "1" ]
+  [ "${call}" = "1" ]
+  # The string the compiler cannot reach is reported, never rewritten.
+  [ "${leftover}" = "1" ]
+}
+
+@test "end-to-end (ts): a clean apply verifies itself" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  # The post-apply pass found nothing left over.
+  refute_output --partial "remaining_changes"
+}
+
+@test "end-to-end (ts): a residual call site is reported as remaining_changes" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${work}/request.json"
+
+  bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'" >/dev/null 2>&1
+
+  # Hand-revert one call site: the declaration is renamed, so this is a dangling
+  # usage the next run must surface rather than hide behind "no declaration".
+  printf '%s\n' \
+    'import { Greeter } from "./Greeter";' \
+    '' \
+    'export function run(): string {' \
+    '  return new Greeter().greet("world");' \
+    '}' > "${work}/src/UseGreeter.ts"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"remaining_changes"'
+}
+
 # ── L2: the Python plugin ──────────────────────────────────────────────────────
 
 @test "py plugin: meta declares the language, extensions and its op" {

@@ -10,7 +10,7 @@
  * calls ts-morph's rename(), which is type-aware — the TypeScript compiler
  * resolves the symbol — and updates every reference across the project.
  */
-import { Project } from "ts-morph";
+import { Project, SyntaxKind } from "ts-morph";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -77,6 +77,52 @@ function fail(message) {
   return 1;
 }
 
+// The kinds that carry a literal string value, and how to read it. Template
+// heads/middles/tails are the parts of an interpolated template that hold text.
+const STRING_PARTS = [
+  [SyntaxKind.StringLiteral, (node) => node.getLiteralValue()],
+  [SyntaxKind.NoSubstitutionTemplateLiteral, (node) => node.getLiteralValue()],
+  [SyntaxKind.TemplateHead, (node) => node.getLiteralText()],
+  [SyntaxKind.TemplateMiddle, (node) => node.getLiteralText()],
+  [SyntaxKind.TemplateTail, (node) => node.getLiteralText()],
+];
+
+// Quoted occurrences of `name`. A reference held in a string is invisible to the
+// type-aware rename, so it is reported rather than silently left behind.
+function findStringReferences(project, name) {
+  const hits = [];
+  for (const sourceFile of project.getSourceFiles()) {
+    const file = relative(sourceFile.getFilePath());
+    for (const [kind, read] of STRING_PARTS) {
+      for (const node of sourceFile.getDescendantsOfKind(kind)) {
+        const text = read(node);
+        if (!text || !text.includes(name)) continue;
+        hits.push({ file, line: node.getStartLineNumber(), text: text.trim() });
+      }
+    }
+  }
+  return hits.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1));
+}
+
+// Identifiers still named `name` — the residue of a rename that could not reach
+// every reference. Restricted to `scope` when given: after an apply only the
+// files the rename touched matter, and a same-named symbol elsewhere is not this
+// rename's business.
+function findResidualReferences(project, name, scope) {
+  const files = new Set();
+  for (const sourceFile of project.getSourceFiles()) {
+    const file = relative(sourceFile.getFilePath());
+    if (scope && !scope.has(file)) continue;
+    for (const identifier of sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
+      if (identifier.getText() === name) {
+        files.add(file);
+        break;
+      }
+    }
+  }
+  return [...files].sort();
+}
+
 async function main() {
   const request = JSON.parse((await readStdin()) || "{}");
   const from = request.from || "";
@@ -90,8 +136,26 @@ async function main() {
 
   const project = createProject();
   const node = findDeclaration(project, from, file);
+
   if (!node) {
-    return fail("no declaration of '" + from + "' found" + (file ? " in " + file : ""));
+    // The declaration may be gone because an earlier apply renamed it while a
+    // call site was left behind. Report those rather than only "no declaration".
+    const residual = findResidualReferences(project, from, null);
+    if (residual.length === 0) {
+      return fail("no declaration of '" + from + "' found" + (file ? " in " + file : ""));
+    }
+    process.stdout.write(
+      JSON.stringify({
+        ok: true,
+        engine: ENGINE,
+        applied: false,
+        summary: `Nothing to rename: no declaration of '${from}' — ${residual.length} file(s) still reference it`,
+        files: residual,
+        warnings: [],
+        remaining_changes: residual.length,
+      }) + "\n",
+    );
+    return 0;
   }
 
   const files = new Set([relative(node.getSourceFile().getFilePath())]);
@@ -116,6 +180,19 @@ async function main() {
   };
   if (references.length) {
     result.references = references;
+  }
+
+  const stringReferences = findStringReferences(project, from);
+  if (stringReferences.length) {
+    result.string_references = stringReferences;
+  }
+
+  // Verify an apply left nothing behind, scoped to the files the rename touched.
+  if (apply && !process.env.REFACTOR_SKIP_VERIFY) {
+    const residual = findResidualReferences(project, from, files);
+    if (residual.length) {
+      result.remaining_changes = residual.length;
+    }
   }
 
   process.stdout.write(JSON.stringify(result) + "\n");
