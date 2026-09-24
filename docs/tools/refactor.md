@@ -180,7 +180,7 @@ change to `refactor.ts`.
 | `plan`      | read a request on stdin, write a JSON plan, change nothing    |
 | `apply`     | read a request on stdin, perform the change, write the result |
 
-Request: `{"op", "class", "from", "to", "apply"}`. Response:
+Request: `{"op", "class", "from", "to", "apply", "file", "start", "end", "index", "default"}`. Response:
 `{"ok", "engine", "applied", "summary", "files", "warnings"}`.
 
 A new language also declares its own `ops`, so the core never needs to know which

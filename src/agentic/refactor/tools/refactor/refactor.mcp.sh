@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---
-# description: Deterministic, agent-callable refactoring for PHP — rename a method, static method or property and update every genuine reference. Dry-run by default; pass --apply to write.
+# description: Deterministic, agent-callable refactoring across languages (PHP, Python, TypeScript) — rename, extract, inline, move and cleanup ops that update every genuine reference. Dry-run by default; pass --apply to write.
 # ---
 # =============================================================================
 # src/agentic/refactor/tools/refactor/refactor.mcp.sh
@@ -19,7 +19,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"refactor","description":"Deterministic, agent-callable refactoring for PHP — rename a method, static method or property and update every genuine reference. Dry-run by default; pass --apply to write.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: --op <rename-method|rename-static-method|rename-property> --class <FQCN> [--method <old>|--property <old>] --to <new> [--apply] [--json] [--force]"}},"required":["args"]}}
+{"name":"refactor","description":"Deterministic, agent-callable refactoring across languages (PHP, Python, TypeScript) — rename, extract, inline, move and cleanup ops that update every genuine reference. Dry-run by default; pass --apply to write.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: --lang <lang> --op <op> [op inputs] [--apply] [--json] [--force]"}},"required":["args"]}}
 JSON
     exit 0
     ;;
