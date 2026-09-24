@@ -1,6 +1,6 @@
 ---
 name: devbot:refactor
-description: "Use when renaming a PHP method, static method or property across a codebase and updating every call site. Triggers on 'rename this method', 'rename everywhere'."
+description: "Use when renaming a PHP method, static method or property across a codebase and updating every call site, or when asking what to refactor. Triggers on 'rename this method', 'rename everywhere', 'what should I refactor'."
 ---
 
 # Refactor
@@ -81,6 +81,48 @@ PSR-4 autoloader keys on the file name.
   your suite can prove the rename is right in your project's terms.
 - The target project's own `vendor/bin/rector` is preferred (right version, right
   autoload). Otherwise a pinned Rector is installed into the dev-bot scratch dir.
+
+## Refactor candidates (advisory)
+
+When the question is _what_ to refactor rather than _how_, query the codebase
+graph (`codebase-memory`). These properties have no equivalent in the rename
+tools, and the queries below are validated against a real index.
+
+**Hotspots** — complexity, plus the hidden loops it misses:
+
+```cypher
+MATCH (f:Function)
+WHERE f.complexity >= 10 OR f.transitive_loop_depth >= 2
+RETURN f.qualified_name AS qn, f.complexity, f.transitive_loop_depth AS loop_depth,
+       f.linear_scan_in_loop AS scans, f.param_count AS params
+ORDER BY complexity DESC, loop_depth DESC LIMIT 20
+```
+
+`transitive_loop_depth` is the worst-case nested-loop degree _propagated along
+call edges_, so it catches a quadratic helper reached from a loop — a shape
+`loop_depth` alone reports as linear. `linear_scan_in_loop` counts
+`find`/`contains`-style scans inside a loop: the O(n²) neither number shows.
+`param_count >= 5` is a separate, cheap signal.
+
+**Dead code** — nothing calls it:
+
+```cypher
+MATCH (f:Function)
+WHERE f.is_entry_point = false AND NOT EXISTS { (f)<-[:CALLS]-() }
+RETURN f.qualified_name AS qn, f.file_path AS file LIMIT 50
+```
+
+**Caveats — the graph cannot replace reading the code:**
+
+- Call edges are partly heuristic (`suffix_match`). Only the type-aware subset is
+  trustworthy, which is why the graph never drives an edit here.
+- Filter the results: vendored templates, test fixtures and generated files are
+  uncalled by design. The first real run returned a Composer test template.
+- Cohesion and layering come from `code_communities` and `get_architecture`, not
+  from Cypher.
+
+Report candidates as a ranked list, each with the metric that flagged it. The
+advisory report is the deliverable here — not an edit.
 
 ## See also
 
