@@ -34,6 +34,8 @@ interface Args {
   image: string | null;
   namespace: string | null;
   file: string | null;
+  start: string | null;
+  end: string | null;
 }
 
 interface PluginMeta {
@@ -54,6 +56,8 @@ interface RefactorRequest {
   image: string | null;
   namespace: string | null;
   file: string | null;
+  start: string | null;
+  end: string | null;
 }
 
 interface PluginResponse {
@@ -84,6 +88,8 @@ Options:
   --namespace <ns>  symbol's namespace, for ops on free functions/constants
                     (derived from the declaration when omitted)
   --file <path>  source file declaring the symbol, to pick among duplicates
+  --start <n>    first line of the range (1-based, inclusive), for extract ops
+  --end <n>      last line of the range (1-based, inclusive), for extract ops
   --help, -h     show this help
   --version      show version
 `;
@@ -105,6 +111,8 @@ function parse(argv: string[]): Args {
     image: null,
     namespace: null,
     file: null,
+    start: null,
+    end: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -125,6 +133,8 @@ function parse(argv: string[]): Args {
     else if (arg === "--from") a.from = next();
     else if (arg === "--to") a.to = next();
     else if (arg === "--file") a.file = next();
+    else if (arg === "--start") a.start = next();
+    else if (arg === "--end") a.end = next();
   }
   return a;
 }
@@ -280,6 +290,9 @@ async function main(): Promise<number> {
     class: args.klass,
     from: args.from ?? args.method ?? args.property,
     to: args.to,
+    file: args.file,
+    start: args.start,
+    end: args.end,
   };
   const missing = requires.filter((field) => !provided[field]);
   if (missing.length > 0) {
@@ -298,6 +311,8 @@ async function main(): Promise<number> {
     image: args.image,
     namespace: args.namespace,
     file: args.file,
+    start: args.start,
+    end: args.end,
   };
 
   if (args.apply && !args.force) {

@@ -1324,9 +1324,11 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "py", m
 assert m["extensions"] == [".py"], m
-assert m["ops"] == ["rename-symbol"], m
+assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
+assert m["requires"]["extract-method"] == ["file", "start", "end", "to"], m
 assert m["risks"]["rename-symbol"] == "rename", m
+assert m["risks"]["extract-method"] == "extract", m
 '
 }
 
@@ -1427,16 +1429,16 @@ assert all(h["text"] == "greet" for h in hits), hits
   refute_output --partial "remaining_changes"
 }
 
-@test "py plugin: rename.py finds every definition of a name, not just the first" {
+@test "py plugin: ops.py finds every definition of a name, not just the first" {
   local probe
   probe="$(mktemp)"
   cat > "${probe}" <<PY
 import sys
 sys.path.insert(0, "${MODULE_DIR}/langs/py")
-import rename
+import ops
 
 text = "def greet():\n    pass\n\ndef greet():\n    pass\n"
-found = rename.definition_offsets(text, "greet")
+found = ops.definition_offsets(text, "greet")
 assert found == [4, 27], found
 PY
   run python3 "${probe}"
@@ -1497,4 +1499,46 @@ PY
   [ "${a}" = "1" ]
   # The definition in the other file was left alone.
   [ "${b}" = "1" ]
+}
+
+@test "end-to-end (py): extract-method moves a block into a new method" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/extract-demo/." "${work}/"
+  printf '{"op":"extract-method","file":"src/calc.py","start":"2","end":"3","to":"compute"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local method call
+  method="$(grep -c 'def compute' "${work}/src/calc.py" || true)"
+  call="$(grep -c 'scaled = compute(width, height)' "${work}/src/calc.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  [ "${method}" = "1" ]
+  [ "${call}" = "1" ]
+}
+
+@test "end-to-end (py): extract-variable replaces a sub-expression with a name" {
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work req
+  work="$(mktemp -d)"
+  req="$(mktemp)"
+  cp -r "${PY_FIXTURES}/extract-demo/." "${work}/"
+  printf '{"op":"extract-variable","file":"src/pricing.py","start":"2:12","end":"2:22","to":"subtotal"}' > "${req}"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${req}'"
+
+  local assign use
+  assign="$(grep -c 'subtotal = price \* qty' "${work}/src/pricing.py" || true)"
+  use="$(grep -c 'return subtotal \* 2' "${work}/src/pricing.py" || true)"
+  rm -rf "${work}" "${req}"
+
+  assert_success
+  [ "${assign}" = "1" ]
+  [ "${use}" = "1" ]
 }

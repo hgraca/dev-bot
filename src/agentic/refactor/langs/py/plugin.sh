@@ -11,7 +11,8 @@
 # fully type-aware, so dynamic construction stays invisible.
 #
 # Route: the project is mounted at /app; rope lives in the shared scratch dir,
-# mounted at /refactor and put on PYTHONPATH, with rename.py beside it.
+# mounted at /refactor and put on PYTHONPATH, and the plugin directory is mounted
+# read-only at /plugin so ops.py can be run without writing into /refactor.
 # =============================================================================
 
 set -euo pipefail
@@ -22,7 +23,7 @@ STORAGE_DIR="${REFACTOR_STORAGE_DIR:-${REFACTOR_DIR}/../../../storage/refactor}"
 
 cmd_meta() {
   cat <<'JSON'
-{"lang":"py","extensions":[".py"],"ops":["rename-symbol"],"requires":{"rename-symbol":["from","to"]},"risks":{"rename-symbol":"rename"}}
+{"lang":"py","extensions":[".py"],"ops":["rename-symbol","extract-method","extract-variable"],"requires":{"rename-symbol":["from","to"],"extract-method":["file","start","end","to"],"extract-variable":["file","start","end","to"]},"risks":{"rename-symbol":"rename","extract-method":"extract","extract-variable":"extract"}}
 JSON
 }
 
@@ -90,20 +91,8 @@ cmd_run() {
   local mode="$1" request
   request="$(cat)"
 
-  local op from to project image root
-  IFS=$'\x1f' read -r op from to < <(printf '%s' "${request}" | python3 -c '
-import json, sys
-r = json.load(sys.stdin)
-print("\x1f".join([str(r.get("op") or ""), str(r.get("from") or ""), str(r.get("to") or "")]))')
-
-  if [[ "${op}" != "rename-symbol" ]]; then
-    printf '{"ok":false,"error":"py plugin: unsupported op: %s"}\n' "${op}" >&2
-    exit 1
-  fi
-  if [[ -z "${from}" || -z "${to}" ]]; then
-    echo '{"ok":false,"error":"from and to are required"}' >&2
-    exit 1
-  fi
+  local op
+  op="$(printf '%s' "${request}" | python3 -c 'import json, sys; print(json.load(sys.stdin).get("op") or "")')"
 
   project="${REFACTOR_PROJECT:-${PWD}}"
 
@@ -141,29 +130,31 @@ print(json.dumps(r))')"
   output="$(printf '%s' "${payload}" | docker run --rm -i \
     -v "${project}:/app${mount_suffix}" \
     -v "${root}:/refactor" \
-    -v "${PLUGIN_DIR}/rename.py:/refactor/rename.py:ro" \
-    -e PYTHONPATH=/refactor \
+    -v "${PLUGIN_DIR}:/plugin:ro" \
+    -e PYTHONPATH=/refactor:/plugin \
     -e REFACTOR_PROJECT_DIR=/app \
-    -w /refactor "${image}" python rename.py)"
+    -w /refactor "${image}" python /plugin/ops.py)"
 
-  # A name held in a string is invisible to rope's rename, so the report carries
-  # what it left behind rather than dropping it silently. Not a `warning`: this
-  # is actionable on success too.
-  local string_hits
-  string_hits="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/scan.py" 2>/dev/null || echo '{"hits": []}')"
+  # The scans look for the old *name*, so they only apply to a rename.
+  local string_hits='{"hits": []}' remaining="0"
+  if [[ "${op}" == "rename-symbol" ]]; then
+    # A name held in a string is invisible to rope's rename, so the report
+    # carries what it left behind rather than dropping it silently. Not a
+    # `warning`: this is actionable on success too.
+    string_hits="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/scan.py" 2>/dev/null || echo '{"hits": []}')"
 
-  # Confirm the apply finished: scan the tree for identifier occurrences of the
-  # old name that the rename could not reach. A partial rename — a reference rope
-  # could not resolve — shows up here rather than downstream. It reads the whole
-  # scope again, so a large project can opt out with REFACTOR_SKIP_VERIFY=1.
-  local remaining="0"
-  if [[ "${mode}" == "apply" && -z "${REFACTOR_SKIP_VERIFY:-}" ]]; then
-    remaining="$(printf '%s' "${request}" | python3 -c '
+    # Confirm the apply finished: scan the tree for identifier occurrences of the
+    # old name that the rename could not reach. A partial rename — a reference
+    # rope could not resolve — shows up here rather than downstream. It reads the
+    # whole scope again, so a project can opt out with REFACTOR_SKIP_VERIFY=1.
+    if [[ "${mode}" == "apply" && -z "${REFACTOR_SKIP_VERIFY:-}" ]]; then
+      remaining="$(printf '%s' "${request}" | python3 -c '
 import json, sys
 r = json.load(sys.stdin)
 r["kind"] = "names"
 print(json.dumps(r))' | python3 "${PLUGIN_DIR}/scan.py" 2>/dev/null |
-      python3 -c 'import json, sys; print(len(json.load(sys.stdin).get("hits") or []))' 2>/dev/null || echo 0)"
+        python3 -c 'import json, sys; print(len(json.load(sys.stdin).get("hits") or []))' 2>/dev/null || echo 0)"
+    fi
   fi
 
   printf '%s' "${output}" | REFACTOR_STRING_HITS="${string_hits}" REFACTOR_REMAINING="${remaining}" python3 -c '
