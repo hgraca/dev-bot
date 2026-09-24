@@ -470,9 +470,10 @@ PY
 
   # Confirm the apply finished: re-run every step as a dry run and count what
   # would still change. A partial rename — a rule that did not match, a move that
-  # misfired — shows up here rather than downstream.
+  # misfired — shows up here rather than downstream. It costs a second pass over
+  # the scope, so a large project can opt out with REFACTOR_SKIP_VERIFY=1.
   local remaining="0"
-  if [[ "${mode}" == "apply" ]]; then
+  if [[ "${mode}" == "apply" && -z "${REFACTOR_SKIP_VERIFY:-}" ]]; then
     local vout verr vrc
     vout="$(mktemp)"
     verr="$(mktemp)"

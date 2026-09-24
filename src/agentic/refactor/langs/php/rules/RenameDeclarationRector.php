@@ -8,6 +8,7 @@ use PhpParser\Node;
 use PhpParser\Node\Const_ as ConstNode;
 use PhpParser\Node\Identifier;
 use PhpParser\Node\Stmt\Class_;
+use PhpParser\Node\Stmt\ClassConst;
 use PhpParser\Node\Stmt\Const_ as ConstStmt;
 use PhpParser\Node\Stmt\Function_;
 use Rector\Contract\Rector\ConfigurableRectorInterface;
@@ -48,7 +49,7 @@ final class RenameDeclarationRector extends AbstractRector implements Configurab
      */
     public function getNodeTypes(): array
     {
-        return [Function_::class, ConstStmt::class, Class_::class];
+        return [Function_::class, ConstStmt::class, Class_::class, ClassConst::class];
     }
 
     public function refactor(Node $node): ?Node
@@ -62,6 +63,18 @@ final class RenameDeclarationRector extends AbstractRector implements Configurab
         }
 
         if ($node instanceof ConstStmt && $this->kind === 'constant') {
+            foreach ($node->consts as $const) {
+                if ($const instanceof ConstNode && $const->name->toString() === $this->from) {
+                    $const->name = new Identifier($this->to);
+
+                    return $node;
+                }
+            }
+        }
+
+        // A CLASS constant is a different node from a global `const`, and Rector's
+        // RenameClassConstFetchRector rewrites only the fetches.
+        if ($node instanceof ClassConst && $this->kind === 'class-constant') {
             foreach ($node->consts as $const) {
                 if ($const instanceof ConstNode && $const->name->toString() === $this->from) {
                     $const->name = new Identifier($this->to);

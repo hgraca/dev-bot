@@ -38,16 +38,18 @@ devbot-tools_refactor --lang php --op <op> \
 
 ## Ops
 
-| op                     | what it renames                              | Rector rule              |
-| ---------------------- | -------------------------------------------- | ------------------------ |
-| `rename-method`        | the declaration + instance calls             | `RenameMethodRector`     |
-| `rename-static-method` | the declaration + static calls               | `RenameMethodRector`     |
-| `rename-annotation`    | a docblock annotation on a class             | `RenameAnnotationRector` |
-| `rename-property`      | the declaration + accesses                   | `RenamePropertyRector`   |
-| `rename-function`      | a free function: declaration + calls         | `RenameFunctionRector`   |
-| `rename-class`         | the declaration + references + the file move | `RenameClassRector`      |
-| `move-class`           | a class's namespace + its file (name kept)   | `RenameClassRector`      |
-| `rename-constant`      | a global constant: declaration + uses        | `RenameConstantRector`   |
+| op                      | what it renames                              | Rector rule                   |
+| ----------------------- | -------------------------------------------- | ----------------------------- |
+| `rename-method`         | the declaration + instance calls             | `RenameMethodRector`          |
+| `rename-static-method`  | the declaration + static calls               | `RenameMethodRector`          |
+| `rename-annotation`     | a docblock annotation on a class             | `RenameAnnotationRector`      |
+| `rename-property`       | the declaration + accesses                   | `RenamePropertyRector`        |
+| `rename-function`       | a free function: declaration + calls         | `RenameFunctionRector`        |
+| `rename-class`          | the declaration + references + the file move | `RenameClassRector`           |
+| `rename-string`         | string literals (no declaration exists)      | `RenameStringRector`          |
+| `rename-class-constant` | a class constant: declaration + fetches      | `RenameClassConstFetchRector` |
+| `move-class`            | a class's namespace + its file (name kept)   | `RenameClassRector`           |
+| `rename-constant`       | a global constant: declaration + uses        | `RenameConstantRector`        |
 
 ### Cleanup ops
 

@@ -105,6 +105,22 @@ OPS = {
         "namespace_move": True,
         "requires": ["from", "to"],
     },
+    # A class constant: the fetch rule rewrites `self::OLD` and leaves the
+    # declaration, so the class-constant declaration step is ours.
+    "rename-class-constant": {
+        "rule": "Rector\\Renaming\\Rector\\ClassConstFetch\\RenameClassConstFetchRector",
+        "vo": "Rector\\Renaming\\ValueObject\\RenameClassConstFetch",
+        "shape": "vo",
+        "args": ["class", "from", "to"],
+        "declaration": "class-constant",
+        "requires": ["class", "from", "to"],
+    },
+    # A string literal has no declaration, so the usages rule alone is complete.
+    "rename-string": {
+        "rule": "Rector\\Renaming\\Rector\\String_\\RenameStringRector",
+        "shape": "map",
+        "requires": ["from", "to"],
+    },
     # Cleanup ops: unconfigured rules that act across the scope, changing many
     # things rather than one symbol. No from/to.
     "remove-unused-private-methods": {

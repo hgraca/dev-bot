@@ -18,16 +18,18 @@ devbot-tools_refactor --lang php --op <op> \
   --to <new> [--apply] [--json] [--force]
 ```
 
-| Op                     | Renames                                      |
-| ---------------------- | -------------------------------------------- |
-| `rename-method`        | the declaration + instance calls             |
-| `rename-static-method` | the declaration + static calls               |
-| `rename-annotation`    | a docblock annotation on a class             |
-| `rename-property`      | the declaration + accesses                   |
-| `rename-function`      | a free function: declaration + calls         |
-| `rename-class`         | the declaration + references + the file move |
-| `move-class`           | a class's namespace + its file (name kept)   |
-| `rename-constant`      | a global constant: declaration + uses        |
+| Op                      | Renames                                      |
+| ----------------------- | -------------------------------------------- |
+| `rename-method`         | the declaration + instance calls             |
+| `rename-static-method`  | the declaration + static calls               |
+| `rename-annotation`     | a docblock annotation on a class             |
+| `rename-property`       | the declaration + accesses                   |
+| `rename-function`       | a free function: declaration + calls         |
+| `rename-class`          | the declaration + references + the file move |
+| `rename-string`         | string literals (no declaration exists)      |
+| `rename-class-constant` | a class constant: declaration + fetches      |
+| `move-class`            | a class's namespace + its file (name kept)   |
+| `rename-constant`       | a global constant: declaration + uses        |
 
 ### Cleanup ops
 
@@ -115,6 +117,13 @@ prove additivity).
 
 - **Dynamic references are invisible** to static analysis: string callables,
   `__call`, container bindings and variable method names are not renamed.
+  `string_references` reports quoted occurrences of the old name so they are not
+  lost silently, and `rename-string` can rewrite them deliberately.
+- **An apply verifies itself** by re-running every step as a dry run and
+  reporting `remaining_changes`. That second pass doubles the runtime, so a large
+  project can set `REFACTOR_SKIP_VERIFY=1`.
+- **Not yet available:** `rename-attribute` (the rule needs the qualified
+  attribute name) and `rename-cast` (its value object is built from enum kinds).
 - **`rename-constant` matches on the bare name**, because Rector's rule rejects a
   qualified key. A same-named constant in another namespace would match too.
 - **`rename-annotation` re-appends the annotation**, so it can shift order
