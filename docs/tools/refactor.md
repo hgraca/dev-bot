@@ -91,6 +91,17 @@ how much your suite must back the change depends on the op:
 | `cleanup`   | deletes dead code or tightens visibility; safe for correct code  |
 | `signature` | changes a callable's signature or a type — **can break callers** |
 
+## Invoking it
+
+Agents call it as `devbot-tools_refactor` (the `devbot:refactor` skill carries the
+contract). It is also a plain executable, so a human can run the same thing:
+
+```bash
+bash .agents/tools/refactor.mcp.sh --lang php --op rename-method \
+  --class 'App\Greeting' --method greet --to salute        # plan
+bash .agents/tools/refactor.mcp.sh ... --apply             # write
+```
+
 ## Container
 
 Rector runs in a PHP container with the project mounted at `/app`. The image is

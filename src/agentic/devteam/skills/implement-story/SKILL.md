@@ -61,6 +61,7 @@ For each task in backlog:
 
 2. **Implement** — When Tester finished, delegate to @developer:
    - Implement task following plan
+   - **Rename symbols with `devbot:refactor`** rather than editing names by hand — deterministic, and it covers the declaration and every call site
    - Ensure tests pass before considering task complete
    - **Commit changeset** before signalling [FINISHED] — use `git add <specific-files>` (never `git add -A` or `git add .`), verify `git diff --staged --stat`, then commit with clear message
    - **Verify git index health when committing 10+ new files** — Run `git fsck` before `git add`. If `invalid object` errors appear, recover with `git rm --cached <affected-file>` and re-stage. This prevents index corruption from rapid file creation across multiple delegations.

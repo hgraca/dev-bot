@@ -49,6 +49,7 @@ Do immediately:
 ## Responsibilities
 
 - Write tests to verify code works.
+- Rename symbols with `devbot:refactor`, never by hand — it is deterministic and covers the declaration and every genuine call site. Hand-editing a name across files is how call sites get missed.
 - Address feedback from Tester and Reviewer.
 - Commit with clear messages and task references.
 - When reading large files for context, read only relevant sections — not entire files. Summarize what read if passing context to another step.
