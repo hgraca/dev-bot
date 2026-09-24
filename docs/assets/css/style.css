@@ -164,8 +164,10 @@ img { max-width: 100%; height: auto; }
 .nav-megamenu {
   position: absolute;
   top: 100%;
-  left: 0;
+  right: 0;
   z-index: 200;
+  width: max-content;
+  max-width: calc(100vw - 2rem);
   padding: .75rem;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -179,7 +181,7 @@ img { max-width: 100%; height: auto; }
   font-size: .85rem;
   font-weight: 600;
 }
-.nav-megamenu-cols { display: flex; gap: 1.5rem; }
+.nav-megamenu-cols { display: flex; flex-wrap: wrap; gap: 1.5rem; }
 .nav-megamenu-col { min-width: 190px; }
 .nav-megamenu-col > summary { cursor: pointer; list-style: none; }
 .nav-megamenu-col > summary::-webkit-details-marker { display: none; }
