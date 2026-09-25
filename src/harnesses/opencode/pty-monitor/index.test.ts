@@ -35,8 +35,18 @@ mock.module("@opentui/solid", () => ({
   },
 }))
 
+// Stateful on purpose: the expand/collapse contract is only testable if the
+// panel's `collapsed` signal actually flips on a click.
 mock.module("solid-js", () => ({
-  createSignal: (init: unknown) => [() => init, () => {}],
+  createSignal: (init: unknown) => {
+    let value = init
+    return [
+      () => value,
+      (next: unknown) => {
+        value = typeof next === "function" ? (next as (prev: unknown) => unknown)(value) : next
+      },
+    ]
+  },
 }))
 
 const { default: plugin } = await import("./index")
@@ -45,11 +55,12 @@ const { default: plugin } = await import("./index")
  * A stub api for the plugin.
  *
  * `session.create` is the bootstrap's first step — starting the server — so it
- * is what `calls.serverStarts` counts. It never settles, which also makes the
- * factory timing test meaningful: a factory that awaited a refresh which
- * bootstrapped would never resolve.
+ * is what `calls.serverStarts` counts. By default it never settles, which also
+ * makes the factory timing test meaningful: a factory that awaited a refresh
+ * which bootstrapped would never resolve. `rejectCreate` models a bootstrap that
+ * fails outright, which is how the backoff path is reached.
  */
-function stubApi() {
+function stubApi(options: { rejectCreate?: boolean } = {}) {
   let dispose: (() => void) | null = null
   let commands: (() => { onSelect: () => void }[]) | null = null
   let slots: { slots: { sidebar_content: () => El } } | null = null
@@ -62,8 +73,8 @@ function stubApi() {
       const list = commands ? commands() : []
       list[0]?.onSelect()
     },
-    /** Ask for a start the second way: expand the sidebar panel. */
-    expandPanel: () => {
+    /** Ask for a start the second way: click the header (toggles collapse). */
+    clickHeader: () => {
       const header = slots!.slots.sidebar_content().children[0]!
       ;(header.props.onMouseDown as () => void)()
     },
@@ -94,7 +105,9 @@ function stubApi() {
         session: {
           create: () => {
             calls.serverStarts++
-            return new Promise(() => {})
+            return options.rejectCreate
+              ? Promise.reject(new Error("create failed"))
+              : new Promise(() => {})
           },
         },
       },
@@ -109,17 +122,6 @@ async function waitFor(cond: () => boolean, ms = 750): Promise<boolean> {
     await new Promise((resolve) => setTimeout(resolve, 10))
   }
   return cond()
-}
-
-/**
- * A refresh already in flight makes the next one a no-op, so an asker is
- * retried until one gets through rather than guessing how long the first takes.
- */
-async function askUntilStarted(ask: () => void, calls: { serverStarts: number }) {
-  return waitFor(() => {
-    ask()
-    return calls.serverStarts > 0
-  })
 }
 
 describe("pty-monitor tui factory", () => {
@@ -171,22 +173,82 @@ describe("pty-monitor tui factory", () => {
   })
 
   test("starts the PTY server when the slash command asks", async () => {
+    // Hold the load refresh open so the ask lands while one is provably in
+    // flight. The overlap guard must DEFER an explicit ask, never drop it — the
+    // user clicks once, they do not retry in a loop.
+    const listener = Bun.serve({ hostname: "::1", port: 0, fetch: () => new Response("nope") })
+    const realFetch = globalThis.fetch
+    let released = false
+    let release: (() => void) | null = null
+    globalThis.fetch = (() => {
+      if (released) return Promise.reject(new Error("no"))
+      return new Promise((_, reject) => {
+        release = () => {
+          released = true
+          reject(new Error("no"))
+        }
+      })
+    }) as typeof fetch
     const { api, calls, disposeNow, runExplicitRequest } = stubApi()
     try {
       await plugin.tui(api as never)
-      expect(calls.serverStarts).toBe(0)
-      expect(await askUntilStarted(runExplicitRequest, calls)).toBe(true)
+      expect(release).not.toBeNull() // the load refresh really is mid-discovery
+      runExplicitRequest() // arrives while that refresh is still in flight
+      release!()
+      expect(await waitFor(() => calls.serverStarts > 0, 1500)).toBe(true)
     } finally {
+      globalThis.fetch = realFetch
+      listener.stop(true)
       disposeNow()
     }
   })
 
   test("starts the PTY server when the panel is expanded", async () => {
-    const { api, calls, disposeNow, expandPanel } = stubApi()
+    const { api, calls, disposeNow, clickHeader } = stubApi()
     try {
       await plugin.tui(api as never)
       expect(calls.serverStarts).toBe(0)
-      expect(await askUntilStarted(expandPanel, calls)).toBe(true)
+      clickHeader() // the panel starts collapsed, so this expands it
+      expect(await waitFor(() => calls.serverStarts > 0)).toBe(true)
+    } finally {
+      disposeNow()
+    }
+  })
+
+  test("does not start the PTY server when the panel is collapsed", async () => {
+    // A failing create keeps every attempt short-lived, so a spurious ask on
+    // collapse would show up as a real extra attempt rather than being deferred.
+    const { api, calls, disposeNow, clickHeader } = stubApi({ rejectCreate: true })
+    try {
+      await plugin.tui(api as never)
+      clickHeader() // expand -> asks
+      expect(await waitFor(() => calls.serverStarts > 0)).toBe(true)
+      await new Promise((resolve) => setTimeout(resolve, 50)) // let it settle
+      const afterExpand = calls.serverStarts
+      clickHeader() // collapse -> must NOT ask
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(calls.serverStarts).toBe(afterExpand)
+    } finally {
+      disposeNow()
+    }
+  })
+
+  test("expanding retries once the bootstrap backoff has engaged", async () => {
+    const { api, calls, disposeNow, clickHeader } = stubApi({ rejectCreate: true })
+    try {
+      await plugin.tui(api as never)
+      // Three expand-triggered failures engage the backoff; the collapse clicks
+      // in between are what let the next expand happen at all.
+      for (let i = 0; i < 3; i++) {
+        const before = calls.serverStarts
+        clickHeader() // expand
+        expect(await waitFor(() => calls.serverStarts > before)).toBe(true)
+        clickHeader() // collapse
+      }
+      // Backing off must not make the panel a dead end: expanding again retries.
+      const beforeRetry = calls.serverStarts
+      clickHeader() // expand
+      expect(await waitFor(() => calls.serverStarts > beforeRetry, 1500)).toBe(true)
     } finally {
       disposeNow()
     }

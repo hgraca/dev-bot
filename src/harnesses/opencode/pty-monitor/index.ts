@@ -101,9 +101,11 @@ function bootstrapFailureStatus(failures) {
  *
  * Starting it is not free: it goes through opencode-pty's command, which runs
  * server initialisation and creates and deletes a throwaway session. That does
- * not belong on the startup path, so it happens only on an explicit request.
+ * not belong on the startup path, so it happens only on an explicit request —
+ * which is why the text names the click: it renders in the panel header, where
+ * the click lives.
  */
-const IDLE_STATUS = "not running — /pty-monitor to start"
+const IDLE_STATUS = "not running — click to start"
 
 // A TUI plugin has no console, so a small event log on disk is the only way to
 // diagnose interaction problems. OFF BY DEFAULT: it appends unboundedly, and
@@ -412,13 +414,19 @@ const tui = async (api) => {
   let rootTimer = null
   let refreshing = false
   let bootstrapFailures = 0
+  let bootstrapPending = false
 
   const refresh = async (allowBootstrap = false) => {
     if (disposed) return
     // Guard against overlap: a bootstrap can take ~6s while the poll ticks every
     // 2.5s, so without this a host where the server never comes up would run
     // several create-session/delete-session cycles at once, forever.
-    if (refreshing) return
+    if (refreshing) {
+      // An explicit ask must never be dropped — the user clicks once, they do
+      // not retry in a loop. Remember it and run it when this refresh finishes.
+      if (allowBootstrap) bootstrapPending = true
+      return
+    }
     refreshing = true
     try {
       // Checked BEFORE the attempt, so "backed off" actually means no further
@@ -452,6 +460,10 @@ const tui = async (api) => {
       setSessions([])
     } finally {
       refreshing = false
+      if (bootstrapPending) {
+        bootstrapPending = false
+        refresh(true).catch(() => {})
+      }
     }
   }
 
@@ -617,9 +629,14 @@ const tui = async (api) => {
       setCollapsed(next)
       api.kv.set(KV_COLLAPSED, next)
       // Expanding is the user asking to see the sessions, so it is the lazy
-      // trigger for starting the server. The panel defaults to collapsed, which
-      // is what keeps a start off the load path.
-      if (!next) refresh(true).catch(() => {})
+      // trigger for starting the server — and it clears the backoff exactly like
+      // the command does, so neither trigger can leave the other a dead end. The
+      // panel defaults to collapsed, which keeps a start off the load path.
+      if (!next) {
+        bootstrapFailures = 0
+        lastBootstrapError = null
+        refresh(true).catch(() => {})
+      }
     })
     return el
   }
