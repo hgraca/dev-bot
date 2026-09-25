@@ -1,0 +1,9 @@
+---
+date: 2026-09-25
+keywords: ["k8s", "eks", "irsa", "oidc", "cluster-autoscaler"]
+trigger-on: ["irsa-broken", "in-cluster-aws-access-denied", "cluster-autoscaler"]
+---
+
+## An in-cluster AWS `AccessDenied` is often missing IRSA wiring, not a missing permission
+
+`cluster-autoscaler` spent 147 days in `CrashLoopBackOff` reporting `Failed to create AWS Manager: AccessDenied … not authorized to perform: autoscaling:DescribeAutoScalingGroups`, and the obvious move was to add that action to the role's policy — except the policy already granted it. The answer was in the same log line: the principal was `arn:aws:sts::…:assumed-role/NodeInstanceRole/i-…`, i.e. the **node instance role reached via IMDS**, not the purpose-built IRSA role. Two defects produced that fallback and both must be fixed: the ServiceAccount had **no** `eks.amazonaws.com/role-arn` annotation (so no projected web-identity token was ever injected), and the eksctl-created role trusted a **stale OIDC provider from an earlier cluster** (`…/id/64C400…` rather than this cluster's `…/id/CF361A…`), so even an annotated SA would have had its token rejected by STS. Diagnose by reading the error's `assumed-role` ARN and comparing `aws eks describe-cluster --query cluster.identity.oidc.issuer` against the role's trust policy; fix the trust by **adding** a statement for the current provider rather than replacing the document, so anything else using that role keeps working. Verify on the **Pod** that `AWS_ROLE_ARN` and `AWS_WEB_IDENTITY_TOKEN_FILE` are present and that an `aws-iam-token` projected volume exists — classic IRSA injects at the Pod, so the Deployment template correctly shows nothing, and an exec-based check may be unavailable (the `cluster-autoscaler` image ships no `aws` CLI). A clean exec-free proof: when the node role holds none of the relevant permissions, a successful API call can only have come from the assumed role.
