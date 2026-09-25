@@ -629,14 +629,7 @@ function memberUnits(cls) {
   // A method carries every signature it overloads: TypeScript requires them all to
   // share one accessibility, so narrowing the body alone would not compile.
   units.push(...cls.getMethods().map((method) => [method, ...method.getOverloads()]));
-  units.push(...cls.getProperties().map((property) => [property]));
-  // A constructor parameter property is a class member too, though getProperties()
-  // does not list it.
-  for (const constructor of cls.getConstructors()) {
-    for (const parameter of constructor.getParameters()) {
-      if (parameter.isParameterProperty()) units.push([parameter]);
-    }
-  }
+  units.push(...classProperties(cls).map((property) => [property]));
   return units;
 }
 
@@ -752,10 +745,7 @@ const PURE_EXPRESSIONS = new Set([
 ]);
 
 function isInsideFunctionLike(node) {
-  for (let parent = node.getParent(); parent; parent = parent.getParent()) {
-    if (FUNCTION_LIKES.has(parent.getKind())) return true;
-  }
-  return false;
+  return enclosingFunctionLike(node) !== null;
 }
 
 // A declaration that is a loop's own binding: it cannot be dropped on its own.
@@ -1070,6 +1060,204 @@ async function removeUnusedParams(project, file, apply) {
   return 0;
 }
 
+// The nearest function-like a node sits inside.
+function enclosingFunctionLike(node) {
+  for (let parent = node.getParent(); parent; parent = parent.getParent()) {
+    if (FUNCTION_LIKES.has(parent.getKind())) return parent;
+  }
+  return null;
+}
+
+// The operators that assign. A comparison with the target on the left is a read,
+// so the operator has to be checked rather than the side of the expression.
+const ASSIGNMENT_OPERATORS = new Set([
+  SyntaxKind.EqualsToken,
+  SyntaxKind.PlusEqualsToken,
+  SyntaxKind.MinusEqualsToken,
+  SyntaxKind.AsteriskEqualsToken,
+  SyntaxKind.AsteriskAsteriskEqualsToken,
+  SyntaxKind.SlashEqualsToken,
+  SyntaxKind.PercentEqualsToken,
+  SyntaxKind.LessThanLessThanEqualsToken,
+  SyntaxKind.GreaterThanGreaterThanEqualsToken,
+  SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken,
+  SyntaxKind.AmpersandEqualsToken,
+  SyntaxKind.BarEqualsToken,
+  SyntaxKind.CaretEqualsToken,
+  SyntaxKind.BarBarEqualsToken,
+  SyntaxKind.AmpersandAmpersandEqualsToken,
+  SyntaxKind.QuestionQuestionEqualsToken,
+]);
+
+// getOperatorToken() hands back a Token node on a binary expression and a bare
+// SyntaxKind on a unary one, so the kind is read either way.
+function operatorKind(owner) {
+  const token = owner.getOperatorToken();
+  return typeof token === "number" ? token : token.getKind();
+}
+
+// Whether a reference assigns to its target: an assignment, or an increment.
+function isWrite(reference) {
+  const access = reference.getParent();
+  if (!Node.isPropertyAccessExpression(access)) return false;
+  const owner = access.getParent();
+
+  if (Node.isBinaryExpression(owner)) {
+    return owner.getLeft() === access && ASSIGNMENT_OPERATORS.has(operatorKind(owner));
+  }
+  if (Node.isPrefixUnaryExpression(owner) || Node.isPostfixUnaryExpression(owner)) {
+    const kind = operatorKind(owner);
+    return kind === SyntaxKind.PlusPlusToken || kind === SyntaxKind.MinusMinusToken;
+  }
+  return false;
+}
+
+// The properties a class declares: its own, plus constructor parameter properties,
+// which getProperties() does not list.
+function classProperties(cls) {
+  const properties = [...cls.getProperties()];
+  for (const constructor of cls.getConstructors()) {
+    for (const parameter of constructor.getParameters()) {
+      if (parameter.isParameterProperty()) properties.push(parameter);
+    }
+  }
+  return properties;
+}
+
+// A mutation the reference check cannot follow: a constructor that assigns through
+// Object.assign / Reflect.set / Object.defineProperty leaves no property provably
+// constructor-only, and no compiler error would surface it either.
+const OPAQUE_RECEIVERS = new Set(["Object", "Reflect"]);
+const OPAQUE_MUTATORS = new Set(["assign", "set", "defineProperty"]);
+
+function mutatesOpaquely(constructor) {
+  if (!constructor) return false;
+  return constructor.getDescendantsOfKind(SyntaxKind.CallExpression).some((call) => {
+    const callee = call.getExpression();
+    if (!Node.isPropertyAccessExpression(callee)) return false;
+    const receiver = callee.getExpression();
+    return (
+      Node.isIdentifier(receiver) &&
+      OPAQUE_RECEIVERS.has(receiver.getText()) &&
+      OPAQUE_MUTATORS.has(callee.getName())
+    );
+  });
+}
+
+// The errors the project already reports, keyed by file, line and code, so a change
+// can be compared against the state it started from. Line rather than offset: the
+// promotion shifts columns on the line it touches.
+function diagnosticKeys(project) {
+  const keys = new Set();
+  for (const diagnostic of project.getPreEmitDiagnostics()) {
+    const file = diagnostic.getSourceFile();
+    if (!file) {
+      keys.add(`?:${diagnostic.getCode()}`);
+      continue;
+    }
+    const start = diagnostic.getStart() ?? 0;
+    const line = file.getLineAndColumnAtPos(start).line;
+    keys.add(`${relative(file.getFilePath())}:${line}:${diagnostic.getCode()}`);
+  }
+  return keys;
+}
+
+// Make a class's properties readonly where nothing but the constructor ever
+// assigns them; with no class named, every class in the project is swept. A write
+// anywhere else — another method, a subclass, or a callback the constructor
+// registers — rules the property out, since a readonly field cannot be assigned
+// there.
+async function promoteReadonly(project, klass, file, apply) {
+  let classes;
+  if (klass) {
+    classes = findDeclarations(project, klass, file, "class");
+    if (classes.length === 0) {
+      return fail(`no class '${klass}' found${file ? " in " + file : ""}`);
+    }
+    if (classes.length > 1) {
+      const listing = classes
+        .map((node) => `  ${relative(node.getSourceFile().getFilePath())}:${node.getStartLineNumber()}`)
+        .sort()
+        .join("\n");
+      return fail(`'${klass}' is declared in ${classes.length} places — pass --file to pick one:\n${listing}`);
+    }
+  } else {
+    classes = allClasses(project);
+  }
+
+  const warnings = new Set();
+  const files = new Set();
+  let promoted = 0;
+
+  // The compiler is the only check that sees every write form — an element access,
+  // a delete, a write through an alias — so the apply is gated on it: what the
+  // classifier missed would otherwise ship broken. Taken before anything moves.
+  const baseline = apply ? diagnosticKeys(project) : null;
+
+  for (const cls of classes) {
+    const where = relative(cls.getSourceFile().getFilePath());
+    const constructor = cls.getConstructors().find((candidate) => candidate.getBody()) ?? null;
+    let inClass = 0;
+
+    if (mutatesOpaquely(constructor)) {
+      warnings.add(
+        `${where}: '${cls.getName()}' assigns through Object/Reflect in its constructor, which the reference check cannot follow, so no property was promoted`,
+      );
+      continue;
+    }
+
+    for (const property of classProperties(cls)) {
+      if (property.isReadonly()) continue;
+
+      const name = property.getName();
+      const writes = property.findReferencesAsNodes().filter(isWrite);
+      if (writes.some((write) => !constructor || enclosingFunctionLike(write) !== constructor)) {
+        warnings.add(`${where}: '${cls.getName()}.${name}' is written outside the constructor and was left alone`);
+        continue;
+      }
+
+      // A subclass that declares the property again keeps its own copy mutable.
+      if (cls.getDerivedClasses().some((derived) => derived.getProperty(name))) {
+        warnings.add(`${where}: '${cls.getName()}.${name}' is re-declared by a subclass and was left alone`);
+        continue;
+      }
+
+      if (apply) property.setIsReadonly();
+      inClass += 1;
+    }
+
+    if (inClass > 0) {
+      files.add(where);
+      promoted += inClass;
+      if (cls.isExported()) {
+        warnings.add(`${where}: '${cls.getName()}' is exported, so its public surface may be consumed outside the project`);
+      }
+    }
+  }
+
+  if (apply) {
+    const introduced = [...diagnosticKeys(project)].filter((key) => !baseline.has(key));
+    if (introduced.length > 0) {
+      return fail(
+        `promoting ${promoted} member(s) readonly would introduce ${introduced.length} compiler error(s):\n${introduced.map((key) => "  " + key).join("\n")}`,
+      );
+    }
+    await project.save();
+  }
+
+  process.stdout.write(
+    JSON.stringify({
+      ok: true,
+      engine: ENGINE,
+      applied: apply,
+      summary: `${apply ? "Made" : "Would make"} ${promoted} member(s) readonly in ${files.size} class file(s)`,
+      files: [...files].sort(),
+      warnings: [...warnings],
+    }) + "\n",
+  );
+  return 0;
+}
+
 async function main() {
   const request = JSON.parse((await readStdin()) || "{}");
   const op = request.op || "rename-symbol";
@@ -1086,10 +1274,11 @@ async function main() {
     op !== "move-member" &&
     op !== "privatize-members" &&
     op !== "remove-unused-locals" &&
-    op !== "remove-unused-params"
+    op !== "remove-unused-params" &&
+    op !== "promote-readonly"
   ) {
     return fail(
-      `unsupported op '${op}' (expected rename-symbol|move-file|move-member|privatize-members|remove-unused-locals|remove-unused-params)`,
+      `unsupported op '${op}' (expected rename-symbol|move-file|move-member|privatize-members|remove-unused-locals|remove-unused-params|promote-readonly)`,
     );
   }
 
@@ -1113,6 +1302,10 @@ async function main() {
 
   if (op === "remove-unused-params") {
     return removeUnusedParams(project, file, apply);
+  }
+
+  if (op === "promote-readonly") {
+    return promoteReadonly(project, klass, file, apply);
   }
 
   if (!from || !to) {

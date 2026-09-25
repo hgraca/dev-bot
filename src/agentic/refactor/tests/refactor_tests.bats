@@ -1183,19 +1183,21 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "ts", m
 assert ".ts" in m["extensions"], m
-assert m["ops"] == ["rename-symbol", "move-file", "move-member", "privatize-members", "remove-unused-locals", "remove-unused-params"], m
+assert m["ops"] == ["rename-symbol", "move-file", "move-member", "privatize-members", "remove-unused-locals", "remove-unused-params", "promote-readonly"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["move-file"] == ["file", "to"], m
 assert m["requires"]["move-member"] == ["class", "from", "to"], m
 assert m["requires"]["privatize-members"] == [], m
 assert m["requires"]["remove-unused-locals"] == ["file"], m
 assert m["requires"]["remove-unused-params"] == ["file"], m
+assert m["requires"]["promote-readonly"] == [], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["move-file"] == "move", m
 assert m["risks"]["move-member"] == "move", m
 assert m["risks"]["privatize-members"] == "cleanup", m
 assert m["risks"]["remove-unused-locals"] == "cleanup", m
 assert m["risks"]["remove-unused-params"] == "signature", m
+assert m["risks"]["promote-readonly"] == "signature", m
 '
 }
 
@@ -2528,6 +2530,144 @@ assert m["risks"]["remove-unused-params"] == "signature", m
   assert_success
   assert_output --partial "Would remove"
   [ "${still}" = "1" ]
+}
+
+@test "end-to-end (ts): promote-readonly makes a constructor-only property readonly" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/readonly-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op promote-readonly --apply"
+
+  local ctor initialised promoted untouched
+  ctor="$(grep -c 'readonly ctorOnly' "${work}/src/base.ts" || true)"
+  # Never written at all is still immutable.
+  initialised="$(grep -c 'readonly initialised' "${work}/src/base.ts" || true)"
+  # A constructor parameter property is a member too.
+  promoted="$(grep -c 'readonly promoted' "${work}/src/base.ts" || true)"
+  untouched="$(grep -c 'readonly already' "${work}/src/base.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${ctor}" = "1" ]
+  [ "${initialised}" = "1" ]
+  [ "${promoted}" = "1" ]
+  [ "${untouched}" = "1" ]
+}
+
+@test "end-to-end (ts): promote-readonly leaves a property written outside the constructor" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/readonly-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op promote-readonly --apply"
+
+  local method nested
+  method="$(grep -c 'readonly methodWritten' "${work}/src/base.ts" || true)"
+  # The arrow inside the constructor runs later; a readonly field cannot be
+  # assigned there.
+  nested="$(grep -c 'readonly nested' "${work}/src/base.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "methodWritten"
+  [ "${method}" = "0" ]
+  [ "${nested}" = "0" ]
+}
+
+@test "end-to-end (ts): promote-readonly leaves a property a subclass writes or redeclares" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/readonly-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op promote-readonly --apply"
+
+  local written redeclared
+  written="$(grep -c 'readonly subclassWritten' "${work}/src/base.ts" || true)"
+  # Sub re-declares the property, and that declaration keeps it mutable.
+  redeclared="$(grep -c 'readonly subclassRedeclared' "${work}/src/base.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${written}" = "0" ]
+  [ "${redeclared}" = "0" ]
+}
+
+@test "end-to-end (ts): a promote-readonly plan writes nothing" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/readonly-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op promote-readonly"
+
+  local still
+  still="$(grep -c 'readonly ctorOnly' "${work}/src/base.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "Would make"
+  [ "${still}" = "0" ]
+}
+
+@test "end-to-end (ts): a promote-readonly apply leaves the project compiling" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work tsc compiled
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/readonly-demo/." "${work}/"
+  tsc="${MODULE_DIR}/../../../storage/refactor/ts/node_modules/typescript/bin/tsc"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op promote-readonly --apply"
+  compiled="$(cd "${work}" && node "${tsc}" --noEmit -p tsconfig.json >/dev/null 2>&1 && echo 0 || echo 1)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${compiled}" = "0" ]
+}
+
+@test "end-to-end (ts): promote-readonly narrows to a named class" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/readonly-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op promote-readonly --class Base --apply"
+
+  local promoted
+  promoted="$(grep -c 'readonly ctorOnly' "${work}/src/base.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${promoted}" = "1" ]
+}
+
+@test "end-to-end (ts): a promote-readonly apply refuses what the compiler rejects" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/readonly-break-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op promote-readonly --apply"
+
+  local promoted
+  # The reference check cannot see an element access, a delete, or a write to a
+  # static from the instance constructor; the compiler can, so the apply refuses.
+  promoted="$(grep -c 'readonly' "${work}/src/breaking.ts" || true)"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "would introduce"
+  [ "${promoted}" = "0" ]
 }
 
 @test "end-to-end (ts): an apply reports the string reference and leaves it" {

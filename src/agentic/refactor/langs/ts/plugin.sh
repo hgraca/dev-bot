@@ -23,7 +23,7 @@ STORAGE_DIR="${REFACTOR_STORAGE_DIR:-${REFACTOR_DIR}/../../../storage/refactor}"
 
 cmd_meta() {
   cat <<'JSON'
-{"lang":"ts","extensions":[".ts",".tsx",".js",".jsx"],"ops":["rename-symbol","move-file","move-member","privatize-members","remove-unused-locals","remove-unused-params"],"requires":{"rename-symbol":["from","to"],"move-file":["file","to"],"move-member":["class","from","to"],"privatize-members":[],"remove-unused-locals":["file"],"remove-unused-params":["file"]},"risks":{"rename-symbol":"rename","move-file":"move","move-member":"move","privatize-members":"cleanup","remove-unused-locals":"cleanup","remove-unused-params":"signature"}}
+{"lang":"ts","extensions":[".ts",".tsx",".js",".jsx"],"ops":["rename-symbol","move-file","move-member","privatize-members","remove-unused-locals","remove-unused-params","promote-readonly"],"requires":{"rename-symbol":["from","to"],"move-file":["file","to"],"move-member":["class","from","to"],"privatize-members":[],"remove-unused-locals":["file"],"remove-unused-params":["file"],"promote-readonly":[]},"risks":{"rename-symbol":"rename","move-file":"move","move-member":"move","privatize-members":"cleanup","remove-unused-locals":"cleanup","remove-unused-params":"signature","promote-readonly":"signature"}}
 JSON
 }
 
