@@ -21,19 +21,39 @@
 
 import { describe, expect, mock, test } from "bun:test"
 
-type El = { tag: string; props: Record<string, unknown>; children: El[] }
+type El = { tag: string; props: Record<string, unknown>; children: El[]; text?: string }
 
-mock.module("@opentui/solid", () => ({
-  createElement: (tag: string): El => ({ tag, props: {}, children: [] }),
-  createTextNode: (text: unknown) => ({ text: String(text) }),
-  insert: () => {},
-  insertNode: (parent: El, child: El) => {
-    parent.children.push(child)
-  },
-  setProp: (el: El, key: string, value: unknown) => {
-    el.props[key] = value
-  },
-}))
+mock.module("@opentui/solid", () => {
+  // Text nodes carry their content in `text`, like the real renderable, so a
+  // test can read a label the panel rendered from an accessor.
+  const textNode = (value: unknown): El => ({
+    tag: "#text",
+    props: {},
+    children: [],
+    text: String(value),
+  })
+  return {
+    createElement: (tag: string): El => ({ tag, props: {}, children: [] }),
+    createTextNode: textNode,
+    // Real `insert` handles a reactive accessor, and the panel renders both its
+    // row list and its reactive labels that way. The mock must resolve the
+    // accessor and attach what it yields — elements AND strings — or no test
+    // could reach a rendered row or read a rendered label.
+    insert: (parent: El, child: unknown) => {
+      const value = typeof child === "function" ? (child as () => unknown)() : child
+      for (const item of Array.isArray(value) ? value : [value]) {
+        if (item && typeof item === "object") parent.children.push(item as El)
+        else if (typeof item === "string") parent.children.push(textNode(item))
+      }
+    },
+    insertNode: (parent: El, child: El) => {
+      parent.children.push(child)
+    },
+    setProp: (el: El, key: string, value: unknown) => {
+      el.props[key] = value
+    },
+  }
+})
 
 // Stateful on purpose: the expand/collapse contract is only testable if the
 // panel's `collapsed` signal actually flips on a click.
@@ -60,14 +80,27 @@ const { default: plugin } = await import("./index")
  * which bootstrapped would never resolve. `rejectCreate` models a bootstrap that
  * fails outright, which is how the backoff path is reached.
  */
-function stubApi(options: { rejectCreate?: boolean } = {}) {
+function stubApi(options: { rejectCreate?: boolean; throwingToast?: boolean } = {}) {
   let dispose: (() => void) | null = null
   let commands: (() => { onSelect: () => void }[]) | null = null
   let slots: { slots: { sidebar_content: () => El } } | null = null
-  const calls = { slots: 0, commands: 0, serverStarts: 0 }
+  let confirm: { onConfirm?: () => void; title?: string; message?: string } | null = null
+  const calls = {
+    slots: 0,
+    commands: 0,
+    serverStarts: 0,
+    dialogs: 0,
+    confirms: 0,
+    toasts: [] as string[],
+  }
+  const sidebar = () => slots!.slots.sidebar_content()
   return {
     calls,
     disposeNow: () => dispose?.(),
+    /** The rendered sidebar tree, rebuilt from the plugin's current state. */
+    sidebar,
+    /** The props the plugin handed to the most recent confirm dialog. */
+    confirmProps: () => confirm,
     /** Ask for a start the first way: the slash command. */
     runExplicitRequest: () => {
       const list = commands ? commands() : []
@@ -75,8 +108,10 @@ function stubApi(options: { rejectCreate?: boolean } = {}) {
     },
     /** Ask for a start the second way: click the header (toggles collapse). */
     clickHeader: () => {
-      const header = slots!.slots.sidebar_content().children[0]!
-      ;(header.props.onMouseDown as () => void)()
+      // The header is a row holding the toggle text first and the clear action
+      // second; the toggle is what the panel binds the collapse to.
+      const toggle = sidebar().children[0]!.children[0]!
+      ;(toggle.props.onMouseDown as () => void)()
     },
     api: {
       kv: { get: (_key: string, fallback: unknown) => fallback, set: () => {} },
@@ -98,7 +133,29 @@ function stubApi(options: { rejectCreate?: boolean } = {}) {
         },
       },
       theme: { current: {} },
-      ui: { toast: () => {} },
+      ui: {
+        toast: (input: { variant?: string }) => {
+          calls.toasts.push(input.variant || "info")
+          // Models a host toast that throws, so the plugin's best-effort
+          // handling around it is exercised rather than assumed.
+          if (options.throwingToast) throw new Error("toast exploded")
+        },
+        DialogConfirm: (props: unknown) => {
+          calls.confirms++
+          confirm = props as { onConfirm?: () => void }
+          return { tag: "confirm", props: {}, children: [] }
+        },
+        // Counts every dialog the plugin pushes, so a test can tell a removal
+        // confirm apart from the output dialog opening on the row behind a `✕`.
+        dialog: {
+          replace: (render: () => unknown) => {
+            calls.dialogs++
+            render()
+          },
+          clear: () => {},
+          setSize: () => {},
+        },
+      },
       state: { session: { messages: () => [] } },
       renderer: {},
       client: {
@@ -274,6 +331,218 @@ describe("pty-monitor tui factory", () => {
       expect(await waitFor(() => calls.serverStarts > beforeRetry, 1500)).toBe(true)
     } finally {
       disposeNow()
+    }
+  })
+})
+
+/**
+ * A stand-in for opencode-pty's HTTP server: answers the health probe the
+ * discovery path uses, serves the session list, and records every cleanup
+ * request. Bound to `::1` so the plugin's `/proc` scan finds it exactly the way
+ * it finds the real server.
+ */
+function ptyFixture(sessions: unknown[]) {
+  const deletes: string[] = []
+  const server = Bun.serve({
+    hostname: "::1",
+    port: 0,
+    fetch: (req) => {
+      const url = new URL(req.url)
+      if (url.pathname === "/health") {
+        return Response.json({
+          status: "healthy",
+          sessions: { total: sessions.length, active: 0 },
+        })
+      }
+      if (url.pathname === "/api/sessions" && req.method === "GET") {
+        return Response.json(sessions)
+      }
+      if (req.method === "DELETE" && url.pathname.endsWith("/cleanup")) {
+        deletes.push(url.pathname)
+        // Serve the list WITHOUT the removed session afterwards, so a test can
+        // observe that the panel's own refresh ran — the next poll is 2.5s away,
+        // far outside the window a test waits.
+        const id = url.pathname.split("/")[3]
+        const at = sessions.findIndex((s) => (s as { id?: unknown }).id === id)
+        if (at >= 0) sessions.splice(at, 1)
+        return Response.json({ success: true })
+      }
+      return new Response("not found", { status: 404 })
+    },
+  })
+  return { server, deletes }
+}
+
+/** The panel's rendered rows — the sidebar's second child is the live column. */
+function rowsOf(stub: ReturnType<typeof stubApi>) {
+  return stub.sidebar().children[1]?.children ?? []
+}
+
+/**
+ * Wait until `count` real session rows are rendered.
+ *
+ * Filters on `box`: an empty list renders a `text` placeholder, and waiting on
+ * a bare non-empty count would match that and race every assertion behind it.
+ */
+function waitForRows(stub: ReturnType<typeof stubApi>, count: number) {
+  return waitFor(() => rowsOf(stub).filter((r) => r.tag === "box").length === count)
+}
+
+/** A row's `✕`: the bullet, the label, then the remove glyph. */
+function removeControl(row: El) {
+  return row.children[2]!
+}
+
+/** The header's clear-finished label as rendered ("" when there is none). */
+function clearLabelOf(stub: ReturnType<typeof stubApi>) {
+  const clear = stub.sidebar().children[0]!.children[1]!
+  return clear.children[0]?.text ?? ""
+}
+
+/** Fire a control's mouse handler with a fake event that records the stop. */
+function clickControl(handler: unknown, stopped: { value: boolean }) {
+  ;(handler as (evt: unknown) => void)({
+    stopPropagation: () => {
+      stopped.value = true
+    },
+  })
+}
+
+describe("pty-monitor session removal", () => {
+  test("✕ on a finished session removes it without opening the dialog", async () => {
+    const { server, deletes } = ptyFixture([
+      { id: "pty_aaaa", title: "sleep 300", status: "exited", exitCode: 0, lineCount: 3 },
+    ])
+    const stub = stubApi()
+    try {
+      await plugin.tui(stub.api as never)
+      stub.clickHeader() // expand; the panel starts collapsed
+      expect(await waitForRows(stub, 1)).toBe(true)
+      // Discovery reached the fixture, so no throwaway bootstrap session ran.
+      expect(stub.calls.serverStarts).toBe(0)
+
+      const stopped = { value: false }
+      clickControl(removeControl(rowsOf(stub)[0]!).props.onMouseUp, stopped)
+      expect(stopped.value).toBe(true)
+      expect(await waitFor(() => deletes.length > 0)).toBe(true)
+      expect(deletes[0]).toBe("/api/sessions/pty_aaaa/cleanup")
+
+      // The removal's own refresh must land promptly: the fixture now serves the
+      // list without that session, so the row going away inside this window is
+      // the observable proof the refresh ran (the poll is 2.5s off).
+      expect(await waitFor(() => rowsOf(stub).filter((r) => r.tag === "box").length === 0)).toBe(
+        true,
+      )
+
+      // The finished branch must push no dialog at all — neither the removal
+      // confirm nor the output dialog. (That the event was actually suppressed is
+      // proven above by the stopPropagation call-check; this mock does not
+      // simulate bubbling, so this assertion cannot prove it.)
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(stub.calls.dialogs).toBe(0)
+    } finally {
+      server.stop(true)
+      stub.disposeNow()
+    }
+  })
+
+  test("✕ on a running session asks first, then removes", async () => {
+    const { server, deletes } = ptyFixture([
+      { id: "pty_bbbb", title: "make test", status: "running", lineCount: 12 },
+    ])
+    const stub = stubApi()
+    try {
+      await plugin.tui(stub.api as never)
+      stub.clickHeader()
+      expect(await waitForRows(stub, 1)).toBe(true)
+
+      clickControl(removeControl(rowsOf(stub)[0]!).props.onMouseUp, { value: false })
+      // A live process: the dialog is up and nothing has been killed yet.
+      expect(stub.calls.confirms).toBe(1)
+      expect(deletes).toEqual([])
+
+      stub.confirmProps()!.onConfirm!()
+      expect(await waitFor(() => deletes.length > 0)).toBe(true)
+      expect(deletes[0]).toBe("/api/sessions/pty_bbbb/cleanup")
+    } finally {
+      server.stop(true)
+      stub.disposeNow()
+    }
+  })
+
+  test("clear finished removes every stopped session and no other", async () => {
+    const { server, deletes } = ptyFixture([
+      { id: "pty_run", title: "make test", status: "running", lineCount: 1 },
+      { id: "pty_end", title: "sleep 60", status: "exited", exitCode: 0, lineCount: 2 },
+      { id: "pty_kil", title: "sleep 5", status: "killed", lineCount: 4 },
+      // Transient, not finished: a clear that raced the process teardown would
+      // be a bug, so it must be left alone.
+      { id: "pty_ing", title: "stopping", status: "killing", lineCount: 0 },
+    ])
+    const stub = stubApi()
+    try {
+      await plugin.tui(stub.api as never)
+      stub.clickHeader()
+      expect(await waitForRows(stub, 4)).toBe(true)
+
+      const clear = stub.sidebar().children[0]!.children[1]!
+      // The header offers the action only while something can be cleared.
+      expect(clearLabelOf(stub)).toBe("(clear finished)")
+      const stopped = { value: false }
+      clickControl(clear.props.onMouseDown, stopped)
+      expect(stopped.value).toBe(true) // the click must not also collapse the panel
+      expect(await waitFor(() => deletes.length === 2)).toBe(true)
+      expect(deletes.sort()).toEqual([
+        "/api/sessions/pty_end/cleanup",
+        "/api/sessions/pty_kil/cleanup",
+      ])
+    } finally {
+      server.stop(true)
+      stub.disposeNow()
+    }
+  })
+
+  test("a throwing success toast is not reported as a failed removal", async () => {
+    const { server, deletes } = ptyFixture([
+      { id: "pty_zzzz", title: "sleep 5", status: "exited", exitCode: 0, lineCount: 1 },
+    ])
+    const stub = stubApi({ throwingToast: true })
+    try {
+      await plugin.tui(stub.api as never)
+      stub.clickHeader()
+      expect(await waitForRows(stub, 1)).toBe(true)
+
+      clickControl(removeControl(rowsOf(stub)[0]!).props.onMouseUp, { value: false })
+      expect(await waitFor(() => deletes.length > 0)).toBe(true)
+      // The success toast threw. The removal still succeeded, so it must NOT be
+      // followed by a failure toast — reporting it as failed is the regression
+      // this pins.
+      expect(stub.calls.toasts).toEqual(["info"])
+    } finally {
+      server.stop(true)
+      stub.disposeNow()
+    }
+  })
+
+  test("clear finished touches nothing while every session is still live", async () => {
+    const { server, deletes } = ptyFixture([
+      { id: "pty_run", title: "make test", status: "running", lineCount: 1 },
+    ])
+    const stub = stubApi()
+    try {
+      await plugin.tui(stub.api as never)
+      stub.clickHeader()
+      expect(await waitForRows(stub, 1)).toBe(true)
+
+      const clear = stub.sidebar().children[0]!.children[1]!
+      // Nothing is finished, so the header must offer no clear action at all.
+      expect(clearLabelOf(stub)).toBe("")
+      clickControl(clear.props.onMouseDown, { value: false })
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      expect(deletes).toEqual([])
+    } finally {
+      server.stop(true)
+      stub.disposeNow()
     }
   })
 })

@@ -2,7 +2,7 @@
 // src/harnesses/opencode/pty-monitor/lib.test.ts
 // Tests for the pure logic of the PTY monitor plugin.
 //
-// Every bug found while spiking lives in one of these four functions, which is
+// Every bug found while spiking lives in one of these functions, which is
 // the whole reason they are extracted from the TUI wiring and tested here:
 //   - parseServerUrl: the first regex matched a DOC PLACEHOLDER ("<url>") from
 //     the transcript instead of the real origin
@@ -11,13 +11,19 @@
 //   - decodeBuffer: /buffer/plain returns JSON { plain, byteLength }, not text,
 //     and the content uses CRLF
 //   - rowLabel / rowTone: purely presentational, but the sidebar depends on them
+//   - isFinished / finishedSessions / clearActionLabel: decide what the removal
+//     controls act on, so a wrong status set would kill a live session
 // =============================================================================
 
 import { describe, expect, test } from "bun:test"
 import {
   bootstrapFailureCause,
+  clearActionLabel,
   decodeBuffer,
+  finishedSessions,
   formatDetail,
+  headerLabel,
+  isFinished,
   isPtyCommandSentinel,
   isPtyHealth,
   latestServerUrl,
@@ -401,5 +407,72 @@ describe("bootstrapFailureCause", () => {
 
   test("stringifies a thrown non-Error", () => {
     expect(bootstrapFailureCause("boom")).toBe("boom")
+  })
+})
+
+describe("isFinished", () => {
+  test("a session that has stopped counts as finished", () => {
+    expect(isFinished({ status: "exited" })).toBe(true)
+    expect(isFinished({ status: "killed" })).toBe(true)
+  })
+
+  test("a live or transient session does not", () => {
+    expect(isFinished({ status: "running" })).toBe(false)
+    // `killing` is transient: the exit callback turns it into `killed`, so
+    // treating it as finished would let a clear race the process teardown.
+    expect(isFinished({ status: "killing" })).toBe(false)
+  })
+
+  test("tolerates junk instead of throwing", () => {
+    expect(isFinished(null)).toBe(false)
+    expect(isFinished(undefined)).toBe(false)
+    expect(isFinished("exited")).toBe(false)
+    expect(isFinished({})).toBe(false)
+  })
+})
+
+describe("finishedSessions", () => {
+  test("keeps only finished sessions, in their original order", () => {
+    const list = [
+      { id: "a", status: "running" },
+      { id: "b", status: "exited" },
+      { id: "c", status: "killed" },
+      { id: "d", status: "killing" },
+    ]
+    expect(finishedSessions(list).map((s) => s.id)).toEqual(["b", "c"])
+  })
+
+  test("returns an empty list for anything that is not a list", () => {
+    expect(finishedSessions(null)).toEqual([])
+    expect(finishedSessions(undefined)).toEqual([])
+    expect(finishedSessions({ sessions: [] })).toEqual([])
+  })
+})
+
+describe("clearActionLabel", () => {
+  test("names the action only when there is something to clear", () => {
+    expect(clearActionLabel([{ status: "exited" }])).toBe("(clear finished)")
+    expect(clearActionLabel([])).toBeNull()
+  })
+
+  test("stays hidden while every session is still live", () => {
+    // The header must not offer a control that would delete nothing — and it
+    // must never suggest that running sessions are in scope.
+    expect(clearActionLabel([{ status: "running" }, { status: "killing" }])).toBeNull()
+  })
+
+  test("tolerates junk", () => {
+    expect(clearActionLabel(null)).toBeNull()
+  })
+})
+
+describe("headerLabel", () => {
+  test("shows the chevron, the panel name and the status", () => {
+    expect(headerLabel({ collapsed: false, status: "3 sessions" })).toBe("▼ PTY  3 sessions")
+    expect(headerLabel({ collapsed: true, status: "3 sessions" })).toBe("▶ PTY  3 sessions")
+  })
+
+  test("renders without a status", () => {
+    expect(headerLabel({})).toBe("▼ PTY  ")
   })
 })

@@ -17,6 +17,10 @@
 //  - **Take the LATEST posted URL.** The PTY server binds a random port on every
 //    start, so an older message holds a dead origin.
 //  - **`/buffer/plain` returns JSON** (`{ plain, byteLength }`), CRLF-terminated.
+//  - **Stop propagation at a control nested in a row or the header.** opentui
+//    bubbles a mouse event to the parent only while `propagationStopped` is
+//    false, so the row's `✕` and the header's clear action must swallow the
+//    event or they also open the dialog / collapse the panel.
 //  - **Fail loudly.** A silent no-op is indistinguishable from a bug, so every
 //    failure path surfaces a status line and a toast.
 //
@@ -30,8 +34,11 @@ import { createElement, createTextNode, insert, insertNode, setProp } from "@ope
 import { createSignal } from "solid-js"
 import {
   bootstrapFailureCause,
+  clearActionLabel,
   decodeBuffer,
+  finishedSessions,
   formatDetail,
+  headerLabel,
   isPtyHealth,
   latestServerUrl,
   parseListeningPorts,
@@ -45,6 +52,9 @@ const POLL_MS = 2500
 const TAIL_LINES = 300
 const SLOT_ORDER = 450
 const BOOTSTRAP_TITLE = "pty-monitor bootstrap"
+
+/** The per-row remove control. Leading space so it does not crowd the label. */
+const REMOVE_GLYPH = " \u2715"
 
 /** Consecutive bootstrap failures before the poll stops retrying by itself. */
 const MAX_BOOTSTRAP_FAILURES = 3
@@ -166,8 +176,18 @@ function messageTexts(api, sessionID) {
  */
 const FETCH_TIMEOUT_MS = 2000
 
-function fetchWithTimeout(url) {
-  return fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+function fetchWithTimeout(url, init) {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+}
+
+/**
+ * Stop a mouse event from reaching the row or header handler behind a control.
+ *
+ * Defensive about the event being absent: the handlers are unit-invoked in tests
+ * without an event object.
+ */
+function stopPropagation(evt) {
+  if (evt && typeof evt.stopPropagation === "function") evt.stopPropagation()
 }
 
 // Liveness of a *known* origin. Checks the payload, not merely res.ok, so it
@@ -361,6 +381,18 @@ async function readBuffer(origin, id) {
   return decodeBuffer(await res.json())
 }
 
+/**
+ * Drop a session from opencode-pty's store, killing it first when it is still
+ * running. CLEANUP — not a plain kill — is what deletes the entry; a plain kill
+ * keeps the session around for log access, which is why the list only ever grew.
+ */
+async function cleanupSession(origin, id) {
+  const res = await fetchWithTimeout(origin + "/api/sessions/" + id + "/cleanup", {
+    method: "DELETE",
+  })
+  return res.ok
+}
+
 // ── element helpers — call ONLY inside a render pass ──────────────────────────
 
 function text(content) {
@@ -427,8 +459,16 @@ const tui = async (api) => {
   let refreshing = false
   let bootstrapFailures = 0
   let bootstrapPending = false
+  let refreshPending = false
 
-  const refresh = async (allowBootstrap = false) => {
+  /**
+   * `force` marks a refresh the user is waiting on (after a removal). A plain
+   * poll tick that lands mid-refresh can be dropped — the in-flight one is
+   * already refreshing the list — but a forced one must never be, because that
+   * in-flight fetch still carries the pre-removal list and the row the user just
+   * removed would linger until the next tick.
+   */
+  const refresh = async (allowBootstrap = false, force = false) => {
     if (disposed) return
     // Guard against overlap: a bootstrap can take ~6s while the poll ticks every
     // 2.5s, so without this a host where the server never comes up would run
@@ -437,6 +477,7 @@ const tui = async (api) => {
       // An explicit ask must never be dropped — the user clicks once, they do
       // not retry in a loop. Remember it and run it when this refresh finishes.
       if (allowBootstrap) bootstrapPending = true
+      else if (force) refreshPending = true
       return
     }
     refreshing = true
@@ -473,8 +514,13 @@ const tui = async (api) => {
     } finally {
       refreshing = false
       if (bootstrapPending) {
+        // A bootstrap refresh re-lists too, so it supersedes a queued plain one.
         bootstrapPending = false
+        refreshPending = false
         refresh(true).catch(() => {})
+      } else if (refreshPending) {
+        refreshPending = false
+        refresh().catch(() => {})
       }
     }
   }
@@ -578,6 +624,98 @@ const tui = async (api) => {
     timer = setInterval(load, POLL_MS)
   }
 
+  /**
+   * Drop one session, then refresh at once — waiting up to a poll interval for
+   * the list to catch up would read as a click that did nothing.
+   */
+  const removeSession = async (session) => {
+    if (!origin) {
+      api.ui.toast({ variant: "warning", title: "pty-monitor", message: "PTY server unavailable" })
+      return
+    }
+    const label = session.title || session.id
+    let failure = null
+    try {
+      if (!(await cleanupSession(origin, String(session.id)))) {
+        throw new Error("the server refused the request")
+      }
+      debug("remove.done", { id: session.id })
+    } catch (e) {
+      failure = e
+      debug("remove.failed", { id: session.id, error: String(e) })
+    }
+    // Both toasts sit OUTSIDE that try, and both are best-effort: a throw from
+    // the success toast must not be mistaken for a failed removal and reported
+    // as one.
+    try {
+      if (failure) {
+        api.ui.toast({
+          variant: "error",
+          title: "pty-monitor",
+          message: "Could not remove " + label + ": " + String(failure),
+        })
+      } else {
+        api.ui.toast({ variant: "info", title: "pty-monitor", message: "Removed " + label })
+      }
+    } catch (_) {
+      /* toast is best-effort */
+    }
+    // force: the user is waiting on this one, so it must not be dropped.
+    refresh(false, true).catch(() => {})
+  }
+
+  /**
+   * Removing a RUNNING session kills a live process, so it is confirmed first; a
+   * finished one is only a record, so its ✕ acts at once. DialogConfirm clears
+   * itself after a choice, so neither branch touches the dialog stack.
+   */
+  const confirmRemove = (session) => {
+    debug("row.remove", { id: session.id, status: session.status })
+    // Only a healthy live process earns a confirmation. A `killing` session has
+    // already been asked to die — cleanup merely drops the record — so gating on
+    // anything but `running` would ask a question with one sane answer. This is
+    // also why `isFinished`, which drives clear-finished, excludes `killing`:
+    // that path must not race the process teardown.
+    if (session.status !== "running") {
+      removeSession(session).catch(() => {})
+      return
+    }
+    api.ui.dialog.replace(() =>
+      api.ui.DialogConfirm({
+        title: "Remove PTY session",
+        message:
+          "Kill the running session \u201c" + (session.title || session.id) + "\u201d and remove it?",
+        onConfirm: () => removeSession(session).catch(() => {}),
+      }),
+    )
+  }
+
+  /**
+   * Drop every finished session. Only ever touches non-running ones, so it needs
+   * no confirmation; a partial failure is reported rather than hidden.
+   */
+  const clearFinished = async () => {
+    if (!origin) {
+      api.ui.toast({ variant: "warning", title: "pty-monitor", message: "PTY server unavailable" })
+      return
+    }
+    const targets = finishedSessions(sessions())
+    debug("clear-finished.start", { count: targets.length })
+    const results = await Promise.all(
+      targets.map((s) => cleanupSession(origin, String(s.id)).catch(() => false)),
+    )
+    const failed = results.filter((ok) => !ok).length
+    if (failed) {
+      api.ui.toast({
+        variant: "error",
+        title: "pty-monitor",
+        message: "Could not remove " + failed + " of " + targets.length + " finished sessions",
+      })
+    }
+    // force: the user is waiting on this one, so it must not be dropped.
+    refresh(false, true).catch(() => {})
+  }
+
   const rowFor = (session) => {
     // Bullet and label are SEPARATE text elements in a row box, because `fg` is
     // only proven to work on text elements (opencode-tabs colours its labels
@@ -595,8 +733,25 @@ const tui = async (api) => {
     insertNode(row, bullet)
     const label = createElement("text")
     if (palette.text) setProp(label, "fg", palette.text)
+    // Grow so the remove glyph is pushed to the panel's right edge.
+    setProp(label, "flexGrow", 1)
     insertNode(label, createTextNode(rowLabel(session)))
     insertNode(row, label)
+    // The row opens the dialog on mouse UP, so the glyph must swallow BOTH
+    // events, not just the one it acts on — otherwise the removal would also
+    // open the dialog for the session the user just removed.
+    const remove = createElement("text")
+    if (palette.textMuted) setProp(remove, "fg", palette.textMuted)
+    insertNode(remove, createTextNode(REMOVE_GLYPH))
+    setProp(remove, "onMouseDown", (evt) => {
+      stopPropagation(evt)
+      debug("row.remove.mousedown", { id: session.id })
+    })
+    setProp(remove, "onMouseUp", (evt) => {
+      stopPropagation(evt)
+      confirmRemove(session)
+    })
+    insertNode(row, remove)
     // Diagnose the mousedown-vs-mouseup ordering (see activate below).
     setProp(row, "onMouseDown", () => debug("row.mousedown", { id: session.id }))
     setProp(row, "onMouseUp", () => activate(session))
@@ -632,11 +787,17 @@ const tui = async (api) => {
 
   // A collapsible header, matching the built-in sidebar items (MCP, File Tree,
   // Todo): chevron glyph, click to toggle, state persisted in kv. The count
-  // stays visible while collapsed so the panel is still informative.
+  // stays visible while collapsed so the panel is still informative. It carries
+  // the clear-finished action too — rendered only when something can be cleared.
   const headerFor = () => {
-    const el = createElement("text")
-    insert(el, () => (collapsed() ? "\u25B6" : "\u25BC") + " PTY  " + status())
-    setProp(el, "onMouseDown", () => {
+    const palette = (api.theme && api.theme.current) || {}
+    const row = createElement("box")
+    setProp(row, "flexDirection", "row")
+    const toggle = createElement("text")
+    // Grow so the clear action is pushed to the panel's right edge.
+    setProp(toggle, "flexGrow", 1)
+    insert(toggle, () => headerLabel({ collapsed: collapsed(), status: status() }))
+    setProp(toggle, "onMouseDown", () => {
       const next = !collapsed()
       setCollapsed(next)
       api.kv.set(KV_COLLAPSED, next)
@@ -650,7 +811,20 @@ const tui = async (api) => {
         refresh(true).catch(() => {})
       }
     })
-    return el
+    insertNode(row, toggle)
+    const clear = createElement("text")
+    if (palette.textMuted) setProp(clear, "fg", palette.textMuted)
+    // Empty when nothing is finished: a zero-width element presents no hit
+    // target, so the header never offers an action that would delete nothing.
+    insert(clear, () => clearActionLabel(sessions()) || "")
+    setProp(clear, "onMouseDown", (evt) => {
+      // Without this the click would also toggle the panel shut, hiding the very
+      // list it is cleaning.
+      stopPropagation(evt)
+      clearFinished().catch(() => {})
+    })
+    insertNode(row, clear)
+    return row
   }
 
   // ── sidebar panel ─────────────────────────────────────────────────────────

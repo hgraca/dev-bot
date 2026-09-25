@@ -158,6 +158,42 @@ export function rowTone(session: unknown): "success" | "error" | "muted" {
   return "muted"
 }
 
+/**
+ * Whether a session has stopped.
+ *
+ * `killing` is deliberately NOT finished: it is the transient state between the
+ * kill request and the exit callback that reports `killed`, so treating it as
+ * finished would let a clear race the process teardown.
+ */
+export function isFinished(session: unknown): boolean {
+  if (!session || typeof session !== "object") return false
+  const status = (session as { status?: unknown }).status
+  return status === "exited" || status === "killed"
+}
+
+/** The sessions a "clear finished" acts on, kept in their list order. */
+export function finishedSessions(list: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(list)) return []
+  return list.filter(isFinished) as Array<Record<string, unknown>>
+}
+
+/**
+ * The header's clear-action label, or null when there is nothing to clear.
+ *
+ * Returns null rather than a disabled label so the header never offers a control
+ * that would delete nothing — and so it can never read as touching live sessions.
+ */
+export function clearActionLabel(list: unknown): string | null {
+  return finishedSessions(list).length > 0 ? "(clear finished)" : null
+}
+
+/** The collapsible header's text: chevron, panel name, status. */
+export function headerLabel(input: { collapsed?: unknown; status?: unknown }): string {
+  const chevron = input?.collapsed ? "\u25B6" : "\u25BC"
+  const status = typeof input?.status === "string" ? input.status : ""
+  return `${chevron} PTY  ${status}`
+}
+
 /** Header block for the output dialog — the detail that does not fit a row.
  *
  *  Capped at TWO lines on purpose: every line spent here is a line unavailable
