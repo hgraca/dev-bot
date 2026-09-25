@@ -852,6 +852,172 @@ async function removeUnusedLocals(project, file, apply) {
   return 0;
 }
 
+// The function-likes whose parameter list a caller's argument count constrains. An
+// overload signature declares no body; its parameters travel with the
+// implementation's, which reaches them through getOverloads().
+function parameterisedFunctions(sourceFile) {
+  const nodes = [
+    ...sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration),
+    ...sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression),
+    ...sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction),
+    ...sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration),
+    ...sourceFile.getDescendantsOfKind(SyntaxKind.Constructor),
+  ];
+  return nodes.filter((node) => {
+    const kind = node.getKind();
+    if (kind === SyntaxKind.FunctionDeclaration || kind === SyntaxKind.MethodDeclaration) {
+      return Boolean(node.getBody());
+    }
+    return true;
+  });
+}
+
+// A name a message can use for a function-like. An arrow has no name in the API at
+// all, and a function expression can be anonymous, so the binding it is assigned
+// to stands in.
+function functionLabel(fn) {
+  if (fn.getKind() === SyntaxKind.Constructor) return "constructor";
+  if (typeof fn.getName === "function" && fn.getName()) return fn.getName();
+  const declaration = fn.getFirstAncestorByKind(SyntaxKind.VariableDeclaration);
+  const nameNode = declaration?.getNameNode();
+  if (nameNode && Node.isIdentifier(nameNode) && declaration.getInitializer() === fn) {
+    return nameNode.getText();
+  }
+  return "(anonymous)";
+}
+
+// Whether a caller outside this project could reach the function: an exported
+// declaration, a method of an exported class, or a function assigned to an
+// exported const. The reference check only sees this project, so a narrowed
+// signature is not the whole story.
+function isOnExportedSurface(fn) {
+  if (fn.isExported?.()) return true;
+  const parent = fn.getParent();
+  if (parent && parent.getKind() === SyntaxKind.ClassDeclaration) return parent.isExported();
+  const statement = fn.getFirstAncestorByKind(SyntaxKind.VariableStatement);
+  return Boolean(statement?.getModifiers().some((modifier) => modifier.getKind() === SyntaxKind.ExportKeyword));
+}
+
+// The node whose references stand for calls to `fn`: the function itself, or — for
+// an arrow or function expression bound to a name — that binding, which is what a
+// caller's identifier resolves to. An arrow has no reference API of its own.
+function referenceSource(fn) {
+  const declaration = fn.getFirstAncestorByKind(SyntaxKind.VariableDeclaration);
+  const nameNode = declaration?.getNameNode();
+  if (nameNode && Node.isIdentifier(nameNode) && declaration.getInitializer() === fn) {
+    return nameNode;
+  }
+  return typeof fn.findReferencesAsNodes === "function" ? fn : null;
+}
+
+// The Function methods that decide a call's arguments somewhere other than the
+// call site.
+const FUNCTION_FORWARDERS = new Set(["bind", "call", "apply"]);
+
+// The call that invokes this reference, or null when it is not the callee — a
+// value-position use leaves the arity unconstrained, and so does handing the
+// function to bind/call/apply, which decides the arguments elsewhere.
+function invokedCall(reference) {
+  for (let node = reference.getParent(); node; node = node.getParent()) {
+    const kind = node.getKind();
+    if (kind !== SyntaxKind.CallExpression && kind !== SyntaxKind.NewExpression) continue;
+    const callee = node.getExpression();
+    if (callee !== reference && callee !== reference.getParent()) return null;
+    if (Node.isPropertyAccessExpression(callee) && FUNCTION_FORWARDERS.has(callee.getName())) return null;
+    return node;
+  }
+  return null;
+}
+
+// Drop a parameter nothing refers to and no caller fills, taking the matching
+// parameter of every overload signature with it. A parameter a caller still
+// supplies stays: removing it would break that call. A `_`-prefixed name is the
+// convention for one kept on purpose, and a rest or destructured parameter is
+// left alone.
+async function removeUnusedParams(project, file, apply) {
+  if (!file) {
+    return fail("file is required");
+  }
+  const sourceFile = project.getSourceFile(path.join(PROJECT_DIR, file));
+  if (!sourceFile) {
+    return fail("no such file: " + file);
+  }
+
+  const warnings = new Set();
+  const removable = [];
+
+  for (const fn of parameterisedFunctions(sourceFile)) {
+    const parameters = fn.getParameters();
+    if (parameters.length === 0) continue;
+
+    const label = functionLabel(fn);
+    const signatures = fn.getOverloads?.() ?? [];
+    const source = referenceSource(fn);
+    if (!source) continue;
+
+    // A function's own declaration is reported alongside its uses — and so is each
+    // overload signature's — so only the uses count.
+    const references = source.findReferencesAsNodes().filter((reference) => {
+      if (reference === source) return false;
+      const kind = reference.getParent().getKind();
+      return kind !== SyntaxKind.FunctionDeclaration && kind !== SyntaxKind.MethodDeclaration;
+    });
+    const unbounded = references.some((reference) => !invokedCall(reference));
+
+    for (let index = 0; index < parameters.length; index += 1) {
+      const parameter = parameters[index];
+      const name = parameter.getName();
+      if (name.startsWith("_")) continue;
+      if (!Node.isIdentifier(parameter.getNameNode())) continue;
+      if (parameter.isRestParameter()) continue;
+
+      const unit = [parameter, ...signatures.map((signature) => signature.getParameters()[index])].filter(Boolean);
+      if (unit.some((member) => member.findReferencesAsNodes().length > 0)) continue;
+
+      // Dropping the parameter would drop the default with it.
+      if (parameter.getInitializer() && !isPureExpression(parameter.getInitializer())) {
+        warnings.add(`${file}: '${name}' of '${label}' has no references, but its default may have side effects and it was kept`);
+        continue;
+      }
+
+      if (unbounded) {
+        warnings.add(`${file}: '${label}' is used as a value, so '${name}' was kept`);
+        continue;
+      }
+
+      const supplied = references.some((reference) => {
+        const args = invokedCall(reference).getArguments();
+        return args.some((argument) => argument.getKind() === SyntaxKind.SpreadElement) || args.length > index;
+      });
+      if (supplied) continue;
+
+      if (isOnExportedSurface(fn)) {
+        warnings.add(`${file}: '${label}' is exported, so its signature may be called outside the project`);
+      }
+      removable.push(unit);
+    }
+  }
+
+  if (apply) {
+    for (const unit of removable) {
+      for (const parameter of unit) parameter.remove();
+    }
+    await project.save();
+  }
+
+  process.stdout.write(
+    JSON.stringify({
+      ok: true,
+      engine: ENGINE,
+      applied: apply,
+      summary: `${apply ? "Removed" : "Would remove"} ${removable.length} unused parameter(s) from ${file}`,
+      files: removable.length > 0 ? [file] : [],
+      warnings: [...warnings],
+    }) + "\n",
+  );
+  return 0;
+}
+
 async function main() {
   const request = JSON.parse((await readStdin()) || "{}");
   const op = request.op || "rename-symbol";
@@ -867,9 +1033,12 @@ async function main() {
     op !== "move-file" &&
     op !== "move-member" &&
     op !== "privatize-members" &&
-    op !== "remove-unused-locals"
+    op !== "remove-unused-locals" &&
+    op !== "remove-unused-params"
   ) {
-    return fail(`unsupported op '${op}' (expected rename-symbol|move-file|move-member|privatize-members|remove-unused-locals)`);
+    return fail(
+      `unsupported op '${op}' (expected rename-symbol|move-file|move-member|privatize-members|remove-unused-locals|remove-unused-params)`,
+    );
   }
 
   const project = createProject();
@@ -888,6 +1057,10 @@ async function main() {
 
   if (op === "remove-unused-locals") {
     return removeUnusedLocals(project, file, apply);
+  }
+
+  if (op === "remove-unused-params") {
+    return removeUnusedParams(project, file, apply);
   }
 
   if (!from || !to) {

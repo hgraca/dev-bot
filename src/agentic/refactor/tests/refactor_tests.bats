@@ -1183,17 +1183,19 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "ts", m
 assert ".ts" in m["extensions"], m
-assert m["ops"] == ["rename-symbol", "move-file", "move-member", "privatize-members", "remove-unused-locals"], m
+assert m["ops"] == ["rename-symbol", "move-file", "move-member", "privatize-members", "remove-unused-locals", "remove-unused-params"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["move-file"] == ["file", "to"], m
 assert m["requires"]["move-member"] == ["class", "from", "to"], m
 assert m["requires"]["privatize-members"] == [], m
 assert m["requires"]["remove-unused-locals"] == ["file"], m
+assert m["requires"]["remove-unused-params"] == ["file"], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["move-file"] == "move", m
 assert m["risks"]["move-member"] == "move", m
 assert m["risks"]["privatize-members"] == "cleanup", m
 assert m["risks"]["remove-unused-locals"] == "cleanup", m
+assert m["risks"]["remove-unused-params"] == "signature", m
 '
 }
 
@@ -2241,6 +2243,162 @@ assert m["risks"]["remove-unused-locals"] == "cleanup", m
 
   local still
   still="$(grep -c 'const removed' "${work}/src/locals.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "Would remove"
+  [ "${still}" = "1" ]
+}
+
+@test "end-to-end (ts): remove-unused-params removes a parameter no caller supplies" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-params --file src/params.ts --apply"
+
+  local removed kept
+  removed="$(grep -c 'spare' "${work}/src/params.ts" || true)"
+  # Every caller already omits the argument, so no signature anyone relies on moves.
+  kept="$(grep -c 'punctuation' "${work}/src/params.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${removed}" = "0" ]
+  [ "${kept}" = "1" ]
+}
+
+@test "end-to-end (ts): remove-unused-params removes it from every overload signature" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-params --file src/params.ts --apply"
+
+  local flag
+  # Both signatures and the implementation carry the parameter; leaving any behind
+  # does not compile.
+  flag="$(grep -c 'flag' "${work}/src/params.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${flag}" = "0" ]
+}
+
+@test "end-to-end (ts): remove-unused-params leaves an underscore parameter and a value-position function" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-params --file src/params.ts --apply"
+
+  local ignored value
+  # `_` marks a parameter as deliberately unused; a function held as a value has an
+  # arity no call site constrains.
+  ignored="$(grep -c '_second' "${work}/src/params.ts" || true)"
+  value="$(grep -c 'solo' "${work}/src/params.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "used as a value"
+  [ "${ignored}" = "1" ]
+  [ "${value}" = "1" ]
+}
+
+@test "end-to-end (ts): remove-unused-params handles an arrow function" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-params --file src/arrows.ts --apply"
+
+  local arrow expression
+  # An arrow has no name in the engine's API; reading one must not crash the op.
+  arrow="$(grep -c 'unused' "${work}/src/arrows.ts" || true)"
+  expression="$(grep -c 'spare' "${work}/src/arrows.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${arrow}" = "0" ]
+  [ "${expression}" = "0" ]
+}
+
+@test "end-to-end (ts): remove-unused-params leaves a parameter bind can still supply" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-params --file src/bound.ts --apply"
+
+  local kept
+  # `rebound` decides the arguments, so this reference says nothing about `spare`.
+  kept="$(grep -c 'spare' "${work}/src/bound.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "used as a value"
+  [ "${kept}" = "1" ]
+}
+
+@test "end-to-end (ts): remove-unused-params warns when an exported surface changes" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-params --file src/arrows.ts --apply"
+  rm -rf "${work}"
+
+  assert_success
+  # `viaArrow` is an exported const, so its signature is a public surface even
+  # though the export sits on the declaration rather than the function.
+  assert_output --partial "may be called outside the project"
+  assert_output --partial "viaArrow"
+}
+
+@test "end-to-end (ts): remove-unused-params keeps a parameter whose default has effects" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-params --file src/defaults.ts --apply"
+
+  local kept removable
+  kept="$(grep -c 'spare' "${work}/src/defaults.ts" || true)"
+  # A default that can only produce a value still goes.
+  removable="$(grep -c 'unused' "${work}/src/defaults.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "may have side effects"
+  [ "${kept}" = "1" ]
+  [ "${removable}" = "0" ]
+}
+
+@test "end-to-end (ts): a remove-unused-params plan writes nothing" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-params --file src/params.ts"
+
+  local still
+  still="$(grep -c 'spare' "${work}/src/params.ts" || true)"
   rm -rf "${work}"
 
   assert_success
