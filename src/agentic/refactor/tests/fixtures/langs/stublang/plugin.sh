@@ -3,7 +3,7 @@
 # src/agentic/refactor/tests/fixtures/langs/stublang/plugin.sh
 # Test-only language plugin. Proves the core's plugin seam is additive: pointing
 # REFACTOR_LANGS_DIR at this fixture tree is enough to dispatch to a brand-new
-# language with zero edits to refactor.ts.
+# language with zero edits to the core.
 #
 # It performs no real refactoring — it echoes a canned response, recording the
 # request it received so tests can assert the contract (op, class, from, to).

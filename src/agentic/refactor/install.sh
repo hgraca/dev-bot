@@ -6,7 +6,7 @@
 # There is no OS package to install: Rector is provisioned at runtime by the
 # plugin (a pinned scoped Composer install, or the project's own copy). Install
 # only prepares the shared engine cache directory and reports the runtime
-# prerequisites (docker, bun).
+# prerequisites (docker, python3).
 # =============================================================================
 
 set -euo pipefail

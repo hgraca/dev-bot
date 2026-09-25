@@ -7,8 +7,9 @@
 # Idempotent — safe to re-run at any time.
 #
 # Hard requirements are limited to what the shared lifecycle helpers need; the
-# tool's own runtime needs (docker for the PHP container, bun for the TS core)
-# are warnings so a missing runtime never blocks a dev-bot install.
+# tool's own runtime needs (docker for the language containers, python3 for the
+# CLI's JSON helper) are warnings so a missing runtime never blocks a dev-bot
+# install.
 #
 # GATE: This module must work on Ubuntu, Fedora, and macOS.
 # =============================================================================
@@ -29,19 +30,12 @@ main() {
     exit 1
   fi
 
-  # Runtime (warn only — never block install): docker runs Rector in a PHP
-  # container with the project mounted.
+  # Runtime (warn only — never block install): docker runs each language's
+  # engine in a container with the project mounted.
   if command -v docker >/dev/null 2>&1; then
     _ok "docker found"
   else
-    _warn "docker not found — the refactor tool's PHP container runner needs it at runtime"
-  fi
-
-  # Runtime (warn only): bun runs the tool's TS core (provided by tools-mcp).
-  if command -v bun >/dev/null 2>&1; then
-    _ok "bun found: $(bun --version 2>/dev/null || echo installed)"
-  else
-    _warn "bun not found — the tools-mcp module installs it; the refactor tool needs it to run"
+    _warn "docker not found — the refactor tool's language containers need it at runtime"
   fi
 
   _ok "refactor prerequisites check complete"
