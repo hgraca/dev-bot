@@ -726,6 +726,132 @@ async function privatizeMembers(project, klass, file, apply) {
   return 0;
 }
 
+// The function-like nodes whose body is a scope of its own: a declaration inside
+// one is a local, while a module-level one belongs to the module's surface.
+const FUNCTION_LIKES = new Set([
+  SyntaxKind.FunctionDeclaration,
+  SyntaxKind.FunctionExpression,
+  SyntaxKind.ArrowFunction,
+  SyntaxKind.MethodDeclaration,
+  SyntaxKind.Constructor,
+  SyntaxKind.GetAccessor,
+  SyntaxKind.SetAccessor,
+]);
+
+// Initialisers whose evaluation can only produce a value, so dropping the binding
+// drops nothing else. A call, `new`, `await` or an assignment can, so a binding
+// holding one is reported instead of removed.
+const PURE_INITIALIZERS = new Set([
+  SyntaxKind.NumericLiteral,
+  SyntaxKind.StringLiteral,
+  SyntaxKind.NoSubstitutionTemplateLiteral,
+  SyntaxKind.TrueKeyword,
+  SyntaxKind.FalseKeyword,
+  SyntaxKind.NullKeyword,
+  SyntaxKind.ArrayLiteralExpression,
+  SyntaxKind.ObjectLiteralExpression,
+  SyntaxKind.ArrowFunction,
+  SyntaxKind.FunctionExpression,
+  SyntaxKind.Identifier,
+]);
+
+function isInsideFunctionLike(node) {
+  for (let parent = node.getParent(); parent; parent = parent.getParent()) {
+    if (FUNCTION_LIKES.has(parent.getKind())) return true;
+  }
+  return false;
+}
+
+// A declaration that is a loop's own binding: it cannot be dropped on its own.
+function isLoopBinding(declaration) {
+  const owner = declaration.getParent()?.getParent()?.getKind();
+  return (
+    owner === SyntaxKind.ForStatement || owner === SyntaxKind.ForOfStatement || owner === SyntaxKind.ForInStatement
+  );
+}
+
+function initializerIsPure(declaration) {
+  const initializer = declaration.getInitializer();
+  return !initializer || PURE_INITIALIZERS.has(initializer.getKind());
+}
+
+// Drop the declarations in one file that nothing refers to and whose initialiser
+// cannot do anything else. A module-level declaration is left alone — it is part
+// of the module's own surface — and a `_`-prefixed name is the convention for a
+// binding kept on purpose.
+async function removeUnusedLocals(project, file, apply) {
+  if (!file) {
+    return fail("file is required");
+  }
+  const sourceFile = project.getSourceFile(path.join(PROJECT_DIR, file));
+  if (!sourceFile) {
+    return fail("no such file: " + file);
+  }
+
+  const warnings = [];
+  const removable = [];
+  const statements = new Map();
+
+  for (const declaration of sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+    if (declaration.findReferencesAsNodes().length > 0) continue;
+    if (!isInsideFunctionLike(declaration)) continue;
+    if (declaration.getName().startsWith("_")) continue;
+    if (isLoopBinding(declaration)) continue;
+
+    if (!initializerIsPure(declaration)) {
+      warnings.push(
+        `${file}: '${declaration.getName()}' has no references, but its initialiser may have side effects and it was kept`,
+      );
+      continue;
+    }
+
+    removable.push(declaration);
+    const statement = declaration.getVariableStatement();
+    if (statement) {
+      const entry = statements.get(statement) ?? { total: statement.getDeclarations().length, removable: 0 };
+      entry.removable += 1;
+      statements.set(statement, entry);
+    }
+  }
+
+  if (apply) {
+    // Decided from the pre-removal counts: as declarators are dropped a statement
+    // shrinks, so re-reading its length would start matching by accident and take
+    // a declarator that is still in use with it.
+    const wholeStatements = new Set();
+    const individually = [];
+    for (const declaration of removable) {
+      const statement = declaration.getVariableStatement();
+      const entry = statement && statements.get(statement);
+      if (entry && entry.total === entry.removable) {
+        wholeStatements.add(statement);
+      } else {
+        individually.push(declaration);
+      }
+    }
+
+    for (const declaration of individually) {
+      declaration.remove();
+    }
+    for (const statement of wholeStatements) {
+      statement.remove();
+    }
+    await project.save();
+  }
+
+  process.stdout.write(
+    JSON.stringify({
+      ok: true,
+      engine: ENGINE,
+      applied: apply,
+      summary: `${apply ? "Removed" : "Would remove"} ${removable.length} unused local(s) from ${file}`,
+      files: removable.length > 0 ? [file] : [],
+      warnings,
+    }) + "\n",
+  );
+  return 0;
+}
+
 async function main() {
   const request = JSON.parse((await readStdin()) || "{}");
   const op = request.op || "rename-symbol";
@@ -736,8 +862,14 @@ async function main() {
   const kind = request.kind || null;
   const apply = Boolean(request.apply);
 
-  if (op !== "rename-symbol" && op !== "move-file" && op !== "move-member" && op !== "privatize-members") {
-    return fail(`unsupported op '${op}' (expected rename-symbol|move-file|move-member|privatize-members)`);
+  if (
+    op !== "rename-symbol" &&
+    op !== "move-file" &&
+    op !== "move-member" &&
+    op !== "privatize-members" &&
+    op !== "remove-unused-locals"
+  ) {
+    return fail(`unsupported op '${op}' (expected rename-symbol|move-file|move-member|privatize-members|remove-unused-locals)`);
   }
 
   const project = createProject();
@@ -752,6 +884,10 @@ async function main() {
 
   if (op === "privatize-members") {
     return privatizeMembers(project, klass, file, apply);
+  }
+
+  if (op === "remove-unused-locals") {
+    return removeUnusedLocals(project, file, apply);
   }
 
   if (!from || !to) {

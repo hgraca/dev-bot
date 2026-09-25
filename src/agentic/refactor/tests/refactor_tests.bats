@@ -1183,15 +1183,17 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "ts", m
 assert ".ts" in m["extensions"], m
-assert m["ops"] == ["rename-symbol", "move-file", "move-member", "privatize-members"], m
+assert m["ops"] == ["rename-symbol", "move-file", "move-member", "privatize-members", "remove-unused-locals"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["move-file"] == ["file", "to"], m
 assert m["requires"]["move-member"] == ["class", "from", "to"], m
 assert m["requires"]["privatize-members"] == [], m
+assert m["requires"]["remove-unused-locals"] == ["file"], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["move-file"] == "move", m
 assert m["risks"]["move-member"] == "move", m
 assert m["risks"]["privatize-members"] == "cleanup", m
+assert m["risks"]["remove-unused-locals"] == "cleanup", m
 '
 }
 
@@ -2143,6 +2145,107 @@ assert m["risks"]["privatize-members"] == "cleanup", m
 
   assert_success
   [ "${compiled}" = "0" ]
+}
+
+@test "end-to-end (ts): remove-unused-locals removes an unused declaration" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file src/locals.ts --apply"
+
+  local removed kept shared
+  removed="$(grep -c 'const removed' "${work}/src/locals.ts" || true)"
+  kept="$(grep -c 'const used' "${work}/src/locals.ts" || true)"
+  # A declaration sharing its statement must not take the statement with it.
+  shared="$(grep -c 'const live' "${work}/src/locals.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${removed}" = "0" ]
+  [ "${kept}" = "1" ]
+  [ "${shared}" = "1" ]
+}
+
+@test "end-to-end (ts): remove-unused-locals keeps a declaration whose initialiser has effects" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file src/locals.ts --apply"
+
+  local effects
+  # Dropping the binding would drop the call with it.
+  effects="$(grep -c 'const effects' "${work}/src/locals.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "may have side effects"
+  [ "${effects}" = "1" ]
+}
+
+@test "end-to-end (ts): remove-unused-locals leaves a loop binding and an underscore name" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file src/locals.ts --apply"
+
+  local binding ignored
+  # A for-of binding is part of the loop, and `_` marks a binding as deliberately
+  # unused.
+  binding="$(grep -c 'for (const entry of values)' "${work}/src/locals.ts" || true)"
+  ignored="$(grep -c 'const _ignored' "${work}/src/locals.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${binding}" = "1" ]
+  [ "${ignored}" = "1" ]
+}
+
+@test "end-to-end (ts): remove-unused-locals keeps a declarator sharing its statement" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file src/mixed.ts --apply"
+
+  local removed kept
+  removed="$(grep -cE 'first|second' "${work}/src/mixed.ts" || true)"
+  # Dropping the two unused declarators must leave the used one intact — re-reading
+  # a statement's length after each removal makes it look fully removable.
+  kept="$(grep -c 'kept' "${work}/src/mixed.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${removed}" = "0" ]
+  [ "${kept}" = "2" ]
+}
+
+@test "end-to-end (ts): a remove-unused-locals plan writes nothing" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file src/locals.ts"
+
+  local still
+  still="$(grep -c 'const removed' "${work}/src/locals.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "Would remove"
+  [ "${still}" = "1" ]
 }
 
 @test "end-to-end (ts): an apply reports the string reference and leaves it" {
