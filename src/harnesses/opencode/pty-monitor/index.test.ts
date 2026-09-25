@@ -233,6 +233,29 @@ describe("pty-monitor tui factory", () => {
     }
   })
 
+  test("bounds every probe with an abort signal", async () => {
+    // The regression this guards: reverting fetchWithTimeout to a bare fetch()
+    // leaves the probe unbounded, so a peer that accepts but never answers holds
+    // the refresh — and the overlap guard behind it — open forever.
+    const listener = Bun.serve({ hostname: "::1", port: 0, fetch: () => new Response("nope") })
+    const realFetch = globalThis.fetch
+    const signals: unknown[] = []
+    globalThis.fetch = ((_url: string, init?: { signal?: unknown }) => {
+      signals.push(init?.signal)
+      return new Promise(() => {})
+    }) as typeof fetch
+    const { api, disposeNow } = stubApi()
+    try {
+      await plugin.tui(api as never)
+      expect(await waitFor(() => signals.length > 0)).toBe(true) // a probe went out
+      expect(signals.every((s) => s instanceof AbortSignal)).toBe(true) // and bounded
+    } finally {
+      globalThis.fetch = realFetch
+      listener.stop(true)
+      disposeNow()
+    }
+  })
+
   test("expanding retries once the bootstrap backoff has engaged", async () => {
     const { api, calls, disposeNow, clickHeader } = stubApi({ rejectCreate: true })
     try {

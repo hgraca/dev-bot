@@ -158,12 +158,24 @@ function messageTexts(api, sessionID) {
   return out
 }
 
+/**
+ * Every probe is bounded. A stopped-but-listening loopback peer accepts the
+ * connection and then never answers, which without a timeout would hold a
+ * refresh — and with it the overlap guard, and the poll behind it — open
+ * indefinitely.
+ */
+const FETCH_TIMEOUT_MS = 2000
+
+function fetchWithTimeout(url) {
+  return fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
+}
+
 // Liveness of a *known* origin. Checks the payload, not merely res.ok, so it
 // agrees with the discovery path about what the PTY server looks like — an
 // unrelated service that happens to answer 200 must not be mistaken for it.
 async function isHealthy(origin) {
   try {
-    const res = await fetch(origin + "/health")
+    const res = await fetchWithTimeout(origin + "/health")
     if (!res.ok) return false
     return isPtyHealth(await res.json())
   } catch (_) {
@@ -234,7 +246,7 @@ async function discoverViaOwnSockets() {
     for (const host of candidateHosts()) {
       const origin = "http://" + host + ":" + port
       try {
-        const res = await fetch(origin + "/health")
+        const res = await fetchWithTimeout(origin + "/health")
         if (!res.ok) continue
         if (isPtyHealth(await res.json())) return origin
       } catch (_) {
@@ -338,14 +350,14 @@ async function resolveOrigin(api, allowBootstrap) {
 }
 
 async function listSessions(origin) {
-  const res = await fetch(origin + "/api/sessions")
+  const res = await fetchWithTimeout(origin + "/api/sessions")
   const body = await res.json()
   const arr = Array.isArray(body) ? body : body && body.sessions
   return Array.isArray(arr) ? arr : []
 }
 
 async function readBuffer(origin, id) {
-  const res = await fetch(origin + "/api/sessions/" + id + "/buffer/plain")
+  const res = await fetchWithTimeout(origin + "/api/sessions/" + id + "/buffer/plain")
   return decodeBuffer(await res.json())
 }
 
