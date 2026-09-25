@@ -26,6 +26,11 @@ fi
 # parent process pre-setting DEV_BOT_ROOT).
 DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../../.." && pwd)"
 OPENCODE_DIR="${PROJECT_DIR}/.opencode"
+# The opencode-owned second config surface. opencode loads it ALONGSIDE the root
+# opencode.jsonc and UNIONS their plugin arrays, so a disabled module's plugin
+# entry left here stays loaded even after the root config is pruned (see the
+# disabled-module prune below).
+OPENCODE_PROJECT_CONFIG="${OPENCODE_DIR}/opencode.json"
 
 _header_3 "Opencode Reset"
 
@@ -202,6 +207,30 @@ for k in data.get('mcp', {}):
   # rewritten, not backed up. Required for the codebase_index_provider engine
   # swap: a flipped-off engine must shed its registrations.
   REMOVE_PLUGIN_PY="${DEV_BOT_ROOT}/src/_shared/remove_plugin_entry.py"
+
+  # Remove one plugin entry from ONE config surface's top-level "plugin" array,
+  # reporting only a real removal.
+  #
+  # The pre-check is scoped to the array itself (a whole-file grep would match
+  # the name inside comments or other sections and then report a phantom
+  # removal); the post-check turns a silent no-op into a warning rather than a
+  # false _ok.
+  # Usage: _prune_plugin_entry <config-file> <plugin-name> <label> <module-name>
+  _prune_plugin_entry() {
+    local config_file="$1" plugin_name="$2" label="$3" module_name="$4"
+    [[ -f "${config_file}" ]] || return 0
+    local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+    python3 "${reader}" "${config_file}" "plugin" 2>/dev/null \
+      | grep -q "\"${plugin_name}\"" || return 0
+    python3 "${REMOVE_PLUGIN_PY}" "${config_file}" "${plugin_name}" 2>/dev/null || true
+    if python3 "${reader}" "${config_file}" "plugin" 2>/dev/null \
+      | grep -q "\"${plugin_name}\""; then
+      _warn "${module_name}: plugin '${plugin_name}' still present in ${label} — removal failed"
+    else
+      _ok "${module_name}: removed plugin '${plugin_name}' from ${label} (module disabled)"
+    fi
+  }
+
   # Parse the disabled set once (module names the registration loops skip).
   disabled_name=""
   while IFS= read -r disabled_name; do
@@ -222,30 +251,22 @@ for k in data.get('mcp', {}):
     [[ -n "${mod_dir}" ]] || continue
 
     # Plugin array entries (plugin.opencode.json = ["name", ...]).
-    # Deliberately opencode.jsonc-only: only the SERVER plugin surface is
-    # module-managed. No module declares TUI plugins today, so .opencode/tui.json
-    # has nothing to prune; the day one does it needs a plugin.tui.json manifest
-    # and a matching prune here (see init.sh's _write_tui_config for why the two
-    # plugin surfaces must stay in separate files).
+    # opencode loads TWO config surfaces and UNIONS their plugin arrays: the root
+    # opencode.jsonc dev-bot manages, and the opencode-owned
+    # .opencode/opencode.json. A disabled module's entry left on the second
+    # surface keeps its plugin loaded even after the root config is pruned — the
+    # exact shape of a codebase_index_provider flip — so BOTH are pruned.
+    #
+    # TUI plugins are separate: no module declares one today, so
+    # .opencode/tui.json has nothing to prune; the day one does it needs a
+    # plugin.tui.json manifest and a matching prune here (see init.sh's
+    # _write_tui_config for why the two plugin surfaces must stay in separate
+    # files).
     if [[ -f "${mod_dir}/plugin.opencode.json" && -f "${REMOVE_PLUGIN_PY}" ]]; then
       while IFS= read -r plugin_name; do
         [[ -n "${plugin_name}" ]] || continue
-        # Pre-check scoped to the actual plugin array (not a whole-file grep,
-        # which would match the name inside comments or other sections and then
-        # report a phantom removal).
-        if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "plugin" 2>/dev/null \
-          | grep -q "\"${plugin_name}\""; then
-          python3 "${REMOVE_PLUGIN_PY}" "${OPENCODE_CONFIG}" "${plugin_name}" 2>/dev/null || true
-          # Post-check: only report success when the entry is actually gone —
-          # a removal that silently no-ops (e.g. the top-level plugin array was
-          # absent despite the pre-check) must surface as a warning, not an _ok.
-          if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "plugin" 2>/dev/null \
-            | grep -q "\"${plugin_name}\""; then
-            _warn "${disabled_name}: plugin '${plugin_name}' still present in plugin array — removal failed"
-          else
-            _ok "${disabled_name}: removed plugin '${plugin_name}' (module disabled)"
-          fi
-        fi
+        _prune_plugin_entry "${OPENCODE_CONFIG}" "${plugin_name}" "opencode.jsonc" "${disabled_name}"
+        _prune_plugin_entry "${OPENCODE_PROJECT_CONFIG}" "${plugin_name}" ".opencode/opencode.json" "${disabled_name}"
       done < <(jq -r '.[]' "${mod_dir}/plugin.opencode.json" 2>/dev/null)
     fi
 

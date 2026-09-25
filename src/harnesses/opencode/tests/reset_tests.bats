@@ -158,11 +158,14 @@ print('MCP-CLEAN:OK')
 # ── D7: prune plugin/MCP entries declared by now-DISABLED modules ────────────
 # Registration is append-only, so a module that became disabled (e.g.
 # codebase-index after a codebase_index_provider flip to codebase-memory) keeps
-# its plugin/MCP entries in opencode.jsonc unless reset drops them. Fixture:
+# its plugin/MCP entries unless reset drops them — from BOTH plugin surfaces:
+# the root opencode.jsonc (dev-bot-managed) and the opencode-owned
+# .opencode/opencode.json (unioned with it). Fixture:
 #   - codebase-index disabled via project modules override (module declares
 #     plugin.opencode.json = ["opencode-codebase-index"])
 #   - react globally disabled (canonical mcp.json declares "next-devtools")
 #   - enabled modules' entries (on-hooks.ts plugin, chrome-devtools MCP) survive
+#   - a user's own plugin entry on the second surface survives
 
 _write_d7_fixture() {
   # opencode enabled; codebase-index (plugin) and react (mcp.json key
@@ -207,6 +210,18 @@ config = {
 with open(sys.argv[3] + "/opencode.jsonc", "w") as f:
     json.dump(config, f, indent=2)
     f.write("\n")
+
+# The opencode-owned second plugin surface. Its plugin array UNIONS with
+# opencode.jsonc's, so a disabled module's entry left here keeps the plugin
+# loaded even after the root config is pruned — the exact shape of the
+# codebase-index flip bug (audit-56). A user's own entry must survive.
+project_config = {
+    "$schema": "https://opencode.ai/config.json",
+    "plugin": ["opencode-codebase-index", "a-user-installed-plugin"],
+}
+with open(sys.argv[3] + "/.opencode/opencode.json", "w") as f:
+    json.dump(project_config, f, indent=2)
+    f.write("\n")
 PY_EOF
 }
 @test "D7: reset removes plugin + MCP entries of disabled modules, keeps enabled ones" {
@@ -226,6 +241,12 @@ assert '.opencode/plugins/on-hooks.ts' in plugins, plugins
 mcp = d.get('mcp', {})
 assert 'next-devtools' not in mcp, mcp
 assert 'chrome-devtools' in mcp, mcp
+# Second plugin surface: the disabled module's entry must be pruned there too,
+# while the user's own entry survives.
+project = load_jsonc('${SANDBOX_DIR}/.opencode/opencode.json')
+pplugins = project.get('plugin', [])
+assert 'opencode-codebase-index' not in pplugins, pplugins
+assert 'a-user-installed-plugin' in pplugins, pplugins
 print('D7-PRUNE:OK')
 "
   assert_success
@@ -238,14 +259,16 @@ print('D7-PRUNE:OK')
   run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
   assert_success
 
-  local after_first
+  local after_first after_first_project
   after_first="$(cat "${SANDBOX_DIR}/opencode.jsonc")"
+  after_first_project="$(cat "${SANDBOX_DIR}/.opencode/opencode.json")"
 
   run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
   assert_success
 
   refute_output --partial "nothing to reset"
   assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
+  assert_equal "$(cat "${SANDBOX_DIR}/.opencode/opencode.json")" "${after_first_project}"
 }
 
 # ── playwright: stale npm-fallback entry must be refreshed ──────────────────
