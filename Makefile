@@ -182,7 +182,7 @@ logs:
 	tail -f "$$(ls -t ~/.local/share/opencode/log/*.log | head -1)" -n 100
 
 
-docs: docs-gather
+docs: docs-gather ## Bring up the website, can be browsed at http://127.0.0.1:4000/dev-bot/
 	cd docs && bundle install && bundle exec jekyll serve
 
 docs-gather:
