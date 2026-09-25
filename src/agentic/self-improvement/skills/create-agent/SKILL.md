@@ -132,6 +132,14 @@ Hardened rule groups, ready to adapt. Each carries its rationale — keep it.
 
 The first bullet also exists as a per-prompt step — see **Tool-failure alert** below. They are complementary: the bullet is the rule, that entry is the reporting format. Keep both.
 
+**Role discipline** — counters an agent silently doing work that belongs to another role. Present in **11 of the 12** current agent files:
+
+```markdown
+- Perform tasks outside your role scope — escalate per Escalation section
+```
+
+Unlike the universal safety rules above, **adapt the wording to the agent's own scope** rather than copying it verbatim — `scout` reads _"Perform tasks outside context-gathering scope"_ — and keep the `escalate per Escalation section` tail pointing at a section the file actually contains. The single deliberate exception is `devbot.md`: the root agent's scope is the human's request and its escalation is delegation, described under **Delegation templates** rather than an Escalation section. `expert.md` additionally bounds its role with specific prohibitions ("Write production code", "Edit any file in the codebase", …); this bullet supplies the missing _escalate_ direction.
+
 **Optimal over easy** — counters proposing/implementing the low-effort option despite knowing the proper fix:
 
 ```markdown
