@@ -16,7 +16,7 @@ request="$(cat)"
 case "${1:-}" in
   meta)
     cat <<'JSON'
-{"lang":"stublang","extensions":[".stub"],"ops":["rename-method"]}
+{"lang":"stublang","extensions":[".stub"],"ops":["rename"],"map":{"rename":{"method":"rename-method"}},"risks":{"rename-method":"rename"}}
 JSON
     ;;
   plan|apply)

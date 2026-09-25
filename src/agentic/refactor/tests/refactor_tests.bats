@@ -11,8 +11,9 @@ setup() {
 
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
-  TOOL="${MODULE_DIR}/tools/refactor/refactor.sh"
+  TOOL="${MODULE_DIR}/tools/refactor.sh"
   FIXTURE_LANGS="${TEST_DIR}/fixtures/langs"
+  EDGE_LANGS="${TEST_DIR}/fixtures/langs-edge"
   PHP_PLUGIN="${MODULE_DIR}/langs/php/plugin.sh"
   PHP_FIXTURES="${TEST_DIR}/fixtures/php"
   TS_PLUGIN="${MODULE_DIR}/langs/ts/plugin.sh"
@@ -62,7 +63,7 @@ _py_e2e_ready() {
 # is what would register it on the shared devbot-tools MCP server.
 
 @test "not an MCP tool: no .mcp.sh wrapper and no mcp-meta subcommand" {
-  run bash -c "ls '${MODULE_DIR}'/tools/refactor/*.mcp.sh 2>/dev/null"
+  run bash -c "ls '${MODULE_DIR}'/tools/*.mcp.sh 2>/dev/null"
   assert_failure
 
   run bash "${TOOL}" mcp-meta
@@ -96,11 +97,11 @@ _py_e2e_ready() {
 @test "plugin seam: dispatches to a language discovered from REFACTOR_LANGS_DIR" {
   export REFACTOR_LANGS_DIR="${FIXTURE_LANGS}"
 
-  run bash "${TOOL}" --lang stublang rename-method \
+  run bash "${TOOL}" --lang stublang rename \
     --class 'App\Foo' --method old --to new
 
   assert_success
-  assert_output --partial "## refactor: rename-method"
+  assert_output --partial "## refactor: rename"
   assert_output --partial "**Engine:** stub 1.0.0"
   assert_output --partial "old -> new"
 }
@@ -114,7 +115,7 @@ _py_e2e_ready() {
   repo="$(mktemp -d)"
   git -C "${repo}" init -q
 
-  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename-method --class X --method old --to new --apply --json"
+  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename --class X --method old --to new --apply --json"
   rm -rf "${repo}"
 
   assert_success
@@ -124,7 +125,7 @@ _py_e2e_ready() {
 @test "plugin seam: the request contract survives the hop" {
   export REFACTOR_LANGS_DIR="${FIXTURE_LANGS}"
 
-  run bash "${TOOL}" --lang stublang rename-method \
+  run bash "${TOOL}" --lang stublang rename \
     --class 'App\Foo' --method old --to new --json
 
   assert_success
@@ -136,7 +137,7 @@ _py_e2e_ready() {
 @test "plugin seam: unknown language lists what is available" {
   export REFACTOR_LANGS_DIR="${FIXTURE_LANGS}"
 
-  run bash "${TOOL}" --lang nope rename-method --class X --method a --to b
+  run bash "${TOOL}" --lang nope rename --class X --method a --to b
 
   assert_failure
   assert_output --partial "unknown language 'nope'"
@@ -146,10 +147,10 @@ _py_e2e_ready() {
 @test "plugin seam: an op the plugin does not declare is rejected" {
   export REFACTOR_LANGS_DIR="${FIXTURE_LANGS}"
 
-  run bash "${TOOL}" --lang stublang rename-class --class X --to b
+  run bash "${TOOL}" --lang stublang move --class X --to b
 
   assert_failure
-  assert_output --partial "does not support op 'rename-class'"
+  assert_output --partial "does not support op 'move'"
 }
 
 @test "plugin seam: an empty langs dir yields no available languages" {
@@ -158,7 +159,7 @@ _py_e2e_ready() {
   empty="$(mktemp -d)"
   export REFACTOR_LANGS_DIR="${empty}"
 
-  run bash "${TOOL}" --lang php rename-method --class X --method a --to b
+  run bash "${TOOL}" --lang php rename --class X --method a --to b
   rm -rf "${empty}"
 
   assert_failure
@@ -168,7 +169,7 @@ _py_e2e_ready() {
 
 # ── PHP plugin: engine resolution (T5) ─────────────────────────────────────────
 
-@test "php plugin: meta declares php, the .php extension and all renamer ops" {
+@test "php plugin: meta declares php, the .php extension and its canonical ops" {
   run bash "${PHP_PLUGIN}" meta
   assert_success
   # Parse rather than match raw text: json.dumps spacing must not matter.
@@ -177,8 +178,13 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "php", m
 assert ".php" in m["extensions"], m
-for op in ("rename-method", "rename-static-method", "rename-property"):
-    assert op in m["ops"], m
+assert sorted(m["ops"]) == ["move", "privatize", "remove-unused", "rename"], m
+assert m["map"]["rename"]["method"] == "rename-method", m
+assert m["map"]["rename"]["class"] == "rename-class", m
+assert m["map"]["privatize"]["constant"] == "privatize-final-class-constants", m
+# A canonical op another language alone declares is not invented here.
+assert "extract" not in m["ops"], m
+assert "promote-readonly" not in m["ops"], m
 '
 }
 
@@ -474,7 +480,7 @@ _make_repo() {
   repo="$(mktemp -d)"
   _make_repo "${repo}" dirty
 
-  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename-method --class X --method a --to b --apply"
+  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename --class X --method a --to b --apply"
   rm -rf "${repo}"
 
   assert_failure
@@ -488,7 +494,7 @@ _make_repo() {
   repo="$(mktemp -d)"
   _make_repo "${repo}" dirty
 
-  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename-method --class X --method a --to b --apply --force"
+  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename --class X --method a --to b --apply --force"
   rm -rf "${repo}"
 
   assert_success
@@ -501,7 +507,7 @@ _make_repo() {
   repo="$(mktemp -d)"
   _make_repo "${repo}" dirty
 
-  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename-method --class X --method a --to b"
+  run bash -c "cd '${repo}' && REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename --class X --method a --to b"
   rm -rf "${repo}"
 
   assert_success
@@ -517,7 +523,7 @@ _make_repo() {
   cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
   git -C "${work}" init -q
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang php rename-method --class 'Demo\\Greeter' --method greet --to salute --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang php rename --class 'Demo\\Greeter' --method greet --to salute --apply"
 
   local decl call
   decl="$(grep -c 'function salute' "${work}/src/Greeter.php" || true)"
@@ -525,7 +531,7 @@ _make_repo() {
   rm -rf "${work}"
 
   assert_success
-  assert_output --partial "## refactor: rename-method"
+  assert_output --partial "## refactor: rename"
   assert_output --partial "Renamed greet -> salute"
   [ "${decl}" = "1" ]
   [ "${call}" = "1" ]
@@ -775,7 +781,7 @@ assert m["requires"]["remove-unused-private-methods"] == [], m
 }
 
 @test "core: an op missing a required input is rejected before dispatch" {
-  run bash "${TOOL}" --lang php rename-method --class 'Demo\Greeter' --method greet
+  run bash "${TOOL}" --lang php rename --class 'Demo\Greeter' --method greet
 
   assert_failure
   assert_output --partial "requires --to"
@@ -1112,7 +1118,9 @@ assert m["requires"]["remove-unused-private-methods"] == [], m
   printf '%s' "${output}" | python3 -c '
 import json, sys
 m = json.load(sys.stdin)
-assert set(m["risks"]) == set(m["ops"]), "every op needs a risk"
+natives = {native for kinds in m["map"].values() for native in kinds.values()}
+assert set(m["risks"]) == natives, "every native op needs a risk"
+assert set(m["requires"]) == natives, "every native op declares its inputs"
 assert m["risks"]["rename-method"] == "rename", m
 assert m["risks"]["privatize-final-class-constants"] == "cleanup", m
 # Dropping a constructor parameter changes the callable, not just its body.
@@ -1160,7 +1168,13 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "ts", m
 assert ".ts" in m["extensions"], m
-assert m["ops"] == ["rename-symbol", "move-file", "move-member", "privatize-members", "remove-unused-locals", "remove-unused-params", "promote-readonly"], m
+assert m["ops"] == ["rename", "move", "remove-unused", "privatize", "promote-readonly"], m
+assert m["map"]["move"] == {"file": "move-file", "member": "move-member"}, m
+assert m["map"]["remove-unused"] == {"local": "remove-unused-locals", "param": "remove-unused-params"}, m
+assert m["map"]["privatize"] == {"members": "privatize-members"}, m
+# `*` means the op has one native form and any kind is passed through, because
+# the TypeScript driver reads `kind` as a declaration kind.
+assert m["map"]["rename"] == {"*": "rename-symbol"}, m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["move-file"] == ["file", "to"], m
 assert m["requires"]["move-member"] == ["class", "from", "to"], m
@@ -1182,7 +1196,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
 
   # The core knows no op names: it validates against whatever the plugin declares,
   # which is what makes `langs/<lang>/` additive.
-  run bash "${TOOL}" --lang ts rename-symbol --from greet
+  run bash "${TOOL}" --lang ts rename --from greet
 
   assert_failure
   assert_output --partial "requires --to"
@@ -1195,7 +1209,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts rename-symbol --from greet --to salute --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts rename --from greet --to salute --apply"
 
   local decl call stale
   decl="$(grep -c 'salute(name: string)' "${work}/src/Greeter.ts" || true)"
@@ -1432,7 +1446,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/move-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-file --file src/a.ts --to src/sub --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind file --file src/a.ts --to src/sub --apply"
 
   local moved gone rewritten owned
   moved="$(test -f "${work}/src/sub/a.ts" && echo 1 || echo 0)"
@@ -1456,7 +1470,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/move-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-file --file src/a.ts --to src/sub"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind file --file src/a.ts --to src/sub"
 
   local still spec
   still="$(test -f "${work}/src/a.ts" && echo 1 || echo 0)"
@@ -1548,7 +1562,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from make --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from make --to New --apply"
 
   local moved removed rewritten dropped imported
   moved="$(grep -c 'static make' "${work}/src/new.ts" || true)"
@@ -1599,7 +1613,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from make --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from make --to New --apply"
 
   local kept call
   # mixed.ts still constructs Old, so its import must survive the move.
@@ -1619,7 +1633,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from make --to New"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from make --to New"
 
   local still spec
   still="$(grep -c 'static make' "${work}/src/old.ts" || true)"
@@ -1640,7 +1654,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
   printf 'export class New {\n  other(): number {\n    return 2;\n  }\n}\n' > "${work}/src/dup.ts"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from make --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from make --to New --apply"
 
   local untouched
   untouched="$(grep -c 'static make' "${work}/src/old.ts" || true)"
@@ -1675,7 +1689,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from make --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from make --to New --apply"
 
   local two four
   # member-demo is two-space indented; the pasted member must match the file, not
@@ -1696,7 +1710,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from make --to Loose --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from make --to Loose --apply"
 
   local intact
   # The destination's own spacing is not the engine's to normalise.
@@ -1714,7 +1728,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from make --to Slim --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from make --to Slim --apply"
 
   local intact over moved
   intact="$(grep -cF 'existing(): number { return 1; }' "${work}/src/one-line.ts" || true)"
@@ -1737,7 +1751,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from ping --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from ping --to New --apply"
 
   local arrived left
   # The member's documentation travels with it, and does not stay behind.
@@ -1757,7 +1771,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-alias-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from make --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from make --to New --apply"
 
   local rewritten dropped imported
   # The receiver resolves to the class through the alias, so it must be repointed
@@ -1780,7 +1794,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-alias-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from make --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from make --to New --apply"
 
   local rewritten namespace
   rewritten="$(grep -c 'New.make(9)' "${work}/src/namespace.ts" || true)"
@@ -1800,7 +1814,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-alias-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from make --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from make --to New --apply"
 
   local duplicates
   # collide.ts already binds `New` as a default import; a named import of the same
@@ -1820,7 +1834,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from ping --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from ping --to New --apply"
 
   local followed stale
   # `Old.ping` stops existing once the member moves, so the body's own call has to
@@ -1841,7 +1855,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from ping --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from ping --to New --apply"
 
   local kept imported
   # `_v` stayed on Old, so the reference keeps working only if the class is in scope.
@@ -1861,7 +1875,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from measured --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from measured --to New --apply"
   rm -rf "${work}"
 
   assert_success
@@ -1878,7 +1892,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from countdown --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from countdown --to New --apply"
 
   local followed imported
   followed="$(grep -c 'New.countdown(n - 1)' "${work}/src/new.ts" || true)"
@@ -1899,7 +1913,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/member-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move-member --class Old --from _v --to New --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts move --kind member --class Old --from _v --to New --apply"
 
   local moved rewritten imported
   moved="$(grep -c 'static _v' "${work}/src/new.ts" || true)"
@@ -1940,7 +1954,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize-members --class Base --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize --class Base --apply"
 
   local method property unused kept external
   method="$(grep -c 'private internalOnly' "${work}/src/base.ts" || true)"
@@ -1966,7 +1980,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize-members --class Base --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize --class Base --apply"
 
   local reached overridden
   # Sub.touch() calls the first and Sub overrides the second; neither may be
@@ -1987,7 +2001,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize-members --class Base --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize --class Base --apply"
 
   local getter setter
   # Only the setter is referenced, but the pair shares one accessibility.
@@ -2007,7 +2021,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize-members --class Base --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize --class Base --apply"
   rm -rf "${work}"
 
   assert_success
@@ -2022,7 +2036,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize-members --class Base"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize --class Base"
 
   local still
   still="$(grep -cE '^  helper' "${work}/src/base.ts" || true)"
@@ -2040,7 +2054,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize-members --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize --apply"
 
   local base sub
   base="$(grep -c 'private internalOnly' "${work}/src/base.ts" || true)"
@@ -2060,7 +2074,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize-members --class Overloaded --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize --class Overloaded --apply"
 
   local signatures
   # Narrowing only the body leaves the overload signatures public, and TypeScript
@@ -2079,7 +2093,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize-members --class Merged --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize --class Merged --apply"
 
   local narrowed
   # The interface's signature sits outside the class, so narrowing only the class
@@ -2098,7 +2112,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize-members --class Params --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize --class Params --apply"
 
   local narrowed
   # getProperties() does not list a parameter property, but it is a class member.
@@ -2119,7 +2133,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   # member that is half-public only shows up here — the source looks fine.
   tsc="${MODULE_DIR}/../../../storage/refactor/ts/node_modules/typescript/bin/tsc"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize-members --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts privatize --apply"
   compiled="$(cd "${work}" && node "${tsc}" --noEmit -p tsconfig.json >/dev/null 2>&1 && echo 0 || echo 1)"
   rm -rf "${work}"
 
@@ -2134,7 +2148,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file src/locals.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file src/locals.ts --apply"
 
   local removed kept shared
   removed="$(grep -c 'const removed' "${work}/src/locals.ts" || true)"
@@ -2156,7 +2170,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file src/locals.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file src/locals.ts --apply"
 
   local effects
   # Dropping the binding would drop the call with it.
@@ -2175,7 +2189,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file src/locals.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file src/locals.ts --apply"
 
   local binding ignored
   # A for-of binding is part of the loop, and `_` marks a binding as deliberately
@@ -2196,7 +2210,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file src/mixed.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file src/mixed.ts --apply"
 
   local removed kept
   removed="$(grep -cE 'first|second' "${work}/src/mixed.ts" || true)"
@@ -2217,7 +2231,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file src/purity.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file src/purity.ts --apply"
 
   local container plain
   # A container is only as pure as what it holds.
@@ -2237,7 +2251,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file src/destructured.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file src/destructured.ts --apply"
 
   local kept
   # The declaration has no references of its own, but the names it binds are used.
@@ -2255,7 +2269,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file src/computed.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file src/computed.ts --apply"
 
   local kept removable
   kept="$(grep -c 'const computed' "${work}/src/computed.ts" || true)"
@@ -2275,7 +2289,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/using-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file src/held.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file src/held.ts --apply"
 
   local kept
   # The disposal is the effect, whatever the initialiser looks like.
@@ -2293,7 +2307,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file src/locals.ts"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file src/locals.ts"
 
   local still
   still="$(grep -c 'const removed' "${work}/src/locals.ts" || true)"
@@ -2311,7 +2325,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-params --file src/params.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind param --file src/params.ts --apply"
 
   local removed kept
   removed="$(grep -c 'spare' "${work}/src/params.ts" || true)"
@@ -2331,7 +2345,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-params --file src/params.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind param --file src/params.ts --apply"
 
   local flag
   # Both signatures and the implementation carry the parameter; leaving any behind
@@ -2350,7 +2364,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-params --file src/params.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind param --file src/params.ts --apply"
 
   local ignored value
   # `_` marks a parameter as deliberately unused; a function held as a value has an
@@ -2372,7 +2386,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-params --file src/arrows.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind param --file src/arrows.ts --apply"
 
   local arrow expression
   # An arrow has no name in the engine's API; reading one must not crash the op.
@@ -2392,7 +2406,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-params --file src/bound.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind param --file src/bound.ts --apply"
 
   local kept
   # `rebound` decides the arguments, so this reference says nothing about `spare`.
@@ -2411,7 +2425,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-params --file src/arrows.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind param --file src/arrows.ts --apply"
   rm -rf "${work}"
 
   assert_success
@@ -2428,7 +2442,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-params --file src/defaults.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind param --file src/defaults.ts --apply"
 
   local kept removable
   kept="$(grep -c 'spare' "${work}/src/defaults.ts" || true)"
@@ -2450,7 +2464,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
   tsc="${MODULE_DIR}/../../../storage/refactor/ts/node_modules/typescript/bin/tsc"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file src/locals.ts --apply && bash '${TOOL}' --lang ts remove-unused-params --file src/params.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file src/locals.ts --apply && bash '${TOOL}' --lang ts remove-unused --kind param --file src/params.ts --apply"
   compiled="$(cd "${work}" && node "${tsc}" --noEmit -p tsconfig.json >/dev/null 2>&1 && echo 0 || echo 1)"
   rm -rf "${work}"
 
@@ -2466,7 +2480,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
   # The project is mounted at /app in the container, so anything else is not ours.
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file /etc/hosts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file /etc/hosts --apply"
   rm -rf "${work}"
 
   assert_failure
@@ -2480,7 +2494,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-locals --file /app/src/mixed.ts --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind local --file /app/src/mixed.ts --apply"
 
   local removed
   removed="$(grep -cE 'first|second' "${work}/src/mixed.ts" || true)"
@@ -2497,7 +2511,7 @@ assert m["risks"]["promote-readonly"] == "signature", m
   work="$(mktemp -d)"
   cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused-params --file src/params.ts"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts remove-unused --kind param --file src/params.ts"
 
   local still
   still="$(grep -c 'spare' "${work}/src/params.ts" || true)"
@@ -2744,7 +2758,11 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "py", m
 assert m["extensions"] == [".py"], m
-assert m["ops"] == ["rename-symbol", "extract-method", "extract-variable", "inline", "encapsulate-field", "add-argument", "remove-argument", "move-module", "remove-unused-imports", "privatise"], m
+assert m["ops"] == ["rename", "move", "extract", "inline", "encapsulate", "add-parameter", "remove-parameter", "remove-unused", "privatize"], m
+assert m["map"]["extract"] == {"method": "extract-method", "variable": "extract-variable"}, m
+assert m["map"]["add-parameter"] == {"*": "add-argument"}, m
+assert m["map"]["remove-parameter"] == {"*": "remove-argument"}, m
+assert m["map"]["privatize"] == {"*": "privatise"}, m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["extract-method"] == ["file", "start", "end", "to"], m
 assert m["requires"]["inline"] == ["from"], m
@@ -2773,7 +2791,7 @@ assert m["risks"]["privatise"] == "cleanup", m
   work="$(mktemp -d)"
   cp -r "${PY_FIXTURES}/rename-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && bash '${TOOL}' --lang py rename-symbol --from greet --to salute --apply"
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang py rename --from greet --to salute --apply"
 
   local decl call stray
   decl="$(grep -c 'def salute' "${work}/src/greeter.py" || true)"
@@ -2907,17 +2925,76 @@ PY
 
 @test "plugin seam: the core forwards --file to the plugin" {
   export REFACTOR_LANGS_DIR="${FIXTURE_LANGS}"
-  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename-method --class X --from a --to b --file stub/x.stub --json"
+  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename --class X --from a --to b --file stub/x.stub --json"
 
   assert_success
   assert_output --partial '"file": "stub/x.stub"'
 }
 
 @test "plugin seam: the core forwards --kind to the plugin" {
-  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename-method --class X --from a --to b --kind class --json"
+  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename --class X --from a --to b --kind method --json"
 
   assert_success
-  assert_output --partial '"kind": "class"'
+  assert_output --partial '"kind": "method"'
+}
+
+@test "plugin seam: a kind the plugin does not declare is rejected" {
+  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename --class X --from a --to b --kind class"
+
+  assert_failure
+  assert_output --partial "does not support kind 'class'"
+}
+
+@test "core: the markdown report names the op's risk class" {
+  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename --class X --method old --to new"
+
+  assert_success
+  assert_output --partial "**Risk:** rename"
+}
+
+@test "core: resolve reports the native op's risk class" {
+  run env REFACTOR_LANGS_DIR="${MODULE_DIR}/langs" python3 "${MODULE_DIR}/lib/refactor-lib.py" \
+    resolve --op rename --lang ts --from a --to b
+
+  assert_success
+  assert_output --partial '"risk": "rename"'
+}
+
+# ── Core: language resolution and error branches ───────────────────────────────
+
+@test "core: an op several languages declare needs --file or --lang" {
+  run bash -c "REFACTOR_LANGS_DIR='${MODULE_DIR}/langs' bash '${TOOL}' privatize"
+
+  assert_failure
+  assert_output --partial "exists in several languages"
+}
+
+@test "core: a file whose extension matches no language is refused" {
+  run bash -c "REFACTOR_LANGS_DIR='${MODULE_DIR}/langs' bash '${TOOL}' rename --file notes.xyz --from a --to b"
+
+  assert_failure
+  assert_output --partial "cannot infer a language"
+}
+
+@test "core: an op with several kinds needs --kind" {
+  run bash -c "REFACTOR_LANGS_DIR='${MODULE_DIR}/langs' bash '${TOOL}' --lang php rename --class X --from a --to b"
+
+  assert_failure
+  assert_output --partial "needs --kind"
+}
+
+@test "core: a plugin that declares no map is refused" {
+  run bash -c "REFACTOR_LANGS_DIR='${EDGE_LANGS}' bash '${TOOL}' --lang nomaplang rename --from a --to b"
+
+  assert_failure
+  assert_output --partial "exposes no map for op 'rename'"
+}
+
+@test "core: a plugin that answers with invalid JSON is reported" {
+  run bash -c "REFACTOR_LANGS_DIR='${EDGE_LANGS}' bash '${TOOL}' --lang badlang rename --class X --from a --to b"
+
+  assert_failure
+  assert_output --partial "the plugin returned invalid JSON"
 }
 
 @test "end-to-end (py): --file picks one of several same-named definitions" {
@@ -3244,7 +3321,7 @@ JSON
 
 @test "plugin seam: the core forwards --start/--end/--index/--default" {
   export REFACTOR_LANGS_DIR="${FIXTURE_LANGS}"
-  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename-method --class X --from a --to b --start 2:3 --end 9 --index 4 --default 'z' --json"
+  run bash -c "REFACTOR_LANGS_DIR='${FIXTURE_LANGS}' bash '${TOOL}' --lang stublang rename --class X --from a --to b --start 2:3 --end 9 --index 4 --default 'z' --json"
 
   assert_success
   assert_output --partial '"start": "2:3"'
@@ -3260,7 +3337,7 @@ JSON
   work="$(mktemp -d)"
   cp -r "${PY_FIXTURES}/extract-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && REFACTOR_LANGS_DIR='${MODULE_DIR}/langs' bash '${TOOL}' --lang py extract-method --file src/calc.py --start 2 --end 3 --to compute --json"
+  run bash -c "cd '${work}' && REFACTOR_LANGS_DIR='${MODULE_DIR}/langs' bash '${TOOL}' --lang py extract --kind method --file src/calc.py --start 2 --end 3 --to compute --json"
   rm -rf "${work}"
 
   assert_success
@@ -3274,10 +3351,18 @@ JSON
   work="$(mktemp -d)"
   cp -r "${PY_FIXTURES}/rename-demo/." "${work}/"
 
-  run bash -c "cd '${work}' && REFACTOR_LANGS_DIR='${MODULE_DIR}/langs' bash '${TOOL}' --lang py rename-symbol --from greet --to salute"
+  run bash -c "cd '${work}' && REFACTOR_LANGS_DIR='${MODULE_DIR}/langs' bash '${TOOL}' --lang py rename --from greet --to salute"
   rm -rf "${work}"
 
   assert_success
   # Default (markdown), not --json: the residual string references must show.
   assert_output --partial 'String references'
+}
+
+# ── Documentation: one ops table, always in sync with the plugins ──────────────
+
+@test "docs: the ops table is identical in SKILL.md and docs.md, and matches the plugins" {
+  run python3 "${TEST_DIR}/ops_table_check.py" "${MODULE_DIR}"
+  assert_success
+  assert_output --partial "ops table in sync"
 }

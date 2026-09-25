@@ -196,6 +196,44 @@ RISKS = {
 LANG = "php"
 EXTENSIONS = [".php"]
 
+# The canonical operation vocabulary: one name per refactoring, shared by every
+# language. Each plugin maps a canonical op to its own native ops by KIND, so the
+# core stays language-agnostic — it only merges these maps and resolves a name.
+# A kind the plugin does not list simply does not exist for that language.
+CANONICAL = {
+    # Renaming a symbol. `--kind` picks which Rector rule: the declaration and
+    # the references move together in every case.
+    "rename": {
+        "method": "rename-method",
+        "static-method": "rename-static-method",
+        "property": "rename-property",
+        "annotation": "rename-annotation",
+        "function": "rename-function",
+        "constant": "rename-constant",
+        "class": "rename-class",
+        "class-constant": "rename-class-constant",
+        "string": "rename-string",
+    },
+    # Relocating a unit and repointing what refers to it (a class's namespace and
+    # file, here).
+    "move": {
+        "class": "move-class",
+    },
+    # Deleting what nothing references, and tightening visibility.
+    "remove-unused": {
+        "method": "remove-unused-private-methods",
+        "property": "remove-unused-private-properties",
+        "class-constant": "remove-unused-private-class-constants",
+        "constructor-param": "remove-unused-constructor-params",
+        "promoted-property": "remove-unused-promoted-properties",
+    },
+    "privatize": {
+        "method": "privatize-final-class-methods",
+        "property": "privatize-final-class-properties",
+        "constant": "privatize-final-class-constants",
+    },
+}
+
 _NAMESPACE_RE = re.compile(r"^\s*namespace\s+([A-Za-z_][A-Za-z0-9_\\]*)\s*;", re.M)
 
 
@@ -480,7 +518,8 @@ def main(argv: list) -> int:
         print(json.dumps({
             "lang": LANG,
             "extensions": EXTENSIONS,
-            "ops": list(OPS),
+            "ops": list(CANONICAL),
+            "map": CANONICAL,
             "requires": {op: spec.get("requires", []) for op, spec in OPS.items()},
             "risks": {op: RISKS.get(op, "cleanup") for op in OPS},
         }))

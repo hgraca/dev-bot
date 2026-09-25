@@ -1,175 +1,83 @@
 ---
 name: devbot:refactor
-description: "Use when renaming or restructuring a PHP, Python or TypeScript symbol across a codebase and updating every call site, or when asking what to refactor. Triggers on 'rename this method', 'extract this method', 'inline this', 'rename everywhere', 'what should I refactor'."
+description: "Use when refactoring a PHP, Python or TypeScript symbol: rename, move, extract, inline, encapsulate, add-parameter, remove-parameter, remove-unused, privatize, promote-readonly. Triggers on 'rename this', 'extract this method', 'inline this', 'move this file', 'make this readonly'."
 ---
 
 # Refactor
 
-Deterministic, agent-callable refactoring. Renames or restructures a symbol and
-updates every genuine reference — **no LLM in the edit path**. Dry run by default:
-nothing is written unless you pass `--apply`.
+Deterministic, reference-aware refactoring in PHP, Python and TypeScript. The
+edit is delegated to the language's own engine — Rector (PHP), rope (Python),
+ts-morph (TypeScript) — so there is **no language model in the edit path**.
 
-The edit is delegated to the language's own engine — Rector (PHP), rope (Python),
-ts-morph (TypeScript) — run in a container against the project. For PHP the tool
-resolves the engine, renders a config holding exactly one rename rule, runs it, and
-reports what changed.
+**Dry run by default**: nothing is written unless `--apply` is passed.
 
-## When to Use
+## Invoking it
 
-| Situation                                             | Do this                                |
-| ----------------------------------------------------- | -------------------------------------- |
-| Rename a method and all its call sites                | `--op rename-method`                   |
-| Rename a static method (declaration + calls)          | `--op rename-static-method`            |
-| Rename a property (declaration + accesses)            | `--op rename-property`                 |
-| Extract a block into a method (Python)                | `--op extract-method`                  |
-| Extract an expression into a variable (Python)        | `--op extract-variable`                |
-| Inline a definition into its callers (Python)         | `--op inline`                          |
-| Add accessors around a field (Python)                 | `--op encapsulate-field`               |
-| See what a change would touch before committing to it | run without `--apply` (the default)    |
-| Confirm the symbol exists and where it is declared    | run the tool's `doctor` via the plugin |
+The refactor tool is a plain CLI, not an MCP tool — run it through the shell:
 
-## Contract
-
-```
-devbot-tools_refactor --lang <lang> --op <op> \
-  [--class <FQCN>] [--from <old> | --method <old> | --property <old>] [--namespace <ns>] \
-  [--file <path>] [--start <line[:col]>] [--end <line[:col]>] \
-  [--index <n>] [--default <expr>] \
-  --to <new> [--apply] [--json] [--force]
+```bash
+devbot tool refactor <op> [options]
 ```
 
-- `--apply` writes the change. Without it you get a plan and the tree is untouched.
-- Refuses `--apply` when the working tree has uncommitted changes to **tracked**
-  files, unless `--force`. Untracked files are ignored.
-- `--json` emits the response as JSON; the default is a short markdown report.
+`<op>` is the refactoring (the table below). The language is inferred from
+`--file`, or from an op only one language declares — so `--lang` is usually
+unnecessary. Run `devbot tool refactor --help` for the live option list.
 
-## Ops
+| Option             | Meaning                                                 |
+| ------------------ | ------------------------------------------------------- |
+| `--file <path>`    | the file declaring the symbol — also picks the language |
+| `--lang <lang>`    | force a language plugin (`php`, `py`, `ts`)             |
+| `--kind <kind>`    | variant/declaration kind when an op offers several      |
+| `--class <name>`   | class the symbol lives in (ops on members)              |
+| `--from <old>`     | current name (aliases: `--method`, `--property`)        |
+| `--to <new>`       | new name (or destination, for a move)                   |
+| `--namespace <ns>` | namespace, for ops on free functions/constants          |
+| `--start`, `--end` | the range an extract op lifts (`line` or `line:col`)    |
+| `--index <n>`      | parameter position (the signature ops)                  |
+| `--default <x>`    | default expression for an added parameter               |
+| `--apply`          | write the change (default: plan only)                   |
+| `--json`           | emit the raw response as JSON                           |
+| `--force`          | proceed despite a dirty working tree                    |
 
-| op                      | what it renames                              | Rector rule                   |
-| ----------------------- | -------------------------------------------- | ----------------------------- |
-| `rename-method`         | the declaration + instance calls             | `RenameMethodRector`          |
-| `rename-static-method`  | the declaration + static calls               | `RenameMethodRector`          |
-| `rename-annotation`     | a docblock annotation on a class             | `RenameAnnotationRector`      |
-| `rename-property`       | the declaration + accesses                   | `RenamePropertyRector`        |
-| `rename-function`       | a free function: declaration + calls         | `RenameFunctionRector`        |
-| `rename-class`          | the declaration + references + the file move | `RenameClassRector`           |
-| `rename-string`         | string literals (no declaration exists)      | `RenameStringRector`          |
-| `rename-class-constant` | a class constant: declaration + fetches      | `RenameClassConstFetchRector` |
-| `move-class`            | a class's namespace + its file (name kept)   | `RenameClassRector`           |
-| `rename-constant`       | a global constant: declaration + uses        | `RenameConstantRector`        |
+`--apply` refuses to run when the working tree has uncommitted changes to
+**tracked** files, unless `--force`. Untracked files are ignored.
 
-### Languages
+A plan ends with a **Risk** line — `rename`, `cleanup` or `signature` — the class
+of change the op makes. A `signature` op can break callers, so back it with your
+own tests before applying.
 
-`--lang` selects the plugin. The core knows **no op names** — it discovers
-`langs/<lang>/plugin.sh` and validates against whatever that plugin declares — so
-adding a language is additive.
+## Operations
 
-| lang  | ops                      | engine                        |
-| ----- | ------------------------ | ----------------------------- |
-| `php` | the ops above            | Rector, in a PHP container    |
-| `py`  | the Python ops below     | rope, in a Python container   |
-| `ts`  | the TypeScript ops below | ts-morph, in a Node container |
+`--kind` is needed only when an op offers several variants; a single-variant op
+is chosen automatically, and a rename infers `method`/`property` from
+`--method`/`--property`.
 
-The TypeScript plugin needs a one-time `bash langs/ts/plugin.sh provision`
-(npm installs ts-morph into the shared scratch dir; `langs/py/plugin.sh provision` does the same for rope); `doctor` reports whether it
-is present. ts-morph resolves the symbol through the TypeScript compiler, so one
-run renames the declaration and every reference — no per-rule steps. A name
-declared in several places is refused rather than guessed: pass `--file` to pick
-a file, or `--kind` to pick a declaration kind.
-
-### Python ops
-
-rope ships refactorings Rector has no equivalent for. A region is selected by
-**line, optionally with a column** (`--start 12:9 --end 12:18`) — 1-based,
-inclusive; a missing column reads to the end of the line.
-
-| op                      | needs                                 | risk      |
-| ----------------------- | ------------------------------------- | --------- |
-| `rename-symbol`         | `--from`, `--to` (optional `--file`)  | rename    |
-| `extract-method`        | `--file`, `--start`, `--end`, `--to`  | extract   |
-| `extract-variable`      | `--file`, `--start`, `--end`, `--to`  | extract   |
-| `inline`                | `--from` (optional `--file`)          | inline    |
-| `encapsulate-field`     | `--file`, `--from`                    | cleanup   |
-| `add-argument`          | `--file`, `--from`, `--to`, `--index` | signature |
-| `remove-argument`       | `--file`, `--from`, `--index`         | signature |
-| `move-module`           | `--file`, `--to` (a folder)           | move      |
-| `remove-unused-imports` | `--file`                              | cleanup   |
-| `privatise`             | `--file`, `--from`                    | cleanup   |
-
-### TypeScript ops
-
-| op                     | needs                                          | risk      |
-| ---------------------- | ---------------------------------------------- | --------- |
-| `rename-symbol`        | `--from`, `--to` (optional `--file`, `--kind`) | rename    |
-| `move-file`            | `--file`, `--to` (a folder)                    | move      |
-| `move-member`          | `--class`, `--from`, `--to` (a class)          | move      |
-| `privatize-members`    | optional `--class`                             | cleanup   |
-| `remove-unused-locals` | `--file`                                       | cleanup   |
-| `remove-unused-params` | `--file`                                       | signature |
-| `promote-readonly`     | optional `--class`                             | signature |
-
-`move-file` rewrites each importer's **relative** specifier only: a tsconfig
-`paths` alias resolves to the moved file but is left alone, so it is named in
-`warnings` rather than counted as updated. `move-member` moves a **static** member
-and repoints its call sites; an **instance** member is refused with its call sites
-listed, its receiver needing an owner the tool cannot supply.
-
-`privatize-members` and `promote-readonly` sweep every class unless `--class` names
-one. Both resolve references with the compiler, so a **dynamic** access is
-invisible and only this project is seen — an exported class's surface is inferred,
-not known. `privatize-members` leaves `protected` members and keeps a get/set pair
-together. `promote-readonly` refuses a property any method, a subclass or a
-callback the constructor registers assigns — and **verifies the whole apply by
-compiling**, so a write the reference check cannot see (an element access, a
-delete) is refused rather than shipped broken. **The sweep's cost grows with the
-project**, so `--class` (or `--file`) keeps it bounded.
-
-`remove-unused-locals` and `remove-unused-params` remove only what they can prove
-unused: a local whose initialiser can have side effects, a loop binding, a
-`_`-prefixed name and a destructuring pattern are left alone, and a parameter goes
-only when no call site supplies an argument for it.
-
-## Cleanup ops
-
-These take no `--from`/`--to`: they run across the whole scope and change
-whatever they find. **Read the plan before applying** — they are not targeted at
-one symbol.
-
-| op                                      | what it does                                                | Rector rule                              |
-| --------------------------------------- | ----------------------------------------------------------- | ---------------------------------------- |
-| `remove-unused-private-methods`         | deletes private methods nothing calls                       | `RemoveUnusedPrivateMethodRector`        |
-| `remove-unused-private-properties`      | deletes private properties nothing reads                    | `RemoveUnusedPrivatePropertyRector`      |
-| `privatize-final-class-methods`         | tightens `public`/`protected` to `private` on final classes | `PrivatizeFinalClassMethodRector`        |
-| `privatize-final-class-constants`       | tightens `protected` to `private` on final classes          | `PrivatizeFinalClassConstantRector`      |
-| `remove-unused-private-class-constants` | deletes class constants nothing reads                       | `RemoveUnusedPrivateClassConstantRector` |
-| `remove-unused-constructor-params`      | deletes constructor parameters nothing uses                 | `RemoveUnusedConstructorParamRector`     |
-| `remove-unused-promoted-properties`     | deletes promoted properties nothing reads                   | `RemoveUnusedPromotedPropertyRector`     |
-| `privatize-final-class-properties`      | tightens `protected` to `private` on final classes          | `PrivatizeFinalClassPropertyRector`      |
-
-`rename-class` additionally **moves the file** (`Widget.php` → `Gadget.php`):
-Rector rewrites the declaration and the references but moves no files, and a
-PSR-4 autoloader keys on the file name.
+| refactor           | languages   | description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------ | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rename`           | php, py, ts | Renames a symbol and every genuine reference. php `--kind`: method, static-method, property, annotation, function, constant, class, class-constant, string (`class` also moves the file to match). ts takes `--kind` as a declaration kind (class, interface, function, type, enum, variable, method, property); py and ts accept `--file` to pick between a name declared in several places, and without either an ambiguous name is refused, not guessed. A name held in a string is reported, never rewritten (php, py). |
+| `move`             | php, py, ts | Relocates a unit and repoints what refers to it. `--kind class` (php) changes a class's namespace and file; `--kind module` (py) moves a module and rewrites its importers; `--kind file` (ts) moves a source file and rewrites relative importers (a tsconfig alias is reported, not rewritten); `--kind member` (ts) moves a static member to another class and repoints its call sites; an instance member is refused, its receiver needing an owner the tool cannot supply.                                             |
+| `extract`          | py          | Lifts the selected region into a new name: `--kind method` makes a method, `--kind variable` a local. Select the region with `--start`/`--end` (`line` or `line:col`, 1-based, inclusive).                                                                                                                                                                                                                                                                                                                                  |
+| `inline`           | py          | Folds a definition into its callers and deletes it. An inlined f-string can emit nested quotes only Python 3.12+ parses (PEP 701).                                                                                                                                                                                                                                                                                                                                                                                          |
+| `encapsulate`      | py          | Adds accessors around a field, making the field private. Refuses a field another class shares.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `add-parameter`    | py          | Appends a parameter at `--index` (1-based); `--default` sets its default. The index is used verbatim, so a defaulted parameter before a non-defaulted one is a syntax error.                                                                                                                                                                                                                                                                                                                                                |
+| `remove-parameter` | py          | Removes the parameter at `--index`. The body is untouched, so a name still used there becomes a `NameError`.                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `remove-unused`    | php, py, ts | Deletes what nothing references. php `--kind`: method, property, class-constant, constructor-param, promoted-property. py `--kind import` drops unused imports. ts `--kind local` / `--kind param` drop an unused local or a parameter no call site supplies; ts leaves an underscore-named binding, a loop binding, a destructuring pattern and an initialiser with possible side effects. Decided from the language's own reference set, so a dynamic access — a computed key, a string index, `eval` — reads as unused.  |
+| `privatize`        | php, py, ts | Narrows visibility where nothing outside the unit needs it. php `--kind` method/property/constant, on a final class. py privatises a module-internal name, refusing one used outside its module. ts narrows public members the compiler sees no outside reference to — keeping a get/set pair together, leaving `protected` members, and keeping a member a subclass uses.                                                                                                                                                  |
+| `promote-readonly` | ts          | Adds `readonly` to a property the constructor is the only thing to assign. Refuses an apply that would compile to an error.                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ## Limits
 
-- **Dynamic references are invisible** to static analysis: string callables
-  (`[$obj, 'method']`), `__call`, container bindings, and variable method names
-  are not renamed. Read the plan before applying.
-- **The Python plugin uses rope**, a symbol-table engine rather than a type
-  checker — ordinary code is covered, dynamic construction is not.
-  `rename-symbol` refuses a name defined in several places rather than guessing;
-  pass `--file` to disambiguate.
-- **`inline` on an f-string** can emit nested quotes (`f"Hello {"world"}"`), which
-  only Python 3.12+ parses (PEP 701) — do not inline such a method for an older
-  target.
-- **Signature ops do not validate the result.** `add-argument` inserts at
-  `--index` verbatim (a defaulted parameter before a non-defaulted one is a syntax
-  error); `remove-argument` leaves the body untouched (a still-used name becomes a
-  `NameError`). Check the diff.
-- **The tool does not run your tests.** Run them yourself after applying — only
-  your suite can prove the rename is right in your project's terms.
-- The target project's own `vendor/bin/rector` is preferred (right version, right
-  autoload). Otherwise a pinned Rector is installed into the dev-bot scratch dir.
+- **Dynamic references are invisible** to static analysis: string callables,
+  `__call`, container bindings, variable method names. A rename reports quoted
+  occurrences (`string_references`) rather than losing them silently, and an
+  apply re-runs itself to report `remaining_changes`.
+- **The tool does not run your tests.** Only your suite can prove a rename is
+  right in your project's terms — run it after applying.
+- **An apply costs a second pass.** The self-verification doubles the runtime;
+  set `REFACTOR_SKIP_VERIFY=1` on a large project.
+- **The TypeScript whole-project sweeps grow with the project.** `privatize`
+  and `promote-readonly` resolve references for every member of every class, so
+  pass `--class` (or `--file`) to bound a run.
 
 ## Refactor candidates (advisory)
 
@@ -215,5 +123,5 @@ advisory report is the deliverable here — not an edit.
 
 ## See also
 
-- [Refactor tool reference](/tools/refactor) — engine policy and the plugin
-  contract for adding another language.
+- [Refactor tool reference](/modules/agentic/refactor) — engine policy and the
+  plugin contract for adding another language.

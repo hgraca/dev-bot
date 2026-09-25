@@ -116,6 +116,43 @@ def _select_lang(plugins, op, lang, file_path):
 # ── Subcommands ───────────────────────────────────────────────────────────────
 
 
+def _resolve_native(plugin, op, kind, method, prop):
+    """(kind, native_op) for a canonical op, using the plugin's own map.
+
+    The map is `{canonical: {kind: native}}`. A `*` key means the op has one
+    native form and any kind is passed through (the TypeScript driver reads
+    `kind` as a declaration kind). An op with several named kinds needs one —
+    named explicitly, or inferred from --method/--property.
+    """
+    mapping = (plugin.get("map") or {}).get(op) or {}
+    if not mapping:
+        raise ValueError(
+            "language '%s' exposes no map for op '%s'" % (plugin["lang"], op)
+        )
+    named = sorted(key for key in mapping if key != "*")
+
+    if kind:
+        if kind in mapping:
+            return kind, mapping[kind]
+        if "*" in mapping:
+            return kind, mapping["*"]
+        raise ValueError(
+            "op '%s' does not support kind '%s' (kinds: %s)"
+            % (op, kind, ", ".join(named) or "none")
+        )
+
+    if method and "method" in mapping:
+        return "method", mapping["method"]
+    if prop and "property" in mapping:
+        return "property", mapping["property"]
+
+    if "*" in mapping:
+        return None, mapping["*"]
+    if len(named) == 1:
+        return named[0], mapping[named[0]]
+    raise ValueError("op '%s' needs --kind (one of: %s)" % (op, ", ".join(named)))
+
+
 def cmd_resolve(args):
     plugins = discover(args.langs_dir)
     plugin = _select_lang(plugins, args.op, args.lang, args.file)
@@ -130,13 +167,15 @@ def cmd_resolve(args):
             )
         )
 
+    kind, native_op = _resolve_native(plugin, args.op, args.kind, args.method, args.property)
+
     source = args.from_ or args.method or args.property
     provided = {
         "class": args.klass,
         "from": source,
         "to": args.to,
         "file": args.file,
-        "kind": args.kind,
+        "kind": kind,
         "start": args.start,
         "end": args.end,
         "index": args.index,
@@ -144,7 +183,7 @@ def cmd_resolve(args):
     }
 
     requires_map = plugin.get("requires") or {}
-    requires = requires_map[args.op] if args.op in requires_map else ["class", "from", "to"]
+    requires = requires_map[native_op] if native_op in requires_map else ["class", "from", "to"]
     missing = [field for field in requires if not provided.get(field)]
     if missing:
         raise ValueError(
@@ -153,7 +192,7 @@ def cmd_resolve(args):
         )
 
     request = {
-        "op": args.op,
+        "op": native_op,
         "class": args.klass or None,
         "from": source or None,
         "to": args.to or None,
@@ -161,20 +200,28 @@ def cmd_resolve(args):
         "image": args.image or None,
         "namespace": args.namespace or None,
         "file": args.file or None,
-        "kind": args.kind or None,
+        "kind": kind,
         "start": args.start or None,
         "end": args.end or None,
         "index": args.index or None,
         "default": args.default or None,
     }
 
-    print(json.dumps({"lang": plugin["lang"], "plugin": plugin["_dir"], "request": request}))
+    print(json.dumps({
+        "lang": plugin["lang"],
+        "plugin": plugin["_dir"],
+        "risk": (plugin.get("risks") or {}).get(native_op),
+        "request": request,
+    }))
     return 0
 
 
 def cmd_emit(_args):
     decision = json.load(sys.stdin)
-    sys.stdout.write("%s\n%s\n" % (decision["plugin"], json.dumps(decision["request"])))
+    sys.stdout.write(
+        "%s\n%s\n%s\n"
+        % (decision["plugin"], json.dumps(decision["request"]), decision.get("risk") or "")
+    )
     return 0
 
 
@@ -183,10 +230,12 @@ def cmd_ops(args):
     return 0
 
 
-def render_markdown(response, op):
+def render_markdown(response, op, risk=""):
     lines = ["## refactor: %s" % op, ""]
     lines.append("**Engine:** %s" % (response.get("engine") or "unknown"))
     lines.append("**Applied:** %s" % ("yes" if response.get("applied") else "no"))
+    if risk:
+        lines.append("**Risk:** %s" % risk)
     lines.append("")
     if response.get("summary"):
         lines.append(response["summary"])
@@ -232,7 +281,7 @@ def cmd_finish(args):
     if args.format == "json":
         sys.stdout.write(json.dumps(response, indent=2) + "\n")
     else:
-        sys.stdout.write(render_markdown(response, args.op))
+        sys.stdout.write(render_markdown(response, args.op, args.risk))
     return 0
 
 
@@ -275,6 +324,7 @@ def build_parser():
 
     finish = subparsers.add_parser("finish")
     finish.add_argument("--op", required=True)
+    finish.add_argument("--risk", default="")
     finish.add_argument("--format", default="markdown", choices=["markdown", "json"])
     finish.set_defaults(func=cmd_finish)
 

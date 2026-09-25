@@ -3,7 +3,7 @@
 # description: Deterministic refactoring across languages (PHP, Python, TypeScript) — rename, extract, inline, move and cleanup ops that update every genuine reference. Dry-run by default; pass --apply to write.
 # ---
 # =============================================================================
-# src/agentic/refactor/tools/refactor/refactor.sh
+# src/agentic/refactor/tools/refactor.sh
 # Single entry point for the refactor tool.
 #
 # Usage:
@@ -37,8 +37,9 @@ _resolve_self() {
 }
 
 SCRIPT_DIR="$(_resolve_self)"
-LIB="${SCRIPT_DIR}/lib/refactor-lib.py"
-LANGS_DIR="${REFACTOR_LANGS_DIR:-$(cd "${SCRIPT_DIR}/../.." && pwd)/langs}"
+MODULE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+LIB="${MODULE_DIR}/lib/refactor-lib.py"
+LANGS_DIR="${REFACTOR_LANGS_DIR:-${MODULE_DIR}/langs}"
 export REFACTOR_LANGS_DIR="${LANGS_DIR}"
 
 usage() {
@@ -63,13 +64,18 @@ Options:
   --end <line[:col]>    last line of a range (extract ops)
   --index <n>     parameter position (signature ops)
   --default <x>   default expression for an added parameter
-  --image <ref>   container image to run the engine in
+  --image <ref>   container image for the PHP engine (py/ts use env vars)
   --apply         write the change (default: dry-run plan only)
   --json          emit the raw response as JSON
   --force         proceed despite a dirty working tree
   --version       show the tool version
   --help, -h      show this help
 EOF
+}
+
+print_ops() {
+  echo "Refactorings:"
+  python3 "${LIB}" ops 2>/dev/null | tr ',' '\n' | sed 's/^ *//; s/^/  /' || true
 }
 
 if [[ "${1:-}" == "--version" ]]; then
@@ -80,8 +86,7 @@ fi
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   usage
   echo
-  echo "Refactorings:"
-  python3 "${LIB}" ops 2>/dev/null | tr ',' '\n' | sed 's/^ */  /' || true
+  print_ops
   exit 0
 fi
 
@@ -117,6 +122,8 @@ while [[ $# -gt 0 ]]; do
       ;;
     --help|-h)
       usage
+      echo
+      print_ops
       exit 0
       ;;
     --*)
@@ -183,7 +190,7 @@ if [[ ${rc} -ne 0 ]]; then
   exit "${rc}"
 fi
 
-{ IFS= read -r plugin_dir; IFS= read -r request_json; } < <(
+{ IFS= read -r plugin_dir; IFS= read -r request_json; IFS= read -r risk; } < <(
   printf '%s' "${decision}" | python3 "${LIB}" emit
 )
 
@@ -203,7 +210,7 @@ if [[ ${rc} -ne 0 ]]; then
 fi
 
 set +e
-printf '%s' "${output}" | python3 "${LIB}" finish --op "${op}" --format "${format}"
+printf '%s' "${output}" | python3 "${LIB}" finish --op "${op}" --risk "${risk}" --format "${format}"
 rc=$?
 set -e
 exit "${rc}"
