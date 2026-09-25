@@ -1,0 +1,9 @@
+---
+date: 2026-09-25
+keywords: ["git", "autosquash", "fixup", "rebase", "conflict"]
+trigger-on: ["git-fixup-commit", "git-autosquash-fixup"]
+---
+
+## A late-authored fixup cannot always fold — squash the conflict-free subset and verify with the range-diff hash
+
+`git rebase -i --autosquash` moves each `fixup!` next to its target and replays it there, but the fixup was authored against the file as it looked *late* in history. If any commit between the target and the fixup touched the same files, the fold conflicts — a real 92-fixup branch conflicted at 22/179 on a test file a dozen intermediate commits had edited. There is no clean single-pass fix, and resolving through it means making content decisions inside other people's commits. The workable move is to fold the **conflict-free subset**: a fixup is safe when no commit between it and its target touches the files it changes (compute it as the intersection of `git show --name-only --format= <fixup>` with `git log --name-only --format= $(git rev-list <target>..<fixup>^)`). Then build the todo by hand — one `pick` per commit in original order, each safe fixup inserted immediately after its target — and drive it with `GIT_SEQUENCE_EDITOR='cp <prepared-todo>' GIT_EDITOR=true git rebase -i <base>`. The unsafe fixups stay standalone commits, so nothing is lost. **Verify with the range-diff hash, not the exit code**: `git diff <base>..HEAD | git hash-object --stdin` must be identical before and after, which proves the final tree is byte-identical and no fold altered content. Set `GIT_EDITOR=true` too — a step that wants a message editor otherwise blocks on `vi` — and print the plan with `GIT_SEQUENCE_EDITOR='grep -v "^#" "$1"; false'` before executing. Aborting (`git rebase --abort`) restores the branch exactly, so a failed attempt costs nothing.

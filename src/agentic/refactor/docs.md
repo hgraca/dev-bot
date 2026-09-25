@@ -70,11 +70,11 @@ matched by bare name instead, so they need no namespace.
 `langs/<lang>/plugin.sh`, reads that plugin's `meta`, and validates against it —
 which is what makes a new language additive.
 
-| Lang  | Ops             | Engine                        |
-| ----- | --------------- | ----------------------------- |
-| `php` | the ops above   | Rector, in a PHP container    |
-| `py`  | the Python ops  | rope, in a Python container   |
-| `ts`  | `rename-symbol` | ts-morph, in a Node container |
+| Lang  | Ops                | Engine                        |
+| ----- | ------------------ | ----------------------------- |
+| `php` | the ops above      | Rector, in a PHP container    |
+| `py`  | the Python ops     | rope, in a Python container   |
+| `ts`  | the TypeScript ops | ts-morph, in a Node container |
 
 Run `bash langs/ts/plugin.sh provision` once to install the TypeScript engine into
 the shared scratch dir; `doctor` reports whether it is there. ts-morph drives the
@@ -108,6 +108,39 @@ As for PHP, a Python rename reports quoted occurrences of the old name as
 `string_references` (rope cannot rewrite a name held in a string), and an apply
 verifies itself, reporting `remaining_changes` when an identifier it could not
 reach is left behind.
+
+### TypeScript ops
+
+ts-morph drives the TypeScript compiler, so one run completes a rename across the
+project — there is no per-rule step model as in PHP.
+
+| Op                     | Needs                                          | Risk      |
+| ---------------------- | ---------------------------------------------- | --------- |
+| `rename-symbol`        | `--from`, `--to` (optional `--file`, `--kind`) | rename    |
+| `move-file`            | `--file`, `--to` (a folder)                    | move      |
+| `move-member`          | `--class`, `--from`, `--to` (a class)          | move      |
+| `privatize-members`    | optional `--class`                             | cleanup   |
+| `remove-unused-locals` | `--file`                                       | cleanup   |
+| `remove-unused-params` | `--file`                                       | signature |
+| `promote-readonly`     | optional `--class`                             | signature |
+
+`move-file` moves a source file and rewrites each importer's relative specifier; a
+tsconfig `paths` alias resolves to the moved file but is left alone and named in
+`warnings`. `move-member` moves a static member to another class and repoints its
+call sites — an instance member is refused, its receiver needing an owner the tool
+cannot supply.
+
+`privatize-members` narrows a public member to `private` when the compiler sees no
+reference from outside its class, and `promote-readonly` adds `readonly` to a
+property the constructor is the only thing to assign. Both sweep every class unless
+`--class` names one, and both leave a member a subclass depends on.
+`promote-readonly` then **verifies the apply by compiling the project** and refuses
+one that would introduce an error, so a write to a property it cannot see — an
+element access, a delete — is caught rather than shipped broken.
+`remove-unused-locals` and `remove-unused-params` remove only what they can prove
+unused: a local whose initialiser can have side effects, a loop binding, a
+`_`-prefixed name and a destructuring pattern are left alone, and a parameter goes
+only when no call site supplies an argument for it.
 
 ## Engine policy
 
@@ -223,6 +256,19 @@ prove additivity).
   project and may not test the way we do. Run your own suite after applying.
 - **`rename-class` moves the file** but does not rewrite `composer.json` autoload
   maps, non-PSR-4 includes, or a class referenced by string elsewhere.
+- **A TypeScript op sees only what the compiler resolves.** `privatize-members`
+  and `remove-unused-locals`/`remove-unused-params` decide from the reference set
+  the TypeScript compiler produces, so a member or binding reached dynamically — a
+  computed key, a string index, `eval` — reads as unused and is not reported. Check
+  a plan against code you know to be reflective. `promote-readonly` is stricter: it
+  refuses an apply that would introduce a compiler error, so a write form the
+  reference check misses is caught rather than shipped.
+- **`move-file` does not rewrite a non-relative specifier.** A tsconfig `paths` or
+  `baseUrl` alias resolves to the moved file but is left as it is — reported in
+  `warnings`, not silently missed.
+- **The whole-project TypeScript sweeps grow with the project.**
+  `privatize-members` and `promote-readonly` resolve references for every member of
+  every class, so pass `--class` (or `--file`) to bound a run on a large codebase.
 
 ## Configuration
 

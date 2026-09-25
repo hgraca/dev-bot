@@ -64,11 +64,11 @@ devbot-tools_refactor --lang <lang> --op <op> \
 `langs/<lang>/plugin.sh` and validates against whatever that plugin declares — so
 adding a language is additive.
 
-| lang  | ops                                                           | engine                        |
-| ----- | ------------------------------------------------------------- | ----------------------------- |
-| `php` | the ops above                                                 | Rector, in a PHP container    |
-| `py`  | the Python ops below                                          | rope, in a Python container   |
-| `ts`  | `rename-symbol` (`--from`/`--to`, optional `--file`/`--kind`) | ts-morph, in a Node container |
+| lang  | ops                      | engine                        |
+| ----- | ------------------------ | ----------------------------- |
+| `php` | the ops above            | Rector, in a PHP container    |
+| `py`  | the Python ops below     | rope, in a Python container   |
+| `ts`  | the TypeScript ops below | ts-morph, in a Node container |
 
 The TypeScript plugin needs a one-time `bash langs/ts/plugin.sh provision`
 (npm installs ts-morph into the shared scratch dir; `langs/py/plugin.sh provision` does the same for rope); `doctor` reports whether it
@@ -95,6 +95,39 @@ inclusive; a missing column reads to the end of the line.
 | `move-module`           | `--file`, `--to` (a folder)           | move      |
 | `remove-unused-imports` | `--file`                              | cleanup   |
 | `privatise`             | `--file`, `--from`                    | cleanup   |
+
+### TypeScript ops
+
+| op                     | needs                                          | risk      |
+| ---------------------- | ---------------------------------------------- | --------- |
+| `rename-symbol`        | `--from`, `--to` (optional `--file`, `--kind`) | rename    |
+| `move-file`            | `--file`, `--to` (a folder)                    | move      |
+| `move-member`          | `--class`, `--from`, `--to` (a class)          | move      |
+| `privatize-members`    | optional `--class`                             | cleanup   |
+| `remove-unused-locals` | `--file`                                       | cleanup   |
+| `remove-unused-params` | `--file`                                       | signature |
+| `promote-readonly`     | optional `--class`                             | signature |
+
+`move-file` rewrites each importer's **relative** specifier only: a tsconfig
+`paths` alias resolves to the moved file but is left alone, so it is named in
+`warnings` rather than counted as updated. `move-member` moves a **static** member
+and repoints its call sites; an **instance** member is refused with its call sites
+listed, its receiver needing an owner the tool cannot supply.
+
+`privatize-members` and `promote-readonly` sweep every class unless `--class` names
+one. Both resolve references with the compiler, so a **dynamic** access is
+invisible and only this project is seen — an exported class's surface is inferred,
+not known. `privatize-members` leaves `protected` members and keeps a get/set pair
+together. `promote-readonly` refuses a property any method, a subclass or a
+callback the constructor registers assigns — and **verifies the whole apply by
+compiling**, so a write the reference check cannot see (an element access, a
+delete) is refused rather than shipped broken. **The sweep's cost grows with the
+project**, so `--class` (or `--file`) keeps it bounded.
+
+`remove-unused-locals` and `remove-unused-params` remove only what they can prove
+unused: a local whose initialiser can have side effects, a loop binding, a
+`_`-prefixed name and a destructuring pattern are left alone, and a parameter goes
+only when no call site supplies an argument for it.
 
 ## Cleanup ops
 
