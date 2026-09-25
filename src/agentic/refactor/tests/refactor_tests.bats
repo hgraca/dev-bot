@@ -2232,6 +2232,82 @@ assert m["risks"]["remove-unused-params"] == "signature", m
   [ "${kept}" = "2" ]
 }
 
+@test "end-to-end (ts): remove-unused-locals keeps a container whose contents have effects" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file src/purity.ts --apply"
+
+  local container plain
+  # A container is only as pure as what it holds.
+  container="$(grep -cE 'const array|const object' "${work}/src/purity.ts" || true)"
+  plain="$(grep -cE 'plainArray|plainObject' "${work}/src/purity.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${container}" = "2" ]
+  [ "${plain}" = "0" ]
+}
+
+@test "end-to-end (ts): remove-unused-locals leaves a destructuring declaration" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file src/destructured.ts --apply"
+
+  local kept
+  # The declaration has no references of its own, but the names it binds are used.
+  kept="$(grep -c 'const { first, second }' "${work}/src/destructured.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${kept}" = "1" ]
+}
+
+@test "end-to-end (ts): remove-unused-locals keeps a container with a computed key" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file src/computed.ts --apply"
+
+  local kept removable
+  kept="$(grep -c 'const computed' "${work}/src/computed.ts" || true)"
+  removable="$(grep -c 'const plain' "${work}/src/computed.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "may have side effects"
+  [ "${kept}" = "1" ]
+  [ "${removable}" = "0" ]
+}
+
+@test "end-to-end (ts): remove-unused-locals leaves a using declaration" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/using-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file src/held.ts --apply"
+
+  local kept
+  # The disposal is the effect, whatever the initialiser looks like.
+  kept="$(grep -c 'using res' "${work}/src/held.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${kept}" = "1" ]
+}
+
 @test "end-to-end (ts): a remove-unused-locals plan writes nothing" {
   _ts_e2e_ready || skip "docker + ts-morph engine not available"
 
@@ -2386,6 +2462,54 @@ assert m["risks"]["remove-unused-params"] == "signature", m
   assert_output --partial "may have side effects"
   [ "${kept}" = "1" ]
   [ "${removable}" = "0" ]
+}
+
+@test "end-to-end (ts): a T8 removal leaves the project compiling" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work tsc compiled
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+  tsc="${MODULE_DIR}/../../../storage/refactor/ts/node_modules/typescript/bin/tsc"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file src/locals.ts --apply && bash '${TOOL}' --lang ts --op remove-unused-params --file src/params.ts --apply"
+  compiled="$(cd "${work}" && node "${tsc}" --noEmit -p tsconfig.json >/dev/null 2>&1 && echo 0 || echo 1)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${compiled}" = "0" ]
+}
+
+@test "end-to-end (ts): a T8 removal refuses a file outside the project" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  # The project is mounted at /app in the container, so anything else is not ours.
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file /etc/hosts --apply"
+  rm -rf "${work}"
+
+  assert_failure
+  assert_output --partial "outside the project"
+}
+
+@test "end-to-end (ts): a T8 removal accepts an absolute path inside the project" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/unused-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op remove-unused-locals --file /app/src/mixed.ts --apply"
+
+  local removed
+  removed="$(grep -cE 'first|second' "${work}/src/mixed.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${removed}" = "0" ]
 }
 
 @test "end-to-end (ts): a remove-unused-params plan writes nothing" {

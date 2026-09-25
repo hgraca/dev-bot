@@ -1,4 +1,4 @@
-export function clean(first: string, spare: string): string {
+export function clean(first: string, spare?: string): string {
   return first;
 }
 
@@ -18,7 +18,7 @@ export function overloaded(value: string | number, flag?: boolean): string {
 
 export const oneOverloadArgument = overloaded("x");
 
-export function underscore(first: string, _second: string): string {
+export function underscore(first: string, _second?: string): string {
   return first;
 }
 

@@ -738,21 +738,17 @@ const FUNCTION_LIKES = new Set([
   SyntaxKind.SetAccessor,
 ]);
 
-// Initialisers whose evaluation can only produce a value, so dropping the binding
-// drops nothing else. A call, `new`, `await` or an assignment can, so a binding
-// holding one is reported instead of removed.
-const PURE_INITIALIZERS = new Set([
+// Expressions whose evaluation can only produce a value.
+const PURE_EXPRESSIONS = new Set([
   SyntaxKind.NumericLiteral,
   SyntaxKind.StringLiteral,
   SyntaxKind.NoSubstitutionTemplateLiteral,
   SyntaxKind.TrueKeyword,
   SyntaxKind.FalseKeyword,
   SyntaxKind.NullKeyword,
-  SyntaxKind.ArrayLiteralExpression,
-  SyntaxKind.ObjectLiteralExpression,
+  SyntaxKind.Identifier,
   SyntaxKind.ArrowFunction,
   SyntaxKind.FunctionExpression,
-  SyntaxKind.Identifier,
 ]);
 
 function isInsideFunctionLike(node) {
@@ -770,9 +766,53 @@ function isLoopBinding(declaration) {
   );
 }
 
+// Whether evaluating an expression can do anything but produce a value. A
+// container is only as pure as what it holds — `[doThing()]` still calls, and so
+// does `{ at: doThing() }`.
+function isPureExpression(expression) {
+  if (!expression) return true;
+  const kind = expression.getKind();
+  if (PURE_EXPRESSIONS.has(kind)) return true;
+
+  if (kind === SyntaxKind.ArrayLiteralExpression) {
+    return expression.getElements().every(isPureExpression);
+  }
+  if (kind === SyntaxKind.ObjectLiteralExpression) {
+    return expression.getProperties().every((property) => {
+      // A computed key is evaluated as the object is built, so `{ [key()]: 1 }`
+      // calls even though the value is a literal.
+      const nameNode = typeof property.getNameNode === "function" ? property.getNameNode() : undefined;
+      if (nameNode && nameNode.getKind() === SyntaxKind.ComputedPropertyName) {
+        if (!isPureExpression(nameNode.getExpression())) return false;
+      }
+      const propertyKind = property.getKind();
+      if (propertyKind === SyntaxKind.PropertyAssignment) return isPureExpression(property.getInitializer());
+      if (propertyKind === SyntaxKind.ShorthandPropertyAssignment) return true;
+      if (propertyKind === SyntaxKind.SpreadAssignment) return isPureExpression(property.getExpression());
+      // A method, getter or setter is defined here, not called.
+      return true;
+    });
+  }
+  return false;
+}
+
+// A `using` declaration disposes its value when the scope exits, so the disposal is
+// the effect — how pure the initialiser is says nothing about it.
+function isDisposalBinding(declaration) {
+  const kind = declaration.getParent()?.getDeclarationKind?.();
+  return kind === "using" || kind === "await using";
+}
+
 function initializerIsPure(declaration) {
-  const initializer = declaration.getInitializer();
-  return !initializer || PURE_INITIALIZERS.has(initializer.getKind());
+  return isPureExpression(declaration.getInitializer());
+}
+
+// `--file` is taken relative to the project. An absolute path into the project is
+// accepted too; one from outside it is reported rather than silently missing.
+function projectFile(file) {
+  if (!path.isAbsolute(file)) return file;
+  const relativePath = path.relative(PROJECT_DIR, file);
+  return relativePath.startsWith("..") ? null : relativePath;
 }
 
 // Drop the declarations in one file that nothing refers to and whose initialiser
@@ -783,7 +823,11 @@ async function removeUnusedLocals(project, file, apply) {
   if (!file) {
     return fail("file is required");
   }
-  const sourceFile = project.getSourceFile(path.join(PROJECT_DIR, file));
+  const relativeFile = projectFile(file);
+  if (!relativeFile) {
+    return fail("file is outside the project: " + file);
+  }
+  const sourceFile = project.getSourceFile(path.join(PROJECT_DIR, relativeFile));
   if (!sourceFile) {
     return fail("no such file: " + file);
   }
@@ -797,6 +841,10 @@ async function removeUnusedLocals(project, file, apply) {
     if (!isInsideFunctionLike(declaration)) continue;
     if (declaration.getName().startsWith("_")) continue;
     if (isLoopBinding(declaration)) continue;
+    if (isDisposalBinding(declaration)) continue;
+    // A destructuring declaration binds its names elsewhere: the declaration itself
+    // has no references while `first` and `second` are used.
+    if (!Node.isIdentifier(declaration.getNameNode())) continue;
 
     if (!initializerIsPure(declaration)) {
       warnings.push(
@@ -844,8 +892,8 @@ async function removeUnusedLocals(project, file, apply) {
       ok: true,
       engine: ENGINE,
       applied: apply,
-      summary: `${apply ? "Removed" : "Would remove"} ${removable.length} unused local(s) from ${file}`,
-      files: removable.length > 0 ? [file] : [],
+      summary: `${apply ? "Removed" : "Would remove"} ${removable.length} unused local(s) from ${relativeFile}`,
+      files: removable.length > 0 ? [relativeFile] : [],
       warnings,
     }) + "\n",
   );
@@ -938,7 +986,11 @@ async function removeUnusedParams(project, file, apply) {
   if (!file) {
     return fail("file is required");
   }
-  const sourceFile = project.getSourceFile(path.join(PROJECT_DIR, file));
+  const relativeFile = projectFile(file);
+  if (!relativeFile) {
+    return fail("file is outside the project: " + file);
+  }
+  const sourceFile = project.getSourceFile(path.join(PROJECT_DIR, relativeFile));
   if (!sourceFile) {
     return fail("no such file: " + file);
   }
@@ -1010,8 +1062,8 @@ async function removeUnusedParams(project, file, apply) {
       ok: true,
       engine: ENGINE,
       applied: apply,
-      summary: `${apply ? "Removed" : "Would remove"} ${removable.length} unused parameter(s) from ${file}`,
-      files: removable.length > 0 ? [file] : [],
+      summary: `${apply ? "Removed" : "Would remove"} ${removable.length} unused parameter(s) from ${relativeFile}`,
+      files: removable.length > 0 ? [relativeFile] : [],
       warnings: [...warnings],
     }) + "\n",
   );

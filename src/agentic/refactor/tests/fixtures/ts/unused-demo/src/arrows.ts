@@ -1,4 +1,4 @@
-export const viaArrow = (first: number, unused: number): number => first;
+export const viaArrow = (first: number, unused?: number): number => first;
 
 export const called = viaArrow(1);
 
