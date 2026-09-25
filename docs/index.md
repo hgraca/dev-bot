@@ -15,7 +15,7 @@ title: DevBot
     </p>
     <div class="hero-why">
       <h2>Why DevBot?</h2>
-      <p class="hero-why-lead">If any of these sound like your setup, DevBot was built for it.</p>
+      <p class="hero-why-lead">If any of these resonate with you, DevBot was built for it.</p>
       <ul class="highlight-list highlight-list-scenarios">
         <li>
           <span class="check" aria-hidden="true">&#x2192;</span>
@@ -35,7 +35,7 @@ title: DevBot
         </li>
         <li>
           <span class="check" aria-hidden="true">&#x2192;</span>
-          <span>You want a set of curated MCPs for your agents to use</span>
+          <span>You want a set of curated, cheap, performant set of tools for your agents to use</span>
         </li>
         <li>
           <span class="check" aria-hidden="true">&#x2192;</span>
