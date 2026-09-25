@@ -19,11 +19,11 @@ Selects right search tool for question. Different tools excel at different queri
 
 | Question type                                          | Tool                        | Why                                                                            |
 | ------------------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------ |
-| Semantic search ("where is auth logic?")               | `codebase_search`           | Hybrid semantic + keyword, returns full code content                           |
-| Quick location lookup ("find payment handler")         | `codebase_peek`             | Same search, returns only metadata — saves ~90% tokens                         |
-| Jump to definition ("where is validateToken defined?") | `implementation_lookup`     | Finds authoritative source, skips tests/docs/examples                          |
-| Who calls this? / What does this call?                 | `call_graph`                | Traces callers or callees by function name                                     |
-| Find similar code (duplicate detection, refactoring)   | `find_similar`              | Vector similarity on code snippet                                              |
+| Meaning-based search ("where is auth logic?")          | codebase engine             | The active engine's semantic search tool — see `devbot:codebase-index`         |
+| Quick metadata lookup ("find payment handler")         | codebase engine             | Location-only variant when the engine has one — cheaper than full search       |
+| Jump to definition ("where is validateToken defined?") | codebase engine             | Finds authoritative source, skips tests/docs/examples                          |
+| Who calls this? / What does this call?                 | codebase engine             | Traces callers or callees by function name                                     |
+| Find similar code (duplicate detection, refactoring)   | codebase engine             | Similarity search over the codebase                                            |
 | File path lookup by pattern                            | `Glob`                      | Fast glob matching (`**/*.ts`, `src/**/Handler.php`)                           |
 | Exact string or regex in file contents                 | `Grep`                      | Regex search across files, filterable by extension                             |
 | AST structural pattern matching                        | `ast-grep`                  | Matches code by AST structure, not text                                        |
@@ -33,9 +33,12 @@ Selects right search tool for question. Different tools excel at different queri
 
 ## Detailed Guidance
 
-### codebase-index (opencode-index)
+### Codebase engine (`devbot:codebase-index`)
 
-Semantic + keyword hybrid search. Best general-purpose code finder.
+The project's active codebase engine, selected by `codebase_index_provider` —
+meaning-based search, definition lookup, call-graph tracing, and similarity
+search. The two engines (`codebase-index`, `codebase-memory`) are mutually
+exclusive, so exactly one is wired.
 
 **Use when:**
 
@@ -43,20 +46,19 @@ Semantic + keyword hybrid search. Best general-purpose code finder.
 - "Find function that validates user permissions"
 - "How is event bus configured?"
 
-**Tools:**
-
-- `codebase_search` — full code content in results
-- `codebase_peek` — metadata only (file, line, name, type) — prefer when you just need locations
-- `implementation_lookup` — jump to where symbol defined (prefers real code over tests)
-- `call_graph` — trace callers/callees of function
-- `find_similar` — find code similar to given snippet
+**Engine specifics** — each engine's MCP tools and usage are documented in the
+ACTIVE engine's own skill: `devbot:codebase-index` resolves to whichever engine
+is wired, so load it for the current tool set. Representative tools: the
+`codebase-index` engine provides `codebase_search`, `codebase_peek`,
+`implementation_lookup`, `call_graph`, `find_similar`; `codebase-memory`
+provides `search_graph`, `search_code`, `trace_path`, `get_code_snippet`,
+`get_architecture`.
 
 **Tips:**
 
 - Describe behavior, not syntax: "function that sends welcome emails" not "sendWelcomeEmail"
-- Filter by `chunkType` (function, class, method, interface) to narrow results
-- Filter by `directory` or `fileType` when you know area
-- Use `codebase_peek` first when you only need to know WHERE code is, then `Read` to get content
+- Narrow by `directory` or file type when you know the area
+- Prefer a cheap metadata-only lookup first when you only need to know WHERE code is, then `Read` for content
 
 ### graphify (CLI + MCP)
 
@@ -117,7 +119,7 @@ Packs directory contents into single structured file for full-context analysis.
 
 - Use `--include` to focus on relevant files (`"src/Auth/**"`)
 - Use `--compress` for large repos (Tree-sitter compression, ~70% token savings)
-- Never use both repomix AND codebase-index for same files — wastes tokens
+- Never use both repomix AND the codebase engine for the same files — wastes tokens
 - Output to file: `repomix pack <dir> --output output.xml` then read with `Read`
 
 ### Glob
@@ -205,8 +207,8 @@ AST-based structural pattern matching.
 3. **Know file name pattern?** → `Glob`
 4. **Know exact string to find?** → `Grep`
 5. **Need structural code pattern?** → `ast-grep`
-6. **Need to find code by meaning?** → `codebase_search` / `codebase_peek`
-7. **Need to find definition?** → `implementation_lookup`
-8. **Need callers/callees?** → `call_graph`
+6. **Need to find code by meaning?** → the codebase engine (`devbot:codebase-index` skill)
+7. **Need to find definition?** → the codebase engine (`devbot:codebase-index` skill)
+8. **Need callers/callees?** → the codebase engine (`devbot:codebase-index` skill)
 9. **Need cross-file architecture?** → `graphify query` / MCP tools (`graphify_god_nodes`, `graphify_graph_stats`)
 10. **Need full directory context?** → `repomix pack`

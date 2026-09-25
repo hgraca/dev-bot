@@ -33,7 +33,7 @@ If either section was not provided, ask for it.
 ## Responsibilities
 
 - Use `devbot:gather-context` skill to collect context knowledge.
-- Use the MCP tools (search-memories, git-report, tree, codebase-index, graphify). If not available, bash fallbacks instead in `<devbot_path>/tools/`
+- Use the MCP tools (search-memories, git-report, tree, the active codebase engine's tools, graphify). If not available, bash fallbacks instead in `<devbot_path>/tools/`
 - Use `glob` and `grep` to explore file contents directly when scripts fail.
 - Write findings immediately with `write` tool — do not defer to end.
 - When results are empty or tools error, include that in Summary section — never fabricate results.

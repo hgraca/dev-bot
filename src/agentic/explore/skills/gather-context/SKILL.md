@@ -22,7 +22,7 @@ Check whether `.agents/memory/active/project.md` exists. If it does **not** exis
 
 The orchestrator's delegation prompt contains two distinct sections:
 
-- **Keywords**: 1 or 2 words each (hyphenated compounds like `devbot:codebase-index` count as one word). These are search tokens — use them as-is for memory search, graphify, and codebase-index queries. Do not split or rephrase them.
+- **Keywords**: 1 or 2 words each (hyphenated compounds like `devbot:codebase-index` count as one word). These are search tokens — use them as-is for memory search, graphify, and codebase-engine queries. Do not split or rephrase them.
 - **What I need to understand**: Sentences or questions that direct what to investigate. The report should answer these — they shape the focus of findings and the Summary section.
 
 If neither section was provided, ask for both before proceeding.
@@ -80,9 +80,9 @@ If you do NOT have the `graphify` MCP tools available, use glob + grep as fallba
 
 ### 6. Gather codebase patterns and architecture context (if topic is code-related)
 
-Use the `codebase-index` MCP tools to gather codebase patterns and architecture context.
+Use the project's active codebase engine. Consult the `devbot:codebase-index` skill — the shared slot that documents whichever engine `codebase_index_provider` selects (`codebase-memory` by default, `codebase-index` otherwise) — and use the MCP tools it names.
 
-If you do NOT have the `codebase-index` MCP tools available, use glob + grep as fallback:
+If those MCP tools are not available, use glob + grep as fallback:
 
 - `glob("src/**/*.{ts,js,php}")` to find source files matching the topic
 - `grep("relevant_pattern")` to find patterns in the codebase
@@ -123,9 +123,9 @@ Produce structured Markdown report with sections:
 
 <!-- report of the `devbot:graphify` insights — omit if not code-related -->
 
-## Codebase-index insights
+## Codebase insights
 
-<!-- insights of the `devbot:codebase-index` — omit if not code-related -->
+<!-- insights from the active codebase engine (see the `devbot:codebase-index` skill) — omit if not code-related -->
 
 ## Directory Structure
 
