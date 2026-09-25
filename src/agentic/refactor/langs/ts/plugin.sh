@@ -23,7 +23,7 @@ STORAGE_DIR="${REFACTOR_STORAGE_DIR:-${REFACTOR_DIR}/../../../storage/refactor}"
 
 cmd_meta() {
   cat <<'JSON'
-{"lang":"ts","extensions":[".ts",".tsx",".js",".jsx"],"ops":["rename-symbol","move-file","move-member"],"requires":{"rename-symbol":["from","to"],"move-file":["file","to"],"move-member":["class","from","to"]},"risks":{"rename-symbol":"rename","move-file":"move","move-member":"move"}}
+{"lang":"ts","extensions":[".ts",".tsx",".js",".jsx"],"ops":["rename-symbol","move-file","move-member","privatize-members"],"requires":{"rename-symbol":["from","to"],"move-file":["file","to"],"move-member":["class","from","to"],"privatize-members":[]},"risks":{"rename-symbol":"rename","move-file":"move","move-member":"move","privatize-members":"cleanup"}}
 JSON
 }
 

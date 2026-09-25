@@ -1183,13 +1183,15 @@ import json, sys
 m = json.load(sys.stdin)
 assert m["lang"] == "ts", m
 assert ".ts" in m["extensions"], m
-assert m["ops"] == ["rename-symbol", "move-file", "move-member"], m
+assert m["ops"] == ["rename-symbol", "move-file", "move-member", "privatize-members"], m
 assert m["requires"]["rename-symbol"] == ["from", "to"], m
 assert m["requires"]["move-file"] == ["file", "to"], m
 assert m["requires"]["move-member"] == ["class", "from", "to"], m
+assert m["requires"]["privatize-members"] == [], m
 assert m["risks"]["rename-symbol"] == "rename", m
 assert m["risks"]["move-file"] == "move", m
 assert m["risks"]["move-member"] == "move", m
+assert m["risks"]["privatize-members"] == "cleanup", m
 '
 }
 
@@ -1947,6 +1949,200 @@ assert m["risks"]["move-member"] == "move", m
   assert_failure
   assert_output --partial "resolves to 2 members"
   [ "${untouched}" = "1" ]
+}
+
+@test "end-to-end (ts): privatize-members makes an internally-used member private" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op privatize-members --class Base --apply"
+
+  local method property unused kept external
+  method="$(grep -c 'private internalOnly' "${work}/src/base.ts" || true)"
+  property="$(grep -c 'private value' "${work}/src/base.ts" || true)"
+  unused="$(grep -c 'private unusedHere' "${work}/src/base.ts" || true)"
+  kept="$(grep -c 'private alreadyPrivate' "${work}/src/base.ts" || true)"
+  # Reachable from another module, so it is not used only by its own class.
+  external="$(grep -c 'private usedBySubclass' "${work}/src/base.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${method}" = "1" ]
+  [ "${property}" = "1" ]
+  [ "${unused}" = "1" ]
+  [ "${kept}" = "1" ]
+  [ "${external}" = "0" ]
+}
+
+@test "end-to-end (ts): privatize-members leaves members a subclass reaches" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op privatize-members --class Base --apply"
+
+  local reached overridden
+  # Sub.touch() calls the first and Sub overrides the second; neither may be
+  # narrowed, or the subclass stops compiling.
+  reached="$(grep -cE '^  usedBySubclass' "${work}/src/base.ts" || true)"
+  overridden="$(grep -cE '^  overriddenBySubclass' "${work}/src/base.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${reached}" = "1" ]
+  [ "${overridden}" = "1" ]
+}
+
+@test "end-to-end (ts): privatize-members keeps an accessor pair together" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op privatize-members --class Base --apply"
+
+  local getter setter
+  # Only the setter is referenced, but the pair shares one accessibility.
+  getter="$(grep -c 'private get accessor' "${work}/src/base.ts" || true)"
+  setter="$(grep -c 'private set accessor' "${work}/src/base.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${getter}" = "1" ]
+  [ "${setter}" = "1" ]
+}
+
+@test "end-to-end (ts): privatize-members reports an unused member and an exported class" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op privatize-members --class Base --apply"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "has no references in the project"
+  assert_output --partial "may be consumed outside the project"
+}
+
+@test "end-to-end (ts): a privatize-members plan writes nothing" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op privatize-members --class Base"
+
+  local still
+  still="$(grep -cE '^  helper' "${work}/src/base.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "Would make"
+  [ "${still}" = "1" ]
+}
+
+@test "end-to-end (ts): privatize-members sweeps the project when no class is named" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op privatize-members --apply"
+
+  local base sub
+  base="$(grep -c 'private internalOnly' "${work}/src/base.ts" || true)"
+  # Sub.touch is unreferenced too, and a project-wide sweep reaches it.
+  sub="$(grep -c 'private touch' "${work}/src/sub.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${base}" = "1" ]
+  [ "${sub}" = "1" ]
+}
+
+@test "end-to-end (ts): privatize-members narrows every signature of an overloaded method" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op privatize-members --class Overloaded --apply"
+
+  local signatures
+  # Narrowing only the body leaves the overload signatures public, and TypeScript
+  # requires a method's signatures to share one accessibility.
+  signatures="$(grep -c 'private format' "${work}/src/overloaded.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${signatures}" = "3" ]
+}
+
+@test "end-to-end (ts): privatize-members leaves a member a merged interface also declares" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op privatize-members --class Merged --apply"
+
+  local narrowed
+  # The interface's signature sits outside the class, so narrowing only the class
+  # half would leave the member half-public.
+  narrowed="$(grep -c 'private describe' "${work}/src/merged.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${narrowed}" = "0" ]
+}
+
+@test "end-to-end (ts): privatize-members narrows a constructor parameter property" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op privatize-members --class Params --apply"
+
+  local narrowed
+  # getProperties() does not list a parameter property, but it is a class member.
+  narrowed="$(grep -c 'constructor(private seed: number)' "${work}/src/params.ts" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${narrowed}" = "1" ]
+}
+
+@test "end-to-end (ts): a privatize-members apply leaves the project compiling" {
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work tsc compiled
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/privatize-demo/." "${work}/"
+  # The compiler the op is judged by, from the engine's own toolchain. A narrowed
+  # member that is half-public only shows up here — the source looks fine.
+  tsc="${MODULE_DIR}/../../../storage/refactor/ts/node_modules/typescript/bin/tsc"
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang ts --op privatize-members --apply"
+  compiled="$(cd "${work}" && node "${tsc}" --noEmit -p tsconfig.json >/dev/null 2>&1 && echo 0 || echo 1)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${compiled}" = "0" ]
 }
 
 @test "end-to-end (ts): an apply reports the string reference and leaves it" {

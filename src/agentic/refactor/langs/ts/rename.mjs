@@ -17,7 +17,7 @@
  * was left behind, and treats a declaration whose target is now declared as an
  * already-completed rename rather than an error.
  */
-import { Project, Node, SyntaxKind } from "ts-morph";
+import { Project, Node, Scope, SyntaxKind } from "ts-morph";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -600,6 +600,132 @@ function addNamedImport(sourceFile, name, moduleSpecifier) {
   return null;
 }
 
+// Every class in the project, including ones declared inside a namespace body.
+function allClasses(project) {
+  const classes = [];
+  for (const sourceFile of project.getSourceFiles()) {
+    for (const scope of declarationScopes(sourceFile)) {
+      classes.push(...scope.getClasses());
+    }
+  }
+  return classes;
+}
+
+// A class's members as one unit each: methods and properties on their own, and a
+// get/set pair together — TypeScript gives a pair one accessibility, so narrowing
+// only half of it would not compile.
+function memberUnits(cls) {
+  const units = [];
+  const accessors = new Map();
+  for (const accessor of [...cls.getGetAccessors(), ...cls.getSetAccessors()]) {
+    const name = accessor.getName();
+    if (!accessors.has(name)) {
+      const unit = [];
+      accessors.set(name, unit);
+      units.push(unit);
+    }
+    accessors.get(name).push(accessor);
+  }
+  // A method carries every signature it overloads: TypeScript requires them all to
+  // share one accessibility, so narrowing the body alone would not compile.
+  units.push(...cls.getMethods().map((method) => [method, ...method.getOverloads()]));
+  units.push(...cls.getProperties().map((property) => [property]));
+  // A constructor parameter property is a class member too, though getProperties()
+  // does not list it.
+  for (const constructor of cls.getConstructors()) {
+    for (const parameter of constructor.getParameters()) {
+      if (parameter.isParameterProperty()) units.push([parameter]);
+    }
+  }
+  return units;
+}
+
+// Narrow a class's public members to private where nothing but the class itself
+// refers to them; with no class named, every class in the project is swept. A
+// member a subclass or another module reaches is left alone — the compiler
+// resolves those references, and a narrowed member would stop compiling.
+async function privatizeMembers(project, klass, file, apply) {
+  let classes;
+  if (klass) {
+    classes = findDeclarations(project, klass, file, "class");
+    if (classes.length === 0) {
+      return fail(`no class '${klass}' found${file ? " in " + file : ""}`);
+    }
+    if (classes.length > 1) {
+      const listing = classes
+        .map((node) => `  ${relative(node.getSourceFile().getFilePath())}:${node.getStartLineNumber()}`)
+        .sort()
+        .join("\n");
+      return fail(`'${klass}' is declared in ${classes.length} places — pass --file to pick one:\n${listing}`);
+    }
+  } else {
+    classes = allClasses(project);
+  }
+
+  const warnings = [];
+  const files = new Set();
+  let narrowed = 0;
+
+  for (const cls of classes) {
+    const where = relative(cls.getSourceFile().getFilePath());
+    let inClass = 0;
+
+    for (const unit of memberUnits(cls)) {
+      // Only a public member can be narrowed: a protected one is an extension
+      // contract, and a private one is already there.
+      if (unit.some((member) => member.getScope() !== Scope.Public)) continue;
+
+      // Every declaration of the member has to sit in this class. A declaration
+      // outside it — a merged interface's signature — would stay public while the
+      // class half was narrowed.
+      const declarations = unit.flatMap((member) => member.getSymbol()?.getDeclarations() ?? []);
+      if (declarations.some((declaration) => !isInside(declaration, cls))) continue;
+
+      const references = unit.flatMap((member) => member.findReferencesAsNodes());
+      if (references.some((reference) => !isInside(reference, cls))) continue;
+
+      // Unused is not the same as used only here, so it is named as well — with
+      // the caveat that a reference the compiler cannot resolve is not a reference
+      // it reports.
+      if (references.length === 0) {
+        warnings.push(
+          `${where}: '${cls.getName()}.${unit[0].getName()}' has no references in the project (dynamic access is not detected)`,
+        );
+      }
+      if (apply) {
+        for (const member of unit) member.setScope(Scope.Private);
+      }
+      inClass += 1;
+    }
+
+    if (inClass > 0) {
+      files.add(where);
+      narrowed += inClass;
+      // The reference check only sees this project, so an exported class's public
+      // surface is not the whole story.
+      if (cls.isExported()) {
+        warnings.push(`${where}: '${cls.getName()}' is exported, so its public surface may be consumed outside the project`);
+      }
+    }
+  }
+
+  if (apply) {
+    await project.save();
+  }
+
+  process.stdout.write(
+    JSON.stringify({
+      ok: true,
+      engine: ENGINE,
+      applied: apply,
+      summary: `${apply ? "Made" : "Would make"} ${narrowed} member(s) private in ${files.size} class file(s)`,
+      files: [...files].sort(),
+      warnings,
+    }) + "\n",
+  );
+  return 0;
+}
+
 async function main() {
   const request = JSON.parse((await readStdin()) || "{}");
   const op = request.op || "rename-symbol";
@@ -610,8 +736,8 @@ async function main() {
   const kind = request.kind || null;
   const apply = Boolean(request.apply);
 
-  if (op !== "rename-symbol" && op !== "move-file" && op !== "move-member") {
-    return fail(`unsupported op '${op}' (expected rename-symbol|move-file|move-member)`);
+  if (op !== "rename-symbol" && op !== "move-file" && op !== "move-member" && op !== "privatize-members") {
+    return fail(`unsupported op '${op}' (expected rename-symbol|move-file|move-member|privatize-members)`);
   }
 
   const project = createProject();
@@ -622,6 +748,10 @@ async function main() {
 
   if (op === "move-member") {
     return moveMember(project, klass, from, to, file, apply);
+  }
+
+  if (op === "privatize-members") {
+    return privatizeMembers(project, klass, file, apply);
   }
 
   if (!from || !to) {
