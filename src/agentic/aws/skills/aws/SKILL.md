@@ -1,6 +1,6 @@
 ---
 name: devbot:aws
-description: "Use when working with AWS via the aws-mcp server — reading or managing AWS resources, sandboxed scripts, IaC (CDK/CloudFormation), serverless, containers, or when AWS credentials or region are needed. Triggers on 'aws', a service name like EC2, S3, Lambda, EKS, RDS or ElastiCache, an ARN, or an account id."
+description: "Use when working with AWS through a configured connection — reading or managing AWS resources, sandboxed scripts, IaC (CDK/CloudFormation), serverless, containers, or when AWS credentials or region are needed. Triggers on 'aws', a service name like EC2, S3, Lambda, EKS, RDS or ElastiCache, an ARN, or an account id."
 ---
 
 # AWS
