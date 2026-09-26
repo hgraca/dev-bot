@@ -469,10 +469,15 @@ whatever order the catalogue is in.
 
 **Credentials are environment variables**, like every other datasource: the
 variable _names_ are declared and compose interpolates the values from the
-environment `devbot up` builds — no value is written to a config or to a rendered
-file. Nothing mounts `~/.aws` into a sidecar, so a sidecar that talks to AWS
-takes `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` (plus
-`AWS_REGION`) rather than a profile.
+environment `devbot up` builds — no credential value is written to a config or to
+a rendered file. Nothing mounts `~/.aws` into a sidecar, so a sidecar that talks
+to AWS takes `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`
+(plus `AWS_REGION`) rather than a profile.
+
+An unset `${VAR}` a sidecar declares is reported as a `WARN` during the render —
+not refused, because a sidecar with unset credentials still starts and fails only
+when first called. Engines, by contrast, are excluded outright when their env is
+incomplete.
 
 **A sidecar is not probed at startup.** The availability canary exists because
 toolbox treats one unreachable source as fatal — a single down database would

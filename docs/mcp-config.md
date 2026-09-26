@@ -78,13 +78,14 @@ The translator maps `http` to opencode's `remote` and Claude Code's `http` — n
 
 Gateways bind `127.0.0.1` only (never exposed off the machine), in the `18500–18599` block:
 
-| port  | server          |
-| ----- | --------------- |
-| 18501 | mdctx           |
-| 18502 | signoz          |
-| 18503 | svelte          |
-| 18504 | codebase-memory |
-| 18510 | datasources     |
+| port   | server                                                                                  |
+| ------ | --------------------------------------------------------------------------------------- |
+| 18501  | mdctx                                                                                   |
+| 18502  | signoz                                                                                  |
+| 18503  | svelte                                                                                  |
+| 18504  | codebase-memory                                                                         |
+| 18510  | datasources                                                                             |
+| 18520+ | `datasources` sidecars — one per `opensearch`/`s3` datasource, allocated by sorted name |
 
 The `datasources` gateway is the one gateway whose compose file is **generated**
 (`storage/datasources/docker-compose.yml`) rather than shipped in its module

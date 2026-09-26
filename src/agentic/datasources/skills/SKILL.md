@@ -1,6 +1,6 @@
 ---
 name: devbot:datasources
-description: "Use when querying or exploring a project's data sources — MySQL, MariaDB, Postgres, MongoDB, Redis, OpenSearch or S3 — through the shared datasources gateway."
+description: "Use when querying or exploring a project's data sources — MySQL, MariaDB, Postgres, MongoDB, Redis, OpenSearch or S3 — through the datasources module."
 ---
 
 # datasources — Data Access

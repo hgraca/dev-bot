@@ -46,7 +46,7 @@ DEFAULT_GATEWAY_PORT = 18510
 SIDECAR_PORT_OFFSET = 10
 SIDECAR_PORT_LIMIT = 18599
 
-ENV_REF_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$")
+ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
 def fail(message: str) -> NoReturn:
@@ -114,6 +114,27 @@ def _substitute(value: str, versions: dict, port: int) -> str:
     return re.sub(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", replace, value)
 
 
+def _warn_unset_refs(name: str, spec: dict, entry: dict) -> None:
+    """Warn about a declared `${VAR}` the render environment does not have.
+
+    Engines are filtered OUT by available_catalogue.py when their env is
+    incomplete; sidecars are not toolbox sources, so they bypass that gate
+    entirely. This is the substitute: a warning, not a refusal, because a sidecar
+    with unset credentials still starts and fails only when first called.
+    """
+    declared = spec.get("env", {})
+    for var in entry["env"]:
+        value = declared.get(var)
+        if not isinstance(value, str):
+            continue
+        match = ENV_REF_RE.match(value)
+        if match and not os.environ.get(match.group(1)):
+            sys.stderr.write(
+                f"WARN: datasource '{name}': {match.group(1)} is unset (for {var}) — "
+                "the sidecar will start without it\n"
+            )
+
+
 def render_sidecar_service(name: str, spec: dict, port: int, versions: dict) -> str:
     """One streamable-http compose service, indented as a `services:` entry."""
     entry = SIDECARS[spec["type"]]
@@ -121,6 +142,8 @@ def render_sidecar_service(name: str, spec: dict, port: int, versions: dict) -> 
     image = versions.get(entry["image"], "")
     if not image:
         fail(f"datasource '{name}': versions.env must define {entry['image']}")
+
+    _warn_unset_refs(name, spec, entry)
 
     command = [_substitute(arg, versions, port) for arg in entry["command"]]
 

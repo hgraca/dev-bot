@@ -230,6 +230,23 @@ class TestRenderCompose(unittest.TestCase):
             handle.write(versions_body)
         return template
 
+    def test_an_unset_sidecar_reference_warns_but_still_renders(self):
+        # Sidecars bypass available_catalogue.py's env filter, so the render is
+        # the only place that can say so.
+        proc = subprocess.run(
+            [sys.executable, RENDERER, TEMPLATE],
+            input=json.dumps(
+                {"search": {"type": "opensearch", "env": {"OPENSEARCH_URL": "${MISSING_OS_URL}"}}}
+            ),
+            capture_output=True,
+            text=True,
+            env={k: v for k, v in os.environ.items() if k != "MISSING_OS_URL"},
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("MISSING_OS_URL is unset", proc.stderr)
+        self.assertIn("  search:", proc.stdout)
+
     def test_a_sidecar_without_a_runner_image_fails_loudly(self):
         with tempfile.TemporaryDirectory() as tmp:
             template = self._template_in(tmp, "OPENSEARCH_MCP_VERSION=0.1.0\n")

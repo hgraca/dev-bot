@@ -213,9 +213,9 @@ ENGINES = {
 # renderers just route it differently. It has no toolbox source, tool or
 # toolset, so it contributes no tools.yaml document.
 #
-# The entry supplies what the renderers need. `env` lists the variables the
-# sidecar consumes; render_compose renders the service (its image, command and
-# port come from the entry's `service`).
+# The entry supplies what the renderers need: `env` lists the variables the
+# sidecar consumes, and render_compose builds the whole service from `image`,
+# `command` and (for a first-party server) `build`.
 # -----------------------------------------------------------------------------
 # Sidecar credential discipline matches the engines': the container is handed
 # NAMES whose values compose interpolates from the environment `devbot up`
