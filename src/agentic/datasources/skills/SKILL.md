@@ -1,9 +1,9 @@
 ---
 name: devbot:datasources
-description: "Use when querying or exploring a project's databases — MySQL, MariaDB, Postgres, MongoDB."
+description: "Use when querying or exploring a project's data sources — MySQL, MariaDB, Postgres, MongoDB, Redis, OpenSearch or S3 — through the shared datasources gateway."
 ---
 
-# datasources — Database Access
+# datasources — Data Access
 
 A **shared, machine-wide MCP Toolbox container** gives agents free-form query
 access to the databases a project has opted into. One container serves every
@@ -21,6 +21,22 @@ datasources-mariadb-dev_mariadb-dev_execute_sql  { "sql": "SELECT 1" }
 
 One statement per call. For MongoDB the tool takes a whole aggregation
 pipeline, and the collection is a parameter you choose.
+
+## Sidecar datasources
+
+Not every source is a database. A datasource whose `type` is `opensearch` or `s3`
+is a **sidecar**: its own MCP server, so its toolbox of tools is its own — there
+is no `sql` argument and no `datasources-<name>_<name>_execute_sql` tool.
+
+| Type         | Tools it exposes                                                                   |
+| ------------ | ---------------------------------------------------------------------------------- |
+| `opensearch` | `SearchIndexTool` (query DSL — the data), plus index/mapping/shard/health tools    |
+| `s3`         | `list_buckets`, `list_objects`, `head_object`, `get_object` — read-only, no writes |
+
+Query an OpenSearch index the way you would anywhere else — a query-DSL body
+against a named index; start broad, then narrow. For S3, list first and fetch
+second: `get_object` refuses an object above the read cap rather than truncating
+it, so a large object answers with its size instead of a partial body.
 
 ## Exploring
 

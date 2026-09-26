@@ -397,7 +397,8 @@ tool requires a database, so one mongo datasource covers one database. A
 the URI, so SRV records need no port assumption.
 
 `type` is `mysql` (MariaDB included), `postgres`, `sqlite`, `mongodb` or
-`redis`.
+`redis` — or a **sidecar** type (`opensearch`, `s3`), served by its own container
+instead of by the shared gateway (see [Sidecar datasources](#sidecar-datasources)).
 
 **Redis** fits the same one-free-form-tool shape, by a different route. Its
 toolbox tool runs a _fixed_ command list — but an array argument is flattened
@@ -427,6 +428,57 @@ Two behaviours are worth knowing before relying on it:
 - **Nothing blocks writes.** A datasource is exactly as writable as the database
   user it is given — which is how one config serves a writable dev database and
   a read-only production one. Point production at a read-only user.
+
+### Sidecar datasources
+
+Some data sources have no toolbox source at all, so their `type` names a
+**sidecar**: a small MCP server in its own container, on its own port, rather
+than a toolset on the shared gateway. The declaration is unchanged — a `type`
+and an `env` map — so a project opts in exactly as it does for a database.
+
+```jsonc
+"datasources": {
+  "prod-search": {
+    "type": "opensearch",
+    "env": {
+      "OPENSEARCH_URL": "https://search.example.com",
+      "AWS_REGION": "eu-central-1",
+      "AWS_ACCESS_KEY_ID": "${OPENSEARCH_KEY_ID}",
+      "AWS_SECRET_ACCESS_KEY": "${OPENSEARCH_SECRET}"
+    }
+  },
+  "artifacts": {
+    "type": "s3",
+    "env": {
+      "AWS_REGION": "eu-central-1",
+      "AWS_ACCESS_KEY_ID": "${ARTIFACTS_KEY_ID}",
+      "AWS_SECRET_ACCESS_KEY": "${ARTIFACTS_SECRET}"
+    }
+  }
+}
+```
+
+| Type         | Server                                                                                          |
+| ------------ | ----------------------------------------------------------------------------------------------- |
+| `opensearch` | the OpenSearch project's `opensearch-mcp-server-py`, streamable-http                            |
+| `s3`         | dev-bot's own read-only S3 server — `list_buckets`, `list_objects`, `head_object`, `get_object` |
+
+Ports come from the same block as the gateway (`18500–18599`, after 18510),
+allocated by **sorted datasource name**, so a reinit renders the same ports
+whatever order the catalogue is in.
+
+**Credentials are environment variables**, like every other datasource: the
+variable _names_ are declared and compose interpolates the values from the
+environment `devbot up` builds — no value is written to a config or to a rendered
+file. Nothing mounts `~/.aws` into a sidecar, so a sidecar that talks to AWS
+takes `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` (plus
+`AWS_REGION`) rather than a profile.
+
+**A sidecar is not probed at startup.** The availability canary exists because
+toolbox treats one unreachable source as fatal — a single down database would
+take every datasource with it. A sidecar is its own container and cannot do that,
+so one that fails to start fails only its own manifest, which surfaces when the
+agent first calls it.
 
 ## Example: full project config
 
