@@ -348,22 +348,35 @@ EOF
   assert_failure
 }
 
-# ── up.sh ─────────────────────────────────────────────────────────────────────
+# ── up.sh — verify-only ───────────────────────────────────────────────────────
 
-@test "up.sh: reports valid credentials when authenticated" {
-  mkdir -p "$TMP/bin"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/aws"
-  chmod +x "$TMP/bin/aws"
-  run env PATH="$TMP/bin:/usr/bin:/bin" bash "$UP"
+@test "up.sh: verifies every declared connection" {
+  _fake_aws_account "123456789012"
+  _aws_global <<'EOF'
+{ "aws_connections": {
+    "prod": { "region": "eu-central-1", "profile": "ro", "account_id": "123456789012" },
+    "dev":  { "region": "eu-west-1", "profile": "dev-ro" }
+} }
+EOF
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$UP"
   assert_success
-  assert_output --partial "credentials valid"
+  assert_output --partial "connection 'prod' — credentials valid"
+  assert_output --partial "connection 'dev' — credentials valid"
 }
 
-@test "up.sh: warns (does not fail) when unauthenticated and non-TTY" {
+@test "up.sh: warns (does not fail) when a connection's credentials are unusable" {
   mkdir -p "$TMP/bin"
   printf '#!/usr/bin/env bash\nexit 255\n' > "$TMP/bin/aws"
   chmod +x "$TMP/bin/aws"
-  run env PATH="$TMP/bin:/usr/bin:/bin" bash "$UP"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
+EOF
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$UP"
   assert_success
-  assert_output --partial "aws login"
+  assert_output --partial "credentials unusable"
+}
+
+@test "up.sh: never logs in" {
+  run grep -qE 'aws (login|sso login)' "$UP"
+  assert_failure
 }

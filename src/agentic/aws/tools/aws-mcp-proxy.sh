@@ -46,8 +46,17 @@ _die() {
   exit 1
 }
 
+# With --check the launcher resolves the connection, verifies its credentials
+# (and its account pin, when present) and exits without starting a session.
+# up.sh verifies every declared connection that way.
+CHECK=0
+if [[ "${1:-}" == "--check" ]]; then
+  CHECK=1
+  shift
+fi
+
 CONNECTION="${1:-}"
-[[ -n "${CONNECTION}" ]] || _die "usage: aws-mcp-proxy.sh <connection>"
+[[ -n "${CONNECTION}" ]] || _die "usage: aws-mcp-proxy.sh [--check] <connection>"
 [[ -f "${GLOBAL_CONFIG}" ]] || _die "no global config at ${GLOBAL_CONFIG}"
 
 # Read one field of the connection. read_jsonc prints "" for a missing key.
@@ -133,14 +142,24 @@ if [[ -n "${AWS_MCP_PROXY_PROFILES:-}" ]]; then
   echo "  credentials — the agent may switch profiles. Unset it to keep the pin." >&2
 fi
 
-# ── Identity pin (optional) ────────────────────────────────────────────────────
-# Assert the credentials belong to the declared account. This turns "locked to
-# account X" into a checked property: a stale, wrong or swapped key refuses to
-# start instead of silently running as another account.
-if [[ -n "${ACCOUNT}" ]]; then
-  command -v aws &>/dev/null || _die "connection '${CONNECTION}' pins account_id but the AWS CLI is unavailable — run 'devbot install'"
-  actual="$(aws sts get-caller-identity --query Account --output text ${PROXY_ARGS[@]+"${PROXY_ARGS[@]}"} 2>/dev/null || true)"
-  [[ "${actual}" == "${ACCOUNT}" ]] || _die "connection '${CONNECTION}': sts reports account '${actual:-<none>}', expected '${ACCOUNT}'"
+# ── Identity verification ──────────────────────────────────────────────────────
+# Always run under --check (up.sh verifies every declared connection), and always
+# when the connection pins an account. The pin turns "locked to account X" into a
+# checked property: a stale, wrong or swapped key refuses to start instead of
+# silently running as another account.
+ACTUAL_ACCOUNT=""
+if [[ "${CHECK}" == "1" || -n "${ACCOUNT}" ]]; then
+  command -v aws &>/dev/null || _die "the AWS CLI is unavailable — run 'devbot install'"
+  ACTUAL_ACCOUNT="$(aws sts get-caller-identity --query Account --output text ${PROXY_ARGS[@]+"${PROXY_ARGS[@]}"} 2>/dev/null || true)"
+  [[ -n "${ACTUAL_ACCOUNT}" ]] || _die "connection '${CONNECTION}': credentials are unusable (aws sts get-caller-identity failed)"
+  if [[ -n "${ACCOUNT}" && "${ACTUAL_ACCOUNT}" != "${ACCOUNT}" ]]; then
+    _die "connection '${CONNECTION}': sts reports account '${ACTUAL_ACCOUNT}', expected '${ACCOUNT}'"
+  fi
+fi
+
+if [[ "${CHECK}" == "1" ]]; then
+  echo "aws-mcp: connection '${CONNECTION}' OK (account ${ACTUAL_ACCOUNT})" >&2
+  exit 0
 fi
 
 exec uvx "${PROXY}" "${ENDPOINT}" \
