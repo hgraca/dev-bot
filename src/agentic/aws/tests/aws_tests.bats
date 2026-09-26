@@ -40,6 +40,7 @@ echo "KEY:${AWS_ACCESS_KEY_ID:-<unset>}"
 echo "SECRET:${AWS_SECRET_ACCESS_KEY:-<unset>}"
 echo "REGION:${AWS_REGION:-<unset>}"
 echo "PROFILE:${AWS_PROFILE:-<unset>}"
+echo "PROFILES:${AWS_MCP_PROXY_PROFILES:-<unset>}"
 EOF
   chmod +x "$TMP/bin/uvx"
 }
@@ -316,7 +317,7 @@ EOF
   assert_output --partial "expected '123456789012'"
 }
 
-@test "launcher: warns when AWS_MCP_PROXY_PROFILES would override the pin" {
+@test "launcher: drops AWS_MCP_PROXY_PROFILES so it cannot defeat the pin" {
   _fake_uvx
   _aws_global <<'EOF'
 { "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
@@ -325,7 +326,9 @@ EOF
   run env DEV_BOT_ROOT="$TMP/root" AWS_MCP_PROXY_PROFILES="ro admin" \
     PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
   assert_success
-  assert_output --partial "AWS_MCP_PROXY_PROFILES is set and takes precedence"
+  assert_output --partial "would let the agent switch profiles"
+  # The variable must not survive into the proxy process.
+  assert_output --partial "PROFILES:<unset>"
 }
 
 @test "launcher: region falls back to AWS_REGION when the connection omits it" {

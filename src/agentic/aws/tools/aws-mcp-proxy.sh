@@ -145,12 +145,14 @@ fi
 REGION="${REGION:-us-east-1}"
 export AWS_REGION="${REGION}"
 
-# AWS_MCP_PROXY_PROFILES takes precedence over the credential configuration
-# inside the proxy, which would let an agent switch profiles. Surface it rather
-# than let it win quietly.
+# AWS_MCP_PROXY_PROFILES takes precedence over the connection's credentials inside
+# the proxy, so leaving it set would let an agent switch profiles: the account
+# check below would pass while the session ran as another identity. Drop it and
+# say so — the connection is the single source of identity (D10).
 if [[ -n "${AWS_MCP_PROXY_PROFILES:-}" ]]; then
-  echo "aws-mcp: WARNING AWS_MCP_PROXY_PROFILES is set and takes precedence over the connection's" >&2
-  echo "  credentials — the agent may switch profiles. Unset it to keep the pin." >&2
+  echo "aws-mcp: WARNING AWS_MCP_PROXY_PROFILES is set and would let the agent switch profiles;" >&2
+  echo "  ignoring it — connection '${CONNECTION}' is the source of identity." >&2
+  unset AWS_MCP_PROXY_PROFILES
 fi
 
 # ── Identity verification ──────────────────────────────────────────────────────
