@@ -25,7 +25,6 @@ source "${MODULE_DIR}/versions.env"
 RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
 COMPOSE_FILE="${RUNTIME_DIR}/docker-compose.yml"
 CONF_FILE="${RUNTIME_DIR}/conf/tools.yaml"
-GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 # A poller left behind by an older dev-bot. Refresh is no longer backgrounded —
 # datasources are evaluated once, at startup — so the only poller that can
 # exist is one an older install started and never stopped. It is detached, so
@@ -72,14 +71,15 @@ _catalogue_has_sources() {
   [[ -f "$1" ]] && grep -q '^kind: source' "$1"
 }
 
-# Is any sidecar declared? A sidecar runs in its own container, so a catalogue of
-# only sidecars renders no `kind: source` yet still has services to start.
-_has_sidecars() {
-  [[ -f "${GLOBAL_CONFIG}" ]] || return 1
-  local ports=""
-  ports="$(python3 "${MODULE_DIR}/../../_shared/read_jsonc.py" "${GLOBAL_CONFIG}" datasources 2>/dev/null |
-    python3 "${MODULE_DIR}/render_compose.py" --sidecar-ports 2>/dev/null)" || true
-  [[ -n "${ports}" && "${ports}" != "{}" ]]
+# The sidecar SERVICE names, read from the rendered compose rather than
+# re-derived from the config: the answer must describe what is actually on disk,
+# the same discipline `_catalogue_has_sources` follows. The gateway's own
+# container is excluded — a service name is the datasource name.
+_sidecar_services() {
+  [[ -f "${COMPOSE_FILE}" ]] || return 0
+  grep -oE 'container_name: dev-bot-datasources-[a-z0-9-]+' "${COMPOSE_FILE}" 2>/dev/null |
+    sed 's/^container_name: dev-bot-datasources-//' |
+    grep -vx 'mcp' || true
 }
 
 main() {
@@ -106,18 +106,20 @@ main() {
     _warn "datasources — render failed; starting the gateway with the previous config."
   fi
 
-  # ...but the config on disk has to have something to serve. An empty catalogue
-  # — no datasources declared, or every one rejected — means zero tools:
-  # starting the gateway is pure cost, and on macOS/Windows Docker Desktop it is
-  # cost with no upside, because host networking is a Linux capability and the
-  # container comes up answering nobody.
+  # ...but there has to be something to serve. An empty catalogue — no
+  # datasources declared, or every one rejected — means zero tools: starting the
+  # gateway is pure cost, and on macOS/Windows Docker Desktop it is cost with no
+  # upside, because host networking is a Linux capability and the container comes
+  # up answering nobody.
   #
-  # Keyed on the catalogue, never on the render's exit status: the two disagree
+  # Keyed on the artifacts, never on the render's exit status: the two disagree
   # exactly when it matters. A failed render over a stale EMPTY catalogue would
   # otherwise start the zero-tool gateway this guard exists to prevent.
-  # A sidecar-only catalogue has no toolbox source yet still has a service to
-  # start, so both are consulted.
-  if ! _catalogue_has_sources "${CONF_FILE}" && ! _has_sidecars; then
+  local sidecars="" has_sources="false"
+  sidecars="$(_sidecar_services)"
+  _catalogue_has_sources "${CONF_FILE}" && has_sources="true"
+
+  if [[ "${has_sources}" != "true" && -z "${sidecars}" ]]; then
     _skip "datasources — no usable datasources; gateway not started"
     return 0
   fi
@@ -132,18 +134,49 @@ main() {
     set +a
   fi
 
-  # No --no-recreate (unlike the other gateways): the whole point of this
-  # container is the credentials it is handed, so rotating a value in .env must
-  # take effect on the next `devbot up` rather than silently requiring a manual
-  # container removal. The gateway was taken down above, so this always starts
-  # it fresh on the config render.sh just validated.
-  if ! (
-    cd "${RUNTIME_DIR}" &&
-      DEV_UID="${DEV_UID:-$(id -u)}" DEV_GID="${DEV_GID:-$(id -g)}" \
-      TOOLBOX_IMAGE="${TOOLBOX_IMAGE}" TOOLBOX_VERSION="${TOOLBOX_VERSION}" \
-        docker compose -f "${COMPOSE_FILE}" up -d
-  ); then
-    _warn "datasources gateway failed to start — continuing without it."
+  # Each service is brought up ON ITS OWN. `docker compose up` fails as a unit
+  # when any service's image or build context cannot be prepared — which would
+  # let a broken sidecar take the gateway down with it, the exact coupling a
+  # sidecar is supposed to be isolated from. --no-deps keeps the gateway
+  # independent of the sidecars in the same project.
+  local gateway_started="false"
+  if [[ "${has_sources}" == "true" ]]; then
+    # No --no-recreate (unlike the other gateways): the whole point of this
+    # container is the credentials it is handed, so rotating a value in .env must
+    # take effect on the next `devbot up`.
+    if (
+      cd "${RUNTIME_DIR}" &&
+        DEV_UID="${DEV_UID:-$(id -u)}" DEV_GID="${DEV_GID:-$(id -g)}" \
+        TOOLBOX_IMAGE="${TOOLBOX_IMAGE}" TOOLBOX_VERSION="${TOOLBOX_VERSION}" \
+          docker compose -f "${COMPOSE_FILE}" up -d --no-deps datasources-mcp
+    ); then
+      gateway_started="true"
+    else
+      _warn "datasources gateway failed to start — continuing without it."
+    fi
+  else
+    _skip "datasources — no toolbox sources; gateway not started"
+  fi
+
+  # Sidecars: --build so a changed server or re-pinned package rebuilds here
+  # rather than silently reusing a stale image, and a failure stays local to its
+  # own source.
+  local service
+  for service in ${sidecars}; do
+    if (
+      cd "${RUNTIME_DIR}" &&
+        DEV_UID="${DEV_UID:-$(id -u)}" DEV_GID="${DEV_GID:-$(id -g)}" \
+        TOOLBOX_IMAGE="${TOOLBOX_IMAGE}" TOOLBOX_VERSION="${TOOLBOX_VERSION}" \
+          docker compose -f "${COMPOSE_FILE}" up -d --build "${service}"
+    ); then
+      _ok "datasources — sidecar '${service}' started"
+    else
+      _warn "datasources — sidecar '${service}' failed to start; its manifest will not answer"
+    fi
+  done
+
+  # Nothing more to wait on when the gateway itself was not started.
+  if [[ "${gateway_started}" != "true" ]]; then
     return 0
   fi
 

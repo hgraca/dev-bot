@@ -610,6 +610,21 @@ PY
   grep -q "up -d" "${DOCKER_LOG}"
 }
 
+@test "up: a sidecar-only catalogue starts the sidecar, not the gateway" {
+  # A sidecar has no toolbox source, so the gateway has nothing to serve — but
+  # the sidecar's own service must still be started.
+  _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
+  _project_config '["search"]'
+  _record_docker
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+
+  grep -q "up -d --build search" "${DOCKER_LOG}"
+  # The gateway was not brought up — render.sh's readiness `inspect` is not a start.
+  refute grep -qE 'up -d.*datasources-mcp' "${DOCKER_LOG}"
+}
+
 @test "up: reaps a poller left behind by an older dev-bot" {
   # Refresh is no longer backgrounded, so a PID file can only be a leftover —
   # and a detached poller would keep rewriting the config for the new gateway.
