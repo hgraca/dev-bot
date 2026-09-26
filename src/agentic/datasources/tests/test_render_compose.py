@@ -127,6 +127,66 @@ class TestRenderCompose(unittest.TestCase):
         self.assertEqual(proc.returncode, 1)
         self.assertIn("usage:", proc.stderr)
 
+    # ── sidecar datasources ──────────────────────────────────────────────────
+
+    def test_sidecar_marker_is_always_replaced(self):
+        code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("__SIDECAR_SERVICES__", out)
+
+    def test_sidecar_renders_its_own_http_service(self):
+        code, out, err = render(
+            {
+                "search": {
+                    "type": "opensearch",
+                    "env": {"OPENSEARCH_URL": "https://os.example.com", "AWS_PROFILE": "${P}"},
+                }
+            }
+        )
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("  search:", out)
+        self.assertIn("image: ghcr.io/astral-sh/uv:python3.12-trixie-slim", out)
+        # A literal is quoted; a ${VAR} reference is left for compose to resolve.
+        self.assertIn('      OPENSEARCH_URL: "https://os.example.com"', out)
+        self.assertIn("      AWS_PROFILE: ${P}", out)
+        # The pinned package and the allocated port reach the command.
+        self.assertIn('"opensearch-mcp-server-py@0.12.0"', out)
+        self.assertIn('"18520"', out)
+        # The toolbox gateway is still rendered alongside it.
+        self.assertIn("datasources-mcp:", out)
+
+    def test_sidecar_ports_are_sorted_so_a_reinit_is_stable(self):
+        catalogue = {
+            "beta": {"type": "opensearch", "env": {}},
+            "alpha": {"type": "opensearch", "env": {}},
+        }
+
+        _, out_a, _ = render(catalogue)
+        _, out_b, _ = render(dict(reversed(list(catalogue.items()))))
+
+        self.assertEqual(out_a, out_b)
+        # Ports are assigned by sorted name, so beta takes the second one.
+        self.assertIn("18520", out_a)
+        self.assertIn("18521", out_a)
+
+    def test_a_sidecar_without_a_pinned_version_fails_loudly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            template = os.path.join(tmp, "compose.tpl.yml")
+            with open(template, "w", encoding="utf-8") as handle:
+                handle.write(
+                    "services:\n  x:\n    environment: __DATASOURCE_ENV__\n"
+                    "# __SIDECAR_SERVICES__\n"
+                )
+            code, _, err = render(
+                {"search": {"type": "opensearch", "env": {}}}, template=template
+            )
+
+        self.assertEqual(code, 1)
+        self.assertIn("SIDECAR_UV_IMAGE", err)
+        self.assertIn("OPENSEARCH_MCP_VERSION", err)
+
 
 if __name__ == "__main__":
     unittest.main()

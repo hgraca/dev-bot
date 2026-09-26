@@ -87,3 +87,4 @@ services:
       - --poll-interval
       - "5"
     environment: __DATASOURCE_ENV__
+# __SIDECAR_SERVICES__

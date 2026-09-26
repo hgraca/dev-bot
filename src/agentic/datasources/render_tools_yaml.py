@@ -220,6 +220,21 @@ ENGINES = {
 SIDECARS = {
     "opensearch": {
         "env": ("OPENSEARCH_URL", "AWS_PROFILE", "AWS_REGION"),
+        # Served as its own streamable-http container. `image` names the
+        # versions.env key holding the runner image and `version_env` the pinned
+        # package; render_compose substitutes {version} and {port}.
+        "image": "SIDECAR_UV_IMAGE",
+        "version_env": "OPENSEARCH_MCP_VERSION",
+        "command": [
+            "uvx",
+            "opensearch-mcp-server-py@{version}",
+            "--transport",
+            "stream",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "{port}",
+        ],
     },
 }
 
