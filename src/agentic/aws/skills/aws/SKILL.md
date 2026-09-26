@@ -42,7 +42,7 @@ An AWS **connection** is a named identity plus a region. Connections are declare
 Non-interactive by design — no `aws login`, no `aws sso login`, no browser. A connection carries **exactly one** of:
 
 - **`env`** — credential values, literal or `${VAR}`. The launcher loads the repo `.env` and the shell environment, resolves the references, and hands the values to the proxy through its **environment** (never the command line, which is visible in `ps`). A missing referenced variable stops the server. This form fixes the identity to that exact key pair.
-- **`profile`** — a profile in `~/.aws/config`, where the keys live; nothing credential-shaped enters dev-bot config. Best used as an assume-role over a source key limited to `sts:AssumeRole`.
+- **`profile`** — a profile in the shared AWS config (`~/.aws/config`, with the keys in `~/.aws/credentials`); nothing credential-shaped enters dev-bot config. Best used as an assume-role over a source key limited to `sts:AssumeRole`.
 
 Declaring both is rejected: credential precedence between an explicit profile and explicit environment keys would be ambiguous.
 
