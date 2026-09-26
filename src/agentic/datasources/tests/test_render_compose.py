@@ -205,6 +205,19 @@ class TestRenderCompose(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), {"a": 18520, "b": 18521})
 
+    def test_sidecar_ports_follow_a_moved_gateway_port(self):
+        # A moved gateway must take its sidecars with it, not collide with them.
+        proc = subprocess.run(
+            [sys.executable, RENDERER, "--sidecar-ports"],
+            input=json.dumps({"a": {"type": "opensearch", "env": {}}}),
+            capture_output=True,
+            text=True,
+            env={**os.environ, "DATASOURCES_PORT": "18520"},
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"a": 18530})
+
     def _template_in(self, tmp, versions_body):
         """A minimal template with the two markers, and a versions.env beside it."""
         template = os.path.join(tmp, "compose.tpl.yml")

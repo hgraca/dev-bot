@@ -36,10 +36,14 @@ MARKER = "__DATASOURCE_ENV__"
 # only the toolbox service is shipped, the sidecar block is generated.
 SIDECAR_MARKER = "# __SIDECAR_SERVICES__"
 
-# Sidecar ports sit after the toolbox gateway's 18510, inside the block this
-# module already owns (18500-18599). Allocation is by SORTED datasource name, so
-# a reinit renders byte-identical ports regardless of catalogue order.
-SIDECAR_PORT_BASE = 18520
+# Sidecar ports sit just above the gateway's own port, inside the block this
+# module already owns (18500-18599). The base is DERIVED from DATASOURCES_PORT
+# rather than hardcoded, so moving the gateway moves the sidecars with it instead
+# of letting the two collide on one loopback port. Allocation is by SORTED
+# datasource name, so a reinit renders byte-identical ports whatever order the
+# catalogue is in.
+DEFAULT_GATEWAY_PORT = 18510
+SIDECAR_PORT_OFFSET = 10
 SIDECAR_PORT_LIMIT = 18599
 
 ENV_REF_RE = re.compile(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$")
@@ -50,19 +54,31 @@ def fail(message: str) -> NoReturn:
     sys.exit(1)
 
 
+def gateway_port() -> int:
+    """The port the toolbox gateway binds, from DATASOURCES_PORT."""
+    raw = os.environ.get("DATASOURCES_PORT", "").strip()
+    if not raw:
+        return DEFAULT_GATEWAY_PORT
+    try:
+        return int(raw)
+    except ValueError:
+        fail(f"DATASOURCES_PORT={raw!r} is not an integer")
+
+
 def sidecar_ports(catalogue: dict) -> dict:
     """Each sidecar datasource's fixed port, keyed by name."""
+    base = gateway_port() + SIDECAR_PORT_OFFSET
     names = sorted(
         name
         for name, spec in catalogue.items()
         if isinstance(spec, dict) and is_sidecar(spec)
     )
-    if names and SIDECAR_PORT_BASE + len(names) - 1 > SIDECAR_PORT_LIMIT:
+    if names and base + len(names) - 1 > SIDECAR_PORT_LIMIT:
         fail(
             f"{len(names)} sidecar datasources exceed the port block "
-            f"{SIDECAR_PORT_BASE}-{SIDECAR_PORT_LIMIT}"
+            f"{base}-{SIDECAR_PORT_LIMIT}"
         )
-    return {name: SIDECAR_PORT_BASE + index for index, name in enumerate(names)}
+    return {name: base + index for index, name in enumerate(names)}
 
 
 def _environment_value(value) -> str:
