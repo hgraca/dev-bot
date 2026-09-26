@@ -85,31 +85,23 @@ if [[ -n "${ENV_JSON}" && -n "${PROFILE}" ]]; then
   _die "connection '${CONNECTION}' declares both env and profile — declare exactly one (precedence would be ambiguous)"
 fi
 
-# ── Region: the connection wins, then the environment, then the ambient config ─
-if [[ -z "${REGION}" ]]; then
-  REGION="${AWS_REGION:-}"
-fi
-if [[ -z "${REGION}" ]] && command -v aws &>/dev/null; then
-  REGION="$(aws configure get region 2>/dev/null || true)"
-fi
-REGION="${REGION:-us-east-1}"
-
 # ── Credentials ───────────────────────────────────────────────────────────────
 # PROXY_ARGS carries whatever the chosen credential form needs on the command
 # line; secrets never do.
 PROXY_ARGS=()
 
-if [[ -n "${ENV_JSON}" ]]; then
-  # Load the repo .env so ${VAR} references resolve exactly as datasources'
-  # render.sh/up.sh resolve them, then resolve this connection's values and
-  # export them into the proxy's environment.
-  if [[ -f "${ENV_FILE}" ]]; then
-    set -a
-    # shellcheck disable=SC1090
-    source "${ENV_FILE}"
-    set +a
-  fi
+# Load the repo .env ONCE, before either form is resolved — the same load
+# datasources/render.sh and up.sh perform — so a ${VAR} reference and a
+# .env-supplied AWS_REGION resolve identically for env and profile connections.
+if [[ -f "${ENV_FILE}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${ENV_FILE}"
+  set +a
+fi
 
+if [[ -n "${ENV_JSON}" ]]; then
+  # Resolve this connection's values and export them into the proxy's environment.
   while IFS=$'\t' read -r name value; do
     [[ -n "${name}" ]] || continue
     [[ -n "${value}" ]] || _die "connection '${CONNECTION}': env '${name}' resolves to nothing — is the referenced variable exported (repo .env or shell)?"
@@ -139,8 +131,18 @@ else
   _die "connection '${CONNECTION}' declares neither env nor profile — nothing to authenticate with"
 fi
 
-# The proxy's boto3 session needs a region to sign with; the resolved one is also
-# handed to the server as metadata below.
+# ── Region ─────────────────────────────────────────────────────────────────────
+# Resolved AFTER the credential block so a region supplied through the repo .env
+# counts. Precedence: the connection, then AWS_REGION, then the ambient config,
+# then us-east-1. The proxy's boto3 session needs a region to sign with, so the
+# value is exported as well as passed as metadata below.
+if [[ -z "${REGION}" ]]; then
+  REGION="${AWS_REGION:-}"
+fi
+if [[ -z "${REGION}" ]] && command -v aws &>/dev/null; then
+  REGION="$(aws configure get region 2>/dev/null || true)"
+fi
+REGION="${REGION:-us-east-1}"
 export AWS_REGION="${REGION}"
 
 # AWS_MCP_PROXY_PROFILES takes precedence over the credential configuration

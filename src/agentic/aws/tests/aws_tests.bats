@@ -340,6 +340,18 @@ EOF
   assert_output --partial "REGION:ap-south-1"
 }
 
+@test "launcher: a region supplied through the repo .env is honoured" {
+  _fake_uvx
+  _aws_global <<'EOF'
+{ "aws_connections": { "dev": { "profile": "dev-ro" } } }
+EOF
+  echo 'AWS_REGION=ap-south-1' > "$TMP/root/.env"
+  cd "$TMP/proj"
+  run env -u AWS_REGION DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" dev
+  assert_success
+  assert_output --partial "REGION:ap-south-1"
+}
+
 # ── install.sh ────────────────────────────────────────────────────────────────
 
 @test "install.sh: completes non-interactively without writing a region" {
