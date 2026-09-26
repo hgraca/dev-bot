@@ -134,13 +134,17 @@ print('OK')
   assert_equal "$before" "$after"
 }
 
-@test "init.sh: warns when a selected connection is not declared" {
+@test "init.sh: warns when a selected connection is not declared, and wires nothing for it" {
   _aws_seed_project
   echo '{"aws_connections": ["prod", "ghost"]}' > "$TMP/proj/.devbot.project.jsonc"
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
   assert_success
   assert_output --partial "ghost"
   assert_output --partial "not declared"
+  # A server that could not start must not be wired at all.
+  assert [ ! -f "$TMP/proj/.opencode/aws-ghost.mcp.json" ]
+  assert [ ! -f "$TMP/proj/.claude/aws-ghost.mcp.json" ]
+  assert [ -f "$TMP/proj/.opencode/aws-prod.mcp.json" ]
 }
 
 @test "init.sh: prunes a deselected connection's manifests" {

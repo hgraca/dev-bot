@@ -215,6 +215,13 @@ main() {
   else
     for name in ${selected}; do
       _aws_valid_name "${name}" || continue
+      if ! printf ' %s ' "${declared}" | grep -Fq " ${name} "; then
+        # Never wire a server that cannot start: a manifest for an undeclared
+        # connection would register an MCP server whose launcher dies at launch,
+        # surfacing only when the agent first calls it. The warning above is the
+        # whole signal.
+        continue
+      fi
       _aws_write_manifests "${name}"
       _ok "aws — ${PREFIX}${name} -> aws-mcp-proxy.sh ${name}"
     done
