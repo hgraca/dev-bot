@@ -1,38 +1,42 @@
 ---
 title: "AWS"
-description: "Work with AWS from an agent through the managed AWS MCP Server, pinned to a named IAM profile."
+description: "Work with AWS from an agent through per-project AWS connections — one MCP server per connection, pinned to a named identity."
 skills: ["aws"]
-mcps:
-  aws-mcp: "AWS API access — run_script (Python + boto3), documentation search and curated AWS skills"
 ---
 
-Work with AWS from an agent: inspect and manage resources, chain API calls in a sandboxed script, search AWS documentation, and load curated AWS skills — through AWS's managed **AWS MCP Server**.
+Work with AWS from an agent: inspect and manage resources, chain API calls in a sandboxed script, search AWS documentation, and load curated AWS skills — through AWS's managed **AWS MCP Server**, one instance per configured connection.
 
 ## What it does
 
-Ships one skill (`devbot:aws`), vendors AWS's own `agent-toolkit-for-aws` skills, and wires the AWS MCP Server into the harness. The launcher (`aws-mcp-proxy.sh`) pins the session to a resolved AWS profile and passes the default region as metadata.
+Ships one skill (`devbot:aws`), vendors AWS's own `agent-toolkit-for-aws` skills, and wires the AWS MCP Server into the harness — **one server per connection**, named `aws-<connection>`.
 
-The launcher also keeps the agent logged in: `install.sh` runs `aws login` (browser flow, 12 h session auto-renewed every 15 minutes) and `devbot up` re-checks it before the harness starts.
+An AWS **connection** is a named identity plus a region. Connections are declared once in `.devbot.global.jsonc` and each project opts in by name, so a machine can hold several AWS identities (a production read-only one, a dev one, another account) and a project sees only the ones it selected. `devbot init`/`reinit` wires and prunes the servers, and nothing is prompted at install time.
+
+## Credentials
+
+Authentication is **non-interactive**: no `aws login`, no `aws sso login`, no browser.
+
+| Form      | Where the keys live                                                                                                                                                                                              | Note                                            |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `env`     | values, or `${VAR}` references the launcher resolves from the shell environment and the repo `.env`, handed to the server process through its **environment** (never the command line, which is visible in `ps`) | fixes the identity to that exact key pair       |
+| `profile` | `~/.aws/config`                                                                                                                                                                                                  | nothing credential-shaped enters dev-bot config |
+
+Declaring both is rejected — credential precedence would be ambiguous. An optional `account_id` turns the identity into a _checked_ property: the launcher calls `sts get-caller-identity` and refuses to start when the reported account differs.
 
 ## Read-only is an IAM property
 
-The module imposes **no** read/write restriction on the server — it exposes the full AWS API surface (`run_script` reaches any AWS API). The boundary is the IAM permissions on the resolved profile's role, which is why a profile is required and the ambient default identity is never used implicitly.
-
-Two consequences worth stating plainly:
-
-- Run the agent as a **least-privilege** role — ideally read-only for the services it needs.
-- The profile pin scopes the **MCP path only**. An agent with shell access can call AWS directly with whatever credentials the machine holds, so least privilege plus a permission boundary (or SCP) on the role is the control that actually holds.
+The module imposes no read/write restriction; the server exposes the full AWS API surface. Read-only is the IAM policy on the connection's identity — run it as a least-privilege (ideally read-only) role. The connection pin covers the **MCP path only**: an agent with shell access can reach AWS directly with whatever credentials the machine holds, so least privilege plus a permission boundary (or SCP) is the control that actually holds.
 
 ## Configuration
 
-| Key | Environment | Resolution |
-| --- | ----------- | ---------- |
-| `aws_profile` (**required**) | `AWS_PROFILE` | project `.devbot.project.jsonc` → global `.devbot.global.jsonc` |
-| `aws_region` | `AWS_REGION` | project → global → `aws configure get region` → `us-east-1` |
+| Key               | Where                   | Meaning                                                                                                                              |
+| ----------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `aws_connections` | `.devbot.global.jsonc`  | catalogue of connections — a name mapped to `region`, plus `env` (values or `${VAR}`) **or** `profile`, and an optional `account_id` |
+| `aws_connections` | `.devbot.project.jsonc` | list of connection names this project opts into                                                                                      |
 
-Set the profile in the environment or a config file; with neither, the MCP server refuses to start rather than fall back to the default identity.
+A connection that is declared but not selected is not wired; a selected connection that is not declared warns on init.
 
-`AWS_MCP_PROXY_PROFILES` overrides `aws_profile` inside the proxy (it lets an agent switch profiles per call) — the launcher warns when it is set, since it silently unpins the session.
+`install.sh` installs the AWS CLI and `uv` and fetches AWS's agent rules. `up.sh` verifies each declared connection's credentials and pinned account, and never logs in.
 
 ## See also
 

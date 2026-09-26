@@ -1,58 +1,77 @@
 ---
 name: devbot:aws
-description: "Work with AWS — authenticate, resolve region, and use AWS services via the AWS MCP server (aws-mcp), the installed AWS skills, and the AWS CLI. Use this skill for any AWS task: reading/writing resources, IaC (CDK/CloudFormation), serverless, containers, or when AWS credentials or region configuration is needed — even if the user only names a service like S3, Lambda, or EC2."
+description: "Use when working with AWS via the aws-mcp server — reading or managing AWS resources, sandboxed scripts, IaC (CDK/CloudFormation), serverless, containers, or when AWS credentials or region are needed. Triggers on 'aws', a service name like EC2, S3, Lambda, EKS, RDS or ElastiCache, an ARN, or an account id."
 ---
 
 # AWS
 
 This module wires the Agent Toolkit for AWS into dev-bot. It provides three things:
 
-1. **AWS MCP server** (`aws-mcp`) — the full AWS API surface reached through sandboxed script execution, plus real-time docs search, from one authenticated endpoint pinned to a resolved profile.
+1. **AWS MCP servers** (`aws-<connection>`) — the full AWS API surface reached through sandboxed script execution, plus real-time docs search. One server per configured **connection**.
 2. **AWS skills** — curated packages installed from `aws/agent-toolkit-for-aws` (see `.agents/skills/agent-toolkit-for-aws/`).
 3. **AWS agent rules** — guidance in `.agents/memory/active/aws-agent-rules.md`.
 
-## Profile
+## Connections
 
-Every request is signed with a resolved **AWS profile** — `AWS_PROFILE`, else `aws_profile` in the project or global config. A profile is **required**: with none, the MCP server refuses to start rather than fall back to the ambient default identity.
+An AWS **connection** is a named identity plus a region. Connections are declared once in `.devbot.global.jsonc`, and each project opts in by name.
 
-IAM on that profile's role is what makes the access read-only. The module adds no restriction of its own, and the pin covers the MCP path only — an agent with shell access can still reach AWS directly, so the role (plus a permission boundary or SCP) is the control that holds. `AWS_MCP_PROXY_PROFILES` overrides the pin; the launcher warns when it is set.
+```jsonc
+// .devbot.global.jsonc
+"aws_connections": {
+  "aws-prod-ro": {
+    "region": "eu-central-1",
+    "account_id": "123456789012", // optional — asserted at launch
+    "env": {
+      "AWS_ACCESS_KEY_ID": "${AWS_PROD_RO_KEY_ID}",
+      "AWS_SECRET_ACCESS_KEY": "${AWS_PROD_RO_SECRET}"
+    }
+  },
+  "aws-dev": { "region": "eu-central-1", "profile": "aws-dev" }
+}
+```
 
-## Authentication
+```jsonc
+// .devbot.project.jsonc — opt in by name
+"aws_connections": ["aws-prod-ro"]
+```
 
-Credentials come from `aws login` (browser flow), which writes a short-lived session to `~/.aws/`; the proxy reads them fresh on every request.
+`devbot init`/`reinit` wires one MCP server per selected connection, named `aws-<connection>`. A connection that is declared but not selected is not wired; a selected one that is not declared warns.
 
-- Check you are authenticated: `aws sts get-caller-identity`
-- Authenticate: `aws login`
-- Credentials are valid **12 hours**, renewable for **90 days** without re-authenticating in the browser.
+## Credentials
 
-`devbot` (and `devbot up`) automatically ensures you are logged in — if not, it triggers `aws login` before the harness starts.
+Non-interactive by design — no `aws login`, no `aws sso login`, no browser. A connection carries **exactly one** of:
+
+- **`env`** — credential values, literal or `${VAR}`. The launcher loads the repo `.env` and the shell environment, resolves the references, and hands the values to the proxy through its **environment** (never the command line, which is visible in `ps`). A missing referenced variable stops the server. This form fixes the identity to that exact key pair.
+- **`profile`** — a profile in `~/.aws/config`, where the keys live; nothing credential-shaped enters dev-bot config. Best used as an assume-role over a source key limited to `sts:AssumeRole`.
+
+Declaring both is rejected: credential precedence between an explicit profile and explicit environment keys would be ambiguous.
+
+**`account_id`** (optional) asserts the identity. The launcher calls `sts get-caller-identity` and refuses to start when the reported account differs, so a stale, wrong or swapped key fails loudly instead of silently running as another account.
+
+## Read-only is an IAM property
+
+The module imposes no read/write restriction — the server exposes the full AWS API surface. The boundary is the IAM policy on the connection's identity, and the connection pin covers the **MCP path only**: an agent with shell access can still reach AWS directly with whatever credentials the machine holds. Least privilege on the identity, plus a permission boundary or SCP, is the control that holds. `AWS_MCP_PROXY_PROFILES` would let an agent switch profiles inside the proxy — the launcher warns when it is set.
 
 ## Region
 
-The MCP proxy resolves the region with this precedence (first non-empty wins):
-
-1. `AWS_REGION` environment variable
-2. `aws_region` in `.devbot.project.jsonc` (per-project override)
-3. `aws_region` in `.devbot.global.jsonc` (global default)
-4. `aws configure get region` (ambient `~/.aws/config`)
-5. `us-east-1`
-
-To change the region for a single project, add `"aws_region": "<region>"` to that project's `.devbot.project.jsonc`.
+A connection's `region` sets the default region for its operations. When it is absent the launcher falls back to `AWS_REGION`, then `aws configure get region`, then `us-east-1`.
 
 ## When to Use What
 
-| Need                                                                            | Use                                                      |
-| ------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| Inspect or mutate AWS resources, run sandboxed scripts, search AWS docs         | **AWS MCP server** (`aws-mcp` tools)                     |
-| Service-specific guidance (CDK, serverless, containers, billing, SDK usage)     | **AWS skills** (`.agents/skills/agent-toolkit-for-aws/`) |
-| One-off CLI commands, auth checks, `aws configure`                              | **AWS CLI** (`aws ...`)                                  |
-| Before acting, confirm the rule about using the MCP server / discovering skills | **aws-agent-rules.md**                                   |
+| Need                                                                        | Use                                                      |
+| --------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Inspect or manage AWS resources, run sandboxed scripts, search AWS docs     | **AWS MCP server** (`aws-<connection>` tools)            |
+| Service-specific guidance (CDK, serverless, containers, billing, SDK usage) | **AWS skills** (`.agents/skills/agent-toolkit-for-aws/`) |
+| One-off CLI commands and identity checks                                    | **AWS CLI** (`aws ...`)                                  |
+| Before acting, confirm the rule about the MCP server / discovering skills   | **aws-agent-rules.md**                                   |
 
 ## Troubleshooting
 
-| Symptom                                         | Fix                                                                         |
-| ----------------------------------------------- | --------------------------------------------------------------------------- |
-| `Unable to locate credentials` / `ExpiredToken` | Run `aws login`                                                             |
-| MCP server won't start (`uvx` not found)        | Run `devbot install` (installs `uv`), ensure `~/.local/bin` is on PATH      |
-| Wrong region in MCP                             | Set `aws_region` in `.devbot.project.jsonc`, or `AWS_REGION` env            |
-| Skills missing                                  | `devbot module install` (clones the toolkit repo), then re-init the project |
+| Symptom                                                       | Fix                                                                                                         |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `Unable to locate credentials`                                | Check the connection's `env` references resolve (repo `.env` or shell), or that the profile exists          |
+| `ExpiredToken`                                                | The static credential or role session expired — refresh the source; nothing re-authenticates on your behalf |
+| Server refuses to start; identity is not the expected account | The connection's `account_id` pin rejected it — fix the key or the pin                                      |
+| MCP server won't start (`uvx` not found)                      | `devbot install` (installs `uv`); ensure `~/.local/bin` is on PATH                                          |
+| A connection is missing in this project                       | Declare it in `.devbot.global.jsonc` and opt in via `aws_connections`                                       |
+| Skills missing                                                | `devbot module install` (clones the toolkit repo), then re-init the project                                 |
