@@ -17,7 +17,6 @@ setup() {
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
   REPO_ROOT="$(cd "$MODULE_DIR/../../.." && pwd)"
 
-  SET_JSONC="$REPO_ROOT/src/_shared/set_jsonc_key.py"
   READ_JSONC="$REPO_ROOT/src/_shared/read_jsonc.py"
   LAUNCHER="$MODULE_DIR/tools/aws-mcp-proxy.sh"
   INSTALL="$MODULE_DIR/install.sh"
@@ -57,33 +56,6 @@ fi
 exit 1
 EOF
   chmod +x "$TMP/bin/aws"
-}
-
-# ── set_jsonc_key.py ───────────────────────────────────────────────────────────
-
-@test "set_jsonc_key: inserts a new top-level key, preserving comments" {
-  cat > "$TMP/cfg.jsonc" <<'EOF'
-{
-  // keep me
-  "existing": true
-}
-EOF
-  run python3 "$SET_JSONC" "$TMP/cfg.jsonc" aws_region '"us-east-1"'
-  assert_success
-  assert_output "SET"
-
-  run python3 "$READ_JSONC" "$TMP/cfg.jsonc" aws_region
-  assert_output "us-east-1"
-
-  run grep -c '// keep me' "$TMP/cfg.jsonc"
-  assert_output "1"
-}
-
-@test "set_jsonc_key: idempotent — UNCHANGED when value equal" {
-  echo '{"aws_region":"us-east-1"}' > "$TMP/cfg.jsonc"
-  run python3 "$SET_JSONC" "$TMP/cfg.jsonc" aws_region '"us-east-1"'
-  assert_success
-  assert_output "UNCHANGED"
 }
 
 # ── init.sh — per-connection dynamic manifests ────────────────────────────────
@@ -243,7 +215,10 @@ EOF
   assert_output --partial "SECRET:literal-secret"
   assert_output --partial "REGION:eu-central-1"
   # A secret must never appear on the command line (argv is visible in `ps`).
-  refute_output --regexp 'ARGS:.*AKIAEXAMPLE'
+  local args_line
+  args_line="$(printf '%s\n' "$output" | grep '^ARGS:')"
+  [[ "${args_line}" != *"AKIAEXAMPLE"* ]]
+  [[ "${args_line}" != *"literal-secret"* ]]
 }
 
 @test "launcher: a missing \${VAR} refuses to start with nothing on stdout" {
@@ -341,7 +316,7 @@ EOF
 
 # ── install.sh ────────────────────────────────────────────────────────────────
 
-@test "install.sh: writes default region to global config when non-interactive" {
+@test "install.sh: completes non-interactively without writing a region" {
   mkdir -p "$TMP/bin" "$TMP/root" "$TMP/home"
   echo '{"project_name":"demo"}' > "$TMP/root/.devbot.global.jsonc"
 
@@ -360,11 +335,17 @@ exit 0
 EOF
   chmod +x "$TMP/bin/curl"
 
-  run env HOME="$TMP/home" DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$INSTALL"
+  run env HOME="$TMP/home" DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$INSTALL" </dev/null
   assert_success
 
+  # No region menu and no aws_region write — the region lives on each connection.
   run python3 "$READ_JSONC" "$TMP/root/.devbot.global.jsonc" aws_region
-  assert_output "us-east-1"
+  assert_output ""
+}
+
+@test "install.sh: never logs in" {
+  run grep -qE 'aws (login|sso login)' "$INSTALL"
+  assert_failure
 }
 
 # ── up.sh ─────────────────────────────────────────────────────────────────────
