@@ -25,6 +25,7 @@ source "${MODULE_DIR}/versions.env"
 RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
 COMPOSE_FILE="${RUNTIME_DIR}/docker-compose.yml"
 CONF_FILE="${RUNTIME_DIR}/conf/tools.yaml"
+GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 # A poller left behind by an older dev-bot. Refresh is no longer backgrounded —
 # datasources are evaluated once, at startup — so the only poller that can
 # exist is one an older install started and never stopped. It is detached, so
@@ -71,6 +72,16 @@ _catalogue_has_sources() {
   [[ -f "$1" ]] && grep -q '^kind: source' "$1"
 }
 
+# Is any sidecar declared? A sidecar runs in its own container, so a catalogue of
+# only sidecars renders no `kind: source` yet still has services to start.
+_has_sidecars() {
+  [[ -f "${GLOBAL_CONFIG}" ]] || return 1
+  local ports=""
+  ports="$(python3 "${MODULE_DIR}/../../_shared/read_jsonc.py" "${GLOBAL_CONFIG}" datasources 2>/dev/null |
+    python3 "${MODULE_DIR}/render_compose.py" --sidecar-ports 2>/dev/null)" || true
+  [[ -n "${ports}" && "${ports}" != "{}" ]]
+}
+
 main() {
   _info "datasources — up"
 
@@ -104,7 +115,9 @@ main() {
   # Keyed on the catalogue, never on the render's exit status: the two disagree
   # exactly when it matters. A failed render over a stale EMPTY catalogue would
   # otherwise start the zero-tool gateway this guard exists to prevent.
-  if ! _catalogue_has_sources "${CONF_FILE}"; then
+  # A sidecar-only catalogue has no toolbox source yet still has a service to
+  # start, so both are consulted.
+  if ! _catalogue_has_sources "${CONF_FILE}" && ! _has_sidecars; then
     _skip "datasources — no usable datasources; gateway not started"
     return 0
   fi

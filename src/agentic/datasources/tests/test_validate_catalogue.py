@@ -472,5 +472,26 @@ class TestIsReady(unittest.TestCase):
         self.assertFalse(_is_ready(1, timeout=0.5))
 
 
+class TestSidecarPassthrough(unittest.TestCase):
+    """A sidecar never reaches the toolbox oracle."""
+
+    def test_a_sidecar_only_catalogue_passes_through_without_docker(self):
+        # A sidecar runs in its own container, so a broken one cannot take the
+        # shared gateway down — the canary's reason does not apply. With no
+        # engines, main() must not consult docker at all.
+        import json
+
+        catalogue = {"search": {"type": "opensearch", "env": {}}}
+        proc = subprocess.run(
+            [sys.executable, os.path.join(MODULE_DIR, "validate_catalogue.py")],
+            input=json.dumps(catalogue),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), catalogue)
+
+
 if __name__ == "__main__":
     unittest.main()

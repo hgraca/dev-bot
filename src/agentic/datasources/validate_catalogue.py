@@ -57,7 +57,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from render_tools_yaml import effective_env_names, load_catalogue, render
+from render_tools_yaml import effective_env_names, is_sidecar, load_catalogue, render
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEV_BOT_ROOT = os.environ.get("DEV_BOT_ROOT") or os.path.dirname(
@@ -454,44 +454,58 @@ def main() -> int:
         sys.stdout.write("{}\n")
         return EXIT_OK
 
-    versions = load_versions(VERSIONS_FILE)
-    image = versions.get("TOOLBOX_IMAGE")
-    version = versions.get("TOOLBOX_VERSION")
-    if not image or not version:
-        sys.stderr.write(
-            f"ERROR: cannot read TOOLBOX_IMAGE/TOOLBOX_VERSION from {VERSIONS_FILE}\n"
-        )
-        return EXIT_INFRA
+    # Sidecars are NOT sent to the toolbox oracle. Each runs as its own
+    # container, so a broken one cannot take anything else down — the very
+    # reason the shared gateway needs a canary does not apply to them. They pass
+    # through unprobed; a sidecar that will not start fails its own manifest
+    # only, which surfaces when the agent first calls it.
+    sidecars = {n: s for n, s in catalogue.items() if is_sidecar(s)}
+    engines = {n: s for n, s in catalogue.items() if not is_sidecar(s)}
 
-    if shutil.which("docker") is None:
-        sys.stderr.write("ERROR: docker not found; cannot validate the catalogue\n")
-        return EXIT_INFRA
+    accepted: dict = {}
+    if engines:
+        versions = load_versions(VERSIONS_FILE)
+        image = versions.get("TOOLBOX_IMAGE")
+        version = versions.get("TOOLBOX_VERSION")
+        if not image or not version:
+            sys.stderr.write(
+                f"ERROR: cannot read TOOLBOX_IMAGE/TOOLBOX_VERSION from {VERSIONS_FILE}\n"
+            )
+            return EXIT_INFRA
 
-    data_dir = os.path.join(DEV_BOT_ROOT, "storage", "datasources", "data")
+        if shutil.which("docker") is None:
+            sys.stderr.write("ERROR: docker not found; cannot validate the catalogue\n")
+            return EXIT_INFRA
 
-    # Clear leftovers from a run that was killed, once, before the canaries
-    # start — see _sweep_stale_canaries for why this cannot be per canary.
-    _sweep_stale_canaries(_run, "docker")
+        data_dir = os.path.join(DEV_BOT_ROOT, "storage", "datasources", "data")
 
-    def run_canary(candidate: dict) -> CanaryResult:
-        return docker_canary(
-            render(candidate),
-            image=image,
-            version=version,
-            env_names=effective_env_names(candidate),
-            timeout=timeout,
-            data_dir=data_dir if os.path.isdir(data_dir) else None,
-        )
+        # Clear leftovers from a run that was killed, once, before the canaries
+        # start — see _sweep_stale_canaries for why this cannot be per canary.
+        _sweep_stale_canaries(_run, "docker")
 
-    try:
-        accepted, rejected = validate(catalogue, run_canary)
-    except ValidationError as exc:
-        sys.stderr.write(f"ERROR: {exc}\n")
-        return exc.code
+        def run_canary(candidate: dict) -> CanaryResult:
+            return docker_canary(
+                render(candidate),
+                image=image,
+                version=version,
+                env_names=effective_env_names(candidate),
+                timeout=timeout,
+                data_dir=data_dir if os.path.isdir(data_dir) else None,
+            )
 
-    for name, reason in rejected:
-        sys.stderr.write(f"INFO: datasource '{name}' is not usable — {reason}\n")
-    sys.stdout.write(json.dumps(accepted, indent=2) + "\n")
+        try:
+            accepted, rejected = validate(engines, run_canary)
+        except ValidationError as exc:
+            sys.stderr.write(f"ERROR: {exc}\n")
+            return exc.code
+
+        for name, reason in rejected:
+            sys.stderr.write(f"INFO: datasource '{name}' is not usable — {reason}\n")
+
+    # Merge back in catalogue order, so the emitted catalogue is stable whatever
+    # the threads did.
+    surviving = {n: s for n, s in catalogue.items() if n in accepted or n in sidecars}
+    sys.stdout.write(json.dumps(surviving, indent=2) + "\n")
     return EXIT_OK
 
 
