@@ -277,6 +277,11 @@ def is_sidecar(spec: dict) -> bool:
 # Datasource names become tool and toolset names, and a URL path segment.
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
+# Names the rendered compose already uses: `datasources-mcp` is the toolbox
+# service key, and a datasource called `mcp` would produce that same
+# container_name. Either collision makes the whole compose file unparseable.
+RESERVED_NAMES = frozenset({"mcp", "datasources-mcp"})
+
 # A datasource's `env` VALUE is either a `${VAR}` REFERENCE to an environment
 # variable or a LITERAL, written straight into the rendered config:
 #
@@ -374,6 +379,20 @@ def _engine_for(name: str, spec: dict) -> dict:
     return engine
 
 
+def _validate_sidecar_env(name: str, spec: dict) -> None:
+    """Every `env` key must be one the sidecar's server actually consumes.
+
+    Engines get the same treatment from _validate_env. Without it a typo'd
+    credential key is silently dropped, and the user believes it is wired.
+    """
+    known = set(SIDECARS[spec["type"]]["env"])
+    for key in sorted(set(spec.get("env", {})) - known):
+        _fail(
+            f"datasource '{name}': unknown env key '{key}' for type "
+            f"'{spec['type']}' (known: {', '.join(sorted(known))})"
+        )
+
+
 def validated_items(catalogue: dict):
     """Yield (name, spec, engine) for each datasource, failing loudly on
     anything invalid. The single validation path, shared by every renderer."""
@@ -382,9 +401,15 @@ def validated_items(catalogue: dict):
         _reject_unknown_keys(name, spec)
         if not NAME_RE.match(name):
             _fail(f"datasource name '{name}' must match {NAME_RE.pattern}")
+        if name in RESERVED_NAMES:
+            _fail(
+                f"datasource name '{name}' is reserved — it names the rendered "
+                "compose service"
+            )
         if not isinstance(spec.get("env", {}), dict):
             _fail(f"datasource '{name}': 'env' must be an object")
         if is_sidecar(spec):
+            _validate_sidecar_env(name, spec)
             # Served by its own MCP server: no toolbox source, tool or toolset.
             continue
         engine = _engine_for(name, spec)

@@ -232,6 +232,30 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("opensearch", err)
 
+    def test_a_reserved_datasource_name_is_an_error(self):
+        # These collide with the rendered compose's own service/container names.
+        for name in ("mcp", "datasources-mcp"):
+            with self.subTest(name=name):
+                code, _, err = render({name: {"type": "opensearch", "env": {}}})
+                self.assertEqual(code, 1)
+                self.assertIn("reserved", err)
+
+    def test_an_unknown_sidecar_env_key_is_an_error(self):
+        # A typo'd credential key must not be silently dropped.
+        code, _, err = render(
+            {"search": {"type": "opensearch", "env": {"OPENSEARCH_URLd": "x"}}}
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("OPENSEARCH_URLd", err)
+
+    def test_a_known_sidecar_env_key_is_accepted(self):
+        code, _, err = render(
+            {"search": {"type": "opensearch", "env": {"OPENSEARCH_URL": "https://os"}}}
+        )
+
+        self.assertEqual(code, 0, err)
+
     def test_unknown_env_key_is_an_error(self):
         # Catches a typo'd field instead of silently emitting a bogus source.
         code, _, err = render(
