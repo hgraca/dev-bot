@@ -217,19 +217,49 @@ ENGINES = {
 # sidecar consumes; render_compose renders the service (its image, command and
 # port come from the entry's `service`).
 # -----------------------------------------------------------------------------
+# Sidecar credential discipline matches the engines': the container is handed
+# NAMES whose values compose interpolates from the environment `devbot up`
+# builds, so no value is written to disk. A sidecar that talks to AWS takes the
+# standard credential variables rather than a profile — nothing mounts ~/.aws
+# into it.
 SIDECARS = {
     "opensearch": {
-        "env": ("OPENSEARCH_URL", "AWS_PROFILE", "AWS_REGION"),
-        # Served as its own streamable-http container. `image` names the
-        # versions.env key holding the runner image and `version_env` the pinned
-        # package; render_compose substitutes {version} and {port}.
+        "env": (
+            "OPENSEARCH_URL",
+            "AWS_REGION",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+        ),
+        # `image` names the versions.env key holding the runner image; every
+        # {TOKEN} in the command is resolved from versions.env ({port} excepted).
         "image": "SIDECAR_UV_IMAGE",
-        "version_env": "OPENSEARCH_MCP_VERSION",
         "command": [
             "uvx",
-            "opensearch-mcp-server-py@{version}",
+            "opensearch-mcp-server-py@{OPENSEARCH_MCP_VERSION}",
             "--transport",
             "stream",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "{port}",
+        ],
+    },
+    "s3": {
+        "env": (
+            "AWS_REGION",
+            "AWS_ACCESS_KEY_ID",
+            "AWS_SECRET_ACCESS_KEY",
+            "AWS_SESSION_TOKEN",
+            "S3_MCP_MAX_GET_BYTES",
+        ),
+        # dev-bot's own read-only S3 server, built from its module directory so
+        # the dependencies are baked in rather than re-resolved on every start.
+        "image": "S3_MCP_IMAGE",
+        "build": "${DEV_BOT_ROOT}/src/agentic/datasources/s3-mcp",
+        "command": [
+            "python",
+            "server.py",
             "--host",
             "127.0.0.1",
             "--port",

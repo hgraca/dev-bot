@@ -78,23 +78,44 @@ def _environment_value(value) -> str:
     return json.dumps(raw)
 
 
+def _substitute(value: str, versions: dict, port: int) -> str:
+    """Resolve {TOKEN} references in a sidecar command or path.
+
+    {port} is the allocated port; every other token is a versions.env key, so a
+    pin lives in one place. An unknown token fails loudly rather than rendering
+    an empty argument.
+    """
+
+    def replace(match: "re.Match") -> str:
+        token = match.group(1)
+        if token == "port":
+            return str(port)
+        resolved = versions.get(token, "")
+        if not resolved:
+            fail(f"versions.env is missing '{token}' (referenced by a sidecar)")
+        return resolved
+
+    return re.sub(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", replace, value)
+
+
 def render_sidecar_service(name: str, spec: dict, port: int, versions: dict) -> str:
     """One streamable-http compose service, indented as a `services:` entry."""
     entry = SIDECARS[spec["type"]]
 
     image = versions.get(entry["image"], "")
-    version = versions.get(entry["version_env"], "")
-    if not image or not version:
-        fail(
-            f"datasource '{name}': versions.env must define both "
-            f"{entry['image']} and {entry['version_env']}"
-        )
+    if not image:
+        fail(f"datasource '{name}': versions.env must define {entry['image']}")
 
-    command = [arg.format(version=version, port=port) for arg in entry["command"]]
+    command = [_substitute(arg, versions, port) for arg in entry["command"]]
 
     lines = [
         f"  {name}:",
         f"    image: {image}",
+    ]
+    if entry.get("build"):
+        lines.append("    build:")
+        lines.append(f"      context: {entry['build']}")
+    lines += [
         f"    container_name: dev-bot-datasources-{name}",
         '    restart: "no"',
         # Loopback-only, like every other dev-bot gateway: the sidecar's

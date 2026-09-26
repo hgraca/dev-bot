@@ -140,7 +140,7 @@ class TestRenderCompose(unittest.TestCase):
             {
                 "search": {
                     "type": "opensearch",
-                    "env": {"OPENSEARCH_URL": "https://os.example.com", "AWS_PROFILE": "${P}"},
+                    "env": {"OPENSEARCH_URL": "https://os.example.com", "AWS_REGION": "${R}"},
                 }
             }
         )
@@ -150,12 +150,28 @@ class TestRenderCompose(unittest.TestCase):
         self.assertIn("image: ghcr.io/astral-sh/uv:python3.12-trixie-slim", out)
         # A literal is quoted; a ${VAR} reference is left for compose to resolve.
         self.assertIn('      OPENSEARCH_URL: "https://os.example.com"', out)
-        self.assertIn("      AWS_PROFILE: ${P}", out)
+        self.assertIn("      AWS_REGION: ${R}", out)
         # The pinned package and the allocated port reach the command.
         self.assertIn('"opensearch-mcp-server-py@0.12.0"', out)
         self.assertIn('"18520"', out)
         # The toolbox gateway is still rendered alongside it.
         self.assertIn("datasources-mcp:", out)
+
+    def test_the_s3_sidecar_is_built_from_its_module_directory(self):
+        code, out, err = render(
+            {"bucket": {"type": "s3", "env": {"AWS_REGION": "eu-central-1"}}}
+        )
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("  bucket:", out)
+        self.assertIn("image: devbot-datasources-s3-mcp:local", out)
+        # Built from the module, so the deps live in the image rather than being
+        # resolved at every container start.
+        self.assertIn("    build:", out)
+        self.assertIn("context: ${DEV_BOT_ROOT}/src/agentic/datasources/s3-mcp", out)
+        self.assertIn('      AWS_REGION: "eu-central-1"', out)
+        self.assertIn('"server.py"', out)
+        self.assertIn('"18520"', out)
 
     def test_sidecar_ports_are_sorted_so_a_reinit_is_stable(self):
         catalogue = {
@@ -189,20 +205,36 @@ class TestRenderCompose(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), {"a": 18520, "b": 18521})
 
-    def test_a_sidecar_without_a_pinned_version_fails_loudly(self):
+    def _template_in(self, tmp, versions_body):
+        """A minimal template with the two markers, and a versions.env beside it."""
+        template = os.path.join(tmp, "compose.tpl.yml")
+        with open(template, "w", encoding="utf-8") as handle:
+            handle.write(
+                "services:\n  x:\n    environment: __DATASOURCE_ENV__\n"
+                "# __SIDECAR_SERVICES__\n"
+            )
+        with open(os.path.join(tmp, "versions.env"), "w", encoding="utf-8") as handle:
+            handle.write(versions_body)
+        return template
+
+    def test_a_sidecar_without_a_runner_image_fails_loudly(self):
         with tempfile.TemporaryDirectory() as tmp:
-            template = os.path.join(tmp, "compose.tpl.yml")
-            with open(template, "w", encoding="utf-8") as handle:
-                handle.write(
-                    "services:\n  x:\n    environment: __DATASOURCE_ENV__\n"
-                    "# __SIDECAR_SERVICES__\n"
-                )
+            template = self._template_in(tmp, "OPENSEARCH_MCP_VERSION=0.1.0\n")
             code, _, err = render(
                 {"search": {"type": "opensearch", "env": {}}}, template=template
             )
 
         self.assertEqual(code, 1)
         self.assertIn("SIDECAR_UV_IMAGE", err)
+
+    def test_a_sidecar_command_token_without_a_pin_fails_loudly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            template = self._template_in(tmp, "SIDECAR_UV_IMAGE=uv:test\n")
+            code, _, err = render(
+                {"search": {"type": "opensearch", "env": {}}}, template=template
+            )
+
+        self.assertEqual(code, 1)
         self.assertIn("OPENSEARCH_MCP_VERSION", err)
 
 
