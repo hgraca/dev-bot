@@ -30,8 +30,16 @@
 
 set -euo pipefail
 
-# Symlink-safe: resolve through any symlink to this real file's directory.
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# Symlink-safe and GNU-free: resolve the symlink chain by hand. `readlink -f` is
+# GNU-only and absent on macOS, which this module must support — the format-*
+# and codebase-memory tools resolve the same way.
+_SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "${_SOURCE}" ]]; do
+  _DIR="$(cd -P "$(dirname "${_SOURCE}")" && pwd)"
+  _SOURCE="$(readlink "${_SOURCE}")"
+  [[ "${_SOURCE}" != /* ]] && _SOURCE="${_DIR}/${_SOURCE}"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "${_SOURCE}")" && pwd)"
 DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
 GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 ENV_FILE="${DEV_BOT_ROOT}/.env"
