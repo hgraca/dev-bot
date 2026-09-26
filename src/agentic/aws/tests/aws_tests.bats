@@ -20,6 +20,7 @@ setup() {
 
   SET_JSONC="$REPO_ROOT/src/_shared/set_jsonc_key.py"
   READ_JSONC="$REPO_ROOT/src/_shared/read_jsonc.py"
+  TRANSLATE="$REPO_ROOT/src/_shared/mcp_translate.py"
   LAUNCHER="$MODULE_DIR/tools/aws-mcp-proxy.sh"
   INSTALL="$MODULE_DIR/install.sh"
   UP="$MODULE_DIR/up.sh"
@@ -30,6 +31,50 @@ setup() {
 
 teardown() {
   rm -rf "$TMP"
+}
+
+assert_json_eq() {
+  # Compare two JSON blobs key-order-insensitively.
+  assert_equal "$(jq -S . <<<"$1")" "$(jq -S . <<<"$2")"
+}
+
+# ── MCP manifest (canonical, harness-agnostic) ────────────────────────────────
+
+@test "mcp.json declares one canonical aws-mcp stdio server, log-redirected" {
+  run python3 -c "
+import json
+d = json.load(open('${MODULE_DIR}/mcp.json'))
+m = d['mcp']['aws-mcp']
+assert m['type'] == 'stdio', m
+assert m['enabled'] is False, m
+cmd = m['command']
+assert cmd[0] == 'bash' and cmd[1] == '-c', cmd
+assert '{harness-dir}/aws-mcp-proxy.sh' in cmd[2], cmd
+assert '2>>.agents/logs/aws-mcp.log' in cmd[2], cmd
+print('MCP:OK')
+"
+  assert_success
+  grep -qF 'MCP:OK' <<< "$output" || fail "canonical mcp.json shape wrong"
+}
+
+@test "MCP integration is a single canonical mcp.json, not a per-harness pair" {
+  [ -f "${MODULE_DIR}/mcp.json" ]
+  [ ! -f "${MODULE_DIR}/mcp.opencode.json" ]
+  [ ! -f "${MODULE_DIR}/mcp.claudecode.json" ]
+}
+
+@test "translates to opencode as a local server, disabled" {
+  run python3 "$TRANSLATE" "${MODULE_DIR}/mcp.json" opencode
+  assert_success
+  assert_json_eq "$output" \
+    '{"aws-mcp": {"type": "local", "command": ["bash", "-c", "mkdir -p .agents/logs && exec bash .opencode/aws-mcp-proxy.sh 2>>.agents/logs/aws-mcp.log"], "enabled": false}}'
+}
+
+@test "translates to claudecode as stdio (enabled dropped)" {
+  run python3 "$TRANSLATE" "${MODULE_DIR}/mcp.json" claudecode
+  assert_success
+  assert_json_eq "$output" \
+    '{"aws-mcp": {"type": "stdio", "command": "bash", "args": ["-c", "mkdir -p .agents/logs && exec bash .claude/aws-mcp-proxy.sh 2>>.agents/logs/aws-mcp.log"]}}'
 }
 
 # ── set_jsonc_key.py ───────────────────────────────────────────────────────────
