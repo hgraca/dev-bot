@@ -45,11 +45,14 @@ EOF
   chmod +x "$TMP/bin/uvx"
 }
 
-# A fake aws CLI that reports a fixed account for sts get-caller-identity.
+# A fake aws CLI that reports a fixed account for sts get-caller-identity and
+# records the arguments it was called with, so a test can assert --profile
+# actually reaches it.
 _fake_aws_account() {
   mkdir -p "$TMP/bin"
   cat > "$TMP/bin/aws" <<EOF
 #!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TMP/aws-argv.log"
 if [[ "\${1:-} \${2:-}" == "sts get-caller-identity" ]]; then
   echo "$1"
   exit 0
@@ -168,6 +171,54 @@ print('OK')
   assert_output "# aws rules"
 }
 
+@test "init.sh: removes a deselected connection's key from opencode.jsonc" {
+  _aws_seed_project
+  cat > "$TMP/proj/opencode.jsonc" <<'EOF'
+{
+  "mcp": {
+    "aws-prod": { "type": "local", "command": ["bash", "-c", "x"], "enabled": false },
+    "aws-dev":  { "type": "local", "command": ["bash", "-c", "x"], "enabled": false },
+    "other":    { "type": "local", "command": ["bash", "-c", "y"] }
+  }
+}
+EOF
+  echo '{"aws_connections": ["prod"]}' > "$TMP/proj/.devbot.project.jsonc"
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+
+  run python3 -c "
+import json
+m = json.load(open('$TMP/proj/opencode.jsonc'))['mcp']
+assert 'aws-prod' in m, m
+assert 'aws-dev' not in m, m   # deselected -> key removed
+assert 'other' in m, m         # not ours -> untouched
+print('OK')
+"
+  assert_success
+  assert_output "OK"
+}
+
+@test "init.sh: leaves opencode.jsonc byte-identical across a re-init" {
+  _aws_seed_project
+  echo '{"mcp": {"aws-prod": {"type": "local", "command": ["bash", "-c", "x"], "enabled": false}}}' \
+    > "$TMP/proj/opencode.jsonc"
+  env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj" >/dev/null
+  before="$(cat "$TMP/proj/opencode.jsonc")"
+  env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj" >/dev/null
+  after="$(cat "$TMP/proj/opencode.jsonc")"
+  assert_equal "$before" "$after"
+}
+
+@test "init.sh: skips the claudecode manifest when that harness is disabled" {
+  _aws_seed_project
+  echo '{"aws_connections": ["prod"], "modules": {"claudecode": false}}' \
+    > "$TMP/proj/.devbot.project.jsonc"
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+  assert [ -f "$TMP/proj/.opencode/aws-prod.mcp.json" ]
+  assert [ ! -f "$TMP/proj/.claude/aws-prod.mcp.json" ]
+}
+
 # ── aws-mcp-proxy.sh — connection resolution ──────────────────────────────────
 
 _aws_global() {
@@ -258,9 +309,11 @@ EOF
 { "aws_connections": { "prod": { "region": "eu-central-1", "env": { "AWS_ACCESS_KEY_ID": "${MISSING_KEY}" } } } }
 EOF
   cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
+  run --separate-stderr env -u MISSING_KEY DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
   assert_failure
-  assert_output --partial "resolves to nothing"
+  # MCP speaks JSON-RPC on stdout: the diagnostic must be on stderr only.
+  assert_equal "$output" ""
+  [[ "$stderr" == *"resolves to nothing"* ]]
 }
 
 @test "launcher: profile form passes --profile and exports no keys" {
@@ -357,6 +410,31 @@ EOF
   run env -u AWS_REGION DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" dev
   assert_success
   assert_output --partial "REGION:ap-south-1"
+}
+
+@test "launcher: resolves \${VAR} references from the repo .env" {
+  _fake_uvx
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "env": { "AWS_ACCESS_KEY_ID": "${ENVFILE_KEY}" } } } }
+EOF
+  echo 'ENVFILE_KEY=FROMDOTENV' > "$TMP/root/.env"
+  cd "$TMP/proj"
+  run env -u ENVFILE_KEY DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
+  assert_success
+  assert_output --partial "KEY:FROMDOTENV"
+}
+
+@test "launcher: the profile form passes --profile through to sts" {
+  _fake_uvx
+  _fake_aws_account "123456789012"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro", "account_id": "123456789012" } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
+  assert_success
+  run grep -c -- "--profile ro" "$TMP/aws-argv.log"
+  assert_output "1"
 }
 
 # ── install.sh ────────────────────────────────────────────────────────────────
