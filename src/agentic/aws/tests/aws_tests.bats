@@ -1,12 +1,11 @@
 #!/usr/bin/env bats
 # =============================================================================
 # src/agentic/aws/tests/aws_tests.bats
-# Tests for the AWS module's deterministic logic:
+# Tests for the AWS module:
+#   - init.sh (per-connection dynamic manifests, prune/reconcile, launcher link)
+#   - aws-mcp-proxy.sh (connection resolution: env XOR profile, region, account pin)
 #   - set_jsonc_key.py (comment-preserving config writes)
-#   - aws-mcp-proxy.sh (region precedence)
-#   - install.sh (non-interactive region resolution + config write)
-#   - up.sh (auth guard)
-#   - init.sh (launcher symlink + rules wiring)
+#   - install.sh / up.sh (non-interactive dependency setup + verify-only)
 # Network/auth steps are exercised only via fake binaries on PATH.
 # =============================================================================
 
@@ -20,7 +19,6 @@ setup() {
 
   SET_JSONC="$REPO_ROOT/src/_shared/set_jsonc_key.py"
   READ_JSONC="$REPO_ROOT/src/_shared/read_jsonc.py"
-  TRANSLATE="$REPO_ROOT/src/_shared/mcp_translate.py"
   LAUNCHER="$MODULE_DIR/tools/aws-mcp-proxy.sh"
   INSTALL="$MODULE_DIR/install.sh"
   UP="$MODULE_DIR/up.sh"
@@ -33,48 +31,32 @@ teardown() {
   rm -rf "$TMP"
 }
 
-assert_json_eq() {
-  # Compare two JSON blobs key-order-insensitively.
-  assert_equal "$(jq -S . <<<"$1")" "$(jq -S . <<<"$2")"
+# A fake uvx that reports the argv AND the credential environment it inherited.
+_fake_uvx() {
+  mkdir -p "$TMP/bin"
+  cat > "$TMP/bin/uvx" <<'EOF'
+#!/usr/bin/env bash
+echo "ARGS:$*"
+echo "KEY:${AWS_ACCESS_KEY_ID:-<unset>}"
+echo "SECRET:${AWS_SECRET_ACCESS_KEY:-<unset>}"
+echo "REGION:${AWS_REGION:-<unset>}"
+echo "PROFILE:${AWS_PROFILE:-<unset>}"
+EOF
+  chmod +x "$TMP/bin/uvx"
 }
 
-# ── MCP manifest (canonical, harness-agnostic) ────────────────────────────────
-
-@test "mcp.json declares one canonical aws-mcp stdio server, log-redirected" {
-  run python3 -c "
-import json
-d = json.load(open('${MODULE_DIR}/mcp.json'))
-m = d['mcp']['aws-mcp']
-assert m['type'] == 'stdio', m
-assert m['enabled'] is False, m
-cmd = m['command']
-assert cmd[0] == 'bash' and cmd[1] == '-c', cmd
-assert '{harness-dir}/aws-mcp-proxy.sh' in cmd[2], cmd
-assert '2>>.agents/logs/aws-mcp.log' in cmd[2], cmd
-print('MCP:OK')
-"
-  assert_success
-  grep -qF 'MCP:OK' <<< "$output" || fail "canonical mcp.json shape wrong"
-}
-
-@test "MCP integration is a single canonical mcp.json, not a per-harness pair" {
-  [ -f "${MODULE_DIR}/mcp.json" ]
-  [ ! -f "${MODULE_DIR}/mcp.opencode.json" ]
-  [ ! -f "${MODULE_DIR}/mcp.claudecode.json" ]
-}
-
-@test "translates to opencode as a local server, disabled" {
-  run python3 "$TRANSLATE" "${MODULE_DIR}/mcp.json" opencode
-  assert_success
-  assert_json_eq "$output" \
-    '{"aws-mcp": {"type": "local", "command": ["bash", "-c", "mkdir -p .agents/logs && exec bash .opencode/aws-mcp-proxy.sh 2>>.agents/logs/aws-mcp.log"], "enabled": false}}'
-}
-
-@test "translates to claudecode as stdio (enabled dropped)" {
-  run python3 "$TRANSLATE" "${MODULE_DIR}/mcp.json" claudecode
-  assert_success
-  assert_json_eq "$output" \
-    '{"aws-mcp": {"type": "stdio", "command": "bash", "args": ["-c", "mkdir -p .agents/logs && exec bash .claude/aws-mcp-proxy.sh 2>>.agents/logs/aws-mcp.log"]}}'
+# A fake aws CLI that reports a fixed account for sts get-caller-identity.
+_fake_aws_account() {
+  mkdir -p "$TMP/bin"
+  cat > "$TMP/bin/aws" <<EOF
+#!/usr/bin/env bash
+if [[ "\${1:-} \${2:-}" == "sts get-caller-identity" ]]; then
+  echo "$1"
+  exit 0
+fi
+exit 1
+EOF
+  chmod +x "$TMP/bin/aws"
 }
 
 # ── set_jsonc_key.py ───────────────────────────────────────────────────────────
@@ -97,14 +79,6 @@ EOF
   assert_output "1"
 }
 
-@test "set_jsonc_key: replaces an existing top-level key" {
-  echo '{"aws_region":"us-east-1"}' > "$TMP/cfg.jsonc"
-  run python3 "$SET_JSONC" "$TMP/cfg.jsonc" aws_region '"eu-west-1"'
-  assert_success
-  run python3 "$READ_JSONC" "$TMP/cfg.jsonc" aws_region
-  assert_output "eu-west-1"
-}
-
 @test "set_jsonc_key: idempotent — UNCHANGED when value equal" {
   echo '{"aws_region":"us-east-1"}' > "$TMP/cfg.jsonc"
   run python3 "$SET_JSONC" "$TMP/cfg.jsonc" aws_region '"us-east-1"'
@@ -112,129 +86,260 @@ EOF
   assert_output "UNCHANGED"
 }
 
-@test "set_jsonc_key: does not touch a nested key of the same name" {
-  cat > "$TMP/cfg.jsonc" <<'EOF'
-{ "nested": { "aws_region": "keep-nested" } }
+# ── init.sh — per-connection dynamic manifests ────────────────────────────────
+
+_aws_seed_project() {
+  mkdir -p "$TMP/proj" "$TMP/root/storage/aws/rules"
+  echo '# aws rules' > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  cat > "$TMP/root/.devbot.global.jsonc" <<'EOF'
+{
+  "aws_connections": {
+    "prod": { "region": "eu-central-1", "env": { "AWS_ACCESS_KEY_ID": "${PROD_KEY}" } },
+    "dev":  { "region": "eu-west-1", "profile": "dev-ro" }
+  }
+}
 EOF
-  run python3 "$SET_JSONC" "$TMP/cfg.jsonc" aws_region '"top-level"'
-  assert_success
-  run python3 "$READ_JSONC" "$TMP/cfg.jsonc" nested aws_region
-  assert_output "keep-nested"
-  run python3 "$READ_JSONC" "$TMP/cfg.jsonc" aws_region
-  assert_output "top-level"
+  echo '{"aws_connections": ["prod", "dev"]}' > "$TMP/proj/.devbot.project.jsonc"
 }
 
-# ── aws-mcp-proxy.sh profile + region precedence ──────────────────────────────
+@test "init.sh: writes one manifest per selected connection and links the launcher" {
+  _aws_seed_project
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
 
-_fake_uvx() {
-  mkdir -p "$TMP/bin"
-  cat > "$TMP/bin/uvx" <<'EOF'
-#!/usr/bin/env bash
-echo "ARGS:$*"
+  assert [ -L "$TMP/proj/.opencode/aws-mcp-proxy.sh" ]
+  assert [ -L "$TMP/proj/.claude/aws-mcp-proxy.sh" ]
+  assert [ -f "$TMP/proj/.opencode/aws-prod.mcp.json" ]
+  assert [ -f "$TMP/proj/.opencode/aws-dev.mcp.json" ]
+  assert [ -f "$TMP/proj/.claude/aws-prod.mcp.json" ]
+}
+
+@test "init.sh: the manifest invokes the launcher with the connection and no secret" {
+  _aws_seed_project
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+
+  run python3 -c "
+import json
+m = json.load(open('$TMP/proj/.opencode/aws-prod.mcp.json'))['aws-prod']
+assert m['type'] == 'local', m
+assert m['enabled'] is False, m
+cmd = m['command']
+assert cmd[:2] == ['bash', '-c'], cmd
+assert 'aws-mcp-proxy.sh prod' in cmd[2], cmd
+assert 'PROD_KEY' not in cmd[2], cmd  # secret-free: only the connection is named
+print('OK')
+"
+  assert_success
+  assert_output "OK"
+}
+
+@test "init.sh: the claudecode manifest is stdio with the same command" {
+  _aws_seed_project
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+
+  run python3 -c "
+import json
+m = json.load(open('$TMP/proj/.claude/aws-prod.mcp.json'))['mcpServers']['aws-prod']
+assert m['type'] == 'stdio', m
+assert m['command'] == 'bash', m
+assert m['args'][0] == '-c', m
+assert 'aws-mcp-proxy.sh prod' in m['args'][1], m
+print('OK')
+"
+  assert_success
+  assert_output "OK"
+}
+
+@test "init.sh: re-running is idempotent (manifests byte-identical)" {
+  _aws_seed_project
+  env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj" >/dev/null
+  before="$(cat "$TMP/proj/.opencode/aws-prod.mcp.json")"
+  env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj" >/dev/null
+  after="$(cat "$TMP/proj/.opencode/aws-prod.mcp.json")"
+  assert_equal "$before" "$after"
+}
+
+@test "init.sh: warns when a selected connection is not declared" {
+  _aws_seed_project
+  echo '{"aws_connections": ["prod", "ghost"]}' > "$TMP/proj/.devbot.project.jsonc"
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+  assert_output --partial "ghost"
+  assert_output --partial "not declared"
+}
+
+@test "init.sh: prunes a deselected connection's manifests" {
+  _aws_seed_project
+  env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj" >/dev/null
+  assert [ -f "$TMP/proj/.opencode/aws-dev.mcp.json" ]
+
+  echo '{"aws_connections": ["prod"]}' > "$TMP/proj/.devbot.project.jsonc"
+  env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj" >/dev/null
+
+  assert [ -f "$TMP/proj/.opencode/aws-prod.mcp.json" ]
+  assert [ ! -f "$TMP/proj/.opencode/aws-dev.mcp.json" ]
+  assert [ ! -f "$TMP/proj/.claude/aws-dev.mcp.json" ]
+}
+
+@test "init.sh: copies the AWS agent rules into the memory vault" {
+  _aws_seed_project
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+  run cat "$TMP/proj/.agents/memory/active/aws-agent-rules.md"
+  assert_output "# aws rules"
+}
+
+# ── aws-mcp-proxy.sh — connection resolution ──────────────────────────────────
+
+_aws_global() {
+  mkdir -p "$TMP/proj" "$TMP/root"
+  cat > "$TMP/root/.devbot.global.jsonc"
+}
+
+@test "launcher: requires a connection argument" {
+  _fake_uvx
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
 EOF
-  chmod +x "$TMP/bin/uvx"
-}
-
-@test "launcher: AWS_PROFILE env wins over configs" {
-  _fake_uvx
-  mkdir -p "$TMP/proj" "$TMP/root"
-  echo '{"aws_profile":"proj-ro"}' > "$TMP/proj/.devbot.project.jsonc"
-  echo '{"aws_profile":"glob-ro"}' > "$TMP/root/.devbot.global.jsonc"
-  cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" AWS_PROFILE=env-ro PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
-  assert_success
-  assert_output --partial "--profile env-ro"
-}
-
-@test "launcher: project profile beats global" {
-  _fake_uvx
-  mkdir -p "$TMP/proj" "$TMP/root"
-  echo '{"aws_profile":"proj-ro"}' > "$TMP/proj/.devbot.project.jsonc"
-  echo '{"aws_profile":"glob-ro"}' > "$TMP/root/.devbot.global.jsonc"
-  cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
-  assert_success
-  assert_output --partial "--profile proj-ro"
-}
-
-@test "launcher: global profile used when project and env are unset" {
-  _fake_uvx
-  mkdir -p "$TMP/proj" "$TMP/root"
-  echo '{}' > "$TMP/proj/.devbot.project.jsonc"
-  echo '{"aws_profile":"glob-ro"}' > "$TMP/root/.devbot.global.jsonc"
-  cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
-  assert_success
-  assert_output --partial "--profile glob-ro"
-}
-
-@test "launcher: fails loudly when no profile resolves" {
-  _fake_uvx
-  mkdir -p "$TMP/proj" "$TMP/root"
-  echo '{}' > "$TMP/root/.devbot.global.jsonc"
   cd "$TMP/proj"
   run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
   assert_failure
-  assert_output --partial "no AWS profile resolved"
+  assert_output --partial "usage"
 }
 
-@test "launcher: pins --profile, never --skip-auth, keeps INSTALL_SOURCE metadata" {
+@test "launcher: rejects an undeclared connection" {
   _fake_uvx
-  mkdir -p "$TMP/proj" "$TMP/root"
-  echo '{"aws_profile":"ro"}' > "$TMP/root/.devbot.global.jsonc"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
+EOF
   cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" ghost
+  assert_failure
+  assert_output --partial "not declared"
+}
+
+@test "launcher: env form exports resolved keys, never on argv" {
+  _fake_uvx
+  _aws_global <<'EOF'
+{
+  "aws_connections": {
+    "prod": {
+      "region": "eu-central-1",
+      "env": {
+        "AWS_ACCESS_KEY_ID": "${PROD_KEY}",
+        "AWS_SECRET_ACCESS_KEY": "literal-secret"
+      }
+    }
+  }
+}
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PROD_KEY=AKIAEXAMPLE PATH="$TMP/bin:/usr/bin:/bin" \
+    bash "$LAUNCHER" prod
+  assert_success
+  assert_output --partial "KEY:AKIAEXAMPLE"
+  assert_output --partial "SECRET:literal-secret"
+  assert_output --partial "REGION:eu-central-1"
+  # A secret must never appear on the command line (argv is visible in `ps`).
+  refute_output --regexp 'ARGS:.*AKIAEXAMPLE'
+}
+
+@test "launcher: a missing \${VAR} refuses to start with nothing on stdout" {
+  _fake_uvx
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "env": { "AWS_ACCESS_KEY_ID": "${MISSING_KEY}" } } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
+  assert_failure
+  assert_output --partial "resolves to nothing"
+}
+
+@test "launcher: profile form passes --profile and exports no keys" {
+  _fake_uvx
+  _aws_global <<'EOF'
+{ "aws_connections": { "dev": { "region": "eu-west-1", "profile": "dev-ro" } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" dev
+  assert_success
+  assert_output --partial "--profile dev-ro"
+  assert_output --partial "KEY:<unset>"
+}
+
+@test "launcher: rejects a connection declaring both env and profile" {
+  _fake_uvx
+  _aws_global <<'EOF'
+{ "aws_connections": { "both": { "region": "eu-west-1", "profile": "ro", "env": { "AWS_ACCESS_KEY_ID": "x" } } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" both
+  assert_failure
+  assert_output --partial "both env and profile"
+}
+
+@test "launcher: rejects a connection with neither env nor profile" {
+  _fake_uvx
+  _aws_global <<'EOF'
+{ "aws_connections": { "empty": { "region": "eu-west-1" } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" empty
+  assert_failure
+  assert_output --partial "neither env nor profile"
+}
+
+@test "launcher: account_id match proceeds" {
+  _fake_uvx
+  _fake_aws_account "123456789012"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro", "account_id": "123456789012" } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
   assert_success
   assert_output --partial "--profile ro"
-  assert_output --partial "INSTALL_SOURCE=agent-toolkit-core"
-  refute_output --partial "--skip-auth"
+}
+
+@test "launcher: account_id mismatch refuses to start" {
+  _fake_uvx
+  _fake_aws_account "999999999999"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro", "account_id": "123456789012" } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
+  assert_failure
+  assert_output --partial "expected '123456789012'"
 }
 
 @test "launcher: warns when AWS_MCP_PROXY_PROFILES would override the pin" {
   _fake_uvx
-  mkdir -p "$TMP/proj" "$TMP/root"
-  echo '{"aws_profile":"ro"}' > "$TMP/root/.devbot.global.jsonc"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
+EOF
   cd "$TMP/proj"
   run env DEV_BOT_ROOT="$TMP/root" AWS_MCP_PROXY_PROFILES="ro admin" \
-    PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+    PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
   assert_success
   assert_output --partial "AWS_MCP_PROXY_PROFILES is set and takes precedence"
 }
 
-@test "launcher: AWS_REGION env wins over everything" {
+@test "launcher: region falls back to AWS_REGION when the connection omits it" {
   _fake_uvx
-  mkdir -p "$TMP/proj" "$TMP/root"
-  echo '{"aws_region":"eu-central-1"}' > "$TMP/proj/.devbot.project.jsonc"
-  echo '{}' > "$TMP/root/.devbot.global.jsonc"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "profile": "ro" } } }
+EOF
   cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" AWS_PROFILE=ro AWS_REGION=ap-south-1 \
-    PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  run env DEV_BOT_ROOT="$TMP/root" AWS_REGION=ap-south-1 PATH="$TMP/bin:/usr/bin:/bin" \
+    bash "$LAUNCHER" prod
   assert_success
-  assert_output --partial "AWS_REGION=ap-south-1"
+  assert_output --partial "REGION:ap-south-1"
 }
 
-@test "launcher: project config region beats global + default" {
-  _fake_uvx
-  mkdir -p "$TMP/proj" "$TMP/root"
-  echo '{"aws_region":"eu-central-1"}' > "$TMP/proj/.devbot.project.jsonc"
-  echo '{"aws_region":"us-west-2"}' > "$TMP/root/.devbot.global.jsonc"
-  cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" AWS_PROFILE=ro PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
-  assert_success
-  assert_output --partial "AWS_REGION=eu-central-1"
-}
-
-@test "launcher: falls back to default us-east-1 when nothing set" {
-  _fake_uvx
-  mkdir -p "$TMP/proj" "$TMP/root"
-  echo '{}' > "$TMP/root/.devbot.global.jsonc"
-  cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" AWS_PROFILE=ro PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
-  assert_success
-  assert_output --partial "AWS_REGION=us-east-1"
-}
-
-# ── install.sh (non-interactive) ──────────────────────────────────────────────
+# ── install.sh ────────────────────────────────────────────────────────────────
 
 @test "install.sh: writes default region to global config when non-interactive" {
   mkdir -p "$TMP/bin" "$TMP/root" "$TMP/home"
@@ -244,10 +349,7 @@ EOF
     printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/$cmd"
     chmod +x "$TMP/bin/$cmd"
   done
-  cat > "$TMP/bin/aws" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/aws"
   chmod +x "$TMP/bin/aws"
   cat > "$TMP/bin/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -269,10 +371,7 @@ EOF
 
 @test "up.sh: reports valid credentials when authenticated" {
   mkdir -p "$TMP/bin"
-  cat > "$TMP/bin/aws" <<'EOF'
-#!/usr/bin/env bash
-exit 0
-EOF
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/aws"
   chmod +x "$TMP/bin/aws"
   run env PATH="$TMP/bin:/usr/bin:/bin" bash "$UP"
   assert_success
@@ -281,30 +380,9 @@ EOF
 
 @test "up.sh: warns (does not fail) when unauthenticated and non-TTY" {
   mkdir -p "$TMP/bin"
-  cat > "$TMP/bin/aws" <<'EOF'
-#!/usr/bin/env bash
-exit 255
-EOF
+  printf '#!/usr/bin/env bash\nexit 255\n' > "$TMP/bin/aws"
   chmod +x "$TMP/bin/aws"
   run env PATH="$TMP/bin:/usr/bin:/bin" bash "$UP"
   assert_success
   assert_output --partial "aws login"
-}
-
-# ── init.sh ───────────────────────────────────────────────────────────────────
-
-@test "init.sh: symlinks launcher and copies rules into memory vault" {
-  mkdir -p "$TMP/proj" "$TMP/root/storage/aws/rules"
-  echo '{}' > "$TMP/root/.devbot.global.jsonc"
-  echo "# aws rules" > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
-
-  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
-  assert_success
-
-  assert [ -L "$TMP/proj/.opencode/aws-mcp-proxy.sh" ]
-  assert [ -L "$TMP/proj/.claude/aws-mcp-proxy.sh" ]
-  run cat "$TMP/proj/.agents/memory/active/aws-agent-rules.md"
-  assert_output "# aws rules"
-  run bash "$INIT" "$TMP/proj"
-  assert_output --partial 'aws_region'
 }

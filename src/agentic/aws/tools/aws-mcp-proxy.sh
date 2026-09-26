@@ -1,118 +1,149 @@
 #!/usr/bin/env bash
 # src/agentic/aws/tools/aws-mcp-proxy.sh
-# AWS MCP proxy launcher — execs `uvx mcp-proxy-for-aws` pinned to a resolved
-# AWS profile, with the resolved default AWS region injected as metadata.
+# AWS MCP proxy launcher — execs `uvx mcp-proxy-for-aws` as ONE named AWS
+# connection.
 #
-# Profile precedence (first non-empty wins):
-#   1. AWS_PROFILE environment variable
-#   2. aws_profile in the project's .devbot.project.jsonc
-#   3. aws_profile in the global .devbot.global.jsonc
+# Usage: aws-mcp-proxy.sh <connection>
 #
-# A profile is REQUIRED — IAM on that profile's role is the read-only boundary,
-# so the ambient default identity is never used implicitly.
+# The connection is declared in .devbot.global.jsonc:
 #
-# Region precedence (first non-empty wins):
-#   1. AWS_REGION environment variable
-#   2. aws_region in the project's .devbot.project.jsonc
-#   3. aws_region in the global .devbot.global.jsonc
-#   4. `aws configure get region` (ambient ~/.aws/config)
-#   5. us-east-1
+#   "aws_connections": {
+#     "<connection>": {
+#       "region": "eu-central-1",
+#       "account_id": "123456789012",              # optional pin
+#       "env": { "AWS_ACCESS_KEY_ID": "${VAR}" }   # XOR
+#       "profile": "<profile in ~/.aws/config>"    # XOR
+#     }
+#   }
 #
-# Auth is delegated to the proxy, which signs every request with the resolved
-# profile's credentials written by `aws login` (see install.sh / up.sh).
+# Credentials reach the proxy through the ENVIRONMENT, never argv (argv is
+# visible in `ps`). `env` values may be literals or ${VAR} references, resolved
+# from the shell environment and the repo .env — the same load
+# datasources/render.sh performs. `profile` defers to ~/.aws/config, where the
+# keys live.
 #
-# This script is symlinked into .opencode/aws-mcp-proxy.sh (and
-# .claude/aws-mcp-proxy.sh) by init.sh and invoked by the MCP server.
-# It must print nothing to stdout (MCP speaks JSON-RPC over stdio).
+# stdout must stay clean: MCP speaks JSON-RPC over stdio, so every diagnostic
+# goes to stderr.
+#
+# This script is symlinked into .opencode/ and .claude/ by init.sh and invoked by
+# the per-connection MCP manifest.
 
 set -euo pipefail
 
 # Symlink-safe: resolve through any symlink to this real file's directory.
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
+GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+ENV_FILE="${DEV_BOT_ROOT}/.env"
 READ_JSONC="${SCRIPT_DIR}/../../../_shared/read_jsonc.py"
 
 PROXY="mcp-proxy-for-aws@1.6.4"
 ENDPOINT="https://aws-mcp.us-east-1.api.aws/mcp"
 
-_resolve_region() {
-  # 1. Environment variable
-  if [[ -n "${AWS_REGION:-}" ]]; then
-    echo "${AWS_REGION}"
-    return
-  fi
-
-  # 2. Project config (.devbot.project.jsonc)
-  local r
-  r="$(python3 "${READ_JSONC}" "${PWD}/.devbot.project.jsonc" aws_region 2>/dev/null || true)"
-  if [[ -n "${r}" && "${r}" != "null" ]]; then
-    echo "${r}"
-    return
-  fi
-
-  # 3. Global config (.devbot.global.jsonc)
-  r="$(python3 "${READ_JSONC}" "${DEV_BOT_ROOT}/.devbot.global.jsonc" aws_region 2>/dev/null || true)"
-  if [[ -n "${r}" && "${r}" != "null" ]]; then
-    echo "${r}"
-    return
-  fi
-
-  # 4. Ambient AWS config (~/.aws/config)
-  if command -v aws &>/dev/null; then
-    r="$(aws configure get region 2>/dev/null || true)"
-    if [[ -n "${r}" ]]; then
-      echo "${r}"
-      return
-    fi
-  fi
-
-  # 5. Default
-  echo "us-east-1"
-}
-
-_resolve_profile() {
-  # 1. Environment variable
-  if [[ -n "${AWS_PROFILE:-}" ]]; then
-    echo "${AWS_PROFILE}"
-    return
-  fi
-
-  # 2. Project config (.devbot.project.jsonc)
-  local p
-  p="$(python3 "${READ_JSONC}" "${PWD}/.devbot.project.jsonc" aws_profile 2>/dev/null || true)"
-  if [[ -n "${p}" && "${p}" != "null" ]]; then
-    echo "${p}"
-    return
-  fi
-
-  # 3. Global config (.devbot.global.jsonc)
-  p="$(python3 "${READ_JSONC}" "${DEV_BOT_ROOT}/.devbot.global.jsonc" aws_profile 2>/dev/null || true)"
-  if [[ -n "${p}" && "${p}" != "null" ]]; then
-    echo "${p}"
-    return
-  fi
-}
-
-PROFILE="$(_resolve_profile)"
-REGION="$(_resolve_region)"
-
-# stdout must stay clean (MCP speaks JSON-RPC over stdio) — diagnose on stderr.
-if [[ -z "${PROFILE}" ]]; then
-  echo "aws-mcp: no AWS profile resolved." >&2
-  echo "  Set AWS_PROFILE, or aws_profile in .devbot.project.jsonc / .devbot.global.jsonc." >&2
-  echo "  IAM on that profile's role is the read-only boundary — the ambient" >&2
-  echo "  default identity is deliberately not used." >&2
+# All diagnostics go to stderr — stdout carries the MCP stream.
+_die() {
+  echo "aws-mcp: $*" >&2
   exit 1
+}
+
+CONNECTION="${1:-}"
+[[ -n "${CONNECTION}" ]] || _die "usage: aws-mcp-proxy.sh <connection>"
+[[ -f "${GLOBAL_CONFIG}" ]] || _die "no global config at ${GLOBAL_CONFIG}"
+
+# Read one field of the connection. read_jsonc prints "" for a missing key.
+_read_field() {
+  python3 "${READ_JSONC}" "${GLOBAL_CONFIG}" aws_connections "${CONNECTION}" "$1" 2>/dev/null || true
+}
+
+CONN_JSON="$(python3 "${READ_JSONC}" "${GLOBAL_CONFIG}" aws_connections "${CONNECTION}" 2>/dev/null || true)"
+[[ -n "${CONN_JSON}" ]] || _die "connection '${CONNECTION}' is not declared in aws_connections (.devbot.global.jsonc)"
+
+ENV_JSON="$(_read_field env)"
+PROFILE="$(_read_field profile)"
+REGION="$(_read_field region)"
+ACCOUNT="$(_read_field account_id)"
+[[ "${ENV_JSON}" == "{}" ]] && ENV_JSON=""
+
+if [[ -n "${ENV_JSON}" && -n "${PROFILE}" ]]; then
+  _die "connection '${CONNECTION}' declares both env and profile — declare exactly one (precedence would be ambiguous)"
 fi
 
-# AWS_MCP_PROXY_PROFILES takes precedence over --profile in the proxy, which
-# would silently unpin the profile. Surface it rather than let it win quietly.
+# ── Region: the connection wins, then the environment, then the ambient config ─
+if [[ -z "${REGION}" ]]; then
+  REGION="${AWS_REGION:-}"
+fi
+if [[ -z "${REGION}" ]] && command -v aws &>/dev/null; then
+  REGION="$(aws configure get region 2>/dev/null || true)"
+fi
+REGION="${REGION:-us-east-1}"
+
+# ── Credentials ───────────────────────────────────────────────────────────────
+# PROXY_ARGS carries whatever the chosen credential form needs on the command
+# line; secrets never do.
+PROXY_ARGS=()
+
+if [[ -n "${ENV_JSON}" ]]; then
+  # Load the repo .env so ${VAR} references resolve exactly as datasources'
+  # render.sh/up.sh resolve them, then resolve this connection's values and
+  # export them into the proxy's environment.
+  if [[ -f "${ENV_FILE}" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "${ENV_FILE}"
+    set +a
+  fi
+
+  while IFS=$'\t' read -r name value; do
+    [[ -n "${name}" ]] || continue
+    [[ -n "${value}" ]] || _die "connection '${CONNECTION}': env '${name}' resolves to nothing — is the referenced variable exported (repo .env or shell)?"
+    export "${name}=${value}"
+  done < <(python3 - "${ENV_JSON}" <<'PY'
+import json, os, re, sys
+
+env = json.loads(sys.argv[1])
+ref = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
+for key, raw in env.items():
+    value = str(raw)
+    match = ref.match(value)
+    if match:
+        value = os.environ.get(match.group(1), "")
+    print(f"{key}\t{value}")
+PY
+  )
+
+  # The explicit keys must win deterministically: botocore's environment provider
+  # precedes the shared-config one, and an ambient AWS_PROFILE would otherwise
+  # steer resolution elsewhere.
+  unset AWS_PROFILE
+elif [[ -n "${PROFILE}" ]]; then
+  PROXY_ARGS+=(--profile "${PROFILE}")
+else
+  _die "connection '${CONNECTION}' declares neither env nor profile — nothing to authenticate with"
+fi
+
+# The proxy's boto3 session needs a region to sign with; the resolved one is also
+# handed to the server as metadata below.
+export AWS_REGION="${REGION}"
+
+# AWS_MCP_PROXY_PROFILES takes precedence over the credential configuration
+# inside the proxy, which would let an agent switch profiles. Surface it rather
+# than let it win quietly.
 if [[ -n "${AWS_MCP_PROXY_PROFILES:-}" ]]; then
-  echo "aws-mcp: WARNING AWS_MCP_PROXY_PROFILES is set and takes precedence over" >&2
-  echo "  --profile — the agent may switch profiles. Unset it to keep the pin." >&2
+  echo "aws-mcp: WARNING AWS_MCP_PROXY_PROFILES is set and takes precedence over the connection's" >&2
+  echo "  credentials — the agent may switch profiles. Unset it to keep the pin." >&2
+fi
+
+# ── Identity pin (optional) ────────────────────────────────────────────────────
+# Assert the credentials belong to the declared account. This turns "locked to
+# account X" into a checked property: a stale, wrong or swapped key refuses to
+# start instead of silently running as another account.
+if [[ -n "${ACCOUNT}" ]]; then
+  command -v aws &>/dev/null || _die "connection '${CONNECTION}' pins account_id but the AWS CLI is unavailable — run 'devbot install'"
+  actual="$(aws sts get-caller-identity --query Account --output text ${PROXY_ARGS[@]+"${PROXY_ARGS[@]}"} 2>/dev/null || true)"
+  [[ "${actual}" == "${ACCOUNT}" ]] || _die "connection '${CONNECTION}': sts reports account '${actual:-<none>}', expected '${ACCOUNT}'"
 fi
 
 exec uvx "${PROXY}" "${ENDPOINT}" \
-  --profile "${PROFILE}" \
+  ${PROXY_ARGS[@]+"${PROXY_ARGS[@]}"} \
   --metadata "INSTALL_SOURCE=agent-toolkit-core" \
   --metadata "AWS_REGION=${REGION}"
