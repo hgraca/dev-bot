@@ -1,5 +1,5 @@
 ---
-name: aws
+name: devbot:aws
 description: "Work with AWS — authenticate, resolve region, and use AWS services via the AWS MCP server (aws-mcp), the installed AWS skills, and the AWS CLI. Use this skill for any AWS task: reading/writing resources, IaC (CDK/CloudFormation), serverless, containers, or when AWS credentials or region configuration is needed — even if the user only names a service like S3, Lambda, or EC2."
 ---
 
@@ -7,13 +7,19 @@ description: "Work with AWS — authenticate, resolve region, and use AWS servic
 
 This module wires the Agent Toolkit for AWS into dev-bot. It provides three things:
 
-1. **AWS MCP server** (`aws-mcp`) — full AWS API access, sandboxed script execution, and real-time docs search through a single authenticated endpoint.
-2. **AWS skills** — curated packages installed from `aws/agent-toolkit-for-aws` (see `.opencode/skills/agent-toolkit-for-aws/`).
+1. **AWS MCP server** (`aws-mcp`) — the full AWS API surface reached through sandboxed script execution, plus real-time docs search, from one authenticated endpoint pinned to a resolved profile.
+2. **AWS skills** — curated packages installed from `aws/agent-toolkit-for-aws` (see `.agents/skills/agent-toolkit-for-aws/`).
 3. **AWS agent rules** — guidance in `.agents/memory/active/aws-agent-rules.md`.
+
+## Profile
+
+Every request is signed with a resolved **AWS profile** — `AWS_PROFILE`, else `aws_profile` in the project or global config. A profile is **required**: with none, the MCP server refuses to start rather than fall back to the ambient default identity.
+
+IAM on that profile's role is what makes the access read-only. The module adds no restriction of its own, and the pin covers the MCP path only — an agent with shell access can still reach AWS directly, so the role (plus a permission boundary or SCP) is the control that holds. `AWS_MCP_PROXY_PROFILES` overrides the pin; the launcher warns when it is set.
 
 ## Authentication
 
-Credentials come from `aws login` (browser flow), which writes a short-lived session to `~/.aws/`. The MCP server runs with `--skip-auth`, so it rides on that ambient session.
+Credentials come from `aws login` (browser flow), which writes a short-lived session to `~/.aws/`; the proxy reads them fresh on every request.
 
 - Check you are authenticated: `aws sts get-caller-identity`
 - Authenticate: `aws login`
@@ -35,12 +41,12 @@ To change the region for a single project, add `"aws_region": "<region>"` to tha
 
 ## When to Use What
 
-| Need                                                                            | Use                                                        |
-| ------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Inspect or mutate AWS resources, run sandboxed scripts, search AWS docs         | **AWS MCP server** (`aws-mcp` tools)                       |
-| Service-specific guidance (CDK, serverless, containers, billing, SDK usage)     | **AWS skills** (`.opencode/skills/agent-toolkit-for-aws/`) |
-| One-off CLI commands, auth checks, `aws configure`                              | **AWS CLI** (`aws ...`)                                    |
-| Before acting, confirm the rule about using the MCP server / discovering skills | **aws-agent-rules.md**                                     |
+| Need                                                                            | Use                                                      |
+| ------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Inspect or mutate AWS resources, run sandboxed scripts, search AWS docs         | **AWS MCP server** (`aws-mcp` tools)                     |
+| Service-specific guidance (CDK, serverless, containers, billing, SDK usage)     | **AWS skills** (`.agents/skills/agent-toolkit-for-aws/`) |
+| One-off CLI commands, auth checks, `aws configure`                              | **AWS CLI** (`aws ...`)                                  |
+| Before acting, confirm the rule about using the MCP server / discovering skills | **aws-agent-rules.md**                                   |
 
 ## Troubleshooting
 
