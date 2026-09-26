@@ -1,3 +1,8 @@
+---
+name: devbot:aws-setup
+description: Manual AWS setup steps for when `devbot install` ran non-interactively or an interactive step was skipped
+---
+
 # AWS Setup (manual fallback)
 
 Run these steps by hand when `devbot install` was non-interactive (no TTY) or
