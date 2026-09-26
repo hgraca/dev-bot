@@ -124,7 +124,7 @@ EOF
   assert_output "top-level"
 }
 
-# ── aws-mcp-proxy.sh region precedence ────────────────────────────────────────
+# ── aws-mcp-proxy.sh profile + region precedence ──────────────────────────────
 
 _fake_uvx() {
   mkdir -p "$TMP/bin"
@@ -135,13 +135,80 @@ EOF
   chmod +x "$TMP/bin/uvx"
 }
 
+@test "launcher: AWS_PROFILE env wins over configs" {
+  _fake_uvx
+  mkdir -p "$TMP/proj" "$TMP/root"
+  echo '{"aws_profile":"proj-ro"}' > "$TMP/proj/.devbot.project.jsonc"
+  echo '{"aws_profile":"glob-ro"}' > "$TMP/root/.devbot.global.jsonc"
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" AWS_PROFILE=env-ro PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  assert_success
+  assert_output --partial "--profile env-ro"
+}
+
+@test "launcher: project profile beats global" {
+  _fake_uvx
+  mkdir -p "$TMP/proj" "$TMP/root"
+  echo '{"aws_profile":"proj-ro"}' > "$TMP/proj/.devbot.project.jsonc"
+  echo '{"aws_profile":"glob-ro"}' > "$TMP/root/.devbot.global.jsonc"
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  assert_success
+  assert_output --partial "--profile proj-ro"
+}
+
+@test "launcher: global profile used when project and env are unset" {
+  _fake_uvx
+  mkdir -p "$TMP/proj" "$TMP/root"
+  echo '{}' > "$TMP/proj/.devbot.project.jsonc"
+  echo '{"aws_profile":"glob-ro"}' > "$TMP/root/.devbot.global.jsonc"
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  assert_success
+  assert_output --partial "--profile glob-ro"
+}
+
+@test "launcher: fails loudly when no profile resolves" {
+  _fake_uvx
+  mkdir -p "$TMP/proj" "$TMP/root"
+  echo '{}' > "$TMP/root/.devbot.global.jsonc"
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  assert_failure
+  assert_output --partial "no AWS profile resolved"
+}
+
+@test "launcher: pins --profile, never --skip-auth, keeps INSTALL_SOURCE metadata" {
+  _fake_uvx
+  mkdir -p "$TMP/proj" "$TMP/root"
+  echo '{"aws_profile":"ro"}' > "$TMP/root/.devbot.global.jsonc"
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  assert_success
+  assert_output --partial "--profile ro"
+  assert_output --partial "INSTALL_SOURCE=agent-toolkit-core"
+  refute_output --partial "--skip-auth"
+}
+
+@test "launcher: warns when AWS_MCP_PROXY_PROFILES would override the pin" {
+  _fake_uvx
+  mkdir -p "$TMP/proj" "$TMP/root"
+  echo '{"aws_profile":"ro"}' > "$TMP/root/.devbot.global.jsonc"
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" AWS_MCP_PROXY_PROFILES="ro admin" \
+    PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  assert_success
+  assert_output --partial "AWS_MCP_PROXY_PROFILES is set and takes precedence"
+}
+
 @test "launcher: AWS_REGION env wins over everything" {
   _fake_uvx
   mkdir -p "$TMP/proj" "$TMP/root"
   echo '{"aws_region":"eu-central-1"}' > "$TMP/proj/.devbot.project.jsonc"
   echo '{}' > "$TMP/root/.devbot.global.jsonc"
   cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" AWS_REGION=ap-south-1 PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  run env DEV_BOT_ROOT="$TMP/root" AWS_PROFILE=ro AWS_REGION=ap-south-1 \
+    PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
   assert_success
   assert_output --partial "AWS_REGION=ap-south-1"
 }
@@ -152,7 +219,7 @@ EOF
   echo '{"aws_region":"eu-central-1"}' > "$TMP/proj/.devbot.project.jsonc"
   echo '{"aws_region":"us-west-2"}' > "$TMP/root/.devbot.global.jsonc"
   cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  run env DEV_BOT_ROOT="$TMP/root" AWS_PROFILE=ro PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
   assert_success
   assert_output --partial "AWS_REGION=eu-central-1"
 }
@@ -162,20 +229,9 @@ EOF
   mkdir -p "$TMP/proj" "$TMP/root"
   echo '{}' > "$TMP/root/.devbot.global.jsonc"
   cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
+  run env DEV_BOT_ROOT="$TMP/root" AWS_PROFILE=ro PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
   assert_success
   assert_output --partial "AWS_REGION=us-east-1"
-}
-
-@test "launcher: includes --skip-auth and INSTALL_SOURCE metadata" {
-  _fake_uvx
-  mkdir -p "$TMP/proj" "$TMP/root"
-  echo '{}' > "$TMP/root/.devbot.global.jsonc"
-  cd "$TMP/proj"
-  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER"
-  assert_success
-  assert_output --partial "--skip-auth"
-  assert_output --partial "INSTALL_SOURCE=agent-toolkit-core"
 }
 
 # ── install.sh (non-interactive) ──────────────────────────────────────────────
