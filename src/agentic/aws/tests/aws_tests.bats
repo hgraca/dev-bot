@@ -221,6 +221,32 @@ EOF
   [[ "${args_line}" != *"literal-secret"* ]]
 }
 
+@test "launcher: a literal env value never reaches a child's argv" {
+  _fake_uvx
+  # A python3 shim that records the argv of every child the launcher spawns.
+  local real_python
+  real_python="$(command -v python3)"
+  mkdir -p "$TMP/bin"
+  cat > "$TMP/bin/python3" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TMP/argv.log"
+exec "${real_python}" "\$@"
+EOF
+  chmod +x "$TMP/bin/python3"
+
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "env": { "AWS_SECRET_ACCESS_KEY": "LITERALSECRET" } } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
+  assert_success
+  # The value must reach the proxy...
+  assert_output --partial "SECRET:LITERALSECRET"
+  # ...but no child's argv may carry it (argv is world-readable in ps / /proc).
+  run grep -c "LITERALSECRET" "$TMP/argv.log"
+  assert_output "0"
+}
+
 @test "launcher: a missing \${VAR} refuses to start with nothing on stdout" {
   _fake_uvx
   _aws_global <<'EOF'

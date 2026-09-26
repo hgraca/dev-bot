@@ -114,10 +114,12 @@ if [[ -n "${ENV_JSON}" ]]; then
     [[ -n "${name}" ]] || continue
     [[ -n "${value}" ]] || _die "connection '${CONNECTION}': env '${name}' resolves to nothing — is the referenced variable exported (repo .env or shell)?"
     export "${name}=${value}"
-  done < <(python3 - "${ENV_JSON}" <<'PY'
+  done < <(printf '%s' "${ENV_JSON}" | python3 -c '
 import json, os, re, sys
 
-env = json.loads(sys.argv[1])
+# The env block arrives on STDIN, never argv: a literal value is secret-like and
+# argv is world-readable through ps / /proc.
+env = json.load(sys.stdin)
 ref = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 for key, raw in env.items():
     value = str(raw)
@@ -125,8 +127,7 @@ for key, raw in env.items():
     if match:
         value = os.environ.get(match.group(1), "")
     print(f"{key}\t{value}")
-PY
-  )
+')
 
   # The explicit keys must win deterministically: botocore's environment provider
   # precedes the shared-config one, and an ambient AWS_PROFILE would otherwise
