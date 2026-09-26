@@ -4,7 +4,6 @@
 # Tests for the AWS module:
 #   - init.sh (per-connection dynamic manifests, prune/reconcile, launcher link)
 #   - aws-mcp-proxy.sh (connection resolution: env XOR profile, region, account pin)
-#   - set_jsonc_key.py (comment-preserving config writes)
 #   - install.sh / up.sh (non-interactive dependency setup + verify-only)
 # Network/auth steps are exercised only via fake binaries on PATH.
 # =============================================================================
