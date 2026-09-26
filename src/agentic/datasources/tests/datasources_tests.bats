@@ -493,6 +493,42 @@ JSON
   [ ! -e "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json" ]
 }
 
+@test "init: a sidecar datasource points at its own listener, not the gateway" {
+  # A sidecar is served by its own http container, so its manifest URL carries
+  # the port render_compose.py allocated — the same allocation the service uses.
+  _catalogue '{"hotels": {"type": "mysql", "env": {}}, "search": {"type": "opensearch", "env": {}}}'
+  _project_config '["hotels", "search"]'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${PROJECT_DIR}/.opencode/datasources-hotels.mcp.json"
+  assert_success
+  assert_output --partial '"url": "http://127.0.0.1:18510/mcp/hotels"'
+
+  run cat "${PROJECT_DIR}/.opencode/datasources-search.mcp.json"
+  assert_success
+  assert_output --partial '"url": "http://127.0.0.1:18520/mcp"'
+
+  run cat "${PROJECT_DIR}/.claude/datasources-search.mcp.json"
+  assert_success
+  assert_output --partial '"url": "http://127.0.0.1:18520/mcp"'
+}
+
+@test "init: deselecting a sidecar prunes its manifest" {
+  _catalogue '{"search": {"type": "opensearch", "env": {}}}'
+  _project_config '["search"]'
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+  [ -f "${PROJECT_DIR}/.opencode/datasources-search.mcp.json" ]
+
+  _project_config '[]'
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  [ ! -e "${PROJECT_DIR}/.opencode/datasources-search.mcp.json" ]
+}
+
 # ── down.sh ──────────────────────────────────────────────────────────────────
 
 @test "down: no generated compose file is a clean no-op" {

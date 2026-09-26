@@ -46,6 +46,12 @@ MCP_BASE="http://127.0.0.1:${DATASOURCES_PORT:-18510}/mcp"
 # collide with a module-declared MCP server of the same name.
 PREFIX="datasources-"
 
+# Sidecar datasources are served by their own http listener rather than by the
+# shared gateway, so their manifest URL carries the port render_compose.py
+# allocated. Filled in main() from the catalogue; the same allocation the
+# rendered compose uses, so the two cannot drift.
+SIDECAR_PORTS="{}"
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 # The datasource names this project opted into (a JSON array in its config).
@@ -83,6 +89,42 @@ _datasources_harness_disabled() {
     jq -e --arg m "$1" 'index($m) != null' >/dev/null 2>&1
 }
 
+# The sidecar name -> port map, straight from the renderer that allocates the
+# ports. An unreadable catalogue degrades to "no sidecars" rather than aborting
+# init — the toolbox path then applies exactly as before.
+_datasources_sidecar_ports() {
+  [[ -f "${GLOBAL_CONFIG}" ]] || { echo "{}"; return 0; }
+  local ports=""
+  ports="$(python3 "${READER}" "${GLOBAL_CONFIG}" datasources 2>/dev/null |
+    python3 "${MODULE_DIR}/render_compose.py" --sidecar-ports 2>/dev/null)" || true
+  # An explicit branch, not ${ports:-{}} — the closing brace of the expansion
+  # would be read as a literal, appending a stray '}' to valid JSON.
+  if [[ -z "${ports}" ]]; then
+    echo "{}"
+  else
+    echo "${ports}"
+  fi
+}
+
+# The URL this datasource's manifest points at: a sidecar's own listener, or its
+# toolset on the shared gateway.
+_datasources_url() {
+  local name="$1" port
+  port="$(python3 -c '
+import json, sys
+try:
+    ports = json.loads(sys.argv[1])
+except Exception:
+    ports = {}
+print(ports.get(sys.argv[2], ""))
+' "${SIDECAR_PORTS}" "${name}" 2>/dev/null || true)"
+  if [[ -n "${port}" ]]; then
+    printf 'http://127.0.0.1:%s/mcp' "${port}"
+  else
+    printf '%s/%s' "${MCP_BASE}" "${name}"
+  fi
+}
+
 # Write the dynamic MCP manifests for one datasource. opencode's shape is
 # opencode-native (what _register_dynamic_mcps merges verbatim); claudecode's
 # matches the .mcp.json contract. Both mirror the jetbrains module.
@@ -94,8 +136,9 @@ _datasources_harness_disabled() {
 # silently drop the server from that harness.
 _datasources_write_manifests() {
   local name="$1"
-  local url="${MCP_BASE}/${name}"
-  local server="${PREFIX}${name}"
+  local url server
+  url="$(_datasources_url "${name}")"
+  server="${PREFIX}${name}"
 
   if ! _datasources_harness_disabled opencode; then
     local dir="${PROJECT_DIR}/.opencode"
@@ -173,6 +216,7 @@ main() {
   local selected declared name
   selected="$(_datasources_selected)"
   declared="$(_datasources_declared)"
+  SIDECAR_PORTS="$(_datasources_sidecar_ports)"
 
   for name in ${selected}; do
     if ! printf ' %s ' "${declared}" | grep -Fq " ${name} "; then
@@ -187,7 +231,7 @@ main() {
   else
     for name in ${selected}; do
       _datasources_write_manifests "${name}"
-      _ok "datasources — ${PREFIX}${name} -> ${MCP_BASE}/${name}"
+      _ok "datasources — ${PREFIX}${name} -> $(_datasources_url "${name}")"
     done
   fi
 

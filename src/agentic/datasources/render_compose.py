@@ -129,8 +129,14 @@ def render_sidecars(catalogue: dict, versions: dict) -> str:
 
 
 def main():
+    if "--sidecar-ports" in sys.argv[1:]:
+        # Print just the sidecar name -> port map, for init.sh. The allocation
+        # lives HERE, so a manifest URL and the service's listener cannot drift.
+        sys.stdout.write(json.dumps(sidecar_ports(load_catalogue(sys.stdin.read()))) + "\n")
+        return
+
     if len(sys.argv) < 2:
-        fail("usage: render_compose.py <template-path>")
+        fail("usage: render_compose.py <template-path> | --sidecar-ports")
 
     template_path = sys.argv[1]
     catalogue = load_catalogue(sys.stdin.read())

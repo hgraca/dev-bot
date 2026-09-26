@@ -171,6 +171,24 @@ class TestRenderCompose(unittest.TestCase):
         self.assertIn("18520", out_a)
         self.assertIn("18521", out_a)
 
+    def test_sidecar_ports_mode_prints_the_allocation(self):
+        # init.sh reads this map to build a sidecar's manifest URL, so the URL
+        # and the rendered service cannot drift.
+        proc = subprocess.run(
+            [sys.executable, RENDERER, "--sidecar-ports"],
+            input=json.dumps(
+                {
+                    "b": {"type": "opensearch", "env": {}},
+                    "a": {"type": "opensearch", "env": {}},
+                }
+            ),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), {"a": 18520, "b": 18521})
+
     def test_a_sidecar_without_a_pinned_version_fails_loudly(self):
         with tempfile.TemporaryDirectory() as tmp:
             template = os.path.join(tmp, "compose.tpl.yml")
