@@ -16,18 +16,27 @@ main() {
     exit 1
   fi
 
-  if ! command -v node >/dev/null 2>&1; then
-    _fatal "node not found — re-run bin/install.sh."
+  if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+    _fatal "node and npm are required — re-run bin/install.sh."
     exit 1
   fi
 
   if ! command -v prettier >/dev/null 2>&1; then
-    _fatal "prettier not found — re-run bin/install.sh."
+    _info "Installing prettier globally via npm..."
+    npm install -g prettier
+  else
+    _info "Updating prettier via npm..."
+    npm update -g prettier
+  fi
+
+  # Verify rather than assume: under `set -e` a failing command substitution does
+  # not abort, so `prettier --version` inside _ok would report success for a
+  # prettier that is not runnable.
+  if ! command -v prettier >/dev/null 2>&1; then
+    _fatal "prettier is still not on PATH after npm — check the npm global prefix."
     exit 1
   fi
 
-  _info "Updating prettier via npm..."
-  npm update -g prettier
   _ok "prettier ($(prettier --version 2>&1))"
 }
 

@@ -15,6 +15,12 @@ setup() {
 
   command -v python3 &>/dev/null || skip "python3 not installed"
   command -v node &>/dev/null || skip "node not installed"
+
+  # The tool formats only a project that declares prettier, so the fixtures
+  # declare it — without this every formatting assertion below would pass
+  # vacuously (an untouched file still contains "a" and "b").
+  mkdir -p "$BATS_TEST_TMPDIR"
+  printf '{}\n' > "$BATS_TEST_TMPDIR/.prettierrc.json"
 }
 
 # ── Help flag ─────────────────────────────────────────────────────────────────
@@ -39,8 +45,9 @@ setup() {
   run cat "$tmpfile"
   assert_output --partial "a"
   assert_output --partial "b"
-  assert_output --partial "1"
-  assert_output --partial "2"
+  # Prettier padded the cells: this is what proves the file really was formatted,
+  # where the bare content assertions above pass either way.
+  assert_output --partial "| 1   | 2   |"
 
   rm -f "$tmpfile"
 }
@@ -276,4 +283,59 @@ STUB
   assert_success
   assert_output --partial "WARN"
   [ ! -f "$tmpfile" ]
+}
+
+# ── prettier gate ─────────────────────────────────────────────────────────────
+
+@test "no prettier config in the project: the file is left untouched" {
+  # Prettier is not every project's formatter. One that never declares it must
+  # not have its files rewritten to a standard it did not adopt.
+  local project
+  project="$(mktemp -d)"
+  local tmpfile="$project/tmp.md"
+  printf '| longheader | b |\n|---|---|\n|1|2|\n' > "$tmpfile"
+
+  run bash "$TOOL" "$tmpfile"
+
+  assert_success
+  run cat "$tmpfile"
+  # Still unpadded: prettier would have widened the separator row.
+  assert_output --partial "|---|---|"
+}
+
+@test "no prettier on PATH: warns, exits 0, and leaves the file untouched" {
+  # Never fatal — the file.edited hook must not fail an edit.
+  local sb="$BATS_TEST_TMPDIR/stub-noprettier"
+  mkdir -p "$sb"
+  ln -sf "$(command -v python3)" "$sb/python3"
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
+  printf '| longheader | b |\n|---|---|\n|1|2|\n' > "$tmpfile"
+
+  # The python tool is called directly: the .mcp.sh wrapper needs readlink and
+  # dirname, which the stripped PATH does not provide.
+  run env PATH="$sb" python3 "$MODULE_DIR/tools/format-md.py" "$tmpfile"
+
+  assert_success
+  # The specific message: a missing prettier binary otherwise surfaces as the
+  # vanished-file warning (FileNotFoundError), which looks identical to a
+  # "WARN + exit 0" assertion.
+  assert_output --partial "prettier (or node) not found"
+  run cat "$tmpfile"
+  assert_output --partial "|---|---|"
+}
+
+@test "pipe mode: passes input through with a warning when prettier is missing" {
+  # A formatter that cannot run must not swallow a pipe.
+  local sb="$BATS_TEST_TMPDIR/stub-noprettier-pipe"
+  mkdir -p "$sb"
+  ln -sf "$(command -v python3)" "$sb/python3"
+  local input="$BATS_TEST_TMPDIR/pipe-in.md"
+  printf '| longheader | b |\n|---|---|\n|1|2|\n' > "$input"
+
+  run env PATH="$sb" python3 "$MODULE_DIR/tools/format-md.py" < "$input"
+
+  assert_success
+  assert_output --partial "prettier (or node) not found"
+  assert_output --partial "longheader"
 }

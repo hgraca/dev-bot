@@ -17,7 +17,12 @@ setup() {
 
   command -v python3 &>/dev/null || skip "python3 not installed"
   command -v node &>/dev/null || skip "node not installed"
-  command -v npx &>/dev/null || skip "npx not installed"
+
+  # The tool formats only a project that declares prettier, so the fixtures
+  # declare it — without this every formatting assertion below would pass
+  # vacuously.
+  mkdir -p "$BATS_TEST_TMPDIR"
+  printf '{}\n' > "$BATS_TEST_TMPDIR/.prettierrc.json"
 }
 
 # ── Help flag ─────────────────────────────────────────────────────────────────
@@ -34,7 +39,9 @@ setup() {
 @test "single file: expands compact YAML to 2-space indented" {
   local tmpfile
   tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
-  printf 'name: test\nvalue: 42\n' > "$tmpfile"
+  # Deliberately unnormalised spacing: prettier collapses it, so these assertions
+  # fail if the formatter never actually runs.
+  printf 'name:    test\nvalue:   42\n' > "$tmpfile"
 
   run bash "$TOOL" "$tmpfile"
 
@@ -330,4 +337,53 @@ STUB
   assert_success
   assert_output --partial "WARN"
   [ ! -f "$tmpfile" ]
+}
+
+# ── prettier gate ─────────────────────────────────────────────────────────────
+
+@test "no prettier config in the project: the file is left untouched" {
+  local project
+  project="$(mktemp -d)"
+  local tmpfile="$project/tmp.yml"
+  printf 'a:   1\n' > "$tmpfile"
+
+  run bash "$TOOL" "$tmpfile"
+
+  assert_success
+  run cat "$tmpfile"
+  # Still unnormalised: prettier would have written "a: 1".
+  assert_output --partial "a:   1"
+}
+
+@test "no prettier on PATH: warns, exits 0, and leaves the file untouched" {
+  local sb="$BATS_TEST_TMPDIR/stub-noprettier"
+  mkdir -p "$sb"
+  ln -sf "$(command -v python3)" "$sb/python3"
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
+  printf 'a:   1\n' > "$tmpfile"
+
+  run env PATH="$sb" python3 "$MODULE_DIR/tools/format-yml.py" "$tmpfile"
+
+  assert_success
+  # The specific message: a missing prettier binary otherwise surfaces as the
+  # vanished-file warning (FileNotFoundError) — also "WARN" and exit 0.
+  assert_output --partial "prettier (or node) not found"
+  run cat "$tmpfile"
+  assert_output --partial "a:   1"
+}
+
+@test "pipe mode: passes input through with a warning when prettier is missing" {
+  # A formatter that cannot run must not swallow a pipe.
+  local sb="$BATS_TEST_TMPDIR/stub-noprettier-pipe"
+  mkdir -p "$sb"
+  ln -sf "$(command -v python3)" "$sb/python3"
+  local input="$BATS_TEST_TMPDIR/pipe-in.yml"
+  printf 'a:   1\n' > "$input"
+
+  run env PATH="$sb" python3 "$MODULE_DIR/tools/format-yml.py" < "$input"
+
+  assert_success
+  assert_output --partial "prettier (or node) not found"
+  assert_output --partial "a:   1"
 }

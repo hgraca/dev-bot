@@ -18,12 +18,12 @@ from __future__ import annotations
 
 import sys
 import os
-import shutil
 import subprocess
 
 # Allow importing from src/_shared/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../_shared"))
 from editorconfig import get_prettier_args  # noqa: E402  # type: ignore[import-not-found]
+from prettier_gate import has_prettier_config, prettier_available  # noqa: E402
 
 
 USAGE = """\
@@ -41,22 +41,6 @@ Usage:
 # (the agent's own workspace). Our tools decide what to format (explicit file
 # args, EXCLUDED_DIRS for directory mode); prettier must not re-apply ignore.
 PRETTIER_CMD = ["prettier", "--parser", "markdown", "--print-width", "999", "--ignore-path", "/dev/null"]
-
-
-def check_prettier() -> None:
-    """Verify prettier is available. Raises RuntimeError if not found."""
-    if shutil.which("node") is None:
-        raise RuntimeError(
-            "node is required but not found. Install via your system package manager:\n"
-            "  Ubuntu/Debian: apt install nodejs npm\n"
-            "  Fedora:        dnf install nodejs npm\n"
-            "  macOS:         brew install node"
-        )
-    if shutil.which("prettier") is None:
-        raise RuntimeError(
-            "prettier is required but not found. Install via:\n"
-            "  npm install -g prettier"
-        )
 
 
 # ── Core formatting logic via prettier ──────────────────────────────────────
@@ -77,7 +61,13 @@ def format_md_text(text: str, extra_args: list[str] | None = None) -> str:
         Formatted markdown text.
     """
     cmd = PRETTIER_CMD + (extra_args or [])
-    proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=30)
+    try:
+        proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=30)
+    except FileNotFoundError as e:
+        # The binary vanished between the availability check and the exec.
+        # Reported as a formatting failure — never as a vanished file, whose
+        # warning exits 0 and would hide a broken installation.
+        raise ValueError(f"prettier could not be executed: {e}") from e
     if proc.returncode != 0:
         stderr = proc.stderr.strip()
         raise ValueError(f"prettier formatting failed: {stderr or '(no error output)'}")
@@ -157,18 +147,13 @@ def find_md_files(directory: str) -> list[str]:
 
 
 def main() -> int:
-    # Verify prettier is available at startup
-    try:
-        check_prettier()
-    except RuntimeError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
     args = sys.argv[1:]
 
     if "--help" in args or "-h" in args:
         print(USAGE, end="")
         return 0
+
+    available = prettier_available()
 
     if not args:
         # Pipe mode
@@ -177,12 +162,34 @@ def main() -> int:
             print(USAGE, end="", file=sys.stderr)
             return 1
         text = sys.stdin.read()
+        if not available:
+            # Pass the input through rather than lose it: a formatter that cannot
+            # run must not swallow a pipe.
+            print(
+                "WARN: prettier (or node) not found — passing markdown through unformatted",
+                file=sys.stderr,
+            )
+            sys.stdout.write(text)
+            return 0
         try:
             extra = get_prettier_args(".md")
             sys.stdout.write(format_md_text(text, extra_args=extra))
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
+        return 0
+
+    # File and directory runs: a missing prettier is a no-op, never a failure —
+    # the file.edited hook must not fail an edit.
+    if not available:
+        print("WARN: prettier (or node) not found — skipping markdown formatting", file=sys.stderr)
+        return 0
+
+    # ...and only where the project actually declares prettier. Running it anyway
+    # imposes a standard the project never adopted, and fights one it did (a Biome
+    # project's multi-line "files" array was collapsed by exactly that). A
+    # multi-path call is judged by its first path — the hook always passes one.
+    if not has_prettier_config(args[0]):
         return 0
 
     paths = args

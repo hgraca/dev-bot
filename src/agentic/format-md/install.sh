@@ -19,8 +19,8 @@ main() {
   fi
   _skip "python3 found"
 
-  if ! command -v node >/dev/null 2>&1; then
-    _fatal "node is required but not installed."
+  if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+    _fatal "node and npm are required but not installed."
     echo "  Install via your system package manager:" >&2
     echo "    Ubuntu/Debian: apt install nodejs npm" >&2
     echo "    Fedora:        dnf install nodejs npm" >&2
@@ -34,6 +34,13 @@ main() {
   else
     _info "Installing prettier globally via npm..."
     npm install -g prettier
+    # Verify rather than assume: under `set -e` a failing command substitution
+    # does not abort, so the _ok line would report success for a prettier that is
+    # not runnable.
+    if ! command -v prettier >/dev/null 2>&1; then
+      _fatal "prettier is still not on PATH after npm — check the npm global prefix."
+      exit 1
+    fi
     _ok "prettier installed ($(prettier --version 2>&1))"
   fi
 }
