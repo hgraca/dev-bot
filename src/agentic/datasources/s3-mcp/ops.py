@@ -10,9 +10,32 @@
 # exists to be reached, and a test asserts that.
 
 import base64
+import os
 
 # Above this, an object body is refused rather than returned.
 DEFAULT_MAX_GET_BYTES = 1_000_000
+
+# The operator's override for that cap.
+CAP_ENV = "S3_MCP_MAX_GET_BYTES"
+
+
+def max_get_bytes() -> int:
+    """The read cap: CAP_ENV when set, else the default.
+
+    A malformed or non-positive value RAISES rather than being quietly ignored —
+    the cap is the only thing between an agent and an arbitrarily large object,
+    so falling back silently would widen it without saying so.
+    """
+    raw = os.environ.get(CAP_ENV, "").strip()
+    if not raw:
+        return DEFAULT_MAX_GET_BYTES
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{CAP_ENV}={raw!r} is not an integer") from exc
+    if value <= 0:
+        raise ValueError(f"{CAP_ENV}={value} must be positive")
+    return value
 
 
 def list_buckets(s3) -> dict:
@@ -52,34 +75,37 @@ def head_object(s3, bucket: str, key: str) -> dict:
     }
 
 
-def get_object(s3, bucket: str, key: str, max_bytes: int = DEFAULT_MAX_GET_BYTES) -> dict:
+def get_object(s3, bucket: str, key: str, max_bytes: int | None = None) -> dict:
     """An object's body — refused, never silently truncated, above the cap.
 
-    A truncated body would reach the caller looking like a whole file. Refusing
-    names the size and the cap instead, so the agent can narrow the request.
+    The cap is enforced by READING AT MOST `max_bytes + 1` bytes, not by trusting
+    ContentLength: an object whose length the response omits is still bounded, and
+    a large object transfers no more than the cap. A truncated body would reach
+    the caller looking like a whole file, so an over-cap object is refused by
+    size instead.
     """
-    response = s3.get_object(Bucket=bucket, Key=key)
+    limit = DEFAULT_MAX_GET_BYTES if max_bytes is None else max_bytes
 
-    size = response.get("ContentLength")
-    if isinstance(size, int) and size > max_bytes:
+    response = s3.get_object(Bucket=bucket, Key=key)
+    data = response["Body"].read(limit + 1)
+
+    if len(data) > limit:
         return {
             "bucket": bucket,
             "key": key,
-            "size": size,
+            "size": response.get("ContentLength"),
             "error": (
-                f"object is {size} bytes, above the {max_bytes}-byte read cap; "
-                "request a smaller range or raise S3_MCP_MAX_GET_BYTES"
+                f"object is larger than the {limit}-byte read cap; "
+                f"raise {CAP_ENV} to read it"
             ),
         }
 
-    body = response["Body"].read()
-
     try:
-        return {"bucket": bucket, "key": key, "size": len(body), "text": body.decode("utf-8")}
+        return {"bucket": bucket, "key": key, "size": len(data), "text": data.decode("utf-8")}
     except UnicodeDecodeError:
         return {
             "bucket": bucket,
             "key": key,
-            "size": len(body),
-            "base64": base64.b64encode(body).decode("ascii"),
+            "size": len(data),
+            "base64": base64.b64encode(data).decode("ascii"),
         }

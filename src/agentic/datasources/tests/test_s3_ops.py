@@ -25,10 +25,12 @@ class _Body:
     def __init__(self, data):
         self._data = data
         self.read_calls = 0
+        self.read_sizes = []
 
-    def read(self):
+    def read(self, size=-1):
         self.read_calls += 1
-        return self._data
+        self.read_sizes.append(size)
+        return self._data if size is None or size < 0 else self._data[:size]
 
 
 class _FakeS3:
@@ -107,25 +109,55 @@ class TestS3Ops(unittest.TestCase):
         result = ops.get_object(s3, "bkt", "k", max_bytes=5)
 
         self.assertIn("error", result)
-        self.assertIn("10 bytes", result["error"])
         self.assertIn("5-byte", result["error"])
-        # The point of refusing is to not pull the body at all.
-        self.assertEqual(s3._body.read_calls, 0)
+        # The object was never read past the cap — one bounded read, not the body.
+        self.assertEqual(s3._body.read_sizes, [6])
 
-    def test_the_ops_layer_has_no_write_path(self):
-        # The read-only guarantee is structural: a mutating call does not exist.
-        forbidden = ("put", "delete", "copy", "upload", "write", "create")
+    def test_get_object_bounds_a_body_whose_length_is_absent(self):
+        # ContentLength is what the old check trusted; the cap must not depend on it.
+        s3 = _FakeS3(body=b"y" * 100, size=None)
+        s3._size = None
 
-        exported = [
+        result = ops.get_object(s3, "bkt", "k", max_bytes=5)
+
+        self.assertIn("error", result)
+        self.assertEqual(s3._body.read_sizes, [6])
+
+    def test_max_get_bytes_reads_the_env_override(self):
+        os.environ["S3_MCP_MAX_GET_BYTES"] = "2048"
+        try:
+            self.assertEqual(ops.max_get_bytes(), 2048)
+        finally:
+            del os.environ["S3_MCP_MAX_GET_BYTES"]
+
+    def test_max_get_bytes_defaults_when_unset(self):
+        os.environ.pop("S3_MCP_MAX_GET_BYTES", None)
+
+        self.assertEqual(ops.max_get_bytes(), ops.DEFAULT_MAX_GET_BYTES)
+
+    def test_max_get_bytes_rejects_a_malformed_or_nonpositive_value(self):
+        for bad in ("not-a-number", "0", "-5"):
+            with self.subTest(value=bad):
+                os.environ["S3_MCP_MAX_GET_BYTES"] = bad
+                try:
+                    with self.assertRaises(ValueError):
+                        ops.max_get_bytes()
+                finally:
+                    del os.environ["S3_MCP_MAX_GET_BYTES"]
+
+    def test_the_ops_layer_exposes_exactly_the_read_only_calls(self):
+        # The read-only guarantee is structural: the exported set IS the contract,
+        # so assert it exactly rather than scanning names for suspicious words (a
+        # scan would miss insert_/remove_/apply_/patch_).
+        exported = {
             name
             for name in dir(ops)
             if not name.startswith("_") and callable(getattr(ops, name))
-        ]
-        for name in exported:
-            self.assertFalse(
-                any(word in name.lower() for word in forbidden),
-                f"ops exposes a mutating-looking call: {name}",
-            )
+        }
+
+        self.assertEqual(
+            exported, {"list_buckets", "list_objects", "head_object", "get_object", "max_get_bytes"}
+        )
 
 
 if __name__ == "__main__":

@@ -28,6 +28,11 @@ def main() -> None:
     args = parser.parse_args()
 
     client = boto3.client("s3")
+
+    # Resolved once, at startup: a malformed override fails here, loudly, rather
+    # than at the first read.
+    max_get_bytes = ops.max_get_bytes()
+
     server = FastMCP("s3-readonly", host=args.host, port=args.port)
 
     @server.tool()
@@ -48,7 +53,7 @@ def main() -> None:
     @server.tool()
     def get_object(bucket: str, key: str) -> dict:
         """Read an object's body — refused, never truncated, above the size cap."""
-        return ops.get_object(client, bucket, key)
+        return ops.get_object(client, bucket, key, max_get_bytes)
 
     server.run(transport="streamable-http")
 
