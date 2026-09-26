@@ -202,6 +202,33 @@ ENGINES = {
         ],
     },
 }
+
+# -----------------------------------------------------------------------------
+# Sidecar datasources
+#
+# A datasource whose `type` is not a toolbox engine is served by its OWN MCP
+# server — a "sidecar" — instead of the shared gateway, because toolbox has no
+# source for it (OpenSearch, S3). A sidecar is declared with the same `type` +
+# `env` shape as any other datasource, so nothing new reaches the user: these
+# renderers just route it differently. It has no toolbox source, tool or
+# toolset, so it contributes no tools.yaml document.
+#
+# The entry supplies what the renderers need. `env` lists the variables the
+# sidecar consumes; render_compose renders the service (its image, command and
+# port come from the entry's `service`).
+# -----------------------------------------------------------------------------
+SIDECARS = {
+    "opensearch": {
+        "env": ("OPENSEARCH_URL", "AWS_PROFILE", "AWS_REGION"),
+    },
+}
+
+
+def is_sidecar(spec: dict) -> bool:
+    """Is this datasource served by its own MCP server rather than by toolbox?"""
+    return isinstance(spec.get("type"), str) and spec["type"] in SIDECARS
+
+
 # Datasource names become tool and toolset names, and a URL path segment.
 NAME_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 
@@ -292,9 +319,12 @@ def _engine_for(name: str, spec: dict) -> dict:
     engine_type = spec.get("type")
     engine = ENGINES.get(engine_type) if isinstance(engine_type, str) else None
     if engine is None:
+        # Both registries, so the error names every accepted type — a sidecar is
+        # a legitimate declaration, not a typo.
+        known = sorted(set(ENGINES) | set(SIDECARS))
         _fail(
             f"datasource '{name}': unknown type '{engine_type}' "
-            f"(known: {', '.join(sorted(ENGINES))})"
+            f"(known: {', '.join(known)})"
         )
     return engine
 
@@ -307,9 +337,12 @@ def validated_items(catalogue: dict):
         _reject_unknown_keys(name, spec)
         if not NAME_RE.match(name):
             _fail(f"datasource name '{name}' must match {NAME_RE.pattern}")
-        engine = _engine_for(name, spec)
         if not isinstance(spec.get("env", {}), dict):
             _fail(f"datasource '{name}': 'env' must be an object")
+        if is_sidecar(spec):
+            # Served by its own MCP server: no toolbox source, tool or toolset.
+            continue
+        engine = _engine_for(name, spec)
         yield name, spec, engine
 
 

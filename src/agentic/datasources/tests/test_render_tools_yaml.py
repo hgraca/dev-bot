@@ -205,6 +205,33 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertTrue(err.startswith("ERROR:"), err)
         self.assertIn("unknown type 'oracle'", err)
 
+    def test_sidecar_type_is_accepted_and_emits_no_tools_yaml(self):
+        # A sidecar is served by its own MCP server, so toolbox must not be
+        # handed a source it cannot serve.
+        code, out, err = render({"search": {"type": "opensearch", "env": {}}})
+
+        self.assertEqual(code, 0, err)
+        self.assertEqual(docs_of(out), [])
+
+    def test_sidecar_and_engine_coexist(self):
+        code, out, err = render(
+            {
+                "hotels": {"type": "mysql", "env": {"MYSQL_HOST": "h"}},
+                "search": {"type": "opensearch", "env": {}},
+            }
+        )
+
+        self.assertEqual(code, 0, err)
+        kinds = [d.split("\n")[0] for d in docs_of(out)]
+        self.assertIn("kind: source", kinds)
+        self.assertNotIn("search", out)
+
+    def test_unknown_type_error_lists_the_sidecar_types_too(self):
+        code, _, err = render({"x": {"type": "oracle", "env": {}}})
+
+        self.assertEqual(code, 1)
+        self.assertIn("opensearch", err)
+
     def test_unknown_env_key_is_an_error(self):
         # Catches a typo'd field instead of silently emitting a bogus source.
         code, _, err = render(
