@@ -39,7 +39,7 @@ A language-agnostic core (`tools/forensics.sh` + `lib/forensics-lib.py`) owns gi
 | `provision` | install a pinned engine into `storage/forensics/<lang>`                       |
 | `units`     | emit code units + static complexity as canonical JSON                         |
 
-Adding a language is one `langs/<lang>/` directory — `php` (PDepend) ships first, `py`/`ts`/`rust` follow.
+Four languages ship: `php` (PDepend), `typescript` (TypeScript compiler API), `java` (JDK compiler tree API) and `go` (stdlib `go/ast`). Adding another is one `langs/<lang>/` directory answering the same four verbs.
 
 ## Method caveats
 
