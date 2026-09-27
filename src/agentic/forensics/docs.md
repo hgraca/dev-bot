@@ -20,8 +20,8 @@ into one Markdown or JSON document.
 - **Hotspots** — complexity × change rate, ranked; the refactoring priority list.
 - **Change rate** — commits and commits-per-active-day per file.
 - **Temporal coupling** — files that change together without a structural dependency.
-- **Ownership & concentration** — authors per file, top-author share, bus factor.
-- **Commit-history intelligence** — conventional-commit mix (overall and per author), tickets, defect origin (SZZ), and time-to-fix distributions, boxed to a date range.
+- **Ownership & concentration** — authors per file and per unit, top-author share, bus factor.
+- **Commit-history intelligence** — conventional-commit mix (overall and per author), tickets, defect origin (SZZ), time-to-fix distributions, commit-process metrics and release cadence, boxed to a date range.
 - _Phase 2:_ complexity trends over time, architecture-vs-organization, and the composite debt interest-rate priority.
 
 ## Architecture

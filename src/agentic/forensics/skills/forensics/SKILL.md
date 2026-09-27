@@ -32,7 +32,8 @@ devbot tool forensics <command> [options]
 | `provision --lang <lang>`                                                                                               | Install a pinned engine into `storage/forensics/<lang>`.                |
 
 Views: `hotspots`, `change-rate`, `coupling`, `ownership`, `concentration`,
-`commit-types`, `authors`, `tickets`, `defects`, `time-to-fix`, `fixers`.
+`unit-ownership`, `unit-concentration`, `commit-types`, `authors`, `tickets`,
+`defects`, `time-to-fix`, `fixers`, `process`, `releases`.
 (`trends` and `architecture` arrive in Phase 2.)
 
 The default store is `<repo>/.forensics/<timestamp>.sqlite` (self-ignoring — it writes a `.gitignore` containing `*`).
