@@ -3,6 +3,14 @@ date: 2026-09-11
 keywords: ["external-modules", "disabled-umbrella", "module-list", "prune", "audit-03"]
 ---
 
+> **PARTIALLY SUPERSEDED (2026-09-27)** by ADR `20260927172101-external-modules-enablement-independent`
+> and the `src/tools/external-modules/docs.md` rewrite: the "disabled umbrella → skipped, not mirrored"
+> and "prune must not drop a name an enabled umbrella declares" sections below describe the **old**
+> model. Provisioning is now enablement-independent — the global config, `vendor/` clones and
+> `storage/external-agentic-modules/` mirrors are always built, only per-project `.agents/` wiring is
+> gated, and the prune keeps any declared name. The "`module list` status is per-module" and
+> "wiring path is `.agents/`" sections remain valid.
+
 # External-module state is per-module; a disabled umbrella is skipped entirely
 
 ## Disabled umbrella → skipped, not mirrored
