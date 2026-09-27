@@ -57,10 +57,28 @@ _rebuild_external_module_config() {
     return 1
   fi
 
+  # Whether the baseline was clean BEFORE the merge. Only a clean baseline may
+  # be refreshed after it: a missing or already-stale baseline means a reinit is
+  # pending, and writing here would silently consume it — a standalone
+  # `devbot up` / `make up` must never clear the auto-reinit trigger.
+  local baseline_was_clean=0
+  if [[ -f "${PROJECT_DIR}/.devbot.project.jsonc" ]] \
+    && ! _devbot_config_changed "${PROJECT_DIR}"; then
+    baseline_was_clean=1
+  fi
+
   # Delegates to the shared rebuild: every module's declarations are merged
   # regardless of enablement — the config store and the vendor/ clones are
   # global, shared by every project. See _devbot_rebuild_external_module_config.
   _devbot_rebuild_external_module_config
+
+  # The merge rewrites the global config, which the per-project wiring baseline
+  # hashes — and init.sh recorded that baseline BEFORE this start's merge ran.
+  # Refresh a CLEAN baseline so the next start does not read a spurious "config
+  # changed" and reinit again (audit-71 C2).
+  if [[ "${baseline_was_clean}" -eq 1 ]]; then
+    _devbot_write_config_sha "${PROJECT_DIR}"
+  fi
 }
 
 # ── Stale container-name reclaim ───────────────────────────────────────────────
