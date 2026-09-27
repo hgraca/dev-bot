@@ -24,6 +24,7 @@ import analyse  # noqa: E402
 import commitparse  # noqa: E402
 import gitmine  # noqa: E402  (local module, resolved via the sys.path entry above)
 import store  # noqa: E402
+import szz  # noqa: E402
 
 TOOL_VERSION = "0.1.0"
 
@@ -305,7 +306,8 @@ def cmd_mine(args: list) -> int:
                 "until": until or "",
             },
         )
-        store.write_commits(conn, commitparse.enrich(data["commits"]))
+        enriched = commitparse.enrich(data["commits"])
+        store.write_commits(conn, enriched)
         store.write_changes(conn, data["changes"])
         store.derive_files(conn)
         conn.commit()
@@ -319,6 +321,12 @@ def cmd_mine(args: list) -> int:
             warnings += ["unit extraction skipped (%s)" % error for error in errors]
             if units:
                 store.write_units(conn, units)
+                conn.commit()
+
+        if not opts.get("no-defects"):
+            links = szz.link_defects(data["repo"], enriched)
+            if links:
+                store.write_defect_links(conn, links)
                 conn.commit()
 
         result_counts = store.counts(conn)

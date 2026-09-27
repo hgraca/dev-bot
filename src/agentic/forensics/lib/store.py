@@ -60,9 +60,19 @@ CREATE TABLE IF NOT EXISTS units (
   parent     TEXT,
   PRIMARY KEY (path, kind, name)
 );
+CREATE TABLE IF NOT EXISTS defect_links (
+  fix_hash        TEXT,
+  fix_type        TEXT,
+  fix_author      TEXT,
+  inducing_hash   TEXT,
+  inducing_author TEXT,
+  delta_seconds   INTEGER,
+  matched_lines   INTEGER,
+  PRIMARY KEY (fix_hash, inducing_hash)
+);
 """
 
-_TABLES = ("meta", "commits", "changes", "files", "units")
+_TABLES = ("meta", "commits", "changes", "files", "units", "defect_links")
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -203,6 +213,26 @@ def write_units(conn: sqlite3.Connection, units: list) -> None:
         "INSERT OR REPLACE INTO units(path, name, kind, start_line, end_line, complexity, loc, parent)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
+    )
+
+
+def write_defect_links(conn: sqlite3.Connection, links: list) -> None:
+    conn.executemany(
+        "INSERT OR REPLACE INTO defect_links"
+        "(fix_hash, fix_type, fix_author, inducing_hash, inducing_author, delta_seconds, matched_lines)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                link["fix_hash"],
+                link.get("fix_type", ""),
+                link.get("fix_author", ""),
+                link.get("inducing_hash", ""),
+                link.get("inducing_author", ""),
+                link.get("delta_seconds"),
+                link.get("matched_lines", 0),
+            )
+            for link in links
+        ],
     )
 
 

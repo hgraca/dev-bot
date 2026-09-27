@@ -257,6 +257,64 @@ def tickets(conn: sqlite3.Connection, top=None) -> list:
     return results[:top] if top is not None else results
 
 
+def defects(conn: sqlite3.Connection, top=None) -> list:
+    """Fix commits with their inducing commit and the time between them."""
+    rows = conn.execute(
+        "SELECT fix_hash, fix_type, fix_author, inducing_hash, inducing_author, delta_seconds, matched_lines"
+        " FROM defect_links ORDER BY delta_seconds DESC"
+    ).fetchall()
+    results = []
+    for row in rows:
+        entry = dict(row)
+        entry["delta_hours"] = round((row["delta_seconds"] or 0) / 3600.0, 2)
+        results.append(entry)
+    return results[:top] if top is not None else results
+
+
+def _percentile(values: list, fraction: float):
+    if not values:
+        return None
+    values = sorted(values)
+    position = (len(values) - 1) * fraction
+    lower = int(position)
+    upper = min(lower + 1, len(values) - 1)
+    if lower == upper:
+        return values[lower]
+    return values[lower] + (values[upper] - values[lower]) * (position - lower)
+
+
+def time_to_fix(conn: sqlite3.Connection, top=None) -> list:
+    """Distribution of inducing→fix time in hours."""
+    deltas = [
+        row["delta_seconds"]
+        for row in conn.execute("SELECT delta_seconds FROM defect_links WHERE delta_seconds IS NOT NULL").fetchall()
+    ]
+    if not deltas:
+        return [{"count": 0}]
+    hours = [delta / 3600.0 for delta in deltas]
+    return [
+        {
+            "count": len(hours),
+            "avg_hours": round(sum(hours) / len(hours), 2),
+            "median_hours": round(_percentile(hours, 0.5) or 0, 2),
+            "p75_hours": round(_percentile(hours, 0.75) or 0, 2),
+            "p90_hours": round(_percentile(hours, 0.9) or 0, 2),
+            "fastest_hours": round(min(hours), 2),
+            "slowest_hours": round(max(hours), 2),
+        }
+    ]
+
+
+def fixers(conn: sqlite3.Connection, top=None) -> list:
+    """Who fixes whose code: fix author vs the author of the inducing commit."""
+    rows = conn.execute(
+        "SELECT fix_author, inducing_author, COUNT(*) AS fixes FROM defect_links"
+        " GROUP BY fix_author, inducing_author ORDER BY fixes DESC"
+    ).fetchall()
+    results = [dict(row) for row in rows]
+    return results[:top] if top is not None else results
+
+
 _VIEWS = {
     "hotspots": hotspots,
     "change-rate": change_rate,
@@ -266,4 +324,7 @@ _VIEWS = {
     "commit-types": commit_types,
     "authors": authors,
     "tickets": tickets,
+    "defects": defects,
+    "time-to-fix": time_to_fix,
+    "fixers": fixers,
 }

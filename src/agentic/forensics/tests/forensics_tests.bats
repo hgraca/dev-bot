@@ -858,3 +858,76 @@ assert any(r["ticket"] == "A-1" for r in doc["tickets"]), doc["tickets"]
 
   rm -rf "$repo"
 }
+
+# ── Defect origin (SZZ) ────────────────────────────────────────────────────────
+
+@test "szz: links a fix to the commit that introduced the faulty line" {
+  local repo
+  repo="$(mktemp -d)"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  printf 'one\n' >"$repo/f.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T00:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: v1"
+  printf 'two\n' >"$repo/f.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-02T12:00:00+00:00" GIT_COMMITTER_DATE="2024-01-02T12:00:00+00:00" \
+    git -C "$repo" commit -q -m "fix: v2"
+
+  run python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import commitparse, gitmine, szz
+repo = sys.argv[2]
+commits = commitparse.enrich(gitmine.mine_log(repo)["commits"])
+links = szz.link_defects(repo, commits)
+assert len(links) == 1, links
+link = links[0]
+fix = next(c for c in commits if c["hash"] == link["fix_hash"])
+inducing = next(c for c in commits if c["hash"] == link["inducing_hash"])
+assert fix["type"] == "fix", fix
+assert inducing["message"].startswith("feat"), inducing
+assert link["delta_seconds"] == 36 * 3600, link
+' "${MODULE_DIR}" "$repo"
+
+  rm -rf "$repo"
+}
+
+@test "analyse time-to-fix: reports the inducing-to-fix distribution" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  printf 'one\n' >"$repo/f.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T00:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: v1"
+  printf 'two\n' >"$repo/f.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-02T12:00:00+00:00" GIT_COMMITTER_DATE="2024-01-02T12:00:00+00:00" \
+    git -C "$repo" commit -q -m "fix: v2"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view time-to-fix --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+row = doc["time-to-fix"][0]
+assert row["count"] >= 1, row
+assert row["fastest_hours"] == 36.0, row
+'
+
+  run bash "${TOOL}" analyse "$db" --view fixers --format json
+  assert_success
+
+  rm -rf "$repo"
+}
