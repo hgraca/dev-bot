@@ -51,6 +51,10 @@ def _run_plugin(script: str, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["bash", script, *args], capture_output=True, text=True)
 
 
+def _run_plugin_stdin(script: str, payload: dict, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["bash", script, *args], input=json.dumps(payload), capture_output=True, text=True)
+
+
 def _load_meta(script: str) -> dict:
     proc = _run_plugin(script, "meta")
     if proc.returncode != 0:
@@ -206,6 +210,33 @@ def _ensure_self_ignored(db_path: str) -> None:
             handle.write("*\n")
 
 
+def _extract_units(repo: str, file_types: dict) -> tuple:
+    """Run every units-capable plugin over the files whose extension it owns.
+
+    Returns (units, error). An unreachable engine is an error the caller turns
+    into a warning — unit extraction must never fail a mine.
+    """
+    plugins, _ = _discover(_langs_dir())
+    units = []
+    for plugin in plugins:
+        if "units" not in plugin.get("capabilities", []):
+            continue
+        paths = []
+        for extension in plugin.get("extensions", []):
+            paths += file_types.get(extension.lstrip(".").lower(), [])
+        if not paths:
+            continue
+        proc = _run_plugin_stdin(plugin["path"], {"project": repo, "files": paths}, "units")
+        if proc.returncode != 0:
+            return None, (proc.stderr or "").strip() or "plugin failed"
+        try:
+            doc = json.loads(proc.stdout)
+        except ValueError:
+            return None, "plugin returned non-JSON"
+        units += doc.get("units", [])
+    return units, None
+
+
 def cmd_mine(args: list) -> int:
     fmt = _parse_format(args)
     opts, positionals = _parse_args(args)
@@ -242,17 +273,39 @@ def cmd_mine(args: list) -> int:
     store.write_changes(conn, data["changes"])
     store.derive_files(conn)
     conn.commit()
+
+    warnings = []
+    granularity = opts.get("granularity") if isinstance(opts.get("granularity"), str) else "unit"
+    if granularity != "file":
+        file_types = {}
+        for row in conn.execute("SELECT path, type FROM files").fetchall():
+            file_types.setdefault((row["type"] or "").lower(), []).append(row["path"])
+        units, error = _extract_units(data["repo"], file_types)
+        if error:
+            warnings.append("unit extraction skipped: %s" % error)
+        elif units:
+            store.write_units(conn, units)
+            conn.commit()
+
     result_counts = store.counts(conn)
     conn.close()
 
-    doc = {"ok": True, "db": os.path.abspath(db_path), "repo": data["repo"], "counts": result_counts}
+    doc = {
+        "ok": True,
+        "db": os.path.abspath(db_path),
+        "repo": data["repo"],
+        "counts": result_counts,
+        "warnings": warnings,
+    }
     if fmt == "json":
         print(json.dumps(doc, indent=2))
     else:
         print("Mined %s" % data["repo"])
         print("- db: %s" % doc["db"])
-        for name in ("commits", "changes", "files"):
+        for name in ("commits", "changes", "files", "units"):
             print("- %s: %d" % (name, result_counts[name]))
+        for warning in warnings:
+            print("WARN: %s" % warning)
     return 0
 
 

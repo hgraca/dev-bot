@@ -340,3 +340,59 @@ assert units[("method", "Calculator::classify")]["complexity"] == 3, units
 
   rm -f "$req"
 }
+
+# ── Mine unit extraction (T0.6 complete) ───────────────────────────────────────
+
+@test "mine: --granularity file skips unit extraction" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/out.sqlite"
+  _build_repo "$repo"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["counts"]["units"] == 0, doc["counts"]
+'
+
+  rm -rf "$repo"
+}
+
+@test "mine: extracts units for php files when an engine is available" {
+  _php_e2e_ready || skip "php engine + docker not available"
+
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/out.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  mkdir -p "$repo/src"
+  cp "${PHP_FIXTURES}/src/Calculator.php" "$repo/src/Calculator.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: add calculator"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["counts"]["units"] >= 3, doc["counts"]
+'
+
+  run python3 -c '
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1])
+conn.row_factory = sqlite3.Row
+row = conn.execute("SELECT * FROM units WHERE kind=? ORDER BY complexity DESC", ("method",)).fetchone()
+assert row is not None, "no method units stored"
+assert row["complexity"] >= 1, dict(row)
+' "$db"
+  assert_success
+
+  rm -rf "$repo"
+}

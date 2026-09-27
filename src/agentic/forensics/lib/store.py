@@ -44,9 +44,20 @@ CREATE TABLE IF NOT EXISTS files (
   last_seen     TEXT,
   authors_count INTEGER DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS units (
+  path       TEXT,
+  name       TEXT,
+  kind       TEXT,
+  start_line INTEGER,
+  end_line   INTEGER,
+  complexity INTEGER,
+  loc        INTEGER,
+  parent     TEXT,
+  PRIMARY KEY (path, kind, name)
+);
 """
 
-_TABLES = ("meta", "commits", "changes", "files")
+_TABLES = ("meta", "commits", "changes", "files", "units")
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -144,6 +155,26 @@ def derive_files(conn: sqlite3.Connection) -> None:
             (path, extension, len(entry["commits"]), len(entry["days"]), entry["first"], entry["last"], len(entry["authors"])),
         )
     conn.commit()
+
+
+def write_units(conn: sqlite3.Connection, units: list) -> None:
+    conn.executemany(
+        "INSERT OR REPLACE INTO units(path, name, kind, start_line, end_line, complexity, loc, parent)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            (
+                unit["path"],
+                unit["name"],
+                unit["kind"],
+                unit.get("start_line"),
+                unit.get("end_line"),
+                unit.get("complexity"),
+                unit.get("loc"),
+                unit.get("parent") or "",
+            )
+            for unit in units
+        ],
+    )
 
 
 def counts(conn: sqlite3.Connection) -> dict:
