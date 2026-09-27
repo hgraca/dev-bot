@@ -51,7 +51,8 @@ Usage:
 
 Commands:
   mine [<repo>] [--since <date>] [--until <date>] [--db <path>]
-       [--lang auto|php,py,ts] [--granularity file|unit]
+       [--lang auto|php,py,ts] [--granularity file|unit] [--no-defects]
+       [--trends] [--trend-interval month|quarter|year]
                         Walk git history + code units + metrics + commit
                         analysis into the SQLite store.
   analyse <db> [--view <view>] [--top N] [--format md|json]

@@ -11,6 +11,7 @@ import analyse
 SECTIONS = (
     ("hotspots", "Hotspots", 20),
     ("priority", "Debt priority", 20),
+    ("trends", "Complexity trends", 20),
     ("change-rate", "Change rate", 10),
     ("coupling", "Temporal coupling", 15),
     ("ownership", "Ownership", 15),

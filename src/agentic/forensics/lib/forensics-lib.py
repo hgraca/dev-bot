@@ -15,9 +15,11 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -28,6 +30,7 @@ import ownership  # noqa: E402
 import report  # noqa: E402
 import store  # noqa: E402
 import szz  # noqa: E402
+import trends  # noqa: E402
 
 TOOL_VERSION = "0.1.0"
 
@@ -254,6 +257,60 @@ def _extract_units(repo: str, file_types: dict, langs=None) -> tuple:
     return units, errors
 
 
+def _file_complexity(units: list) -> dict:
+    """Per-file complexity from leaf units, falling back to the total."""
+    leaf = {}
+    total = {}
+    for unit in units:
+        path = unit["path"]
+        complexity = unit.get("complexity") or 0
+        total[path] = total.get(path, 0) + complexity
+        if unit.get("kind") in ("method", "function"):
+            leaf[path] = leaf.get(path, 0) + complexity
+        else:
+            leaf.setdefault(path, 0)
+    return {path: (leaf[path] or total[path]) for path in total}
+
+
+def _mine_trends(repo: str, langs, interval: str) -> list:
+    """Sample the repo over time and measure complexity at each sampled revision."""
+    plugins, _ = _discover(_langs_dir())
+    extensions = set()
+    for plugin in plugins:
+        if "units" not in plugin.get("capabilities", []):
+            continue
+        if langs and plugin.get("lang") not in langs:
+            continue
+        for extension in plugin.get("extensions", []):
+            extensions.add(extension.lstrip(".").lower())
+    if not extensions:
+        return []
+
+    rows = []
+    for entry in trends.sample_revisions(repo, interval):
+        worktree = tempfile.mkdtemp(prefix="forensics-trend-")
+        try:
+            if not trends.add_worktree(repo, entry["revision"], worktree):
+                continue
+            file_types = {}
+            for root, dirs, names in os.walk(worktree):
+                dirs[:] = [name for name in dirs if name != ".git"]
+                for name in names:
+                    extension = os.path.splitext(name)[1].lstrip(".").lower()
+                    if extension in extensions:
+                        relative = os.path.relpath(os.path.join(root, name), worktree)
+                        file_types.setdefault(extension, []).append(relative)
+            units, _errors = _extract_units(worktree, file_types, langs)
+            for path, complexity in _file_complexity(units).items():
+                rows.append(
+                    {"revision": entry["revision"], "date": entry["date"], "path": path, "complexity": complexity}
+                )
+        finally:
+            trends.remove_worktree(repo, worktree)
+            shutil.rmtree(worktree, ignore_errors=True)
+    return rows
+
+
 def cmd_mine(args: list) -> int:
     fmt = _parse_format(args)
     opts, positionals = _parse_args(args)
@@ -340,6 +397,13 @@ def cmd_mine(args: list) -> int:
             links = szz.link_defects(data["repo"], enriched)
             if links:
                 store.write_defect_links(conn, links)
+                conn.commit()
+
+        if opts.get("trends"):
+            interval = opts.get("trend-interval") if isinstance(opts.get("trend-interval"), str) else "month"
+            trend_rows = _mine_trends(data["repo"], langs, interval)
+            if trend_rows:
+                store.write_complexity_trend(conn, trend_rows)
                 conn.commit()
 
         result_counts = store.counts(conn)

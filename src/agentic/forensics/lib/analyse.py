@@ -526,9 +526,32 @@ def priority(conn: sqlite3.Connection, top=None, weights=None) -> list:
     return results[:top] if top is not None else results
 
 
+def trends(conn: sqlite3.Connection, top=None) -> list:
+    """Per-file complexity change across the sampled revisions (A9)."""
+    series = {}
+    for row in conn.execute("SELECT path, revision, date, complexity FROM complexity_trend ORDER BY date").fetchall():
+        series.setdefault(row["path"], []).append(row)
+
+    results = []
+    for path, points in series.items():
+        first, last = points[0], points[-1]
+        results.append(
+            {
+                "path": path,
+                "snapshots": len(points),
+                "first_complexity": first["complexity"],
+                "last_complexity": last["complexity"],
+                "delta": (last["complexity"] or 0) - (first["complexity"] or 0),
+            }
+        )
+    results.sort(key=lambda item: item["delta"], reverse=True)
+    return results[:top] if top is not None else results
+
+
 _VIEWS = {
     "hotspots": hotspots,
     "priority": priority,
+    "trends": trends,
     "change-rate": change_rate,
     "coupling": coupling,
     "ownership": ownership,

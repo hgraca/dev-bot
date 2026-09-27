@@ -719,7 +719,7 @@ assert isinstance(doc["hotspots"], list), doc
   _build_repo "$repo"
   bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
 
-  run bash "${TOOL}" analyse "$db" --view trends --format json
+  run bash "${TOOL}" analyse "$db" --view architecture --format json
   assert_failure
   assert_output --partial "ERROR"
 
@@ -1223,4 +1223,38 @@ for key in ("priority", "change_rank", "complexity_rank", "coupling_rank", "defe
     assert key in rows[0], key
 assert rows[0]["ownership_risk"] == 1.0, rows[0]
 ' "${MODULE_DIR}"
+}
+
+@test "mine trends: tracks a file's complexity growth over time" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  printf 'if a\n' >"$repo/code.zz"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T00:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: one branch"
+  printf 'if a\nif b\n' >"$repo/code.zz"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-02-01T00:00:00+00:00" GIT_COMMITTER_DATE="2024-02-01T00:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: another branch"
+
+  run env FORENSICS_LANGS_DIR="${TEST_DIR}/fixtures/langs-trend" bash "${TOOL}" mine "$repo" --db "$db" --trends --format json
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view trends --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+rows = {row["path"]: row for row in json.load(sys.stdin)["trends"]}
+assert rows["code.zz"]["snapshots"] == 2, rows
+assert rows["code.zz"]["first_complexity"] == 1, rows
+assert rows["code.zz"]["last_complexity"] == 2, rows
+assert rows["code.zz"]["delta"] == 1, rows
+'
+
+  rm -rf "$repo"
 }

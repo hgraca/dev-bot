@@ -93,9 +93,27 @@ CREATE TABLE IF NOT EXISTS releases (
   tag  TEXT PRIMARY KEY,
   date TEXT
 );
+CREATE TABLE IF NOT EXISTS complexity_trend (
+  revision   TEXT,
+  date       TEXT,
+  path       TEXT,
+  complexity INTEGER,
+  PRIMARY KEY (revision, path)
+);
 """
 
-_TABLES = ("meta", "commits", "changes", "files", "units", "defect_links", "unit_ownership", "unit_churn", "releases")
+_TABLES = (
+    "meta",
+    "commits",
+    "changes",
+    "files",
+    "units",
+    "defect_links",
+    "unit_ownership",
+    "unit_churn",
+    "releases",
+    "complexity_trend",
+)
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -302,6 +320,13 @@ def write_releases(conn: sqlite3.Connection, releases: list) -> None:
     conn.executemany(
         "INSERT OR REPLACE INTO releases(tag, date) VALUES (?, ?)",
         [(release["tag"], release.get("date", "")) for release in releases],
+    )
+
+
+def write_complexity_trend(conn: sqlite3.Connection, rows: list) -> None:
+    conn.executemany(
+        "INSERT OR REPLACE INTO complexity_trend(revision, date, path, complexity) VALUES (?, ?, ?, ?)",
+        [(row["revision"], row["date"], row["path"], row["complexity"]) for row in rows],
     )
 
 
