@@ -725,3 +725,59 @@ assert any(row["path"] == "a.php" for row in doc["hotspots"]), doc["hotspots"]
 
   rm -rf "$repo"
 }
+
+@test "analyse change-rate: ranks by commits and computes commits per active day" {
+  run python3 -c '
+import sqlite3, sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import analyse, store
+
+conn = sqlite3.connect(":memory:")
+conn.row_factory = sqlite3.Row
+store.init(conn)
+
+def commit(h, day, files):
+    store.write_commits(conn, [{"hash": h, "author_name": "A", "author_email": "a",
+        "date": "2024-01-%02dT00:00:00+00:00" % day, "message": "m",
+        "files_changed": len(files), "lines_added": 1, "lines_deleted": 0}])
+    store.write_changes(conn, [{"commit_hash": h, "path": p, "added": 1, "deleted": 0,
+        "is_rename": False, "old_path": ""} for p in files])
+
+commit("h1", 1, ["a.php"]); commit("h2", 1, ["a.php"]); commit("h3", 2, ["b.php"])
+store.derive_files(conn)
+
+rows = analyse.change_rate(conn)
+top = rows[0]
+assert top["path"] == "a.php" and top["commits"] == 2 and top["active_days"] == 1 and top["rate"] == 2.0, top
+' "${MODULE_DIR}"
+}
+
+@test "analyse coupling: finds co-changing pairs and drops bulk commits" {
+  run python3 -c '
+import sqlite3, sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import analyse, store
+
+conn = sqlite3.connect(":memory:")
+conn.row_factory = sqlite3.Row
+store.init(conn)
+
+def commit(h, day, files):
+    store.write_commits(conn, [{"hash": h, "author_name": "A", "author_email": "a",
+        "date": "2024-02-%02dT00:00:00+00:00" % day, "message": "m",
+        "files_changed": len(files), "lines_added": 1, "lines_deleted": 0}])
+    store.write_changes(conn, [{"commit_hash": h, "path": p, "added": 1, "deleted": 0,
+        "is_rename": False, "old_path": ""} for p in files])
+
+commit("h1", 1, ["a.php", "b.php"])
+commit("h2", 2, ["a.php", "b.php"])
+commit("h3", 3, ["f%02d.php" % i for i in range(40)])  # bulk: must be ignored
+store.derive_files(conn)
+
+rows = {frozenset((r["path_a"], r["path_b"])): r for r in analyse.coupling(conn)}
+pair = rows[frozenset(("a.php", "b.php"))]
+assert pair["shared_commits"] == 2, pair
+assert pair["coupling_pct"] == 100.0, pair
+assert len(rows) == 1, list(rows)
+' "${MODULE_DIR}"
+}
