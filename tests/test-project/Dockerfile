@@ -39,9 +39,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cuda-cudart-12-6 libcublas-12-6 \
  && rm -f /tmp/cuda-keyring.deb \
  && echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/devuser \
- && npm install -g @anthropic-ai/claude-code @playwright/mcp@0.0.79 \
+# @playwright/mcp version MUST match src/agentic/playwright/versions.env: a
+# drift makes reinit install a different server than the browser baked here, so
+# the fallback looks for a browser revision the image does not have (audit-66
+# FAIL). playwright_tests.bats guards the equality.
+ && npm install -g @anthropic-ai/claude-code @playwright/mcp@0.0.80 \
  && npx playwright install-deps chromium \
- && su - ubuntu -c 'npm config set prefix "$HOME/.local" 2>/dev/null && npx -y @playwright/mcp@0.0.79 install-browser chrome-for-testing && npm install -g @tobilu/qmd' \
+ && su - ubuntu -c 'npm config set prefix "$HOME/.local" 2>/dev/null && npx -y @playwright/mcp@0.0.80 install-browser chrome-for-testing && npm install -g @tobilu/qmd' \
  && su - ubuntu -c 'npx -y chrome-devtools-mcp@latest --help >/dev/null 2>&1 || true'
 
 # chrome-devtools-mcp bake above: pre-fetches the package into the ubuntu

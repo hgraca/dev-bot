@@ -98,6 +98,58 @@ _stub_npm_kit() {
   assert_success
 }
 
+@test "install.sh: ensures the chromium browser on the docker-absent fallback path" {
+  # The npm binary is only used when no docker daemon is reachable, and it
+  # launches with --browser chromium — so install.sh must ensure that browser
+  # exists (audit-66 FAIL: it launched with none). The call must sit outside the
+  # pinned-already early branch, so a current binary with a missing browser is
+  # still repaired.
+  run grep -q 'install-browser chrome-for-testing' "${MODULE_DIR}/install.sh"
+  assert_success
+  run grep -q 'docker info' "${MODULE_DIR}/install.sh"
+  assert_success
+  run grep -qF '_ensure_browser "${bin}"' "${MODULE_DIR}/install.sh"
+  assert_success
+}
+
+@test "install.sh: runs install-browser when no docker daemon is reachable" {
+  local tmpdir pin
+  tmpdir="$(mktemp -d)"
+  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "${MODULE_DIR}/versions.env" | head -1)"
+  mkdir -p "${tmpdir}/.npm-global/bin" "${tmpdir}/stubbin"
+
+  # The installed binary records every invocation and answers --version with the pin.
+  printf '#!/bin/bash\necho "$@" >> "%s"\n[[ "$1" == "--version" ]] && echo "%s"\nexit 0\n' \
+    "${tmpdir}/pw.calls" "${pin}" > "${tmpdir}/.npm-global/bin/playwright-mcp"
+  chmod +x "${tmpdir}/.npm-global/bin/playwright-mcp"
+  printf '#!/bin/bash\nif [ "$1 $2 $3" = "config get prefix" ]; then echo "/nonexistent"; exit 0; fi\nexit 0\n' \
+    > "${tmpdir}/stubbin/npm"
+  chmod +x "${tmpdir}/stubbin/npm"
+  # Force the "no docker daemon" fallback path.
+  printf '#!/bin/bash\nexit 1\n' > "${tmpdir}/stubbin/docker"
+  chmod +x "${tmpdir}/stubbin/docker"
+
+  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${MODULE_DIR}/install.sh"
+
+  assert_success
+  run grep -q 'install-browser chrome-for-testing' "${tmpdir}/pw.calls"
+  assert_success
+  rm -rf "${tmpdir}"
+}
+
+@test "Dockerfile: the baked @playwright/mcp version matches versions.env" {
+  # A drift makes reinit install a different server than the browser baked into
+  # the image, so the fallback looks for a browser revision the image lacks
+  # (audit-66 FAIL).
+  local pin dockerfile
+  pin="$(grep -oE '^PLAYWRIGHT_MCP_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env" | cut -d= -f2)"
+  dockerfile="$(cd "${MODULE_DIR}/../../.." && pwd)/tests/test-project/Dockerfile"
+  [[ -f "${dockerfile}" ]] || skip "fixture Dockerfile not present"
+
+  run bash -c "grep -oE '@playwright/mcp@[0-9]+\.[0-9]+\.[0-9]+' '${dockerfile}' | sort -u"
+  assert_output "@playwright/mcp@${pin}"
+}
+
 @test "update.sh: exists, is executable, resolves npm latest, and bumps versions.env" {
   # User policy: the installed version is bumped to npm latest ONLY on
   # 'devbot update', and the rewritten pin keeps every consumer at the new
