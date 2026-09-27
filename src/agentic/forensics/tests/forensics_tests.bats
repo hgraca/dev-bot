@@ -18,6 +18,8 @@ setup() {
   EDGE_LANGS="${TEST_DIR}/fixtures/langs-edge"
   PHP_PLUGIN="${MODULE_DIR}/langs/php/plugin.sh"
   PHP_FIXTURES="${TEST_DIR}/fixtures/php-project"
+  TS_PLUGIN="${MODULE_DIR}/langs/ts/plugin.sh"
+  TS_FIXTURES="${TEST_DIR}/fixtures/ts-project"
 }
 
 # ── Skeleton (T0.1) ────────────────────────────────────────────────────────────
@@ -287,6 +289,13 @@ _php_e2e_ready() {
   command -v docker >/dev/null 2>&1 || return 1
   docker info >/dev/null 2>&1 || return 1
   bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}" >/dev/null 2>&1
+}
+
+# True when the TypeScript plugin can run for real.
+_ts_e2e_ready() {
+  command -v docker >/dev/null 2>&1 || return 1
+  docker info >/dev/null 2>&1 || return 1
+  bash "${TS_PLUGIN}" doctor --project "${TS_FIXTURES}" >/dev/null 2>&1
 }
 
 @test "php plugin units: no engine is an ERROR" {
@@ -645,6 +654,53 @@ assert doc["engine"]["via"] == "project", doc
 '
 
   rm -rf "$project"
+}
+
+# ── TypeScript plugin (T3.1) ───────────────────────────────────────────────────
+
+@test "ts plugin units: no engine is an ERROR" {
+  local project storage req
+  project="$(mktemp -d)"
+  storage="$(mktemp -d)"
+  req="$(mktemp)"
+  printf '{"project":"%s","files":[]}' "${project}" >"${req}"
+
+  run env FORENSICS_STORAGE_DIR="${storage}" bash "${TS_PLUGIN}" units <"${req}"
+  assert_failure
+  assert_output --partial "ERROR"
+
+  rm -rf "$project" "$storage" "$req"
+}
+
+@test "ts plugin units: emits class, method and function units" {
+  _ts_e2e_ready || skip "typescript engine + docker not available"
+
+  local req
+  req="$(mktemp)"
+  printf '{"project":"%s","files":["src/calc.ts"]}' "${TS_FIXTURES}" >"${req}"
+
+  run bash "${TS_PLUGIN}" units <"${req}"
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+units = {(u["kind"], u["name"]): u for u in doc["units"]}
+assert units[("class", "Calc")]["complexity"] == 4, units
+assert units[("method", "Calc::classify")]["complexity"] == 3, units
+assert units[("function", "pick")]["complexity"] == 2, units
+'
+
+  rm -f "$req"
+}
+
+@test "langs: lists the php and ts plugins" {
+  run bash "${TOOL}" langs --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+langs = {plugin["lang"] for plugin in json.load(sys.stdin)["plugins"]}
+assert {"php", "ts"} <= langs, langs
+'
 }
 
 # ── Phase 1: hotspots ──────────────────────────────────────────────────────────
