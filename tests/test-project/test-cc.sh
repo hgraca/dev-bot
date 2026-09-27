@@ -80,15 +80,30 @@ source "${SCRIPT_DIR}/test-lib.sh"
 RUN_DIR="$(run_dir_create "${SCRIPT_DIR}" "cc")"
 CONTAINER_NAME="devbot-test-cc-$$"
 
+# The audit report must reach the REAL fixture while the container is still up:
+# the interactive shell keeps this launcher alive, so the exit-time sync is too
+# late. Bind-mount the fixture's thinking/ dir into the container (below) so the
+# audit writes devbot-audit-<NN>.md straight onto the fixture — and reserve that
+# id atomically, since a parallel run shares the same dir.
+THINKING_DIR="${SCRIPT_DIR}/.agents/memory/thinking"
+mkdir -p "${THINKING_DIR}" "${RUN_DIR}/.agents"
+AUDIT_NN="$(reserve_audit_nn "${THINKING_DIR}")"
+AUDIT_REPORT_NAME="devbot-audit-${AUDIT_NN}.md"
+
 cleanup() {
   # Idempotent: runs once from the EXIT trap (also fired by INT/TERM). Kill the
   # container FIRST (so on Ctrl+C the sync reads a quiescent /app — on normal
-  # exit the container is already gone and this is a no-op), then sync durable
-  # outputs (audit report + logs) back to the real fixture and drop the
-  # isolated copy. A second call is a safe no-op.
+  # exit the container is already gone and this is a no-op), then file durable
+  # outputs (logs; the report already landed via the mount) back to the real
+  # fixture and drop the isolated copy. A second call is a safe no-op.
   docker rm -f "${CONTAINER_NAME:-}" >/dev/null 2>&1 || true
   if [[ -d "${RUN_DIR:-}" ]]; then
-    sync_run_outputs "${RUN_DIR}" "${SCRIPT_DIR}" "cc"
+    sync_run_outputs "${RUN_DIR}" "${SCRIPT_DIR}" "cc" "${AUDIT_REPORT_NAME:-}"
+    # Drop this run's reserved slot if the audit never filled it.
+    if [[ -n "${AUDIT_REPORT_NAME:-}" && -f "${THINKING_DIR}/${AUDIT_REPORT_NAME}" \
+      && ! -s "${THINKING_DIR}/${AUDIT_REPORT_NAME}" ]]; then
+      rm -f "${THINKING_DIR}/${AUDIT_REPORT_NAME}" 2>/dev/null || true
+    fi
     run_dir_destroy "${RUN_DIR}"
   fi
 }
@@ -120,6 +135,7 @@ docker run -d --rm --name "${CONTAINER_NAME}" \
   "${GPU_ARGS[@]}" \
   "${COMPOSER_ARGS[@]+"${COMPOSER_ARGS[@]}"}" \
   -v "${RUN_DIR}:/app" \
+  -v "${SCRIPT_DIR}/.agents/memory/thinking:/app/.agents/memory/thinking" \
   -v "${HOME}/.ssh:/tmp/ssh:ro" \
   -v "${HOME}/.claude:/home/ubuntu/.claude" \
   -v "${HOME}/.local/share/opencode:/home/ubuntu/.local/share/opencode" \
@@ -129,6 +145,7 @@ docker run -d --rm --name "${CONTAINER_NAME}" \
   -v "${HOME}/.npm:/home/ubuntu/.npm" \
   -e "JETBRAINS_PROJECT_PATH=${SCRIPT_DIR}" \
   -e "DEV_BOT_TEST_BRANCH=${BRANCH}" \
+  -e "DEVBOT_AUDIT_NN=${AUDIT_NN}" \
   -e "DEVBOT_TEST_NONINTERACTIVE=${DEVBOT_TEST_NONINTERACTIVE:-0}" \
   -e "DEVBOT_TEST_HEADLESS=${HEADLESS}" \
   -e "DEVBOT_TEST_CONTAINER_NAME=${CONTAINER_NAME}" \

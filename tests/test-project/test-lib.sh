@@ -4,17 +4,23 @@
 # Shared helpers for the e2e launchers (test-cc.sh / test-oc.sh) and their
 # inner scripts.
 #
-# Each launcher now runs its container against an ISOLATED per-run copy of the
+# Each launcher runs its container against an ISOLATED per-run copy of the
 # fixture, mounted at /app, so cc and oc (or two runs of the same harness) can
 # execute in parallel without racing over .devbot.project.jsonc, the harness
-# wiring dirs, the nested .git, or the audit-report NN sequence — the shared
-# mount previously made every parallel run corrupt the others' state (both
-# containers ended up launching claudecode).
+# wiring dirs, or the nested .git — the shared mount previously made every
+# parallel run corrupt the others' state (both containers ended up launching
+# claudecode). The one shared resource left is the audit-report id: the fixture
+# thinking/ dir is bind-mounted so the report lands on the fixture LIVE, so
+# reserve_audit_nn() claims the id atomically and the launchers pass it to the
+# container (DEVBOT_AUDIT_NN) for parallel runs to stay collision-free.
 #
 # Sourced by the launchers (host side). Provides:
 #   run_dir_create  <fixture> <harness>   — make an isolated copy, print its path
 #   run_dir_destroy <run_dir>             — remove the copy (idempotent)
-#   sync_run_outputs <run_dir> <fixture> <harness> — copy report + logs back
+#   reserve_audit_nn <thinking-dir>       — atomically claim the next free audit
+#                                            id (empty placeholder), print it
+#   sync_run_outputs <run_dir> <fixture> <harness> [<reserved-report>]
+#                                          — file the run's logs back
 #   composer_cache_args                    — print docker -v/-e args for the host
 #                                            composer cache (cross-platform)
 #   require_host_ollama_for_codebase_engine [install_root] — container-side gate:
@@ -80,7 +86,10 @@ composer_cache_args() {
 #   - .claude/, .opencode/, opencode.jsonc, .mcp.json, AGENTS.md, CLAUDE.md
 #     (devbot reinit rewires them per harness)
 #   - graphify-out/ (rebuilt by reinit)
-#   - devbot-audit-*.md history (report NN is allocated fresh on sync-back)
+#   - devbot-audit-*.md history (the launchers bind-mount the fixture's
+#     thinking/ dir over /app/.agents/memory/thinking, so the container sees
+#     the real history and allocates the next NN against it; this only keeps
+#     the isolated copy's own listing slim)
 #   - vendor/, build/ (regenerated; composer cache is shared instead — but the
 #     composer.lock IS carried so `composer install` is reproducible)
 # Keeps: source (src/, tests/, composer.json/lock, phpunit.xml...), the
@@ -124,30 +133,58 @@ run_dir_destroy() {
     && rm -rf "${run_dir}" 2>/dev/null || true
 }
 
+# ── Audit-report id reservation ───────────────────────────────────────────────
+# The fixture thinking/ dir is bind-mounted into the container, so the audit
+# writes its report straight onto the fixture — which means the report id is a
+# resource two parallel runs share. Claim the next free id atomically: create an
+# empty devbot-audit-<NN>.md with noclobber so a racing launcher's claim fails
+# and it moves on to the next id. The launcher passes the id to the container
+# (DEVBOT_AUDIT_NN); the audit fills that placeholder in place.
+reserve_audit_nn() {
+  local dir="$1"
+  local max=0 f n
+  while IFS= read -r f; do
+    n="$(basename "${f}" | sed -n 's/^devbot-audit-\([0-9][0-9]*\)\.md$/\1/p')"
+    [[ -n "${n}" ]] || continue
+    n="$((10#${n}))"
+    (( n > max )) && max="${n}"
+  done < <(find "${dir}" -maxdepth 1 -name 'devbot-audit-[0-9]*.md' 2>/dev/null)
+
+  n=$(( max + 1 ))
+  while :; do
+    local candidate
+    candidate="${dir}/devbot-audit-$(printf '%02d' "${n}").md"
+    if ( set -o noclobber; : > "${candidate}" ) 2>/dev/null; then
+      printf '%02d' "${n}"
+      return 0
+    fi
+    n=$(( n + 1 ))
+  done
+}
+
 # ── Sync-back ────────────────────────────────────────────────────────────────
-# After the container exits, copy the run's durable outputs back into the real
-# fixture:
-#   - the audit report  → .agents/memory/thinking/devbot-audit-<nextNN>.md
-#   - all devbot logs   → .agents/logs/<report-name-id>/<log files>
-#   - the harness logs  → .agents/logs/<report-name-id>/harness/<files>
-# Report NN is allocated as the next free integer on the REAL tree, so parallel
-# runs (each of which wrote devbot-audit-01.md inside its isolated copy) never
-# clobber each other. When no report was produced (audit failed / oc audit
-# still disabled), logs land under .agents/logs/<harness>-<timestamp>/.
+# The launchers bind-mount the fixture's thinking/ dir at
+# /app/.agents/memory/thinking, so the audit report lands on the REAL fixture
+# while the run is still going — nothing is copied, renamed, or deleted for it
+# here. This function therefore only files the run's LOGS back into the fixture,
+# under .agents/logs/<report-id>/ (the report id the launcher reserved) or
+# <harness>-<timestamp>/ when no report was written (audit failed / disabled).
 sync_run_outputs() {
   local run_dir="$1"
   local fixture="$2"
   local harness="$3"
+  local reserved="${4:-}"
   [[ -d "${run_dir}" ]] || return 0
 
   local thinking="${fixture}/.agents/memory/thinking"
   local logs_base="${fixture}/.agents/logs"
 
-  # The run wrote devbot-audit-01.md inside its isolated copy (history was
-  # excluded). Find the newest report it produced.
+  # The launcher reserved this exact report name before `docker run`; it holds
+  # content only once the audit actually wrote it.
   local report=""
-  report="$(find "${run_dir}/.agents/memory/thinking" -name 'devbot-audit-*.md' \
-    2>/dev/null | sort | tail -1)"
+  if [[ -n "${reserved}" && -s "${thinking}/${reserved}" ]]; then
+    report="${thinking}/${reserved}"
+  fi
 
   # Collect the run's logs BEFORE deciding where they land, so we never create
   # empty dirs on the real tree (the fixture is deliberately slim).
@@ -163,25 +200,8 @@ sync_run_outputs() {
 
   local label=""
   if [[ -n "${report}" ]]; then
-    # Allocate next free NN on the real tree. Force base-10: bash treats
-    # "08"/"09" as invalid octal in arithmetic comparisons.
-    mkdir -p "${thinking}"
-    local next_nn=1 max_nn=0
-    while IFS= read -r f; do
-      local n
-      n="$(basename "${f}" | sed -n 's/^devbot-audit-\([0-9][0-9]*\)\.md$/\1/p')"
-      if [[ -n "${n}" ]]; then
-        n="$((10#${n}))"
-        (( n > max_nn )) && max_nn="${n}"
-      fi
-    done < <(find "${thinking}" -maxdepth 1 -name 'devbot-audit-*.md' 2>/dev/null)
-    next_nn=$(( max_nn + 1 ))
-    label="devbot-audit-$(printf '%02d' "${next_nn}")"
-    cp "${report}" "${thinking}/${label}.md"
-    echo "  synced report → .agents/memory/thinking/${label}.md"
-    # Consume the source so a second sync_run_outputs call (e.g. trap + explicit
-    # cleanup) cannot re-copy it under a new NN.
-    rm -f "${report}" 2>/dev/null || true
+    label="${reserved%.md}"
+    echo "  report written via mount → .agents/memory/thinking/${reserved}"
   elif (( ${#devbot_logs[@]} > 0 )) || (( has_harness )); then
     # No report (audit failed / oc audit still disabled) but there are logs —
     # keep them under a harness-timestamped dir rather than losing them.

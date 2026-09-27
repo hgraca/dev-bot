@@ -224,6 +224,8 @@ At the end, produce an audit that answers only these two questions (project spec
 
 Write a markdown report to `.agents/memory/thinking/devbot-audit-NN.md` (`.agents` is the devbot dir from config), where `NN` is the next sequential integer starting at `01` — first list the existing `devbot-audit-*.md` files in that directory, then use the next number (e.g. `01` if none exist, `02` after `01`, …).
 
+**Fixture override:** if the `DEVBOT_AUDIT_NN` environment variable is set, use that integer for `NN` instead of computing the next one, and write over the empty `devbot-audit-<NN>.md` placeholder already present. The e2e launchers (tests/test-project) reserve the id this way so parallel cc/oc runs writing into the same bind-mounted `thinking/` dir cannot collide.
+
 **Open the report with a header block** stating the audit context — every report MUST begin with these four lines before any findings (they let a reader interpret the whole report without re-deriving the environment):
 
 - **ENVIRONMENT: container** or **ENVIRONMENT: host** — plus the evidence (from §0).
