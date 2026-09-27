@@ -33,9 +33,15 @@ A string path value symlinks the whole directory; an object value symlinks each 
 
 ## Disabled umbrellas
 
-An umbrella module (e.g. `react`, `svelte`) can be turned off in the `modules` map. Disabling it stops its external modules from being wired into `.agents/<type>/<name>` and stops their declarations being re-added to the config. On reinit the **storage mirror** of a name declared only by a disabled umbrella is pruned (`bin/init.sh:_prune_orphaned_external_modules`).
+An umbrella module (e.g. `react`, `svelte`) can be turned off in the `modules` map. Disablement is **per-project and gates wiring only**: while the umbrella is off in a project, its external modules are not symlinked into that project's `.agents/<type>/<name>`.
 
-An existing **vendor clone** is deliberately kept: `vendor/<owner>/<repo>` is never pruned, even when its umbrella is disabled. The clone is gitignored and cheap, and re-enabling is then instant. Remove it by hand if you want the disk back.
+Provisioning is deliberately enablement-independent. The `external_modules` store, the `vendor/` clones and the `storage/external-agentic-modules/` mirrors all live under the global dev-bot root and are shared by every registered project, so a module disabled in one project must not deny its external modules to the others:
+
+- **Config** — `install.sh` and `up.sh` merge every module's `external-modules.json` declarations regardless of enablement (`_devbot_rebuild_external_module_config`).
+- **Clones** — `vendor/<owner>/<repo>` is never pruned, even when its umbrella is disabled.
+- **Mirrors** — `bin/init.sh:_prune_orphaned_external_modules` removes a mirror only when **no** module declares it (enabled or disabled) and it is absent from `external_modules`. A declared name is always kept.
+
+Remove an external module explicitly with `devbot module remove <name>`.
 
 ## See also
 
