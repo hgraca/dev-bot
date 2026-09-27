@@ -13,6 +13,7 @@ setup() {
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
   TOOL="${MODULE_DIR}/tools/forensics.sh"
   LIB="${MODULE_DIR}/lib/forensics-lib.py"
+  GM="${MODULE_DIR}/lib/gitmine.py"
   LANGS="${MODULE_DIR}/langs"
   EDGE_LANGS="${TEST_DIR}/fixtures/langs-edge"
 }
@@ -103,4 +104,99 @@ assert doc["errors"] == [], doc["errors"]
   run env FORENSICS_LANGS_DIR="${TEST_DIR}/fixtures/langs-nokey" bash "${TOOL}" langs --format json
   assert_failure
   assert_output --partial "ERROR"
+}
+
+# ── Git miner (T0.3) ───────────────────────────────────────────────────────────
+#
+# The miner is the language-agnostic half of `mine`: it turns a git repo into
+# commits + per-commit file changes, boxed to a date range. Fixtures are built in
+# a temp dir at test time, so no repo is committed as a nested checkout.
+
+# Build a 3-commit repo with deterministic dates under $1.
+_build_repo() {
+  local dir="$1"
+  git -C "$dir" init -q
+  git -C "$dir" config user.name "Alice"
+  git -C "$dir" config user.email "alice@example.com"
+  git -C "$dir" config commit.gpgsign false
+
+  printf 'line1\nline2\n' >"${dir}/a.php"
+  git -C "$dir" add a.php
+  GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
+    git -C "$dir" commit -q -m "feat(A-1): add a"
+
+  printf 'line1\nline2\nline3\n' >"${dir}/a.php"
+  git -C "$dir" add a.php
+  GIT_AUTHOR_DATE="2024-02-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-02-01T10:00:00+00:00" \
+    git -C "$dir" commit -q -m "fix(A-1): patch a"
+
+  printf 'b\n' >"${dir}/b.txt"
+  git -C "$dir" add b.txt
+  GIT_AUTHOR_DATE="2024-03-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-03-01T10:00:00+00:00" \
+    git -C "$dir" commit -q -m "chore: add b"
+}
+
+@test "gitmine log: returns every commit with author, date and churn" {
+  local repo
+  repo="$(mktemp -d)"
+  _build_repo "$repo"
+
+  run python3 "${GM}" log --repo "$repo" --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["ok"] is True, doc
+assert len(doc["commits"]) == 3, len(doc["commits"])
+subjects = [c["message"].splitlines()[0] for c in doc["commits"]]
+assert subjects[0].startswith("chore"), subjects
+assert doc["commits"][0]["author_name"] == "Alice"
+assert any(row["path"] == "a.php" for row in doc["changes"]), doc["changes"]
+'
+
+  rm -rf "$repo"
+}
+
+@test "gitmine log: --since/--until box the range" {
+  local repo
+  repo="$(mktemp -d)"
+  _build_repo "$repo"
+
+  run python3 "${GM}" log --repo "$repo" --since 2024-02-15 --until 2024-03-15 --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert len(doc["commits"]) == 1, [c["message"] for c in doc["commits"]]
+assert doc["commits"][0]["message"].startswith("chore")
+'
+
+  rm -rf "$repo"
+}
+
+@test "gitmine log: a non-repo path is an ERROR" {
+  local dir
+  dir="$(mktemp -d)"
+  run python3 "${GM}" log --repo "$dir" --format json
+  assert_failure
+  assert_output --partial "ERROR"
+  rm -rf "$dir"
+}
+
+@test "gitmine blame: attributes lines to an author" {
+  local repo
+  repo="$(mktemp -d)"
+  _build_repo "$repo"
+
+  run python3 "${GM}" blame --repo "$repo" --file a.php --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["ok"] is True, doc
+assert len(doc["lines"]) >= 1
+assert doc["lines"][0]["author_name"] == "Alice"
+'
+
+  rm -rf "$repo"
 }
