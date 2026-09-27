@@ -1959,6 +1959,14 @@ _devbot_ollama_exec() {
 #   dev-bot ollama container); without one (e.g. inside a dev container where
 #   the host serves the API) it talks to the plain ollama API directly.
 _ensure_ollama_models_detached() {
+  # Ollama backs exactly one engine — codebase-index's embeddings. When it is not
+  # the active codebase provider there is nothing to ensure: do not read
+  # ollama_local_api nor probe an endpoint that is expected to be dead on a
+  # machine that never selected it (audit-69 NOTE-5).
+  if [[ "$(_devbot_get_codebase_provider)" != "codebase-index" ]]; then
+    return 0
+  fi
+
   local api="${OLLAMA_API_URL:-}"
   if [[ -z "${api}" && -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]]; then
     api="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${DEV_BOT_ROOT}/.devbot.global.jsonc" "ollama_local_api" 2>/dev/null || true)"

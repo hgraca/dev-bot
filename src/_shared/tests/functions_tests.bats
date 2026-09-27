@@ -652,3 +652,35 @@ EOF
   assert_success
   [[ ! -e "${f}.1" ]]
 }
+
+# ── _ensure_ollama_models_detached engine gate ───────────────────────────────
+# Ollama backs exactly one engine (codebase-index). When it is not the active
+# provider, the helper must not read ollama_local_api or probe an endpoint that
+# is expected to be dead (audit-69 NOTE-5).
+
+@test "_ensure_ollama_models_detached: no-op unless codebase-index is the provider" {
+  local sb="${TEST_TEMP}/gate-cbm"
+  mkdir -p "${sb}/bin"
+  printf '#!/usr/bin/env bash\ntouch "%s/called"\n' "${sb}" > "${sb}/bin/curl"
+  chmod +x "${sb}/bin/curl"
+  printf '{"codebase_index_provider": "codebase-memory"}\n' > "${TEST_TEMP}/.devbot.global.jsonc"
+
+  run env -u OLLAMA_API_URL DEV_BOT_ROOT="${TEST_TEMP}" PATH="${sb}/bin:${PATH}" \
+    bash -c "source '${PROJECT_ROOT}/src/_shared/functions.sh'; _ensure_ollama_models_detached some-model"
+
+  assert_success
+  [[ ! -e "${sb}/called" ]]
+}
+
+@test "_ensure_ollama_models_detached: probes when codebase-index is the provider" {
+  local sb="${TEST_TEMP}/gate-cbi"
+  mkdir -p "${sb}/bin"
+  printf '#!/usr/bin/env bash\ntouch "%s/called"\nexit 1\n' "${sb}" > "${sb}/bin/curl"
+  chmod +x "${sb}/bin/curl"
+  printf '{"codebase_index_provider": "codebase-index"}\n' > "${TEST_TEMP}/.devbot.global.jsonc"
+
+  run env -u OLLAMA_API_URL DEV_BOT_ROOT="${TEST_TEMP}" PATH="${sb}/bin:${PATH}" \
+    bash -c "source '${PROJECT_ROOT}/src/_shared/functions.sh'; _ensure_ollama_models_detached some-model"
+
+  [[ -e "${sb}/called" ]]
+}
