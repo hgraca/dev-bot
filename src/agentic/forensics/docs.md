@@ -39,11 +39,13 @@ A language-agnostic core (`tools/forensics.sh` + `lib/forensics-lib.py`) owns gi
 | `provision` | install a pinned engine into `storage/forensics/<lang>`                       |
 | `units`     | emit code units + static complexity as canonical JSON                         |
 
-Four languages ship: `php` (PDepend), `typescript` (TypeScript compiler API), `java` (JDK compiler tree API) and `go` (stdlib `go/ast`). Adding another is one `langs/<lang>/` directory answering the same four verbs.
+Four languages ship: `php` (PDepend), `ts` (TypeScript compiler API), `java` (JDK compiler tree API) and `go` (stdlib `go/ast`). Adding another is one `langs/<lang>/` directory answering the same four verbs.
 
 ## Method caveats
 
 Churn/ownership attribution is approximate (`git blame` over current unit spans); defect origin uses a simplified SZZ heuristic. Both are reported as signals with their error modes, never as verdicts about people. True DORA metrics require deploy/incident data and are outside the git-only path.
+
+Complexity is a decision-point count (1 + branches, cases and boolean operators) applied to each unit's own scope — nested functions, closures and lambdas are their own units and do not inflate the enclosing one. A class' complexity (WMC) sums its direct members (methods, accessors, constructors, initializer blocks); a `default:` clause counts, as does a `case`.
 
 ## See also
 

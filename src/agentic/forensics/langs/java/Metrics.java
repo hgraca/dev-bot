@@ -3,13 +3,15 @@
  *
  * Java unit collector for the forensics tool. Uses only the JDK's compiler tree
  * API (com.sun.source, javax.tools) — no external dependencies — to emit code
- * units (classes + methods) with cyclomatic complexity and line spans.
+ * units (classes + methods + constructors) with cyclomatic complexity and line
+ * spans.
  *
  * Usage:  java Metrics.java <projectRoot> <File> [<File> ...]
  * Output: {"ok": true, "units": [...], "errors": []}
  */
 
 import com.sun.source.tree.BinaryTree;
+import com.sun.source.tree.BlockTree;
 import com.sun.source.tree.CaseTree;
 import com.sun.source.tree.CatchTree;
 import com.sun.source.tree.ClassTree;
@@ -18,8 +20,10 @@ import com.sun.source.tree.ConditionalExpressionTree;
 import com.sun.source.tree.DoWhileLoopTree;
 import com.sun.source.tree.ForLoopTree;
 import com.sun.source.tree.IfTree;
+import com.sun.source.tree.LambdaExpressionTree;
 import com.sun.source.tree.MethodTree;
 import com.sun.source.tree.Tree;
+import com.sun.source.tree.VariableTree;
 import com.sun.source.tree.WhileLoopTree;
 import com.sun.source.util.JavacTask;
 import com.sun.source.util.SourcePositions;
@@ -31,11 +35,13 @@ import javax.tools.JavaFileObject;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.ToolProvider;
 import java.io.StringWriter;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 public final class Metrics {
 
@@ -57,10 +63,11 @@ public final class Metrics {
             System.exit(1);
         }
 
-        StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
+        StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8);
         Iterable<? extends JavaFileObject> objects = fileManager.getJavaFileObjectsFromStrings(files);
         JavacTask task = (JavacTask) compiler.getTask(
-                new StringWriter(), fileManager, null, Arrays.asList("-proc:none", "-nowarn"), null, objects);
+                new StringWriter(), fileManager, null,
+                Arrays.asList("-proc:none", "-nowarn", "-encoding", "UTF-8"), null, objects);
 
         List<String> units = new ArrayList<>();
         for (CompilationUnitTree unit : task.parse()) {
@@ -92,6 +99,21 @@ public final class Metrics {
         return out.append("\"").toString();
     }
 
+    /** A method's name with its parameter types, so overloads do not collide. */
+    private static String signature(MethodTree method) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("<init>".equals(method.getName().toString()) ? "constructor" : method.getName().toString());
+        builder.append("(");
+        List<? extends VariableTree> parameters = method.getParameters();
+        for (int i = 0; i < parameters.size(); i++) {
+            if (i > 0) {
+                builder.append(",");
+            }
+            builder.append(parameters.get(i).getType().toString());
+        }
+        return builder.append(")").toString();
+    }
+
     private static final class UnitScanner extends TreeScanner<Void, Void> {
         private final CompilationUnitTree unit;
         private final SourcePositions positions;
@@ -113,17 +135,23 @@ public final class Metrics {
                 for (Tree member : node.getMembers()) {
                     if (member instanceof MethodTree) {
                         MethodTree method = (MethodTree) member;
-                        if ("<init>".equals(method.getName().toString())) {
-                            continue;
-                        }
                         int complexity = complexityOf(method);
                         wmc += complexity;
-                        units.add(entry(className + "::" + method.getName(), "method", method, complexity, className));
+                        units.add(entry(className + "::" + signature(method), "method", method, complexity, className));
+                    } else if (member instanceof BlockTree) {
+                        // Instance / static initializer block: counted in WMC, not a unit.
+                        wmc += complexityOf(member);
                     }
                 }
                 units.add(entry(className, "class", node, (int) wmc, ""));
             }
             return super.visitClass(node, unused);
+        }
+
+        private int complexityOf(Tree tree) {
+            ComplexityCounter counter = new ComplexityCounter();
+            counter.scanRoot(tree);
+            return counter.complexity;
         }
 
         private String entry(String name, String kind, Tree node, int complexity, String parent) {
@@ -143,16 +171,16 @@ public final class Metrics {
                     + ",\"parent\":" + jsonString(parent)
                     + "}";
         }
-
-        private int complexityOf(Tree tree) {
-            ComplexityCounter counter = new ComplexityCounter();
-            counter.scan(tree, null);
-            return counter.complexity;
-        }
     }
 
     private static final class ComplexityCounter extends TreeScanner<Void, Void> {
         int complexity = 1;
+        private Tree root;
+
+        void scanRoot(Tree tree) {
+            this.root = tree;
+            scan(tree, null);
+        }
 
         @Override public Void visitIf(IfTree node, Void unused) { complexity++; return super.visitIf(node, unused); }
         @Override public Void visitForLoop(ForLoopTree node, Void unused) { complexity++; return super.visitForLoop(node, unused); }
@@ -170,5 +198,10 @@ public final class Metrics {
             }
             return super.visitBinary(node, unused);
         }
+
+        // Nested scopes are their own units — do not inflate the enclosing one.
+        @Override public Void visitClass(ClassTree node, Void unused) { return node == root ? super.visitClass(node, unused) : null; }
+        @Override public Void visitMethod(MethodTree node, Void unused) { return node == root ? super.visitMethod(node, unused) : null; }
+        @Override public Void visitLambdaExpression(LambdaExpressionTree node, Void unused) { return null; }
     }
 }

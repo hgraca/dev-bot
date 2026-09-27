@@ -30,7 +30,13 @@ type unit struct {
 
 func complexity(node ast.Node) int {
 	score := 1
+	root := node
 	ast.Inspect(node, func(n ast.Node) bool {
+		if n != root {
+			if _, ok := n.(*ast.FuncLit); ok {
+				return false // a closure is its own scope — don't inflate the enclosing one
+			}
+		}
 		switch t := n.(type) {
 		case *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.CaseClause, *ast.CommClause:
 			score++
@@ -67,9 +73,15 @@ func main() {
 
 	fileSet := token.NewFileSet()
 	units := []unit{}
+	errors := []string{}
 	for _, file := range files {
+		if _, err := os.Stat(file); err != nil {
+			errors = append(errors, file+": "+err.Error())
+			continue
+		}
 		parsed, err := parser.ParseFile(fileSet, file, nil, 0)
 		if err != nil {
+			errors = append(errors, file+": "+err.Error())
 			continue
 		}
 		rel, err := filepath.Rel(project, file)
@@ -104,6 +116,6 @@ func main() {
 		}
 	}
 
-	out, _ := json.Marshal(map[string]interface{}{"ok": true, "units": units, "errors": []string{}})
+	out, _ := json.Marshal(map[string]interface{}{"ok": true, "units": units, "errors": errors})
 	os.Stdout.Write(out)
 }

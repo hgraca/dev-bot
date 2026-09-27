@@ -100,7 +100,14 @@ PY
 cmd_units() {
   local request project
   request="$(cat)"
-  project="$(printf '%s' "${request}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("project") or "")')"
+  if ! project="$(printf '%s' "${request}" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("project") or "")
+except Exception:
+    sys.exit(3)')"; then
+    echo "ERROR: invalid JSON request on stdin" >&2
+    exit 1
+  fi
   if [[ -z "${project}" || ! -d "${project}" ]]; then
     echo "ERROR: project directory not found: ${project}" >&2
     exit 1
@@ -122,7 +129,8 @@ for rel in r.get("files") or []:
   fi
 
   if _has_host_java; then
-    java "${PLUGIN_DIR}/Metrics.java" "${project}" "${absolute[@]}"
+    java -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -Dstdout.encoding=UTF-8 \
+      "${PLUGIN_DIR}/Metrics.java" "${project}" "${absolute[@]}"
     return 0
   fi
 
@@ -143,9 +151,11 @@ for rel in r.get("files") or []:
     container+=("/app/${file#"${project}/"}")
   done
   docker run --rm --network none --read-only --tmpfs /tmp \
+    -e LANG=C.UTF-8 \
     --user "$(id -u):$(id -g)" \
     -v "${project}:/app:ro" -v "${PLUGIN_DIR}:/plugin:ro" \
-    "${image}" java /plugin/Metrics.java /app "${container[@]}"
+    "${image}" java -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -Dstdout.encoding=UTF-8 \
+    /plugin/Metrics.java /app "${container[@]}"
 }
 
 case "${1:-}" in

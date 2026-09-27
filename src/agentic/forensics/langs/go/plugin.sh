@@ -113,7 +113,14 @@ PY
 cmd_units() {
   local request project
   request="$(cat)"
-  project="$(printf '%s' "${request}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("project") or "")')"
+  if ! project="$(printf '%s' "${request}" | python3 -c 'import json,sys
+try:
+    print(json.load(sys.stdin).get("project") or "")
+except Exception:
+    sys.exit(3)')"; then
+    echo "ERROR: invalid JSON request on stdin" >&2
+    exit 1
+  fi
   if [[ -z "${project}" || ! -d "${project}" ]]; then
     echo "ERROR: project directory not found: ${project}" >&2
     exit 1

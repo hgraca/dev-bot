@@ -681,7 +681,7 @@ assert doc["engine"]["via"] == "project", doc
   project="$(mktemp -d)"
   storage="$(mktemp -d)"
   req="$(mktemp)"
-  printf '{"project":"%s","files":[]}' "${project}" >"${req}"
+  printf '{"project":"%s","files":["src/calc.ts"]}' "${project}" >"${req}"
 
   run env FORENSICS_STORAGE_DIR="${storage}" bash "${TS_PLUGIN}" units <"${req}"
   assert_failure
@@ -695,7 +695,7 @@ assert doc["engine"]["via"] == "project", doc
 
   local req
   req="$(mktemp)"
-  printf '{"project":"%s","files":["src/calc.ts"]}' "${TS_FIXTURES}" >"${req}"
+  printf '{"project":"%s","files":["src/calc.ts","src/extra.ts"]}' "${TS_FIXTURES}" >"${req}"
 
   run bash "${TS_PLUGIN}" units <"${req}"
   assert_success
@@ -706,9 +706,22 @@ units = {(u["kind"], u["name"]): u for u in doc["units"]}
 assert units[("class", "Calc")]["complexity"] == 4, units
 assert units[("method", "Calc::classify")]["complexity"] == 3, units
 assert units[("function", "pick")]["complexity"] == 2, units
+# arrows, object-literal methods, accessors and default clauses are covered
+assert units[("function", "arrow")]["complexity"] == 2, units
+assert units[("function", "method")]["complexity"] == 2, units
+assert units[("method", "Holder::value (get)")]["complexity"] == 1, units
+assert units[("method", "Holder::value (set)")]["complexity"] == 2, units
+assert units[("method", "Holder::choose")]["complexity"] == 3, units
+assert units[("class", "Holder")]["complexity"] == 7, units
 '
 
   rm -f "$req"
+}
+
+@test "ts plugin units: invalid stdin is an ERROR" {
+  run bash "${TS_PLUGIN}" units <<<"not json"
+  assert_failure
+  assert_output --partial "ERROR"
 }
 
 @test "langs: lists the php, ts, java and go plugins" {
@@ -752,8 +765,8 @@ import json, sys
 doc = json.load(sys.stdin)
 units = {(u["kind"], u["name"]): u for u in doc["units"]}
 assert units[("class", "Calc")]["complexity"] == 4, units
-assert units[("method", "Calc::add")]["complexity"] == 1, units
-assert units[("method", "Calc::classify")]["complexity"] == 3, units
+assert units[("method", "Calc::add(int,int)")]["complexity"] == 1, units
+assert units[("method", "Calc::classify(int)")]["complexity"] == 3, units
 '
 
   rm -f "$req"

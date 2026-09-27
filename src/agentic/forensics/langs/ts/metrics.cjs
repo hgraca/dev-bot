@@ -5,7 +5,8 @@
  *
  * TypeScript/JavaScript unit collector for the forensics tool. Uses the
  * TypeScript compiler API (no extra deps) to emit code units — classes,
- * methods and functions — with cyclomatic complexity and line spans.
+ * methods, accessors, constructors, functions and function-valued
+ * declarations — with cyclomatic complexity and line spans.
  *
  * Request (stdin):  {"project": "/app", "files": ["src/Foo.ts", ...]}
  * Response (stdout): {"ok": true, "units": [...], "errors": []}
@@ -23,13 +24,41 @@ const DECISION_KINDS = new Set([
   ts.SyntaxKind.WhileStatement,
   ts.SyntaxKind.DoStatement,
   ts.SyntaxKind.CaseClause,
+  ts.SyntaxKind.DefaultClause,
   ts.SyntaxKind.CatchClause,
   ts.SyntaxKind.ConditionalExpression,
 ]);
 
+const FUNCTION_LIKE = new Set([
+  ts.SyntaxKind.FunctionDeclaration,
+  ts.SyntaxKind.FunctionExpression,
+  ts.SyntaxKind.ArrowFunction,
+  ts.SyntaxKind.MethodDeclaration,
+  ts.SyntaxKind.GetAccessor,
+  ts.SyntaxKind.SetAccessor,
+  ts.SyntaxKind.Constructor,
+]);
+
+function isFunctionLike(node) {
+  return Boolean(node) && FUNCTION_LIKE.has(node.kind);
+}
+
+function isMemberFunction(member) {
+  return (
+    member.kind === ts.SyntaxKind.MethodDeclaration ||
+    member.kind === ts.SyntaxKind.GetAccessor ||
+    member.kind === ts.SyntaxKind.SetAccessor ||
+    member.kind === ts.SyntaxKind.Constructor
+  );
+}
+
+/** Cyclomatic complexity of one unit — nested functions are not counted. */
 function complexityOf(node) {
   let complexity = 1;
-  const walk = (n) => {
+  const walk = (n, isRoot) => {
+    if (!isRoot && FUNCTION_LIKE.has(n.kind)) {
+      return;
+    }
     if (DECISION_KINDS.has(n.kind)) {
       complexity += 1;
     } else if (n.kind === ts.SyntaxKind.BinaryExpression && n.operatorToken) {
@@ -38,10 +67,23 @@ function complexityOf(node) {
         complexity += 1;
       }
     }
-    ts.forEachChild(n, walk);
+    ts.forEachChild(n, (child) => walk(child, false));
   };
-  ts.forEachChild(node, walk);
+  walk(node, true);
   return complexity;
+}
+
+/** Weighted method count: the sum of a class' direct members' complexity. */
+function classWmc(node) {
+  let wmc = 0;
+  for (const member of node.members) {
+    if (isMemberFunction(member)) {
+      wmc += complexityOf(member);
+    } else if (member.kind === ts.SyntaxKind.PropertyDeclaration && isFunctionLike(member.initializer)) {
+      wmc += complexityOf(member.initializer);
+    }
+  }
+  return wmc;
 }
 
 function span(node, sourceFile) {
@@ -64,22 +106,38 @@ function makeUnit(relative, name, kind, node, complexity, parent, sourceFile) {
   };
 }
 
-function collect(node, sourceFile, relative, units) {
+function collect(node, sourceFile, relative, units, enclosing) {
+  let childEnclosing = enclosing;
+
   if (node.kind === ts.SyntaxKind.ClassDeclaration && node.name) {
-    const className = node.name.text;
-    let wmc = 0;
-    for (const member of node.members) {
-      if (member.kind === ts.SyntaxKind.MethodDeclaration && member.name) {
-        const complexity = complexityOf(member);
-        wmc += complexity;
-        units.push(makeUnit(relative, className + '::' + member.name.getText(sourceFile), 'method', member, complexity, className, sourceFile));
-      }
+    childEnclosing = node.name.text;
+    units.push(makeUnit(relative, childEnclosing, 'class', node, classWmc(node), '', sourceFile));
+  } else if (node.kind === ts.SyntaxKind.MethodDeclaration || node.kind === ts.SyntaxKind.Constructor) {
+    const name = node.kind === ts.SyntaxKind.Constructor ? 'constructor' : node.name && node.name.getText(sourceFile);
+    if (name) {
+      const display = enclosing ? enclosing + '::' + name : name;
+      units.push(makeUnit(relative, display, enclosing ? 'method' : 'function', node, complexityOf(node), enclosing || '', sourceFile));
     }
-    units.push(makeUnit(relative, className, 'class', node, wmc, '', sourceFile));
+  } else if (node.kind === ts.SyntaxKind.GetAccessor || node.kind === ts.SyntaxKind.SetAccessor) {
+    if (node.name) {
+      const suffix = node.kind === ts.SyntaxKind.GetAccessor ? ' (get)' : ' (set)';
+      const name = node.name.getText(sourceFile) + suffix;
+      const display = enclosing ? enclosing + '::' + name : name;
+      units.push(makeUnit(relative, display, 'method', node, complexityOf(node), enclosing || '', sourceFile));
+    }
   } else if (node.kind === ts.SyntaxKind.FunctionDeclaration && node.name) {
     units.push(makeUnit(relative, node.name.text, 'function', node, complexityOf(node), '', sourceFile));
+  } else if (node.kind === ts.SyntaxKind.VariableDeclaration && node.name && isFunctionLike(node.initializer)) {
+    units.push(makeUnit(relative, node.name.getText(sourceFile), 'function', node.initializer, complexityOf(node.initializer), '', sourceFile));
+  } else if (node.kind === ts.SyntaxKind.PropertyDeclaration && node.name && isFunctionLike(node.initializer)) {
+    const name = node.name.getText(sourceFile);
+    const display = enclosing ? enclosing + '::' + name : name;
+    units.push(makeUnit(relative, display, 'method', node.initializer, complexityOf(node.initializer), enclosing || '', sourceFile));
+  } else if (node.kind === ts.SyntaxKind.PropertyAssignment && node.name && isFunctionLike(node.initializer)) {
+    units.push(makeUnit(relative, node.name.getText(sourceFile), 'function', node.initializer, complexityOf(node.initializer), '', sourceFile));
   }
-  ts.forEachChild(node, (child) => collect(child, sourceFile, relative, units));
+
+  ts.forEachChild(node, (child) => collect(child, sourceFile, relative, units, childEnclosing));
 }
 
 function main() {
@@ -105,7 +163,7 @@ function main() {
       continue;
     }
     const sourceFile = ts.createSourceFile(path.join(project, relative), text, ts.ScriptTarget.Latest, true);
-    collect(sourceFile, sourceFile, relative, units);
+    collect(sourceFile, sourceFile, relative, units, null);
   }
 
   process.stdout.write(JSON.stringify({ ok: true, units, errors }));

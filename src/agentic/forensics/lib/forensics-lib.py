@@ -256,6 +256,11 @@ def _extract_units(repo: str, file_types: dict, langs=None) -> tuple:
         except ValueError:
             errors.append("%s: plugin returned non-JSON" % plugin.get("lang"))
             continue
+        if doc.get("ok") is False:
+            errors.append("%s: %s" % (plugin.get("lang"), doc.get("error") or "plugin reported failure"))
+            continue
+        for message in doc.get("errors") or []:
+            errors.append("%s: %s" % (plugin.get("lang"), message))
         units += doc.get("units", [])
     return units, errors
 
