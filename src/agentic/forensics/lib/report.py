@@ -27,6 +27,8 @@ SECTIONS = (
     ("fixers", "Fixer ↔ originator", 20),
     ("process", "Commit process", 1),
     ("releases", "Releases", 20),
+    ("modules", "Modules", 20),
+    ("architecture", "Cross-module coupling", 20),
 )
 
 _METHOD = (

@@ -332,6 +332,21 @@ def _read_defects(csv_path: str, source: str) -> list:
     return rows
 
 
+def _parse_modules(spec: str) -> list:
+    """Parse `name=prefix,name=prefix` into boundary rows (bare name = prefix)."""
+    rows = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "=" in part:
+            module, prefix = part.split("=", 1)
+            rows.append({"module": module.strip(), "prefix": prefix.strip()})
+        else:
+            rows.append({"module": part, "prefix": part})
+    return rows
+
+
 def cmd_mine(args: list) -> int:
     fmt = _parse_format(args)
     opts, positionals = _parse_args(args)
@@ -436,6 +451,12 @@ def cmd_mine(args: list) -> int:
                     conn.commit()
             else:
                 warnings.append("defects CSV not found: %s" % csv_path)
+
+        if isinstance(opts.get("modules"), str):
+            boundary_rows = _parse_modules(opts["modules"])
+            if boundary_rows:
+                store.write_boundaries(conn, boundary_rows)
+                conn.commit()
 
         result_counts = store.counts(conn)
     finally:

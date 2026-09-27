@@ -53,6 +53,7 @@ Commands:
   mine [<repo>] [--since <date>] [--until <date>] [--db <path>]
        [--lang auto|php,py,ts] [--granularity file|unit] [--no-defects]
        [--trends] [--trend-interval month|quarter|year] [--defects <csv>]
+       [--modules name=prefix,...]
                         Walk git history + code units + metrics + commit
                         analysis into the SQLite store.
   analyse <db> [--view <view>] [--top N] [--format md|json|csv]

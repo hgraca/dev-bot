@@ -719,7 +719,7 @@ assert isinstance(doc["hotspots"], list), doc
   _build_repo "$repo"
   bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
 
-  run bash "${TOOL}" analyse "$db" --view architecture --format json
+  run bash "${TOOL}" analyse "$db" --view no-such-view --format json
   assert_failure
   assert_output --partial "ERROR"
 
@@ -1329,4 +1329,49 @@ assert rows and rows[0]["path"] == "hot.php", rows
 assert rows[0]["defects"] == 2, rows
 assert rows[0]["risk"] == round(rows[0]["priority"] * 3, 4), rows
 ' "${MODULE_DIR}"
+}
+
+# ── Phase 2: architecture vs organization ──────────────────────────────────────
+
+@test "analyse architecture: flags cross-module coupling" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  mkdir -p "$repo/src/Api" "$repo/src/Domain"
+  printf '<?php\n' >"$repo/src/Api/a.php"
+  printf '<?php\n' >"$repo/src/Domain/b.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T00:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: add"
+  printf '<?php\n// x\n' >>"$repo/src/Api/a.php"
+  printf '<?php\n// y\n' >>"$repo/src/Domain/b.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-02-01T00:00:00+00:00" GIT_COMMITTER_DATE="2024-02-01T00:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: change both"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file \
+    --modules "api=src/Api,domain=src/Domain" --format json
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view architecture --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)["architecture"]
+assert any({r["module_a"], r["module_b"]} == {"api", "domain"} and r["shared_commits"] >= 2 for r in rows), rows
+'
+
+  run bash "${TOOL}" analyse "$db" --view modules --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+mods = {r["module"] for r in json.load(sys.stdin)["modules"]}
+assert {"api", "domain"} <= mods, mods
+'
+
+  rm -rf "$repo"
 }

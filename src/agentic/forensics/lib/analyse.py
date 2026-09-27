@@ -576,6 +576,62 @@ def risk(conn: sqlite3.Connection, top=None) -> list:
     return results[:top] if top is not None else results
 
 
+def _load_boundaries(conn: sqlite3.Connection) -> list:
+    return [(row["module"], row["prefix"]) for row in conn.execute("SELECT module, prefix FROM boundaries").fetchall()]
+
+
+def _module_for(path: str, boundaries: list) -> str:
+    """The module a path belongs to — longest matching prefix, else its top dir."""
+    if boundaries:
+        best = None
+        for module, prefix in boundaries:
+            if path == prefix or path.startswith(prefix.rstrip("/") + "/"):
+                if best is None or len(prefix) > len(best[1]):
+                    best = (module, prefix)
+        return best[0] if best else "(unassigned)"
+    return path.split("/", 1)[0] if "/" in path else "(root)"
+
+
+def architecture(conn: sqlite3.Connection, top=None) -> list:
+    """Cross-module temporal coupling — dependencies the architecture hides (A12)."""
+    boundaries = _load_boundaries(conn)
+    pairs = {}
+    for pair in coupling(conn, None):
+        module_a = _module_for(pair["path_a"], boundaries)
+        module_b = _module_for(pair["path_b"], boundaries)
+        if module_a == module_b:
+            continue
+        key = tuple(sorted((module_a, module_b)))
+        entry = pairs.setdefault(key, {"module_a": key[0], "module_b": key[1], "couplings": 0, "shared_commits": 0})
+        entry["couplings"] += 1
+        entry["shared_commits"] += pair["shared_commits"]
+
+    results = sorted(pairs.values(), key=lambda item: (item["shared_commits"], item["couplings"]), reverse=True)
+    return results[:top] if top is not None else results
+
+
+def modules(conn: sqlite3.Connection, top=None) -> list:
+    """Per-module size, activity and ownership diffusion (A12)."""
+    boundaries = _load_boundaries(conn)
+    aggregated = {}
+    for row in conn.execute(
+        "SELECT ch.path AS path, co.author_email AS author, COUNT(DISTINCT co.hash) AS commits"
+        " FROM changes ch JOIN commits co ON co.hash = ch.commit_hash GROUP BY ch.path, co.author_email"
+    ).fetchall():
+        module = _module_for(row["path"], boundaries)
+        entry = aggregated.setdefault(module, {"module": module, "files": set(), "commits": 0, "authors": set()})
+        entry["files"].add(row["path"])
+        entry["commits"] += row["commits"]
+        entry["authors"].add(row["author"])
+
+    results = [
+        {"module": e["module"], "files": len(e["files"]), "commits": e["commits"], "authors": len(e["authors"])}
+        for e in aggregated.values()
+    ]
+    results.sort(key=lambda item: item["commits"], reverse=True)
+    return results[:top] if top is not None else results
+
+
 _VIEWS = {
     "hotspots": hotspots,
     "priority": priority,
@@ -596,4 +652,6 @@ _VIEWS = {
     "fixers": fixers,
     "process": process,
     "releases": releases,
+    "architecture": architecture,
+    "modules": modules,
 }

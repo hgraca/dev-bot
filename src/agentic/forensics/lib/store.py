@@ -105,6 +105,11 @@ CREATE TABLE IF NOT EXISTS defects (
   count  INTEGER DEFAULT 0,
   source TEXT
 );
+CREATE TABLE IF NOT EXISTS boundaries (
+  module TEXT,
+  prefix TEXT,
+  PRIMARY KEY (module, prefix)
+);
 """
 
 _TABLES = (
@@ -119,6 +124,7 @@ _TABLES = (
     "releases",
     "complexity_trend",
     "defects",
+    "boundaries",
 )
 
 
@@ -340,6 +346,13 @@ def write_defects(conn: sqlite3.Connection, rows: list) -> None:
     conn.executemany(
         "INSERT OR REPLACE INTO defects(path, count, source) VALUES (?, ?, ?)",
         [(row["path"], row["count"], row.get("source", "")) for row in rows],
+    )
+
+
+def write_boundaries(conn: sqlite3.Connection, rows: list) -> None:
+    conn.executemany(
+        "INSERT OR REPLACE INTO boundaries(module, prefix) VALUES (?, ?)",
+        [(row["module"], row["prefix"]) for row in rows],
     )
 
 
