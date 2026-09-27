@@ -20,6 +20,8 @@ setup() {
   PHP_FIXTURES="${TEST_DIR}/fixtures/php-project"
   TS_PLUGIN="${MODULE_DIR}/langs/ts/plugin.sh"
   TS_FIXTURES="${TEST_DIR}/fixtures/ts-project"
+  JAVA_PLUGIN="${MODULE_DIR}/langs/java/plugin.sh"
+  JAVA_FIXTURES="${TEST_DIR}/fixtures/java-project"
 }
 
 # ── Skeleton (T0.1) ────────────────────────────────────────────────────────────
@@ -296,6 +298,13 @@ _ts_e2e_ready() {
   command -v docker >/dev/null 2>&1 || return 1
   docker info >/dev/null 2>&1 || return 1
   bash "${TS_PLUGIN}" doctor --project "${TS_FIXTURES}" >/dev/null 2>&1
+}
+
+# True when the Java plugin can run for real (host JDK or a pulled JDK image).
+_java_e2e_ready() {
+  command -v java >/dev/null 2>&1 && return 0
+  command -v docker >/dev/null 2>&1 || return 1
+  docker image inspect "${FORENSICS_JAVA_IMAGE:-eclipse-temurin:21-jdk}" >/dev/null 2>&1
 }
 
 @test "php plugin units: no engine is an ERROR" {
@@ -693,14 +702,52 @@ assert units[("function", "pick")]["complexity"] == 2, units
   rm -f "$req"
 }
 
-@test "langs: lists the php and ts plugins" {
+@test "langs: lists the php, ts and java plugins" {
   run bash "${TOOL}" langs --format json
   assert_success
   echo "${output}" | python3 -c '
 import json, sys
 langs = {plugin["lang"] for plugin in json.load(sys.stdin)["plugins"]}
-assert {"php", "ts"} <= langs, langs
+assert {"php", "ts", "java"} <= langs, langs
 '
+}
+
+# ── Java plugin (T3.2) ─────────────────────────────────────────────────────────
+
+@test "java plugin units: no JDK and no docker is an ERROR" {
+  local req bin tool
+  req="$(mktemp)"
+  bin="$(mktemp -d)"
+  printf '{"project":"%s","files":["src/Calc.java"]}' "${JAVA_FIXTURES}" >"${req}"
+  # A PATH with only the plugin's own tools — no java, no docker.
+  for tool in dirname basename cat python3; do ln -s "$(command -v "${tool}")" "${bin}/${tool}"; done
+
+  run env PATH="${bin}" FORENSICS_JAVA_IMAGE="no-such-image" "$BASH" "${JAVA_PLUGIN}" units <"${req}"
+  assert_failure
+  assert_output --partial "ERROR"
+
+  rm -rf "$bin" "$req"
+}
+
+@test "java plugin units: emits class and method units" {
+  _java_e2e_ready || skip "no JDK available"
+
+  local req
+  req="$(mktemp)"
+  printf '{"project":"%s","files":["src/Calc.java"]}' "${JAVA_FIXTURES}" >"${req}"
+
+  run bash "${JAVA_PLUGIN}" units <"${req}"
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+units = {(u["kind"], u["name"]): u for u in doc["units"]}
+assert units[("class", "Calc")]["complexity"] == 4, units
+assert units[("method", "Calc::add")]["complexity"] == 1, units
+assert units[("method", "Calc::classify")]["complexity"] == 3, units
+'
+
+  rm -f "$req"
 }
 
 # ── Phase 1: hotspots ──────────────────────────────────────────────────────────
