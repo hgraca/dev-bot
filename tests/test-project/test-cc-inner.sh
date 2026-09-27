@@ -121,7 +121,7 @@ _phase "reinit (install + wiring)"
 # permission (the agent audits the harness itself). Merges; no-ops when
 # opencode.jsonc is absent in a claudecode-only flow.
 python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py" \
-  "${PWD}/opencode.jsonc" "${HOME}/.claude/**" 2>/dev/null || true
+  "${PWD}/opencode.jsonc" "${HOME}/.claude/**"
 _phase "claudecode grant"
 
 # ── Agent audit — headless (opt-in) or manual ─────────────────────────────────

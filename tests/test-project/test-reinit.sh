@@ -104,7 +104,7 @@ echo
 # flows).
 _DEV_BOT_INSTALL="${DEV_BOT_INSTALL_DIR:-$HOME/.local/share/dev-bot}"
 python3 "${_DEV_BOT_INSTALL}/src/_shared/upsert_opencode_permission.py" \
-  "${PWD}/opencode.jsonc" "${_DEV_BOT_INSTALL}/**" 2>/dev/null || true
+  "${PWD}/opencode.jsonc" "${_DEV_BOT_INSTALL}/**"
 
 # Pre-seed the opencode-codebase-index plugin cache to a COMPLETE state
 # (including native/*.node) before opencode ever loads it. opencode's runtime

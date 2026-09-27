@@ -120,7 +120,7 @@ _phase "reinit (install + wiring)"
 # Grant the opencode install dir through opencode's external_directory
 # permission (the agent audits the harness itself). Merges; no-op if absent.
 python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py" \
-  "${PWD}/opencode.jsonc" "${HOME}/.opencode/**" 2>/dev/null || true
+  "${PWD}/opencode.jsonc" "${HOME}/.opencode/**"
 _phase "opencode grant"
 
 #echo

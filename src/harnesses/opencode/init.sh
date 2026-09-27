@@ -543,78 +543,18 @@ _reconcile_external_directory() {
   local config="${PROJECT_DIR}/opencode.jsonc"
   [[ -f "${config}" ]] || return 0
 
-  local added
-  added=$(CONFIG_PATH="${config}" python3 - <<'PY' 2>/dev/null
-import json, os, re
-config = os.environ["CONFIG_PATH"]
-with open(config) as f:
-    text = f.read()
-
-# audit-51 §8b NOTE: the opencode harness log (~/.local/share/opencode/log/) is
-# outside the allow-list, so an MCP launch failure ("server unavailable …
-# status=failed") is unreadable in-band by the agent. Allow it so DevBot can
-# read the harness log itself. HOME is baked at reinit time (host/container
-# specific), matching how the other absolute allows are written.
-home = os.environ.get("HOME", "")
-log_allow = home + "/.local/share/opencode/log/**"
-# audit-56 §8b NOTE: opencode also loads global config surfaces under
-# ~/.config/opencode — allow reads so audits can inspect the merge order.
-cfg_allow = home + "/.config/opencode/**"
-
-block_m = re.search(r'"external_directory"\s*:\s*\{([^}]*)\}', text, re.S)
-tmp_present = '"/tmp/**"' in text
-
-if '"/tmp/*"' in text and not tmp_present:
-    with open(config, "w") as f:
-        f.write(text.replace('"/tmp/*"', '"/tmp/**"', 1))
-    print("1")
-    raise SystemExit
-
-if not block_m:
-    print("0")
-    raise SystemExit
-
-# Rebuild the block with "*": "deny" first, then the specific allows, so the
-# allows are evaluated last and win. Covers "stale order" (allow before deny),
-# "absent /tmp/**", and the missing opencode log allow (audit-51 §8b).
-try:
-    entries = json.loads("{" + block_m.group(1) + "}")
-except Exception:
-    print("0")
-    raise SystemExit
-
-if (
-    tmp_present
-    and list(entries.keys())[:1] == ["*"]
-    and log_allow in entries
-    and cfg_allow in entries
-):
-    print("0")  # already deny-first with /tmp/** + opencode log/config allowed
-    raise SystemExit
-
-ordered = {}
-if "*" in entries:
-    ordered["*"] = entries["*"]
-for k, v in entries.items():
-    if k != "*":
-        ordered[k] = v
-if not tmp_present:
-    ordered["/tmp/**"] = "allow"
-if log_allow and log_allow not in ordered:
-    ordered[log_allow] = "allow"
-if cfg_allow and cfg_allow not in ordered:
-    ordered[cfg_allow] = "allow"
-
-new_block = ",\n".join(f'    "{k}": "{v}"' for k, v in ordered.items())
-text = text[: block_m.start(1)] + new_block + text[block_m.end(1) :]
-with open(config, "w") as f:
-    f.write(text)
-print("1")
-PY
-  )
+  # The rebuild lives in a testable helper: the former inline version emitted
+  # the block without a leading/trailing newline, gluing the braces to the
+  # first/last entry (audit-65 FAIL-1), which then defeated
+  # upsert_opencode_permission.py's close-finder.
+  local added rc=0
+  added="$(python3 "${DEV_BOT_ROOT}/src/_shared/reconcile_external_directory.py" \
+    "${config}" 2>/dev/null)" || rc=$?
 
   if [[ "${added}" == "1" ]]; then
     _ok "external_directory reconciled: deny-first, /tmp/**, opencode log + config allowed"
+  elif (( rc != 0 )); then
+    _warn "external_directory reconcile failed (${config}) — the dev-bot install grant may be missing"
   fi
 }
 
