@@ -915,6 +915,52 @@ except Exception:
 " 2>/dev/null || true
 }
 
+# _devbot_rebuild_external_module_config
+#   Merges every module's `external-modules.json` declarations into the
+#   `external_modules` section of .devbot.global.jsonc, then normalizes the file
+#   with prettier. Add-only (merge_modules_jsonc.py skips existing keys), so it
+#   is idempotent.
+#   Scans src/agentic/* and src/tools/* and deliberately does NOT consult the
+#   `modules` enablement map: the config store and the vendor/ clones are global,
+#   shared by every registered project, so a module disabled in one project must
+#   not deny its external modules to the others.
+
+_devbot_rebuild_external_module_config() {
+  local config_file="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local merge_script="${DEV_BOT_ROOT}/src/_shared/merge_modules_jsonc.py"
+
+  local found_count=0
+  local added_count=0
+  local module_dir
+  for module_dir in "${DEV_BOT_ROOT}/src/agentic/"*/ "${DEV_BOT_ROOT}/src/tools/"*/; do
+    local ext_file="${module_dir}/external-modules.json"
+    [[ -f "${ext_file}" ]] || continue
+
+    local module_name result
+    module_name="$(basename "${module_dir}")"
+    found_count=$((found_count + 1))
+
+    result=$(python3 "${merge_script}" "${config_file}" "${ext_file}" 2>&1) || true
+    if echo "${result}" | grep -q "^INSERTED"; then
+      _log "${module_name}: ${result}"
+      added_count=$((added_count + 1))
+    else
+      _skip "${module_name}: ${result}"
+    fi
+  done
+
+  if [[ ${found_count} -eq 0 ]]; then
+    _skip "no external-modules.json declarations found in src/agentic or src/tools"
+  else
+    _ok "${found_count} module(s) with external module declarations processed (${added_count} with new entries added)"
+  fi
+
+  local format_json_tool="${DEV_BOT_ROOT}/src/agentic/format-json/tools/format-json.mcp.sh"
+  if [[ -f "${format_json_tool}" ]]; then
+    bash "${format_json_tool}" --force "${config_file}" 2>/dev/null || true
+  fi
+}
+
 # ── opencode.jsonc plugin upsert ─────────────────────────────────────────────────
 #
 # Usage:  _upsert_opencode_plugin <opencode_jsonc_path> <plugin_entry>

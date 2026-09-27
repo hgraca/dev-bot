@@ -22,50 +22,10 @@ main() {
   local modules_dir="${dev_bot_root}/vendor"
 
   # ── Rebuild external module config from declarations ──────────────────
-  local disabled_raw
-  disabled_raw=$(_devbot_get_disabled_modules)
-  local disabled_modules
-  disabled_modules=$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
-
-  local merge_script="${MODULE_DIR}/../../_shared/merge_modules_jsonc.py"
-  local found_count=0
-  local added_count=0
-
-  for module_dir in "${dev_bot_root}/src/agentic/"*/; do
-    local module_name
-    module_name="$(basename "${module_dir}")"
-
-    if echo "${disabled_modules}" | grep -Fxq "${module_name}" 2>/dev/null; then
-      continue
-    fi
-
-    local ext_file="${module_dir}/external-modules.json"
-    if [[ ! -f "${ext_file}" ]]; then
-      continue
-    fi
-
-    found_count=$((found_count + 1))
-
-    local result
-    result=$(python3 "${merge_script}" "${config_file}" "${ext_file}" 2>&1) || true
-
-    if echo "${result}" | grep -q "^INSERTED"; then
-      _log "${module_name}: ${result}"
-      added_count=$((added_count + 1))
-    else
-      _skip "${module_name}: ${result}"
-    fi
-  done
-
-  if [[ ${found_count} -gt 0 ]]; then
-    _ok "${found_count} module(s) with external module declarations processed (${added_count} with new entries added)"
-  fi
-
-  # Format .devbot.global.jsonc
-  local format_json_tool="${dev_bot_root}/src/agentic/format-json/tools/format-json.mcp.sh"
-  if [[ -f "${format_json_tool}" ]]; then
-    bash "${format_json_tool}" "${config_file}" 2>/dev/null || true
-  fi
+  # Every module's declarations are merged regardless of enablement: the
+  # config store and the vendor/ clones are global, shared by every project, so
+  # a module disabled in one project must not deny its externals to the others.
+  _devbot_rebuild_external_module_config
 
   # Ensure config exists with external_modules key
   if [[ ! -f "${config_file}" ]]; then
@@ -79,10 +39,10 @@ main() {
     return 0
   fi
 
-  # Process each module. This clones/pulls every configured entry; a module
-  # whose umbrella module is disabled is dropped from the CONFIG above, and
-  # reinit prunes its storage mirror, but its existing vendor clone is
-  # deliberately NOT pruned (see docs.md).
+  # Process every configured entry. The config carries all declared modules
+  # (enablement is not consulted), vendor/ is never pruned, and the storage
+  # mirror is keyed off the same list — so removal happens only via
+  # `devbot module remove`.
   while IFS=$'\x1f' read -r name url local_path paths_json; do
     local src_dir=""
     if [[ -n "${local_path}" ]]; then

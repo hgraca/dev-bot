@@ -567,6 +567,10 @@ print('REGISTERED-DISABLED:OK')
 @test "generated configs: the formatter is called with --force" {
   run grep -qF -- '--force "${config}"' "${PROJECT_ROOT}/bin/init.sh"
   assert_success
-  run grep -qF -- '--force "${config_file}"' "${PROJECT_ROOT}/bin/up.sh"
+  # up.sh delegates the global-config rebuild to the shared helper, which
+  # force-formats — assert both the delegation and the --force call exist.
+  run grep -qF -- '_devbot_rebuild_external_module_config' "${PROJECT_ROOT}/bin/up.sh"
+  assert_success
+  run grep -qF -- '--force "${config_file}"' "${PROJECT_ROOT}/src/_shared/functions.sh"
   assert_success
 }

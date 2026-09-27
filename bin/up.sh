@@ -57,62 +57,10 @@ _rebuild_external_module_config() {
     return 1
   fi
 
-  # ── Resolve disabled modules ──────────────────────────────────────────────
-  # Pass the project dir: the effective set is global ∘ per-project, so omitting
-  # it would read the global map alone and ignore a module this project enables.
-  local disabled_raw
-  disabled_raw=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
-  local disabled_modules
-  disabled_modules=$(echo "${disabled_raw}" | python3 -c "
-import json, sys
-for m in json.loads(sys.stdin.read()):
-    print(m)
-" 2>/dev/null || true)
-
-  local merge_script="${DEV_BOT_ROOT}/src/_shared/merge_modules_jsonc.py"
-  local found_count=0
-  local added_count=0
-
-  # ── Scan enabled modules for external-modules.json ────────────────────────
-  for module_dir in "${DEV_BOT_ROOT}/src/agentic/"*/ "${DEV_BOT_ROOT}/src/tools/"*/; do
-    local module_name
-    module_name="$(basename "${module_dir}")"
-
-    if echo "${disabled_modules}" | grep -Fxq "${module_name}" 2>/dev/null; then
-      continue
-    fi
-
-    local ext_file="${module_dir}/external-modules.json"
-    if [[ ! -f "${ext_file}" ]]; then
-      continue
-    fi
-
-    found_count=$((found_count + 1))
-
-    local result
-    result=$(python3 "${merge_script}" "${config_file}" "${ext_file}" 2>&1) || true
-
-    if echo "${result}" | grep -q "^INSERTED"; then
-      _log "${module_name}: ${result}"
-      added_count=$((added_count + 1))
-    else
-      _skip "${module_name}: ${result}"
-    fi
-  done
-
-  if [[ ${found_count} -eq 0 ]]; then
-    _info "No external-modules.json declarations found in enabled modules"
-  else
-    _ok "${found_count} module(s) with external module declarations processed (${added_count} with new entries added)"
-  fi
-
-  # Format .devbot.global.jsonc to ensure consistent JSON formatting after merge.
-  # --force: this is dev-bot's OWN file at the install root — normalize it
-  # unconditionally rather than depend on that root declaring prettier.
-  local format_json_tool="${DEV_BOT_ROOT}/src/agentic/format-json/tools/format-json.mcp.sh"
-  if [[ -f "${format_json_tool}" ]]; then
-    bash "${format_json_tool}" --force "${config_file}" 2>/dev/null || true
-  fi
+  # Delegates to the shared rebuild: every module's declarations are merged
+  # regardless of enablement — the config store and the vendor/ clones are
+  # global, shared by every project. See _devbot_rebuild_external_module_config.
+  _devbot_rebuild_external_module_config
 }
 
 # ── Stale container-name reclaim ───────────────────────────────────────────────
