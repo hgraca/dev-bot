@@ -16,6 +16,8 @@ setup() {
   GM="${MODULE_DIR}/lib/gitmine.py"
   LANGS="${MODULE_DIR}/langs"
   EDGE_LANGS="${TEST_DIR}/fixtures/langs-edge"
+  PHP_PLUGIN="${MODULE_DIR}/langs/php/plugin.sh"
+  PHP_FIXTURES="${TEST_DIR}/fixtures/php-project"
 }
 
 # ── Skeleton (T0.1) ────────────────────────────────────────────────────────────
@@ -276,4 +278,65 @@ assert a["counts"] == b["counts"], (a["counts"], b["counts"])
   assert_failure
   assert_output --partial "ERROR"
   rm -rf "$dir"
+}
+
+# ── PHP plugin: units (T0.5) ───────────────────────────────────────────────────
+
+# True when the PHP plugin can run for real (docker + a resolvable engine).
+_php_e2e_ready() {
+  command -v docker >/dev/null 2>&1 || return 1
+  docker info >/dev/null 2>&1 || return 1
+  bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}" >/dev/null 2>&1
+}
+
+@test "php plugin units: no engine is an ERROR" {
+  local project storage req
+  project="$(mktemp -d)"
+  storage="$(mktemp -d)"
+  req="$(mktemp)"
+  printf '{"project":"%s","files":[]}' "${project}" >"${req}"
+
+  run env FORENSICS_STORAGE_DIR="${storage}" bash "${PHP_PLUGIN}" units <"${req}"
+  assert_failure
+  assert_output --partial "ERROR"
+
+  rm -rf "$project" "$storage" "$req"
+}
+
+@test "php plugin doctor: resolves an engine" {
+  _php_e2e_ready || skip "php engine + docker not available"
+
+  run bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}"
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["ok"] is True, doc
+assert doc["engine"]["version"] != "unknown", doc
+'
+}
+
+@test "php plugin units: emits class + method units with complexity" {
+  _php_e2e_ready || skip "php engine + docker not available"
+
+  local req
+  req="$(mktemp)"
+  printf '{"project":"%s","files":["src/Calculator.php"]}' "${PHP_FIXTURES}" >"${req}"
+
+  run bash "${PHP_PLUGIN}" units <"${req}"
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["ok"] is True, doc
+units = {(u["kind"], u["name"]): u for u in doc["units"]}
+assert ("class", "Calculator") in units, list(units)
+assert units[("class", "Calculator")]["complexity"] == 4, units
+assert ("method", "Calculator::add") in units, list(units)
+assert units[("method", "Calculator::add")]["complexity"] == 1, units
+assert ("method", "Calculator::classify") in units, list(units)
+assert units[("method", "Calculator::classify")]["complexity"] == 3, units
+'
+
+  rm -f "$req"
 }
