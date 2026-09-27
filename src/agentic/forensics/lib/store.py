@@ -70,9 +70,28 @@ CREATE TABLE IF NOT EXISTS defect_links (
   matched_lines   INTEGER,
   PRIMARY KEY (fix_hash, inducing_hash)
 );
+CREATE TABLE IF NOT EXISTS unit_ownership (
+  unit_key    TEXT,
+  path        TEXT,
+  name        TEXT,
+  kind        TEXT,
+  author      TEXT,
+  lines_owned INTEGER,
+  last_change TEXT,
+  PRIMARY KEY (unit_key, author)
+);
+CREATE TABLE IF NOT EXISTS unit_churn (
+  unit_key    TEXT PRIMARY KEY,
+  path        TEXT,
+  name        TEXT,
+  kind        TEXT,
+  commits     INTEGER,
+  active_days INTEGER,
+  last_change TEXT
+);
 """
 
-_TABLES = ("meta", "commits", "changes", "files", "units", "defect_links")
+_TABLES = ("meta", "commits", "changes", "files", "units", "defect_links", "unit_ownership", "unit_churn")
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -232,6 +251,28 @@ def write_defect_links(conn: sqlite3.Connection, links: list) -> None:
                 link.get("matched_lines", 0),
             )
             for link in links
+        ],
+    )
+
+
+def write_unit_ownership(conn: sqlite3.Connection, rows: list) -> None:
+    conn.executemany(
+        "INSERT OR REPLACE INTO unit_ownership(unit_key, path, name, kind, author, lines_owned, last_change)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            (row["unit_key"], row["path"], row["name"], row["kind"], row["author"], row["lines_owned"], row["last_change"])
+            for row in rows
+        ],
+    )
+
+
+def write_unit_churn(conn: sqlite3.Connection, rows: list) -> None:
+    conn.executemany(
+        "INSERT OR REPLACE INTO unit_churn(unit_key, path, name, kind, commits, active_days, last_change)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            (row["unit_key"], row["path"], row["name"], row["kind"], row["commits"], row["active_days"], row["last_change"])
+            for row in rows
         ],
     )
 

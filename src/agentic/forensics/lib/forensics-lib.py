@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analyse  # noqa: E402
 import commitparse  # noqa: E402
 import gitmine  # noqa: E402  (local module, resolved via the sys.path entry above)
+import ownership  # noqa: E402
 import report  # noqa: E402
 import store  # noqa: E402
 import szz  # noqa: E402
@@ -322,6 +323,11 @@ def cmd_mine(args: list) -> int:
             warnings += ["unit extraction skipped (%s)" % error for error in errors]
             if units:
                 store.write_units(conn, units)
+                ownership_rows, churn_rows = ownership.unit_blame(data["repo"], units)
+                if ownership_rows:
+                    store.write_unit_ownership(conn, ownership_rows)
+                if churn_rows:
+                    store.write_unit_churn(conn, churn_rows)
                 conn.commit()
 
         if not opts.get("no-defects"):

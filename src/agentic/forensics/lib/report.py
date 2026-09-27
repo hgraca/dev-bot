@@ -13,6 +13,7 @@ SECTIONS = (
     ("change-rate", "Change rate", 10),
     ("coupling", "Temporal coupling", 15),
     ("concentration", "Ownership concentration", 15),
+    ("unit-concentration", "Unit ownership risk", 15),
     ("commit-types", "Commit types", 20),
     ("authors", "Authors", 20),
     ("tickets", "Tickets", 20),

@@ -1003,3 +1003,54 @@ assert row["avg_files_per_commit"] == 1.0, row
 
   rm -rf "$repo"
 }
+
+@test "ownership aggregate: maps blame lines onto unit spans" {
+  run python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import ownership
+lines = [
+    {"line": 1, "author_email": "a@x", "hash": "h1", "date": "2024-01-01T00:00:00+00:00"},
+    {"line": 2, "author_email": "a@x", "hash": "h1", "date": "2024-01-01T00:00:00+00:00"},
+    {"line": 3, "author_email": "b@x", "hash": "h2", "date": "2024-02-01T00:00:00+00:00"},
+]
+units = [{"path": "f.php", "name": "f", "kind": "function", "start_line": 1, "end_line": 3}]
+own, churn = ownership.aggregate_units(lines, units)
+authors = {r["author"]: r["lines_owned"] for r in own}
+assert authors == {"a@x": 2, "b@x": 1}, authors
+assert churn[0]["commits"] == 2 and churn[0]["active_days"] == 2, churn
+assert own[0]["unit_key"] == ownership.unit_key("f.php", "function", "f"), own
+' "${MODULE_DIR}"
+}
+
+@test "mine unit-ownership: attributes a unit to its author" {
+  _php_e2e_ready || skip "php engine + docker not available"
+
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  mkdir -p "$repo/src"
+  cp "${PHP_FIXTURES}/src/Calculator.php" "$repo/src/Calculator.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: add calculator"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --format json
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view unit-ownership --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+names = {r["name"]: r for r in doc["unit-ownership"]}
+assert "Calculator::classify" in names, list(names)
+assert names["Calculator::classify"]["authors"] == 1, names["Calculator::classify"]
+'
+
+  rm -rf "$repo"
+}

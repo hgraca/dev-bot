@@ -352,12 +352,50 @@ def process(conn: sqlite3.Connection, top=None) -> list:
     ]
 
 
+def unit_ownership(conn: sqlite3.Connection, top=None) -> list:
+    """Per-unit authorship from blame: authors and the top author's share."""
+    units = {}
+    for row in conn.execute("SELECT unit_key, path, name, kind, author, lines_owned FROM unit_ownership").fetchall():
+        entry = units.setdefault(
+            row["unit_key"],
+            {"unit_key": row["unit_key"], "path": row["path"], "name": row["name"], "kind": row["kind"], "owners": {}},
+        )
+        entry["owners"][row["author"]] = row["lines_owned"]
+
+    results = []
+    for entry in units.values():
+        total = sum(entry["owners"].values()) or 1
+        top_author = max(entry["owners"], key=lambda author: entry["owners"][author])
+        results.append(
+            {
+                "unit_key": entry["unit_key"],
+                "path": entry["path"],
+                "name": entry["name"],
+                "kind": entry["kind"],
+                "authors": len(entry["owners"]),
+                "top_author": top_author,
+                "top_share": round(100.0 * entry["owners"][top_author] / total, 1),
+            }
+        )
+
+    results.sort(key=lambda item: (-item["top_share"], item["path"], item["name"]))
+    return results[:top] if top is not None else results
+
+
+def unit_concentration(conn: sqlite3.Connection, top=None, threshold: float = 80.0) -> list:
+    """Units whose knowledge is single-owner or >= ``threshold``% one author."""
+    flagged = [row for row in unit_ownership(conn, None) if row["authors"] == 1 or row["top_share"] >= threshold]
+    return flagged[:top] if top is not None else flagged
+
+
 _VIEWS = {
     "hotspots": hotspots,
     "change-rate": change_rate,
     "coupling": coupling,
     "ownership": ownership,
     "concentration": concentration,
+    "unit-ownership": unit_ownership,
+    "unit-concentration": unit_concentration,
     "commit-types": commit_types,
     "authors": authors,
     "tickets": tickets,
