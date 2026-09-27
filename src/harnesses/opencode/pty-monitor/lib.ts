@@ -285,3 +285,50 @@ export function tail(text: unknown, lines: number): string {
   if (all.length <= lines) return all.join("\n")
   return "…\n" + all.slice(-lines).join("\n")
 }
+
+/**
+ * How long a session has been running, as a compact label.
+ *
+ * Seconds zero-padded below an hour (`1m 05s`), minutes above it (`2h 07m`) — the
+ * unit that matters is the leading one, and a bare `0s` beats a `NaN` or an empty
+ * cell for a session whose timestamps are missing or inverted (a clock can move
+ * backwards between the server and the panel).
+ */
+export function formatDuration(ms: unknown): string {
+  const totalSeconds =
+    typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000) : 0
+  const seconds = totalSeconds % 60
+  const minutes = Math.floor(totalSeconds / 60) % 60
+  const hours = Math.floor(totalSeconds / 3600)
+  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m`
+  if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, "0")}s`
+  return `${seconds}s`
+}
+
+/**
+ * How long a session has run, or null when that cannot be told.
+ *
+ * The end is, in order of preference: the server's `exitAt` — which only the
+ * versions that record session end times report — then the moment THIS panel
+ * first saw the session stop (`observedFinishedAt`), accurate to within one poll
+ * and the reason the figure is still right on a server that predates `exitAt`,
+ * then `now`, so a running session keeps counting. Null means the server reported
+ * no usable start time, and the caller shows nothing rather than a wrong number.
+ */
+export function runDurationMs(input: {
+  createdAt?: unknown
+  exitAt?: unknown
+  observedFinishedAt?: unknown
+  now: number
+}): number | null {
+  if (typeof input.createdAt !== "string") return null
+  const started = Date.parse(input.createdAt)
+  if (!Number.isFinite(started)) return null
+
+  const serverEnd = typeof input.exitAt === "string" ? Date.parse(input.exitAt) : Number.NaN
+  if (Number.isFinite(serverEnd)) return serverEnd - started
+
+  const observedEnd = typeof input.observedFinishedAt === "number" ? input.observedFinishedAt : Number.NaN
+  const ended = Number.isFinite(observedEnd) ? observedEnd : input.now
+  return ended - started
+}

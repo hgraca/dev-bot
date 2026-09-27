@@ -85,6 +85,7 @@ function stubApi(options: { rejectCreate?: boolean; throwingToast?: boolean } = 
   let commands: (() => { onSelect: () => void }[]) | null = null
   let slots: { slots: { sidebar_content: () => El } } | null = null
   let confirm: { onConfirm?: () => void; title?: string; message?: string } | null = null
+  let dialogTree: El | null = null
   const calls = {
     slots: 0,
     commands: 0,
@@ -101,6 +102,8 @@ function stubApi(options: { rejectCreate?: boolean; throwingToast?: boolean } = 
     sidebar,
     /** The props the plugin handed to the most recent confirm dialog. */
     confirmProps: () => confirm,
+    /** The rendered tree of the most recent dialog, or null before one opened. */
+    dialogElement: () => dialogTree,
     /** Ask for a start the first way: the slash command. */
     runExplicitRequest: () => {
       const list = commands ? commands() : []
@@ -147,10 +150,11 @@ function stubApi(options: { rejectCreate?: boolean; throwingToast?: boolean } = 
         },
         // Counts every dialog the plugin pushes, so a test can tell a removal
         // confirm apart from the output dialog opening on the row behind a `✕`.
+        // The rendered tree is kept so a test can read what the dialog says.
         dialog: {
           replace: (render: () => unknown) => {
             calls.dialogs++
-            render()
+            dialogTree = render() as El
           },
           clear: () => {},
           setSize: () => {},
@@ -408,6 +412,18 @@ function clickControl(handler: unknown, stopped: { value: boolean }) {
   })
 }
 
+/** Every text node's content in a rendered element tree. */
+function textNodesOf(element: El | null): string[] {
+  if (!element) return []
+  const found: string[] = []
+  const walk = (node: El) => {
+    if (node.text !== undefined) found.push(node.text)
+    for (const child of node.children) walk(child)
+  }
+  walk(element)
+  return found
+}
+
 describe("pty-monitor session removal", () => {
   test("✕ on a finished session removes it without opening the dialog", async () => {
     const { server, deletes } = ptyFixture([
@@ -540,6 +556,53 @@ describe("pty-monitor session removal", () => {
       clickControl(clear.props.onMouseDown, { value: false })
       await new Promise((resolve) => setTimeout(resolve, 50))
       expect(deletes).toEqual([])
+    } finally {
+      server.stop(true)
+      stub.disposeNow()
+    }
+  })
+})
+
+describe("pty-monitor output dialog", () => {
+  test("shows how long the process has run, fixed once it exits", async () => {
+    // Fixed timestamps, so the expected label does not depend on the clock: the
+    // finished session ran exactly one minute, the running one is still going.
+    const base = Date.now()
+    const { server } = ptyFixture([
+      {
+        id: "pty_done",
+        title: "build",
+        status: "exited",
+        exitCode: 0,
+        lineCount: 1,
+        createdAt: new Date(base - 65_000).toISOString(),
+        exitAt: new Date(base - 5_000).toISOString(),
+      },
+      {
+        id: "pty_live",
+        title: "dev server",
+        status: "running",
+        lineCount: 3,
+        createdAt: new Date(base - 90_000).toISOString(),
+      },
+    ])
+    const stub = stubApi()
+    try {
+      await plugin.tui(stub.api as never)
+      stub.clickHeader() // expand
+      expect(await waitForRows(stub, 2)).toBe(true)
+
+      // A finished session: 65s - 5s before the fixture base = one minute, shown
+      // as a fixed figure in the header's bottom-right corner.
+      clickControl(rowsOf(stub)[0]!.props.onMouseUp, { value: false })
+      expect(await waitFor(() => stub.dialogElement() !== null)).toBe(true)
+      const finished = textNodesOf(stub.dialogElement())
+      expect(finished).toContain("esc to close")
+      expect(finished).toContain("1m 00s")
+
+      // A running one has no end yet, so it is measured from its start to now.
+      clickControl(rowsOf(stub)[1]!.props.onMouseUp, { value: false })
+      expect(await waitFor(() => textNodesOf(stub.dialogElement()).includes("1m 30s"))).toBe(true)
     } finally {
       server.stop(true)
       stub.disposeNow()

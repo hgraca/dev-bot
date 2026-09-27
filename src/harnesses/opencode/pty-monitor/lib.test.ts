@@ -22,6 +22,7 @@ import {
   decodeBuffer,
   finishedSessions,
   formatDetail,
+  formatDuration,
   headerLabel,
   isFinished,
   isPtyCommandSentinel,
@@ -32,6 +33,7 @@ import {
   ROW_BULLET,
   rowLabel,
   rowTone,
+  runDurationMs,
   tail,
 } from "./lib"
 
@@ -474,5 +476,78 @@ describe("headerLabel", () => {
 
   test("renders without a status", () => {
     expect(headerLabel({})).toBe("▼ PTY  ")
+  })
+})
+
+describe("formatDuration", () => {
+  test("counts whole seconds below a minute", () => {
+    expect(formatDuration(0)).toBe("0s")
+    expect(formatDuration(999)).toBe("0s") // floors: 0.999s is not yet a second
+    expect(formatDuration(1000)).toBe("1s")
+    expect(formatDuration(12_000)).toBe("12s")
+    expect(formatDuration(59_999)).toBe("59s")
+  })
+
+  test("pads the trailing unit past a minute", () => {
+    expect(formatDuration(60_000)).toBe("1m 00s")
+    expect(formatDuration(65_000)).toBe("1m 05s")
+    expect(formatDuration(3_599_000)).toBe("59m 59s")
+  })
+
+  test("switches to hours with padded minutes past an hour", () => {
+    expect(formatDuration(3_600_000)).toBe("1h 00m")
+    expect(formatDuration(3_600_000 + 7 * 60_000)).toBe("1h 07m")
+    expect(formatDuration(49 * 3_600_000 + 12 * 60_000)).toBe("49h 12m")
+  })
+
+  test("never renders a negative or unusable value", () => {
+    // A clock can move backwards between the server and the panel.
+    expect(formatDuration(-5000)).toBe("0s")
+    expect(formatDuration(Number.NaN)).toBe("0s")
+    expect(formatDuration(Number.POSITIVE_INFINITY)).toBe("0s")
+    expect(formatDuration(null)).toBe("0s")
+    expect(formatDuration(undefined)).toBe("0s")
+    expect(formatDuration("60000")).toBe("0s")
+  })
+})
+
+describe("runDurationMs", () => {
+  const started = "2026-09-26T10:00:00.000Z"
+  const startedMs = Date.parse(started)
+
+  test("prefers the server's exit time when it reports one", () => {
+    const exitAt = new Date(startedMs + 65_000).toISOString()
+    // The observed time is deliberately different: the server's word wins.
+    expect(
+      runDurationMs({ createdAt: started, exitAt, observedFinishedAt: startedMs + 999_000, now: 0 }),
+    ).toBe(65_000)
+  })
+
+  test("falls back to when this panel saw it stop", () => {
+    // A server that predates `exitAt` reports none — the panel's own observation
+    // is then the end, accurate to within one poll.
+    expect(
+      runDurationMs({ createdAt: started, observedFinishedAt: startedMs + 30_000, now: 0 }),
+    ).toBe(30_000)
+  })
+
+  test("measures a running session to now", () => {
+    expect(runDurationMs({ createdAt: started, now: startedMs + 5_000 })).toBe(5_000)
+  })
+
+  test("prefers the observation over now, so a finished figure stops moving", () => {
+    expect(
+      runDurationMs({
+        createdAt: started,
+        observedFinishedAt: startedMs + 10_000,
+        now: startedMs + 90_000,
+      }),
+    ).toBe(10_000)
+  })
+
+  test("returns null when the server reported no usable start time", () => {
+    expect(runDurationMs({ now: 1000 })).toBeNull()
+    expect(runDurationMs({ createdAt: null, now: 1000 })).toBeNull()
+    expect(runDurationMs({ createdAt: "not a date", now: 1000 })).toBeNull()
   })
 })

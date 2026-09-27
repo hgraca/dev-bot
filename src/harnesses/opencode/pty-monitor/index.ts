@@ -38,13 +38,16 @@ import {
   decodeBuffer,
   finishedSessions,
   formatDetail,
+  formatDuration,
   headerLabel,
+  isFinished,
   isPtyHealth,
   latestServerUrl,
   parseListeningPorts,
   ROW_BULLET,
   rowLabel,
   rowTone,
+  runDurationMs,
   tail,
 } from "./lib"
 
@@ -90,6 +93,16 @@ let cachedOrigin = null
  * makes retrying pointless and is otherwise invisible.
  */
 let lastBootstrapError = null
+
+/**
+ * When THIS panel first saw each session stop, keyed by session id.
+ *
+ * opencode-pty reports no end time until the version that records one, so a
+ * finished session's run time is only knowable from the panel's own observation —
+ * accurate to within one poll, and superseded by the server's `exitAt` the moment
+ * it sends one. Pruned to the sessions still in the list.
+ */
+const observedFinishedAt = new Map()
 
 /**
  * The sidebar status while the PTY server cannot be reached.
@@ -504,6 +517,18 @@ const tui = async (api) => {
       }
       bootstrapFailures = 0
       const list = await listSessions(origin)
+      // Note when each session was first seen stopped: the pinned server sends no
+      // end time, so this is what a finished session's run time is measured to.
+      const present = new Set()
+      for (const s of list) {
+        present.add(s && s.id)
+        if (isFinished(s) && !observedFinishedAt.has(s.id)) {
+          observedFinishedAt.set(s.id, Date.now())
+        }
+      }
+      for (const id of Array.from(observedFinishedAt.keys())) {
+        if (!present.has(id)) observedFinishedAt.delete(id)
+      }
       setSessions(list)
       setStatus(list.length === 1 ? "1 session" : list.length + " sessions")
     } catch (_) {
@@ -536,6 +561,19 @@ const tui = async (api) => {
     const dialogOrigin = origin
     const [buf, setBuf] = createSignal("loading…")
     let timer = null
+    // The run timer: `now` drives it while the process is going, and the panel's
+    // own poll keeps the session list fresh — so a process that exits while the
+    // dialog is open freezes the figure without another API call.
+    const [now, setNow] = createSignal(Date.now())
+    let tick = null
+    const liveSession = () => sessions().find((s) => s && s.id === session.id) || session
+    const elapsedMs = () =>
+      runDurationMs({
+        createdAt: liveSession().createdAt,
+        exitAt: liveSession().exitAt,
+        observedFinishedAt: observedFinishedAt.get(session.id),
+        now: now(),
+      })
     const load = async () => {
       try {
         setBuf(await readBuffer(dialogOrigin, session.id))
@@ -590,7 +628,22 @@ const tui = async (api) => {
       if (palette.backgroundElement) setProp(bar, "backgroundColor", palette.backgroundElement)
       insertNode(bar, text("⟡ " + (session.title || session.id)))
       insertNode(bar, text(formatDetail(session)))
-      insertNode(bar, text("esc to close"))
+      // The run timer sits in the band's bottom-right corner: a growing spacer
+      // pushes it there, and as the last row it reads as the footer.
+      const foot = createElement("box")
+      setProp(foot, "flexDirection", "row")
+      const hint = createElement("text")
+      setProp(hint, "flexGrow", 1)
+      if (palette.textMuted) setProp(hint, "fg", palette.textMuted)
+      insertNode(hint, createTextNode("esc to close"))
+      insertNode(foot, hint)
+      const runTime = textLive(() => {
+        const ms = elapsedMs()
+        return ms === null ? "" : formatDuration(ms)
+      })
+      if (palette.textMuted) setProp(runTime, "fg", palette.textMuted)
+      insertNode(foot, runTime)
+      insertNode(bar, foot)
       return bar
     }
 
@@ -612,6 +665,8 @@ const tui = async (api) => {
         debug("dialog.closed", { id: session.id })
         if (timer) clearInterval(timer)
         timer = null
+        if (tick) clearInterval(tick)
+        tick = null
       },
     )
     // setSize must come AFTER replace: replace resets the size as part of
@@ -622,6 +677,11 @@ const tui = async (api) => {
     api.ui.dialog.setSize(cols >= 128 ? "xlarge" : cols >= 96 ? "large" : "medium")
     debug("dialog.opened", { id: session.id, size: api.ui.dialog.size, cols })
     timer = setInterval(load, POLL_MS)
+    // A finished session's figure is fixed, so only a running one needs waking.
+    // No usable start time means nothing is rendered, so there is nothing to tick.
+    if (!isFinished(liveSession()) && elapsedMs() !== null) {
+      tick = setInterval(() => setNow(Date.now()), 1000)
+    }
   }
 
   /**
