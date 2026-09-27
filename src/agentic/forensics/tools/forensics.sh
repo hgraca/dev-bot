@@ -55,7 +55,7 @@ Commands:
        [--trends] [--trend-interval month|quarter|year] [--defects <csv>]
                         Walk git history + code units + metrics + commit
                         analysis into the SQLite store.
-  analyse <db> [--view <view>] [--top N] [--format md|json]
+  analyse <db> [--view <view>] [--top N] [--format md|json|csv]
                         Query one view: hotspots, change-rate, coupling,
                         ownership, concentration, unit-ownership,
                         unit-concentration, commit-types, authors, tickets,

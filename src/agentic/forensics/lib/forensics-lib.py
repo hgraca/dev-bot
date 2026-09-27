@@ -108,13 +108,15 @@ def _parse_format(args: list) -> str:
         arg = args[index]
         if arg == "--json":
             fmt = "json"
+        elif arg == "--csv":
+            fmt = "csv"
         elif arg == "--markdown":
             fmt = "markdown"
         elif arg == "--format" and index + 1 < len(args):
             fmt = args[index + 1]
             index += 1
         index += 1
-    return "json" if fmt == "json" else "markdown"
+    return fmt if fmt in ("json", "csv") else "markdown"
 
 
 def _parse_opt(args: list, name: str):
@@ -519,6 +521,13 @@ def cmd_analyse(args: list) -> int:
     doc = {"ok": True, "view": view, "count": len(rows), view: rows}
     if fmt == "json":
         print(json.dumps(doc, indent=2))
+    elif fmt == "csv":
+        if rows:
+            keys = list(rows[0].keys())
+            writer = csv.writer(sys.stdout)
+            writer.writerow(keys)
+            for row in rows:
+                writer.writerow([row.get(key, "") for key in keys])
     else:
         if rows:
             keys = list(rows[0].keys())
