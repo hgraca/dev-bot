@@ -77,6 +77,7 @@ _devbot_detect_gpu() {
 }
 _install_dependencies() { true; }
 _install_modules() { true; }
+_devbot_install_version() { true; }
 EOF
 
   export DEV_BOT_ROOT="${SANDBOX_DIR}"

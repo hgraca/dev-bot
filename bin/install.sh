@@ -116,7 +116,18 @@ _setup_devbot_config() {
   fi
   _info "Writing .devbot.global.jsonc from $(basename "${dist}")..."
   cp "${dist}" "${config}"
-  _ok ".devbot.global.jsonc created"
+
+  # Record the release tag when this checkout sits exactly on one (a bootstrap
+  # or `devbot update` install) — a main checkout stays "" until update sets it.
+  local version
+  version="$(_devbot_install_version)"
+  if [[ -n "${version}" ]]; then
+    _devbot_set_global_value version "\"${version}\"" >/dev/null 2>&1 \
+      && _ok ".devbot.global.jsonc created (version ${version})" \
+      || _ok ".devbot.global.jsonc created"
+  else
+    _ok ".devbot.global.jsonc created"
+  fi
 }
 
 # ── npm dependencies (package.json) ──────────────────────────────────────────

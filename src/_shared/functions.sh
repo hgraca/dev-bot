@@ -690,6 +690,16 @@ _devbot_ensure_global_default() {
   _devbot_ensure_global_value "${key}" "\"${value}\""
 }
 
+# _devbot_install_version
+#   Prints the release tag this install sits exactly on, or nothing when HEAD is
+#   not at a tag (a main checkout) — `devbot update` records the version then.
+#   Lets a tag install carry a version immediately instead of an empty string.
+_devbot_install_version() {
+  command -v git >/dev/null 2>&1 || return 0
+  [[ -n "${DEV_BOT_ROOT:-}" && -d "${DEV_BOT_ROOT}" ]] || return 0
+  git -C "${DEV_BOT_ROOT}" describe --tags --exact-match 2>/dev/null || true
+}
+
 # _devbot_set_global_value <key> <raw-json>
 #   Sets `<key>` in ${DEV_BOT_ROOT}/.devbot.global.jsonc to the raw JSON literal
 #   <raw-json> (callers pass JSON — `true`, `"1.4.0"`), replacing an existing
