@@ -255,10 +255,21 @@ _setup_idx_sandbox() {
   # A project rooted inside the sandbox (kept outside the mocked devbot root).
   PROJ="${SANDBOX}/project"
   mkdir -p "${PROJ}"
+  # Pretend the shared gateway's repo mount covers the sandbox (its real default
+  # is $HOME). The scope guard skips a project outside that root.
+  export CODEBASE_MEMORY_ROOT="${SANDBOX}"
   # Only python3's own directory: the hook's reachability guard is a bash
   # /dev/tcp connect and needs no PATH entry, so nothing else has to be present
   # for the hook to run — this is what the index helper is invoked with.
   export PATH="$(dirname "$(command -v python3)")"
+  # Stub docker out: the scope guard asks the running gateway container for its
+  # repo mount, and the test host may run a real one, which would make the result
+  # non-hermetic. Tests then exercise the env-based fallback unless they override
+  # this stub.
+  mkdir -p "${SANDBOX}/stubbin"
+  printf '#!/bin/bash\nexit 1\n' > "${SANDBOX}/stubbin/docker"
+  chmod +x "${SANDBOX}/stubbin/docker"
+  export PATH="${SANDBOX}/stubbin:${PATH}"
 
   # Stub gateway. The hook indexes through the shared gateway over MCP now, not
   # a host binary, so exercise the real streamable-http conversation: the
@@ -446,6 +457,43 @@ print('HOOK:OK')
   run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
   assert_success
   [ ! -s "${CBM_CALLS_FILE}" ]
+}
+
+@test "index-project.sh: skips with a note when the project is outside the gateway's repo root" {
+  # The fixture case: the gateway's repo mount is the host's $HOME, so a
+  # container-local /app is invisible to it. Priming must not log a doomed rc=1.
+  _setup_idx_sandbox
+  mkdir -p "${PROJ}/src"
+  export CODEBASE_MEMORY_ROOT="${SANDBOX}/elsewhere"
+
+  run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
+  assert_success
+  [ ! -s "${CBM_CALLS_FILE}" ]
+  run cat "${PROJ}/.agents/logs/codebase-memory-index.log"
+  assert_output --partial "index-project skipped"
+  refute_output --partial "index-project start"
+}
+
+@test "index-project.sh: trusts the running gateway's mount over the env" {
+  _setup_idx_sandbox
+  mkdir -p "${PROJ}/src"
+  # The env narrows the root to something that does NOT cover the project, but
+  # the stub reports the running container's bind source as the sandbox — the
+  # container wins, so the index still runs.
+  export CODEBASE_MEMORY_ROOT="${SANDBOX}/narrow"
+  printf '#!/bin/bash\necho "%s"\n' "${SANDBOX}" > "${SANDBOX}/stubbin/docker"
+  chmod +x "${SANDBOX}/stubbin/docker"
+
+  run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
+  assert_success
+
+  local i
+  for i in $(seq 1 50); do
+    [[ -s "${CBM_CALLS_FILE}" ]] && break
+    sleep 0.1
+  done
+  run cat "${CBM_CALLS_FILE}"
+  assert_output --partial '"name": "index_repository"'
 }
 
 @test "index-project.sh: skips when the gateway is not reachable" {

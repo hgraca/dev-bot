@@ -76,6 +76,29 @@ mkdir -p "${LOG_DIR}" 2>/dev/null || exit 0
 LOG_FILE="${LOG_DIR}/codebase-memory-index.log"
 LOCK_FILE="${LOG_DIR}/codebase-memory-index.lock"
 
+# ── Gateway mount scope ────────────────────────────────────────────────────────
+# The shared gateway bind-mounts its repo root at the same absolute path (see the
+# module's docker-compose.yml), so a project outside that root is invisible to it.
+# index_repository then fails with a generic "check repo_path" hint and the hook
+# logs rc=1 on every session — an environment condition, not a wiring failure
+# (audit-65/66). Read the running container's real bind source (as up.sh does):
+# this process's own env can diverge from the env the gateway was created with.
+# Fall back to the configured default only when docker/daemon/container is absent.
+GATEWAY_ROOT=""
+if command -v docker >/dev/null 2>&1; then
+  GATEWAY_ROOT="$(docker inspect \
+    --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\n"}}{{end}}{{end}}' \
+    dev-bot-codebase-memory-mcp 2>/dev/null | head -1)"
+fi
+[[ -n "${GATEWAY_ROOT}" ]] || GATEWAY_ROOT="${CODEBASE_MEMORY_ROOT:-${HOME}}"
+GATEWAY_ROOT="${GATEWAY_ROOT%/}"
+if [[ "${INDEX_ROOT}" != "${GATEWAY_ROOT}" && "${INDEX_ROOT}" != "${GATEWAY_ROOT}/"* ]]; then
+  {
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WARN: index-project skipped ${INDEX_ROOT} — outside the codebase-memory gateway's repo root (${GATEWAY_ROOT}); set CODEBASE_MEMORY_ROOT to cover it and run 'devbot up'"
+  } >> "${LOG_FILE}" 2>&1
+  exit 0
+fi
+
 exec 200>"${LOCK_FILE}" 2>/dev/null || exit 0
 # audit-25 F2: flock(1) is util-linux (Linux-only) — macOS lacks it. Fall back
 # to python fcntl on the inherited fd 200.
