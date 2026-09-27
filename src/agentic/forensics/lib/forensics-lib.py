@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analyse  # noqa: E402
 import commitparse  # noqa: E402
 import gitmine  # noqa: E402  (local module, resolved via the sys.path entry above)
+import report  # noqa: E402
 import store  # noqa: E402
 import szz  # noqa: E402
 
@@ -413,11 +414,47 @@ def cmd_analyse(args: list) -> int:
     return 0
 
 
+def cmd_report(args: list) -> int:
+    fmt = _parse_format(args)
+    opts, positionals = _parse_args(args)
+
+    if not positionals:
+        print("ERROR: a database path is required", file=sys.stderr)
+        return 2
+    db_path = positionals[0]
+    if not os.path.isfile(db_path):
+        print("ERROR: database not found: %s" % db_path, file=sys.stderr)
+        return 1
+
+    conn = store.connect(db_path)
+    try:
+        doc = report.build(conn)
+    finally:
+        conn.close()
+
+    if fmt == "json":
+        rendered = json.dumps(doc, indent=2) + "\n"
+    else:
+        rendered = report.to_markdown(doc)
+
+    out_dir = opts.get("out") if isinstance(opts.get("out"), str) else None
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(out_dir, "report.json" if fmt == "json" else "report.md")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(rendered)
+        print("Wrote %s" % path)
+    else:
+        sys.stdout.write(rendered)
+    return 0
+
+
 _HANDLERS = {
     "langs": cmd_langs,
     "doctor": cmd_doctor,
     "mine": cmd_mine,
     "analyse": cmd_analyse,
+    "report": cmd_report,
     "provision": cmd_provision,
 }
 

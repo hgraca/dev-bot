@@ -27,18 +27,30 @@ def _percentile_ranks(values: list) -> list:
 
 
 def hotspots(conn: sqlite3.Connection, top=None) -> list:
-    """Files ranked by percentile(complexity) × percentile(change rate)."""
-    rows = conn.execute(
+    """Files ranked by percentile(complexity) × percentile(change rate).
+
+    File complexity uses the leaf units (methods/functions); a class' WMC already
+    sums its methods, so adding both would double-count.
+    """
+    raw = conn.execute(
         "SELECT f.path AS path, f.commits AS commits,"
-        " COALESCE(SUM(u.complexity), 0) AS complexity,"
+        " COALESCE(SUM(CASE WHEN u.kind IN ('method', 'function') THEN u.complexity ELSE 0 END), 0) AS leaf,"
+        " COALESCE(SUM(u.complexity), 0) AS total,"
         " COUNT(u.name) AS unit_count"
         " FROM files f LEFT JOIN units u ON u.path = f.path"
         " WHERE f.type = 'php'"
         " GROUP BY f.path"
     ).fetchall()
 
-    rows = [row for row in rows if (row["complexity"] or 0) > 0 or (row["commits"] or 0) > 0]
-    complexity_ranks = _percentile_ranks([row["complexity"] or 0 for row in rows])
+    rows = []
+    for row in raw:
+        complexity = row["leaf"] or row["total"] or 0
+        if complexity > 0 or (row["commits"] or 0) > 0:
+            rows.append(
+                {"path": row["path"], "commits": row["commits"], "complexity": complexity, "unit_count": row["unit_count"]}
+            )
+
+    complexity_ranks = _percentile_ranks([row["complexity"] for row in rows])
     churn_ranks = _percentile_ranks([row["commits"] or 0 for row in rows])
 
     results = []

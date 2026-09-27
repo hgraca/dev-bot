@@ -931,3 +931,55 @@ assert row["fastest_hours"] == 36.0, row
 
   rm -rf "$repo"
 }
+
+# ── Report (Phase 1) ───────────────────────────────────────────────────────────
+
+@test "report: renders markdown with hotspots and a methodology footer" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  _build_repo "$repo"
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+
+  run bash "${TOOL}" report "$db" --format md
+  assert_success
+  assert_output --partial "# Code forensics report"
+  assert_output --partial "## Hotspots"
+  assert_output --partial "## Methodology"
+
+  rm -rf "$repo"
+}
+
+@test "report: --format json returns the assembled views" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  _build_repo "$repo"
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+
+  run bash "${TOOL}" report "$db" --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+for key in ("meta", "hotspots", "coupling", "authors", "time-to-fix", "bus_factor"):
+    assert key in doc, key
+'
+
+  rm -rf "$repo"
+}
+
+@test "report: --out writes report.md" {
+  local repo db out
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  out="$(mktemp -d)"
+  _build_repo "$repo"
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+
+  run bash "${TOOL}" report "$db" --out "$out" --format md
+  assert_success
+  [ -f "$out/report.md" ]
+
+  rm -rf "$repo"
+}

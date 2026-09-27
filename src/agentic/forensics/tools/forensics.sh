@@ -95,11 +95,8 @@ case "${command}" in
   doctor) exec python3 "${LIB}" doctor "$@" ;;
   mine) exec python3 "${LIB}" mine "$@" ;;
   analyse) exec python3 "${LIB}" analyse "$@" ;;
+  report) exec python3 "${LIB}" report "$@" ;;
   provision) exec python3 "${LIB}" provision "$@" ;;
-  report)
-    echo "ERROR: '${command}' is not implemented yet (Phase 0 in progress)" >&2
-    exit 3
-    ;;
   *)
     echo "ERROR: unknown command '${command}'" >&2
     usage >&2
