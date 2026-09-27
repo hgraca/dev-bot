@@ -21,6 +21,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import analyse  # noqa: E402
+import commitparse  # noqa: E402
 import gitmine  # noqa: E402  (local module, resolved via the sys.path entry above)
 import store  # noqa: E402
 
@@ -304,11 +305,10 @@ def cmd_mine(args: list) -> int:
                 "until": until or "",
             },
         )
-        store.write_commits(conn, data["commits"])
+        store.write_commits(conn, commitparse.enrich(data["commits"]))
         store.write_changes(conn, data["changes"])
         store.derive_files(conn)
         conn.commit()
-
         warnings = []
         granularity = opts.get("granularity") if isinstance(opts.get("granularity"), str) else "unit"
         if granularity != "file":

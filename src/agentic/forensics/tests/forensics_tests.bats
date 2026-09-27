@@ -815,3 +815,46 @@ assert "solo.php" in conc and "shared.php" not in conc, conc
 assert analyse.bus_factor(conn)["bus_factor"] == 1, analyse.bus_factor(conn)
 ' "${MODULE_DIR}"
 }
+
+@test "commitparse: parses conventional type, scope, ticket and breaking" {
+  run python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import commitparse
+doc = commitparse.parse_message("fix(PROJ-42)!: correct totals\n\nBREAKING CHANGE: api")
+assert doc["type"] == "fix", doc
+assert doc["scope"] == "PROJ-42", doc
+assert doc["ticket"] == "PROJ-42", doc
+assert doc["breaking"] == 1, doc
+assert commitparse.parse_message("random message")["conventional"] is False
+' "${MODULE_DIR}"
+}
+
+@test "analyse commit-types/tickets: reports the conventional mix after mine" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  _build_repo "$repo"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view commit-types --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+types = {r["type"] for r in doc["commit-types"]}
+assert {"feat", "fix", "chore"} <= types, types
+'
+
+  run bash "${TOOL}" analyse "$db" --view tickets --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert any(r["ticket"] == "A-1" for r in doc["tickets"]), doc["tickets"]
+'
+
+  rm -rf "$repo"
+}

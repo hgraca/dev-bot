@@ -25,7 +25,11 @@ CREATE TABLE IF NOT EXISTS commits (
   message       TEXT,
   files_changed INTEGER DEFAULT 0,
   lines_added   INTEGER DEFAULT 0,
-  lines_deleted INTEGER DEFAULT 0
+  lines_deleted INTEGER DEFAULT 0,
+  type          TEXT,
+  scope         TEXT,
+  ticket        TEXT,
+  breaking      INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS changes (
   commit_hash TEXT,
@@ -89,8 +93,9 @@ def write_meta(conn: sqlite3.Connection, values: dict) -> None:
 def write_commits(conn: sqlite3.Connection, commits: list) -> None:
     conn.executemany(
         "INSERT OR REPLACE INTO commits"
-        "(hash, author_name, author_email, date, message, files_changed, lines_added, lines_deleted)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "(hash, author_name, author_email, date, message, files_changed, lines_added, lines_deleted,"
+        " type, scope, ticket, breaking)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (
                 c["hash"],
@@ -101,6 +106,10 @@ def write_commits(conn: sqlite3.Connection, commits: list) -> None:
                 c["files_changed"],
                 c["lines_added"],
                 c["lines_deleted"],
+                c.get("type", ""),
+                c.get("scope", ""),
+                c.get("ticket", ""),
+                int(c.get("breaking", 0) or 0),
             )
             for c in commits
         ],

@@ -205,10 +205,65 @@ def bus_factor(conn: sqlite3.Connection, threshold: float = 0.5) -> dict:
     return {"authors": len(rows), "bus_factor": factor, "total_commits": total}
 
 
+def commit_types(conn: sqlite3.Connection, top=None) -> list:
+    """Overall Conventional Commits type mix."""
+    rows = conn.execute(
+        "SELECT COALESCE(NULLIF(type, ''), '(non-conventional)') AS type, COUNT(*) AS commits"
+        " FROM commits GROUP BY type ORDER BY commits DESC"
+    ).fetchall()
+    total = sum(row["commits"] for row in rows) or 1
+    results = [
+        {"type": row["type"], "commits": row["commits"], "pct": round(100.0 * row["commits"] / total, 1)} for row in rows
+    ]
+    return results[:top] if top is not None else results
+
+
+def authors(conn: sqlite3.Connection, top=None) -> list:
+    """Per-author commit mix and Conventional Commits compliance."""
+    rows = conn.execute(
+        "SELECT author_email AS author, COUNT(*) AS commits,"
+        " SUM(CASE WHEN type = 'feat' THEN 1 ELSE 0 END) AS feat,"
+        " SUM(CASE WHEN type = 'fix' THEN 1 ELSE 0 END) AS fix,"
+        " SUM(CASE WHEN type = 'hotfix' THEN 1 ELSE 0 END) AS hotfix,"
+        " SUM(CASE WHEN breaking = 1 THEN 1 ELSE 0 END) AS breaking,"
+        " SUM(CASE WHEN type = '' THEN 0 ELSE 1 END) AS conventional"
+        " FROM commits GROUP BY author_email ORDER BY commits DESC"
+    ).fetchall()
+    results = []
+    for row in rows:
+        commits = row["commits"] or 1
+        results.append(
+            {
+                "author": row["author"],
+                "commits": row["commits"],
+                "feat": row["feat"],
+                "fix": row["fix"],
+                "hotfix": row["hotfix"],
+                "breaking": row["breaking"],
+                "compliance_pct": round(100.0 * row["conventional"] / commits, 1),
+            }
+        )
+    return results[:top] if top is not None else results
+
+
+def tickets(conn: sqlite3.Connection, top=None) -> list:
+    """Ticket references found in commit scopes: activity and fix counts."""
+    rows = conn.execute(
+        "SELECT ticket, COUNT(*) AS commits, SUM(CASE WHEN type IN ('fix', 'hotfix', 'bugfix') THEN 1 ELSE 0 END) AS fixes,"
+        " MIN(date) AS first_seen, MAX(date) AS last_seen"
+        " FROM commits WHERE ticket <> '' GROUP BY ticket ORDER BY commits DESC"
+    ).fetchall()
+    results = [dict(row) for row in rows]
+    return results[:top] if top is not None else results
+
+
 _VIEWS = {
     "hotspots": hotspots,
     "change-rate": change_rate,
     "coupling": coupling,
     "ownership": ownership,
     "concentration": concentration,
+    "commit-types": commit_types,
+    "authors": authors,
+    "tickets": tickets,
 }
