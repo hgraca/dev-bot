@@ -43,7 +43,7 @@
       "message": "force push is prohibited"
     },
     {
-      "regex": "\\bqmd\\b",
+      "regex": "(?<![*\\w])qmd(?![*\\w])",
       "message": "qmd is BM25-only and not agent-invokable — use the search-memories tool for memory recall."
     }
   ],

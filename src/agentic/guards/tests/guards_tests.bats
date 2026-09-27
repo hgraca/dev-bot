@@ -100,6 +100,19 @@ print('CHANNELS:OK')
   assert_output --partial '"blocked":false'
 }
 
+@test "shipped global guards do NOT block a glob mentioning qmd" {
+  # A runner segment (find) matches UNANCHORED, so the old \bqmd\b blocked
+  # `find … -name '*qmd*'` — a harmless search. The pattern must match qmd as a
+  # command, not as a substring of an argument (audit-69 NOTE-7).
+  run bun run "$TOOL" --command "find . -name '*qmd*'" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped global guards block qmd wrapped in a command runner" {
+  run bun run "$TOOL" --command 'bash -c "qmd update"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
 # ── Dist config consistency ───────────────────────────────────────────────────
 # The two dist configs ship together and the runtime merges project-first then
 # global, so a regex present in both with different messages makes the reported
