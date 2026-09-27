@@ -20,7 +20,7 @@ Guards evaluate shell commands against configurable regex patterns before they r
 {
   "guards": [
     { "regex": "rm -rf", "message": "rm -rf is blocked" },
-    { "regex": "sudo .*", "message": "sudo requires approval" },
+    { "regex": "sudo .*", "message": "sudo is blocked" },
     { "regex": "git push --force", "message": "force push is prohibited" },
   ],
 }

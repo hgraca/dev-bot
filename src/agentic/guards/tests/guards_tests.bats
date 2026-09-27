@@ -99,3 +99,25 @@ print('CHANNELS:OK')
   run bun run "$TOOL" --command 'echo "qmd is not agent-invokable"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
   assert_output --partial '"blocked":false'
 }
+
+# ── Dist config consistency ───────────────────────────────────────────────────
+# The two dist configs ship together and the runtime merges project-first then
+# global, so a regex present in both with different messages makes the reported
+# advice depend on which file won — the user is told "requires approval" in one
+# project and "is blocked" in another. They must agree (audit-69 NOTE-7).
+@test "both dist configs declare the same message for a shared guard regex" {
+  run python3 -c "
+import json, subprocess
+read_jsonc = '${TEST_DIR}/../../../../src/_shared/read_jsonc.py'
+def guards(path):
+    out = subprocess.check_output(['python3', read_jsonc, path])
+    return {g['regex']: g['message'] for g in json.loads(out).get('guards', [])}
+project = guards('${TEST_DIR}/../../../../.devbot.project.dist.jsonc')
+global_dist = guards('${TEST_DIR}/../../../../.devbot.global.dist.jsonc')
+for regex, message in project.items():
+    assert global_dist.get(regex) == message, f'{regex}: project={message!r} global={global_dist.get(regex)!r}'
+print('GUARDS:CONSISTENT')
+"
+  assert_success
+  grep -qF 'GUARDS:CONSISTENT' <<< "$output" || fail "dist guard messages diverge"
+}
