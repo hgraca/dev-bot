@@ -429,6 +429,11 @@ main() {
 
   _header_1 "DevBot Init"
 
+  # Mark the wiring dirty for the duration of this init: a run interrupted
+  # before step 8b leaves the baseline missing, so the next `devbot` start
+  # re-detects the change and re-runs init to repair the tree.
+  _devbot_clear_config_sha "${PROJECT_DIR}"
+
   # ── Parse disabled modules ONCE ────────────────────────────────────────────
   local disabled_modules_raw
   disabled_modules_raw=$(_devbot_get_disabled_modules "${PROJECT_DIR}")

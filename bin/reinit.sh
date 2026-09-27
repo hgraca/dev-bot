@@ -84,6 +84,11 @@ _reinit_project() {
     return
   fi
 
+  # Mark the wiring dirty BEFORE the reset scripts delete anything: a reinit
+  # killed mid-way leaves the baseline missing, so the next `devbot` start
+  # re-detects the change and repairs the tree. init.sh restores it on success.
+  _devbot_clear_config_sha "${project_dir}"
+
   # Run all provided reset scripts
   for reset_script in "${scripts[@]}"; do
     _run_reset "${reset_script}" "${project_dir}" || true
@@ -94,15 +99,21 @@ _reinit_project() {
   local init_start=${SECONDS}
   if bash "${DEV_BOT_ROOT}/bin/init.sh" "${project_dir}"; then
     _ok "devbot init done ($(_fmt_duration $(( SECONDS - init_start ))))"
-  else
-    _error "devbot init failed for ${project_dir}"
+    return 0
   fi
+
+  # Propagate the failure: the auto-reinit caller aborts the start on a non-zero
+  # reinit, so swallowing it here would launch the harness on half-built wiring
+  # and re-run the same failing reinit on every later start.
+  _error "devbot init failed for ${project_dir}"
+  return 1
 }
 
 # ── main ───────────────────────────────────────────────────────────────────────
 
 main() {
   local total_start=${SECONDS}
+  local failed=0
 
   _header_1 "DevBot Reinit"
 
@@ -181,7 +192,7 @@ for p in json.loads(sys.stdin.read()):
     while IFS= read -r project_dir; do
       i=$((i + 1))
       _header_2 "Project ${i}/${project_count}: ${project_dir}"
-      _reinit_project "${project_dir}" "${reset_scripts[@]}"
+      _reinit_project "${project_dir}" "${reset_scripts[@]}" || failed=1
       echo
     done < <(echo "${projects_json}" | python3 -c "
 import json, sys
@@ -215,10 +226,16 @@ for p in json.loads(sys.stdin.read()):
     fi
   else
     # Single project: reinit current working directory
-    _reinit_project "$(pwd)" "${reset_scripts[@]}"
+    _reinit_project "$(pwd)" "${reset_scripts[@]}" || failed=1
   fi
 
   # ── 5. Summary ──────────────────────────────────────────────────────────
+  if [[ "${failed}" -ne 0 ]]; then
+    _error "Reinit failed — fix the cause and re-run 'devbot reinit'."
+    echo
+    exit 1
+  fi
+
   _header_2 "✔  DevBot reinit complete"
   echo -e "  ${TEXT_DIM}⏱  Total: $(_fmt_duration $(( SECONDS - total_start )))${TEXT_CLEAR}"
   echo

@@ -1426,6 +1426,12 @@ _devbot_check_mcp_env_vars() {
 # _devbot_write_config_sha <project_dir>
 #   Writes the project's wiring hash to <project>/.devbot.project.sha.
 #
+# _devbot_clear_config_sha <project_dir>
+#   Removes the project's wiring baseline. reinit/init clear it BEFORE touching
+#   the tree and restore it on completion, so an interrupted run leaves the
+#   baseline missing — the documented "changed" state (E1) — and the next start
+#   reinits to repair the wiring.
+#
 # _devbot_auto_reinit_if_config_changed <project_dir>
 #   0 and no-op when the project's wiring hash is unchanged. When it changed:
 #   runs `bash $DEV_BOT_ROOT/bin/reinit.sh` from the project dir (single-project
@@ -1488,6 +1494,13 @@ _devbot_write_config_sha() {
   current="$(_devbot_wiring_sha "${project_dir}")"
   [[ -n "${current}" ]] || return 0
   printf '%s\n' "${current}" > "${sha_path}"
+}
+
+_devbot_clear_config_sha() {
+  local project_dir="${1:-$(pwd)}"
+  local sha_path
+  sha_path="$(_devbot_config_sha_path "${project_dir}/.devbot.project.jsonc")"
+  rm -f "${sha_path}"
 }
 
 _devbot_auto_reinit_if_config_changed() {

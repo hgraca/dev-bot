@@ -158,6 +158,19 @@ teardown() {
   [ ! -e "${PROJECT}/.devbot.project.sha" ]
 }
 
+@test "clear baseline removes the .sha so the wiring counts as changed" {
+  _devbot_write_config_sha "${PROJECT}"
+  [ -f "${PROJECT}/.devbot.project.sha" ]
+
+  run _devbot_clear_config_sha "${PROJECT}"
+  assert_success
+  [ ! -e "${PROJECT}/.devbot.project.sha" ]
+
+  # A missing baseline is the documented "changed" state → the next start reinits.
+  run _devbot_config_changed "${PROJECT}"
+  assert_success
+}
+
 # ── auto-reinit orchestration ─────────────────────────────────────────────────
 
 @test "auto-reinit is a no-op when the wiring is unchanged" {
