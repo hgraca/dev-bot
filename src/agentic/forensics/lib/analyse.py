@@ -327,6 +327,31 @@ def fixers(conn: sqlite3.Connection, top=None) -> list:
     return results[:top] if top is not None else results
 
 
+def process(conn: sqlite3.Connection, top=None) -> list:
+    """Commit-process metrics: batch size, churn and Conventional Commits hygiene."""
+    rows = conn.execute("SELECT date, files_changed, lines_added, lines_deleted, type FROM commits").fetchall()
+    if not rows:
+        return [{"commits": 0}]
+
+    sizes = [row["files_changed"] or 0 for row in rows]
+    churn = [(row["lines_added"] or 0) + (row["lines_deleted"] or 0) for row in rows]
+    days = {(row["date"] or "")[:10] for row in rows if row["date"]}
+    conventional = sum(1 for row in rows if row["type"])
+
+    return [
+        {
+            "commits": len(rows),
+            "active_days": len(days),
+            "commits_per_day": round(len(rows) / len(days), 2) if days else 0.0,
+            "avg_files_per_commit": round(sum(sizes) / len(sizes), 2),
+            "max_files_in_commit": max(sizes),
+            "avg_lines_per_commit": round(sum(churn) / len(churn), 1),
+            "large_commits": sum(1 for value in churn if value > 500),
+            "conventional_pct": round(100.0 * conventional / len(rows), 1),
+        }
+    ]
+
+
 _VIEWS = {
     "hotspots": hotspots,
     "change-rate": change_rate,
@@ -339,4 +364,5 @@ _VIEWS = {
     "defects": defects,
     "time-to-fix": time_to_fix,
     "fixers": fixers,
+    "process": process,
 }

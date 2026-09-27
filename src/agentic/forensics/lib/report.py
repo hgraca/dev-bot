@@ -18,6 +18,7 @@ SECTIONS = (
     ("tickets", "Tickets", 20),
     ("defects", "Defect origin (SZZ)", 20),
     ("fixers", "Fixer ↔ originator", 20),
+    ("process", "Commit process", 1),
 )
 
 _METHOD = (

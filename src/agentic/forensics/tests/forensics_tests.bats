@@ -983,3 +983,23 @@ for key in ("meta", "hotspots", "coupling", "authors", "time-to-fix", "bus_facto
 
   rm -rf "$repo"
 }
+
+@test "analyse process: reports batch size and conventional compliance" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  _build_repo "$repo"
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+
+  run bash "${TOOL}" analyse "$db" --view process --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+row = json.load(sys.stdin)["process"][0]
+assert row["commits"] == 3, row
+assert row["conventional_pct"] == 100.0, row
+assert row["avg_files_per_commit"] == 1.0, row
+'
+
+  rm -rf "$repo"
+}
