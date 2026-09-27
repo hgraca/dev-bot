@@ -20,6 +20,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import analyse  # noqa: E402
 import gitmine  # noqa: E402  (local module, resolved via the sys.path entry above)
 import store  # noqa: E402
 
@@ -366,7 +367,51 @@ def cmd_provision(args: list) -> int:
     return 2
 
 
-_HANDLERS = {"langs": cmd_langs, "doctor": cmd_doctor, "mine": cmd_mine, "provision": cmd_provision}
+def cmd_analyse(args: list) -> int:
+    fmt = _parse_format(args)
+    opts, positionals = _parse_args(args)
+
+    if not positionals:
+        print("ERROR: a database path is required", file=sys.stderr)
+        return 2
+    db_path = positionals[0]
+    if not os.path.isfile(db_path):
+        print("ERROR: database not found: %s" % db_path, file=sys.stderr)
+        return 1
+
+    view = opts.get("view") if isinstance(opts.get("view"), str) else "hotspots"
+    if view not in analyse._VIEWS:
+        print("ERROR: view '%s' is not implemented yet (Phase 1)" % view, file=sys.stderr)
+        return 3
+
+    top = None
+    if isinstance(opts.get("top"), str) and opts["top"].isdigit():
+        top = int(opts["top"])
+
+    conn = store.connect(db_path)
+    try:
+        rows = analyse._VIEWS[view](conn, top)
+    finally:
+        conn.close()
+
+    doc = {"ok": True, "view": view, "count": len(rows), view: rows}
+    if fmt == "json":
+        print(json.dumps(doc, indent=2))
+    else:
+        print("| hotspot | complexity | commits | path |")
+        print("| --- | --- | --- | --- |")
+        for row in rows:
+            print("| %.3f | %d | %d | %s |" % (row["hotspot"], row["complexity"], row["commits"], row["path"]))
+    return 0
+
+
+_HANDLERS = {
+    "langs": cmd_langs,
+    "doctor": cmd_doctor,
+    "mine": cmd_mine,
+    "analyse": cmd_analyse,
+    "provision": cmd_provision,
+}
 
 
 def main(argv: list) -> int:

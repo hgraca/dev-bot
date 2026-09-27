@@ -94,8 +94,9 @@ case "${command}" in
   langs) exec python3 "${LIB}" langs "$@" ;;
   doctor) exec python3 "${LIB}" doctor "$@" ;;
   mine) exec python3 "${LIB}" mine "$@" ;;
+  analyse) exec python3 "${LIB}" analyse "$@" ;;
   provision) exec python3 "${LIB}" provision "$@" ;;
-  analyse | report)
+  report)
     echo "ERROR: '${command}' is not implemented yet (Phase 0 in progress)" >&2
     exit 3
     ;;

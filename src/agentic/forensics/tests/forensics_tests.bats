@@ -645,3 +645,83 @@ assert doc["engine"]["via"] == "project", doc
 
   rm -rf "$project"
 }
+
+# ── Phase 1: hotspots ──────────────────────────────────────────────────────────
+
+@test "analyse hotspots: ranks complexity x change rate" {
+  run python3 -c '
+import sqlite3, sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import analyse, store
+
+conn = sqlite3.connect(":memory:")
+conn.row_factory = sqlite3.Row
+store.init(conn)
+
+def commit(h, day):
+    store.write_commits(conn, [{"hash": h, "author_name": "A", "author_email": "a",
+                                "date": "2024-01-0%sT00:00:00+00:00" % day, "message": "m",
+                                "files_changed": 1, "lines_added": 1, "lines_deleted": 0}])
+
+def change(h, path):
+    store.write_changes(conn, [{"commit_hash": h, "path": path, "added": 1, "deleted": 0,
+                                "is_rename": False, "old_path": ""}])
+
+commit("h1", 1); change("h1", "hot.php"); change("h1", "cold.php")
+for i, day in enumerate([2, 3, 4, 5], start=2):
+    commit("h%d" % i, day); change("h%d" % i, "hot.php")
+store.derive_files(conn)
+store.write_units(conn, [
+    {"path": "hot.php", "name": "Hot", "kind": "class", "start_line": 1, "end_line": 1, "complexity": 10, "loc": 1, "parent": ""},
+    {"path": "cold.php", "name": "Cold", "kind": "class", "start_line": 1, "end_line": 1, "complexity": 5, "loc": 1, "parent": ""},
+])
+conn.commit()
+
+rows = analyse.hotspots(conn)
+assert rows[0]["path"] == "hot.php", rows
+assert rows[0]["commits"] == 5 and rows[0]["complexity"] == 10, rows
+assert rows[1]["path"] == "cold.php", rows
+' "${MODULE_DIR}"
+}
+
+@test "analyse hotspots: runs over a mined database" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/out.sqlite"
+  _build_repo "$repo"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view hotspots --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["ok"] is True, doc
+assert doc["view"] == "hotspots", doc
+assert any(row["path"] == "a.php" for row in doc["hotspots"]), doc["hotspots"]
+'
+
+  rm -rf "$repo"
+}
+
+@test "analyse: a missing database is an ERROR" {
+  run bash "${TOOL}" analyse /nonexistent/forensics.sqlite --format json
+  assert_failure
+  assert_output --partial "ERROR"
+}
+
+@test "analyse: an unimplemented view is an ERROR" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/out.sqlite"
+  _build_repo "$repo"
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+
+  run bash "${TOOL}" analyse "$db" --view ownership --format json
+  assert_failure
+  assert_output --partial "ERROR"
+
+  rm -rf "$repo"
+}
