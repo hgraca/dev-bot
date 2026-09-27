@@ -309,7 +309,30 @@ def cmd_mine(args: list) -> int:
     return 0
 
 
-_HANDLERS = {"langs": cmd_langs, "doctor": cmd_doctor, "mine": cmd_mine}
+def cmd_provision(args: list) -> int:
+    opts, _ = _parse_args(args)
+    lang = opts.get("lang")
+    plugins, _ = _discover(_langs_dir())
+    available = [plugin.get("lang") for plugin in plugins]
+
+    if not isinstance(lang, str) or not lang:
+        print("ERROR: --lang is required (available: %s)" % (", ".join(available) or "none"), file=sys.stderr)
+        return 2
+
+    for plugin in plugins:
+        if plugin.get("lang") == lang:
+            proc = _run_plugin(plugin["path"], "provision")
+            if proc.stdout:
+                sys.stdout.write(proc.stdout)
+            if proc.stderr:
+                sys.stderr.write(proc.stderr)
+            return proc.returncode
+
+    print("ERROR: no plugin for language '%s' (available: %s)" % (lang, ", ".join(available) or "none"), file=sys.stderr)
+    return 2
+
+
+_HANDLERS = {"langs": cmd_langs, "doctor": cmd_doctor, "mine": cmd_mine, "provision": cmd_provision}
 
 
 def main(argv: list) -> int:

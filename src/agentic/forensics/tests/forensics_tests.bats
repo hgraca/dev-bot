@@ -396,3 +396,17 @@ assert row["complexity"] >= 1, dict(row)
 
   rm -rf "$repo"
 }
+
+# ── Provision CLI ──────────────────────────────────────────────────────────────
+
+@test "provision: missing --lang is an ERROR" {
+  run bash "${TOOL}" provision
+  assert_failure
+  assert_output --partial "ERROR"
+}
+
+@test "provision: unknown language is an ERROR" {
+  run bash "${TOOL}" provision --lang nosuchlang
+  assert_failure
+  assert_output --partial "ERROR"
+}
