@@ -341,6 +341,28 @@ assert units[("method", "Calculator::classify")]["complexity"] == 3, units
   rm -f "$req"
 }
 
+@test "php plugin units: covers traits and enums" {
+  _php_e2e_ready || skip "php engine + docker not available"
+
+  local req
+  req="$(mktemp)"
+  printf '{"project":"%s","files":["src/Shape.php"]}' "${PHP_FIXTURES}" >"${req}"
+
+  run bash "${PHP_PLUGIN}" units <"${req}"
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+units = {(u["kind"], u["name"]) for u in doc["units"]}
+assert ("trait", "Greets") in units, units
+assert ("method", "Greets::greet") in units, units
+assert ("enum", "Level") in units, units
+assert ("method", "Level::label") in units, units
+'
+
+  rm -f "$req"
+}
+
 # ── Mine unit extraction (T0.6 complete) ───────────────────────────────────────
 
 @test "mine: --granularity file skips unit extraction" {
@@ -409,4 +431,217 @@ assert row["complexity"] >= 1, dict(row)
   run bash "${TOOL}" provision --lang nosuchlang
   assert_failure
   assert_output --partial "ERROR"
+}
+
+# ── Review fixes ───────────────────────────────────────────────────────────────
+
+@test "mine: --db outside .forensics never writes a repo-root .gitignore" {
+  local repo
+  repo="$(mktemp -d)"
+  _build_repo "$repo"
+
+  run bash "${TOOL}" mine "$repo" --db "$repo/out.sqlite" --granularity file --format json
+  assert_success
+  refute [ -f "$repo/.gitignore" ]
+
+  rm -rf "$repo"
+}
+
+@test "mine: an empty repository is an ERROR, not a traceback" {
+  local repo
+  repo="$(mktemp -d)"
+  git -C "$repo" init -q
+
+  run bash "${TOOL}" mine "$repo" --db "$(mktemp -d)/out.sqlite" --format json
+  assert_failure
+  assert_output --partial "ERROR"
+  refute_output --partial "Traceback"
+
+  rm -rf "$repo"
+}
+
+@test "gitmine log: keeps non-ASCII paths unquoted" {
+  local repo
+  repo="$(mktemp -d)"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  printf 'x\n' >"$repo/café.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: café"
+
+  run python3 "${GM}" log --repo "$repo" --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+paths = [c["path"] for c in doc["changes"]]
+assert "café.php" in paths, paths
+'
+
+  rm -rf "$repo"
+}
+
+@test "gitmine log: records a rename with old and new paths" {
+  local repo
+  repo="$(mktemp -d)"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  printf 'x\n' >"$repo/old.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: old"
+  git -C "$repo" mv old.php new.php
+  GIT_AUTHOR_DATE="2024-02-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-02-01T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "refactor: rename old to new"
+
+  run python3 "${GM}" log --repo "$repo" --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+renames = [c for c in doc["changes"] if c["is_rename"]]
+assert any(r["path"] == "new.php" and r["old_path"] == "old.php" for r in renames), renames
+'
+
+  rm -rf "$repo"
+}
+
+@test "mine: a subdirectory argument mines at the repo root" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/out.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  mkdir -p "$repo/src"
+  printf '<?php\nclass A {}\n' >"$repo/src/A.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: a"
+
+  run bash "${TOOL}" mine "$repo/src" --db "$db" --granularity file --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, os, sys
+doc = json.load(sys.stdin)
+assert os.path.realpath(doc["repo"]) == os.path.realpath(sys.argv[1]), doc["repo"]
+' "$repo"
+
+  run python3 -c '
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1])
+paths = {row[0] for row in conn.execute("SELECT path FROM files")}
+assert "src/A.php" in paths, paths
+' "$db"
+  assert_success
+
+  rm -rf "$repo"
+}
+
+@test "mine: a subdirectory argument writes .forensics at the repo root" {
+  local repo
+  repo="$(mktemp -d)"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  mkdir -p "$repo/src"
+  printf '<?php\nclass A {}\n' >"$repo/src/A.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: a"
+
+  run bash "${TOOL}" mine "$repo/src" --granularity file --format json
+  assert_success
+  [ -d "$repo/.forensics" ]
+  refute [ -d "$repo/src/.forensics" ]
+
+  rm -rf "$repo"
+}
+
+@test "mine: an unknown --lang is an ERROR" {
+  local repo
+  repo="$(mktemp -d)"
+  _build_repo "$repo"
+
+  run bash "${TOOL}" mine "$repo" --db "$(mktemp -d)/o.sqlite" --lang nosuchlang --granularity file --format json
+  assert_failure
+  assert_output --partial "ERROR"
+
+  rm -rf "$repo"
+}
+
+@test "mine: --lang php is accepted" {
+  local repo
+  repo="$(mktemp -d)"
+  _build_repo "$repo"
+
+  run bash "${TOOL}" mine "$repo" --db "$(mktemp -d)/o.sqlite" --lang php --granularity file --format json
+  assert_success
+
+  rm -rf "$repo"
+}
+
+@test "mine: a failing unit plugin does not discard another plugin's units" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  printf 'x\n' >"$repo/a.zz"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: zz"
+
+  run env FORENSICS_LANGS_DIR="${TEST_DIR}/fixtures/langs-multi" bash "${TOOL}" mine "$repo" --db "$db" --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["counts"]["units"] >= 1, doc["counts"]
+assert any("bad" in w for w in doc["warnings"]), doc["warnings"]
+'
+
+  rm -rf "$repo"
+}
+
+@test "php plugin doctor: JSON stays valid with a quote in the project path" {
+  local base dir
+  base="$(mktemp -d)"
+  dir="${base}/we\"ird"
+  mkdir -p "$dir"
+
+  run env FORENSICS_STORAGE_DIR="$(mktemp -d)" bash "${PHP_PLUGIN}" doctor --project "$dir"
+  echo "${output}" | python3 -c 'import json, sys; json.load(sys.stdin)'
+
+  rm -rf "$base"
+}
+
+@test "php plugin doctor: prefers the php app service, not the db service" {
+  local project
+  project="$(mktemp -d)"
+  cp "${TEST_DIR}/fixtures/php-project-with-compose/compose.yml" "${project}/compose.yml"
+  # A project-local engine so image resolution reaches the compose path (a
+  # scratch engine would win with its own PHP image first).
+  mkdir -p "${project}/vendor/pdepend/pdepend"
+  printf '<?php\n' >"${project}/vendor/autoload.php"
+
+  run bash "${PHP_PLUGIN}" doctor --project "$project"
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["image"] == "myorg/app:1.0", doc
+assert doc["engine"]["via"] == "project", doc
+'
+
+  rm -rf "$project"
 }
