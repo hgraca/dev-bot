@@ -93,7 +93,8 @@ shift
 case "${command}" in
   langs) exec python3 "${LIB}" langs "$@" ;;
   doctor) exec python3 "${LIB}" doctor "$@" ;;
-  mine | analyse | report | provision)
+  mine) exec python3 "${LIB}" mine "$@" ;;
+  analyse | report | provision)
     echo "ERROR: '${command}' is not implemented yet (Phase 0 in progress)" >&2
     exit 3
     ;;

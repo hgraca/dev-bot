@@ -12,10 +12,16 @@ The core knows no language-specifics: every language lives in
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import gitmine  # noqa: E402  (local module, resolved via the sys.path entry above)
+import store  # noqa: E402
 
 TOOL_VERSION = "0.1.0"
 
@@ -164,7 +170,93 @@ def cmd_doctor(args: list) -> int:
     return 1 if errors else 0
 
 
-_HANDLERS = {"langs": cmd_langs, "doctor": cmd_doctor}
+def _parse_args(args: list) -> tuple:
+    opts = {}
+    positionals = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg.startswith("--"):
+            if index + 1 < len(args) and not args[index + 1].startswith("--"):
+                opts[arg[2:]] = args[index + 1]
+                index += 2
+            else:
+                opts[arg[2:]] = True
+                index += 1
+        else:
+            positionals.append(arg)
+            index += 1
+    return opts, positionals
+
+
+def _default_db_path(repo: str) -> str:
+    out_dir = os.path.join(os.path.abspath(repo), ".forensics")
+    os.makedirs(out_dir, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    return os.path.join(out_dir, "%s.sqlite" % stamp)
+
+
+def _ensure_self_ignored(db_path: str) -> None:
+    """Write a `.gitignore` of `*` beside the DB so it never dirties the repo."""
+    directory = os.path.dirname(os.path.abspath(db_path))
+    os.makedirs(directory, exist_ok=True)
+    ignore = os.path.join(directory, ".gitignore")
+    if not os.path.exists(ignore):
+        with open(ignore, "w", encoding="utf-8") as handle:
+            handle.write("*\n")
+
+
+def cmd_mine(args: list) -> int:
+    fmt = _parse_format(args)
+    opts, positionals = _parse_args(args)
+
+    repo = positionals[0] if positionals else os.getcwd()
+    if not os.path.isdir(repo):
+        print("ERROR: not a directory: %s" % repo, file=sys.stderr)
+        return 1
+    if not gitmine._is_repo(repo):
+        print("ERROR: not a git repository: %s" % repo, file=sys.stderr)
+        return 1
+
+    since = opts.get("since") if isinstance(opts.get("since"), str) else None
+    until = opts.get("until") if isinstance(opts.get("until"), str) else None
+    db_path = opts.get("db") if isinstance(opts.get("db"), str) else _default_db_path(repo)
+
+    _ensure_self_ignored(db_path)
+    data = gitmine.mine_log(repo, since, until)
+
+    conn = store.connect(db_path)
+    store.reset(conn)
+    store.write_meta(
+        conn,
+        {
+            "tool": "forensics",
+            "version": TOOL_VERSION,
+            "repo": data["repo"],
+            "head": data["head"],
+            "since": since or "",
+            "until": until or "",
+        },
+    )
+    store.write_commits(conn, data["commits"])
+    store.write_changes(conn, data["changes"])
+    store.derive_files(conn)
+    conn.commit()
+    result_counts = store.counts(conn)
+    conn.close()
+
+    doc = {"ok": True, "db": os.path.abspath(db_path), "repo": data["repo"], "counts": result_counts}
+    if fmt == "json":
+        print(json.dumps(doc, indent=2))
+    else:
+        print("Mined %s" % data["repo"])
+        print("- db: %s" % doc["db"])
+        for name in ("commits", "changes", "files"):
+            print("- %s: %d" % (name, result_counts[name]))
+    return 0
+
+
+_HANDLERS = {"langs": cmd_langs, "doctor": cmd_doctor, "mine": cmd_mine}
 
 
 def main(argv: list) -> int:

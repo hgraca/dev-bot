@@ -200,3 +200,80 @@ assert doc["lines"][0]["author_name"] == "Alice"
 
   rm -rf "$repo"
 }
+
+# ── Store + mine wiring (T0.4 / T0.6) ──────────────────────────────────────────
+
+@test "mine: writes commits, changes and files into a sqlite DB" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/out.sqlite"
+  _build_repo "$repo"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["ok"] is True, doc
+assert doc["counts"]["commits"] == 3, doc["counts"]
+assert doc["counts"]["files"] == 2, doc["counts"]
+assert doc["counts"]["changes"] >= 2, doc["counts"]
+'
+
+  run python3 -c '
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1])
+conn.row_factory = sqlite3.Row
+row = conn.execute("SELECT * FROM files WHERE path=?", ("a.php",)).fetchone()
+assert row is not None, "a.php missing from files"
+assert row["commits"] == 2, dict(row)
+assert row["authors_count"] == 1, dict(row)
+assert row["type"] == "php", dict(row)
+' "$db"
+  assert_success
+
+  rm -rf "$repo"
+}
+
+@test "mine: default DB lands in <repo>/.forensics with a self-ignore" {
+  local repo
+  repo="$(mktemp -d)"
+  _build_repo "$repo"
+
+  run bash "${TOOL}" mine "$repo" --format json
+  assert_success
+
+  run bash -c "ls '${repo}/.forensics/'*.sqlite"
+  assert_success
+  run bash -c "cat '${repo}/.forensics/.gitignore'"
+  assert_output '*'
+
+  rm -rf "$repo"
+}
+
+@test "mine: re-mining the same DB yields identical row counts" {
+  local repo db first second
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/out.sqlite"
+  _build_repo "$repo"
+
+  first="$(bash "${TOOL}" mine "$repo" --db "$db" --format json)"
+  second="$(bash "${TOOL}" mine "$repo" --db "$db" --format json)"
+  run python3 -c '
+import json, sys
+a = json.loads(sys.argv[1]); b = json.loads(sys.argv[2])
+assert a["counts"] == b["counts"], (a["counts"], b["counts"])
+' "$first" "$second"
+  assert_success
+
+  rm -rf "$repo"
+}
+
+@test "mine: a non-repo path is an ERROR" {
+  local dir
+  dir="$(mktemp -d)"
+  run bash "${TOOL}" mine "$dir" --format json
+  assert_failure
+  assert_output --partial "ERROR"
+  rm -rf "$dir"
+}
