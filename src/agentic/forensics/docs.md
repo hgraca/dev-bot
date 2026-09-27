@@ -9,19 +9,20 @@ Investigates how a codebase has _evolved_ rather than how it looks right now: it
 
 ```bash
 devbot tool forensics mine <repo> --since "last year"
+devbot tool forensics report .forensics/<timestamp>.sqlite --out ./forensics-report
 ```
 
-Phase 0 mines history + units + per-language metrics into the store; the analysis
-commands (`analyse`, `report`) arrive in Phase 1.
+`mine` writes the store; `analyse` queries one view; `report` renders every view
+into one Markdown or JSON document.
 
 ## What it produces
 
 - **Hotspots** — complexity × change rate, ranked; the refactoring priority list.
-- **Temporal coupling** — units that change together without a structural dependency.
-- **Ownership** — authors per unit/file, concentration, bus factor, orphaned code.
-- **Trends** — complexity and churn over time.
-- **Commit-history intelligence** — conventional-commit mix (overall and per author), defect origin (SZZ), and time-to-fix distributions, boxed to a date range.
-- **Debt interest-rate priority** — a composite score across the signals above.
+- **Change rate** — commits and commits-per-active-day per file.
+- **Temporal coupling** — files that change together without a structural dependency.
+- **Ownership & concentration** — authors per file, top-author share, bus factor.
+- **Commit-history intelligence** — conventional-commit mix (overall and per author), tickets, defect origin (SZZ), and time-to-fix distributions, boxed to a date range.
+- _Phase 2:_ complexity trends over time, architecture-vs-organization, and the composite debt interest-rate priority.
 
 ## Architecture
 
