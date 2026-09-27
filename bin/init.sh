@@ -248,6 +248,11 @@ for m in json.loads(sys.stdin.read()):
     print(m)
 " 2>/dev/null || true)
 
+  # External names whose every declaring umbrella is disabled for this project:
+  # the global config/mirror keeps them, but per-project wiring must skip them.
+  local disabled_external_list
+  disabled_external_list="$(_devbot_disabled_external_names "${PROJECT_DIR}")"
+
   # audit-33 NOTE: an empty "External Agentic Modules" section (header with no
   # content) printed when no registered module shipped an init.sh. Track what
   # actually ran and emit a status line so reinit output never implies a step
@@ -261,6 +266,11 @@ for m in json.loads(sys.stdin.read()):
 
     if echo "${disabled_list}" | grep -Fxq "${ext_mod_name}" 2>/dev/null; then
       _skip "${ext_mod_name}: disabled per config — skipping"
+      continue
+    fi
+
+    if echo "${disabled_external_list}" | grep -Fxq "${ext_mod_name}" 2>/dev/null; then
+      _skip "${ext_mod_name}: declared by a disabled module — skipping"
       continue
     fi
 
@@ -346,6 +356,10 @@ for m in json.loads(sys.stdin.read()):
     print(m)
 " 2>/dev/null || true)
 
+  # External names declared only by a disabled umbrella: skip their memory links.
+  local disabled_external_list
+  disabled_external_list="$(_devbot_disabled_external_names "${PROJECT_DIR}")"
+
   # Built-in modules (tools + agentic + harnesses)
   for base_dir in "${DEV_BOT_ROOT}/src/tools" "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/harnesses"; do
     for mod_dir in "${base_dir}/"*/; do
@@ -364,6 +378,9 @@ for m in json.loads(sys.stdin.read()):
   while IFS= read -r ext_mod_name; do
     [[ -z "${ext_mod_name}" ]] && continue
     if echo "${disabled_list}" | grep -Fxq "${ext_mod_name}" 2>/dev/null; then
+      continue
+    fi
+    if echo "${disabled_external_list}" | grep -Fxq "${ext_mod_name}" 2>/dev/null; then
       continue
     fi
     _link_external_module_memory "${external_base}/${ext_mod_name}/" "${memory_dir}"

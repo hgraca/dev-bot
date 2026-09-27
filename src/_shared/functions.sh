@@ -915,6 +915,38 @@ except Exception:
 " 2>/dev/null || true
 }
 
+# _devbot_disabled_external_names <project_dir>
+#   Prints the config-registered external module names whose every declaring
+#   internal module is disabled for <project_dir>. The global config, vendor/
+#   clone and storage mirror keep these names regardless of enablement, but
+#   per-project wiring (running an external's init.sh, linking its memory) must
+#   skip them — enablement is per-project. A name declared by no module (CLI
+#   `devbot module add`) is never printed: it has no umbrella to be disabled by.
+
+_devbot_disabled_external_names() {
+  local project_dir="${1:-}"
+  local disabled_json
+  disabled_json="$(_devbot_get_disabled_modules "${project_dir}")"
+
+  DISABLED_JSON="${disabled_json}" DEV_BOT_ROOT="${DEV_BOT_ROOT}" python3 -c '
+import glob, json, os
+disabled = set(json.loads(os.environ["DISABLED_JSON"]))
+root = os.environ["DEV_BOT_ROOT"]
+declarers = {}
+for f in glob.glob(root + "/src/agentic/*/external-modules.json") + glob.glob(root + "/src/tools/*/external-modules.json"):
+    mod = f.rsplit("/", 2)[-2]
+    try:
+        names = json.load(open(f))
+    except Exception:
+        continue
+    for name in names:
+        declarers.setdefault(name, set()).add(mod)
+for name in sorted(declarers):
+    if declarers[name] <= disabled:
+        print(name)
+' 2>/dev/null || true
+}
+
 # _devbot_rebuild_external_module_config
 #   Merges every module's `external-modules.json` declarations into the
 #   `external_modules` section of .devbot.global.jsonc, then normalizes the file

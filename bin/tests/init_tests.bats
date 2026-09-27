@@ -94,6 +94,12 @@ FUNCTIONS_EOF
     "${PROJECT_ROOT}/src/_shared/functions.sh" \
     >> "${SANDBOX_DIR}/src/_shared/functions.sh"
 
+  # The real _devbot_disabled_external_names: the init/memory loops call it to
+  # gate externals declared only by a disabled umbrella, so it cannot be a stub.
+  sed -n '/^_devbot_disabled_external_names() {/,/^}$/p' \
+    "${PROJECT_ROOT}/src/_shared/functions.sh" \
+    >> "${SANDBOX_DIR}/src/_shared/functions.sh"
+
   # The real python helpers the registration path invokes (mcp_translate,
   # merge_mcp_jsonc, read_jsonc) so _register_module_mcp runs unfaked.
   cp "${PROJECT_ROOT}"/src/_shared/*.py "${SANDBOX_DIR}/src/_shared/"
@@ -240,6 +246,35 @@ with open(config, 'w') as f:
   assert_output --partial "ext-c_init_called"
 }
 
+@test "init loop: skips an external declared by a disabled umbrella" {
+  # The declaration store is global, so the name is in the config and its mirror
+  # exists — but this project disables the umbrella, so per-project wiring skips.
+  _setup '{"modules": {"off-umbrella": false}}'
+  mkdir -p "${SANDBOX_DIR}/src/agentic/off-umbrella"
+  cat > "${SANDBOX_DIR}/src/agentic/off-umbrella/external-modules.json" <<'EOF'
+{ "ext-off": { "url": "https://example.com/ext-off.git", "paths": {} } }
+EOF
+  _add_external_module "ext-off" 0
+
+  run _run _run_inits
+  assert_success
+  refute_output --partial "ext-off_init_called"
+  assert_output --partial "ext-off: declared by a disabled module"
+}
+
+@test "init loop: runs an external declared by an enabled umbrella" {
+  _setup '{"modules": {"on-umbrella": true}}'
+  mkdir -p "${SANDBOX_DIR}/src/agentic/on-umbrella"
+  cat > "${SANDBOX_DIR}/src/agentic/on-umbrella/external-modules.json" <<'EOF'
+{ "ext-on": { "url": "https://example.com/ext-on.git", "paths": {} } }
+EOF
+  _add_external_module "ext-on" 0
+
+  run _run _run_inits
+  assert_success
+  assert_output --partial "ext-on_init_called"
+}
+
 @test "init loop: no external modules directory is harmless" {
   _setup '{}'
   rm -rf "${SANDBOX_DIR}/storage/external-agentic-modules"
@@ -274,6 +309,19 @@ with open(config, 'w') as f:
   local expected_src="${SANDBOX_DIR}/storage/external-agentic-modules/ext-mod/memory/note.md"
   assert [ -L "${SANDBOX_DIR}/.agents/memory/note.md" ]
   assert [ "$(readlink "${SANDBOX_DIR}/.agents/memory/note.md")" = "${expected_src}" ]
+}
+
+@test "memory link: skips an external declared by a disabled umbrella" {
+  _setup '{"modules": {"off-umbrella": false}}'
+  mkdir -p "${SANDBOX_DIR}/src/agentic/off-umbrella"
+  cat > "${SANDBOX_DIR}/src/agentic/off-umbrella/external-modules.json" <<'EOF'
+{ "ext-off": { "url": "https://example.com/ext-off.git", "paths": {} } }
+EOF
+  _add_external_module "ext-off" 0
+
+  run _run _link_memory_folders
+  assert_success
+  assert [ ! -L "${SANDBOX_DIR}/.agents/memory/note.md" ]
 }
 
 @test "memory link: skips modules without memory/ directory" {
