@@ -526,9 +526,9 @@ cmd_harness() {
   # If the global or project config changed since the last wiring, reinit
   # BEFORE up.sh so the whole start sequence runs on up-to-date state (e.g.
   # docker services or up-scripts that depend on the new config). A failed
-  # reinit asks whether to continue the start anyway.
+  # reinit aborts the start — the harness must never run on half-built wiring.
   if ! _devbot_auto_reinit_if_config_changed "$(pwd)"; then
-    _fatal "Start aborted — fix the reinit failure, or run 'devbot init' manually."
+    _fatal "Start aborted — fix the reinit failure, or run 'devbot reinit' manually."
     exit 1
   fi
 

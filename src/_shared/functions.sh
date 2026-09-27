@@ -1430,8 +1430,8 @@ _devbot_check_mcp_env_vars() {
 #   0 and no-op when the project's wiring hash is unchanged. When it changed:
 #   runs `bash $DEV_BOT_ROOT/bin/reinit.sh` from the project dir (single-project
 #   reinit; the init.sh it ends with refreshes the baseline). On reinit failure:
-#   warns and, in a non-interactive run (SKIP_CONFIRM / no TTY), returns 0 =
-#   continue the start anyway; interactively asks y/N.
+#   reports the error and returns 1 — the caller aborts the start, so the
+#   harness never runs on half-built wiring and the failure cannot loop.
 
 _devbot_config_sha_path() {
   local config="$1"
@@ -1507,18 +1507,10 @@ _devbot_auto_reinit_if_config_changed() {
     return 0
   fi
 
-  _warn "Automatic reinit failed (exit ${reinit_exit}) — the start would run on stale wiring."
-  # Non-interactive: never block a scripted/CI start — warn and continue.
-  if [[ "${SKIP_CONFIRM:-0}" == "1" || ! -t 0 ]]; then
-    _warn "Non-interactive run — continuing the start anyway."
-    return 0
-  fi
-  _warn "Continue the start anyway? [y/N]"
-  local answer
-  read -r answer 2>/dev/null || true
-  if [[ "${answer}" =~ ^[yY](es)?$ ]]; then
-    return 0
-  fi
+  # Abort the start in every mode: continuing would run the harness on
+  # half-built wiring, and — a failed reinit never refreshes the baseline —
+  # every later start would re-detect the same change and fail again, a loop.
+  _error "Automatic reinit failed (exit ${reinit_exit}) — aborting the start; run 'devbot reinit' manually."
   return 1
 }
 

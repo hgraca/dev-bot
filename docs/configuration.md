@@ -26,14 +26,14 @@ Scalar settings resolve project-over-global, falling back to a built-in default 
 
 Both config files are the source of truth for wiring — changing one (e.g. a `modules` flip, a provider key, `gpu_enabled`) only takes effect after a reinit. Rather than requiring a manual `devbot reinit`, the next **bare `devbot` start** detects the change and reinits the current project automatically, **before** `up.sh` runs, so the whole start sequence runs on freshly wired state.
 
-Detection is a single per-project content hash over **both** configs, stored at `<project>/.devbot.project.sha` (the project config path with its `.jsonc` extension **replaced** — never committed). `init`/`reinit` refresh the baseline at the end of every run, so an unchanged wiring starts without re-running reinit. A project with no `.sha` yet (freshly added, or upgraded from before this feature) triggers one reinit to establish it.
+Detection is a single per-project content hash over **both** configs, stored at `<project>/.devbot.project.sha` (the project config path with its `.jsonc` extension **replaced** — never committed). `init`/`reinit` clear the baseline _before_ touching the wiring and restore it at the end of a successful run, so an unchanged wiring starts without re-running reinit, while an **interrupted** reinit leaves the baseline missing and the next start repairs the tree. A project with no `.sha` yet (freshly added, or upgraded from before this feature) triggers one reinit to establish it.
 
 Because the baseline is per project, a **global** change (including the `version` bump `devbot update` writes) makes _every_ project reinit on its own next start — there is no global baseline file.
 
 - If reinit succeeds, the start proceeds normally.
-- If reinit **fails**, dev-bot warns and asks whether to continue the start anyway; non-interactive runs (`SKIP_CONFIRM` / no TTY) warn and continue.
+- If reinit **fails**, dev-bot reports the error and **aborts the start** (non-zero exit) — the harness never launches on half-built wiring. Fix the cause and run `devbot reinit`. (There is no "continue anyway" override.)
 - Editing `opencode.jsonc`/`.mcp.json` directly does **not** trigger this — those are outputs of init, not inputs.
-- `make up` / `devbot up` alone do not trigger it — only a bare `devbot` start (harness launch).
+- `make up` / `devbot up` alone do not trigger it — only a bare `devbot` start (harness launch). `up.sh` refreshes the baseline only when it was _already_ clean, so a standalone `devbot up` can never consume a pending change.
 
 ### Auto-update on start
 

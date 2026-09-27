@@ -220,12 +220,20 @@ teardown() {
   [ ! -e "${DEV_BOT_ROOT}/.devbot.global.sha" ]
 }
 
-@test "failed auto-reinit warns and continues in a non-interactive run" {
+@test "a failed auto-reinit aborts the start — it must not continue on stale wiring" {
   _devbot_write_config_sha "${PROJECT}"
   echo '{"project_name": "edited"}' > "${PROJECT}/.devbot.project.jsonc"
 
+  # SKIP_CONFIRM must no longer be an escape hatch: continuing would run the
+  # harness on half-built wiring, and the next start would re-detect the change
+  # and fail again — a loop.
   SKIP_CONFIRM=1 FAIL_REINIT=1 run _devbot_auto_reinit_if_config_changed "${PROJECT}"
-  assert_success
+  assert_failure
   assert_output --partial "failed"
-  assert_output --partial "continuing the start anyway"
+  refute_output --partial "continuing the start anyway"
+
+  # The failed reinit never refreshed the baseline, so the change is still
+  # pending — a later start retries rather than silently proceeding.
+  run _devbot_config_changed "${PROJECT}"
+  assert_success
 }
