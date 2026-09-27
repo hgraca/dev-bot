@@ -144,4 +144,71 @@ def coupling(conn: sqlite3.Connection, top=None, min_shared: int = 2, max_commit
     return results[:top] if top is not None else results
 
 
-_VIEWS = {"hotspots": hotspots, "change-rate": change_rate, "coupling": coupling}
+def ownership(conn: sqlite3.Connection, top=None) -> list:
+    """Per-file authorship: how many authors, and the top author's share."""
+    per_path = {}
+    for row in conn.execute(
+        "SELECT ch.path AS path, co.author_email AS author, COUNT(DISTINCT co.hash) AS commits"
+        " FROM changes ch JOIN commits co ON co.hash = ch.commit_hash"
+        " GROUP BY ch.path, co.author_email"
+    ).fetchall():
+        per_path.setdefault(row["path"], {})[row["author"]] = row["commits"]
+
+    meta = {row["path"]: row for row in conn.execute("SELECT path, commits, last_seen FROM files").fetchall()}
+
+    results = []
+    for path, authors in per_path.items():
+        total = sum(authors.values()) or 1
+        top_author = max(authors, key=lambda author: authors[author])
+        info = meta.get(path)
+        results.append(
+            {
+                "path": path,
+                "authors": len(authors),
+                "top_author": top_author,
+                "top_share": round(100.0 * authors[top_author] / total, 1),
+                "commits": info["commits"] if info else total,
+                "last_seen": info["last_seen"] if info else None,
+            }
+        )
+
+    results.sort(key=lambda item: item["path"])
+    return results[:top] if top is not None else results
+
+
+def concentration(conn: sqlite3.Connection, top=None, threshold: float = 80.0) -> list:
+    """Knowledge-risk files: single-owner, or one author holding >= ``threshold``%.
+
+    Ranked by change activity — a concentrated file nobody touches is lower risk
+    than one changed every week.
+    """
+    flagged = [row for row in ownership(conn, None) if row["authors"] == 1 or row["top_share"] >= threshold]
+    flagged.sort(key=lambda item: (item["commits"], item["top_share"]), reverse=True)
+    return flagged[:top] if top is not None else flagged
+
+
+def bus_factor(conn: sqlite3.Connection, threshold: float = 0.5) -> dict:
+    """How few authors cover ``threshold`` of all commits (knowledge loss risk)."""
+    rows = conn.execute(
+        "SELECT author_email AS author, COUNT(DISTINCT hash) AS commits FROM commits GROUP BY author_email ORDER BY commits DESC"
+    ).fetchall()
+    total = sum(row["commits"] for row in rows)
+    if not total:
+        return {"authors": 0, "bus_factor": 0, "total_commits": 0}
+    cumulative = 0
+    factor = 0
+    for row in rows:
+        cumulative += row["commits"]
+        factor += 1
+        if cumulative / total >= threshold:
+            break
+    return {"authors": len(rows), "bus_factor": factor, "total_commits": total}
+
+
+_VIEWS = {
+    "hotspots": hotspots,
+    "change-rate": change_rate,
+    "coupling": coupling,
+    "ownership": ownership,
+    "concentration": concentration,
+}
