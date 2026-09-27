@@ -69,6 +69,16 @@ elif ls /dev/dri/renderD* >/dev/null 2>&1; then
   GPU_ARGS=(--device /dev/dri)
 fi
 
+# Share the host's Claude Code state so the container skips the trust + onboarding
+# dialogs. Trust lives in ~/.claude.json — a sibling of the mounted ~/.claude/
+# dir, keyed by absolute project path — and the container's project is /app, not
+# the host path. Mount the host file READ-ONLY; test-cc-inner.sh seeds a
+# container-local copy with /app trusted and never writes the host file. Skipped
+# when the host has none, so docker does not create a stray root-owned dir.
+CLAUDE_CONFIG_ARGS=()
+[[ -f "${HOME}/.claude.json" ]] \
+  && CLAUDE_CONFIG_ARGS=(-v "${HOME}/.claude.json:/tmp/host-claude.json:ro")
+
 # Isolated per-run fixture + parallel-safe container management. Each run gets
 # its OWN copy of the fixture mounted at /app and its OWN container name (pid-
 # suffixed), so cc and oc — or two runs of the same harness — can execute in
@@ -134,6 +144,7 @@ docker run -d --rm --name "${CONTAINER_NAME}" \
   --network host \
   "${GPU_ARGS[@]}" \
   "${COMPOSER_ARGS[@]+"${COMPOSER_ARGS[@]}"}" \
+  "${CLAUDE_CONFIG_ARGS[@]+"${CLAUDE_CONFIG_ARGS[@]}"}" \
   -v "${RUN_DIR}:/app" \
   -v "${SCRIPT_DIR}/.agents/memory/thinking:/app/.agents/memory/thinking" \
   -v "${HOME}/.ssh:/tmp/ssh:ro" \

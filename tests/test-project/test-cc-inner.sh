@@ -88,6 +88,12 @@ PY
 set_harness
 _phase "harness config"
 
+# Seed the container-local ~/.claude.json (from the host copy mounted read-only
+# at /tmp/host-claude.json) so Claude Code skips its trust + onboarding dialogs:
+# trust is keyed by absolute project path, and the project here is /app.
+python3 /app/seed-claude-config.py /app /tmp/host-claude.json
+_phase "claude config seed"
+
 # Prereqs (baked into the image; idempotent — sudo is NOPASSWD for this user).
 sudo apt-get update >/dev/null
 sudo apt-get install -y --no-install-recommends curl ca-certificates git openssh-client python3 >/dev/null
