@@ -65,8 +65,9 @@ cmd_help() {
   echo "             list              List registered modules"
   echo "             sync              Re-wire all modules (alias for init)"
   echo
-  echo -e "${TEXT_BOLD}Running without a known subcommand:${TEXT_CLEAR}"
+  echo -e "${TEXT_BOLD}Running with no command:${TEXT_CLEAR}"
   echo "  Starts the configured harness (opencode or claudecode) after running devbot up."
+  echo "  Harness flags (and args after --) are forwarded; an unknown command is refused."
   echo
   # The CLI is global, but a user invoking it inside a project reads "Project
   # root" as scoping to the install. Distinguish the two: print the current
@@ -580,8 +581,8 @@ main() {
       cmd_harness
       ;;
     version|-V|--version)
-      # Print the dev-bot version WITHOUT running the harness up-flow (the
-      # bare `devbot`/unknown args fall through to cmd_harness).
+      # Print the dev-bot version WITHOUT running the harness up-flow (a bare
+      # `devbot` or harness flags fall through to cmd_harness).
       local devbot_ver
       if git -C "${DEV_BOT_ROOT}" rev-parse --short HEAD >/dev/null 2>&1; then
         devbot_ver="$(git -C "${DEV_BOT_ROOT}" rev-parse --short HEAD)"
@@ -640,8 +641,19 @@ main() {
       shift
       cmd_module "$@"
       ;;
-    *)
+    -*)
+      # Flags — including the `--` passthrough separator — are harness args:
+      # the documented "unknown argument starts the harness" behaviour.
       cmd_harness "$@"
+      ;;
+    *)
+      # A bare unknown WORD is almost certainly a mistyped subcommand. Starting
+      # through the catch-all runs auto-update → auto-reinit → up → harness, so
+      # a typo like `devbot status` silently started a harness AND a destructive
+      # reinit (audit-71 C1). Refuse it instead of guessing.
+      _error "Unknown command: '${cmd}'"
+      cmd_help
+      exit 1
       ;;
   esac
 }

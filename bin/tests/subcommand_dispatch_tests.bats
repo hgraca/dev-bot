@@ -38,6 +38,11 @@ printf '%s\n' "$#" > "${DEV_BOT_ROOT}/down-argc.log"
 exit 0
 EOF
   chmod +x "${SANDBOX}/bin/down.sh"
+
+  # A copy with the trailing `main "$@"` stripped, so a test can source it and
+  # invoke main() itself with cmd_harness stubbed — the dispatch table is the
+  # thing under test, not the harness start it would otherwise launch.
+  sed '/^main "\$@"/d' "${PROJECT_ROOT}/bin/devbot" > "${SANDBOX}/bin/devbot-lib"
 }
 
 teardown() {
@@ -55,4 +60,36 @@ teardown() {
   [ "${status}" -eq 0 ]
   assert_equal "$(cat "${SANDBOX}/down-args.log")" "/tmp/some/project"
   assert_equal "$(cat "${SANDBOX}/down-argc.log")" "1"
+}
+
+# ── Unknown-subcommand guard (audit-71 C1) ──────────────────────────────────
+# A bare unknown WORD must not fall through to cmd_harness: inside a project
+# that path runs auto-update → auto-reinit → up → harness, so a typo like
+# `devbot status` silently started a harness AND a destructive reinit. Flags
+# (`-*`, including the `--` passthrough separator) keep the documented
+# "unknown argument starts the harness" behaviour.
+
+@test "a bare devbot still starts the harness" {
+  run bash -c "source '${SANDBOX}/bin/devbot-lib'; cmd_harness() { echo HARNESS-STARTED; }; main"
+  assert_success
+  assert_output --partial "HARNESS-STARTED"
+}
+
+@test "harness flags still pass through to the harness start" {
+  run bash -c "source '${SANDBOX}/bin/devbot-lib'; cmd_harness() { echo \"HARNESS-STARTED \$*\"; }; main --resume"
+  assert_success
+  assert_output --partial "HARNESS-STARTED --resume"
+}
+
+@test "the -- separator still passes through to the harness" {
+  run bash -c "source '${SANDBOX}/bin/devbot-lib'; cmd_harness() { echo \"HARNESS-STARTED \$*\"; }; main -- -c 'two words'"
+  assert_success
+  assert_output --partial "HARNESS-STARTED -- -c two words"
+}
+
+@test "an unknown subcommand is refused, not treated as a harness start" {
+  run bash -c "source '${SANDBOX}/bin/devbot-lib'; cmd_harness() { echo HARNESS-STARTED; }; main status"
+  assert_failure
+  refute_output --partial "HARNESS-STARTED"
+  assert_output --partial "Unknown command"
 }

@@ -35,19 +35,19 @@ devbot                       # start the harness (opencode or claudecode)
 
 ### `devbot` — start the harness
 
-Run with no subcommand (or any unknown argument) inside a project to start the configured harness (`opencode` or `claudecode`, per the `harness` setting) after running `devbot up`. Outside a project it prints help.
+Run with no subcommand inside a project to start the configured harness (`opencode` or `claudecode`, per the `harness` setting) after running `devbot up`. Harness flags (`-*`, including the `--` separator) are forwarded; any other unknown command is refused with a usage error. Outside a project it prints help.
 
 **Auto-update.** Before wiring, a bare start runs `devbot update --auto` — a quiet no-op when already on the newest release. A version change rewrites the global config's `version`, which triggers a per-project reinit on this project's start and on every other project's next start. Set the global `auto_update` to `false` to opt out. A failed update (offline, conflict) warns and the start continues on the current version.
 
 Startup delegates to the harness module's `start.sh` (`src/harnesses/<harness>/start.sh`), which launches the harness binary with no forced agent — the session agent comes from the project's default (`opencode.jsonc` `default_agent` / `.claude/settings.json` `agent`), which `init` creates with DevBot by default and only asks to change when an existing config chose a different agent. Before launching, `start.sh` rotates the previous session's `.agents/logs/*.log` files to `.agents/logs/rotated/<date>-<name>-<NNN>.log` (old logs preserved); when the harness exits it scans the fresh logs for error-level entries, alerts you if any were written, and preserves the harness's exit code.
 
-**Harness-arg passthrough.** Anything after the first `--` is forwarded verbatim to the harness binary; tokens before it are devbot's own and are never forwarded. Without `--`, every argument is forwarded unchanged (the "unknown argument" behaviour above). This is the escape hatch for flags that collide with devbot's own (`-h`/`--help`/`--version` and known subcommand names):
+**Harness-arg passthrough.** Anything after the first `--` is forwarded verbatim to the harness binary; tokens before it are devbot's own and are never forwarded. Without `--`, a leading flag (`-*`) is forwarded unchanged — a bare unknown word is refused (treated as a mistyped subcommand). This is the escape hatch for flags that collide with devbot's own (`-h`/`--help`/`--version` and known subcommand names):
 
 ```bash
 devbot -- -h                 # opencode/claude help (not devbot help)
 devbot -- run "fix the bug"  # opencode run; claude -p style one-shot
-devbot -c "msg"              # no --: forwards as today
-devbot foo -- -c "msg"       # foo is consumed; only -c "msg" reaches the harness
+devbot -c "msg"              # no --: a leading flag forwards as today
+devbot --stop -- -c "msg"    # --stop is consumed; only -c "msg" reaches the harness
 ```
 
 Only the first `--` splits — a later `--` is a literal part of the harness argv. Arguments keep their boundaries (quoting survives the split).
