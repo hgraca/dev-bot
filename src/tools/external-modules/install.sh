@@ -79,7 +79,10 @@ main() {
     return 0
   fi
 
-  # Process each module
+  # Process each module. This clones/pulls every configured entry; a module
+  # whose umbrella module is disabled is dropped from the CONFIG above, and
+  # reinit prunes its storage mirror, but its existing vendor clone is
+  # deliberately NOT pruned (see docs.md).
   while IFS=$'\x1f' read -r name url local_path paths_json; do
     local src_dir=""
     if [[ -n "${local_path}" ]]; then

@@ -31,6 +31,12 @@ Registration lives in `.devbot.global.jsonc`:
 
 A string path value symlinks the whole directory; an object value symlinks each file at its exact destination (used for `memory/` bootstrap files); an omitted key means that module type is not wired.
 
+## Disabled umbrellas
+
+An umbrella module (e.g. `react`, `svelte`) can be turned off in the `modules` map. Disabling it stops its external modules from being wired into `.agents/<type>/<name>` and stops their declarations being re-added to the config. On reinit the **storage mirror** of a name declared only by a disabled umbrella is pruned (`bin/init.sh:_prune_orphaned_external_modules`).
+
+An existing **vendor clone** is deliberately kept: `vendor/<owner>/<repo>` is never pruned, even when its umbrella is disabled. The clone is gitignored and cheap, and re-enabling is then instant. Remove it by hand if you want the disk back.
+
 ## See also
 
 - [CLI commands](/modules/tools/devbot-cli) — the `devbot module` subcommands

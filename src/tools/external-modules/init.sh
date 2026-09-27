@@ -197,6 +197,9 @@ _process_agentic_module() {
     [[ -z "${ext_name}" ]] && continue
 
     # External modules are also enable/disable-able via the "modules" map.
+    # Disabling an umbrella skips WIRING and reinit prunes the storage mirror
+    # declared only by that umbrella; the vendor clone is deliberately kept
+    # (cheap, gitignored, instant to re-enable). See docs.md.
     if _is_disabled "${ext_name}" "${disabled_json}"; then
       _skip "${ext_name}: disabled — skipping"
       continue
