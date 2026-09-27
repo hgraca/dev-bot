@@ -499,6 +499,30 @@ print('HOOK:OK')
   assert_output --partial '"name": "index_repository"'
 }
 
+@test "index-project.sh: indexes the host path when the project is a container bind mount" {
+  # The e2e fixture mounts a host run dir at /app, so a container-local path is
+  # invisible to the gateway even when the gateway can reach the project.
+  # CODEBASE_MEMORY_HOST_PROJECT names the host path; the hook must send that
+  # (same src|app subdir) instead of the container path.
+  _setup_idx_sandbox
+  local host_proj="${SANDBOX}/host-project"
+  mkdir -p "${PROJ}/src" "${host_proj}/src"
+  export CODEBASE_MEMORY_HOST_PROJECT="${host_proj}"
+
+  run bash "$MODULE_DIR/tools/index-project.sh" "${PROJ}"
+  assert_success
+
+  local i
+  for i in $(seq 1 50); do
+    [[ -s "${CBM_CALLS_FILE}" ]] && break
+    sleep 0.1
+  done
+  run cat "${CBM_CALLS_FILE}"
+  assert_output --partial '"name": "index_repository"'
+  assert_output --partial "${host_proj}/src"
+  refute_output --partial "${PROJ}/src"
+}
+
 @test "index-project.sh: skips when the gateway is not reachable" {
   _setup_idx_sandbox
   mkdir -p "${PROJ}/src"

@@ -95,11 +95,18 @@ composer_cache_args() {
 # Keeps: source (src/, tests/, composer.json/lock, phpunit.xml...), the
 # .devbot.project.jsonc starting point, .agents/memory (vault scaffold) and the
 # inner scripts themselves (they run FROM /app).
+#
+# The run dir lives under $HOME (not /tmp): the shared codebase-memory gateway
+# bind-mounts the host's $HOME read-only, so a run dir under /tmp is invisible to
+# it and the session-start index would always skip (audit-69 NOTE-1 / audit-70
+# FAIL). DEV_BOT_TEST_RUN_ROOT overrides the location.
 run_dir_create() {
   local fixture="$1"
   local harness="$2"
+  local run_root="${DEV_BOT_TEST_RUN_ROOT:-${HOME}/.cache/devbot-test}"
+  mkdir -p "${run_root}"
   local run_dir
-  run_dir="$(mktemp -d "${TMPDIR:-/tmp}/devbot-test-${harness}.XXXXXX")"
+  run_dir="$(mktemp -d "${run_root}/devbot-test-${harness}.XXXXXX")"
 
   if command -v rsync >/dev/null 2>&1; then
     rsync -a --exclude '.git' \
@@ -129,8 +136,23 @@ run_dir_create() {
 
 run_dir_destroy() {
   local run_dir="$1"
-  [[ -n "${run_dir}" && "${run_dir}" == "${TMPDIR:-/tmp}/devbot-test-"* ]] \
+  local run_root="${DEV_BOT_TEST_RUN_ROOT:-${HOME}/.cache/devbot-test}"
+  [[ -n "${run_dir}" && "${run_dir}" == "${run_root}/devbot-test-"* ]] \
     && rm -rf "${run_dir}" 2>/dev/null || true
+}
+
+# ── Codebase-memory gateway mount ─────────────────────────────────────────────
+# The shared gateway bind-mounts ONE host root read-only, at the same absolute
+# path inside the container. The container's index hook needs that root to decide
+# whether the project is indexable and via which host path. Read it from the
+# running container (authoritative), falling back to $HOME — the gateway
+# compose's default.
+codebase_gateway_mount() {
+  local src
+  src="$(docker inspect \
+    --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\n"}}{{end}}{{end}}' \
+    dev-bot-codebase-memory-mcp 2>/dev/null | head -1)"
+  printf '%s' "${src:-${HOME}}"
 }
 
 # ── Audit-report id reservation ───────────────────────────────────────────────

@@ -117,3 +117,55 @@ teardown() {
     assert_success
   done
 }
+
+@test "launchers: name the gateway root and the host project for the index hook" {
+  # Without these the container's index hook resolves the container path against
+  # a gateway rooted at the host's $HOME and skips every session (audit-70 FAIL).
+  local launcher
+  for launcher in test-oc.sh test-cc.sh; do
+    run grep -q 'CODEBASE_MEMORY_ROOT=' "${REPO_ROOT}/tests/test-project/${launcher}"
+    assert_success
+    run grep -q 'CODEBASE_MEMORY_HOST_PROJECT=' "${REPO_ROOT}/tests/test-project/${launcher}"
+    assert_success
+  done
+}
+
+# ── run_dir_create / codebase_gateway_mount ──────────────────────────────────
+
+@test "run_dir_create: builds the run copy under \$DEV_BOT_TEST_RUN_ROOT" {
+  export DEV_BOT_TEST_RUN_ROOT="${SANDBOX}/runs"
+  run run_dir_create "${FIXTURE}" "oc"
+  assert_success
+  local created="$output"
+  [[ -d "${created}" ]]
+  assert_equal "${created%/*}" "${DEV_BOT_TEST_RUN_ROOT}"
+  run_dir_destroy "${created}"
+  [[ ! -d "${created}" ]]
+}
+
+@test "run_dir_destroy: refuses to remove a path outside the run root" {
+  export DEV_BOT_TEST_RUN_ROOT="${SANDBOX}/runs"
+  mkdir -p "${SANDBOX}/keep"
+  run_dir_destroy "${SANDBOX}/keep"
+  [[ -d "${SANDBOX}/keep" ]]
+}
+
+@test "codebase_gateway_mount: reads the gateway's bind source" {
+  local stub="${SANDBOX}/bin"
+  mkdir -p "${stub}"
+  printf '#!/usr/bin/env bash\necho "/host/root"\n' > "${stub}/docker"
+  chmod +x "${stub}/docker"
+  run env PATH="${stub}:${PATH}" bash -c "source '${LIB}'; codebase_gateway_mount"
+  assert_success
+  assert_output "/host/root"
+}
+
+@test "codebase_gateway_mount: falls back to \$HOME when the gateway is absent" {
+  local stub="${SANDBOX}/bin2"
+  mkdir -p "${stub}"
+  printf '#!/usr/bin/env bash\nexit 1\n' > "${stub}/docker"
+  chmod +x "${stub}/docker"
+  run env PATH="${stub}:${PATH}" HOME="/fallback/home" bash -c "source '${LIB}'; codebase_gateway_mount"
+  assert_success
+  assert_output "/fallback/home"
+}

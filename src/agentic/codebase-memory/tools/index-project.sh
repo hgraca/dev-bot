@@ -70,6 +70,18 @@ for candidate in src app; do
 done
 [[ -n "${INDEX_ROOT}" ]] || exit 0
 
+# ── Gateway-facing path ────────────────────────────────────────────────────────
+# The gateway resolves paths in ITS mount namespace. In a container whose project
+# is bind-mounted from a different host path (the e2e fixture mounts a host run
+# dir at /app), the local path is invisible to it even when the gateway can reach
+# the project. CODEBASE_MEMORY_HOST_PROJECT names the host path of this same
+# project, so the gateway is handed that — the same src|app subdir, under the
+# host root.
+GATEWAY_INDEX_ROOT="${INDEX_ROOT}"
+if [[ -n "${CODEBASE_MEMORY_HOST_PROJECT:-}" ]]; then
+  GATEWAY_INDEX_ROOT="${CODEBASE_MEMORY_HOST_PROJECT%/}${INDEX_ROOT#"${PROJECT_PATH}"}"
+fi
+
 # ── Log target + mutex ─────────────────────────────────────────────────────────
 LOG_DIR="${PROJECT_PATH}/.agents/logs"
 mkdir -p "${LOG_DIR}" 2>/dev/null || exit 0
@@ -92,9 +104,9 @@ if command -v docker >/dev/null 2>&1; then
 fi
 [[ -n "${GATEWAY_ROOT}" ]] || GATEWAY_ROOT="${CODEBASE_MEMORY_ROOT:-${HOME}}"
 GATEWAY_ROOT="${GATEWAY_ROOT%/}"
-if [[ "${INDEX_ROOT}" != "${GATEWAY_ROOT}" && "${INDEX_ROOT}" != "${GATEWAY_ROOT}/"* ]]; then
+if [[ "${GATEWAY_INDEX_ROOT}" != "${GATEWAY_ROOT}" && "${GATEWAY_INDEX_ROOT}" != "${GATEWAY_ROOT}/"* ]]; then
   {
-    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WARN: index-project skipped ${INDEX_ROOT} — outside the codebase-memory gateway's repo root (${GATEWAY_ROOT}); set CODEBASE_MEMORY_ROOT to cover it and run 'devbot up'"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] WARN: index-project skipped ${GATEWAY_INDEX_ROOT} — outside the codebase-memory gateway's repo root (${GATEWAY_ROOT}); set CODEBASE_MEMORY_ROOT to cover it and run 'devbot up'"
   } >> "${LOG_FILE}" 2>&1
   exit 0
 fi
@@ -109,8 +121,8 @@ exec 200>"${LOCK_FILE}" 2>/dev/null || exit 0
 # keeps it fresh afterwards).
 (
   {
-    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] index-project start root=${INDEX_ROOT}"
-    python3 "${SCRIPT_DIR}/mcp-index.py" "${CBM_URL}" "${INDEX_ROOT}"
+    echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] index-project start root=${GATEWAY_INDEX_ROOT}"
+    python3 "${SCRIPT_DIR}/mcp-index.py" "${CBM_URL}" "${GATEWAY_INDEX_ROOT}"
     # Capture before the $(date) substitution below: expanding a command
     # substitution resets $?, so `rc=$?` inline would always report date's 0.
     rc=$?

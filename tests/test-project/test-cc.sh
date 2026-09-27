@@ -155,6 +155,8 @@ docker run -d --rm --name "${CONTAINER_NAME}" \
   -v "${HOME}/.cache/bun:/home/ubuntu/.cache/bun" \
   -v "${HOME}/.npm:/home/ubuntu/.npm" \
   -e "JETBRAINS_PROJECT_PATH=${SCRIPT_DIR}" \
+  -e "CODEBASE_MEMORY_ROOT=$(codebase_gateway_mount)" \
+  -e "CODEBASE_MEMORY_HOST_PROJECT=${RUN_DIR}" \
   -e "DEV_BOT_TEST_BRANCH=${BRANCH}" \
   -e "DEVBOT_AUDIT_NN=${AUDIT_NN}" \
   -e "DEVBOT_TEST_NONINTERACTIVE=${DEVBOT_TEST_NONINTERACTIVE:-0}" \
