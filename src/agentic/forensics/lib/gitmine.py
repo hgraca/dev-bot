@@ -41,6 +41,24 @@ def toplevel(repo: str) -> str:
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
+def tags(repo: str) -> list:
+    """Tags in creation order as {tag, date} — the release-cadence evidence."""
+    proc = _git(
+        repo,
+        "for-each-ref",
+        "--sort=creatordate",
+        "--format=%(refname:short)\t%(creatordate:iso-strict)",
+        "refs/tags",
+    )
+    result = []
+    for line in proc.stdout.splitlines():
+        if "\t" not in line:
+            continue
+        tag, date = line.split("\t", 1)
+        result.append({"tag": tag.strip(), "date": date.strip()})
+    return result
+
+
 def _range_args(since, until) -> list:
     args = []
     if since:

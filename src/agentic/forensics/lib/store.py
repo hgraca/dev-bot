@@ -89,9 +89,13 @@ CREATE TABLE IF NOT EXISTS unit_churn (
   active_days INTEGER,
   last_change TEXT
 );
+CREATE TABLE IF NOT EXISTS releases (
+  tag  TEXT PRIMARY KEY,
+  date TEXT
+);
 """
 
-_TABLES = ("meta", "commits", "changes", "files", "units", "defect_links", "unit_ownership", "unit_churn")
+_TABLES = ("meta", "commits", "changes", "files", "units", "defect_links", "unit_ownership", "unit_churn", "releases")
 
 
 def connect(db_path: str) -> sqlite3.Connection:
@@ -274,6 +278,13 @@ def write_unit_churn(conn: sqlite3.Connection, rows: list) -> None:
             (row["unit_key"], row["path"], row["name"], row["kind"], row["commits"], row["active_days"], row["last_change"])
             for row in rows
         ],
+    )
+
+
+def write_releases(conn: sqlite3.Connection, releases: list) -> None:
+    conn.executemany(
+        "INSERT OR REPLACE INTO releases(tag, date) VALUES (?, ?)",
+        [(release["tag"], release.get("date", "")) for release in releases],
     )
 
 

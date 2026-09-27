@@ -20,6 +20,7 @@ SECTIONS = (
     ("defects", "Defect origin (SZZ)", 20),
     ("fixers", "Fixer ↔ originator", 20),
     ("process", "Commit process", 1),
+    ("releases", "Releases", 20),
 )
 
 _METHOD = (

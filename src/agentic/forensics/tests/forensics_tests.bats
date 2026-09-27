@@ -1054,3 +1054,45 @@ assert names["Calculator::classify"]["authors"] == 1, names["Calculator::classif
 
   rm -rf "$repo"
 }
+
+@test "analyse process: reports release cadence from tags" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  printf 'a\n' >"$repo/a.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T00:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: a"
+  git -C "$repo" tag v1
+  printf 'b\n' >"$repo/b.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-11T00:00:00+00:00" GIT_COMMITTER_DATE="2024-01-11T00:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: b"
+  git -C "$repo" tag v2
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view process --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+row = json.load(sys.stdin)["process"][0]
+assert row["tags"] == 2, row
+assert row["avg_days_between_releases"] == 10.0, row
+'
+
+  run bash "${TOOL}" analyse "$db" --view releases --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+tags = [r["tag"] for r in json.load(sys.stdin)["releases"]]
+assert tags == ["v1", "v2"], tags
+'
+
+  rm -rf "$repo"
+}

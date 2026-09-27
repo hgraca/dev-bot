@@ -311,6 +311,7 @@ def cmd_mine(args: list) -> int:
         enriched = commitparse.enrich(data["commits"])
         store.write_commits(conn, enriched)
         store.write_changes(conn, data["changes"])
+        store.write_releases(conn, gitmine.tags(data["repo"]))
         store.derive_files(conn)
         conn.commit()
         warnings = []

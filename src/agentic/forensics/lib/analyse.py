@@ -9,6 +9,7 @@ dominate the list (AD-7).
 
 from __future__ import annotations
 
+import datetime
 import sqlite3
 
 
@@ -338,6 +339,19 @@ def process(conn: sqlite3.Connection, top=None) -> list:
     days = {(row["date"] or "")[:10] for row in rows if row["date"]}
     conventional = sum(1 for row in rows if row["type"])
 
+    release_dates = [
+        row["date"] for row in conn.execute("SELECT date FROM releases WHERE date <> '' ORDER BY date").fetchall()
+    ]
+    gaps = []
+    for index in range(1, len(release_dates)):
+        try:
+            gap = datetime.datetime.fromisoformat(release_dates[index]) - datetime.datetime.fromisoformat(
+                release_dates[index - 1]
+            )
+            gaps.append(gap.days)
+        except ValueError:
+            continue
+
     return [
         {
             "commits": len(rows),
@@ -348,8 +362,17 @@ def process(conn: sqlite3.Connection, top=None) -> list:
             "avg_lines_per_commit": round(sum(churn) / len(churn), 1),
             "large_commits": sum(1 for value in churn if value > 500),
             "conventional_pct": round(100.0 * conventional / len(rows), 1),
+            "tags": len(release_dates),
+            "avg_days_between_releases": round(sum(gaps) / len(gaps), 1) if gaps else 0,
         }
     ]
+
+
+def releases(conn: sqlite3.Connection, top=None) -> list:
+    """Tags in creation order — the release history."""
+    rows = conn.execute("SELECT tag, date FROM releases ORDER BY date").fetchall()
+    results = [dict(row) for row in rows]
+    return results[:top] if top is not None else results
 
 
 def unit_ownership(conn: sqlite3.Connection, top=None) -> list:
@@ -403,4 +426,5 @@ _VIEWS = {
     "time-to-fix": time_to_fix,
     "fixers": fixers,
     "process": process,
+    "releases": releases,
 }
