@@ -21,6 +21,8 @@ mcp.json
 
 # >>> DEVBOT
 .devbot.project.jsonc
+.devbot.project.sha
+/.mdctx
 # <<< DEVBOT
 
 # >>> DEVBOT - graphify
