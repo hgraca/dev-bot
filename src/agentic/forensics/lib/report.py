@@ -22,6 +22,8 @@ SECTIONS = (
     ("authors", "Authors", 20),
     ("tickets", "Tickets", 20),
     ("defects", "Defect origin (SZZ)", 20),
+    ("defect-density", "Defect density", 20),
+    ("risk", "Risk (hotspot x defects)", 20),
     ("fixers", "Fixer ↔ originator", 20),
     ("process", "Commit process", 1),
     ("releases", "Releases", 20),

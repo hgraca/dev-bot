@@ -548,6 +548,34 @@ def trends(conn: sqlite3.Connection, top=None) -> list:
     return results[:top] if top is not None else results
 
 
+def defect_density(conn: sqlite3.Connection, top=None) -> list:
+    """External defect counts per file, joined to change activity."""
+    rows = conn.execute(
+        "SELECT d.path AS path, d.count AS defects, d.source AS source, f.commits AS commits, f.type AS type"
+        " FROM defects d LEFT JOIN files f ON f.path = d.path ORDER BY d.count DESC, d.path"
+    ).fetchall()
+    results = [dict(row) for row in rows]
+    return results[:top] if top is not None else results
+
+
+def risk(conn: sqlite3.Connection, top=None) -> list:
+    """Risk = composite priority × external defects (H10) — hot *and* buggy."""
+    defects = {row["path"]: row["count"] for row in conn.execute("SELECT path, count FROM defects").fetchall()}
+    if not defects:
+        return []
+
+    results = []
+    for row in priority(conn, None):
+        count = defects.get(row["path"])
+        if count:
+            entry = dict(row)
+            entry["defects"] = count
+            entry["risk"] = round(row["priority"] * (1 + count), 4)
+            results.append(entry)
+    results.sort(key=lambda item: item["risk"], reverse=True)
+    return results[:top] if top is not None else results
+
+
 _VIEWS = {
     "hotspots": hotspots,
     "priority": priority,
@@ -562,6 +590,8 @@ _VIEWS = {
     "authors": authors,
     "tickets": tickets,
     "defects": defects,
+    "defect-density": defect_density,
+    "risk": risk,
     "time-to-fix": time_to_fix,
     "fixers": fixers,
     "process": process,

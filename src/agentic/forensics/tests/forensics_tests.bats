@@ -1258,3 +1258,60 @@ assert rows["code.zz"]["delta"] == 1, rows
 
   rm -rf "$repo"
 }
+
+# ── Phase 2: external defects + risk ───────────────────────────────────────────
+
+@test "mine defects CSV: joins external defect counts" {
+  local repo db csv
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  csv="$(mktemp)"
+  _build_repo "$repo"
+  printf 'path,count\na.php,3\nb.txt,1\n' >"$csv"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --defects "$csv" --format json
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view defect-density --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+rows = {row["path"]: row for row in json.load(sys.stdin)["defect-density"]}
+assert rows["a.php"]["defects"] == 3, rows
+'
+
+  rm -rf "$repo"
+}
+
+@test "analyse risk: multiplies priority by external defects" {
+  run python3 -c '
+import sqlite3, sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import analyse, store
+
+conn = sqlite3.connect(":memory:")
+conn.row_factory = sqlite3.Row
+store.init(conn)
+
+def commit(h, day, files):
+    store.write_commits(conn, [{"hash": h, "author_name": "A", "author_email": "a@x",
+        "date": "2024-05-%02dT00:00:00+00:00" % day, "message": "m", "type": "feat", "scope": "",
+        "ticket": "", "breaking": 0, "files_changed": len(files), "lines_added": 1, "lines_deleted": 0}])
+    store.write_changes(conn, [{"commit_hash": h, "path": p, "added": 1, "deleted": 0,
+        "is_rename": False, "old_path": ""} for p in files])
+
+for i in range(1, 4):
+    commit("h%d" % i, i, ["hot.php"])
+store.derive_files(conn)
+store.write_units(conn, [
+    {"path": "hot.php", "name": "H", "kind": "method", "start_line": 1, "end_line": 1, "complexity": 5, "loc": 1, "parent": ""},
+])
+store.write_defects(conn, [{"path": "hot.php", "count": 2, "source": "csv"}])
+conn.commit()
+
+rows = analyse.risk(conn)
+assert rows and rows[0]["path"] == "hot.php", rows
+assert rows[0]["defects"] == 2, rows
+assert rows[0]["risk"] == round(rows[0]["priority"] * 3, 4), rows
+' "${MODULE_DIR}"
+}

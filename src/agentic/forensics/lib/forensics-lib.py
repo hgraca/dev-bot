@@ -12,6 +12,7 @@ The core knows no language-specifics: every language lives in
 
 from __future__ import annotations
 
+import csv
 import datetime
 import json
 import os
@@ -311,6 +312,24 @@ def _mine_trends(repo: str, langs, interval: str) -> list:
     return rows
 
 
+def _read_defects(csv_path: str, source: str) -> list:
+    """Read a defect CSV: a `path`/`entity` column and a `count`/`defects` column."""
+    rows = []
+    with open(csv_path, newline="", encoding="utf-8") as handle:
+        for record in csv.DictReader(handle):
+            lowered = {(key or "").strip().lower(): (value or "").strip() for key, value in record.items()}
+            path = lowered.get("path") or lowered.get("entity") or lowered.get("file")
+            raw = lowered.get("count") or lowered.get("defects") or lowered.get("bugs") or "0"
+            if not path:
+                continue
+            try:
+                count = int(float(raw))
+            except ValueError:
+                count = 0
+            rows.append({"path": path, "count": count, "source": source})
+    return rows
+
+
 def cmd_mine(args: list) -> int:
     fmt = _parse_format(args)
     opts, positionals = _parse_args(args)
@@ -405,6 +424,16 @@ def cmd_mine(args: list) -> int:
             if trend_rows:
                 store.write_complexity_trend(conn, trend_rows)
                 conn.commit()
+
+        if isinstance(opts.get("defects"), str):
+            csv_path = opts["defects"]
+            if os.path.isfile(csv_path):
+                defect_rows = _read_defects(csv_path, os.path.basename(csv_path))
+                if defect_rows:
+                    store.write_defects(conn, defect_rows)
+                    conn.commit()
+            else:
+                warnings.append("defects CSV not found: %s" % csv_path)
 
         result_counts = store.counts(conn)
     finally:
@@ -566,7 +595,7 @@ def main(argv: list) -> int:
         print("forensics %s" % TOOL_VERSION)
         return 0
     if command in ("--help", "-h"):
-        print("Usage: forensics-lib.py <langs|doctor|mine|provision> [options]")
+        print("Usage: forensics-lib.py <langs|doctor|mine|analyse|report|provision> [options]")
         return 0
 
     handler = _HANDLERS.get(command)

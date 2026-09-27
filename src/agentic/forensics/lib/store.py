@@ -100,6 +100,11 @@ CREATE TABLE IF NOT EXISTS complexity_trend (
   complexity INTEGER,
   PRIMARY KEY (revision, path)
 );
+CREATE TABLE IF NOT EXISTS defects (
+  path   TEXT PRIMARY KEY,
+  count  INTEGER DEFAULT 0,
+  source TEXT
+);
 """
 
 _TABLES = (
@@ -113,6 +118,7 @@ _TABLES = (
     "unit_churn",
     "releases",
     "complexity_trend",
+    "defects",
 )
 
 
@@ -327,6 +333,13 @@ def write_complexity_trend(conn: sqlite3.Connection, rows: list) -> None:
     conn.executemany(
         "INSERT OR REPLACE INTO complexity_trend(revision, date, path, complexity) VALUES (?, ?, ?, ?)",
         [(row["revision"], row["date"], row["path"], row["complexity"]) for row in rows],
+    )
+
+
+def write_defects(conn: sqlite3.Connection, rows: list) -> None:
+    conn.executemany(
+        "INSERT OR REPLACE INTO defects(path, count, source) VALUES (?, ?, ?)",
+        [(row["path"], row["count"], row.get("source", "")) for row in rows],
     )
 
 
