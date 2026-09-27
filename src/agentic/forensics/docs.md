@@ -18,11 +18,14 @@ into one Markdown or JSON document.
 ## What it produces
 
 - **Hotspots** — complexity × change rate, ranked; the refactoring priority list.
+- **Debt priority** — a composite of change, complexity, coupling, defect rate and ownership risk, with every component exposed per file.
+- **Complexity trends** — how a file's complexity grows across sampled revisions (`mine --trends`).
 - **Change rate** — commits and commits-per-active-day per file.
 - **Temporal coupling** — files that change together without a structural dependency.
 - **Ownership & concentration** — authors per file and per unit, top-author share, bus factor.
-- **Commit-history intelligence** — conventional-commit mix (overall and per author), tickets, defect origin (SZZ), time-to-fix distributions, commit-process metrics and release cadence, boxed to a date range.
-- _Phase 2:_ complexity trends over time, architecture-vs-organization, and the composite debt interest-rate priority.
+- **Defects & risk** — SZZ defect origin, time-to-fix, external defect counts (`mine --defects <csv>`), and risk = hotspot × defects.
+- **Commit-history intelligence** — conventional-commit mix (overall and per author), tickets, commit-process metrics and release cadence, boxed to a date range.
+- _Phase 2:_ architecture-vs-organization alignment.
 
 ## Architecture
 
