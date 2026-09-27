@@ -414,10 +414,14 @@ def cmd_analyse(args: list) -> int:
     if fmt == "json":
         print(json.dumps(doc, indent=2))
     else:
-        print("| hotspot | complexity | commits | path |")
-        print("| --- | --- | --- | --- |")
-        for row in rows:
-            print("| %.3f | %d | %d | %s |" % (row["hotspot"], row["complexity"], row["commits"], row["path"]))
+        if rows:
+            keys = list(rows[0].keys())
+            print("| " + " | ".join(keys) + " |")
+            print("| " + " | ".join("---" for _ in keys) + " |")
+            for row in rows:
+                print("| " + " | ".join(str(row.get(key, "")) for key in keys) + " |")
+        else:
+            print("_(none)_")
     return 0
 
 

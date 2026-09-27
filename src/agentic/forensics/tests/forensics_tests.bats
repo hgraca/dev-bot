@@ -726,6 +726,21 @@ assert any(row["path"] == "a.php" for row in doc["hotspots"]), doc["hotspots"]
   rm -rf "$repo"
 }
 
+@test "analyse: markdown output works for any view" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/out.sqlite"
+  _build_repo "$repo"
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+
+  run bash "${TOOL}" analyse "$db" --view change-rate --format md
+  assert_success
+  assert_output --partial "| path |"
+  refute_output --partial "Traceback"
+
+  rm -rf "$repo"
+}
+
 @test "analyse change-rate: ranks by commits and computes commits per active day" {
   run python3 -c '
 import sqlite3, sys
