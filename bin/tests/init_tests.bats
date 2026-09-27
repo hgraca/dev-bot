@@ -558,3 +558,15 @@ print('REGISTERED-DISABLED:OK')
   assert_success
   grep -qF 'REGISTERED-DISABLED:OK' <<< "$output" || fail "chrome-devtools must register disabled"
 }
+
+# ── Generated-config formatting ──────────────────────────────────────────────
+# opencode.jsonc and .devbot.global.jsonc are dev-bot's OWN artifacts: they must
+# be normalized even in a project that never declares prettier, or the MCP-merge
+# output keeps its inserted-entry formatting (audit-69 NOTE-4). The format-json
+# gate protects a project's source, so these call sites pass --force.
+@test "generated configs: the formatter is called with --force" {
+  run grep -qF -- '--force "${config}"' "${PROJECT_ROOT}/bin/init.sh"
+  assert_success
+  run grep -qF -- '--force "${config_file}"' "${PROJECT_ROOT}/bin/up.sh"
+  assert_success
+}

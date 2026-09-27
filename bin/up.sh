@@ -106,10 +106,12 @@ for m in json.loads(sys.stdin.read()):
     _ok "${found_count} module(s) with external module declarations processed (${added_count} with new entries added)"
   fi
 
-  # Format .devbot.global.jsonc to ensure consistent JSON formatting after merge
+  # Format .devbot.global.jsonc to ensure consistent JSON formatting after merge.
+  # --force: this is dev-bot's OWN file at the install root — normalize it
+  # unconditionally rather than depend on that root declaring prettier.
   local format_json_tool="${DEV_BOT_ROOT}/src/agentic/format-json/tools/format-json.mcp.sh"
   if [[ -f "${format_json_tool}" ]]; then
-    bash "${format_json_tool}" "${config_file}" 2>/dev/null || true
+    bash "${format_json_tool}" --force "${config_file}" 2>/dev/null || true
   fi
 }
 

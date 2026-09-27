@@ -413,6 +413,24 @@ STUB
   assert_output --partial '"a":1'
 }
 
+@test "--force: formats a project that declares no prettier" {
+  # dev-bot's own generated configs (opencode.jsonc, .devbot.global.jsonc) must be
+  # normalized in ANY project — the prettier gate protects a project's own source,
+  # not dev-bot's artifacts (audit-69 NOTE-4). Run from the project dir so the
+  # gate genuinely sees no prettier config.
+  local project
+  project="$(mktemp -d)"
+  local tmpfile="$project/tmp.json"
+  printf '{"a":1}\n' > "$tmpfile"
+
+  run bash -c "cd '${project}' && bash '${TOOL}' --force '${tmpfile}'"
+
+  assert_success
+  refute_output --partial "not a file or directory"
+  run cat "$tmpfile"
+  assert_output --partial '"a": 1'
+}
+
 @test "no prettier on PATH: warns, exits 0, and leaves the file untouched" {
   local sb="$BATS_TEST_TMPDIR/stub-noprettier"
   mkdir -p "$sb"

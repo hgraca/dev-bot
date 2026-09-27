@@ -390,7 +390,11 @@ _format_opencode_config() {
 
   local fmt_tool="${DEV_BOT_ROOT}/src/agentic/format-json/tools/format-json.mcp.sh"
   if [[ -x "${fmt_tool}" ]]; then
-    bash "${fmt_tool}" "${config}" 2>/dev/null && _ok "opencode.jsonc formatted" || true
+    # --force: opencode.jsonc is dev-bot's OWN generated file, so it is
+    # normalized even in a project that never declares prettier (the format-json
+    # gate protects a project's own source). Without it the MCP-merge output
+    # keeps its inserted-entry formatting (audit-69 NOTE-4).
+    bash "${fmt_tool}" --force "${config}" 2>/dev/null && _ok "opencode.jsonc formatted" || true
   fi
 }
 

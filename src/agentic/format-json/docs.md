@@ -14,6 +14,8 @@ The `on-file_edited` hook fires when a `.json`/`.jsonc` file is saved, runs pret
 
 A run happens only where the project declares prettier — a `.prettierrc*`, a `prettier.config.*`, or a `prettier` key in `package.json`. A project formatted by something else (Biome, say) is left alone. A missing prettier or node is never an error: the file is skipped with a warning.
 
+The one exception is dev-bot's own generated configs — `opencode.jsonc` and `.devbot.global.jsonc`. `devbot reinit`/`up` format those with `--force`, so they are normalized in any project regardless of the prettier gate.
+
 `install.sh` installs prettier globally via npm when it is absent; `update.sh` installs it if missing, otherwise updates it.
 
 ## Configuration

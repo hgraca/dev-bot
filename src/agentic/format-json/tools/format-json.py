@@ -30,6 +30,7 @@ USAGE = """\
 Usage:
   format-json.py <directory>               Format all .json/.jsonc files in directory (recursive)
   format-json.py <file> [<file>...]         Format specific files in-place
+  format-json.py --force <file> [<file>...] Format even without a project prettier config
   cat file.json | format-json.py           Pipe mode: stdin -> stdout
   format-json.py --help                    Show this help
 """
@@ -165,6 +166,14 @@ def main() -> int:
         print(USAGE, end='')
         return 0
 
+    # --force normalizes dev-bot's OWN generated configs (opencode.jsonc,
+    # .devbot.global.jsonc) even in a project that never declares prettier. The
+    # gate protects a project's source from a formatter it did not adopt — it is
+    # not meant to leave dev-bot's artifacts half-formatted.
+    force = "--force" in args
+    if force:
+        args = [a for a in args if a != "--force"]
+
     available = prettier_available()
 
     if not args:
@@ -200,7 +209,7 @@ def main() -> int:
     # ...and only where the project actually declares prettier. Running it anyway
     # imposes a standard the project never adopted, and fights one it did. A
     # multi-path call is judged by its first path — the hook always passes one.
-    if not has_prettier_config(args[0]):
+    if not force and not has_prettier_config(args[0]):
         return 0
 
     paths = args
