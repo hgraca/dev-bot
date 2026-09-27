@@ -1,0 +1,9 @@
+---
+date: 2026-09-26
+keywords: ["opencode", "tui-plugin", "plugin-exports", "keymap"]
+trigger-on: ["opencode-tui-plugin", "opencode-plugin-package-exports"]
+---
+
+## An opencode TUI plugin is a literal `exports["./tui"]` entry, and a slash command needs undocumented keymap fields
+
+A package loads as an opencode TUI plugin only through the **literal** `exports["./tui"]` key — the lookup is a plain property read, so a `"./*"` wildcard does not satisfy it (a local file plugin instead resolves via `index.{ts,tsx,js,mjs,cjs}`). The resolved module must **default-export an object** `{ id?, tui }`: named exports fail with "Plugin export is not a function", and one module may not default-export both `server` and `tui` ("must default export either server() or tui(), not both") — so a package serving both surfaces ships two files and two export keys (`./server`, `./tui`), while remaining one installable plugin. `@opentui/solid` and `solid-js` are injected at runtime by opencode through a Bun loader-plugin specifier map, so plugins declare them as optional peers rather than bundling them, and take their types from `@opencode-ai/plugin/tui` (`TuiPlugin`, `TuiPluginApi`, `TuiPluginModule`). Two traps: the imperative `createElement` returns a `BaseRenderable` while slot and dialog callbacks are typed as solid's DOM `JSX.Element`, so the two need exactly one documented cast; and a `/`-menu entry is **not** produced by the public `TuiCommand.slash` field once you move to `api.keymap.registerLayer` — opencode's slash menu reads `command.slashName` (plus `slashAliases`) from a command carrying its own `namespace: "palette"` property, neither of which appears in any published type. The legacy `api.command.register` still works and translates `slash: { name }` → `slashName` internally, so migrating off it trades a deprecated-but-typed API for reverse-engineered fields that can break silently on an opencode update.
