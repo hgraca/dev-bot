@@ -34,7 +34,7 @@ devbot tool forensics <command> [options]
 Views: `hotspots`, `priority`, `trends`, `change-rate`, `coupling`, `ownership`,
 `concentration`, `unit-ownership`, `unit-concentration`, `commit-types`,
 `authors`, `tickets`, `defects`, `defect-density`, `risk`, `time-to-fix`,
-`fixers`, `process`, `releases`. (`architecture` arrives in Phase 2.)
+`fixers`, `process`, `releases`, `modules`, `architecture`, `structural`.
 
 The default store is `<repo>/.forensics/<timestamp>.sqlite` (self-ignoring — it writes a `.gitignore` containing `*`).
 

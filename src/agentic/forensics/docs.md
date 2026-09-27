@@ -25,7 +25,8 @@ into one Markdown or JSON document.
 - **Ownership & concentration** — authors per file and per unit, top-author share, bus factor.
 - **Defects & risk** — SZZ defect origin, time-to-fix, external defect counts (`mine --defects <csv>`), and risk = hotspot × defects.
 - **Commit-history intelligence** — conventional-commit mix (overall and per author), tickets, commit-process metrics and release cadence, boxed to a date range.
-- _Phase 2:_ architecture-vs-organization alignment.
+- **Architecture vs organization** — cross-module coupling and ownership diffusion (`mine --modules name=prefix`), plus class-level structural coupling.
+- **Report formats** — Markdown, JSON, CSV (per view) or a self-contained HTML page with a hotspot map.
 
 ## Architecture
 
