@@ -10,6 +10,7 @@ import analyse
 # view name -> (heading, top-N in the report)
 SECTIONS = (
     ("hotspots", "Hotspots", 20),
+    ("priority", "Debt priority", 20),
     ("change-rate", "Change rate", 10),
     ("coupling", "Temporal coupling", 15),
     ("ownership", "Ownership", 15),

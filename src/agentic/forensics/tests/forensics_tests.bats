@@ -1185,3 +1185,42 @@ assert links[0]["inducing_hash"], links
 
   rm -rf "$repo"
 }
+
+# ── Phase 2: composite priority ────────────────────────────────────────────────
+
+@test "analyse priority: ranks recurring pain above a quiet file" {
+  run python3 -c '
+import sqlite3, sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import analyse, store
+
+conn = sqlite3.connect(":memory:")
+conn.row_factory = sqlite3.Row
+store.init(conn)
+
+def commit(h, day, author, ctype, files):
+    store.write_commits(conn, [{"hash": h, "author_name": author, "author_email": author + "@x",
+        "date": "2024-04-%02dT00:00:00+00:00" % day, "message": "m", "type": ctype, "scope": "",
+        "ticket": "", "breaking": 0, "files_changed": len(files), "lines_added": 1, "lines_deleted": 0}])
+    store.write_changes(conn, [{"commit_hash": h, "path": p, "added": 1, "deleted": 0,
+        "is_rename": False, "old_path": ""} for p in files])
+
+for i in range(1, 6):
+    commit("h%d" % i, i, "alice", "fix" if i <= 2 else "feat", ["hot.php"])
+commit("c1", 6, "alice", "feat", ["cold.php"])
+commit("c2", 7, "bob", "feat", ["cold.php"])
+
+store.derive_files(conn)
+store.write_units(conn, [
+    {"path": "hot.php", "name": "Hot", "kind": "method", "start_line": 1, "end_line": 1, "complexity": 10, "loc": 1, "parent": ""},
+    {"path": "cold.php", "name": "Cold", "kind": "method", "start_line": 1, "end_line": 1, "complexity": 1, "loc": 1, "parent": ""},
+])
+conn.commit()
+
+rows = analyse.priority(conn)
+assert rows[0]["path"] == "hot.php", rows
+for key in ("priority", "change_rank", "complexity_rank", "coupling_rank", "defect_rank", "ownership_risk"):
+    assert key in rows[0], key
+assert rows[0]["ownership_risk"] == 1.0, rows[0]
+' "${MODULE_DIR}"
+}

@@ -440,8 +440,95 @@ def unit_concentration(conn: sqlite3.Connection, top=None, threshold: float = CO
     return flagged[:top] if top is not None else flagged
 
 
+DEFAULT_WEIGHTS = {"change": 1.0, "complexity": 1.0, "coupling": 0.5, "defect": 1.0, "ownership": 0.5}
+
+
+def priority(conn: sqlite3.Connection, top=None, weights=None) -> list:
+    """Composite debt interest-rate: weighted, percentile-ranked signals per file.
+
+    A transparent weighted sum (not a raw product) so every row can be explained
+    by its components — change, complexity, coupling, defect rate and ownership
+    risk — each normalised to [0, 1].
+    """
+    effective = dict(DEFAULT_WEIGHTS)
+    if weights:
+        effective.update({key: value for key, value in weights.items() if key in effective})
+
+    files = {}
+    for row in conn.execute(
+        "SELECT f.path AS path, f.commits AS commits,"
+        " COALESCE(SUM(CASE WHEN u.kind IN ('method', 'function') THEN u.complexity ELSE 0 END), 0) AS leaf,"
+        " COALESCE(SUM(u.complexity), 0) AS total"
+        " FROM files f JOIN units u ON u.path = f.path GROUP BY f.path"
+    ).fetchall():
+        files[row["path"]] = {
+            "path": row["path"],
+            "commits": row["commits"] or 0,
+            "complexity": row["leaf"] or row["total"] or 0,
+            "fixes": 0,
+            "authors": 1,
+        }
+
+    for row in conn.execute(
+        "SELECT ch.path AS path,"
+        " SUM(CASE WHEN co.type IN ('fix', 'hotfix', 'bugfix') THEN 1 ELSE 0 END) AS fixes,"
+        " COUNT(DISTINCT co.author_email) AS authors"
+        " FROM changes ch JOIN commits co ON co.hash = ch.commit_hash GROUP BY ch.path"
+    ).fetchall():
+        entry = files.get(row["path"])
+        if entry is not None:
+            entry["fixes"] = row["fixes"] or 0
+            entry["authors"] = row["authors"] or 1
+
+    coupling_degree = {}
+    for pair in coupling(conn, None):
+        coupling_degree[pair["path_a"]] = coupling_degree.get(pair["path_a"], 0.0) + pair["coupling_pct"]
+        coupling_degree[pair["path_b"]] = coupling_degree.get(pair["path_b"], 0.0) + pair["coupling_pct"]
+
+    paths = sorted(files)
+    commits = [files[path]["commits"] for path in paths]
+    complexity = [files[path]["complexity"] for path in paths]
+    coupling_values = [coupling_degree.get(path, 0.0) for path in paths]
+    defect_values = [files[path]["fixes"] / files[path]["commits"] if files[path]["commits"] else 0.0 for path in paths]
+    max_authors = max((files[path]["authors"] for path in paths), default=1)
+    ownership_risk = [
+        1.0 - (files[path]["authors"] - 1) / (max_authors - 1) if max_authors > 1 else 1.0 for path in paths
+    ]
+
+    change_ranks = _percentile_ranks(commits)
+    complexity_ranks = _percentile_ranks(complexity)
+    coupling_ranks = _percentile_ranks(coupling_values)
+    defect_ranks = _percentile_ranks(defect_values)
+    total_weight = sum(effective.values()) or 1.0
+
+    results = []
+    for index, path in enumerate(paths):
+        score = (
+            effective["change"] * change_ranks[index]
+            + effective["complexity"] * complexity_ranks[index]
+            + effective["coupling"] * coupling_ranks[index]
+            + effective["defect"] * defect_ranks[index]
+            + effective["ownership"] * ownership_risk[index]
+        ) / total_weight
+        results.append(
+            {
+                "path": path,
+                "priority": round(score, 4),
+                "change_rank": round(change_ranks[index], 3),
+                "complexity_rank": round(complexity_ranks[index], 3),
+                "coupling_rank": round(coupling_ranks[index], 3),
+                "defect_rank": round(defect_ranks[index], 3),
+                "ownership_risk": round(ownership_risk[index], 3),
+            }
+        )
+
+    results.sort(key=lambda item: item["priority"], reverse=True)
+    return results[:top] if top is not None else results
+
+
 _VIEWS = {
     "hotspots": hotspots,
+    "priority": priority,
     "change-rate": change_rate,
     "coupling": coupling,
     "ownership": ownership,
