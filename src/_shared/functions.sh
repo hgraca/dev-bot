@@ -24,7 +24,7 @@
 
 # ── Project root ───────────────────────────────────────────────────────────────
 
-export DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+export DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
 # ── Common output helpers ──────────────────────────────────────────────────────
 
