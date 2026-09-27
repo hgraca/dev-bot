@@ -9,8 +9,10 @@ Investigates how a codebase has _evolved_ rather than how it looks right now: it
 
 ```bash
 devbot tool forensics mine <repo> --since "last year"
-devbot tool forensics report .forensics/<timestamp>.sqlite --out ./forensics-report
 ```
+
+Phase 0 mines history + units + per-language metrics into the store; the analysis
+commands (`analyse`, `report`) arrive in Phase 1.
 
 ## What it produces
 
@@ -25,12 +27,12 @@ devbot tool forensics report .forensics/<timestamp>.sqlite --out ./forensics-rep
 
 A language-agnostic core (`tools/forensics.sh` + `lib/forensics-lib.py`) owns git mining, storage, analysis and reporting. Language specifics live behind `langs/<lang>/plugin.sh`, which answers a four-verb contract:
 
-| verb        | purpose                                                                 |
-| ----------- | ----------------------------------------------------------------------- |
-| `meta`      | declare `lang`, `extensions`, `capabilities`, `unit_kinds`, `metrics`   |
-| `doctor`    | report the resolved engine (project copy → scratch install → container) |
-| `provision` | install a pinned engine into `storage/forensics/<lang>`                 |
-| `units`     | emit code units + static complexity as canonical JSON                   |
+| verb        | purpose                                                                       |
+| ----------- | ----------------------------------------------------------------------------- |
+| `meta`      | declare `lang`, `extensions`, `capabilities`, `unit_kinds`, `metrics`         |
+| `doctor`    | report the resolved engine (project copy → scratch install) + container image |
+| `provision` | install a pinned engine into `storage/forensics/<lang>`                       |
+| `units`     | emit code units + static complexity as canonical JSON                         |
 
 Adding a language is one `langs/<lang>/` directory — `php` (PDepend) ships first, `py`/`ts`/`rust` follow.
 

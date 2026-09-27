@@ -17,17 +17,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/functions.sh"
 main() {
   _info "forensics"
 
-  local cache
-  for cache in "${MODULE_DIR}/../../../storage/forensics/php" \
-    "${MODULE_DIR}/../../../storage/forensics/py" \
-    "${MODULE_DIR}/../../../storage/forensics/ts"; do
-    if [[ -d "${cache}" ]]; then
-      _skip "engine cache (${cache})"
-    else
-      mkdir -p "${cache}"
-      _ok "engine cache created (${cache})"
-    fi
-  done
+  local cache="${MODULE_DIR}/../../../storage/forensics/php"
+  if [[ -d "${cache}" ]]; then
+    _skip "engine cache (${cache})"
+  else
+    mkdir -p "${cache}"
+    _ok "engine cache created (${cache})"
+  fi
 
   _ok "forensics installed"
 }

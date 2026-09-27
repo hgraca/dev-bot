@@ -25,8 +25,8 @@ devbot tool forensics <command> [options]
 | Command                                                                                                                                | Purpose                                                                 |
 | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `mine [<repo>] [--since <date>] [--until <date>] [--db <path>] [--lang auto] [--granularity file\|unit]`                               | Mine history + units + metrics + commit analysis into the SQLite store. |
-| `analyse <db> [--view hotspots\|coupling\|ownership\|concentration\|trends\|architecture\|history\|all] [--top N] [--format md\|json]` | Query one view.                                                         |
-| `report <db> [--out <dir>] [--format md\|json]`                                                                                        | Full report.                                                            |
+| `analyse <db> [--view hotspots\|coupling\|ownership\|concentration\|trends\|architecture\|history\|all] [--top N] [--format md\|json]` | Query one view. **(Phase 1 — not yet wired.)**                          |
+| `report <db> [--out <dir>] [--format md\|json]`                                                                                        | Full report. **(Phase 1 — not yet wired.)**                             |
 | `doctor [--project <dir>]`                                                                                                             | Resolve each language plugin's engine.                                  |
 | `langs`                                                                                                                                | List registered language plugins and capabilities.                      |
 | `provision --lang <lang>`                                                                                                              | Install a pinned engine into `storage/forensics/<lang>`.                |
