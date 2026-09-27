@@ -35,6 +35,12 @@ def _head(repo: str) -> str:
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
+def toplevel(repo: str) -> str:
+    """The repository root for a path (empty string if not a repo)."""
+    proc = _git(repo, "rev-parse", "--show-toplevel")
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
 def _range_args(since, until) -> list:
     args = []
     if since:
@@ -44,18 +50,64 @@ def _range_args(since, until) -> list:
     return args
 
 
-def _split_rename(path: str) -> tuple:
-    """Split a git rename path into (old, new).
+def _parse_numstat_z(raw: bytes) -> list:
+    """Parse ``git log --numstat -z`` bytes into change rows.
 
-    Handles both ``old => new`` and ``dir/{old => new}/file`` forms.
+    ``-z`` is NUL-delimited and never C-quotes a path, so non-ASCII and special
+    filenames survive. Tokens are ``\\x1e<sha>`` for a commit header, then per
+    entry ``added\\tdeleted\\t<path>`` — or, for a rename, an empty path followed
+    by the old and new paths as their own NUL tokens.
     """
-    if "{" in path and "}" in path:
-        prefix, rest = path.split("{", 1)
-        inner, suffix = rest.split("}", 1)
-        old, new = inner.split(" => ", 1)
-        return (prefix + old + suffix), (prefix + new + suffix)
-    old, new = path.split(" => ", 1)
-    return old, new
+    record = RECORD.encode()
+    tokens = raw.split(b"\x00")
+    changes = []
+    commit = ""
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token.startswith(record):
+            commit = token[len(record):].decode("ascii", "replace").strip()
+            index += 1
+            continue
+        if not token:
+            index += 1
+            continue
+        if token.startswith(b"\n"):
+            token = token[1:]
+        parts = token.split(b"\t")
+        if len(parts) < 3:
+            index += 1
+            continue
+
+        added_raw, deleted_raw = parts[0], parts[1]
+        path_raw = b"\t".join(parts[2:])
+        if path_raw == b"":
+            old_raw = tokens[index + 1] if index + 1 < len(tokens) else b""
+            new_raw = tokens[index + 2] if index + 2 < len(tokens) else b""
+            changes.append(
+                {
+                    "commit_hash": commit,
+                    "path": os.fsdecode(new_raw),
+                    "added": int(added_raw) if added_raw.isdigit() else 0,
+                    "deleted": int(deleted_raw) if deleted_raw.isdigit() else 0,
+                    "is_rename": True,
+                    "old_path": os.fsdecode(old_raw),
+                }
+            )
+            index += 3
+        else:
+            changes.append(
+                {
+                    "commit_hash": commit,
+                    "path": os.fsdecode(path_raw),
+                    "added": int(added_raw) if added_raw.isdigit() else 0,
+                    "deleted": int(deleted_raw) if deleted_raw.isdigit() else 0,
+                    "is_rename": False,
+                    "old_path": "",
+                }
+            )
+            index += 1
+    return changes
 
 
 def mine_commits(repo: str, since=None, until=None) -> list:
@@ -88,39 +140,13 @@ def mine_commits(repo: str, since=None, until=None) -> list:
 
 def mine_changes(repo: str, since=None, until=None) -> list:
     fmt = RECORD + "%H"
-    proc = _git(repo, "log", "-M", "--numstat", "--format=" + fmt, *_range_args(since, until))
+    proc = subprocess.run(
+        ["git", "-C", repo, "log", "-M", "--numstat", "-z", "--format=" + fmt, *_range_args(since, until)],
+        capture_output=True,
+    )
     if proc.returncode != 0:
-        raise RuntimeError(proc.stderr.strip() or "git log --numstat failed")
-
-    changes = []
-    for chunk in proc.stdout.split(RECORD):
-        if not chunk.strip():
-            continue
-        lines = chunk.split("\n")
-        commit_hash = lines[0].strip()
-        for line in lines[1:]:
-            if not line.strip():
-                continue
-            cols = line.split("\t")
-            if len(cols) < 3:
-                continue
-            added_raw, deleted_raw = cols[0], cols[1]
-            path = "\t".join(cols[2:])
-            is_rename = " => " in path
-            old_path = ""
-            if is_rename:
-                old_path, path = _split_rename(path)
-            changes.append(
-                {
-                    "commit_hash": commit_hash,
-                    "path": path,
-                    "added": int(added_raw) if added_raw.isdigit() else 0,
-                    "deleted": int(deleted_raw) if deleted_raw.isdigit() else 0,
-                    "is_rename": is_rename,
-                    "old_path": old_path,
-                }
-            )
-    return changes
+        raise RuntimeError(proc.stderr.decode("utf-8", "replace").strip() or "git log --numstat failed")
+    return _parse_numstat_z(proc.stdout)
 
 
 def mine_log(repo: str, since=None, until=None) -> dict:

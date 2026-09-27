@@ -201,8 +201,14 @@ def _default_db_path(repo: str) -> str:
 
 
 def _ensure_self_ignored(db_path: str) -> None:
-    """Write a `.gitignore` of `*` beside the DB so it never dirties the repo."""
+    """Write a `.gitignore` of `*` — but only inside the tool-owned `.forensics` dir.
+
+    Never outside it: a blanket `*` written into an arbitrary `--db` directory
+    would hide the whole repository from git.
+    """
     directory = os.path.dirname(os.path.abspath(db_path))
+    if os.path.basename(directory) != ".forensics":
+        return
     os.makedirs(directory, exist_ok=True)
     ignore = os.path.join(directory, ".gitignore")
     if not os.path.exists(ignore):
@@ -210,16 +216,19 @@ def _ensure_self_ignored(db_path: str) -> None:
             handle.write("*\n")
 
 
-def _extract_units(repo: str, file_types: dict) -> tuple:
-    """Run every units-capable plugin over the files whose extension it owns.
+def _extract_units(repo: str, file_types: dict, langs=None) -> tuple:
+    """Run each units-capable plugin over the files whose extension it owns.
 
-    Returns (units, error). An unreachable engine is an error the caller turns
-    into a warning — unit extraction must never fail a mine.
+    Returns (units, errors). One plugin's failure is collected and the others
+    still run — a single unavailable engine must not discard the rest.
     """
     plugins, _ = _discover(_langs_dir())
     units = []
+    errors = []
     for plugin in plugins:
         if "units" not in plugin.get("capabilities", []):
+            continue
+        if langs and plugin.get("lang") not in langs:
             continue
         paths = []
         for extension in plugin.get("extensions", []):
@@ -228,13 +237,15 @@ def _extract_units(repo: str, file_types: dict) -> tuple:
             continue
         proc = _run_plugin_stdin(plugin["path"], {"project": repo, "files": paths}, "units")
         if proc.returncode != 0:
-            return None, (proc.stderr or "").strip() or "plugin failed"
+            errors.append("%s: %s" % (plugin.get("lang"), (proc.stderr or "").strip() or "plugin failed"))
+            continue
         try:
             doc = json.loads(proc.stdout)
         except ValueError:
-            return None, "plugin returned non-JSON"
+            errors.append("%s: plugin returned non-JSON" % plugin.get("lang"))
+            continue
         units += doc.get("units", [])
-    return units, None
+    return units, errors
 
 
 def cmd_mine(args: list) -> int:
@@ -249,46 +260,69 @@ def cmd_mine(args: list) -> int:
         print("ERROR: not a git repository: %s" % repo, file=sys.stderr)
         return 1
 
+    # Git emits repo-root-relative paths; canonicalise to the toplevel so a
+    # subdirectory argument yields the same evidence and the DB lands at the root.
+    repo = gitmine.toplevel(repo) or os.path.abspath(repo)
+
+    plugins, _ = _discover(_langs_dir())
+    available_langs = [plugin.get("lang") for plugin in plugins if plugin.get("lang")]
+    requested_lang = opts.get("lang") if isinstance(opts.get("lang"), str) else None
+    langs = None
+    if requested_lang and requested_lang != "auto":
+        if requested_lang not in available_langs:
+            print(
+                "ERROR: unknown language '%s' (available: %s)" % (requested_lang, ", ".join(available_langs) or "none"),
+                file=sys.stderr,
+            )
+            return 2
+        langs = {requested_lang}
+
     since = opts.get("since") if isinstance(opts.get("since"), str) else None
     until = opts.get("until") if isinstance(opts.get("until"), str) else None
     db_path = opts.get("db") if isinstance(opts.get("db"), str) else _default_db_path(repo)
 
+    try:
+        data = gitmine.mine_log(repo, since, until)
+    except RuntimeError as exc:
+        print("ERROR: %s" % exc, file=sys.stderr)
+        return 1
+
     _ensure_self_ignored(db_path)
-    data = gitmine.mine_log(repo, since, until)
 
     conn = store.connect(db_path)
-    store.reset(conn)
-    store.write_meta(
-        conn,
-        {
-            "tool": "forensics",
-            "version": TOOL_VERSION,
-            "repo": data["repo"],
-            "head": data["head"],
-            "since": since or "",
-            "until": until or "",
-        },
-    )
-    store.write_commits(conn, data["commits"])
-    store.write_changes(conn, data["changes"])
-    store.derive_files(conn)
-    conn.commit()
+    try:
+        store.reset(conn)
+        store.write_meta(
+            conn,
+            {
+                "tool": "forensics",
+                "version": TOOL_VERSION,
+                "repo": data["repo"],
+                "head": data["head"],
+                "since": since or "",
+                "until": until or "",
+            },
+        )
+        store.write_commits(conn, data["commits"])
+        store.write_changes(conn, data["changes"])
+        store.derive_files(conn)
+        conn.commit()
 
-    warnings = []
-    granularity = opts.get("granularity") if isinstance(opts.get("granularity"), str) else "unit"
-    if granularity != "file":
-        file_types = {}
-        for row in conn.execute("SELECT path, type FROM files").fetchall():
-            file_types.setdefault((row["type"] or "").lower(), []).append(row["path"])
-        units, error = _extract_units(data["repo"], file_types)
-        if error:
-            warnings.append("unit extraction skipped: %s" % error)
-        elif units:
-            store.write_units(conn, units)
-            conn.commit()
+        warnings = []
+        granularity = opts.get("granularity") if isinstance(opts.get("granularity"), str) else "unit"
+        if granularity != "file":
+            file_types = {}
+            for row in conn.execute("SELECT path, type FROM files").fetchall():
+                file_types.setdefault((row["type"] or "").lower(), []).append(row["path"])
+            units, errors = _extract_units(data["repo"], file_types, langs)
+            warnings += ["unit extraction skipped (%s)" % error for error in errors]
+            if units:
+                store.write_units(conn, units)
+                conn.commit()
 
-    result_counts = store.counts(conn)
-    conn.close()
+        result_counts = store.counts(conn)
+    finally:
+        conn.close()
 
     doc = {
         "ok": True,
@@ -346,7 +380,7 @@ def main(argv: list) -> int:
         print("forensics %s" % TOOL_VERSION)
         return 0
     if command in ("--help", "-h"):
-        print("Usage: forensics-lib.py <langs|doctor> [options]")
+        print("Usage: forensics-lib.py <langs|doctor|mine|provision> [options]")
         return 0
 
     handler = _HANDLERS.get(command)

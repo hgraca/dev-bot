@@ -82,6 +82,54 @@ PY
   echo ""
 }
 
+# A PHP image from a compose file, or "" when none is confidently the runtime.
+# Picking the first `image:` is wrong for the common db/app/service layout, so
+# prefer a service named like the PHP app, then an obviously-PHP image, then a
+# locally-built service's image.
+_compose_php_image() {
+  python3 - "$1" <<'PY'
+import re, sys
+
+lines = open(sys.argv[1], encoding="utf-8", errors="replace").read().splitlines()
+services = {}
+current = None
+in_services = False
+for line in lines:
+    if re.match(r"^services:\s*$", line):
+        in_services = True
+        continue
+    if in_services and re.match(r"^\S", line):
+        in_services = False
+        continue
+    if not in_services:
+        continue
+    named = re.match(r"^\s{2}([A-Za-z0-9_.-]+):\s*$", line)
+    if named:
+        current = named.group(1)
+        services.setdefault(current, {"image": "", "build": False})
+        continue
+    if current is None:
+        continue
+    image = re.match(r"^\s+image:\s*[\"']?([^\"'\s]+)", line)
+    if image:
+        services[current]["image"] = image.group(1)
+    if re.match(r"^\s+build:", line):
+        services[current]["build"] = True
+
+phpish = {"php", "php-fpm", "fpm", "app", "api", "web", "www", "application"}
+for name, svc in services.items():
+    if name.lower() in phpish and svc["image"]:
+        print(svc["image"]); raise SystemExit
+for svc in services.values():
+    if re.match(r"^(?:.*/)?php(?::|-)", svc["image"] or ""):
+        print(svc["image"]); raise SystemExit
+for svc in services.values():
+    if svc["build"] and svc["image"]:
+        print(svc["image"]); raise SystemExit
+print("")
+PY
+}
+
 # Precedence: explicit > FORENSICS_PHP_IMAGE > scratch engine PHP > project
 # compose image > php:<project-version>-cli
 #
@@ -117,13 +165,7 @@ _resolve_image() {
   done
   if [[ -n "${compose}" ]]; then
     local image
-    image="$(python3 - "${compose}" <<'PY'
-import re, sys
-text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
-m = re.search(r"^\s*image:\s*[\"']?([^\"'\s]+)", text, re.M)
-print(m.group(1) if m else "")
-PY
-)"
+    image="$(_compose_php_image "${compose}")"
     if [[ -n "${image}" ]]; then
       echo "${image}"
       return 0
@@ -148,10 +190,18 @@ cmd_doctor() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --project)
+        [[ $# -ge 2 ]] || {
+          echo "ERROR: --project requires a value" >&2
+          exit 2
+        }
         project="$2"
         shift 2
         ;;
       --image)
+        [[ $# -ge 2 ]] || {
+          echo "ERROR: --image requires a value" >&2
+          exit 2
+        }
         image="$2"
         shift 2
         ;;
@@ -160,13 +210,19 @@ cmd_doctor() {
   done
 
   if [[ ! -d "${project}" ]]; then
-    printf '{"ok":false,"lang":"php","error":"project directory not found: %s"}\n' "${project}"
+    python3 - "${project}" <<'PY'
+import json, sys
+print(json.dumps({"ok": False, "lang": "php", "error": "project directory not found: %s" % sys.argv[1]}))
+PY
     exit 1
   fi
 
   local resolved via root
   if ! resolved="$(_resolve_engine_root "${project}")"; then
-    printf '{"ok":false,"lang":"php","project":"%s","error":"no PDepend engine found","hint":"add pdepend/pdepend to the project, or run: plugin.sh provision"}\n' "${project}"
+    python3 - "${project}" <<'PY'
+import json, sys
+print(json.dumps({"ok": False, "lang": "php", "project": sys.argv[1], "error": "no PDepend engine found", "hint": "add pdepend/pdepend to the project, or run: plugin.sh provision"}))
+PY
     exit 1
   fi
   via="${resolved%%$'\t'*}"
@@ -179,8 +235,12 @@ cmd_doctor() {
   fi
   local engine_image=""
   [[ "${via}" == "scratch" ]] && engine_image="${root}"
-  printf '{"ok":true,"lang":"php","project":"%s","image":"%s","engine":{"via":"%s","path":"%s","version":"%s"}}\n' \
-    "${project}" "$(_resolve_image "${project}" "${image}" "${engine_image}")" "${via}" "${root}" "${version}"
+  python3 - "${project}" "$(_resolve_image "${project}" "${image}" "${engine_image}")" "${via}" "${root}" "${version}" <<'PY'
+import json, sys
+project, image, via, root, version = sys.argv[1:6]
+print(json.dumps({"ok": True, "lang": "php", "project": project, "image": image,
+                  "engine": {"via": via, "path": root, "version": version}}))
+PY
 }
 
 # Install a pinned PDepend into the shared scratch dir. Composer is the official
@@ -206,8 +266,10 @@ cmd_provision() {
   docker run --rm composer:2 php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;' \
     >"${dir}/.php-version" 2>/dev/null || true
 
-  printf '{"ok":true,"scratch":"%s","version":"%s","php":"%s"}\n' \
-    "${dir}" "${version}" "$(tr -d '[:space:]' <"${dir}/.php-version" 2>/dev/null || echo "")"
+  python3 - "${dir}" "${version}" "$(tr -d '[:space:]' <"${dir}/.php-version" 2>/dev/null || echo "")" <<'PY'
+import json, sys
+print(json.dumps({"ok": True, "scratch": sys.argv[1], "version": sys.argv[2], "php": sys.argv[3]}))
+PY
 }
 
 # Emit code units for a request on stdin. The project and engine are mounted
@@ -234,7 +296,7 @@ cmd_units() {
   local engine_image=""
   [[ "${via}" == "scratch" ]] && engine_image="${root}"
   image="$(_resolve_image "${project}" "" "${engine_image}")"
-  if [[ -z "${image}" || "${image}" =~ [[:space:]] ]]; then
+  if [[ -z "${image}" || "${image}" =~ [[:space:]] || "${image}" == -* ]]; then
     echo "ERROR: invalid container image reference '${image}'" >&2
     exit 1
   fi
@@ -254,7 +316,12 @@ r["project"] = "/app"
 r["autoload"] = os.environ["AUTOLOAD"]
 print(json.dumps(r))')"
 
-  printf '%s' "${payload}" | docker run --rm -i "${mounts[@]}" -w /app "${image}" \
+  # The analysed repository's own autoloader runs inside this container, so it
+  # gets no network, no root and a read-only rootfs: the analysis needs none.
+  printf '%s' "${payload}" | docker run --rm -i \
+    --network none --read-only --tmpfs /tmp -e HOME=/tmp \
+    --user "$(id -u):$(id -g)" \
+    "${mounts[@]}" -w /app "${image}" \
     php -d display_errors=stderr /plugin/metrics.php
 }
 

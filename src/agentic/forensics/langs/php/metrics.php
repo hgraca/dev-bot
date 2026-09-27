@@ -25,7 +25,9 @@ use PDepend\Metrics\AnalyzerNodeAware;
 use PDepend\Report\CodeAwareGenerator;
 use PDepend\Source\AST\ASTArtifactList;
 use PDepend\Source\AST\ASTClass;
+use PDepend\Source\AST\ASTEnum;
 use PDepend\Source\AST\ASTInterface;
+use PDepend\Source\AST\ASTTrait;
 use PDepend\Source\AST\AbstractASTClassOrInterface;
 use PDepend\Source\ASTVisitor\AbstractASTVisitor;
 
@@ -110,17 +112,29 @@ final class UnitCollector extends AbstractASTVisitor implements CodeAwareGenerat
 
     public function visitClass(ASTClass $node)
     {
-        $this->collect($node);
+        $this->collect($node, 'class');
         parent::visitClass($node);
     }
 
     public function visitInterface(ASTInterface $node)
     {
-        $this->collect($node);
+        $this->collect($node, 'interface');
         parent::visitInterface($node);
     }
 
-    private function collect(AbstractASTClassOrInterface $node)
+    public function visitTrait(ASTTrait $node)
+    {
+        $this->collect($node, 'trait');
+        parent::visitTrait($node);
+    }
+
+    public function visitEnum(ASTEnum $node)
+    {
+        $this->collect($node, 'enum');
+        parent::visitEnum($node);
+    }
+
+    private function collect(AbstractASTClassOrInterface $node, string $kind)
     {
         if (!$node->isUserDefined()) {
             return;
@@ -128,7 +142,7 @@ final class UnitCollector extends AbstractASTVisitor implements CodeAwareGenerat
 
         $relative = $this->relative($node->getCompilationUnit()->getFileName());
         $classMetrics = $this->metrics($node);
-        $this->addUnit($relative, $node->getName(), 'class', $node, $classMetrics['wmc'] ?? null, $classMetrics['loc'] ?? null, '');
+        $this->addUnit($relative, $node->getName(), $kind, $node, $classMetrics['wmc'] ?? null, $classMetrics['loc'] ?? null, '');
 
         foreach ($node->getMethods() as $method) {
             $methodMetrics = $this->metrics($method);

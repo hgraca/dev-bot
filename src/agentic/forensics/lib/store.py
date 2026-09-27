@@ -8,6 +8,7 @@ schema).
 
 from __future__ import annotations
 
+import datetime
 import os
 import sqlite3
 
@@ -124,6 +125,17 @@ def write_changes(conn: sqlite3.Connection, changes: list) -> None:
     )
 
 
+def _utc_key(value: str):
+    """A UTC datetime for an ISO-8601 string, so mixed offsets compare correctly."""
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.astimezone(datetime.timezone.utc)
+
+
 def derive_files(conn: sqlite3.Connection) -> None:
     """Roll per-commit file changes up into one row per path."""
     conn.execute("DELETE FROM files")
@@ -135,17 +147,20 @@ def derive_files(conn: sqlite3.Connection) -> None:
     acc = {}
     for row in rows:
         entry = acc.setdefault(
-            row["path"], {"commits": set(), "days": set(), "authors": set(), "first": None, "last": None}
+            row["path"],
+            {"commits": set(), "days": set(), "authors": set(), "first": None, "last": None, "first_key": None, "last_key": None},
         )
         entry["commits"].add(row["hash"])
-        entry["days"].add((row["date"] or "")[:10])
         entry["authors"].add(row["author"])
         date = row["date"]
-        if date:
-            if entry["first"] is None or date < entry["first"]:
-                entry["first"] = date
-            if entry["last"] is None or date > entry["last"]:
-                entry["last"] = date
+        if not date:
+            continue
+        key = _utc_key(date)
+        entry["days"].add(key.date().isoformat() if isinstance(key, datetime.datetime) else date[:10])
+        if entry["first_key"] is None or key < entry["first_key"]:
+            entry["first"], entry["first_key"] = date, key
+        if entry["last_key"] is None or key > entry["last_key"]:
+            entry["last"], entry["last_key"] = date, key
 
     for path, entry in acc.items():
         extension = os.path.splitext(path)[1].lstrip(".").lower()
@@ -158,22 +173,27 @@ def derive_files(conn: sqlite3.Connection) -> None:
 
 
 def write_units(conn: sqlite3.Connection, units: list) -> None:
-    conn.executemany(
-        "INSERT OR REPLACE INTO units(path, name, kind, start_line, end_line, complexity, loc, parent)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [
+    rows = []
+    for unit in units:
+        path, name, kind = unit.get("path"), unit.get("name"), unit.get("kind")
+        if not path or not name or not kind:
+            continue
+        rows.append(
             (
-                unit["path"],
-                unit["name"],
-                unit["kind"],
+                path,
+                name,
+                kind,
                 unit.get("start_line"),
                 unit.get("end_line"),
                 unit.get("complexity"),
                 unit.get("loc"),
                 unit.get("parent") or "",
             )
-            for unit in units
-        ],
+        )
+    conn.executemany(
+        "INSERT OR REPLACE INTO units(path, name, kind, start_line, end_line, complexity, loc, parent)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
     )
 
 
