@@ -336,7 +336,7 @@ with open(config, 'w') as f:
 
 # ── Tests: orphaned external module pruning ────────────────────────────────
 
-@test "prune: removes storage dirs not present in modules config" {
+@test "prune: removes storage dirs not declared by any module" {
   _setup '{}'
   _add_orphan_storage "orphan-a"
   _add_orphan_storage "orphan-b"
@@ -358,10 +358,21 @@ with open(config, 'w') as f:
   assert_success
 }
 
-@test "prune: removes a mirror declared by a disabled umbrella module" {
+@test "prune: an empty storage directory is harmless" {
+  # An empty dir leaves the glob unexpanded; the literal "*" must not be
+  # treated as an orphan (previously warned and ran a no-op rm).
+  _setup '{}'
+
+  run _run _prune_orphaned_external_modules
+  assert_success
+  refute_output --partial "Removing orphaned"
+}
+
+@test "prune: keeps a mirror declared by a disabled umbrella module" {
+  # The declaration store and the storage mirrors are global; a module disabled
+  # in THIS project must not delete a mirror another project needs. This is the
+  # regression: reinit used to remove it ("declared by a disabled module").
   _setup '{"modules": {"off-umbrella": false}}'
-  # A disabled umbrella declares ext-decl; init skips it entirely (audit-03 §9),
-  # so a mirror left by an earlier state is an orphan.
   mkdir -p "${SANDBOX_DIR}/src/agentic/off-umbrella"
   cat > "${SANDBOX_DIR}/src/agentic/off-umbrella/external-modules.json" <<'EOF'
 {
@@ -373,7 +384,24 @@ EOF
   run _run _prune_orphaned_external_modules
   assert_success
 
-  assert [ ! -e "${SANDBOX_DIR}/storage/external-agentic-modules/ext-decl" ]
+  assert [ -d "${SANDBOX_DIR}/storage/external-agentic-modules/ext-decl" ]
+}
+
+@test "prune: keeps a mirror declared by any module even when absent from config" {
+  _setup '{"modules": {"off-umbrella": false}}'
+  mkdir -p "${SANDBOX_DIR}/src/agentic/off-umbrella"
+  cat > "${SANDBOX_DIR}/src/agentic/off-umbrella/external-modules.json" <<'EOF'
+{
+  "ext-decl": { "url": "https://example.com/ext-decl.git", "paths": { "skills": "skills" } }
+}
+EOF
+  # Storage mirror exists but is NOT registered in external_modules.
+  _add_orphan_storage "ext-decl"
+
+  run _run _prune_orphaned_external_modules
+  assert_success
+
+  assert [ -d "${SANDBOX_DIR}/storage/external-agentic-modules/ext-decl" ]
 }
 
 @test "prune: keeps a mirror declared by an enabled umbrella module" {
@@ -393,8 +421,6 @@ EOF
 }
 
 @test "prune: keeps a mirror declared by both an enabled and a disabled module" {
-  # A disabled umbrella declaring the name is not enough to orphan it: the
-  # enabled umbrella needs the mirror (audit-03 review F3).
   _setup '{"modules": {"off-umbrella": false, "on-umbrella": true}}'
   mkdir -p "${SANDBOX_DIR}/src/agentic/off-umbrella" "${SANDBOX_DIR}/src/agentic/on-umbrella"
   cat > "${SANDBOX_DIR}/src/agentic/off-umbrella/external-modules.json" <<'EOF'

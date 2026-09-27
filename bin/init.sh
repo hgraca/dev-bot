@@ -276,70 +276,57 @@ for m in json.loads(sys.stdin.read()):
   fi
 }
 
-# _module_declared_names <state> — prints the external-module names declared by
-# modules whose state is `disabled` or `enabled`. init's declared-module loop
-# skips a disabled umbrella entirely (no clone, mirror, or wiring — audit-03
-# §9), so a mirror for a disabled-declared name is an orphan; but a name ALSO
-# declared by an enabled umbrella must be kept — the enabled module mirrors it.
+# _all_declared_external_names — prints every external-module name declared by
+# any internal module's external-modules.json (src/agentic/* and src/tools/*),
+# regardless of whether that module is enabled. Enablement is per-project while
+# the declaration store and the storage mirrors are global, so a name declared
+# by a disabled module is still a live declaration.
 
-_module_declared_names() {
-  local want="$1"
-  local disabled_json
-  disabled_json="$(_devbot_get_disabled_modules "${PROJECT_DIR}")"
+_all_declared_external_names() {
   python3 -c "
-import glob, json, sys
-want = sys.argv[2]
-try:
-    disabled = set(json.loads(sys.argv[1]))
-except Exception:
-    disabled = set()
+import glob, json
 for f in glob.glob('${DEV_BOT_ROOT}/src/agentic/*/external-modules.json') + glob.glob('${DEV_BOT_ROOT}/src/tools/*/external-modules.json'):
-    mod = f.rsplit('/', 2)[-2]
-    if (want == 'disabled') != (mod in disabled):
-        continue
     try:
         for name in json.load(open(f)):
             print(name)
     except Exception:
         continue
-" "${disabled_json}" "${want}" 2>/dev/null || true
+" 2>/dev/null || true
 }
 
-# _prune_orphaned_external_modules — removes external-module storage dirs that
-# are no longer present in the `modules` config, plus mirrors whose name is
-# declared ONLY by a currently-disabled umbrella module. The config is the
-# source of truth; orphaned storage is removed regardless of what still exists
-# on disk.
+# _prune_orphaned_external_modules — removes an external-module storage mirror
+# ONLY when nothing declares it: not any internal module's external-modules.json
+# (enabled or disabled) and not the `external_modules` config. A declared name is
+# always kept — the mirrors live under the global dev-bot root and another
+# project may need the one this project has disabled.
 
 _prune_orphaned_external_modules() {
   local external_base="${DEV_BOT_ROOT}/storage/external-agentic-modules"
   [[ -d "${external_base}" ]] || return 0
 
-  local configured disabled_declared enabled_declared
+  local declared configured
+  declared="$(_all_declared_external_names)"
   configured="$(_devbot_get_external_modules)"
-  disabled_declared="$(_module_declared_names disabled)"
-  enabled_declared="$(_module_declared_names enabled)"
 
   local orphan_dir
   for orphan_dir in "${external_base}/"*/; do
+    # An empty storage dir leaves the glob unexpanded — skip the literal "*".
+    [[ -d "${orphan_dir}" ]] || continue
+
     local dir_name
     dir_name="$(basename "${orphan_dir}")"
 
-    # Orphan 1: declared by a disabled umbrella module — init skipped it
-    # entirely, so this mirror is a leftover from an earlier state. A name an
-    # ENABLED umbrella also declares is not an orphan: that umbrella needs it.
-    if echo "${disabled_declared}" | grep -Fxq "${dir_name}" 2>/dev/null \
-      && ! echo "${enabled_declared}" | grep -Fxq "${dir_name}" 2>/dev/null; then
-      _warn "Removing orphaned external module storage: ${dir_name} (declared by a disabled module)"
-      rm -rf "${orphan_dir}"
+    # Declared by a module (any state) → keep.
+    if echo "${declared}" | grep -Fxq "${dir_name}" 2>/dev/null; then
       continue
     fi
 
-    # Orphan 2: not present in the modules config at all.
+    # Registered in the config (CLI `module add` / hand-written) → keep.
     if echo "${configured}" | grep -Fxq "${dir_name}" 2>/dev/null; then
       continue
     fi
-    _warn "Removing orphaned external module storage: ${dir_name} (not in modules config)"
+
+    _warn "Removing orphaned external module storage: ${dir_name} (not declared by any module)"
     rm -rf "${orphan_dir}"
   done
 }
