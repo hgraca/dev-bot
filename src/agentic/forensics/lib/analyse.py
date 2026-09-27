@@ -632,6 +632,21 @@ def modules(conn: sqlite3.Connection, top=None) -> list:
     return results[:top] if top is not None else results
 
 
+def structural(conn: sqlite3.Connection, top=None) -> list:
+    """Class-level structural coupling (ca/ce/cbo) from the plugin (A15).
+
+    A cross-check for temporal coupling: a pair that changes together with no
+    structural edge between them is the interesting one.
+    """
+    rows = conn.execute(
+        "SELECT path, name, COALESCE(ca, 0) AS ca, COALESCE(ce, 0) AS ce, COALESCE(cbo, 0) AS cbo"
+        " FROM units WHERE kind = 'class' AND (ca IS NOT NULL OR ce IS NOT NULL OR cbo IS NOT NULL)"
+        " ORDER BY (COALESCE(ca, 0) + COALESCE(ce, 0)) DESC, path, name"
+    ).fetchall()
+    results = [dict(row) for row in rows]
+    return results[:top] if top is not None else results
+
+
 _VIEWS = {
     "hotspots": hotspots,
     "priority": priority,
@@ -654,4 +669,5 @@ _VIEWS = {
     "releases": releases,
     "architecture": architecture,
     "modules": modules,
+    "structural": structural,
 }

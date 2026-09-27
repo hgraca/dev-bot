@@ -30,6 +30,7 @@ SECTIONS = (
     ("releases", "Releases", 20),
     ("modules", "Modules", 20),
     ("architecture", "Cross-module coupling", 20),
+    ("structural", "Structural coupling", 20),
 )
 
 _METHOD = (

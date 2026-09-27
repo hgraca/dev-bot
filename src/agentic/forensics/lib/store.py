@@ -58,6 +58,9 @@ CREATE TABLE IF NOT EXISTS units (
   complexity INTEGER,
   loc        INTEGER,
   parent     TEXT,
+  ca         INTEGER,
+  ce         INTEGER,
+  cbo        INTEGER,
   PRIMARY KEY (path, kind, name)
 );
 CREATE TABLE IF NOT EXISTS defect_links (
@@ -277,11 +280,14 @@ def write_units(conn: sqlite3.Connection, units: list) -> None:
                 unit.get("complexity"),
                 unit.get("loc"),
                 unit.get("parent") or "",
+                unit.get("ca"),
+                unit.get("ce"),
+                unit.get("cbo"),
             )
         )
     conn.executemany(
-        "INSERT OR REPLACE INTO units(path, name, kind, start_line, end_line, complexity, loc, parent)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO units(path, name, kind, start_line, end_line, complexity, loc, parent, ca, ce, cbo)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
 

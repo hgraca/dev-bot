@@ -142,7 +142,20 @@ final class UnitCollector extends AbstractASTVisitor implements CodeAwareGenerat
 
         $relative = $this->relative($node->getCompilationUnit()->getFileName());
         $classMetrics = $this->metrics($node);
-        $this->addUnit($relative, $node->getName(), $kind, $node, $classMetrics['wmc'] ?? null, $classMetrics['loc'] ?? null, '');
+        $this->addUnit(
+            $relative,
+            $node->getName(),
+            $kind,
+            $node,
+            $classMetrics['wmc'] ?? null,
+            $classMetrics['loc'] ?? null,
+            '',
+            [
+                'ca' => $this->scalar($classMetrics['ca'] ?? null),
+                'ce' => $this->scalar($classMetrics['ce'] ?? null),
+                'cbo' => $this->scalar($classMetrics['cbo'] ?? null),
+            ]
+        );
 
         foreach ($node->getMethods() as $method) {
             $methodMetrics = $this->metrics($method);
@@ -175,18 +188,31 @@ final class UnitCollector extends AbstractASTVisitor implements CodeAwareGenerat
         return $merged;
     }
 
-    private function addUnit(string $path, string $name, string $kind, $node, $complexity, $loc, string $parent): void
+    private function addUnit(string $path, string $name, string $kind, $node, $complexity, $loc, string $parent, array $extra = []): void
     {
-        $this->units[$path . '|' . $kind . '|' . $name] = [
-            'path' => $path,
-            'name' => $name,
-            'kind' => $kind,
-            'start_line' => $node->getStartLine(),
-            'end_line' => $node->getEndLine(),
-            'complexity' => $complexity === null ? null : (int) $complexity,
-            'loc' => $loc === null ? null : (int) $loc,
-            'parent' => $parent,
-        ];
+        $this->units[$path . '|' . $kind . '|' . $name] = array_merge(
+            [
+                'path' => $path,
+                'name' => $name,
+                'kind' => $kind,
+                'start_line' => $node->getStartLine(),
+                'end_line' => $node->getEndLine(),
+                'complexity' => $complexity === null ? null : (int) $complexity,
+                'loc' => $loc === null ? null : (int) $loc,
+                'parent' => $parent,
+            ],
+            $extra
+        );
+    }
+
+    /** Some PDepend coupling metrics are arrays of coupled types; count them. */
+    private function scalar($value)
+    {
+        if (is_array($value)) {
+            return count($value);
+        }
+
+        return $value === null ? null : (int) $value;
     }
 
     private function relative(string $file): string

@@ -332,6 +332,7 @@ assert doc["ok"] is True, doc
 units = {(u["kind"], u["name"]): u for u in doc["units"]}
 assert ("class", "Calculator") in units, list(units)
 assert units[("class", "Calculator")]["complexity"] == 4, units
+assert "ca" in units[("class", "Calculator")], units[("class", "Calculator")]
 assert ("method", "Calculator::add") in units, list(units)
 assert units[("method", "Calculator::add")]["complexity"] == 1, units
 assert ("method", "Calculator::classify") in units, list(units)
@@ -1352,6 +1353,24 @@ assert rows[0]["risk"] == round(rows[0]["priority"] * 3, 4), rows
 }
 
 # ── Phase 2: architecture vs organization ──────────────────────────────────────
+
+@test "analyse structural: reports class coupling metrics" {
+  run python3 -c '
+import sqlite3, sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import analyse, store
+conn = sqlite3.connect(":memory:")
+conn.row_factory = sqlite3.Row
+store.init(conn)
+store.write_units(conn, [
+    {"path": "a.php", "name": "A", "kind": "class", "start_line": 1, "end_line": 1, "complexity": 1,
+     "loc": 1, "parent": "", "ca": 3, "ce": 2, "cbo": 5},
+])
+conn.commit()
+rows = analyse.structural(conn)
+assert rows and rows[0]["ca"] == 3 and rows[0]["ce"] == 2 and rows[0]["cbo"] == 5, rows
+' "${MODULE_DIR}"
+}
 
 @test "analyse architecture: flags cross-module coupling" {
   local repo db
