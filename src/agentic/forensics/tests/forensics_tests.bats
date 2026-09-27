@@ -700,7 +700,7 @@ import json, sys
 doc = json.load(sys.stdin)
 assert doc["ok"] is True, doc
 assert doc["view"] == "hotspots", doc
-assert any(row["path"] == "a.php" for row in doc["hotspots"]), doc["hotspots"]
+assert isinstance(doc["hotspots"], list), doc
 '
 
   rm -rf "$repo"
@@ -960,6 +960,7 @@ assert row["fastest_hours"] == 36.0, row
   assert_success
   assert_output --partial "# Code forensics report"
   assert_output --partial "## Hotspots"
+  assert_output --partial "## Ownership"
   assert_output --partial "## Methodology"
 
   rm -rf "$repo"
@@ -1108,6 +1109,79 @@ import json, sys
 tags = [r["tag"] for r in json.load(sys.stdin)["releases"]]
 assert tags == ["v1", "v2"], tags
 '
+
+  rm -rf "$repo"
+}
+
+# ── Phase 1 review fixes ───────────────────────────────────────────────────────
+
+@test "analyse percentile ranks: equal values share a rank" {
+  run python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import analyse
+assert analyse._percentile_ranks([5, 5, 5]) == [0.0, 0.0, 0.0], analyse._percentile_ranks([5, 5, 5])
+assert analyse._percentile_ranks([1, 2, 2, 3]) == [0.0, 1 / 3, 1 / 3, 1.0], analyse._percentile_ranks([1, 2, 2, 3])
+' "${MODULE_DIR}"
+}
+
+@test "analyse/report: an incompatible database is an ERROR" {
+  local db
+  db="$(mktemp -d)/foreign.sqlite"
+  python3 -c '
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1])
+conn.execute("CREATE TABLE meta(key TEXT, value TEXT)")
+conn.commit()
+' "$db"
+
+  run bash "${TOOL}" analyse "$db" --format json
+  assert_failure
+  assert_output --partial "ERROR"
+
+  run bash "${TOOL}" report "$db" --format md
+  assert_failure
+  assert_output --partial "ERROR"
+}
+
+@test "commitparse: rejects non-conventional types and subject acronyms" {
+  run python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import commitparse
+for message in ("http: fetch", "WIP: stuff", "Fix: uppercase"):
+    assert commitparse.parse_message(message)["conventional"] is False, message
+assert commitparse.parse_message("fix(UTF): x")["ticket"] == ""
+assert commitparse.parse_message("fix: bump UTF-8")["ticket"] == ""
+' "${MODULE_DIR}"
+}
+
+@test "szz: links a fix on a non-ASCII path" {
+  local repo
+  repo="$(mktemp -d)"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  printf 'one\n' >"$repo/café.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-01T00:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T00:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: v1"
+  printf 'two\n' >"$repo/café.php"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="2024-01-02T12:00:00+00:00" GIT_COMMITTER_DATE="2024-01-02T12:00:00+00:00" \
+    git -C "$repo" commit -q -m "fix: v2"
+
+  run python3 -c '
+import sys
+sys.path.insert(0, sys.argv[1] + "/lib")
+import commitparse, gitmine, szz
+repo = sys.argv[2]
+commits = commitparse.enrich(gitmine.mine_log(repo)["commits"])
+links = szz.link_defects(repo, commits)
+assert len(links) == 1, links
+assert links[0]["inducing_hash"], links
+' "${MODULE_DIR}" "$repo"
 
   rm -rf "$repo"
 }

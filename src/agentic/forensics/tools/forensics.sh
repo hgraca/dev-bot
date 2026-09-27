@@ -55,8 +55,10 @@ Commands:
                         Walk git history + code units + metrics + commit
                         analysis into the SQLite store.
   analyse <db> [--view <view>] [--top N] [--format md|json]
-                        Query one view (hotspots, coupling, ownership,
-                        concentration, trends, architecture, history, all).
+                        Query one view: hotspots, change-rate, coupling,
+                        ownership, concentration, unit-ownership,
+                        unit-concentration, commit-types, authors, tickets,
+                        defects, time-to-fix, fixers, process, releases.
   report <db> [--out <dir>] [--format md|json]
                         Full Tornhill + commit-history report.
   doctor [--project <dir>] [--format md|json]

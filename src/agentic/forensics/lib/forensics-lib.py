@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 
@@ -324,7 +325,11 @@ def cmd_mine(args: list) -> int:
             warnings += ["unit extraction skipped (%s)" % error for error in errors]
             if units:
                 store.write_units(conn, units)
-                ownership_rows, churn_rows = ownership.unit_blame(data["repo"], units)
+                try:
+                    ownership_rows, churn_rows = ownership.unit_blame(data["repo"], units)
+                except RuntimeError as exc:
+                    warnings.append("unit ownership skipped: %s" % exc)
+                    ownership_rows, churn_rows = [], []
                 if ownership_rows:
                     store.write_unit_ownership(conn, ownership_rows)
                 if churn_rows:
@@ -406,7 +411,15 @@ def cmd_analyse(args: list) -> int:
 
     conn = store.connect(db_path)
     try:
-        rows = analyse._VIEWS[view](conn, top)
+        problem = store.check(conn)
+        if problem:
+            print("ERROR: %s" % problem, file=sys.stderr)
+            return 1
+        try:
+            rows = analyse._VIEWS[view](conn, top)
+        except sqlite3.Error as exc:
+            print("ERROR: %s" % exc, file=sys.stderr)
+            return 1
     finally:
         conn.close()
 
@@ -439,7 +452,15 @@ def cmd_report(args: list) -> int:
 
     conn = store.connect(db_path)
     try:
-        doc = report.build(conn)
+        problem = store.check(conn)
+        if problem:
+            print("ERROR: %s" % problem, file=sys.stderr)
+            return 1
+        try:
+            doc = report.build(conn)
+        except sqlite3.Error as exc:
+            print("ERROR: %s" % exc, file=sys.stderr)
+            return 1
     finally:
         conn.close()
 

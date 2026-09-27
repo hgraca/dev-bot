@@ -9,22 +9,23 @@ dominate the list (AD-7).
 
 from __future__ import annotations
 
+import bisect
 import datetime
 import sqlite3
 
+CONCENTRATION_THRESHOLD = 80.0
+LARGE_COMMIT_LINES = 500
+
 
 def _percentile_ranks(values: list) -> list:
-    """Rank values on [0, 1], aligned with the input order; ties share a slot."""
+    """Rank values on [0, 1] aligned with the input; equal values share a rank."""
     count = len(values)
     if count == 0:
         return []
     if count == 1:
         return [1.0]
-    order = sorted(range(count), key=lambda index: values[index])
-    ranks = [0.0] * count
-    for position, index in enumerate(order):
-        ranks[index] = position / (count - 1)
-    return ranks
+    ordered = sorted(values)
+    return [bisect.bisect_left(ordered, value) / (count - 1) for value in values]
 
 
 def hotspots(conn: sqlite3.Connection, top=None) -> list:
@@ -38,9 +39,9 @@ def hotspots(conn: sqlite3.Connection, top=None) -> list:
         " COALESCE(SUM(CASE WHEN u.kind IN ('method', 'function') THEN u.complexity ELSE 0 END), 0) AS leaf,"
         " COALESCE(SUM(u.complexity), 0) AS total,"
         " COUNT(u.name) AS unit_count"
-        " FROM files f LEFT JOIN units u ON u.path = f.path"
-        " WHERE f.type = 'php'"
+        " FROM files f JOIN units u ON u.path = f.path"
         " GROUP BY f.path"
+        " ORDER BY f.path"
     ).fetchall()
 
     rows = []
@@ -189,7 +190,7 @@ def ownership(conn: sqlite3.Connection, top=None) -> list:
     return results[:top] if top is not None else results
 
 
-def concentration(conn: sqlite3.Connection, top=None, threshold: float = 80.0) -> list:
+def concentration(conn: sqlite3.Connection, top=None, threshold: float = CONCENTRATION_THRESHOLD) -> list:
     """Knowledge-risk files: single-owner, or one author holding >= ``threshold``%.
 
     Ranked by change activity — a concentrated file nobody touches is lower risk
@@ -239,7 +240,7 @@ def authors(conn: sqlite3.Connection, top=None) -> list:
         " SUM(CASE WHEN type = 'fix' THEN 1 ELSE 0 END) AS fix,"
         " SUM(CASE WHEN type = 'hotfix' THEN 1 ELSE 0 END) AS hotfix,"
         " SUM(CASE WHEN breaking = 1 THEN 1 ELSE 0 END) AS breaking,"
-        " SUM(CASE WHEN type = '' THEN 0 ELSE 1 END) AS conventional"
+        " SUM(CASE WHEN COALESCE(type, '') = '' THEN 0 ELSE 1 END) AS conventional"
         " FROM commits GROUP BY author_email ORDER BY commits DESC"
     ).fetchall()
     results = []
@@ -259,14 +260,42 @@ def authors(conn: sqlite3.Connection, top=None) -> list:
     return results[:top] if top is not None else results
 
 
+def _utc(value: str):
+    """Parse an ISO-8601 timestamp to UTC, or None — for offset-safe ordering."""
+    try:
+        parsed = datetime.datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed.astimezone(datetime.timezone.utc)
+
+
 def tickets(conn: sqlite3.Connection, top=None) -> list:
-    """Ticket references found in commit scopes: activity and fix counts."""
-    rows = conn.execute(
-        "SELECT ticket, COUNT(*) AS commits, SUM(CASE WHEN type IN ('fix', 'hotfix', 'bugfix') THEN 1 ELSE 0 END) AS fixes,"
-        " MIN(date) AS first_seen, MAX(date) AS last_seen"
-        " FROM commits WHERE ticket <> '' GROUP BY ticket ORDER BY commits DESC"
-    ).fetchall()
-    results = [dict(row) for row in rows]
+    """Ticket references found in commit scopes: activity, fixes and first/last seen."""
+    aggregated = {}
+    for row in conn.execute("SELECT ticket, date, COALESCE(type, '') AS type FROM commits WHERE ticket <> ''").fetchall():
+        entry = aggregated.setdefault(row["ticket"], {"commits": 0, "fixes": 0, "dates": []})
+        entry["commits"] += 1
+        if row["type"] in ("fix", "hotfix", "bugfix"):
+            entry["fixes"] += 1
+        if row["date"]:
+            entry["dates"].append(row["date"])
+
+    floor = datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+    results = []
+    for ticket, entry in aggregated.items():
+        dates = sorted(entry["dates"], key=lambda value: _utc(value) or floor)
+        results.append(
+            {
+                "ticket": ticket,
+                "commits": entry["commits"],
+                "fixes": entry["fixes"],
+                "first_seen": dates[0] if dates else None,
+                "last_seen": dates[-1] if dates else None,
+            }
+        )
+    results.sort(key=lambda item: item["commits"], reverse=True)
     return results[:top] if top is not None else results
 
 
@@ -360,7 +389,7 @@ def process(conn: sqlite3.Connection, top=None) -> list:
             "avg_files_per_commit": round(sum(sizes) / len(sizes), 2),
             "max_files_in_commit": max(sizes),
             "avg_lines_per_commit": round(sum(churn) / len(churn), 1),
-            "large_commits": sum(1 for value in churn if value > 500),
+            "large_commits": sum(1 for value in churn if value > LARGE_COMMIT_LINES),
             "conventional_pct": round(100.0 * conventional / len(rows), 1),
             "tags": len(release_dates),
             "avg_days_between_releases": round(sum(gaps) / len(gaps), 1) if gaps else 0,
@@ -405,7 +434,7 @@ def unit_ownership(conn: sqlite3.Connection, top=None) -> list:
     return results[:top] if top is not None else results
 
 
-def unit_concentration(conn: sqlite3.Connection, top=None, threshold: float = 80.0) -> list:
+def unit_concentration(conn: sqlite3.Connection, top=None, threshold: float = CONCENTRATION_THRESHOLD) -> list:
     """Units whose knowledge is single-owner or >= ``threshold``% one author."""
     flagged = [row for row in unit_ownership(conn, None) if row["authors"] == 1 or row["top_share"] >= threshold]
     return flagged[:top] if top is not None else flagged

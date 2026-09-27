@@ -104,9 +104,26 @@ def connect(db_path: str) -> sqlite3.Connection:
     return conn
 
 
+SCHEMA_VERSION = "2"
+
+
 def init(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)", (SCHEMA_VERSION,))
     conn.commit()
+
+
+def check(conn: sqlite3.Connection):
+    """A human problem string when the store is not a compatible forensics DB."""
+    try:
+        row = conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+    except sqlite3.Error as exc:
+        return "unreadable store (%s)" % exc
+    if row is None:
+        return "not a forensics store (no schema_version) — re-run: forensics mine"
+    if row["value"] != SCHEMA_VERSION:
+        return "store schema_version %s, expected %s — re-run: forensics mine" % (row["value"], SCHEMA_VERSION)
+    return None
 
 
 def reset(conn: sqlite3.Connection) -> None:

@@ -14,7 +14,7 @@ import datetime
 import re
 import subprocess
 
-FIX_TYPES = {"fix", "hotfix", "bugfix"}
+from commitparse import FIX_TYPES
 
 _HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,\d+)? @@")
 
@@ -28,28 +28,56 @@ def _is_sha(token: str) -> bool:
 
 
 def removed_ranges(repo: str, commit: str) -> dict:
-    """Per file, the pre-image line ranges (start, length) the commit changed."""
-    proc = _git(repo, "show", "--format=", "--unified=0", "--no-color", commit)
+    """Per pre-image path, the line ranges (start, length) the commit changed.
+
+    Uses the *old* path so a rename or deletion still resolves at the parent, and
+    disables path quoting so non-ASCII names survive. ``+++``/``---`` are only
+    treated as headers outside a hunk, so an added line beginning with ``+++`` is
+    not mistaken for a file.
+    """
+    proc = _git(repo, "-c", "core.quotePath=false", "show", "--format=", "--unified=0", "--no-color", "-M", commit)
+    if proc.returncode != 0:
+        return {}
+
     ranges = {}
+    old_path = None
     current = None
+    in_hunk = False
+
     for line in proc.stdout.splitlines():
-        if line.startswith("+++ "):
-            path = line[4:].strip()
-            current = path[2:] if path.startswith("b/") else (None if path == "/dev/null" else path)
+        if line.startswith("diff --git "):
+            old_path = None
+            current = None
+            in_hunk = False
+            continue
+        if not in_hunk and line.startswith("--- "):
+            value = line[4:].strip()
+            old_path = None if value == "/dev/null" else (value[2:] if value.startswith("a/") else value)
+            continue
+        if not in_hunk and line.startswith("+++ "):
+            value = line[4:].strip()
+            new_path = None if value == "/dev/null" else (value[2:] if value.startswith("b/") else value)
+            current = old_path if old_path is not None else new_path
             if current is not None:
                 ranges.setdefault(current, [])
             continue
+
         match = _HUNK.match(line)
-        if match and current is not None:
-            length = int(match.group(2)) if match.group(2) is not None else 1
-            if length > 0:
-                ranges[current].append((int(match.group(1)), length))
+        if match:
+            in_hunk = True
+            if current is not None:
+                length = int(match.group(2)) if match.group(2) is not None else 1
+                if length > 0:
+                    ranges[current].append((int(match.group(1)), length))
+
     return ranges
 
 
 def blame_origins(repo: str, rev: str, path: str, start: int, end: int) -> dict:
-    """Count blamed lines per commit for a range at ``rev``."""
+    """Count blamed lines per commit for a range at ``rev`` (empty on failure)."""
     proc = _git(repo, "blame", "--line-porcelain", "-L", "%d,%d" % (start, end), rev, "--", path)
+    if proc.returncode != 0:
+        return {}
     counts = {}
     for line in proc.stdout.splitlines():
         token = line.split(" ", 1)[0]
