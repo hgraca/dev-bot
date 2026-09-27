@@ -274,3 +274,35 @@ sys.exit(0 if list(entries.keys())[0] == '*' else 1)
   run grep -c '"'"${HOME}/.local/share/opencode/log/\*\*"'": "allow"' "${FAKE_PROJECT}/opencode.jsonc"
   assert_equal "$output" "1"
 }
+
+# ── Harness-log cap ───────────────────────────────────────────────────────────
+# The opencode log grows without bound (100 MB on a dev machine, never rotated);
+# start.sh rotates it past the cap before launching (audit-69 NOTE-2).
+
+@test "start.sh caps an oversized opencode log" {
+  _make_minimal_root
+  local logdir="${FAKE_HOME}/.local/share/opencode/log"
+  mkdir -p "${logdir}"
+  head -c 200 /dev/zero > "${logdir}/opencode.log"
+
+  DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" DEV_BOT_OPENCODE_LOG_MAX_BYTES=100 \
+    run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+
+  assert_success
+  [[ -e "${logdir}/opencode.log.1" ]]
+  [[ ! -e "${logdir}/opencode.log" ]]
+}
+
+@test "start.sh leaves a small opencode log alone" {
+  _make_minimal_root
+  local logdir="${FAKE_HOME}/.local/share/opencode/log"
+  mkdir -p "${logdir}"
+  printf 'small\n' > "${logdir}/opencode.log"
+
+  DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" \
+    run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+
+  assert_success
+  [[ -e "${logdir}/opencode.log" ]]
+  [[ ! -e "${logdir}/opencode.log.1" ]]
+}

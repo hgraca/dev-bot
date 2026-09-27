@@ -420,6 +420,23 @@ _devbot_rotate_session_logs() {
   return 0
 }
 
+# _devbot_cap_file <path> <max_bytes>
+#   Rotates <path> to <path>.1 (replacing any previous generation) when it is
+#   larger than <max_bytes>. Bounds a log no other mechanism rotates — the
+#   opencode harness log reached 100 MB and never shrank. Silent when the file is
+#   missing or within the cap, and never fails the caller.
+_devbot_cap_file() {
+  local file="$1" max_bytes="$2"
+  [[ -f "${file}" && -r "${file}" ]] || return 0
+
+  local size
+  size="$(wc -c < "${file}" 2>/dev/null | tr -d '[:space:]')" || return 0
+  [[ "${size}" =~ ^[0-9]+$ ]] || return 0
+  [[ "${size}" -gt "${max_bytes}" ]] || return 0
+
+  mv -f "${file}" "${file}.1" 2>/dev/null || true
+}
+
 # _devbot_check_session_logs <project_dir>
 #   Scans the current .agents/logs/*.log files (fresh for this session, thanks
 #   to _devbot_rotate_session_logs) for error-level lines and prints an alert:

@@ -596,3 +596,59 @@ EOF
   refute_output --partial "format-json.log"
   assert_output --partial "hooks.log"
 }
+
+# ── _devbot_cap_file ─────────────────────────────────────────────────────────
+# Bounds a log no other mechanism rotates — the opencode harness log grew to
+# 100 MB and never shrank (audit-69 NOTE-2).
+
+@test "_devbot_cap_file: rotates an oversized file to a single .1 generation" {
+  local f="${TEST_TEMP}/big.log"
+  head -c 200 /dev/zero > "${f}"
+
+  _devbot_cap_file "${f}" 100
+
+  [[ ! -e "${f}" ]]
+  [[ -e "${f}.1" ]]
+  assert_equal "$(wc -c < "${f}.1" | tr -d '[:space:]')" "200"
+}
+
+@test "_devbot_cap_file: leaves a file within the cap alone" {
+  local f="${TEST_TEMP}/small.log"
+  printf 'hello\n' > "${f}"
+
+  _devbot_cap_file "${f}" 100
+
+  [[ -e "${f}" ]]
+  [[ ! -e "${f}.1" ]]
+}
+
+@test "_devbot_cap_file: replaces the previous generation" {
+  local f="${TEST_TEMP}/rot.log"
+  printf 'old\n' > "${f}.1"
+  head -c 200 /dev/zero > "${f}"
+
+  _devbot_cap_file "${f}" 100
+
+  assert_equal "$(wc -c < "${f}.1" | tr -d '[:space:]')" "200"
+}
+
+@test "_devbot_cap_file: a missing file is a silent no-op" {
+  run _devbot_cap_file "${TEST_TEMP}/absent.log" 100
+
+  assert_success
+  [[ ! -e "${TEST_TEMP}/absent.log.1" ]]
+}
+
+@test "_devbot_cap_file: an unreadable file never aborts the caller (set -e)" {
+  # start.sh runs under set -euo pipefail; a wc that fails on an unreadable log
+  # (e.g. root-owned from a past `sudo opencode`) must not abort the launch.
+  if [ "$(id -u)" -eq 0 ]; then skip "root can read a 000 file"; fi
+  local f="${TEST_TEMP}/locked.log"
+  printf 'x\n' > "${f}"
+  chmod 000 "${f}"
+
+  run bash -c "set -euo pipefail; source '${PROJECT_ROOT}/src/_shared/functions.sh'; _devbot_cap_file '${f}' 1"
+
+  assert_success
+  [[ ! -e "${f}.1" ]]
+}

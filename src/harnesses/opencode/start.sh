@@ -33,6 +33,13 @@ if [[ ! -f "${bin}" ]]; then
   exit 1
 fi
 
+# Cap the harness's own log — nothing else rotates it, and it grows without
+# bound (100 MB on a dev machine, never shrunk; audit-69 NOTE-2). One rotation
+# before launch; DEV_BOT_OPENCODE_LOG_MAX_BYTES overrides the 50 MB cap.
+_devbot_cap_file \
+  "${XDG_DATA_HOME:-${HOME}/.local/share}/opencode/log/opencode.log" \
+  "${DEV_BOT_OPENCODE_LOG_MAX_BYTES:-$((50 * 1024 * 1024))}"
+
 # Rotate the previous session's logs (dated + 3-digit suffix, preserved under
 # .agents/logs/rotated/) so the post-exit check only sees this session's
 # entries. Fail open: if logs can't be rotated, the check still runs.
