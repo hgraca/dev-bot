@@ -575,6 +575,59 @@ _devbot_get_codebase_provider() {
   esac
 }
 
+# _devbot_codebase_memory_root
+#   Prints the repo root the shared codebase-memory gateway bind-mounts read-only
+#   (docker-compose.yml mounts ${CODEBASE_MEMORY_ROOT:-$HOME} at the same path).
+#   An explicit CODEBASE_MEMORY_ROOT wins. Otherwise it is the common ancestor of
+#   $HOME and every existing registered project, so a gateway that defaults to
+#   $HOME widens just enough to cover a project living outside it. It never
+#   narrows below $HOME (which would drop caches under it) and never resolves to
+#   "/" (which would shadow the container's own filesystem) — in both cases it
+#   stays $HOME, and a project in a disjoint tree needs an explicit
+#   CODEBASE_MEMORY_ROOT.
+_devbot_codebase_memory_root() {
+  if [[ -n "${CODEBASE_MEMORY_ROOT:-}" ]]; then
+    printf '%s\n' "${CODEBASE_MEMORY_ROOT%/}"
+    return 0
+  fi
+
+  local shared_dir
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local root=""
+  if [[ -f "${config}" ]] && command -v python3 >/dev/null 2>&1; then
+    root="$(python3 - "${config}" "${HOME}" "${shared_dir}/read_jsonc.py" <<'PY' 2>/dev/null || true
+import json, os, subprocess, sys
+
+config, home, reader = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    projects = json.loads(subprocess.check_output(["python3", reader, config, "projects"]))
+except Exception:
+    projects = []
+if not isinstance(projects, list):
+    projects = []
+
+# $HOME is always a candidate: the default root is $HOME, so the ancestor must
+# never be narrower than it.
+candidates = [os.path.abspath(home)]
+for project in projects:
+    if isinstance(project, str) and os.path.isabs(project) and os.path.isdir(project):
+        candidates.append(os.path.normpath(project))
+
+try:
+    common = os.path.commonpath(candidates)
+except ValueError:
+    common = ""
+if common in ("", "/"):
+    common = os.path.abspath(home)
+print(os.path.normpath(common))
+PY
+)"
+  fi
+  [[ -n "${root}" ]] || root="${HOME}"
+  printf '%s\n' "${root%/}"
+}
+
 # ── Memory-search engine provider (config-driven) ─────────────────────────────
 #
 # _devbot_get_memory_search_provider [project_dir]

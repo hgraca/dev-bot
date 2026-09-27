@@ -34,8 +34,10 @@
 #   real paths inside the container. Docker fixes mounts at container CREATION
 #   (there is no live attach), and this gateway is shared by every instance — so
 #   the mount set is a machine-level property, not a per-instance one. A single
-#   root, defaulting to $HOME, means every project path already resolves with no
-#   per-project action. Narrow it (e.g. to ~/Development) by exporting
+#   root means every project path already resolves with no per-project action.
+#   bin/up.sh derives that root as the common ancestor of $HOME and the existing
+#   registered projects — never narrower than $HOME, never "/" — so a project
+#   outside $HOME is still covered. Override it entirely by exporting
 #   CODEBASE_MEMORY_ROOT before `devbot up` — the module's up.sh detects the
 #   drift and force-recreates this service automatically, because Docker fixes
 #   mounts at creation and bin/up.sh runs compose with --no-recreate. (The old

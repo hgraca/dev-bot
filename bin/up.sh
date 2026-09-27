@@ -28,6 +28,12 @@ export DEV_GID="$(id -g)"
 # shellcheck source=../src/_shared/functions.sh
 source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 
+# The codebase-memory gateway mounts ONE repo root
+# (${CODEBASE_MEMORY_ROOT:-$HOME}, see its compose) at the same absolute path.
+# Derive it here so a registered project outside $HOME is still covered, and
+# export it BEFORE compose interpolates it. An explicit value always wins.
+export CODEBASE_MEMORY_ROOT="$(_devbot_codebase_memory_root)"
+
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 
 if [[ -z "${PROJECT_DIR}" || ! -d "${PROJECT_DIR}" ]]; then

@@ -47,7 +47,8 @@ _reconcile_repo_mount() {
     2>/dev/null | head -1 || true)"
   [[ -z "${actual}" ]] && return 0
 
-  local desired="${CODEBASE_MEMORY_ROOT:-${HOME}}"
+  local desired
+  desired="$(_devbot_codebase_memory_root)"
   [[ "${actual}" == "${desired}" ]] && return 0
 
   _warn "codebase-memory — repo mounted at '${actual}', desired '${desired}' — recreating the gateway"

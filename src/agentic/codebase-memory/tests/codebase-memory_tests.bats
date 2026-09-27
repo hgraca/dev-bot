@@ -190,6 +190,9 @@ _ok()   { true; }
 _skip() { true; }
 _warn() { echo "WARN: $*" >&2; }
 _devbot_wait_for_mcp_gateway() { return 0; }
+# The derived root is exercised by src/_shared/tests/codebase_memory_root_tests.bats;
+# here it only has to honour the explicit value the reconcile tests set.
+_devbot_codebase_memory_root() { printf '%s\n' "${CODEBASE_MEMORY_ROOT:-${HOME}}"; }
 EOF
 
   touch "${SANDBOX}/docker-compose.yml"
