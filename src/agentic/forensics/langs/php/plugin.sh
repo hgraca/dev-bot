@@ -82,9 +82,14 @@ PY
   echo ""
 }
 
-# Precedence: explicit > FORENSICS_PHP_IMAGE > project compose image > php:<ver>-cli
+# Precedence: explicit > FORENSICS_PHP_IMAGE > scratch engine PHP > project
+# compose image > php:<project-version>-cli
+#
+# $3 is the scratch engine root. A scratch engine is built by composer:2's PHP,
+# so it must run on an image at least that new — the project's own (possibly much
+# older) PHP would fail its platform check.
 _resolve_image() {
-  local project="$1" explicit="${2:-}"
+  local project="$1" explicit="${2:-}" engine_root="${3:-}"
   if [[ -n "${explicit}" ]]; then
     echo "${explicit}"
     return 0
@@ -92,6 +97,15 @@ _resolve_image() {
   if [[ -n "${FORENSICS_PHP_IMAGE:-}" ]]; then
     echo "${FORENSICS_PHP_IMAGE}"
     return 0
+  fi
+
+  if [[ -n "${engine_root}" && -f "${engine_root}/.php-version" ]]; then
+    local engine_php
+    engine_php="$(tr -d '[:space:]' <"${engine_root}/.php-version")"
+    if [[ -n "${engine_php}" ]]; then
+      echo "php:${engine_php}-cli"
+      return 0
+    fi
   fi
 
   local compose="" file
@@ -163,8 +177,10 @@ cmd_doctor() {
   if [[ -z "${version}" || "${version}" == "unknown" ]]; then
     version="$(_pdepend_version_from_lock "${project}/composer.lock")"
   fi
+  local engine_image=""
+  [[ "${via}" == "scratch" ]] && engine_image="${root}"
   printf '{"ok":true,"lang":"php","project":"%s","image":"%s","engine":{"via":"%s","path":"%s","version":"%s"}}\n' \
-    "${project}" "$(_resolve_image "${project}" "${image}")" "${via}" "${root}" "${version}"
+    "${project}" "$(_resolve_image "${project}" "${image}" "${engine_image}")" "${via}" "${root}" "${version}"
 }
 
 # Install a pinned PDepend into the shared scratch dir. Composer is the official
@@ -185,7 +201,13 @@ cmd_provision() {
     exit 1
   fi
 
-  printf '{"ok":true,"scratch":"%s","version":"%s"}\n' "${dir}" "${version}"
+  # Record the PHP the engine was built for, so it is always run on a compatible
+  # image regardless of the analysed project's own PHP version.
+  docker run --rm composer:2 php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;' \
+    >"${dir}/.php-version" 2>/dev/null || true
+
+  printf '{"ok":true,"scratch":"%s","version":"%s","php":"%s"}\n' \
+    "${dir}" "${version}" "$(tr -d '[:space:]' <"${dir}/.php-version" 2>/dev/null || echo "")"
 }
 
 # Emit code units for a request on stdin. The project and engine are mounted
@@ -209,7 +231,9 @@ cmd_units() {
   root="${resolved#*$'\t'}"
 
   local image
-  image="$(_resolve_image "${project}")"
+  local engine_image=""
+  [[ "${via}" == "scratch" ]] && engine_image="${root}"
+  image="$(_resolve_image "${project}" "" "${engine_image}")"
   if [[ -z "${image}" || "${image}" =~ [[:space:]] ]]; then
     echo "ERROR: invalid container image reference '${image}'" >&2
     exit 1
