@@ -1015,6 +1015,26 @@ for key in ("meta", "hotspots", "coupling", "authors", "time-to-fix", "bus_facto
   rm -rf "$repo"
 }
 
+@test "report: --format html is a self-contained page with a hotspot map" {
+  local repo db out
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/o.sqlite"
+  out="$(mktemp -d)"
+  _build_repo "$repo"
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+
+  run bash "${TOOL}" report "$db" --format html
+  assert_success
+  assert_output --partial "<!DOCTYPE html>"
+  assert_output --partial "Hotspot geography"
+
+  run bash "${TOOL}" report "$db" --out "$out" --format html
+  assert_success
+  [ -f "$out/report.html" ]
+
+  rm -rf "$repo"
+}
+
 @test "analyse process: reports batch size and conventional compliance" {
   local repo db
   repo="$(mktemp -d)"

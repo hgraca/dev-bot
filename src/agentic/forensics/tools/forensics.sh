@@ -61,7 +61,7 @@ Commands:
                         ownership, concentration, unit-ownership,
                         unit-concentration, commit-types, authors, tickets,
                         defects, time-to-fix, fixers, process, releases.
-  report <db> [--out <dir>] [--format md|json]
+  report <db> [--out <dir>] [--format md|json|html]
                         Full Tornhill + commit-history report.
   doctor [--project <dir>] [--format md|json]
                         Show each language plugin's resolved engine.

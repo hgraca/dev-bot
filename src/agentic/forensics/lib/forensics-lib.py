@@ -116,7 +116,7 @@ def _parse_format(args: list) -> str:
             fmt = args[index + 1]
             index += 1
         index += 1
-    return fmt if fmt in ("json", "csv") else "markdown"
+    return fmt if fmt in ("json", "csv", "html") else "markdown"
 
 
 def _parse_opt(args: list, name: str):
@@ -589,13 +589,16 @@ def cmd_report(args: list) -> int:
 
     if fmt == "json":
         rendered = json.dumps(doc, indent=2) + "\n"
+    elif fmt == "html":
+        rendered = report.to_html(doc)
     else:
         rendered = report.to_markdown(doc)
 
     out_dir = opts.get("out") if isinstance(opts.get("out"), str) else None
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
-        path = os.path.join(out_dir, "report.json" if fmt == "json" else "report.md")
+        suffix = {"json": "report.json", "html": "report.html"}.get(fmt, "report.md")
+        path = os.path.join(out_dir, suffix)
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(rendered)
         print("Wrote %s" % path)
