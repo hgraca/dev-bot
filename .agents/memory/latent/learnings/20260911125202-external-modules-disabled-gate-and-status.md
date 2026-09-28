@@ -1,25 +1,9 @@
 ---
 date: 2026-09-11
-keywords: ["external-modules", "disabled-umbrella", "module-list", "prune", "audit-03"]
+keywords: ["external-modules", "module-list", "wiring-path", "audit-03"]
 ---
 
-> **PARTIALLY SUPERSEDED (2026-09-27)** by ADR `20260927172101-external-modules-enablement-independent`
-> and the `src/tools/external-modules/docs.md` rewrite: the "disabled umbrella → skipped, not mirrored"
-> and "prune must not drop a name an enabled umbrella declares" sections below describe the **old**
-> model. Provisioning is now enablement-independent — the global config, `vendor/` clones and
-> `storage/external-agentic-modules/` mirrors are always built, only per-project `.agents/` wiring is
-> gated, and the prune keeps any declared name. The "`module list` status is per-module" and
-> "wiring path is `.agents/`" sections remain valid.
-
-# External-module state is per-module; a disabled umbrella is skipped entirely
-
-## Disabled umbrella → skipped, not mirrored
-
-`src/tools/external-modules/init.sh::_process_agentic_module` returns early for a disabled umbrella module, so its declared external modules get **no clone, no storage mirror, no wiring**. The config-only pass also refuses them (`_is_declared_by_any_module`). `commands/audit.md` §9 had claimed "cloned + mirrored but intentionally not wired" — the code is the source of truth, and the doc was corrected to the skip-everything design (audit-03 §9).
-
-## Prune must not drop a name an enabled umbrella declares
-
-`bin/init.sh::_prune_orphaned_external_modules` removes mirrors for names declared ONLY by a disabled umbrella. The guard is `_module_declared_names disabled` minus `_module_declared_names enabled` — without it, a name declared by both an enabled and a disabled umbrella is deleted even though the enabled module needs it.
+# External-module state is per-module; wiring path is `.agents/`
 
 ## `devbot module list` status is per-module
 

@@ -1,7 +1,6 @@
 ---
 date: 2026-09-27
 keywords: ["devbot", "external-modules", "enablement", "vendor", "storage"]
-see: ["learnings/20260615102800-external-module-wiring-disabled-symlink-bug.md", "learnings/20260615091800-external-module-lifecycle-encapsulation.md"]
 ---
 
 ## External-module provisioning is independent of module enablement

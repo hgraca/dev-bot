@@ -1,7 +1,7 @@
 ---
 date: 2026-07-31
 keywords: ["devbot", "gather-context", "scout", "subagent"]
-see: ["project/20260731173000-gather-context-requires-subagent-delegation.md", "ADRs/20260731173000-remove-agentic-tools-cli.md"]
+see: ["learnings/20260731173000-gather-context-requires-subagent-delegation.md", "ADRs/20260731173000-remove-agentic-tools-cli.md"]
 ---
 
 ## Delegate `gather-context` to @scout subagent instead of running inline

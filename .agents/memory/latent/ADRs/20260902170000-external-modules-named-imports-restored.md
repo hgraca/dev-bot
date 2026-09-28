@@ -1,7 +1,6 @@
 ---
 date: 2026-09-02
 keywords: ["external-modules", "devbot", "architecture", "named-imports", "revert"]
-supersedes: ["ADRs/20260902140000-external-modules-architecture.md"]
 ---
 
 ## External modules: revert to named imports, drop org/repo namespacing
