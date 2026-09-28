@@ -101,6 +101,46 @@ def _discover(langs_dir: str) -> tuple:
     return plugins, errors
 
 
+_SOURCE_META_REQUIRED = ("source",)
+
+
+def _sources_dir() -> str:
+    return os.environ.get("FORENSICS_SOURCES_DIR") or os.path.join(_module_dir(), "sources")
+
+
+def _load_source_meta(script: str) -> dict:
+    proc = _run_plugin(script, "meta")
+    if proc.returncode != 0:
+        raise ValueError("`meta` exited %d: %s" % (proc.returncode, (proc.stderr or "").strip()))
+    raw = (proc.stdout or "").strip()
+    try:
+        meta = json.loads(raw)
+    except ValueError as exc:
+        raise ValueError("`meta` did not return JSON: %s" % exc)
+    if not isinstance(meta, dict):
+        raise ValueError("`meta` must return a JSON object")
+    missing = [key for key in _SOURCE_META_REQUIRED if not meta.get(key)]
+    if missing:
+        raise ValueError("`meta` is missing required key(s): %s" % ", ".join(missing))
+    return meta
+
+
+def _discover_sources(sources_dir: str) -> tuple:
+    """Discover provider adapters, mirroring the language-plugin registry."""
+    plugins = []
+    errors = []
+    for name, script in _plugin_scripts(sources_dir):
+        try:
+            meta = _load_source_meta(script)
+        except ValueError as exc:
+            errors.append({"plugin": name, "error": str(exc)})
+            continue
+        meta.setdefault("capabilities", [])
+        meta["path"] = script
+        plugins.append(meta)
+    return plugins, errors
+
+
 def _parse_format(args: list) -> str:
     fmt = "markdown"
     index = 0
@@ -183,6 +223,25 @@ def cmd_doctor(args: list) -> int:
 
     for error in errors:
         print("ERROR: %s: %s" % (error["plugin"], error["error"]), file=sys.stderr)
+    return 1 if errors else 0
+
+
+def cmd_sources(args: list) -> int:
+    fmt = _parse_format(args)
+    plugins, errors = _discover_sources(_sources_dir())
+
+    if fmt == "json":
+        print(json.dumps({"ok": not errors, "sources": plugins, "errors": errors}, indent=2))
+    else:
+        print("| source | capabilities |")
+        print("| --- | --- |")
+        for plugin in plugins:
+            print("| %s | %s |" % (plugin.get("source", ""), ", ".join(plugin.get("capabilities", []))))
+        if not plugins:
+            print("(no source plugins found in %s)" % _sources_dir())
+
+    for error in errors:
+        print("ERROR: plugin '%s': %s" % (error["plugin"], error["error"]), file=sys.stderr)
     return 1 if errors else 0
 
 
@@ -615,6 +674,7 @@ def cmd_report(args: list) -> int:
 _HANDLERS = {
     "langs": cmd_langs,
     "doctor": cmd_doctor,
+    "sources": cmd_sources,
     "mine": cmd_mine,
     "analyse": cmd_analyse,
     "report": cmd_report,

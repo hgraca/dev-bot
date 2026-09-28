@@ -97,6 +97,7 @@ shift
 case "${command}" in
   langs) exec python3 "${LIB}" langs "$@" ;;
   doctor) exec python3 "${LIB}" doctor "$@" ;;
+  sources) exec python3 "${LIB}" sources "$@" ;;
   mine) exec python3 "${LIB}" mine "$@" ;;
   analyse) exec python3 "${LIB}" analyse "$@" ;;
   report) exec python3 "${LIB}" report "$@" ;;
