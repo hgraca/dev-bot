@@ -55,6 +55,7 @@ The default store is `<repo>/.forensics/<timestamp>.sqlite` (self-ignoring — i
 - **Defect origin is a heuristic.** Inducing commits come from a simplified SZZ (blame of the lines a fix changed); it has known false positives and negatives. Treat it as a process signal, never as a verdict about a person.
 - **Git-only DORA is a proxy.** Change-failure rate, time-to-fix and lead time are derived from commits; true DORA (deployment frequency, MTTR) needs deploy and incident data and is out of scope for the git-only path.
 - **The PR cache is incremental.** `prs` fetches only the window spans the local cache lacks; a window ending "now" is never final, so its tail is refreshed on a later run (`--refresh` forces a full re-fetch).
+- **Commit windows filter on author date.** `commits` keeps commits whose author date is in the window; because git walks history by committer date, a commit authored inside the window but committed outside it can be omitted.
 
 ## See Also
 

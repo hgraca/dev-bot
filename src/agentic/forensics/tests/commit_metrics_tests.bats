@@ -107,3 +107,34 @@ assert authors["bob@example.com"]["commits"] == 1, authors
 '
   rm -rf "$repo"
 }
+
+@test "commits: filters on author date, not committer date" {
+  local repo
+  repo="$(mktemp -d)"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Bot"
+  git -C "$repo" config user.email "bot@example.com"
+  git -C "$repo" config commit.gpgsign false
+
+  printf 'a\n' >"${repo}/a.txt"
+  git -C "$repo" add a.txt
+  GIT_AUTHOR_NAME="Alice" GIT_AUTHOR_EMAIL="alice@example.com" \
+    GIT_AUTHOR_DATE="2026-09-22T10:00:00+00:00" GIT_COMMITTER_DATE="2026-09-22T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: a"
+
+  printf 'b\n' >"${repo}/b.txt"
+  git -C "$repo" add b.txt
+  GIT_AUTHOR_NAME="Bob" GIT_AUTHOR_EMAIL="bob@example.com" \
+    GIT_AUTHOR_DATE="2026-01-05T10:00:00+00:00" GIT_COMMITTER_DATE="2026-09-23T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: b"
+
+  run bash "${TOOL}" commits "$repo" --since 2026-09-21 --until 2026-09-25 --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["total"]["commits"] == 1, doc["total"]
+assert [a["author_email"] for a in doc["authors"]] == ["alice@example.com"], doc["authors"]
+'
+  rm -rf "$repo"
+}

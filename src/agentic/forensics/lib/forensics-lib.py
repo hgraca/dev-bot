@@ -758,6 +758,20 @@ def cmd_prs(args: list) -> int:
 _COMMIT_COLUMNS = ("author", "author_email", "commits", "median_changes_per_commit", "commits_per_day")
 
 
+def _filter_by_author_date(commits: list, since, until) -> list:
+    """Keep only commits whose author date falls within the window.
+
+    ``git log --since/--until`` filters on committer date, so a rebased or
+    cherry-picked commit can come back with an author date outside the window.
+    """
+    kept = []
+    for commit in commits:
+        moment = _parse_iso(commit.get("date"))
+        if moment is not None and since <= moment <= until:
+            kept.append(commit)
+    return kept
+
+
 def _commit_summary(rows: list, since, until) -> dict:
     count = len(rows)
     changes = [(row.get("lines_added") or 0) + (row.get("lines_deleted") or 0) for row in rows]
@@ -814,7 +828,7 @@ def cmd_commits(args: list) -> int:
         print("ERROR: %s" % exc, file=sys.stderr)
         return 1
 
-    total, authors = _commit_report(data["commits"], since, until)
+    total, authors = _commit_report(_filter_by_author_date(data["commits"], since, until), since, until)
     table = [dict(total, author="TOTAL", author_email="")] + authors
 
     if fmt == "json":
