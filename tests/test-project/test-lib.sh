@@ -23,6 +23,9 @@
 #                                          — file the run's logs back
 #   composer_cache_args                    — print docker -v/-e args for the host
 #                                            composer cache (cross-platform)
+#   codebase_memory_prune_run <run-prefix> — host-side: delete this run's entries
+#                                            from the shared codebase-memory
+#                                            gateway (best-effort; see below)
 #   require_host_ollama_for_codebase_engine [install_root] — container-side gate:
 #                                            fail only when the installed dev-bot
 #                                            selects the codebase-index engine
@@ -153,6 +156,157 @@ codebase_gateway_mount() {
     --format '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\n"}}{{end}}{{end}}' \
     dev-bot-codebase-memory-mcp 2>/dev/null | head -1)"
   printf '%s' "${src:-${HOME}}"
+}
+
+# ── Codebase-memory stale-entry pruning ───────────────────────────────────────
+# The shared gateway's index lives on a Docker named volume that OUTLIVES every
+# ephemeral run: a run indexes <run_dir>/src, and run_dir_destroy deletes the
+# directory while the gateway keeps the now-dangling project entry — so the store
+# accumulates one stale `devbot-test-*` project per run (audit-73 §4 / audit-74
+# §4). Release this run's entries at teardown by asking the gateway directly over
+# MCP, mirroring tools/mcp-index.py's streamable-http handshake (initialize →
+# session id → tools/call).
+#
+# Entries are matched by root_path prefix (the host path the gateway indexed), so
+# the gateway-derived project name (path with `/` → `-`) never has to be
+# recomputed. Best-effort by design: a gateway that is down, a missing python3 or
+# a transport error must never fail a run's cleanup — a stale index entry is
+# housekeeping, not a test result.
+#
+# CODEBASE_MEMORY_MCP_URL overrides the gateway URL (used by the tests).
+codebase_memory_prune_run() {
+  local prefix="$1"
+  # Mirror run_dir_destroy's guard: only a per-run dir under the run root may be
+  # pruned. A broad prefix would otherwise match every indexed project on the
+  # machine and delete it from the shared named volume — irreversible but for a
+  # re-index.
+  local run_root="${DEV_BOT_TEST_RUN_ROOT:-${HOME}/.cache/devbot-test}"
+  [[ "${prefix}" == "${run_root}/devbot-test-"* ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+
+  local url="${CODEBASE_MEMORY_MCP_URL:-}"
+  if [[ -z "${url}" ]]; then
+    local repo_root
+    repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    url="$(python3 -c '
+import json, sys
+try:
+    print(json.load(open(sys.argv[1]))["mcp"]["codebase-memory"]["url"])
+except Exception:
+    pass
+' "${repo_root}/src/agentic/codebase-memory/mcp.json" 2>/dev/null)"
+  fi
+  [[ -n "${url}" ]] || url="http://127.0.0.1:18504/mcp"
+
+  python3 - "${url}" "${prefix}" <<'PY' || true
+import json
+import sys
+import urllib.error
+import urllib.request
+
+url, prefix = sys.argv[1], sys.argv[2]
+headers = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream",
+}
+# Bound the page walk: a runaway server must not spin the teardown forever.
+_MAX_PAGES = 100
+
+
+def _post(payload, sid=None, timeout=10):
+    req_headers = dict(headers)
+    if sid:
+        req_headers["Mcp-Session-Id"] = sid
+    request = urllib.request.Request(
+        url, data=json.dumps(payload).encode("utf-8"), headers=req_headers
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.headers.get("Mcp-Session-Id"), response.read()
+
+
+def _call(sid, name, args, rid):
+    _, body = _post(
+        {
+            "jsonrpc": "2.0",
+            "id": rid,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": args},
+        },
+        sid,
+    )
+    result = json.loads(body).get("result") or {}
+    text = "".join(
+        part.get("text", "")
+        for part in result.get("content", [])
+        if isinstance(part, dict) and part.get("type") == "text"
+    )
+    try:
+        return json.loads(text)
+    except ValueError:
+        return result.get("structuredContent") or {}
+
+
+def _close(sid):
+    if not sid:
+        return
+    request = urllib.request.Request(
+        url, method="DELETE", headers={**headers, "Mcp-Session-Id": sid}
+    )
+    try:
+        urllib.request.urlopen(request, timeout=10).close()
+    except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+        pass
+
+
+try:
+    sid, _ = _post(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "fixture-teardown", "version": "1"},
+            },
+        }
+    )
+except (urllib.error.URLError, OSError):
+    sys.exit(0)  # gateway not up — nothing to prune, and never break cleanup
+
+try:
+    _post({"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
+    bounds = prefix.rstrip("/") + "/"
+    names, offset, pages = [], 0, 0
+    while pages < _MAX_PAGES:
+        data = _call(sid, "list_projects", {"offset": offset, "limit": 100}, 2) or {}
+        projects = data.get("projects") or []
+        for project in projects:
+            root = project.get("root_path", "")
+            if (root == prefix or root.startswith(bounds)) and project.get("name"):
+                names.append(project["name"])
+        if not projects or not data.get("has_more"):
+            break
+        offset += len(projects)
+        pages += 1
+    deleted = 0
+    for rid, name in enumerate(names, start=10):
+        try:
+            outcome = _call(sid, "delete_project", {"project": name}, rid)
+        except (urllib.error.URLError, OSError, ValueError):
+            continue  # one bad delete must not abandon the rest
+        if isinstance(outcome, dict) and outcome.get("deleted") is False:
+            continue  # the gateway refused it — do not report it as pruned
+        deleted += 1
+    if deleted:
+        print(f"  codebase-memory: pruned {deleted} stale project(s) under {prefix}")
+except (urllib.error.URLError, OSError, ValueError):
+    # A mid-walk transport error must stay silent: cleanup is best-effort by
+    # contract, and a traceback here would masquerade as a test failure.
+    pass
+finally:
+    _close(sid)
+PY
 }
 
 # ── Audit-report id reservation ───────────────────────────────────────────────

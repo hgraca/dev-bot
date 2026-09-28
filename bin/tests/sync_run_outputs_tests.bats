@@ -169,3 +169,210 @@ teardown() {
   assert_success
   assert_output "/fallback/home"
 }
+
+# ── codebase_memory_prune_run ─────────────────────────────────────────────────
+# A run's index entry outlives run_dir_destroy on the shared gateway volume, so
+# teardown prunes it over MCP (audit-73 §4 / audit-74 §4). These tests drive the
+# helper against a stub gateway speaking the same streamable-http handshake.
+
+_stub_gateway() {
+  # _stub_gateway <prefix> <port> <deleted-log> — writes the stub, runs it, prints pid.
+  cat > "${SANDBOX}/stub-gateway.py" <<'PY'
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+prefix, port, log = sys.argv[1], int(sys.argv[2]), sys.argv[3]
+call_status = int(sys.argv[4]) if len(sys.argv) > 4 else 200
+delete_refused = len(sys.argv) > 5 and sys.argv[5] == "refused"
+SID = "stub-session"
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def _send(self, code, payload):
+        body = json.dumps(payload).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Mcp-Session-Id", SID)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        message = json.loads(self.rfile.read(length) or b"{}")
+        method = message.get("method")
+        if method == "initialize":
+            self._send(200, {"jsonrpc": "2.0", "id": message.get("id"),
+                             "result": {"protocolVersion": "2024-11-05",
+                                        "capabilities": {},
+                                        "serverInfo": {"name": "stub", "version": "1"}}})
+        elif method == "notifications/initialized":
+            self.send_response(202)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+        elif method == "tools/call":
+            if call_status != 200:
+                body = b"stub failure"
+                self.send_response(call_status)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                return
+            name = message["params"]["name"]
+            if name == "list_projects":
+                text = json.dumps({"projects": [
+                    {"name": "mine-src", "root_path": prefix + "/src"},
+                    {"name": "other-src", "root_path": "/elsewhere/src"},
+                ], "total": 2, "offset": 0, "limit": 100,
+                    "returned": 2, "has_more": False})
+            elif name == "delete_project":
+                if delete_refused:
+                    text = json.dumps({"deleted": False})
+                else:
+                    with open(log, "a") as handle:
+                        handle.write(message["params"]["arguments"]["project"] + "\n")
+                    text = json.dumps({"deleted": True})
+            else:
+                text = "{}"
+            self._send(200, {"jsonrpc": "2.0", "id": message.get("id"),
+                             "result": {"content": [{"type": "text", "text": text}],
+                                        "isError": False}})
+        else:
+            self._send(200, {"jsonrpc": "2.0", "id": message.get("id"), "result": {}})
+
+    def do_DELETE(self):
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+
+HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+PY
+
+  # stdout/stderr to a file: a background server inheriting the test's captured
+  # stdout would hold that pipe open and hang `run` until BATS gave up.
+  python3 "${SANDBOX}/stub-gateway.py" "$1" "$2" "$3" "${4:-200}" "${5:-}" \
+    >"${SANDBOX}/stub-gateway.out" 2>&1 &
+  echo $!
+}
+
+_free_port() {
+  python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+}
+
+_wait_for_port() {
+  local port="$1" i
+  for i in $(seq 1 50); do
+    python3 -c "import socket; socket.create_connection(('127.0.0.1', ${port}), 0.2).close()" 2>/dev/null && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+@test "codebase_memory_prune_run: deletes only the entries under the run prefix" {
+  command -v python3 >/dev/null 2>&1 || skip "python3 required"
+  export DEV_BOT_TEST_RUN_ROOT="${SANDBOX}"
+  local prefix="${SANDBOX}/devbot-test-oc.ABC" log="${SANDBOX}/deleted.txt"
+  : >"$log"
+  local port pid
+  port="$(_free_port)"
+  pid="$(_stub_gateway "$prefix" "$port" "$log")"
+  _wait_for_port "$port" || {
+    kill "$pid" 2>/dev/null || true
+    skip "stub gateway did not start"
+  }
+
+  run env CODEBASE_MEMORY_MCP_URL="http://127.0.0.1:${port}/mcp" \
+    bash -c "source '${LIB}'; codebase_memory_prune_run '${prefix}'"
+  kill "$pid" 2>/dev/null || true
+
+  assert_success
+  assert_output --partial "pruned 1 stale project"
+  assert_equal "$(cat "$log")" "mine-src"
+}
+
+@test "codebase_memory_prune_run: is a quiet no-op when the gateway is down" {
+  command -v python3 >/dev/null 2>&1 || skip "python3 required"
+  export DEV_BOT_TEST_RUN_ROOT="${SANDBOX}"
+  run env CODEBASE_MEMORY_MCP_URL="http://127.0.0.1:1/mcp" \
+    bash -c "source '${LIB}'; codebase_memory_prune_run '${SANDBOX}/devbot-test-oc.DEAD'"
+  assert_success
+  refute_output --partial "pruned"
+}
+
+@test "codebase_memory_prune_run: a mid-walk gateway error stays quiet" {
+  # Only the pre-initialize path (gateway down) was covered before: a transport
+  # error AFTER a successful initialize escaped as a Python traceback (exit 0
+  # only via the shell's `|| true`) — a false failure signal for a best-effort
+  # cleanup step.
+  command -v python3 >/dev/null 2>&1 || skip "python3 required"
+  export DEV_BOT_TEST_RUN_ROOT="${SANDBOX}"
+  local prefix="${SANDBOX}/devbot-test-oc.HALF" log="${SANDBOX}/deleted.txt"
+  : >"$log"
+  local port pid
+  port="$(_free_port)"
+  pid="$(_stub_gateway "$prefix" "$port" "$log" 500)"
+  _wait_for_port "$port" || {
+    kill "$pid" 2>/dev/null || true
+    skip "stub gateway did not start"
+  }
+
+  run env CODEBASE_MEMORY_MCP_URL="http://127.0.0.1:${port}/mcp" \
+    bash -c "source '${LIB}'; codebase_memory_prune_run '${prefix}'"
+  kill "$pid" 2>/dev/null || true
+
+  assert_success
+  refute_output --partial "Traceback"
+  assert_equal "$(cat "$log")" ""
+}
+
+@test "codebase_memory_prune_run: refuses a prefix outside the run root" {
+  # The delete is destructive on shared gateway state, so the helper mirrors
+  # run_dir_destroy's guard. The stub WOULD report and delete a project for this
+  # prefix — the guard must stop the helper before it ever connects.
+  command -v python3 >/dev/null 2>&1 || skip "python3 required"
+  export DEV_BOT_TEST_RUN_ROOT="${SANDBOX}/runs"
+  local log="${SANDBOX}/deleted.txt"
+  : >"$log"
+  local port pid
+  port="$(_free_port)"
+  pid="$(_stub_gateway "${SANDBOX}" "$port" "$log")"
+  _wait_for_port "$port" || {
+    kill "$pid" 2>/dev/null || true
+    skip "stub gateway did not start"
+  }
+
+  run env CODEBASE_MEMORY_MCP_URL="http://127.0.0.1:${port}/mcp" \
+    bash -c "source '${LIB}'; codebase_memory_prune_run '${SANDBOX}'"
+  kill "$pid" 2>/dev/null || true
+
+  assert_success
+  refute_output --partial "pruned"
+  assert_equal "$(cat "$log")" ""
+}
+
+@test "codebase_memory_prune_run: does not count a refused delete as pruned" {
+  command -v python3 >/dev/null 2>&1 || skip "python3 required"
+  export DEV_BOT_TEST_RUN_ROOT="${SANDBOX}"
+  local prefix="${SANDBOX}/devbot-test-oc.REF" log="${SANDBOX}/deleted.txt"
+  : >"$log"
+  local port pid
+  port="$(_free_port)"
+  pid="$(_stub_gateway "$prefix" "$port" "$log" 200 refused)"
+  _wait_for_port "$port" || {
+    kill "$pid" 2>/dev/null || true
+    skip "stub gateway did not start"
+  }
+
+  run env CODEBASE_MEMORY_MCP_URL="http://127.0.0.1:${port}/mcp" \
+    bash -c "source '${LIB}'; codebase_memory_prune_run '${prefix}'"
+  kill "$pid" 2>/dev/null || true
+
+  assert_success
+  refute_output --partial "pruned"
+}

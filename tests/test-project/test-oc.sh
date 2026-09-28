@@ -103,6 +103,9 @@ cleanup() {
       && ! -s "${THINKING_DIR}/${AUDIT_REPORT_NAME}" ]]; then
       rm -f "${THINKING_DIR}/${AUDIT_REPORT_NAME}" 2>/dev/null || true
     fi
+    # Release this run's shared-gateway index entry before dropping the copy it
+    # was derived from (best-effort; see codebase_memory_prune_run).
+    codebase_memory_prune_run "${RUN_DIR}"
     run_dir_destroy "${RUN_DIR}"
   fi
 }
