@@ -723,6 +723,92 @@ def cmd_prs(args: list) -> int:
     return 0
 
 
+_COMMIT_COLUMNS = ("author", "author_email", "commits", "median_changes_per_commit", "commits_per_day")
+
+
+def _commit_summary(rows: list, since, until) -> dict:
+    count = len(rows)
+    changes = [(row.get("lines_added") or 0) + (row.get("lines_deleted") or 0) for row in rows]
+    return {
+        "commits": count,
+        "median_changes_per_commit": _num(metrics.median(changes)),
+        "commits_per_day": round(metrics.per_day(count, since, until), 4),
+    }
+
+
+def _commit_report(rows: list, since, until) -> tuple:
+    """(project total, per-author rows) for commits, folded by email identity."""
+    groups = {}
+    for row in rows:
+        email = row.get("author_email") or ""
+        key = email or row.get("author_name") or "(unknown)"
+        entry = groups.setdefault(key, {"author": row.get("author_name") or key, "author_email": email, "rows": []})
+        entry["rows"].append(row)
+    authors = []
+    for entry in groups.values():
+        item = {"author": entry["author"], "author_email": entry["author_email"]}
+        item.update(_commit_summary(entry["rows"], since, until))
+        authors.append(item)
+    authors.sort(key=lambda item: (-item["commits"], item["author"]))
+    return _commit_summary(rows, since, until), authors
+
+
+def cmd_commits(args: list) -> int:
+    """Per-author commit metrics for the window, identities folded via .mailmap."""
+    fmt = _parse_format(args)
+    opts, positionals = _parse_args(args)
+
+    repo = positionals[0] if positionals else os.getcwd()
+    if not os.path.isdir(repo):
+        print("ERROR: not a directory: %s" % repo, file=sys.stderr)
+        return 1
+    if not gitmine._is_repo(repo):
+        print("ERROR: not a git repository: %s" % repo, file=sys.stderr)
+        return 1
+    repo = gitmine.toplevel(repo) or os.path.abspath(repo)
+
+    try:
+        since, until = metrics.resolve_window(
+            opts.get("since") if isinstance(opts.get("since"), str) else None,
+            opts.get("until") if isinstance(opts.get("until"), str) else None,
+        )
+    except ValueError as exc:
+        print("ERROR: %s" % exc, file=sys.stderr)
+        return 2
+
+    try:
+        data = gitmine.mine_log(repo, since.isoformat(), until.isoformat(), mailmap=True)
+    except RuntimeError as exc:
+        print("ERROR: %s" % exc, file=sys.stderr)
+        return 1
+
+    total, authors = _commit_report(data["commits"], since, until)
+    table = [dict(total, author="TOTAL", author_email="")] + authors
+
+    if fmt == "json":
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "repo": repo,
+                    "since": since.isoformat(),
+                    "until": until.isoformat(),
+                    "total": total,
+                    "authors": authors,
+                },
+                indent=2,
+            )
+        )
+    elif fmt == "csv":
+        writer = csv.writer(sys.stdout)
+        writer.writerow(_COMMIT_COLUMNS)
+        for row in table:
+            writer.writerow([row.get(column, "") for column in _COMMIT_COLUMNS])
+    else:
+        _print_table(table, _COMMIT_COLUMNS)
+    return 0
+
+
 def cmd_provision(args: list) -> int:
     opts, _ = _parse_args(args)
     lang = opts.get("lang")
@@ -854,6 +940,7 @@ _HANDLERS = {
     "doctor": cmd_doctor,
     "sources": cmd_sources,
     "prs": cmd_prs,
+    "commits": cmd_commits,
     "mine": cmd_mine,
     "analyse": cmd_analyse,
     "report": cmd_report,

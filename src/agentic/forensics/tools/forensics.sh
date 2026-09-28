@@ -99,6 +99,7 @@ case "${command}" in
   doctor) exec python3 "${LIB}" doctor "$@" ;;
   sources) exec python3 "${LIB}" sources "$@" ;;
   prs) exec python3 "${LIB}" prs "$@" ;;
+  commits) exec python3 "${LIB}" commits "$@" ;;
   mine) exec python3 "${LIB}" mine "$@" ;;
   analyse) exec python3 "${LIB}" analyse "$@" ;;
   report) exec python3 "${LIB}" report "$@" ;;

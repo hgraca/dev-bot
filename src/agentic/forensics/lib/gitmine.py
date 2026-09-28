@@ -128,8 +128,9 @@ def _parse_numstat_z(raw: bytes) -> list:
     return changes
 
 
-def mine_commits(repo: str, since=None, until=None) -> list:
-    fmt = RECORD + FIELD.join(["%H", "%an", "%ae", "%aI", "%B"]) + FIELD
+def mine_commits(repo: str, since=None, until=None, mailmap: bool = False) -> list:
+    name, email = ("%aN", "%aE") if mailmap else ("%an", "%ae")
+    fmt = RECORD + FIELD.join(["%H", name, email, "%aI", "%B"]) + FIELD
     proc = _git(repo, "log", "--format=" + fmt, *_range_args(since, until))
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "git log failed")
@@ -167,8 +168,8 @@ def mine_changes(repo: str, since=None, until=None) -> list:
     return _parse_numstat_z(proc.stdout)
 
 
-def mine_log(repo: str, since=None, until=None) -> dict:
-    commits = mine_commits(repo, since, until)
+def mine_log(repo: str, since=None, until=None, mailmap: bool = False) -> dict:
+    commits = mine_commits(repo, since, until, mailmap)
     changes = mine_changes(repo, since, until)
 
     by_hash = {commit["hash"]: commit for commit in commits}
@@ -254,7 +255,7 @@ def _parse_opts(argv: list) -> dict:
 
 def main(argv: list) -> int:
     if argv and argv[0] in ("--help", "-h"):
-        print("Usage: gitmine.py <log|blame> --repo <path> [--since <d>] [--until <d>] [--file <path>]")
+        print("Usage: gitmine.py <log|blame> --repo <path> [--since <d>] [--until <d>] [--mailmap] [--file <path>]")
         return 0
 
     if not argv:
@@ -274,7 +275,7 @@ def main(argv: list) -> int:
 
     try:
         if command == "log":
-            doc = mine_log(repo, opts.get("since"), opts.get("until"))
+            doc = mine_log(repo, opts.get("since"), opts.get("until"), bool(opts.get("mailmap")))
         elif command == "blame":
             path = opts.get("file")
             if not isinstance(path, str) or not path:
