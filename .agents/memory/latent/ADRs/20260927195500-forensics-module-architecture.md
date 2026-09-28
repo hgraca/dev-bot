@@ -6,7 +6,7 @@ see: []
 
 ## Forensics module architecture (Tornhill code forensics as a dev-bot module)
 
-`src/agentic/forensics` rebuilds `hgraca/php-phorensic` as a dev-bot agentic module: it mines a repository's git history and per-language static metrics into SQLite, then reports hotspots, temporal coupling, ownership, trends, architecture alignment and commit-history intelligence. The decisions below are the ones future work must preserve.
+`src/agentic/forensics` rebuilds `hgraca/php-phorensic` as a dev-bot agentic module: it mines a repository's git history and per-language static metrics into SQLite, then reports hotspots, temporal coupling, ownership, trends, architecture alignment, commit-history intelligence and delivery-activity metrics. The decisions below are the ones future work must preserve.
 
 **AD-1 — language-agnostic core, language-specific plugins.** `tools/forensics.sh` + `lib/forensics-lib.py` own git mining, storage, analysis and reporting; nothing language-specific lives there. Every language is one `langs/<lang>/` directory.
 
@@ -33,3 +33,15 @@ see: []
 **Complexity scope.** A unit's complexity is a decision-point count (1 + branches, cases, boolean operators) over its own scope; nested functions, closures and lambdas are their own units and do not inflate the enclosing one. A class' complexity (WMC) sums its direct members. `default:` counts, as does `case`.
 
 Shipped languages: `php` (PDepend), `ts` (TypeScript compiler API), `java` (JDK compiler tree API), `go` (stdlib `go/ast`). Adding another is a single directory answering the same four verbs.
+
+**AD-A — provider source adapters, mirroring the language plugins.** Pull-request data comes from `sources/<name>/plugin.sh`, discovered by directory presence like `langs/`, answering `meta | doctor | fetch`. `fetch` reads `{"project","since","until"}` on stdin and emits `{"ok","pull_requests":[…],"errors"}`. GitHub ships first; GitLab is one more directory. Only a `github.com` origin is accepted, and `fetch` confirms the repository is visible, so a wrong or unreachable repository fails loudly instead of caching an empty window.
+
+**AD-B — a dedicated stable PR cache.** Remote PRs persist in `<repo>/.forensics/prs.sqlite` (own `schema_version`), never in the timestamped analysis store — that store is reset on every `mine`, so a cumulative cache cannot live in it. Tables are provider-agnostic, keyed `(source, repo, number)`.
+
+**AD-C — interval-coverage cache.** `pr_coverage` records fetched windows; a request subtracts the covered intervals from `[since, until]` and fetches only the gaps, so a repeat run makes no remote call. `--refresh` forces a full-window fetch. A window ending "now" is never final, so its tail is refetched naturally by the gap maths.
+
+**AD-D — commits stay git-only, folded by `.mailmap`.** `commits` reads git directly (no cache), grouping authors by email folded through the repository's `.mailmap` (git `%aN`/`%aE`). The window is the author date; because git walks history by committer date, a commit authored in-window but committed outside it can be omitted.
+
+**AD-E — GitHub via one paginated GraphQL search.** `gh api graphql` returns `commits.totalCount`, additions, deletions and changed files for every merged PR in the window in one query — no per-PR call. No token handling: the machine's authenticated `gh` is used. The adapter never writes to GitHub.
+
+**AD-F — pure maths in `lib/metrics.py`.** Window resolution, medians, calendar-day frequency and interval coalescing/subtraction live in one unit-tested module; the CLI only orchestrates.
