@@ -46,7 +46,7 @@ The default store is `<repo>/.forensics/<timestamp>.sqlite` (self-ignoring — i
 - **Hotspots** — high complexity × high change frequency; investigate before refactoring.
 - **Temporal coupling** — units that change together without a structural dependency; a missing abstraction or an undocumented contract. Expected for a feature spanning layers; a concern when it crosses intended boundaries.
 - **Ownership concentration** — knowledge held by one developer (bus-factor risk) or diffuse responsibility (many authors, no owner).
-- **Commit-history intelligence** — conventional-commit mix overall and per author, defect origin (which commit/author introduced the bugs being fixed), and the time from defect to fix, boxed to the mining date range.
+- **Commit-history intelligence** — conventional-commit mix overall and per author, defect origin (which commit/author introduced the bugs being fixed), and the time from defect to fix, boxed to the mining date range, with identities folded via `.mailmap`.
 - **Activity metrics** — PRs merged and commits in a window, per author and as a repo total; the window defaults to the last month.
 
 ## Method Caveats (MUST surface these when reporting)

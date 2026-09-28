@@ -486,7 +486,7 @@ def cmd_mine(args: list) -> int:
     db_path = opts.get("db") if isinstance(opts.get("db"), str) else _default_db_path(repo)
 
     try:
-        data = gitmine.mine_log(repo, since, until)
+        data = gitmine.mine_log(repo, since, until, mailmap=True)
     except RuntimeError as exc:
         print("ERROR: %s" % exc, file=sys.stderr)
         return 1

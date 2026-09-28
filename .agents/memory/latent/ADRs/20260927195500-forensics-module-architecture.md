@@ -40,7 +40,7 @@ Shipped languages: `php` (PDepend), `ts` (TypeScript compiler API), `java` (JDK 
 
 **AD-C — interval-coverage cache.** `pr_coverage` records fetched windows; a request subtracts the covered intervals from `[since, until]` and fetches only the gaps, so a repeat run makes no remote call. `--refresh` forces a full-window fetch. A window ending "now" is never final, so its tail is refetched naturally by the gap maths.
 
-**AD-D — commits stay git-only, folded by `.mailmap`.** `commits` reads git directly (no cache), grouping authors by email folded through the repository's `.mailmap` (git `%aN`/`%aE`). The window is the author date; because git walks history by committer date, a commit authored in-window but committed outside it can be omitted.
+**AD-D — commits stay git-only, folded by `.mailmap`.** Git history is read directly (no cache), and both `mine` and the `commits` command group authors by email folded through the repository's `.mailmap` (git `%aN`/`%aE`). The `commits` window is the author date; because git walks history by committer date, a commit authored in-window but committed outside it can be omitted.
 
 **AD-E — GitHub via one paginated GraphQL search.** `gh api graphql` returns `commits.totalCount`, additions, deletions and changed files for every merged PR in the window in one query — no per-PR call. No token handling: the machine's authenticated `gh` is used. The adapter never writes to GitHub.
 

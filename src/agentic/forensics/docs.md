@@ -24,7 +24,7 @@ into one Markdown or JSON document.
 - **Temporal coupling** — files that change together without a structural dependency.
 - **Ownership & concentration** — authors per file and per unit, top-author share, bus factor.
 - **Defects & risk** — SZZ defect origin, time-to-fix, external defect counts (`mine --defects <csv>`), and risk = hotspot × defects.
-- **Commit-history intelligence** — conventional-commit mix (overall and per author), tickets, commit-process metrics and release cadence, boxed to a date range.
+- **Commit-history intelligence** — conventional-commit mix (overall and per author), tickets, commit-process metrics and release cadence, boxed to a date range, with author identities folded through the repository's `.mailmap`.
 - **Activity metrics** — pull requests merged and commits, per author plus a repo total, boxed to a date window (default: the last month), through a provider adapter so GitHub ships now and GitLab can follow.
 - **Architecture vs organization** — cross-module coupling and ownership diffusion (`mine --modules name=prefix`), plus class-level structural coupling.
 - **Report formats** — Markdown, JSON, CSV (per view) or a self-contained HTML page with a hotspot map.

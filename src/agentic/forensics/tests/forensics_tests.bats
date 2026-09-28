@@ -1599,3 +1599,45 @@ assert {"api", "domain"} <= mods, mods
 
   rm -rf "$repo"
 }
+
+# ── .mailmap identity folding in the mine path ─────────────────────────────────
+
+@test "mine: folds author identities through .mailmap" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/out.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Bot"
+  git -C "$repo" config user.email "bot@example.com"
+  git -C "$repo" config commit.gpgsign false
+
+  printf '1\n' >"${repo}/a.txt"
+  git -C "$repo" add a.txt
+  GIT_AUTHOR_NAME="Alice" GIT_AUTHOR_EMAIL="alice@example.com" \
+    GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: a"
+
+  printf '2\n' >>"${repo}/a.txt"
+  git -C "$repo" add a.txt
+  GIT_AUTHOR_NAME="Alice Old" GIT_AUTHOR_EMAIL="alice.old@example.com" \
+    GIT_AUTHOR_DATE="2024-02-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-02-01T10:00:00+00:00" \
+    git -C "$repo" commit -q -m "feat: b"
+
+  cat >"${repo}/.mailmap" <<'MAP'
+Alice <alice@example.com> <alice.old@example.com>
+MAP
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view authors --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)["authors"]
+assert [r["author"] for r in rows] == ["alice@example.com"], rows
+assert rows[0]["commits"] == 2, rows
+'
+
+  rm -rf "$repo" "$db"
+}
