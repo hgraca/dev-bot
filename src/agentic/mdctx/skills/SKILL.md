@@ -92,6 +92,11 @@ both. `reindex-memories` refreshes them.
   index JSON is git-diffable.
 - **No symlink following**: a docs tree reached only via symlinks is never
   indexed — register the real path.
+- **`list_context` is unbounded**: the MCP `list_context` tool returns the
+  entire indexed corpus with no `limit`/`offset`, so a well-populated store can
+  overflow the client's context window (audit-74 — one call returned 353K
+  characters across 10,713 lines). Prefer `search_context` to find the files you
+  need, then `Read` them.
 
 ## MCP server scope (opencode registration)
 
