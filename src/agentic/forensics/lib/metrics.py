@@ -92,7 +92,7 @@ def parse_when(value: str, end_of_day: bool = False) -> datetime.datetime:
         date = datetime.datetime.strptime(raw, "%Y-%m-%d")
         moment = date.replace(tzinfo=datetime.timezone.utc)
         return moment + datetime.timedelta(hours=23, minutes=59, seconds=59) if end_of_day else moment
-    parsed = datetime.datetime.fromisoformat(raw)
+    parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=datetime.timezone.utc)
     return parsed.astimezone(datetime.timezone.utc)
@@ -106,4 +106,6 @@ def resolve_window(since=None, until=None, now=None) -> tuple:
     reference = now or datetime.datetime.now(datetime.timezone.utc)
     until_dt = parse_when(until, end_of_day=True) if until else reference
     since_dt = parse_when(since) if since else minus_one_month(until_dt)
+    if until_dt <= since_dt:
+        raise ValueError("empty or reversed window: since %s is not before until %s" % (since_dt.isoformat(), until_dt.isoformat()))
     return since_dt, until_dt

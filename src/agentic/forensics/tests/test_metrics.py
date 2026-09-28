@@ -149,6 +149,9 @@ class ParseWhenTests(unittest.TestCase):
     def test_naive_datetime_treated_as_utc(self):
         self.assertEqual(metrics.parse_when("2026-09-21T12:30:00"), utc(2026, 9, 21, 12, 30, 0))
 
+    def test_iso_datetime_with_a_trailing_z(self):
+        self.assertEqual(metrics.parse_when("2026-09-21T10:00:00Z"), utc(2026, 9, 21, 10, 0, 0))
+
     def test_invalid_raises(self):
         with self.assertRaises(ValueError):
             metrics.parse_when("not-a-date")
@@ -169,6 +172,16 @@ class ResolveWindowTests(unittest.TestCase):
         since, until = metrics.resolve_window(None, None, now=utc(2026, 9, 28, 12, 0, 0))
         self.assertEqual(until, utc(2026, 9, 28, 12, 0, 0))
         self.assertEqual(since, utc(2026, 8, 28, 12, 0, 0))
+
+    def test_reversed_window_raises(self):
+        with self.assertRaises(ValueError):
+            metrics.resolve_window("2026-09-25", "2026-09-21", now=utc(2026, 9, 28, 12))
+
+    def test_point_window_raises(self):
+        with self.assertRaises(ValueError):
+            metrics.resolve_window(
+                "2026-09-21T10:00:00+00:00", "2026-09-21T10:00:00+00:00", now=utc(2026, 9, 28, 12)
+            )
 
 
 if __name__ == "__main__":
