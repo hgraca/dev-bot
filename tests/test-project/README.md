@@ -33,6 +33,12 @@ fixture:
 - the run's devbot logs + staged harness logs →
   `.agents/logs/<report-id>/`
 
+The fixture ships a `.prettierrc.json` (as the dev-bot repo itself does) so the
+`format-md/json/yml` hooks have a declared formatter to run against. Without it
+`src/_shared/prettier_gate.py` correctly no-ops for a project that never adopted
+prettier, and the §2 "confirm it reformats" audit step cannot be positively
+verified (audit-73 §2).
+
 Manual one-off (older style, not isolated):
 
 ```shell
