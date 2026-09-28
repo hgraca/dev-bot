@@ -275,6 +275,13 @@ fd, tmp = tempfile.mkstemp(
 )
 with os.fdopen(fd, "w") as f:
     f.write(data)
+# mkstemp creates the temp 0600, and os.replace keeps that mode — so without
+# this every generated config (opencode.jsonc, tui.json) lands owner-only while
+# the sibling writers ship 0644. Match the umask default so a deliberately
+# restrictive environment still gets private files.
+umask = os.umask(0)
+os.umask(umask)
+os.chmod(tmp, 0o644 & ~umask)
 os.replace(tmp, os.environ["CONFIG"])
 PY
   _ok "${name} written"

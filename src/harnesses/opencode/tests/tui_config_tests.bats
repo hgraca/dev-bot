@@ -198,6 +198,22 @@ _source_init() {
   refute_output --partial 'opencode-tabs'
 }
 
+@test "_write_jsonc_from_dist does not leave the generated config owner-only" {
+  # mkstemp creates the temp file 0600 and os.replace preserves that mode, so the
+  # generated config was left owner-only while every sibling writer ships 0644
+  # (audit-73). Pin the umask so the expected mode is deterministic.
+  _setup_sandbox
+  _source_init
+  umask 022
+
+  run _write_jsonc_from_dist "${SANDBOX_DIR}/opencode.dist.jsonc" "${SANDBOX_DIR}/out.jsonc"
+  assert_success
+
+  run python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "${SANDBOX_DIR}/out.jsonc"
+  assert_success
+  assert_output "0o644"
+}
+
 # ── the dev-bot TUI plugin farm (init.sh / reset.sh / the dist entry) ─────────
 
 @test "tui.dist.jsonc references the PTY monitor by a RELATIVE path" {
