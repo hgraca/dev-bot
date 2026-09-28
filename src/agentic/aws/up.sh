@@ -64,6 +64,14 @@ main() {
     fi
   done
 
+  # The launcher execs the installed proxy; without it every AWS MCP server fails.
+  # Resolved through the launcher so this agrees with what a launch would do.
+  if bash "${MODULE_DIR}/tools/aws-mcp-proxy.sh" --which &>/dev/null; then
+    _ok "aws MCP proxy present (${MCP_PROXY_PACKAGE})"
+  else
+    _warn "aws MCP proxy not installed — the AWS MCP server will not start (run 'devbot install')"
+  fi
+
   return 0
 }
 

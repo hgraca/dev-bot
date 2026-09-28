@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # src/agentic/aws/update.sh
-# Update the AWS CLI and uv to the latest versions, and refresh the AWS agent
-# rules in storage. Skills update separately via the external-modules module
-# during `devbot update`.
+# Update the AWS CLI and uv to the latest versions, keep the pinned AWS MCP proxy
+# installed, and refresh the AWS agent rules in storage. Skills update separately
+# via the external-modules module during `devbot update`.
 #
 # GATE: This module must work on Ubuntu, Fedora, and macOS.
 
@@ -25,6 +25,8 @@ main() {
   if command -v uv &>/dev/null; then
     _info "Updating uv..."
     uv self update 2>&1 | sed 's/^/  /' || _warn "uv self update failed"
+    # Keep the pinned AWS MCP proxy installed (uv tool, never resolved at launch).
+    _mcp_proxy_install || true
   else
     _warn "uv not installed — run install.sh"
   fi

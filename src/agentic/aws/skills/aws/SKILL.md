@@ -67,11 +67,11 @@ A connection's `region` sets the default region for its operations. When it is a
 
 ## Troubleshooting
 
-| Symptom                                                       | Fix                                                                                                         |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `Unable to locate credentials`                                | Check the connection's `env` references resolve (repo `.env` or shell), or that the profile exists          |
-| `ExpiredToken`                                                | The static credential or role session expired — refresh the source; nothing re-authenticates on your behalf |
-| Server refuses to start; identity is not the expected account | The connection's `account_id` pin rejected it — fix the key or the pin                                      |
-| MCP server won't start (`uvx` not found)                      | `devbot install` (installs `uv`); ensure `~/.local/bin` is on PATH                                          |
-| A connection is missing in this project                       | Declare it in `.devbot.global.jsonc` and opt in via `aws_connections`                                       |
-| Skills missing                                                | `devbot module install` (clones the toolkit repo), then re-init the project                                 |
+| Symptom                                                        | Fix                                                                                                         |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `Unable to locate credentials`                                 | Check the connection's `env` references resolve (repo `.env` or shell), or that the profile exists          |
+| `ExpiredToken`                                                 | The static credential or role session expired — refresh the source; nothing re-authenticates on your behalf |
+| Server refuses to start; identity is not the expected account  | The connection's `account_id` pin rejected it — fix the key or the pin                                      |
+| MCP server won't start (`mcp-proxy-for-aws-cli` not installed) | `devbot install` (installs the proxy); ensure `~/.local/bin` is on PATH                                     |
+| A connection is missing in this project                        | Declare it in `.devbot.global.jsonc` and opt in via `aws_connections`                                       |
+| Skills missing                                                 | `devbot module install` (clones the toolkit repo), then re-init the project                                 |

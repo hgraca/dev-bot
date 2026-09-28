@@ -22,19 +22,22 @@ setup() {
   LAUNCHER="$MODULE_DIR/tools/aws-mcp-proxy.sh"
   INSTALL="$MODULE_DIR/install.sh"
   UP="$MODULE_DIR/up.sh"
+  UPDATE="$MODULE_DIR/update.sh"
   INIT="$MODULE_DIR/init.sh"
 
   TMP="$(mktemp -d)"
+  mkdir -p "$TMP/home"
 }
 
 teardown() {
   rm -rf "$TMP"
 }
 
-# A fake uvx that reports the argv AND the credential environment it inherited.
-_fake_uvx() {
+# A fake mcp-proxy-for-aws-cli (the installed uv tool) that reports the argv AND
+# the credential environment it inherited.
+_fake_proxy() {
   mkdir -p "$TMP/bin"
-  cat > "$TMP/bin/uvx" <<'EOF'
+  cat > "$TMP/bin/mcp-proxy-for-aws-cli" <<'EOF'
 #!/usr/bin/env bash
 echo "ARGS:$*"
 echo "KEY:${AWS_ACCESS_KEY_ID:-<unset>}"
@@ -43,7 +46,7 @@ echo "REGION:${AWS_REGION:-<unset>}"
 echo "PROFILE:${AWS_PROFILE:-<unset>}"
 echo "PROFILES:${AWS_MCP_PROXY_PROFILES:-<unset>}"
 EOF
-  chmod +x "$TMP/bin/uvx"
+  chmod +x "$TMP/bin/mcp-proxy-for-aws-cli"
 }
 
 # A fake aws CLI that reports a fixed account for sts get-caller-identity and
@@ -61,6 +64,37 @@ fi
 exit 1
 EOF
   chmod +x "$TMP/bin/aws"
+}
+
+# Fake binaries for install.sh/update.sh: uv (records argv), unzip, aws, curl.
+# The uv fake answers `tool list` from $TMP/uv-tool-list.txt, so a test chooses
+# whether the MCP proxy already looks installed.
+_fake_install_bins() {
+  mkdir -p "$TMP/bin" "$TMP/root"
+  echo '{"project_name":"demo"}' > "$TMP/root/.devbot.global.jsonc"
+
+  cat > "$TMP/bin/uv" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TMP/uv-argv.log"
+if [[ "\${1:-} \${2:-}" == "tool list" ]]; then
+  cat "$TMP/uv-tool-list.txt" 2>/dev/null || true
+fi
+exit 0
+EOF
+  chmod +x "$TMP/bin/uv"
+
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/unzip"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/bin/aws"
+  chmod +x "$TMP/bin/unzip" "$TMP/bin/aws"
+
+  cat > "$TMP/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+out=""; args=("$@")
+for ((i=0;i<${#args[@]};i++)); do [[ "${args[$i]}" == "-o" ]] && out="${args[$((i+1))]}"; done
+[[ -n "$out" ]] && echo "# rules" > "$out"
+exit 0
+EOF
+  chmod +x "$TMP/bin/curl"
 }
 
 # ── init.sh — per-connection dynamic manifests ────────────────────────────────
@@ -269,7 +303,7 @@ _aws_global() {
 }
 
 @test "launcher: requires a connection argument" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 { "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
 EOF
@@ -280,7 +314,7 @@ EOF
 }
 
 @test "launcher: rejects an undeclared connection" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 { "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
 EOF
@@ -291,7 +325,7 @@ EOF
 }
 
 @test "launcher: env form exports resolved keys, never on argv" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 {
   "aws_connections": {
@@ -320,7 +354,7 @@ EOF
 }
 
 @test "launcher: a literal env value never reaches a child's argv" {
-  _fake_uvx
+  _fake_proxy
   # A python3 shim that records the argv of every child the launcher spawns.
   local real_python
   real_python="$(command -v python3)"
@@ -346,7 +380,7 @@ EOF
 }
 
 @test "launcher: a missing \${VAR} refuses to start with nothing on stdout" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 { "aws_connections": { "prod": { "region": "eu-central-1", "env": { "AWS_ACCESS_KEY_ID": "${MISSING_KEY}" } } } }
 EOF
@@ -359,7 +393,7 @@ EOF
 }
 
 @test "launcher: profile form passes --profile and exports no keys" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 { "aws_connections": { "dev": { "region": "eu-west-1", "profile": "dev-ro" } } }
 EOF
@@ -371,7 +405,7 @@ EOF
 }
 
 @test "launcher: rejects a connection declaring both env and profile" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 { "aws_connections": { "both": { "region": "eu-west-1", "profile": "ro", "env": { "AWS_ACCESS_KEY_ID": "x" } } } }
 EOF
@@ -382,7 +416,7 @@ EOF
 }
 
 @test "launcher: rejects a connection with neither env nor profile" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 { "aws_connections": { "empty": { "region": "eu-west-1" } } }
 EOF
@@ -393,7 +427,7 @@ EOF
 }
 
 @test "launcher: account_id match proceeds" {
-  _fake_uvx
+  _fake_proxy
   _fake_aws_account "123456789012"
   _aws_global <<'EOF'
 { "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro", "account_id": "123456789012" } } }
@@ -405,7 +439,7 @@ EOF
 }
 
 @test "launcher: account_id mismatch refuses to start" {
-  _fake_uvx
+  _fake_proxy
   _fake_aws_account "999999999999"
   _aws_global <<'EOF'
 { "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro", "account_id": "123456789012" } } }
@@ -417,7 +451,7 @@ EOF
 }
 
 @test "launcher: drops AWS_MCP_PROXY_PROFILES so it cannot defeat the pin" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 { "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
 EOF
@@ -431,7 +465,7 @@ EOF
 }
 
 @test "launcher: region falls back to AWS_REGION when the connection omits it" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 { "aws_connections": { "prod": { "profile": "ro" } } }
 EOF
@@ -443,7 +477,7 @@ EOF
 }
 
 @test "launcher: a region supplied through the repo .env is honoured" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 { "aws_connections": { "dev": { "profile": "dev-ro" } } }
 EOF
@@ -455,7 +489,7 @@ EOF
 }
 
 @test "launcher: resolves \${VAR} references from the repo .env" {
-  _fake_uvx
+  _fake_proxy
   _aws_global <<'EOF'
 { "aws_connections": { "prod": { "region": "eu-central-1", "env": { "AWS_ACCESS_KEY_ID": "${ENVFILE_KEY}" } } } }
 EOF
@@ -467,7 +501,7 @@ EOF
 }
 
 @test "launcher: the profile form passes --profile through to sts" {
-  _fake_uvx
+  _fake_proxy
   _fake_aws_account "123456789012"
   _aws_global <<'EOF'
 { "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro", "account_id": "123456789012" } } }
@@ -477,6 +511,101 @@ EOF
   assert_success
   run grep -c -- "--profile ro" "$TMP/aws-argv.log"
   assert_output "1"
+}
+
+@test "launcher: execs the installed proxy with the endpoint and metadata" {
+  _fake_proxy
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
+  assert_success
+  assert_output --partial "ARGS:https://aws-mcp.us-east-1.api.aws/mcp"
+  assert_output --partial "--metadata INSTALL_SOURCE=agent-toolkit-core"
+  assert_output --partial "--metadata AWS_REGION=eu-central-1"
+}
+
+@test "launcher: refuses to start when the proxy is not installed" {
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
+EOF
+  cd "$TMP/proj"
+  # No proxy binary on PATH, and an empty HOME so the ~/.local/bin fallback misses.
+  run --separate-stderr env DEV_BOT_ROOT="$TMP/root" HOME="$TMP/home" \
+    PATH="/usr/bin:/bin" bash "$LAUNCHER" prod
+  assert_failure
+  # MCP speaks JSON-RPC on stdout: the diagnostic must be on stderr only.
+  assert_equal "$output" ""
+  [[ "$stderr" == *"not installed"* ]]
+}
+
+@test "launcher: survives a missing HOME with the actionable error" {
+  # Without the ${HOME:-} guard, set -u aborts on "HOME: unbound variable" and
+  # the operator never sees the fix instruction.
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
+EOF
+  cd "$TMP/proj"
+  run --separate-stderr env -u HOME DEV_BOT_ROOT="$TMP/root" \
+    PATH="/usr/bin:/bin" bash "$LAUNCHER" prod
+  assert_failure
+  assert_equal "$output" ""
+  [[ "$stderr" == *"not installed"* ]]
+}
+
+@test "launcher: --check verifies credentials without the proxy installed" {
+  _fake_aws_account "123456789012"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro", "account_id": "123456789012" } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" HOME="$TMP/home" PATH="$TMP/bin:/usr/bin:/bin" \
+    bash "$LAUNCHER" --check prod
+  assert_success
+  assert_output --partial "OK (account 123456789012)"
+}
+
+@test "launcher: --which prints the resolved proxy path" {
+  _fake_proxy
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" --which
+  assert_success
+  assert_output "$TMP/bin/mcp-proxy-for-aws-cli"
+}
+
+@test "launcher: --which fails when the proxy is not installed" {
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
+EOF
+  cd "$TMP/proj"
+  run --separate-stderr env DEV_BOT_ROOT="$TMP/root" HOME="$TMP/home" \
+    PATH="/usr/bin:/bin" bash "$LAUNCHER" --which
+  assert_failure
+  assert_equal "$output" ""
+  [[ "$stderr" == *"not installed"* ]]
+}
+
+@test "launcher: falls back to the ~/.local/bin proxy when it is not on PATH" {
+  _fake_proxy
+  mkdir -p "$TMP/home/.local/bin"
+  cp "$TMP/bin/mcp-proxy-for-aws-cli" "$TMP/home/.local/bin/"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro" } } }
+EOF
+  cd "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" HOME="$TMP/home" PATH="/usr/bin:/bin" bash "$LAUNCHER" prod
+  assert_success
+  assert_output --partial "ARGS:https://aws-mcp.us-east-1.api.aws/mcp"
+}
+
+@test "launcher: never resolves the proxy through uvx at launch" {
+  # Code lines only — the header comment explains why, and names uvx.
+  run bash -c "grep -v '^[[:space:]]*#' '$LAUNCHER' | grep -q 'uvx'"
+  assert_failure
 }
 
 # ── install.sh ────────────────────────────────────────────────────────────────
@@ -513,6 +642,56 @@ EOF
   assert_failure
 }
 
+@test "install.sh: installs the pinned MCP proxy as a uv tool" {
+  _fake_install_bins
+  : > "$TMP/uv-tool-list.txt"
+
+  run env HOME="$TMP/home" DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$INSTALL" </dev/null
+  assert_success
+
+  run grep -c -- "tool install mcp-proxy-for-aws-cli==1.7.0" "$TMP/uv-argv.log"
+  assert_output "1"
+}
+
+@test "install.sh: skips the MCP proxy when the pinned version is already installed" {
+  _fake_install_bins
+  printf 'mcp-proxy-for-aws-cli v1.7.0\n- mcp-proxy-for-aws-cli\n' > "$TMP/uv-tool-list.txt"
+
+  run env HOME="$TMP/home" DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$INSTALL" </dev/null
+  assert_success
+
+  run grep -c -- "tool install mcp-proxy-for-aws-cli" "$TMP/uv-argv.log"
+  assert_output "0"
+}
+
+@test "install.sh: matches the pinned proxy even when uv tool list is large" {
+  _fake_install_bins
+  # The matching line first, then output far larger than a pipe buffer: reading
+  # uv directly with `grep -q` would SIGPIPE uv (pipefail) and read as absent,
+  # triggering a pointless reinstall.
+  {
+    echo 'mcp-proxy-for-aws-cli v1.7.0'
+    seq 1 20000 | sed 's/^/other-tool v0.0.0 /'
+  } > "$TMP/uv-tool-list.txt"
+
+  run env HOME="$TMP/home" DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$INSTALL" </dev/null
+  assert_success
+
+  run grep -c -- "tool install mcp-proxy-for-aws-cli" "$TMP/uv-argv.log"
+  assert_output "0"
+}
+
+@test "update.sh: installs the pinned MCP proxy as a uv tool" {
+  _fake_install_bins
+  : > "$TMP/uv-tool-list.txt"
+
+  run env HOME="$TMP/home" DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$UPDATE" </dev/null
+  assert_success
+
+  run grep -c -- "tool install mcp-proxy-for-aws-cli==1.7.0" "$TMP/uv-argv.log"
+  assert_output "1"
+}
+
 # ── up.sh — verify-only ───────────────────────────────────────────────────────
 
 @test "up.sh: verifies every declared connection" {
@@ -544,4 +723,29 @@ EOF
 @test "up.sh: never logs in" {
   run grep -qE 'aws (login|sso login)' "$UP"
   assert_failure
+}
+
+@test "up.sh: warns when the AWS MCP proxy is not installed" {
+  _fake_aws_account "123456789012"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro", "account_id": "123456789012" } } }
+EOF
+  run env DEV_BOT_ROOT="$TMP/root" HOME="$TMP/home" PATH="$TMP/bin:/usr/bin:/bin" bash "$UP"
+  assert_success
+  assert_output --partial "credentials valid"
+  assert_output --partial "proxy not installed"
+}
+
+@test "up.sh: finds the proxy through the launcher's ~/.local/bin fallback" {
+  _fake_aws_account "123456789012"
+  mkdir -p "$TMP/home/.local/bin"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/home/.local/bin/mcp-proxy-for-aws-cli"
+  chmod +x "$TMP/home/.local/bin/mcp-proxy-for-aws-cli"
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "profile": "ro", "account_id": "123456789012" } } }
+EOF
+  # Not on PATH — the launcher's fallback is the only way it can be found.
+  run env DEV_BOT_ROOT="$TMP/root" HOME="$TMP/home" PATH="$TMP/bin:/usr/bin:/bin" bash "$UP"
+  assert_success
+  assert_output --partial "proxy present"
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # src/agentic/aws/tools/aws-mcp-proxy.sh
-# AWS MCP proxy launcher — execs `uvx mcp-proxy-for-aws` as ONE named AWS
-# connection.
+# AWS MCP proxy launcher — execs the installed `mcp-proxy-for-aws` tool as ONE
+# named AWS connection.
 #
 # Usage: aws-mcp-proxy.sh <connection>
 #
@@ -45,13 +45,26 @@ GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 ENV_FILE="${DEV_BOT_ROOT}/.env"
 READ_JSONC="${SCRIPT_DIR}/../../../_shared/read_jsonc.py"
 
-PROXY="mcp-proxy-for-aws@1.6.4"
+PROXY_BIN="mcp-proxy-for-aws-cli"
 ENDPOINT="https://aws-mcp.us-east-1.api.aws/mcp"
 
 # All diagnostics go to stderr — stdout carries the MCP stream.
 _die() {
   echo "aws-mcp: $*" >&2
   exit 1
+}
+
+# Resolve the installed proxy executable, or return non-zero. Single source of
+# truth for "is the proxy available?": pre.sh and up.sh ask via --which, so their
+# warnings cannot disagree with what a launch would actually do.
+_proxy_path() {
+  local path
+  path="$(command -v "${PROXY_BIN}" 2>/dev/null || true)"
+  if [[ -z "${path}" && -n "${HOME:-}" ]]; then
+    path="${HOME}/.local/bin/${PROXY_BIN}"
+  fi
+  [[ -x "${path}" ]] || return 1
+  printf '%s\n' "${path}"
 }
 
 # With --check the launcher resolves the connection, verifies its credentials
@@ -63,8 +76,15 @@ if [[ "${1:-}" == "--check" ]]; then
   shift
 fi
 
+# With --which it reports the resolved proxy path (or fails) — no connection or
+# credentials involved, so pre.sh and up.sh can report presence consistently.
+if [[ "${1:-}" == "--which" ]]; then
+  _proxy_path || _die "'${PROXY_BIN}' is not installed — run 'devbot install' to install the AWS MCP proxy"
+  exit 0
+fi
+
 CONNECTION="${1:-}"
-[[ -n "${CONNECTION}" ]] || _die "usage: aws-mcp-proxy.sh [--check] <connection>"
+[[ -n "${CONNECTION}" ]] || _die "usage: aws-mcp-proxy.sh [--check|--which] <connection>"
 [[ -f "${GLOBAL_CONFIG}" ]] || _die "no global config at ${GLOBAL_CONFIG}"
 
 # Read one field of the connection. read_jsonc prints "" for a missing key.
@@ -175,7 +195,14 @@ if [[ "${CHECK}" == "1" ]]; then
   exit 0
 fi
 
-exec uvx "${PROXY}" "${ENDPOINT}" \
+# The proxy is an installed uv tool (install.sh / update.sh), never resolved at
+# launch: `uvx` re-resolves the whole dependency graph against PyPI on every
+# start, and a single stalled request outruns the MCP client's 30 s init budget.
+# The version pin is applied at install/update time; the launcher deliberately
+# execs whatever is installed, so `uv tool upgrade` drifts until the next run.
+PROXY_PATH="$(_proxy_path)" || _die "'${PROXY_BIN}' is not installed — run 'devbot install' to install the AWS MCP proxy"
+
+exec "${PROXY_PATH}" "${ENDPOINT}" \
   ${PROXY_ARGS[@]+"${PROXY_ARGS[@]}"} \
   --metadata "INSTALL_SOURCE=agent-toolkit-core" \
   --metadata "AWS_REGION=${REGION}"

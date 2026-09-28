@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # src/agentic/aws/install.sh
-# Install the AWS CLI v2 and uv, and materialize the AWS agent rules into
-# storage.
+# Install the AWS CLI v2, uv and the AWS MCP proxy, and materialize the AWS
+# agent rules into storage.
 #
 # NON-INTERACTIVE by design: it never prompts, never opens a browser and never
 # logs in. Connections authenticate with static credentials (see init.sh and
@@ -136,6 +136,7 @@ main() {
 
   _install_unzip
   _install_uv
+  _mcp_proxy_install || true
   _install_aws_cli
   _ensure_path
   _report_identity

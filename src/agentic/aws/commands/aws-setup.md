@@ -11,11 +11,12 @@ is create your credentials — declare those as **connections**.
 ## 1. Install the prerequisites
 
 ```bash
-devbot install          # unzip, uv, AWS CLI v2, AWS agent rules
+devbot install          # unzip, uv, AWS CLI v2, AWS MCP proxy, AWS agent rules
 ```
 
-The launcher runs the proxy through `uvx`, so `uv` and the AWS CLI must be on
-`PATH` (`~/.local/bin`).
+The launcher execs the installed `mcp-proxy-for-aws-cli` uv tool (installed by
+`devbot install` / `devbot update`), so `uv` and the AWS CLI must be on `PATH`
+(`~/.local/bin`).
 
 ## 2. Provide credentials
 

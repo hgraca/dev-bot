@@ -96,7 +96,7 @@ A connection that is declared but not selected is not wired; a selected connecti
 
 Each generated `opencode` manifest ships the server with `enabled: false` (wired but not started), matching the other gateway modules — flip it to `true` in `opencode.jsonc` to start it, or toggle it in the harness.
 
-`install.sh` installs the AWS CLI and `uv` and fetches AWS's agent rules. `up.sh` verifies each declared connection's credentials and pinned account, and never logs in.
+`install.sh` installs the AWS CLI, `uv` and the `mcp-proxy-for-aws-cli` uv tool, and fetches AWS's agent rules. `up.sh` verifies each declared connection's credentials and pinned account, and never logs in.
 
 ## See also
 

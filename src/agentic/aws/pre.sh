@@ -3,7 +3,7 @@
 # Prerequisites check for AWS module.
 # Run automatically by bin/install.sh and bin/update.sh.
 #
-# Checks: curl (or wget), jq, unzip, uv, aws.
+# Checks: curl (or wget), jq, unzip, uv, mcp-proxy-for-aws-cli, aws.
 # Non-destructive — warnings only for missing optional tools.
 
 set -euo pipefail
@@ -43,11 +43,21 @@ _main() {
     all_ok=false
   fi
 
-  # uv (required to run the AWS MCP proxy via uvx)
+  # uv (required to install the AWS MCP proxy as a uv tool)
   if command -v uv &>/dev/null; then
-    _ok "uv (required for the AWS MCP proxy)"
+    _ok "uv (required to install the AWS MCP proxy)"
   else
-    _warn "uv not found — AWS MCP server (uvx mcp-proxy-for-aws) will not run"
+    _warn "uv not found — the AWS MCP proxy cannot be installed"
+    all_ok=false
+  fi
+
+  # mcp-proxy-for-aws-cli (the AWS MCP server, installed as a uv tool)
+  # Resolved through the launcher so this agrees with what a launch would do —
+  # including the ~/.local/bin fallback when that is not on PATH.
+  if bash "${MODULE_DIR}/tools/aws-mcp-proxy.sh" --which &>/dev/null; then
+    _ok "${MCP_PROXY_PACKAGE} (AWS MCP server)"
+  else
+    _warn "${MCP_PROXY_PACKAGE} not found — AWS MCP server will not run (run install.sh / update.sh)"
     all_ok=false
   fi
 
