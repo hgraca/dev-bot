@@ -8,6 +8,8 @@
 # Network/auth steps are exercised only via fake binaries on PATH.
 # =============================================================================
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load "$(npm root -g)/bats-support/load.bash"
   load "$(npm root -g)/bats-assert/load.bash"
@@ -65,6 +67,8 @@ EOF
 
 _aws_seed_project() {
   mkdir -p "$TMP/proj" "$TMP/root/storage/aws/rules"
+  # A git dir, so the local-exclude path is exercised.
+  mkdir -p "$TMP/proj/.git/info"
   echo '# aws rules' > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
   cat > "$TMP/root/.devbot.global.jsonc" <<'EOF'
 {
@@ -168,6 +172,45 @@ print('OK')
   assert_success
   run cat "$TMP/proj/.agents/memory/active/aws-agent-rules.md"
   assert_output "# aws rules"
+}
+
+@test "init.sh: excludes the copied rules from the project's history" {
+  # The file lands in a dir the memory module un-ignores, so it needs its own
+  # local exclude entry or it shows up as untracked noise in every project.
+  _aws_seed_project
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+
+  run cat "$TMP/proj/.git/info/exclude"
+  assert_output --partial "# >>> DEVBOT - aws"
+  assert_output --partial ".agents/memory/active/aws-agent-rules.md"
+
+  # Idempotent: a second run must not duplicate the section.
+  env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj" >/dev/null
+  run grep -c "# >>> DEVBOT - aws" "$TMP/proj/.git/info/exclude"
+  assert_output "1"
+}
+
+@test "init.sh: writes no rules when the module is disabled for the project" {
+  _aws_seed_project
+  echo '{"modules": {"aws": false}}' > "$TMP/proj/.devbot.project.jsonc"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+  assert_output --partial "module disabled for this project"
+
+  assert [ ! -e "$TMP/proj/.agents/memory/active/aws-agent-rules.md" ]
+  assert [ ! -e "$TMP/proj/.git/info/exclude" ]
+}
+
+@test "init.sh: a project without git is not an error" {
+  _aws_seed_project
+  rm -r "$TMP/proj/.git"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+  assert_output --partial "not a git repo"
+  assert [ -f "$TMP/proj/.agents/memory/active/aws-agent-rules.md" ]
 }
 
 @test "init.sh: removes a deselected connection's key from opencode.jsonc" {

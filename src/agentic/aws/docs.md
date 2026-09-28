@@ -30,6 +30,61 @@ Declaring both forms is rejected — credential precedence would be ambiguous. A
 
 The module imposes no read/write restriction; the server exposes the full AWS API surface. Read-only is the IAM policy on the connection's identity — run it as a least-privilege (ideally read-only) role. The connection pin covers the **MCP path only**: an agent with shell access can reach AWS directly with whatever credentials the machine holds, so least privilege plus a permission boundary (or SCP) is the control that actually holds.
 
+## Setting up the identity
+
+Read-only access is an IAM property, so the identity has to exist before a connection can use it. The steps below produce one IAM **user** with a key pair — the AWS equivalent of a service account. (A **role** has no keys of its own; it is assumed. To use that model instead, give the connection a `profile` with `role_arn` + `source_profile` rather than an `env` block.)
+
+**1. Create the policy.** IAM → _Policies_ → _Create policy_ → **JSON**:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AwsConfigRead",
+      "Effect": "Allow",
+      "Action": ["eks:ListClusters", "eks:DescribeCluster", "eks:ListNodegroups", "eks:DescribeNodegroup", "eks:ListUpdates", "eks:DescribeUpdate", "eks:ListAddons", "eks:DescribeAddon", "eks:DescribeAddonVersions", "eks:ListIdentityProviderConfigs", "eks:DescribeIdentityProviderConfig", "ec2:Describe*", "rds:Describe*", "rds:ListTagsForResource", "elasticache:Describe*", "elasticache:ListTagsForResource", "es:ListDomainNames", "es:DescribeDomains", "es:DescribeDomainConfig", "es:ListTags", "s3:ListAllMyBuckets", "s3:GetBucket*", "s3:GetAccountPublicAccessBlock", "tag:GetResources"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3DataRead",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket", "s3:ListBucketVersions", "s3:GetObject", "s3:GetObjectVersion", "s3:GetObjectTagging"],
+      "Resource": ["arn:aws:s3:::REPLACE-WITH-BUCKET", "arn:aws:s3:::REPLACE-WITH-BUCKET/*"]
+    },
+    {
+      "Sid": "OpenSearchDataRead",
+      "Effect": "Allow",
+      "Action": ["es:ESHttpGet", "es:ESHttpHead", "es:ESHttpPost"],
+      "Resource": "arn:aws:es:eu-central-1:REPLACE-ACCOUNT-ID:domain/REPLACE-DOMAIN-NAME/*"
+    },
+    {
+      "Sid": "OpenSearchServerlessRead",
+      "Effect": "Allow",
+      "Action": ["aoss:ListCollections", "aoss:BatchGetCollection", "aoss:APIAccessAll"],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+Narrow `S3DataRead` to the buckets you actually need — as written it reads every object in the account. `aoss:APIAccessAll` must stay `"*"`. `es:ESHttpPost` is there because OpenSearch clients send searches as POST; it is method-wide, so the domain-side gate in step 5 is what actually keeps the access read-only. Drop the Serverless statement unless you use OpenSearch Serverless.
+
+**2. Create the group and the user.** IAM → _User groups_ → create `devbot` and attach the policy. Then IAM → _Users_ → create e.g. `devbot-readonly` with **no console access**, and add it to that group. The group is what the key inherits, so members can rotate without touching permissions.
+
+**3. Create the access key.** Open the user → _Security credentials_ → _Access keys_ → _Create access key_ → **"Application running outside AWS"**. The use case only changes the console's guidance; the key pair is identical whichever you pick (the exception is _"running on an AWS compute service"_, which offers a role instead — never hold static keys on a workload that can assume one). Copy the **Access key ID** and the **Secret access key**; the secret is shown once, and a user can hold at most two keys.
+
+**4. Hand the values to the connection.** Put them in the repo-root `.env` (gitignored — the launcher and the `datasources` renderer both load it) under the names the connection references:
+
+```bash
+AWS_PROD_RO_ACCESS_KEY_ID=AKIA…
+AWS_PROD_RO_SECRET_ACCESS_KEY=…
+```
+
+**5. OpenSearch needs a second gate.** IAM permission alone is not enough: the domain must allow the principal too. Add the user (or the group) to the domain's **access policy**, or — with fine-grained access control, which is what makes this genuinely read-only despite `es:ESHttpPost` — map it to a **backend role** with read-only index permissions. A correct IAM policy that still returns 403 on search almost always means this step is missing.
+
+**The copied rules file is local, and only on an enabled module.** `init.sh` fetches AWS's own `aws-agent-rules.md` into the project's devbot dir (`<devbot_dir>/memory/active/`), but only when the `aws` module is **enabled for that project** — it is machine-local bootstrap content, not project source. It is listed in the project's `.git/info/exclude` under a `DEVBOT - aws` block, so it never enters the project's history.
+
 ## Configuration
 
 | Key               | Where                   | Meaning                                                                                                                              |

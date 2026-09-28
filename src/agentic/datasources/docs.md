@@ -40,7 +40,7 @@ Each source is declared once in `.devbot.global.jsonc` under `datasources`, with
 
 A project then selects which declared sources it wants in `.devbot.project.jsonc`; a source that is selected but not declared warns, and one no longer selected is unregistered from the harness.
 
-Sidecar credentials are environment variables too — nothing mounts `~/.aws` into a sidecar, so an AWS-facing one takes the standard credential variables rather than a profile.
+Sidecar credentials are environment variables too — nothing mounts `~/.aws` into a sidecar, so an AWS-facing one takes the standard credential variables rather than a profile. The [AWS module](/modules/agentic/aws#setting-up-the-identity) documents the read-only IAM policy and the steps that produce the key pair.
 
 ## See also
 
