@@ -67,6 +67,10 @@ def check(conn: sqlite3.Connection):
         return "not a forensics PR cache (no schema_version)"
     if row["value"] != SCHEMA_VERSION:
         return "PR cache schema_version %s, expected %s" % (row["value"], SCHEMA_VERSION)
+    tables = {entry["name"] for entry in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()}
+    missing = [name for name in ("prs", "pr_coverage") if name not in tables]
+    if missing:
+        return "PR cache is missing table(s): %s" % ", ".join(missing)
     return None
 
 

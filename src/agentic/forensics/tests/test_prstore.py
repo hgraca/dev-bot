@@ -65,6 +65,14 @@ class PrStoreTests(unittest.TestCase):
         self.conn.commit()
         self.assertIn("schema_version", prstore.check(self.conn))
 
+    def test_check_rejects_a_database_without_the_tables(self):
+        other = prstore.connect(os.path.join(self._dir.name, "notables.sqlite"))
+        other.execute("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT)")
+        other.execute("INSERT INTO meta(key, value) VALUES ('schema_version', ?)", (prstore.SCHEMA_VERSION,))
+        other.commit()
+        self.assertIn("pr_coverage", prstore.check(other))
+        other.close()
+
     def test_query_merged_filters_by_window(self):
         prstore.upsert_prs(
             self.conn,
