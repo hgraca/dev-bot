@@ -217,7 +217,7 @@ assert doc["lines"][0]["author_name"] == "Alice"
   db="$(mktemp -d)/out.sqlite"
   _build_repo "$repo"
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --format json
+  run bash "${TOOL}" mine "$repo" --db "$db" --all --format json
   assert_success
   echo "${output}" | python3 -c '
 import json, sys
@@ -248,7 +248,7 @@ assert row["type"] == "php", dict(row)
   repo="$(mktemp -d)"
   _build_repo "$repo"
 
-  run bash "${TOOL}" mine "$repo" --format json
+  run bash "${TOOL}" mine "$repo" --all --format json
   assert_success
 
   run bash -c "ls '${repo}/.forensics/'*.sqlite"
@@ -265,8 +265,8 @@ assert row["type"] == "php", dict(row)
   db="$(mktemp -d)/out.sqlite"
   _build_repo "$repo"
 
-  first="$(bash "${TOOL}" mine "$repo" --db "$db" --format json)"
-  second="$(bash "${TOOL}" mine "$repo" --db "$db" --format json)"
+  first="$(bash "${TOOL}" mine "$repo" --db "$db" --all --format json)"
+  second="$(bash "${TOOL}" mine "$repo" --db "$db" --all --format json)"
   run python3 -c '
 import json, sys
 a = json.loads(sys.argv[1]); b = json.loads(sys.argv[2])
@@ -399,7 +399,7 @@ assert ("method", "Level::label") in units, units
   db="$(mktemp -d)/out.sqlite"
   _build_repo "$repo"
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all --format json
   assert_success
   echo "${output}" | python3 -c '
 import json, sys
@@ -426,7 +426,7 @@ assert doc["counts"]["units"] == 0, doc["counts"]
   GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
     git -C "$repo" commit -q -m "feat: add calculator"
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --format json
+  run bash "${TOOL}" mine "$repo" --db "$db" --all --format json
   assert_success
   echo "${output}" | python3 -c '
 import json, sys
@@ -468,7 +468,7 @@ assert row["complexity"] >= 1, dict(row)
   repo="$(mktemp -d)"
   _build_repo "$repo"
 
-  run bash "${TOOL}" mine "$repo" --db "$repo/out.sqlite" --granularity file --format json
+  run bash "${TOOL}" mine "$repo" --db "$repo/out.sqlite" --granularity file --all --format json
   assert_success
   refute [ -f "$repo/.gitignore" ]
 
@@ -553,7 +553,7 @@ assert any(r["path"] == "new.php" and r["old_path"] == "old.php" for r in rename
   GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
     git -C "$repo" commit -q -m "feat: a"
 
-  run bash "${TOOL}" mine "$repo/src" --db "$db" --granularity file --format json
+  run bash "${TOOL}" mine "$repo/src" --db "$db" --granularity file --all --format json
   assert_success
   echo "${output}" | python3 -c '
 import json, os, sys
@@ -585,7 +585,7 @@ assert "src/A.php" in paths, paths
   GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
     git -C "$repo" commit -q -m "feat: a"
 
-  run bash "${TOOL}" mine "$repo/src" --granularity file --format json
+  run bash "${TOOL}" mine "$repo/src" --granularity file --all --format json
   assert_success
   [ -d "$repo/.forensics" ]
   refute [ -d "$repo/src/.forensics" ]
@@ -610,7 +610,7 @@ assert "src/A.php" in paths, paths
   repo="$(mktemp -d)"
   _build_repo "$repo"
 
-  run bash "${TOOL}" mine "$repo" --db "$(mktemp -d)/o.sqlite" --lang php --granularity file --format json
+  run bash "${TOOL}" mine "$repo" --db "$(mktemp -d)/o.sqlite" --lang php --granularity file --all --format json
   assert_success
 
   rm -rf "$repo"
@@ -629,7 +629,7 @@ assert "src/A.php" in paths, paths
   GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
     git -C "$repo" commit -q -m "feat: zz"
 
-  run env FORENSICS_LANGS_DIR="${TEST_DIR}/fixtures/langs-multi" bash "${TOOL}" mine "$repo" --db "$db" --format json
+  run env FORENSICS_LANGS_DIR="${TEST_DIR}/fixtures/langs-multi" bash "${TOOL}" mine "$repo" --db "$db" --all --format json
   assert_success
   echo "${output}" | python3 -c '
 import json, sys
@@ -876,7 +876,7 @@ assert rows[1]["path"] == "cold.php", rows
   db="$(mktemp -d)/out.sqlite"
   _build_repo "$repo"
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all --format json
   assert_success
 
   run bash "${TOOL}" analyse "$db" --view hotspots --format json
@@ -903,7 +903,7 @@ assert isinstance(doc["hotspots"], list), doc
   repo="$(mktemp -d)"
   db="$(mktemp -d)/out.sqlite"
   _build_repo "$repo"
-  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all >/dev/null
 
   run bash "${TOOL}" analyse "$db" --view no-such-view --format json
   assert_failure
@@ -917,7 +917,7 @@ assert isinstance(doc["hotspots"], list), doc
   repo="$(mktemp -d)"
   db="$(mktemp -d)/out.sqlite"
   _build_repo "$repo"
-  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all >/dev/null
 
   run bash "${TOOL}" analyse "$db" --view change-rate --format csv
   assert_success
@@ -932,7 +932,7 @@ assert isinstance(doc["hotspots"], list), doc
   repo="$(mktemp -d)"
   db="$(mktemp -d)/out.sqlite"
   _build_repo "$repo"
-  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all >/dev/null
 
   run bash "${TOOL}" analyse "$db" --view change-rate --format md
   assert_success
@@ -1052,7 +1052,7 @@ assert commitparse.parse_message("random message")["conventional"] is False
   db="$(mktemp -d)/o.sqlite"
   _build_repo "$repo"
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all --format json
   assert_success
 
   run bash "${TOOL}" analyse "$db" --view commit-types --format json
@@ -1129,7 +1129,7 @@ assert link["delta_seconds"] == 36 * 3600, link
   GIT_AUTHOR_DATE="2024-01-02T12:00:00+00:00" GIT_COMMITTER_DATE="2024-01-02T12:00:00+00:00" \
     git -C "$repo" commit -q -m "fix: v2"
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all --format json
   assert_success
 
   run bash "${TOOL}" analyse "$db" --view time-to-fix --format json
@@ -1155,7 +1155,7 @@ assert row["fastest_hours"] == 36.0, row
   repo="$(mktemp -d)"
   db="$(mktemp -d)/o.sqlite"
   _build_repo "$repo"
-  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all >/dev/null
 
   run bash "${TOOL}" report "$db" --format md
   assert_success
@@ -1172,7 +1172,7 @@ assert row["fastest_hours"] == 36.0, row
   repo="$(mktemp -d)"
   db="$(mktemp -d)/o.sqlite"
   _build_repo "$repo"
-  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all >/dev/null
 
   run bash "${TOOL}" report "$db" --format json
   assert_success
@@ -1192,7 +1192,7 @@ for key in ("meta", "hotspots", "coupling", "authors", "time-to-fix", "bus_facto
   db="$(mktemp -d)/o.sqlite"
   out="$(mktemp -d)"
   _build_repo "$repo"
-  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all >/dev/null
 
   run bash "${TOOL}" report "$db" --out "$out" --format md
   assert_success
@@ -1207,7 +1207,7 @@ for key in ("meta", "hotspots", "coupling", "authors", "time-to-fix", "bus_facto
   db="$(mktemp -d)/o.sqlite"
   out="$(mktemp -d)"
   _build_repo "$repo"
-  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all >/dev/null
 
   run bash "${TOOL}" report "$db" --format html
   assert_success
@@ -1226,7 +1226,7 @@ for key in ("meta", "hotspots", "coupling", "authors", "time-to-fix", "bus_facto
   repo="$(mktemp -d)"
   db="$(mktemp -d)/o.sqlite"
   _build_repo "$repo"
-  bash "${TOOL}" mine "$repo" --db "$db" --granularity file >/dev/null
+  bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all >/dev/null
 
   run bash "${TOOL}" analyse "$db" --view process --format json
   assert_success
@@ -1276,7 +1276,7 @@ assert own[0]["unit_key"] == ownership.unit_key("f.php", "function", "f"), own
   GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="2024-01-01T10:00:00+00:00" \
     git -C "$repo" commit -q -m "feat: add calculator"
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --format json
+  run bash "${TOOL}" mine "$repo" --db "$db" --all --format json
   assert_success
 
   run bash "${TOOL}" analyse "$db" --view unit-ownership --format json
@@ -1311,7 +1311,7 @@ assert names["Calculator::classify"]["authors"] == 1, names["Calculator::classif
     git -C "$repo" commit -q -m "feat: b"
   git -C "$repo" tag v2
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all --format json
   assert_success
 
   run bash "${TOOL}" analyse "$db" --view process --format json
@@ -1463,7 +1463,7 @@ assert rows[0]["ownership_risk"] == 1.0, rows[0]
   GIT_AUTHOR_DATE="2024-02-01T00:00:00+00:00" GIT_COMMITTER_DATE="2024-02-01T00:00:00+00:00" \
     git -C "$repo" commit -q -m "feat: another branch"
 
-  run env FORENSICS_LANGS_DIR="${TEST_DIR}/fixtures/langs-trend" bash "${TOOL}" mine "$repo" --db "$db" --trends --format json
+  run env FORENSICS_LANGS_DIR="${TEST_DIR}/fixtures/langs-trend" bash "${TOOL}" mine "$repo" --db "$db" --trends --all --format json
   assert_success
 
   run bash "${TOOL}" analyse "$db" --view trends --format json
@@ -1490,7 +1490,7 @@ assert rows["code.zz"]["delta"] == 1, rows
   _build_repo "$repo"
   printf 'path,count\na.php,3\nb.txt,1\n' >"$csv"
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --defects "$csv" --format json
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all --defects "$csv" --format json
   assert_success
 
   run bash "${TOOL}" analyse "$db" --view defect-density --format json
@@ -1577,7 +1577,7 @@ assert rows and rows[0]["ca"] == 3 and rows[0]["ce"] == 2 and rows[0]["cbo"] == 
   GIT_AUTHOR_DATE="2024-02-01T00:00:00+00:00" GIT_COMMITTER_DATE="2024-02-01T00:00:00+00:00" \
     git -C "$repo" commit -q -m "feat: change both"
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file \
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all \
     --modules "api=src/Api,domain=src/Domain" --format json
   assert_success
 
@@ -1627,7 +1627,7 @@ assert {"api", "domain"} <= mods, mods
 Alice <alice@example.com> <alice.old@example.com>
 MAP
 
-  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --format json
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file --all --format json
   assert_success
 
   run bash "${TOOL}" analyse "$db" --view authors --format json

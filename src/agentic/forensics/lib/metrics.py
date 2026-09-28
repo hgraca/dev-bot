@@ -84,15 +84,19 @@ def subtract_intervals(start, end, covered: list) -> list:
 def parse_when(value: str, end_of_day: bool = False) -> datetime.datetime:
     """Parse a date or ISO-8601 datetime to an aware UTC datetime.
 
-    A date-only value means the start of that day, or its end with ``end_of_day``.
-    A naive datetime is assumed UTC.
+    A date-only value means the start of that UTC day, or its end with
+    ``end_of_day``. A naive datetime is assumed UTC. Only ``YYYY-MM-DD`` and
+    ISO-8601 are accepted — not git's approximate forms like ``"last year"``.
     """
     raw = value.strip()
-    if "T" not in raw and " " not in raw:
-        date = datetime.datetime.strptime(raw, "%Y-%m-%d")
-        moment = date.replace(tzinfo=datetime.timezone.utc)
-        return moment + datetime.timedelta(hours=23, minutes=59, seconds=59) if end_of_day else moment
-    parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    try:
+        if "T" not in raw and " " not in raw:
+            date = datetime.datetime.strptime(raw, "%Y-%m-%d")
+            moment = date.replace(tzinfo=datetime.timezone.utc)
+            return moment + datetime.timedelta(hours=23, minutes=59, seconds=59) if end_of_day else moment
+        parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        raise ValueError("invalid date '%s' (expected YYYY-MM-DD or ISO-8601)" % value)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=datetime.timezone.utc)
     return parsed.astimezone(datetime.timezone.utc)
@@ -109,3 +113,28 @@ def resolve_window(since=None, until=None, now=None) -> tuple:
     if until_dt <= since_dt:
         raise ValueError("empty or reversed window: since %s is not before until %s" % (since_dt.isoformat(), until_dt.isoformat()))
     return since_dt, until_dt
+
+
+def windowed_releases(releases: list, since=None, until=None) -> tuple:
+    """Split release rows into ``(in_window, undated)``.
+
+    Every release is kept when the window is unbounded. A release whose date is
+    missing or unparseable cannot be shown to be inside the window, so a bounded
+    run returns it in ``undated`` — the caller reports it rather than dropping it
+    silently.
+    """
+    if since is None and until is None:
+        return list(releases), []
+    kept, undated = [], []
+    for release in releases:
+        try:
+            moment = parse_when(release.get("date") or "")
+        except (ValueError, TypeError):
+            undated.append(release)
+            continue
+        if since is not None and moment < since:
+            continue
+        if until is not None and moment > until:
+            continue
+        kept.append(release)
+    return kept, undated

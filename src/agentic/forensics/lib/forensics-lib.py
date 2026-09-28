@@ -279,7 +279,7 @@ def cmd_sources(args: list) -> int:
     return 1 if errors else 0
 
 
-_BOOLEAN_FLAGS = {"json", "csv", "markdown", "refresh", "no-defects", "trends"}
+_BOOLEAN_FLAGS = {"json", "csv", "markdown", "refresh", "no-defects", "trends", "all"}
 
 
 def _parse_args(args: list) -> tuple:
@@ -380,8 +380,14 @@ def _file_complexity(units: list) -> dict:
     return {path: (leaf[path] or total[path]) for path in total}
 
 
-def _mine_trends(repo: str, langs, interval: str) -> list:
-    """Sample the repo over time and measure complexity at each sampled revision."""
+def _mine_trends(repo: str, langs, interval: str, since=None, until=None) -> tuple:
+    """Sample the repo over time and measure complexity at each sampled revision.
+
+    Returns ``(rows, errors, sampled)`` — the trend rows, the engine errors, and how
+    many revisions were sampled (a single sample cannot show a trend). A failing
+    engine at one revision is reported rather than swallowed, but the remaining
+    samples still count — one unavailable engine must not silently empty the trend.
+    """
     plugins, _ = _discover(_langs_dir())
     extensions = set()
     for plugin in plugins:
@@ -392,13 +398,16 @@ def _mine_trends(repo: str, langs, interval: str) -> list:
         for extension in plugin.get("extensions", []):
             extensions.add(extension.lstrip(".").lower())
     if not extensions:
-        return []
+        return [], [], 0
 
+    revisions = trends.sample_revisions(repo, interval, since, until)
     rows = []
-    for entry in trends.sample_revisions(repo, interval):
+    errors = []
+    for entry in revisions:
         worktree = tempfile.mkdtemp(prefix="forensics-trend-")
         try:
             if not trends.add_worktree(repo, entry["revision"], worktree):
+                errors.append("could not sample revision %s" % entry["revision"][:12])
                 continue
             file_types = {}
             for root, dirs, names in os.walk(worktree):
@@ -408,7 +417,10 @@ def _mine_trends(repo: str, langs, interval: str) -> list:
                     if extension in extensions:
                         relative = os.path.relpath(os.path.join(root, name), worktree)
                         file_types.setdefault(extension, []).append(relative)
-            units, _errors = _extract_units(worktree, file_types, langs)
+            units, unit_errors = _extract_units(worktree, file_types, langs)
+            for error in unit_errors:
+                if error not in errors:
+                    errors.append(error)
             for path, complexity in _file_complexity(units).items():
                 rows.append(
                     {"revision": entry["revision"], "date": entry["date"], "path": path, "complexity": complexity}
@@ -416,7 +428,7 @@ def _mine_trends(repo: str, langs, interval: str) -> list:
         finally:
             trends.remove_worktree(repo, worktree)
             shutil.rmtree(worktree, ignore_errors=True)
-    return rows
+    return rows, errors, len(revisions)
 
 
 def _read_defects(csv_path: str, source: str) -> list:
@@ -481,8 +493,26 @@ def cmd_mine(args: list) -> int:
             return 2
         langs = {requested_lang}
 
-    since = opts.get("since") if isinstance(opts.get("since"), str) else None
-    until = opts.get("until") if isinstance(opts.get("until"), str) else None
+    since_opt = opts.get("since") if isinstance(opts.get("since"), str) else None
+    until_opt = opts.get("until") if isinstance(opts.get("until"), str) else None
+
+    if opts.get("all") and (since_opt or until_opt):
+        print("ERROR: --all cannot be combined with --since/--until", file=sys.stderr)
+        return 2
+
+    if opts.get("all"):
+        since_dt = until_dt = None
+    else:
+        try:
+            since_dt, until_dt = metrics.resolve_window(since_opt, until_opt)
+        except ValueError as exc:
+            print("ERROR: %s" % exc, file=sys.stderr)
+            return 2
+
+    # Full ISO timestamps, never bare dates: git resolves a date-only `--since`
+    # to the current time of day, which silently drops that day's earlier commits.
+    since = since_dt.isoformat() if since_dt else None
+    until = until_dt.isoformat() if until_dt else None
     db_path = opts.get("db") if isinstance(opts.get("db"), str) else _default_db_path(repo)
 
     try:
@@ -496,6 +526,7 @@ def cmd_mine(args: list) -> int:
     conn = store.connect(db_path)
     try:
         store.reset(conn)
+        warnings = []
         store.write_meta(
             conn,
             {
@@ -510,10 +541,11 @@ def cmd_mine(args: list) -> int:
         enriched = commitparse.enrich(data["commits"])
         store.write_commits(conn, enriched)
         store.write_changes(conn, data["changes"])
-        store.write_releases(conn, gitmine.tags(data["repo"]))
+        releases, undated_releases = metrics.windowed_releases(gitmine.tags(data["repo"]), since_dt, until_dt)
+        store.write_releases(conn, releases)
+        warnings += ["release %s dropped — no usable creation date" % r.get("tag", "?") for r in undated_releases]
         store.derive_files(conn)
         conn.commit()
-        warnings = []
         granularity = opts.get("granularity") if isinstance(opts.get("granularity"), str) else "unit"
         if granularity != "file":
             file_types = {}
@@ -524,7 +556,7 @@ def cmd_mine(args: list) -> int:
             if units:
                 store.write_units(conn, units)
                 try:
-                    ownership_rows, churn_rows = ownership.unit_blame(data["repo"], units)
+                    ownership_rows, churn_rows = ownership.unit_blame(data["repo"], units, until_dt)
                 except RuntimeError as exc:
                     warnings.append("unit ownership skipped: %s" % exc)
                     ownership_rows, churn_rows = [], []
@@ -542,7 +574,12 @@ def cmd_mine(args: list) -> int:
 
         if opts.get("trends"):
             interval = opts.get("trend-interval") if isinstance(opts.get("trend-interval"), str) else "month"
-            trend_rows = _mine_trends(data["repo"], langs, interval)
+            trend_rows, trend_errors, trend_samples = _mine_trends(data["repo"], langs, interval, since, until)
+            warnings += ["trends: %s" % error for error in trend_errors]
+            if not trend_errors and trend_samples < 2:
+                warnings.append(
+                    "trends: window spans %d bucket(s) — pass --trend-interval day|week or --all" % trend_samples
+                )
             if trend_rows:
                 store.write_complexity_trend(conn, trend_rows)
                 conn.commit()
@@ -1027,6 +1064,9 @@ def main(argv: list) -> int:
     handler = _HANDLERS.get(command)
     if handler is None:
         print("ERROR: unknown core command '%s'" % command, file=sys.stderr)
+        return 2
+    if command != "mine" and "--all" in rest:
+        print("ERROR: --all is only supported by mine", file=sys.stderr)
         return 2
 
     return handler(rest)

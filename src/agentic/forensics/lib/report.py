@@ -34,13 +34,22 @@ SECTIONS = (
 )
 
 _METHOD = (
-    "Attribution is approximate: unit churn and ownership derive from `git blame`\n"
-    "over the *current* unit line spans, and historical spans are not reconstructed.\n"
-    "Defect origin is a simplified SZZ (blame of the lines a fix changed at its\n"
-    "parent revision) and has known false positives and negatives — treat it as a\n"
-    "process signal, never a verdict about a person. Coupling drops bulk commits and\n"
-    "generated/vendored paths. True DORA metrics need deploy/incident data and are\n"
-    "outside the git-only path."
+    "Every metric is bound to the mining window above (the last month by default;\n"
+    "`mine --all` lifts the bound). Unit ownership and churn are anchored at the\n"
+    "window's *end* date, not restricted by its start: authorship is cumulative to\n"
+    "that instant, and a line written after it is not attributed. Static complexity\n"
+    "has no time dimension — it measures the current tree, so hotspots and priority\n"
+    "rank today's code against the window's change rate.\n"
+    "The window is applied to mined history on *committer* date (git's walk), while the\n"
+    "`commits` activity command keeps *author* dates — a rebased or backdated commit can\n"
+    "therefore appear in one and not the other. Release counts and release-cadence\n"
+    "figures are window-scoped, not all-time.\n"
+    "Attribution is otherwise approximate: blame runs over the *current* unit line\n"
+    "spans, and historical spans are not reconstructed. Defect origin is a simplified\n"
+    "SZZ (blame of the lines a fix changed at its parent revision) and has known false\n"
+    "positives and negatives — treat it as a process signal, never a verdict about a\n"
+    "person. Coupling drops bulk commits and generated/vendored paths. True DORA\n"
+    "metrics need deploy/incident data and are outside the git-only path."
 )
 
 
@@ -127,10 +136,12 @@ def to_html(doc: dict) -> str:
         "th{background:#f3f3f3}h2{margin-top:2rem}svg{background:#fafafa;border:1px solid #ddd}</style>",
         "</head><body>",
         "<h1>Code forensics report</h1>",
-        "<ul><li>repo: %s</li><li>range: %s .. %s</li><li>head: %s</li><li>tool: forensics %s</li></ul>"
+        "<ul><li>repo: %s</li><li>range: %s .. %s</li><li>unit ownership anchored at: %s</li>"
+        "<li>head: %s</li><li>tool: forensics %s</li></ul>"
         % (
             _escape(meta.get("repo", "")),
             _escape(meta.get("since", "") or "start"),
+            _escape(meta.get("until", "") or "HEAD"),
             _escape(meta.get("until", "") or "HEAD"),
             _escape(meta.get("head", "")),
             _escape(meta.get("version", "")),
@@ -155,6 +166,7 @@ def to_markdown(doc: dict) -> str:
         "",
         "- repo: %s" % meta.get("repo", ""),
         "- range: %s .. %s" % (meta.get("since", "") or "start", meta.get("until", "") or "HEAD"),
+        "- unit ownership anchored at: %s" % (meta.get("until", "") or "HEAD"),
         "- head: %s" % meta.get("head", ""),
         "- tool: forensics %s" % meta.get("version", ""),
         "- bus factor: %s of %s author(s) hold >=50%% of commits" % (doc["bus_factor"].get("bus_factor"), doc["bus_factor"].get("authors")),

@@ -22,17 +22,17 @@ The tool is a plain CLI — a human runs it directly, an agent runs it through b
 devbot tool forensics <command> [options]
 ```
 
-| Command                                                                                                                 | Purpose                                                                 |
-| ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `mine [<repo>] [--since <date>] [--until <date>] [--db <path>] [--lang auto] [--granularity file\|unit] [--no-defects]` | Mine history + units + metrics + commit analysis into the SQLite store. |
-| `analyse <db> [--view <view>] [--top N] [--format md\|json]`                                                            | Query one view.                                                         |
-| `report <db> [--out <dir>] [--format md\|json]`                                                                         | Full report across every view, with a methodology footer.               |
-| `doctor [--project <dir>]`                                                                                              | Resolve each language plugin's engine.                                  |
-| `langs`                                                                                                                 | List registered language plugins and capabilities.                      |
-| `provision --lang <lang>`                                                                                               | Install a pinned engine into `storage/forensics/<lang>`.                |
-| `prs [<repo>] [--source github] [--since <date>] [--until <date>] [--refresh]`                                          | Merged PR metrics per author + repo total, served from the PR cache.    |
-| `commits [<repo>] [--since <date>] [--until <date>]`                                                                    | Commit metrics per author + repo total, folded via `.mailmap`.          |
-| `sources`                                                                                                               | List registered provider adapters (e.g. github).                        |
+| Command                                                                                                                         | Purpose                                                                                                                                      |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mine [<repo>] [--since <date>] [--until <date>] [--db <path>] [--lang auto] [--granularity file\|unit] [--no-defects] [--all]` | Mine history + units + metrics + commit analysis into the SQLite store. Bounded to the last calendar month; `--all` mines the whole history. |
+| `analyse <db> [--view <view>] [--top N] [--format md\|json]`                                                                    | Query one view.                                                                                                                              |
+| `report <db> [--out <dir>] [--format md\|json]`                                                                                 | Full report across every view, with a methodology footer.                                                                                    |
+| `doctor [--project <dir>]`                                                                                                      | Resolve each language plugin's engine.                                                                                                       |
+| `langs`                                                                                                                         | List registered language plugins and capabilities.                                                                                           |
+| `provision --lang <lang>`                                                                                                       | Install a pinned engine into `storage/forensics/<lang>`.                                                                                     |
+| `prs [<repo>] [--source github] [--since <date>] [--until <date>] [--refresh]`                                                  | Merged PR metrics per author + repo total, served from the PR cache.                                                                         |
+| `commits [<repo>] [--since <date>] [--until <date>]`                                                                            | Commit metrics per author + repo total, folded via `.mailmap`.                                                                               |
+| `sources`                                                                                                                       | List registered provider adapters (e.g. github).                                                                                             |
 
 Views: `hotspots`, `priority`, `trends`, `change-rate`, `coupling`, `ownership`,
 `concentration`, `unit-ownership`, `unit-concentration`, `commit-types`,
@@ -52,6 +52,8 @@ The default store is `<repo>/.forensics/<timestamp>.sqlite` (self-ignoring — i
 ## Method Caveats (MUST surface these when reporting)
 
 - **Attribution is approximate.** Unit churn and ownership are derived from `git blame` over the _current_ unit line spans — historical spans are not reconstructed.
+- **Every metric is window-bound, and ownership is anchored.** `mine` defaults to the last calendar month (`--all` lifts the bound and cannot be combined with `--since`/`--until`) and records the window in the store, so every view shares one time base within that store. Bounds take `YYYY-MM-DD` or ISO-8601 in UTC — a date-only value is that UTC day, not git's approximate `"last year"` forms. Unit ownership and churn are anchored at the window's **end** date, not restricted by its start — authorship is cumulative to that instant. Static complexity has no time dimension at all: hotspots and priority rank today's code against the window's change rate.
+- **Two date bases, deliberately.** Mined history is selected on **committer** date (git's walk), while the `commits` activity command keeps **author** dates — a rebased or backdated commit can appear in one and not the other. Release counts and release-cadence figures are window-scoped, not all-time.
 - **Defect origin is a heuristic.** Inducing commits come from a simplified SZZ (blame of the lines a fix changed); it has known false positives and negatives. Treat it as a process signal, never as a verdict about a person.
 - **Git-only DORA is a proxy.** Change-failure rate, time-to-fix and lead time are derived from commits; true DORA (deployment frequency, MTTR) needs deploy and incident data and is out of scope for the git-only path.
 - **The PR cache is incremental.** `prs` fetches only the window spans the local cache lacks; a window ending "now" is never final, so its tail is refreshed on a later run (`--refresh` forces a full re-fetch).

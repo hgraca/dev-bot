@@ -156,6 +156,14 @@ class ParseWhenTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             metrics.parse_when("not-a-date")
 
+    def test_invalid_message_names_the_value_and_the_expected_formats(self):
+        with self.assertRaises(ValueError) as caught:
+            metrics.parse_when("last year")
+        message = str(caught.exception)
+        self.assertIn("last year", message)
+        self.assertIn("YYYY-MM-DD", message)
+        self.assertIn("ISO-8601", message)
+
 
 class ResolveWindowTests(unittest.TestCase):
     def test_both_given(self):
@@ -182,6 +190,43 @@ class ResolveWindowTests(unittest.TestCase):
             metrics.resolve_window(
                 "2026-09-21T10:00:00+00:00", "2026-09-21T10:00:00+00:00", now=utc(2026, 9, 28, 12)
             )
+
+
+class WindowedReleasesTests(unittest.TestCase):
+    def test_unbounded_keeps_everything_and_reports_no_undated(self):
+        releases = [{"tag": "v1", "date": "2016-02-01T10:00:00+00:00"}]
+        kept, undated = metrics.windowed_releases(releases, None, None)
+        self.assertEqual(kept, releases)
+        self.assertEqual(undated, [])
+
+    def test_keeps_only_in_window_releases(self):
+        releases = [
+            {"tag": "old", "date": "2024-01-01T10:00:00+00:00"},
+            {"tag": "new", "date": "2026-09-22T10:00:00+00:00"},
+        ]
+        kept, undated = metrics.windowed_releases(releases, utc(2026, 9, 21), utc(2026, 9, 25, 23, 59, 59))
+        self.assertEqual([release["tag"] for release in kept], ["new"])
+        self.assertEqual(undated, [])
+
+    def test_a_non_utc_offset_does_not_change_the_verdict(self):
+        # 2026-09-21T01:00+02:00 is 2026-09-20T23:00Z — before the window.
+        releases = [{"tag": "shifted", "date": "2026-09-21T01:00:00+02:00"}]
+        kept, _ = metrics.windowed_releases(releases, utc(2026, 9, 21), utc(2026, 9, 25))
+        self.assertEqual(kept, [])
+
+    def test_both_boundaries_are_inclusive(self):
+        releases = [
+            {"tag": "start", "date": "2026-09-21T00:00:00+00:00"},
+            {"tag": "end", "date": "2026-09-25T23:59:59+00:00"},
+        ]
+        kept, _ = metrics.windowed_releases(releases, utc(2026, 9, 21), utc(2026, 9, 25, 23, 59, 59))
+        self.assertEqual([release["tag"] for release in kept], ["start", "end"])
+
+    def test_undated_releases_are_reported_not_dropped_silently(self):
+        releases = [{"tag": "empty", "date": ""}, {"tag": "garbage", "date": "not-a-date"}]
+        kept, undated = metrics.windowed_releases(releases, utc(2026, 9, 21), utc(2026, 9, 25))
+        self.assertEqual(kept, [])
+        self.assertEqual([release["tag"] for release in undated], ["empty", "garbage"])
 
 
 if __name__ == "__main__":

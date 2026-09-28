@@ -1,0 +1,9 @@
+---
+date: 2026-09-29
+keywords: ["forensics", "window", "ownership", "trends"]
+see: ["ADRs/20260927195500-forensics-module-architecture.md"]
+---
+
+## Forensics metrics are window-bound, with ownership anchored at the window's end
+
+`mine` resolves one time window — default the last **calendar month**, reusing `prs`/`commits`' existing `metrics.resolve_window`/`minus_one_month` — and records it in the store's `meta`; every view derives from it. `--all` lifts the bound and is mutually exclusive with `--since`/`--until`, and passing `--all` to a command that does not support it is an error rather than a silent no-op; silently discarding an explicit bound was rejected outright. Release rows are filtered by tag creation date, and `--trends` samples only in-window revisions, bucketing each sample on the same **committer** date the walk filters on, so a `day` interval over a five-day window yields five samples (filtering committer dates while bucketing author dates had produced twelve). Unit ownership and churn are **anchored at the window's END date** — cumulative authorship to that instant, with lines written after it dropped — so a unit whose surviving lines predate the window keeps its full authorship instead of vanishing; the window's *start* deliberately does not restrict them. Static complexity has no time dimension, so hotspots and priority rank today's tree against the window's change rate. Mined history selects commits on **committer** date while the `commits` activity command keeps **author** dates (AD-D) — a divergence that is documented rather than unified, because unifying would silently re-base every existing store's churn and coupling. The PHP units engine runs at `memory_limit=1024M`, overridable via `FORENSICS_PHP_MEMORY_LIMIT` (with `-1` accepted), because the image default of 128M OOMs on a large tree; the file list is never chunked, since `ca`/`ce`/`cbo` are whole-project metrics.

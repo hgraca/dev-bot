@@ -8,18 +8,29 @@ tools: ["forensics"]
 Investigates how a codebase has _evolved_ rather than how it looks right now: it mines git history and per-language static metrics into a SQLite store, then reports where technical and organizational risk repeatedly appears.
 
 ```bash
-devbot tool forensics mine <repo> --since "last year"
+devbot tool forensics mine <repo> --since 2025-09-28
 devbot tool forensics report .forensics/<timestamp>.sqlite --out ./forensics-report
 ```
 
 `mine` writes the store; `analyse` queries one view; `report` renders every view
 into one Markdown or JSON document.
 
+Every metric is bound to the window `mine` ran with — the last calendar month by
+default, or whatever `--since`/`--until` say. `--all` lifts the bound and mines the
+whole history; it cannot be combined with `--since`/`--until`. Bounds take
+`YYYY-MM-DD` or ISO-8601, interpreted in UTC — a date-only value means that UTC day,
+not git's approximate forms like `"last year"`. The window is recorded in the store,
+so a report's time base is never ambiguous within that store.
+
+Mined history is selected on **committer** date (git's walk), whereas the `commits`
+activity command keeps **author** dates — a rebased or backdated commit can appear in
+one and not the other.
+
 ## What it produces
 
 - **Hotspots** — complexity × change rate, ranked; the refactoring priority list.
 - **Debt priority** — a composite of change, complexity, coupling, defect rate and ownership risk, with every component exposed per file.
-- **Complexity trends** — how a file's complexity grows across sampled revisions (`mine --trends`).
+- **Complexity trends** — how a file's complexity grows across sampled revisions (`mine --trends`), sampled only inside the window at a `day|week|month|quarter|year` interval.
 - **Change rate** — commits and commits-per-active-day per file.
 - **Temporal coupling** — files that change together without a structural dependency.
 - **Ownership & concentration** — authors per file and per unit, top-author share, bus factor.
@@ -63,6 +74,8 @@ PR data comes from a provider adapter under `sources/<name>/plugin.sh` (`meta | 
 ## Method caveats
 
 Churn/ownership attribution is approximate (`git blame` over current unit spans); defect origin uses a simplified SZZ heuristic. Both are reported as signals with their error modes, never as verdicts about people. True DORA metrics require deploy/incident data and are outside the git-only path.
+
+Unit ownership and unit churn are **anchored at the window's end date**, not bound by its start: authorship is cumulative up to that instant, and a line written after it is not attributed. Static complexity has no time dimension at all — it is measured on the current tree, so complexity-ranked views (hotspots, priority) rank today's code against the window's change rate, not the code as it was.
 
 Complexity is a decision-point count (1 + branches, cases and boolean operators) applied to each unit's own scope — nested functions, closures and lambdas are their own units and do not inflate the enclosing one. A class' complexity (WMC) sums its direct members (methods, accessors, constructors, initializer blocks); a `default:` clause counts, as does a `case`.
 

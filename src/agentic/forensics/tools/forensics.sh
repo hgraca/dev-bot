@@ -51,11 +51,12 @@ Usage:
 
 Commands:
   mine [<repo>] [--since <date>] [--until <date>] [--db <path>]
-       [--lang auto|php,py,ts] [--granularity file|unit] [--no-defects]
-       [--trends] [--trend-interval month|quarter|year] [--defects <csv>]
-       [--modules name=prefix,...]
+       [--lang auto|php,ts,java,go] [--granularity file|unit] [--no-defects]
+       [--trends] [--trend-interval day|week|month|quarter|year] [--defects <csv>]
+       [--modules name=prefix,...] [--all]
                         Walk git history + code units + metrics + commit
-                        analysis into the SQLite store.
+                        analysis into the SQLite store. Bounded to the last
+                        month by default; --all mines the whole history.
   analyse <db> [--view <view>] [--top N] [--format md|json|csv]
                         Query one view: hotspots, change-rate, coupling,
                         ownership, concentration, unit-ownership,
@@ -76,6 +77,9 @@ Commands:
                         Merged PR metrics per author + total, from the PR cache.
   commits [<repo>] [--since <date>] [--until <date>] [--format md|json|csv]
                         Commit metrics per author + total, folded via .mailmap.
+
+Every metric is bound to the window `mine` ran with — the last month by default.
+Unit ownership is anchored at that window's end date, not its start.
 
 Options:
   --version   show the tool version
