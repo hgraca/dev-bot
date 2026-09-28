@@ -96,7 +96,10 @@ def search_merged(slug: str, since: str, until: str) -> list:
         args = [_gh(), "api", "graphql", "-f", "query=" + _QUERY, "-f", "q=" + query]
         if cursor:
             args += ["-f", "cursor=" + cursor]
-        proc = _run(args)
+        try:
+            proc = _run(args)
+        except OSError as exc:
+            raise RuntimeError("cannot run %s: %s" % (_gh(), exc))
         if proc.returncode != 0:
             raise RuntimeError((proc.stderr or "gh api graphql failed").strip())
         try:

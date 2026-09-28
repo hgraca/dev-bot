@@ -27,7 +27,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import analyse  # noqa: E402
 import commitparse  # noqa: E402
 import gitmine  # noqa: E402  (local module, resolved via the sys.path entry above)
+import metrics  # noqa: E402
 import ownership  # noqa: E402
+import prstore  # noqa: E402
 import report  # noqa: E402
 import store  # noqa: E402
 import szz  # noqa: E402
@@ -545,6 +547,182 @@ def cmd_mine(args: list) -> int:
     return 0
 
 
+_PR_COLUMNS = (
+    "author",
+    "prs",
+    "median_commits_per_pr",
+    "median_changes_per_pr",
+    "median_time_to_merge_hours",
+    "prs_per_day",
+)
+
+
+def _num(value, digits: int = 2):
+    return round(value, digits) if value is not None else 0
+
+
+def _parse_iso(value):
+    """Parse an ISO-8601 timestamp to UTC, or None — tolerant of a trailing ``Z``."""
+    if not value:
+        return None
+    try:
+        moment = datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=datetime.timezone.utc)
+    return moment.astimezone(datetime.timezone.utc)
+
+
+def _merge_hours(created_at: str, merged_at: str):
+    created, merged = _parse_iso(created_at), _parse_iso(merged_at)
+    if created is None or merged is None:
+        return None
+    return (merged - created).total_seconds() / 3600.0
+
+
+def _pr_summary(rows: list, since, until) -> dict:
+    count = len(rows)
+    commits = [row.get("commits") or 0 for row in rows]
+    changes = [(row.get("added") or 0) + (row.get("deleted") or 0) for row in rows]
+    spans = [_merge_hours(row.get("created_at"), row.get("merged_at")) for row in rows]
+    return {
+        "prs": count,
+        "median_commits_per_pr": _num(metrics.median(commits)),
+        "median_changes_per_pr": _num(metrics.median(changes)),
+        "median_time_to_merge_hours": _num(metrics.median([span for span in spans if span is not None])),
+        "prs_per_day": round(metrics.per_day(count, since, until), 4),
+    }
+
+
+def _pr_report(rows: list, since, until) -> tuple:
+    """(project total, per-author rows) for the merged PRs in the window."""
+    groups = {}
+    for row in rows:
+        groups.setdefault(row.get("author") or "(unknown)", []).append(row)
+    authors = []
+    for author, author_rows in groups.items():
+        entry = {"author": author}
+        entry.update(_pr_summary(author_rows, since, until))
+        authors.append(entry)
+    authors.sort(key=lambda item: (-item["prs"], item["author"]))
+    return _pr_summary(rows, since, until), authors
+
+
+def _print_table(rows: list, columns) -> None:
+    print("| " + " | ".join(columns) + " |")
+    print("| " + " | ".join("---" for _ in columns) + " |")
+    for row in rows:
+        print("| " + " | ".join(str(row.get(column, "")) for column in columns) + " |")
+
+
+def cmd_prs(args: list) -> int:
+    """Merged pull-request metrics, served from the PR cache.
+
+    The cache is refreshed only for the spans of the requested window it does not
+    already cover, so a repeat run makes no remote call.
+    """
+    fmt = _parse_format(args)
+    opts, positionals = _parse_args(args)
+
+    repo = positionals[0] if positionals else os.getcwd()
+    if not os.path.isdir(repo):
+        print("ERROR: not a directory: %s" % repo, file=sys.stderr)
+        return 1
+    if not gitmine._is_repo(repo):
+        print("ERROR: not a git repository: %s" % repo, file=sys.stderr)
+        return 1
+    repo = gitmine.toplevel(repo) or os.path.abspath(repo)
+
+    source = opts.get("source") if isinstance(opts.get("source"), str) else "github"
+    try:
+        since, until = metrics.resolve_window(
+            opts.get("since") if isinstance(opts.get("since"), str) else None,
+            opts.get("until") if isinstance(opts.get("until"), str) else None,
+        )
+    except ValueError as exc:
+        print("ERROR: %s" % exc, file=sys.stderr)
+        return 2
+
+    plugins, _ = _discover_sources(_sources_dir())
+    plugin = next((p for p in plugins if p.get("source") == source), None)
+    if plugin is None:
+        available = ", ".join(p.get("source", "?") for p in plugins) or "none"
+        print("ERROR: unknown source '%s' (available: %s)" % (source, available), file=sys.stderr)
+        return 2
+
+    db_path = opts.get("db") if isinstance(opts.get("db"), str) else os.path.join(repo, ".forensics", "prs.sqlite")
+    _ensure_self_ignored(db_path)
+
+    fresh = not os.path.exists(db_path) or os.path.getsize(db_path) == 0
+    conn = prstore.connect(db_path)
+    try:
+        if fresh:
+            prstore.init(conn)
+        else:
+            problem = prstore.check(conn)
+            if problem:
+                print("ERROR: %s" % problem, file=sys.stderr)
+                return 1
+
+        if opts.get("refresh"):
+            gaps = [(since, until)]
+        else:
+            gaps = metrics.subtract_intervals(since, until, prstore.covered(conn, source, repo))
+
+        fetch_errors = []
+        for gap_since, gap_until in gaps:
+            payload = {"project": repo, "since": gap_since.isoformat(), "until": gap_until.isoformat()}
+            proc = _run_plugin_stdin(plugin["path"], payload, "fetch")
+            doc = {}
+            if (proc.stdout or "").strip():
+                try:
+                    doc = json.loads(proc.stdout)
+                except ValueError:
+                    doc = {}
+            if proc.returncode != 0 or doc.get("ok") is False:
+                fetch_errors.append(doc.get("error") or (proc.stderr or "").strip() or "source fetch failed")
+                continue
+            prstore.upsert_prs(conn, source, repo, doc.get("pull_requests") or [])
+            prstore.record_coverage(conn, source, repo, gap_since, gap_until)
+
+        if fetch_errors:
+            for message in fetch_errors:
+                print("ERROR: %s" % message, file=sys.stderr)
+            return 1
+
+        rows = prstore.query_merged(conn, source, repo, since, until)
+    finally:
+        conn.close()
+
+    total, authors = _pr_report(rows, since, until)
+    table = [dict(total, author="TOTAL")] + authors
+
+    if fmt == "json":
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "source": source,
+                    "repo": repo,
+                    "since": since.isoformat(),
+                    "until": until.isoformat(),
+                    "total": total,
+                    "authors": authors,
+                },
+                indent=2,
+            )
+        )
+    elif fmt == "csv":
+        writer = csv.writer(sys.stdout)
+        writer.writerow(_PR_COLUMNS)
+        for row in table:
+            writer.writerow([row.get(column, "") for column in _PR_COLUMNS])
+    else:
+        _print_table(table, _PR_COLUMNS)
+    return 0
+
+
 def cmd_provision(args: list) -> int:
     opts, _ = _parse_args(args)
     lang = opts.get("lang")
@@ -675,6 +853,7 @@ _HANDLERS = {
     "langs": cmd_langs,
     "doctor": cmd_doctor,
     "sources": cmd_sources,
+    "prs": cmd_prs,
     "mine": cmd_mine,
     "analyse": cmd_analyse,
     "report": cmd_report,
