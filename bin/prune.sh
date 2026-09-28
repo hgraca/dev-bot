@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
 # bin/prune.sh
-# Prune old opencode sessions. Deletes sessions older than N days.
+# Prune old opencode data. Deletes sessions older than N days.
 #
 # Usage:
-#   bin/prune.sh [days]           # prune current project (default: 30 days)
-#   bin/prune.sh --all|-a [days]  # prune all registered projects
+#   bin/prune.sh [days]                 # prune current project (default: 30 days)
+#   bin/prune.sh --all|-a [days]        # prune all registered projects
+#   bin/prune.sh --db [days] [--force]  # prune the opencode SQLite DB (machine-wide)
+#
+# `--db` deletes DB rows older than <days> and VACUUMs the file. It is machine
+# global (one DB for every opencode project) and skips when opencode is running
+# unless --force is given. Fired detached by the last devbot session exit.
 # =============================================================================
 
 set -euo pipefail
@@ -23,6 +28,9 @@ DEFAULT_DAYS=30
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
 ALL_PROJECTS=false
+DB_MODE=false
+FORCE=false
+DAYS_EXPLICIT=false
 DAYS="${DEFAULT_DAYS}"
 
 for arg in "$@"; do
@@ -30,13 +38,22 @@ for arg in "$@"; do
     --all|-a)
       ALL_PROJECTS=true
       ;;
+    --db)
+      DB_MODE=true
+      ;;
+    --force)
+      FORCE=true
+      ;;
     --help|-h)
       echo "Usage: devbot prune [days] [--all|-a]"
+      echo "       devbot prune --db [days] [--force]"
       echo ""
-      echo "Prune old opencode sessions older than <days> (default: ${DEFAULT_DAYS})."
+      echo "Prune old opencode data older than <days> (default: ${DEFAULT_DAYS})."
       echo ""
       echo "Options:"
       echo "  --all, -a    Prune all registered projects"
+      echo "  --db         Prune the opencode SQLite DB (machine-wide) and VACUUM it"
+      echo "  --force      With --db: prune even when opencode is running"
       echo "  --help, -h   Show this help"
       exit 0
       ;;
@@ -44,6 +61,7 @@ for arg in "$@"; do
       # Assume it's the days argument
       if [[ "${arg}" =~ ^[0-9]+$ ]]; then
         DAYS="${arg}"
+        DAYS_EXPLICIT=true
       else
         _fatal "Unknown argument: ${arg}"
         echo "Usage: devbot prune [days] [--all|-a]"
@@ -149,6 +167,29 @@ for s in old:
   _ok "Pruned ${delete_count} session(s), kept ${keep_count} session(s)"
 }
 
+# ── Prune the opencode SQLite DB (machine-wide) ────────────────────────────────
+_prune_db() {
+  local helper="${DEV_BOT_ROOT}/src/harnesses/opencode/prune_opencode_db.py"
+
+  if [[ ! -f "${helper}" ]]; then
+    _error "prune helper not found at ${helper}"
+    return 1
+  fi
+
+  # Let the helper resolve the retention (DEVBOT_OPENCODE_DB_RETENTION_DAYS,
+  # default 30) when the caller gave no explicit <days>.
+  local -a args=()
+  if [[ "${DAYS_EXPLICIT}" == "true" ]]; then
+    args+=(--days "${DAYS}")
+  fi
+  if [[ "${FORCE}" == "true" ]]; then
+    args+=(--force)
+  fi
+
+  # ${args[@]+...} is the bash 3.2-safe form for a possibly-empty array under set -u.
+  python3 "${helper}" ${args[@]+"${args[@]}"}
+}
+
 # ── Read registered projects from global config ────────────────────────────────
 _get_projects() {
   local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
@@ -176,7 +217,9 @@ main() {
 
   _header_1 "DevBot Prune"
 
-  if [[ "${ALL_PROJECTS}" == "true" ]]; then
+  if [[ "${DB_MODE}" == "true" ]]; then
+    _prune_db
+  elif [[ "${ALL_PROJECTS}" == "true" ]]; then
     # Prune all registered projects
     local projects_json
     projects_json=$(_get_projects)

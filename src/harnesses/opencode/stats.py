@@ -22,13 +22,13 @@ from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "_shared")))
+from opencode_db import resolve_db_path  # noqa: E402
 from read_jsonc import load_jsonc  # noqa: E402
 from stats_args import bash_value  # noqa: E402
 
-DB_PATH = os.environ.get(
-    "OPENCODE_DB_PATH", os.path.expanduser("~/.local/share/opencode/opencode.db")
-)
+DB_PATH = resolve_db_path()
 
 # Config files that may declare an `mcp` block, relative to a project dir.
 _CONFIG_NAMES = (

@@ -109,6 +109,15 @@ List agentic artifacts as a markdown table. `type` is one of:
 
 Prune old OpenCode sessions (default: 30 days).
 
+### `devbot prune --db [days] [--force]`
+
+Prune the OpenCode SQLite database itself, machine-wide (default: 30 days, or
+`DEVBOT_OPENCODE_DB_RETENTION_DAYS`). Deletes sessions older than the cutoff and
+their events, then `VACUUM`s the file to reclaim disk — the `event` replay
+journal is the bulk of a large database and OpenCode never trims it. `project`
+rows are never age-pruned. Skips when OpenCode is running unless `--force` is
+given. This also runs detached when the last devbot session exits.
+
 ### `devbot stats [--days=N] [--project=DIR] [--all|-a] [--harness=HARNESS]`
 
 Report tool usage, MCP-server usage, tool grades, and the most-used arguments for `bash`/`pty_spawn`/`skill`/`grep`/`glob`, as a Markdown report for the last `N` days (default: 30).
