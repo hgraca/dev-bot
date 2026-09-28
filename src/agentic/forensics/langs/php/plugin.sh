@@ -177,6 +177,17 @@ _resolve_image() {
   if [[ -n "${version}" ]]; then echo "php:${version}-cli"; else echo "php:cli"; fi
 }
 
+# PDepend holds the whole project in memory, so the image's 128M default OOMs on a
+# large tree; FORENSICS_PHP_MEMORY_LIMIT overrides ("-1" lifts the limit entirely).
+_memory_limit() {
+  local limit="${FORENSICS_PHP_MEMORY_LIMIT:-1024M}"
+  if [[ ! "${limit}" =~ ^-1$ && ! "${limit}" =~ ^[0-9]+[KMG]?$ ]]; then
+    echo "ERROR: invalid FORENSICS_PHP_MEMORY_LIMIT '${limit}' (expected -1 or N[K|M|G])" >&2
+    return 1
+  fi
+  printf '%s\n' "${limit}"
+}
+
 # ── Subcommands ───────────────────────────────────────────────────────────────
 
 cmd_meta() {
@@ -284,6 +295,12 @@ cmd_units() {
     exit 1
   fi
 
+  # Reject an unusable limit before touching docker or resolving an engine.
+  local memory_limit
+  if ! memory_limit="$(_memory_limit)"; then
+    exit 2
+  fi
+
   local resolved via root
   if ! resolved="$(_resolve_engine_root "${project}")"; then
     echo "ERROR: no PDepend engine found — add pdepend/pdepend to the project, or run: plugin.sh provision" >&2
@@ -322,7 +339,7 @@ print(json.dumps(r))')"
     --network none --read-only --tmpfs /tmp -e HOME=/tmp \
     --user "$(id -u):$(id -g)" \
     "${mounts[@]}" -w /app "${image}" \
-    php -d display_errors=stderr /plugin/metrics.php
+    php -d display_errors=stderr -d "memory_limit=${memory_limit}" /plugin/metrics.php
 }
 
 case "${1:-}" in
