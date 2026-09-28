@@ -35,6 +35,11 @@ Uses Ollama embeddings for semantic understanding. No cloud API calls.
 
 No project configuration is required.
 
+The AST cache under `graphify-out/cache` is pruned on `devbot up` — entries not
+modified in more than **7 days** are removed. Override the retention window with
+the `GRAPHIFY_CACHE_MAX_AGE_DAYS` environment variable (e.g.
+`GRAPHIFY_CACHE_MAX_AGE_DAYS=30`).
+
 ## See also
 
 - [Codebase Index](/modules/agentic/codebase-index) — semantic code search
