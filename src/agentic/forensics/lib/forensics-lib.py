@@ -279,6 +279,9 @@ def cmd_sources(args: list) -> int:
     return 1 if errors else 0
 
 
+_BOOLEAN_FLAGS = {"json", "csv", "markdown", "refresh", "no-defects", "trends"}
+
+
 def _parse_args(args: list) -> tuple:
     opts = {}
     positionals = []
@@ -286,11 +289,15 @@ def _parse_args(args: list) -> tuple:
     while index < len(args):
         arg = args[index]
         if arg.startswith("--"):
-            if index + 1 < len(args) and not args[index + 1].startswith("--"):
-                opts[arg[2:]] = args[index + 1]
+            name = arg[2:]
+            if name in _BOOLEAN_FLAGS:
+                opts[name] = True
+                index += 1
+            elif index + 1 < len(args) and not args[index + 1].startswith("--"):
+                opts[name] = args[index + 1]
                 index += 2
             else:
-                opts[arg[2:]] = True
+                opts[name] = True
                 index += 1
         else:
             positionals.append(arg)
@@ -590,7 +597,7 @@ _PR_COLUMNS = (
 
 
 def _num(value, digits: int = 2):
-    return round(value, digits) if value is not None else 0
+    return round(value, digits) if value is not None else None
 
 
 def _parse_iso(value):
@@ -641,11 +648,15 @@ def _pr_report(rows: list, since, until) -> tuple:
     return _pr_summary(rows, since, until), authors
 
 
+def _cell(value):
+    return "" if value is None else str(value)
+
+
 def _print_table(rows: list, columns) -> None:
     print("| " + " | ".join(columns) + " |")
     print("| " + " | ".join("---" for _ in columns) + " |")
     for row in rows:
-        print("| " + " | ".join(str(row.get(column, "")) for column in columns) + " |")
+        print("| " + " | ".join(_cell(row.get(column)) for column in columns) + " |")
 
 
 def cmd_prs(args: list) -> int:
@@ -703,6 +714,7 @@ def cmd_prs(args: list) -> int:
             gaps = metrics.subtract_intervals(since, until, prstore.covered(conn, source, repo))
 
         fetch_errors = []
+        warnings = []
         for gap_since, gap_until in gaps:
             payload = {"project": repo, "since": gap_since.isoformat(), "until": gap_until.isoformat()}
             proc = _run_plugin_stdin(plugin["path"], payload, "fetch")
@@ -715,6 +727,7 @@ def cmd_prs(args: list) -> int:
             if proc.returncode != 0 or doc.get("ok") is False:
                 fetch_errors.append(doc.get("error") or (proc.stderr or "").strip() or "source fetch failed")
                 continue
+            warnings += ["%s: %s" % (source, message) for message in doc.get("errors") or []]
             prstore.upsert_prs(conn, source, repo, doc.get("pull_requests") or [])
             prstore.record_coverage(conn, source, repo, gap_since, gap_until)
 
@@ -722,6 +735,9 @@ def cmd_prs(args: list) -> int:
             for message in fetch_errors:
                 print("ERROR: %s" % message, file=sys.stderr)
             return 1
+
+        for message in warnings:
+            print("WARN: %s" % message, file=sys.stderr)
 
         rows = prstore.query_merged(conn, source, repo, since, until)
     finally:

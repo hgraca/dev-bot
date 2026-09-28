@@ -176,3 +176,48 @@ assert doc["authors"][0]["prs"] == 1, doc["authors"]
   assert_output --partial "ERROR"
   rm -rf "$repo" "$bin"
 }
+
+@test "prs: a boolean flag before the repo does not swallow it" {
+  local repo bin log
+  repo="$(mktemp -d)"
+  bin="$(mktemp -d)"
+  log="${bin}/calls.log"
+  _init_repo_with_remote "$repo"
+  _write_fake_gh "$bin" "$log"
+
+  run env PATH="${bin}:${PATH}" bash "${TOOL}" prs --refresh "$repo" --since 2026-09-21 --until 2026-09-25 --format json
+  assert_success
+  run grep -F "repo:GET-E/core" "$log"
+  assert_success
+  rm -rf "$repo" "$bin"
+}
+
+@test "prs: surfaces the adapter's errors as WARN" {
+  local repo
+  repo="$(mktemp -d)"
+  _init_repo_with_remote "$repo"
+
+  run env FORENSICS_SOURCES_DIR="${TEST_DIR}/fixtures/sources-errors" bash "${TOOL}" prs "$repo" --source errors --since 2026-09-21 --until 2026-09-25
+  assert_success
+  assert_output --partial "WARN"
+  assert_output --partial "partial: some pages failed"
+  rm -rf "$repo"
+}
+
+@test "prs --format json: an empty window reports null medians, not zero" {
+  local repo
+  repo="$(mktemp -d)"
+  _init_repo_with_remote "$repo"
+
+  run env FORENSICS_SOURCES_DIR="${TEST_DIR}/fixtures/sources-empty" bash "${TOOL}" prs "$repo" --source empty --since 2026-09-21 --until 2026-09-25 --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["total"]["prs"] == 0, doc["total"]
+assert doc["total"]["median_commits_per_pr"] is None, doc["total"]
+assert doc["total"]["median_changes_per_pr"] is None, doc["total"]
+assert doc["authors"] == [], doc["authors"]
+'
+  rm -rf "$repo"
+}

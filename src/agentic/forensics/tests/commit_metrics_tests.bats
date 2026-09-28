@@ -138,3 +138,19 @@ assert [a["author_email"] for a in doc["authors"]] == ["alice@example.com"], doc
 '
   rm -rf "$repo"
 }
+
+@test "commits: an empty window reports null medians, not zero" {
+  local repo
+  repo="$(mktemp -d)"
+  _build_mailmap_repo "$repo"
+
+  run bash "${TOOL}" commits "$repo" --since 2026-01-01 --until 2026-01-31 --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["total"]["commits"] == 0, doc["total"]
+assert doc["total"]["median_changes_per_commit"] is None, doc["total"]
+'
+  rm -rf "$repo"
+}
