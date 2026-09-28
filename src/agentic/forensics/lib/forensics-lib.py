@@ -959,7 +959,7 @@ def main(argv: list) -> int:
         print("forensics %s" % TOOL_VERSION)
         return 0
     if command in ("--help", "-h"):
-        print("Usage: forensics-lib.py <langs|doctor|mine|analyse|report|provision> [options]")
+        print("Usage: forensics-lib.py <langs|doctor|sources|prs|commits|mine|analyse|report|provision> [options]")
         return 0
 
     handler = _HANDLERS.get(command)

@@ -7,7 +7,7 @@
 # Single entry point for the forensics tool.
 #
 # Usage:
-#   forensics.sh <mine|analyse|report|doctor|langs|provision> [options]
+#   forensics.sh <mine|analyse|report|prs|commits|doctor|langs|sources|provision> [options]
 #
 # A plain CLI, not an MCP tool (the same posture as refactor): the
 # `devbot:forensics` skill documents it and an agent runs it as
@@ -69,6 +69,13 @@ Commands:
                         List registered language plugins and capabilities.
   provision --lang <lang>
                         Install a pinned engine into storage/forensics/<lang>.
+  sources [--format md|json]
+                        List registered provider adapters (e.g. github).
+  prs [<repo>] [--source github] [--since <date>] [--until <date>]
+      [--refresh] [--db <path>] [--format md|json|csv]
+                        Merged PR metrics per author + total, from the PR cache.
+  commits [<repo>] [--since <date>] [--until <date>] [--format md|json|csv]
+                        Commit metrics per author + total, folded via .mailmap.
 
 Options:
   --version   show the tool version

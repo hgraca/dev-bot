@@ -25,6 +25,7 @@ into one Markdown or JSON document.
 - **Ownership & concentration** — authors per file and per unit, top-author share, bus factor.
 - **Defects & risk** — SZZ defect origin, time-to-fix, external defect counts (`mine --defects <csv>`), and risk = hotspot × defects.
 - **Commit-history intelligence** — conventional-commit mix (overall and per author), tickets, commit-process metrics and release cadence, boxed to a date range.
+- **Activity metrics** — pull requests merged and commits, per author plus a repo total, boxed to a date window (default: the last month), through a provider adapter so GitHub ships now and GitLab can follow.
 - **Architecture vs organization** — cross-module coupling and ownership diffusion (`mine --modules name=prefix`), plus class-level structural coupling.
 - **Report formats** — Markdown, JSON, CSV (per view) or a self-contained HTML page with a hotspot map.
 
@@ -42,6 +43,22 @@ A language-agnostic core (`tools/forensics.sh` + `lib/forensics-lib.py`) owns gi
 Four languages ship: `php` (PDepend), `ts` (TypeScript compiler API), `java` (JDK compiler tree API) and `go` (stdlib `go/ast`). Adding another is one `langs/<lang>/` directory answering the same four verbs.
 
 Engines are provisioned on demand with `forensics provision --lang <lang>`: TypeScript and PDepend install into `storage/forensics/` (npm / Composer), Go pulls `golang:1.22-alpine`, and Java uses the host JDK or a pulled `eclipse-temurin` image. A missing engine degrades a `mine` to file-level with a `WARN`, never a failure.
+
+## Activity metrics
+
+`prs` and `commits` read delivery activity over a date window — `--since`/
+`--until`, defaulting to the last month — and report a repo **total** row first,
+then a per-author breakdown:
+
+```bash
+devbot tool forensics prs ./core --since 2026-09-21 --until 2026-09-25
+devbot tool forensics commits ./core --since 2026-09-21 --until 2026-09-25
+```
+
+- **`prs`** — pull requests **merged** in the window: count, median commits per PR, median lines changed per PR, median created→merged span, and PRs per calendar day. Grouped by PR author.
+- **`commits`** — commits in the window: count, median lines changed per commit, and commits per calendar day. Grouped by author email, folded through the repository's `.mailmap`.
+
+PR data comes from a provider adapter under `sources/<name>/plugin.sh` (`meta | doctor | fetch`), so GitLab follows GitHub without touching the core; the shipped `sources/github` reads the authenticated `gh` CLI. Fetched PRs are cached in a stable store at `<repo>/.forensics/prs.sqlite` — separate from the timestamped analysis store — and a request only reaches the provider for the spans of the window the cache does not already cover (`--refresh` forces a re-fetch).
 
 ## Method caveats
 
