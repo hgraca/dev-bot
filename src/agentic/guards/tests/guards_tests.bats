@@ -54,29 +54,34 @@ print('CHANNELS:OK')
 }
 
 # ── Matching semantics (anchored per command segment) ──────────────────────────
+# Tested against the DIST configs, never the runtime .devbot.{global,project}.jsonc:
+# both runtime files are gitignored and machine-local, so a fresh checkout has
+# neither and every one of these tests silently saw `{"blocked":false}` — a
+# missing config loads no guards and the assertion "no output" still passed. The
+# dists ship the same rules and are tracked, so the contract is hermetic.
 
 @test "guards block a direct dangerous invocation" {
-  run bun run "$TOOL" --command "rm -rf /tmp/guards-direct" --global-config "$TEST_DIR/../../../../.devbot.global.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  run bun run "$TOOL" --command "rm -rf /tmp/guards-direct" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":true'
 }
 
 @test "guards do NOT block a safe command whose TEXT contains the pattern" {
-  run bun run "$TOOL" --command 'echo "rm -rf is just text here"' --global-config "$TEST_DIR/../../../../.devbot.global.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  run bun run "$TOOL" --command 'echo "rm -rf is just text here"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":false'
 }
 
 @test "guards still block the pattern after a shell operator" {
-  run bun run "$TOOL" --command "echo hi && rm -rf /tmp/guards-op" --global-config "$TEST_DIR/../../../../.devbot.global.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  run bun run "$TOOL" --command "echo hi && rm -rf /tmp/guards-op" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":true'
 }
 
 @test "guards still block a command-runner wrapping the pattern" {
-  run bun run "$TOOL" --command 'bash -c "rm -rf /tmp/guards-wrap"' --global-config "$TEST_DIR/../../../../.devbot.global.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  run bun run "$TOOL" --command 'bash -c "rm -rf /tmp/guards-wrap"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":true'
 }
 
 @test "guards still block command substitution containing the pattern" {
-  run bun run "$TOOL" --command 'echo \$(rm -rf /tmp/guards-sub)' --global-config "$TEST_DIR/../../../../.devbot.global.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  run bun run "$TOOL" --command 'echo \$(rm -rf /tmp/guards-sub)' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":true'
 }
 
@@ -86,17 +91,17 @@ print('CHANNELS:OK')
 # machine-local and reconciled from dist on update.
 
 @test "shipped global guards block a direct qmd invocation" {
-  run bun run "$TOOL" --command "qmd embed" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  run bun run "$TOOL" --command "qmd embed" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":true'
 }
 
 @test "shipped global guards block qmd after a shell operator" {
-  run bun run "$TOOL" --command "cd .agents && qmd update" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  run bun run "$TOOL" --command "cd .agents && qmd update" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":true'
 }
 
 @test "shipped global guards do NOT block harmless text mentioning qmd" {
-  run bun run "$TOOL" --command 'echo "qmd is not agent-invokable"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  run bun run "$TOOL" --command 'echo "qmd is not agent-invokable"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":false'
 }
 
@@ -104,12 +109,12 @@ print('CHANNELS:OK')
   # A runner segment (find) matches UNANCHORED, so the old \bqmd\b blocked
   # `find … -name '*qmd*'` — a harmless search. The pattern must match qmd as a
   # command, not as a substring of an argument (audit-69 NOTE-7).
-  run bun run "$TOOL" --command "find . -name '*qmd*'" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  run bun run "$TOOL" --command "find . -name '*qmd*'" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":false'
 }
 
 @test "shipped global guards block qmd wrapped in a command runner" {
-  run bun run "$TOOL" --command 'bash -c "qmd update"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../tests/test-project/.devbot.project.jsonc"
+  run bun run "$TOOL" --command 'bash -c "qmd update"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":true'
 }
 
