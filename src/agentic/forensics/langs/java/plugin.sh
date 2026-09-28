@@ -129,8 +129,8 @@ for rel in r.get("files") or []:
   fi
 
   if _has_host_java; then
-    java -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -Dstdout.encoding=UTF-8 \
-      "${PLUGIN_DIR}/Metrics.java" "${project}" "${absolute[@]}"
+    printf '%s\n' "${absolute[@]}" | java -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -Dstdout.encoding=UTF-8 \
+      "${PLUGIN_DIR}/Metrics.java" "${project}"
     return 0
   fi
 
@@ -150,12 +150,12 @@ for rel in r.get("files") or []:
   for file in "${absolute[@]}"; do
     container+=("/app/${file#"${project}/"}")
   done
-  docker run --rm --network none --read-only --tmpfs /tmp \
+  printf '%s\n' "${container[@]}" | docker run --rm -i --network none --read-only --tmpfs /tmp \
     -e LANG=C.UTF-8 \
     --user "$(id -u):$(id -g)" \
     -v "${project}:/app:ro" -v "${PLUGIN_DIR}:/plugin:ro" \
     "${image}" java -Dfile.encoding=UTF-8 -Dsun.jnu.encoding=UTF-8 -Dstdout.encoding=UTF-8 \
-    /plugin/Metrics.java /app "${container[@]}"
+    /plugin/Metrics.java /app
 }
 
 case "${1:-}" in

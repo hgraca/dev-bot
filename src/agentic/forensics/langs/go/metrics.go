@@ -9,12 +9,14 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type unit struct {
@@ -65,11 +67,18 @@ func receiverName(expr ast.Expr) string {
 func main() {
 	args := os.Args[1:]
 	if len(args) < 1 {
-		os.Stderr.WriteString("ERROR: usage: metrics.go <projectRoot> <File> [...]\n")
+		os.Stderr.WriteString("ERROR: usage: metrics.go <projectRoot> (files on stdin)\n")
 		os.Exit(2)
 	}
 	project := args[0]
-	files := args[1:]
+	files := []string{}
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line != "" {
+			files = append(files, line)
+		}
+	}
 
 	fileSet := token.NewFileSet()
 	units := []unit{}

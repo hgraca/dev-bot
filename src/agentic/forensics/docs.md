@@ -41,6 +41,8 @@ A language-agnostic core (`tools/forensics.sh` + `lib/forensics-lib.py`) owns gi
 
 Four languages ship: `php` (PDepend), `ts` (TypeScript compiler API), `java` (JDK compiler tree API) and `go` (stdlib `go/ast`). Adding another is one `langs/<lang>/` directory answering the same four verbs.
 
+Engines are provisioned on demand with `forensics provision --lang <lang>`: TypeScript and PDepend install into `storage/forensics/` (npm / Composer), Go pulls `golang:1.22-alpine`, and Java uses the host JDK or a pulled `eclipse-temurin` image. A missing engine degrades a `mine` to file-level with a `WARN`, never a failure.
+
 ## Method caveats
 
 Churn/ownership attribution is approximate (`git blame` over current unit spans); defect origin uses a simplified SZZ heuristic. Both are reported as signals with their error modes, never as verdicts about people. True DORA metrics require deploy/incident data and are outside the git-only path.

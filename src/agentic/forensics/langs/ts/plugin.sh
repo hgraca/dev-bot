@@ -49,6 +49,12 @@ except Exception:
 PY
 }
 
+_version_major() {
+  local version
+  version="$(_version_from_package "$1")"
+  echo "${version%%.*}"
+}
+
 _resolve_image() {
   local explicit="${1:-}"
   if [[ -n "${explicit}" ]]; then echo "${explicit}"; return 0; fi
@@ -163,6 +169,14 @@ except Exception:
   fi
   via="${resolved%%$'\t'*}"
   root="${resolved#*$'\t'}"
+
+  # v6/v7 dropped the JS compiler API this driver needs; accept <= 5.x.
+  local major
+  major="$(_version_major "${root}")"
+  if [[ "${major}" =~ ^[0-9]+$ ]] && ((major >= 6)); then
+    echo "ERROR: typescript ${major}.x is not supported (the compiler API was removed) — run: plugin.sh provision" >&2
+    exit 1
+  fi
 
   local image
   image="$(_resolve_image "")"

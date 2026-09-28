@@ -142,7 +142,7 @@ for rel in r.get("files") or []:
   fi
 
   if _has_host_go; then
-    GO111MODULE=off go run "${PLUGIN_DIR}/metrics.go" "${project}" "${absolute[@]}"
+    printf '%s\n' "${absolute[@]}" | GO111MODULE=off go run "${PLUGIN_DIR}/metrics.go" "${project}"
     return 0
   fi
 
@@ -162,11 +162,11 @@ for rel in r.get("files") or []:
   for file in "${absolute[@]}"; do
     container+=("/app/${file#"${project}/"}")
   done
-  docker run --rm --network none --read-only --tmpfs /tmp:exec \
+  printf '%s\n' "${container[@]}" | docker run --rm -i --network none --read-only --tmpfs /tmp:exec \
     -e HOME=/tmp -e GOCACHE=/tmp/gocache -e GO111MODULE=off \
     --user "$(id -u):$(id -g)" \
     -v "${project}:/app:ro" -v "${PLUGIN_DIR}:/plugin:ro" \
-    "${image}" go run /plugin/metrics.go /app "${container[@]}"
+    "${image}" go run /plugin/metrics.go /app
 }
 
 case "${1:-}" in

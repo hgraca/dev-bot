@@ -16,6 +16,13 @@ const fs = require('fs');
 const path = require('path');
 const ts = require('typescript');
 
+if (!ts.SyntaxKind || typeof ts.createSourceFile !== 'function') {
+  process.stderr.write(
+    'ERROR: the resolved typescript package lacks the compiler API (need <= 5.x; the v7 native port is unsupported)\n'
+  );
+  process.exit(1);
+}
+
 const DECISION_KINDS = new Set([
   ts.SyntaxKind.IfStatement,
   ts.SyntaxKind.ForStatement,
@@ -106,7 +113,7 @@ function makeUnit(relative, name, kind, node, complexity, parent, sourceFile) {
   };
 }
 
-function collect(node, sourceFile, relative, units, enclosing) {
+function collect(node, sourceFile, relative, units, enclosing, parent) {
   let childEnclosing = enclosing;
 
   if (node.kind === ts.SyntaxKind.ClassDeclaration && node.name) {
@@ -127,17 +134,37 @@ function collect(node, sourceFile, relative, units, enclosing) {
     }
   } else if (node.kind === ts.SyntaxKind.FunctionDeclaration && node.name) {
     units.push(makeUnit(relative, node.name.text, 'function', node, complexityOf(node), '', sourceFile));
-  } else if (node.kind === ts.SyntaxKind.VariableDeclaration && node.name && isFunctionLike(node.initializer)) {
-    units.push(makeUnit(relative, node.name.getText(sourceFile), 'function', node.initializer, complexityOf(node.initializer), '', sourceFile));
-  } else if (node.kind === ts.SyntaxKind.PropertyDeclaration && node.name && isFunctionLike(node.initializer)) {
-    const name = node.name.getText(sourceFile);
-    const display = enclosing ? enclosing + '::' + name : name;
-    units.push(makeUnit(relative, display, 'method', node.initializer, complexityOf(node.initializer), enclosing || '', sourceFile));
-  } else if (node.kind === ts.SyntaxKind.PropertyAssignment && node.name && isFunctionLike(node.initializer)) {
-    units.push(makeUnit(relative, node.name.getText(sourceFile), 'function', node.initializer, complexityOf(node.initializer), '', sourceFile));
+  } else if (node.kind === ts.SyntaxKind.ArrowFunction || node.kind === ts.SyntaxKind.FunctionExpression) {
+    // Named when assigned to a variable/property; otherwise a line-labelled
+    // anonymous unit (so inline callbacks are still measured, and do not all
+    // collapse to one row).
+    let name = null;
+    if (
+      parent &&
+      (parent.kind === ts.SyntaxKind.VariableDeclaration ||
+        parent.kind === ts.SyntaxKind.PropertyAssignment ||
+        parent.kind === ts.SyntaxKind.PropertyDeclaration) &&
+      parent.name
+    ) {
+      name = parent.name.getText(sourceFile);
+    }
+    const lines = span(node, sourceFile);
+    const display = name || '<anonymous@' + lines.start + '>';
+    const isMember = parent && parent.kind === ts.SyntaxKind.PropertyDeclaration && enclosing;
+    units.push(
+      makeUnit(
+        relative,
+        isMember ? enclosing + '::' + display : display,
+        isMember ? 'method' : 'function',
+        node,
+        complexityOf(node),
+        isMember ? enclosing : '',
+        sourceFile
+      )
+    );
   }
 
-  ts.forEachChild(node, (child) => collect(child, sourceFile, relative, units, childEnclosing));
+  ts.forEachChild(node, (child) => collect(child, sourceFile, relative, units, childEnclosing, node));
 }
 
 function main() {
@@ -163,7 +190,7 @@ function main() {
       continue;
     }
     const sourceFile = ts.createSourceFile(path.join(project, relative), text, ts.ScriptTarget.Latest, true);
-    collect(sourceFile, sourceFile, relative, units, null);
+    collect(sourceFile, sourceFile, relative, units, null, null);
   }
 
   process.stdout.write(JSON.stringify({ ok: true, units, errors }));

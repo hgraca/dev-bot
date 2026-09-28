@@ -713,9 +713,27 @@ assert units[("method", "Holder::value (get)")]["complexity"] == 1, units
 assert units[("method", "Holder::value (set)")]["complexity"] == 2, units
 assert units[("method", "Holder::choose")]["complexity"] == 3, units
 assert units[("class", "Holder")]["complexity"] == 7, units
+assert units[("function", "each")]["complexity"] == 1, units
+assert any(u["name"].startswith("<anonymous@") for u in doc["units"]), [u["name"] for u in doc["units"]]
 '
 
   rm -f "$req"
+}
+
+@test "ts plugin units: a non-5 TypeScript engine is an ERROR" {
+  local project storage req
+  project="$(mktemp -d)"
+  storage="$(mktemp -d)"
+  req="$(mktemp)"
+  mkdir -p "${storage}/ts/node_modules/typescript"
+  printf '{"version":"7.0.2"}' >"${storage}/ts/node_modules/typescript/package.json"
+  printf '{"project":"%s","files":["src/a.ts"]}' "${project}" >"${req}"
+
+  run env FORENSICS_STORAGE_DIR="${storage}" bash "${TS_PLUGIN}" units <"${req}"
+  assert_failure
+  assert_output --partial "ERROR"
+
+  rm -rf "$project" "$storage" "$req"
 }
 
 @test "ts plugin units: invalid stdin is an ERROR" {
@@ -756,7 +774,7 @@ assert {"php", "ts", "java", "go"} <= langs, langs
 
   local req
   req="$(mktemp)"
-  printf '{"project":"%s","files":["src/Calc.java"]}' "${JAVA_FIXTURES}" >"${req}"
+  printf '{"project":"%s","files":["src/Calc.java","src/Extra.java"]}' "${JAVA_FIXTURES}" >"${req}"
 
   run bash "${JAVA_PLUGIN}" units <"${req}"
   assert_success
@@ -764,9 +782,14 @@ assert {"php", "ts", "java", "go"} <= langs, langs
 import json, sys
 doc = json.load(sys.stdin)
 units = {(u["kind"], u["name"]): u for u in doc["units"]}
+names = {u["name"] for u in doc["units"]}
 assert units[("class", "Calc")]["complexity"] == 4, units
 assert units[("method", "Calc::add(int,int)")]["complexity"] == 1, units
 assert units[("method", "Calc::classify(int)")]["complexity"] == 3, units
+assert units[("class", "Extra")]["complexity"] == 5, units
+assert units[("method", "Extra::sum(List<Integer>)")]["complexity"] == 3, units
+assert any(n.startswith("<lambda@") for n in names), names
+assert any(n.startswith("<anonymous@") and n.endswith("::run()") for n in names), names
 '
 
   rm -f "$req"

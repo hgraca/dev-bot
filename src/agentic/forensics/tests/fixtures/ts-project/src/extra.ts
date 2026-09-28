@@ -33,3 +33,11 @@ export class Holder {
     }
   }
 }
+
+export function each(items: number[]): void {
+  items.forEach((item) => {
+    if (item > 0) {
+      console.log(item);
+    }
+  });
+}

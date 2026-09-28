@@ -18,6 +18,7 @@ import com.sun.source.tree.ClassTree;
 import com.sun.source.tree.CompilationUnitTree;
 import com.sun.source.tree.ConditionalExpressionTree;
 import com.sun.source.tree.DoWhileLoopTree;
+import com.sun.source.tree.EnhancedForLoopTree;
 import com.sun.source.tree.ForLoopTree;
 import com.sun.source.tree.IfTree;
 import com.sun.source.tree.LambdaExpressionTree;
@@ -34,6 +35,8 @@ import javax.tools.JavaCompiler;
 import javax.tools.JavaFileObject;
 import javax.tools.StandardJavaFileManager;
 import javax.tools.ToolProvider;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -51,7 +54,15 @@ public final class Metrics {
             System.exit(2);
         }
         Path project = Paths.get(args[0]);
-        List<String> files = new ArrayList<>(Arrays.asList(args).subList(1, args.length));
+        List<String> files = new ArrayList<>();
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            line = line.trim();
+            if (!line.isEmpty()) {
+                files.add(line);
+            }
+        }
         if (files.isEmpty()) {
             System.out.print("{\"ok\":true,\"units\":[],\"errors\":[]}");
             return;
@@ -130,22 +141,41 @@ public final class Metrics {
         @Override
         public Void visitClass(ClassTree node, Void unused) {
             String className = node.getSimpleName().toString();
-            if (!className.isEmpty()) {
-                long wmc = 0;
+            if (className.isEmpty()) {
+                // Anonymous class: expose its methods under a line-labelled parent.
+                String label = "<anonymous@" + lineOf(node) + ">";
                 for (Tree member : node.getMembers()) {
                     if (member instanceof MethodTree) {
                         MethodTree method = (MethodTree) member;
-                        int complexity = complexityOf(method);
-                        wmc += complexity;
-                        units.add(entry(className + "::" + signature(method), "method", method, complexity, className));
-                    } else if (member instanceof BlockTree) {
-                        // Instance / static initializer block: counted in WMC, not a unit.
-                        wmc += complexityOf(member);
+                        units.add(entry(label + "::" + signature(method), "method", method, complexityOf(method), label));
                     }
                 }
-                units.add(entry(className, "class", node, (int) wmc, ""));
+                return super.visitClass(node, unused);
             }
+            long wmc = 0;
+            for (Tree member : node.getMembers()) {
+                if (member instanceof MethodTree) {
+                    MethodTree method = (MethodTree) member;
+                    int complexity = complexityOf(method);
+                    wmc += complexity;
+                    units.add(entry(className + "::" + signature(method), "method", method, complexity, className));
+                } else if (member instanceof BlockTree) {
+                    // Instance / static initializer block: counted in WMC, not a unit.
+                    wmc += complexityOf(member);
+                }
+            }
+            units.add(entry(className, "class", node, (int) wmc, ""));
             return super.visitClass(node, unused);
+        }
+
+        @Override
+        public Void visitLambdaExpression(LambdaExpressionTree node, Void unused) {
+            units.add(entry("<lambda@" + lineOf(node) + ">", "function", node, complexityOf(node), ""));
+            return super.visitLambdaExpression(node, unused);
+        }
+
+        private long lineOf(Tree node) {
+            return unit.getLineMap().getLineNumber(positions.getStartPosition(unit, node));
         }
 
         private int complexityOf(Tree tree) {
@@ -184,6 +214,7 @@ public final class Metrics {
 
         @Override public Void visitIf(IfTree node, Void unused) { complexity++; return super.visitIf(node, unused); }
         @Override public Void visitForLoop(ForLoopTree node, Void unused) { complexity++; return super.visitForLoop(node, unused); }
+        @Override public Void visitEnhancedForLoop(EnhancedForLoopTree node, Void unused) { complexity++; return super.visitEnhancedForLoop(node, unused); }
         @Override public Void visitWhileLoop(WhileLoopTree node, Void unused) { complexity++; return super.visitWhileLoop(node, unused); }
         @Override public Void visitDoWhileLoop(DoWhileLoopTree node, Void unused) { complexity++; return super.visitDoWhileLoop(node, unused); }
         @Override public Void visitCase(CaseTree node, Void unused) { complexity++; return super.visitCase(node, unused); }
@@ -202,6 +233,6 @@ public final class Metrics {
         // Nested scopes are their own units — do not inflate the enclosing one.
         @Override public Void visitClass(ClassTree node, Void unused) { return node == root ? super.visitClass(node, unused) : null; }
         @Override public Void visitMethod(MethodTree node, Void unused) { return node == root ? super.visitMethod(node, unused) : null; }
-        @Override public Void visitLambdaExpression(LambdaExpressionTree node, Void unused) { return null; }
+        @Override public Void visitLambdaExpression(LambdaExpressionTree node, Void unused) { return node == root ? super.visitLambdaExpression(node, unused) : null; }
     }
 }
