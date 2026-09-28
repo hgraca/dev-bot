@@ -22,7 +22,8 @@ import sys
 SOURCE = "github"
 CAPABILITIES = ["pull-requests"]
 
-_QUERY = """query($q: String!, $cursor: String) {
+_QUERY = """query($owner: String!, $name: String!, $q: String!, $cursor: String) {
+  repository(owner: $owner, name: $name) { nameWithOwner }
   search(query: $q, type: ISSUE, first: 100, after: $cursor) {
     pageInfo { hasNextPage endCursor }
     nodes {
@@ -41,6 +42,7 @@ _QUERY = """query($q: String!, $cursor: String) {
   }
 }"""
 
+_HOST_RE = re.compile(r"^(?:[a-z+]+://)?(?:[^@/]+@)?([^/:]+)[:/]", re.IGNORECASE)
 _SLUG_RE = re.compile(r"[:/]([^/:]+/[^/:]+)$")
 
 
@@ -53,9 +55,18 @@ def _run(args: list) -> subprocess.CompletedProcess:
 
 
 def repo_slug(project: str) -> str:
-    """The ``owner/repo`` slug from the project's ``origin`` remote."""
+    """The ``owner/repo`` slug from the project's ``origin`` remote.
+
+    Only a ``github.com`` remote is accepted — another host or a local path is an
+    error, so a non-GitHub checkout cannot silently cache an empty PR window.
+    """
     proc = _run(["git", "-C", project, "remote", "get-url", "origin"])
     url = (proc.stdout or "").strip()
+    host_match = _HOST_RE.match(url)
+    if not host_match:
+        raise RuntimeError("cannot resolve a GitHub slug from remote '%s'" % url)
+    if host_match.group(1).lower() != "github.com":
+        raise RuntimeError("remote '%s' is not on github.com" % url)
     match = _SLUG_RE.search(url)
     if not match:
         raise RuntimeError("cannot resolve a GitHub slug from remote '%s'" % url)
@@ -88,12 +99,29 @@ def _shape(node: dict) -> dict:
 
 
 def search_merged(slug: str, since: str, until: str) -> list:
-    """Every PR merged in ``[since, until]`` for the slug, across all pages."""
+    """Every PR merged in ``[since, until]`` for the slug, across all pages.
+
+    The query also returns the repository itself, so an inaccessible or
+    misspelled slug fails loudly instead of looking like "no PRs merged".
+    """
+    owner, _, name = slug.partition("/")
     query = "repo:%s is:pr is:merged merged:%s..%s" % (slug, since, until)
     prs = []
     cursor = None
     while True:
-        args = [_gh(), "api", "graphql", "-f", "query=" + _QUERY, "-f", "q=" + query]
+        args = [
+            _gh(),
+            "api",
+            "graphql",
+            "-f",
+            "query=" + _QUERY,
+            "-f",
+            "owner=" + owner,
+            "-f",
+            "name=" + name,
+            "-f",
+            "q=" + query,
+        ]
         if cursor:
             args += ["-f", "cursor=" + cursor]
         try:
@@ -106,7 +134,10 @@ def search_merged(slug: str, since: str, until: str) -> list:
             doc = json.loads(proc.stdout)
         except ValueError:
             raise RuntimeError("gh returned non-JSON")
-        page = (doc.get("data") or {}).get("search") or {}
+        data = doc.get("data") or {}
+        if not data.get("repository"):
+            raise RuntimeError("repository '%s' not found or not accessible" % slug)
+        page = data.get("search") or {}
         for node in page.get("nodes") or []:
             prs.append(_shape(node))
         info = page.get("pageInfo") or {}

@@ -24,14 +24,17 @@ _init_repo_with_remote() {
 
 # An offline `gh` stub: logs every call to $2 and answers `api` with one merged PR.
 _write_fake_gh() {
-  local bin="$1" log="$2"
+  local bin="$1" log="$2" repository="${3:-}"
+  if [ -z "$repository" ]; then
+    repository='{"nameWithOwner":"GET-E/core"}'
+  fi
   cat >"${bin}/gh" <<SH
 #!/usr/bin/env bash
 echo "\$*" >> "${log}"
 case "\${1:-}" in
   api)
     cat <<'JSON'
-{"data":{"search":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"number":4819,"author":{"login":"hgraca"},"createdAt":"2026-09-25T14:13:33Z","mergedAt":"2026-09-25T14:36:11Z","additions":749,"deletions":179,"changedFiles":32,"url":"https://github.com/GET-E/core/pull/4819","commits":{"totalCount":7}}]}}}
+{"data":{"repository":${repository},"search":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"number":4819,"author":{"login":"hgraca"},"createdAt":"2026-09-25T14:13:33Z","mergedAt":"2026-09-25T14:36:11Z","additions":749,"deletions":179,"changedFiles":32,"url":"https://github.com/GET-E/core/pull/4819","commits":{"totalCount":7}}]}}}
 JSON
     ;;
   *) exit 1 ;;
@@ -157,5 +160,19 @@ doc = json.load(sys.stdin)
 assert set(("total", "authors", "since", "until", "source")).issubset(doc), doc
 assert doc["authors"][0]["prs"] == 1, doc["authors"]
 '
+  rm -rf "$repo" "$bin"
+}
+
+@test "prs: an inaccessible repository fails with an ERROR" {
+  local repo bin log
+  repo="$(mktemp -d)"
+  bin="$(mktemp -d)"
+  log="${bin}/calls.log"
+  _init_repo_with_remote "$repo"
+  _write_fake_gh "$bin" "$log" 'null'
+
+  _run_prs "$repo" "$bin" --since 2026-09-21 --until 2026-09-25
+  assert_failure
+  assert_output --partial "ERROR"
   rm -rf "$repo" "$bin"
 }

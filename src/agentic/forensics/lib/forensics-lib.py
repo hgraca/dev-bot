@@ -67,7 +67,7 @@ def _run_plugin_stdin(script: str, payload: dict, *args: str) -> subprocess.Comp
     return subprocess.run(["bash", script, *args], input=json.dumps(payload), capture_output=True, text=True)
 
 
-def _load_meta(script: str) -> dict:
+def _load_json_meta(script: str, required: tuple) -> dict:
     proc = _run_plugin(script, "meta")
     if proc.returncode != 0:
         raise ValueError("`meta` exited %d: %s" % (proc.returncode, (proc.stderr or "").strip()))
@@ -78,9 +78,14 @@ def _load_meta(script: str) -> dict:
         raise ValueError("`meta` did not return JSON: %s" % exc)
     if not isinstance(meta, dict):
         raise ValueError("`meta` must return a JSON object")
-    missing = [key for key in _META_REQUIRED if not meta.get(key)]
+    missing = [key for key in required if not meta.get(key)]
     if missing:
         raise ValueError("`meta` is missing required key(s): %s" % ", ".join(missing))
+    return meta
+
+
+def _load_meta(script: str) -> dict:
+    meta = _load_json_meta(script, _META_REQUIRED)
     if not isinstance(meta.get("extensions"), list):
         raise ValueError("`meta.extensions` must be a list")
     return meta
@@ -111,20 +116,7 @@ def _sources_dir() -> str:
 
 
 def _load_source_meta(script: str) -> dict:
-    proc = _run_plugin(script, "meta")
-    if proc.returncode != 0:
-        raise ValueError("`meta` exited %d: %s" % (proc.returncode, (proc.stderr or "").strip()))
-    raw = (proc.stdout or "").strip()
-    try:
-        meta = json.loads(raw)
-    except ValueError as exc:
-        raise ValueError("`meta` did not return JSON: %s" % exc)
-    if not isinstance(meta, dict):
-        raise ValueError("`meta` must return a JSON object")
-    missing = [key for key in _SOURCE_META_REQUIRED if not meta.get(key)]
-    if missing:
-        raise ValueError("`meta` is missing required key(s): %s" % ", ".join(missing))
-    return meta
+    return _load_json_meta(script, _SOURCE_META_REQUIRED)
 
 
 def _discover_sources(sources_dir: str) -> tuple:
@@ -228,8 +220,48 @@ def cmd_doctor(args: list) -> int:
     return 1 if errors else 0
 
 
+def _source_doctor(opts: dict, fmt: str) -> int:
+    project = opts.get("project")
+    if not isinstance(project, str) or not project:
+        project = os.getcwd()
+    wanted = opts.get("source") if isinstance(opts.get("source"), str) else None
+    plugins, errors = _discover_sources(_sources_dir())
+
+    results = []
+    for plugin in plugins:
+        if wanted and plugin.get("source") != wanted:
+            continue
+        proc = _run_plugin(plugin["path"], "doctor", "--project", project)
+        raw = (proc.stdout or "").strip()
+        try:
+            doc = json.loads(raw) if raw else {"ok": False, "error": "no output"}
+        except ValueError:
+            doc = {"ok": False, "error": "`doctor` did not return JSON"}
+        doc.setdefault("source", plugin.get("source"))
+        results.append(doc)
+        if not doc.get("ok"):
+            errors.append({"plugin": plugin.get("source", "?"), "error": doc.get("error", "doctor failed")})
+
+    if fmt == "json":
+        print(json.dumps({"ok": not errors, "doctor": results, "errors": errors}, indent=2))
+    else:
+        for doc in results:
+            engine = doc.get("engine") or {}
+            status = "ok" if doc.get("ok") else "MISSING"
+            detail = " (%s)" % engine.get("version") if engine.get("version") else ""
+            print("- %s: %s%s" % (doc.get("source"), status, detail))
+
+    for error in errors:
+        print("ERROR: %s: %s" % (error["plugin"], error["error"]), file=sys.stderr)
+    return 1 if errors else 0
+
+
 def cmd_sources(args: list) -> int:
     fmt = _parse_format(args)
+    opts, positionals = _parse_args(args)
+    if "doctor" in positionals:
+        return _source_doctor(opts, fmt)
+
     plugins, errors = _discover_sources(_sources_dir())
 
     if fmt == "json":

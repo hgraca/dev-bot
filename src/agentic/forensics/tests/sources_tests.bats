@@ -33,7 +33,7 @@ case "${1:-}" in
   --version) echo "gh version 2.86.0" ;;
   api)
     cat <<'JSON'
-{"data":{"search":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"number":4819,"author":{"login":"hgraca"},"createdAt":"2026-09-25T14:13:33Z","mergedAt":"2026-09-25T14:36:11Z","additions":749,"deletions":179,"changedFiles":32,"url":"https://github.com/GET-E/core/pull/4819","commits":{"totalCount":7}}]}}}
+{"data":{"repository":{"nameWithOwner":"GET-E/core"},"search":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[{"number":4819,"author":{"login":"hgraca"},"createdAt":"2026-09-25T14:13:33Z","mergedAt":"2026-09-25T14:36:11Z","additions":749,"deletions":179,"changedFiles":32,"url":"https://github.com/GET-E/core/pull/4819","commits":{"totalCount":7}}]}}}
 JSON
     ;;
   *) exit 1 ;;
@@ -111,6 +111,26 @@ assert prs[0]["merged_at"] == "2026-09-25T14:36:11Z", prs
   rm -rf "$repo" "$bin"
 }
 
+@test "sources/github fetch: a non-github origin fails" {
+  local repo bin
+  repo="$(mktemp -d)"
+  bin="$(mktemp -d)"
+  git -C "$repo" init -q
+  git -C "$repo" remote add origin "git@gitlab.com:acme/widget.git"
+  _write_fake_gh "$bin"
+  printf '{"project":"%s","since":"2026-09-21T00:00:00+00:00","until":"2026-09-25T23:59:59+00:00"}' "$repo" >"${bin}/payload.json"
+
+  run bash -c "PATH=\"${bin}:\${PATH}\" bash '${GITHUB_PLUGIN}' fetch < '${bin}/payload.json'"
+  assert_failure
+  echo "${output}" | python3 -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["ok"] is False, doc
+assert "github.com" in doc["error"], doc
+'
+  rm -rf "$repo" "$bin"
+}
+
 # ── doctor ─────────────────────────────────────────────────────────────────────
 
 @test "sources/github doctor: reports an authenticated gh as ok" {
@@ -140,5 +160,28 @@ import json, sys
 doc = json.load(sys.stdin)
 assert doc["ok"] is False, doc
 '
+  rm -rf "$missing"
+}
+
+# ── doctor (adapter reachability) ──────────────────────────────────────────────
+
+@test "forensics sources doctor: reports an authenticated gh as ok" {
+  local bin
+  bin="$(mktemp -d)"
+  _write_fake_gh "$bin"
+
+  run env FORENSICS_GH="${bin}/gh" bash "${TOOL}" sources doctor
+  assert_success
+  assert_output --partial "github: ok"
+  rm -rf "$bin"
+}
+
+@test "forensics sources doctor: a missing gh fails" {
+  local missing
+  missing="$(mktemp -d)"
+
+  run env FORENSICS_GH="${missing}/gh" bash "${TOOL}" sources doctor
+  assert_failure
+  assert_output --partial "MISSING"
   rm -rf "$missing"
 }

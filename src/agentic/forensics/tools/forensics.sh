@@ -69,8 +69,8 @@ Commands:
                         List registered language plugins and capabilities.
   provision --lang <lang>
                         Install a pinned engine into storage/forensics/<lang>.
-  sources [--format md|json]
-                        List registered provider adapters (e.g. github).
+  sources [doctor] [--source <name>] [--format md|json]
+                        List provider adapters, or doctor their engine (e.g. gh).
   prs [<repo>] [--source github] [--since <date>] [--until <date>]
       [--refresh] [--db <path>] [--format md|json|csv]
                         Merged PR metrics per author + total, from the PR cache.

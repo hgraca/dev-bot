@@ -58,7 +58,7 @@ devbot tool forensics commits ./core --since 2026-09-21 --until 2026-09-25
 - **`prs`** — pull requests **merged** in the window: count, median commits per PR, median lines changed per PR, median created→merged span, and PRs per calendar day. Grouped by PR author.
 - **`commits`** — commits in the window: count, median lines changed per commit, and commits per calendar day. Grouped by author email, folded through the repository's `.mailmap`.
 
-PR data comes from a provider adapter under `sources/<name>/plugin.sh` (`meta | doctor | fetch`), so GitLab follows GitHub without touching the core; the shipped `sources/github` reads the authenticated `gh` CLI. Fetched PRs are cached in a stable store at `<repo>/.forensics/prs.sqlite` — separate from the timestamped analysis store — and a request only reaches the provider for the spans of the window the cache does not already cover (`--refresh` forces a re-fetch).
+PR data comes from a provider adapter under `sources/<name>/plugin.sh` (`meta | doctor | fetch`), so GitLab follows GitHub without touching the core; the shipped `sources/github` reads the authenticated `gh` CLI. `forensics sources doctor` reports whether each adapter's engine is ready. Fetched PRs are cached in a stable store at `<repo>/.forensics/prs.sqlite` — separate from the timestamped analysis store — and a request only reaches the provider for the spans of the window the cache does not already cover (`--refresh` forces a re-fetch).
 
 ## Method caveats
 
