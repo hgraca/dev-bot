@@ -95,6 +95,22 @@ def _seconds_between(start: str, end: str):
     return int((second - first).total_seconds())
 
 
+def _identity(repo: str, revision: str) -> tuple:
+    """(author_email, committer_date) read straight from git, or ("", None).
+
+    An inducing commit usually predates the mined window, so it is absent from
+    the commit list the miner was given — resolving it here keeps the
+    attribution instead of silently blanking it.
+    """
+    proc = _git(repo, "show", "-s", "--format=%aE%x1f%cI", revision)
+    if proc.returncode != 0:
+        return "", None
+    parts = proc.stdout.strip().split("\x1f")
+    if len(parts) != 2:
+        return "", None
+    return parts[0].strip(), parts[1].strip() or None
+
+
 def link_defects(repo: str, commits: list) -> list:
     """One defect link per fix commit — the inducing commit with the most blame."""
     by_hash = {commit["hash"]: commit for commit in commits}
@@ -117,13 +133,22 @@ def link_defects(repo: str, commits: list) -> list:
                 inducing = max(counts, key=lambda sha: counts[sha])
                 if best is None or counts[inducing] > best["matched_lines"]:
                     origin = by_hash.get(inducing)
+                    if origin is not None:
+                        inducing_author = origin.get("author_email", "")
+                        inducing_date = origin.get("committer_date")
+                    else:
+                        inducing_author, inducing_date = _identity(repo, inducing)
                     best = {
                         "fix_hash": fix_hash,
                         "fix_type": commit.get("type"),
                         "fix_author": commit.get("author_email", ""),
                         "inducing_hash": inducing,
-                        "inducing_author": origin.get("author_email", "") if origin else "",
-                        "delta_seconds": _seconds_between(origin["date"], commit["date"]) if origin else None,
+                        "inducing_author": inducing_author,
+                        "delta_seconds": (
+                            _seconds_between(inducing_date, commit.get("committer_date"))
+                            if inducing_date and commit.get("committer_date")
+                            else None
+                        ),
                         "matched_lines": counts[inducing],
                     }
 
