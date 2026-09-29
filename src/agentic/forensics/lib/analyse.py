@@ -105,6 +105,16 @@ def _is_noise(path: str) -> bool:
     return any(segment in _NOISE_SEGMENTS for segment in path.split("/"))
 
 
+# Composition roots: container/framework wiring whose coupling is registration
+# rather than design. Left in, one provider's 256 outbound types dominate the
+# structural ranking and hide the components worth looking at.
+_WIRING_SUFFIXES = ("ServiceProvider.php",)
+
+
+def _is_wiring(path: str) -> bool:
+    return path.endswith(_WIRING_SUFFIXES)
+
+
 def change_rate(conn: sqlite3.Connection, top=None) -> list:
     """Files ranked by commits, with commits-per-active-day as the rate."""
     rows = conn.execute(
@@ -698,7 +708,7 @@ def structural(conn: sqlite3.Connection, top=None) -> list:
         " FROM units WHERE kind = 'class' AND (ca IS NOT NULL OR ce IS NOT NULL OR cbo IS NOT NULL)"
         " ORDER BY (COALESCE(ca, 0) + COALESCE(ce, 0)) DESC, path, name"
     ).fetchall()
-    results = [dict(row) for row in rows]
+    results = [dict(row) for row in rows if not _is_wiring(row["path"])]
     return results[:top] if top is not None else results
 
 

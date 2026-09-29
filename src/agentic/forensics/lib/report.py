@@ -207,7 +207,12 @@ def _section_notes(doc: dict) -> dict:
     An empty cross-module coupling reads as "no coupling" when it may only mean
     the declared boundaries do not cover the tree.
     """
-    notes = {}
+    notes = {
+        "structural": (
+            "Composition roots (ServiceProvider and similar wiring) are excluded —"
+            " their coupling is container registration, not design."
+        )
+    }
     coverage = doc.get("module-coverage") or {}
     if coverage.get("boundaries"):
         notes["modules"] = "Boundary coverage: %s%% of %s changed file(s); %s outside the declared prefixes." % (
