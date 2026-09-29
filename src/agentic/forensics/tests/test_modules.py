@@ -50,6 +50,23 @@ class ModulesTests(unittest.TestCase):
         self.assertEqual(rows["Core"]["files"], 2, rows)
         self.assertEqual(rows["Core"]["authors"], 1, rows)
 
+    def test_boundary_coverage_is_measured(self):
+        conn = _store()
+        conn.execute("INSERT INTO boundaries(module, prefix) VALUES ('Core', 'app/Core')")
+        _commit(conn, "a")
+        _change(conn, "a", "app/Core/one.php")
+        _change(conn, "a", "app/Services/two.php")
+        _change(conn, "a", ".agents/memory/note.md")
+
+        coverage = analyse.module_coverage(conn)
+
+        # The tool-owned note is not source, so it neither counts in the
+        # denominator nor inflates the unassigned share.
+        self.assertEqual(coverage["boundaries"], 1)
+        self.assertEqual(coverage["files"], 2)
+        self.assertEqual(coverage["unassigned"], 1)
+        self.assertEqual(coverage["coverage_pct"], 50.0)
+
 
 if __name__ == "__main__":
     unittest.main()

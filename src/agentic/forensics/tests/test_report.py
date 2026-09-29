@@ -57,6 +57,16 @@ class DataQualityTests(unittest.TestCase):
         self.assertIn("## Data quality", rendered)
         self.assertIn("--defects", rendered)
 
+    def test_partial_boundaries_are_stated_so_an_empty_coupling_is_not_read_as_none(self):
+        conn = _store()
+        conn.execute("INSERT INTO boundaries(module, prefix) VALUES ('Core', 'app/Core')")
+        conn.execute("INSERT INTO changes(commit_hash, path) VALUES ('a', 'app/Core/a.php')")
+        conn.execute("INSERT INTO changes(commit_hash, path) VALUES ('a', 'app/Services/b.php')")
+
+        rendered = report.to_markdown(report.build(conn))
+
+        self.assertIn("Boundary coverage", rendered, rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

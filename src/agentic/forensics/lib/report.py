@@ -96,6 +96,7 @@ def build(conn: sqlite3.Connection) -> dict:
         "bus_factor": analyse.bus_factor(conn),
         "time-to-fix": analyse.time_to_fix(conn),
         "data-quality": data_quality(conn),
+        "module-coverage": analyse.module_coverage(conn),
     }
     for view, _title, top in SECTIONS:
         doc[view] = analyse._VIEWS[view](conn, top)
@@ -187,14 +188,39 @@ def to_html(doc: dict) -> str:
         "<h2>Hotspot geography</h2>",
         _hotspot_svg(doc.get("hotspots", [])),
     ]
+    notes = _section_notes(doc)
     for view, title, _top in SECTIONS:
         parts.append("<h2>%s</h2>" % _escape(title))
+        if notes.get(view):
+            parts.append("<p><em>%s</em></p>" % _escape(notes[view]))
         parts.append(_html_table(doc.get(view, [])))
     parts.append("<h2>Time to fix</h2>")
     parts.append(_html_table(doc.get("time-to-fix", [])))
     parts.append("<h2>Methodology</h2><p>%s</p>" % _escape(_METHOD).replace("\n", " "))
     parts.append("</body></html>")
     return "\n".join(parts) + "\n"
+
+
+def _section_notes(doc: dict) -> dict:
+    """A caution printed under a section whose emptiness could mislead.
+
+    An empty cross-module coupling reads as "no coupling" when it may only mean
+    the declared boundaries do not cover the tree.
+    """
+    notes = {}
+    coverage = doc.get("module-coverage") or {}
+    if coverage.get("boundaries"):
+        notes["modules"] = "Boundary coverage: %s%% of %s changed file(s); %s outside the declared prefixes." % (
+            coverage.get("coverage_pct"),
+            coverage.get("files"),
+            coverage.get("unassigned"),
+        )
+        if not doc.get("architecture") and coverage.get("unassigned"):
+            notes["architecture"] = (
+                "No cross-module pair found — %s of %s changed file(s) sit outside the declared boundaries."
+                % (coverage.get("unassigned"), coverage.get("files"))
+            )
+    return notes
 
 
 def to_markdown(doc: dict) -> str:
@@ -217,9 +243,13 @@ def to_markdown(doc: dict) -> str:
     lines.append("")
     lines.extend(_table(doc["data-quality"]))
 
+    notes = _section_notes(doc)
     for view, title, _top in SECTIONS:
         lines.append("## %s" % title)
         lines.append("")
+        if notes.get(view):
+            lines.append(notes[view])
+            lines.append("")
         lines.extend(_table(doc[view]))
 
     lines.append("## Time to fix")

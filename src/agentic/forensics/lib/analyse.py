@@ -603,16 +603,44 @@ def _load_boundaries(conn: sqlite3.Connection) -> list:
     return [(row["module"], row["prefix"]) for row in conn.execute("SELECT module, prefix FROM boundaries").fetchall()]
 
 
+def _boundary_for(path: str, boundaries: list):
+    """The longest declared prefix covering ``path``, or None."""
+    best = None
+    for module, prefix in boundaries:
+        if path == prefix or path.startswith(prefix.rstrip("/") + "/"):
+            if best is None or len(prefix) > len(best[1]):
+                best = (module, prefix)
+    return best
+
+
 def _module_for(path: str, boundaries: list) -> str:
     """The module a path belongs to — longest matching prefix, else its top dir."""
     if boundaries:
-        best = None
-        for module, prefix in boundaries:
-            if path == prefix or path.startswith(prefix.rstrip("/") + "/"):
-                if best is None or len(prefix) > len(best[1]):
-                    best = (module, prefix)
+        best = _boundary_for(path, boundaries)
         return best[0] if best else "(unassigned)"
     return path.split("/", 1)[0] if "/" in path else "(root)"
+
+
+def module_coverage(conn: sqlite3.Connection) -> dict:
+    """How much of the changed tree the declared boundaries actually cover.
+
+    An empty cross-module coupling only means something when the boundaries
+    cover the tree; this is the figure that says whether they do.
+    """
+    boundaries = _load_boundaries(conn)
+    paths = [
+        row["path"]
+        for row in conn.execute("SELECT DISTINCT path FROM changes").fetchall()
+        if not _is_noise(row["path"])
+    ]
+    assigned = sum(1 for path in paths if _boundary_for(path, boundaries))
+    return {
+        "boundaries": len(boundaries),
+        "files": len(paths),
+        "assigned": assigned,
+        "unassigned": len(paths) - assigned,
+        "coverage_pct": round(100.0 * assigned / len(paths), 1) if paths else 0.0,
+    }
 
 
 def architecture(conn: sqlite3.Connection, top=None) -> list:
