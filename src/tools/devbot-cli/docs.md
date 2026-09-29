@@ -116,7 +116,8 @@ Prune the OpenCode SQLite database itself, machine-wide (default: 30 days, or
 their events, then `VACUUM`s the file to reclaim disk — the `event` replay
 journal is the bulk of a large database and OpenCode never trims it. `project`
 rows are never age-pruned. Skips when OpenCode is running unless `--force` is
-given. This also runs detached when the last devbot session exits.
+given. `VACUUM` rewrites the whole file, so on a multi-gigabyte database the
+command takes minutes — it is not run automatically.
 
 ### `devbot stats [--days=N] [--project=DIR] [--all|-a] [--harness=HARNESS]`
 

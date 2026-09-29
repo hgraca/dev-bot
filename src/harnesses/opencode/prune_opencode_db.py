@@ -12,7 +12,7 @@ aged project would remove every session still in it, recent ones included.
 ``session delete`` leaves them — there is no FK to ``session``) have no timestamp
 to age on, so they are removed outright.
 
-Runs offline, detached from the last devbot session exit. Fail-open: a missing,
+Runs offline, invoked manually via ``devbot prune --db``. Fail-open: a missing,
 corrupt/schema-less, or busy/locked database, or a running opencode, is reported
 and the script exits 0 without changing anything.
 """

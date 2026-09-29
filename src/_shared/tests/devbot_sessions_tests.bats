@@ -143,6 +143,31 @@ teardown() {
   assert_output "1"
 }
 
+# ── Release: no DB prune on the exit path ────────────────────────────────────
+# The opencode DB prune (bin/prune.sh --db) once fired detached from the
+# last-session release. It VACUUMs the whole database file, which cost minutes
+# of CPU per exit to reclaim a few MB, so it is manual-only now. This guard
+# fails if the prune is put back on the exit path.
+
+@test "release does not fire the opencode DB prune" {
+  PRUNE_MARKER="${DEV_BOT_ROOT}/prune-called"
+  cat > "${DEV_BOT_ROOT}/bin/prune.sh" <<EOF
+#!/usr/bin/env bash
+echo "prune-called args: \$*" >> "${PRUNE_MARKER}"
+exit 0
+EOF
+  chmod +x "${DEV_BOT_ROOT}/bin/prune.sh"
+
+  _devbot_session_register
+  _devbot_session_release
+  sleep 0.5
+
+  # The release path did run to completion (teardown happened)…
+  [ -f "${DOWN_MARKER}" ]
+  # …but never shelled out to the prune.
+  [ ! -f "${PRUNE_MARKER}" ]
+}
+
 # ── Teardown: no docker daemon → skip ────────────────────────────────────────
 
 @test "teardown skips (no down) when there is no docker daemon" {

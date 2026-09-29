@@ -343,7 +343,6 @@ _devbot_session_release() {
 
   if [[ ${live} -eq 0 ]]; then
     _devbot_session_teardown
-    _devbot_prune_opencode_db_detached
   fi
 
   exec 200>&- 2>/dev/null || true  # release the registry lock
@@ -561,50 +560,6 @@ _devbot_prune_memories_detached() {
     >> "${logs_dir}/memory-index.log" 2>/dev/null || true
 
   ( cd "${project_dir}" && bash "${tool}" prune ) >> "${logs_dir}/memory-index.log" 2>&1 &
-  disown 2>/dev/null || true
-
-  return 0
-}
-
-# ── opencode DB prune (last-session teardown) ───────────────────────────────────
-
-# _devbot_prune_opencode_db_detached
-#   Fires the opencode SQLite DB prune (bin/prune.sh --db) detached when the LAST
-#   devbot session releases. Deletes rows older than
-#   DEVBOT_OPENCODE_DB_RETENTION_DAYS (default 30) days and VACUUMs the file.
-#   Run at the last-one-out point in _devbot_session_release, NOT inside
-#   _devbot_session_teardown: teardown returns early without a docker daemon, and
-#   the DB prune must not depend on docker.
-#   Fail-open and silent: a missing script means "nothing to prune". The child
-#   closes fd 200 (the registry lock) and fd 210 (the session lock) before
-#   detaching — this runs while the caller holds the registry flock, and an
-#   inherited fd would keep that lock alive after this process exits, stalling the
-#   next session registration. The marker line is written synchronously so an
-#   audit can prove the prune fired.
-_devbot_prune_opencode_db_detached() {
-  local prune_script="${DEV_BOT_ROOT}/bin/prune.sh"
-  [[ -f "${prune_script}" ]] || return 0
-
-  local logs_dir="${DEV_BOT_ROOT}/.agents/logs"
-  mkdir -p "${logs_dir}" 2>/dev/null || return 0
-
-  local log="${logs_dir}/opencode-db-prune.log"
-  # Sanitize here: prune.sh takes <days> positionally and rejects a non-numeric
-  # value with FATAL, so a bad env var would otherwise kill the detached run.
-  local days="${DEVBOT_OPENCODE_DB_RETENTION_DAYS:-30}"
-  [[ "${days}" =~ ^[0-9]+$ ]] || days=30
-
-  # Bound the install-level log — nothing else rotates it.
-  _devbot_cap_file "${log}" 1048576
-
-  printf '[opencode-db-prune-start] last devbot session ended: detached prune (retention %s day(s))\n' "${days}" \
-    >> "${log}" 2>/dev/null || true
-
-  (
-    exec 200>&- 210>&-
-    bash "${prune_script}" --db "${days}"
-    printf '[opencode-db-prune-done] rc=%s\n' "$?"
-  ) >> "${log}" 2>&1 &
   disown 2>/dev/null || true
 
   return 0
