@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import re
 
-_HEADER = re.compile(r"^([a-z]+)(?:\(([^)]*)\))?(!)?:\s*(.+)$")
+# `<type>(<scope>) <TICKET>!: <subject>` — the ticket token is the TP-1234 idiom.
+_HEADER = re.compile(r"^([a-z]+)(?:\(([^)]*)\))?(?:\s+([A-Z][A-Z0-9]*-\d+))?(!)?:\s*(.+)$")
+
 _TICKET = re.compile(r"\b([A-Z][A-Z0-9]*-\d+)\b")
 
 # Tokens shaped like a ticket key but naming a standard or identifier instead —
@@ -53,7 +55,7 @@ def parse_message(message: str) -> dict:
     if match and match.group(1) in TYPES:
         ctype = match.group(1)
         scope = (match.group(2) or "").strip()
-        breaking = breaking or bool(match.group(3))
+        breaking = breaking or bool(match.group(4))
         conventional = True
     else:
         ctype, scope, conventional = "", "", False

@@ -48,5 +48,38 @@ class TicketTests(unittest.TestCase):
         self.assertEqual(parsed["ticket"], "TP-7041")
 
 
+class ConventionalTests(unittest.TestCase):
+    def test_type_ticket_colon_is_conventional(self):
+        parsed = commitparse.parse_message("fix TP-7041: trips with 100 and more change requests (#4816)")
+        self.assertTrue(parsed["conventional"])
+        self.assertEqual(parsed["type"], "fix")
+        self.assertEqual(parsed["ticket"], "TP-7041")
+        self.assertEqual(parsed["scope"], "")
+
+    def test_scope_then_ticket_then_breaking(self):
+        parsed = commitparse.parse_message("feat(api) TP-1!: drop the v1 endpoint")
+        self.assertTrue(parsed["conventional"])
+        self.assertEqual(parsed["type"], "feat")
+        self.assertEqual(parsed["scope"], "api")
+        self.assertEqual(parsed["ticket"], "TP-1")
+        self.assertEqual(parsed["breaking"], 1)
+
+    def test_a_missing_colon_stays_non_conventional(self):
+        parsed = commitparse.parse_message("feat TP-7040 Add Mexican Peso to supplier currencies")
+        self.assertFalse(parsed["conventional"])
+        self.assertEqual(parsed["type"], "")
+        self.assertEqual(parsed["ticket"], "TP-7040")
+
+    def test_plain_conventional_still_parses(self):
+        parsed = commitparse.parse_message("feat(route-prediction): name the endpoints")
+        self.assertTrue(parsed["conventional"])
+        self.assertEqual(parsed["scope"], "route-prediction")
+        self.assertEqual(parsed["ticket"], "")
+
+    def test_unknown_type_is_not_conventional(self):
+        parsed = commitparse.parse_message("Booking com genuis ff (#4810)")
+        self.assertFalse(parsed["conventional"])
+
+
 if __name__ == "__main__":
     unittest.main()
