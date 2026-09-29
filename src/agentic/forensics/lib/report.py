@@ -67,6 +67,28 @@ _COVERAGE = (
 )
 
 
+# The analyst fills this in. The tool lays out the shape so a report written to
+# one file is complete before anyone opens it.
+_ANALYSIS = (
+    "## Analysis & recommendations",
+    "",
+    "_(To be completed by the analyst — replace each placeholder below.)_",
+    "",
+    "### Refactoring targets",
+    "",
+    "_Which files, from which signal (complexity x change rate, still-growing complexity), in what order._",
+    "",
+    "### Bus factor & knowledge sharing",
+    "",
+    "_Which files and units are single-owner, whom the bus factor constrains, and the mitigation._",
+    "",
+    "### Limits",
+    "",
+    "_Restate every source the Data quality block reports as absent._",
+    "",
+)
+
+
 def data_quality(conn: sqlite3.Connection) -> list:
     """Every source the report can draw on, its count, and how to enable it.
 
@@ -162,7 +184,7 @@ def _hotspot_svg(rows: list) -> str:
     )
 
 
-def to_html(doc: dict) -> str:
+def to_html(doc: dict, analysis: bool = False) -> str:
     meta = doc["meta"]
     parts = [
         "<!DOCTYPE html>",
@@ -196,6 +218,11 @@ def to_html(doc: dict) -> str:
         parts.append(_html_table(doc.get(view, [])))
     parts.append("<h2>Time to fix</h2>")
     parts.append(_html_table(doc.get("time-to-fix", [])))
+    if analysis:
+        parts.append("<h2>Analysis &amp; recommendations</h2>")
+        parts.append("<p><em>To be completed by the analyst.</em></p>")
+        for heading in ("Refactoring targets", "Bus factor &amp; knowledge sharing", "Limits"):
+            parts.append("<h3>%s</h3><p><em>&mdash;</em></p>" % heading)
     parts.append("<h2>Methodology</h2><p>%s</p>" % _escape(_METHOD).replace("\n", " "))
     parts.append("</body></html>")
     return "\n".join(parts) + "\n"
@@ -228,7 +255,7 @@ def _section_notes(doc: dict) -> dict:
     return notes
 
 
-def to_markdown(doc: dict) -> str:
+def to_markdown(doc: dict, analysis: bool = False) -> str:
     meta = doc["meta"]
     lines = [
         "# Code forensics report",
@@ -260,6 +287,9 @@ def to_markdown(doc: dict) -> str:
     lines.append("## Time to fix")
     lines.append("")
     lines.extend(_table(doc["time-to-fix"]))
+
+    if analysis:
+        lines.extend(_ANALYSIS)
 
     lines.append("## Methodology")
     lines.append("")

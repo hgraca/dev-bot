@@ -279,7 +279,7 @@ def cmd_sources(args: list) -> int:
     return 1 if errors else 0
 
 
-_BOOLEAN_FLAGS = {"json", "csv", "markdown", "refresh", "no-defects", "trends", "all"}
+_BOOLEAN_FLAGS = {"json", "csv", "markdown", "refresh", "no-defects", "trends", "all", "with-analysis"}
 
 
 def _parse_args(args: list) -> tuple:
@@ -1026,18 +1026,23 @@ def cmd_report(args: list) -> int:
     finally:
         conn.close()
 
+    analysis = bool(opts.get("with-analysis"))
     if fmt == "json":
         rendered = json.dumps(doc, indent=2) + "\n"
     elif fmt == "html":
-        rendered = report.to_html(doc)
+        rendered = report.to_html(doc, analysis=analysis)
     else:
-        rendered = report.to_markdown(doc)
+        rendered = report.to_markdown(doc, analysis=analysis)
 
-    out_dir = opts.get("out") if isinstance(opts.get("out"), str) else None
-    if out_dir:
-        os.makedirs(out_dir, exist_ok=True)
-        suffix = {"json": "report.json", "html": "report.html"}.get(fmt, "report.md")
-        path = os.path.join(out_dir, suffix)
+    out = opts.get("out") if isinstance(opts.get("out"), str) else None
+    if out:
+        # A path carrying the report's own extension is the file itself; anything
+        # else is a directory that keeps the historical report.<ext> name.
+        if os.path.splitext(out)[1].lower() in (".md", ".json", ".html"):
+            path = out
+        else:
+            path = os.path.join(out, {"json": "report.json", "html": "report.html"}.get(fmt, "report.md"))
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         with open(path, "w", encoding="utf-8") as handle:
             handle.write(rendered)
         print("Wrote %s" % path)
