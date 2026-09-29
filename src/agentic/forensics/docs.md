@@ -1,6 +1,7 @@
 ---
 title: "Forensics"
 description: "Behavioral code analysis over version-control history — hotspots, temporal coupling, ownership, trends and commit-history intelligence, after Tornhill's Code as a Crime Scene."
+commands: ["forensics-report"]
 skills: ["forensics"]
 tools: ["forensics"]
 ---
@@ -8,12 +9,13 @@ tools: ["forensics"]
 Investigates how a codebase has _evolved_ rather than how it looks right now: it mines git history and per-language static metrics into a SQLite store, then reports where technical and organizational risk repeatedly appears.
 
 ```bash
-devbot tool forensics mine <repo> --since 2025-09-28
-devbot tool forensics report .forensics/<timestamp>.sqlite --out ./forensics-report
+devbot tool forensics run <repo> --since 2025-09-01 --until 2025-09-30 \
+  --out <repo>/.forensics/report-2025-09.md
 ```
 
-`mine` writes the store; `analyse` queries one view; `report` renders every view
-into one Markdown or JSON document.
+`run` mines and reports in one step, into **one** self-contained Markdown file.
+`mine` writes the store alone, `analyse` queries a single view, and `report <db>`
+renders a store that already exists — its `--out` takes a directory or a file path.
 
 Every metric is bound to the window `mine` ran with — the last calendar month by
 default, or whatever `--since`/`--until` say. `--all` lifts the bound and mines the
@@ -22,9 +24,31 @@ whole history; it cannot be combined with `--since`/`--until`. Bounds take
 not git's approximate forms like `"last year"`. The window is recorded in the store,
 so a report's time base is never ambiguous within that store.
 
-Mined history is selected on **committer** date (git's walk), whereas the `commits`
-activity command keeps **author** dates — a rebased or backdated commit can appear in
-one and not the other.
+Mined history is selected on **committer** date (git's walk), and the dates the report
+prints are those committer dates, so every window-scoped figure agrees with the
+selection. The `commits` activity command keeps **author** dates instead — a rebased or
+backdated commit can appear in one and not the other.
+
+## The report
+
+`run` (and `report <db>`) write one Markdown document holding everything:
+
+- a **Data quality** block first — each source the run could draw on, its count, and how
+  to enable it when absent. An optional source (`--defects <csv>`, `--trends`,
+  `--modules name=prefix,...`) that was not supplied leaves the sections it feeds empty,
+  and this block states that rather than leaving it to be guessed from an `_(none)_`
+  table.
+- every view, each carrying whatever caution its emptiness needs — boundary coverage
+  under Modules, the composition-root exclusion under Structural coupling.
+- **Commit activity**, and with `--with-prs` the merged-PR activity. A report rendered
+  without an authenticated `gh` still succeeds, noting the PR section is unavailable.
+- **Time to fix**, then the methodology footer.
+- with `--with-analysis`, an empty **Analysis & recommendations** section — the shape an
+  agent fills in with its own reading of the figures: refactoring targets, bus factor and
+  knowledge sharing, and the limits the Data-quality block names.
+
+The `/devbot:forensics-report` command does that for a project end to end: it asks for the
+time window, runs the tool, and writes the analysis itself.
 
 ## What it produces
 
