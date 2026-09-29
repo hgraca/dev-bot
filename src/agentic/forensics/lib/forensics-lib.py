@@ -279,7 +279,7 @@ def cmd_sources(args: list) -> int:
     return 1 if errors else 0
 
 
-_BOOLEAN_FLAGS = {"json", "csv", "markdown", "refresh", "no-defects", "trends", "all", "with-analysis"}
+_BOOLEAN_FLAGS = {"json", "csv", "markdown", "refresh", "no-defects", "trends", "all", "with-analysis", "with-prs"}
 
 
 def _parse_args(args: list) -> tuple:
@@ -708,6 +708,58 @@ def _print_table(rows: list, columns) -> None:
         print("| " + " | ".join(_cell(row.get(column)) for column in columns) + " |")
 
 
+def _pr_rows(plugin: dict, repo: str, since, until, db_path: str, refresh: bool = False) -> tuple:
+    """(merged rows in the window, warnings). Raises RuntimeError on failure.
+
+    The cache is refreshed only for the spans of the window it does not already
+    cover, so a repeat run makes no remote call.
+    """
+    source = plugin.get("source") or "github"
+    _ensure_self_ignored(db_path)
+
+    fresh = not os.path.exists(db_path) or os.path.getsize(db_path) == 0
+    conn = prstore.connect(db_path)
+    warnings = []
+    try:
+        if fresh:
+            prstore.init(conn)
+        else:
+            problem = prstore.check(conn)
+            if problem:
+                raise RuntimeError(problem)
+
+        gaps = (
+            [(since, until)]
+            if refresh
+            else metrics.subtract_intervals(since, until, prstore.covered(conn, source, repo))
+        )
+
+        fetch_errors = []
+        for gap_since, gap_until in gaps:
+            payload = {"project": repo, "since": gap_since.isoformat(), "until": gap_until.isoformat()}
+            proc = _run_plugin_stdin(plugin["path"], payload, "fetch")
+            doc = {}
+            if (proc.stdout or "").strip():
+                try:
+                    doc = json.loads(proc.stdout)
+                except ValueError:
+                    doc = {}
+            if proc.returncode != 0 or doc.get("ok") is False:
+                fetch_errors.append(doc.get("error") or (proc.stderr or "").strip() or "source fetch failed")
+                continue
+            warnings += ["%s: %s" % (source, message) for message in doc.get("errors") or []]
+            prstore.upsert_prs(conn, source, repo, doc.get("pull_requests") or [])
+            prstore.record_coverage(conn, source, repo, gap_since, gap_until)
+
+        if fetch_errors:
+            raise RuntimeError("; ".join(fetch_errors))
+
+        rows = prstore.query_merged(conn, source, repo, since, until)
+    finally:
+        conn.close()
+    return rows, warnings
+
+
 def cmd_prs(args: list) -> int:
     """Merged pull-request metrics, served from the PR cache.
 
@@ -744,53 +796,14 @@ def cmd_prs(args: list) -> int:
         return 2
 
     db_path = opts.get("db") if isinstance(opts.get("db"), str) else os.path.join(repo, ".forensics", "prs.sqlite")
-    _ensure_self_ignored(db_path)
-
-    fresh = not os.path.exists(db_path) or os.path.getsize(db_path) == 0
-    conn = prstore.connect(db_path)
     try:
-        if fresh:
-            prstore.init(conn)
-        else:
-            problem = prstore.check(conn)
-            if problem:
-                print("ERROR: %s" % problem, file=sys.stderr)
-                return 1
+        rows, warnings = _pr_rows(plugin, repo, since, until, db_path, bool(opts.get("refresh")))
+    except RuntimeError as exc:
+        print("ERROR: %s" % exc, file=sys.stderr)
+        return 1
 
-        if opts.get("refresh"):
-            gaps = [(since, until)]
-        else:
-            gaps = metrics.subtract_intervals(since, until, prstore.covered(conn, source, repo))
-
-        fetch_errors = []
-        warnings = []
-        for gap_since, gap_until in gaps:
-            payload = {"project": repo, "since": gap_since.isoformat(), "until": gap_until.isoformat()}
-            proc = _run_plugin_stdin(plugin["path"], payload, "fetch")
-            doc = {}
-            if (proc.stdout or "").strip():
-                try:
-                    doc = json.loads(proc.stdout)
-                except ValueError:
-                    doc = {}
-            if proc.returncode != 0 or doc.get("ok") is False:
-                fetch_errors.append(doc.get("error") or (proc.stderr or "").strip() or "source fetch failed")
-                continue
-            warnings += ["%s: %s" % (source, message) for message in doc.get("errors") or []]
-            prstore.upsert_prs(conn, source, repo, doc.get("pull_requests") or [])
-            prstore.record_coverage(conn, source, repo, gap_since, gap_until)
-
-        if fetch_errors:
-            for message in fetch_errors:
-                print("ERROR: %s" % message, file=sys.stderr)
-            return 1
-
-        for message in warnings:
-            print("WARN: %s" % message, file=sys.stderr)
-
-        rows = prstore.query_merged(conn, source, repo, since, until)
-    finally:
-        conn.close()
+    for message in warnings:
+        print("WARN: %s" % message, file=sys.stderr)
 
     total, authors = _pr_report(rows, since, until)
     table = [dict(total, author="TOTAL")] + authors
@@ -1000,6 +1013,65 @@ def cmd_analyse(args: list) -> int:
     return 0
 
 
+def _commit_activity(conn: sqlite3.Connection):
+    """Per-author commit activity over the mined window, read from the store.
+
+    Read here rather than re-walking git so the section shares the document's
+    committer-dated base — the standalone `commits` command keeps its own
+    author-date window. None when the store has no bounded window (`mine --all`).
+    """
+    meta = {row["key"]: row["value"] for row in conn.execute("SELECT key, value FROM meta").fetchall()}
+    since, until = _parse_iso(meta.get("since")), _parse_iso(meta.get("until"))
+    if since is None or until is None:
+        return None
+    rows = [
+        dict(row)
+        for row in conn.execute(
+            "SELECT author_name, author_email, lines_added, lines_deleted FROM commits"
+        ).fetchall()
+    ]
+    total, authors = _commit_report(rows, since, until)
+    return [dict(total, author="TOTAL", author_email="")] + authors
+
+
+def _pr_activity(plugin: dict, repo: str, since, until) -> tuple:
+    """(per-author PR rows for the window, warnings)."""
+    db_path = os.path.join(repo, ".forensics", "prs.sqlite")
+    rows, warnings = _pr_rows(plugin, repo, since, until, db_path)
+    total, authors = _pr_report(rows, since, until)
+    return [dict(total, author="TOTAL")] + authors, warnings
+
+
+def _attach_activity(doc: dict, with_prs: bool) -> None:
+    """Fill the PR activity section the store cannot carry.
+
+    It needs an authenticated provider adapter, so its absence is recorded as a
+    note rather than raised — a report has to render offline.
+    """
+    if not with_prs:
+        return
+
+    meta = doc.get("meta") or {}
+    repo = meta.get("repo") or ""
+    since = _parse_iso(meta.get("since"))
+    until = _parse_iso(meta.get("until"))
+    if not repo or since is None or until is None:
+        return
+
+    plugins, _ = _discover_sources(_sources_dir())
+    plugin = next((p for p in plugins if p.get("source") == "github"), None)
+    if plugin is None:
+        doc["pr-activity-note"] = "no 'github' source adapter"
+        return
+    try:
+        doc["pr-activity"], warnings = _pr_activity(plugin, repo, since, until)
+        if warnings:
+            doc["pr-activity-note"] = "; ".join(warnings)
+    except (RuntimeError, sqlite3.Error) as exc:
+        doc["pr-activity"] = None
+        doc["pr-activity-note"] = str(exc)
+
+
 def cmd_report(args: list) -> int:
     fmt = _parse_format(args)
     opts, positionals = _parse_args(args)
@@ -1020,11 +1092,17 @@ def cmd_report(args: list) -> int:
             return 1
         try:
             doc = report.build(conn)
+            doc["commit-activity"] = _commit_activity(conn)
         except sqlite3.Error as exc:
             print("ERROR: %s" % exc, file=sys.stderr)
             return 1
     finally:
         conn.close()
+
+    if doc["commit-activity"] is None:
+        doc["commit-activity-note"] = "the store has no bounded window — mine recorded none"
+
+    _attach_activity(doc, bool(opts.get("with-prs")))
 
     analysis = bool(opts.get("with-analysis"))
     if fmt == "json":
@@ -1051,6 +1129,47 @@ def cmd_report(args: list) -> int:
     return 0
 
 
+# `run` forwards these to mine; every other option on its line is its own.
+_MINE_STRING_OPTS = ("since", "until", "lang", "granularity", "trend-interval", "defects", "modules")
+_MINE_BOOL_OPTS = ("all", "no-defects", "trends")
+
+
+def cmd_run(args: list) -> int:
+    """Mine and report in one step, writing a single self-contained document."""
+    fmt = _parse_format(args)
+    opts, positionals = _parse_args(args)
+
+    repo = positionals[0] if positionals else os.getcwd()
+    if not os.path.isdir(repo):
+        print("ERROR: not a directory: %s" % repo, file=sys.stderr)
+        return 1
+    if not gitmine._is_repo(repo):
+        print("ERROR: not a git repository: %s" % repo, file=sys.stderr)
+        return 1
+    repo = gitmine.toplevel(repo) or os.path.abspath(repo)
+
+    db_path = opts.get("db") if isinstance(opts.get("db"), str) else _default_db_path(repo)
+
+    mine_args = [repo, "--db", db_path]
+    for name in _MINE_STRING_OPTS:
+        if isinstance(opts.get(name), str):
+            mine_args += ["--" + name, opts[name]]
+    for name in _MINE_BOOL_OPTS:
+        if opts.get(name):
+            mine_args.append("--" + name)
+
+    print("run: mining %s" % repo, file=sys.stderr)
+    code = cmd_mine(mine_args)
+    if code != 0:
+        return code
+
+    report_args = [db_path, "--format", fmt, "--with-analysis", "--with-prs"]
+    out = opts.get("out")
+    if isinstance(out, str):
+        report_args += ["--out", out]
+    return cmd_report(report_args)
+
+
 _HANDLERS = {
     "langs": cmd_langs,
     "doctor": cmd_doctor,
@@ -1060,6 +1179,7 @@ _HANDLERS = {
     "mine": cmd_mine,
     "analyse": cmd_analyse,
     "report": cmd_report,
+    "run": cmd_run,
     "provision": cmd_provision,
 }
 
@@ -1075,15 +1195,15 @@ def main(argv: list) -> int:
         print("forensics %s" % TOOL_VERSION)
         return 0
     if command in ("--help", "-h"):
-        print("Usage: forensics-lib.py <langs|doctor|sources|prs|commits|mine|analyse|report|provision> [options]")
+        print("Usage: forensics-lib.py <langs|doctor|sources|prs|commits|mine|analyse|report|run|provision> [options]")
         return 0
 
     handler = _HANDLERS.get(command)
     if handler is None:
         print("ERROR: unknown core command '%s'" % command, file=sys.stderr)
         return 2
-    if command != "mine" and "--all" in rest:
-        print("ERROR: --all is only supported by mine", file=sys.stderr)
+    if command not in ("mine", "run") and "--all" in rest:
+        print("ERROR: --all is only supported by mine and run", file=sys.stderr)
         return 2
 
     return handler(rest)

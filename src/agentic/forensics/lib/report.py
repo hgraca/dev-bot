@@ -216,6 +216,20 @@ def to_html(doc: dict, analysis: bool = False) -> str:
         if notes.get(view):
             parts.append("<p><em>%s</em></p>" % _escape(notes[view]))
         parts.append(_html_table(doc.get(view, [])))
+    if doc.get("commit-activity") is not None:
+        parts.append("<h2>Commit activity</h2>")
+        parts.append(_html_table(doc["commit-activity"]))
+    elif doc.get("commit-activity-note"):
+        parts.append(
+            "<h2>Commit activity</h2><p><em>unavailable: %s</em></p>" % _escape(doc["commit-activity-note"])
+        )
+    if doc.get("pr-activity") is not None:
+        parts.append("<h2>Pull request activity</h2>")
+        parts.append(_html_table(doc["pr-activity"]))
+        if doc.get("pr-activity-note"):
+            parts.append("<p><em>Note: %s</em></p>" % _escape(doc["pr-activity-note"]))
+    elif doc.get("pr-activity-note"):
+        parts.append("<h2>Pull request activity</h2><p><em>unavailable: %s</em></p>" % _escape(doc["pr-activity-note"]))
     parts.append("<h2>Time to fix</h2>")
     parts.append(_html_table(doc.get("time-to-fix", [])))
     if analysis:
@@ -283,6 +297,29 @@ def to_markdown(doc: dict, analysis: bool = False) -> str:
             lines.append(notes[view])
             lines.append("")
         lines.extend(_table(doc[view]))
+
+    if doc.get("commit-activity") is not None:
+        lines.append("## Commit activity")
+        lines.append("")
+        lines.extend(_table(doc["commit-activity"]))
+    elif doc.get("commit-activity-note"):
+        lines.append("## Commit activity")
+        lines.append("")
+        lines.append("_(unavailable: %s)_" % doc["commit-activity-note"])
+        lines.append("")
+
+    if doc.get("pr-activity") is not None:
+        lines.append("## Pull request activity")
+        lines.append("")
+        lines.extend(_table(doc["pr-activity"]))
+        if doc.get("pr-activity-note"):
+            lines.append("_Note: %s_" % doc["pr-activity-note"])
+            lines.append("")
+    elif doc.get("pr-activity-note"):
+        lines.append("## Pull request activity")
+        lines.append("")
+        lines.append("_(unavailable: %s)_" % doc["pr-activity-note"])
+        lines.append("")
 
     lines.append("## Time to fix")
     lines.append("")

@@ -62,8 +62,13 @@ Commands:
                         ownership, concentration, unit-ownership,
                         unit-concentration, commit-types, authors, tickets,
                         defects, time-to-fix, fixers, process, releases.
-  report <db> [--out <dir>] [--format md|json|html]
-                        Full Tornhill + commit-history report.
+  report <db> [--out <dir|file>] [--format md|json|html] [--with-prs] [--with-analysis]
+                        Full Tornhill + commit-history report. A --out path
+                        ending .md/.json/.html is the file itself.
+  run [<repo>] [--since <date>] [--until <date>] [--out <file>] [--db <path>]
+      [--all] [--trends] [--defects <csv>] [--modules name=prefix,...]
+                        Mine and report in one step, writing a single
+                        self-contained document (activity + analysis section).
   doctor [--project <dir>] [--format md|json]
                         Show each language plugin's resolved engine.
   langs [--format md|json]
@@ -114,6 +119,7 @@ case "${command}" in
   mine) exec python3 "${LIB}" mine "$@" ;;
   analyse) exec python3 "${LIB}" analyse "$@" ;;
   report) exec python3 "${LIB}" report "$@" ;;
+  run) exec python3 "${LIB}" run "$@" ;;
   provision) exec python3 "${LIB}" provision "$@" ;;
   *)
     echo "ERROR: unknown command '${command}'" >&2
