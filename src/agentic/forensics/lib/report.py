@@ -7,6 +7,7 @@ import html
 import sqlite3
 
 import analyse
+import store
 
 # view name -> (heading, top-N in the report)
 SECTIONS = (
@@ -53,6 +54,39 @@ _METHOD = (
     "metrics need deploy/incident data and are outside the git-only path."
 )
 
+# source label -> (store count key, sections it feeds, how to enable it when absent)
+_COVERAGE = (
+    ("commits", "commits", "every section", ""),
+    ("units", "units", "hotspots, debt priority, unit ownership", "mine --granularity unit"),
+    ("SZZ defect links", "defect_links", "defect origin, fixers, time to fix", "mine without --no-defects"),
+    ("tickets", "tickets", "commit-history intelligence", ""),
+    ("external defects", "defects", "defect density, risk", "mine --defects <csv>"),
+    ("complexity trends", "complexity_trend", "complexity trends", "mine --trends"),
+    ("module boundaries", "boundaries", "modules, cross-module coupling", "mine --modules name=prefix,..."),
+    ("releases (tags)", "releases", "releases, release cadence", ""),
+)
+
+
+def data_quality(conn: sqlite3.Connection) -> list:
+    """Every source the report can draw on, its count, and how to enable it.
+
+    An absent optional source silently empties the sections it feeds, so the
+    document states its own blind spots instead of leaving them to be inferred
+    from a table that happens to read ``_(none)_``.
+    """
+    counts = store.counts(conn)
+    # Tickets live on the commit rows, not in a table of their own.
+    counts["tickets"] = conn.execute("SELECT COUNT(DISTINCT ticket) FROM commits WHERE ticket <> ''").fetchone()[0]
+    return [
+        {
+            "source": label,
+            "count": counts.get(key, 0),
+            "affects": affects,
+            "enable": enable if not counts.get(key) else "",
+        }
+        for label, key, affects, enable in _COVERAGE
+    ]
+
 
 def build(conn: sqlite3.Connection) -> dict:
     """Every view, plus run metadata, bus factor and the time-to-fix distribution."""
@@ -61,6 +95,7 @@ def build(conn: sqlite3.Connection) -> dict:
         "meta": meta,
         "bus_factor": analyse.bus_factor(conn),
         "time-to-fix": analyse.time_to_fix(conn),
+        "data-quality": data_quality(conn),
     }
     for view, _title, top in SECTIONS:
         doc[view] = analyse._VIEWS[view](conn, top)
@@ -147,6 +182,8 @@ def to_html(doc: dict) -> str:
             _escape(meta.get("head", "")),
             _escape(meta.get("version", "")),
         ),
+        "<h2>Data quality</h2>",
+        _html_table(doc.get("data-quality", [])),
         "<h2>Hotspot geography</h2>",
         _hotspot_svg(doc.get("hotspots", [])),
     ]
@@ -173,6 +210,12 @@ def to_markdown(doc: dict) -> str:
         "- bus factor: %s of %s author(s) hold >=50%% of commits" % (doc["bus_factor"].get("bus_factor"), doc["bus_factor"].get("authors")),
         "",
     ]
+
+    lines.append("## Data quality")
+    lines.append("")
+    lines.append("Sources this run could draw on. An absent optional source leaves the sections it feeds empty.")
+    lines.append("")
+    lines.extend(_table(doc["data-quality"]))
 
     for view, title, _top in SECTIONS:
         lines.append("## %s" % title)

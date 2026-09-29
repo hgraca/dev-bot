@@ -381,6 +381,33 @@ assert rows[0]["snapshots"] == 1, rows
   rm -rf "$repo"
 }
 
+@test "mine: warns when a requested source yields nothing, instead of going silent" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/d.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  # A .txt file no language plugin owns, committed as a fix with no parent to
+  # blame: unit extraction and the SZZ link both come back empty.
+  printf 'x\n' >"$repo/notes.txt"
+  git -C "$repo" add -A
+  GIT_AUTHOR_DATE="$(_ago 2)" GIT_COMMITTER_DATE="$(_ago 2)" \
+    git -C "$repo" commit -q -m "fix: notes"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+warnings = json.load(sys.stdin)["warnings"]
+assert any("no units extracted" in w for w in warnings), warnings
+assert any("no defect link" in w for w in warnings), warnings
+'
+
+  rm -rf "$repo"
+}
+
 @test "mine trends: the default interval over a short window warns instead of going silent" {
   local repo db
   repo="$(mktemp -d)"

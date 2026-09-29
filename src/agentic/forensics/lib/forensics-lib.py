@@ -601,6 +601,14 @@ def cmd_mine(args: list) -> int:
                 conn.commit()
 
         result_counts = store.counts(conn)
+
+        if granularity != "file" and not result_counts["units"]:
+            warnings.append("no units extracted — hotspots, priority and unit ownership will be empty")
+        fix_commits = sum(1 for commit in enriched if commitparse.is_fix(commit.get("type", "")))
+        if not opts.get("no-defects") and fix_commits and not result_counts["defect_links"]:
+            warnings.append(
+                "no defect link from %d fix commit(s) — defect origin and time to fix will be empty" % fix_commits
+            )
     finally:
         conn.close()
 
