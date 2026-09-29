@@ -410,6 +410,36 @@ assert doc["counts"]["units"] == 0, doc["counts"]
   rm -rf "$repo"
 }
 
+@test "mine: excludes vendored paths from unit extraction, so they cannot rank" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/out.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  mkdir -p "$repo/app" "$repo/vendor/pkg"
+  printf 'if a\nif b\n' >"$repo/app/code.zz"
+  printf 'if a\nif b\nif c\n' >"$repo/vendor/pkg/lib.zz"
+  git -C "$repo" add -A
+  git -C "$repo" commit -q -m "feat: code and a vendored lib"
+
+  run env FORENSICS_LANGS_DIR="${TEST_DIR}/fixtures/langs-trend" \
+    bash "${TOOL}" mine "$repo" --db "$db" --format json
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view hotspots --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+paths = [r["path"] for r in json.load(sys.stdin)["hotspots"]]
+assert "app/code.zz" in paths, paths
+assert not any(p.startswith("vendor/") for p in paths), paths
+'
+
+  rm -rf "$repo"
+}
+
 @test "mine: extracts units for php files when an engine is available" {
   _php_e2e_ready || skip "php engine + docker not available"
 

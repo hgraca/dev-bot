@@ -416,6 +416,8 @@ def _mine_trends(repo: str, langs, interval: str, since=None, until=None) -> tup
                     extension = os.path.splitext(name)[1].lstrip(".").lower()
                     if extension in extensions:
                         relative = os.path.relpath(os.path.join(root, name), worktree)
+                        if analyse._is_noise(relative):
+                            continue
                         file_types.setdefault(extension, []).append(relative)
             units, unit_errors = _extract_units(worktree, file_types, langs)
             for error in unit_errors:
@@ -550,6 +552,8 @@ def cmd_mine(args: list) -> int:
         if granularity != "file":
             file_types = {}
             for row in conn.execute("SELECT path, type FROM files").fetchall():
+                if analyse._is_noise(row["path"]):
+                    continue
                 file_types.setdefault((row["type"] or "").lower(), []).append(row["path"])
             units, errors = _extract_units(data["repo"], file_types, langs)
             warnings += ["unit extraction skipped (%s)" % error for error in errors]

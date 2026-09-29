@@ -79,15 +79,30 @@ _NOISE = (
     ".min.js",
     ".min.css",
     ".snap",
+    "baseline.neon",
+)
+
+_NOISE_SEGMENTS = (
+    "vendor",
+    "node_modules",
+    "dist",
+    "build",
+    ".git",
+    ".agents",
+    "storage",
+    "graphify-out",
+    "coverage",
+    "__pycache__",
+    ".venv",
+    "no-vcs",
 )
 
 
 def _is_noise(path: str) -> bool:
-    """Generated / vendored / dependency files that co-change without meaning."""
+    """Generated, vendored or tool-owned files that carry no code signal."""
     if any(token in path for token in _NOISE):
         return True
-    segments = path.split("/")
-    return any(segment in ("vendor", "node_modules", "dist", "build", ".git") for segment in segments)
+    return any(segment in _NOISE_SEGMENTS for segment in path.split("/"))
 
 
 def change_rate(conn: sqlite3.Connection, top=None) -> list:
@@ -97,6 +112,8 @@ def change_rate(conn: sqlite3.Connection, top=None) -> list:
     ).fetchall()
     results = []
     for row in rows:
+        if _is_noise(row["path"]):
+            continue
         days = row["active_days"] or 0
         results.append(
             {
@@ -166,6 +183,8 @@ def ownership(conn: sqlite3.Connection, top=None) -> list:
         " FROM changes ch JOIN commits co ON co.hash = ch.commit_hash"
         " GROUP BY ch.path, co.author_email"
     ).fetchall():
+        if _is_noise(row["path"]):
+            continue
         per_path.setdefault(row["path"], {})[row["author"]] = row["commits"]
 
     meta = {row["path"]: row for row in conn.execute("SELECT path, commits, last_seen FROM files").fetchall()}
