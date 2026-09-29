@@ -615,21 +615,25 @@ def architecture(conn: sqlite3.Connection, top=None) -> list:
 
 
 def modules(conn: sqlite3.Connection, top=None) -> list:
-    """Per-module size, activity and ownership diffusion (A12)."""
+    """Per-module size, activity and ownership diffusion (A12).
+
+    ``commits`` is the number of distinct commits touching the module, so a
+    commit spanning several of its files counts once.
+    """
     boundaries = _load_boundaries(conn)
     aggregated = {}
     for row in conn.execute(
-        "SELECT ch.path AS path, co.author_email AS author, COUNT(DISTINCT co.hash) AS commits"
-        " FROM changes ch JOIN commits co ON co.hash = ch.commit_hash GROUP BY ch.path, co.author_email"
+        "SELECT ch.path AS path, ch.commit_hash AS hash, co.author_email AS author"
+        " FROM changes ch JOIN commits co ON co.hash = ch.commit_hash"
     ).fetchall():
         module = _module_for(row["path"], boundaries)
-        entry = aggregated.setdefault(module, {"module": module, "files": set(), "commits": 0, "authors": set()})
+        entry = aggregated.setdefault(module, {"module": module, "files": set(), "commits": set(), "authors": set()})
         entry["files"].add(row["path"])
-        entry["commits"] += row["commits"]
+        entry["commits"].add(row["hash"])
         entry["authors"].add(row["author"])
 
     results = [
-        {"module": e["module"], "files": len(e["files"]), "commits": e["commits"], "authors": len(e["authors"])}
+        {"module": e["module"], "files": len(e["files"]), "commits": len(e["commits"]), "authors": len(e["authors"])}
         for e in aggregated.values()
     ]
     results.sort(key=lambda item: item["commits"], reverse=True)
