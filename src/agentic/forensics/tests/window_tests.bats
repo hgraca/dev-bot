@@ -306,6 +306,45 @@ assert json.load(sys.stdin)["total"]["commits"] == 0, "commits is author-dated"
   rm -rf "$repo"
 }
 
+@test "mine: file dates follow the committer date, matching the selection window" {
+  local repo db
+  repo="$(mktemp -d)"
+  db="$(mktemp -d)/d.sqlite"
+  git -C "$repo" init -q
+  git -C "$repo" config user.name "Alice"
+  git -C "$repo" config user.email "alice@example.com"
+  git -C "$repo" config commit.gpgsign false
+  printf 'a\n' >"$repo/a.txt"
+  git -C "$repo" add -A
+  # Authored 2024, committed yesterday: the window selects it on the committer
+  # date, so the dates it reports must be the committer ones, not 2024.
+  GIT_AUTHOR_DATE="2024-01-01T10:00:00+00:00" GIT_COMMITTER_DATE="$(_ago 1)" \
+    git -C "$repo" commit -q -m "feat: backdated"
+
+  run bash "${TOOL}" mine "$repo" --db "$db" --granularity file
+  assert_success
+
+  run bash "${TOOL}" analyse "$db" --view change-rate --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+rows = [r for r in json.load(sys.stdin)["change-rate"] if r["path"] == "a.txt"]
+assert rows, "no change-rate row for a.txt"
+assert not (rows[0]["first_seen"] or "").startswith("2024"), rows[0]
+assert not (rows[0]["last_seen"] or "").startswith("2024"), rows[0]
+'
+
+  run bash "${TOOL}" analyse "$db" --view process --format json
+  assert_success
+  echo "${output}" | python3 -c '
+import json, sys
+row = json.load(sys.stdin)["process"][0]
+assert row["active_days"] == 1, row
+'
+
+  rm -rf "$repo"
+}
+
 @test "mine trends: buckets on committer date, so one committer day is one sample" {
   local repo db same_day
   repo="$(mktemp -d)"

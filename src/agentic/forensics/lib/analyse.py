@@ -272,15 +272,17 @@ def _utc(value: str):
 
 
 def tickets(conn: sqlite3.Connection, top=None) -> list:
-    """Ticket references found in commit scopes: activity, fixes and first/last seen."""
+    """Ticket references found in commit subjects: activity, fixes and first/last seen."""
     aggregated = {}
-    for row in conn.execute("SELECT ticket, date, COALESCE(type, '') AS type FROM commits WHERE ticket <> ''").fetchall():
+    for row in conn.execute(
+        "SELECT ticket, committer_date, COALESCE(type, '') AS type FROM commits WHERE ticket <> ''"
+    ).fetchall():
         entry = aggregated.setdefault(row["ticket"], {"commits": 0, "fixes": 0, "dates": []})
         entry["commits"] += 1
         if row["type"] in ("fix", "hotfix", "bugfix"):
             entry["fixes"] += 1
-        if row["date"]:
-            entry["dates"].append(row["date"])
+        if row["committer_date"]:
+            entry["dates"].append(row["committer_date"])
 
     floor = datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
     results = []
@@ -359,13 +361,15 @@ def fixers(conn: sqlite3.Connection, top=None) -> list:
 
 def process(conn: sqlite3.Connection, top=None) -> list:
     """Commit-process metrics: batch size, churn and Conventional Commits hygiene."""
-    rows = conn.execute("SELECT date, files_changed, lines_added, lines_deleted, type FROM commits").fetchall()
+    rows = conn.execute(
+        "SELECT committer_date, files_changed, lines_added, lines_deleted, type FROM commits"
+    ).fetchall()
     if not rows:
         return [{"commits": 0}]
 
     sizes = [row["files_changed"] or 0 for row in rows]
     churn = [(row["lines_added"] or 0) + (row["lines_deleted"] or 0) for row in rows]
-    days = {(row["date"] or "")[:10] for row in rows if row["date"]}
+    days = {(row["committer_date"] or "")[:10] for row in rows if row["committer_date"]}
     conventional = sum(1 for row in rows if row["type"])
 
     release_dates = [

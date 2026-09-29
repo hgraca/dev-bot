@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS commits (
   author_name   TEXT,
   author_email  TEXT,
   date          TEXT,
+  committer_date TEXT,
   message       TEXT,
   files_changed INTEGER DEFAULT 0,
   lines_added   INTEGER DEFAULT 0,
@@ -137,7 +138,7 @@ def connect(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-SCHEMA_VERSION = "2"
+SCHEMA_VERSION = "3"
 
 
 def init(conn: sqlite3.Connection) -> None:
@@ -176,15 +177,16 @@ def write_meta(conn: sqlite3.Connection, values: dict) -> None:
 def write_commits(conn: sqlite3.Connection, commits: list) -> None:
     conn.executemany(
         "INSERT OR REPLACE INTO commits"
-        "(hash, author_name, author_email, date, message, files_changed, lines_added, lines_deleted,"
+        "(hash, author_name, author_email, date, committer_date, message, files_changed, lines_added, lines_deleted,"
         " type, scope, ticket, breaking)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         [
             (
                 c["hash"],
                 c["author_name"],
                 c["author_email"],
                 c["date"],
+                c.get("committer_date", ""),
                 c["message"],
                 c["files_changed"],
                 c["lines_added"],
@@ -229,10 +231,14 @@ def _utc_key(value: str):
 
 
 def derive_files(conn: sqlite3.Connection) -> None:
-    """Roll per-commit file changes up into one row per path."""
+    """Roll per-commit file changes up into one row per path.
+
+    Dates are the commits' committer dates, so first/last seen line up with the
+    window `mine` selected on.
+    """
     conn.execute("DELETE FROM files")
     rows = conn.execute(
-        "SELECT ch.path AS path, co.date AS date, co.author_email AS author, ch.commit_hash AS hash"
+        "SELECT ch.path AS path, co.committer_date AS committer_date, co.author_email AS author, ch.commit_hash AS hash"
         " FROM changes ch JOIN commits co ON co.hash = ch.commit_hash"
     ).fetchall()
 
@@ -244,7 +250,7 @@ def derive_files(conn: sqlite3.Connection) -> None:
         )
         entry["commits"].add(row["hash"])
         entry["authors"].add(row["author"])
-        date = row["date"]
+        date = row["committer_date"]
         if not date:
             continue
         key = _utc_key(date)

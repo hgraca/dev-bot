@@ -130,7 +130,7 @@ def _parse_numstat_z(raw: bytes) -> list:
 
 def mine_commits(repo: str, since=None, until=None, mailmap: bool = False) -> list:
     name, email = ("%aN", "%aE") if mailmap else ("%an", "%ae")
-    fmt = RECORD + FIELD.join(["%H", name, email, "%aI", "%B"]) + FIELD
+    fmt = RECORD + FIELD.join(["%H", name, email, "%aI", "%cI", "%B"]) + FIELD
     proc = _git(repo, "log", "--format=" + fmt, *_range_args(since, until))
     if proc.returncode != 0:
         raise RuntimeError(proc.stderr.strip() or "git log failed")
@@ -140,7 +140,7 @@ def mine_commits(repo: str, since=None, until=None, mailmap: bool = False) -> li
         if not chunk.strip():
             continue
         parts = chunk.split(FIELD)
-        if len(parts) < 5:
+        if len(parts) < 6:
             continue
         commits.append(
             {
@@ -148,7 +148,8 @@ def mine_commits(repo: str, since=None, until=None, mailmap: bool = False) -> li
                 "author_name": parts[1],
                 "author_email": parts[2],
                 "date": parts[3],
-                "message": parts[4].rstrip("\n"),
+                "committer_date": parts[4],
+                "message": parts[5].rstrip("\n"),
                 "files_changed": 0,
                 "lines_added": 0,
                 "lines_deleted": 0,
