@@ -1,8 +1,9 @@
 {
   "hooks": [
     {
-      "id": "codebase-memory-index-project",
-      "event": "session.created",
+      "id": "codebase-memory-commit-refresh",
+      "event": "command.after",
+      "match": { "command": "git\\s+commit" },
       "run": ["bash", "{module}/tools/index-project.sh", "{worktree}"]
     }
   ]

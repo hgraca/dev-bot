@@ -2,7 +2,7 @@
 title: "Codebase Memory"
 description: "Fast structural code intelligence via a persistent tree-sitter knowledge graph — no Ollama, no API key."
 skills: ["codebase-index"]
-hooks: ["codebase-memory-index-project"]
+hooks: ["codebase-memory-commit-refresh"]
 tools: ["index-project", "mcp-index"]
 mcps:
   codebase-memory: "Structural code intelligence — call graph, architecture, impact"
@@ -23,12 +23,14 @@ Find code by structure and meaning — call graphs, architecture, impact — bac
 
 Instead of grepping for keywords or reading files one at a time, agents query the graph: trace callers of a function, map what a change touches, or get a whole-codebase architecture summary in a single structured call.
 
-**Cold start:** the module's `session.created` hook background-indexes the
-project's `src` or `app` folder (whichever exists at the project root) through
-the shared gateway over MCP, so structural tools work out of the box after a
-`devbot`-launched session. Without a src/app dir — or on a bare harness launch — run
-`index_repository <dir>` once when the structural tools first error
-(audit-51/52 NOTE).
+**Cold start:** `devbot up` primes the index — the module's `up.sh`
+background-indexes the project's `src` or `app` folder (whichever exists at the
+project root) through the shared gateway over MCP — so indexing is already under
+way when the harness starts (it runs detached, so give the graph a moment). An
+agent-run `git commit` re-primes it via a `command.after` hook — a commit from a
+terminal is not covered. Without a src/app dir, run
+`index_repository <dir>` once when
+the structural tools first error (audit-51/52 NOTE).
 
 ## Known limits
 

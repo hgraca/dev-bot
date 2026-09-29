@@ -168,6 +168,9 @@ print('MCP:OK')
   [ -x "${MODULE_DIR}/up.sh" ]
   run grep -q '18504/mcp' "${MODULE_DIR}/up.sh"
   assert_success
+  # ... then primes the index before the harness starts.
+  run grep -q 'index-project.sh' "${MODULE_DIR}/up.sh"
+  assert_success
 }
 
 # ── Repo-mount reconciliation (CODEBASE_MEMORY_ROOT drift) ────────────────────
@@ -189,7 +192,7 @@ _info() { true; }
 _ok()   { true; }
 _skip() { true; }
 _warn() { echo "WARN: $*" >&2; }
-_devbot_wait_for_mcp_gateway() { return 0; }
+_devbot_wait_for_mcp_gateway() { [[ "${GATEWAY_REACHABLE:-1}" == "1" ]]; }
 # The derived root is exercised by src/_shared/tests/codebase_memory_root_tests.bats;
 # here it only has to honour the explicit value the reconcile tests set.
 _devbot_codebase_memory_root() { printf '%s\n' "${CODEBASE_MEMORY_ROOT:-${HOME}}"; }
@@ -198,6 +201,19 @@ EOF
   touch "${SANDBOX}/docker-compose.yml"
   export DOCKER_ARGS_FILE="${SANDBOX}/docker.args"
   : > "${DOCKER_ARGS_FILE}"
+
+  # up.sh primes the index by calling the module's tools/index-project.sh (which
+  # carries every guard and launches the index detached). Stub it and record the
+  # project dir it was handed.
+  mkdir -p "${SANDBOX}/tools"
+  cat > "${SANDBOX}/tools/index-project.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "${1:-}" >> "${INDEX_CALLS_FILE}"
+exit 0
+EOF
+  chmod +x "${SANDBOX}/tools/index-project.sh"
+  export INDEX_CALLS_FILE="${SANDBOX}/index.calls"
+  : > "${INDEX_CALLS_FILE}"
 
   # Mock docker: `ps -aq` yields a container id; `inspect` yields the bind-mount
   # source the test asked for (MOCK_ACTUAL_MOUNT).
@@ -236,6 +252,39 @@ EOF
   assert_success
   run cat "${DOCKER_ARGS_FILE}"
   refute_output --partial 'force-recreate'
+}
+
+# ── Index priming on `devbot up` ──────────────────────────────────────────────
+# The index is primed here, before the harness starts, instead of from a
+# session.created hook — so it never races a gateway that is not up yet.
+
+@test "up.sh primes the codebase index with the project directory" {
+  _setup_up_sandbox
+  export MOCK_ACTUAL_MOUNT="/same/root"
+  export CODEBASE_MEMORY_ROOT="/same/root"
+  mkdir -p "${SANDBOX}/my-project"
+
+  run bash "${SANDBOX}/up.sh" "${SANDBOX}/my-project"
+
+  assert_success
+  run cat "${INDEX_CALLS_FILE}"
+  assert_output --partial "${SANDBOX}/my-project"
+}
+
+@test "up.sh primes even when the readiness wait reports unreachable" {
+  # Priming must not be gated on the curl-based readiness wait: index-project.sh
+  # probes the gateway itself (bash /dev/tcp) and is the real authority.
+  _setup_up_sandbox
+  export MOCK_ACTUAL_MOUNT="/same/root"
+  export CODEBASE_MEMORY_ROOT="/same/root"
+  export GATEWAY_REACHABLE=0
+  mkdir -p "${SANDBOX}/my-project"
+
+  run bash "${SANDBOX}/up.sh" "${SANDBOX}/my-project"
+
+  assert_success
+  run cat "${INDEX_CALLS_FILE}"
+  assert_output --partial "${SANDBOX}/my-project"
 }
 
 @test "no lifecycle script launches a per-instance stdio MCP process" {
@@ -352,12 +401,16 @@ STUB
   return 0
 }
 
-@test "index-project.sh: hooks.json declares the session.created index hook" {
+@test "index-project.sh: hooks.json declares the commit-triggered refresh hook" {
+  # Indexing moved off session.created: `devbot up` primes it before the harness,
+  # and a git commit re-primes it. The trigger is a command.after match on
+  # `git commit` — not a .git/hooks script.
   run python3 -c "
 import json
 d = json.load(open('${MODULE_DIR}/hooks.json'))
 h = d['hooks'][0]
-assert h['event'] == 'session.created', h
+assert h['event'] == 'command.after', h
+assert h['match']['command'] == r'git\s+commit', h
 assert 'index-project.sh' in h['run'][1], h
 print('HOOK:OK')
 "

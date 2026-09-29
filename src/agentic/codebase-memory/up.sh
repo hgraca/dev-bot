@@ -2,12 +2,12 @@
 # =============================================================================
 # src/agentic/codebase-memory/up.sh
 # Brings the shared codebase-memory MCP gateway (the docker compose service
-# declared in this module's docker-compose.yml) to the desired state, then waits
-# for it to accept MCP requests, so the harness that starts right after
-# `devbot up` finds it ready.
+# declared in this module's docker-compose.yml) to the desired state, waits for
+# it to accept MCP requests, then primes the project's codebase index — so the
+# harness that starts right after `devbot up` finds both ready.
 #
 # Runs on `devbot up` — after docker services are started. The project directory
-# is passed as $1 by bin/up.sh; falls back to cwd (unused here).
+# is passed as $1 by bin/up.sh; falls back to cwd.
 #
 # Non-fatal: if the gateway never comes up, warn and continue — the harness
 # starts with the codebase-memory MCP server unavailable rather than failing the
@@ -24,6 +24,9 @@ source "${MODULE_DIR}/functions.sh"
 CODEBASE_MEMORY_MCP_URL="${CODEBASE_MEMORY_MCP_URL:-http://127.0.0.1:18504/mcp}"
 CONTAINER_NAME="dev-bot-codebase-memory-mcp"
 SERVICE_NAME="codebase-memory-mcp"
+
+# Project directory, passed as $1 by bin/up.sh; falls back to cwd.
+PROJECT_DIR="$(cd "${1:-$(pwd)}" 2>/dev/null && pwd || true)"
 
 # ── Reconcile the repo mount against the desired root ──────────────────────────
 # Docker fixes a bind mount at container CREATION, and bin/up.sh runs compose
@@ -60,6 +63,17 @@ _reconcile_repo_mount() {
   fi
 }
 
+# ── Prime the project's codebase index ─────────────────────────────────────────
+# The engine indexes nothing on its own (auto_index=false), so the graph must be
+# primed before the harness starts. index-project.sh carries every guard (active
+# provider, gateway reachability, src|app resolution, mount scope) and launches
+# the index detached, so this returns at once and never fails the boot.
+_prime_index() {
+  local script="${MODULE_DIR}/tools/index-project.sh"
+  [[ -n "${PROJECT_DIR}" && -f "${script}" ]] || return 0
+  bash "${script}" "${PROJECT_DIR}" || true
+}
+
 main() {
   _info "codebase-memory — up"
 
@@ -69,6 +83,11 @@ main() {
   if _devbot_wait_for_mcp_gateway codebase-memory "${CODEBASE_MEMORY_MCP_URL}"; then
     _ok "codebase-memory gateway reachable at ${CODEBASE_MEMORY_MCP_URL}"
   fi
+
+  # Deliberately not gated on the wait above: that helper needs curl, whereas
+  # index-project.sh probes the gateway itself (bash /dev/tcp) and is the real
+  # authority on reachability.
+  _prime_index
 
   return 0
 }

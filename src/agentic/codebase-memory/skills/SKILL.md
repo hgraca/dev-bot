@@ -33,30 +33,29 @@ for searching, tracing, and analysing the graph.
 | Arbitrary relationship queries (read-only Cypher subset)     | `query_graph`                          |
 | Persist architecture decisions across sessions               | `manage_adr`                           |
 
-**Cold start (auto-primed since the src|app index hook):** at session start the
-codebase-memory module's `session.created` hook background-indexes the
-project's `src` or `app` folder (whichever exists at the root) through the
-shared gateway over MCP — see the module's docker-compose.yml STORE note — so
-structural tools usually work out of the box. If they still report
-"project not found or not indexed" (no src/app dir, or a bare `opencode`
-launch that bypassed `devbot` start.sh), run `index_status` then
-`index_repository <dir>` yourself. `auto_watch` keeps the index fresh
-afterwards.
+**Cold start:** `devbot up` primes the index before the harness starts — the
+module's `up.sh` background-indexes the project's `src` or `app` folder
+(whichever exists at the root) through the shared gateway over MCP (see the
+module's docker-compose.yml STORE note) — and an agent-run `git commit`
+re-primes it. Indexing runs detached, so re-query shortly after a session opens
+rather than relying on instant readiness. If the tools report "project not found
+or not indexed" (no src/app dir, or a bare `opencode` launch that bypassed
+`devbot`), run `index_status` then `index_repository <dir>` yourself.
 
 **"Path too broad" rejection (audit-55 FAIL):** `index_repository` refuses a
 path its broadness heuristic judges too big to index as one root — container
 mount roots (`/app`, `/workspace`) are routinely rejected even for small
 repos. When it errors, point `repo_path` at a source subdirectory (e.g. `src/`)
-instead of the project root; a subdirectory always works and the watcher keeps
-it fresh.
+instead of the project root; a subdirectory always works.
 
 ## MCP Tools
 
 ### `index_repository` — Build/refresh the index
 
 - Call after indexing a project for the first time, or to force a refresh.
-- The background watcher (`auto_watch`, default true) keeps it fresh via git-based
-  change detection afterwards — no manual reindex needed for normal edits.
+- The index is primed by `devbot up` and re-primed by an agent-run `git commit`,
+  so a manual reindex is rarely needed — but a terminal commit or a branch
+  switch can leave it stale; call this to force a refresh.
 - **Bundled embeddings**: no Ollama model pull, no `index_codebase`-style cost
   preview needed.
 
@@ -116,7 +115,7 @@ RETURN f.name` — anything outside the subset fails with a clear `unsupported`
 
 ## Workflow
 
-1. **Session start**: the engine auto-indexes on first connection (`auto_index`).
+1. **Session start**: `devbot up` has already primed the index (see Cold start).
    Check with `index_status`; force with `index_repository` when the index is
    stale (branch switch, merge, large pull).
 2. **Before queries**: `get_graph_schema` to know what labels/edges exist.
@@ -141,6 +140,6 @@ RETURN f.name` — anything outside the subset fails with a clear `unsupported`
   repo for teammates to reuse; that was only possible while a host-side indexer
   could write to the working tree. Indexing itself is unaffected.
 - Keep heavy generated dirs (`graphify-out/`, `node_modules/`, `no-vcs/`)
-  gitignored so the watcher and index stay lean.
+  gitignored so the index stays lean.
 - Nothing is required on the host: the server and its pinned engine run in the
   gateway image.

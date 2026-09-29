@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 # =============================================================================
 # src/agentic/codebase-memory/tools/index-project.sh
-# Session-start background index of the project for the codebase-memory engine.
+# Background index of the project for the codebase-memory engine.
 #
 # The codebase-memory engine indexes nothing until an explicit index_repository,
 # and its broadness heuristic rejects container mount roots (/app, /workspace)
 # as "too broad to index as one root" (audit-52/54/55/56 NOTE). Per the
-# operator decision, dev-bot primes the engine at session start against the
-# project's `src` or `app` folder — whichever exists at the project root — so
-# structural search works out of the box and never hits the too-broad guard.
+# operator decision, dev-bot primes the engine — from `devbot up` and from an
+# agent-run commit — against the project's `src` or `app` folder (whichever
+# exists at the project root), so structural search works out of the box and
+# never hits the too-broad guard.
 #
 # The index goes through the shared gateway over MCP, NOT a host binary: the
 # store lives on a Docker named volume, which only the gateway can write (see
 # the module's docker-compose.yml STORE note). mcp-index.py speaks the
 # streamable-http conversation.
 #
-# Invoked by the module's session.created hook (both harnesses). Fail-open and
-# silent like the graphify background updater: no codebase-memory provider, no
-# gateway, or no src/app dir means "nothing to do here" — exit 0 quietly.
+# Invoked by the module's up.sh (before the harness starts) and by its
+# command.after `git commit` hook. Fail-open and silent like the graphify
+# background updater: no codebase-memory provider, no gateway, or no src/app dir
+# means "nothing to do here" — exit 0 quietly.
 # Runs detached and logs to .agents/logs/codebase-memory-index.log.
 #
 # Usage: index-project.sh <project-path>
@@ -117,8 +119,7 @@ exec 200>"${LOCK_FILE}" 2>/dev/null || exit 0
 { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; } || exit 0
 
 # ── Launch the one-shot index in the background ───────────────────────────────
-# Re-indexing an already-indexed project is incremental (the gateway's watcher
-# keeps it fresh afterwards).
+# Re-indexing an already-indexed project is incremental.
 (
   {
     echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] index-project start root=${GATEWAY_INDEX_ROOT}"
