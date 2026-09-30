@@ -26,6 +26,14 @@ CATALOGUE = {
     "s3-prod": {"type": "s3", "env": {}},
 }
 
+# Two sidecars at once — the shape the real machine runs (observability wants
+# opensearch AND s3), where a per-line name list breaks a space-based match.
+TWO_SIDECARS = {
+    "hotels": {"type": "mysql", "env": {}},
+    "alpha": {"type": "opensearch", "env": {}},
+    "beta": {"type": "s3", "env": {}},
+}
+
 
 def run_cli(args, catalogue=CATALOGUE):
     proc = subprocess.run(
@@ -95,6 +103,12 @@ class TestCli(unittest.TestCase):
         code, out, _ = run_cli(["--names"])
         self.assertEqual(code, 0)
         self.assertEqual(out.strip(), "")
+
+    def test_names_are_space_joined_so_a_bash_membership_test_matches(self):
+        code, out, _ = run_cli(["--names", "alpha", "beta"], TWO_SIDECARS)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "alpha beta")
 
     def test_filter_prints_the_reduced_catalogue(self):
         code, out, _ = run_cli(["--filter", "opensearch-prod"])

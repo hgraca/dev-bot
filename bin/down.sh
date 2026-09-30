@@ -77,7 +77,7 @@ _down_guard() {
   fi
 
   local live
-  live="$(_devbot_live_session_count)"
+  live="$(_devbot_live_session_count --prune)"
   if [[ "${live}" -gt 0 ]]; then
     _warn "${live} devbot instance(s) still running — containers kept"
     _down_release_lock

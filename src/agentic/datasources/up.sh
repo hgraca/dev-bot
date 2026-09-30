@@ -87,42 +87,6 @@ _sidecar_services() {
     grep -vx 'mcp' || true
 }
 
-# The sidecar services currently RUNNING, read from docker rather than from the
-# rendered compose: a leftover started before a config change may no longer be a
-# compose service, and the reconcile must reclaim it too. The gateway's own
-# container is excluded — its name is not a datasource name.
-_running_sidecars() {
-  docker ps --filter 'name=dev-bot-datasources-' --format '{{.Names}}' 2>/dev/null |
-    sed 's/^dev-bot-datasources-//' | grep -vx 'mcp' || true
-}
-
-# The sidecars the live sessions demand, space-joined. A session's project is
-# the demand; a project with no live session does not hold a sidecar up.
-_wanted_sidecars() {
-  local catalogue
-  catalogue="$(python3 "${MODULE_DIR}/../../_shared/read_jsonc.py" \
-    "${DEV_BOT_ROOT}/.devbot.global.jsonc" datasources 2>/dev/null)" || true
-  [[ -n "${catalogue}" ]] || catalogue="{}"
-  # shellcheck disable=SC2086  # project paths are space-free; split on purpose
-  printf '%s' "${catalogue}" | python3 "${MODULE_DIR}/demand.py" \
-    --projects-names ${1:-} "${PROJECT_DIR}" 2>/dev/null || true
-}
-
-# Converge the RUNNING sidecars to the demand: stop one whose last consumer's
-# session has ended, so it does not idle for a project nobody has open.
-_reconcile_sidecars() {
-  local wanted="$1" svc
-  for svc in $(_running_sidecars); do
-    if ! printf ' %s ' "${wanted}" | grep -Fq " ${svc} "; then
-      if docker stop "dev-bot-datasources-${svc}" >/dev/null 2>&1; then
-        _ok "datasources — sidecar '${svc}' stopped (no live session wants it)"
-      else
-        _warn "datasources — could not stop sidecar '${svc}'"
-      fi
-    fi
-  done
-}
-
 main() {
   _info "datasources — up"
 
@@ -157,13 +121,34 @@ main() {
   # exactly when it matters. A failed render over a stale EMPTY catalogue would
   # otherwise start the zero-tool gateway this guard exists to prevent.
   # Which sidecars the live sessions actually demand: a sidecar is rendered from
-  # the static project set but STARTED only for a project someone has open.
+  # the static project set but STARTED only for a project someone has open. The
+  # project being booted counts too, in case it is not yet in the registry.
+  #
+  # The snapshot and the STOP run under the registry lock, which a session
+  # release also holds for its reconcile — so a stop it applies cannot land
+  # between this snapshot and its apply. The lock also serialises the registry
+  # read against a session registering. A catalogue read that FAILS leaves the
+  # running set untouched (never "stop everything"), and an unavailable lock
+  # only skips the stop — starting is the benign direction.
   local sidecars="" has_sources="false" wanted=""
-  wanted="$(_wanted_sidecars "$(_devbot_live_session_projects)")"
-
-  # Reclaim a leftover BEFORE the "nothing to serve" guard, so a sidecar whose
-  # consumer has gone is stopped even when the catalogue now offers nothing.
-  _reconcile_sidecars "${wanted}"
+  local registry_dir
+  registry_dir="$(_devbot_sessions_dir)"
+  if mkdir -p "${registry_dir}" 2>/dev/null &&
+    _devbot_lock_wait "${registry_dir}" 30 \
+      "session registry lock held — sidecars left as they are"; then
+    # shellcheck disable=SC2046  # project paths are space-free; split on purpose
+    if wanted="$(_wanted_sidecars $(_devbot_live_session_projects) "${PROJECT_DIR}")"; then
+      _reconcile_sidecars "${wanted}"
+    else
+      wanted=""
+      _warn "datasources — could not read the catalogue; leaving the running sidecars untouched"
+    fi
+    exec 200>&- 2>/dev/null || true
+  else
+    _warn "datasources — session registry lock unavailable; not reconciling sidecars"
+    # shellcheck disable=SC2046  # project paths are space-free; split on purpose
+    wanted="$(_wanted_sidecars $(_devbot_live_session_projects) "${PROJECT_DIR}")" || wanted=""
+  fi
 
   sidecars="$(_sidecar_services)"
   _catalogue_has_sources "${CONF_FILE}" && has_sources="true"
@@ -209,9 +194,12 @@ main() {
 
   # Sidecars: --build so a changed server or re-pinned package rebuilds here
   # rather than silently reusing a stale image, and a failure stays local to its
-  # own source. Only the DEMANDED ones run.
+  # own source. Only a RENDERED service that is also demanded runs: a live
+  # project absent from the configured project list can demand a sidecar the
+  # render gate never emitted, and `up --build` on that would fail every boot.
   local service
-  for service in ${wanted}; do
+  for service in ${sidecars}; do
+    printf ' %s ' "${wanted}" | grep -Fq " ${service} " || continue
     if (
       cd "${RUNTIME_DIR}" &&
         DEV_UID="${DEV_UID:-$(id -u)}" DEV_GID="${DEV_GID:-$(id -g)}" \

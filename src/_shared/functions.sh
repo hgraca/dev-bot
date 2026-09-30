@@ -264,35 +264,41 @@ _devbot_sessions_dir() {
   echo "${DEV_BOT_ROOT}/storage/run/sessions"
 }
 
-# _devbot_live_session_files — print the path of every LIVE session file, one
-#   per line, pruning any whose flock is acquirable (no live holder). One
-#   readdir pass, shared by the count and the project probes so they cannot
-#   disagree about which sessions are live.
+# _devbot_live_session_files [--prune] — print the path of every LIVE session
+#   file, one per line. A file whose flock is acquirable has no live holder and
+#   is not live; it is removed only with --prune, which only a caller holding the
+#   registry lock may pass. A lock-free caller must NOT prune: a registering
+#   session creates its file and flocks it in two steps, and a removal in that
+#   window unlinks the file the session just opened — losing that session from
+#   the registry for good. One readdir pass, shared by the count and the project
+#   probes so they cannot disagree about which sessions are live.
 _devbot_live_session_files() {
+  local prune=0
+  [[ "${1:-}" == "--prune" ]] && prune=1
+
   local dir f
   dir="$(_devbot_sessions_dir)"
   [[ -d "${dir}" ]] || return 0
 
   for f in "${dir}"/session-*; do
     [[ -e "${f}" ]] || continue
-    # A file we can lock has no live holder → stale → prune.
     if flock -n "${f}" -c true 2>/dev/null; then
-      rm -f "${f}" 2>/dev/null || true
-    else
-      printf '%s\n' "${f}"
+      [[ ${prune} -eq 1 ]] && rm -f "${f}" 2>/dev/null || true
+      continue
     fi
+    printf '%s\n' "${f}"
   done
 }
 
-# _devbot_live_session_count — print the number of live devbot sessions.
-#   Install-level (see the registry note above): every harness session on this
-#   machine counts, whichever project it serves. Prints 0 when the registry does
-#   not exist.
+# _devbot_live_session_count [--prune] — print the number of live devbot
+#   sessions. Install-level (see the registry note above): every harness session
+#   on this machine counts, whichever project it serves. Prints 0 when the
+#   registry does not exist. --prune forwards to _devbot_live_session_files.
 _devbot_live_session_count() {
   local live=0 _
   while IFS= read -r _; do
     live=$((live + 1))
-  done < <(_devbot_live_session_files)
+  done < <(_devbot_live_session_files "${1:-}")
   echo "${live}"
 }
 
@@ -378,10 +384,18 @@ _devbot_session_release() {
   # probe and the removal must not be split across the lock release: that gap
   # is exactly what let a starting session lose its containers.
   local live
-  live="$(_devbot_live_session_count)"
+  live="$(_devbot_live_session_count --prune)"
 
   if [[ ${live} -eq 0 ]]; then
+    # No session left: the teardown removes every container, sidecars included.
     _devbot_session_teardown
+  else
+    # Sessions remain: converge module services to what THEY want, so a sidecar
+    # whose last consumer just left is stopped now rather than at the next boot.
+    # The registry lock is already held (hence _DEVBOT_REGISTRY_LOCK_HELD) — a
+    # module that took it again would deadlock. Quiet on purpose: a release must
+    # not spray headers over the harness's exit.
+    _DEVBOT_REGISTRY_LOCK_HELD=1 _run_service_scripts "reconcile.sh" >/dev/null 2>&1 || true
   fi
 
   exec 200>&- 2>/dev/null || true  # release the registry lock

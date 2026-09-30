@@ -131,17 +131,19 @@ _live_session() {
   sleep 0.3
 }
 
-# A docker stub that records calls AND reports a running sidecar on `ps`.
-_docker_reporting_running_sidecar() {
-  local name="$1"
+# A docker stub that records calls AND reports the given running sidecars on
+# `ps` (none when called with no names).
+_docker_reporting_running_sidecars() {
   DOCKER_LOG="${SANDBOX_DIR}/docker-calls.log"
+  local names="" name
+  for name in "$@"; do names+="dev-bot-datasources-${name} "; done
   mkdir -p "${SANDBOX_DIR}/runbin"
   cat > "${SANDBOX_DIR}/runbin/docker" <<SH
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "${DOCKER_LOG}"
 case "\$1" in
   inspect) echo false ;;
-  ps) echo dev-bot-datasources-${name} ;;
+  ps) printf '%s\n' ${names} ;;
 esac
 exit 0
 SH
@@ -607,6 +609,19 @@ JSON
   [ ! -e "${PROJECT_DIR}/.opencode/datasources-search.mcp.json" ]
 }
 
+@test "init: an undemanded sidecar does not shift the demanded one's port" {
+  # `alpha` sorts before `search`, so an unfiltered port map would give search
+  # 18521 — a URL that does not match the compose, which renders only search.
+  _catalogue '{"alpha": {"type": "opensearch", "env": {}}, "search": {"type": "opensearch", "env": {}}}'
+  _project_config '["search"]'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${PROJECT_DIR}/.opencode/datasources-search.mcp.json"
+  assert_output --partial '"url": "http://127.0.0.1:18520/mcp"'
+}
+
 # ── down.sh ──────────────────────────────────────────────────────────────────
 
 @test "down: no generated compose file is a clean no-op" {
@@ -745,11 +760,65 @@ PY
   # open: the reconcile stops it.
   _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
   _project_config '[]'
-  _docker_reporting_running_sidecar search
+  _docker_reporting_running_sidecars search
 
   run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh" "${PROJECT_DIR}"
   assert_success
   grep -q "stop dev-bot-datasources-search" "${DOCKER_LOG}"
+}
+
+@test "up: two demanded sidecars are both started and neither is stopped" {
+  # The real shape (observability wants opensearch AND s3). A separator mismatch
+  # between the demand producer and the membership test would stop both.
+  local other
+  other="$(mktemp -d)"
+  printf '{"datasources": ["alpha", "beta"]}\n' >"${other}/.devbot.project.jsonc"
+  _catalogue_projects \
+    '{ "alpha": { "type": "opensearch", "env": {} }, "beta": { "type": "s3", "env": {} } }' \
+    "[\"${other}\"]"
+  _project_config '[]'
+  _live_session "${other}"
+  _docker_reporting_running_sidecars alpha beta
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh" "${PROJECT_DIR}"
+  assert_success
+  grep -q "up -d --build alpha" "${DOCKER_LOG}"
+  grep -q "up -d --build beta" "${DOCKER_LOG}"
+  refute grep -q "stop dev-bot-datasources-alpha" "${DOCKER_LOG}"
+  refute grep -q "stop dev-bot-datasources-beta" "${DOCKER_LOG}"
+
+  rm -rf "${other}"
+}
+
+@test "up: an unreadable catalogue stops no sidecar" {
+  # A failed read must NOT read as "no demand": that would stop every sidecar a
+  # live session is using.
+  printf '{ this is not json\n' >"${SANDBOX_DIR}/.devbot.global.jsonc"
+  _project_config '[]'
+  _docker_reporting_running_sidecars search
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh" "${PROJECT_DIR}"
+  assert_success
+  refute grep -q "stop dev-bot-datasources-search" "${DOCKER_LOG}"
+  assert_output --partial "leaving the running sidecars untouched"
+}
+
+@test "up: a sidecar the render gate refused is not started" {
+  # A live project absent from the configured project list demands a sidecar
+  # that was never rendered, and `up --build` on it would fail on every boot.
+  local other
+  other="$(mktemp -d)"
+  printf '{"datasources": ["search"]}\n' >"${other}/.devbot.project.jsonc"
+  _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
+  _project_config '[]'
+  _live_session "${other}"
+  _record_docker
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh" "${PROJECT_DIR}"
+  assert_success
+  refute grep -q "up -d --build search" "${DOCKER_LOG}"
+
+  rm -rf "${other}"
 }
 
 @test "up: reaps a poller left behind by an older dev-bot" {

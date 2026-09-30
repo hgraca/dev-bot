@@ -120,9 +120,11 @@ def static_optin_names(global_config: str, project_dir=None) -> list:
 
 
 def _emit(mode: str, catalogue: dict, names: list) -> None:
+    # Space-joined, one line: the bash callers membership-test a name with
+    # `grep -F " ${name} "`, so a per-line list would never match more than the
+    # first name.
     if mode.endswith("names"):
-        for name in sorted(demanded_sidecars(catalogue, [names])):
-            print(name)
+        print(" ".join(sorted(demanded_sidecars(catalogue, [names]))))
     else:
         print(json.dumps(filter_demanded_sidecars(catalogue, [names])))
 

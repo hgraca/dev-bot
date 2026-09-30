@@ -29,6 +29,7 @@ setup() {
   export DEV_BOT_ROOT="$(mktemp -d)"
   SESSIONS_DIR="${DEV_BOT_ROOT}/storage/run/sessions"
   DOWN_MARKER="${DEV_BOT_ROOT}/down-called"
+  RECONCILE_MARKER="${DEV_BOT_ROOT}/reconcile-called"
 
   # Stub bin/down.sh — the real one runs docker compose down.
   mkdir -p "${DEV_BOT_ROOT}/bin"
@@ -154,13 +155,17 @@ teardown() {
   kill "${holder}" 2>/dev/null || true
 }
 
-@test "live_session_projects prunes a stale session file" {
+@test "live_session_projects ignores a stale file but does not prune it" {
+  # A lock-free probe must not prune: a removal in the window between a
+  # registering session's open and its flock would unlink the file that session
+  # just opened, losing it from the registry for good. Only a lock-holding
+  # caller (release, down.sh) prunes.
   mkdir -p "${SESSIONS_DIR}"
   printf '%s\n' "/proj/ghost" >"${SESSIONS_DIR}/session-33333"
 
   run _devbot_live_session_projects
   assert_output ""
-  [ ! -e "${SESSIONS_DIR}/session-33333" ]
+  [ -e "${SESSIONS_DIR}/session-33333" ]
 }
 
 # ── Release: last session tears down ─────────────────────────────────────────
@@ -191,6 +196,48 @@ teardown() {
   [ ! -f "${DOWN_MARKER}" ]
 
   kill "${holder}" 2>/dev/null || true
+}
+
+@test "release reconciles module services while another session is still live" {
+  # A sidecar whose last consumer left must be stopped now, not at the next
+  # boot — so a module's reconcile.sh runs on release, inside the registry lock.
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/fakemod"
+  cat >"${DEV_BOT_ROOT}/src/agentic/fakemod/reconcile.sh" <<EOF
+#!/usr/bin/env bash
+echo "reconciled lock-held=\${_DEVBOT_REGISTRY_LOCK_HELD:-0}" >> "${RECONCILE_MARKER}"
+EOF
+  chmod +x "${DEV_BOT_ROOT}/src/agentic/fakemod/reconcile.sh"
+
+  _devbot_session_register
+  mkdir -p "${SESSIONS_DIR}"
+  ( exec 215>"${SESSIONS_DIR}/session-99999"; flock -x 215; sleep 3 ) &
+  local holder=$!
+  sleep 0.3
+
+  _devbot_session_release
+
+  run cat "${RECONCILE_MARKER}"
+  assert_success
+  assert_output --partial "lock-held=1"
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "release skips the reconcile when it was the last session" {
+  # With no session left the teardown removes everything, sidecars included, so
+  # reconciling first would be wasted work.
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/fakemod"
+  cat >"${DEV_BOT_ROOT}/src/agentic/fakemod/reconcile.sh" <<EOF
+#!/usr/bin/env bash
+echo reconciled >> "${RECONCILE_MARKER}"
+EOF
+  chmod +x "${DEV_BOT_ROOT}/src/agentic/fakemod/reconcile.sh"
+
+  _devbot_session_register
+  _devbot_session_release
+
+  [ -f "${DOWN_MARKER}" ]
+  [ ! -f "${RECONCILE_MARKER}" ]
 }
 
 @test "release prunes a stale session file (holder gone) and does not count it" {
