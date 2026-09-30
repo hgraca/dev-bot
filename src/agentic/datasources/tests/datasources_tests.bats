@@ -121,6 +121,34 @@ SH
   export PATH="${SANDBOX_DIR}/recbin:${PATH}"
 }
 
+# Pretend a live devbot session is serving <project_dir>: a session file whose
+# flock a background holder keeps for the duration of the test.
+_live_session() {
+  local sessions="${DEV_BOT_ROOT}/storage/run/sessions"
+  mkdir -p "${sessions}"
+  printf '%s\n' "$1" >"${sessions}/session-4242"
+  ( exec 218<>"${sessions}/session-4242"; flock -x 218; sleep 5 ) &
+  sleep 0.3
+}
+
+# A docker stub that records calls AND reports a running sidecar on `ps`.
+_docker_reporting_running_sidecar() {
+  local name="$1"
+  DOCKER_LOG="${SANDBOX_DIR}/docker-calls.log"
+  mkdir -p "${SANDBOX_DIR}/runbin"
+  cat > "${SANDBOX_DIR}/runbin/docker" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${DOCKER_LOG}"
+case "\$1" in
+  inspect) echo false ;;
+  ps) echo dev-bot-datasources-${name} ;;
+esac
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/runbin/docker"
+  export PATH="${SANDBOX_DIR}/runbin:${PATH}"
+}
+
 # ── render.sh ────────────────────────────────────────────────────────────────
 
 @test "render: a usable datasource becomes a source, a tool and a toolset" {
@@ -674,6 +702,54 @@ PY
   grep -q "up -d --build search" "${DOCKER_LOG}"
   # The gateway was not brought up — render.sh's readiness `inspect` is not a start.
   refute grep -qE 'up -d.*datasources-mcp' "${DOCKER_LOG}"
+}
+
+@test "up: starts a sidecar when a live session demands it" {
+  # `other` is a known project that opts into the sidecar, and a live session is
+  # serving it — so the sidecar runs even though the project being booted wants
+  # nothing.
+  local other
+  other="$(mktemp -d)"
+  printf '{"datasources": ["search"]}\n' >"${other}/.devbot.project.jsonc"
+  _catalogue_projects '{ "search": { "type": "opensearch", "env": {} } }' "[\"${other}\"]"
+  _project_config '[]'
+  _live_session "${other}"
+  _record_docker
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh" "${PROJECT_DIR}"
+  assert_success
+  grep -q "up -d --build search" "${DOCKER_LOG}"
+
+  rm -rf "${other}"
+}
+
+@test "up: does not start a sidecar no live session demands" {
+  # The sidecar is rendered (a known project opts into it) but no session is
+  # serving that project, so starting it would be pure cost.
+  local other
+  other="$(mktemp -d)"
+  printf '{"datasources": ["search"]}\n' >"${other}/.devbot.project.jsonc"
+  _catalogue_projects '{ "search": { "type": "opensearch", "env": {} } }' "[\"${other}\"]"
+  _project_config '[]'
+  _record_docker
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh" "${PROJECT_DIR}"
+  assert_success
+  refute grep -q "up -d --build search" "${DOCKER_LOG}"
+
+  rm -rf "${other}"
+}
+
+@test "up: stops a running sidecar no live session demands" {
+  # A leftover from an earlier session must not idle for a project nobody has
+  # open: the reconcile stops it.
+  _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
+  _project_config '[]'
+  _docker_reporting_running_sidecar search
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh" "${PROJECT_DIR}"
+  assert_success
+  grep -q "stop dev-bot-datasources-search" "${DOCKER_LOG}"
 }
 
 @test "up: reaps a poller left behind by an older dev-bot" {

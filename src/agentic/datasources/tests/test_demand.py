@@ -192,5 +192,27 @@ class TestStaticCli(unittest.TestCase):
         self.assertEqual(set(json.loads(out)), {"hotels", "s3-prod"})
 
 
+class TestProjectsNamesCli(unittest.TestCase):
+    def test_names_the_sidecars_the_given_projects_demand(self):
+        with tempfile.TemporaryDirectory() as d:
+            project = os.path.join(d, "p")
+            os.makedirs(project)
+            _write(
+                os.path.join(project, ".devbot.project.jsonc"),
+                '{"datasources": ["s3-prod"]}\n',
+            )
+
+            code, out, _ = run_cli(["--projects-names", project])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(out.split(), ["s3-prod"])
+
+    def test_no_projects_demand_nothing(self):
+        code, out, _ = run_cli(["--projects-names"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(out.strip(), "")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -19,8 +19,8 @@
 #     demand.py --names  [name...]        < catalogue.json  # wanted sidecars
 #     demand.py --filter [name...]        < catalogue.json  # catalogue, minus
 #                                                           # the unwanted sidecars
-#     demand.py --static-names  <global-config> [project-dir] < catalogue.json
 #     demand.py --static-filter <global-config> [project-dir] < catalogue.json
+#     demand.py --projects-names <project-dir>... < catalogue.json
 # =============================================================================
 
 import json
@@ -138,11 +138,19 @@ def main():
         _emit(mode, load_catalogue(sys.stdin.read()), args[1:])
         return
 
-    if mode in ("--static-names", "--static-filter"):
+    if mode == "--static-filter":
         if len(args) < 2:
-            _fail(f"{mode} needs the global config path")
+            _fail("--static-filter needs the global config path")
         catalogue = load_catalogue(sys.stdin.read())
         names = static_optin_names(args[1], args[2] if len(args) > 2 else None)
+        print(json.dumps(filter_demanded_sidecars(catalogue, [names])))
+        return
+
+    if mode == "--projects-names":
+        catalogue = load_catalogue(sys.stdin.read())
+        names = []
+        for project_dir in args[1:]:
+            names.extend(project_optins(project_dir))
         _emit(mode, catalogue, names)
         return
 
