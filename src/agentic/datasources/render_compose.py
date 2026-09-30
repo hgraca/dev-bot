@@ -46,6 +46,13 @@ DEFAULT_GATEWAY_PORT = 18510
 SIDECAR_PORT_OFFSET = 10
 SIDECAR_PORT_LIMIT = 18599
 
+# The sidecar package cache. `uvx` resolves the server's dependencies at every
+# container start, so a shared host directory turns a restart into a warm start
+# instead of a re-download (69 packages for opensearch). uv's cache is
+# content-addressed, so one directory safely serves every sidecar.
+UV_CACHE_DIR = "/var/cache/uv"
+UV_CACHE_HOST_DIR = "uv-cache"
+
 ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
@@ -161,6 +168,11 @@ def render_sidecar_service(name: str, spec: dict, port: int, versions: dict) -> 
         # streamable-http listener has no inbound auth, and host networking
         # reaches the host's loopback without exposing a port mapping.
         "    network_mode: host",
+        "    volumes:",
+        # One host directory shared by every sidecar (see UV_CACHE_DIR).
+        # render.sh creates it as the host user; the container writes it as
+        # root, which is fine for a cache — the directory is disposable.
+        f"      - ${{DEV_BOT_ROOT}}/storage/datasources/{UV_CACHE_HOST_DIR}:{UV_CACHE_DIR}",
     ]
 
     declared = spec.get("env", {})
@@ -169,9 +181,10 @@ def render_sidecar_service(name: str, spec: dict, port: int, versions: dict) -> 
         for var in entry["env"]
         if var in declared
     ]
-    if env_lines:
-        lines.append("    environment:")
-        lines.extend(env_lines)
+    # Always present, even when the sidecar declares no env of its own.
+    env_lines.append(f"      UV_CACHE_DIR: {UV_CACHE_DIR}")
+    lines.append("    environment:")
+    lines.extend(env_lines)
 
     lines.append("    command:")
     lines.extend(f"      - {json.dumps(arg)}" for arg in command)

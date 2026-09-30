@@ -137,6 +137,10 @@ main() {
   # template mounts this at /data. Created as the host user, which is also the
   # uid/gid the container runs as, so it can write there.
   mkdir -p "${RUNTIME_DIR}/data"
+  # The shared sidecar package cache (mount point in render_compose.py).
+  # Created here so docker does not create it root-owned; the sidecar writes it
+  # as root, which is fine for a disposable cache.
+  mkdir -p "${RUNTIME_DIR}/uv-cache"
 
   # read_jsonc.py prints nothing when the key is absent — a machine with no
   # datasources declared. The renderers treat that as an empty catalogue.

@@ -157,6 +157,17 @@ class TestRenderCompose(unittest.TestCase):
         # The toolbox gateway is still rendered alongside it.
         self.assertIn("datasources-mcp:", out)
 
+    def test_a_sidecar_mounts_the_shared_uv_cache(self):
+        # `uvx` resolves the server's dependencies at every container start;
+        # one shared host cache makes a restart warm instead of a re-download.
+        code, out, err = render({"search": {"type": "opensearch", "env": {}}})
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("      UV_CACHE_DIR: /var/cache/uv", out)
+        self.assertIn(
+            "      - ${DEV_BOT_ROOT}/storage/datasources/uv-cache:/var/cache/uv", out
+        )
+
     def test_the_s3_sidecar_is_built_from_its_module_directory(self):
         code, out, err = render(
             {"bucket": {"type": "s3", "env": {"AWS_REGION": "eu-central-1"}}}
