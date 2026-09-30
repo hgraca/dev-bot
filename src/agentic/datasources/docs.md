@@ -42,6 +42,14 @@ A project then selects which declared sources it wants in `.devbot.project.jsonc
 
 Sidecar credentials are environment variables too — nothing mounts `~/.aws` into a sidecar, so an AWS-facing one takes the standard credential variables rather than a profile. The [AWS module](/modules/agentic/aws#setting-up-the-identity) documents the read-only IAM policy and the steps that produce the key pair.
 
+## Lifecycle
+
+A sidecar is **demand-gated**, not merely module-gated. It is rendered into the gateway's compose file only when a project listed in `.devbot.global.jsonc::projects` — or the project being wired — opts into it, and it **runs** only while a live `devbot` session serves such a project. The toolbox gateway is unaffected: it keeps its own availability filter, because one unreachable database would otherwise take it down (see [What it does](#what-it-does)).
+
+Two things follow. A sidecar whose last consumer's session exits is stopped — by `reconcile.sh`, which the session registry runs on every non-final session exit (the last exit tears the whole gateway down) — so a project that wants nothing does not pay for another project's sidecar. And a sidecar's port is allocated from the same demand-filtered catalogue the compose is rendered from, so a manifest URL and its service listener cannot drift. The render side is deliberately session-independent (`.devbot.global.jsonc::projects` plus the project being wired), because ports are allocated at reinit, before a session exists.
+
+Sidecars run on the `uv` image and resolve their server's dependencies at container start, so a shared cache under `storage/datasources/uv-cache` (mounted at `/var/cache/uv`) keeps a restart warm.
+
 ## See also
 
 - [MCP configuration](/mcp-config) — the manifest schema and the shared gateways
