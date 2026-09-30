@@ -16,6 +16,11 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
 export DEV_BOT_ROOT
 
+# The project this boot serves, passed by bin/up.sh. It decides which sidecars
+# are demanded, both at render time (render.sh) and at start time (the demand
+# reconcile below).
+PROJECT_DIR="${1:-}"
+
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
@@ -102,7 +107,7 @@ main() {
   # (an unreadable catalogue, docker down, or an inconclusive run). Keep going
   # with the config already on disk: a gateway up on the last good config beats
   # no gateway at all, and the next `devbot up` re-renders.
-  if ! bash "${MODULE_DIR}/render.sh"; then
+  if ! bash "${MODULE_DIR}/render.sh" "${PROJECT_DIR}"; then
     _warn "datasources — render failed; starting the gateway with the previous config."
   fi
 

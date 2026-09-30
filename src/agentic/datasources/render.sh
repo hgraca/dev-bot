@@ -17,6 +17,14 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
 export DEV_BOT_ROOT
 
+# The project this render serves, passed by up.sh. Absent at install time
+# (nothing is being served yet), when the demand universe falls back to the
+# configured project list alone.
+PROJECT_DIR=""
+if [[ -n "${1:-}" ]]; then
+  PROJECT_DIR="$(cd "$1" 2>/dev/null && pwd || printf '%s' "$1")"
+fi
+
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
@@ -146,7 +154,18 @@ main() {
   fi
   [[ -z "${catalogue}" || "${catalogue}" == "null" ]] && catalogue="{}"
 
-  printf '%s' "${catalogue}" |
+  # A sidecar is rendered only when a project demands it, so the compose never
+  # carries a container nobody uses. The tools.yaml pipeline below keeps the
+  # FULL catalogue: toolbox sources have their own availability filter, and
+  # sidecars are skipped there anyway.
+  local sidecar_catalogue
+  if ! sidecar_catalogue="$(printf '%s' "${catalogue}" |
+    python3 "${MODULE_DIR}/demand.py" --static-filter "${GLOBAL_CONFIG}" "${PROJECT_DIR}")"; then
+    _error "datasources — could not resolve the demanded sidecars; keeping the last good config"
+    return 1
+  fi
+
+  printf '%s' "${sidecar_catalogue}" |
     python3 "${MODULE_DIR}/render_compose.py" "${MODULE_DIR}/compose.tpl.yml" \
       > "${RUNTIME_DIR}/docker-compose.yml.tmp"
 

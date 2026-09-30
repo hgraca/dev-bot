@@ -7,8 +7,10 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 MODULE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -33,6 +35,11 @@ def run_cli(args, catalogue=CATALOGUE):
         text=True,
     )
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def _write(path, body):
+    with open(path, "w") as handle:
+        handle.write(body)
 
 
 class TestDemandedSidecars(unittest.TestCase):
@@ -98,6 +105,91 @@ class TestCli(unittest.TestCase):
         code, _, err = run_cli(["--bogus"])
         self.assertEqual(code, 1)
         self.assertIn("ERROR:", err)
+
+
+class TestProjectOptins(unittest.TestCase):
+    def test_reads_the_opt_in_list(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(
+                os.path.join(d, ".devbot.project.jsonc"),
+                '{"datasources": ["opensearch-prod", "s3-prod"]}\n',
+            )
+            self.assertEqual(demand.project_optins(d), ["opensearch-prod", "s3-prod"])
+
+    def test_a_missing_project_dir_opts_into_nothing(self):
+        self.assertEqual(demand.project_optins("/no/such/dir"), [])
+
+    def test_a_non_list_value_opts_into_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            _write(os.path.join(d, ".devbot.project.jsonc"), '{"datasources": "oops"}\n')
+            self.assertEqual(demand.project_optins(d), [])
+
+
+class TestStaticOptinNames(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.listed = os.path.join(self.root, "listed")
+        self.current = os.path.join(self.root, "current")
+        os.makedirs(self.listed)
+        os.makedirs(self.current)
+        self.global_config = os.path.join(self.root, ".devbot.global.jsonc")
+
+    def test_a_listed_project_demands_its_datasources(self):
+        _write(
+            os.path.join(self.listed, ".devbot.project.jsonc"),
+            '{"datasources": ["search"]}\n',
+        )
+        _write(self.global_config, json.dumps({"projects": [self.listed]}))
+
+        self.assertEqual(demand.static_optin_names(self.global_config), ["search"])
+
+    def test_the_explicit_project_is_added(self):
+        _write(
+            os.path.join(self.current, ".devbot.project.jsonc"),
+            '{"datasources": ["s3-prod"]}\n',
+        )
+        _write(self.global_config, json.dumps({"projects": []}))
+
+        self.assertEqual(
+            demand.static_optin_names(self.global_config, self.current), ["s3-prod"]
+        )
+
+    def test_a_listed_path_that_does_not_exist_is_skipped(self):
+        _write(self.global_config, json.dumps({"projects": ["/no/such/dir"]}))
+
+        self.assertEqual(demand.static_optin_names(self.global_config), [])
+
+    def test_a_missing_global_config_still_reads_the_explicit_project(self):
+        _write(
+            os.path.join(self.current, ".devbot.project.jsonc"),
+            '{"datasources": ["s3-prod"]}\n',
+        )
+
+        self.assertEqual(
+            demand.static_optin_names(
+                os.path.join(self.root, "absent.jsonc"), self.current
+            ),
+            ["s3-prod"],
+        )
+
+
+class TestStaticCli(unittest.TestCase):
+    def test_static_filter_drops_a_sidecar_nobody_lists(self):
+        with tempfile.TemporaryDirectory() as d:
+            listed = os.path.join(d, "listed")
+            os.makedirs(listed)
+            _write(
+                os.path.join(listed, ".devbot.project.jsonc"),
+                '{"datasources": ["s3-prod"]}\n',
+            )
+            config = os.path.join(d, ".devbot.global.jsonc")
+            _write(config, json.dumps({"projects": [listed]}))
+
+            code, out, _ = run_cli(["--static-filter", config])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(set(json.loads(out)), {"hotels", "s3-prod"})
 
 
 if __name__ == "__main__":

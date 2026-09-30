@@ -90,12 +90,15 @@ _datasources_harness_disabled() {
 }
 
 # The sidecar name -> port map, straight from the renderer that allocates the
-# ports. An unreadable catalogue degrades to "no sidecars" rather than aborting
-# init — the toolbox path then applies exactly as before.
+# ports. The catalogue is filtered by the SAME static demand rule render.sh
+# applies, so a manifest URL and the service's listener cannot drift. An
+# unreadable catalogue degrades to "no sidecars" rather than aborting init — the
+# toolbox path then applies exactly as before.
 _datasources_sidecar_ports() {
   [[ -f "${GLOBAL_CONFIG}" ]] || { echo "{}"; return 0; }
   local ports=""
   ports="$(python3 "${READER}" "${GLOBAL_CONFIG}" datasources 2>/dev/null |
+    python3 "${MODULE_DIR}/demand.py" --static-filter "${GLOBAL_CONFIG}" "${PROJECT_DIR}" 2>/dev/null |
     python3 "${MODULE_DIR}/render_compose.py" --sidecar-ports 2>/dev/null)" || true
   # An explicit branch, not ${ports:-{}} — the closing brace of the expansion
   # would be read as a literal, appending a stray '}' to valid JSON.

@@ -86,6 +86,13 @@ _catalogue() {
   printf '{"datasources": %s}\n' "$1" > "${SANDBOX_DIR}/.devbot.global.jsonc"
 }
 
+# The global catalogue plus the machine's known-project list. A project listed
+# here demands its sidecars even when the project being rendered does not.
+_catalogue_projects() {
+  printf '{"datasources": %s, "projects": %s}\n' "$1" "$2" \
+    > "${SANDBOX_DIR}/.devbot.global.jsonc"
+}
+
 _project_config() {
   local datasources="$1" modules="${2:-}"
   [[ -z "${modules}" ]] && modules='{}'
@@ -398,6 +405,49 @@ SH
   assert_output "${before}"
 }
 
+@test "render: a sidecar no project wants is left out of the compose" {
+  # A sidecar is a heavyweight container of its own, so it is rendered only when
+  # some project opts into it — a catalogue entry nobody wants must not appear.
+  _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
+  _project_config '[]'
+
+  run bash "${MODULE_DIR}/render.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${RUNTIME_DIR}/docker-compose.yml"
+  refute_output --partial "container_name: dev-bot-datasources-search"
+}
+
+@test "render: a sidecar the current project wants is rendered" {
+  _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
+  _project_config '["search"]'
+
+  run bash "${MODULE_DIR}/render.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${RUNTIME_DIR}/docker-compose.yml"
+  assert_output --partial "container_name: dev-bot-datasources-search"
+}
+
+@test "render: a sidecar a listed project wants is rendered" {
+  # The render-side universe is session-independent, so a project listed in
+  # .devbot.global.jsonc::projects demands its sidecars even when the project
+  # being rendered opts into nothing.
+  local other
+  other="$(mktemp -d)"
+  printf '{"datasources": ["search"]}\n' >"${other}/.devbot.project.jsonc"
+  _catalogue_projects '{ "search": { "type": "opensearch", "env": {} } }' "[\"${other}\"]"
+  _project_config '[]'
+
+  run bash "${MODULE_DIR}/render.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${RUNTIME_DIR}/docker-compose.yml"
+  assert_output --partial "container_name: dev-bot-datasources-search"
+
+  rm -rf "${other}"
+}
+
 # ── init.sh ──────────────────────────────────────────────────────────────────
 
 @test "init: a selected datasource gets a harness manifest" {
@@ -612,12 +662,13 @@ PY
 
 @test "up: a sidecar-only catalogue starts the sidecar, not the gateway" {
   # A sidecar has no toolbox source, so the gateway has nothing to serve — but
-  # the sidecar's own service must still be started.
+  # the sidecar's own service must still be started. The project dir is what
+  # demands it, so up.sh must be told which project it is serving.
   _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
   _project_config '["search"]'
   _record_docker
 
-  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh" "${PROJECT_DIR}"
   assert_success
 
   grep -q "up -d --build search" "${DOCKER_LOG}"
