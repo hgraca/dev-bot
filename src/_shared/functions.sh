@@ -241,11 +241,13 @@ _devbot_lock_wait() {
 # model pulls): the probe opens each file fresh, and a session unlinks its own
 # file on release, so an inherited fd on the old inode cannot keep it "live".
 #
-# _devbot_session_register — record this session. Call BEFORE up.sh. Publishes
-#   the session file while holding the registry lock, so it can never land
-#   inside a teardown's probe+removal window: either the teardown sees it and
-#   aborts, or the teardown finished and this session's containers start after
-#   it. Holds fd 210 until release (or process exit).
+# _devbot_session_register [project_dir] — record this session. Call BEFORE
+#   up.sh. Publishes the session file while holding the registry lock, so it can
+#   never land inside a teardown's probe+removal window: either the teardown sees
+#   it and aborts, or the teardown finished and this session's containers start
+#   after it. Records the project this session serves (default: the cwd) so a
+#   datasource sidecar's demand can be derived from the live set. Holds fd 210
+#   until release (or process exit).
 #
 # _devbot_session_release — release this session; if it was the last, tear the
 #   containers down. The probe AND the teardown both run INSIDE the registry
@@ -262,30 +264,62 @@ _devbot_sessions_dir() {
   echo "${DEV_BOT_ROOT}/storage/run/sessions"
 }
 
-# _devbot_live_session_count — print the number of live devbot sessions.
-#   Install-level (see the registry note above): every harness session on this
-#   machine counts, whichever project it serves. A session file whose flock is
-#   acquirable has no live holder → stale → pruned, and not counted. Prints 0
-#   when the registry does not exist.
-_devbot_live_session_count() {
-  local dir
+# _devbot_live_session_files — print the path of every LIVE session file, one
+#   per line, pruning any whose flock is acquirable (no live holder). One
+#   readdir pass, shared by the count and the project probes so they cannot
+#   disagree about which sessions are live.
+_devbot_live_session_files() {
+  local dir f
   dir="$(_devbot_sessions_dir)"
-  [[ -d "${dir}" ]] || { echo 0; return 0; }
+  [[ -d "${dir}" ]] || return 0
 
-  local live=0 f
   for f in "${dir}"/session-*; do
     [[ -e "${f}" ]] || continue
     # A file we can lock has no live holder → stale → prune.
     if flock -n "${f}" -c true 2>/dev/null; then
       rm -f "${f}" 2>/dev/null || true
     else
-      live=$((live + 1))
+      printf '%s\n' "${f}"
     fi
   done
+}
+
+# _devbot_live_session_count — print the number of live devbot sessions.
+#   Install-level (see the registry note above): every harness session on this
+#   machine counts, whichever project it serves. Prints 0 when the registry does
+#   not exist.
+_devbot_live_session_count() {
+  local live=0 _
+  while IFS= read -r _; do
+    live=$((live + 1))
+  done < <(_devbot_live_session_files)
   echo "${live}"
 }
 
+# _devbot_live_session_projects — print the project dir of every live session,
+#   deduplicated. A legacy session file written before project recording is
+#   empty and contributes nothing; its session still counts as live.
+_devbot_live_session_projects() {
+  local f project
+  while IFS= read -r f; do
+    project="$(cat "${f}" 2>/dev/null || true)"
+    [[ -n "${project}" ]] || continue
+    printf '%s\n' "${project}"
+  done < <(_devbot_live_session_files) | awk '!seen[$0]++'
+}
+
 _devbot_session_register() {
+  # The project this session serves, recorded so a sidecar's demand can be
+  # derived from the live set (_devbot_live_session_projects). Resolved in a
+  # subshell so the caller's cwd is untouched; an unreadable path is recorded
+  # verbatim, and no argument records the cwd.
+  local project_dir
+  if [[ -n "${1:-}" ]]; then
+    project_dir="$(cd "$1" 2>/dev/null && pwd || printf '%s' "$1")"
+  else
+    project_dir="$(pwd)"
+  fi
+
   local dir
   dir="$(_devbot_sessions_dir)"
   mkdir -p "${dir}" 2>/dev/null || return 0
@@ -304,6 +338,11 @@ _devbot_session_register() {
   # fd 210 is distinct from _devbot_lock_wait's fd 200.
   exec 210>"${dir}/session-$$" 2>/dev/null || true
   flock -x 210 2>/dev/null || true
+
+  # Written AFTER the lock is held: a probing reader treats this session as live
+  # from the lock alone, so it can never read a half-written project. An empty
+  # file (a session started by an older revision) is harmless.
+  printf '%s\n' "${project_dir}" >&210 2>/dev/null || true
 
   exec 200>&- 2>/dev/null || true  # release the registry lock
 }

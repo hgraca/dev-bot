@@ -93,6 +93,76 @@ teardown() {
   exec 210>&- 2>/dev/null || true
 }
 
+# ── Project identity ─────────────────────────────────────────────────────────
+# A session records which project it serves so a datasource sidecar's demand can
+# be derived from the live set (_devbot_live_session_projects). Legacy session
+# files written before this are empty and must stay harmless.
+
+@test "register records the given project dir in its session file" {
+  _devbot_session_register "${DEV_BOT_ROOT}"
+  run cat "${SESSIONS_DIR}/session-$$"
+  assert_output "${DEV_BOT_ROOT}"
+  exec 210>&- 2>/dev/null || true
+}
+
+@test "register defaults the recorded project to the current directory" {
+  _devbot_session_register
+  run cat "${SESSIONS_DIR}/session-$$"
+  assert_output "$(pwd)"
+  exec 210>&- 2>/dev/null || true
+}
+
+@test "live_session_projects lists the project of a live session" {
+  mkdir -p "${SESSIONS_DIR}"
+  printf '%s\n' "/proj/alpha" >"${SESSIONS_DIR}/session-11111"
+  ( exec 215<>"${SESSIONS_DIR}/session-11111"; flock -x 215; sleep 3 ) &
+  local holder=$!
+  sleep 0.3
+
+  run _devbot_live_session_projects
+  assert_output "/proj/alpha"
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "live_session_projects deduplicates two sessions in the same project" {
+  mkdir -p "${SESSIONS_DIR}"
+  printf '%s\n' "/proj/shared" >"${SESSIONS_DIR}/session-11111"
+  printf '%s\n' "/proj/shared" >"${SESSIONS_DIR}/session-22222"
+  ( exec 215<>"${SESSIONS_DIR}/session-11111"; flock -x 215; sleep 3 ) &
+  local h1=$!
+  ( exec 216<>"${SESSIONS_DIR}/session-22222"; flock -x 216; sleep 3 ) &
+  local h2=$!
+  sleep 0.3
+
+  run _devbot_live_session_projects
+  assert_output "/proj/shared"
+
+  kill "${h1}" "${h2}" 2>/dev/null || true
+}
+
+@test "live_session_projects ignores a legacy empty (live) session file" {
+  mkdir -p "${SESSIONS_DIR}"
+  : >"${SESSIONS_DIR}/session-22222"
+  ( exec 215<>"${SESSIONS_DIR}/session-22222"; flock -x 215; sleep 3 ) &
+  local holder=$!
+  sleep 0.3
+
+  run _devbot_live_session_projects
+  assert_output ""
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "live_session_projects prunes a stale session file" {
+  mkdir -p "${SESSIONS_DIR}"
+  printf '%s\n' "/proj/ghost" >"${SESSIONS_DIR}/session-33333"
+
+  run _devbot_live_session_projects
+  assert_output ""
+  [ ! -e "${SESSIONS_DIR}/session-33333" ]
+}
+
 # ── Release: last session tears down ─────────────────────────────────────────
 
 @test "release tears the containers down when it was the LAST session" {
