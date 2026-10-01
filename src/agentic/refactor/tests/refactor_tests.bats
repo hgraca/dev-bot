@@ -369,6 +369,68 @@ _e2e_ready() {
   assert_output --partial "unsupported op"
 }
 
+@test "ops.py roots: reads the roots from composer autoload and autoload-dev" {
+  run python3 "${MODULE_DIR}/langs/php/ops.py" roots "${PHP_FIXTURES}/scope-demo"
+
+  assert_success
+  assert_output '["src", "tests"]'
+}
+
+@test "ops.py roots: falls back to src/ when composer declares no autoload" {
+  local work
+  work="$(mktemp -d)"
+  mkdir -p "${work}/src"
+  run python3 "${MODULE_DIR}/langs/php/ops.py" roots "${work}"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output '["src"]'
+}
+
+@test "ops.py roots: never includes a vendor-declared path" {
+  local work
+  work="$(mktemp -d)"
+  mkdir -p "${work}/src" "${work}/vendor/acme"
+  printf '%s' '{"autoload":{"psr-4":{"Acme\\":"vendor/acme/"}}}' > "${work}/composer.json"
+  run python3 "${MODULE_DIR}/langs/php/ops.py" roots "${work}"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output '["src"]'
+}
+
+@test "ops.py roots: rejects ./vendor and an escaping ../.. spelling" {
+  local work
+  work="$(mktemp -d)"
+  mkdir -p "${work}/src" "${work}/vendor/acme"
+  cat > "${work}/composer.json" <<'JSON'
+{"autoload":{"psr-4":{"Acme\\":"./vendor/acme/","Up\\":"../.."}}}
+JSON
+  run python3 "${MODULE_DIR}/langs/php/ops.py" roots "${work}"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output '["src"]'
+}
+
+@test "ops.py string-refs: a nested root does not duplicate a hit" {
+  local work
+  work="$(mktemp -d)"
+  mkdir -p "${work}/src/Sub"
+  printf '%s\n' '<?php' '' 'namespace Demo;' '' "final class Registry { public const NAME = 'Widget'; }" > "${work}/src/Sub/Registry.php"
+  python3 - "${work}" > "${work}/request.json" <<'PY'
+import json, sys
+print(json.dumps({"op": "rename-class", "from": "Widget", "to": "Gadget",
+                  "project": sys.argv[1], "roots": ["src", "src/Sub"]}))
+PY
+  run bash -c "python3 '${MODULE_DIR}/langs/php/ops.py' string-refs < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  local count
+  count="$(printf '%s' "${output}" | grep -o 'Sub/Registry.php' | wc -l | tr -d ' ')"
+  [ "${count}" = "1" ]
+}
 @test "end-to-end: plan reports both sites and writes nothing" {
   _e2e_ready || skip "docker + scratch Rector not available"
 
@@ -537,13 +599,13 @@ _make_repo() {
   [ "${call}" = "1" ]
 }
 
-@test "end-to-end: files outside app/ and src/ are never rewritten" {
+@test "end-to-end: a vendor/ decoy outside the composer roots is never rewritten" {
   _e2e_ready || skip "docker + scratch Rector not available"
 
-  # Regression guard: Rector is scoped to app/ and src/ precisely so it never
-  # descends into vendor/, which it does not exclude by default and would
-  # otherwise rewrite. The decoy carries a same-named method. It is created here
-  # rather than committed because the repo gitignores vendor/.
+  # Regression guard: Rector is scoped to the composer autoload roots precisely
+  # so it never descends into vendor/, which it does not exclude by default and
+  # would otherwise rewrite. The decoy carries a same-named method. It is created
+  # here rather than committed because the repo gitignores vendor/.
   local work
   work="$(mktemp -d)"
   cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
@@ -576,6 +638,33 @@ PHP
   # The dependency keeps its name; the in-scope declaration moved.
   [ "${decoy}" = "1" ]
   [ "${decl}" = "1" ]
+}
+
+@test "end-to-end: composer autoload-dev brings tests/ into scope" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  # Regression guard for the scope gap: renaming an interface method must also
+  # rewrite the implementor declared under tests/ (the fatal case), not just the
+  # call sites the src/-only scope used to reach.
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/scope-demo/." "${work}/"
+  _req rename-method 'Demo\Port' emit publish > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local port adapter double call
+  port="$(grep -c 'function publish' "${work}/src/Port.php" || true)"
+  adapter="$(grep -c 'function publish' "${work}/src/Adapter.php" || true)"
+  double="$(grep -c 'function publish' "${work}/tests/AdapterDouble.php" || true)"
+  call="$(grep -c '\->publish(' "${work}/tests/PortTest.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${port}" = "1" ]
+  [ "${adapter}" = "1" ]
+  [ "${double}" = "1" ]
+  [ "${call}" = "1" ]
 }
 
 # ── Tier 1: rename-annotation (B3) ─────────────────────────────────────────────

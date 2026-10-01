@@ -353,27 +353,26 @@ print("\x1f".join([str(r.get("op") or ""), str(r.get("class") or ""),
 
   local project="${REFACTOR_PROJECT:-${PWD}}"
 
-  # Scope Rector to the project's source roots. `app/` (Laravel) and `src/`
-  # (library) are mutually exclusive, so at most one exists. Scoping at the mount
-  # root instead would descend into vendor/ — which Rector does not exclude by
-  # default, and would happily rewrite.
-  local -a roots=()
-  local d
-  for d in app src; do
-    [[ -d "${project}/${d}" ]] && roots+=("/app/${d}")
-  done
-  if [[ ${#roots[@]} -eq 0 ]]; then
-    echo '{"ok":false,"error":"no source root found — expected app/ or src/ at the project root"}' >&2
+  # Scope Rector to the project's own source roots, read from composer.json
+  # (autoload + autoload-dev) so tests/ is searched alongside src/. vendor/ is
+  # never a root: scoping at the mount root instead would descend into vendor/,
+  # which Rector does not exclude by default, and would happily rewrite.
+  local roots_json
+  roots_json="$(python3 "${PLUGIN_DIR}/ops.py" roots "${project}")"
+  if [[ "${roots_json}" == "[]" ]]; then
+    echo '{"ok":false,"error":"no source root found — expected a composer autoload path, app/ or src/ at the project root"}' >&2
     exit 1
   fi
   local scope_json
-  scope_json="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1:]))' "${roots[@]}")"
-  # Carry the scope and the host project dir into the request: the renderer needs
-  # the project to derive a namespace when none was given.
-  request="$(SCOPE="${scope_json}" PROJECT="${project}" python3 -c '
+  scope_json="$(printf '%s' "${roots_json}" | python3 -c 'import json,sys; print(json.dumps(["/app/" + r for r in json.load(sys.stdin)]))')"
+  # Carry the scope, the roots and the host project dir into the request: the
+  # renderer needs the project to derive a namespace when none was given, and the
+  # scanners need the roots to walk the same directories Rector does.
+  request="$(SCOPE="${scope_json}" ROOTS="${roots_json}" PROJECT="${project}" python3 -c '
 import json, os, sys
 r = json.load(sys.stdin)
 r["scope"] = json.loads(os.environ["SCOPE"])
+r["roots"] = json.loads(os.environ["ROOTS"])
 r["project"] = os.environ["PROJECT"]
 print(json.dumps(r))' <<<"${request}")"
 

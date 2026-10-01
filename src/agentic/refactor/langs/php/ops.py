@@ -246,6 +246,61 @@ def qualify(namespace: str, name: str) -> str:
     return "%s\\%s" % (namespace, name) if namespace else name
 
 
+# The layout the tool grew up on, used when composer declares no autoload path.
+DEFAULT_ROOTS = ("app", "src")
+
+
+def project_roots(project: str) -> list:
+    """The directories a PHP project declares as its own source.
+
+    Composer is the source of truth: every PSR-4/PSR-0 directory (and classmap
+    directory) in `autoload` and `autoload-dev`, so `tests/` is searched
+    alongside `src/`. `vendor/` is never a root. Falls back to app/ + src/ when
+    composer declares none.
+    """
+    roots = []
+
+    def add(value):
+        if not isinstance(value, str):
+            return
+        # Normalise before the checks: `./vendor/x` must trip the vendor guard,
+        # and `../..` must not escape the project the scope belongs to.
+        cleaned = os.path.normpath(value.strip().replace("\\", "/"))
+        if cleaned in (".", "") or os.path.isabs(cleaned) or cleaned == ".." or cleaned.startswith("../"):
+            return
+        cleaned = cleaned.strip("/")
+        if not cleaned or cleaned == "vendor" or cleaned.startswith("vendor/"):
+            return
+        if cleaned not in roots:
+            roots.append(cleaned)
+
+    composer = os.path.join(project, "composer.json")
+    if os.path.isfile(composer):
+        try:
+            with open(composer, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError):
+            data = {}
+        for section in ("autoload", "autoload-dev"):
+            block = data.get(section)
+            if not isinstance(block, dict):
+                continue
+            for key in ("psr-4", "psr-0"):
+                mapping = block.get(key)
+                if not isinstance(mapping, dict):
+                    continue
+                for value in mapping.values():
+                    for item in value if isinstance(value, list) else [value]:
+                        add(item)
+            for value in block.get("classmap") or []:
+                add(value)
+
+    dirs = [name for name in roots if os.path.isdir(os.path.join(project, name))]
+    if not dirs:
+        dirs = [name for name in DEFAULT_ROOTS if os.path.isdir(os.path.join(project, name))]
+    return dirs
+
+
 def _declaration_re(name: str, kind: str) -> re.Pattern:
     if kind == "function":
         return re.compile(r"^\s*function\s+" + re.escape(name) + r"\s*\(", re.M)
@@ -254,14 +309,14 @@ def _declaration_re(name: str, kind: str) -> re.Pattern:
     return re.compile(r"^\s*(?:final\s+|abstract\s+)*class\s+" + re.escape(name) + r"\b", re.M)
 
 
-def find_declarations(project: str, name: str, kind: str) -> list:
+def find_declarations(project: str, name: str, kind: str, roots=None) -> list:
     """(namespace, path) for each declaration of `name` under the source roots."""
     if not project or not os.path.isdir(project):
         return []
 
     pattern = _declaration_re(name, kind)
     found = []
-    for root_name in ("app", "src"):
+    for root_name in (roots or DEFAULT_ROOTS):
         root = os.path.join(project, root_name)
         if not os.path.isdir(root):
             continue
@@ -283,9 +338,9 @@ def find_declarations(project: str, name: str, kind: str) -> list:
     return found
 
 
-def find_declaring_namespaces(project: str, name: str, kind: str) -> list:
+def find_declaring_namespaces(project: str, name: str, kind: str, roots=None) -> list:
     """Namespaces declaring `name` under the project's source roots ("" = global)."""
-    return list(dict.fromkeys(ns for ns, _path in find_declarations(project, name, kind)))
+    return list(dict.fromkeys(ns for ns, _path in find_declarations(project, name, kind, roots)))
 
 
 def resolve_namespace(request: dict, spec: dict, from_name: str, to_name: str = "") -> str:
@@ -296,18 +351,19 @@ def resolve_namespace(request: dict, spec: dict, from_name: str, to_name: str = 
 
     kind = spec.get("declaration") or "function"
     project = request.get("project") or ""
-    candidates = find_declaring_namespaces(project, from_name, kind)
+    roots = request.get("roots")
+    candidates = find_declaring_namespaces(project, from_name, kind, roots)
     if not candidates and to_name:
         # A completed rename leaves the declaration under the NEW name, and the
         # namespace is unchanged. Without this fallback a re-plan — including the
         # post-apply verification pass — could not resolve the op at all, and the
         # verification would report a clean run it never performed.
-        candidates = find_declaring_namespaces(project, to_name, kind)
+        candidates = find_declaring_namespaces(project, to_name, kind, roots)
 
     if not candidates:
         raise ValueError(
-            "could not find a declaration of '%s' under app/ or src/ — "
-            "pass --namespace explicitly" % from_name
+            "could not find a declaration of '%s' under %s — "
+            "pass --namespace explicitly" % (from_name, " or ".join(roots or DEFAULT_ROOTS))
         )
     if len(candidates) > 1:
         raise ValueError(
@@ -320,7 +376,7 @@ def resolve_namespace(request: dict, spec: dict, from_name: str, to_name: str = 
 _QUOTED_RE = re.compile(r"'([^'\n]*)'|\"([^\"\n]*)\"")
 
 
-def find_string_references(project: str, name: str) -> list:
+def find_string_references(project: str, name: str, roots=None) -> list:
     """Quoted occurrences of `name` under the source roots.
 
     Every rename here is blind to a reference held in a string — a class, method
@@ -332,7 +388,8 @@ def find_string_references(project: str, name: str) -> list:
         return []
 
     hits = []
-    for root_name in ("app", "src"):
+    seen = set()
+    for root_name in (roots or DEFAULT_ROOTS):
         root = os.path.join(project, root_name)
         if not os.path.isdir(root):
             continue
@@ -350,10 +407,16 @@ def find_string_references(project: str, name: str) -> list:
                     content = match.group(1) if match.group(1) is not None else match.group(2)
                     if not content or name not in content:
                         continue
+                    line_number = text.count("\n", 0, match.start()) + 1
+                    # A nested root (src/ and src/Sub) walks the same file twice.
+                    key = (path, line_number)
+                    if key in seen:
+                        continue
+                    seen.add(key)
                     hits.append(
                         {
                             "file": os.path.relpath(path, project),
-                            "line": text.count("\n", 0, match.start()) + 1,
+                            "line": line_number,
                             "text": content.strip(),
                         }
                     )
@@ -525,6 +588,11 @@ def main(argv: list) -> int:
         }))
         return 0
 
+    if command == "roots":
+        project = argv[2] if len(argv) > 2 else os.getcwd()
+        print(json.dumps(project_roots(project)))
+        return 0
+
     if command == "rules":
         op = argv[2] if len(argv) > 2 else ""
         found = rules_for(op)
@@ -548,7 +616,10 @@ def main(argv: list) -> int:
         new = request.get("to") or ""
         # The declaration carries the SHORT name; `from` may be qualified.
         found = find_declarations(
-            request.get("project") or "", old.rsplit("\\", 1)[-1], spec.get("declaration") or ""
+            request.get("project") or "",
+            old.rsplit("\\", 1)[-1],
+            spec.get("declaration") or "",
+            request.get("roots"),
         )
         if len(found) != 1:
             return 0
@@ -580,14 +651,21 @@ def main(argv: list) -> int:
         if OPS.get(request.get("op") or "") is None:
             return 0
         name = (request.get("from") or "").rsplit("\\", 1)[-1]
-        print(json.dumps({"hits": find_string_references(request.get("project") or "", name)}))
+        print(
+            json.dumps(
+                {"hits": find_string_references(request.get("project") or "", name, request.get("roots"))}
+            )
+        )
         return 0
 
     if command == "render":
         index = int(argv[2]) if len(argv) > 2 else 0
         return render(json.load(sys.stdin), index)
 
-    print("ERROR: ops.py: expected one of meta|rules|render|move-target|string-refs", file=sys.stderr)
+    print(
+        "ERROR: ops.py: expected one of meta|rules|render|move-target|string-refs|roots",
+        file=sys.stderr,
+    )
     return 1
 
 

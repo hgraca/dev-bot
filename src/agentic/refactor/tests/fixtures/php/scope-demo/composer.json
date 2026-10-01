@@ -1,0 +1,16 @@
+{
+  "name": "fixture/scope-demo",
+  "require": {
+    "php": "^8.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Demo\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Demo\\Test\\": "tests/"
+    }
+  }
+}
