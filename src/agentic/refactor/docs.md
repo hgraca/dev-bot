@@ -60,6 +60,16 @@ Instead the tool renders a config holding **exactly one rule**, and pins it with
 `--only`. The run also passes `--clear-cache`, because PHPStan's per-file result
 cache can otherwise let a warm cache mask drift.
 
+### Scope
+
+The search and the rewrite cover the directories `composer.json` declares under
+`autoload` and `autoload-dev` (PSR-4/PSR-0 and classmap directories), falling
+back to `app/` + `src/` when it declares none. `vendor/` is never a root — which
+is why the scope is derived from composer rather than taken as the mount root. A
+project that maps `tests/` in `autoload-dev` therefore has its test doubles and
+call sites renamed alongside `src/`; before, the scope was the literal
+`app/` + `src/` and those files were silently left behind.
+
 Python and TypeScript use engines provisioned into the shared scratch dir
 (`storage/refactor/{py,ts}`) — rope and ts-morph respectively. `--image`
 overrides the PHP engine's container image; the Python and TypeScript engines
@@ -109,7 +119,7 @@ any kind and forwards it (TypeScript reads `kind` as a declaration kind).
 | `apply`     | read a request on stdin, perform the change, write the result |
 
 Request: `{"op", "class", "from", "to", "apply", "image", "namespace", "file", "kind", "start", "end", "index", "default"}`.
-Response: `{"ok", "engine", "applied", "summary", "files", "warnings", "error", "string_references", "remaining_changes", "file_move"}`.
+Response: `{"ok", "engine", "applied", "summary", "files", "warnings", "error", "notice", "string_references", "unrewritten_references", "remaining_changes", "file_move"}`.
 
 `REFACTOR_LANGS_DIR` relocates the plugin directory (used by the test suite to
 prove additivity).
@@ -132,8 +142,14 @@ and how much your suite must back the change depends on the op:
 
 - **Dynamic references are invisible** to static analysis: string callables,
   `__call`, container bindings and variable method names are not renamed.
-  `string_references` reports quoted occurrences of the old name, and
-  `remaining_changes` reports what a rename could not reach.
+  `string_references` reports quoted occurrences of the old name,
+  `unrewritten_references` reports what an apply left outside strings (a
+  doc-block mention), and `remaining_changes` reports what a rename could not
+  reach.
+- **PHP `--class` is resolved, and an empty result is stated.** A bare class name
+  is resolved to its fully-qualified name; a run that changed nothing carries a
+  `notice` explaining why (an unresolved class, or a name that matched nowhere).
+  The exit stays 0 — this is feedback, not a failure.
 - **Signature ops do not validate the result** — position the index and check
   the diff.
 - **`rename-string` matches on the bare name** for global constants, because

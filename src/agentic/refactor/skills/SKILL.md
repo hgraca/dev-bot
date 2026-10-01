@@ -70,7 +70,17 @@ is chosen automatically, and a rename infers `method`/`property` from
 - **Dynamic references are invisible** to static analysis: string callables,
   `__call`, container bindings, variable method names. A rename reports quoted
   occurrences (`string_references`) rather than losing them silently, and an
-  apply re-runs itself to report `remaining_changes`.
+  apply reports what no rule reached — a doc-block mention as
+  `unrewritten_references`, a residual call site as `remaining_changes`.
+- **The PHP scope is the project's composer source roots.** Only the directories
+  `composer.json` declares under `autoload` and `autoload-dev` are searched;
+  `vendor/` never is. A project that maps `tests/` in `autoload-dev` has its test
+  doubles and call sites renamed alongside `src/`. Without a `composer.json` the
+  old `app/` + `src/` fallback applies.
+- **PHP `--class` is resolved, and an empty result is stated.** A bare class name
+  is resolved to its fully-qualified name; a run that changed nothing carries a
+  `notice` explaining why (an unresolved class, or a name that matched nowhere),
+  and the exit stays 0 — this is feedback, not a failure.
 - **The tool does not run your tests.** Only your suite can prove a rename is
   right in your project's terms — run it after applying.
 - **An apply costs a second pass.** The self-verification doubles the runtime;
