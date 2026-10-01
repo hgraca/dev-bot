@@ -64,7 +64,7 @@ Check available MCPs — if useful for research (searching docs, finding similar
 Based on user interview, fill in these components:
 
 - **name**: Skill identifier. Must match parent directory name. Max 64 chars. Lowercase letters, numbers, and hyphens only. Must not start or end with hyphen. No consecutive hyphens.
-- **description**: When to trigger — the trigger only, never a summary of the skill. Max 1024 chars. One imperative clause (`Load at session start in every project under <signal>.`, or `Use when <situation>.`), ideally ~72 chars but not enforced, followed by the literal trigger phrases that make it fire (which don't count toward the 72). All "when to use" info goes here, not in the body — see [Writing effective descriptions](#writing-effective-descriptions).
+- **description**: When to trigger — the trigger only, never a summary of the skill. Max 1024 chars. The imperative clause(s) — a lone `Use when <situation>.`, or a preemptive `Load at session start in every project under <signal>.` **followed by** that `Use when <situation>.` — ideally ~72 chars per clause but not enforced, plus the literal trigger phrases that make it fire (which don't count toward the 72). All "when to use" info goes here, not in the body — see [Writing effective descriptions](#writing-effective-descriptions).
 - **compatibility**: Required tools, dependencies (optional, 1-500 chars, rarely needed)
 - **license**: License name or reference to bundled license file (optional)
 - **metadata**: Arbitrary key-value mapping (optional, e.g. author, version)
@@ -88,14 +88,14 @@ skill-name/
 
 **SKILL.md frontmatter fields:**
 
-| Field           | Required | Constraints                                                                                                          |
-| --------------- | -------- | -------------------------------------------------------------------------------------------------------------------- |
-| `name`          | Yes      | Max 64 chars. Lowercase, numbers, hyphens only. Must match parent dir name. No leading/trailing/consecutive hyphens. |
-| `description`   | Yes      | Max 1024 chars. Non-empty. The trigger only: one imperative clause plus literal trigger phrases.                     |
-| `license`       | No       | License name or reference to bundled license file.                                                                   |
-| `compatibility` | No       | Max 500 chars. Environment requirements (product, packages, network access).                                         |
-| `metadata`      | No       | Arbitrary key-value mapping.                                                                                         |
-| `allowed-tools` | No       | Space-separated pre-approved tools. (Experimental)                                                                   |
+| Field           | Required | Constraints                                                                                                                               |
+| --------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`          | Yes      | Max 64 chars. Lowercase, numbers, hyphens only. Must match parent dir name. No leading/trailing/consecutive hyphens.                      |
+| `description`   | Yes      | Max 1024 chars. Non-empty. The trigger only: a `Use when …` clause (a preemptive skill leads with `Load …`) plus literal trigger phrases. |
+| `license`       | No       | License name or reference to bundled license file.                                                                                        |
+| `compatibility` | No       | Max 500 chars. Environment requirements (product, packages, network access).                                                              |
+| `metadata`      | No       | Arbitrary key-value mapping.                                                                                                              |
+| `allowed-tools` | No       | Space-separated pre-approved tools. (Experimental)                                                                                        |
 
 #### Progressive Disclosure
 
@@ -514,12 +514,13 @@ does, and repeating it there makes the agent read the same thing twice.
 Two canonical forms, both opening with a verb:
 
 ```
-Load at session start in every project under <project signal>.
+Load at session start in every project under <project signal>. Use when <the situation that calls for this skill>.
 ```
 
 For a **preemptively-loaded** skill — one the agent should always have loaded rather than
 "discover". The signal is the project property that makes the skill relevant: `git`, PHP, Docker, a
-message bus.
+message bus. The `Use when …` half is required, not optional: an always-loaded skill still answers a
+situation, and the description must name it so the palette entry says more than "load me".
 
 ```
 Use when <the situation that calls for this skill>.
@@ -536,10 +537,14 @@ Use when splitting accumulated changes into atomic commits. Triggers on 'commit 
 
 Rules that make the pattern work:
 
-- **~72 characters for the imperative clause** — about one terminal line. This is an **ideal, not a
-  budget**: nothing enforces it, and a clear 80-character sentence beats a cryptic 60-character one.
+- **~72 characters per imperative clause** — the `Load …` clause and the `Use when …` clause are each
+  about one terminal line. This is an **ideal, not a budget**: nothing enforces it, and a clear
+  80-character sentence beats a cryptic 60-character one.
+- **A preemptive description carries both clauses** — `Load at session start …` states when the skill
+  loads; the `Use when …` that follows states the situation it answers. Never ship the `Load …` clause
+  alone.
 - **Trigger phrases don't count toward the 72** — the clause listing literal things a user might type
-  is additive. Append as many as are genuinely useful, and let the imperative clause stay short.
+  is additive. Append as many as are genuinely useful, and let the imperative clauses stay short.
 - **Never describe what the skill does** — "Formats JSON and JSONC files with 2-space indentation" is
   a summary of the body. State when to reach for the skill instead.
 - **Open with a verb** — `Load …` or `Use …`; not "This skill does …" and not a bare noun phrase.
@@ -552,7 +557,7 @@ Worked example — before vs after:
 - **After** (reactive): "Use when writing or reviewing a commit message. Triggers on 'what type is this', 'scope', 'breaking change', 'how should I word this commit'."
 
 - **Before** (preemptive): "Generic software development craft — code-quality principles, tests-first discipline, and the commit protocol. Load this context skill at the start of any session that writes, changes, or commits code; it is the hub for generic craft, with PHP annexes under annexes/php/ read on demand."
-- **After** (preemptive): "Load at session start in every project where code is written or committed."
+- **After** (preemptive): "Load at session start in every project where code is written or committed. Use when writing, changing, or reviewing code."
 
 ### Step 1: Generate trigger eval queries
 

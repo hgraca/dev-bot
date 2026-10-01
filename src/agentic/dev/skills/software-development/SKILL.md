@@ -1,6 +1,6 @@
 ---
 name: devbot:software-development
-description: "Load at session start in every project where code is written, changed, or committed."
+description: "Load at session start in every project where code is written, changed, or committed. Use when writing, changing, or reviewing code."
 ---
 
 # Software Development

@@ -1,6 +1,6 @@
 ---
 name: devbot:git-commits
-description: "Load at session start in every project under git."
+description: "Load at session start in every project under git. Use when making a commit or wording its message."
 ---
 
 # Git Commits
