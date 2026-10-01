@@ -306,7 +306,12 @@ def _declaration_re(name: str, kind: str) -> re.Pattern:
         return re.compile(r"^\s*function\s+" + re.escape(name) + r"\s*\(", re.M)
     if kind == "constant":
         return re.compile(r"^\s*const\s+" + re.escape(name) + r"\s*=", re.M)
-    return re.compile(r"^\s*(?:final\s+|abstract\s+)*class\s+" + re.escape(name) + r"\b", re.M)
+    return re.compile(
+        r"^\s*(?:(?:final|abstract|readonly)\s+)*(?:class|interface|trait|enum)\s+"
+        + re.escape(name)
+        + r"\b",
+        re.M,
+    )
 
 
 def find_declarations(project: str, name: str, kind: str, roots=None) -> list:
@@ -371,6 +376,54 @@ def resolve_namespace(request: dict, spec: dict, from_name: str, to_name: str = 
             % (from_name, ", ".join(ns or "(global)" for ns in candidates))
         )
     return candidates[0]
+
+
+def resolve_class(request: dict) -> dict:
+    """Resolve a bare `--class` to its FQCN, or explain why it cannot be.
+
+    Rector matches a member op on the resolved class name, so a short name — or a
+    typo — silently matches nothing. The name is resolved when its declaration is
+    unique; otherwise the request is returned unchanged with a `notice`, never a
+    failure: the caller asked for feedback, not a hard stop.
+    """
+    spec = OPS.get(request.get("op") or "") or {}
+    klass = request.get("class") or ""
+    needs_class = "class" in (spec.get("requires") or []) or "class" in (spec.get("args") or [])
+    if not klass or not needs_class:
+        return {"request": request}
+
+    roots = request.get("roots")
+    project = request.get("project") or ""
+    where = " or ".join(roots or DEFAULT_ROOTS)
+    short = klass.rsplit("\\", 1)[-1]
+    found = find_declarations(project, short, "class", roots)
+    candidates = [qualify(namespace, short) for namespace, _path in found]
+
+    # A fully-qualified name is authoritative: verify it exists, but never
+    # substitute a different class that merely shares its short name.
+    if "\\" in klass:
+        if klass in candidates:
+            return {"request": request}
+        return {
+            "request": request,
+            "notice": "class '%s' has no declaration under %s — check the name" % (klass, where),
+        }
+
+    if len(candidates) == 1:
+        request["class"] = candidates[0]
+        return {"request": request}
+
+    if not candidates:
+        notice = (
+            "class '%s' has no declaration under %s — check the name, or pass "
+            "its fully-qualified name" % (klass, where)
+        )
+    else:
+        notice = (
+            "class '%s' is ambiguous — declared as %s; pass the fully-qualified "
+            "name" % (klass, ", ".join(candidates))
+        )
+    return {"request": request, "notice": notice}
 
 
 _QUOTED_RE = re.compile(r"'([^'\n]*)'|\"([^\"\n]*)\"")
@@ -593,6 +646,10 @@ def main(argv: list) -> int:
         print(json.dumps(project_roots(project)))
         return 0
 
+    if command == "resolve-class":
+        print(json.dumps(resolve_class(json.load(sys.stdin))))
+        return 0
+
     if command == "rules":
         op = argv[2] if len(argv) > 2 else ""
         found = rules_for(op)
@@ -663,7 +720,7 @@ def main(argv: list) -> int:
         return render(json.load(sys.stdin), index)
 
     print(
-        "ERROR: ops.py: expected one of meta|rules|render|move-target|string-refs|roots",
+        "ERROR: ops.py: expected one of meta|rules|render|move-target|string-refs|roots|resolve-class",
         file=sys.stderr,
     )
     return 1

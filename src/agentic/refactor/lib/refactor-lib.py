@@ -240,6 +240,9 @@ def render_markdown(response, op, risk=""):
     if response.get("summary"):
         lines.append(response["summary"])
         lines.append("")
+    if response.get("notice"):
+        lines.append("**Notice:** %s" % response["notice"])
+        lines.append("")
     if response.get("files"):
         lines.append("### Files")
         for path in response["files"]:

@@ -376,6 +376,14 @@ r["roots"] = json.loads(os.environ["ROOTS"])
 r["project"] = os.environ["PROJECT"]
 print(json.dumps(r))' <<<"${request}")"
 
+  # Rector matches a member op on the resolved class name, so a short `--class`
+  # silently matches nothing. Resolve it here and keep the reason it could not
+  # be resolved — the run proceeds either way, and the reason is reported.
+  local resolution class_notice
+  resolution="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" resolve-class)"
+  request="$(printf '%s' "${resolution}" | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["request"]))')"
+  class_notice="$(printf '%s' "${resolution}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("notice") or "")')"
+
   local engine
   if ! engine="$(_resolve_engine "${project}")"; then
     echo '{"ok":false,"error":"no Rector engine found","hint":"run: plugin.sh provision"}' >&2
@@ -508,7 +516,7 @@ PY
   string_hits="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" string-refs 2>/dev/null |
     python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("hits") or []))' 2>/dev/null || echo '[]')"
 
-  REFACTOR_MOVE_NOTE="${move_note}" REFACTOR_MOVE_FROM_REL="${mv_from_rel}" REFACTOR_MOVE_TO_REL="${mv_to_rel}" REFACTOR_STRING_HITS="${string_hits}" REFACTOR_REMAINING="${remaining}" python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY'
+  REFACTOR_MOVE_NOTE="${move_note}" REFACTOR_MOVE_FROM_REL="${mv_from_rel}" REFACTOR_MOVE_TO_REL="${mv_to_rel}" REFACTOR_STRING_HITS="${string_hits}" REFACTOR_REMAINING="${remaining}" REFACTOR_CLASS_NOTICE="${class_notice}" REFACTOR_ROOTS="${roots_json}" python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY'
 import json, os, sys
 
 outfile, errfile, rcfile, via, version, mode, old, new = sys.argv[1:9]
@@ -607,6 +615,25 @@ except Exception:
     remaining = 0
 if remaining:
     result["remaining_changes"] = remaining
+
+# A rename that changed nothing is ambiguous: a wrong name, or one already
+# renamed. Say so rather than returning a bare "0 file(s)". A run that changed
+# something needs no such explanation, so the notices are attached only then. A
+# move that changed no file is still a change — Rector rewrites only references,
+# so `files` can be empty while the move itself succeeded.
+changed = bool(files) or bool(move_note)
+notice = ""
+if not changed:
+    notice = os.environ.get("REFACTOR_CLASS_NOTICE", "").strip()
+    if not notice and old:
+        try:
+            roots = json.loads(os.environ.get("REFACTOR_ROOTS") or "[]")
+        except Exception:
+            roots = []
+        notice = "no occurrences of '%s' found under %s — the name may be wrong, or the rename has already been applied" % (
+            old, " or ".join(roots) or "the source roots")
+if notice:
+    result["notice"] = notice
 
 print(json.dumps(result))
 PY

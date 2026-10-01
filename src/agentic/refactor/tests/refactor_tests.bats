@@ -431,6 +431,71 @@ PY
   count="$(printf '%s' "${output}" | grep -o 'Sub/Registry.php' | wc -l | tr -d ' ')"
   [ "${count}" = "1" ]
 }
+
+@test "ops.py resolve-class: a unique short name resolves to its FQCN" {
+  run bash -c "printf '%s' '{\"op\":\"rename-method\",\"class\":\"Port\",\"from\":\"emit\",\"to\":\"publish\",\"project\":\"${PHP_FIXTURES}/scope-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' resolve-class"
+
+  assert_success
+  assert_output --partial '"class": "Demo\\Port"'
+}
+
+@test "ops.py resolve-class: an unknown class keeps the request and explains" {
+  run bash -c "printf '%s' '{\"op\":\"rename-method\",\"class\":\"Nope\",\"from\":\"a\",\"to\":\"b\",\"project\":\"${PHP_FIXTURES}/scope-demo\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' resolve-class"
+
+  assert_success
+  assert_output --partial "no declaration"
+  assert_output --partial '"class": "Nope"'
+}
+
+@test "ops.py resolve-class: an ambiguous short name is explained, not guessed" {
+  local work
+  work="$(mktemp -d)"
+  mkdir -p "${work}/src/A" "${work}/src/B"
+  printf '%s\n' '<?php' '' 'namespace Demo\A;' '' 'class Thing {}' > "${work}/src/A/Thing.php"
+  printf '%s\n' '<?php' '' 'namespace Demo\B;' '' 'class Thing {}' > "${work}/src/B/Thing.php"
+  run bash -c "printf '%s' '{\"op\":\"rename-method\",\"class\":\"Thing\",\"from\":\"a\",\"to\":\"b\",\"project\":\"${work}\"}' | python3 '${MODULE_DIR}/langs/php/ops.py' resolve-class"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "ambiguous"
+  assert_output --partial 'Demo\\A\\Thing'
+}
+
+@test "ops.py resolve-class: a fully-qualified name is never retargeted" {
+  local work
+  work="$(mktemp -d)"
+  mkdir -p "${work}/src/A" "${work}/src/B"
+  printf '%s\n' '<?php' '' 'namespace Demo\A;' '' 'class Thing {}' > "${work}/src/A/Thing.php"
+  printf '%s\n' '<?php' '' 'namespace Demo\B;' '' 'class Thing {}' > "${work}/src/B/Thing.php"
+  python3 - "${work}" > "${work}/request.json" <<'PY'
+import json, sys
+print(json.dumps({"op": "rename-method", "class": "Demo\\A\\Thing", "from": "a", "to": "b", "project": sys.argv[1]}))
+PY
+  run bash -c "python3 '${MODULE_DIR}/langs/php/ops.py' resolve-class < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"class": "Demo\\A\\Thing"'
+  refute_output --partial "notice"
+}
+
+@test "ops.py resolve-class: an FQCN with no declaration is not swapped for a namesake" {
+  local work
+  work="$(mktemp -d)"
+  mkdir -p "${work}/src/B"
+  printf '%s\n' '<?php' '' 'namespace Demo\B;' '' 'class Thing {}' > "${work}/src/B/Thing.php"
+  python3 - "${work}" > "${work}/request.json" <<'PY'
+import json, sys
+print(json.dumps({"op": "rename-method", "class": "Demo\\C\\Thing", "from": "a", "to": "b", "project": sys.argv[1]}))
+PY
+  run bash -c "python3 '${MODULE_DIR}/langs/php/ops.py' resolve-class < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial '"class": "Demo\\C\\Thing"'
+  assert_output --partial "no declaration"
+}
+
 @test "end-to-end: plan reports both sites and writes nothing" {
   _e2e_ready || skip "docker + scratch Rector not available"
 
@@ -665,6 +730,57 @@ PHP
   [ "${adapter}" = "1" ]
   [ "${double}" = "1" ]
   [ "${call}" = "1" ]
+}
+
+@test "end-to-end: a short --class resolves to its FQCN and renames" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-method 'Greeter' greet salute > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local decl call
+  decl="$(grep -c 'function salute' "${work}/src/Greeter.php" || true)"
+  call="$(grep -c '\->salute(' "${work}/src/UseGreeter.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${decl}" = "1" ]
+  [ "${call}" = "1" ]
+}
+
+@test "end-to-end: a rename that matches nothing reports a notice and exits 0" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-method 'Demo\Greeter' nope yep > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "no occurrences"
+}
+
+@test "end-to-end: the core report states a rename that matched nothing" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  git -C "${work}" init -q
+
+  run bash -c "cd '${work}' && bash '${TOOL}' --lang php rename --class 'Demo\\Greeter' --method nope --to yep"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "Notice:"
+  assert_output --partial "no occurrences"
 }
 
 # ── Tier 1: rename-annotation (B3) ─────────────────────────────────────────────
@@ -1069,6 +1185,57 @@ assert m["requires"]["remove-unused-private-methods"] == [], m
   # ...and every other file in the namespace keeps the old one.
   [ "${others}" = "1" ]
   [ "${ref}" = "1" ]
+}
+
+@test "end-to-end: a move with no references reports no no-match notice" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  # Rector rewrites only references, so a class nothing refers to yields an empty
+  # `files` while the move still succeeds — the no-match notice must not fire.
+  local work
+  work="$(mktemp -d)"
+  mkdir -p "${work}/src"
+  cat > "${work}/composer.json" <<'JSON'
+{"autoload":{"psr-4":{"Demo\\":"src/"}}}
+JSON
+  printf '%s\n' '<?php' '' 'namespace Demo;' '' 'final class Lonely {}' > "${work}/src/Lonely.php"
+
+  _req move-class '' 'Demo\Lonely' 'Demo\Frontend\Lonely' > "${work}/request.json"
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "would move"
+  refute_output --partial "no occurrences"
+}
+
+@test "end-to-end: a successful rename carries no notice" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  # The declaration carries an inline attribute, which the resolution scan does
+  # not recognise, so it reports "no declaration". Rector still parses and renames
+  # it — a run that changed files needs no such notice.
+  local work
+  work="$(mktemp -d)"
+  mkdir -p "${work}/src"
+  cat > "${work}/composer.json" <<'JSON'
+{"autoload":{"psr-4":{"Demo\\":"src/"}}}
+JSON
+  printf '%s\n' '<?php' '' 'namespace Demo;' '' '#[\Attribute] final class Holder' '{' '    public function old(): void {}' '}' > "${work}/src/Holder.php"
+  printf '%s\n' '<?php' '' 'namespace Demo;' '' 'final class Caller' '{' '    public function run(Holder $h): void { $h->old(); }' '}' > "${work}/src/Caller.php"
+
+  _req rename-method 'Demo\Holder' old new > "${work}/request.json"
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local decl call
+  decl="$(grep -c 'function new' "${work}/src/Holder.php" || true)"
+  call="$(grep -c '\->new(' "${work}/src/Caller.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${decl}" = "1" ]
+  [ "${call}" = "1" ]
+  refute_output --partial '"notice"'
 }
 
 # ── S1: string references ──────────────────────────────────────────────────────
