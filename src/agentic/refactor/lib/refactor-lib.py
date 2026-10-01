@@ -253,6 +253,11 @@ def render_markdown(response, op, risk=""):
         for hit in response["string_references"]:
             lines.append("- %s:%s — %s" % (hit.get("file"), hit.get("line"), hit.get("text")))
         lines.append("")
+    if response.get("unrewritten_references"):
+        lines.append("### Unrewritten references (reported, not rewritten)")
+        for hit in response["unrewritten_references"]:
+            lines.append("- %s:%s — %s" % (hit.get("file"), hit.get("line"), hit.get("text")))
+        lines.append("")
     if response.get("remaining_changes"):
         lines.append(
             "**Remaining changes:** %s — references the rename could not reach"

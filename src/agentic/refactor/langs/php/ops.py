@@ -476,6 +476,54 @@ def find_string_references(project: str, name: str, roots=None) -> list:
     return hits
 
 
+def find_text_references(project: str, name: str, roots=None) -> list:
+    """Occurrences of `name` that are not quoted strings — doc-blocks, comments.
+
+    Every rename here rewrites code, but a mention in a doc-block or a comment is
+    not code: `@see Old::method()` survives the rename untouched and, until now,
+    was reported nowhere. A quoted occurrence is already covered by
+    `find_string_references`, so it is excluded here rather than listed twice.
+    """
+    if not project or not os.path.isdir(project) or not name:
+        return []
+
+    pattern = re.compile(r"\b" + re.escape(name) + r"\b")
+    hits = []
+    seen = set()
+    for root_name in (roots or DEFAULT_ROOTS):
+        root = os.path.join(project, root_name)
+        if not os.path.isdir(root):
+            continue
+        for dirpath, _dirs, files in os.walk(root):
+            for filename in sorted(files):
+                if not filename.endswith(".php"):
+                    continue
+                path = os.path.join(dirpath, filename)
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as handle:
+                        text = handle.read()
+                except OSError:
+                    continue
+                quoted = [match.span() for match in _QUOTED_RE.finditer(text)]
+                for match in pattern.finditer(text):
+                    if any(start <= match.start() < end for start, end in quoted):
+                        continue
+                    line_number = text.count("\n", 0, match.start()) + 1
+                    key = (path, line_number)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    line = text.splitlines()[line_number - 1].strip()
+                    hits.append(
+                        {
+                            "file": os.path.relpath(path, project),
+                            "line": line_number,
+                            "text": line,
+                        }
+                    )
+    return hits
+
+
 def namespace_target_dir(path: str, old_fq: str, new_fq: str):
     """The PSR-4 directory for a class moved to another namespace, or None.
 
@@ -715,12 +763,24 @@ def main(argv: list) -> int:
         )
         return 0
 
+    if command == "text-refs":
+        request = json.load(sys.stdin)
+        if OPS.get(request.get("op") or "") is None:
+            return 0
+        name = (request.get("from") or "").rsplit("\\", 1)[-1]
+        print(
+            json.dumps(
+                {"hits": find_text_references(request.get("project") or "", name, request.get("roots"))}
+            )
+        )
+        return 0
+
     if command == "render":
         index = int(argv[2]) if len(argv) > 2 else 0
         return render(json.load(sys.stdin), index)
 
     print(
-        "ERROR: ops.py: expected one of meta|rules|render|move-target|string-refs|roots|resolve-class",
+        "ERROR: ops.py: expected one of meta|rules|render|move-target|string-refs|roots|resolve-class|text-refs",
         file=sys.stderr,
     )
     return 1

@@ -496,6 +496,37 @@ PY
   assert_output --partial "no declaration"
 }
 
+@test "ops.py text-refs: reports doc-block and code mentions but not quoted ones" {
+  local work
+  work="$(mktemp -d)"
+  mkdir -p "${work}/src"
+  cat > "${work}/src/Thing.php" <<'PHP'
+<?php
+
+namespace Demo;
+
+/** @see Thing::old() */
+final class Thing
+{
+    public function old(): void
+    {
+        $name = 'old';
+    }
+}
+PHP
+  python3 - "${work}" > "${work}/request.json" <<'PY'
+import json, sys
+print(json.dumps({"op": "rename-method", "class": "Demo\\Thing", "from": "old", "to": "new", "project": sys.argv[1]}))
+PY
+  run bash -c "python3 '${MODULE_DIR}/langs/php/ops.py' text-refs < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  assert_output --partial "@see Thing::old"
+  assert_output --partial "function old"
+  refute_output --partial "\$name"
+}
+
 @test "end-to-end: plan reports both sites and writes nothing" {
   _e2e_ready || skip "docker + scratch Rector not available"
 
@@ -781,6 +812,26 @@ PHP
   assert_success
   assert_output --partial "Notice:"
   assert_output --partial "no occurrences"
+}
+
+@test "end-to-end: an apply reports the doc-block reference it did not rewrite" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/scope-demo/." "${work}/"
+  _req rename-method 'Demo\Port' emit publish > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local doc
+  doc="$(grep -c 'Port::emit' "${work}/tests/PortTest.php" || true)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${doc}" = "1" ]
+  assert_output --partial "unrewritten_references"
+  assert_output --partial "@see Port::emit"
 }
 
 # ── Tier 1: rename-annotation (B3) ─────────────────────────────────────────────
@@ -1185,6 +1236,8 @@ assert m["requires"]["remove-unused-private-methods"] == [], m
   # ...and every other file in the namespace keeps the old one.
   [ "${others}" = "1" ]
   [ "${ref}" = "1" ]
+  # A move keeps the class short name, so it cannot leave a reference behind.
+  refute_output --partial "unrewritten_references"
 }
 
 @test "end-to-end: a move with no references reports no no-match notice" {

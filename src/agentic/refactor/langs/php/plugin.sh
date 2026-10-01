@@ -516,7 +516,19 @@ PY
   string_hits="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" string-refs 2>/dev/null |
     python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("hits") or []))' 2>/dev/null || echo '[]')"
 
-  REFACTOR_MOVE_NOTE="${move_note}" REFACTOR_MOVE_FROM_REL="${mv_from_rel}" REFACTOR_MOVE_TO_REL="${mv_to_rel}" REFACTOR_STRING_HITS="${string_hits}" REFACTOR_REMAINING="${remaining}" REFACTOR_CLASS_NOTICE="${class_notice}" REFACTOR_ROOTS="${roots_json}" python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY'
+  # A plan rewrites nothing, so every occurrence is expected; only an apply can
+  # have left one behind. Scan for the old name outside a quoted string too — a
+  # doc-block `@see Old::method()` is neither renamed nor caught by the string
+  # scan, and was reported nowhere. A move keeps the class short name, so it can
+  # leave none behind; only a short-name change is worth scanning.
+  local from_short="${from##*\\}" to_short="${to##*\\}"
+  local text_hits="[]"
+  if [[ "${mode}" == "apply" && "${from_short}" != "${to_short}" ]]; then
+    text_hits="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" text-refs 2>/dev/null |
+      python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("hits") or []))' 2>/dev/null || echo '[]')"
+  fi
+
+  REFACTOR_MOVE_NOTE="${move_note}" REFACTOR_MOVE_FROM_REL="${mv_from_rel}" REFACTOR_MOVE_TO_REL="${mv_to_rel}" REFACTOR_STRING_HITS="${string_hits}" REFACTOR_REMAINING="${remaining}" REFACTOR_CLASS_NOTICE="${class_notice}" REFACTOR_ROOTS="${roots_json}" REFACTOR_TEXT_HITS="${text_hits}" python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY'
 import json, os, sys
 
 outfile, errfile, rcfile, via, version, mode, old, new = sys.argv[1:9]
@@ -608,6 +620,16 @@ except Exception:
     string_hits = []
 if string_hits:
     result["string_references"] = string_hits
+
+# A plan rewrites nothing, so this is populated on an apply only: it names the
+# occurrences no rule reached and the string scan did not cover — a doc-block
+# mention of the old name, most often.
+try:
+    text_hits = json.loads(os.environ.get("REFACTOR_TEXT_HITS") or "[]")
+except Exception:
+    text_hits = []
+if text_hits:
+    result["unrewritten_references"] = text_hits
 
 try:
     remaining = int(os.environ.get("REFACTOR_REMAINING") or "0")
