@@ -19,6 +19,11 @@ Three hygiene rules follow:
 
 ## Branch creation (MUST)
 
+When worktrees are enabled (the default — see `devbot:git-worktrees`), branch creation belongs to
+the worktree tool: `worktree.sh create <branch>` cuts a `--no-track` branch from `origin/<default>`
+and the **main checkout's branch is never switched**. The patterns below apply only after a project
+opts out (`"worktrees": false`).
+
 Never create a new local branch pointing at the remote default branch. `git checkout -b <name> origin/main` sets the remote default branch as the new branch's upstream, so a bare `git push` targets it — your commits go straight at `main`, bypassing the PR flow. Only ever push a branch you created, never the default branch.
 
 Safe patterns:

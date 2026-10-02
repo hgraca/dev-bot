@@ -88,12 +88,29 @@ git log --oneline @{upstream}..HEAD   # the range that is yours alone
 If the commit is on a remote, rewriting forces every collaborator to reset or force-pull. Get
 explicit approval, and on a protected or shared branch prefer a normal follow-up commit.
 
+## Committing from a worktree (MUST)
+
+By default, commit from a linked git worktree, never from the main checkout. Before the first
+edit, confirm worktrees are enabled — `worktree.sh enabled` exits `1` when a project opted out
+(`"worktrees": false`), in which case commit in the main checkout as usual. Otherwise check where
+you are: `git rev-parse --git-dir --git-common-dir` printing the **same** path means you are in
+the main checkout and must isolate the work first:
+
+```bash
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create <branch>
+```
+
+The worktree is cut from `origin/<default>` under `<devbot_dir>/worktrees/<slug>`; all edits use
+its absolute path and all git commands run with `-C <worktree>`. The full policy — the tool's
+subcommands, the opt-out, and the finish flow — is `devbot:git-worktrees`.
+
 ## Routing
 
 | Doing this                                                                 | Read                              |
 | -------------------------------------------------------------------------- | --------------------------------- |
 | Writing a message, type taxonomy, footers, breaking changes, ticket IDs    | `devbot:git-conventional-commits` |
-| Deciding what belongs in each commit, splitting, ordering, branch creation | `devbot:git-atomic-commits`       |
+| Deciding what belongs in each commit, splitting, and ordering              | `devbot:git-atomic-commits`       |
 | Correcting a commit unique to the branch (`--fixup`, autosquash)           | `devbot:git-fixup-commits`        |
 | Partial staging, stash isolation, splitting a made commit, reflog recovery | `devbot:git-advanced-operations`  |
+| Creating a task branch and isolating its commits in a worktree             | `devbot:git-worktrees`            |
 | Producing a release file from the branch's commits                         | `devbot:git-changelog`            |
