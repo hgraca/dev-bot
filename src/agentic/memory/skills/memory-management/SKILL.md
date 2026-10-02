@@ -26,12 +26,15 @@ Canonical reference for all `.agents/memory/` vault operations. Other memory ski
       <technology>/          <- see Section 2 for full bucket list and classification rules
     learnings/              <- lessons specific to this project (one file per item)
   work/
+    todo/                    <- planned work notes (not yet started)
     active/                  <- in-progress work notes (3 issues max)
-    archive/YYYY/MM/DD       <- completed work notes by year/month/day
+    archive/YYYY/MM          <- completed work notes by year/month
 
   reference/                 <- architecture maps, flow docs, codebase knowledge
   thinking/                  <- scratchpad for drafts (promote or delete)
 ```
+
+**Work-item lifecycle** — a work folder is born in `work/todo/` (created by `devbot:make-plan`), promoted to `work/active/` when implementation starts (`devbot:implement-story`), and moved to `work/archive/YYYY/MM/<work-folder>/` when finished. Trivial work, which has no planning phase, is created directly in `work/active/`.
 
 ### Commit status (tracked vs local)
 
@@ -40,7 +43,7 @@ Folders differ in git status — by design, not an oversight:
 - **Tracked** (committed when `commit_memory: true`): `active/`, `latent/ADRs/`, `latent/PDRs/`, `latent/learnings/`, `reference/`.
 - **Local, gitignored** (never committed): `work/` (plans, backlogs, WIP), `thinking/` (scratch), and the `latent/global/` symlink — its target, `storage/global-memories/`, is tracked separately.
 
-Work items (`work/active/<…>/backlog.md`, `work/archive/<…>`) and every `thinking/` note are **local artifacts**: never `git add` or commit them, and never ask the user where they live or whether to commit them — that is settled. An artifact that must survive across machines belongs in `reference/` or `latent/`.
+Work items (`work/{todo,active,archive}/<…>`) and every `thinking/` note are **local artifacts**: never `git add` or commit them, and never ask the user where they live or whether to commit them — that is settled. An artifact that must survive across machines belongs in `reference/` or `latent/`.
 
 Each `latent/` file is a standalone `.md` with YAML frontmatter (`date`, `keywords`, and optionally `see`, `aliases`, `supersedes`, `superseded_by`). Body starts after frontmatter — no metadata in body.
 
@@ -55,8 +58,9 @@ Each `latent/` file is a standalone `.md` with YAML frontmatter (`date`, `keywor
 | Architecture or technical decision + rationale  | `latent/ADRs/` (new file per item)                |
 | Lesson reusable across projects (tech-specific) | `latent/global/<technology>/` (new file per item) |
 | Lesson specific to this project                 | `latent/learnings/` (new file per item)           |
+| Planned work note (not yet started)             | `work/todo/`                                      |
 | In-progress work note                           | `work/active/`                                    |
-| Completed work note                             | `work/archive/YYYY/`                              |
+| Completed work note                             | `work/archive/YYYY/MM/`                           |
 | Architecture map or flow doc                    | `reference/`                                      |
 | Draft or reasoning scratchpad                   | `thinking/` (promote or delete, see section 7)    |
 | Partial-progress checkpoint                     | `thinking/YYYY-MM-DD-HH:MM:SS-<task>-partial.md`  |
@@ -269,7 +273,7 @@ For each file in `thinking/`:
 ## 8. Wrap-Up (on "wrap up" / "wrapping up")
 
 1. Promote session learnings to appropriate `latent/global/<tech>/` or `latent/learnings/` folder (new file per item)
-2. Archive completed `work/active/` notes -> `work/archive/YYYY/`
+2. Archive abandoned or stale `work/active/` notes -> `work/archive/YYYY/MM/` (finished work is archived by `devbot:implement-story` on completion)
 3. Tell user what was promoted and saved
 
 ## 9. Memory Tiers (reference)
