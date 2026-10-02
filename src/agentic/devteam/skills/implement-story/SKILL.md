@@ -23,7 +23,13 @@ When needing temporary file, use `devbot:thinking` skill. Promote useful finding
 
 ### Pre-flight check
 
-Before creating any artifact, verify issue folder already exists in `.agents/memory/work/active/`. If it does NOT, STOP — planning must be completed first via `plan` (or, for trivial work routed directly to implementation, orchestrator must create work folder before invoking this skill). If multiple folders exist for same initiative, consolidate into correctly-named one and delete duplicate.
+Before creating any artifact, resolve the **work-item root** — the top-level folder directly under `work/<state>/` that contains `<issue-folder>` (story path: `<issue-folder>` itself; epic path: the enclosing epic folder). Then:
+
+- Root in `.agents/memory/work/todo/` → implementation is starting; promote the root to `.agents/memory/work/active/` (Step 0.1).
+- Root already in `.agents/memory/work/active/` → resume it.
+- Root absent from both → STOP — planning must be completed first via `plan`. Exception: trivial work routed directly to implementation has no planning phase, so the orchestrator creates its folder directly in `.agents/memory/work/active/`.
+
+If multiple folders exist for the same initiative, consolidate into the correctly-named one and delete the duplicate.
 
 ## Clarification Channels
 
@@ -36,11 +42,13 @@ If developer needs:
 
 ### Step 0: Pre-flight
 
-1. **Story-domain memory search**: Read latent/ notes per `devbot:search-memory` skill with story-topic keywords. Identify entries relevant to current scope.
+1. **Start the work item — promote `todo/` → `active/`**: move the **work-item root** (the folder resolved in the pre-flight) from `.agents/memory/work/todo/` to `.agents/memory/work/active/` before creating any artifact. On the epic path this promotes the epic folder on the first story and is a no-op for the rest. This is the "start" transition; skip it if the root is already in `active/`.
 
-2. **Surface-keyword memory search — MUST**: Before delegating any task to @developer, extract from the task's technical actions the **implementation surface**: file types modified (e.g. `Dockerfile`, `php-fpm`, `www.conf`, `compose.yml`), technologies touched (e.g. `env[]`, `printf`, `sed`), and patterns applied. Run a second `search-memories` with those surface terms — NOT story-domain terms. If latent notes with matching `trigger-on` or `keywords` fields are found, include them in the developer delegation prompt under a `## Relevant latent notes` section. This catches gotchas that are invisible to story-scoped queries (e.g. a PHP-FPM env[] note won't surface when searching "opentelemetry" but will surface when searching "php-fpm www.conf env").
+2. **Story-domain memory search**: Read latent/ notes per `devbot:search-memory` skill with story-topic keywords. Identify entries relevant to current scope.
 
-3. Include applicable lessons from both searches in delegations to Developer, Tester, and Reviewer.
+3. **Surface-keyword memory search — MUST**: Before delegating any task to @developer, extract from the task's technical actions the **implementation surface**: file types modified (e.g. `Dockerfile`, `php-fpm`, `www.conf`, `compose.yml`), technologies touched (e.g. `env[]`, `printf`, `sed`), and patterns applied. Run a second `search-memories` with those surface terms — NOT story-domain terms. If latent notes with matching `trigger-on` or `keywords` fields are found, include them in the developer delegation prompt under a `## Relevant latent notes` section. This catches gotchas that are invisible to story-scoped queries (e.g. a PHP-FPM env[] note won't surface when searching "opentelemetry" but will surface when searching "php-fpm www.conf env").
+
+4. Include applicable lessons from both searches in delegations to Developer, Tester, and Reviewer.
 
 ### Step 1: Provide plan
 
@@ -94,7 +102,7 @@ When all tasks done:
 4. Approve or reject.
 5. When all tasks done, follow `remember_task` skill to capture lessons learned.
 6. Notify human stakeholder with completion report and recommended next actions.
-7. Archive issue folder: move `<issue-folder>` from `.agents/memory/work/active/` to `.agents/memory/work/archive/`, preserving its name.
+7. Archive the completed work item: move the **work-item root** from `.agents/memory/work/active/` to `.agents/memory/work/archive/YYYY/MM/`, preserving its name. On the epic path a story sub-folder is not a work-item root — skip archiving here; the epic root is archived once by `make-plan`'s epic-completion step after all stories finish.
 8. Proceed with non-destructive closure actions immediately without asking permission.
 
 ## Delegation Rules
