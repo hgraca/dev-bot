@@ -42,6 +42,7 @@ setup() {
   [[ -d "$vault/latent/ADRs"       ]] || fail "latent/ADRs/ missing"
   [[ -d "$vault/latent/learnings"    ]] || fail "latent/learnings/ missing"
   [[ -d "$vault/latent/global"     ]] || fail "latent/global/ missing"
+  [[ -d "$vault/work/todo"         ]] || fail "work/todo/ missing"
   [[ -d "$vault/work/active"       ]] || fail "work/active/ missing"
   [[ -d "$vault/work/archive"      ]] || fail "work/archive/ missing"
   [[ -d "$vault/reference"         ]] || fail "reference/ missing"
@@ -49,6 +50,7 @@ setup() {
   [[ -d "$vault/active"           ]] || fail "active/ missing"
 
   # Verify .gitkeep files
+  [[ -f "$vault/work/todo/.gitkeep"    ]] || fail "work/todo/.gitkeep missing"
   [[ -f "$vault/work/active/.gitkeep"  ]] || fail "work/active/.gitkeep missing"
   [[ -f "$vault/work/archive/.gitkeep" ]] || fail "work/archive/.gitkeep missing"
   [[ -f "$vault/reference/.gitkeep"    ]] || fail "reference/.gitkeep missing"

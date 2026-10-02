@@ -49,6 +49,8 @@ setup() {
     = "$PROJECT_ROOT/storage/global-memories" ]
 
   # ── Verify work directories with .gitkeep ──────────────────────────────
+  [ -d "$test_project/.agents/memory/work/todo" ]
+  [ -f "$test_project/.agents/memory/work/todo/.gitkeep" ]
   [ -d "$test_project/.agents/memory/work/active" ]
   [ -f "$test_project/.agents/memory/work/active/.gitkeep" ]
   [ -d "$test_project/.agents/memory/work/archive" ]
