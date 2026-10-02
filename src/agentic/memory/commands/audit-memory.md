@@ -12,10 +12,11 @@ Deep structural audit of `.agents/memory/`. Fix fixable; flag what needs user in
 Verify vault matches expected layout:
 
 - `latent/`
-    - contains folders: `ADRs`, `PDRs`, `learnings`
-    - contains symlink to folder: `global`
-    - all files under these folders have compliant frontmatter and body
-- `work/active/` contains only active work notes
+  - contains folders: `ADRs`, `PDRs`, `learnings`
+  - contains symlink to folder: `global`
+  - all files under these folders have compliant frontmatter and body
+- `work/todo/` contains only not-yet-started (planned) work notes; flag any older than 30 days as stale (never started)
+- `work/active/` contains only started work notes
 - `work/archive/` contains only completed work notes
 - `thinking/` — stale drafts that should be promoted or deleted?
 - `reference/` — reference files current and not duplicated elsewhere?
@@ -45,7 +46,7 @@ Flag thinking/ file older than 7 days for user review.
 
 ## 4. Check Issue Folder Consistency
 
-For each folder in `.agents/memory/work/active/`:
+For each folder in `.agents/memory/work/todo/` and `.agents/memory/work/active/`:
 
 - `backlog.md` exists with accurate task statuses?
 - Orphaned artifacts (e.g. `DONE.md` with no corresponding task)?

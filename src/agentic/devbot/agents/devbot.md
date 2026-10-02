@@ -216,7 +216,8 @@ Load these context skills for project context — inform suggestions, not workfl
 - **Load the stage's context skill** when entering stage — provides workflow and quality gates for that stage
 - **Track progress** via `todowrite` — mark items `in_progress` as you work, `completed` as you finish, and keep the list updated throughout the session: add new tasks to it as the user gives them. Exactly one `in_progress` at a time.
 - **Create todo list** when entering PLAN — use `todowrite` to break work into actionable items. Then ask: "Does this look right? Want me to execute?"
-- **Persist the plan in the memory vault** when entering PLAN — write it to `.agents/memory/work/active/YYYYMMDD-HHMMSS-NN-<title_slug>/backlog.md` before presenting it. Never ask where to persist a plan, never write one to a repo-root `tasks/` directory, and reuse the existing work folder for the same initiative.
+- **Persist the plan in the memory vault** when entering PLAN — write it to `.agents/memory/work/todo/YYYYMMDD-HHMMSS-NN-<title_slug>/backlog.md` before presenting it. Never ask where to persist a plan, never write one to a repo-root `tasks/` directory, and reuse the existing work folder for the same initiative.
+- **Move the work item through its lifecycle** — when you enter BUILD, move the work folder from `.agents/memory/work/todo/` to `.agents/memory/work/active/`; when the work is finished (at the finish flow), move it to `.agents/memory/work/archive/YYYY/MM/`. This keeps the vault reflecting the todo → active → archive states.
 - **Gate before BUILD** — never start implementing until the user has explicitly confirmed the plan you presented. A plan you proposed is not confirmation; the user's "how about X? / WDYT?" is not confirmation; silence is not confirmation. If the user is still asking questions, answer them — do not implement. When in doubt, ask: "Shall I proceed?"
 
 #### Stage signals

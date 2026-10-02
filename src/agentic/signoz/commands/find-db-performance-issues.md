@@ -31,14 +31,14 @@ ORDER BY TIME DESC;
 - Sample twice a few seconds/minutes apart: `TIME` advancing and the same thread still present = genuinely running, not a snapshot artefact.
 - The processlist `INFO` is truncated — pull the exact statement and progress from performance_schema:
 
-    ```sql
-    SELECT es.THREAD_ID, t.PROCESSLIST_ID, LEFT(es.SQL_TEXT,500) AS sql_text,
-           ROUND(es.TIMER_WAIT/1e12,1) AS sec, es.ROWS_EXAMINED, es.ROWS_SENT
-    FROM performance_schema.events_statements_current es
-    JOIN performance_schema.threads t ON t.THREAD_ID = es.THREAD_ID
-    WHERE es.SQL_TEXT IS NOT NULL
-    ORDER BY es.TIMER_WAIT DESC;
-    ```
+  ```sql
+  SELECT es.THREAD_ID, t.PROCESSLIST_ID, LEFT(es.SQL_TEXT,500) AS sql_text,
+         ROUND(es.TIMER_WAIT/1e12,1) AS sec, es.ROWS_EXAMINED, es.ROWS_SENT
+  FROM performance_schema.events_statements_current es
+  JOIN performance_schema.threads t ON t.THREAD_ID = es.THREAD_ID
+  WHERE es.SQL_TEXT IS NOT NULL
+  ORDER BY es.TIMER_WAIT DESC;
+  ```
 
 ### 0.2 Is the thread burning CPU or blocked?
 
@@ -58,9 +58,9 @@ A single snapshot misses bursty load. Take 2–3 snapshots ~10–60s apart:
 
 - Same query shape present **every snapshot with fresh connection IDs and TIME≈0–2s** = a continuous storm or per-request fan-out (e.g. one pricing request opening 8–10 parallel queries across 9+ connections). Count concurrent copies per snapshot.
 - Global rates — sample twice and divide by elapsed seconds:
-    ```sql
-    SHOW GLOBAL STATUS WHERE Variable_name IN ('Queries','Threads_running','Threads_connected','Threads_created');
-    ```
+  ```sql
+  SHOW GLOBAL STATUS WHERE Variable_name IN ('Queries','Threads_running','Threads_connected','Threads_created');
+  ```
 - **Cumulative digest counters mislead**: `events_statements_summary_by_digest.COUNT_STAR` accumulates over server uptime (often 40+ days). 67k executions over 43 days ≈ 1/min — not a storm. Sample `COUNT_STAR` twice ~30s apart: **identical counts = not the current load**; only deltas count.
 
 ### 0.4 Cumulative cost per query shape (multi-minute offenders)
@@ -179,7 +179,7 @@ Aggregate `count` grouped by the span's SQL-text attribute (e.g. `db.query.text`
 
 ## 6. Write backlogs + report
 
-- For each application with query-related findings, create a backlog file in `.agents/memory/work/active/` under that application's repo (e.g. `~/Development/Get-e/core`, `~/Development/Get-e/hotels-api`), one per application, all in parallel. The user will deliver each backlog to the owning project.
+- For each application with query-related findings, create a work folder `.agents/memory/work/todo/<YYYYMMDD-HHMMSS-NN>-<app_slug>/` containing a `backlog.md` under that application's repo (e.g. `~/Development/Get-e/core`, `~/Development/Get-e/hotels-api`), one per application, all in parallel. The user will deliver each backlog to the owning project.
 - Hardware / resource / lock / replication findings do not belong to an app repo — list them in a separate section of the report instead.
 - Print a **global simplified report directly to the user**: a summary table grouped by category, each row = app · query (or signal) · category · **count/day · median · p95** · evidence · one-line fix.
 

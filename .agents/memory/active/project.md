@@ -112,7 +112,7 @@ The primary agent guides the human through auto-detected stages: **DEFINE** (cla
 
 ### Planning workflow (`devbot:make-plan`)
 
-Brief classified as epic/story/trivial → PO writes `backlog.md` (tasks + acceptance criteria) → Architect folds the technical plan into the same file → Critic reviews (BLOCKER/WEAKNESS/WARNING classifications) until APPROVED → orchestrator promotes to FINAL once `planning-complete.md` verifies all artifacts → human approves → implementation. Artifacts live in `.agents/memory/work/active/YYYYMMDD-HHMMSS-NN-<slug>/`.
+Brief classified as epic/story/trivial → PO writes `backlog.md` (tasks + acceptance criteria) → Architect folds the technical plan into the same file → Critic reviews (BLOCKER/WEAKNESS/WARNING classifications) until APPROVED → orchestrator promotes to FINAL once `planning-complete.md` verifies all artifacts → human approves → implementation. Artifacts are created in `.agents/memory/work/todo/YYYYMMDD-HHMMSS-NN-<slug>/`, promoted to `work/active/` on implementation start, and archived to `work/archive/YYYY/MM/` on completion.
 
 ### Implementation workflow (`devbot:implement-story`)
 

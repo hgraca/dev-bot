@@ -106,10 +106,10 @@ User opens new opencode session in `iteration-<n>/` and tells agent: _"Execute i
 Solver follows standard `plan` workflow, creating normal **issue-folder** under:
 
 ```
-iteration-<n>/.agents/memory/work/active/<YYYYMMDD-HHMMSS-NN>-<slug>/
+iteration-<n>/.agents/memory/work/todo/<YYYYMMDD-HHMMSS-NN>-<slug>/
 ```
 
-This issue-folder referred to below as `<issue-folder>`. Locate by globbing `iteration-<n>/.agents/memory/work/active/*/` — exactly one match expected. If zero or more than one, treat as solver failure (record in `iteration-<n>/handoff-failure.md`).
+This issue-folder referred to below as `<issue-folder>`. Locate by globbing `iteration-<n>/.agents/memory/work/todo/*/` — exactly one match expected. If zero or more than one, treat as solver failure (record in `iteration-<n>/handoff-failure.md`).
 
 Required artifacts inside `<issue-folder>` after solver finishes:
 
@@ -128,7 +128,7 @@ Main-session evaluation artifacts (`metadata.json`, `quality-report.md`, `root-c
 
 Back in main session:
 
-1. **Solver artifacts** — locate `<issue-folder>` (single match for `iteration-<n>/.agents/memory/work/active/*/`) and confirm every required file from Step 1.5 exists inside it (used by Steps 3 and 4).
+1. **Solver artifacts** — locate `<issue-folder>` (single match for `iteration-<n>/.agents/memory/work/todo/*/`) and confirm every required file from Step 1.5 exists inside it (used by Steps 3 and 4).
 2. **Reference standards** — architecture rules, `plan` skill, `devbot:make-plan` skill (used by Steps 3 and 4).
 3. **Previous iteration data** — `iterations_quality.md`, prior `quality-report.md` and `root-cause-analysis.md` (used by Steps 5 and 6 for delta and regression analysis; skip for iteration 1).
 4. **Rejected proposals log** — `storage/self-improvement/improve-planning/rejected-proposals.md` (used by Step 7 to suppress re-proposals).
@@ -478,7 +478,7 @@ storage/self-improvement/improve-planning/
     ├── root-cause-analysis.md      # Main session output
     ├── proposals.md                # Main session output
     ├── approved-changes.md         # Main session: user-approved subset (applied & committed at end of Step 7)
-    └── .agents/memory/work/active/<YYYYMMDD-HHMMSS-NN>-<slug>/  # Solver issue-folder
+    └── .agents/memory/work/todo/<YYYYMMDD-HHMMSS-NN>-<slug>/  # Solver issue-folder
         ├── backlog.md              # Solver output
         ├── PLAN-ARCH-*.md          # Solver output (combined architecture spec + implementation plan)
         ├── PLAN-REVIEW-*.md        # Solver output (critic review)
@@ -500,7 +500,7 @@ This checklist is **mandatory gate**. Before declaring iteration N complete and 
 - [ ] `metadata.json` records iteration, timestamp, model, rubric version
 - [ ] User warned if model or rubric version changed
 - [ ] Task-solver session ran in isolation
-- [ ] Solver `<issue-folder>` located (single match for `iteration-<n>/.agents/memory/work/active/*/`)
+- [ ] Solver `<issue-folder>` located (single match for `iteration-<n>/.agents/memory/work/todo/*/`)
 - [ ] All required solver artifacts present in `<issue-folder>` (`backlog.md`, `PLAN-ARCH-*.md`, `PLAN-REVIEW-*.md`, `summary.md`, `interactions.md`)
 - [ ] Quality report has all 8 sections (0–7) with correct numbering
 - [ ] Section 0 (Metrics) populated from `interactions.md`
