@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# Tests for the agent-communication .ts tool (tools/agent-communication.ts)
-# Tests the validateMessage function via the .sh CLI wrapper.
+# Tests for the agent-communication tool (tools/agent-communication.mcp.sh).
+# Exercises the validator via its CLI wrapper.
 
 setup() {
   bats_load_library bats-support
