@@ -24,11 +24,11 @@ This skill absorbs the former `devbot:make-plan` skill. The technical implementa
 
 ## Artifacts
 
-Place all artifacts in a single `<work-folder>` under `.agents/memory/work/active/`. Planning artifacts not committed to git.
+Place all artifacts in a single `<work-folder>` under `.agents/memory/work/todo/`. Planning artifacts not committed to git.
 
 ### Folder naming
 
-`.agents/memory/work/active/YYYYMMDD-HHMMSS-NN-<title_slug>/`
+`.agents/memory/work/todo/YYYYMMDD-HHMMSS-NN-<title_slug>/`
 
 `YYYYMMDD-HHMMSS` = current UTC timestamp. `NN` = zero-padded sequential number. Check existing folders, use next available. Timestamp prefix orders chronologically; sequence disambiguates same-second folders.
 
@@ -37,7 +37,7 @@ Place all artifacts in a single `<work-folder>` under `.agents/memory/work/activ
 **Story path** — all artifacts in `<work-folder>`. The backlog is the combined planning document (tasks, acceptance criteria, AND technical actions). There is NO separate `PLAN-ARCH-*.md`:
 
 ```
-.agents/memory/work/active/YYYYMMDD-HHMMSS-NN-<story_slug>/
+.agents/memory/work/todo/YYYYMMDD-HHMMSS-NN-<story_slug>/
   backlog.md                          # Combined: story → tasks + per-task/story-level technical actions; carries Status
   PLAN-REVIEW-YYYY-MM-DD-NNN.md       # Critic review of backlog.md
   summary.md
@@ -48,7 +48,7 @@ Place all artifacts in a single `<work-folder>` under `.agents/memory/work/activ
 **Epic path** — top-level folder holds the epic backlog + summary; each story gets a sub-folder with its own combined backlog:
 
 ```
-.agents/memory/work/active/YYYYMMDD-HHMMSS-NN-<epic_slug>/
+.agents/memory/work/todo/YYYYMMDD-HHMMSS-NN-<epic_slug>/
   backlog.md                          # Epic backlog: stories (not tasks) + epic-level technical actions
   summary.md                          # Epic planning summary
   architectural-alignment-YYYY-MM-DD-NN.md   # Phase-1 alignment note (when produced)
@@ -278,7 +278,7 @@ Inline warnings later in the body are acceptable as reinforcement but not as the
 ### Step 0: Pre-flight
 
 1. Read latent/ notes per `devbot:search-memory` skill. Include applicable lessons in all delegations.
-2. **Check existing work folder**: list `.agents/memory/work/active/`. If a folder matches the current initiative, reuse it — NEVER create new. If multiple folders exist for the same initiative, consolidate into the correctly-named one and delete the duplicate.
+2. **Check existing work folder**: list `.agents/memory/work/todo/` (and `.agents/memory/work/active/` for an initiative already promoted to implementation). If a folder matches the current initiative, reuse it — NEVER create new. If multiple folders exist for the same initiative, consolidate into the correctly-named one and delete the duplicate.
 
 ### Step 1: Detect prompt shape
 
@@ -434,7 +434,7 @@ The planning state machine has exactly four legal transitions out of any critic 
    ```markdown
    # Planning complete — 20260508-143000-01-pokeapi-bus-refactor
 
-   Work folder: `.agents/memory/work/active/20260508-143000-01-pokeapi-bus-refactor/`
+   Work folder: `.agents/memory/work/todo/20260508-143000-01-pokeapi-bus-refactor/`
    Path: story
    Verified at: 2026-05-08T15:30:00Z
 
@@ -494,7 +494,7 @@ On approval:
 2. Address retrospective findings per `devbot:address-retrospective` skill — pass the retro file path.
 3. Proceed to implementation:
    - **Story path**: follow `devbot:implement-story` skill once, with `<work-folder>` as `<issue-folder>`. The combined `backlog.md` is the implementation source — tasks carry their technical actions inline.
-   - **Epic path**: follow `devbot:implement-story` for each story in dependency-respecting order, with the story sub-folder as `<issue-folder>`. After each story, output:
+   - **Epic path**: follow `devbot:implement-story` for each story in dependency-respecting order, with the story sub-folder as `<issue-folder>`. The epic `<work-folder>` is the work-item root: the first story's run promotes it `todo/`→`active/` and later runs find it already there, so a per-story run MUST NOT archive it. After each story, output:
      > **Epic implementation progress**: \<implemented\>/\<total\> stories done | \<blocked\> blocked | \<remaining\> remaining
    - **Trivial path**: already routed in Step 2; nothing more here.
 
@@ -509,7 +509,7 @@ All stories implemented:
 3. Address retrospective findings per `devbot:address-retrospective` skill — pass the retro file path.
 4. Notify the stakeholder with a completion report covering all stories + recommended next actions.
 5. Follow `remember_task` skill to capture lessons learned from the epic.
-6. Archive the work folder: move `<work-folder>` from `.agents/memory/work/active/` to `.agents/memory/work/archive/`, preserving the name.
+6. Archive the work-item root: move `<work-folder>` from `.agents/memory/work/active/` to `.agents/memory/work/archive/YYYY/MM/`, preserving the name. Its story sub-folders move with it.
 
 ## Pre-[FINISHED] Hygiene Gate
 
