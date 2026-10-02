@@ -1,6 +1,7 @@
 ---
 date: 2026-06-15
 keywords: ["devbot", "opencode", "hook", "symlink", "init.sh"]
+superseded_by: ["ADRs/20260822115731-manifest-driven-hooks-architecture.md"]
 ---
 
 > **SUPERSEDED** (2026-08-22) — hooks are no longer per-module files symlinked per-harness. See `ADRs/20260822115731-manifest-driven-hooks-architecture.md`: modules declare hooks in `hooks.json`, and each harness wires them via one generic adapter (`on-hooks.ts` / `on-hooks.py`).

@@ -1,7 +1,8 @@
 ---
 date: 2026-08-20
-keywords: ['javascript', 'prisma', 'esm', 'driver-adapter', 'node']
-trigger-on: ['prisma-7-upgrade', 'prisma-esm-migration']
+keywords: ["javascript", "prisma", "esm", "driver-adapter", "node"]
+trigger-on: ["prisma-7-upgrade", "prisma-esm-migration"]
+superseded_by: ["javascript/20260821180000-prisma-7-commonjs-moduleformat-and-migration-gotchas.md"]
 ---
 
 ## Prisma 7 is a major ESM-required migration, not a version bump

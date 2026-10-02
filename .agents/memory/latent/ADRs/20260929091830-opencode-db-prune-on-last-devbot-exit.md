@@ -1,6 +1,7 @@
 ---
 date: 2026-09-29
 keywords: ["opencode", "prune", "session-registry", "vacuum", "retention"]
+superseded_by: ["ADRs/20260929214100-opencode-db-prune-manual-only.md"]
 ---
 
 ## Prune the opencode DB only when the last devbot session exits

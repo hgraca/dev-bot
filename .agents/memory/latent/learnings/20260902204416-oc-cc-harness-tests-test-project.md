@@ -2,6 +2,7 @@
 date: 2026-09-02
 keywords: ["test-project", "harness", "test-oc", "test-cc", "devbot"]
 see: ["PDRs/20260902204416-macos-flag-rejected-dockurr-macos.md"]
+superseded_by: ["learnings/20260927120100-audit-report-live-mount-and-id-reservation.md"]
 ---
 
 # oc/cc harness tests: where they live and how they run

@@ -2,6 +2,7 @@
 date: 2026-08-21
 keywords: ["skills", "devbot", "language-agnostic", "generification"]
 see: ["ADRs/20260823111100-software-development-hub-skill-annexes.md"]
+superseded_by: ["ADRs/20260823111100-software-development-hub-skill-annexes.md"]
 ---
 
 ## Skills are principle-based and language-agnostic

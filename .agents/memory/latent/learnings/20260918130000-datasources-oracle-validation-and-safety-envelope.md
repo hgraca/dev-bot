@@ -1,6 +1,7 @@
 ---
 date: 2026-09-18
 keywords: ["datasources", "oracle", "mcp-toolbox", "quarantine", "validate-catalogue"]
+superseded_by: ["ADRs/20260919091226-datasources-evaluate-once-at-startup.md"]
 ---
 
 # datasources: the toolbox oracle, its safety envelope, and how to test it

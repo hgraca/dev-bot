@@ -2,6 +2,7 @@
 date: 2026-09-23
 keywords: ["skill-description", "skills", "create-skill", "trigger"]
 see: ["learnings/20260920000940-skill-description-400-byte-budget-is-enforced.md", "learnings/20260910185716-docs-skills-table-mirrors-skill-descriptions.md"]
+superseded_by: ["ADRs/20261001134400-preemptive-skill-description-carries-reactive-clause.md"]
 ---
 
 ## A skill description carries the trigger only, in up to three ordered pieces

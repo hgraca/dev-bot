@@ -2,6 +2,7 @@
 date: 2026-09-02
 keywords: ["devbot", "external-modules", "merge_modules_jsonc", "gotcha"]
 see: ["ADRs/20260902170000-external-modules-named-imports-restored.md"]
+superseded_by: ["ADRs/20260902170000-external-modules-named-imports-restored.md"]
 ---
 
 # External-modules merge-script gotchas

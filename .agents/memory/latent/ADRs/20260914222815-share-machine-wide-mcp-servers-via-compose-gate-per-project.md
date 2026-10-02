@@ -2,6 +2,7 @@
 date: 2026-09-14
 keywords: ["devbot", "mcp", "architecture", "resources", "runtime-slimdown", "docker-compose"]
 see: ["ADRs/20260908213000-mcp-manifest-consolidation.md", "ADRs/20260822224308-harness-agnostic-module-init.md"]
+superseded_by: ["ADRs/20260930122947-datasources-consumer-gated-sidecars.md"]
 ---
 
 ## Gate heavy MCP servers per project; share stateless ones machine-wide via docker compose

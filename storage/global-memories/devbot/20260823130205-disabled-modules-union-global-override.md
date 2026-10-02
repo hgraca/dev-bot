@@ -2,6 +2,7 @@
 date: 2026-08-23
 keywords: ["devbot", "disabled_modules", "global", "project", "union"]
 trigger-on: ["devbot-disabled-modules", "module-enable"]
+superseded_by: ["devbot/20260823132158-module-states-map-override.md"]
 ---
 
 ## disabled_modules is a union — a globally-disabled module can't be re-enabled per-project

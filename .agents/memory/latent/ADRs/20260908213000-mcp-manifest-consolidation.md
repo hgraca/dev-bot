@@ -2,6 +2,7 @@
 date: 2026-09-08
 keywords: ["devbot", "mcp", "manifest", "architecture", "harness"]
 see: ["ADRs/20260822115731-manifest-driven-hooks-architecture.md", "ADRs/20260822224308-harness-agnostic-module-init.md"]
+superseded_by: ["ADRs/20260922144031-mcp-per-server-enabled.md"]
 ---
 
 ## MCP servers are manifest-driven: one canonical mcp.json per module + a shared translator

@@ -1,6 +1,7 @@
 ---
 date: 2026-09-20
 keywords: ["make-test", "test-runtime", "verification"]
+superseded_by: ["learnings/20260920164034-01-test-suite-is-io-contention-bound.md", "learnings/20260911160319-devbot-full-test-suite-invocation.md"]
 ---
 
 # `make test` can exceed a 15-minute timeout — verify in phases

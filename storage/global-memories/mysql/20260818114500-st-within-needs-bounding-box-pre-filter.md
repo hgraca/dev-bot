@@ -2,6 +2,7 @@
 date: 2026-08-18
 keywords: ["mysql", "spatial", "st_within", "bounding-box", "full-scan"]
 trigger-on: ["spatial-st-within-full-scan", "polygon-lookup"]
+superseded_by: ["mysql/20260818150000-spatial-bbox-columns-diverge-from-geometry.md"]
 ---
 
 ## ST_WITHIN(point, polygon) may not use the spatial index — pre-filter by bounding box

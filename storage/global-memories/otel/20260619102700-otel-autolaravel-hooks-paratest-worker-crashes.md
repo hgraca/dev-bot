@@ -2,6 +2,7 @@
 date: 2026-06-19
 keywords: ["otel", "paratest", "phpunit", "laravel", "opentelemetry"]
 trigger-on: ["otel-auto-laravel", "paratest-workers", "opentelemetry-php-extension"]
+superseded_by: ["otel/20260623150100-otel-env-vars-must-be-shell-env-not-dotenv-or-phpunit-xml.md"]
 ---
 
 ## SUPERSEDED by `20260623150100-otel-env-vars-must-be-shell-env-not-dotenv-or-phpunit-xml.md`

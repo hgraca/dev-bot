@@ -1,6 +1,7 @@
 ---
 date: 2026-09-11
 keywords: ["codebase-memory", "mcp", "init", "reinit"]
+superseded_by: ["ADRs/20260914222815-share-machine-wide-mcp-servers-via-compose-gate-per-project.md"]
 ---
 
 # codebase-memory MCP needs an init.sh or reinit cannot self-heal a missing binary

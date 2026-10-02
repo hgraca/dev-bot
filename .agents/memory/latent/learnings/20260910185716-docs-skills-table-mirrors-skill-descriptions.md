@@ -1,6 +1,7 @@
 ---
 date: 2026-09-10
 keywords: ["devbot", "docs", "skills", "documentation"]
+superseded_by: ["learnings/20261001150823-docs-skills-md-is-generated-and-gitignored.md"]
 ---
 
 # docs/skills.md mirrors each SKILL.md description
