@@ -788,6 +788,74 @@ class TestFetchMdctxBody(unittest.TestCase):
         self.assertIsNone(body)
         self.assertIn("Error reading file", err)
 
+    def test_prepends_supersession_notice_from_frontmatter(self):
+        f = self.root / "note.md"
+        f.write_text('---\nsuperseded_by: ["ADRs/new.md"]\n---\n\n## Old\n\nBody.')
+        body, err = _search_memories.fetch_mdctx_body(str(f))
+        self.assertIsNone(err)
+        self.assertTrue(body.startswith("> **SUPERSEDED"))
+        self.assertIn("ADRs/new.md", body)
+        self.assertIn("## Old", body)
+
+
+# ---------------------------------------------------------------------------
+# supersession notice (superseded_by frontmatter -> body-visible warning)
+# ---------------------------------------------------------------------------
+
+
+class TestSupersessionNotice(unittest.TestCase):
+    def test_inline_list(self):
+        content = '---\ndate: 2026-01-01\nsuperseded_by: ["ADRs/new.md", "PDRs/other.md"]\n---\n\n## Old\n\nBody.'
+        self.assertEqual(
+            _search_memories.extract_superseded_by(content),
+            ["ADRs/new.md", "PDRs/other.md"],
+        )
+        notice = _search_memories.supersession_notice(content)
+        self.assertIn("SUPERSEDED", notice)
+        self.assertIn("ADRs/new.md", notice)
+        self.assertIn("PDRs/other.md", notice)
+
+    def test_single_unquoted_value(self):
+        content = "---\nsuperseded_by: ADRs/new.md\n---\n\nBody."
+        self.assertEqual(
+            _search_memories.extract_superseded_by(content), ["ADRs/new.md"]
+        )
+
+    def test_block_list(self):
+        content = "---\nsuperseded_by:\n  - ADRs/new.md\n  - PDRs/other.md\n---\n\nBody."
+        self.assertEqual(
+            _search_memories.extract_superseded_by(content),
+            ["ADRs/new.md", "PDRs/other.md"],
+        )
+
+    def test_absent_key_has_no_notice(self):
+        content = "---\ndate: 2026-01-01\nkeywords: [a]\n---\n\nBody."
+        self.assertEqual(_search_memories.extract_superseded_by(content), [])
+        self.assertIsNone(_search_memories.supersession_notice(content))
+
+    def test_no_frontmatter_has_no_notice(self):
+        content = "# Heading\n\nsuperseded_by: not-frontmatter"
+        self.assertEqual(_search_memories.extract_superseded_by(content), [])
+        self.assertIsNone(_search_memories.supersession_notice(content))
+
+
+class TestFetchFileBody(unittest.TestCase):
+    def test_prepends_supersession_notice_from_frontmatter(self):
+        raw = '---\nsuperseded_by: ["ADRs/new.md"]\n---\n\n## Old\n\nBody.'
+        with patch.object(_search_memories, "run_qmd_cli", return_value=(raw, None)):
+            body, err = _search_memories.fetch_file_body("qmd://x.md")
+        self.assertIsNone(err)
+        self.assertTrue(body.startswith("> **SUPERSEDED"))
+        self.assertIn("ADRs/new.md", body)
+        self.assertIn("## Old", body)
+
+    def test_plain_file_is_unchanged(self):
+        raw = "---\nkeywords: [a]\n---\n\n## Title\n\nBody."
+        with patch.object(_search_memories, "run_qmd_cli", return_value=(raw, None)):
+            body, err = _search_memories.fetch_file_body("qmd://x.md")
+        self.assertIsNone(err)
+        self.assertTrue(body.startswith("## Title"))
+
 
 # ---------------------------------------------------------------------------
 # main() engine dispatch

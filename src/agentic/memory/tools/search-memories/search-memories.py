@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -489,6 +490,73 @@ def _literal_fallback(
     return hits
 
 
+def _frontmatter_block(content: str) -> str:
+    """Return the YAML frontmatter body (between the --- delimiters), or ''."""
+    if not content.startswith("---"):
+        return ""
+    end = content.find("\n---", 3)
+    if end == -1:
+        return ""
+    return content[3:end]
+
+
+def _strip_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
+        return value[1:-1]
+    return value
+
+
+def extract_superseded_by(content: str) -> list[str]:
+    """Read `superseded_by:` paths from a file's YAML frontmatter.
+
+    Handles the inline-list, single-value, and block-list forms; returns [] when
+    the key is absent or the file has no frontmatter.
+    """
+    lines = _frontmatter_block(content).splitlines()
+    for i, line in enumerate(lines):
+        match = re.match(r"\s*superseded_by:\s*(.*)$", line)
+        if not match:
+            continue
+        value = match.group(1).strip()
+        if value.startswith("[") and value.endswith("]"):
+            inner = value[1:-1].strip()
+            if not inner:
+                return []
+            return [p for p in (_strip_quotes(x.strip()) for x in inner.split(",")) if p]
+        if value:
+            return [_strip_quotes(value)]
+        collected = []
+        for follow in lines[i + 1 :]:
+            item = follow.strip()
+            if not item.startswith("- "):
+                break
+            collected.append(_strip_quotes(item[2:].strip()))
+        return [p for p in collected if p]
+    return []
+
+
+def supersession_notice(content: str) -> str | None:
+    """Body-visible warning naming the note(s) that supersede this one.
+
+    Frontmatter is stripped from what search-memories returns, so a
+    `superseded_by:` key would otherwise be invisible to the reader.
+    """
+    paths = extract_superseded_by(content)
+    if not paths:
+        return None
+    refs = ", ".join(f"`{p}`" for p in paths)
+    return f"> **SUPERSEDED by** {refs} — read the replacement before relying on this."
+
+
+def _with_supersession_notice(content: str) -> str:
+    """Strip frontmatter, then prepend a supersession warning when present."""
+    body = strip_yaml_frontmatter(content).strip()
+    notice = supersession_notice(content)
+    if notice:
+        return f"{notice}\n\n{body}"
+    return body
+
+
 def strip_yaml_frontmatter(content: str) -> str:
     """Strip YAML frontmatter (--- ... ---) from file content."""
     if not content.startswith("---"):
@@ -504,7 +572,7 @@ def fetch_file_body(file_uri: str) -> tuple[str | None, str | None]:
     stdout, err = run_qmd_cli(["get", file_uri])
     if err:
         return None, err
-    return strip_yaml_frontmatter(stdout or "").strip(), None
+    return _with_supersession_notice(stdout or ""), None
 
 
 def fetch_mdctx_body(file_path: str) -> tuple[str | None, str | None]:
@@ -518,7 +586,7 @@ def fetch_mdctx_body(file_path: str) -> tuple[str | None, str | None]:
         content = Path(file_path).read_text(encoding="utf-8", errors="replace")
     except Exception as e:  # noqa: BLE001 — any read failure becomes a message
         return None, f"Error reading file {file_path}: {e}"
-    return strip_yaml_frontmatter(content).strip(), None
+    return _with_supersession_notice(content), None
 
 
 # ---------------------------------------------------------------------------
