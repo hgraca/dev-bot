@@ -73,14 +73,19 @@ agent-communication mcp-meta
 
 ## Canonical Status Markers
 
-Every assistant message must end with exactly one of these markers on its own line:
+Every assistant message must end with exactly one of these markers on its own line. **This table is the single source of truth for the marker set** — every other file refers to it rather than repeating it.
 
-| Marker          | Meaning                                |
-| --------------- | -------------------------------------- |
-| `[FINISHED]`    | Work is genuinely complete             |
-| `[BLOCKED]`     | Cannot proceed, external action needed |
-| `[NEEDS_INPUT]` | Needs clarification from human         |
-| `[PARTIAL]`     | Work is incomplete, must resume        |
+The first four are **work-terminal** — they end the assignment. `[WAITING_FOR_PTY]` is a **turn-ender**: the work is paused, not stopped, and the agent resumes automatically.
+
+| Marker              | Meaning                                                                                              |
+| ------------------- | ---------------------------------------------------------------------------------------------------- |
+| `[FINISHED]`        | Work is genuinely complete                                                                           |
+| `[BLOCKED]`         | Cannot proceed, external action needed                                                               |
+| `[NEEDS_INPUT]`     | Needs clarification from human                                                                       |
+| `[PARTIAL]`         | Work is incomplete, must resume                                                                      |
+| `[WAITING_FOR_PTY]` | Paused mid-work, waiting for a PTY process to finish; resumes automatically on its exit notification |
+
+**Using `[WAITING_FOR_PTY]`** — signal it when you end your turn to await a PTY process (a `sleep`, build, or test run spawned with `notifyOnExit`); the exit notification wakes you and you continue. It is deliberately distinct from `[PARTIAL]`: the work is progressing under a process you are waiting on, not stalled, so it must not be treated as a defect or escalated.
 
 ## Message Calibration (human-facing)
 

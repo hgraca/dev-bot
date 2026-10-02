@@ -115,6 +115,46 @@ with open('$tmpfile', 'w') as f:
   rm -f "$tmpfile"
 }
 
+@test "tool agent-communication: detects [WAITING_FOR_PTY] marker" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'Spawned the build; waiting for it to finish.\n\n[WAITING_FOR_PTY]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_success
+  [[ "$output" == *"OK — terminal marker found"* ]] || fail "expected OK (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+}
+
+# ── Drift guard: the skill is the single source of truth for the marker set ──
+
+@test "tool agent-communication: accepts every marker defined in the skill table" {
+  local skill="$MODULE_DIR/skills/SKILL.md"
+  local markers marker tmpfile
+  markers="$(grep -oE '^\| *`\[[A-Z_]+\]`' "$skill" | grep -oE '\[[A-Z_]+\]' | sort -u)"
+  [ -n "$markers" ] || fail "no markers parsed from $skill"
+
+  while IFS= read -r marker; do
+    tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+    python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'Paused.\n\n$marker'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+    run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+    assert_success
+    rm -f "$tmpfile"
+  done <<< "$markers"
+}
+
 # ── validateMessage: missing marker ───────────────────────────────────────────
 
 @test "tool agent-communication: flags missing terminal marker" {

@@ -23,3 +23,8 @@ setup() {
   run grep -q '\[FINISHED\]' "$MODULE_DIR/skills/SKILL.md"
   assert_success
 }
+
+@test "skill file defines the [WAITING_FOR_PTY] turn-ender marker" {
+  run grep -q '\[WAITING_FOR_PTY\]' "$MODULE_DIR/skills/SKILL.md"
+  assert_success
+}

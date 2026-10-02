@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # ---
-# description: Validate that an assistant message ends with a terminal status marker ([FINISHED], [BLOCKED], [NEEDS_INPUT], [PARTIAL])
+# description: Validate that an assistant message ends with a terminal status marker (markers defined by the devbot:agent-communication skill)
 # ---
 # =============================================================================
 # src/agentic/agent-communication/tools/agent-communication.mcp.sh
-# Validate that an assistant message ends with a terminal status marker
-# ([FINISHED], [BLOCKED], [NEEDS_INPUT], [PARTIAL]).
+# Validate that an assistant message ends with a terminal status marker.
+# The canonical marker set lives in this module's skills/SKILL.md — keep
+# MARKER_RE below in sync with it (the drift-guard test in tests/ enforces this).
 #
 # Usage:
 #   agent-communication.mcp.sh --msg-file <path>
@@ -24,7 +25,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"agent-communication","description":"Validate that an assistant message ends with a terminal status marker ([FINISHED], [BLOCKED], [NEEDS_INPUT], [PARTIAL]). The --msg-file must contain a harness session-message JSON object, e.g. {\"info\":{\"role\":\"assistant\"},\"parts\":[{\"type\":\"text\",\"text\":\"...\"}]}.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args (e.g. --msg-file <path>)"}},"required":["args"]}}
+{"name":"agent-communication","description":"Validate that an assistant message ends with a terminal status marker. The canonical marker set is defined by the devbot:agent-communication skill (its skills/SKILL.md). The --msg-file must contain a harness session-message JSON object, e.g. {\"info\":{\"role\":\"assistant\"},\"parts\":[{\"type\":\"text\",\"text\":\"...\"}]}.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args (e.g. --msg-file <path>)"}},"required":["args"]}}
 JSON
     exit 0
     ;;
@@ -91,7 +92,8 @@ if [[ -z "${TEXT//[$' \t\n\r']/}" ]]; then
   exit 0
 fi
 
-MARKER_RE='\[(FINISHED|BLOCKED|NEEDS_INPUT|PARTIAL)\]'
+# Keep in sync with the canonical marker table in skills/SKILL.md (drift-guard test enforces it).
+MARKER_RE='\[(FINISHED|BLOCKED|NEEDS_INPUT|PARTIAL|WAITING_FOR_PTY)\]'
 
 if echo "$TEXT" | grep -qE "$MARKER_RE"; then
   echo "[agent-communication] OK — terminal marker found"
