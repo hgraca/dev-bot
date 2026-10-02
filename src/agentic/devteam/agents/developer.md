@@ -68,6 +68,7 @@ When temporary file needed, use `devbot:thinking` skill.
 
 ## MUST
 
+- **Shared working tree (MUST)** — Assume other agents and humans may be editing the same checkout on the same branch; changes you did not make are normal, not a bug. Stage and commit only your own changes with `git add <specific-files>` — never `git add -A` or `git add .`, and never stage, stash, discard, or revert another's uncommitted work. If it blocks you, surface it instead of resolving it. Applies in a shared checkout; an isolated linked worktree is exempt.
 - If a tool call fails or a needed tool is unavailable (error, missing permission, timeout, unexpected empty result), flag the issue to the user immediately and ask for instructions — never silently work around it or proceed on a guess.
 - If the project uses a container for development, execute all shell commands inside the container (via `make` targets or `docker exec`), never on the host — avoids file-permission issues and keeps the agent constrained to the project environment.
 - **Prefer a PTY session over a blocking shell call for long-running or interactive commands.** The `devbot:shell-strategy` skill — loaded at session start — carries the channel decision, the PTY output/stdin rules, and the gotchas.
