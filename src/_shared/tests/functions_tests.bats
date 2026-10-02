@@ -684,3 +684,37 @@ EOF
 
   [[ -e "${sb}/called" ]]
 }
+
+# ── _upsert_gitignore_section ────────────────────────────────────────────────
+# Upserts a marked block into an ignore-style file. It writes to .git/info/exclude,
+# which a human may hand-edit; the final line must survive even without a trailing
+# newline.
+
+@test "_upsert_gitignore_section creates the section with markers" {
+  local f="${TEST_TEMP}/exclude"
+
+  _upsert_gitignore_section "${f}" "# >>> T" "# <<< T" "one/" "two/"
+
+  assert_equal "$(cat "${f}")" $'# >>> T\none/\ntwo/\n# <<< T'
+}
+
+@test "_upsert_gitignore_section replaces an existing section" {
+  local f="${TEST_TEMP}/exclude"
+
+  _upsert_gitignore_section "${f}" "# >>> T" "# <<< T" "old/"
+  _upsert_gitignore_section "${f}" "# >>> T" "# <<< T" "new/"
+
+  assert_equal "$(cat "${f}")" $'# >>> T\nnew/\n# <<< T'
+  run grep -qFx "old/" "${f}"
+  assert_failure
+}
+
+@test "_upsert_gitignore_section preserves a final line without a trailing newline" {
+  local f="${TEST_TEMP}/exclude"
+  printf 'existing-final' > "${f}"
+
+  _upsert_gitignore_section "${f}" "# >>> T" "# <<< T" "one/"
+
+  run grep -qFx "existing-final" "${f}"
+  assert_success
+}

@@ -2153,7 +2153,10 @@ _upsert_section_impl() {
   local found_section=0
   local in_section=0
 
-  while IFS= read -r line; do
+  # `|| [[ -n "${line}" ]]` also processes a final line with no trailing newline,
+  # which `read` otherwise returns without entering the loop body — and which the
+  # rewrite would silently drop.
+  while IFS= read -r line || [[ -n "${line}" ]]; do
     if [[ "${line}" == "${marker_start}" ]]; then
       found_section=1
       in_section=1
