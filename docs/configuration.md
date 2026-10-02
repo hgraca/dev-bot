@@ -137,6 +137,24 @@ Used by memory init and the devbot init gitignore step.
 
 ---
 
+### `worktrees`
+
+```jsonc
+{ "worktrees": true }
+```
+
+**Type:** `boolean`
+**Default:** `true`
+**Required:** no
+
+When `true` (default), agents isolate each task's commits in a linked git worktree under `<devbot_dir>/worktrees/`, cut from the remote default branch, leaving the main checkout untouched. When `false`, agents edit and commit in the main checkout as before, and the worktree tool refuses to create one.
+
+Project config takes precedence over global: an explicit value in `.devbot.project.jsonc` wins; otherwise the value from `.devbot.global.jsonc` is used; unset in both means `true`.
+
+Used by the `worktree` tool (`enabled` / `create`) and the `git-worktrees` skill.
+
+---
+
 ### `modules`
 
 ```jsonc
@@ -500,6 +518,9 @@ agent first calls it.
 
   // Commit the memory vault to version control
   "commit_memory": false,
+
+  // Isolate each task's commits in a worktree (false = commit in the main checkout)
+  "worktrees": true,
 
   // Data sources this project may use, by name (see `datasources` above)
   "datasources": ["hotels-dev"],
