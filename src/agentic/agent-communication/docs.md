@@ -27,9 +27,9 @@ owned by the `devbot:agent-communication` skill; this page does not restate it.
 ## How it is used
 
 `devbot` (pair programmer) and `teamlead` (orchestrator) use agent-communication whenever they
-delegate to a subagent, so handoffs are verified rather than assumed. The round-trip is checked by
-a harness hook on session idle, so the protocol applies whether or not the agent is thinking about
-it.
+delegate to a subagent, so handoffs are verified rather than assumed. The protocol is applied by the
+agents that load this skill; the `agent-communication` tool validates a saved message against it on
+demand.
 
 ## Configuration
 
