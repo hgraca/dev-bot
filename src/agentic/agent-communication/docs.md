@@ -12,14 +12,8 @@ tracking, and delivery verification.
 ## What it does
 
 Every agent message ends with exactly one terminal marker, so a caller always knows whether the
-work is done, blocked, or needs input:
-
-| Marker          | Meaning                                         |
-| --------------- | ----------------------------------------------- |
-| `[FINISHED]`    | Work genuinely complete                         |
-| `[BLOCKED]`     | Cannot proceed, external action needed          |
-| `[NEEDS_INPUT]` | Needs clarification from human or another agent |
-| `[PARTIAL]`     | Work incomplete, must resume                    |
+work is done, blocked, or needs input. The canonical marker set — definitions and semantics — is
+owned by the `devbot:agent-communication` skill; this page does not restate it.
 
 ## Protocol rules
 

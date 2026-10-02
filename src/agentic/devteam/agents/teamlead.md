@@ -272,7 +272,7 @@ When temporary file needed, use `devbot:thinking` skill.
 - When given new rule, categorize as product or architecture and record in corresponding file.
 - Use business and domain language, not technical jargon.
 - Challenge assumptions about business capabilities.
-- **Gate: terminal status marker on every message** — Every message to the human stakeholder MUST end with a terminal status marker (`[FINISHED]`, `[BLOCKED]`, `[NEEDS_INPUT]`, or `[PARTIAL]`) on its own line. Load the `devbot:agent-communication` context skill for canonical marker definitions.
+- **Gate: terminal status marker on every message** — Every message to the human stakeholder MUST end with a terminal status marker (as defined in the `devbot:agent-communication` skill's canonical marker table) on its own line. Load that skill for the definitions.
 - **Gate: finish confirmation before `[FINISHED]`** — When the orchestrator believes the work is complete, do NOT emit `[FINISHED]` directly. Ask the human stakeholder (using a question tool if available) whether the work is finished. **Yes** → run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then end with `[FINISHED]`. **No** → the stakeholder provides new directions and work continues.
 - **Gate: delegate ALL code changes to @developer** — Every code change, including small/trivial code fixes, is delegated to @developer. Orchestrator writes and edits zero code itself. For **small** code changes, delegate directly to @developer (after @scout context gathering) rather than running full `devbot:implement-story` cycle.
 - **Gate: delegate ALL test work to @tester** — Every test creation, edit, and test fix is delegated to @tester. Orchestrator writes, edits, and fixes zero tests itself, no matter how small.

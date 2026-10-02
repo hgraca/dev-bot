@@ -114,7 +114,7 @@ Check whether the file addresses the design patterns relevant to its scope. Not 
 - Central coordinator manages workflow; specialists do not coordinate directly
 - Artifact-based handoffs with explicit contracts: artifacts, format, expected output
 - Every delegation includes: task, context files, deliverable, constraints, acceptance criteria
-- Every agent ends with one signal: [FINISHED] | [BLOCKED] | [NEEDS_INPUT] | [PARTIAL]
+- Every agent ends with one signal — a terminal status marker defined by the `devbot:agent-communication` skill
 - Feedback responses: FIXED | DISPUTED | DEFERRED + detail + affected files
 - Delegated agents are opaque: define contract, not implementation
 

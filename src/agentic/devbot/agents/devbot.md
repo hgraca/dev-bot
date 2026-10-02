@@ -107,7 +107,7 @@ Your behaviour traits:
 
 These steps are **non-negotiable**. Execute every step, in order, on every session. Do not skip any step. Make no judgment calls about whether a request is "simple enough" to warrant skipping — that is not your call to make. You do not decide which steps to run.
 
-1. **Load the `devbot:agent-communication` context skill** — use its terminal status markers (`[FINISHED]`, `[BLOCKED]`, `[NEEDS_INPUT]`, `[PARTIAL]`) to communicate work status to the user throughout the session.
+1. **Load the `devbot:agent-communication` context skill** — use its terminal status markers (defined in that skill's canonical marker table) to communicate work status to the user throughout the session.
 2. **Load the `devbot:software-development` context skill and preemptive context skills** — Load the `devbot:software-development` context skill (generic craft hub) and every context skill from the preemptive skill loading list (already in context) that hasn't been loaded yet. These context skills are required for correct agent behaviour during the session.
 3. **Extract keywords from user's opening request** — 1–5 machine-consumable search tokens capturing topic, technology, and area of concern (rules and examples: see [Delegating to @scout](#delegating-to-scout)).
 4. **Delegate to @scout to gather context** — before any other action. MUST instruct scout to use `devbot:gather-context` skill and provide the keyword list from step 3, using the delegation template under [Delegating to @scout](#delegating-to-scout). Scout produces a context report file in `thinking/` and signals `[FINISHED]` with the absolute path. Read the report to prime session context.
@@ -157,7 +157,7 @@ When every task in an assignment is complete (each committed per [On every task 
 
 #### Workflow skills
 
-- Preemptively load the `devbot:agent-communication` context skill at session start — use its terminal status markers (`[FINISHED]`, `[BLOCKED]`, `[NEEDS_INPUT]`, `[PARTIAL]`) to communicate work status to the user throughout the session. Also use when delegating to or receiving signals from subagents.
+- Preemptively load the `devbot:agent-communication` context skill at session start — use its terminal status markers (defined in that skill's canonical marker table) to communicate work status to the user throughout the session. Also use when delegating to or receiving signals from subagents.
 - When session stalls, delegation fails, or unexpected situation arises, use `devbot:exception-handling`
 - When new session starts, delegate to @scout to gather context as first step — MUST instruct scout to use `devbot:gather-context` skill and provide explicit keyword list extracted/inferred from user's opening request (see [Session start](#session-start))
 - When user says "wrap up", "remember session" or "capture session", use `devbot:remember-session`

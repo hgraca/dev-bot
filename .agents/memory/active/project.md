@@ -104,7 +104,7 @@ Capabilities are strictly scoped (MUST/MUST NOT rules per agent file; auditors c
 
 ### Communication protocol
 
-Every assistant message ends with exactly one terminal marker (`devbot:agent-communication` skill): `[FINISHED]` (complete), `[BLOCKED]` (needs external action), `[NEEDS_INPUT]` (needs clarification), `[PARTIAL]` (incomplete, resume). Key rules: the primary agent runs `devbot:remember-session` and emits `[FINISHED]` only after the user confirms; the orchestrator verifies a subagent's deliverable exists on disk before accepting its `[FINISHED]`; the same subagent signalling `[PARTIAL]` twice escalates to the human.
+Every assistant message ends with exactly one terminal marker defined by the `devbot:agent-communication` skill (its canonical marker table is the single source of truth). Key rules: the primary agent runs `devbot:remember-session` and emits `[FINISHED]` only after the user confirms; the orchestrator verifies a subagent's deliverable exists on disk before accepting its `[FINISHED]`; the same subagent signalling `[PARTIAL]` twice escalates to the human.
 
 ### Development lifecycle
 
