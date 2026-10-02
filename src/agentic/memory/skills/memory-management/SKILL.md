@@ -42,7 +42,7 @@ Folders differ in git status — by design, not an oversight:
 
 Work items (`work/active/<…>/backlog.md`, `work/archive/<…>`) and every `thinking/` note are **local artifacts**: never `git add` or commit them, and never ask the user where they live or whether to commit them — that is settled. An artifact that must survive across machines belongs in `reference/` or `latent/`.
 
-Each `latent/` file is a standalone `.md` with YAML frontmatter (`date`, `keywords`, and optionally `see`). Body starts after frontmatter — no metadata in body.
+Each `latent/` file is a standalone `.md` with YAML frontmatter (`date`, `keywords`, and optionally `see`, `aliases`, `supersedes`, `superseded_by`). Body starts after frontmatter — no metadata in body.
 
 ## 2. Routing Table
 
@@ -123,6 +123,7 @@ If no technology bucket fits, use `learnings/`.
 
 - **Deduplication check before writing**: Before writing a new latent file, query existing memories using `search-memories` with 2–3 representative keywords from the finding. If an entry already covers the same learning (same topic + same conclusion), skip it — do not create a duplicate.
 - When a PDR has a related ADR (or vice versa), add the related file's path to the `see` frontmatter array in **both** files. Example: a PDR defining a product rule and an ADR specifying how to implement it should each list the other in their `see` arrays.
+- **Supersession is bidirectional**: when a newer note replaces an older one, set `supersedes:` on the newer note **and** `superseded_by:` plus a reader-visible body banner on the older note. The older note is the one a search hit lands on, so its warning must live in the body (frontmatter is stripped from `search-memories` output). Full format in §6 "Supersession and aliases".
 - Never write: secrets, API keys, passwords
 - Never write: files in vault root (only subfolders)
 - Never write: agent instructions outside `active/` expecting auto-load
@@ -151,17 +152,24 @@ Location: `latent/ADRs/` or `latent/PDRs/` inside the project vault.
 ---
 date: YYYY-MM-DD
 keywords: ["keyword1", "keyword2"]
+aliases: ["synonym", "alternate name"]
 see: ["PDRs/YYYYMMDDHHMMSS-related-decision.md", "ADRs/YYYYMMDDHHMMSS-related-adr.md"]
+supersedes: ["PDRs/YYYYMMDDHHMMSS-older-decision.md"]
+superseded_by: ["ADRs/YYYYMMDDHHMMSS-newer-decision.md"]
 ---
 
 ## <Decision title>
+
+> **Superseded by** `ADRs/YYYYMMDDHHMMSS-newer-decision.md` (YYYY-MM-DD).
 
 <One-paragraph description of the decision, what changed, why, and any constraints or caveats.>
 ```
 
 - `keywords`: 1–5 focused terms (tool names, concept names, domain terms). Always include the primary tools/domain as first keyword.
+- `aliases`: optional array of 1–5 synonyms, alternate names, or in-vault coinages that do not appear verbatim in the note — the words a future search might use instead (see §6 "Supersession and aliases").
 - `see`: optional array of paths relative to the `latent/` root pointing to related latent memories. Use to cross-link a PDR with the ADR that implements it, or an ADR with the PDR that motivated it. Omit the key when there are no related memories.
-- Body: single `##` heading + one prose paragraph. No sub-sections.
+- `supersedes` / `superseded_by`: optional bidirectional pointers set when one memory replaces another — see §6 "Supersession and aliases".
+- Body: single `##` heading + one prose paragraph. No sub-sections. On a superseded note the banner is the first line after the heading.
 
 ### global/<tech>/ — `keywords` frontmatter, single `##` body
 
@@ -171,20 +179,27 @@ Location: `storage/global-memories/<tech>/` (the shipped, tracked global knowled
 ---
 date: YYYY-MM-DD
 keywords: ["<tech>", "keyword2"]
+aliases: ["synonym", "alternate name"]
 trigger-on: ["<pattern-id-1>", "<pattern-id-2>"]
+supersedes: ["<tech>/YYYYMMDDHHMMSS-older-note.md"]
+superseded_by: ["<tech>/YYYYMMDDHHMMSS-newer-note.md"]
 ---
 
 ## <Title>
+
+> **Superseded by** `<tech>/YYYYMMDDHHMMSS-newer-note.md` (YYYY-MM-DD).
 
 <One-paragraph description of the lesson — what the trap/pattern/rule is, why it matters, and how to apply or avoid it. Self-contained: no references to other files needed to act on this.>
 ```
 
 - `keywords`: first keyword MUST be the bucket name (e.g. `"bun"`, `"argocd"`). 1–5 terms total.
+- `aliases`: optional array of 1–5 synonyms, alternate names, or coinages that do not appear verbatim in the note — the words a future search might use instead.
 - `trigger-on`: optional array of technology/pattern identifiers (NOT file paths — paths vary across projects). Use when the note describes a gotcha that should auto-surface during implementation whenever a task touches that technology. Identifiers should be stable pattern names: e.g. `"php-fpm-env-config"`, `"dockerfile-multi-stage"`, `"composer-allow-plugins"`. The orchestrator's `devbot:implement-story` Step 0 surface-keyword search matches these against the task's implementation surface keywords. See `devbot:implement-story` SKILL Step 0 for the matching procedure.
-- Body: single `##` heading + one prose paragraph. No sub-sections.
+- `supersedes` / `superseded_by`: optional bidirectional pointers set when one memory replaces another — see §6 "Supersession and aliases". Paths are relative to this store's root (`storage/global-memories/`).
+- Body: single `##` heading + one prose paragraph. No sub-sections. On a superseded note the banner is the first line after the heading.
 - **Do not** add `[[wikilinks]]` — global files are shared across projects and cannot reference project-specific notes.
 
-### learnings/ — `tags` frontmatter, `#` title, multiple `##` sections
+### learnings/ — `keywords` frontmatter, `#` title, multiple `##` sections
 
 Location: `latent/learnings/` inside the project vault. Use for lessons specific to this project's domain, architecture, or conventions.
 
@@ -192,15 +207,36 @@ Location: `latent/learnings/` inside the project vault. Use for lessons specific
 ---
 date: YYYY-MM-DD
 keywords: ["keyword1", "keyword2"]
+aliases: ["synonym", "alternate name"]
+supersedes: ["learnings/YYYYMMDDHHMMSS-older-lesson.md"]
+superseded_by: ["learnings/YYYYMMDDHHMMSS-newer-lesson.md"]
 ---
 
 # <Title>
+
+> **Superseded by** `learnings/YYYYMMDDHHMMSS-newer-lesson.md` (YYYY-MM-DD).
 
 <Body. Use multiple ## sections as needed. Be specific and actionable.>
 ```
 
 - `keywords`: 1–5 focused terms (tool names, concept names, domain terms). Always include the primary tools/domain as first keyword.
-- Body: single `##` heading + one prose paragraph. No sub-sections.
+- `aliases`: optional array of 1–5 synonyms, alternate names, or coinages that do not appear verbatim in the note — the words a future search might use instead.
+- `supersedes` / `superseded_by`: optional bidirectional pointers set when one memory replaces another — see §6 "Supersession and aliases".
+- Body: `#` title, then multiple `##` sections as needed. On a superseded note the banner is the first line after the title.
+
+### Supersession and aliases (all latent formats)
+
+**Supersession** — when a newer memory replaces an older one, link both directions and warn the reader:
+
+- On the **newer** note: `supersedes: ["<old path, relative to the store root>"]`.
+- On the **older** note: `superseded_by: ["<new path, relative to the store root>"]`.
+- On the **older** note, the first line of the body (immediately after the title heading) is a blockquote banner:
+  - full replacement: `> **Superseded by** <new path> (YYYY-MM-DD).`
+  - partial reversal: `> **Superseded in part by** <new path> (YYYY-MM-DD) — <what no longer holds>.`
+- The banner is load-bearing: `search-memories` strips frontmatter from everything it returns, so a `superseded_by:` key alone is invisible to the reader. The key exists for tooling and cross-reference integrity; the banner is what a human or agent actually sees.
+- For a cross-store link (a project note superseding a global note, or vice versa) use the path as it resolves from the referencing note's own store root.
+
+**Aliases** — `aliases:` is an optional array of 1–5 synonyms, alternate names, or in-vault coinages that do **not** appear verbatim in the note: the words a future search might use instead. Both memory engines are keyword/BM25 only, so a note is found only by words it (or its frontmatter) contains; `aliases` widens that surface.
 
 ### Entry quality rules (all formats)
 
@@ -210,7 +246,7 @@ keywords: ["keyword1", "keyword2"]
 
 ### Pruning (when global/<tech>/ or learnings/ exceeds 100 files)
 
-- Mark entries as `SUPERSEDED` (note the superseding file name) when newer entry replaces them
+- Mark entries as `SUPERSEDED` — `superseded_by:` frontmatter plus the body banner (see "Supersession and aliases" above) — when a newer entry replaces them
 - Delete superseded files after one more session
 - Review files older than 6 months for continued relevance
 - Only orchestrator or human stakeholder may remove files
