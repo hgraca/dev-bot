@@ -101,3 +101,16 @@ _wait_for_removal() {
   sleep 1
   assert [ -e "${PROJECT}/graphify-out/cache/ast/fresh.json" ]
 }
+
+@test "up.sh: self-heals the scope block and a placeholder graph when missing" {
+  mkdir -p "${PROJECT}/src"
+
+  run bash "${UP}" "${PROJECT}"
+  assert_success
+
+  assert [ -f "${PROJECT}/graphify-out/graph.json" ]
+  run grep -Fx '!src' "${PROJECT}/.graphifyignore"
+  assert_success
+  run grep -Fx '!/src' "${PROJECT}/.graphifyignore"
+  assert_failure
+}

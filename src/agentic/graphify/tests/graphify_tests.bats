@@ -31,6 +31,10 @@ EOF
 teardown() {
   rm -rf "${FAKE_BIN}"
   [[ -n "${SKILL_ROOT:-}" ]] && rm -rf "${SKILL_ROOT}" || true
+  if [[ -n "${SCOPE_PROJECT:-}" ]]; then
+    chmod -R u+w "${SCOPE_PROJECT}" 2>/dev/null || true
+    rm -rf "${SCOPE_PROJECT}" || true
+  fi
   return 0
 }
 
@@ -334,8 +338,15 @@ setup_init() {
   assert_success
   assert_output --partial "Restricting graphify index to src/"
   assert_output --partial "Created .graphifyignore"
-  # Verify the file was actually created
+  # Verify the file was actually created and the scope is enforced with the
+  # BARE negation form (the leading-slash form matches nothing on 0.8.35).
   [[ -f "$tmpdir/.graphifyignore" ]]
+  run grep -Fx '/*' "$tmpdir/.graphifyignore"
+  assert_success
+  run grep -Fx '!src' "$tmpdir/.graphifyignore"
+  assert_success
+  run grep -Fx '!/src' "$tmpdir/.graphifyignore"
+  assert_failure
 
   rm -rf "$tmpdir"
 }
@@ -358,8 +369,15 @@ setup_init() {
   assert_success
   assert_output --partial "Restricting graphify index to app/"
   assert_output --partial "Created .graphifyignore"
-  # Verify the file was actually created
+  # Verify the file was actually created and the scope is enforced with the
+  # BARE negation form (the leading-slash form matches nothing on 0.8.35).
   [[ -f "$tmpdir/.graphifyignore" ]]
+  run grep -Fx '/*' "$tmpdir/.graphifyignore"
+  assert_success
+  run grep -Fx '!app' "$tmpdir/.graphifyignore"
+  assert_success
+  run grep -Fx '!/app' "$tmpdir/.graphifyignore"
+  assert_failure
 
   rm -rf "$tmpdir"
 }
@@ -709,4 +727,198 @@ EOF
   run _graphify_relink_skill "${project}"
   assert_success
   [ "$(readlink "${project}/.agents/skills/devbot/graphify")" = "${SKILL_ROOT}/src/agentic/graphify/skills" ]
+}
+
+# ── Source scope helpers ──────────────────────────────────────────────────────
+# The scope must be a managed block in .graphifyignore using BARE negations:
+# graphify's parser matches `!/src` against nothing, so a leading-slash negation
+# silently indexes zero files. The block is terminal, so re-writing it can also
+# heal the truncated tails the retired git-hook writer left behind.
+
+setup_scope() {
+  # shellcheck source=../functions.sh
+  source "${MODULE_DIR}/functions.sh"
+  SCOPE_PROJECT="$(mktemp -d)"
+}
+
+@test "_graphify_detect_scope: src, app, both, none" {
+  setup_scope
+  mkdir -p "${SCOPE_PROJECT}/src"
+  run _graphify_detect_scope "${SCOPE_PROJECT}"
+  assert_output "src"
+
+  mkdir -p "${SCOPE_PROJECT}/app"
+  run _graphify_detect_scope "${SCOPE_PROJECT}"
+  assert_output "both"
+
+  rmdir "${SCOPE_PROJECT}/src"
+  run _graphify_detect_scope "${SCOPE_PROJECT}"
+  assert_output "app"
+
+  rmdir "${SCOPE_PROJECT}/app"
+  run _graphify_detect_scope "${SCOPE_PROJECT}"
+  assert_output "none"
+
+}
+
+@test "_graphify_write_source_scope: creates a bare-negation block for src" {
+  setup_scope
+  mkdir -p "${SCOPE_PROJECT}/src"
+
+  run _graphify_write_source_scope "${SCOPE_PROJECT}"
+  assert_success
+
+  run grep -Fx '/*' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+  run grep -Fx '!src' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+  run grep -Fx '!/src' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_failure
+
+}
+
+@test "_graphify_write_source_scope: indexes nothing when neither src nor app exists" {
+  setup_scope
+
+  run _graphify_write_source_scope "${SCOPE_PROJECT}"
+  assert_success
+
+  run grep -Fx '/*' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+  run grep -F '!src' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_failure
+  run grep -F '!app' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_failure
+
+  local expected=$'# ── SOURCE SCOPE (auto) ──\n# No src/ or app/ found — graphify indexes nothing; disable the module\n/*\n# ── END SOURCE SCOPE ──'
+  run cat "${SCOPE_PROJECT}/.graphifyignore"
+  assert_output "${expected}"
+}
+
+@test "_graphify_write_source_scope: re-includes both src and app when both exist" {
+  setup_scope
+  mkdir -p "${SCOPE_PROJECT}/src" "${SCOPE_PROJECT}/app"
+
+  run _graphify_write_source_scope "${SCOPE_PROJECT}"
+  assert_success
+
+  run grep -Fx '!src' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+  run grep -Fx '!app' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+
+  run grep -Fx '/*' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+}
+
+@test "_graphify_write_source_scope: preserves content before the block" {
+  setup_scope
+  mkdir -p "${SCOPE_PROJECT}/src"
+  printf '# custom head\ncomposer\n' > "${SCOPE_PROJECT}/.graphifyignore"
+
+  run _graphify_write_source_scope "${SCOPE_PROJECT}"
+  assert_success
+
+  run grep -Fx '# custom head' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+  run grep -Fx 'composer' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+  run grep -Fx '!src' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+
+}
+
+@test "_graphify_write_source_scope: replaces a broken block and drops its stray tail" {
+  setup_scope
+  mkdir -p "${SCOPE_PROJECT}/src"
+  {
+    printf '# custom head\n'
+    printf '# ── SOURCE SCOPE (auto) ──\n'
+    printf '# Index only src/\n/*\n!/src\n/src/graphify-out\n'
+    printf 'grap# ── # ── END SOURCE SCOP\n ──\n\n'
+  } > "${SCOPE_PROJECT}/.graphifyignore"
+
+  run _graphify_write_source_scope "${SCOPE_PROJECT}"
+  assert_success
+
+  run grep -Fx '# custom head' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+  run grep -Fx '!src' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+  run grep -F '!/src' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_failure
+  run grep -F 'grap#' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_failure
+  run grep -Fx ' ──' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_failure
+
+  # Exactly one managed block survives.
+  run grep -cF '── SOURCE SCOPE (auto) ──' "${SCOPE_PROJECT}/.graphifyignore"
+  assert_output "1"
+
+}
+
+@test "_graphify_write_source_scope: is idempotent" {
+  setup_scope
+  mkdir -p "${SCOPE_PROJECT}/src"
+  printf '# custom head\ncomposer\n' > "${SCOPE_PROJECT}/.graphifyignore"
+
+  _graphify_write_source_scope "${SCOPE_PROJECT}" >/dev/null
+  cp "${SCOPE_PROJECT}/.graphifyignore" "${SCOPE_PROJECT}/.first"
+  _graphify_write_source_scope "${SCOPE_PROJECT}" >/dev/null
+
+  run diff -q "${SCOPE_PROJECT}/.first" "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+
+}
+
+@test "_graphify_write_source_scope: is idempotent from a clean directory" {
+  setup_scope
+  mkdir -p "${SCOPE_PROJECT}/src"
+
+  # No pre-created .graphifyignore: run 1 takes the create path, run 2 the
+  # update path. Both must emit identical bytes.
+  _graphify_write_source_scope "${SCOPE_PROJECT}" >/dev/null
+  cp "${SCOPE_PROJECT}/.graphifyignore" "${SCOPE_PROJECT}/.first"
+  _graphify_write_source_scope "${SCOPE_PROJECT}" >/dev/null
+
+  run diff -q "${SCOPE_PROJECT}/.first" "${SCOPE_PROJECT}/.graphifyignore"
+  assert_success
+
+}
+
+@test "_graphify_write_source_scope: fails gracefully on a read-only project dir" {
+  [[ "${EUID}" -eq 0 ]] && skip "root bypasses directory permissions"
+  setup_scope
+  mkdir -p "${SCOPE_PROJECT}/src"
+  chmod 0555 "${SCOPE_PROJECT}"
+
+  run _graphify_write_source_scope "${SCOPE_PROJECT}"
+  assert_failure
+
+  chmod 0755 "${SCOPE_PROJECT}"
+}
+
+@test "_graphify_ensure_placeholder_graph: writes an empty graph when missing" {
+  setup_scope
+
+  run _graphify_ensure_placeholder_graph "${SCOPE_PROJECT}"
+  assert_success
+
+  run cat "${SCOPE_PROJECT}/graphify-out/graph.json"
+  assert_output '{"directed": true, "multigraph": false, "graph": {}, "nodes": [], "links": []}'
+
+}
+
+@test "_graphify_ensure_placeholder_graph: leaves an existing graph untouched" {
+  setup_scope
+  mkdir -p "${SCOPE_PROJECT}/graphify-out"
+  printf '{"nodes":[1]}\n' > "${SCOPE_PROJECT}/graphify-out/graph.json"
+
+  run _graphify_ensure_placeholder_graph "${SCOPE_PROJECT}"
+  assert_success
+
+  run cat "${SCOPE_PROJECT}/graphify-out/graph.json"
+  assert_output '{"nodes":[1]}'
+
 }

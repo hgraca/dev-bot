@@ -33,6 +33,13 @@ _prune_cache_in_background() {
 
 main() {
   _info "graphify — up"
+  # Self-heal the scope block and the placeholder graph, so a project whose
+  # graphify-out was reset still starts its MCP server on the next launch.
+  if [[ -n "${PROJECT_DIR}" ]]; then
+    _graphify_write_source_scope "${PROJECT_DIR}" \
+      || _warn "graphify scope: could not update .graphifyignore"
+    _graphify_ensure_placeholder_graph "${PROJECT_DIR}"
+  fi
   _prune_cache_in_background
   _ok "graphify up complete"
 }

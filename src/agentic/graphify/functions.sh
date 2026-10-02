@@ -183,6 +183,123 @@ _graphify_log_skill_result() {
   esac
 }
 
+# ── Source scope ─────────────────────────────────────────────────────────────
+# Graphify must index only code under src/ and/or app/, never the project root.
+# The scope is carried by a managed block in .graphifyignore (gitignore syntax).
+# Negations must be BARE (`!src`, not `!/src`): graphify's parser matches the
+# leading-slash form against nothing, re-including zero files (#945 semantics).
+# The block is terminal — everything from its opening marker to EOF is managed,
+# which also heals the truncated/stray tails left by the retired git-hook writer.
+
+# _graphify_detect_scope <project_dir> — print src | app | both | none.
+_graphify_detect_scope() {
+  local dir="$1" has_src=0 has_app=0
+  [[ -d "${dir}/src" ]] && has_src=1
+  [[ -d "${dir}/app" ]] && has_app=1
+  if (( has_src == 1 && has_app == 1 )); then
+    printf 'both\n'
+  elif (( has_src == 1 )); then
+    printf 'src\n'
+  elif (( has_app == 1 )); then
+    printf 'app\n'
+  else
+    printf 'none\n'
+  fi
+}
+
+# _graphify_scope_block <scope> — print the managed SOURCE SCOPE block.
+_graphify_scope_block() {
+  local scope="$1"
+  printf '%s\n' "# ── SOURCE SCOPE (auto) ──"
+  case "${scope}" in
+    src)  printf '%s\n' "# Index only src/ — exclude everything else at root level" "/*" "!src" ;;
+    app)  printf '%s\n' "# Index only app/ — exclude everything else at root level" "/*" "!app" ;;
+    both) printf '%s\n' "# Index only src/ and app/ — exclude everything else at root level" "/*" "!src" "!app" ;;
+    *)    printf '%s\n' "# No src/ or app/ found — graphify indexes nothing; disable the module" "/*" ;;
+  esac
+  printf '%s\n' "# ── END SOURCE SCOPE ──"
+}
+
+# Deliberately not reusing the shared section helper: that preserves content
+# after the block and cannot heal a missing END marker.
+# _graphify_write_source_scope <project_dir> — upsert the managed SOURCE SCOPE
+# block in <project_dir>/.graphifyignore, preserving all content before it.
+# The block is terminal: everything from its opening marker to EOF is managed,
+# so custom patterns must live above it. Idempotent: re-running leaves the file
+# byte-identical.
+_graphify_write_source_scope() {
+  local dir="$1"
+  local ignore="${dir}/.graphifyignore"
+  local scope block tmp trimmed
+  scope="$(_graphify_detect_scope "${dir}")"
+  block="$(_graphify_scope_block "${scope}")"
+
+  if [[ ! -f "${ignore}" ]]; then
+    printf '%s\n' "${block}" > "${ignore}" || return 1
+    _log "graphify scope: ${scope} → created .graphifyignore"
+    return 0
+  fi
+
+  tmp="${ignore}.tmp.$$"
+  trimmed="${ignore}.trim.$$"
+
+  # Match an ASCII-stable substring: BSD awk on macOS handles multibyte regexes
+  # inconsistently, and the marker's `──` decoration is not load-bearing.
+  if ! awk '
+    index($0, "SOURCE SCOPE (auto)") { exit }
+    { lines[NR] = $0; last = NR }
+    END { for (i = 1; i <= last; i++) print lines[i] }
+  ' "${ignore}" > "${tmp}"; then
+    rm -f "${tmp}" "${trimmed}"
+    return 1
+  fi
+
+  # Trim trailing blank lines so the append is position-independent.
+  if ! awk 'NF { last = NR } { l[NR] = $0 } END { for (i = 1; i <= last; i++) print l[i] }' \
+    "${tmp}" > "${trimmed}"; then
+    rm -f "${tmp}" "${trimmed}"
+    return 1
+  fi
+
+  if ! mv "${trimmed}" "${tmp}"; then
+    rm -f "${tmp}" "${trimmed}"
+    return 1
+  fi
+
+  # Emit the same bytes as the create path when there was no prior content, so a
+  # first `up.sh` run (file absent) and a re-run are byte-identical.
+  if [[ -s "${tmp}" ]]; then
+    printf '\n' >> "${tmp}" || { rm -f "${tmp}"; return 1; }
+  fi
+  if ! printf '%s\n' "${block}" >> "${tmp}"; then
+    rm -f "${tmp}"
+    return 1
+  fi
+
+  if ! mv "${tmp}" "${ignore}"; then
+    rm -f "${tmp}"
+    return 1
+  fi
+
+  _log "graphify scope: ${scope} → updated .graphifyignore"
+  return 0
+}
+
+# _graphify_ensure_placeholder_graph <project_dir> — write the empty graph.json
+# graphify's MCP server needs to start when no build has run yet.
+_graphify_ensure_placeholder_graph() {
+  local dir="$1"
+  [[ -n "${dir}" ]] || return 0
+  local out="${dir}/graphify-out"
+  mkdir -p "${out}" 2>/dev/null || return 0
+  if [[ ! -f "${out}/graph.json" ]]; then
+    printf '%s\n' '{"directed": true, "multigraph": false, "graph": {}, "nodes": [], "links": []}' \
+      > "${out}/graph.json" 2>/dev/null || return 0
+    _log "graphify: wrote placeholder graph.json"
+  fi
+  return 0
+}
+
 # _graphify_relink_skill <project_dir> — point the project's skills-farm entry at
 # the generated skill dir when it is sentinel-marked, else at the committed
 # fallback. Mirrors _link_skills' preference and restores the fallback when

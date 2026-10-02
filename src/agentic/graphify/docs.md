@@ -35,6 +35,20 @@ Uses Ollama embeddings for semantic understanding. No cloud API calls.
 
 No project configuration is required.
 
+Graphify indexes only `src/` and/or `app/` — never the project root. The scope is
+enforced by a managed `SOURCE SCOPE` block in the project's `.graphifyignore`,
+written on `devbot init`/`reinit` and re-applied on `devbot up`. A project with
+neither directory indexes nothing, so disable the module there (`"graphify": false`
+in `.devbot.project.jsonc`). The negations are bare (`!src`): graphify's parser
+matches the leading-slash form (`!/src`) against nothing, silently indexing zero
+files.
+
+The block is terminal — everything from its `SOURCE SCOPE (auto)` marker to the
+end of the file is managed, so hand-written patterns belong above it.
+
+When `graphify-out/graph.json` is missing, `init`/`up` write an empty placeholder
+graph so the MCP server can start before the first build.
+
 The AST cache under `graphify-out/cache` is pruned on `devbot up` — entries not
 modified in more than **7 days** are removed. Override the retention window with
 the `GRAPHIFY_CACHE_MAX_AGE_DAYS` environment variable (e.g.

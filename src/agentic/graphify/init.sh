@@ -223,16 +223,17 @@ if [[ ! -f ".graphifyignore" ]]; then
 fi
 
 # ── Determine source scope ────────────────────────────────────────────────────
-if [[ -d "src" ]]; then
-  _GRAPHIFY_SRC="src"
-  _log "Restricting graphify index to src/"
-elif [[ -d "app" ]]; then
-  _GRAPHIFY_SRC="app"
-  _log "Restricting graphify index to app/"
-else
-  _GRAPHIFY_SRC="."
-  _log "No src/ or app/ found — indexing project root"
-fi
+# The scope lives in .graphifyignore — the only thing that constrains the scan.
+# It cannot be a `graphify update <path>` argument: that moves the output dir.
+_GRAPHIFY_SCOPE="$(_graphify_detect_scope "${PROJECT_DIR}")"
+_graphify_write_source_scope "${PROJECT_DIR}" \
+  || _warn "graphify scope: could not update .graphifyignore"
+case "${_GRAPHIFY_SCOPE}" in
+  src)  _GRAPHIFY_SCOPE_LABEL="src/"; _log "Restricting graphify index to src/" ;;
+  app)  _GRAPHIFY_SCOPE_LABEL="app/"; _log "Restricting graphify index to app/" ;;
+  both) _GRAPHIFY_SCOPE_LABEL="src/ and app/"; _log "Restricting graphify index to src/ and app/" ;;
+  *)    _GRAPHIFY_SCOPE_LABEL="nothing"; _warn "No src/ or app/ found — graphify will index nothing (disable the module)" ;;
+esac
 
 # ── Build initial knowledge graph ────────────────────────────────────────────
 cd "${PROJECT_DIR}"
@@ -241,15 +242,11 @@ if [[ -f "graphify-out/graph.json" ]]; then
   _skip "Graph already built"
 else
   DATE_STR=$(date '+%d %b %Y, %H:%M')
-  _info "${DATE_STR} — Starting background knowledge graph build (indexing ${_GRAPHIFY_SRC}/)..."
-  mkdir -p "graphify-out"
-
-  # Write a dummy empty graph so the graphify MCP server can start immediately
-  # instead of blocking for the ~1min build (opencode times out first). The
-  # server hot-reloads graph.json when `graphify update` overwrites it.
-  cat > "graphify-out/graph.json" <<'JSON'
-{"directed": true, "multigraph": false, "graph": {}, "nodes": [], "links": []}
-JSON
+  _info "${DATE_STR} — Starting background knowledge graph build (indexing ${_GRAPHIFY_SCOPE_LABEL})..."
+  # Placeholder so the graphify MCP server can start immediately instead of
+  # blocking for the ~1min build (opencode times out first). The server
+  # hot-reloads graph.json when `graphify update` overwrites it.
+  _graphify_ensure_placeholder_graph "${PROJECT_DIR}"
 
   nohup graphify update . > "graphify-out/init.log" 2>&1 &
   _ok "Graph build started in background — output: graphify-out/init.log"
