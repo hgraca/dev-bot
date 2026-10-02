@@ -53,7 +53,11 @@ introspect with SQL (or, on MongoDB, with a pipeline):
 
 **One instance often holds many databases.** When a datasource has no default
 schema there is nothing to `USE`, so qualify names — `SELECT ... FROM
-otherdb.sometable`. A bare table name will fail.
+otherdb.sometable`. A bare table name fails with `Error 1046 (3D000): No
+database selected`; that error means the connection has no default schema, not
+that the table is missing. Either set `MYSQL_DATABASE` on the datasource to give
+it a default schema, or qualify every reference — a `USE` issued in one
+`execute_sql` call does not carry to the next.
 
 ## Writes are not blocked — the credential is the only barrier
 
