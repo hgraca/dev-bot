@@ -27,12 +27,12 @@ Inspects one or more directories and returns the full directory tree (all subfol
 ## How to Call
 
 ```
-tree paths="<dir>"
+tree args=["<dir>"]
 ```
 
-| Parameter | Required | Description                                                                                                                                            |
-| --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `paths`   | yes      | One or more directory paths. Accepts a single path (`src`), JSON array (`["src","lib"]`), comma-separated (`src,lib`), or space-separated (`src lib`). |
+| Parameter | Required | Description                                                                                                                                  |
+| --------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `args`    | yes      | CLI args, in order: optional flags (`--markdown` / `--json` / `--format <fmt>`, `--max-depth <n>` / `-L <n>`), then one or more directories. |
 
 No other parameters.
 
@@ -53,13 +53,13 @@ When multiple directories are given, each directory produces its own `## Tree st
 Run `devbot:tree` first instead of guessing file names. The full layout often reveals files you did not know existed — config files, READMEs, entry points.
 
 ```
-tree paths="src/components"
+tree args=["src/components"]
 ```
 
 → Shows all components at once: `index.ts`, `types.ts`, `utils/` alongside the component files.
 
 ```
-tree paths='["src/","tests/"]'
+tree args=["src/","tests/"]
 ```
 
 → Multiple `## Tree structure` sections, one per directory.
@@ -78,12 +78,12 @@ Run `devbot:tree` on each top-level directory to build a mental model of where e
 | --------------------------------------------- | ------------------------------------------ |
 | Shows structure only, not contents            | Use **Read** for contents                  |
 | No pattern filtering                          | Use **Glob** for `**/*.ts` matching        |
-| Large directories (10k+ entries) may truncate | Narrow scope: `tree paths="src/specific/"` |
+| Large directories (10k+ entries) may truncate | Narrow scope: `tree args=["-L","2","src"]` |
 
 ## Examples
 
 ```
-tree paths="src/auth"
+tree args=["src/auth"]
 ```
 
 Produces:
@@ -100,7 +100,7 @@ src/auth/
 ````
 
 ```
-tree paths='["src/","config/"]'
+tree args=["src/","config/"]
 ```
 
 Produces two `## Tree structure` sections — one for `src/`, one for `config/`.
