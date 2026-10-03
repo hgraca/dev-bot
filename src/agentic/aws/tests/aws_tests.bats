@@ -749,3 +749,64 @@ EOF
   assert_success
   assert_output --partial "proxy present"
 }
+
+# ── pre.sh — prerequisite classification ──────────────────────────────────────
+#
+# A prereq this module's install.sh/update.sh provisions is a NOTICE before the
+# first install (not a failure); a manual prereq (curl/wget) is a fatal ERROR.
+
+# Symlink the shell utilities pre.sh (and the functions.sh it sources) need, so
+# a PATH built only from this dir cannot fall through to the host's real
+# unzip/uv/aws — the classification paths must be reachable deterministically.
+_pre_bin_dir() {
+  mkdir -p "$TMP/pre-bin"
+  local real
+  for real in bash dirname head; do
+    ln -sf "$(command -v "$real")" "$TMP/pre-bin/$real"
+  done
+}
+
+@test "pre.sh: notices module-provisioned prereqs and continues" {
+  _pre_bin_dir
+  mkdir -p "$TMP/home"
+  # curl + jq present; unzip/uv/proxy/aws absent (install/update provides them).
+  local c
+  for c in curl jq; do
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/pre-bin/$c"
+    chmod +x "$TMP/pre-bin/$c"
+  done
+
+  run env HOME="$TMP/home" PATH="$TMP/pre-bin" bash "$MODULE_DIR/pre.sh"
+  assert_success
+  assert_output --partial "NOTICE"
+  assert_output --partial "will install it"
+  refute_output --partial "ERROR"
+}
+
+@test "pre.sh: errors when a manual prereq (curl/wget) is missing" {
+  _pre_bin_dir
+  mkdir -p "$TMP/home"
+
+  run env HOME="$TMP/home" PATH="$TMP/pre-bin" bash "$MODULE_DIR/pre.sh"
+  assert_failure
+  assert_output --partial "ERROR"
+  assert_output --partial "curl nor wget"
+}
+
+@test "pre.sh: all prereqs present reports ok, no notice" {
+  _pre_bin_dir
+  mkdir -p "$TMP/home"
+  local c
+  for c in curl jq unzip uv mcp-proxy-for-aws-cli; do
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$TMP/pre-bin/$c"
+    chmod +x "$TMP/pre-bin/$c"
+  done
+  # pre.sh pipes `aws --version` to head, so the fake must print a line.
+  printf '#!/usr/bin/env bash\necho "aws-cli/2.0.0"\n' > "$TMP/pre-bin/aws"
+  chmod +x "$TMP/pre-bin/aws"
+
+  run env HOME="$TMP/home" PATH="$TMP/pre-bin" bash "$MODULE_DIR/pre.sh"
+  assert_success
+  refute_output --partial "NOTICE"
+  refute_output --partial "ERROR"
+}

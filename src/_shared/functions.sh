@@ -1145,6 +1145,38 @@ _upsert_opencode_plugin() {
   ' "$jsonc_file" > "$tmp" && mv "$tmp" "$jsonc_file"
 }
 
+# ── Module prerequisite reporting ────────────────────────────────────────────────
+#
+# A module's pre.sh classifies each prerequisite by who can provide it:
+#
+#   - The module's own install.sh/update.sh provisions it (aws: unzip, uv, the
+#     MCP proxy, the aws CLI). Missing before the first install is expected, so
+#     it is a NOTICE that install/update will install it — never a failure.
+#   - Only the user's machine can provide it (curl/wget, docker, npx, a language
+#     runtime). Missing is fatal: the module cannot run and init/update cannot
+#     fix it, so _prereq_manual stops the script with an ERROR.
+#
+# Optional tools (a verification step that degrades) stay _info, not an error.
+
+_prereq_module_installed() {
+  local tool="$1" label="$2"
+  if command -v "${tool}" &>/dev/null; then
+    _ok "${label}"
+  else
+    _notice "${tool} not found — 'devbot install'/'devbot update' will install it"
+  fi
+}
+
+_prereq_manual() {
+  local tool="$1" label="$2"
+  if command -v "${tool}" &>/dev/null; then
+    _ok "${label}"
+  else
+    _error "${tool} is required but not installed — install it manually, then re-run"
+    return 1
+  fi
+}
+
 # ── Module prerequisites ─────────────────────────────────────────────────────────
 #
 # _run_module_prereqs
