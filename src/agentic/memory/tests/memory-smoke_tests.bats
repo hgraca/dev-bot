@@ -79,6 +79,30 @@ setup() {
   rm -rf "$tmpdir"
 }
 
+@test "init.sh: re-run preserves curated content without a cp -n portability warning" {
+  local tmpdir
+  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+
+  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  assert_success
+
+  local vault="$tmpdir/.agents/memory"
+  printf 'curated per-project content\n' > "$vault/active/memory.md"
+
+  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  assert_success
+
+  # audit-80 N6: `cp -n` is non-portable and warns on some coreutils.
+  refute_output --partial "non-portable"
+
+  run cat "$vault/active/memory.md"
+  assert_output "curated per-project content"
+  # A nested template file inside an existing dir is still seeded.
+  [[ -f "$vault/work/todo/.gitkeep" ]] || fail "nested .gitkeep missing after re-run"
+
+  rm -rf "$tmpdir"
+}
+
 # ── audit-25 F6: global memory store wiring ───────────────────────────────────
 # The global store was unreachable on a fresh macOS install: no
 # .agents/memory/latent/global symlink and no QMD collection. The scaffold
