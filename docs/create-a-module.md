@@ -113,7 +113,7 @@ Declare the MCP server(s) once in a canonical, harness-agnostic `mcp.json` — b
 }
 ```
 
-Enabling/disabling the module is the main gate. A server can also declare `"enabled": false` to ship **wired but not started** (the manifest entry below would become `"enabled": false,` right after `type`) — opencode honors it; claudecode drops the key, since `.mcp.json` has no per-server on/off. If the module's integration with a harness is plugin-based (like codebase-index on opencode), declare it in `plugin.opencode.json` instead — the opencode registration adapter skips plugin-provided servers to avoid double-loading.
+Enabling/disabling the module is the main gate. A server can also declare `"enabled": false` to ship **wired but not started** (the manifest entry below would become `"enabled": false,` right after `type`) — opencode registers it but does not start it; claudecode omits the server entirely, since `.mcp.json` has no per-server on/off. If the module's integration with a harness is plugin-based (like codebase-index on opencode), declare it in `plugin.opencode.json` instead — the opencode registration adapter skips plugin-provided servers to avoid double-loading.
 
 ### Documentation (`docs.md`)
 

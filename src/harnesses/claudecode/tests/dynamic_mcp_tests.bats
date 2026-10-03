@@ -99,10 +99,11 @@ print('DYN-CC-MCP:OK')
   _assert_mcp present
 }
 
-@test "canonical enabled:false stays wired on claudecode, with the key dropped" {
+@test "canonical enabled:false servers are not wired on claudecode" {
   # .mcp.json has no per-server on/off (an `enabled` key in it is ignored
-  # upstream), so a manifest marking a server disabled must NOT leak the key —
-  # the server stays wired and enabled on this harness.
+  # upstream), so claudecode omits a disabled server entirely rather than
+  # wiring it enabled — the same end state opencode reaches by registering it
+  # but never starting it (audit-76: a wired-enabled signoz failed to connect).
   _write_project_config true
 
   run bash "${INIT_SCRIPT}" "${SANDBOX_DIR}"
@@ -111,14 +112,12 @@ print('DYN-CC-MCP:OK')
   run python3 -c "
 import json
 servers = json.load(open('${SANDBOX_DIR}/.mcp.json'))['mcpServers']
-for name in ('chrome-devtools', 'playwright', 'signoz'):
-    entry = servers.get(name)
-    assert entry is not None, (name, sorted(servers))
-    assert 'enabled' not in entry, (name, entry)
-print('CC-ENABLED-DROPPED:OK')
+for name in ('atlassian', 'chrome-devtools', 'playwright', 'signoz'):
+    assert name not in servers, (name, sorted(servers))
+print('CC-DISABLED-OMITTED:OK')
 "
   assert_success
-  grep -qF 'CC-ENABLED-DROPPED:OK' <<< "$output" || fail ".mcp.json carries enabled or is missing a server"
+  grep -qF 'CC-DISABLED-OMITTED:OK' <<< "$output" || fail "a disabled server leaked into .mcp.json"
 }
 
 @test "dynamic MCP: the enabled gate is not written into .mcp.json" {

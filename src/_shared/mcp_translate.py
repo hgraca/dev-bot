@@ -21,10 +21,12 @@ Canonical module manifest (src/agentic/<module>/mcp.json):
 
 `enabled` (optional, defaults to true) ships a server wired but not started, so
 a module can declare a heavy or optional server off by default without forcing
-the user to disable the whole module. It is honored by opencode only: Claude
-Code's `.mcp.json` has no per-server on/off — an `enabled` key in it is ignored
-upstream — so the translator DROPS the key for claudecode, and that harness
-wires the server enabled.
+the user to disable the whole module. opencode honors it as
+`mcp.<name>.enabled: false`. Claude Code's `.mcp.json` has no per-server on/off
+— an `enabled` key in it is ignored upstream — so claudecode's caller
+(`harnesses/claudecode/init.sh:_wire_mcp`) OMITS `enabled: false` servers rather
+than translating them, matching opencode's not-started end state. This
+translator DROPS the key either way, since it is not a Claude Code field.
 
 Tokens resolved at translation time:
   {harness-dir}  -> .opencode | .claude   (wrapper/serve-script paths)
@@ -270,9 +272,10 @@ def translate(
             }
         return out
 
-    # claudecode. `enabled` is deliberately dropped: .mcp.json has no per-server
-    # on/off — an `enabled` key in it is ignored upstream — so a server the
-    # canonical manifest marks disabled stays wired (enabled) on this harness.
+    # claudecode. `enabled` is dropped: .mcp.json has no per-server on/off — an
+    # `enabled` key in it is ignored upstream. The caller skips `enabled: false`
+    # servers before reaching here, so the dropped key only appears on servers
+    # that are being wired enabled anyway.
     if transport == "stdio":
         argv = _substitute(entry["command"], harness, gpu, root)
         out = {"type": "stdio", "command": argv[0]}

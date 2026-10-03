@@ -394,10 +394,12 @@ assert_json_eq() {
   assert_json_eq "$output" '{"chrome-devtools": {"type": "local", "command": ["bash", "-c", "exec bash .opencode/chrome-devtools-serve.mcp.sh"], "enabled": false}}'
 }
 
-@test "claudecode drops enabled (no per-server flag in .mcp.json)" {
-  # Claude Code has no per-server on/off in .mcp.json — an `enabled` key there
-  # is ignored upstream, so writing it would leave the server running while the
-  # config claims otherwise. The translator must never emit it.
+@test "translator: claudecode output drops enabled (translator-level)" {
+  # Translator-only: it never emits `enabled` for claudecode (Claude Code has no
+  # per-server on/off in .mcp.json, so writing the key would claim a state the
+  # client ignores). The HARNESS wiring additionally OMITS an `enabled: false`
+  # server from .mcp.json entirely — that end state is asserted in
+  # dynamic_mcp_tests.bats, not here.
   run python3 "$TOOL" "$WORK/enabled-false.json" claudecode
   assert_success
   refute_output --partial "enabled"

@@ -261,11 +261,11 @@ _link_plugins_modules() {
 # ── Wire MCP servers from agentic modules ───────────────────────────────────
 # Translates each module's canonical mcp.json to the claudecode shape
 # (mcp_translate.py) and regenerates .mcp.json from scratch. Skips disabled
-# modules (same pattern as _link_modules). There is no per-server enablement:
-# an enabled module's servers are always wired.
+# modules (same pattern as _link_modules) and any server a manifest marks
+# `enabled: false`: .mcp.json has no per-server on/off, so the server is
+# omitted, matching opencode's registered-but-not-started end state.
 _wire_mcp() {
   local config="${PROJECT_DIR}/.mcp.json"
-  local merged=0
   local tmp_servers="/tmp/devbot-claudecode-mcp-$$.json"
   local shared_dir="${DEV_BOT_ROOT}/src/_shared"
   echo '{}' > "${tmp_servers}"
@@ -303,6 +303,33 @@ _wire_mcp() {
       continue
     fi
 
+    # A canonical manifest marks a server `enabled: false` to ship it wired but
+    # not started. `.mcp.json` has no per-server on/off, so a disabled server is
+    # omitted entirely — the same end state opencode reaches by not starting it
+    # (audit-76: signoz stayed wired enabled here and failed to connect).
+    local total enabled_count disabled_names
+    read -r total enabled_count disabled_names < <(python3 -c '
+import sys
+sys.path.insert(0, sys.argv[2])
+from mcp_translate import load_canonical, server_map
+entries = server_map(load_canonical(sys.argv[1]))
+enabled = [n for n, e in entries.items() if e.get("enabled", True)]
+disabled = [n for n, e in entries.items() if not e.get("enabled", True)]
+print(len(entries), len(enabled), ",".join(disabled))
+' "${mcp_file}" "${shared_dir}" 2>/dev/null || echo "1 1") || true
+    total="${total:-1}"; enabled_count="${enabled_count:-1}"
+    if [[ "${total}" -eq 0 ]]; then
+      _skip "${mod_name}: no MCP servers declared"
+      continue
+    fi
+    if [[ "${enabled_count}" -eq 0 ]]; then
+      _skip "${mod_name}: all MCP servers disabled (${disabled_names}) — not wired"
+      continue
+    fi
+    if [[ -n "${disabled_names:-}" ]]; then
+      _notice "${mod_name}: disabled server(s) not wired: ${disabled_names}"
+    fi
+
     # Translate the canonical manifest and merge its servers into tmp_servers.
     # __GPU_ENABLED__ / __DEV_BOT_ROOT__ resolve here (the claudecode side now
     # carries the same env as opencode). {env:VAR} values stay unresolved — the
@@ -323,6 +350,8 @@ with open(tmp_servers) as f:
     current = json.load(f)
 
 for name, entry in server_map(load_canonical(mcp_file)).items():
+    if not entry.get("enabled", True):
+        continue
     current[name] = translate(entry, "claudecode", gpu=gpu, root=root)
 
 with open(tmp_servers, "w") as f:
@@ -334,7 +363,6 @@ PY_EOF
     fi
 
     _ok "${mod_name}: MCP registered"
-    merged=$((merged + 1))
   done
 
   # Dynamic manifests written by module inits (e.g. jetbrains detects the
@@ -366,7 +394,6 @@ for name, entry in new_mcp.get('mcpServers', {}).items():
 with open('${tmp_servers}', 'w') as f:
     json.dump(current, f)
 " 2>/dev/null
-    merged=$((merged + 1))
   done
 
   # Validate transport types — Claude Code validates .mcp.json against a strict
@@ -398,10 +425,10 @@ for line in dropped:
     done <<< "${invalid_servers}"
   fi
 
-  # Write .mcp.json
-  if [[ ${merged} -gt 0 ]]; then
-    local server_count
-    server_count=$(python3 -c "
+  # Write .mcp.json (always — regenerated from scratch, so a config whose
+  # servers all disappeared is cleared rather than left stale).
+  local server_count
+  server_count=$(python3 -c "
 import json
 with open('${tmp_servers}') as f:
     servers = json.load(f)
@@ -410,8 +437,7 @@ with open('${config}', 'w') as f:
     f.write('\n')
 print(len(servers))
 " 2>/dev/null)
-    _ok ".mcp.json written with ${server_count} MCP server(s)"
-  fi
+  _ok ".mcp.json written with ${server_count} MCP server(s)"
 
   rm -f "${tmp_servers}"
 }

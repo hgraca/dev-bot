@@ -49,14 +49,14 @@ LSP servers are the other per-instance cost — see [Harnesses](/harnesses#runti
 
 ## Per-server enablement
 
-A server entry may carry `"enabled": false`. The server is still **registered** in the harness config — the flag means "wired, do not start yet" — so turning it on is a config edit, not a re-run of `devbot init`.
+In opencode a server entry may carry `"enabled": false`: the server is still **registered** there — the flag means "wired, do not start yet" — so turning it on is a config edit, not a re-run of `devbot init`. claudecode has no such per-server state and omits the server instead (see the table below).
 
-| Harness    | What `enabled: false` does                                                                                                                                                                                                                                                                                                                                          |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| opencode   | Emitted as `mcp.<name>.enabled: false` in `opencode.jsonc` — registered but not started. Flip it to `true` (or toggle it in the harness) and restart; opencode reads its config once at startup.                                                                                                                                                                    |
-| claudecode | **Ignored.** The translator drops the key and the server stays wired enabled. `.mcp.json` has no per-server on/off, and Claude Code itself ignores a `disabled`/`enabled` key in it, so writing one would only claim a state the client does not honor. Its real levers are a hard reject (`disabledMcpjsonServers`) or per-project user state (the `/mcp` toggle). |
+| Harness    | What `enabled: false` does                                                                                                                                                                                                                                                                |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| opencode   | Emitted as `mcp.<name>.enabled: false` in `opencode.jsonc` — registered but not started. Flip it to `true` (or toggle it in the harness) and restart; opencode reads its config once at startup.                                                                                          |
+| claudecode | **Not wired.** The server is omitted from `.mcp.json` — it has no per-server on/off, and Claude Code ignores a `disabled`/`enabled` key in it, so a disabled server is simply not registered. This matches opencode's end state (registered but not started): no process, no tool schema. |
 
-Seven servers ship disabled by default — `atlassian`, `chrome-devtools`, `playwright`, `sentry`, `signoz`, the per-datasource `datasources-<name>` gateways, and `jetbrains` (`atlassian` and `sentry` as opt-in modules, absent entirely until enabled). On opencode that keeps ~10k tokens of tool schema and one process per server out of a session that never uses them; on Claude Code they are simply always on, the accepted cost of that harness having no per-server switch.
+Seven servers ship disabled by default — `atlassian`, `chrome-devtools`, `playwright`, `sentry`, `signoz`, the per-datasource `datasources-<name>` gateways, and `jetbrains` (`atlassian` and `sentry` as opt-in modules, absent entirely until enabled). On both harnesses they are inert: opencode registers each but does not start it, and Claude Code does not receive it at all — so neither pays tool-schema tokens or a process for a server a session never uses.
 
 `enabled` is optional and defaults to **true** — a manifest that omits it is wired and started exactly as before. Declare it only to opt out. To switch one on, set its `enabled` to `true` in the generated `opencode.jsonc` entry (or toggle it in the harness) and restart.
 
@@ -162,15 +162,15 @@ If the container is not running the server is simply unavailable; there is no st
 }
 ```
 
-| Field     | Required | Meaning                                                                                                                                                                            |
-| --------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`    | yes      | Transport: `stdio` (spawn a local command) or `http` (remote endpoint).                                                                                                            |
-| `command` | stdio    | Uniform argv array launching the server (claudecode splits `argv[0]`/`args`).                                                                                                      |
-| `url`     | http     | Remote MCP endpoint.                                                                                                                                                               |
-| `oauth`   | http     | Optional `false` to disable opencode's automatic OAuth detection.                                                                                                                  |
-| `enabled` | no       | `false` ships the server **wired but not started**. Honored by opencode only — claudecode drops the key (see [Per-server enablement](#per-server-enablement)). Defaults to `true`. |
-| `headers` | http     | Request headers for a remote server. An `{env:VAR}` token may be **embedded** here (see [Tokens and placeholders](#tokens-and-placeholders)).                                      |
-| `env`     | no       | Environment for the server process — single source of truth for both harnesses.                                                                                                    |
+| Field     | Required | Meaning                                                                                                                                                                               |
+| --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`    | yes      | Transport: `stdio` (spawn a local command) or `http` (remote endpoint).                                                                                                               |
+| `command` | stdio    | Uniform argv array launching the server (claudecode splits `argv[0]`/`args`).                                                                                                         |
+| `url`     | http     | Remote MCP endpoint.                                                                                                                                                                  |
+| `oauth`   | http     | Optional `false` to disable opencode's automatic OAuth detection.                                                                                                                     |
+| `enabled` | no       | `false` disables the server: opencode registers it **wired but not started**, claudecode omits it entirely (see [Per-server enablement](#per-server-enablement)). Defaults to `true`. |
+| `headers` | http     | Request headers for a remote server. An `{env:VAR}` token may be **embedded** here (see [Tokens and placeholders](#tokens-and-placeholders)).                                         |
+| `env`     | no       | Environment for the server process — single source of truth for both harnesses.                                                                                                       |
 
 Any other key (e.g. a leftover `environment`) fails translation loudly — a migration safety net. Keys starting with `_` are ignored (annotation convention, as in `hooks.json`).
 
@@ -208,13 +208,13 @@ The notice tells the user to add the vars to their shell profile (`~/.bashrc` or
 
 `mcp_translate.py` output shapes:
 
-| Canonical | opencode                                | claudecode                          |
-| --------- | --------------------------------------- | ----------------------------------- |
-| `stdio`   | `{type: local, command, environment}`   | `{type: stdio, command, args, env}` |
-| `http`    | `{type: remote, url, oauth?, headers?}` | `{type: http, url, headers?, env?}` |
-| `enabled` | carried when declared                   | dropped — no equivalent field       |
+| Canonical | opencode                                | claudecode                             |
+| --------- | --------------------------------------- | -------------------------------------- |
+| `stdio`   | `{type: local, command, environment}`   | `{type: stdio, command, args, env}`    |
+| `http`    | `{type: remote, url, oauth?, headers?}` | `{type: http, url, headers?, env?}`    |
+| `enabled` | carried when declared                   | disabled servers omitted (key dropped) |
 
-The canonical `env` block is renamed per harness (`environment` for opencode, `env` for claudecode); placeholders resolve at registration except when comparing templates (below). `enabled` is carried to opencode and dropped for claudecode, whose entry shape has no equivalent field.
+The canonical `env` block is renamed per harness (`environment` for opencode, `env` for claudecode); placeholders resolve at registration except when comparing templates (below). `enabled` is carried to opencode; for claudecode a disabled server is omitted from `.mcp.json` (the key itself has no equivalent field).
 
 ### Registration
 
