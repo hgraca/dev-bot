@@ -148,6 +148,10 @@ teardown() {
     assert_success
     run grep -q 'devbot up' "${REPO_ROOT}/tests/test-project/${inner}"
     assert_success
+    # The gateway must be able to see /app (outside $HOME), or the codebase
+    # index is silently skipped (audit-77 FAIL-1 / audit-78 FAIL-3).
+    run grep -q 'CODEBASE_MEMORY_ROOT=/app' "${REPO_ROOT}/tests/test-project/${inner}"
+    assert_success
   done
 }
 

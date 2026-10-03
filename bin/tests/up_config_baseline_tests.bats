@@ -113,3 +113,62 @@ _sandbox_bash() {
   run _sandbox_bash '_devbot_config_changed "$SANDBOX"'
   assert_success
 }
+
+# ── codebase-memory scope wrapper (audit-77 FAIL-1 / audit-78 FAIL-3) ─────────
+
+@test "codebase-memory scope wrapper warns when the engine is active" {
+  run _sandbox_bash '
+    _devbot_get_disabled_modules() { echo "[]"; }
+    _devbot_warn_codebase_memory_scope() { echo "WARN-SCOPE $1 $2"; }
+    PROJECT_DIR=/outside
+    CODEBASE_MEMORY_ROOT=/root
+    _check_codebase_memory_scope
+  '
+  assert_success
+  assert_output --partial "WARN-SCOPE /outside /root"
+}
+
+@test "codebase-memory scope wrapper stays silent when the engine is disabled" {
+  run _sandbox_bash '
+    _devbot_get_disabled_modules() { echo "[\"codebase-memory\"]"; }
+    _devbot_warn_codebase_memory_scope() { echo "WARN-SCOPE $1 $2"; }
+    PROJECT_DIR=/outside
+    CODEBASE_MEMORY_ROOT=/root
+    _check_codebase_memory_scope
+  '
+  assert_success
+  refute_output --partial "WARN-SCOPE"
+}
+
+@test "codebase-memory scope wrapper stays silent when the disabled-set read fails" {
+  run _sandbox_bash '
+    _devbot_get_disabled_modules() { return 1; }
+    _devbot_warn_codebase_memory_scope() { echo "WARN-SCOPE $1 $2"; }
+    PROJECT_DIR=/outside
+    CODEBASE_MEMORY_ROOT=/root
+    _check_codebase_memory_scope
+  '
+  assert_success
+  refute_output --partial "WARN-SCOPE"
+}
+
+@test "codebase-memory scope wrapper stays silent on unparseable disabled-set output" {
+  run _sandbox_bash '
+    _devbot_get_disabled_modules() { echo "not json"; }
+    _devbot_warn_codebase_memory_scope() { echo "WARN-SCOPE $1 $2"; }
+    PROJECT_DIR=/outside
+    CODEBASE_MEMORY_ROOT=/root
+    _check_codebase_memory_scope
+  '
+  assert_success
+  refute_output --partial "WARN-SCOPE"
+}
+
+@test "the codebase-memory scope check runs after .env is loaded" {
+  # Otherwise a CODEBASE_MEMORY_ROOT supplied in .env (the natural place, next
+  # to SIGNOZ_AUTH_TOKEN) is ignored and the warning fires on every up (review F3).
+  local load_line check_line
+  load_line="$(grep -n '^  _load_env_file$' "${PROJECT_ROOT}/bin/up.sh" | tail -1 | cut -d: -f1)"
+  check_line="$(grep -n '^  _check_codebase_memory_scope$' "${PROJECT_ROOT}/bin/up.sh" | tail -1 | cut -d: -f1)"
+  [ -n "${load_line}" ] && [ -n "${check_line}" ] && [ "${load_line}" -lt "${check_line}" ]
+}

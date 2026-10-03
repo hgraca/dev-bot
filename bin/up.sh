@@ -46,6 +46,21 @@ _run_up_scripts() {
   _run_service_scripts "up.sh" "${PROJECT_DIR}"
 }
 
+# Surface a project outside the codebase-memory gateway's bind root: it is
+# silently skipped by index-project.sh, so the index stays empty with no console
+# signal otherwise. Only when the codebase-memory engine is active.
+_check_codebase_memory_scope() {
+  # Stay silent unless the disabled-set read AND its parse both succeed: a
+  # missing python3 or an unparseable config must not be read as "engine active"
+  # and warn spuriously.
+  local disabled active
+  disabled="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null)" || return 0
+  active="$(printf '%s' "${disabled}" \
+    | python3 -c "import json,sys; print(0 if 'codebase-memory' in json.load(sys.stdin) else 1)" 2>/dev/null)" || return 0
+  [[ "${active}" == "1" ]] || return 0
+  _devbot_warn_codebase_memory_scope "${PROJECT_DIR}" "${CODEBASE_MEMORY_ROOT}"
+}
+
 # ── External module config (rebuild from internal module declarations) ──────────
 
 _rebuild_external_module_config() {
@@ -438,6 +453,7 @@ main() {
   _header_1 "DevBot Up"
 
   _load_env_file
+  _check_codebase_memory_scope
   _ensure_writable_bind_sources
   _docker_up
   _rebuild_external_module_config

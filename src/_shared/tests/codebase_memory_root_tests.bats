@@ -73,3 +73,25 @@ _root() {
   assert_success
   assert_output "${SANDBOX}/home"
 }
+
+# ── Scope warning (audit-77 FAIL-1 / audit-78 FAIL-3) ────────────────────────
+
+@test "warns when a project sits outside the gateway root" {
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    _devbot_warn_codebase_memory_scope /app /home/ubuntu
+  "
+  assert_success
+  assert_output --partial 'outside the gateway repo root'
+  assert_output --partial '/app'
+}
+
+@test "stays silent when the project is at or under the gateway root" {
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    _devbot_warn_codebase_memory_scope /home/ubuntu /home/ubuntu
+    _devbot_warn_codebase_memory_scope /home/ubuntu/proj /home/ubuntu
+  "
+  assert_success
+  refute_output --partial 'outside'
+}

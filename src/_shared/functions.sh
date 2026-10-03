@@ -711,6 +711,21 @@ PY
   printf '%s\n' "${root%/}"
 }
 
+# _devbot_warn_codebase_memory_scope <project-dir> <gateway-root>
+#   Warn when a project sits outside the codebase-memory gateway's bind root.
+#   index-project.sh silently skips such a project, so the index stays empty
+#   with no console signal; this makes the no-op visible at `devbot up`. Silent
+#   when the project is at or under the root.
+_devbot_warn_codebase_memory_scope() {
+  local project="${1%/}" root="${2%/}"
+  [[ -n "${project}" && -n "${root}" ]] || return 0
+  if [[ "${project}" == "${root}" || "${project}" == "${root}/"* ]]; then
+    return 0
+  fi
+  _warn "codebase-memory: project ${project} is outside the gateway repo root ${root}"
+  _warn "  the codebase index will stay empty — set CODEBASE_MEMORY_ROOT=${project} and re-run 'devbot up'"
+}
+
 # ── Memory-search engine provider (config-driven) ─────────────────────────────
 #
 # _devbot_get_memory_search_provider [project_dir]

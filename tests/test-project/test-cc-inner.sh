@@ -138,6 +138,10 @@ _phase "docker daemon"
 # Bring up dev-bot's shared MCP gateways on this container's daemon so §4 (MCP
 # reachability) and §10 (docker services) have running services to audit.
 # Best-effort: a startup failure must not abort the run.
+# The gateway bind-mounts ${CODEBASE_MEMORY_ROOT:-$HOME} and the fixture project
+# lives at /app, outside $HOME. Without this the gateway cannot see the source
+# and index-project.sh silently skips it (audit-77 FAIL-1 / audit-78 FAIL-3).
+export CODEBASE_MEMORY_ROOT=/app
 if docker info >/dev/null 2>&1; then
   devbot up || echo "WARN: devbot up failed — docker services may be missing" >&2
 fi
