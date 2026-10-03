@@ -525,8 +525,10 @@ _devbot_check_session_logs() {
 
   # Word-bounded error verbs + bare "constraint" (catches SQLITE_CONSTRAINT /
   # SQLITE_CONSTRAINT_PRIMARYKEY tokens even without the word "failed" — the
-  # _\b_ boundaries would miss the compound token).
-  local pattern='(\b(error|fatal|traceback|exception|failed)\b|constraint)'
+  # _\b_ boundaries would miss the compound token). A runtime `WARN:` line
+  # (e.g. "index-project skipped … outside the gateway root") must alert too,
+  # or a silently-degraded capability stays hidden (audit-80 N12).
+  local pattern='(\b(error|fatal|traceback|exception|failed)\b|constraint|\bWARN:)'
   # Known-benign qmd graceful-degradation lines: when the shared GPU lacks VRAM
   # (concurrent e2e containers / host ollama), qmd's query-time reranker and
   # query-expansion skip with an InsufficientMemoryError and the search still

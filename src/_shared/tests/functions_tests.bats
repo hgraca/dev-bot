@@ -533,6 +533,30 @@ EOF
   assert_output --partial "FATAL: disk full: 1x"
 }
 
+# ── audit-80 N12: runtime WARN: lines must alert too ─────────────────────────
+
+@test "_devbot_check_session_logs alerts on runtime WARN: lines" {
+  local proj="${TEST_TEMP}/proj8"
+  mkdir -p "${proj}/.agents/logs"
+  printf 'WARN: index-project skipped /app — outside the gateway root\n' \
+    > "${proj}/.agents/logs/codebase-memory-index.log"
+
+  run _devbot_check_session_logs "${proj}"
+  assert_success
+  assert_output --partial "codebase-memory-index.log"
+  assert_output --partial "index-project skipped"
+}
+
+@test "_devbot_check_session_logs still ignores report logs carrying WARN wording" {
+  local proj="${TEST_TEMP}/proj9"
+  mkdir -p "${proj}/.agents/logs"
+  printf 'WARN: file was reformatted\n' > "${proj}/.agents/logs/format-md.log"
+
+  run _devbot_check_session_logs "${proj}"
+  assert_success
+  refute_output --partial "format-md.log"
+}
+
 
 @test "_log_file appends a timestamped line, creating the directory" {
   local log="${TEST_TEMP}/logs/sub/deep.log"
