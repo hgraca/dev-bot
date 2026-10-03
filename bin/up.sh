@@ -30,9 +30,9 @@ source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 
 # The codebase-memory gateway mounts ONE repo root
 # (${CODEBASE_MEMORY_ROOT:-$HOME}, see its compose) at the same absolute path.
-# Derive it here so a registered project outside $HOME is still covered, and
-# export it BEFORE compose interpolates it. An explicit value always wins.
-export CODEBASE_MEMORY_ROOT="$(_devbot_codebase_memory_root)"
+# It is resolved in main() after .env is loaded — see
+# _devbot_resolve_codebase_memory_root — and exported before compose
+# interpolates it.
 
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 
@@ -446,6 +446,30 @@ _load_env_file() {
   set +a
 }
 
+# ── Resolve and persist the codebase-memory gateway root ─────────────────────
+# An explicit CODEBASE_MEMORY_ROOT (process env or repo .env) is the operator's
+# declared root; persist it so a later ENV-LESS invocation — the harness-launch
+# `devbot`, which carries no such variable — resolves the same mount instead of
+# recreating the gateway on the derived default and dropping the project
+# (audit-80 FAIL-3). A derived root is NOT persisted, so a newly registered
+# project outside $HOME still widens it automatically. Runs after .env is
+# loaded and before compose interpolates the value.
+_devbot_resolve_codebase_memory_root() {
+  local explicit="${CODEBASE_MEMORY_ROOT:-}" resolved baseline_clean=0
+  resolved="$(_devbot_codebase_memory_root)"
+  export CODEBASE_MEMORY_ROOT="${resolved}"
+  if [[ -n "${explicit}" ]]; then
+    # Persisting rewrites the global config, which the wiring baseline hashes;
+    # refresh the baseline afterwards so the next start does not read the change
+    # as a pending reinit. Only when none was pending (never consume one).
+    _devbot_config_changed "${PROJECT_DIR}" || baseline_clean=1
+    _devbot_persist_codebase_memory_root "${explicit}"
+    if [[ "${baseline_clean}" == "1" ]]; then
+      _devbot_write_config_sha "${PROJECT_DIR}"
+    fi
+  fi
+}
+
 # ── main ───────────────────────────────────────────────────────────────────────
 main() {
   local total_start=${SECONDS}
@@ -453,6 +477,7 @@ main() {
   _header_1 "DevBot Up"
 
   _load_env_file
+  _devbot_resolve_codebase_memory_root
   _check_codebase_memory_scope
   _ensure_writable_bind_sources
   _docker_up

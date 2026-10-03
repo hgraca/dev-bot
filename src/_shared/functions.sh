@@ -661,22 +661,36 @@ _devbot_get_codebase_provider() {
 # _devbot_codebase_memory_root
 #   Prints the repo root the shared codebase-memory gateway bind-mounts read-only
 #   (docker-compose.yml mounts ${CODEBASE_MEMORY_ROOT:-$HOME} at the same path).
-#   An explicit CODEBASE_MEMORY_ROOT wins. Otherwise it is the common ancestor of
-#   $HOME and every existing registered project, so a gateway that defaults to
-#   $HOME widens just enough to cover a project living outside it. It never
-#   narrows below $HOME (which would drop caches under it) and never resolves to
-#   "/" (which would shadow the container's own filesystem) — in both cases it
-#   stays $HOME, and a project in a disjoint tree needs an explicit
-#   CODEBASE_MEMORY_ROOT.
+#   An explicit CODEBASE_MEMORY_ROOT wins, then a persisted `codebase_memory_root`
+#   in .devbot.global.jsonc (written by _devbot_persist_codebase_memory_root so
+#   an env-less later invocation keeps the same mount — audit-80 FAIL-3).
+#   Otherwise it is the common ancestor of $HOME and every existing registered
+#   project, so a gateway that defaults to $HOME widens just enough to cover a
+#   project living outside it. It never narrows below $HOME (which would drop
+#   caches under it) and never resolves to "/" (which would shadow the
+#   container's own filesystem) — in both cases it stays $HOME, and a project in
+#   a disjoint tree needs an explicit CODEBASE_MEMORY_ROOT.
 _devbot_codebase_memory_root() {
+  local shared_dir config
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+
   if [[ -n "${CODEBASE_MEMORY_ROOT:-}" ]]; then
     printf '%s\n' "${CODEBASE_MEMORY_ROOT%/}"
     return 0
   fi
 
-  local shared_dir
-  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  # Persisted root — keeps the gateway root stable across invocations that do
+  # not carry the variable (the harness-launch `devbot`).
+  if [[ -f "${config}" ]] && command -v python3 >/dev/null 2>&1; then
+    local configured
+    configured="$(python3 "${shared_dir}/read_jsonc.py" "${config}" "codebase_memory_root" 2>/dev/null || true)"
+    if [[ -n "${configured}" && "${configured}" != "null" ]]; then
+      printf '%s\n' "${configured%/}"
+      return 0
+    fi
+  fi
+
   local root=""
   if [[ -f "${config}" ]] && command -v python3 >/dev/null 2>&1; then
     root="$(python3 - "${config}" "${HOME}" "${shared_dir}/read_jsonc.py" <<'PY' 2>/dev/null || true
@@ -709,6 +723,29 @@ PY
   fi
   [[ -n "${root}" ]] || root="${HOME}"
   printf '%s\n' "${root%/}"
+}
+
+# _devbot_persist_codebase_memory_root <root>
+#   Write the gateway root to .devbot.global.jsonc (comment-preserving, via
+#   set_jsonc_key.py) so a later env-less `devbot up` resolves the same mount
+#   instead of reverting to the derived default (audit-80 FAIL-3). Fail-open:
+#   a missing config or writer leaves the invocation unchanged.
+_devbot_persist_codebase_memory_root() {
+  local root="${1%/}"
+  # Only an absolute, non-root path can serve as the gateway's repo mount: `/`
+  # would shadow the container's own filesystem and a relative path is
+  # meaningless there. Skip anything else rather than pin a broken root.
+  [[ -n "${root}" && "${root}" == /* && "${root}" != "/" ]] || return 0
+  local shared_dir writer config
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  writer="${shared_dir}/set_jsonc_key.py"
+  config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  [[ -f "${writer}" && -f "${config}" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  local value
+  value="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "${root}" 2>/dev/null || true)"
+  [[ -n "${value}" ]] || return 0
+  python3 "${writer}" "${config}" "codebase_memory_root" "${value}" >/dev/null 2>&1 || true
 }
 
 # _devbot_warn_codebase_memory_scope <project-dir> <gateway-root>

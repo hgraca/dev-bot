@@ -216,6 +216,35 @@ to disable.
 
 ---
 
+### `codebase_memory_root`
+
+```jsonc
+{ "codebase_memory_root": "/home/user/projects" }
+```
+
+**Type:** `string` (absolute path)
+**Default:** derived — the common ancestor of `$HOME` and every existing
+registered project (`projects`), never narrower than `$HOME` and never `/`.
+**Required:** no
+**Scope:** global only
+
+The repository root the shared `codebase-memory` gateway bind-mounts read-only
+at the same absolute path. A project outside this root is invisible to the
+gateway — its index silently stays empty — so set this when a project lives in
+a tree disjoint from `$HOME` (the common ancestor would resolve to `/` and fall
+back to `$HOME`).
+
+Precedence: an explicit `CODEBASE_MEMORY_ROOT` environment variable wins, then
+this key, then the derived ancestor. On `devbot up`, an explicit value (process
+environment or the repo `.env`) is **persisted** into this key so an env-less
+later invocation — the harness-launch `devbot` — resolves the same mount instead
+of reverting to the derived default. Derived values are never persisted, so
+adding a project outside `$HOME` still widens the root automatically. A `/` or
+relative value is rejected. The persisted root applies to every project on the
+machine; to clear it, delete this key and re-run `devbot up`.
+
+---
+
 ### `memory_search_provider`
 
 ```jsonc

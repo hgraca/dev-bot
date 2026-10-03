@@ -67,6 +67,65 @@ _root() {
   assert_output "${SANDBOX}/explicit"
 }
 
+# ── Persisted root (audit-80 FAIL-3) ─────────────────────────────────────────
+# The gateway root is machine-global, but the derived value depends on the
+# caller's env; an env-less later invocation (the harness-launch `devbot`)
+# reverted the mount. A persisted config key pins it.
+
+@test "a persisted codebase_memory_root config value is used when the env is unset" {
+  printf '{ "projects": [], "codebase_memory_root": "%s" }\n' "${SANDBOX}/persisted" \
+    > "${CONF_DIR}/.devbot.global.jsonc"
+  run env -u CODEBASE_MEMORY_ROOT DEV_BOT_ROOT="${CONF_DIR}" HOME="${SANDBOX}/home" \
+    bash -c "source '${PROJECT_ROOT}/src/_shared/functions.sh'; _devbot_codebase_memory_root"
+  assert_success
+  assert_output "${SANDBOX}/persisted"
+}
+
+@test "an explicit CODEBASE_MEMORY_ROOT still wins over the persisted config root" {
+  printf '{ "projects": [], "codebase_memory_root": "%s" }\n' "${SANDBOX}/persisted" \
+    > "${CONF_DIR}/.devbot.global.jsonc"
+  run env DEV_BOT_ROOT="${CONF_DIR}" HOME="${SANDBOX}/home" \
+    CODEBASE_MEMORY_ROOT="${SANDBOX}/explicit" \
+    bash -c "source '${PROJECT_ROOT}/src/_shared/functions.sh'; _devbot_codebase_memory_root"
+  assert_success
+  assert_output "${SANDBOX}/explicit"
+}
+
+@test "persist writes the config root and preserves JSONC comments" {
+  cat > "${CONF_DIR}/.devbot.global.jsonc" <<'EOF'
+{
+  // keep me
+  "projects": []
+}
+EOF
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    DEV_BOT_ROOT='${CONF_DIR}' _devbot_persist_codebase_memory_root '${SANDBOX}/persisted'
+  "
+  assert_success
+
+  run grep -q '// keep me' "${CONF_DIR}/.devbot.global.jsonc"
+  assert_success
+
+  run env -u CODEBASE_MEMORY_ROOT DEV_BOT_ROOT="${CONF_DIR}" HOME="${SANDBOX}/home" \
+    bash -c "source '${PROJECT_ROOT}/src/_shared/functions.sh'; _devbot_codebase_memory_root"
+  assert_success
+  assert_output "${SANDBOX}/persisted"
+}
+
+@test "persist ignores a root that is / or relative" {
+  printf '{ "projects": [] }\n' > "${CONF_DIR}/.devbot.global.jsonc"
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    DEV_BOT_ROOT='${CONF_DIR}' _devbot_persist_codebase_memory_root '/'
+    DEV_BOT_ROOT='${CONF_DIR}' _devbot_persist_codebase_memory_root 'relative/path'
+  "
+  assert_success
+  # Neither invalid root may be written to the config.
+  run grep -q 'codebase_memory_root' "${CONF_DIR}/.devbot.global.jsonc"
+  assert_failure
+}
+
 @test "ignores registered project paths that do not exist" {
   mkdir -p "${SANDBOX}/home/p"
   _root "${SANDBOX}/home" "[\"${SANDBOX}/missing\", \"${SANDBOX}/home/p\"]"

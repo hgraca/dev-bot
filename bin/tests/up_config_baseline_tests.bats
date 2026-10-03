@@ -41,6 +41,7 @@ _error() { echo "ERROR: $*" >&2; }
 _fatal() { echo "FATAL: $*" >&2; exit 1; }
 _fmt_duration() { echo "0s"; }
 _devbot_codebase_memory_root() { echo "$HOME"; }
+_devbot_persist_codebase_memory_root() { echo "PERSIST $1"; }
 STUB
 
   # The REAL baseline helpers under test — extracted verbatim so the stub can
@@ -171,4 +172,52 @@ _sandbox_bash() {
   load_line="$(grep -n '^  _load_env_file$' "${PROJECT_ROOT}/bin/up.sh" | tail -1 | cut -d: -f1)"
   check_line="$(grep -n '^  _check_codebase_memory_scope$' "${PROJECT_ROOT}/bin/up.sh" | tail -1 | cut -d: -f1)"
   [ -n "${load_line}" ] && [ -n "${check_line}" ] && [ "${load_line}" -lt "${check_line}" ]
+}
+
+# ── Persist an explicit gateway root (audit-80 FAIL-3) ───────────────────────
+
+@test "up.sh persists an explicit CODEBASE_MEMORY_ROOT (env-less reruns keep it)" {
+  run _sandbox_bash '
+    CODEBASE_MEMORY_ROOT=/app
+    _devbot_resolve_codebase_memory_root
+  '
+  assert_success
+  assert_output --partial "PERSIST /app"
+}
+
+@test "up.sh does not persist a derived root (auto-widen preserved)" {
+  run _sandbox_bash '
+    unset CODEBASE_MEMORY_ROOT
+    _devbot_resolve_codebase_memory_root
+    echo "ROOT=${CODEBASE_MEMORY_ROOT}"
+  '
+  assert_success
+  refute_output --partial "PERSIST"
+  assert_output --partial "ROOT=${HOME}"
+}
+
+@test "up.sh resolves the codebase-memory root after .env is loaded" {
+  local load_line resolve_line
+  load_line="$(grep -n '^  _load_env_file$' "${PROJECT_ROOT}/bin/up.sh" | tail -1 | cut -d: -f1)"
+  resolve_line="$(grep -n '^  _devbot_resolve_codebase_memory_root$' "${PROJECT_ROOT}/bin/up.sh" | tail -1 | cut -d: -f1)"
+  [ -n "${load_line}" ] && [ -n "${resolve_line}" ] && [ "${load_line}" -lt "${resolve_line}" ]
+}
+
+@test "persisting an explicit root refreshes the wiring baseline (no spurious reinit)" {
+  # audit-80 review: the persist rewrites the global config, which the wiring
+  # baseline hashes — without a refresh the next start reads it as a pending
+  # reinit. Reproduce with a persist stub that actually writes.
+  _sandbox_bash '_devbot_write_config_sha "$SANDBOX"' >/dev/null 2>&1 || true
+  run _sandbox_bash '_devbot_config_changed "$SANDBOX"'
+  assert_failure   # clean before
+
+  run _sandbox_bash '
+    _devbot_persist_codebase_memory_root() { printf "%s\n" "{\"projects\": []}" > "${DEV_BOT_ROOT}/.devbot.global.jsonc"; }
+    CODEBASE_MEMORY_ROOT=/app
+    _devbot_resolve_codebase_memory_root
+  '
+  assert_success
+
+  run _sandbox_bash '_devbot_config_changed "$SANDBOX"'
+  assert_failure   # baseline refreshed → still clean, no spurious reinit
 }
