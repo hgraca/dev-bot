@@ -668,6 +668,28 @@ _link_claude_skills_flat() {
   }
 
   local f
+  # Skills of a DISABLED module must not be flattened: the opencode farm
+  # already omits them, and flattening here offered e.g. devbot:aws in the
+  # Skill palette while its module was off (audit-80 FAIL-2). Same disabled
+  # set the plugin/MCP wiring consults.
+  local disabled_modules
+  disabled_modules="$(_devbot_get_disabled_modules "${project_dir}" 2>/dev/null \
+    | jq -r '.[]' 2>/dev/null || true)"
+
+  # The module owning a dev-bot SKILL.md: the first path component under
+  # src/agentic or src/tools.
+  _skill_module() {
+    local rel="${1#"${DEV_BOT_ROOT}/src/agentic/"}"
+    [[ "${rel}" == "$1" ]] && rel="${1#"${DEV_BOT_ROOT}/src/tools/"}"
+    printf '%s' "${rel%%/*}"
+  }
+  _skill_module_disabled() {
+    local mod
+    mod="$(_skill_module "$1")"
+    [[ -n "${mod}" ]] || return 1
+    printf '%s\n' "${disabled_modules}" | grep -Fxq "${mod}"
+  }
+
   # dev-bot module skills (agentic + tools). A module that produces a
   # sentinel-marked generated skill dir (storage/<module>/skills — see
   # _link_skills) is flattened from there instead of its committed tree copy, so
@@ -681,12 +703,16 @@ _link_claude_skills_flat() {
 
   while IFS= read -r -d '' f; do
     _has_generated_skill_override "${f}" && continue
+    _skill_module_disabled "${f}" && continue
     _link_skill_file "${f}"
   done < <(find "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/tools" -name SKILL.md -print0 2>/dev/null)
 
   while IFS= read -r -d '' mdir; do
     local mname gen
     mname="$(basename "${mdir}")"
+    if printf '%s\n' "${disabled_modules}" | grep -Fxq "${mname}"; then
+      continue
+    fi
     gen="${DEV_BOT_ROOT}/storage/${mname}/skills"
     [[ -f "${gen}/.devbot-generated" ]] || continue
     while IFS= read -r -d '' f; do

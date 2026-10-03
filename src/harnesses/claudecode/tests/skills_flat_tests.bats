@@ -42,6 +42,7 @@ _warn() { echo "WARN: $*"; }
 _error() { echo "ERROR: $*" >&2; exit 1; }
 _fatal() { echo "FATAL: $*" >&2; exit 1; }
 _devbot_get_project_dir() { echo ".agents"; }
+_devbot_get_disabled_modules() { echo "${_STUB_DISABLED:-[]}"; }
 FUNCTIONS_EOF
 
   # init.sh sources DEV_BOT_ROOT/src/_shared/functions.sh — stub it too.
@@ -299,6 +300,48 @@ _add_user_skill() {
     || fail "wired external skill not flattened"
   if [[ -e "${SANDBOX_DIR}/.claude/skills/skill-b" || -e "${SANDBOX_DIR}/.claude/skills/skill-b.bkp" ]]; then
     fail "disabled module skill leaked into .claude/skills"
+  fi
+}
+
+# ── Internal-module gate (audit-80 FAIL-2) ───────────────────────────────────
+# The dev-bot module walk had no enablement gate, so a disabled module's skills
+# (aws, explicit-react, explicit-svelte, atlassian) reached the Skill palette.
+
+# _add_module_skill <module> <skill-name>: a committed dev-bot module skill.
+_add_module_skill() {
+  local module="$1" name="$2"
+  mkdir -p "${SANDBOX_DIR}/src/agentic/${module}/skills/${name}"
+  printf '%s\n' "---" "name: ${name}" "---" "" "# ${name}" \
+    > "${SANDBOX_DIR}/src/agentic/${module}/skills/${name}/SKILL.md"
+}
+
+@test "gate: internal flatten skips skills of disabled modules" {
+  _setup_sandbox
+  _add_module_skill "aws" "devbot:aws"
+  _add_module_skill "devbot" "devbot:core"
+
+  export _STUB_DISABLED='["aws"]'
+  _run_flat
+
+  [ -L "${SANDBOX_DIR}/.claude/skills/devbot:core/SKILL.md" ] \
+    || fail "enabled module skill not flattened"
+  if [[ -e "${SANDBOX_DIR}/.claude/skills/devbot:aws" ]]; then
+    fail "disabled module skill leaked into .claude/skills"
+  fi
+}
+
+@test "gate: generated-override walk also skips disabled modules" {
+  _setup_sandbox
+  mkdir -p "${SANDBOX_DIR}/src/agentic/aws/skills" "${SANDBOX_DIR}/storage/aws/skills"
+  printf '%s\n' "---" "name: devbot:aws" "---" "" "# generated" \
+    > "${SANDBOX_DIR}/storage/aws/skills/SKILL.md"
+  : > "${SANDBOX_DIR}/storage/aws/skills/.devbot-generated"
+
+  export _STUB_DISABLED='["aws"]'
+  _run_flat
+
+  if [[ -e "${SANDBOX_DIR}/.claude/skills/devbot:aws" ]]; then
+    fail "disabled module's generated skill leaked into .claude/skills"
   fi
 }
 
