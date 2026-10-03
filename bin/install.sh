@@ -193,8 +193,11 @@ main() {
   _check_prerequisites
   _check_python3
   _check_flock
-  _run_module_prereqs
+  # Write the global config BEFORE the module prereqs: each pre.sh gating reads
+  # the disabled-module set from it, so a fresh install with no config yet ran a
+  # disabled module's prereq checks (audit-80 N7).
   _setup_devbot_config
+  _run_module_prereqs
   # GPU detection runs at the devbot level (not the ollama module install) so
   # gpu_enabled is recorded even when the ollama module is disabled — it is
   # off by default and consumer compose fragments boot it on demand.

@@ -57,3 +57,13 @@ print(repr(load_jsonc('${SANDBOX}/.devbot.global.jsonc')['version']))
   run _read_config_version
   assert_output "''"
 }
+
+@test "install: writes the global config before running module prereqs" {
+  # audit-80 N7: on a fresh install the config did not exist yet when
+  # _run_module_prereqs ran, so a disabled module (sentry) still printed its
+  # prerequisites. The config must be written first so the disabled set is known.
+  local cfg_line prereq_line
+  cfg_line="$(grep -n '^  _setup_devbot_config$' "${PROJECT_ROOT}/bin/install.sh" | tail -1 | cut -d: -f1)"
+  prereq_line="$(grep -n '^  _run_module_prereqs$' "${PROJECT_ROOT}/bin/install.sh" | tail -1 | cut -d: -f1)"
+  [ -n "${cfg_line}" ] && [ -n "${prereq_line}" ] && [ "${cfg_line}" -lt "${prereq_line}" ]
+}
