@@ -8,8 +8,11 @@ sibling of the host-mounted ~/.claude/ directory, and therefore NOT shared. So
 every fresh container re-asks "Do you trust the files in this folder?".
 
 Start from the host's file when available (mounted read-only at <host-config>,
-inheriting mcpServers / account preferences) and mark <project-path> trusted.
-The host file is only ever read; the seeded copy is container-local.
+inheriting account preferences) and mark <project-path> trusted. User-scope MCP
+servers are NOT inherited — they are dropped from the seeded copy, so the
+container sees only dev-bot's project-wired servers (/app/.mcp.json); a host
+entry such as a phpstorm registration is unreachable in-container. The host file
+is only ever read; the seeded copy is container-local.
 
 Usage:
   seed-claude-config.py <project-path> [<host-config>]
@@ -41,6 +44,16 @@ def main(argv):
         if isinstance(loaded, dict):
             data = loaded
             break
+
+    # Drop user-scope MCP servers from the SEEDED copy: the container must see
+    # only dev-bot's project-wired servers (from /app/.mcp.json). A host entry
+    # such as a `phpstorm` registration points at a host-only IDE port that is
+    # unreachable in-container and surfaces in the audit as a stray connection
+    # failure. The host file is only read — this writes the container-local copy.
+    data.pop("mcpServers", None)
+    for project_entry in data.get("projects", {}).values():
+        if isinstance(project_entry, dict):
+            project_entry.pop("mcpServers", None)
 
     data["hasCompletedOnboarding"] = True
     projects = data.setdefault("projects", {})

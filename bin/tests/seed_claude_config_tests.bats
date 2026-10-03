@@ -25,20 +25,26 @@ teardown() {
   rm -rf "$SANDBOX" 2>/dev/null || true
 }
 
-@test "seed: trusts /app, completes onboarding, preserves host prefs" {
+@test "seed: trusts /app, completes onboarding, drops stray MCP servers" {
   cat > "${SANDBOX}/host.json" <<'JSON'
 {
   "hasCompletedOnboarding": false,
-  "mcpServers": { "x": { "command": "y" } },
+  "mcpServers": { "phpstorm": { "url": "http://127.0.0.1:64442/stream" } },
   "projects": { "/other": { "hasTrustDialogAccepted": true } }
 }
 JSON
   run env HOME="${SANDBOX}/home" python3 "$TOOL" /app "${SANDBOX}/host.json"
   assert_success
 
+  # Trust/onboarding carry over; user-scope MCP servers (a host-only phpstorm
+  # registration) do not — the container sees only /app's .mcp.json.
   run env HOME="${SANDBOX}/home" python3 -c \
-    "import json,os; d=json.load(open(os.path.join(os.environ['HOME'],'.claude.json'))); print(d['hasCompletedOnboarding'], d['projects']['/app']['hasTrustDialogAccepted'], d['projects']['/other']['hasTrustDialogAccepted'], 'mcpServers' in d)"
-  assert_output "True True True True"
+    "import json,os; d=json.load(open(os.path.join(os.environ['HOME'],'.claude.json'))); print(d['hasCompletedOnboarding'], d['projects']['/app']['hasTrustDialogAccepted'], d['projects']['/other']['hasTrustDialogAccepted'], 'mcpServers' in d, 'phpstorm' in json.dumps(d))"
+  assert_output "True True True False False"
+
+  # The host config is only read.
+  run grep -q 'phpstorm' "${SANDBOX}/host.json"
+  assert_success
 }
 
 @test "seed: works with no host config" {
