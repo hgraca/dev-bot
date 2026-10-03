@@ -6,8 +6,9 @@
 # Guards two regressions that have bitten this file before:
 #   1. An invalid hook event key (e.g. "Startup") — Claude Code skips the
 #      entire settings.local.json file when any key is unrecognised.
-#   2. A command path pointing into the dev-bot repo (src/harnesses/...) —
-#      which does not resolve from an external project's cwd.
+#   2. A command path that does not resolve from the session's real cwd — the
+#      hook runs wherever the session is, so every command must be anchored to
+#      the documented ${CLAUDE_PROJECT_DIR} placeholder (audit-78 FAIL-1).
 # =============================================================================
 
 setup() {
@@ -51,7 +52,12 @@ assert 'Startup' not in data, 'invalid Startup key present'
   assert_success
 }
 
-@test "every command path is project-relative (resolves from any project cwd)" {
+@test "every command is anchored to CLAUDE_PROJECT_DIR (resolves from any project cwd)" {
+  # audit-78 FAIL-1: a cwd-relative command broke as soon as the session cwd
+  # left the project root — python3 then could not open the script and exited
+  # 2, which Claude Code treats as a block, refusing every subsequent Bash
+  # call. ${CLAUDE_PROJECT_DIR} is Claude Code's documented project-root
+  # placeholder, expanded in the hook's shell before the command runs.
   run python3 -c "
 import json, sys
 data = json.load(open('$HOOKS_JSON'))
@@ -60,10 +66,10 @@ for event, entries in data.items():
     for entry in entries:
         for hook in entry.get('hooks', []):
             cmd = hook.get('command', '')
-            if 'src/harnesses/' in cmd or cmd.startswith('/'):
+            if '\${CLAUDE_PROJECT_DIR}' not in cmd:
                 bad.append(cmd)
 if bad:
-    print('non-project-relative commands:')
+    print('commands not anchored to CLAUDE_PROJECT_DIR:')
     for c in bad:
         print('  ' + c)
     sys.exit(1)
