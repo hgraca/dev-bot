@@ -23,7 +23,14 @@ main() {
   fi
 
   local image="${TOOLBOX_IMAGE}:${TOOLBOX_VERSION}"
-  if docker image inspect "${image}" >/dev/null 2>&1; then
+  local declared
+  declared="$(_datasources_declared_count 2>/dev/null || true)"
+  if [[ "${declared}" == "0" ]]; then
+    # Nothing declared → nothing for the gateway to serve → no image needed. A
+    # fresh install ships an empty catalogue, so pulling here only warned
+    # (audit-80 N8). A failed count (empty output) still pulls — safe direction.
+    _skip "datasources — no datasources declared; skipping the toolbox image pull"
+  elif docker image inspect "${image}" >/dev/null 2>&1; then
     _skip "datasources — image ${image} already present"
   else
     _info "pulling ${image}"

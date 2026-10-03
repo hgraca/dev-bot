@@ -42,6 +42,22 @@ _wanted_sidecars() {
     --projects-names "$@" 2>/dev/null
 }
 
+# _datasources_declared_count — the number of datasources declared in the global
+#   catalogue. A fresh install ships an empty catalogue, so install.sh uses this
+#   to skip the toolbox image pull (which would otherwise only warn) — audit-80
+#   N8. A failed config read returns non-zero so the caller errs toward pulling.
+_datasources_declared_count() {
+  local catalogue
+  catalogue="$(python3 "${MODULE_DIR}/../../_shared/read_jsonc.py" \
+    "${DEV_BOT_ROOT}/.devbot.global.jsonc" datasources 2>/dev/null)" || return 1
+  [[ -n "${catalogue}" && "${catalogue}" != "null" ]] || {
+    printf '0'
+    return 0
+  }
+  printf '%s' "${catalogue}" |
+    python3 -c 'import json, sys; print(len(json.load(sys.stdin)))' 2>/dev/null || return 1
+}
+
 # _reconcile_sidecars <wanted> — stop every running sidecar not in <wanted>.
 _reconcile_sidecars() {
   local wanted="$1" svc

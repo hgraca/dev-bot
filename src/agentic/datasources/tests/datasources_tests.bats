@@ -151,6 +151,44 @@ SH
   export PATH="${SANDBOX_DIR}/runbin:${PATH}"
 }
 
+# ── install.sh toolbox pull gate (audit-80 N8) ───────────────────────────────
+# A fresh install ships an empty catalogue; pulling the toolbox image then only
+# produced a "could not pull" warning.
+
+_install_toolbox_probe() {
+  PULL_LOG="${SANDBOX_DIR}/docker-pulls.log"
+  mkdir -p "${SANDBOX_DIR}/pullbin"
+  cat > "${SANDBOX_DIR}/pullbin/docker" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${PULL_LOG}"
+if [[ "\$1" == "image" && "\$2" == "inspect" ]]; then exit 1; fi
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/pullbin/docker"
+  export PATH="${SANDBOX_DIR}/pullbin:${PATH}"
+}
+
+@test "install: skips the toolbox image pull when no datasource is declared" {
+  _catalogue '{}'
+  _install_toolbox_probe
+
+  run bash "${MODULE_DIR}/install.sh"
+  assert_success
+  assert_output --partial "no datasources declared"
+  if [[ -f "${PULL_LOG}" ]] && grep -q '^pull ' "${PULL_LOG}"; then
+    fail "toolbox image pulled despite an empty catalogue"
+  fi
+}
+
+@test "install: pulls the toolbox image when a datasource is declared" {
+  _sqlite_catalogue
+  _install_toolbox_probe
+
+  run bash "${MODULE_DIR}/install.sh"
+  assert_success
+  grep -q '^pull ' "${PULL_LOG}" || fail "expected the toolbox image to be pulled"
+}
+
 # ── render.sh ────────────────────────────────────────────────────────────────
 
 @test "render: a usable datasource becomes a source, a tool and a toolset" {
