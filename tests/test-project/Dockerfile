@@ -17,11 +17,16 @@
 # (change it if yours differs). It gets NOPASSWD sudo so the test scripts can
 # apt-get without running the container as root.
 #
-# nodejs/npm from ubuntu (node 22). Node 24 via NodeSource was tried but npm 11
-# blocks install scripts by default, which breaks qmd's native deps
-# (node-llama-cpp, tree-sitter) — node 22's npm 9 runs them normally. The
-# EBADENGINE warning on some deps is cosmetic. build-essential: qmd's
-# better-sqlite3 compiles from source via node-gyp.
+# Node 22 from NodeSource (latest 22.x). Ubuntu's nodejs lags the upstream patch
+# (22.22.1), which trips an EBADENGINE warning from deps wanting ^22.22.2
+# (ini@7) — audit-80 N10. Node 24 is not an option: its npm 11 blocks install
+# scripts by default and breaks qmd's native deps (node-llama-cpp, tree-sitter).
+# NodeSource 22.x ships the latest 22 patch with npm 10, which still runs them.
+# build-essential: qmd's better-sqlite3 compiles from source via node-gyp.
+#
+# nvidia-utils-610 supplies nvidia-smi for the passed-through GPU so GPU
+# verdicts can be evidenced (audit-80 N13). The branch must match the host
+# driver — bump it when the host driver branch changes.
 #
 # opencode + claude are baked in so the test doesn't reinstall them per
 # container: opencode installs to the ubuntu user's ~/.opencode/bin (run as
@@ -30,13 +35,15 @@
 FROM ubuntu
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl ca-certificates git openssh-client python3 sudo nodejs npm docker.io docker-compose-v2 docker-buildx build-essential jq gzip php-cli php-mbstring php-xml \
+      curl ca-certificates git openssh-client python3 sudo docker.io docker-compose-v2 docker-buildx build-essential jq gzip php-cli php-mbstring php-xml \
+ && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
  && mkdir -p /home/ubuntu/.local/share /home/ubuntu/.local/lib /home/ubuntu/.local/bin \
  && chown -R ubuntu:ubuntu /home/ubuntu/.local \
  && curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -o /tmp/cuda-keyring.deb \
  && dpkg -i /tmp/cuda-keyring.deb \
  && apt-get update -qq \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cuda-cudart-12-6 libcublas-12-6 \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cuda-cudart-12-6 libcublas-12-6 nvidia-utils-610 \
  && rm -f /tmp/cuda-keyring.deb \
  && echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/devuser \
 # @playwright/mcp version MUST match src/agentic/playwright/versions.env: a
