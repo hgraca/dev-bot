@@ -250,3 +250,13 @@ End the file with a summary table:
 ### Summarize to the user
 
 Then give the user a short summary: the two questions answered, the list of failures with their likely causes, and the path to the written report file.
+
+### Clean up probe artifacts (last action)
+
+Before you finish, delete every probe/scratch file **you** created — `devbot-audit-probe-*` files and any synthetic manifests — from `.agents/memory/thinking/` and `.agents/memory/latent/learnings/`. Left behind, they pollute the vault and degrade `search-memories` (audit-80 N14: audit-79 left five `devbot-audit-probe-79*` files behind). The report files and the audited environment stay; only your own probes go.
+
+```bash
+ls .agents/memory/thinking/devbot-audit-probe-* 2>/dev/null || true
+rm -f .agents/memory/thinking/devbot-audit-probe-* 2>/dev/null || true
+rm -f .agents/memory/latent/learnings/devbot-audit-probe-* 2>/dev/null || true
+```
