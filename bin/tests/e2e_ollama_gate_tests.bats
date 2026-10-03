@@ -69,13 +69,16 @@ _set_provider() {
   assert_output --partial "host ollama not required"
 }
 
-@test "gate: codebase-index requires host ollama — fails when unreachable" {
+@test "gate: codebase-index warns (does not abort) when host ollama is unreachable" {
+  # The self-contained fixture runs no host ollama; selecting codebase-index
+  # degrades the run rather than aborting it.
   _set_provider codebase-index
 
   export MOCK_CURL=fail
   run require_host_ollama_for_codebase_engine "${INSTALL_ROOT}"
 
-  assert_failure
+  assert_success
+  assert_output --partial "WARN"
   assert_output --partial "codebase_index_provider=codebase-index"
 }
 

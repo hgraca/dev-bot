@@ -36,12 +36,17 @@ if ! docker image inspect devbot-test >/dev/null 2>&1; then
   docker build -t devbot-test .
 fi
 
-# Host ollama (reachable in-container via --network host at localhost:18434) is
-# required only by the codebase-index engine — NOT by the shipped default
-# (codebase-memory + mdctx). The gate runs inside the container once the
-# installed dev-bot's effective provider is known (test-reinit.sh →
-# require_host_ollama_for_codebase_engine), so there is no blanket host
-# prerequisite here.
+# Self-contained: the container runs its OWN docker daemon (the inner script
+# starts dockerd; --privileged, no --network host) and dev-bot's shared MCP
+# gateways run against it, so nothing depends on the host daemon or host ollama.
+# The anonymous /var/lib/docker volume moves the inner data-root off the image's
+# overlayfs — nested overlay2 cannot create containers on an overlay backing.
+# The codebase-index engine is not exercised (no host network); the shipped
+# default is codebase-memory + mdctx.
+#
+# --privileged and the in-container daemon are a deliberate exception to the
+# `devbot:architecture-rules` no-privileged / no-host-networking rules: this is
+# a local, disposable test fixture, not a deployed workload.
 
 # Share the host qmd index cache so parallel cc + oc container runs index the
 # global store once. qmd is BM25-only — no model download, no embeddings (ADR
@@ -59,14 +64,7 @@ mkdir -p "${HOME}/.cache/qmd" "${HOME}/.cache/opencode" "${HOME}/.cache/bun" "${
 
 echo "Starting container as uid $(id -u):$(id -g) — running the opencode test, then dropping you into a shell..."
 
-# Pass the host GPU through if present (NVIDIA --gpus all, else the /dev/dri
-# render nodes) so ollama runs with acceleration.
-GPU_ARGS=()
-if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
-  GPU_ARGS=(--gpus all)
-elif ls /dev/dri/renderD* >/dev/null 2>&1; then
-  GPU_ARGS=(--device /dev/dri)
-fi
+# No GPU passthrough: the test runs no ollama and needs no acceleration.
 
 # Isolated per-run fixture + parallel-safe container management. Each run gets
 # its OWN copy of the fixture mounted at /app and its OWN container name (pid-
@@ -95,7 +93,9 @@ cleanup() {
   # exit the container is already gone and this is a no-op), then file durable
   # outputs (logs; the report already landed via the mount) back to the real
   # fixture and drop the isolated copy. A second call is a safe no-op.
-  docker rm -f "${CONTAINER_NAME:-}" >/dev/null 2>&1 || true
+  # -v: the container's anonymous /var/lib/docker volume is not removed by a
+  # force kill, and leaks the inner daemon's images/containers without it.
+  docker rm -f -v "${CONTAINER_NAME:-}" >/dev/null 2>&1 || true
   if [[ -d "${RUN_DIR:-}" ]]; then
     sync_run_outputs "${RUN_DIR}" "${SCRIPT_DIR}" "oc" "${AUDIT_REPORT_NAME:-}"
     # Drop this run's reserved slot if the audit never filled it.
@@ -126,8 +126,8 @@ read -r -a COMPOSER_ARGS <<< "$(composer_cache_args)"
 # real pty with `docker exec -it`. Phase output streams live via `docker logs`.
 echo "Starting ${CONTAINER_NAME} (detached — phases run inside; log follows)..."
 docker run -d --rm --name "${CONTAINER_NAME}" \
-  --network host \
-  "${GPU_ARGS[@]}" \
+  --privileged \
+  --mount type=volume,dst=/var/lib/docker \
   "${COMPOSER_ARGS[@]+"${COMPOSER_ARGS[@]}"}" \
   -v "${RUN_DIR}:/app" \
   -v "${SCRIPT_DIR}/.agents/memory/thinking:/app/.agents/memory/thinking" \
@@ -138,8 +138,6 @@ docker run -d --rm --name "${CONTAINER_NAME}" \
   -v "${HOME}/.cache/bun:/home/ubuntu/.cache/bun" \
   -v "${HOME}/.npm:/home/ubuntu/.npm" \
   -e "JETBRAINS_PROJECT_PATH=${SCRIPT_DIR}" \
-  -e "CODEBASE_MEMORY_ROOT=$(codebase_gateway_mount)" \
-  -e "CODEBASE_MEMORY_HOST_PROJECT=${RUN_DIR}" \
   -e "DEV_BOT_TEST_BRANCH=${BRANCH}" \
   -e "DEVBOT_AUDIT_NN=${AUDIT_NN}" \
   -e "DEVBOT_TEST_NONINTERACTIVE=${DEVBOT_TEST_NONINTERACTIVE:-0}" \

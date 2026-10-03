@@ -492,9 +492,57 @@ require_host_ollama_for_codebase_engine() {
     return 0
   fi
 
-  echo "ERROR: codebase_index_provider=codebase-index needs the host ollama at" >&2
-  echo "       http://localhost:18434 (the container reaches it via --network host)." >&2
-  echo "       On the host, start it with:" >&2
-  echo "         docker compose -f src/tools/ollama/docker-compose.yml -f src/tools/ollama/docker-compose.gpu.yml up -d" >&2
+  # Self-contained fixture: no --network host and no GPU/ollama (the shipped
+  # default engine is codebase-memory). Selecting codebase-index degrades this
+  # run rather than aborting it — the audit records the engine as unavailable.
+  echo "WARN: codebase_index_provider=codebase-index, but the self-contained test" >&2
+  echo "      fixture runs no host ollama — the codebase-index engine will be" >&2
+  echo "      unavailable for this run. The shipped default is codebase-memory." >&2
+  return 0
+}
+
+# ── Self-contained docker daemon (container side) ─────────────────────────────
+# The launcher runs this container --privileged with NO host network and starts
+# a dockerd INSIDE it, so dev-bot's shared MCP gateways run against this
+# container's own daemon — the audit's §4 (MCP reachability) and §10 (docker
+# services) then exercise real, running services without touching the host
+# daemon (whose gateway ports would otherwise collide on the shared host netns).
+#
+# Best-effort: a daemon that fails to start must not abort the run; the audit
+# then records docker/§10 as unavailable, with the dockerd log as evidence.
+start_docker_daemon() {
+  if docker info >/dev/null 2>&1; then
+    echo "docker daemon already reachable"
+    return 0
+  fi
+
+  echo "starting dockerd (privileged container)..."
+  # sudo is NOPASSWD for this user (see the image's sudoers drop-in). The log
+  # path is inside the disposable container.
+  sudo sh -c 'nohup dockerd >/var/log/dockerd.log 2>&1 &' || true
+
+  # Wait for the socket, THEN open it: dockerd creates it root:root, and the
+  # run user is not in the docker group without a re-login — polling `docker
+  # info` before the chmod would just spin. (Disposable privileged container;
+  # this exposes nothing off the machine.)
+  local i
+  for i in $(seq 1 40); do
+    [ -S /var/run/docker.sock ] && break
+    sleep 1
+  done
+  sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+
+  for i in $(seq 1 10); do
+    docker info >/dev/null 2>&1 && break
+    sleep 1
+  done
+
+  if docker info >/dev/null 2>&1; then
+    echo "docker daemon ready ($(docker info --format '{{.ServerVersion}}'))"
+    return 0
+  fi
+
+  echo "WARN: dockerd did not become ready — the audit will record docker as unavailable" >&2
+  sudo tail -n 20 /var/log/dockerd.log >&2 2>/dev/null || true
   return 1
 }

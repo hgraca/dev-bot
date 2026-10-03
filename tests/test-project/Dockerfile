@@ -30,7 +30,7 @@
 FROM ubuntu
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      curl ca-certificates git openssh-client python3 sudo nodejs npm docker.io build-essential jq gzip php-cli php-mbstring php-xml \
+      curl ca-certificates git openssh-client python3 sudo nodejs npm docker.io docker-compose-v2 build-essential jq gzip php-cli php-mbstring php-xml \
  && mkdir -p /home/ubuntu/.local/share /home/ubuntu/.local/lib /home/ubuntu/.local/bin \
  && chown -R ubuntu:ubuntu /home/ubuntu/.local \
  && curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -o /tmp/cuda-keyring.deb \

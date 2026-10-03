@@ -14,10 +14,9 @@ if ! command -v devbot >/dev/null 2>&1; then
   curl -fsSL "https://raw.githubusercontent.com/hgraca/dev-bot/${BRANCH}/install.sh" | bash -s -- --org hgraca --branch "${BRANCH}"
 fi
 
-# Host ollama (reachable in-container via --network host at localhost:18434) is
-# required only when the installed dev-bot selects the codebase-index engine —
-# the shipped default (codebase-memory + mdctx) needs none. Gate on the
-# effective provider now, before reinit wires the engine. See
+# The self-contained fixture runs no host ollama (no --network host). The gate
+# warns (never aborts) when the installed dev-bot selects codebase-index; the
+# shipped default (codebase-memory + mdctx) needs no ollama. See
 # require_host_ollama_for_codebase_engine in test-lib.sh.
 # shellcheck source=./test-lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/test-lib.sh"

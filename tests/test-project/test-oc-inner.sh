@@ -12,6 +12,11 @@ cd /app
 # must not block waiting for input.
 export SKIP_CONFIRM=1
 
+# Phase output is streamed via `docker logs` to the operator's terminal — a
+# non-TTY pipe — so opt into colour explicitly (a genuine pipe, e.g.
+# `devbot module list | cat`, stays plain via the default no-TTY gate).
+export FORCE_COLOR=1
+
 # Use a SHARED qmd SQLite index for the devbot-test runs, living under the
 # host-mounted qmd cache (~/.cache/qmd is mounted rw into every container), so
 # parallel cc + oc runs index the ~600-doc global store ONCE, not once per
@@ -116,6 +121,21 @@ _phase "git repo"
 export DEV_BOT_TEST_BRANCH="${DEV_BOT_TEST_BRANCH:-main}"
 . ./test-reinit.sh
 _phase "reinit (install + wiring)"
+
+# Self-contained docker: start this container's own daemon (the launcher runs
+# --privileged, no host network) so dev-bot's shared MCP gateways run here and
+# the audit's §4/§10 exercise real services. test-lib.sh is sourced by
+# test-reinit.sh above, so start_docker_daemon is available here.
+start_docker_daemon || true
+_phase "docker daemon"
+
+# Bring up dev-bot's shared MCP gateways on this container's daemon so §4 (MCP
+# reachability) and §10 (docker services) have running services to audit.
+# Best-effort: a startup failure must not abort the run.
+if docker info >/dev/null 2>&1; then
+  devbot up || echo "WARN: devbot up failed — docker services may be missing" >&2
+fi
+_phase "devbot up"
 
 # Grant the opencode install dir through opencode's external_directory
 # permission (the agent audits the harness itself). Merges; no-op if absent.

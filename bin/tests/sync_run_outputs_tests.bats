@@ -118,14 +118,35 @@ teardown() {
   done
 }
 
-@test "launchers: name the gateway root and the host project for the index hook" {
-  # Without these the container's index hook resolves the container path against
-  # a gateway rooted at the host's $HOME and skips every session (audit-70 FAIL).
+@test "launchers: run a self-contained docker daemon (privileged, no host network)" {
+  # The fixture starts its own dockerd inside the container, so the audit's
+  # §4/§10 exercise real services without depending on the host daemon, whose
+  # gateway ports would collide on the shared host netns.
   local launcher
   for launcher in test-oc.sh test-cc.sh; do
-    run grep -q 'CODEBASE_MEMORY_ROOT=' "${REPO_ROOT}/tests/test-project/${launcher}"
+    run grep -qE '^[[:space:]]*--privileged' "${REPO_ROOT}/tests/test-project/${launcher}"
     assert_success
+    # Data-root on a volume: nested overlay2 cannot run containers on the
+    # image's own overlay backing.
+    run grep -qF -- '--mount type=volume,dst=/var/lib/docker' "${REPO_ROOT}/tests/test-project/${launcher}"
+    assert_success
+    run grep -qE '^[[:space:]]*--network host' "${REPO_ROOT}/tests/test-project/${launcher}"
+    assert_failure
+    # Host-path gateway env no longer flows in: host paths are invalid against
+    # the container's own daemon.
+    run grep -q 'CODEBASE_MEMORY_ROOT=' "${REPO_ROOT}/tests/test-project/${launcher}"
+    assert_failure
     run grep -q 'CODEBASE_MEMORY_HOST_PROJECT=' "${REPO_ROOT}/tests/test-project/${launcher}"
+    assert_failure
+  done
+}
+
+@test "inner scripts: start the docker daemon and bring the gateways up" {
+  local inner
+  for inner in test-oc-inner.sh test-cc-inner.sh; do
+    run grep -q 'start_docker_daemon' "${REPO_ROOT}/tests/test-project/${inner}"
+    assert_success
+    run grep -q 'devbot up' "${REPO_ROOT}/tests/test-project/${inner}"
     assert_success
   done
 }
