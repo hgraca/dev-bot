@@ -21,7 +21,7 @@ You are auditing the dev-bot agentic toolkit in this project. The project's own 
 
 - `/.dockerenv` exists → container.
 - `grep -q docker /proc/1/cgroup` (or `kubepods`) → container.
-- `docker info` fails but `docker` exists on PATH → container (no daemon inside).
+- `docker info` fails but `docker` exists on PATH → container with no daemon (weak evidence: the e2e fixture runs `--privileged` and starts its own `dockerd` inside the container, so a daemon may be reachable).
 - The project dir is a mount like `/app` while the config bakes a host-looking path (e.g. `/home/...`) → container.
 - `HOME` looks containerized (`/home/ubuntu`, `/root`) vs the real user's home.
 
@@ -33,7 +33,7 @@ Record the verdict at the top of the report: **ENVIRONMENT: container** or **ENV
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | Project dir           | a bind mount (e.g. `/app`) of the host tree                                                                                       | the real directory    |
 | dev-bot install       | under the container home (e.g. `/home/ubuntu/.local/share/dev-bot`)                                                               | under the user's home |
-| Docker daemon         | absent (MCP wrappers fall back to npx/direct)                                                                                     | present               |
+| Docker daemon         | may be present — the e2e fixture starts its own `dockerd` in-container (MCP wrappers fall back to npx/direct only when absent)    | present               |
 | GPU                   | via passthrough (`--gpus all`, `/dev/nvidia*`) — `nvidia-smi` visible                                                             | native                |
 | Shared state dirs     | host-mounted (`~/.local/share/opencode`, `~/.cache/{qmd,opencode,bun}`, `~/.npm`) — persist across containers                     | native                |
 | Host-side paths       | expected to be **invisible inside the container** (e.g. the value of `JETBRAINS_PROJECT_PATH`, any `/home/<user>/...` in configs) | expected to exist     |
@@ -199,7 +199,7 @@ Dev-bot's shared MCP gateways (`codebase-memory`, `mdctx`, `signoz`, `svelte`, p
 - **A dead server inside a live container.** Every bridged gateway runs `mcp-proxy` in the foreground, so it exits when its stdio child dies — but a container can still be Up while the capability is already gone; the module's `up.sh` reports `gateway not reachable … after 30s — MCP server will be unavailable` and the harness starts without it. Never infer the capability from `docker ps`.
 - **A mounted volume that is not the volume you meant.** Compose creates a **missing bind-mount source** on the host as `root:root`. A module service that runs as the host uid then finds its own state dir owned by root and refuses to start — `exact executable identity could not be verified (cache-private) - <dir>: owner uid 0, expected euid <uid>` — or silently cannot write its index. The mount _path_ in `docker inspect` still looks correct; only the host-side owner reveals the substitution. `bin/up.sh`'s `_ensure_writable_bind_sources` pre-creates the writable sources as the host user before compose runs — a root-owned writable source means that pre-create did not run.
 
-**Inside a container this whole section is N-A** — there is no docker daemon (§0), so record N-A with that evidence rather than FAIL.
+**This section is N-A only when no docker daemon is reachable** (§0: `docker info` fails and no socket exists) — record N-A with that evidence rather than FAIL. The e2e fixture runs `--privileged` and starts its own `dockerd` inside the container, so a container run usually HAS a daemon; when `docker info` succeeds, audit this section exactly as on a host (the services are the container's own, started by `devbot up`).
 
 For every service the enabled modules declare:
 
