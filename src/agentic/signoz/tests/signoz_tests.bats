@@ -194,14 +194,22 @@ MOCK
 
 # ── Readiness probe honesty ──────────────────────────────────────────────────
 
-# A curl stub that always succeeds: the MCP `initialize` handshake passes even
-# with an empty API key, so a bare probe cannot tell a working gateway from a
-# useless one. up.sh must therefore key its verdict off the token as well.
-_stub_successful_curl() {
-  local mockbin="$1"
+# A tokenless gateway answers the MCP `initialize` with HTTP 401, not a
+# successful handshake (audit-77 FAIL-2 corrected the old assumption). The stub
+# models real curl: with `-f` a >=400 response fails (exit 22, no output),
+# without `-f` it prints the status code.
+_stub_curl_status() {
+  local mockbin="$1" code="$2"
   mkdir -p "${mockbin}"
-  cat > "${mockbin}/curl" <<'MOCK'
+  cat > "${mockbin}/curl" <<MOCK
 #!/usr/bin/env bash
+code='${code}'
+for arg in "\$@"; do
+  case "\$arg" in
+    -*f*) [[ "\${code}" == 2* ]] || exit 22 ;;
+  esac
+done
+printf '%s' "\${code}"
 exit 0
 MOCK
   chmod +x "${mockbin}/curl"
@@ -209,7 +217,7 @@ MOCK
 
 @test "up.sh reports DEGRADED when SIGNOZ_AUTH_TOKEN is unset" {
   sandbox="$(mktemp -d)"
-  _stub_successful_curl "${sandbox}/mockbin"
+  _stub_curl_status "${sandbox}/mockbin" 200
 
   run env -u SIGNOZ_AUTH_TOKEN PATH="${sandbox}/mockbin:${PATH}" \
     bash "${MODULE_DIR}/up.sh"
@@ -221,7 +229,7 @@ MOCK
 
 @test "up.sh reports reachable when SIGNOZ_AUTH_TOKEN is set" {
   sandbox="$(mktemp -d)"
-  _stub_successful_curl "${sandbox}/mockbin"
+  _stub_curl_status "${sandbox}/mockbin" 200
 
   run env SIGNOZ_AUTH_TOKEN=dummy PATH="${sandbox}/mockbin:${PATH}" \
     bash "${MODULE_DIR}/up.sh"
@@ -229,5 +237,32 @@ MOCK
   assert_success
   assert_output --partial "reachable"
   refute_output --partial "DEGRADED"
+  rm -rf "${sandbox}"
+}
+
+@test "up.sh reports DEGRADED (not unreachable) when the gateway answers 401" {
+  sandbox="$(mktemp -d)"
+  _stub_curl_status "${sandbox}/mockbin" 401
+
+  run env -u SIGNOZ_AUTH_TOKEN DEV_BOT_MCP_WAIT_TRIES=1 \
+    PATH="${sandbox}/mockbin:${PATH}" bash "${MODULE_DIR}/up.sh"
+
+  assert_success
+  assert_output --partial "DEGRADED"
+  refute_output --partial "not reachable"
+  rm -rf "${sandbox}"
+}
+
+@test "up.sh reports a neutral warning (not an auth error) on a 503" {
+  sandbox="$(mktemp -d)"
+  _stub_curl_status "${sandbox}/mockbin" 503
+
+  run env -u SIGNOZ_AUTH_TOKEN DEV_BOT_MCP_WAIT_TRIES=1 \
+    PATH="${sandbox}/mockbin:${PATH}" bash "${MODULE_DIR}/up.sh"
+
+  assert_success
+  assert_output --partial "unexpected HTTP response"
+  refute_output --partial "auth error"
+  refute_output --partial "not reachable"
   rm -rf "${sandbox}"
 }

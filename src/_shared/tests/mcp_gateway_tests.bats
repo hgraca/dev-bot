@@ -166,6 +166,21 @@ MOCK
   echo "${dir}"
 }
 
+# Build a PATH whose only tool is a `curl` stub that prints an HTTP status and
+# succeeds — the shape of `curl -s -o /dev/null -w '%{http_code}'`.
+_curl_status_stub_path() {
+  local code="$1"
+  local dir
+  dir="$(mktemp -d)"
+  cat > "${dir}/curl" <<MOCK
+#!/usr/bin/env bash
+printf '%s' '${code}'
+exit 0
+MOCK
+  chmod +x "${dir}/curl"
+  echo "${dir}"
+}
+
 @test "wait helper returns 0 when the gateway answers" {
   local stub
   stub="$(_curl_stub_path 0)"
@@ -179,6 +194,67 @@ MOCK
 
   assert_success
   assert_output --partial 'rc=0'
+  rm -rf "${stub}"
+}
+
+@test "accept-http wait returns 0 on a 2xx response" {
+  local stub
+  stub="$(_curl_status_stub_path 200)"
+
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    PATH='${stub}:'\$PATH
+    _devbot_wait_for_mcp_gateway testgw http://127.0.0.1:1/mcp '' '' 1
+    echo \"rc=\$?\"
+  "
+
+  assert_output --partial 'rc=0'
+  rm -rf "${stub}"
+}
+
+@test "accept-http wait returns 3 on an auth response (reachable, misconfigured)" {
+  local stub
+  stub="$(_curl_status_stub_path 401)"
+
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    PATH='${stub}:'\$PATH
+    _devbot_wait_for_mcp_gateway testgw http://127.0.0.1:1/mcp '' '' 1
+    echo \"rc=\$?\"
+  "
+
+  assert_output --partial 'rc=3'
+  rm -rf "${stub}"
+}
+
+@test "accept-http wait returns 4 on a non-auth HTTP error" {
+  local stub
+  stub="$(_curl_status_stub_path 503)"
+
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    PATH='${stub}:'\$PATH
+    _devbot_wait_for_mcp_gateway testgw http://127.0.0.1:1/mcp '' '' 1
+    echo \"rc=\$?\"
+  "
+
+  assert_output --partial 'rc=4'
+  rm -rf "${stub}"
+}
+
+@test "accept-http wait still reports a skip when nothing answers" {
+  local stub
+  stub="$(_curl_stub_path 1)"
+
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    PATH='${stub}:'\$PATH
+    DEV_BOT_MCP_WAIT_TRIES=1 _devbot_wait_for_mcp_gateway testgw http://127.0.0.1:1/mcp '' '' 1
+    echo \"rc=\$?\"
+  "
+
+  assert_output --partial 'rc=1'
+  assert_output --partial 'not reachable'
   rm -rf "${stub}"
 }
 

@@ -2556,17 +2556,24 @@ _prune_stale_skill_copies() {
 }
 
 # =============================================================================
-# _devbot_wait_for_mcp_gateway <name> <mcp-url> [tries] [container]
+# _devbot_wait_for_mcp_gateway <name> <mcp-url> [tries] [container] [accept-http]
 #
 # Wait until a shared MCP gateway — a docker compose service fronted by a
 # module's up.sh — answers an MCP `initialize` request, so the harness that
 # starts right after `devbot up` finds it ready.
 #
-# Returns 0 when the gateway answered, 1 otherwise. Failure is never fatal: a
-# _skip is printed for a timeout or a missing curl and the harness starts with
-# that server unavailable rather than failing the boot. Prints nothing on
-# success, so the caller owns the success message — signoz downgrades it to
-# DEGRADED when its API token is unset.
+# Returns 0 when the gateway answered, 1 otherwise. With accept-http=1 (5th
+# arg) the probe takes any HTTP response as "the transport is up": 0 for a 2xx
+# handshake, 3 for an auth response (401/403 — reachable but misconfigured,
+# signoz without a token), 4 for any other non-2xx (a 404/5xx is not a token
+# problem), 1 when nothing answers. A `-f` probe reads the 401 as unreachable
+# and burns the whole retry budget, so this mode exists to tell "down" from
+# "misconfigured".
+#
+# Failure is never fatal: a _skip is printed for a timeout or a missing curl and
+# the harness starts with that server unavailable rather than failing the boot.
+# Prints nothing on success, so the caller owns the success message — signoz
+# downgrades it to DEGRADED when its API token is unset.
 #
 # `container` is optional and is what makes the failure fast: a container that
 # has already EXITED will never answer, so retrying the URL for the remaining
@@ -2587,6 +2594,9 @@ _devbot_wait_for_mcp_gateway() {
   # without waiting the real 30s.
   local tries="${3:-${DEV_BOT_MCP_WAIT_TRIES:-30}}"
   local container="${4:-}"
+  # Any HTTP response counts as "up" (see the header). Off by default: the other
+  # gateways expect a real handshake.
+  local accept_http="${5:-0}"
 
   if ! command -v curl >/dev/null 2>&1; then
     _skip "${name}: curl not available — skipping gateway readiness check"
@@ -2600,12 +2610,31 @@ _devbot_wait_for_mcp_gateway() {
     probing_container=1
   fi
 
-  local attempt=0
-  while ! curl -sf -o /dev/null --max-time 2 \
-    -X POST "${url}" \
-    -H 'Content-Type: application/json' \
-    -H 'Accept: application/json, text/event-stream' \
-    -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"devbot-up","version":"1"}}}'; do
+  local attempt=0 code=""
+  while true; do
+    if [[ "${accept_http}" == "1" ]]; then
+      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 \
+        -X POST "${url}" \
+        -H 'Content-Type: application/json' \
+        -H 'Accept: application/json, text/event-stream' \
+        -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"devbot-up","version":"1"}}}' 2>/dev/null)" || code="000"
+      if [[ -n "${code}" && "${code}" != "000" ]]; then
+        if [[ "${code}" == 2* ]]; then
+          return 0
+        fi
+        if [[ "${code}" == 401 || "${code}" == 403 ]]; then
+          return 3
+        fi
+        return 4
+      fi
+    elif curl -sf -o /dev/null --max-time 2 \
+      -X POST "${url}" \
+      -H 'Content-Type: application/json' \
+      -H 'Accept: application/json, text/event-stream' \
+      -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"devbot-up","version":"1"}}}'; then
+      return 0
+    fi
+
     if ((probing_container)); then
       local running
       running="$(docker inspect -f '{{.State.Running}}' "${container}" 2>/dev/null || true)"
