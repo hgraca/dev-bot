@@ -73,6 +73,15 @@ _run_pre_tool() {
     | python3 "${SANDBOX_DIR}/src/harnesses/claudecode/hooks/on-hooks.py" pre-tool
 }
 
+# _run_pre_tool_agent <command> <agent_type>: PreToolUse JSON that also carries
+# the subagent identity (audit-78 FAIL-2) the adapter must inject per command.
+_run_pre_tool_agent() {
+  local command="$1" agent="$2"
+  printf '{"tool_name":"Bash","agent_type":"%s","tool_input":{"command":"%s"},"cwd":"%s"}\n' \
+    "${agent}" "${command}" "${SANDBOX_DIR}" \
+    | python3 "${SANDBOX_DIR}/src/harnesses/claudecode/hooks/on-hooks.py" pre-tool
+}
+
 @test "blocking guard that exits non-zero denies the command (fail closed)" {
   _setup_sandbox
   # Guard crashes (e.g. interpreter missing at runtime) — exits 3, no JSON.
@@ -161,4 +170,54 @@ JSON
   run _run_pre_tool "ls /tmp"
   assert_success
   refute_output --partial '"permissionDecision": "deny"'
+}
+
+# ── Subagent identity (audit-78 FAIL-2) ──────────────────────────────────────
+# CLAUDE_ENV_FILE is only available to SessionStart/Setup/CwdChanged/FileChanged
+# hooks, so the session preamble can name the primary agent only. A subagent's
+# tool-event payload carries agent_type, so the adapter injects the caller's
+# name into its own Bash command via PreToolUse updatedInput.
+
+@test "a subagent Bash call is rewritten to export its own agent name" {
+  _setup_sandbox
+  _write_guard 'echo "{\"blocked\": false}"'
+
+  run _run_pre_tool_agent "ls /tmp" "Scout"
+  assert_success
+  assert_output --partial '"updatedInput"'
+  assert_output --partial 'export DEV_BOT_AGENT_NAME=Scout;'
+  # updatedInput must not smuggle in a permission decision — the normal
+  # permission flow has to keep running.
+  refute_output --partial '"permissionDecision"'
+}
+
+@test "the rewritten command preserves the rest of the tool input" {
+  _setup_sandbox
+  _write_guard 'echo "{\"blocked\": false}"'
+
+  run bash -c "printf '%s\n' '{\"tool_name\":\"Bash\",\"agent_type\":\"Scout\",\"tool_input\":{\"command\":\"ls\",\"description\":\"list files\"},\"cwd\":\"${SANDBOX_DIR}\"}' | python3 '${SANDBOX_DIR}/src/harnesses/claudecode/hooks/on-hooks.py' pre-tool"
+
+  assert_success
+  assert_output --partial '"description": "list files"'
+  assert_output --partial 'export DEV_BOT_AGENT_NAME=Scout; ls'
+}
+
+@test "a Bash call without an agent_type is not rewritten" {
+  _setup_sandbox
+  _write_guard 'echo "{\"blocked\": false}"'
+
+  run _run_pre_tool "ls /tmp"
+  assert_success
+  refute_output --partial '"updatedInput"'
+  refute_output --partial 'DEV_BOT_AGENT_NAME'
+}
+
+@test "a non-Bash tool call is never rewritten" {
+  _setup_sandbox
+  _write_guard 'echo "{\"blocked\": false}"'
+
+  run bash -c "printf '%s\n' '{\"tool_name\":\"Read\",\"agent_type\":\"Scout\",\"tool_input\":{\"file_path\":\"/tmp/x\"},\"cwd\":\"${SANDBOX_DIR}\"}' | python3 '${SANDBOX_DIR}/src/harnesses/claudecode/hooks/on-hooks.py' pre-tool"
+
+  assert_success
+  refute_output --partial '"updatedInput"'
 }

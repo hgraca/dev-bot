@@ -5,10 +5,12 @@
 # preamble via $CLAUDE_ENV_FILE.
 #
 # Claude Code exports no session-id env var to the shell (upstream issue 47018),
-# and a tool-event payload carries agent_type only inside a subagent — so the
-# adapter writes both assignments to the preamble file, which Claude Code runs
-# before every Bash command. This is the claudecode counterpart of opencode's
-# shell.env hook.
+# so the adapter writes the session id and the primary agent to the preamble
+# file, which Claude Code runs before every Bash command — the claudecode
+# counterpart of opencode's shell.env hook. The preamble is a session-start
+# artefact: CLAUDE_ENV_FILE is documented as available only to SessionStart,
+# Setup, CwdChanged and FileChanged hooks, so a subagent's own name is injected
+# per command instead (see on_hooks_pre_tool_tests.bats).
 #
 # Sandbox pattern (mirrors on_hooks_pre_tool_tests.bats): on-hooks.py computes
 # DEV_BOT_ROOT from its own file location, so the real script is copied into the
@@ -25,11 +27,15 @@ setup() {
   SANDBOX_DIR="$(mktemp -d)"
   PREAMBLE="${SANDBOX_DIR}/env-preamble.sh"
   export CLAUDE_ENV_FILE="${PREAMBLE}"
+  # A live Claude Code session exports this; its project could name another
+  # agent, which would make the DevBot assertion below environment-dependent.
+  unset CLAUDE_PROJECT_DIR
 
   command -v python3 &>/dev/null || skip "python3 not installed"
 }
 
 teardown() {
+  unset CLAUDE_PROJECT_DIR
   rm -rf "${SANDBOX_DIR}" 2>/dev/null || true
 }
 
@@ -58,6 +64,19 @@ _run_phase() {
   assert_success
   assert_output --partial "export DEV_BOT_SESSION_ID=abc-123"
   assert_output --partial "export DEV_BOT_AGENT_NAME=DevBot"
+}
+
+@test "the primary agent is read from .claude/settings.json when present" {
+  _setup_sandbox
+  mkdir -p "${SANDBOX_DIR}/.claude"
+  printf '{"agent":"TeamLead"}\n' > "${SANDBOX_DIR}/.claude/settings.json"
+  export CLAUDE_PROJECT_DIR="${SANDBOX_DIR}"
+
+  run _run_phase startup "{\"session_id\":\"abc-123\",\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+
+  run cat "${PREAMBLE}"
+  assert_output --partial "export DEV_BOT_AGENT_NAME=TeamLead"
 }
 
 @test "a subagent tool call publishes its own agent name" {

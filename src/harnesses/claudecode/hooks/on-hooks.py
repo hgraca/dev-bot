@@ -14,8 +14,10 @@
 #   stop       → Stop                       → session.idle
 #   startup    → SessionStart               → session.created
 #
-# Every phase also publishes the session id and the running agent to
-# $CLAUDE_ENV_FILE — see write_session_env().
+# Session start publishes the session id and the primary agent to
+# $CLAUDE_ENV_FILE (available only to session-lifecycle hooks); the pre-tool
+# phase injects each caller's own agent name into its Bash command — see
+# write_session_env() and inject_agent_env().
 # =============================================================================
 
 import datetime
@@ -36,24 +38,48 @@ DEV_BOT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__f
 ENV_FILE_VAR = "CLAUDE_ENV_FILE"
 SESSION_ID_ENV = "DEV_BOT_SESSION_ID"
 AGENT_NAME_ENV = "DEV_BOT_AGENT_NAME"
-# Outside a subagent the payload carries no agent_type; the session is then the
-# primary agent, which claudecode pins to DevBot (audit §0c).
+# Last-resort name when neither the payload nor .claude/settings.json declares
+# one (init.sh writes "DevBot" as the default agent).
 PRIMARY_AGENT_NAME = "DevBot"
+
+
+def resolve_primary_agent():
+    """The session's primary agent, from .claude/settings.json `agent`.
+
+    Claude Code exports CLAUDE_PROJECT_DIR to the hook process, and init.sh
+    writes the default agent there. Hard-coding the name would mislabel any
+    session whose agent is not DevBot (a TeamLead-primary install, an --agent
+    run).
+    """
+    project_dir = (os.environ.get("CLAUDE_PROJECT_DIR") or "").strip()
+    if project_dir:
+        try:
+            with open(
+                os.path.join(project_dir, ".claude", "settings.json"),
+                encoding="utf-8",
+            ) as fh:
+                name = (json.load(fh).get("agent") or "").strip()
+            if name:
+                return name
+        except Exception:
+            pass
+    return PRIMARY_AGENT_NAME
 
 
 def write_session_env(data):
     """Publish the session id and the running agent to the Bash preamble.
 
-    Called from every phase rather than only at session start: the payload
-    carries `agent_type` only inside a subagent, so the name has to be refreshed
-    from whichever hook fires last before the next Bash command. The file is
-    rewritten whole, never appended, so it stays a fixed two lines.
+    Best-effort: CLAUDE_ENV_FILE is documented as available only to session-
+    lifecycle hooks (SessionStart/Setup/CwdChanged/FileChanged), so on other
+    phases the variable is absent and the write is a no-op. The authoritative
+    per-caller name for tool calls is injected by inject_agent_env(). The file
+    is rewritten whole, never appended, so it stays a fixed two lines.
     """
     path = (os.environ.get(ENV_FILE_VAR) or "").strip()
     session_id = (data.get("session_id") or "").strip()
     if not path or not session_id:
         return
-    agent = (data.get("agent_type") or "").strip() or PRIMARY_AGENT_NAME
+    agent = (data.get("agent_type") or "").strip() or resolve_primary_agent()
     preamble = "".join(
         [
             "export %s=%s\n" % (SESSION_ID_ENV, shlex.quote(session_id)),
@@ -67,6 +93,40 @@ def write_session_env(data):
         # A missing or unwritable preamble file must not break the phase the
         # harness is actually running — the identity is best-effort.
         pass
+
+
+def inject_agent_env(data, command):
+    """Return PreToolUse JSON exporting the caller's agent for a Bash call.
+
+    A subagent's tool-event payload carries agent_type, but the shared preamble
+    file holds one name and is not available to PreToolUse hooks, so the name
+    would otherwise stay at the primary's. updatedInput replaces the tool input
+    before it runs, giving the caller's own shell the right value regardless of
+    concurrent callers. Returns None when there is nothing to inject (no
+    agent_type, a non-Bash tool, or a malformed payload).
+    """
+    agent = (data.get("agent_type") or "").strip()
+    if not agent or not command:
+        return None
+    if (data.get("tool_name") or "").lower() not in ("bash", "shell"):
+        return None
+    tool_input = data.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return None
+    updated = dict(tool_input)
+    updated["command"] = "export %s=%s; %s" % (
+        AGENT_NAME_ENV,
+        shlex.quote(agent),
+        command,
+    )
+    return json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": updated,
+            },
+        }
+    )
 
 
 def load_manifests():
@@ -231,6 +291,10 @@ def main():
                     # was produced. Fail closed rather than silently allow.
                     deny("guard temporarily unavailable (unparseable output)")
                     return
+
+        decision = inject_agent_env(data, command)
+        if decision:
+            print(decision)
 
     elif phase == "post-file":
         file_path = (data.get("tool_input") or {}).get("file_path") or ""

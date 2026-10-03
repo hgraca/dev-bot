@@ -9,6 +9,8 @@ Claude Code is one of the two agent runtimes DevBot plugs into. Each harness liv
 
 `src/harnesses/claudecode/hooks/on-hooks.py` is a **five-phase dispatcher** — `pre-tool` / `post-file` / `post-bash` / `stop` / `startup` — because Claude Code's hook events are separate registrations with no unified event stream. It reads every `src/agentic/*/hooks.json` manifest and maps the six semantic events onto the phases it registers.
 
+Hook commands are anchored to Claude Code's `${CLAUDE_PROJECT_DIR}` placeholder, so they resolve from any session cwd. Session start publishes `DEV_BOT_SESSION_ID` and the primary agent name to the Bash preamble. `CLAUDE_ENV_FILE` is not available to tool events, so the `pre-tool` phase instead returns `PreToolUse` `updatedInput` for a subagent's Bash command, prefixing `export DEV_BOT_AGENT_NAME=<agent_type>;` — the payload's `agent_type` identifies the caller without relying on the shared preamble. The primary name is resolved from `.claude/settings.json`, never hard-coded.
+
 Prerequisites on the machine running Claude Code:
 
 - **bun** — runs the `tools/*.ts` hooks (`curl -fsSL https://bun.sh/install | bash`)
@@ -30,7 +32,7 @@ The adapter contract is harness-agnostic — see [the `devbot stats` reference](
 
 ## Configuration
 
-`.claude/settings.json` carries the session agent; the hook registrations live in `src/harnesses/claudecode/hooks.json` and are wired by `init.sh`.
+`.claude/settings.json` carries the session agent (the dispatcher reads its `agent` key to name the primary agent); the hook registrations live in `src/harnesses/claudecode/hooks.json` and are wired by `init.sh`.
 
 ## See also
 
