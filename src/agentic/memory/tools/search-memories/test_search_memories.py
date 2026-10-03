@@ -648,6 +648,8 @@ class TestSearchMdctx(unittest.TestCase):
 
     def test_limits_to_max_results(self):
         many = [self._hit(f"f{i}.md", 1.0 - i * 0.01, f"T{i}") for i in range(15)]
+        for i in range(15):
+            (self.latent / f"f{i}.md").write_text(f"# F{i}\n")
         with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
             with patch.object(_search_memories, "run_mdctx_cli", return_value=(json.dumps(many), None)):
                 results, err = _search_memories.search_mdctx(["q1"], self.root, 5)
@@ -696,6 +698,23 @@ class TestSearchMdctx(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["title"], "")  # the empty-path hit was skipped
 
+    def test_skips_hits_whose_file_no_longer_exists(self):
+        # audit-80 N3: a note deleted from disk still surfaces via the stale
+        # index until the next prune; it must not render as a dangling
+        # "body not fetched" result.
+        project_out = json.dumps([self._hit("gone.md", 9.0), self._hit("a.md", 0.5, "A")])
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(
+                _search_memories,
+                "run_mdctx_cli",
+                side_effect=[(project_out, None), ("[]", None)],
+            ):
+                results, err = _search_memories.search_mdctx(["q1"], self.root, 5)
+
+        self.assertIsNone(err)
+        self.assertEqual(len(results), 1)
+        self.assertIn("a.md", results[0]["file"])
+
     def test_project_store_hits_rank_above_higher_scoring_global_hits(self):
         # audit-51 §5 NOTE: the global store (many files) outranks a small
         # project vault on fuzzy queries, burying the project note below the
@@ -725,6 +744,8 @@ class TestSearchMdctx(unittest.TestCase):
         global_out = json.dumps(
             [self._hit(f"g{i}.md", 5.7 + i * 0.1, f"G{i}") for i in range(5)]
         )
+        for i in range(5):
+            (self.global_dir / f"g{i}.md").write_text(f"# G{i}\n")
         with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
             with patch.object(
                 _search_memories,

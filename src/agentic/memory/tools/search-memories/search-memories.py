@@ -390,6 +390,11 @@ def search_mdctx(
         abs_path = str((root / rel).resolve()) if not Path(rel).is_absolute() else rel
         if abs_path in seen_files:
             return
+        # A stale index entry (note deleted from disk) must not surface as a
+        # dangling "body not fetched" hit (audit-80 N3); the index catches up at
+        # the next prune.
+        if not Path(abs_path).is_file():
+            return
         seen_files.add(abs_path)
         store_results.append(
             {
