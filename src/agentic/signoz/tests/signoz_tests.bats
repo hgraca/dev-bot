@@ -266,3 +266,17 @@ MOCK
   refute_output --partial "not reachable"
   rm -rf "${sandbox}"
 }
+
+@test "the shipped global config disables signoz by default" {
+  # A tokenless install must not start this container: with signoz absent from
+  # the modules map, the "absent = enabled" rule starts it, it answers 401, and
+  # its MCP entry is disabled anyway (audit-77 FAIL-2 / audit-78 N2).
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+modules = load_jsonc('${PROJECT_ROOT}/.devbot.global.dist.jsonc').get('modules', {})
+sys.exit(0 if modules.get('signoz') is False else 1)
+"
+  assert_success
+}

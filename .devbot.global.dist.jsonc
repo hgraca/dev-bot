@@ -18,6 +18,7 @@
     "ollama": false,
     "react": false,
     "sentry": false,
+    "signoz": false,
     "svelte": false
   },
   "auto_recover": {
