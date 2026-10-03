@@ -151,6 +151,17 @@ teardown() {
   done
 }
 
+@test "launchers: capture the provisioning stream for the audit to read" {
+  local launcher
+  for launcher in test-oc.sh test-cc.sh; do
+    run grep -qF 'devbot-test-run.log' "${REPO_ROOT}/tests/test-project/${launcher}"
+    assert_success
+  done
+  # And the audit spec must look for that exact path.
+  run grep -qF 'devbot-test-run.log' "${REPO_ROOT}/src/tools/devbot-cli/commands/audit.md"
+  assert_success
+}
+
 # ── run_dir_create / codebase_gateway_mount ──────────────────────────────────
 
 @test "run_dir_create: builds the run copy under \$DEV_BOT_TEST_RUN_ROOT" {

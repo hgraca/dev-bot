@@ -166,6 +166,14 @@ done
 kill "${LOGS_FOLLOWER}" 2>/dev/null || true
 wait "${LOGS_FOLLOWER}" 2>/dev/null || true
 
+# Capture the whole provisioning stream (module installs, `devbot reinit`,
+# `devbot up`, harness launch) to a log the in-session audit reads. Docker's
+# logging driver retains the container's full output, so this sees everything —
+# including the phases before test-reinit reset the container's own
+# `.agents/logs`. Overwrites each run. See audit.md §8a.
+mkdir -p "${RUN_DIR}/.agents/logs" 2>/dev/null || true
+docker logs "${CONTAINER_NAME}" > "${RUN_DIR}/.agents/logs/devbot-test-run.log" 2>&1 || true
+
 if [[ "${READY}" == "1" ]] \
   && docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null | grep -q true; then
   if [[ "${DEVBOT_TEST_NONINTERACTIVE:-0}" == "1" ]]; then
