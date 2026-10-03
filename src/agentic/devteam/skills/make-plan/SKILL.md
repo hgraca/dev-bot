@@ -299,7 +299,7 @@ The orchestrator judges the prompt. NEVER delegate this. Use the table:
 ### Step 2: Trivial path
 
 1. Skip backlog, technical plan, and critic review entirely.
-2. Hand the brief + obvious context (file paths, patterns) directly to `devbot:implement-story`. Use `<work-folder>` as `<issue-folder>`.
+2. Hand the brief + obvious context (file paths, patterns) directly to `devbot:implement-story`. Use `<work-folder>` as `<issue-folder>`; trivial work has no planning phase, so its work folder is created **directly in `.agents/memory/work/active/`** (the documented exemption from "born in todo").
 3. The `devbot:implement-story` cycle (Tester → Developer → Reviewer per task) provides rigor. No planning artifacts produced.
 4. Skip Steps 3–8.
 
