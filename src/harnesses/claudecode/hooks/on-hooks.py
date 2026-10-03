@@ -178,9 +178,14 @@ def run_and_log(cmd, cwd, log_path, hook_id):
     # formatter silent (audit-55 FAIL). stdout on success, stderr + exit code
     # on failure, an explicit "ok (no output)" marker otherwise.
     try:
-        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        # Header FIRST: a hook that backgrounds the real work (the memory
+        # reindex) writes to this same log before run_and_log appends, so a
+        # header written afterwards landed below the job's output (audit-80 N2).
+        with open(log_path, "a") as f:
+            f.write(f"[{ts}] {hook_id}\n")
+        r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
         text = (r.stdout or "").strip()
         err = (r.stderr or "").strip()
         lines = []
@@ -194,7 +199,7 @@ def run_and_log(cmd, cwd, log_path, hook_id):
         elif not lines:
             lines.append("ok (no output)")
         with open(log_path, "a") as f:
-            f.write(f"[{ts}] {hook_id}\n" + "\n".join(lines) + "\n\n")
+            f.write("\n".join(lines) + "\n\n")
     except Exception:
         pass
 

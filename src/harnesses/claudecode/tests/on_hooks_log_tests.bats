@@ -253,3 +253,29 @@ JSON
   assert [ -f "${SANDBOX_DIR}/.agents/logs/fakelog.log" ]
   refute [ -e "${SANDBOX_DIR}/sub/dir/.agents/logs/fakelog.log" ]
 }
+
+# ── audit-80 N2: the header is written BEFORE the hook runs ───────────────────
+# A hook that backgrounds the real work (memory reindex) wrote its output to the
+# declared log before run_and_log appended the header, so the header appeared
+# below the job's lines.
+
+@test "hook-log header precedes output the hook itself writes (background job)" {
+  _setup_sandbox
+  printf '%s\n' '#!/usr/bin/env bash' 'mkdir -p .agents/logs' \
+    'echo "background-line" >> .agents/logs/fakelog.log' \
+    > "${SANDBOX_DIR}/src/agentic/fakelog/bg.sh"
+  chmod +x "${SANDBOX_DIR}/src/agentic/fakelog/bg.sh"
+  _write_manifest_run "session.created" ".agents/logs/fakelog.log" "bg.sh"
+
+  run _run_phase startup "{\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+
+  local log="${SANDBOX_DIR}/.agents/logs/fakelog.log"
+  local header_line bg_line
+  header_line="$(grep -n 'fakelog' "${log}" | head -1 | cut -d: -f1)"
+  bg_line="$(grep -n 'background-line' "${log}" | head -1 | cut -d: -f1)"
+  [ -n "${header_line}" ] && [ -n "${bg_line}" ] \
+    || fail "expected both the hook header and the background line in ${log}"
+  [ "${header_line}" -lt "${bg_line}" ] \
+    || fail "header (line ${header_line}) must precede background output (line ${bg_line})"
+}
