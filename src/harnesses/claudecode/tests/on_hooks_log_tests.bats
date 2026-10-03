@@ -27,6 +27,11 @@ setup() {
 
   SANDBOX_DIR="$(mktemp -d)"
 
+  # The worktree resolver prefers CLAUDE_PROJECT_DIR (audit-80 FAIL-1). A
+  # claudecode session exports it, so unset it to keep these tests pinned to
+  # the payload cwd unless a test sets it explicitly.
+  unset CLAUDE_PROJECT_DIR
+
   command -v python3 &>/dev/null || skip "python3 not installed"
 }
 
@@ -212,4 +217,39 @@ JSON
   run cat "${log}"
   assert_output --partial "boom on stderr"
   assert_output --partial "exit=1"
+}
+
+# ── audit-80 FAIL-1: the worktree is the project root, not the live shell cwd ─
+# Claude Code's payload `cwd` is the session's current directory, which persists
+# across Bash calls. Keying the worktree on it wrote hook logs into a stray
+# nested .agents/ tree once the shell left the project root.
+
+@test "post-file: log follows CLAUDE_PROJECT_DIR, not the drifted shell cwd" {
+  _setup_sandbox
+  _write_manifest "file.edited" ".agents/logs/fakelog.log"
+  mkdir -p "${SANDBOX_DIR}/sub/dir"
+  : > "${SANDBOX_DIR}/sub/dir/probe.md"
+
+  export CLAUDE_PROJECT_DIR="${SANDBOX_DIR}"
+  run _run_phase post-file \
+    "{\"cwd\":\"${SANDBOX_DIR}/sub/dir\",\"tool_input\":{\"file_path\":\"${SANDBOX_DIR}/sub/dir/probe.md\"}}"
+  assert_success
+
+  assert [ -f "${SANDBOX_DIR}/.agents/logs/fakelog.log" ]
+  refute [ -e "${SANDBOX_DIR}/sub/dir/.agents/logs/fakelog.log" ]
+}
+
+@test "post-file: falls back to the git toplevel when CLAUDE_PROJECT_DIR is unset" {
+  _setup_sandbox
+  _write_manifest "file.edited" ".agents/logs/fakelog.log"
+  git -C "${SANDBOX_DIR}" init -q
+  mkdir -p "${SANDBOX_DIR}/sub/dir"
+  : > "${SANDBOX_DIR}/sub/dir/probe.md"
+
+  run _run_phase post-file \
+    "{\"cwd\":\"${SANDBOX_DIR}/sub/dir\",\"tool_input\":{\"file_path\":\"${SANDBOX_DIR}/sub/dir/probe.md\"}}"
+  assert_success
+
+  assert [ -f "${SANDBOX_DIR}/.agents/logs/fakelog.log" ]
+  refute [ -e "${SANDBOX_DIR}/sub/dir/.agents/logs/fakelog.log" ]
 }

@@ -231,10 +231,35 @@ def run_file_edits(file_path, worktree):
         run_hook(hook, {"module": hook["_module"], "worktree": worktree, "file": file_path}, worktree)
 
 
+def resolve_worktree(data):
+    """The project root every hook is keyed on.
+
+    Claude Code's payload `cwd` is the session's live shell directory, which
+    persists across Bash calls — keying log paths, guards and `git -C` on it
+    made them drift into a stray nested `.agents/` tree once the shell left the
+    project root (audit-80 FAIL-1). Prefer CLAUDE_PROJECT_DIR (the project
+    root), then the enclosing git worktree, then the payload cwd.
+    """
+    env_root = (os.environ.get("CLAUDE_PROJECT_DIR") or "").strip()
+    if env_root and os.path.isdir(env_root):
+        return os.path.normpath(env_root)
+    cwd = data.get("cwd") or os.getcwd()
+    try:
+        top = subprocess.check_output(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+        if top:
+            return top
+    except Exception:
+        pass
+    return cwd
+
+
 def main():
     phase = sys.argv[1] if len(sys.argv) > 1 else ""
     data = json.load(sys.stdin)
-    worktree = data.get("cwd") or os.getcwd()
+    worktree = resolve_worktree(data)
     write_session_env(data)
 
     if phase == "pre-tool":
