@@ -771,6 +771,39 @@ _link_claude_skills_flat() {
   _ok "claudecode skills flattened into .claude/skills/ (incl. external modules)"
 }
 
+# ── Prune wrapper symlinks for MCP servers that are not wired ─────────────────
+# A module's init runs BEFORE the harness inits (bin/init.sh: tools -> agentic ->
+# harnesses) and links its wrapper unconditionally, so a default-disabled server
+# (playwright, chrome-devtools) left an orphan wrapper in .claude/ even though
+# .mcp.json omitted it (audit-80 N11). Called after _wire_mcp, which is the
+# authority on what is actually wired.
+_prune_orphan_mcp_wrappers() {
+  local mcp_config="${PROJECT_DIR}/.mcp.json"
+  [[ -f "${mcp_config}" ]] || return 0
+  # Never delete on a read failure: without python3 .mcp.json cannot be
+  # consulted, so leave the wrappers rather than remove every one.
+  command -v python3 >/dev/null 2>&1 || return 0
+  local link base server
+  for link in "${CLAUDE_DIR}"/*-mcp-wrapper.js "${CLAUDE_DIR}"/*-serve.mcp.sh; do
+    [[ -L "${link}" ]] || continue
+    # The server name is the filename's prefix — the convention every module's
+    # init follows ({server}-mcp-wrapper.js / {server}-serve.mcp.sh). Keep it in
+    # sync with the module's canonical mcp.json server key.
+    base="$(basename "${link}")"
+    server="${base%-mcp-wrapper.js}"
+    [[ "${server}" == "${base}" ]] && server="${base%-serve.mcp.sh}"
+    [[ -n "${server}" && "${server}" != "${base}" ]] || continue
+    if ! python3 -c '
+import json, sys
+d = json.load(open(sys.argv[1]))
+sys.exit(0 if sys.argv[2] in d.get("mcpServers", {}) else 1)
+' "${mcp_config}" "${server}" 2>/dev/null; then
+      rm -f "${link}"
+      _log "removed orphan MCP wrapper ${base} (server '${server}' not wired)"
+    fi
+  done
+}
+
 # ── main ─────────────────────────────────────────────────────────────────────
 _copy_claude_dir
 _write_claude_config
@@ -788,5 +821,6 @@ _wire_plugin_hooks
 _link_harness_hooks
 _wire_harness_hooks
 _wire_mcp
+_prune_orphan_mcp_wrappers
 _remove_gitkeep_files
 _ensure_default_agent

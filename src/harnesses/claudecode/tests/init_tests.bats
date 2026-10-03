@@ -40,6 +40,7 @@ _skip() { echo "SKIP: $*"; }
 _warn() { echo "WARN: $*"; }
 _error() { echo "ERROR: $*" >&2; exit 1; }
 _fatal() { echo "FATAL: $*" >&2; exit 1; }
+_log()  { echo "LOG: $*"; }
 FUNCTIONS_EOF
 
   # init.sh also sources DEV_BOT_ROOT/src/_shared/functions.sh — stub it too.
@@ -185,4 +186,36 @@ assert json.load(open('${SANDBOX_DIR}/.claude/settings.json'))['agent'] == 'buil
   refute [ -d "${proj}/.claude/skills/my-custom-skill.bkp" ]
 
   rm -rf "${proj}"
+}
+
+# ── audit-80 N11: prune orphan MCP wrapper symlinks ──────────────────────────
+# Module init links wrappers unconditionally; a default-disabled server's
+# wrapper stayed in .claude/ although .mcp.json omitted it.
+
+@test "orphan prune: removes wrapper symlinks whose server is not in .mcp.json" {
+  _setup_sandbox
+  ln -s /dev/null "${SANDBOX_DIR}/.claude/playwright-mcp-wrapper.js"
+  ln -s /dev/null "${SANDBOX_DIR}/.claude/chrome-devtools-mcp-wrapper.js"
+  ln -s /dev/null "${SANDBOX_DIR}/.claude/chrome-devtools-serve.mcp.sh"
+  printf '{"mcpServers": {"devbot-tools": {}}}\n' > "${SANDBOX_DIR}/.mcp.json"
+
+  run _run _prune_orphan_mcp_wrappers
+  assert_success
+
+  refute [ -e "${SANDBOX_DIR}/.claude/playwright-mcp-wrapper.js" ]
+  refute [ -e "${SANDBOX_DIR}/.claude/chrome-devtools-mcp-wrapper.js" ]
+  refute [ -e "${SANDBOX_DIR}/.claude/chrome-devtools-serve.mcp.sh" ]
+}
+
+@test "orphan prune: keeps wrapper symlinks whose server is wired" {
+  _setup_sandbox
+  ln -s /dev/null "${SANDBOX_DIR}/.claude/playwright-mcp-wrapper.js"
+  ln -s /dev/null "${SANDBOX_DIR}/.claude/chrome-devtools-serve.mcp.sh"
+  printf '{"mcpServers": {"playwright": {}, "chrome-devtools": {}}}\n' > "${SANDBOX_DIR}/.mcp.json"
+
+  run _run _prune_orphan_mcp_wrappers
+  assert_success
+
+  [[ -L "${SANDBOX_DIR}/.claude/playwright-mcp-wrapper.js" ]]
+  [[ -L "${SANDBOX_DIR}/.claude/chrome-devtools-serve.mcp.sh" ]]
 }
