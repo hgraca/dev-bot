@@ -37,6 +37,19 @@ TEXT_RED='\033[0;31m'
 TEXT_DIM='\033[2m'
 TEXT_CLEAR='\033[0m'
 
+# Colour belongs to a terminal only. A piped or captured run (tests, `| cat`,
+# log teeing) must be plain text — otherwise escape codes leak into output that
+# callers parse (audit-75 NOTE-6: `devbot module list | cat` emitted raw
+# `\x1b[1m\x1b[0;34m`). NO_COLOR (any non-empty value) always wins; FORCE_COLOR
+# (non-empty, not "0") re-enables colour for a non-TTY stream a human still
+# reads in a terminal — e.g. the e2e fixture's `docker logs`, whose stdout is a
+# pipe but is rendered by the operator's terminal.
+if [[ -n "${NO_COLOR:-}" ]] \
+  || { [[ ! -t 1 ]] && [[ -z "${FORCE_COLOR:-}" || "${FORCE_COLOR}" == "0" ]]; }; then
+  TEXT_BOLD='' TEXT_GREEN='' TEXT_BLUE='' TEXT_YELLOW=''
+  TEXT_ORANGE='' TEXT_RED='' TEXT_DIM='' TEXT_CLEAR=''
+fi
+
 _debug() { echo -e "  ${TEXT_BOLD}${TEXT_RED}[DEBUG]  $* ${TEXT_CLEAR}"; }
 _info() { echo -e "  ${TEXT_BOLD}${TEXT_BLUE}ℹ  $* ${TEXT_CLEAR}"; }
 _ok()   { echo -e "  ${TEXT_BOLD}${TEXT_GREEN}✔  $* ${TEXT_CLEAR}"; }
