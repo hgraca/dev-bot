@@ -24,6 +24,9 @@ services:
       # Same rule the consumer fragments' `include:` already documents.
       context: ${DEV_BOT_ROOT}/src/agentic/mdctx
     image: dev-bot-mdctx-mcp:local
+    # Local-only image: skip the registry pull that would otherwise log
+    # "pull access denied" before the build on every `devbot up` (audit-80 N9).
+    pull_policy: build
     container_name: dev-bot-mdctx-mcp
     # Started on demand by `devbot up` and left running. Deliberately NOT
     # `unless-stopped`: the gateway is a dev machine service tied to the dev-bot

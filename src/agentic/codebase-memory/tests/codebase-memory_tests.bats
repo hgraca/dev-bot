@@ -98,6 +98,14 @@ print('MCP:OK')
   assert_success
 }
 
+@test "docker-compose.yml builds locally instead of pulling (audit-80 N9)" {
+  local compose="$MODULE_DIR/docker-compose.yml"
+  # The image is local-only; a default pull_policy makes compose attempt a
+  # registry pull first, logging "pull access denied" on every up.
+  run grep -q 'pull_policy: build' "$compose"
+  assert_success
+}
+
 @test "docker-compose.yml stores the index on a named volume, not a host bind" {
   local compose="$MODULE_DIR/docker-compose.yml"
   # A host bind mount is fatal on Docker Desktop for macOS: a container chmod on
