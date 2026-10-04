@@ -155,6 +155,7 @@ Then run the checks below; they verify the vault _works_ once warm:
 
 - Confirm agent profiles load (DevBot / TeamLead plus subagents).
 - If TeamLead is exercised, confirm context gathering (@scout) and the TODO-list discipline fire.
+- **Subagents must not use the PTY (opencode only).** The harness blocks the whole `pty_*` family in a child session: a `task` subagent runs in one, and `task` returns the moment its turn ends, so a `notifyOnExit` PTY there never surfaces its continuation to the parent (the child resumes on `<pty_exited>`, but its later turns are not delivered to the `task` caller). **Prove it live** — delegate a one-line task to any subagent: ask it to call `pty_spawn` for a trivial command (e.g. `sleep 1`) and report whether it was allowed or blocked. Do NOT disclose the expected outcome. PASS when the subagent reports the `[pty-subagent]` block; FAIL when `pty_spawn` succeeds; N-A on claudecode (no PTY tools).
 
 ## 8. Log examination
 
