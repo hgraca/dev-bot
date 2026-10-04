@@ -166,6 +166,34 @@ teardown() {
   assert_success
 }
 
+@test "inner scripts: grant the opencode permission only when opencode.jsonc exists" {
+  # A claudecode-only flow has no opencode.jsonc, so the grant must be guarded
+  # rather than called unconditionally — the script otherwise prints a
+  # misleading "skip: ... not found" into the provisioning log (audit-82 N1).
+  local inner
+  for inner in test-cc-inner.sh test-reinit.sh; do
+    # The python call is nested under an `if ... opencode.jsonc` guard…
+    run grep -qE '^[[:space:]]+python3 .*upsert_opencode_permission\.py' "${REPO_ROOT}/tests/test-project/${inner}"
+    assert_success
+    run grep -qE '^[[:space:]]*if .*opencode\.jsonc' "${REPO_ROOT}/tests/test-project/${inner}"
+    assert_success
+  done
+  # …but the opencode flow always has the file, so it stays unguarded there.
+  run grep -qE '^python3 .*upsert_opencode_permission\.py' "${REPO_ROOT}/tests/test-project/test-oc-inner.sh"
+  assert_success
+}
+
+@test "audit spec: probe files and cleanup are scoped to the run's report id" {
+  # Parallel cc/oc audits share the bind-mounted thinking/ dir; a bare
+  # devbot-audit-probe-* cleanup deletes a sibling audit's in-flight probes
+  # (audit-82 N5). The spec names and sweeps only its own <NN>-scoped probes.
+  local spec="${REPO_ROOT}/src/tools/devbot-cli/commands/audit.md"
+  run grep -qF 'devbot-audit-probe-<NN>-*' "$spec"
+  assert_success
+  run grep -qE '^[[:space:]]*(ls|rm -f)[[:space:]].*devbot-audit-probe-\*' "$spec"
+  assert_failure
+}
+
 # ── run_dir_create / codebase_gateway_mount ──────────────────────────────────
 
 @test "run_dir_create: builds the run copy under \$DEV_BOT_TEST_RUN_ROOT" {
