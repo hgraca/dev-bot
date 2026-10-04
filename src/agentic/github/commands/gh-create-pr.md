@@ -1,10 +1,10 @@
 ---
-name: devbot:open-pr
+name: devbot:gh-create-pr
 description: Open a pull request from a branch onto the default branch
 ---
 
 Open a pull request for the branch below onto the repository's default branch, following the
-`devbot:open-pr` skill.
+`devbot:gh-create-pr` skill.
 
 Branch: $1
 
@@ -26,7 +26,7 @@ If no branch is given, use the current branch.
 
    Use the harness's question tool when it has one; otherwise ask in plain text.
 
-4. Compose the title and body per the `devbot:open-pr` skill.
+4. Compose the title and body per the `devbot:gh-create-pr` skill.
 5. Show the user exactly what will happen — base branch, head branch, title, body, ready/draft,
    assignee, reviewers, and whether the branch will be pushed — and **wait for explicit approval**.
 6. On approval: push the branch if it has no upstream (`git push -u origin <branch>`), then create

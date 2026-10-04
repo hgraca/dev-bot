@@ -1,5 +1,5 @@
 ---
-name: devbot:open-pr
+name: devbot:gh-create-pr
 description: "Use when opening a pull request from a branch. Triggers on 'open a PR', 'create a pull request', 'raise a PR'."
 ---
 
@@ -10,7 +10,7 @@ PR description follows the same rules as a commit message — see `devbot:git-co
 
 ## When to Apply
 
-- The `open-pr` command asks for a pull request to be opened.
+- The `gh-create-pr` command asks for a pull request to be opened.
 - The user asks to open, create, or raise a pull request from a branch.
 
 ## Preconditions
@@ -37,7 +37,7 @@ period, at most 72 characters.
 When a ticket ID applies, prefix it:
 
 ```text
-MY-TKT: add the open-pr command
+MY-TKT: add the gh-create-pr command
 ```
 
 Without a ticket, use the bare imperative subject.
@@ -62,7 +62,7 @@ and its diff against the default branch, not on the branch name alone.
 
 ## Open the PR
 
-**Show the user the full plan and wait for explicit approval before writing anything.** The `open-pr`
+**Show the user the full plan and wait for explicit approval before writing anything.** The `gh-create-pr`
 command drives this, but the rule holds whenever this skill is used. Then:
 
 ```bash
