@@ -28,6 +28,10 @@ The distinction is **time, not command length**. A one-liner that runs for ten m
 - Read output with `pty_read` (`offset` / `limit` / `pattern`) — no need to wait for the process to finish.
 - `pty_kill` the session when done, or it lingers in the PTY monitor.
 
+### PTY is top-level only
+
+The `pty_*` tools are available to the **primary agent only**; a `task` subagent runs in a child session and the harness blocks them there. A subagent must run a long command with the `bash` tool and an explicit `timeout` (milliseconds) — the parent is already waiting on the task, so blocking there is correct. Reason: `task` returns the moment a subagent's turn ends, so a subagent that pauses on a `notifyOnExit` PTY never surfaces its continuation to the parent (the child does resume on `<pty_exited>`, but its later turns are not delivered to the `task` caller).
+
 ### MUST NOT
 
 - **Never redirect a PTY command's output** (`>`, `2>&1`, `| tee`). The PTY _is_ the output channel; redirection hides the run from the user's PTY web UI, which shows exactly what the terminal receives and nothing that was redirected away.
@@ -46,13 +50,14 @@ When something must be verified after a fixed delay — a deploy settling, a CI 
 pty_spawn(command: "sleep", args: ["300"], notifyOnExit: true, title: "wait 5m")
 ```
 
-Then end your turn. The `<pty_exited>` notification wakes you; run the verification then. Do not `pty_read`-poll the sleeping session, block a `bash` call with `sleep`, or loop on `timeout` — the notification is the signal. `sleep` is a binary, so the no-shell spawn rule above is satisfied without a wrapper. Kill the session with `pty_kill(id, cleanup: true)` once it has woken you.
+Then end your turn (top-level session only — a subagent is blocked from PTYs, see above). The `<pty_exited>` notification wakes you; run the verification then. Do not `pty_read`-poll the sleeping session, block a `bash` call with `sleep`, or loop on `timeout` — the notification is the signal. `sleep` is a binary, so the no-shell spawn rule above is satisfied without a wrapper. Kill the session with `pty_kill(id, cleanup: true)` once it has woken you.
 
 ## Gotchas
 
 - **Commit through bash, never a PTY.** The post-commit hooks (memory capture, graph indexing) are wired to the bash tool's after-hook — a commit run in a PTY silently skips them. `git commit` is quick, so bash is the right channel anyway.
 - **PTY sessions do not inherit `DEV_BOT_SESSION_ID`.** The session environment is injected into the bash tool only; a tool that reports the session id (e.g. the grade-tools skill) must run through bash.
 - **A PTY session outlives the tool call.** Nothing stops it when the turn ends — kill it explicitly.
+- **`notifyOnExit` only wakes the top-level session.** A subagent that ends its turn on a PTY is not resumed into the parent's `task` call — see "PTY is top-level only" above.
 
 ## Other harnesses
 

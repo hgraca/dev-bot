@@ -18,7 +18,10 @@ import {
   defaultHookLog,
   guardDecision,
   hasCommand,
+  isPtyTool,
   MAX_TRACKED_SESSIONS,
+  ptySubagentBlock,
+  ptySubagentGuard,
   rememberAgent,
   resolveGlobalConfigPath,
   routeHookOutput,
@@ -590,5 +593,83 @@ describe("hasCommand", () => {
 
   test("an empty pty_write normalises to no command at all", () => {
     expect(hasCommand(commandString("pty_write", { data: "" }))).toBe(false)
+  })
+})
+
+// ── ptySubagentBlock (subagents must not use the PTY) ───────────────────────
+// A `task` subagent runs in a child session, and `task` returns the moment that
+// subagent's turn ends. A notifyOnExit PTY resumes the child session later, but
+// its continuation is never surfaced to the parent — the orchestrator waits
+// forever on a task that already "completed". The whole pty_* family is therefore
+// blocked in child sessions (parentID set); the top-level session is unaffected.
+
+describe("isPtyTool", () => {
+  test("recognises the pty_* family, case-insensitively", () => {
+    for (const tool of ["pty_spawn", "pty_write", "pty_read", "pty_list", "pty_kill"]) {
+      expect(isPtyTool(tool)).toBe(true)
+    }
+    expect(isPtyTool("PTY_SPAWN")).toBe(true)
+  })
+
+  test("does not match other tools", () => {
+    expect(isPtyTool("bash")).toBe(false)
+    expect(isPtyTool("read")).toBe(false)
+    expect(isPtyTool("")).toBe(false)
+  })
+})
+
+describe("ptySubagentBlock", () => {
+  test("blocks every pty_* tool in a child session", () => {
+    for (const tool of ["pty_spawn", "pty_write", "pty_read", "pty_list", "pty_kill"]) {
+      expect(ptySubagentBlock(tool, { parentID: "ses_parent" })).toBeTruthy()
+    }
+  })
+
+  test("allows pty_* in a top-level session (no parent)", () => {
+    expect(ptySubagentBlock("pty_spawn", {})).toBeNull()
+    expect(ptySubagentBlock("pty_spawn", null)).toBeNull()
+    expect(ptySubagentBlock("pty_spawn", undefined)).toBeNull()
+  })
+
+  test("never blocks a non-PTY tool, even in a child session", () => {
+    expect(ptySubagentBlock("bash", { parentID: "ses_parent" })).toBeNull()
+    expect(ptySubagentBlock("read", { parentID: "ses_parent" })).toBeNull()
+  })
+})
+
+describe("ptySubagentGuard", () => {
+  test("blocks a PTY tool when session.get reports a parent", async () => {
+    const client = { session: { get: async () => ({ data: { id: "ses_c", parentID: "ses_p" } }) } }
+    expect(await ptySubagentGuard(client, "pty_spawn", "ses_c")).toBeTruthy()
+  })
+
+  test("allows a PTY tool in a top-level session", async () => {
+    const client = { session: { get: async () => ({ data: { id: "ses_top" } }) } }
+    expect(await ptySubagentGuard(client, "pty_spawn", "ses_top")).toBeNull()
+  })
+
+  test("fails open when the session lookup throws", async () => {
+    const client = {
+      session: {
+        get: async () => {
+          throw new Error("boom")
+        },
+      },
+    }
+    expect(await ptySubagentGuard(client, "pty_spawn", "ses_c")).toBeNull()
+  })
+
+  test("never calls the client for a non-PTY tool", async () => {
+    let calls = 0
+    const client = {
+      session: {
+        get: async () => {
+          calls++
+          return { data: { parentID: "ses_p" } }
+        },
+      },
+    }
+    expect(await ptySubagentGuard(client, "bash", "ses_c")).toBeNull()
+    expect(calls).toBe(0)
   })
 })

@@ -372,3 +372,47 @@ export function commandString(tool: string, args: unknown): string {
 export function hasCommand(command: string): boolean {
   return command.trim().length > 0
 }
+
+// The pty_* family is top-level only. A `task` subagent runs in a child session,
+// and `task` returns the moment that subagent's turn ends — a notifyOnExit PTY
+// later resumes the child, but its continuation is never surfaced to the parent,
+// so the orchestrator waits forever on a task that already "completed". Block the
+// family in child sessions (parentID set; the top-level session has none); the
+// agent falls back to `bash` with an explicit timeout, which the parent is already
+// waiting on through the task either way.
+const PTY_TOOLS = new Set(["pty_spawn", "pty_write", "pty_read", "pty_list", "pty_kill"])
+
+export function isPtyTool(tool: string): boolean {
+  return PTY_TOOLS.has(String(tool || "").toLowerCase())
+}
+
+export function ptySubagentBlock(
+  tool: string,
+  session: { parentID?: string | null } | null | undefined,
+): string | null {
+  if (!isPtyTool(tool) || !session?.parentID) return null
+  return (
+    "PTY tools are available only to the top-level agent: a subagent's child " +
+    "session cannot surface a PTY's exit notification, so the task would hang. " +
+    "Run long commands with `bash` and an explicit timeout instead."
+  )
+}
+
+// Resolve the calling session for a PTY tool and return the block reason, or null
+// to allow. Fails OPEN on any lookup error so a transient session.get failure can
+// never break the top-level agent's own PTYs (worst case a subagent slips
+// through). Non-PTY tools never touch the client.
+export async function ptySubagentGuard(
+  client: any,
+  tool: string,
+  sessionID: unknown,
+): Promise<string | null> {
+  if (!isPtyTool(tool)) return null
+  let session: { parentID?: string | null } | null = null
+  try {
+    session = (await client?.session?.get?.({ path: { id: String(sessionID ?? "") } }))?.data ?? null
+  } catch {
+    return null
+  }
+  return ptySubagentBlock(tool, session)
+}
