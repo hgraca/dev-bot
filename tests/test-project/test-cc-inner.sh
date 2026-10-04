@@ -148,10 +148,13 @@ fi
 _phase "devbot up"
 
 # Grant the claudecode state dir through opencode's external_directory
-# permission (the agent audits the harness itself). Merges; no-ops when
-# opencode.jsonc is absent in a claudecode-only flow.
-python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py" \
-  "${PWD}/opencode.jsonc" "${HOME}/.claude/**"
+# permission (the agent audits the harness itself). Only meaningful when
+# opencode.jsonc exists; skip in a claudecode-only flow rather than letting
+# the script print its misleading "skip: ... not found" line.
+if [[ -f "${PWD}/opencode.jsonc" ]]; then
+  python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py" \
+    "${PWD}/opencode.jsonc" "${HOME}/.claude/**"
+fi
 _phase "claudecode grant"
 
 # ── Agent audit — headless (opt-in) or manual ─────────────────────────────────

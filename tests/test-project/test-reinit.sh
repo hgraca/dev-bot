@@ -99,11 +99,14 @@ echo
 # Grant the dev-bot install dir through opencode's external_directory
 # permission: the agent must read/write the install (skills, agents, hooks,
 # tools) while auditing. Merges into the existing map (idempotent, JSONC
-# preserved); no-ops if opencode.jsonc / the block is absent (claudecode-only
-# flows).
+# preserved). Only meaningful when opencode.jsonc exists; skip in a
+# claudecode-only flow rather than letting the script print its misleading
+# "skip: ... not found" line.
 _DEV_BOT_INSTALL="${DEV_BOT_INSTALL_DIR:-$HOME/.local/share/dev-bot}"
-python3 "${_DEV_BOT_INSTALL}/src/_shared/upsert_opencode_permission.py" \
-  "${PWD}/opencode.jsonc" "${_DEV_BOT_INSTALL}/**"
+if [[ -f "${PWD}/opencode.jsonc" ]]; then
+  python3 "${_DEV_BOT_INSTALL}/src/_shared/upsert_opencode_permission.py" \
+    "${PWD}/opencode.jsonc" "${_DEV_BOT_INSTALL}/**"
+fi
 
 # Pre-seed the opencode-codebase-index plugin cache to a COMPLETE state
 # (including native/*.node) before opencode ever loads it. opencode's runtime
