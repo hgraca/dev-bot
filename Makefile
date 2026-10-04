@@ -36,6 +36,11 @@ else
   PROJECT_NAME ?= $(_DIR_NAME)
 endif
 ENV_VARS=env UID=${UID} GID=${GID} DEV_APP_IMG=${DEV_APP_IMG} JAVA_OPTS=${JAVA_OPTS} PROJECT_NAME=${PROJECT_NAME}
+# Disable commit/tag signing for the test suite. The developer's global
+# commit.gpgsign=true would otherwise make every throwaway-repo commit invoke
+# gpg — slow, and it prompts to unlock the key (or fails under load). GIT_CONFIG_*
+# injects this like `git -c`, so it reaches every git subprocess the suite spawns.
+HERMETIC_GIT=GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=commit.gpgsign GIT_CONFIG_VALUE_0=false GIT_CONFIG_KEY_1=tag.gpgSign GIT_CONFIG_VALUE_1=false
 
 # use when the container is not booted yet
 RUN=$(ENV_VARS) docker compose run --rm app
@@ -149,23 +154,23 @@ test: ## Run the full test suite
 	fi; \
 	if [ "$$runner" = "parallel" ]; then \
 		echo "  bats: $$jobs parallel jobs"; \
-		BATS_LIB_PATH="$$(npm root -g)" bats -T --jobs "$$jobs" --no-parallelize-within-files -r bin/ src/ </dev/null; \
+		$(HERMETIC_GIT) BATS_LIB_PATH="$$(npm root -g)" bats -T --jobs "$$jobs" --no-parallelize-within-files -r bin/ src/ </dev/null; \
 	elif [ "$$runner" = "rush" ]; then \
 		echo "  bats: $$jobs parallel jobs (rush)"; \
-		BATS_LIB_PATH="$$(npm root -g)" bats -T --jobs "$$jobs" --parallel-binary-name rush --no-parallelize-within-files -r bin/ src/ </dev/null; \
+		$(HERMETIC_GIT) BATS_LIB_PATH="$$(npm root -g)" bats -T --jobs "$$jobs" --parallel-binary-name rush --no-parallelize-within-files -r bin/ src/ </dev/null; \
 	else \
 		if [ "$$jobs" -gt 1 ]; then \
 			echo "  WARN: GNU parallel/rush not found — BATS runs serially (slow)."; \
 			echo "        Install GNU parallel or rush (see README, Development)."; \
 		fi; \
-		BATS_LIB_PATH="$$(npm root -g)" bats -T -r src/ bin/ </dev/null; \
+		$(HERMETIC_GIT) BATS_LIB_PATH="$$(npm root -g)" bats -T -r src/ bin/ </dev/null; \
 	fi
 	@echo -e "\n\033[1m\033[34m━━━ Running bun tests... ━━━\033[0m"
 	@if ! command -v bun &>/dev/null; then \
 		echo "  bun not found — install via: curl -fsSL https://bun.sh/install | bash"; \
 		exit 1; \
 	fi
-	@bun test src/
+	@$(HERMETIC_GIT) bun test src/
 	@echo -e "\n\033[1m\033[34m━━━ Running python tests... ━━━\033[0m"
 	@if ! command -v python3 &>/dev/null; then \
 		echo "  python3 not found — install python3 to run the python tests"; \
@@ -174,7 +179,7 @@ test: ## Run the full test suite
 	@failed=0; \
 	while IFS= read -r f; do \
 		echo "  python3 -m unittest $$f"; \
-		(cd "$$(dirname "$$f")" && python3 -m unittest "$$(basename "$$f" .py)") || failed=1; \
+		(cd "$$(dirname "$$f")" && $(HERMETIC_GIT) python3 -m unittest "$$(basename "$$f" .py)") || failed=1; \
 	done < <(find src -name 'test_*.py' -not -path '*/node_modules/*' 2>/dev/null | sort); \
 	[ $${failed} -eq 0 ]
 
