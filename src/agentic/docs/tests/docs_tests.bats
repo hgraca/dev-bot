@@ -16,6 +16,10 @@ setup() {
   SKILLS_DIR="$MODULE_DIR/skills"
   APP_MAP_ASSETS="$SKILLS_DIR/app-map/assets"
 
+  ID_DIR="$MODULE_DIR/tools/ImpactDiagram"
+  ID_SH="$ID_DIR/impact-diagram.sh"
+  ID_PY="$ID_DIR/create-impact-diagram.py"
+
   command -v python3 &>/dev/null || skip "python3 not installed"
 }
 
@@ -455,5 +459,60 @@ d = json.loads(text[start:])
 assert d.get('degraded') is True, d
 assert 'degraded_reason' in d, d
 print('DEGRADED:OK')
-" | grep -qF 'DEGRADED:OK' || fail "degraded marker missing from output"
+  " | grep -qF 'DEGRADED:OK' || fail "degraded marker missing from output"
+}
+
+# =============================================================================
+# impact-diagram tool (diff-scoped use-case map)
+# =============================================================================
+
+@test "impact-diagram: bash wrapper exists and is executable" {
+  [[ -f "$ID_SH" ]]
+  [[ -x "$ID_SH" ]]
+}
+
+@test "impact-diagram: wrapper delegates to python3 and is not an MCP tool" {
+  run cat "$ID_SH"
+  assert_output --partial "create-impact-diagram.py"
+  assert_output --partial "exec python3"
+  refute_output --partial "mcp-meta"
+}
+
+@test "impact-diagram: python script exists and compiles" {
+  [[ -f "$ID_PY" ]]
+  python3 -m py_compile "$ID_PY"
+}
+
+@test "impact-diagram: visualizer exists" {
+  assert [ -f "$ID_DIR/ImpactDiagram.html" ]
+  run head -1 "$ID_DIR/ImpactDiagram.html"
+  assert_output --partial "<!DOCTYPE html>"
+}
+
+@test "impact-diagram: python --help exits 0 and lists --diff" {
+  run python3 "$ID_PY" --help
+  assert_success
+  assert_output --partial "usage:"
+  assert_output --partial "--diff"
+  assert_output --partial "--svg"
+  assert_output --partial "--svg-app"
+}
+
+@test "impact-diagram: app-svg renderer exists and is valid JS" {
+  assert [ -f "$ID_DIR/render-app-svg.mjs" ]
+  command -v node &>/dev/null || skip "node not installed"
+  run node --check "$ID_DIR/render-app-svg.mjs"
+  assert_success
+}
+
+@test "impact-diagram: exits 1 on a non-existent project root" {
+  run python3 "$ID_PY" --project-root "/definitely/not/a/real/project" --diff HEAD
+  assert_failure
+  assert_output --partial "project root not found"
+}
+
+@test "impact-diagram skill: exists with frontmatter name" {
+  assert [ -f "$SKILLS_DIR/impact-diagram/SKILL.md" ]
+  run head -5 "$SKILLS_DIR/impact-diagram/SKILL.md"
+  assert_output --partial "name: devbot:impact-diagram"
 }
