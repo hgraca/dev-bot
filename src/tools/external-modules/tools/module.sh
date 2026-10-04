@@ -17,7 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
 MODULES_DIR="${DEV_BOT_ROOT}/vendor"
-CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+CONFIG_FILE="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
 READ_JSONC="${SCRIPT_DIR}/../../../_shared/read_jsonc.py"
 
 # ── Source shared library ──────────────────────────────────────────────────────
@@ -273,7 +273,7 @@ cmd_init() {
     fi
 
     DEV_BOT_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
-    CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+    CONFIG_FILE="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
     MODULES_DIR="${DEV_BOT_ROOT}/vendor"
 
     # Ensure config exists

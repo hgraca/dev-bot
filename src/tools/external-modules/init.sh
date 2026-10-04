@@ -43,7 +43,7 @@ _resolve_paths() {
   # DEV_BOT_ROOT/CONFIG_FILE/MODULES_DIR may be pre-set (tests run against a
   # sandbox) — mirrors the env-override pattern in install.sh.
   DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
-  CONFIG_FILE="${CONFIG_FILE:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
+  CONFIG_FILE="${CONFIG_FILE:-${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}}"
   MODULES_DIR="${MODULES_DIR:-${DEV_BOT_ROOT}/vendor}"
 }
 

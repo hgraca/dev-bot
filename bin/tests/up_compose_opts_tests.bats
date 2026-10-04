@@ -212,6 +212,7 @@ _run_ensure_sources() {
 _use_real_disabled_modules() {
   cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX_DIR}/src/_shared/read_jsonc.py"
   {
+    awk '/^_devbot_global_config\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_get_codebase_provider\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_get_memory_search_provider\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_get_disabled_modules\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"

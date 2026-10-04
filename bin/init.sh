@@ -597,7 +597,7 @@ for m in modules:
 
   # ── 7. Register project in global config ────────────────────────────────
   local add_project_py="${DEV_BOT_ROOT}/src/_shared/add_project.py"
-  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local global_config="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
   if [[ -f "${add_project_py}" && -f "${global_config}" ]]; then
     python3 "${add_project_py}" "${global_config}" "${PROJECT_DIR}" 2>/dev/null || true
   fi

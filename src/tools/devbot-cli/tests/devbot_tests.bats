@@ -6,6 +6,17 @@ setup() {
 
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   PROJECT_ROOT="$(cd "$TEST_DIR/../../../.." && pwd)"
+
+  # `devbot init` registers the project in the global config; point it at a
+  # throwaway copy so the developer's real .devbot.global.jsonc is untouched.
+  GLOBAL_CONFIG="$(mktemp "${TMPDIR:-/tmp}/devbot-global.XXXXXX")"
+  cp "${PROJECT_ROOT}/.devbot.global.jsonc" "${GLOBAL_CONFIG}"
+  export DEV_BOT_GLOBAL_CONFIG="${GLOBAL_CONFIG}"
+}
+
+teardown() {
+  rm -f "${GLOBAL_CONFIG:-}"
+  unset DEV_BOT_GLOBAL_CONFIG
 }
 
 @test "devbot init scaffolds a project directory from the test template" {
@@ -79,7 +90,7 @@ setup() {
     || fail ".devbot.project.sha baseline not written by init"
   local expected_project_sha
   expected_project_sha="$(
-    python3 - "$PROJECT_ROOT/.devbot.global.jsonc" "$test_project/.devbot.project.jsonc" <<'PY'
+    python3 - "$GLOBAL_CONFIG" "$test_project/.devbot.project.jsonc" <<'PY'
 import hashlib
 import sys
 

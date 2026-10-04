@@ -34,7 +34,7 @@ while [[ -L "$SOURCE" ]]; do
 done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 DEV_BOT_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
-CONFIG_FILE="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+CONFIG_FILE="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
 READ_JSONC="${SCRIPT_DIR}/../../../_shared/read_jsonc.py"
 
 OUTPUT_FORMAT="markdown"

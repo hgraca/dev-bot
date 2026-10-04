@@ -19,22 +19,17 @@ setup() {
   PROJECT_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   command -v python3 >/dev/null 2>&1 || skip "python3 not installed"
 
-  # Back up the (gitignored) global config so a test can temporarily change
-  # disabled_modules and have it restored afterwards.
-  GLOBAL_CONFIG="${PROJECT_ROOT}/.devbot.global.jsonc"
-  CONFIG_BACKUP=""
-  if [[ -f "${GLOBAL_CONFIG}" ]]; then
-    CONFIG_BACKUP="$(mktemp "${TMPDIR:-/tmp}/devbot.XXXXXX")"
-    cp "${GLOBAL_CONFIG}" "${CONFIG_BACKUP}"
-  fi
+  # Isolate the global config: a test here overwrites it to change
+  # disabled_modules, so give it a throwaway copy (seeded from the real one)
+  # and point the code under test at it — never the developer's real config.
+  GLOBAL_CONFIG="$(mktemp "${TMPDIR:-/tmp}/devbot-global.XXXXXX")"
+  cp "${PROJECT_ROOT}/.devbot.global.jsonc" "${GLOBAL_CONFIG}"
+  export DEV_BOT_GLOBAL_CONFIG="${GLOBAL_CONFIG}"
 }
 
 teardown() {
-  if [[ -n "${CONFIG_BACKUP:-}" ]]; then
-    mv -f "${CONFIG_BACKUP}" "${GLOBAL_CONFIG}"
-  else
-    rm -f "${GLOBAL_CONFIG}"
-  fi
+  rm -f "${GLOBAL_CONFIG:-}"
+  unset DEV_BOT_GLOBAL_CONFIG
 }
 
 # Validate a markdown table: header present, separator row, and aligned pipes.

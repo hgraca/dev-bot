@@ -115,7 +115,7 @@ _fmt_duration() {
 
 _devbot_is_true() {
   local key="$1"
-  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local config="$(_devbot_global_config)"
   [[ ! -f "${config}" ]] && return 1
   grep -q "\"${key}\"[[:space:]]*:[[:space:]]*true" "${config}" 2>/dev/null && return 0
   return 1
@@ -132,7 +132,7 @@ _devbot_get_bool() {
 
 _devbot_set_bool() {
   local key="$1" value="$2"
-  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local config="$(_devbot_global_config)"
 
   if [[ ! -f "${config}" ]]; then
     _warn ".devbot.global.jsonc not found at ${config}"
@@ -176,7 +176,7 @@ _devbot_get_config() {
 
   # Fall back to global config
   if [[ -z "${value}" ]]; then
-    local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+    local global_config="$(_devbot_global_config)"
     if [[ -f "${global_config}" ]]; then
       value=$(python3 "${reader}" "${global_config}" "${key}" 2>/dev/null || true)
     fi
@@ -647,7 +647,7 @@ _devbot_get_codebase_provider() {
   local shared_dir
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local reader="${shared_dir}/read_jsonc.py"
-  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local global_config="$(_devbot_global_config)"
 
   local provider=""
   if [[ -f "${global_config}" ]]; then
@@ -675,7 +675,7 @@ _devbot_get_codebase_provider() {
 _devbot_codebase_memory_root() {
   local shared_dir config
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  config="$(_devbot_global_config)"
 
   if [[ -n "${CODEBASE_MEMORY_ROOT:-}" ]]; then
     printf '%s\n' "${CODEBASE_MEMORY_ROOT%/}"
@@ -741,7 +741,7 @@ _devbot_persist_codebase_memory_root() {
   local shared_dir writer config
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   writer="${shared_dir}/set_jsonc_key.py"
-  config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  config="$(_devbot_global_config)"
   [[ -f "${writer}" && -f "${config}" ]] || return 0
   command -v python3 >/dev/null 2>&1 || return 0
   local value
@@ -780,7 +780,7 @@ _devbot_get_memory_search_provider() {
   local shared_dir
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local reader="${shared_dir}/read_jsonc.py"
-  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local global_config="$(_devbot_global_config)"
 
   # DEVBOT_MEMORY_SEARCH_PROVIDER env override wins (hermetic tests — mirrors
   # search-memories.py's SEARCH_MEMORIES_PROVIDER).
@@ -796,7 +796,7 @@ _devbot_get_memory_search_provider() {
 }
 
 # _devbot_ensure_global_default <key> <value>
-#   Adds `<key>: "<value>"` (a string) to ${DEV_BOT_ROOT}/.devbot.global.jsonc
+#   Adds `<key>: "<value>"` (a string) to $(_devbot_global_config)
 #   ONLY when the key is absent — an existing value is never overwritten (an
 #   install that deliberately chose the new default keeps it). Thin string
 #   wrapper over _devbot_ensure_global_value. Used by `devbot update` to pin
@@ -821,7 +821,7 @@ _devbot_install_version() {
 }
 
 # _devbot_set_global_value <key> <raw-json>
-#   Sets `<key>` in ${DEV_BOT_ROOT}/.devbot.global.jsonc to the raw JSON literal
+#   Sets `<key>` in $(_devbot_global_config) to the raw JSON literal
 #   <raw-json> (callers pass JSON — `true`, `"1.4.0"`), replacing an existing
 #   value or inserting the key as the first property. Comment-preserving.
 #   Returns 0 on success, 1 when the config file is missing.
@@ -834,7 +834,7 @@ _devbot_install_version() {
 _devbot_set_global_value() {
   local key="${1:?Usage: _devbot_set_global_value <key> <raw-json>}"
   local raw="${2:?Usage: _devbot_set_global_value <key> <raw-json>}"
-  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local config="$(_devbot_global_config)"
   [[ -f "${config}" ]] || return 1
 
   # read_jsonc lives beside this file — pass its dir so the validator imports
@@ -899,7 +899,7 @@ PY
 _devbot_ensure_global_value() {
   local key="${1:?Usage: _devbot_ensure_global_value <key> <raw-json>}"
   local raw="${2:?Usage: _devbot_ensure_global_value <key> <raw-json>}"
-  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local config="$(_devbot_global_config)"
   [[ -f "${config}" ]] || return 1
   if grep -q "\"${key}\"[[:space:]]*:" "${config}" 2>/dev/null; then
     return 0
@@ -928,7 +928,7 @@ _devbot_get_disabled_modules() {
   local shared_dir
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local reader="${shared_dir}/read_jsonc.py"
-  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local global_config="$(_devbot_global_config)"
 
   # Read global modules map
   local global_states="{}"
@@ -1018,7 +1018,7 @@ _devbot_manifest_owner_disabled() {
 #   storage/external-agentic-modules/ filesystem directories.
 
 _devbot_get_external_modules() {
-  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local global_config="$(_devbot_global_config)"
   [[ -f "${global_config}" ]] || return 0
   python3 -c "
 import json, sys
@@ -1078,7 +1078,7 @@ for name in sorted(declarers):
 #   not deny its external modules to the others.
 
 _devbot_rebuild_external_module_config() {
-  local config_file="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local config_file="$(_devbot_global_config)"
   local merge_script="${DEV_BOT_ROOT}/src/_shared/merge_modules_jsonc.py"
 
   local found_count=0
@@ -1548,7 +1548,7 @@ _devbot_check_mcp_env_vars() {
 # ── Config-change → auto-reinit (devbot start) ──────────────────────────────────
 #
 # A project's wiring depends on BOTH the global config
-# (${DEV_BOT_ROOT}/.devbot.global.jsonc) and its own project config
+# ($(_devbot_global_config)) and its own project config
 # (${project_dir}/.devbot.project.jsonc). The reinit trigger is a single
 # per-project content hash over the two files, stored at
 # <project>/.devbot.project.sha (the project config path with its .jsonc
@@ -1618,14 +1618,14 @@ PY
 _devbot_wiring_sha() {
   local project_dir="${1:-$(pwd)}"
   _devbot_config_sha \
-    "${DEV_BOT_ROOT}/.devbot.global.jsonc" \
+    "$(_devbot_global_config)" \
     "${project_dir}/.devbot.project.jsonc"
 }
 
 _devbot_config_changed() {
   local project_dir="${1:-$(pwd)}"
   local project_config="${project_dir}/.devbot.project.jsonc"
-  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local global_config="$(_devbot_global_config)"
   [[ -f "${project_config}" || -f "${global_config}" ]] || return 1
   local sha_path current stored
   sha_path="$(_devbot_config_sha_path "${project_config}")"
@@ -1639,7 +1639,7 @@ _devbot_config_changed() {
 _devbot_write_config_sha() {
   local project_dir="${1:-$(pwd)}"
   local project_config="${project_dir}/.devbot.project.jsonc"
-  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local global_config="$(_devbot_global_config)"
   [[ -f "${project_config}" || -f "${global_config}" ]] || return 0
   local sha_path current
   sha_path="$(_devbot_config_sha_path "${project_config}")"
@@ -1695,7 +1695,7 @@ _devbot_auto_reinit_if_config_changed() {
 #   argv, config files) stable, or re-exec the new bin/devbot after a move.
 
 _devbot_auto_update_if_enabled() {
-  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local global_config="$(_devbot_global_config)"
   local enabled="true"
   if [[ -f "${global_config}" ]]; then
     local shared_dir reader
@@ -1997,7 +1997,7 @@ _qmd_gpu_value() {
 #   Never fails the caller: prints informational messages, returns 0.
 
 _devbot_detect_gpu() {
-  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  local config="$(_devbot_global_config)"
   if [[ ! -f "${config}" ]]; then
     _skip "gpu detection skipped — no .devbot.global.jsonc yet (run install's config step first)"
     return 0
@@ -2203,8 +2203,8 @@ _ensure_ollama_models_detached() {
   fi
 
   local api="${OLLAMA_API_URL:-}"
-  if [[ -z "${api}" && -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]]; then
-    api="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${DEV_BOT_ROOT}/.devbot.global.jsonc" "ollama_local_api" 2>/dev/null || true)"
+  if [[ -z "${api}" && -f "$(_devbot_global_config)" ]]; then
+    api="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "$(_devbot_global_config)" "ollama_local_api" 2>/dev/null || true)"
   fi
   api="${api:-http://localhost:18434}"
 
@@ -2769,4 +2769,11 @@ key = sys.argv[2]
 entries = [servers.get(key, {})] if key else list(servers.values())
 sys.exit(0 if any(e.get('_hybrid') is True for e in entries if isinstance(e, dict)) else 1)
 " "${manifest}" "${key}" 2>/dev/null
+}
+
+# Path to the effective global config. DEV_BOT_GLOBAL_CONFIG overrides the
+# default so tests (and callers) can redirect reads/writes at an isolated
+# config instead of the developer's real .devbot.global.jsonc.
+_devbot_global_config() {
+  printf '%s' "${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
 }

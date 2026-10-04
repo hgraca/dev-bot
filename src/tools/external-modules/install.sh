@@ -18,7 +18,7 @@ main() {
 
   local dev_bot_root
   dev_bot_root="$(cd "${MODULE_DIR}/../../.." && pwd)"
-  local config_file="${dev_bot_root}/.devbot.global.jsonc"
+  local config_file="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
   local modules_dir="${dev_bot_root}/vendor"
 
   # ── Rebuild external module config from declarations ──────────────────
