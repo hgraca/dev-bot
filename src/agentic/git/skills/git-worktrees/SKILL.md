@@ -40,6 +40,9 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create <branch>
   current branch, and never with an upstream (`--no-track`);
 - puts the worktree at `<devbot_dir>/worktrees/<slug>` (default `.agents/worktrees/`), keeps that
   directory out of `git status`, and prints the absolute path;
+- hard-links `vendor/` and `node_modules/` from the main checkout into the new worktree — override
+  with `--link <dir>` (repeatable) for other ecosystems, or skip with `--no-link` (see
+  [Dependencies](#dependencies));
 - warns but proceeds if the main checkout is dirty.
 
 The main checkout's branch is never switched. The tool fails if the branch or worktree path
@@ -65,6 +68,37 @@ git -C "$W" commit -m "feat: add login"
 
 Commit exactly as `devbot:git-commits` and `devbot:git-atomic-commits` describe — the commits just
 land on the worktree branch.
+
+## Dependencies
+
+A fresh worktree contains only tracked files, so gitignored dependency dirs are absent. `create`
+hard-links `vendor/` and `node_modules/` from the main checkout into the worktree, so builds and
+tests run without re-installing them. Name the dirs explicitly for another ecosystem:
+
+```bash
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/x --link .venv              # .venv only
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/x --link libs --link build  # several
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/x --no-link                 # none
+```
+
+Any `--link` replaces the defaults (`vendor`, `node_modules`). Linking is best-effort: a missing
+source dir, a dir already present in the worktree, or a failed copy warns and continues — the
+worktree stays usable, and you can install dependencies there yourself.
+
+Linked files share inodes with the main checkout: a build that **writes** into a dependency dir in
+the worktree also mutates the main checkout's copy. Treat linked deps as read-only; pass `--no-link`
+and install in the worktree when a tool must write there.
+
+## Running builds and tests
+
+Run builds, tests, and other project commands **from the worktree root**, through the project's
+containerised runner (e.g. its `make` targets) — not against the main checkout's container.
+Container tooling that scopes its compose project to the working directory already isolates each
+worktree, so parallel agents get their own container, volumes, and test run; where the project does
+not, give the runner a worktree-scoped project or container name. Compose scoping covers container,
+network, and volume **names** — not published host ports, which stay host-global: a fixed host-port
+mapping collides when two worktrees start that service, so worktree-scope the ports or avoid
+starting host-port-bound services per worktree.
 
 ## Finish
 

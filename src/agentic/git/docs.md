@@ -12,7 +12,7 @@ Everything an agent needs to make safe, reviewable commits — and to inspect or
 
 - **Commit craft**: `git-commits` (subject form and the Problems/Solutions body), `git-conventional-commits` (the type/scope taxonomy), `git-atomic-commits` (one logical change per commit, staged file by file), and `git-fixup-commits` (correcting an earlier commit on the branch).
 - **History surgery**: `git-advanced-operations` — partial staging, splitting a commit already made, and reflog recovery.
-- **Worktrees**: `git-worktrees` and the `worktree` tool isolate each task's commits under `<devbot_dir>/worktrees/`, cut from the remote default branch, leaving the main checkout untouched.
+- **Worktrees**: `git-worktrees` and the `worktree` tool isolate each task's commits under `<devbot_dir>/worktrees/`, cut from the remote default branch, leaving the main checkout untouched. `create` hard-links `vendor`/`node_modules` (override with `--link`, skip with `--no-link`) into the worktree, and the skill directs builds and tests through a worktree-scoped container so parallel agents never share one.
 - **Releases**: `git-changelog` writes the release file from the branch's commits; the `release` command and tool are the entry point.
 - **Inspection**: the `git-report` tool snapshots the repository state before you commit, review, or plan.
 
