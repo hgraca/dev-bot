@@ -9,8 +9,11 @@
 # checkout's checked-out branch, and every worktree is cut from the *remote*
 # default branch, not from whatever the main checkout happens to be on.
 #
-#   create <branch>  — add a worktree under <devbot_dir>/worktrees/<slug>, on a
-#                      new untracked branch <branch> based on origin/<default>.
+#   create <branch> [--link <dir>]... [--no-link]
+#                    — add a worktree under <devbot_dir>/worktrees/<slug>, on a
+#                      new untracked branch <branch> based on origin/<default>,
+#                      then hard-link the dependency dirs listed by --link
+#                      (default: vendor, node_modules) from the main checkout.
 #                      Prints the worktree path (stdout). Refused when the
 #                      project set `"worktrees": false`.
 #   enabled          — print true/false and exit 0/1 for the worktrees setting.
@@ -103,11 +106,101 @@ _worktrees_enabled() {
   [[ "${value}" != "false" ]]
 }
 
+# Hard-link the dependency dirs from the main checkout into the fresh worktree,
+# so it can build and test without re-installing them. Best-effort: a missing
+# source, an existing destination, or a failed copy only warns — the worktree
+# stays usable.
+_link_deps() {
+  local root="$1" wt="$2"
+  shift 2
+  local dir src dest linked=()
+  for dir in "$@"; do
+    src="${root}/${dir}"
+    dest="${wt}/${dir}"
+    if [[ ! -d "${src}" ]]; then
+      _warn "create: no ${dir}/ in the main checkout — skipping"
+      continue
+    fi
+    if [[ -e "${dest}" ]]; then
+      _warn "create: ${dir}/ already exists in the worktree — skipping"
+      continue
+    fi
+    mkdir -p "$(dirname "${dest}")" 2>/dev/null || true
+    if cp -al "${src}" "${dest}" 2>/dev/null; then
+      linked+=("${dir}")
+    else
+      rm -rf "${dest}" 2>/dev/null || true
+      _warn "create: could not hard-link ${dir}/ — install dependencies in the worktree instead"
+    fi
+  done
+  if [[ "${#linked[@]}" -gt 0 ]]; then
+    _ignore_in_worktree "${wt}" "${linked[@]}"
+  fi
+}
+
+# A linked dir need not be in the project's .gitignore; ignore it in the
+# worktree's own exclude so it never shows as untracked or blocks `remove`.
+_ignore_in_worktree() {
+  local wt="$1"
+  shift
+  local exclude dir lines=()
+  exclude="$(git -C "${wt}" rev-parse --git-path info/exclude)"
+  for dir in "$@"; do
+    lines+=("${dir}/")
+  done
+  _upsert_gitignore_section "${exclude}" \
+    "# >>> DEVBOT - linked dependencies" \
+    "# <<< DEVBOT - linked dependencies" \
+    "${lines[@]}"
+}
+
 # ── create ───────────────────────────────────────────────────────────────────
 
 cmd_create() {
-  local branch="${1:-}"
+  local branch="" no_link=false
+  local links=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --link)
+        [[ -n "${2:-}" ]] || _fatal "create: --link requires a <dir>"
+        case "${2}" in
+          /*) _fatal "create: --link <dir> must be a relative path, got '${2}'" ;;
+        esac
+        case "/${2}/" in
+          */../*) _fatal "create: --link <dir> must not contain '..', got '${2}'" ;;
+        esac
+        links+=("$2")
+        shift 2
+        ;;
+      --no-link)
+        no_link=true
+        shift
+        ;;
+      -h | --help)
+        _usage
+        return 0
+        ;;
+      -*)
+        _fatal "create: unknown option '$1'"
+        ;;
+      *)
+        [[ -z "${branch}" ]] || _fatal "create: unexpected argument '$1'"
+        branch="$1"
+        shift
+        ;;
+    esac
+  done
   [[ -n "${branch}" ]] || _fatal "create: <branch> is required"
+
+  # Defaults apply only when neither --link nor --no-link was given.
+  local link_dirs=()
+  if [[ "${no_link}" == "true" ]]; then
+    link_dirs=()
+  elif [[ "${#links[@]}" -gt 0 ]]; then
+    link_dirs=("${links[@]}")
+  else
+    link_dirs=(vendor node_modules)
+  fi
 
   local root devbot_dir default slug path
   root="$(_git_root)"
@@ -137,6 +230,10 @@ cmd_create() {
   git -C "${root}" worktree add --quiet --no-track -b "${branch}" "${path}" \
     "${DEFAULT_REMOTE}/${default}" \
     || _fatal "create: could not create the worktree"
+
+  if [[ "${#link_dirs[@]}" -gt 0 ]]; then
+    _link_deps "${root}" "${path}" "${link_dirs[@]}"
+  fi
 
   printf '%s\n' "${path}"
 }
@@ -244,8 +341,11 @@ _usage() {
 Usage: worktree.sh <subcommand> [options]
 
 Subcommands:
-  create <branch>   create a worktree under <devbot_dir>/worktrees/<slug> on a
-                    new branch based on origin/<default>; prints the path
+  create <branch> [--link <dir>]... [--no-link]
+                    create a worktree under <devbot_dir>/worktrees/<slug> on a
+                    new branch based on origin/<default>; hard-link the --link
+                    dirs (repeatable; default vendor, node_modules) from the
+                    main checkout. --no-link disables. Prints the path
                     (refused when the project set "worktrees": false)
   enabled           print true/false and exit 0/1 for the worktrees setting
   list              list the worktrees under <devbot_dir>/worktrees

@@ -27,7 +27,7 @@ setup() {
   git init -q --initial-branch=main "$WORK"
   # Hermetic: pin the project config (devbot_dir + worktrees) so the machine's
   # real global config is never consulted; excluded so it doesn't dirty the tree.
-  printf '.devbot.project.jsonc\n' > "$WORK/.git/info/exclude"
+  printf '.devbot.project.jsonc\nvendor/\nnode_modules/\n' > "$WORK/.git/info/exclude"
   printf '{ "devbot_dir": ".agents", "worktrees": true }\n' > "$WORK/.devbot.project.jsonc"
   git -C "$WORK" config user.email "test@test.com"
   git -C "$WORK" config user.name "Test"
@@ -56,7 +56,7 @@ worktree() {
 # ── create ───────────────────────────────────────────────────────────────────
 
 @test "create: makes a branch worktree under <devbot_dir>/worktrees, based on origin/main" {
-  worktree create feat/add-login
+  worktree create feat/add-login --no-link
 
   assert_success
   assert_output "$WORKTREES/feat-add-login"
@@ -117,6 +117,149 @@ worktree() {
   assert_success
 
   worktree create feat/twice
+
+  assert_failure
+  assert_output --partial "FATAL:"
+}
+
+@test "create --help: prints usage" {
+  worktree create --help
+
+  assert_success
+  assert_output --partial "Usage: worktree.sh"
+}
+
+# ── create: dependency linking ───────────────────────────────────────────────
+
+@test "create: hard-links vendor and node_modules from the main checkout by default" {
+  mkdir -p "$WORK/vendor" "$WORK/node_modules"
+  printf 'v\n' > "$WORK/vendor/a.txt"
+  printf 'n\n' > "$WORK/node_modules/b.txt"
+
+  worktree create feat/links
+
+  assert_success
+  local wt="$WORKTREES/feat-links"
+  assert [ -d "$wt/vendor" ]
+  assert [ -d "$wt/node_modules" ]
+  # -ef is true only for the same inode — i.e. a genuine hard link, not a copy.
+  assert [ "$WORK/vendor/a.txt" -ef "$wt/vendor/a.txt" ]
+  assert [ "$WORK/node_modules/b.txt" -ef "$wt/node_modules/b.txt" ]
+}
+
+@test "create: --link replaces the default dependency dirs" {
+  mkdir -p "$WORK/vendor" "$WORK/lib"
+  printf 'v\n' > "$WORK/vendor/a.txt"
+  printf 'l\n' > "$WORK/lib/a.txt"
+
+  worktree create feat/lib --link lib
+
+  assert_success
+  local wt="$WORKTREES/feat-lib"
+  assert [ -d "$wt/lib" ]
+  assert [ "$WORK/lib/a.txt" -ef "$wt/lib/a.txt" ]
+  assert [ ! -e "$wt/vendor" ]
+  assert [ ! -e "$wt/node_modules" ]
+}
+
+@test "create: --no-link skips all dependency linking" {
+  mkdir -p "$WORK/vendor"
+  printf 'v\n' > "$WORK/vendor/a.txt"
+
+  worktree create feat/nolink --no-link
+
+  assert_success
+  assert [ ! -e "$WORKTREES/feat-nolink/vendor" ]
+}
+
+@test "create: warns and proceeds when a dependency dir is absent in the main checkout" {
+  worktree create feat/nodeps
+
+  assert_success
+  assert_output --partial "WARN:"
+  assert [ -d "$WORKTREES/feat-nodeps" ]
+}
+
+@test "create: warns and leaves an existing dependency dir untouched" {
+  # A tracked dir of the same name arrives with the checkout — linking must not
+  # clobber it.
+  mkdir -p "$WORK/vendor"
+  printf 'tracked\n' > "$WORK/vendor/tracked.txt"
+  git -C "$WORK" add -f vendor/tracked.txt
+  git -C "$WORK" commit -qm "track vendor"
+  git -C "$WORK" push -q origin main
+  git -C "$WORK" fetch -q origin
+
+  worktree create feat/dest-exists
+
+  assert_success
+  assert_output --partial "WARN:"
+  assert_equal "$(cat "$WORKTREES/feat-dest-exists/vendor/tracked.txt")" "tracked"
+}
+
+@test "create: ignores a linked dir in the worktree so remove still works" {
+  mkdir -p "$WORK/lib"
+  printf 'l\n' > "$WORK/lib/a.txt"
+
+  worktree create feat/ignored --link lib
+  assert_success
+
+  local wt="$WORKTREES/feat-ignored"
+  assert [ "$WORK/lib/a.txt" -ef "$wt/lib/a.txt" ]
+  run bash -c "cd '$wt' && git status --porcelain"
+  assert_success
+  refute_output --partial "lib"
+
+  worktree remove feat/ignored
+  assert_success
+}
+
+@test "create: refuses an absolute --link dir" {
+  worktree create feat/abs --link /etc
+
+  assert_failure
+  assert_output --partial "FATAL:"
+}
+
+@test "create: refuses a --link dir containing .." {
+  worktree create feat/dotdot --link ../evil
+
+  assert_failure
+  assert_output --partial "FATAL:"
+}
+
+@test "create: warns, rolls back, and proceeds when hard-linking fails" {
+  mkdir -p "$WORK/vendor" "$SANDBOX/bin"
+  printf 'v\n' > "$WORK/vendor/a.txt"
+  # Stub cp to fail, forcing the rollback branch deterministically.
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$SANDBOX/bin/cp"
+  chmod +x "$SANDBOX/bin/cp"
+
+  run env PATH="$SANDBOX/bin:$PATH" bash -c "cd '$WORK' && bash '$SCRIPT' create feat/cpfail"
+
+  assert_success
+  assert_output --partial "WARN:"
+  assert [ -d "$WORKTREES/feat-cpfail" ]
+  assert [ ! -e "$WORKTREES/feat-cpfail/vendor" ]
+  assert [ -f "$WORK/vendor/a.txt" ]
+}
+
+@test "create: --link without a value is fatal" {
+  worktree create feat/x --link
+
+  assert_failure
+  assert_output --partial "FATAL:"
+}
+
+@test "create: an unknown option is fatal" {
+  worktree create feat/x --bogus
+
+  assert_failure
+  assert_output --partial "FATAL:"
+}
+
+@test "create: two positional args is fatal" {
+  worktree create feat/x extra
 
   assert_failure
   assert_output --partial "FATAL:"
