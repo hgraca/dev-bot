@@ -7,8 +7,8 @@ namespace Devbot\Refactor;
 use PhpParser\Node;
 use PhpParser\Node\Const_ as ConstNode;
 use PhpParser\Node\Identifier;
-use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\ClassConst;
+use PhpParser\Node\Stmt\ClassLike;
 use PhpParser\Node\Stmt\Const_ as ConstStmt;
 use PhpParser\Node\Stmt\Function_;
 use Rector\Contract\Rector\ConfigurableRectorInterface;
@@ -28,8 +28,9 @@ use Symplify\RuleDocGenerator\ValueObject\RuleDefinition;
  *   from — the declaration's SHORT name
  *   to   — the new SHORT name
  *
- * Class declarations are renamed here; moving the file to match (PSR-4) is the
- * caller's job, since Rector does not move files.
+ * Class-like declarations (class, interface, trait, enum) are renamed here;
+ * moving the file to match (PSR-4) is the caller's job, since Rector does not
+ * move files.
  */
 final class RenameDeclarationRector extends AbstractRector implements ConfigurableRectorInterface
 {
@@ -49,7 +50,7 @@ final class RenameDeclarationRector extends AbstractRector implements Configurab
      */
     public function getNodeTypes(): array
     {
-        return [Function_::class, ConstStmt::class, Class_::class, ClassConst::class];
+        return [Function_::class, ConstStmt::class, ClassLike::class, ClassConst::class];
     }
 
     public function refactor(Node $node): ?Node
@@ -58,7 +59,7 @@ final class RenameDeclarationRector extends AbstractRector implements Configurab
             return $this->rename($node, $node->name);
         }
 
-        if ($node instanceof Class_ && $this->kind === 'class') {
+        if ($node instanceof ClassLike && $this->kind === 'class') {
             return $this->rename($node, $node->name);
         }
 
@@ -87,7 +88,7 @@ final class RenameDeclarationRector extends AbstractRector implements Configurab
         return null;
     }
 
-    private function rename(Function_|Class_ $node, ?Identifier $name): ?Node
+    private function rename(Function_|ClassLike $node, ?Identifier $name): ?Node
     {
         if ($name === null) {
             return null;

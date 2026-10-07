@@ -24,6 +24,8 @@ Entry shape:
     declaration  adds a second step registering RenameDeclarationRector for this
                  kind ("function" | "constant" | "class") — Rector's renaming
                  rules are usages-only, so without it the rename is a half-rename
+    import_names  add `->withImportNames()`, so a class rename rewrites the
+                  `use` imports instead of leaving the old ones stale
 """
 
 import json
@@ -92,6 +94,7 @@ OPS = {
         "qualify": True,
         "declaration": "class",
         "move_file": True,
+        "import_names": True,
         "requires": ["from", "to"],
     },
     # A class move keeps the class name and changes its namespace. Rector rewrites
@@ -597,15 +600,19 @@ def steps_for(request: dict, spec: dict):
     imports = ["use %s;" % spec["rule"]]
     if spec.get("vo"):
         imports.append("use %s;" % spec["vo"])
+    # `import_names` chains a method, so the configured-rule line stays open.
+    body = [
+        "    ->withConfiguredRule(%s::class, [" % short,
+        pair,
+        "    ])" if spec.get("import_names") else "    ]);",
+    ]
+    if spec.get("import_names"):
+        body.append("    ->withImportNames();")
     steps.append(
         {
             "rule": spec["rule"],
             "imports": imports,
-            "body": [
-                "    ->withConfiguredRule(%s::class, [" % short,
-                pair,
-                "    ]);",
-            ],
+            "body": body,
         }
     )
 

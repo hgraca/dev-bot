@@ -137,6 +137,36 @@ PHP
   [ "${call}" = "1" ]
 }
 
+@test "end-to-end: a class rename rewrites the use import in another namespace" {
+  _e2e_ready || skip "docker + scratch Rector not available"
+
+  # Regression guard for the reported defect: a class rename moved the file but
+  # left the declaration and the `use` imports on the old name. scope-demo
+  # declares Port in Demo and imports it from Demo\Test, so the cross-namespace
+  # use statement is the case the report called out.
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/scope-demo/." "${work}/"
+  _req rename-class '' Port Contract > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+
+  local use_test use_double decl newfile oldfile
+  use_test="$(grep -c 'use Demo\\Contract;' "${work}/tests/PortTest.php" || true)"
+  use_double="$(grep -c 'use Demo\\Contract;' "${work}/tests/AdapterDouble.php" || true)"
+  decl="$(grep -c 'interface Contract' "${work}/src/Contract.php" 2>/dev/null || true)"
+  newfile="$(test -f "${work}/src/Contract.php" && echo 1 || echo 0)"
+  oldfile="$(test -f "${work}/src/Port.php" && echo 1 || echo 0)"
+  rm -rf "${work}"
+
+  assert_success
+  [ "${use_test}" = "1" ]
+  [ "${use_double}" = "1" ]
+  [ "${decl}" = "1" ]
+  [ "${newfile}" = "1" ]
+  [ "${oldfile}" = "0" ]
+}
+
 @test "end-to-end: a short --class resolves to its FQCN and renames" {
   _e2e_ready || skip "docker + scratch Rector not available"
 
