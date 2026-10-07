@@ -1234,7 +1234,9 @@ _prereq_manual() {
 # ── Module prerequisites ─────────────────────────────────────────────────────────
 #
 # _run_module_prereqs
-#   Loops through all agentic modules and runs their pre.sh (if present).
+#   Loops through every agentic module and runs its pre.sh (if present).
+#   Prereq checks are machine-wide, so disabled modules are NOT skipped:
+#   install/update provision every module regardless of the `modules` map.
 #   Relies on DEV_BOT_ROOT being set (by caller or by default above).
 #   Exports MODULE_PREREQ_PASSED, MODULE_PREREQ_FAILED, MODULE_PREREQ_SKIPPED.
 #
@@ -1243,12 +1245,6 @@ _prereq_manual() {
 
 _run_module_prereqs() {
   _header_2 "Module Prerequisites"
-
-  # ── Resolve disabled modules ──
-  local disabled_raw
-  disabled_raw=$(_devbot_get_disabled_modules)
-  local disabled_modules
-  disabled_modules=$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
 
   local passed=0
   local skipped=0
@@ -1262,10 +1258,6 @@ _run_module_prereqs() {
       local module_name
       module_name="$(basename "${module_dir}")"
 
-      if echo "${disabled_modules}" | grep -Fxq "${module_name}" 2>/dev/null; then
-        _skip "${module_name}: disabled per config — skipping"
-        continue
-      fi
       local pre_script="${module_dir}/pre.sh"
 
       if [[ ! -f "${pre_script}" ]]; then
@@ -1292,14 +1284,22 @@ _run_module_prereqs() {
 
 # ── Generic module script runner ─────────────────────────────────────────────────
 #
-# _run_module_script <base_dir> <script_name> <label> <ok_label> [extra_args...]
-#   Iterates all module directories under base_dir, skipping disabled modules,
-#   and runs script_name in each directory that has it.
-#   Extra args after ok_label are passed to each script invocation.
+# _run_module_script [--all] <base_dir> <script_name> <label> <ok_label> [extra_args...]
+#   Iterates all module directories under base_dir and runs script_name in each
+#   directory that has it. Extra args after ok_label are passed to each script.
+#   Disabled modules are skipped unless --all is given; machine-wide runners
+#   (install/update/uninstall) pass --all because their assets are machine-wide
+#   — same rationale as _run_service_scripts --all for down.sh.
 #
 #   Exports: MODULE_SCRIPT_COUNT, MODULE_SCRIPT_FAILED, MODULE_SCRIPT_SKIPPED
 
 _run_module_script() {
+  local include_disabled=0
+  if [[ "${1:-}" == "--all" ]]; then
+    include_disabled=1
+    shift
+  fi
+
   local base_dir="$1"
   local script_name="$2"
   local label="$3"
@@ -1307,11 +1307,13 @@ _run_module_script() {
   shift 4  # remaining args passed to each script
 
   # ── Resolve disabled modules (global + per-project union) ──
-  # "$1" is the first extra arg — the project dir for _init_modules.
-  local disabled_raw
-  disabled_raw=$(_devbot_get_disabled_modules "${1:-}")
-  local disabled_modules
-  disabled_modules=$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
+  # "$1" is the first extra arg — the project dir for _init_modules, the only
+  # caller that gates per-project.
+  local disabled_raw="" disabled_modules=""
+  if [[ ${include_disabled} -eq 0 ]]; then
+    disabled_raw=$(_devbot_get_disabled_modules "${1:-}")
+    disabled_modules=$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
+  fi
 
   local count=0
   local failed=0
@@ -1321,7 +1323,7 @@ _run_module_script() {
     local module_name
     module_name="$(basename "${module_dir}")"
 
-    if echo "${disabled_modules}" | grep -Fxq "${module_name}" 2>/dev/null; then
+    if [[ ${include_disabled} -eq 0 ]] && echo "${disabled_modules}" | grep -Fxq "${module_name}" 2>/dev/null; then
       _skip "${module_name}: disabled per config — skipping"
       skipped=$((skipped + 1))
       continue
@@ -1358,10 +1360,13 @@ _run_module_script() {
 
 # ── Per-action wrappers ──────────────────────────────────────────────────────────
 
-_install_modules()   { _run_module_script "$1" "install.sh"  "Installing"   "installed"; }
-_update_modules()    { _run_module_script "$1" "update.sh"   "Updating"     "updated"; }
+# install/update/uninstall are machine-wide: they provision every module's
+# assets regardless of per-project enablement, so they pass --all. Only
+# _init_modules gates on the merged `modules` map (per-project wiring).
+_install_modules()   { _run_module_script --all "$1" "install.sh"  "Installing"   "installed"; }
+_update_modules()    { _run_module_script --all "$1" "update.sh"   "Updating"     "updated"; }
 _init_modules()      { local d="$1"; shift; _run_module_script "$d" "init.sh" "Initializing" "initialized" "$@"; }
-_uninstall_modules() { _run_module_script "$1" "uninstall.sh" "Uninstalling" "uninstalled"; }
+_uninstall_modules() { _run_module_script --all "$1" "uninstall.sh" "Uninstalling" "uninstalled"; }
 
 # Collect scripts matching a name from modules in one or more base directories.
 # Outputs one path per line. Useful for discovery before execution.

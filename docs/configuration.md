@@ -166,7 +166,9 @@ Used by the `worktree` tool (`enabled` / `create`) and the `git-worktrees` skill
 **Required:** no
 **Scope:** project overrides global **per key**
 
-Per-module enablement. A module set to `false` is skipped during lifecycle scripts (init, install, update, prereq checks) — its scripts, symlink wiring, and declared MCP servers are all skipped. A module absent from both files is enabled. The global and project maps merge per key, with the project value winning, so a project can re-enable a globally disabled module, or vice versa.
+Per-module enablement. A module set to `false` is skipped during **init** — its symlink wiring and declared MCP servers are not installed into the project. A module absent from both files is enabled. The global and project maps merge per key, with the project value winning, so a project can re-enable a globally disabled module, or vice versa.
+
+The machine-wide commands ignore this map: `install`, `update`, `uninstall` and prereq checks run **every** module's scripts, disabled ones included — their assets are machine-wide, and a module disabled in one project may be enabled in another (the same rule `down` follows). Enablement is otherwise honoured by the per-project lifecycle (`init`, `up`) and by `devbot list`, which hides disabled modules' artifacts unless `--all` is given.
 
 Disabling a module also removes its MCP servers from every harness config — this is the lever for dropping a heavy server's tool-schema and process cost (see [MCP configuration](/mcp-config#reducing-the-footprint)).
 
@@ -554,7 +556,7 @@ agent first calls it.
   // Data sources this project may use, by name (see `datasources` above)
   "datasources": ["hotels-dev"],
 
-  // Per-module enablement — `false` skips a module during lifecycle scripts
+  // Per-module enablement — `false` skips a module during init/up
   "modules": { "claudecode": false, "react": false, "signoz": false, "svelte": false },
 
   // Guard rules for bash commands

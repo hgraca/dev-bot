@@ -206,6 +206,91 @@ _add_init_module() {
   assert_output --partial "pkg uninstalled"
 }
 
+# ── Machine-wide runners: --all (install/update/uninstall) ──────────────────
+# install/update/uninstall are machine-wide, so a module disabled per project
+# must still be provisioned — the wrappers pass --all, exactly like
+# _run_service_scripts --all does for down.sh.
+
+@test "_run_module_script --all runs disabled modules' scripts too" {
+  _source_lib
+  export MOCK_DISABLED_MODULES='["skip-me"]'
+  _add_module "src/tools" "skip-me" "install.sh" 'echo "skip_me_ran"'
+  _add_module "src/tools" "keep-me" "install.sh" 'echo "keep_me_ran"'
+
+  run _run_module_script --all "${SANDBOX_DIR}/src/tools" "install.sh" "Installing" "installed"
+  assert_success
+  assert_output --partial "skip_me_ran"
+  assert_output --partial "keep_me_ran"
+}
+
+@test "_run_module_script --all passes remaining args through" {
+  _source_lib
+  export MOCK_DISABLED_MODULES='[]'
+  _add_module "src/tools" "mod-a" "init.sh" 'echo "args: $*"'
+
+  run _run_module_script --all "${SANDBOX_DIR}/src/tools" "init.sh" "Initializing" "initialized" "/my/project"
+  assert_success
+  assert_output --partial "args: /my/project"
+}
+
+@test "_install_modules runs disabled modules (machine-wide provisioning)" {
+  _source_lib
+  export MOCK_DISABLED_MODULES='["skip-me"]'
+  _add_module "src/tools" "skip-me" "install.sh" 'echo "installed_skip_me"'
+
+  run _install_modules "${SANDBOX_DIR}/src/tools"
+  assert_success
+  assert_output --partial "installed_skip_me"
+}
+
+@test "_update_modules runs disabled modules" {
+  _source_lib
+  export MOCK_DISABLED_MODULES='["skip-me"]'
+  _add_module "src/tools" "skip-me" "update.sh" 'echo "updated_skip_me"'
+
+  run _update_modules "${SANDBOX_DIR}/src/tools"
+  assert_success
+  assert_output --partial "updated_skip_me"
+}
+
+@test "_uninstall_modules runs disabled modules" {
+  _source_lib
+  export MOCK_DISABLED_MODULES='["skip-me"]'
+  _add_module "src/tools" "skip-me" "uninstall.sh" 'echo "uninstalled_skip_me"'
+
+  run _uninstall_modules "${SANDBOX_DIR}/src/tools"
+  assert_success
+  assert_output --partial "uninstalled_skip_me"
+}
+
+@test "_init_modules still skips disabled modules (per-project gate)" {
+  _source_lib
+  export MOCK_DISABLED_MODULES='["skip-me"]'
+  _add_module "src/tools" "skip-me" "init.sh" 'echo "should_not_run"'
+  _add_module "src/tools" "keep-me" "init.sh" 'echo "keep_ok"'
+
+  run _init_modules "${SANDBOX_DIR}/src/tools" "/my/project"
+  assert_success
+  refute_output --partial "should_not_run"
+  assert_output --partial "keep_ok"
+  assert_output --partial "skip-me: disabled per config"
+}
+
+# ── _run_module_prereqs ────────────────────────────────────────────────────
+
+@test "_run_module_prereqs runs every module's pre.sh, including disabled" {
+  _source_lib
+  command -v jq &>/dev/null || skip "jq not installed"
+  export MOCK_DISABLED_MODULES='["skip-me"]'
+  _add_module "src/agentic" "skip-me" "pre.sh" 'echo "skip_me_pre_ran"'
+  _add_module "src/agentic" "keep-me" "pre.sh" 'echo "keep_me_pre_ran"'
+
+  run _run_module_prereqs
+  assert_success
+  assert_output --partial "skip_me_pre_ran"
+  assert_output --partial "keep_me_pre_ran"
+}
+
 # ── _collect_module_scripts ────────────────────────────────────────────────
 
 @test "collects executable scripts from multiple base dirs" {

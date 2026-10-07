@@ -48,11 +48,11 @@ A module that ships a `docs.md` gets a page on this site at `/modules/<area>/<na
 
 ### Lifecycle scripts
 
-**install.sh**: Idempotent — can be run multiple times safely. Installs OS-level dependencies. Run automatically by `bin/install.sh` which loops over all modules.
+**install.sh**: Idempotent — can be run multiple times safely. Installs OS-level dependencies. Run automatically by `bin/install.sh`, which loops over **every** module, disabled ones included — assets are machine-wide, and a module disabled in one project may be enabled in another, so the `modules` map gates `init`/`up`, not installation.
 
-**update.sh**: Updates dependencies to latest compatible versions. Run by `bin/update.sh`.
+**update.sh**: Updates dependencies to latest compatible versions. Run by `bin/update.sh` for **every** module, disabled ones included (see `install.sh`).
 
-**pre.sh**: Checks module prerequisites (Python 3, API reachability, etc.). Run automatically by `bin/install.sh` and `bin/update.sh`. Must be idempotent and non-destructive. Warnings (not errors) for optional deps.
+**pre.sh**: Checks module prerequisites (Python 3, API reachability, etc.). Run automatically by `bin/install.sh` and `bin/update.sh` for **every** module, disabled ones included (prereq checks are machine-wide). Must be idempotent and non-destructive. Warnings (not errors) for optional deps.
 
 **init.sh**: Per-project initialization and idempotent dependency self-heal. Run by `bin/init.sh`. Use this hook to close the update/reinit gap — `devbot update` runs only `update.sh` while `devbot reinit` runs only `init.sh`, so anything an adopting install would otherwise miss has to be healed here.
 
@@ -70,7 +70,7 @@ Modules that install an external CLI/MCP dependency globally (e.g. chrome-devtoo
 
 ### Module-owned docker services (`docker-compose.yml`)
 
-A module that needs a long-running service ships its own `docker-compose.yml`; `bin/up.sh`/`down.sh` discover it (maxdepth 2 under each module dir) and start/stop it. **`up` is gated by the `modules` map** — the service starts only while the module is enabled. **`down` is not**: containers are install-level, so removal selects every discovered compose and is gated on the session registry instead (see [CLI commands](/modules/tools/devbot-cli)). Every dev-bot compose file declares `name: devbot` so all containers land in one compose project regardless of which file is listed first.
+A module that needs a long-running service ships its own `docker-compose.yml`; `bin/up.sh`/`down.sh` discover it (maxdepth 2 under each module dir) and start/stop it. **`up` is gated by the `modules` map** — the service starts only while the module is enabled. **`down` is not**: containers are install-level, so removal selects every discovered compose and is gated on the session registry instead (see [CLI commands](/modules/tools/devbot-cli)). The other machine-wide commands are likewise ungated — `install`, `update`, `uninstall` and prereq checks run every module; `init` and `up` honour the map. Every dev-bot compose file declares `name: devbot` so all containers land in one compose project regardless of which file is listed first.
 
 A service that builds its own image adds a `Dockerfile` next to the compose file, and anchors the build context on the absolute `DEV_BOT_ROOT` — `build: { context: ${DEV_BOT_ROOT}/src/<area>/<module> }`. Never a relative `.`: `bin/up.sh` lists every selected module compose as one `-f` list, and compose resolves a relative context against the **first** file's directory rather than the file's own, so the build reads whichever module is listed first — the fresh-install failure `failed to read dockerfile: open Dockerfile: no such file or directory`, which appears only where no image exists yet (an existing image means compose never builds). The same rule governs a relative `include:`. `docker compose up` builds the image on first start when it is missing, and `bin/up.sh` rebuilds it when the Dockerfile changes; a manual rebuild needs the variable set (`bin/up.sh` and `bin/down.sh` both export it): `DEV_BOT_ROOT="$(pwd)" docker compose -f <module>/docker-compose.yml build`.
 
@@ -139,7 +139,7 @@ Located at `src/tools/<name>/`. Infrastructure services — Docker Compose, CLI 
 
 <!-- GENERATED:MODULES_TOOLS -->
 
-**Disabled by default**: `litellm` is skipped during install/update/init unless overridden in `.devbot.global.jsonc`.
+**Disabled by default**: `litellm` is skipped during init/up unless overridden in `.devbot.global.jsonc`.
 
 ---
 
