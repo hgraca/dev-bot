@@ -30,6 +30,17 @@ The `remember-session` skill captures what was learned during a session and rout
 
 Say "wrap up", "remember session", or "capture session" to trigger it manually.
 
+## Supervisor sessions
+
+A project with `supervisor: true` runs sessions across the managed projects
+registered in `.devbot.global.jsonc::projects`. Memory is scoped by the files
+the session touches: `search-memories --focus <path>` searches the touched
+project's vault + the supervisor's vault + the shared global store, and a
+finding routes back to the project it concerns. Each child's own
+`commit_memory` and `worktrees` govern its memory commits. A session launched
+inside a child is unchanged — it searches the child + global, never the
+supervisor.
+
 ## Configuration
 
 The vault is committed with the project by default (`commit_memory` in the devbot config). Search engine choice — `mdctx` (keyword) or `qmd` (hybrid) — is set by `memory_search_provider` in `.devbot.global.jsonc`.

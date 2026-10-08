@@ -13,6 +13,13 @@ Finding your way around a codebase you have not seen before — the module behin
 - **`create-project-report`** — writes `.agents/memory/active/project.md`, the project's own description, used when it is missing or stale.
 - **`search-code`** — locates a definition and follows the architecture around it.
 
+## Supervisor sessions
+
+In a `supervisor: true` project the session may touch several managed
+projects, so `gather-context` scopes memory search per project with
+`--focus <path>` and the primary agent dispatches **one @scout per predicted
+project, in parallel** — each reporting into the supervisor's `thinking/`.
+
 ## Configuration
 
 No project configuration is required.
