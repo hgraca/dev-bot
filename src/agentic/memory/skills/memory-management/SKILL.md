@@ -113,6 +113,29 @@ Each `latent/` file is a standalone `.md` with YAML frontmatter (`date`, `keywor
 
 If no technology bucket fits, use `learnings/`.
 
+### Supervisor sessions (cross-project scope)
+
+A project with `supervisor: true` runs sessions that work across the managed
+projects registered in the global config's `projects` array. Memory is scoped
+by the **files the session touches**:
+
+- **Read** — `search-memories --focus <path>` covers the vault of every project
+  the touched paths belong to, plus the supervisor's own vault, plus the shared
+  global store; with no `--focus`, the supervisor + global store, never the
+  untouched siblings.
+- **Write** — route each finding by the path it concerns: a child project's
+  file or behaviour → that child's vault; cross-project / org-wide → the
+  supervisor's vault; reusable across projects → `latent/global/<tech>/`.
+- **Child config, not the supervisor's** — resolve `commit_memory` and
+  `worktrees` for the **owning project** before writing or committing
+  (`_devbot_get_config <key> <child_dir>`, project-first → global-fallback). A
+  child with `commit_memory: false` is never committed even when the supervisor
+  commits; a child with `worktrees: false` commits in its own main checkout; a
+  non-git owner is skipped with a **notice log line** (never a warning).
+
+A session launched _inside_ a managed project is unaffected: it searches its own
+vault + the global store, never the supervisor's.
+
 ## 3. Retrieval Rules
 
 - active/ loads automatically at session start — do not re-read
@@ -120,6 +143,7 @@ If no technology bucket fits, use `learnings/`.
   - `search-memories` searches the CURRENT project vault + the shared global store under whichever engine `memory_search_provider` selects (qmd or mdctx); it returns file content with frontmatter stripped (data only)
   - Read specific files directly only when you know the exact filename
 - **Memory search MUST go through `search-memories`** (devbot-tools MCP tool or CLI): it always scopes to the CURRENT project vault + global store and nothing else. Raw engine-native tools (qmd MCP/CLI, mdctx MCP) can span other stores/roots or miss the current project's. Both engines are keyword-only (BM25) — there is no semantic route to reach for.
+- **Supervisor sessions** pass `--focus <path>` so the touched project(s) join the read set (touched project + supervisor + global). A session inside a managed project uses no `--focus` and never sees the supervisor.
 - All other files: search before read; max 3 non-latent notes per task; discard results with relevance score < 0.6
 - If `search-memories` returns no matches, the index may not be built yet or a reindex may still be in progress — do not loop reindex → search → reindex. Check `reindex-memories status`; if `in_progress`, wait and re-search once. Repeated reindex calls coalesce into one job.
 

@@ -87,3 +87,16 @@ teardown() {
   assert_success
   assert_output "no"
 }
+
+@test "a child's own commit_memory/worktrees win over the supervisor's" {
+  mkdir -p "$BASE/sup" "$BASE/child"
+  printf '{ "commit_memory": true, "worktrees": true }\n' >"$BASE/sup/.devbot.project.jsonc"
+  printf '{ "commit_memory": false, "worktrees": false }\n' >"$BASE/child/.devbot.project.jsonc"
+  printf '{ "commit_memory": true, "worktrees": true }\n' >"$BASE/global.jsonc"
+
+  run env -u DEV_BOT_ROOT DEV_BOT_GLOBAL_CONFIG="$BASE/global.jsonc" bash -c \
+    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_get_config commit_memory '$BASE/child' && _devbot_get_config worktrees '$BASE/child'"
+  assert_success
+  assert_line --index 0 "false"
+  assert_line --index 1 "false"
+}

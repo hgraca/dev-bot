@@ -50,6 +50,13 @@ Create new files using the frontmatter schema and routing table from the already
 | Lesson reusable across projects (tech-specific) | `memory/latent/global/<technology>/` | New file per item, lesson + context + scope. Pick most specific bucket from classification table in `devbot:memory-management` skill (section 2). |
 | Lesson specific to this project                 | `memory/latent/learnings/`           | New file per item, lesson + context + scope                                                                                                       |
 
+**Supervisor sessions** — in a project with `supervisor: true`, route each
+finding by the files it concerns (see `devbot:memory-management` §2
+"Supervisor sessions"): a finding about a child project's file → that child's
+vault; cross-project / org-wide → the supervisor's vault; tech-generic →
+`latent/global/<tech>/`. Dedup-check with `search-memories --focus "<path>"`
+so the owning project's vault is in scope.
+
 **Quality gate**: Only save entries that are specific, actionable, and include context. Generic observations ("be careful with X") not worth saving.
 
 ### Gotcha entries
@@ -90,3 +97,14 @@ Memory files under `.agents/memory/` are tracked **only when the effective `comm
 - **Fixup commits only** — attach each new/changed memory file to the commit where the captured insight happened, using `git commit --fixup=<orig-hash>` (see `devbot:git-fixup-commits`). One fixup per distinct originating commit.
 - **Never push** — commits only; the human decides when to push.
 - **Keep the memory capture as the final memory action** — make these commits the last writes to the memory vault and write no further memory files afterward, so the memory capture stays a one-shot operation. The finish flow then runs `devbot:grade-tools` (tool quality), which writes no memory files.
+
+**Supervisor sessions** — route each memory file to its **owning project's**
+repo and honour _that project's_ `commit_memory` and `worktrees` settings,
+never the supervisor's (resolve `_devbot_get_config commit_memory <owner>` and
+`_devbot_get_config worktrees <owner>` — project-first, global-fallback for the
+owner). Group findings by owning project and commit once per repo; a child with
+`commit_memory: false` gets no memory commit even when the supervisor commits,
+and a child with `worktrees: false` commits in its own main checkout. When the
+owner is not a git repo (e.g. a supervisor root never `git init`ed), skip the
+commit and append a **notice** line to the owner's `.agents/logs/memory-index.log`
+— no warning, no failure.
