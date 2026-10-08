@@ -313,6 +313,33 @@ def search_qmd(
     return all_results[:max_results], None
 
 
+def search_qmd_scoped(
+    queries: list[str], collections: list[str], max_results: int
+) -> tuple[list[dict] | None, str | None]:
+    """Search several qmd collections (the supervisor read set) plus global.
+
+    One `search_qmd` pass per collection — each also covers `dev-bot-global` —
+    merged and deduplicated by file. A collection that was never registered
+    ("Collection not found") is skipped rather than failing every query, so one
+    un-indexed child project cannot break a supervisor search.
+    """
+    merged: list[dict] = []
+    seen: set[str] = set()
+    for collection in collections:
+        results, err = search_qmd(queries, collection, max_results)
+        if err:
+            if "Collection not found" in err:
+                continue
+            return None, err
+        for r in results or []:
+            file_uri = r.get("file", "")
+            if file_uri and file_uri not in seen:
+                seen.add(file_uri)
+                merged.append(r)
+    merged.sort(key=lambda r: r.get("score", 0), reverse=True)
+    return merged[:max_results], None
+
+
 def resolve_devbot_dir(project_root: Path) -> str:
     """Resolve the devbot state dir for a project (bash: _devbot_get_project_dir).
 
@@ -779,7 +806,8 @@ def main() -> None:
 
     # A supervisor session scopes memory to the projects the session touches
     # (from --focus) plus itself; a normal project keeps its single vault.
-    if resolve_supervisor(project_root):
+    supervisor = resolve_supervisor(project_root)
+    if supervisor:
         read_projects = supervisor_read_projects(project_root, args.focus)
     else:
         read_projects = [project_root]
@@ -802,8 +830,13 @@ def main() -> None:
         )
         body_fetch = fetch_mdctx_body
     else:
-        collection = args.collection or resolve_collection(project_root)
-        results, err = search_qmd(args.query, collection, args.max_results)
+        if supervisor and not args.collection:
+            collections = list(dict.fromkeys(resolve_collection(p) for p in read_projects))
+            collections = [c for c in collections if c]
+            results, err = search_qmd_scoped(args.query, collections, args.max_results)
+        else:
+            collection = args.collection or resolve_collection(project_root)
+            results, err = search_qmd(args.query, collection, args.max_results)
         body_fetch = fetch_file_body
 
     if err:

@@ -1163,6 +1163,43 @@ class TestScopedMdctxPairs(_SandboxTest):
         self.assertEqual(pairs, [])
 
 
+class TestSearchQmdScoped(unittest.TestCase):
+    @staticmethod
+    def _out(files):
+        return json.dumps({"results": [{"file": f, "score": s} for f, s in files]})
+
+    def test_merges_collections_and_dedupes_global(self):
+        with patch.object(_search_memories, "run_qmd_cli") as mock_run:
+            mock_run.side_effect = [
+                (self._out([("a.md", 0.5), ("g.md", 0.1)]), None),
+                (self._out([("b.md", 0.9), ("g.md", 0.1)]), None),
+            ]
+            results, err = _search_memories.search_qmd_scoped(["q"], ["a", "b"], 10)
+        self.assertIsNone(err)
+        self.assertEqual([r["file"] for r in results], ["b.md", "a.md", "g.md"])
+
+    def test_skips_a_missing_collection(self):
+        with patch.object(_search_memories, "run_qmd_cli") as mock_run:
+            mock_run.side_effect = [
+                (None, "Collection not found: gone"),
+                (self._out([("b.md", 0.9)]), None),
+            ]
+            results, err = _search_memories.search_qmd_scoped(["q"], ["gone", "b"], 10)
+        self.assertIsNone(err)
+        self.assertEqual([r["file"] for r in results], ["b.md"])
+
+    def test_propagates_a_real_error(self):
+        with patch.object(_search_memories, "run_qmd_cli", return_value=(None, "qmd crashed")):
+            results, err = _search_memories.search_qmd_scoped(["q"], ["a"], 10)
+        self.assertIsNone(results)
+        self.assertIn("qmd crashed", err)
+
+    def test_no_collections_returns_empty(self):
+        results, err = _search_memories.search_qmd_scoped(["q"], [], 10)
+        self.assertEqual(results, [])
+        self.assertIsNone(err)
+
+
 class TestSearchMdctxScoped(_SandboxTest):
     def _scaffold(self, project, content):
         (project / ".mdctx").mkdir(parents=True, exist_ok=True)
@@ -1230,6 +1267,26 @@ class TestMainSupervisorScope(_SandboxTest):
             _search_memories.main()
         self.assertEqual(ensured, ["/a", "/sup"])
         self.assertEqual(seen["projects"], ["/a", "/sup"])
+
+    def test_main_qmd_supervisor_uses_scoped_collections(self):
+        seen = {}
+
+        def fake_scoped(queries, collections, max_results):
+            seen["collections"] = collections
+            return [], None
+
+        a = self._project("a")
+        sup = self._project("sup")
+        (a / ".devbot.project.jsonc").write_text('{"project_name": "a-name"}')
+        (sup / ".devbot.project.jsonc").write_text('{"project_name": "sup-name"}')
+        with patch.object(_search_memories, "resolve_provider", return_value="qmd"), \
+             patch.object(_search_memories, "resolve_supervisor", return_value=True), \
+             patch.object(_search_memories, "supervisor_read_projects", return_value=[a, sup]), \
+             patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
+             patch.object(_search_memories, "search_qmd_scoped", side_effect=fake_scoped), \
+             patch.object(sys, "argv", ["search-memories", "--query", "q"]):
+            _search_memories.main()
+        self.assertEqual(seen["collections"], ["a-name", "sup-name"])
 
 
 if __name__ == "__main__":
