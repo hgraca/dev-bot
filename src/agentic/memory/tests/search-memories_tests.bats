@@ -301,6 +301,26 @@ SCRIPT
   rm -rf "$mockdir"
 }
 
+@test "--focus <value> two-token form: value forwarded, not treated as query" {
+  local mockdir
+  mockdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  cat > "$mockdir/python3" <<'SCRIPT'
+#!/bin/bash
+echo "$*"
+SCRIPT
+  chmod +x "$mockdir/python3"
+
+  PATH="$mockdir:/usr/bin:/bin" run "$BASH" "$TOOL" --focus /home/u/proj/a/x.py "test-query"
+
+  assert_success
+  assert_output --regexp "\-\-focus\b.*x\.py"
+  assert_output --regexp "\-\-query.*test-query"
+  # the focus path must NOT become a query value
+  refute_output --regexp "\-\-query[[:space:]]+/home/u/proj/a/x\.py"
+
+  rm -rf "$mockdir"
+}
+
 @test "both two-token forms together: --collection X --max-results N query" {
   local mockdir
   mockdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"

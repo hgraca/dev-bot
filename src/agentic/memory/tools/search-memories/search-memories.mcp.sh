@@ -21,6 +21,8 @@
 # - query (string, required): search query or JSON array string e.g. '["planning","workflow"]' or 'billing'
 # - collection (string, optional): QMD collection name (default: auto-detected from devbot.jsonc)
 # - max-results (number, optional): max files to return (default: 5)
+# - focus (string, optional, repeatable): path the session is touching; in a
+#   supervisor project it selects the project(s) whose vault is searched too
 # - format (string, optional): 'json' (default) or 'markdown'
 # =============================================================================
 
@@ -29,7 +31,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"search-memories","description":"Search the memory vault and return full file bodies. Fast keyword (BM25) search across memories indexed by the configured engine (qmd or mdctx) — no GPU or LLM models required. Branch-aware: refreshes the index first when it was built for a different git branch or checkout.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <query> [--collection <name>] [--max-results <n>] [--json]"}},"required":["args"]}}
+{"name":"search-memories","description":"Search the memory vault and return full file bodies. Fast keyword (BM25) search across memories indexed by the configured engine (qmd or mdctx) — no GPU or LLM models required. Branch-aware: refreshes the index first when it was built for a different git branch or checkout. In a supervisor project, --focus scopes the search to the touched project(s) plus the supervisor and the global store.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <query> [--collection <name>] [--max-results <n>] [--focus <path>] [--json]"}},"required":["args"]}}
 JSON
     exit 0
     ;;
@@ -70,12 +72,12 @@ for i in "$@"; do
       FORMAT="markdown"; HAS_FORMAT=true ;;
     --json)
       FORMAT="json"; HAS_FORMAT=true ;;
-    --format|--collection|--max-results|--query)
+    --format|--collection|--max-results|--query|--focus)
       EXTRA_ARGS+=("${i}")
       SKIP_NEXT=true ;;
     --format=*)
       FORMAT="${i#--format=}"; HAS_FORMAT=true ;;
-    --collection=*|--max-results=*|--query=*)
+    --collection=*|--max-results=*|--query=*|--focus=*)
       EXTRA_ARGS+=("${i}") ;;
     --*)
       EXTRA_ARGS+=("${i}") ;;

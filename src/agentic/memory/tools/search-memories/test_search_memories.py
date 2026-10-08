@@ -1044,5 +1044,193 @@ class TestMainEngineDispatch(unittest.TestCase):
         self.assertNotIn("mdctx", captured)
 
 
+# ---------------------------------------------------------------------------
+# supervisor scope resolution
+# ---------------------------------------------------------------------------
+
+_REAL_SHARED = _MODULE_PATH.parents[4] / "_shared"
+
+
+class _SandboxTest(unittest.TestCase):
+    """Base: a temp devbot root with the shared helpers symlinked in."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmpdir.name)
+        self.devbot = self.root / "devbot"
+        shared = self.devbot / "src" / "_shared"
+        shared.mkdir(parents=True)
+        for name in ("read_jsonc.py", "resolve_project.py"):
+            os.symlink(_REAL_SHARED / name, shared / name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _project(self, name):
+        path = self.root / name
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _write_projects(self, projects):
+        (self.devbot / ".devbot.global.jsonc").write_text(
+            json.dumps({"projects": [str(p) for p in projects]})
+        )
+
+
+class TestResolveSupervisor(_SandboxTest):
+    def test_true_when_project_flag_true(self):
+        project = self._project("p")
+        (project / ".devbot.project.jsonc").write_text('{"supervisor": true}')
+        self.assertTrue(_search_memories.resolve_supervisor(project))
+
+    def test_project_false_wins_over_global_true(self):
+        project = self._project("p")
+        (project / ".devbot.project.jsonc").write_text('{"supervisor": false}')
+        (self.devbot / ".devbot.global.jsonc").write_text('{"supervisor": true}')
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            self.assertFalse(_search_memories.resolve_supervisor(project))
+
+    def test_global_fallback_true(self):
+        project = self._project("p")
+        (project / ".devbot.project.jsonc").write_text('{"project_name": "p"}')
+        (self.devbot / ".devbot.global.jsonc").write_text('{"supervisor": true}')
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            self.assertTrue(_search_memories.resolve_supervisor(project))
+
+    def test_default_false(self):
+        project = self._project("p")
+        (self.devbot / ".devbot.global.jsonc").write_text("{}")
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            self.assertFalse(_search_memories.resolve_supervisor(project))
+
+
+class TestSupervisorReadProjects(_SandboxTest):
+    def test_focus_projects_then_supervisor(self):
+        a = self._project("a")
+        b = self._project("b")
+        sup = self._project("sup")
+        self._write_projects([a, b])
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            roots = _search_memories.supervisor_read_projects(
+                sup, [str(a / "x.py"), str(b / "y.py"), str(a / "z.py")]
+            )
+        self.assertEqual([str(r) for r in roots], [str(a), str(b), str(sup)])
+
+    def test_no_focus_yields_only_supervisor(self):
+        sup = self._project("sup")
+        self._write_projects([])
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            roots = _search_memories.supervisor_read_projects(sup, [])
+        self.assertEqual([str(r) for r in roots], [str(sup)])
+
+    def test_unresolvable_focus_is_ignored(self):
+        sup = self._project("sup")
+        self._write_projects([])
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            roots = _search_memories.supervisor_read_projects(sup, [str(self.root / "nope")])
+        self.assertEqual([str(r) for r in roots], [str(sup)])
+
+    def test_supervisor_appears_once_when_a_focus_resolves_to_it(self):
+        sup = self._project("sup")
+        self._write_projects([sup])
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            roots = _search_memories.supervisor_read_projects(sup, [str(sup / "f.md")])
+        self.assertEqual([str(r) for r in roots], [str(sup)])
+
+
+class TestScopedMdctxPairs(_SandboxTest):
+    def _scaffold(self, project):
+        (project / ".mdctx").mkdir(parents=True, exist_ok=True)
+        (project / ".mdctx" / "context-index.json").write_text("{}")
+        (project / ".agents" / "memory" / "latent").mkdir(parents=True, exist_ok=True)
+        return project
+
+    def test_project_pairs_then_global(self):
+        a = self._scaffold(self._project("a"))
+        sup = self._scaffold(self._project("sup"))
+        (self.devbot / "storage" / ".mdctx").mkdir(parents=True)
+        (self.devbot / "storage" / ".mdctx" / "context-index.json").write_text("{}")
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            pairs = _search_memories._scoped_mdctx_pairs([a, sup])
+        self.assertEqual(len(pairs), 3)
+        self.assertEqual([p[2] for p in pairs], [False, False, True])
+        self.assertEqual(str(pairs[0][0]), str(a / ".agents" / "memory" / "latent"))
+
+    def test_skips_projects_without_an_index(self):
+        a = self._project("a")  # no .mdctx/index
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            pairs = _search_memories._scoped_mdctx_pairs([a])
+        self.assertEqual(pairs, [])
+
+
+class TestSearchMdctxScoped(_SandboxTest):
+    def _scaffold(self, project, content):
+        (project / ".mdctx").mkdir(parents=True, exist_ok=True)
+        latent = project / ".agents" / "memory" / "latent"
+        latent.mkdir(parents=True, exist_ok=True)
+        (latent / "n.md").write_text(content)
+        (project / ".mdctx" / "context-index.json").write_text("{}")
+        return project
+
+    def test_merges_project_and_supervisor_hits_before_global(self):
+        a = self._scaffold(self._project("a"), "# A\n\nfile aaa")
+        sup = self._scaffold(self._project("sup"), "# S\n\nfile sss")
+        (self.devbot / "storage" / ".mdctx").mkdir(parents=True)
+        (self.devbot / "storage" / "global-memories").mkdir(parents=True)
+        (self.devbot / "storage" / "global-memories" / "g.md").write_text("# G\n\nfile ggg")
+        (self.devbot / "storage" / ".mdctx" / "context-index.json").write_text("{}")
+
+        def hit(rel, score):
+            return json.dumps([{"path": rel, "score": score, "title": ""}])
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            with patch.object(
+                _search_memories,
+                "run_mdctx_cli",
+                side_effect=[(hit("n.md", 0.4), None), (hit("n.md", 0.9), None), (hit("g.md", 9.9), None)],
+            ):
+                results, err = _search_memories.search_mdctx(
+                    ["q"], sup, 10, projects=[a, sup]
+                )
+        self.assertIsNone(err)
+        files = [r["file"] for r in results]
+        # Both project hits precede the (far higher scoring) global hit; the
+        # two project hits are ordered by their own scores (sup 0.9 > a 0.4).
+        self.assertEqual(
+            set(files[:2]),
+            {
+                str((a / ".agents" / "memory" / "latent" / "n.md").resolve()),
+                str((sup / ".agents" / "memory" / "latent" / "n.md").resolve()),
+            },
+        )
+        self.assertTrue(files[2].startswith(str(self.devbot / "storage")))
+
+
+class TestMainSupervisorScope(_SandboxTest):
+    def test_main_ensures_and_searches_the_read_set(self):
+        ensured = []
+        seen = {}
+
+        def fake_ensure(root, provider):
+            ensured.append(str(root))
+            return True, ""
+
+        def fake_search(queries, project_root, max_results, projects=None):
+            seen["projects"] = [str(p) for p in (projects or [])]
+            return [], None
+
+        sup = Path("/sup")
+        a = Path("/a")
+        with patch.object(_search_memories, "resolve_provider", return_value="mdctx"), \
+             patch.object(_search_memories, "resolve_supervisor", return_value=True), \
+             patch.object(_search_memories, "supervisor_read_projects", return_value=[a, sup]), \
+             patch.object(_search_memories, "ensure_index_current", side_effect=fake_ensure), \
+             patch.object(_search_memories, "search_mdctx", side_effect=fake_search), \
+             patch.object(sys, "argv", ["search-memories", "--query", "q", "--focus", "/a/x"]):
+            _search_memories.main()
+        self.assertEqual(ensured, ["/a", "/sup"])
+        self.assertEqual(seen["projects"], ["/a", "/sup"])
+
+
 if __name__ == "__main__":
     unittest.main()

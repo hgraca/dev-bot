@@ -355,8 +355,36 @@ def resolve_mdctx_indexes(
     return [project_pair, global_pair]
 
 
+def _scoped_mdctx_pairs(project_roots: list[Path]) -> list[tuple[Path, Path, bool]]:
+    """(docs_root, index_file, is_global) pairs for a read set + the global store.
+
+    Projects whose mdctx index has not been built yet are skipped; the global
+    pair is appended last so project hits always outrank it.
+    """
+    pairs: list[tuple[Path, Path, bool]] = []
+    seen: set[str] = set()
+    for root in project_roots:
+        root = Path(root)
+        key = str(root)
+        if key in seen:
+            continue
+        seen.add(key)
+        index = root / ".mdctx" / "context-index.json"
+        if not index.is_file():
+            continue
+        devbot_dir = resolve_devbot_dir(root)
+        pairs.append((root / devbot_dir / "memory" / "latent", index, False))
+    global_index = DEVBOT_ROOT / "storage" / ".mdctx" / "context-index.json"
+    if global_index.is_file():
+        pairs.append((DEVBOT_ROOT / "storage" / "global-memories", global_index, True))
+    return pairs
+
+
 def search_mdctx(
-    queries: list[str], project_root: Path, max_results: int
+    queries: list[str],
+    project_root: Path,
+    max_results: int,
+    projects: list[Path] | None = None,
 ) -> tuple[list[dict] | None, str | None]:
     """Search the mdctx project + global indexes for each query.
 
@@ -374,8 +402,8 @@ def search_mdctx(
     the global store fills the remaining slots — the project vault is never
     silent behind global noise.
     """
-    project_index = project_root / ".mdctx" / "context-index.json"
-    pairs = [(root, idx) for root, idx in resolve_mdctx_indexes(project_root) if idx.is_file()]
+    read_projects = list(projects) if projects else [project_root]
+    pairs = _scoped_mdctx_pairs(read_projects)
     if not pairs:
         return None, (
             "mdctx index not found — run `devbot reinit` (or mdctx init.sh) so the "
@@ -407,7 +435,7 @@ def search_mdctx(
         )
 
     for query in queries:
-        for root, index_file in pairs:
+        for root, index_file, is_global in pairs:
             cmd = ["search", query, "--json", "-n", str(max_results), "-i", str(index_file)]
             stdout, err = run_mdctx_cli(cmd)
             if err:
@@ -422,7 +450,7 @@ def search_mdctx(
             if not isinstance(data, list):
                 continue
 
-            store_results = project_results if index_file == project_index else global_results
+            store_results = global_results if is_global else project_results
             for r in data:
                 rel = r.get("path", "")
                 if not rel:
@@ -440,7 +468,7 @@ def search_mdctx(
     # that plainly contain the term. When the keyword index yields nothing, fall
     # back to a bounded full-text substring scan of the vault roots.
     if not project_results and not global_results:
-        return _literal_fallback(queries, pairs, max_results), None
+        return _literal_fallback(queries, [(r, i) for r, i, _ in pairs], max_results), None
 
     merged = (project_results + global_results)[:max_results]
     return merged, None
@@ -649,6 +677,64 @@ def resolve_collection(project_root: Path) -> str:
     return project_name or project_root.name
 
 
+def _import_shared(name: str):
+    """Import a module from <DEVBOT_ROOT>/src/_shared (fail-open None).
+
+    The path-to-project resolver lives there so bash and Python share one
+    implementation (see src/_shared/resolve_project.py).
+    """
+    shared = DEVBOT_ROOT / "src" / "_shared"
+    if shared.is_dir() and str(shared) not in sys.path:
+        sys.path.insert(0, str(shared))
+    try:
+        import importlib
+
+        return importlib.import_module(name)
+    except Exception:  # noqa: BLE001 — an old/sandboxed install lacks it
+        return None
+
+
+def resolve_supervisor(project_root: Path) -> bool:
+    """Whether the project is a supervisor (project-first, global-fallback)."""
+    value = _read_jsonc_scalar(project_root / ".devbot.project.jsonc", "supervisor")
+    if not value:
+        value = _read_jsonc_scalar(DEVBOT_ROOT / ".devbot.global.jsonc", "supervisor")
+    return value == "true"
+
+
+def resolve_registered_project(path: Path) -> Path | None:
+    """The registered project (global `projects`) containing `path`, or None."""
+    resolver = _import_shared("resolve_project")
+    if resolver is None:
+        return None
+    projects = resolver.load_projects(str(DEVBOT_ROOT / ".devbot.global.jsonc"))
+    match = resolver.resolve_project(str(path), projects)
+    return Path(match) if match else None
+
+
+def supervisor_read_projects(project_root: Path, focus_paths: list[str]) -> list[Path]:
+    """Project read set for a supervisor session.
+
+    Focus projects (resolved from the touched paths) first, then the supervisor
+    itself. Untouched siblings are never included. The global store is added by
+    the engine, not here.
+    """
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for focus in focus_paths or []:
+        project = resolve_registered_project(Path(focus))
+        if project is None:
+            continue
+        key = str(project)
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(project)
+    if str(project_root) not in seen:
+        roots.append(project_root)
+    return roots
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="search-memories: search memory vault and return full file bodies"
@@ -663,6 +749,16 @@ def main() -> None:
         "--collection",
         default="",
         help="qmd collection name (qmd engine only; mdctx resolves roots on disk)",
+    )
+    parser.add_argument(
+        "--focus",
+        action="append",
+        default=[],
+        help=(
+            "Path the session is touching (file or dir; repeatable). In a "
+            "supervisor session it selects the project(s) whose vault is searched "
+            "alongside the supervisor and the global store; ignored otherwise."
+        ),
     )
     parser.add_argument(
         "--max-results",
@@ -681,18 +777,29 @@ def main() -> None:
     project_root = Path(os.getcwd())
     provider = resolve_provider()
 
+    # A supervisor session scopes memory to the projects the session touches
+    # (from --focus) plus itself; a normal project keeps its single vault.
+    if resolve_supervisor(project_root):
+        read_projects = supervisor_read_projects(project_root, args.focus)
+    else:
+        read_projects = [project_root]
+
     # Branch awareness: never query an index built for a different checkout.
     # The canonical engine script no-ops when the recorded {branch, provider,
     # tree_sha} matches and rebuilds synchronously when it does not. Fail-open
-    # (a failed refresh only warns — the search proceeds).
-    ensure_index_current(project_root, provider)
+    # (a failed refresh only warns — the search proceeds). Run per project in
+    # the read set so a sibling's index is current before it is queried.
+    for read_project in read_projects:
+        ensure_index_current(read_project, provider)
 
     # Engine dispatch: qmd and mdctx are interchangeable behind this CLI,
     # selected by memory_search_provider. Each engine's search covers the
     # project vault AND the shared global store ("as it currently works" for
     # qmd's project collection + dev-bot-global).
     if provider == "mdctx":
-        results, err = search_mdctx(args.query, project_root, args.max_results)
+        results, err = search_mdctx(
+            args.query, project_root, args.max_results, projects=read_projects
+        )
         body_fetch = fetch_mdctx_body
     else:
         collection = args.collection or resolve_collection(project_root)
