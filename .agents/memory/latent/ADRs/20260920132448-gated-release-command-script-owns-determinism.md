@@ -2,9 +2,12 @@
 date: 2026-09-20
 keywords: ["release", "git", "slash-command", "git-changelog"]
 see: ["ADRs/20260920135609-release-merges-squash-fixups-before-tagging.md"]
+superseded_by: ["ADRs/20261008184458-split-release-into-tag-and-gh-release.md"]
 ---
 
 ## `devbot:release`: a command that gates, a script that determines
+
+> **Superseded by** ADRs/20261008184458-split-release-into-tag-and-gh-release.md (2026-10-08).
 
 Cutting a release is a `devbot:release` slash command plus a plain bash helper (`src/agentic/git/tools/release.sh`, subcommands `version` / `plan` / `merge` / `tag` / `push` / `release`). The helper owns everything deterministic; the command only gathers input, gates, and calls subcommands. The helper is deliberately **not** a `*.mcp.sh` — `_link_tools` farms only those, and a mutating release tool must not become globally callable by every agent.
 
