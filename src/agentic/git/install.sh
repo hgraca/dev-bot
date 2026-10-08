@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Install git-report dependencies — ensures python3 and git are available.
 # git-report is a Python script with no third-party dependencies (stdlib only).
-# The release tool (release.sh) needs git only; the GitHub CLI (`gh`) is
-# optional — without it the release step degrades to a warning, never a failure.
+# The release tools (tag.sh, release.sh) need git only; the GitHub CLI (`gh`)
+# is optional — without it the release step degrades to a warning, never a
+# failure.
 # Idempotent — verifies python3 and git exist.
 #
 # GATE: This module must work on Ubuntu, Fedora, and macOS.
