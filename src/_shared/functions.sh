@@ -192,6 +192,36 @@ _devbot_get_project_dir() {
   echo "${devbot_dir:-.agents}"
 }
 
+# ── Supervisor / cross-project resolution ──────────────────────────────────────
+#
+# _devbot_is_supervisor [project_dir]
+#   Returns 0 when the project's effective `supervisor` config is true
+#   (project-first, global-fallback), 1 otherwise.
+#
+# _devbot_resolve_project_for_path <path> [default_dir]
+#   Prints the registered devbot project (from the global config's `projects`
+#   array) that contains <path> — the longest registered path that is a
+#   path-component prefix of it. When none contains it, prints <default_dir>
+#   (resolved) when given, else nothing. Fails open (prints the default, or
+#   nothing) on any error, so callers never break on an unreadable config.
+_devbot_is_supervisor() {
+  local project_dir="${1:-$(pwd)}"
+  [[ "$(_devbot_get_config "supervisor" "${project_dir}")" == "true" ]]
+}
+
+_devbot_resolve_project_for_path() {
+  local target="${1:?Usage: _devbot_resolve_project_for_path <path> [default_dir]}"
+  local default_dir="${2:-}"
+  local helper="${DEV_BOT_ROOT}/src/_shared/resolve_project.py"
+  if [[ ! -f "${helper}" ]]; then
+    [[ -n "${default_dir}" ]] && (cd "${default_dir}" && pwd -P)
+    return 0
+  fi
+  local args=("${helper}" "${target}" "--config" "$(_devbot_global_config)")
+  [[ -n "${default_dir}" ]] && args+=("--default" "${default_dir}")
+  python3 "${args[@]}" 2>/dev/null || { [[ -n "${default_dir}" ]] && (cd "${default_dir}" && pwd -P); }
+}
+
 # ── Cross-process bounded lock ─────────────────────────────────────────────────
 #
 # _devbot_lock_wait <lockfile|dir> [cap_seconds] [warning_message]

@@ -155,6 +155,26 @@ Used by the `worktree` tool (`enabled` / `create`) and the `git-worktrees` skill
 
 ---
 
+### `supervisor`
+
+```jsonc
+{ "supervisor": false }
+```
+
+**Type:** `boolean`
+**Default:** `false`
+**Required:** no
+
+Marks the project as a **supervisor**: a session launched here orchestrates work across the managed projects registered in the global config's `projects` array, and its **memory scope is resolved from the files the session touches**. Working on a file under project `A`, a search covers `A`'s vault + the shared global store + this supervisor's own vault; a memory about `A` is stored in `A`, cross-project knowledge in the supervisor, and tech-generic knowledge in the global store (see `devbot:memory-management`).
+
+A supervisor lives anywhere — physical nesting of the managed projects is irrelevant; the global `projects` registry is the source of truth. Sessions launched _inside_ a managed project are unaffected: they keep searching their own vault + the global store, never the supervisor's.
+
+`supervisor` resolves project-first, then global, then `false`, like other scalars.
+
+Used by `search-memories`, the memory reindex engine, and the memory skills.
+
+---
+
 ### `modules`
 
 ```jsonc
@@ -552,6 +572,9 @@ agent first calls it.
 
   // Isolate each task's commits in a worktree (false = commit in the main checkout)
   "worktrees": true,
+
+  // Orchestrate memory across the global `projects` registry (default: false)
+  "supervisor": false,
 
   // Data sources this project may use, by name (see `datasources` above)
   "datasources": ["hotels-dev"],
