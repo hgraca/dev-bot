@@ -24,8 +24,8 @@ Installation symlinks **each file** into a single `devbot/` category, named afte
 ```
 
 The per-file layout (rather than one symlink per module) is what makes both harnesses expose the same
-name: opencode reads the frontmatter `name:` (`devbot:release`), while claudecode derives `<dir>:<file>`
-from the path — a module-level symlink would render `devbot:devbot-release`.
+name: opencode reads the frontmatter `name:` (`devbot:gh-release`), while claudecode derives `<dir>:<file>`
+from the path — a module-level symlink would render `devbot:devbot-gh-release`.
 
 ## Commands
 
