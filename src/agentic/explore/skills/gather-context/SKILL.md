@@ -27,6 +27,27 @@ The orchestrator's delegation prompt contains two distinct sections:
 
 If neither section was provided, ask for both before proceeding.
 
+### 1a. Supervisor sessions — one scout per touched project
+
+When the session runs in a `supervisor` project (`.devbot.project.jsonc` has
+`supervisor: true`), the primary agent predicts which managed projects the
+request will touch and dispatches **one @scout assignment per predicted
+project, in parallel**. Scout never delegates, so the fan-out is the primary
+agent's job — this skill describes what each per-project scout does.
+
+A scout scoped to a project passes that project as the memory focus, so its
+search covers the project + the supervisor + the global store:
+
+```bash
+search-memories --query "<keyword>" --focus "<a path inside the project>"
+```
+
+Before the scout touches the child, resolve the child's own `commit_memory` and
+`worktrees` from its `.devbot.project.jsonc` (project-first, global-fallback)
+and state them in the report, so downstream writes commit in the right place
+and under the right worktree policy. Every report still lands in the
+**supervisor's** `memory/thinking/`.
+
 ### 2. Gather memories
 
 Use the `search-memories` tool to query memories using the identified keywords.
