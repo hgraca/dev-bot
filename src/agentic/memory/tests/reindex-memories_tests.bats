@@ -415,3 +415,41 @@ SCRIPT
   assert_failure
   assert_output --partial "mdctx binary not found"
 }
+
+@test "passive script: --path resolves the owning project over --worktree" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local child="$WORK/child" sup="$WORK/sup"
+  mkdir -p "$child/.agents/memory/latent" "$child/.mdctx" "$sup/.agents/logs"
+  cat > "$WORK/global.jsonc" <<EOF
+{ "projects": ["$child"], "devbot_dir": ".agents" }
+EOF
+
+  cd "$WORK"
+  run env -u DEV_BOT_ROOT \
+    DEV_BOT_GLOBAL_CONFIG="$WORK/global.jsonc" \
+    XDG_CACHE_HOME="$WORK" \
+    PATH="$STUB_DIR:$PATH" \
+    bash "$pass" --sync --worktree "$sup" --path "$child/.agents/memory/latent/x.md"
+
+  assert_success
+  # The index target is the child, not the supervisor passed via --worktree.
+  [ -f "$child/.agents/logs/memory-index-branch.json" ]
+  [ ! -f "$sup/.agents/logs/memory-index-branch.json" ]
+}
+
+@test "passive script: --path outside any registered project falls back to --worktree" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local sup="$WORK/sup" outside="$WORK/outside"
+  mkdir -p "$sup/.agents/memory/latent" "$outside"
+  printf '{ "projects": [], "devbot_dir": ".agents" }\n' > "$WORK/global.jsonc"
+
+  cd "$WORK"
+  run env -u DEV_BOT_ROOT \
+    DEV_BOT_GLOBAL_CONFIG="$WORK/global.jsonc" \
+    XDG_CACHE_HOME="$WORK" \
+    PATH="$STUB_DIR:$PATH" \
+    bash "$pass" --sync --worktree "$sup" --path "$outside/x.md"
+
+  assert_success
+  [ -f "$sup/.agents/logs/memory-index-branch.json" ]
+}

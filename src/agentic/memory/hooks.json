@@ -12,7 +12,9 @@
         "--file",
         "{file}",
         "--worktree",
-        "{worktree}"
+        "{worktree}",
+        "--path",
+        "{file}"
       ],
       "log": ".agents/logs/memory-index.log"
     }

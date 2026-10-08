@@ -31,6 +31,8 @@
 #   status           report running/idle from the pidfile; never builds
 #   --file <path>    triggering file, for the log line only
 #   --worktree <dir> project root (default: $PWD)
+#   --path <file>    resolve the owning registered project from a touched file;
+#                    overrides --worktree when the file is inside one
 # =============================================================================
 
 set -uo pipefail
@@ -51,6 +53,7 @@ source "${SCRIPT_DIR}/../functions.sh"
 
 FILE=""
 WORKTREE=""
+PATH_ARG=""
 MODE="full"
 
 while [[ $# -gt 0 ]]; do
@@ -64,6 +67,12 @@ while [[ $# -gt 0 ]]; do
     --worktree)
       WORKTREE="${2:-}"
       if (( $# >= 2 )); then shift 2; else shift; fi ;;
+    # --path <file>: resolve the owning registered project from a touched file
+    # (a supervisor session editing a child's note must reindex that child, not
+    # the supervisor). Falls back to --worktree/$PWD when unresolved.
+    --path)
+      PATH_ARG="${2:-}"
+      if (( $# >= 2 )); then shift 2; else shift; fi ;;
     --sync) MODE="sync"; shift ;;
     --ensure) MODE="ensure"; shift ;;
     prune) MODE="prune"; shift ;;
@@ -71,6 +80,10 @@ while [[ $# -gt 0 ]]; do
     *) shift ;;
   esac
 done
+
+if [[ -n "${PATH_ARG}" ]]; then
+  WORKTREE="$(_devbot_resolve_project_for_path "${PATH_ARG}" "${WORKTREE:-$(pwd)}")"
+fi
 
 if ! WORKTREE="$(cd "${WORKTREE:-$(pwd)}" 2>/dev/null && pwd -P)"; then
   WORKTREE="$(pwd -P)"
