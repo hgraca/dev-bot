@@ -41,6 +41,7 @@ setup() {
   printf '# Child A\n\nThe alphaspecial marker.\n' >"$CHILD/.agents/memory/latent/a.md"
   printf '# Child B\n\nThe betaspecial marker.\n' >"$OTHER/.agents/memory/latent/b.md"
   printf '# Supervisor\n\nThe sierraspecial marker.\n' >"$SUP/.agents/memory/latent/s.md"
+  printf '# Global\n\nThe globalspecial marker.\n' >"$DEVROOT/storage/global-memories/g.md"
 
   mdctx build "$SUP/.agents/memory/latent" -o "$SUP/.mdctx/context-index.json" >/dev/null 2>&1
   mdctx build "$CHILD/.agents/memory/latent" -o "$CHILD/.mdctx/context-index.json" >/dev/null 2>&1
@@ -66,24 +67,27 @@ _run_search() {
 }
 
 @test "supervisor + focus returns the touched child, the supervisor and global" {
-  _run_search "$SUP" --query alphaspecial --query sierraspecial --focus "$CHILD/.agents/memory/latent/a.md"
+  _run_search "$SUP" --query alphaspecial --query sierraspecial --query globalspecial --focus "$CHILD/.agents/memory/latent/a.md"
   assert_success
   assert_output --partial "alphaspecial"
   assert_output --partial "sierraspecial"
+  assert_output --partial "globalspecial"
   refute_output --partial "betaspecial"
 }
 
 @test "supervisor with no focus returns only the supervisor and global" {
-  _run_search "$SUP" --query alphaspecial --query betaspecial --query sierraspecial
+  _run_search "$SUP" --query alphaspecial --query betaspecial --query sierraspecial --query globalspecial
   assert_success
   assert_output --partial "sierraspecial"
+  assert_output --partial "globalspecial"
   refute_output --partial "alphaspecial"
   refute_output --partial "betaspecial"
 }
 
 @test "a session inside a child returns the child and global, never the supervisor" {
-  _run_search "$CHILD" --query alphaspecial --query sierraspecial
+  _run_search "$CHILD" --query alphaspecial --query sierraspecial --query globalspecial
   assert_success
   assert_output --partial "alphaspecial"
+  assert_output --partial "globalspecial"
   refute_output --partial "sierraspecial"
 }
