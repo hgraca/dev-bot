@@ -297,7 +297,7 @@ For each file in `thinking/`:
 ## 8. Wrap-Up (on "wrap up" / "wrapping up")
 
 1. Promote session learnings to appropriate `latent/global/<tech>/` or `latent/learnings/` folder (new file per item)
-2. Reconcile the work folders via `devbot:reconcile-work` (canonical procedure: started-unfinished → `work/active/`, finished → `work/archive/YYYY/MM/`); archive any abandoned or stale `work/active/` note the same way
+2. Reconcile the work folders via `devbot:reconcile-work` (its table is canonical; it covers only the items a session touched)
 3. Tell user what was promoted and saved
 
 ## 9. Memory Tiers (reference)
