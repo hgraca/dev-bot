@@ -325,17 +325,34 @@ def search_qmd_scoped(
     """
     merged: list[dict] = []
     seen: set[str] = set()
-    for collection in collections:
-        results, err = search_qmd(queries, collection, max_results)
-        if err:
-            if "Collection not found" in err:
-                continue
-            return None, err
+    any_success = False
+
+    def _extend(results: list[dict] | None) -> None:
         for r in results or []:
             file_uri = r.get("file", "")
             if file_uri and file_uri not in seen:
                 seen.add(file_uri)
                 merged.append(r)
+
+    for collection in collections:
+        results, err = search_qmd(queries, collection, max_results)
+        if err:
+            if "Collection not found" in err:
+                print(f"NOTICE: {err} — skipping collection {collection!r}", file=sys.stderr)
+                continue
+            return None, err
+        any_success = True
+        _extend(results)
+
+    # Each per-collection call bundles `-c dev-bot-global`, but a missing
+    # project collection fails that combined call — so when no collection
+    # succeeded, search the shared global store on its own.
+    if not any_success:
+        results, err = search_qmd(queries, "", max_results)
+        if err and "Collection not found" not in err:
+            return None, err
+        _extend(results)
+
     merged.sort(key=lambda r: r.get("score", 0), reverse=True)
     return merged[:max_results], None
 

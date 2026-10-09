@@ -1210,10 +1210,22 @@ class TestSearchQmdScoped(unittest.TestCase):
         self.assertIsNone(results)
         self.assertIn("qmd crashed", err)
 
-    def test_no_collections_returns_empty(self):
-        results, err = _search_memories.search_qmd_scoped(["q"], [], 10)
+    def test_no_collections_still_searches_the_global_store(self):
+        with patch.object(_search_memories, "run_qmd_cli", return_value=("[]", None)):
+            results, err = _search_memories.search_qmd_scoped(["q"], [], 10)
         self.assertEqual(results, [])
         self.assertIsNone(err)
+
+    def test_all_collections_missing_falls_back_to_global(self):
+        with patch.object(_search_memories, "run_qmd_cli") as mock_run:
+            mock_run.side_effect = [
+                (None, "Collection not found: gone1"),
+                (None, "Collection not found: gone2"),
+                (self._out([("g.md", 0.5)]), None),
+            ]
+            results, err = _search_memories.search_qmd_scoped(["q"], ["gone1", "gone2"], 10)
+        self.assertIsNone(err)
+        self.assertEqual([r["file"] for r in results], ["g.md"])
 
 
 class TestSearchMdctxScoped(_SandboxTest):
