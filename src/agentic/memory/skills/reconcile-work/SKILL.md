@@ -1,6 +1,6 @@
 ---
 name: devbot:reconcile-work
-description: "Use when wrapping up to reconcile the work folders a session touched — started-but-unfinished work moves to work/active/, finished work to work/archive/YYYY/MM/. Runs as the primary finish flow's third step, after devbot:grade-tools."
+description: "Use when wrapping up to reconcile the work folders a session touched — the finish flow's third step, after devbot:grade-tools."
 ---
 
 # Reconcile Work
@@ -34,10 +34,11 @@ A **work-item root** is a top-level folder directly under `work/<state>/` (`YYYY
 4. **Move each item** with `mkdir -p <dest>` then `mv <src> <dest>`, preserving the folder name:
    - unfinished → `work/active/`
    - finished → `work/archive/YYYY/MM/`, using the **completion** year and month (`date +%Y/%m`).
-5. **Stop.** On the finish flow emit no narrative — the flow is silent, exactly like `devbot:remember-session` and `devbot:grade-tools` (the sole exception is a question when an item's state is genuinely ambiguous).
+5. **Stop** once every touched item sits in its correct state.
 
 ## MUST
 
+- **Stay silent on the finish flow** — emit no narrative, exactly like `devbot:remember-session` and `devbot:grade-tools`; the only exception is a question when an item's state is genuinely ambiguous.
 - Reconcile only work items this session touched; leave all others alone.
 - Move the work-item **root**; never split a folder's files across states.
 - Use plain `mkdir -p` + `mv` — `work/` is gitignored local scratch, never `git add` or commit it.
