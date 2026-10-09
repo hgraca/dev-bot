@@ -34,7 +34,7 @@ Canonical reference for all `.agents/memory/` vault operations. Other memory ski
   thinking/                  <- scratchpad for drafts (promote or delete)
 ```
 
-**Work-item lifecycle** — a work folder is born in `work/todo/` (created by `devbot:make-plan`), promoted to `work/active/` when implementation starts (`devbot:implement-story`), and moved to `work/archive/YYYY/MM/<work-folder>/` when finished. Trivial work, which has no planning phase, is created directly in `work/active/`.
+**Work-item lifecycle** — a work folder is born in `work/todo/` (created by `devbot:make-plan`), promoted to `work/active/` when implementation starts (`devbot:implement-story`), and moved to `work/archive/YYYY/MM/<work-folder>/` when finished. Trivial work, which has no planning phase, is created directly in `work/active/`. The finish flow's `devbot:reconcile-work` reconciles these states for the items a session touched.
 
 ### Commit status (tracked vs local)
 
@@ -297,7 +297,7 @@ For each file in `thinking/`:
 ## 8. Wrap-Up (on "wrap up" / "wrapping up")
 
 1. Promote session learnings to appropriate `latent/global/<tech>/` or `latent/learnings/` folder (new file per item)
-2. Archive abandoned or stale `work/active/` notes -> `work/archive/YYYY/MM/` (finished work is archived by `devbot:implement-story` on completion)
+2. Reconcile the work folders via `devbot:reconcile-work` (canonical procedure: started-unfinished → `work/active/`, finished → `work/archive/YYYY/MM/`); archive any abandoned or stale `work/active/` note the same way
 3. Tell user what was promoted and saved
 
 ## 9. Memory Tiers (reference)

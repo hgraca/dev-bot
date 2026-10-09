@@ -96,7 +96,7 @@ Memory files under `.agents/memory/` are tracked **only when the effective `comm
 
 - **Fixup commits only** — attach each new/changed memory file to the commit where the captured insight happened, using `git commit --fixup=<orig-hash>` (see `devbot:git-fixup-commits`). One fixup per distinct originating commit.
 - **Never push** — commits only; the human decides when to push.
-- **Keep the memory capture as the final memory action** — make these commits the last writes to the memory vault and write no further memory files afterward, so the memory capture stays a one-shot operation. The finish flow then runs `devbot:grade-tools` (tool quality), which writes no memory files.
+- **Keep the memory capture as the final memory action** — make these commits the last writes to the memory vault and write no further memory files afterward, so the memory capture stays a one-shot operation. The finish flow then runs `devbot:grade-tools` (tool quality) and `devbot:reconcile-work` (work-folder housekeeping) — neither writes memory notes.
 
 **Supervisor sessions** — route each memory file to its **owning project's**
 repo and honour _that project's_ `commit_memory` and `worktrees` settings,
