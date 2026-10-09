@@ -194,21 +194,12 @@ _devbot_get_project_dir() {
 
 # ── Supervisor / cross-project resolution ──────────────────────────────────────
 #
-# _devbot_is_supervisor [project_dir]
-#   Returns 0 when the project's effective `supervisor` config is true
-#   (project-first, global-fallback), 1 otherwise.
-#
 # _devbot_resolve_project_for_path <path> [default_dir]
 #   Prints the registered devbot project (from the global config's `projects`
 #   array) that contains <path> — the longest registered path that is a
 #   path-component prefix of it. When none contains it, prints <default_dir>
 #   (resolved) when given, else nothing. Fails open (prints the default, or
 #   nothing) on any error, so callers never break on an unreadable config.
-_devbot_is_supervisor() {
-  local project_dir="${1:-$(pwd)}"
-  [[ "$(_devbot_get_config "supervisor" "${project_dir}")" == "true" ]]
-}
-
 _devbot_resolve_project_for_path() {
   local target="${1:?Usage: _devbot_resolve_project_for_path <path> [default_dir]}"
   local default_dir="${2:-}"

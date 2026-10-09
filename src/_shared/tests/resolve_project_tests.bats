@@ -3,8 +3,7 @@
 # src/_shared/tests/resolve_project_tests.bats
 # _devbot_resolve_project_for_path maps a path to the registered devbot project
 # that contains it (longest path-component prefix in the global config's
-# `projects` array). _devbot_is_supervisor reports the effective `supervisor`
-# flag. Both back the supervisor memory-scoping feature.
+# `projects` array). Backs supervisor memory-scoping and per-child config reads.
 # =============================================================================
 
 setup() {
@@ -68,24 +67,6 @@ teardown() {
     "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_resolve_project_for_path '$A' '$A'"
   assert_success
   assert_output "$A"
-}
-
-@test "_devbot_is_supervisor reads the project flag" {
-  mkdir -p "$BASE/sup"
-  printf '{ "supervisor": true }\n' >"$BASE/sup/.devbot.project.jsonc"
-  run env -u DEV_BOT_ROOT DEV_BOT_GLOBAL_CONFIG="$BASE/missing.jsonc" bash -c \
-    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_is_supervisor '$BASE/sup' && echo yes"
-  assert_success
-  assert_output "yes"
-}
-
-@test "_devbot_is_supervisor is false by default" {
-  mkdir -p "$BASE/normal"
-  printf '{ "project_name": "normal" }\n' >"$BASE/normal/.devbot.project.jsonc"
-  run env -u DEV_BOT_ROOT DEV_BOT_GLOBAL_CONFIG="$BASE/missing.jsonc" bash -c \
-    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_is_supervisor '$BASE/normal' && echo yes || echo no"
-  assert_success
-  assert_output "no"
 }
 
 @test "a child's own commit_memory/worktrees win over the supervisor's" {
