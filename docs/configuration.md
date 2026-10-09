@@ -171,7 +171,7 @@ A supervisor lives anywhere — physical nesting of the managed projects is irre
 
 `supervisor` resolves project-first, then global, then `false`, like other scalars.
 
-Used by `search-memories`, the memory reindex engine, and the memory skills.
+Used by `search-memories` and the memory skills; the reindex engine targets the owning project via its `--path` resolution.
 
 ---
 
