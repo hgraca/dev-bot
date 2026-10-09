@@ -453,3 +453,24 @@ EOF
   assert_success
   [ -f "$sup/.agents/logs/memory-index-branch.json" ]
 }
+
+@test "passive script: --path inside the worktree's own project keeps the worktree" {
+  # Regression (review F1): a linked worktree at <project>/.agents/worktrees/<slug>
+  # resolves to the main registered project, but the reindex must still target
+  # the worktree checkout — its vault holds the uncommitted edits.
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/proj" wt="$WORK/proj/.agents/worktrees/feat-x"
+  mkdir -p "$wt/.agents/memory/latent" "$proj/.agents/logs"
+  printf '{ "projects": ["%s"], "devbot_dir": ".agents" }\n' "$proj" > "$WORK/global.jsonc"
+
+  cd "$WORK"
+  run env -u DEV_BOT_ROOT \
+    DEV_BOT_GLOBAL_CONFIG="$WORK/global.jsonc" \
+    XDG_CACHE_HOME="$WORK" \
+    PATH="$STUB_DIR:$PATH" \
+    bash "$pass" --sync --worktree "$wt" --path "$wt/.agents/memory/latent/x.md"
+
+  assert_success
+  [ -f "$wt/.agents/logs/memory-index-branch.json" ]
+  [ ! -f "$proj/.agents/logs/memory-index-branch.json" ]
+}

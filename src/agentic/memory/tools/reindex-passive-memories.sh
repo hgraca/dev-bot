@@ -81,12 +81,22 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -n "${PATH_ARG}" ]]; then
-  WORKTREE="$(_devbot_resolve_project_for_path "${PATH_ARG}" "${WORKTREE:-$(pwd)}")"
-fi
-
 if ! WORKTREE="$(cd "${WORKTREE:-$(pwd)}" 2>/dev/null && pwd -P)"; then
   WORKTREE="$(pwd -P)"
+fi
+
+# --path <file> retargets the reindex to the owning project of a touched file
+# (a supervisor editing a child's note). But when the file's owning project is
+# the session worktree itself or an ancestor of it, the worktree is the right
+# checkout — a linked worktree at <project>/<devbot_dir>/worktrees/<slug> has
+# its own vault and index, so reindex that, never the main checkout.
+if [[ -n "${PATH_ARG}" ]]; then
+  RESOLVED="$(_devbot_resolve_project_for_path "${PATH_ARG}" "${WORKTREE}")"
+  RESOLVED="$(cd "${RESOLVED}" 2>/dev/null && pwd -P || printf '%s' "${RESOLVED}")"
+  case "${WORKTREE}" in
+    "${RESOLVED}" | "${RESOLVED}"/*) ;;
+    *) WORKTREE="${RESOLVED}" ;;
+  esac
 fi
 
 # ── Engine dispatch ──────────────────────────────────────────────────────────
