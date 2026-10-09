@@ -615,6 +615,19 @@ class TestSearchMdctx(unittest.TestCase):
     def _hit(rel, score, title=""):
         return {"path": rel, "score": score, "title": title, "matchedKeywords": []}
 
+    def test_projects_none_matches_single_project_read_set(self):
+        # D9: omitting `projects` (non-supervisor) is byte-identical to the
+        # explicit single-project read set the old code used.
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
+            with patch.object(_search_memories, "run_mdctx_cli", return_value=("[]", None)) as m_none:
+                _search_memories.search_mdctx(["q"], self.root, 5)
+            with patch.object(_search_memories, "run_mdctx_cli", return_value=("[]", None)) as m_list:
+                _search_memories.search_mdctx(["q"], self.root, 5, projects=[self.root])
+        self.assertEqual(
+            [c.args[0] for c in m_none.call_args_list],
+            [c.args[0] for c in m_list.call_args_list],
+        )
+
     def test_merges_and_deduplicates_project_and_global_results(self):
         with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
             with patch.object(_search_memories, "run_mdctx_cli") as mock_run:
@@ -1287,6 +1300,32 @@ class TestMainSupervisorScope(_SandboxTest):
              patch.object(sys, "argv", ["search-memories", "--query", "q"]):
             _search_memories.main()
         self.assertEqual(seen["collections"], ["a-name", "sup-name"])
+
+
+class TestNonSupervisorUnchanged(unittest.TestCase):
+    """D9: a non-supervisor session is inert — `--focus` changes nothing."""
+
+    def test_main_ignores_focus_and_scopes_to_the_project(self):
+        ensured = []
+        seen = {}
+        cwd = str(Path(os.getcwd()))
+
+        def fake_ensure(root, provider):
+            ensured.append(str(root))
+            return True, ""
+
+        def fake_search(queries, project_root, max_results, projects=None):
+            seen["projects"] = [str(p) for p in (projects or [])]
+            return [], None
+
+        with patch.object(_search_memories, "resolve_provider", return_value="mdctx"), \
+             patch.object(_search_memories, "resolve_supervisor", return_value=False), \
+             patch.object(_search_memories, "ensure_index_current", side_effect=fake_ensure), \
+             patch.object(_search_memories, "search_mdctx", side_effect=fake_search), \
+             patch.object(sys, "argv", ["search-memories", "--query", "q", "--focus", "/somewhere/x.md"]):
+            _search_memories.main()
+        self.assertEqual(ensured, [cwd])
+        self.assertEqual(seen["projects"], [cwd])
 
 
 if __name__ == "__main__":
