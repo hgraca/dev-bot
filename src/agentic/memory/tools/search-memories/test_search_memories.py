@@ -1168,6 +1168,8 @@ class TestScopedMdctxPairs(_SandboxTest):
             pairs = _search_memories._scoped_mdctx_pairs([a, sup])
         self.assertEqual(len(pairs), 3)
         self.assertEqual([p[2] for p in pairs], [False, False, True])
+        # group = read-set position; the global pair is group -1
+        self.assertEqual([p[3] for p in pairs], [0, 1, -1])
         self.assertEqual(str(pairs[0][0]), str(a / ".agents" / "memory" / "latent"))
 
     def test_skips_projects_without_an_index(self):

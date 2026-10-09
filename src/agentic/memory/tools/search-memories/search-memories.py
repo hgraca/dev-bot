@@ -382,15 +382,17 @@ def resolve_mdctx_indexes(
     return [project_pair, global_pair]
 
 
-def _scoped_mdctx_pairs(project_roots: list[Path]) -> list[tuple[Path, Path, bool]]:
-    """(docs_root, index_file, is_global) pairs for a read set + the global store.
+def _scoped_mdctx_pairs(project_roots: list[Path]) -> list[tuple[Path, Path, bool, int]]:
+    """(docs_root, index_file, is_global, group) pairs for a read set + global store.
 
-    Projects whose mdctx index has not been built yet are skipped; the global
-    pair is appended last so project hits always outrank it.
+    `group` is the project's position in the read set (focus projects first,
+    then the supervisor), so callers rank hits project-by-project instead of
+    comparing corpus-relative BM25 scores across vaults. Projects whose mdctx
+    index has not been built yet are skipped; the global pair is appended last.
     """
-    pairs: list[tuple[Path, Path, bool]] = []
+    pairs: list[tuple[Path, Path, bool, int]] = []
     seen: set[str] = set()
-    for root in project_roots:
+    for group, root in enumerate(project_roots):
         root = Path(root)
         key = str(root)
         if key in seen:
@@ -400,10 +402,10 @@ def _scoped_mdctx_pairs(project_roots: list[Path]) -> list[tuple[Path, Path, boo
         if not index.is_file():
             continue
         devbot_dir = resolve_devbot_dir(root)
-        pairs.append((root / devbot_dir / "memory" / "latent", index, False))
+        pairs.append((root / devbot_dir / "memory" / "latent", index, False, group))
     global_index = DEVBOT_ROOT / "storage" / ".mdctx" / "context-index.json"
     if global_index.is_file():
-        pairs.append((DEVBOT_ROOT / "storage" / "global-memories", global_index, True))
+        pairs.append((DEVBOT_ROOT / "storage" / "global-memories", global_index, True, -1))
     return pairs
 
 
@@ -437,7 +439,7 @@ def search_mdctx(
             ".mdctx/context-index.json files are built first"
         )
 
-    project_results: list[dict] = []
+    project_buckets: dict[int, list[dict]] = {}
     global_results: list[dict] = []
     seen_files: set[str] = set()
 
@@ -462,7 +464,7 @@ def search_mdctx(
         )
 
     for query in queries:
-        for root, index_file, is_global in pairs:
+        for root, index_file, is_global, group in pairs:
             cmd = ["search", query, "--json", "-n", str(max_results), "-i", str(index_file)]
             stdout, err = run_mdctx_cli(cmd)
             if err:
@@ -477,16 +479,23 @@ def search_mdctx(
             if not isinstance(data, list):
                 continue
 
-            store_results = global_results if is_global else project_results
+            store_results = (
+                global_results if is_global else project_buckets.setdefault(group, [])
+            )
             for r in data:
                 rel = r.get("path", "")
                 if not rel:
                     continue
                 _append(store_results, root, rel, r.get("score", 0), r.get("title", ""))
 
-    # Project vault first (own-score order), then the global store fills the
-    # remaining slots — never interleave raw scores across the two scales.
-    project_results.sort(key=lambda r: r.get("score", 0), reverse=True)
+    # Rank project-by-project in read-set order (focus projects, then the
+    # supervisor), each internally by score, then the global store — never
+    # compare corpus-relative BM25 scores across vaults (audit-53).
+    ordered: list[dict] = []
+    for group in range(len(read_projects)):
+        bucket = project_buckets.get(group, [])
+        bucket.sort(key=lambda r: r.get("score", 0), reverse=True)
+        ordered.extend(bucket)
     global_results.sort(key=lambda r: r.get("score", 0), reverse=True)
 
     # audit-52/55/56 NOTE: mdctx indexes a capped set of extracted keywords per
@@ -494,10 +503,10 @@ def search_mdctx(
     # stem) is usually NOT among them, so a keyword search silently misses files
     # that plainly contain the term. When the keyword index yields nothing, fall
     # back to a bounded full-text substring scan of the vault roots.
-    if not project_results and not global_results:
-        return _literal_fallback(queries, [(r, i) for r, i, _ in pairs], max_results), None
+    if not ordered and not global_results:
+        return _literal_fallback(queries, [(r, i) for r, i, _, _ in pairs], max_results), None
 
-    merged = (project_results + global_results)[:max_results]
+    merged = (ordered + global_results)[:max_results]
     return merged, None
 
 
