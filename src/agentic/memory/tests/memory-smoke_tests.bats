@@ -337,13 +337,16 @@ SCRIPT
 
 # ── Skill file validation ─────────────────────────────────────────────────────
 
-@test "skill files: exactly 6 SKILL.md files exist" {
-  local count
-  count="$(find "$MODULE_DIR/skills" -name 'SKILL.md' -type f | wc -l)"
-  # Count the number of skill subdirectories containing SKILL.md
-  local dirs
-  dirs="$(find "$MODULE_DIR/skills" -name 'SKILL.md' -type f -exec dirname {} \; | wc -l)"
-  [[ "$dirs" -eq 6 ]] || fail "Expected 6 skill subdirectories with SKILL.md, found $dirs"
+@test "skill files: the on-disk skills match the module manifest" {
+  # The docs.md front-matter `skills:` array is the manifest that drives the
+  # generated module page — assert the on-disk skill directories match it, so
+  # adding or removing a skill needs no hand-edited count here.
+  local declared actual
+  declared="$(sed -n 's/^skills: \[\(.*\)\]$/\1/p' "$MODULE_DIR/docs.md" \
+    | tr ',' '\n' | tr -d ' "' | sed '/^$/d' | sort)"
+  actual="$(find "$MODULE_DIR/skills" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)"
+  [[ -n "$declared" ]] || fail "No skills: manifest found in $MODULE_DIR/docs.md"
+  [[ "$declared" == "$actual" ]] || fail "Manifest skills and on-disk skill dirs differ; declared=[$(echo "$declared" | tr '\n' ' ')] actual=[$(echo "$actual" | tr '\n' ' ')]"
 }
 
 @test "skill files: all SKILL.md files are non-empty" {
