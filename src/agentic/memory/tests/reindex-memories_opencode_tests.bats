@@ -30,6 +30,8 @@ assert hook['match']['file'] == '/memory/latent/.*\\\\.md\$', hook
 assert 'reindex-passive-memories.sh' in hook['run'][1], hook
 assert '--file' in hook['run'], hook
 assert '--worktree' in hook['run'], hook
+assert '--path' in hook['run'], hook
+assert hook['run'][hook['run'].index('--path') + 1] == '{file}', hook
 events = [h['event'] for h in hooks]
 assert 'session.created' not in events, events
 print('MANIFEST:OK')
