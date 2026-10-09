@@ -123,10 +123,10 @@ Where a journey _is_ warranted — to follow a decision, or to debug one — it 
 
 The primary agent (devbot or teamlead) must not emit `[FINISHED]` on its own initiative. When it believes its work with the human is complete, it asks the user whether the work is finished (using a question tool if available):
 
-- **Yes** → run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then end with `[FINISHED]`.
+- **Yes** → run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then the `devbot:reconcile-work` skill, then end with `[FINISHED]`.
 - **No** → the user provides new directions and the agent continues working.
 
-This replaces the automatic post-commit memory capture — `devbot:remember-session` (memory) and `devbot:grade-tools` (tool quality) run once, at the end, only after the user confirms the work is finished. This flow applies only to the human-facing primary agent.
+This replaces the automatic post-commit memory capture — `devbot:remember-session` (memory), `devbot:grade-tools` (tool quality), and `devbot:reconcile-work` (work-folder housekeeping) run once, at the end, only after the user confirms the work is finished. This flow applies only to the human-facing primary agent.
 
 ## Finish Flow (subagent)
 

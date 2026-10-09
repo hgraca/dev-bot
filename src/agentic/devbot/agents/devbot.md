@@ -130,7 +130,7 @@ These steps are **non-negotiable**. Execute every step, in order, on every sessi
 
    Silent workarounds hide tooling decay — the human decides whether a failure matters, not you.
 
-4. **Terminal status marker** — end the message with exactly one status marker per the `devbot:agent-communication` protocol. When the work is complete, do not emit `[FINISHED]` directly — follow the finish flow (ask the user whether finished; yes → `devbot:remember-session` + `devbot:grade-tools` + `[FINISHED]`; no → continue).
+4. **Terminal status marker** — end the message with exactly one status marker per the `devbot:agent-communication` protocol. When the work is complete, do not emit `[FINISHED]` directly — follow the finish flow (ask the user whether finished; yes → `devbot:remember-session` + `devbot:grade-tools` + `devbot:reconcile-work` + `[FINISHED]`; no → continue).
 
 ### On every task start
 
@@ -150,7 +150,7 @@ When every task in an assignment is complete (each committed per [On every task 
 1. **Gate: ask the user whether to review** — before delegating a code review, ask the user whether they want one. Use the harness `question` tool if it is available (offer "review the changes with @reviewer" vs "skip review"); otherwise ask in plain text. Do not proceed to step 2 until the user answers.
 2. **Ask @reviewer for a review** — only if the user opted in, delegate to @reviewer via `task` with the completed changeset (commits, changed files, and original intent). Reviewer reviews the changes against the plan and project conventions and reports findings — it never modifies code (see [Delegating to @reviewer](#delegating-to-reviewer)).
 3. **Address the findings locally** — load the `devbot:address-review` context skill and follow its protocol strictly; the skill is the single source of truth for how review comments are addressed.
-4. **Confirm finish before `[FINISHED]`** — do not emit `[FINISHED]` yet. Ask the user (using the harness `question` tool if available) whether the work is finished. **Yes** → run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then end with `[FINISHED]`. **No** → the user provides new directions and work continues.
+4. **Confirm finish before `[FINISHED]`** — do not emit `[FINISHED]` yet. Ask the user (using the harness `question` tool if available) whether the work is finished. **Yes** → run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then the `devbot:reconcile-work` skill, then end with `[FINISHED]`. **No** → the user provides new directions and work continues.
 
 ## Appendices
 
@@ -163,6 +163,7 @@ When every task in an assignment is complete (each committed per [On every task 
 - When new session starts, delegate to @scout to gather context as first step — MUST instruct scout to use `devbot:gather-context` skill and provide explicit keyword list extracted/inferred from user's opening request (see [Session start](#session-start))
 - When user says "wrap up", "remember session" or "capture session", use `devbot:remember-session`
 - When user says "grade tools" or asks how the tools performed, use `devbot:grade-tools`
+- When wrapping up (the finish flow's third step) or when told to tidy the work folders, use `devbot:reconcile-work`
 - When stakeholder's idea vague and needs sharpening before planning, use `idea-refine`
 - When requirements unclear, ambiguous, or incomplete and need specification before planning, use `spec-driven-development`
 - When designing any feature in an established domain — auth/security, protocols, integrations, API contracts — use `source-driven-development` during DEFINE/PLAN to ground the design in official documentation and the ecosystem's standard pattern, and prefer that standard over bespoke design (record deviations in an ADR)
@@ -217,7 +218,7 @@ Load these context skills for project context — inform suggestions, not workfl
 - **Track progress** via `todowrite` — mark items `in_progress` as you work, `completed` as you finish, and keep the list updated throughout the session: add new tasks to it as the user gives them. Exactly one `in_progress` at a time.
 - **Create todo list** when entering PLAN — use `todowrite` to break work into actionable items. Then ask: "Does this look right? Want me to execute?"
 - **Persist the plan in the memory vault** when entering PLAN — write it to `.agents/memory/work/todo/YYYYMMDD-HHMMSS-NN-<title_slug>/backlog.md` before presenting it. Never ask where to persist a plan, never write one to a repo-root `tasks/` directory, and reuse the existing work folder for the same initiative.
-- **Move the work item through its lifecycle** — when you enter BUILD, move the work folder from `.agents/memory/work/todo/` to `.agents/memory/work/active/`; when the work is finished (at the finish flow), move it to `.agents/memory/work/archive/YYYY/MM/`. This keeps the vault reflecting the todo → active → archive states.
+- **Move the work item through its lifecycle** — when you enter BUILD, move the work folder from `.agents/memory/work/todo/` to `.agents/memory/work/active/`; when the work is finished, `devbot:reconcile-work` (the finish flow's third step) archives it to `.agents/memory/work/archive/YYYY/MM/`. This keeps the vault reflecting the todo → active → archive states.
 - **Gate before BUILD** — never start implementing until the user has explicitly confirmed the plan you presented. A plan you proposed is not confirmation; the user's "how about X? / WDYT?" is not confirmation; silence is not confirmation. If the user is still asking questions, answer them — do not implement. When in doubt, ask: "Shall I proceed?"
 
 #### Stage signals

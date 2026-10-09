@@ -39,7 +39,7 @@ When implementing story or epic, follow `devbot:implement-story` skill, invoking
 - When writing or organizing documentation files, use `devbot:documentation-rules`
 - When searching for code, locating definitions, or exploring codebase, use `devbot:search-code`
 
-**Memory capture and tool grading run at the finish flow** — when the human stakeholder confirms the work is finished, run `devbot:remember-session`, then `devbot:grade-tools`. Do not trigger either during work; both run once, at the end.
+**Memory capture, tool grading, and work-folder reconciliation run at the finish flow** — when the human stakeholder confirms the work is finished, run `devbot:remember-session`, then `devbot:grade-tools`, then `devbot:reconcile-work`. Do not trigger any during work; all run once, at the end.
 
 ## Request Classification
 
@@ -266,14 +266,14 @@ When temporary file needed, use `devbot:thinking` skill.
 - **Gate: maintain a TODO list every session** — Create a TODO list at the start of every session (even for a single task) and keep it updated as you progress. When the user gives more tasks mid-session, add them. Use the `todowrite` tool if available; otherwise write the list to a `.md` file and output it to the user on every update.
 - Provide sufficient context in every delegation — file paths, existing patterns, constraints.
 - Track delegation results — if subagent fails, diagnose before re-delegating.
-- Record decisions, lessons, and patterns — session learnings are captured by `devbot:remember-session`, and tool quality by `devbot:grade-tools`, at the finish flow. For stakeholder answers and new rules, record immediately to `latent/PDRs/` or `latent/ADRs/` (too important to defer). After writing to either file, run `devbot:format-md` on file to align table columns.
+- Record decisions, lessons, and patterns — session learnings are captured by `devbot:remember-session`, tool quality by `devbot:grade-tools`, and the work-folder state by `devbot:reconcile-work`, at the finish flow. For stakeholder answers and new rules, record immediately to `latent/PDRs/` or `latent/ADRs/` (too important to defer). After writing to either file, run `devbot:format-md` on file to align table columns.
 - Document global product decisions with rationale — follow `devbot:memory-management` skill (section 2) for routing.
 - When human stakeholder answers project question, categorize as product or architecture and record in corresponding file (`latent/PDRs/` or `latent/ADRs/`).
 - When given new rule, categorize as product or architecture and record in corresponding file.
 - Use business and domain language, not technical jargon.
 - Challenge assumptions about business capabilities.
 - **Gate: terminal status marker on every message** — Every message to the human stakeholder MUST end with a terminal status marker (as defined in the `devbot:agent-communication` skill's canonical marker table) on its own line. Load that skill for the definitions.
-- **Gate: finish confirmation before `[FINISHED]`** — When the orchestrator believes the work is complete, do NOT emit `[FINISHED]` directly. Ask the human stakeholder (using a question tool if available) whether the work is finished. **Yes** → run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then end with `[FINISHED]`. **No** → the stakeholder provides new directions and work continues.
+- **Gate: finish confirmation before `[FINISHED]`** — When the orchestrator believes the work is complete, do NOT emit `[FINISHED]` directly. Ask the human stakeholder (using a question tool if available) whether the work is finished. **Yes** → run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then the `devbot:reconcile-work` skill, then end with `[FINISHED]`. **No** → the stakeholder provides new directions and work continues.
 - **Gate: delegate ALL code changes to @developer** — Every code change, including small/trivial code fixes, is delegated to @developer. Orchestrator writes and edits zero code itself. For **small** code changes, delegate directly to @developer (after @scout context gathering) rather than running full `devbot:implement-story` cycle.
 - **Gate: delegate ALL test work to @tester** — Every test creation, edit, and test fix is delegated to @tester. Orchestrator writes, edits, and fixes zero tests itself, no matter how small.
 - **Gate: gather context at start of session, and for all small+ tasks** — At start of new session, before any and all non-trivial work about codebase, delegate context gathering to @scout. Also delegate to @scout as first step for any task classified as **small** or larger before proceeding with implementation. Every scout delegation MUST explicitly instruct scout to use `devbot:gather-context` skill and MUST include clear keyword list derived from user request (e.g. `keywords: [auth, JWT, login, session]`).
