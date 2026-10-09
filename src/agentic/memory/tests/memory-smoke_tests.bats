@@ -337,13 +337,13 @@ SCRIPT
 
 # ── Skill file validation ─────────────────────────────────────────────────────
 
-@test "skill files: exactly 5 SKILL.md files exist" {
+@test "skill files: exactly 6 SKILL.md files exist" {
   local count
   count="$(find "$MODULE_DIR/skills" -name 'SKILL.md' -type f | wc -l)"
   # Count the number of skill subdirectories containing SKILL.md
   local dirs
   dirs="$(find "$MODULE_DIR/skills" -name 'SKILL.md' -type f -exec dirname {} \; | wc -l)"
-  [[ "$dirs" -eq 5 ]] || fail "Expected 5 skill subdirectories with SKILL.md, found $dirs"
+  [[ "$dirs" -eq 6 ]] || fail "Expected 6 skill subdirectories with SKILL.md, found $dirs"
 }
 
 @test "skill files: all SKILL.md files are non-empty" {
