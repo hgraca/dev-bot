@@ -20,8 +20,7 @@ The knowledge vault: what agents learned in earlier sessions, kept where the nex
 
 The `remember-session` skill captures what was learned during a session and routes it to the knowledge vault — so the next session starts smarter.
 
-- **Post-commit hook**: after each `git commit`, a trigger file is written
-- **Session idle**: when the session goes quiet, `remember-session` fires
+- **Finish flow**: the primary agent runs `remember-session` once when the work is confirmed finished, before `[FINISHED]`
 - **Learning routing**: findings are categorized —
   - Product decisions → `memory/latent/PDRs/`
   - Architecture decisions → `memory/latent/ADRs/`
