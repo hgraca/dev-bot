@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -1300,6 +1301,29 @@ class TestMainSupervisorScope(_SandboxTest):
              patch.object(sys, "argv", ["search-memories", "--query", "q"]):
             _search_memories.main()
         self.assertEqual(seen["collections"], ["a-name", "sup-name"])
+
+    def test_main_qmd_warns_on_collection_name_collision(self):
+        seen = {}
+
+        def fake_scoped(queries, collections, max_results):
+            seen["collections"] = collections
+            return [], None
+
+        a = self._project("a")
+        b = self._project("b")
+        (a / ".devbot.project.jsonc").write_text('{"project_name": "same"}')
+        (b / ".devbot.project.jsonc").write_text('{"project_name": "same"}')
+        err = io.StringIO()
+        with patch.object(_search_memories, "resolve_provider", return_value="qmd"), \
+             patch.object(_search_memories, "resolve_supervisor", return_value=True), \
+             patch.object(_search_memories, "supervisor_read_projects", return_value=[a, b]), \
+             patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
+             patch.object(_search_memories, "search_qmd_scoped", side_effect=fake_scoped), \
+             patch.object(sys, "argv", ["search-memories", "--query", "q"]), \
+             redirect_stderr(err):
+            _search_memories.main()
+        self.assertEqual(seen["collections"], ["same"])
+        self.assertIn("WARN", err.getvalue())
 
 
 class TestNonSupervisorUnchanged(unittest.TestCase):

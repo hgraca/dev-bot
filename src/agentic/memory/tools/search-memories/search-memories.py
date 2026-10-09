@@ -831,8 +831,21 @@ def main() -> None:
         body_fetch = fetch_mdctx_body
     else:
         if supervisor and not args.collection:
-            collections = list(dict.fromkeys(resolve_collection(p) for p in read_projects))
-            collections = [c for c in collections if c]
+            collections = []
+            by_name: dict[str, str] = {}
+            for project in read_projects:
+                name = resolve_collection(project)
+                if not name:
+                    continue
+                if name in by_name:
+                    print(
+                        f"WARN: qmd collection {name!r} maps to both "
+                        f"{by_name[name]} and {project}; searching it once",
+                        file=sys.stderr,
+                    )
+                    continue
+                by_name[name] = str(project)
+                collections.append(name)
             results, err = search_qmd_scoped(args.query, collections, args.max_results)
         else:
             collection = args.collection or resolve_collection(project_root)
