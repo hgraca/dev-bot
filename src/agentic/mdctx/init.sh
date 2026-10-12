@@ -50,13 +50,13 @@ DEVBOT_DIR="$(_devbot_get_project_dir "${PROJECT_DIR}")"
 LATENT_DIR="${PROJECT_DIR}/${DEVBOT_DIR}/memory/latent"
 
 if [[ ! -d "${LATENT_DIR}" ]]; then
-  _warn "No latent memory directory found at:"
-  echo "    ${LATENT_DIR}"
-  echo "  Create it or ensure your project has the <devbot-dir>/memory/latent/ structure."
-  echo "  Skipping the project mdctx index (the global store is indexed by the memory module)."
-  exit 0
+  # mdctx sorts before the memory module, so on a fresh init the vault does
+  # not exist yet — create it so the project index still builds.
+  mkdir -p "${LATENT_DIR}"
+  _ok "Created latent directory: ${LATENT_DIR}"
+else
+  _ok "Latent directory: ${LATENT_DIR}"
 fi
-_ok "Latent directory: ${LATENT_DIR}"
 
 # ── Build project index ───────────────────────────────────────────────────────
 

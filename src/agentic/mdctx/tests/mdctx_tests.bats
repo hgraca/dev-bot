@@ -336,16 +336,21 @@ MOCK
   assert_success
 }
 
-@test "init.sh: skips (exit 0) when no latent memory directory exists" {
+@test "init.sh: creates the latent directory when missing and builds the index" {
   _setup_sandbox
   _mock_mdctx_cli
   PROJECT_DIR="$(mktemp -d)"
   mkdir -p "${PROJECT_DIR}/.git"
+  export MDCTX_ARGS_FILE="${PROJECT_DIR}/mdctx.args"
+  : > "${MDCTX_ARGS_FILE}"
 
   run bash "$MODULE_DIR/init.sh" "${PROJECT_DIR}"
 
   assert_success
-  [ ! -f "${MDCTX_ARGS_FILE:-${PROJECT_DIR}/mdctx.args}" ]
+  [ -d "${PROJECT_DIR}/.agents/memory/latent" ]
+  run cat "${MDCTX_ARGS_FILE}"
+  assert_output --regexp '^build .*/.agents/memory/latent -o .*/\.mdctx/context-index\.json$'
+  [ -d "${PROJECT_DIR}/.mdctx" ]
 }
 
 @test "init.sh: fails when mdctx CLI is missing" {
