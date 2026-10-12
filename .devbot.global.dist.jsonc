@@ -13,6 +13,7 @@
     "atlassian": false,
     "aws": false,
     "claudecode": false,
+    "frontend": false,
     "jetbrains": false,
     "litellm": false,
     "ollama": false,
