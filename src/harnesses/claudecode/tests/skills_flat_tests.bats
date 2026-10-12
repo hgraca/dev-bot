@@ -305,7 +305,7 @@ _add_user_skill() {
 
 # ── Internal-module gate (audit-80 FAIL-2) ───────────────────────────────────
 # The dev-bot module walk had no enablement gate, so a disabled module's skills
-# (aws, explicit-react, explicit-svelte, atlassian) reached the Skill palette.
+# (aws, react, svelte, atlassian) reached the Skill palette.
 
 # _add_module_skill <module> <skill-name>: a committed dev-bot module skill.
 _add_module_skill() {

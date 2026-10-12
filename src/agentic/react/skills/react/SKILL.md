@@ -1,5 +1,5 @@
 ---
-name: devbot:explicit-react
+name: devbot:react
 description: "Use when building, scaffolding, or modifying a React or Next.js project. Triggers on 'react', 'nextjs', 'create react app', 'react component'."
 ---
 
@@ -7,7 +7,6 @@ description: "Use when building, scaffolding, or modifying a React or Next.js pr
 
 This skill provides conventions for React 18+, Next.js (App Router), and TypeScript, including:
 
-- Atomic component design (atoms, molecules, organisms, templates)
 - Clean architecture (ports/adapters, services, repositories)
 - CSS Modules, Tailwind, or styled-components for styling
 - Explicit server/client code separation (Next.js App Router)
@@ -111,48 +110,7 @@ src/
 │   ├── layout.tsx
 │   ├── loading.tsx
 │   └── page.tsx
-├── components/
-│   ├── atoms/
-│   │   ├── Button/
-│   │   │   ├── Button.tsx
-│   │   │   ├── Button.stories.tsx
-│   │   │   ├── Button.test.tsx
-│   │   │   └── index.ts
-│   │   ├── Input/
-│   │   │   ├── Input.tsx
-│   │   │   ├── Input.stories.tsx
-│   │   │   ├── Input.test.tsx
-│   │   │   └── index.ts
-│   │   └── index.ts
-│   ├── molecules/
-│   │   ├── Card/
-│   │   │   ├── Card.tsx
-│   │   │   ├── Card.stories.tsx
-│   │   │   ├── Card.test.tsx
-│   │   │   └── index.ts
-│   │   ├── Form/
-│   │   │   ├── Form.tsx
-│   │   │   ├── Form.stories.tsx
-│   │   │   ├── Form.test.tsx
-│   │   │   └── index.ts
-│   │   └── index.ts
-│   ├── organisms/
-│   │   ├── Header/
-│   │   │   ├── Header.tsx
-│   │   │   ├── Header.stories.tsx
-│   │   │   ├── Header.test.tsx
-│   │   │   └── index.ts
-│   │   ├── Navbar/
-│   │   │   ├── Navbar.tsx
-│   │   │   ├── Navbar.stories.tsx
-│   │   │   ├── Navbar.test.tsx
-│   │   │   └── index.ts
-│   │   └── index.ts
-│   └── templates/
-│       ├── BaseLayout/
-│       │   ├── BaseLayout.tsx
-│       │   └── index.ts
-│       └── index.ts
+├── components/          → reusable UI components
 ├── hooks/
 │   ├── useCounter/
 │   │   ├── useCounter.ts
@@ -206,7 +164,7 @@ src/
 - `src/app/globals.css`: Global styles
 - `src/app/layout.tsx`: Root layout (metadata, fonts, providers)
 - `src/app/page.tsx`: Home page
-- `src/components/atoms/Button/Button.tsx`: Example atom component
+- `src/components/Button/Button.tsx`: Example component
 - `src/modules/user/ports/UserRepository.ts`: Example port
 - `src/modules/user/adapters/ApiUserRepository.ts`: Example adapter
 
@@ -217,95 +175,7 @@ src/
 
 ---
 
-## Component Design
-
-### Atomic Design
-
-- **Atoms**: Buttons, inputs, icons
-
-  ```tsx
-  // src/components/atoms/Button/Button.tsx
-  import { ButtonHTMLAttributes, ReactNode } from "react";
-
-  interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-    children: ReactNode;
-    variant?: "primary" | "secondary";
-  }
-
-  export const Button = ({ children, variant = "primary", ...props }: ButtonProps) => {
-    const baseClasses = "px-4 py-2 rounded font-medium";
-    const variantClasses = {
-      primary: "bg-blue-500 text-white hover:bg-blue-600",
-      secondary: "bg-gray-200 text-gray-800 hover:bg-gray-300",
-    };
-
-    return (
-      <button className={`${baseClasses} ${variantClasses[variant]}`} {...props}>
-        {children}
-      </button>
-    );
-  };
-  ```
-
-- **Molecules**: Forms, cards, navbars
-
-  ```tsx
-  // src/components/molecules/Card/Card.tsx
-  import { ReactNode } from "react";
-
-  interface CardProps {
-    children: ReactNode;
-    title?: string;
-  }
-
-  export const Card = ({ children, title }: CardProps) => {
-    return (
-      <div className="border rounded-lg p-4 shadow-sm">
-        {title && <h3 className="text-xl font-bold mb-2">{title}</h3>}
-        {children}
-      </div>
-    );
-  };
-  ```
-
-- **Organisms**: Headers, footers, complex sections
-
-  ```tsx
-  // src/components/organisms/Header/Header.tsx
-  import { Navbar } from "../../molecules/Navbar";
-
-  export const Header = () => {
-    return (
-      <header className="bg-white shadow">
-        <Navbar />
-      </header>
-    );
-  };
-  ```
-
-- **Templates**: Page layouts
-  ```tsx
-  // src/components/templates/BaseLayout/BaseLayout.tsx
-  import { Header } from "../../organisms/Header";
-  import { Footer } from "../../organisms/Footer";
-  import { ReactNode } from "react";
-
-  interface BaseLayoutProps {
-    children: ReactNode;
-  }
-
-  export const BaseLayout = ({ children }: BaseLayoutProps) => {
-    return (
-      <div className="flex flex-col min-h-screen">
-        <Header />
-        <main className="flex-grow">{children}</main>
-        <Footer />
-      </div>
-    );
-  };
-  ```
-
-**Naming:**
+## Component Naming
 
 - Use PascalCase for components (`Button.tsx`, `UserCard.tsx`).
 - Use kebab-case for files in `app/` (`page.tsx`, `loading.tsx`).
@@ -326,7 +196,7 @@ src/
 - **CSS Modules**: Scoped styles
 
   ```css
-  /* src/components/atoms/Button/Button.module.css */
+  /* src/components/Button/Button.module.css */
   .button {
     padding: 0.5rem 1rem;
     border-radius: 0.25rem;
@@ -335,7 +205,7 @@ src/
   ```
 
   ```tsx
-  // src/components/atoms/Button/Button.tsx
+  // src/components/Button/Button.tsx
   import styles from "./Button.module.css";
   export const Button = () => <button className={styles.button}>Click</button>;
   ```
@@ -343,7 +213,7 @@ src/
 - **Styled Components**: CSS-in-JS
 
   ```tsx
-  // src/components/atoms/Button/Button.tsx
+  // src/components/Button/Button.tsx
   import styled from "styled-components";
   export const Button = styled.button`
     padding: 0.5rem 1rem;
@@ -558,10 +428,9 @@ export class UserService {
 3. **Style Foundations**: Primitives, themes, tokens.
 4. **Next.js Routes**: Serve pages with `app/` directory.
 5. **Page Components**: Wire modules to UI.
-6. **Atomic Components**: Build atoms, molecules, organisms.
-7. **Styling Integration**: Apply Tailwind/CSS Modules.
-8. **Input Validation**: Use Zod or Yup at module boundaries.
-9. **Deploy**: Use Vercel or Node.js for hosting.
+6. **Styling Integration**: Apply Tailwind/CSS Modules.
+7. **Input Validation**: Use Zod or Yup at module boundaries.
+8. **Deploy**: Use Vercel or Node.js for hosting.
 
 ---
 
@@ -597,7 +466,7 @@ module.exports = nextConfig;
 **Example:**
 
 ```tsx
-// src/components/atoms/Button/Button.test.tsx
+// src/components/Button/Button.test.tsx
 import { render, screen } from "@testing-library/react";
 import { Button } from "./Button";
 

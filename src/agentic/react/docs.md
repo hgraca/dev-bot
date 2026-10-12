@@ -1,7 +1,7 @@
 ---
 title: "React"
 description: "React 18+ and Next.js conventions, with Next.js runtime diagnostics."
-skills: ["explicit-react"]
+skills: ["react"]
 mcps:
   next-devtools: "Next.js runtime diagnostics"
 ---
@@ -10,7 +10,7 @@ React and Next.js conventions for an agent, plus a window into a running Next.js
 
 ## What it does
 
-- **`explicit-react`** — the conventions skill: scaffolding, components, and Next.js project structure.
+- **`react`** — the conventions skill: scaffolding, components, and Next.js project structure.
 - **next-devtools** — the Next.js devtools MCP server (`npx -y next-devtools-mcp@latest`), which reports runtime diagnostics from the dev server.
 
 ## Configuration

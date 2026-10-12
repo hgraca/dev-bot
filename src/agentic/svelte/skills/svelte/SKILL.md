@@ -1,5 +1,5 @@
 ---
-name: devbot:explicit-svelte
+name: devbot:svelte
 description: "Use when building, scaffolding, or modifying a Svelte or SvelteKit project. Triggers on 'svelte', 'sveltekit', 'create svelte app', 'svelte component'."
 ---
 
@@ -7,7 +7,6 @@ description: "Use when building, scaffolding, or modifying a Svelte or SvelteKit
 
 This skill provides conventions for Svelte 5, SvelteKit, and TypeScript, including:
 
-- Atomic component design (atoms, molecules, organisms, templates)
 - Ports/adapters architecture for business logic
 - SMUI theming and token-based styling
 - Explicit server/client code separation
@@ -71,22 +70,11 @@ Set `"strict": true` in `tsconfig.json`.
 
 ## Project Structure
 
-### Atomic Design
-
-Use [Brad Frost's atomic design](https://bradfrost.com/blog/post/atomic-web-design/) for components
-(`src/lib/components`, atoms → molecules → organisms → templates),
-ports & adapters (`src/modules/User/UserRepository.ts` and its `adapters/`),
-and Token-Based theming (`style/`):
-
 ```
 src/
     routes/
     lib/
         components/         → generic components, reusable across pages
-            atoms/          → single-purpose (Button, Input, Tag)
-            molecules/      → atom groups (Card, Alert, LinkGroup)
-            organisms/      → page sections (Header, Footer, Hero)
-            templates/      → layout compositions (PageTemplate)
         services/           → generic services, reusable anywhere
     modules/            → types, rules (User, Project, Billing, ...)
         User/
@@ -292,10 +280,9 @@ Then we use Svelte stores for reactive theme switching:
 3. **Style Foundations**: Primitives, themes, semantic tokens.
 4. **SvelteKit Routes**: Serve pages with `+page.server.ts`.
 5. **Page Components**: Wire modules to UI.
-6. **Atomic Components**: Build atoms, molecules, organisms.
-7. **SMUI Integration**: Wire SMUI components into the design system.
-8. **Input Validation**: Validate at module boundaries.
-9. **Deploy**: Use `adapter-node` for server-rendered prototypes.
+6. **SMUI Integration**: Wire SMUI components into the design system.
+7. **Input Validation**: Validate at module boundaries.
+8. **Deploy**: Use `adapter-node` for server-rendered prototypes.
 
 ---
 
