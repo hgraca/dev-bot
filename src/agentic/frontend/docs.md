@@ -1,7 +1,7 @@
 ---
 title: "Frontend"
-description: "Framework-agnostic frontend conventions — the atomic-design component structure shared by every UI framework module."
-skills: ["atomic-design"]
+description: "Framework-agnostic frontend conventions — the atomic-design component structure and Storybook deployment, shared by every UI framework module."
+skills: ["atomic-design", "storybook-deploy"]
 ---
 
 Frontend conventions that are independent of any one UI framework. A framework module (React,
@@ -12,6 +12,9 @@ Svelte, …) adds the framework-specific conventions; this module supplies the s
 - **`atomic-design`** — the five-tier component structure (atoms → molecules → organisms →
   templates → pages), a framework-neutral component layout, and worked examples in both React and
   Svelte.
+- **`storybook-deploy`** — building a Storybook as a static site and publishing it to a host; the
+  GitHub Pages deployment lives in a loadable annex, so other hosts are added without changing the
+  core.
 
 ## Configuration
 
