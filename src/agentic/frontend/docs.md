@@ -15,6 +15,10 @@ Svelte, …) adds the framework-specific conventions; this module supplies the s
 - **`storybook-deploy`** — building a Storybook as a static site and publishing it to a host; the
   GitHub Pages deployment lives in a loadable annex, so other hosts are added without changing the
   core.
+- **`modern-web-guidance`** (vendored) — Google's
+  [modern-web-guidance](https://github.com/GoogleChrome/modern-web-guidance) skill pack, wired in
+  when the module is enabled; it adds modern web-platform guidance (HTML, CSS, accessibility,
+  performance) through its own CLI.
 
 ## Configuration
 

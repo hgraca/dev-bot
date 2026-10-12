@@ -1,0 +1,8 @@
+{
+  "modern-web-guidance": {
+    "url": "https://github.com/GoogleChrome/modern-web-guidance.git",
+    "paths": {
+      "skills": "skills/modern-web-guidance"
+    }
+  }
+}
