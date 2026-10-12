@@ -1,7 +1,7 @@
 ---
 title: "Docs"
-description: "Documentation tooling — the module-docs generator, documentation rules, GitHub Pages, and architecture maps."
-skills: ["app-map", "documentation-rules", "gh-docs-website", "impact-diagram", "use-case-map"]
+description: "Documentation tooling — the module-docs generator, documentation rules, and architecture maps."
+skills: ["app-map", "documentation-rules", "impact-diagram", "use-case-map"]
 tools: ["gather-module-docs", "impact-diagram", "use-case-map"]
 ---
 
@@ -11,7 +11,6 @@ How dev-bot's own documentation is written, gathered and published — plus the 
 
 - **`gather-module-docs`** — the build-time generator behind this site. It walks `src/<area>/<module>/docs.md`, derives each module's capability manifest from its own files, and emits one page per module plus the `/modules` index and the navigation data. See [Create a module](/create-a-module).
 - **`documentation-rules`** — where docs live, how they are structured, and the README table of contents invariant.
-- **`gh-docs-website`** — scaffolding a Jekyll site deployed to GitHub Pages.
 - **`use-case-map`** — traces call chains from entry points through commands, handlers, ports and adapters in a PHP codebase.
 - **`impact-diagram`** — the diff-scoped use-case map: only the flows a change touches, changed units in red.
 - **`app-map`** — an interactive application-map editor.

@@ -1,8 +1,8 @@
 ---
 title: "GitHub"
-description: "Open a pull request from a branch, or work one locally — check out its changeset, or address its review comments."
+description: "Open a pull request from a branch or work one locally, and scaffold a GitHub Pages docs site."
 commands: ["gh-address-review", "gh-make-review", "gh-create-pr"]
-skills: ["gh-create-pr"]
+skills: ["gh-create-pr", "gh-pages"]
 ---
 
 Open a pull request from a branch, or pull one down and work on it locally — review its changeset, or
@@ -14,6 +14,7 @@ address the comments it already has.
   back to GitHub.
 - **`gh-make-review`** — checks out a PR and code-reviews its changeset locally.
 - **`gh-address-review`** — reads a PR's review comments and addresses them locally.
+- **`gh-pages`** — scaffolds a Jekyll documentation site deployed to GitHub Pages.
 
 `gh-create-pr` is the one write the module makes to GitHub: creating the pull request, plus the
 `git push -u origin <branch>` a never-pushed branch needs. The review commands keep their output

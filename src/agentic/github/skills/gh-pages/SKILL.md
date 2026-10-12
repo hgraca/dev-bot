@@ -1,9 +1,9 @@
 ---
-name: devbot:gh-docs-website
+name: devbot:gh-pages
 description: "Use when publishing a documentation website to GitHub Pages. Triggers on 'make a docs site', 'gh-pages', 'publish the README as a website'."
 ---
 
-# gh-docs-website
+# gh-pages
 
 Guide an agent through building a documentation static website for a project, hosted on GitHub Pages and generated with Jekyll. The skill covers the full flow end to end — from deciding who the docs are for, to writing the content, to wiring up the build and deployment.
 
