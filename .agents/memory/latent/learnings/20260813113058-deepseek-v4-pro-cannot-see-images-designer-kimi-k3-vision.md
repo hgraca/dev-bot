@@ -1,11 +1,14 @@
 ---
 date: 2026-08-13
+superseded: 2026-10-13
 keywords: ["devbot", "vision", "deepseek-v4-pro", "designer", "kimi-k3"]
 ---
 
-# Primary agent model (DeepSeek v4 Pro) cannot see images — only Designer (kimi-k3) is vision-capable
+# [SUPERSEDED 2026-10-13] Primary agent model (DeepSeek v4 Pro) cannot see images — only Designer (kimi-k3) is vision-capable
 
-DevBot's primary agent runs on `deepseek/deepseek-v4-pro`, which cannot process images through the API — even though the agent has the `chrome-devtools` MCP and the `Read` tool (which returns images as attachments). Tool availability ≠ model vision capability. A false assumption that the primary agent could compare UI inline was caught and corrected by the human.
+> **SUPERSEDED 2026-10-13** — the premise is no longer true. The primary agent now runs `deepseek/deepseek-flash` (DeepSeek-V4.1-Flash), which is vision-capable. See `20261013113400-primary-agent-deepseek-flash-has-vision.md`. Kept for history.
+
+DevBot's primary agent **ran** on `deepseek/deepseek-v4-pro`, which could not process images through the API — even though the agent had the `chrome-devtools` MCP and the `Read` tool (which returns images as attachments). Tool availability ≠ model vision capability. A false assumption that the primary agent could compare UI inline was caught and corrected by the human.
 
 The only subagent on a vision-capable model is Designer (`cortecs/kimi-k3`). Consequence: any visual comparison ("validate this UI against that screenshot") must be delegated to Designer with saved screenshot file paths — never done inline by the primary agent.
 
