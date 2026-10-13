@@ -34,15 +34,15 @@ on:
     branches: ["main"]
     paths:
       - "docs/**"
-      - "src/**"
-      - "lib/**"
+      - "src/components/**"
+      - "src/pages/**"
+      - "lib/shadcn/**"
       - ".storybook/**"
+      - "vite.config.ts"
       - "package.json"
       - "pnpm-lock.yaml"
       - ".github/workflows/jekyll-gh-pages.yml"
   workflow_dispatch:
-  schedule:
-    - cron: "0 6 * * *" # daily at 06:00 UTC
 
 permissions:
   contents: read
@@ -107,14 +107,6 @@ the upload at the Storybook output directory instead of `docs/_site`:
     path: docs/storybook
 ```
 
-## Why the scheduled run
-
-The `push` trigger only rebuilds when the listed paths change; the `schedule` adds a periodic
-rebuild regardless. That matters because the published artefact can otherwise go stale without a
-commit — a dependency's content, an upstream data source, or a build that would now fail. Cron is
-**UTC** and drift up to ~15 minutes is normal, so read `0 6 * * *` as "shortly after 06:00 UTC"
-rather than an exact time.
-
 ## Gotchas
 
 - **Pages source must be "GitHub Actions".** If the repository is still set to "Deploy from a
@@ -123,9 +115,10 @@ rather than an exact time.
   `https://<org>.github.io/<repo>/`, not the domain root. Pass
   `--baseurl "${{ steps.pages.outputs.base_path }}"` (or the framework's equivalent) so every asset
   and link resolves; omitting it produces a site that loads nothing but 404s.
-- **`paths` filter limits what triggers a rebuild.** Once a Storybook is built from source, edits to
-  the component sources and the Storybook config change the published site — list them (`src/**`,
-  `lib/**`, `.storybook/**`, the lockfile), or those changes will not redeploy.
+- **The `paths` filter decides what the site can go stale on.** List every directory the published
+  artefact is built from — the documentation sources and the component folders are the usual pair.
+  A directory left out means edits to it deploy only on the next unrelated change, and the published
+  site silently disagrees with the commit that produced it.
 - **The upload reads the working tree, not git.** `upload-pages-artifact` packages the directory
   straight from the runner, so gitignoring the build output (which you must) does not stop the
   deploy.
