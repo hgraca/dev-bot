@@ -2,7 +2,7 @@
 title: "Memory"
 description: "The knowledge vault — recall, session capture, vault structure, pruning, and scratch notes."
 commands: ["audit-memory", "prune-memories", "remember-session"]
-skills: ["memory-management", "prune-memories", "reconcile-work", "remember-session", "search-memory", "thinking"]
+skills: ["create-todo", "memory-management", "prune-memories", "reconcile-work", "remember-session", "search-memory", "thinking"]
 hooks: ["reindex-memories"]
 tools: ["generate-mcp-guide", "reindex-memories", "reindex-passive-memories", "search-memories"]
 ---
@@ -13,7 +13,7 @@ The knowledge vault: what agents learned in earlier sessions, kept where the nex
 
 - **Recall** — `search-memory` looks up past decisions, learnings and gotchas before a problem is solved again.
 - **Capture** — `remember-session` promotes what a session learned into the vault and routes each entry by kind.
-- **Structure** — `memory-management` defines the vault layout and routing rules; `prune-memories` (skill and command) keeps it from going stale; `reconcile-work` aligns the work-folder states (`todo` → `active` → `archive`) at wrap-up; `thinking` provides scratch files for work in progress.
+- **Structure** — `memory-management` defines the vault layout and routing rules; `create-todo` captures an ad-hoc TODO as a work item under `work/todo/`; `prune-memories` (skill and command) keeps it from going stale; `reconcile-work` aligns the work-folder states (`todo` → `active` → `archive`) at wrap-up; `thinking` provides scratch files for work in progress.
 - **Staying current** — a `file.edited` hook reindexes the vault as it changes, so a search never misses a note written moments ago.
 
 ## Session capture
