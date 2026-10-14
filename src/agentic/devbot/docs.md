@@ -2,15 +2,17 @@
 title: "DevBot"
 description: "The pair-programming agent, with the Expert and Designer subagents it delegates to."
 agents: ["designer", "devbot", "expert"]
+commands: ["work-autonomously"]
 ---
 
 The default way to work with dev-bot: one agent beside you, not over you.
 
 ## What it does
 
-- **`devbot`** — the primary pair-programming agent. Works in small increments, suggests before writing, asks before acting, and never runs autonomously.
+- **`devbot`** — the primary pair-programming agent. Works in small increments, suggests before writing, and asks before acting; it runs autonomously only when you invoke `work-autonomously`.
 - **`expert`** — a subagent for deep technical problem analysis on a higher-grade model. It traces root causes and proposes options with trade-offs, and never writes code.
 - **`designer`** — a subagent covering UX and UI: interaction specs, screen designs, visual acceptance criteria, and visual validation of implemented UI.
+- **`work-autonomously`** — the opt-in autonomous mode: implement a task end to end, self-review with `@code-reviewer`, then iterate on Copilot review until the pull request is clean.
 
 ## How it is used
 

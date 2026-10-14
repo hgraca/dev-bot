@@ -135,7 +135,7 @@ PY
   # Commands are linked individually under .opencode/commands/devbot/ NAMED
   # after their frontmatter name (devbot:audit → devbot/audit.md), so both
   # harnesses expose the same slash command. No per-module category symlinks.
-  local MODULES_WITH_COMMANDS=(dev devteam explore git github memory)
+  local MODULES_WITH_COMMANDS=(dev devbot devteam explore git github memory)
   local linked_commands_dir="$test_project/.opencode/commands/devbot"
   [ -d "$linked_commands_dir" ] || fail "commands/devbot/ is missing"
   for MODULE in "${MODULES_WITH_COMMANDS[@]}"; do
