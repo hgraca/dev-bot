@@ -1,0 +1,5 @@
+{
+  "$schema": "https://<org>.github.io/umbrella-integration.schema.json",
+  "description": "<One-line summary shown on the organisation umbrella card.>",
+  "docs_url": "https://<org>.github.io/<repo>/"
+}

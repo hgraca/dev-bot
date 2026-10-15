@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script>
+      try {
+        var t = localStorage.getItem("theme")
+        if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t)
+      } catch (e) {}
+    </script>
+    {% seo %}
+    <link rel="icon" type="image/svg+xml" href="{{ '/assets/img/favicon.svg' | relative_url }}" />
+    <link rel="stylesheet" href="{{ '/assets/css/site.css' | relative_url }}" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="nav-toggle" type="button" aria-label="Toggle navigation" aria-expanded="false">
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+          <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        </svg>
+      </button>
+      <a class="brand" href="{{ '/' | relative_url }}">
+        <img class="brand-logo brand-logo-light" src="{{ '/assets/img/logo-light.svg' | relative_url }}" alt="{{ site.title }}" width="120" height="24" />
+        <img class="brand-logo brand-logo-dark" src="{{ '/assets/img/logo-dark.svg' | relative_url }}" alt="{{ site.title }}" width="120" height="24" />
+      </a>
+      <div class="topbar-spacer"></div>
+      <button class="theme-toggle" type="button" aria-label="Toggle dark mode" aria-pressed="false">
+        <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="1.8" />
+          <path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+        </svg>
+        <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
+        </svg>
+      </button>
+    </header>
+
+    <div class="shell">
+      {% include nav.html %}
+
+      <main class="content" id="content">{{ content }}</main>
+    </div>
+
+    {% include footer.html %}
+
+    <script>
+      ;(function () {
+        var root = document.documentElement
+        var toggle = document.querySelector(".theme-toggle")
+        if (toggle) {
+          var syncThemeState = function () {
+            toggle.setAttribute(
+              "aria-pressed",
+              String(root.getAttribute("data-theme") === "dark"),
+            )
+          }
+          syncThemeState()
+          toggle.addEventListener("click", function () {
+            var next = root.getAttribute("data-theme") === "dark" ? "light" : "dark"
+            root.setAttribute("data-theme", next)
+            try {
+              localStorage.setItem("theme", next)
+            } catch (e) {}
+            syncThemeState()
+          })
+        }
+        var navToggle = document.querySelector(".nav-toggle")
+        if (navToggle) {
+          navToggle.addEventListener("click", function () {
+            var open = document.body.classList.toggle("nav-open")
+            navToggle.setAttribute("aria-expanded", String(open))
+          })
+        }
+      })()
+    </script>
+  </body>
+</html>

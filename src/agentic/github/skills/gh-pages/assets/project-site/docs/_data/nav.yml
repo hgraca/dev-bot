@@ -1,0 +1,10 @@
+# Sidebar navigation: groups -> items. One item per page, in the order to show them.
+# The item whose path matches the current page gets the active state.
+- title: Overview
+  items:
+    - title: Introduction
+      path: /
+# - title: Guides
+#   items:
+#     - title: Getting started
+#       path: /getting-started/

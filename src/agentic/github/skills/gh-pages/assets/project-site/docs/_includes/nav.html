@@ -1,0 +1,14 @@
+<nav class="sidebar" aria-label="Documentation">
+  {%- for group in site.data.nav %}
+  <div class="nav-group">
+    <div class="nav-group-title">{{ group.title }}</div>
+    <ul>
+      {%- for item in group.items %}
+      <li>
+        <a href="{{ item.path | relative_url }}"{% if page.url == item.path %} class="active" aria-current="page"{% endif %}>{{ item.title }}</a>
+      </li>
+      {%- endfor %}
+    </ul>
+  </div>
+  {%- endfor %}
+</nav>

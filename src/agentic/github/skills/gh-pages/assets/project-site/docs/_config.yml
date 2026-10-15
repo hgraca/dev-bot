@@ -1,0 +1,30 @@
+title: <Project Name>
+description: >-
+  <One-sentence description of the project and what this documentation covers.>
+url: "https://<org>.github.io"
+baseurl: "/<repo>"
+
+permalink: pretty
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-seo-tag
+
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - .bundle
+
+defaults:
+  - scope:
+      path: ""
+      type: "pages"
+    values:
+      layout: "page"
