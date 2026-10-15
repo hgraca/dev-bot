@@ -104,7 +104,7 @@ Writing rules:
 - **Lead with the reader's goal.** Open each page with what the reader came to do, not with marketing.
 - **One page, one purpose.** Split reference material from narrative. Cross-link instead of duplicating.
 - **Frontmatter on every page.** Each markdown page needs at minimum a `title`, a `description`, and the intended `layout` (see Stage 5).
-- **Use relative links** (`/section/page`) so the site works under a `baseurl` subpath (e.g. GitHub Pages project sites at `https://<org>.github.io/<repo>/`).
+- **Resolve links through `relative_url`, never hand-write a path.** A root-relative link (`[Storybook](/storybook/)`) is emitted verbatim by kramdown and 404s under a project `baseurl`, because GitHub Pages serves the site from `https://<org>.github.io/<repo>/`, not the domain root. Resolve it inside the link destination instead: `[Storybook]({{ '/storybook/' | relative_url }})`. Verify against a `--baseurl /<repo>` build — a local build with an empty `baseurl` renders identical-looking links and hides the bug.
 - **Prefer tables for reference data** (options, commands, endpoints); prose for concepts and tasks.
 - **Verify code samples** are accurate against the project; prefer real, minimal examples over pseudo-code.
 - **No project-internal-only details.** The site is public — exclude secrets, internal URLs, and unreleased features unless the user confirms otherwise.
