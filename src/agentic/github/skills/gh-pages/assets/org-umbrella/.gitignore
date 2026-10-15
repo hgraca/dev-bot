@@ -1,0 +1,9 @@
+# Jekyll build output and local tooling
+docs/_site/
+docs/.jekyll-cache/
+docs/.jekyll-metadata
+docs/.bundle/
+docs/vendor/
+
+# Generated at build time from the GitHub org (see scripts/generate-projects.mjs)
+docs/_data/projects.json

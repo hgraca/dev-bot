@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://<org>.github.io/umbrella-integration.schema.json",
+  "title": "<Org> umbrella integration",
+  "description": "Declares how a project's documentation site appears in the organisation umbrella at https://<org>.github.io/.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["description", "docs_url"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional JSON Schema pointer, ignored by the aggregator."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Display name for the project. Defaults to the project manifest name, then the repository name."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One-line summary shown on the project card."
+    },
+    "docs_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://",
+      "description": "Absolute URL of the project's documentation site."
+    },
+    "category": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional grouping label, used as a section heading when present."
+    },
+    "order": {
+      "type": "number",
+      "description": "Optional sort weight; lower values are listed first."
+    }
+  }
+}

@@ -1,0 +1,25 @@
+title: <Org> Documentation
+description: Index of documentation sites across the <org> organisation.
+
+url: ""
+baseurl: ""
+
+permalink: pretty
+markdown: kramdown
+highlighter: rouge
+
+kramdown:
+  input: GFM
+  hard_wrap: false
+  syntax_highlighter: rouge
+
+plugins:
+  - jekyll-seo-tag
+
+exclude:
+  - README.md
+  - Makefile
+  - Gemfile
+  - Gemfile.lock
+  - vendor
+  - .bundle
