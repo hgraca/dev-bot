@@ -1,6 +1,6 @@
 ---
 name: devbot:gh-pages
-description: "Use when publishing a documentation website to GitHub Pages. Triggers on 'make a docs site', 'gh-pages', 'publish the README as a website'."
+description: "Use when publishing a documentation website to GitHub Pages: a single project site or an org-level umbrella index. Triggers on 'make a docs site', 'gh-pages', 'docs umbrella', 'org documentation site'."
 ---
 
 # gh-pages
@@ -8,6 +8,25 @@ description: "Use when publishing a documentation website to GitHub Pages. Trigg
 Guide an agent through building a documentation static website for a project, hosted on GitHub Pages and generated with Jekyll. The skill covers the full flow end to end — from deciding who the docs are for, to writing the content, to wiring up the build and deployment.
 
 This is a **process skill**, not a generator. Work through the stages in order, in small increments, and check in with the user at each stage boundary before proceeding. Do not scaffold files until the audience, scope, and information-gathering stages are done.
+
+## Two site topologies
+
+Decide which one you are building before Stage 5 — it changes the repository, the URL, and the
+`baseurl`:
+
+| Topology         | URL                               | `baseurl` | Repository        | Read                      |
+| ---------------- | --------------------------------- | --------- | ----------------- | ------------------------- |
+| **Project site** | `https://<org>.github.io/<repo>/` | `/<repo>` | any project repo  | Stage 5 below             |
+| **Org umbrella** | `https://<org>.github.io/`        | `""`      | `<org>.github.io` | `annexes/org-umbrella.md` |
+
+An **org umbrella** is a separate repository that lists every project's docs site as a card. It is an
+index, not a host — it never renders another project's content. Reach for it only when several
+projects publish their own sites; a single project gets a project site under its own `baseurl`. The
+annex covers the opt-in contract, the build-time aggregation from the org, and the CI.
+
+Copyable scaffolds for both topologies ship under `assets/`: `assets/project-site/` and
+`assets/org-umbrella/`. Genericised placeholders: `<org>`, `<repo>`, `<Project Name>` in prose;
+`your-org` where a value must stay syntactically valid.
 
 ## Stages
 
@@ -115,7 +134,7 @@ Work incrementally: write one page, show it to the user, and only move on after 
 
 ## Stage 5 — Set up the technical artifacts
 
-Scaffold the Jekyll site and the GitHub Pages deployment. Only start this stage once the content exists (Stages 1–4); the scaffold is a thin shell around the content, not the work itself.
+Scaffold the Jekyll site and the GitHub Pages deployment. Only start this stage once the content exists (Stages 1–4); the scaffold is a thin shell around the content, not the work itself. This scaffolds a **project** site; for the org-level umbrella, work from `annexes/org-umbrella.md` and `assets/org-umbrella/` instead.
 
 ### 5.1 Directory layout
 
@@ -123,22 +142,29 @@ A `docs/` directory at the repository root, treated as the Jekyll site root:
 
 ```
 docs/
-├── _config.yml          # Jekyll site configuration
-├── Gemfile              # Ruby dependencies (jekyll, seo plugin, webrick)
-├── Gemfile.lock         # Locked dependency versions (committed)
-├── .bundle/config       # Pin bundler to docs/vendor/bundle
+├── _config.yml               # Jekyll site configuration
+├── Gemfile                   # Ruby dependencies (jekyll, seo plugin, webrick)
+├── Gemfile.lock              # Locked dependency versions (committed)
+├── .bundle/config            # Local (gitignored): pin bundler to docs/vendor/bundle
+├── _data/nav.yml             # Sidebar navigation (groups → items)
 ├── _layouts/
-│   ├── default.html     # Base shell: <head>, nav, main, footer
-│   ├── home.html        # Landing-page layout
-│   └── page.html        # Content-page layout
+│   ├── default.html          # Base shell: <head>, nav, main, footer
+│   ├── home.html             # Landing-page layout
+│   └── page.html             # Content-page layout
 ├── _includes/
-│   ├── nav.html         # Header / navigation
-│   └── footer.html      # Footer
-├── assets/css/style.css # Site styling
-├── imgs/icons/          # Favicon + icons in multiple sizes
-├── index.md             # Home page
-└── <section>.md         # Content pages
+│   ├── nav.html              # Sidebar navigation (from _data/nav.yml)
+│   └── footer.html           # Footer
+├── assets/
+│   ├── css/site.css          # Site styling
+│   └── img/                  # Brand logo (light + dark) + favicon, SVG
+├── index.md                  # Home page
+├── umbrella-integration.json # Opt-in card for the org umbrella (optional)
+└── <section>.md              # Content pages
 ```
+
+This tree ships ready to copy at `assets/project-site/` — copy its `docs/` to the repository's
+`docs/`, and its workflow to `.github/workflows/`. Two entries are not shipped as files: `Gemfile.lock`
+is generated by `bundle install` (and committed), and `.bundle/config` is local and gitignored.
 
 ### 5.2 `_config.yml`
 
@@ -207,7 +233,7 @@ Generate `Gemfile.lock` locally with `bundle install` and commit it — the CI b
 - **`_layouts/default.html`** — the single base shell. Holds the `<head>` (charset, viewport, `<title>`, meta description, `{% seo %}`, favicon links, stylesheet), includes `nav.html`, renders `{{ content }}`, includes `footer.html`. Keep site-wide scripts (mobile nav, optional diagram rendering) here.
 - **`_layouts/home.html`** — thin wrapper (`layout: default` + `{{ content }}`) so the landing page can use custom section markup while still sharing the shell.
 - **`_layouts/page.html`** — the article shell: page title, optional description, then `{{ content }}` inside a `.prose` container.
-- **`_includes/nav.html`** — the header: logo + primary nav links, active-state highlighting via `page.url` comparison, and a mobile toggle. Supports dropdown menus with a `nav_section` frontmatter field.
+- **`_includes/nav.html`** — the sidebar: a group → item list rendered from `_data/nav.yml`, marking the current page active by comparing `page.url`. Add a group or an item to that data file to extend the navigation; the mobile toggle lives in `default.html`.
 - **`_includes/footer.html`** — footer with brand, link columns, and copyright.
 
 Use Jekyll filters `relative_url` / `absolute_url` for asset and link URLs so they respect `baseurl`.
@@ -291,6 +317,7 @@ Notes:
 
 ### 5.7 Completion checklist
 
+- [ ] Site topology chosen — project site vs org umbrella (see the topologies table)
 - [ ] Audience statement agreed (Stage 1)
 - [ ] Information inventory grounded in the code (Stage 2)
 - [ ] Sitemap and scope agreed (Stage 3)
@@ -316,6 +343,7 @@ Non-obvious mistakes that break a Jekyll + GitHub Pages site if the agent relies
 - **Gitignore the generated output.** `docs/_site/`, `docs/.jekyll-cache/`, and `docs/vendor/` must be ignored or the first commit accidentally stages build output.
 - **The workflow's `paths` filter means non-docs edits don't redeploy.** If a user expects a redeploy after editing the root README or Makefile, the site won't rebuild unless `docs/**` or the workflow file itself changed.
 - **Don't fight the platform with custom CI.** Use the official `configure-pages`/`upload-pages-artifact`/`deploy-pages` actions and pass `steps.pages.outputs.base_path` to the build; hand-rolling `gh-pages` branch pushes conflicts with the Pages token flow.
+- **The org-level counterparts** — a branch build silently overwriting the Actions deploy, a stale artifact after a repository rename, and the `<org>.github.io` naming rule — are in `annexes/org-umbrella.md`.
 
 ---
 

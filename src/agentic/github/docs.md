@@ -14,7 +14,8 @@ address the comments it already has.
   back to GitHub.
 - **`gh-make-review`** — checks out a PR and code-reviews its changeset locally.
 - **`gh-address-review`** — reads a PR's review comments and addresses them locally.
-- **`gh-pages`** — scaffolds a Jekyll documentation site deployed to GitHub Pages.
+- **`gh-pages`** — scaffolds a Jekyll documentation site deployed to GitHub Pages: a project site, or
+  the org-level umbrella that indexes every project's docs site.
 
 `gh-create-pr` is the one write the module makes to GitHub: creating the pull request, plus the
 `git push -u origin <branch>` a never-pushed branch needs. The review commands keep their output
