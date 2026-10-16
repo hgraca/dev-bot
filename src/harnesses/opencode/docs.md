@@ -26,6 +26,12 @@ OpenCode is the default agent runtime DevBot plugs into. Each harness lives in `
 - **format-md / format-json / format-yml** — `file.edited` with `skipOnCreate: true`; the formatter runs in the background on save.
 - **graphify** — exposes the CLI as an OpenCode custom tool (`src/agentic/graphify/tools/opencode/graphify.ts`) with subcommands `query`, `path`, `explain`, `update`, `graph-stats`, `god-nodes`, plus a `serve`-backed MCP server.
 
+## Version support
+
+dev-bot targets the opencode **1.x** line and refuses a 2.x host. Its whole plugin surface — the server hooks (`hooks/on-hooks.ts`) and the TUI plugins — is the V1 plugin API, which v2 replaced, so on a v2 host none of it loads while the seeded config still applies: the install half-works with no console signal. v2 also moved terminal config from `tui.json` to a global `cli.json` and stopped running language servers, so the LSP override below is inert there.
+
+`_devbot_require_opencode_1x` (`functions.sh`) reads `~/.opencode/bin/opencode --version` and, when the major is ≥ 2, prints the breakages and fails. A leading `v` on the version is tolerated. `up.sh` surfaces it on `devbot` / `devbot up` / `make up`; `start.sh` re-runs it, and only there is the launch actually refused — `_run_service_scripts` treats a module `up.sh`'s non-zero exit as "had issues" and returns 0. Anything but a confidently-detected 2.x is allowed: a missing binary is `start.sh`'s own error, and a version with no leading digit is warned about, never fatal — a source build reporting `0.0.0--<ts>` parses to a major of 0 and is allowed silently.
+
 ## Stats
 
 `src/harnesses/opencode/stats.py` reads the OpenCode SQLite database read-only. Cost and tokens are recorded per assistant step, so they are split evenly across the tools that step invoked (`cost_kind: estimated`). MCP tools are recognised by the server names declared in the project's OpenCode config (`mcp` block and `.opencode/*.mcp.json`), so native tools whose names contain underscores are not mistaken for MCP tools. It also aggregates `bash`/`pty_spawn`/`skill`/`grep`/`glob` arguments — shell invocations are normalised to `program subcommand` (first two tokens) after stripping a leading `cd … &&`, with `pty_spawn`'s executable and argument array re-joined first so both channels read alike.

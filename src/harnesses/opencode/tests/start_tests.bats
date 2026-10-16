@@ -19,7 +19,9 @@ setup() {
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
 
   # The script resolves the binary at ${HOME}/.opencode/bin/opencode, so
-  # point HOME at a sandbox holding a fake binary that records its args.
+  # point HOME at a sandbox holding a fake binary that records its args. It
+  # answers --version like a real opencode (the launch runs the 1.x guard,
+  # which probes the version first).
   FAKE_HOME="$(mktemp -d)"
   FAKE_PROJECT="$(mktemp -d)"
   FAKE_ROOT="$(mktemp -d)"
@@ -27,6 +29,10 @@ setup() {
 
   cat > "${FAKE_HOME}/.opencode/bin/opencode" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+  printf '1.18.35\n'
+  exit 0
+fi
 printf '%s\n' "$*"
 EOF
   chmod +x "${FAKE_HOME}/.opencode/bin/opencode"

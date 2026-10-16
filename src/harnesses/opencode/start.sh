@@ -33,6 +33,15 @@ if [[ ! -f "${bin}" ]]; then
   exit 1
 fi
 
+# Refuse an opencode 2.x host before doing any work: the V1 plugin API dev-bot's
+# hooks and TUI plugins are built on does not exist there, so the harness would
+# boot with none of them loaded. Checked here, not only in up.sh, because
+# _run_service_scripts swallows a module up.sh's non-zero exit — this is the
+# call that actually refuses the launch.
+if ! _devbot_require_opencode_1x; then
+  exit 1
+fi
+
 # Cap the harness's own log — nothing else rotates it, and it grows without
 # bound (100 MB on a dev machine, never shrunk; audit-69 NOTE-2). One rotation
 # before launch; DEV_BOT_OPENCODE_LOG_MAX_BYTES overrides the 50 MB cap.
