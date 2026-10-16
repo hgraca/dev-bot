@@ -42,7 +42,7 @@
       "message": "sudo is blocked"
     },
     {
-      "regex": "git push --force",
+      "regex": "(^|[\\n;&|]\\s*)git\\b[^\\n]*\\bpush\\b[^\\n]*(\\s-f\\b|\\s--force)",
       "message": "force push is prohibited"
     },
     {
