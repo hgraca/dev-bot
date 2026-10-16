@@ -1,6 +1,45 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "lsp": true, // true = all built-ins; or an object to disable specific servers, e.g. { "intelephense": { "disabled": true } }
+  // LSP: all built-ins are enabled; the object form overrides named servers only.
+  // The PHP override trims what Intelephense indexes. Intelephense reads these
+  // settings only via LSP workspace/configuration (opencode answers it from
+  // server.initialization); a project-root intelephense.config.json is NOT read.
+  // vendor/ itself stays indexed so library symbols resolve — only vendor
+  // test/doc subtrees are skipped. The exclude list applies at the workspace
+  // root, so every vendor pattern carries a `vendor/` segment and cannot touch
+  // the project's own tests/ or docs/.
+  "lsp": {
+    "php intelephense": {
+      "command": [
+        "bash",
+        "__DEV_BOT_ROOT__/src/harnesses/opencode/lsp/intelephense.sh",
+        "--stdio"
+      ],
+      "initialization": {
+        // telemetry must sit inside the `intelephense` section: opencode answers
+        // workspace/configuration with initialization["intelephense"] only.
+        "intelephense": {
+          "telemetry": { "enabled": false },
+          "files": {
+            "exclude": [
+              "**/.git/**",
+              "**/.svn/**",
+              "**/.hg/**",
+              "**/CVS/**",
+              "**/.DS_Store/**",
+              "**/node_modules/**",
+              "**/bower_components/**",
+              "**/.history/**",
+              "**/vendor/**/tests/**",
+              "**/vendor/**/Tests/**",
+              "**/vendor/**/docs/**",
+              "**/vendor/**/vendor/**"
+            ]
+          }
+        }
+      }
+    }
+  },
   "model": "opencode/nemotron-3.5-lightning-free", // or "litellm/default"
   "small_model": "opencode/big-pickle", // or "litellm/low"
   //  "provider": {

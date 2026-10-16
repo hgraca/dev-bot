@@ -28,6 +28,24 @@ setup() {
   [[ "$output" == "true" || "$output" == "false" || "$output" == \{* ]]
 }
 
+@test "opencode.dist.jsonc: php intelephense override trims vendor tests/docs" {
+  # The only surface Intelephense reads is LSP workspace/configuration, which
+  # opencode answers from server.initialization. vendor/ stays indexed (library
+  # symbols resolve); only vendor test/doc subtrees are skipped. The bare
+  # `**/vendor/**` exclusion and `includePaths` must NOT appear: the exclude
+  # list runs at the workspace root, so a bare vendor pattern also kills library
+  # navigation once includePaths re-adds vendor.
+  run python3 "$READER" "$DIST" lsp
+  assert_success
+  assert_output --partial '"php intelephense"'
+  assert_output --partial '**/vendor/**/tests/**'
+  assert_output --partial '**/vendor/**/vendor/**'
+  refute_output --partial '"**/vendor/**"'
+  refute_output --partial '"includePaths"'
+  assert_output --partial 'telemetry'
+  assert_output --partial '__DEV_BOT_ROOT__'
+}
+
 @test "opencode.dist.jsonc plugin array carries the server plugins" {
   # opencode.json's plugin array is the *server* plugin surface: opencode
   # installs each npm spec at startup and caches it in ~/.cache/opencode.

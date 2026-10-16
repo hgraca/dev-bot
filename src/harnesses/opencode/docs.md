@@ -38,14 +38,16 @@ Each harness instance starts its own helper processes. Two levers keep that cost
 
 ### LSP servers
 
-opencode auto-starts a language server for every language it detects in the project (the `lsp` field in `opencode.jsonc`, default `true`). Each server is a separate process costing roughly 100–250 MB per instance — measured in this repo: pyright ~119 MB, bash-language-server ~107 MB; on PHP projects intelephense is the heaviest.
+opencode auto-starts a language server for every language it detects in the project (the `lsp` field in `opencode.jsonc`). Each server is a separate process costing roughly 100–250 MB per instance — measured in this repo: pyright ~119 MB, bash-language-server ~107 MB; on PHP projects intelephense is the heaviest.
 
-Disable the ones a project doesn't need by turning `lsp` into an object — the object form keeps every other built-in enabled:
+The shipped `opencode.jsonc` sets `lsp` to an object that overrides the built-in `"php intelephense"` server: it trims Intelephense's index to skip `vendor/**/tests`, `vendor/**/docs` and nested vendor trees while keeping vendor library symbols resolvable, caps its heap via `NODE_OPTIONS`, and launches it through `lsp/intelephense.sh` — which prefers the Intelephense version devbot pins (`versions.env`) over the older copy opencode bundles. Intelephense only reads these settings through LSP `workspace/configuration`, which opencode answers from the override's `initialization`; a project-root `intelephense.config.json` is **not** read.
+
+The object form overrides named servers only, keeping every other built-in enabled, and the key must be the built-in id (`"php intelephense"`) — a key like `"intelephense"` names a _custom_ server and silently does nothing. To disable a language server:
 
 ```jsonc
 // opencode.jsonc
 "lsp": {
-    "intelephense": { "disabled": true }
+    "php intelephense": { "disabled": true }
 }
 ```
 
