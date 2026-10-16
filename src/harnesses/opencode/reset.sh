@@ -316,4 +316,22 @@ for k in data.get('mcp', {}):
   unset REMOVE_PLUGIN_PY
 fi
 
+# ── Reconcile the shipped lsp override into an existing opencode.jsonc ────────
+# The dist's lsp block is seed-once (init skips an existing opencode.jsonc), so
+# an install seeded before it existed keeps `"lsp": true`. Seed the override only
+# when lsp is absent or still the plain `true`; a user's own lsp object is left
+# untouched.
+if [[ -f "${OPENCODE_CONFIG}" ]]; then
+  _lsp_now="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" lsp 2>/dev/null || true)"
+  if [[ -z "${_lsp_now}" || "${_lsp_now}" == "true" ]]; then
+    _lsp_dist="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${MODULE_DIR}/opencode.dist.jsonc" lsp 2>/dev/null || true)"
+    if [[ -n "${_lsp_dist}" ]]; then
+      _lsp_dist="${_lsp_dist//__DEV_BOT_ROOT__/${DEV_BOT_ROOT}}"
+      if python3 "${DEV_BOT_ROOT}/src/_shared/set_jsonc_key.py" "${OPENCODE_CONFIG}" lsp "${_lsp_dist}" >/dev/null 2>&1; then
+        _log "Reconciled the php intelephense lsp override into opencode.jsonc"
+      fi
+    fi
+  fi
+fi
+
 _ok "Opencode reset complete"
