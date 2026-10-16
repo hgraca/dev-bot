@@ -9,7 +9,8 @@
 #   bin/up.sh /path/to/project   # run in specified project
 #
 # Adding a new up step:
-#   Create src/tools/<module>/up.sh or src/agentic/<module>/up.sh — it will be auto-discovered and run.
+#   Create src/tools/<module>/up.sh, src/agentic/<module>/up.sh or
+#   src/harnesses/<module>/up.sh — it will be auto-discovered and run.
 # =============================================================================
 
 set -euo pipefail
