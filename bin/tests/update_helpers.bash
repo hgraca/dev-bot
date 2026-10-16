@@ -119,6 +119,7 @@ _new_sandbox() {
   ORIGIN="${SANDBOX}/origin"
   INSTALL="${SANDBOX}/install"
   export MODULE_STUB_MARKER="${SANDBOX}/module-stub-ran"
+  export HARNESS_STUB_MARKER="${SANDBOX}/harness-stub-ran"
 
   local versions="${1:-1.0.0:1.1.0}"
 
@@ -175,6 +176,15 @@ _install_machinery() {
 touch "${MODULE_STUB_MARKER:-/tmp/module-stub-ran}"
 STUB
   chmod +x "${INSTALL}/src/tools/external-modules/tools/module.sh"
+
+  # Harness stub — records that the harnesses update loop ran.
+  mkdir -p "${INSTALL}/src/harnesses/opencode"
+  cat > "${INSTALL}/src/harnesses/opencode/update.sh" <<'STUB'
+#!/usr/bin/env bash
+# Test stub: record that devbot update ran the harnesses loop.
+touch "${HARNESS_STUB_MARKER:-/tmp/harness-stub-ran}"
+STUB
+  chmod +x "${INSTALL}/src/harnesses/opencode/update.sh"
 }
 
 # Shallow-install sandbox, mirroring install.sh's `git clone --depth 1`.
@@ -187,6 +197,7 @@ _new_shallow_sandbox() {
   ORIGIN="${SANDBOX}/origin"
   INSTALL="${SANDBOX}/install"
   export MODULE_STUB_MARKER="${SANDBOX}/module-stub-ran"
+  export HARNESS_STUB_MARKER="${SANDBOX}/harness-stub-ran"
 
   if [[ -n "${UPDATE_SHALLOW_ORIGIN_CACHE:-}" ]]; then
     _ensure_shallow_origin_cache

@@ -33,6 +33,17 @@ teardown() { _update_teardown; }
   [[ "$UPDATE_OUTPUT" == *"gpu detection skipped"* ]]
 }
 
+@test "behind: runs the harnesses update loop" {
+  _new_sandbox "1.0.0:1.1.0"
+  _publish_release "g.txt" "release 1.2.0" "1.2.0"
+
+  _run_update
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  _refresh_ran
+  [ -f "${HARNESS_STUB_MARKER}" ]
+}
+
 @test "behind with dirty tree: stashes, jumps, reapplies cleanly" {
   _new_sandbox "1.0.0:1.1.0"
   _publish_release "g.txt" "release 1.2.0" "1.2.0"

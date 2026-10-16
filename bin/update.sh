@@ -23,10 +23,11 @@
 #                                   restore state, exit 1.
 #   3. Only when the checkout moved onto the new release:
 #        python/flock checks, legacy engine pins, npm update, each tool's
-#        update.sh under src/tools/, agentic pre.sh + update.sh, a refresh of
+#        update.sh under src/tools/, agentic pre.sh + update.sh, each harness's
+#        update.sh (machine-wide provisioning only — per-project wiring is never
+#        touched here and still reinits lazily), a refresh of
 #        the external module repos (module.sh install), and recording the
-#        release tag in the global config's `version`. Harnesses are never
-#        touched here.
+#        release tag in the global config's `version`.
 #   4. Nothing else: writing `version` changes each project's combined wiring
 #      hash, so every registered project reinit-wires itself on its next
 #      `devbot` start (lazy, per project).
@@ -627,6 +628,14 @@ main() {
   _update_modules "${DEV_BOT_ROOT}/src/agentic"
   module_count="${MODULE_SCRIPT_COUNT:-0}"
   module_failed="${MODULE_SCRIPT_FAILED:-0}"
+
+  # Harness update.sh scripts do machine-wide provisioning only (e.g. the
+  # opencode harness's pinned Intelephense); per-project wiring is never touched
+  # here — the release-hash change reinits each project lazily on its next start.
+  _header_2 "Harnesses"
+  _update_modules "${DEV_BOT_ROOT}/src/harnesses"
+  module_count=$(( module_count + ${MODULE_SCRIPT_COUNT:-0} ))
+  module_failed=$(( module_failed + ${MODULE_SCRIPT_FAILED:-0} ))
 
   _update_external_modules
 
