@@ -118,6 +118,24 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" remove <branch>  # remove
 on a conflict it aborts and leaves nothing merged. `remove` refuses a worktree with uncommitted
 changes. Never push — the human decides.
 
+### Drop the worktree's databases
+
+`remove` deletes the directory only. Where a project isolates databases per worktree — a
+dev-tools consumer rewrites `.env` to the worktree slug (`<slug>` and `<slug>_phpunit`) on a
+**shared** database server — those databases survive the worktree and accumulate. Drop them in
+the same cleanup, **before** `remove`, reading the project's own convention (`Makefile.proj.mk`
+`init-php` and its compose file) for the exact names and server. For a dev-tools project the
+databases live on the shared MariaDB/Mongo:
+
+```bash
+# MariaDB
+docker exec shared-db-1 mariadb -uroot -ptest \
+  -e 'DROP DATABASE IF EXISTS `<slug>`; DROP DATABASE IF EXISTS `<slug>_phpunit`;'
+# MongoDB — the convention rewrites DB_MONGO_DATABASE to the same slug
+docker exec shared-mongo-1 mongosh --quiet \
+  -e 'db.getSiblingDB("<slug>").dropDatabase(); db.getSiblingDB("<slug>_phpunit").dropDatabase();'
+```
+
 ## Opting out
 
 Worktrees are the project default. A project (or the global config) turns the policy off with:
