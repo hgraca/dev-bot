@@ -136,6 +136,20 @@ docker exec shared-mongo-1 mongosh --quiet \
   -e 'db.getSiblingDB("<slug>").dropDatabase(); db.getSiblingDB("<slug>_phpunit").dropDatabase();'
 ```
 
+### Remove the worktree's hosts entries
+
+A worktree's `init-hosts` also added its hosts to the hosts file — `<dir>.<base>.get-e.local`
+plus any project-specific ones — and they linger after `remove`. Remove them in the same
+cleanup. `host-requirements/run.sh` (run by `make up`) keeps the hosts file writable, so the
+project's helper does it without elevation:
+
+```bash
+scripts/ensure-hosts.sh --remove <the hosts the project's init-hosts adds>
+```
+
+Read the project's `Makefile.proj.mk` `init-hosts` for the exact names — the same literals the
+recipe adds, with `${WORKTREE_PREFIX}` (the worktree directory and a dot) in front.
+
 ## Opting out
 
 Worktrees are the project default. A project (or the global config) turns the policy off with:
