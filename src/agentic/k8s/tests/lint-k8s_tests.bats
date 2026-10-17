@@ -106,3 +106,137 @@ make_fixture() {
   assert_success
   refute_output --partial "All valid"
 }
+
+@test "a CRD without a bundled schema is skipped, not failed" {
+  local dir="$BATS_TEST_TMPDIR/crd"
+  mkdir -p "$dir"
+  printf 'apiVersion: example.com/v1\nkind: Widget\nmetadata:\n  name: demo\n' > "$dir/widget.yml"
+
+  run bash "$TOOL" "$dir"
+
+  assert_success
+  assert_output --partial "Skipped: 1"
+  assert_output --partial "All valid"
+}
+
+@test "--changed lints only manifests changed against the base ref" {
+  local dir="$BATS_TEST_TMPDIR/changed"
+  mkdir -p "$dir"
+  git -C "$dir" init --initial-branch=main >/dev/null 2>&1
+  git -C "$dir" config user.email "test@test.com"
+  git -C "$dir" config user.name "Test"
+  git -C "$dir" config commit.gpgsign false
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: first\n' > "$dir/first.yml"
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: second\n' > "$dir/second.yml"
+  git -C "$dir" add -A && git -C "$dir" commit -m initial >/dev/null 2>&1
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: second\n  labels:\n    changed: "yes"\n' > "$dir/second.yml"
+
+  run bash "$TOOL" --json --changed "$dir"
+
+  assert_success
+  assert_output --partial '"files": 1'
+  assert_output --partial '"changed": true'
+}
+
+@test "--changed reports no work when nothing changed" {
+  local dir="$BATS_TEST_TMPDIR/unchanged"
+  mkdir -p "$dir"
+  git -C "$dir" init --initial-branch=main >/dev/null 2>&1
+  git -C "$dir" config user.email "test@test.com"
+  git -C "$dir" config user.name "Test"
+  git -C "$dir" config commit.gpgsign false
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\n' > "$dir/manifest.yml"
+  git -C "$dir" add -A && git -C "$dir" commit -m initial >/dev/null 2>&1
+
+  run bash "$TOOL" --changed "$dir"
+
+  assert_success
+  assert_output --partial "no changed Kubernetes manifests"
+}
+
+@test "--changed works with a relative target" {
+  local dir="$BATS_TEST_TMPDIR/changed-relative"
+  mkdir -p "$dir"
+  git -C "$dir" init --initial-branch=main >/dev/null 2>&1
+  git -C "$dir" config user.email "test@test.com"
+  git -C "$dir" config user.name "Test"
+  git -C "$dir" config commit.gpgsign false
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: first\n' > "$dir/first.yml"
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: second\n' > "$dir/second.yml"
+  git -C "$dir" add -A && git -C "$dir" commit -m initial >/dev/null 2>&1
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: second\n  labels:\n    changed: "yes"\n' > "$dir/second.yml"
+
+  cd "$dir"
+  run bash "$TOOL" --json --changed .
+
+  assert_success
+  assert_output --partial '"files": 1'
+}
+
+@test "--changed resolves a .. target from a subdirectory" {
+  local dir="$BATS_TEST_TMPDIR/changed-subdir"
+  mkdir -p "$dir/sub"
+  git -C "$dir" init --initial-branch=main >/dev/null 2>&1
+  git -C "$dir" config user.email "test@test.com"
+  git -C "$dir" config user.name "Test"
+  git -C "$dir" config commit.gpgsign false
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\n' > "$dir/manifest.yml"
+  git -C "$dir" add -A && git -C "$dir" commit -m initial >/dev/null 2>&1
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\n  labels:\n    changed: "yes"\n' > "$dir/manifest.yml"
+
+  cd "$dir/sub"
+  run bash "$TOOL" --json --changed ..
+
+  assert_success
+  assert_output --partial '"files": 1'
+}
+
+@test "--changed rejects a base ref that does not name a commit" {
+  local dir="$BATS_TEST_TMPDIR/changed-bad-base"
+  mkdir -p "$dir"
+  git -C "$dir" init --initial-branch=main >/dev/null 2>&1
+  git -C "$dir" config user.email "test@test.com"
+  git -C "$dir" config user.name "Test"
+  git -C "$dir" config commit.gpgsign false
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\n' > "$dir/manifest.yml"
+  git -C "$dir" add -A && git -C "$dir" commit -m initial >/dev/null 2>&1
+
+  run bash "$TOOL" --changed --base not-a-ref "$dir"
+
+  assert_failure
+  assert_output --partial "does not name a commit"
+}
+
+@test "--changed options may follow the positional target" {
+  local dir="$BATS_TEST_TMPDIR/changed-path-first"
+  mkdir -p "$dir"
+  git -C "$dir" init --initial-branch=main >/dev/null 2>&1
+  git -C "$dir" config user.email "test@test.com"
+  git -C "$dir" config user.name "Test"
+  git -C "$dir" config commit.gpgsign false
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\n' > "$dir/manifest.yml"
+  git -C "$dir" add -A && git -C "$dir" commit -m initial >/dev/null 2>&1
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\n  labels:\n    changed: "yes"\n' > "$dir/manifest.yml"
+
+  run bash "$TOOL" "$dir" --json --changed
+
+  assert_success
+  assert_output --partial '"files": 1'
+}
+
+@test "--json --changed with no changes returns a valid empty report" {
+  local dir="$BATS_TEST_TMPDIR/changed-clean-json"
+  mkdir -p "$dir"
+  git -C "$dir" init --initial-branch=main >/dev/null 2>&1
+  git -C "$dir" config user.email "test@test.com"
+  git -C "$dir" config user.name "Test"
+  git -C "$dir" config commit.gpgsign false
+  printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo\n' > "$dir/manifest.yml"
+  git -C "$dir" add -A && git -C "$dir" commit -m initial >/dev/null 2>&1
+
+  run bash "$TOOL" --json --changed "$dir"
+
+  assert_success
+  assert_output --partial '"files":0'
+  assert_output --partial '"changed":true'
+}
