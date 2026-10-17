@@ -15,6 +15,17 @@ The core distinction: **creating a fixup commit is always safe** — it only add
 - **Default branch** (`main`, `master`, …) — never record a fixup. Its commits are shared; a correction there is a normal follow-up commit.
 - **Before merging** — fixup commits MUST be squashed into their targets first; they must never reach the default branch. Projects commonly enforce this with a CI check that fails a PR whose branch still contains `fixup!`/`squash!`/`amend!` commits, so an unsquashed fixup is expected to fail that check until it is folded in.
 
+## Choose the right action first
+
+| Situation                                                      | Action                                                                  |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Correction to an unpushed commit unique to this feature branch | `git commit --fixup=<sha>`                                              |
+| The target commit is itself a fixup                            | Target the commit it fixes — never create `fixup! fixup!`               |
+| Correction to a pushed/shared commit                           | Normal follow-up commit (rewriting needs explicit approval)             |
+| Correction on the default branch                               | Normal follow-up commit — fixups are forbidden there                    |
+| Branch under review with per-commit comments                   | A rewrite detaches the review; ask before squashing                     |
+| Memory/global note lives in another repository                 | Commit in the repository that owns the note; a fixup has no target here |
+
 ## Workflow
 
 ### 1. Identify the target commit

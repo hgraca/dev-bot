@@ -29,6 +29,11 @@ For each comment, include:
 
 Then ask the user to decide on **all** comments at once. Record each decision. This is discussion only — do not write code or commit during this step.
 
+**Autonomy exception.** When the caller has explicitly granted autonomy ("work autonomously",
+"address every finding without stopping"), do not wait for the approval round: state the assessment
+and chosen resolution for each finding in the final report, and implement the agreed resolution.
+The gate exists to protect the user's decision, not to block an explicit delegation.
+
 If the user requests a revised proposal for some comments, present a new round containing only those comments, following the same batched pattern, until every comment has a decision.
 
 ### Step 2: Implement and commit — only after every comment is decided
@@ -36,10 +41,17 @@ If the user requests a revised proposal for some comments, present a new round c
 Once **all** comments have a decision, and not before:
 
 1. **No code change needed** (per comment) — do not touch the code; the resolution is the explanation itself.
-2. **Code change needed** (per comment) — make the change and commit it. One commit per comment addressed.
+2. **Code change needed** — make the change and commit it. Use one commit per **independent finding**; group findings that edit the same hunk or paragraph into one commit, because splitting them forces overlapping commits for one logical edit.
 3. **Record each decision locally** — an issue is resolved only after the user decided it and the code (if any) is committed.
 
-When a comment's fix corrects code that a commit unique to the current feature branch introduced, record it as an **atomic fixup commit** against that commit (`git commit --fixup=<sha>`), one fixup per comment. On a feature branch this is the required form, not a preference — the fixups are squashed into their targets before the branch is merged (see `devbot:git-fixup-commits`). Never record a fixup on the default branch; a correction there is a normal follow-up commit. Do not bundle multiple comments into one commit.
+When a finding's fix corrects code that a commit unique to the current feature branch introduced,
+record it as an **atomic fixup commit** against that commit (`git commit --fixup=<sha>`). On a
+feature branch this is the required form, not a preference — the fixups are squashed into their
+targets before the branch is merged (see `devbot:git-fixup-commits`). Never record a fixup on the
+default branch; a correction there is a normal follow-up commit.
+
+**Target the original, not a fixup.** If the commit being corrected is itself a fixup, target the
+commit it fixes, never the fixup — `fixup! fixup! <subject>` cannot be autosquashed cleanly.
 
 ## MUST
 
@@ -47,9 +59,9 @@ When a comment's fix corrects code that a commit unique to the current feature b
 - Present all comments together in a single round — explain, assess, and propose a resolution for each before collecting any decision.
 - Collect the user's decisions for all comments in one reply — do not wait for a decision between comments.
 - Defer all implementation until every comment has a decision — never write code or commit mid-discussion.
-- Obtain an explicit decision from the user on each comment.
+- Obtain an explicit decision from the user on each comment, unless the caller granted autonomy explicitly.
 - Keep all actions local — never post replies, comments, or resolutions back to the review source.
-- Record each comment fix as an atomic fixup commit against the branch commit that introduced the code — keep it atomic, squashable into its target, and traceable. On a feature branch this is required; squash before merging, and never record a fixup on the default branch.
+- Record each independent finding as an atomic fixup commit against the branch commit that introduced the code — keep it atomic, squashable into its target, and traceable. On a feature branch this is required; squash before merging, and never record a fixup on the default branch.
 
 ## MUST NOT
 
@@ -58,4 +70,4 @@ When a comment's fix corrects code that a commit unique to the current feature b
 - Discuss comments one at a time — present them all together in a single round.
 - Skip the explain/assess/propose step for any comment.
 - Ignore or dismiss review comments without explanation.
-- Bundle multiple comment fixes into a single commit.
+- Bundle unrelated comment fixes into a single commit (related findings that edit one hunk may share a commit).
