@@ -188,9 +188,16 @@ with open('$tmpfile', 'w') as f:
 
   run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
   assert_success
-  [[ "$output" == *"OK — terminal marker found"* ]] || fail "expected OK for empty message (got: ${output:0:300})"
+  [[ "$output" == *"empty message, nothing to validate"* ]] || fail "expected an explicit empty-message result (got: ${output:0:300})"
 
   rm -f "$tmpfile"
+}
+
+@test "tool agent-communication: empty stdin is an explicit empty-message result" {
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file - < /dev/null
+
+  assert_success
+  [[ "$output" == *"empty message, nothing to validate"* ]] || fail "expected an explicit empty-message result (got: ${output:0:300})"
 }
 
 # ── validateMessage: fenced code block ───────────────────────────────────────

@@ -70,6 +70,12 @@ fi
 
 # ── Validate ─────────────────────────────────────────────────────────────────
 
+# An empty payload is not a parse error: there is simply nothing to validate.
+if [[ -z "${MSG_JSON//[$' \t\n\r']/}" ]]; then
+  echo "[agent-communication] OK — empty message, nothing to validate"
+  exit 0
+fi
+
 # Check it's valid JSON
 if ! echo "$MSG_JSON" | jq empty 2>/dev/null; then
   echo "[agent-communication] Invalid JSON in message" >&2
@@ -88,7 +94,7 @@ TEXT=$(echo "$MSG_JSON" | jq -r '[.parts[]? | select(.type == "text") | .text //
 
 # Empty or whitespace-only messages auto-pass (nothing to validate)
 if [[ -z "${TEXT//[$' \t\n\r']/}" ]]; then
-  echo "[agent-communication] OK — terminal marker found"
+  echo "[agent-communication] OK — empty message, nothing to validate"
   exit 0
 fi
 
