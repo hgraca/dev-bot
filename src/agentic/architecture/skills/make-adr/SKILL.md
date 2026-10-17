@@ -31,17 +31,25 @@ Explore codebase for:
 - Two or more credible options
 - Relevant code, config, or documentation
 
-### Step 2 — Determine ADR number
+### Step 2 — Find the project's ADR convention
 
-List files in `.ai/local/ADRs/`. New number = highest `ADR-NNN` + 1, zero-padded to three digits.
+Do not assume `.ai/local/ADRs/`. Look for existing ADRs, in this order:
+
+1. `.agents/memory/latent/ADRs/` — the dev-bot vault convention: `YYYYMMDDHHMMSS-<slug>.md` with
+   `date` and `keywords` frontmatter, numbered in time order. There is no `ADR-NNN` counter.
+2. `docs/adr/`, `docs/adrs/`, `adr/` — the repository's own numbered convention, if present.
+3. `.ai/local/ADRs/ADR-NNN-*.md` — only when that directory exists.
+
+Follow the newest established convention. If none exists, ask which layout the project wants before
+creating one.
 
 ### Step 3 — Derive filename
 
-Pattern: `ADR-{NNN}-{kebab-case-title}.md`
+Use the convention found in Step 2. For the vault layout: `YYYYMMDDHHMMSS-<kebab-slug>.md`
+(e.g. `.agents/memory/latent/ADRs/20261017095312-adopt-tool-grades.md`). For a numbered layout:
+`ADR-{NNN}-{kebab-case-title}.md`, where the number is the highest existing number + 1.
 
 Title: short, present-tense imperative phrase, <50 chars, lowercase kebab-case, no articles unless essential.
-
-Example: `.ai/local/ADRs/ADR-015-enforce-cursor-based-pagination.md`
 
 ### Step 4 — Write ADR
 
@@ -118,11 +126,12 @@ ADRs documenting _conformance_ (not deviation) do not need this section.
 
 ### Step 5 — Save
 
-Write to `.ai/local/ADRs/{filename}.md`. Confirm file path and title to user.
+Write to the path chosen in Step 2 — the project's ADR directory and filename convention.
+Confirm the file path and title with the user.
 
 ## Quality Checklist
 
-- Filename follows `ADR-{NNN}-{kebab-case-title}.md`
+- Filename follows the convention resolved in Step 2 (vault timestamp or `ADR-NNN`)
 - Title is present-tense imperative, <50 chars
 - Summary uses exact structured format
 - At least two options, chosen marked `(decided)`

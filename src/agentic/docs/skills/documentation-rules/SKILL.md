@@ -5,6 +5,13 @@ description: "Use when writing documentation or updating the README. Triggers on
 
 # Repository Documentation
 
+## Scope
+
+This skill describes the **dev-bot documentation site** (`src/<area>/<module>/docs.md` plus
+`docs/`). It is not a universal layout: when working in another repository, use that repository's
+existing docs structure; when working in a memory vault, `devbot:memory-management` governs the
+note paths and frontmatter. Read the target repo before applying the rules below.
+
 ## When to Apply
 
 - Writing or organizing repository documentation

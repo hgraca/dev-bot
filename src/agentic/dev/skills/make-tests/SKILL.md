@@ -15,6 +15,20 @@ description: "Use when writing tests or choosing a test strategy."
 
 Prefer the project's own test commands where they exist (check the project's `Makefile`, package scripts, or `project.md`). This skill defines _what_ to test and _where_; it does not prescribe how to invoke the test runner — that is project-specific.
 
+## Detect the stack first
+
+The layer table below is PHP/Laravel-shaped. Read the repository before applying it:
+
+| Stack                     | Where tests live                                                                 |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| PHP/Laravel               | `tests/Unit/`, `tests/Integration/`, mirroring the source layer                  |
+| Bash tooling              | BATS suites beside the module: `src/agentic/<module>/tests/*.bats`               |
+| Python                    | `test_*.py` beside the code (or the repo's existing `tests/` root)               |
+| TypeScript/Python package | The runner's convention (`*.test.ts`, `__tests__/`, …); read a neighbouring test |
+
+The strongest signal is the nearest existing test file: copy its location, naming, and fixture
+style. Do not invent a `tests/Unit` tree in a repository that has none.
+
 ## Test Naming
 
 Method names describe scenario, not implementation:
