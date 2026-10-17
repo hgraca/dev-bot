@@ -48,6 +48,20 @@ mount roots (`/app`, `/workspace`) are routinely rejected even for small
 repos. When it errors, point `repo_path` at a source subdirectory (e.g. `src/`)
 instead of the project root; a subdirectory always works.
 
+## Preflight before a query
+
+1. Call `list_projects` and use the exact project id — it is path-derived
+   (`home-<user>-Development-...-app`), not the folder name. A `project not found` error means
+   "use the id", not "retry the same call".
+2. Call `index_status` for the chosen project. A `freshness: missing` or stale result means line
+   numbers and symbols may not match the working tree: run `index_repository` on the source root, or
+   fall back to grep/read.
+3. If the gateway is unreachable (`Unable to connect`), report it once and fall back to grep/read.
+   Do not retry more than once.
+4. Semantic tools fail when no embedding provider is configured; structural `search_graph`,
+   `search_code`, `trace_path` and `query_graph` still work. Do not treat a semantic failure as
+   "no results".
+
 ## MCP Tools
 
 ### `index_repository` — Build/refresh the index

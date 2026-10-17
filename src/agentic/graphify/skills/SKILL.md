@@ -34,6 +34,15 @@ Turn any folder of files into a navigable knowledge graph with community detecti
 /graphify explain "SwinTransformer"                   # plain-language explanation of a node
 ```
 
+## Preflight before querying an existing graph
+
+- Check `graphify-out/graph.json` exists and is non-empty (`graphify_graph_stats`).
+- When stats report zero nodes, the server is disabled, or the graph is unreachable, record
+  `Graphify: not indexed — skipped` and fall back to grep/read. Do not run `query_graph` on an empty
+  graph: it returns unrelated nodes and reads as evidence when it is none.
+- An empty or stale graph is not evidence that a symbol does not exist.
+- After modifying code, run `graphify update .` (AST-only, no API cost) to keep the graph current.
+
 ## What graphify is for
 
 graphify is built around Andrej Karpathy's /raw folder workflow: drop anything into a folder - papers, tweets, screenshots, code, notes - and get a structured knowledge graph that shows you what you didn't know was connected.
