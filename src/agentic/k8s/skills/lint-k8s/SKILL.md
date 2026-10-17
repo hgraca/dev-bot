@@ -25,11 +25,13 @@ You have a built-in custom tool `devbot:lint-k8s`. It runs both kubeconform and 
 
 Use the tool call mechanism — call `devbot:lint-k8s` with these arguments:
 
-| Arg      | Required | Description                                          |
-| -------- | -------- | ---------------------------------------------------- |
-| `path`   | Yes      | File or directory path containing YAML/YML manifests |
-| `schema` | No       | kubeconform schema location (default: auto-detect)   |
-| `format` | No       | `"json"` (default) or `"markdown"`                   |
+| Arg       | Required | Description                                                  |
+| --------- | -------- | ------------------------------------------------------------ |
+| `path`    | Yes      | File or directory path containing YAML/YML manifests         |
+| `schema`  | No       | kubeconform schema location (default: auto-detect)           |
+| `format`  | No       | `"text"` (default), `"json"` or `"markdown"`                 |
+| `changed` | No       | Lint only manifests changed against `base` (default: `HEAD`) |
+| `base`    | No       | Git ref for `changed` (default: `HEAD`)                      |
 
 **Tool call pattern**:
 
@@ -68,6 +70,10 @@ The tool returns a JSON object:
 }
 ```
 
+Kinds with no bundled schema (CRDs such as ArgoCD Applications or ExternalSecrets) are reported as
+skipped, not failed. Passing an explicit `schema` turns that leniency off: a manifest that cannot
+resolve against the named schema stays an error.
+
 **kubeconform failures** (`valid: false`) = hard errors. Manifest rejected by API server. Fix immediately.
 
 **kube-linter violations** (`violations > 0`) = best-practice recommendations. Review each:
@@ -79,7 +85,10 @@ The tool returns a JSON object:
 ## Workflow
 
 1. **Identify** all YAML/YML/JSON manifest files under the target path. Directory sweeps gather only files that look like Kubernetes manifests (contain an `apiVersion` and a `kind` key) — non-manifest YAML/JSON (config files, editor/tool caches such as `.opencode/index/` or `graphify-out`) is skipped, so a sweep never drowns real findings in "missing 'kind' key" noise. Pass an explicit file path to lint a file that the sweep would skip.
-2. **Invoke** `lint-k8s(path: "<target-path>")` using your built-in tool
+2. **Invoke** `lint-k8s` with `args=["<target-path>"]`. On a review, add
+   `["--changed", "--base", "<merge-base>"]` — the default base is `HEAD`, which skips a clean
+   feature branch's committed changes. Use `git merge-base origin/<default> HEAD` (or the base
+   branch) as `<merge-base>`. Options go in the `args` array, not named properties.
 3. **Parse** the JSON result:
    - Report kubeconform errors with filename + message
    - Report kube-linter violations grouped by severity (from `kubelinter.report`)
