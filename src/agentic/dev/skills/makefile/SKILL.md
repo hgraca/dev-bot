@@ -13,8 +13,24 @@ description: "Use when running project commands through make or setting up makef
 
 ## Rules
 
+- Read the repository's own `Makefile`/`Makefile.proj.mk` before assuming a target exists; target names and per-file runners differ per project.
 - Never bypass the Makefile — extend it when the lifecycle changes.
-- Run all CLI commands inside the `app` container, never on the host (avoids permission issues and keeps commands in the project environment).
+- Run CLI commands inside the `app` container **when the project has one**.
+
+## Detect the runner first
+
+This skill describes the DevTools app-container model. Not every repository uses it; dev-bot itself
+runs `make test` on the host, and some libraries have no container at all.
+
+| Repository shape                                                  | How to run                                                                                                                                                                            |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Has `Makefile.proj.mk` + `PROJECT_NAME` + a compose `app` service | `make <target>`; the `.docker-wrap-%` rule runs it in the app container                                                                                                               |
+| Has a Makefile but no app container                               | Run the target on the host — do not force `docker compose`                                                                                                                            |
+| Linked worktree                                                   | Check `PROJECT_NAME`: if it pins the main checkout's container, `make` reads the main tree. Run `docker exec` with an explicit `--workdir`/`cd`, or a worktree-scoped compose project |
+| `make up`/compose `exec -it`                                      | Needs a TTY: do not redirect stdin from `/dev/null` (see `devbot:shell-strategy`)                                                                                                     |
+
+When the Makefile has per-file targets (`make t FILE=...`, `make ut`, `make unit`), read the
+`Makefile.proj.mk` target definition rather than guessing — aliases differ between repositories.
 
 ## Makefiles structure
 
