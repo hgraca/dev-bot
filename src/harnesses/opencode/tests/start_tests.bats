@@ -192,6 +192,7 @@ STUB
   cat > "${fake_qmd}/qmd" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >> "${QMD_CALL_LOG:?}"
+[[ "${1:-} ${2:-}" != "collection show" ]] || exit 1
 exit 0
 EOF
   chmod +x "${fake_qmd}/qmd"
