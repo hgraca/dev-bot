@@ -28,14 +28,16 @@ Read the annex _before_ implementing or reviewing — not after. Stack detection
 
 ## Preemptive Context Skill Loading
 
-On first load, load these context skills preemptively if not already loaded:
+On first load, load `devbot:git-commits` preemptively if it is not already loaded — every commit
+depends on the shared rules it carries.
 
-- `devbot:make-tests` — test strategy and conventions
-- `test-driven-development` — tests-first discipline
-- `devbot:git-commits` — the shared commit rules: subject form, the Problems/Solutions body, and the history-rewrite safety rule
-- `devbot:git-conventional-commits` — commit message taxonomy
-- `devbot:git-atomic-commits` — one logical change per commit
-- `devbot:git-fixup-commits` — correcting earlier commits on the branch
+Do **not** preload the other commit-technique or test skills. They fire from their own triggers:
+
+- `devbot:git-conventional-commits` — when wording a commit message
+- `devbot:git-atomic-commits` — when splitting or ordering commits
+- `devbot:git-fixup-commits` — when correcting a commit unique to the branch
+- `devbot:make-tests` — when writing tests or choosing a test strategy
+- `test-driven-development` — when implementing logic or fixing a bug
 
 ## Code-Quality Principles
 
