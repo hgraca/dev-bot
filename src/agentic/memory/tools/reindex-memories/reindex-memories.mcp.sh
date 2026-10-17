@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---
-# description: Rebuild the memory index in the background (fire-and-forget) using the configured memory-search engine (qmd: cleanup && update, BM25-only; mdctx: incremental build of the project + global indexes). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one, or 'prune' to run the cheap self-heal for stale deleted-note entries.
+# description: Rebuild the memory index in the background (fire-and-forget) using the configured memory-search engine (qmd: cleanup && update, BM25-only; mdctx: incremental build of the project + global indexes). Coalesces concurrent runs via a pidfile. Pass 'status' to check whether a reindex is running without launching one, or 'prune' to run the incremental rebuild that drops deleted-note entries (same background build as the default; verify completion with 'status').
 # ---
 # =============================================================================
 # src/agentic/memory/tools/reindex-memories/reindex-memories.mcp.sh
@@ -30,7 +30,7 @@ CANONICAL="${SCRIPT_DIR}/../reindex-passive-memories.sh"
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"reindex-memories","description":"Rebuild the memory index in the background (fire-and-forget) using the configured memory-search engine (qmd: cleanup && update, BM25-only; mdctx: incremental build of the project + global indexes). Coalesces concurrent runs via a pidfile. Pass the argument 'status' to check whether a reindex is running without launching one, or 'prune' to run the cheap self-heal for stale deleted-note entries.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"Optional positional: 'status' to report running/idle without launching; 'prune' to launch the cheap self-heal pass"}}}}
+{"name":"reindex-memories","description":"Rebuild the memory index in the background (fire-and-forget) using the configured memory-search engine (qmd: cleanup && update, BM25-only; mdctx: incremental build of the project + global indexes). Coalesces concurrent runs via a pidfile. Pass 'status' to check whether a reindex is running without launching one, or 'prune' to run the incremental rebuild that drops deleted-note entries (same background build as the default; verify completion with 'status').","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"Optional positional: 'status' to report running/idle without launching; 'prune' to launch the cheap self-heal pass"}}}}
 JSON
     exit 0
     ;;
