@@ -39,6 +39,13 @@ Do **not** preload the other commit-technique or test skills. They fire from the
 - `devbot:make-tests` — when writing tests or choosing a test strategy
 - `test-driven-development` — when implementing logic or fixing a bug
 
+## External documentation
+
+For a library, framework, SDK or API question, prefer the official documentation over memory:
+use `context7` (`resolve-library-id` → `query-docs`) when the MCP is available in this project;
+otherwise fetch the vendor docs with `webfetch`/`websearch`. Check the installed version first — a
+docs answer for the wrong major version is worse than no answer.
+
 ## Code-Quality Principles
 
 ### Optimal over easy

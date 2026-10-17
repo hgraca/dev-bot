@@ -38,6 +38,13 @@ Output: a JSON file following the `UseCaseMap.schema.json` schema, renderable by
 - Onboarding: understand how a new codebase is wired
 - Architecture review: verify layering and coupling
 - Before refactoring: see the blast radius of changes
+- "How does request/command X flow end to end?" in a PHP or message-bus repository
+- Tracing a controller/CLI entry point through handler → port → adapter → HTTP client
+- Mapping a cross-service call chain before changing a port or adapter
+
+Reach for this instead of assembling the chain by hand from grep results: it resolves inheritance,
+interface implementations and dispatch patterns that a text search misses.
+
 - After implementation: verify the flow matches the design
 - Documentation: generate a visual overview for stakeholders
 
