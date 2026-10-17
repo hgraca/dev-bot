@@ -26,6 +26,7 @@
 # Modes:
 #   (default)        background build (fire-and-forget); coalesces via pidfile
 #   prune            alias of the default — the delete→prune self-heal entry
+#                    (an incremental rebuild; it is not a separate cheap pass)
 #   --sync           foreground build; blocks until done
 #   --ensure         build only when the branch record no longer matches; blocks
 #   status           report running/idle from the pidfile; never builds
