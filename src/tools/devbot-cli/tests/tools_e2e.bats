@@ -117,6 +117,44 @@ EOF
   assert_success
   [[ "$output" == *"## Sibling Projects"* ]] || fail "expected '## Sibling Projects' header"
 }
+@test "tool list-projects: --filter narrows by name or path" {
+  local root="$BATS_TEST_TMPDIR/projects"
+  mkdir -p "$root/alpha" "$root/beta-service" "$root/gamma"
+  printf '{"projects":["%s","%s","%s"]}\n' "$root/alpha" "$root/beta-service" "$root/gamma" > "$root/global.jsonc"
+
+  run env DEV_BOT_GLOBAL_CONFIG="$root/global.jsonc" bash "${PROJECT_ROOT}/src/tools/devbot-cli/tools/list-projects.mcp.sh" --filter 'beta|gamma'
+
+  assert_success
+  [[ "$output" == *"beta-service"* ]] || fail "expected beta-service"
+  [[ "$output" == *"gamma"* ]] || fail "expected gamma"
+  [[ "$output" != *"alpha"* ]] || fail "alpha should be filtered out"
+}
+
+@test "tool list-projects: --only accepts a comma-separated list" {
+  local root="$BATS_TEST_TMPDIR/projects-only"
+  mkdir -p "$root/alpha" "$root/beta" "$root/gamma"
+  printf '{"projects":["%s","%s","%s"]}\n' "$root/alpha" "$root/beta" "$root/gamma" > "$root/global.jsonc"
+
+  run env DEV_BOT_GLOBAL_CONFIG="$root/global.jsonc" bash "${PROJECT_ROOT}/src/tools/devbot-cli/tools/list-projects.mcp.sh" --only alpha,gamma --compact
+
+  assert_success
+  [[ "$output" == *"alpha"* ]] || fail "expected alpha"
+  [[ "$output" == *"gamma"* ]] || fail "expected gamma"
+  [[ "$output" != *"beta"* ]] || fail "beta should be excluded"
+}
+
+@test "tool list-projects: --compact omits the markdown table" {
+  local root="$BATS_TEST_TMPDIR/projects-compact"
+  mkdir -p "$root/alpha"
+  printf '{"projects":["%s"]}\n' "$root/alpha" > "$root/global.jsonc"
+
+  run env DEV_BOT_GLOBAL_CONFIG="$root/global.jsonc" bash "${PROJECT_ROOT}/src/tools/devbot-cli/tools/list-projects.mcp.sh" --compact
+
+  assert_success
+  [[ "$output" == *"alpha"* ]] || fail "expected alpha"
+  [[ "$output" != *"## Sibling Projects"* ]] || fail "compact output must omit the header"
+  [[ "$output" != *"| Name |"* ]] || fail "compact output must omit the table"
+}
 
 # ── agent-communication.mcp.sh ─────────────────────────────────────────────────────
 
@@ -156,4 +194,38 @@ with open('$tmpfile', 'w') as f:
   grep -qF 'Missing terminal marker' <<< "$output" || fail "expected 'Missing terminal marker' (got: ${output:0:300})"
 
   rm -f "$tmpfile"
+}
+
+@test "tool list-projects: an invalid --filter regex is a usage error" {
+  local root="$BATS_TEST_TMPDIR/projects-bad-regex"
+  mkdir -p "$root/alpha"
+  printf '{"projects":["%s"]}\n' "$root/alpha" > "$root/global.jsonc"
+
+  run env DEV_BOT_GLOBAL_CONFIG="$root/global.jsonc" bash "${PROJECT_ROOT}/src/tools/devbot-cli/tools/list-projects.mcp.sh" --filter '[unclosed'
+
+  assert_failure
+  assert_output --partial "invalid --filter regex"
+}
+
+@test "tool list-projects: an unknown flag is a usage error" {
+  local root="$BATS_TEST_TMPDIR/projects-bad-flag"
+  mkdir -p "$root/alpha"
+  printf '{"projects":["%s"]}\n' "$root/alpha" > "$root/global.jsonc"
+
+  run env DEV_BOT_GLOBAL_CONFIG="$root/global.jsonc" bash "${PROJECT_ROOT}/src/tools/devbot-cli/tools/list-projects.mcp.sh" --compac
+
+  assert_failure
+  assert_output --partial "unknown argument"
+}
+
+@test "tool list-projects: --filter anchors match the name, not the path" {
+  local root="$BATS_TEST_TMPDIR/projects-anchored"
+  mkdir -p "$root/alpha" "$root/beta"
+  printf '{"projects":["%s","%s"]}\n' "$root/alpha" "$root/beta" > "$root/global.jsonc"
+
+  run env DEV_BOT_GLOBAL_CONFIG="$root/global.jsonc" bash "${PROJECT_ROOT}/src/tools/devbot-cli/tools/list-projects.mcp.sh" --filter '^alpha$'
+
+  assert_success
+  assert_output --partial "alpha"
+  refute_output --partial "beta"
 }
