@@ -172,8 +172,16 @@ STUB
   cat > "${fake_qmd}/qmd" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >> "${QMD_CALL_LOG:?}"
-[[ "${1:-} ${2:-}" != "collection show" ]] || exit 1
-exit 0
+  state="${QMD_CALL_LOG}.collection"
+  case "${1:-} ${2:-}" in
+    "collection show")
+      path="$(cat "$state" 2>/dev/null || true)"
+      [[ -n "$path" ]] || exit 1
+      printf 'Path: %s\n' "$path"
+      ;;
+    "collection add") printf '%s\n' "${3:-}" > "$state" ;;
+    "collection remove") : > "$state" ;;
+  esac
 EOF
   chmod +x "${fake_qmd}/qmd"
   call_log="$(mktemp)"
