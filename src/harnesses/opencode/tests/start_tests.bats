@@ -208,7 +208,7 @@ EOF
 
   local i
   for i in $(seq 1 50); do
-    [[ "$(wc -l < "${call_log}" 2>/dev/null || echo 0)" -ge 2 ]] && break
+    grep -qx "update" "${call_log}" 2>/dev/null && break
     sleep 0.1
   done
   run cat "${call_log}"
