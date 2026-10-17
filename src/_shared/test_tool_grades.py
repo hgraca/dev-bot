@@ -82,6 +82,68 @@ class ToolGradesTest(unittest.TestCase):
         self.assertEqual(tg.display_name("mcp:devbot-tools:format-md"), "devbot-tools:format-md")
         self.assertEqual(tg.display_name("skill:devbot:makefile"), "devbot:makefile")
 
+    def test_canonical_column_collapses_the_doubled_devbot_tools_prefix(self):
+        self.assertEqual(
+            tg.canonical_column("mcp:devbot-tools:devbot-tools:tree"),
+            "mcp:devbot-tools:tree",
+        )
+        self.assertEqual(tg.canonical_column("mcp:signoz"), "mcp:signoz")
+        self.assertEqual(tg.canonical_column("skill:devbot:makefile"), "skill:devbot:makefile")
+
+    def test_duplicate_devbot_tools_columns_merge_into_one_tool(self):
+        header = BASE + [
+            "mcp:devbot-tools:format-md",
+            "mcp:devbot-tools:devbot-tools:format-md",
+        ]
+        rows = [
+            row(grades={"mcp:devbot-tools:format-md": 4}),
+            row(grades={"mcp:devbot-tools:devbot-tools:format-md": 3}),
+        ]
+        block = tg.aggregate(header, rows)
+        tool = self._tool(block, "mcp:devbot-tools:format-md")
+        self.assertEqual(tool["uses"], 2)
+        self.assertEqual(tool["avg"], 3.5)
+        self.assertEqual(tg.tool_columns(header), ["mcp:devbot-tools:format-md"])
+
+    def test_a_row_carrying_both_spellings_counts_once_from_the_canonical_column(self):
+        header = BASE + [
+            "mcp:devbot-tools:devbot-tools:format-md",
+            "mcp:devbot-tools:format-md",
+        ]
+        rows = [
+            row(
+                grades={
+                    "mcp:devbot-tools:devbot-tools:format-md": 3,
+                    "mcp:devbot-tools:format-md": 5,
+                }
+            )
+        ]
+        block = tg.aggregate(header, rows)
+        tool = self._tool(block, "mcp:devbot-tools:format-md")
+        self.assertEqual(tool["uses"], 1)
+        self.assertEqual(tool["avg"], 5)
+
+    def test_a_backfilled_zero_does_not_hide_the_legacy_grade(self):
+        # record-grades.py backfills every unused column with 0. After the
+        # rename, old rows carry canonical=0 and legacy=<grade>; the reader
+        # must fall through the 0 and keep the real grade.
+        header = BASE + [
+            "mcp:devbot-tools:devbot-tools:format-md",
+            "mcp:devbot-tools:format-md",
+        ]
+        rows = [
+            row(
+                grades={
+                    "mcp:devbot-tools:devbot-tools:format-md": 4,
+                    "mcp:devbot-tools:format-md": 0,
+                }
+            )
+        ]
+        block = tg.aggregate(header, rows)
+        tool = self._tool(block, "mcp:devbot-tools:format-md")
+        self.assertEqual(tool["uses"], 1)
+        self.assertEqual(tool["avg"], 4)
+
     def test_reason_texts_match_label_and_short_name(self):
         notes = (
             "devbot:makefile (3): guided the make targets, but the Makefile itself is the substitute.\n"
