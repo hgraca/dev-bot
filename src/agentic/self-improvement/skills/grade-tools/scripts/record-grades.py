@@ -24,6 +24,7 @@ Usage:
         [--skill <name>=<grade>]... \\
         [--devbot-root DIR] [--project-root DIR] \\
         [--actor NAME] [--session-id ID] [--now "YYYY-MM-DD HH:MM:SS"]
+    record-grades.py --last-row   # print this session+actor's last row id (or "none")
 
 `--mcp-tool` targets the self-owned `devbot-tools` server, one column per tool.
 `--project-root` defaults to the current directory — run from the project root.
@@ -93,6 +94,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--actor", default=None, help=f"agent owning this row (default: ${AGENT_NAME_ENV})"
     )
     parser.add_argument("--now", default=None, help="row timestamp (default: now, local)")
+    parser.add_argument(
+        "--last-row",
+        action="store_true",
+        help="print the last row id for this session and actor, then exit (no row is written)",
+    )
     parser.add_argument("--verbose", action="store_true", help="print the appended row id (debug aid)")
     return parser.parse_args(argv)
 
@@ -275,6 +281,40 @@ def next_row_id(rows: list[dict[str, object]], session: str) -> str:
     return f"{session}-{highest + 1:02d}"
 
 
+def find_last_row(
+    rows: list[dict[str, object]], session: str, actor: str
+) -> dict[str, object] | None:
+    """The highest-numbered row written by this session and actor, or ``None``.
+
+    Actor matching is case-insensitive, and a row written before the actor
+    column existed is attributed to the primary agent, matching the backfill
+    rule above. Missing rows are not an error: the caller's slice is then the
+    whole session.
+    """
+    prefix = session + "-"
+    wanted_actor = (actor or "").strip().lower() or DEFAULT_ACTOR.lower()
+    best: tuple[int, dict[str, object]] | None = None
+    for row in rows:
+        value = str(row.get("session_id") or "").strip()
+        if not value.startswith(prefix):
+            continue
+        suffix = value[len(prefix):]
+        if not suffix.isdigit():
+            continue
+        if "actor" not in row:
+            row_actor = DEFAULT_ACTOR.lower()
+        else:
+            # A blank cell on a matrix that has the actor column means "not
+            # known", not the legacy DevBot default.
+            row_actor = str(row.get("actor") or "").strip().lower()
+        if row_actor != wanted_actor:
+            continue
+        number = int(suffix)
+        if best is None or number > best[0]:
+            best = (number, row)
+    return best[1] if best is not None else None
+
+
 def tool_sort_key(column: str) -> tuple[int, str]:
     return (0 if column.startswith(MCP_PREFIX) else 1, column)
 
@@ -320,16 +360,22 @@ def write_csv(path: str, columns: list[str], rows: list[dict[str, object]]) -> N
 
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
+    root = resolve_devbot_root(args.devbot_root, os.environ, Path(__file__))
+    csv_path = os.path.join(root, *CSV_PARTS)
+    session = resolve_session_id(args.session_id)
+    actor = resolve_actor(args.actor)
+
+    if args.last_row:
+        _, rows = read_existing(csv_path)
+        last = find_last_row(rows, session, actor)
+        print(str(last["session_id"]) if last else "none")
+        return 0
+
     tools = collect_tools(args)
     notes = normalise_notes(args.notes)
     assert_grades_explained(tools, notes)
 
-    root = resolve_devbot_root(args.devbot_root, os.environ, Path(__file__))
-    csv_path = os.path.join(root, *CSV_PARTS)
     os.makedirs(os.path.dirname(csv_path) or ".", exist_ok=True)
-
-    session = resolve_session_id(args.session_id)
-    actor = resolve_actor(args.actor)
     project = project_name(args.project_root or os.getcwd())
     now = args.now or datetime.now().strftime(DATETIME_FORMAT)
 
