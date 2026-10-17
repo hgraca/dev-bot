@@ -387,3 +387,36 @@ STUB
   assert_output --partial "prettier (or node) not found"
   assert_output --partial "a:   1"
 }
+
+@test "single file: reports how many files changed" {
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
+  printf 'a:   1\n' > "$tmpfile"
+
+  run bash "$TOOL" "$tmpfile"
+
+  assert_success
+  assert_output --partial "format-yml: 1 file(s) checked, 1 changed"
+}
+
+@test "--check: exits 1 and lists a file that needs formatting" {
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.yml)"
+  printf 'a:   1\n' > "$tmpfile"
+
+  run bash "$TOOL" --check "$tmpfile"
+
+  assert_failure
+  assert_output --partial "$tmpfile"
+  assert_output --partial "1 need formatting"
+  run cat "$tmpfile"
+  assert_output --partial "a:   1"
+}
+
+@test "--check missing file: exits 1 instead of a false green" {
+  run bash "$TOOL" --check "$BATS_TEST_TMPDIR/missing.yml"
+
+  assert_failure
+  assert_output --partial "is not a file or directory"
+  assert_output --partial "0 file(s) checked"
+}

@@ -30,6 +30,7 @@ USAGE = """\
 Usage:
   format-json.py <directory>               Format all .json/.jsonc files in directory (recursive)
   format-json.py <file> [<file>...]         Format specific files in-place
+  format-json.py --check <path>...          Report files that need formatting (exit 1 if any)
   format-json.py --force <file> [<file>...] Format even without a project prettier config
   cat file.json | format-json.py           Pipe mode: stdin -> stdout
   format-json.py --help                    Show this help
@@ -64,17 +65,19 @@ def format_json_text(text: str, file_path: str | None = None, extra_args: list[s
     """
     cmd = PRETTIER_CMD + (extra_args or [])
     try:
-        proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=30)
+        proc = subprocess.run(
+            cmd, input=text.encode("utf-8"), capture_output=True, timeout=30
+        )
     except FileNotFoundError as e:
         # The binary vanished between the availability check and the exec.
         # Reported as a formatting failure — never as a vanished file, whose
         # warning exits 0 and would hide a broken installation.
         raise ValueError(f"prettier could not be executed: {e}") from e
     if proc.returncode != 0:
-        stderr = proc.stderr.strip()
+        stderr = proc.stderr.decode("utf-8", "replace").strip()
         raise ValueError(f"prettier formatting failed: {stderr or '(no error output)'}")
 
-    return proc.stdout
+    return proc.stdout.decode("utf-8")
 
 
 # ── File-level operations ──────────────────────────────────────────────────
@@ -98,25 +101,26 @@ def _warn_missing(path: str) -> None:
     print(f"WARN: {path!r} is not a file or directory — nothing to format", file=sys.stderr)
 
 
-def format_file(path: str) -> None:
-    """Format a single JSON or JSONC file in-place via prettier pipe.
+def format_file(path: str, check: bool = False) -> bool:
+    """Format one JSON/JSONC file, or report it in check mode.
 
-    Passes --stdin-filepath so prettier can locate .editorconfig
-    from the file's directory tree.
+    Returns True when the file needs changing (check) or was changed (write).
     """
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, 'r', encoding='utf-8', newline='') as f:
         original = f.read()
 
     formatted = format_json_text(original, file_path=path, extra_args=["--stdin-filepath", path])
 
     if formatted == original:
-        return
+        return False
+    if check:
+        return True
 
     # Formatting spans a prettier subprocess, so the file can change while it
     # runs — the agent's next edit landing in that window. Writing the result
     # computed from the stale read would silently discard that edit, so re-read
     # and back off; the next edit event formats the newer content.
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, 'r', encoding='utf-8', newline='') as f:
         current = f.read()
 
     if current != original:
@@ -124,16 +128,17 @@ def format_file(path: str) -> None:
             f"WARN: {path} changed while it was being formatted — not overwriting",
             file=sys.stderr,
         )
-        return
+        return False
 
     with open(path, 'w', encoding='utf-8') as f:
         f.write(formatted)
+    return True
 
 
-def format_files_batch(file_paths: list[str]) -> None:
+def format_files_batch(file_paths: list[str]) -> bool:
     """Format multiple JSON/JSONC files in a single prettier --write invocation."""
     if not file_paths:
-        return
+        return True
 
     cmd = PRETTIER_CMD + ["--write"] + file_paths
     try:
@@ -141,8 +146,11 @@ def format_files_batch(file_paths: list[str]) -> None:
         if proc.returncode != 0:
             stderr = proc.stderr.strip()
             print(f"Error: prettier batch formatting failed: {stderr or '(no error output)'}", file=sys.stderr)
+            return False
     except subprocess.TimeoutExpired:
         print(f"Error: prettier timed out formatting {len(file_paths)} files", file=sys.stderr)
+        return False
+    return True
 
 
 def find_json_files(directory: str) -> list[str]:
@@ -173,6 +181,13 @@ def main() -> int:
     force = "--force" in args
     if force:
         args = [a for a in args if a != "--force"]
+    check = "--check" in args
+    if check:
+        args = [a for a in args if a != "--check"]
+        if not args:
+            print("Error: --check requires at least one path.", file=sys.stderr)
+            print(USAGE, end="", file=sys.stderr)
+            return 1
 
     available = prettier_available()
 
@@ -203,44 +218,93 @@ def main() -> int:
     # File and directory runs: a missing prettier is a no-op, never a failure —
     # the file.edited hook must not fail an edit.
     if not available:
+        if check:
+            print("ERROR: prettier (or node) not found — cannot verify formatting", file=sys.stderr)
+            return 2
         print("WARN: prettier (or node) not found — skipping JSON formatting", file=sys.stderr)
         return 0
 
     # ...and only where the project actually declares prettier. Running it anyway
     # imposes a standard the project never adopted, and fights one it did. A
     # multi-path call is judged by its first path — the hook always passes one.
-    if not force and not has_prettier_config(args[0]):
+    if not args or (not force and not has_prettier_config(args[0])):
+        if check:
+            print("ERROR: no prettier config — cannot verify formatting", file=sys.stderr)
+            return 2
+        print("format-json: no prettier config — skipped")
         return 0
 
     paths = args
     errors = 0
+    checked = 0
+    changed = 0
 
     for path in paths:
         if os.path.isdir(path):
             json_files = find_json_files(path)
+            if check:
+                for json_file in json_files:
+                    checked += 1
+                    try:
+                        if format_file(json_file, check=True):
+                            changed += 1
+                            print(json_file)
+                    except Exception as e:
+                        print(f"Error formatting {path}: {e}", file=sys.stderr)
+                        errors += 1
+                continue
             if json_files:
                 print(f"Formatting {len(json_files)} JSON files in {path}...")
+                before = {}
+                for json_file in json_files:
+                    try:
+                        with open(json_file, "r", encoding="utf-8", newline="") as f:
+                            before[json_file] = f.read()
+                    except OSError:
+                        pass
                 try:
-                    format_files_batch(json_files)
+                    if not format_files_batch(json_files):
+                        errors += 1
                 except Exception as e:
                     print(f"Error formatting {path}: {e}", file=sys.stderr)
                     errors += 1
+                for json_file, old in before.items():
+                    try:
+                        with open(json_file, "r", encoding="utf-8", newline="") as f:
+                            if f.read() != old:
+                                changed += 1
+                    except OSError:
+                        pass
+                checked += len(json_files)
         elif os.path.isfile(path):
+            checked += 1
             try:
-                format_file(path)
+                if format_file(path, check=check):
+                    changed += 1
+                    if check:
+                        print(path)
             except FileNotFoundError:
                 # Renamed or deleted while prettier was running — the same
                 # "nothing to format" case as below, one window later.
                 _warn_missing(path)
+                if check:
+                    errors += 1
             except Exception as e:
                 print(f"Error formatting {path}: {e}", file=sys.stderr)
                 errors += 1
         else:
             # Nothing to format: the hook can fire for a path that is renamed
             # or deleted before it runs. Warn, but exit 0 — a vanished file
-            # must not fail the hook.
+            # must not fail the hook. A --check gate is different: a missing
+            # target is a failed verification, not a no-op.
             _warn_missing(path)
+            if check:
+                errors += 1
 
+    if check:
+        print(f"format-json: {checked} file(s) checked, {changed} need formatting")
+        return 1 if changed or errors else 0
+    print(f"format-json: {checked} file(s) checked, {changed} changed")
     return 0 if errors == 0 else 1
 
 

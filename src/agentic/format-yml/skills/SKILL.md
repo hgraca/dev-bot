@@ -33,9 +33,9 @@ format-yml path=<file-or-directory>
 
 ## Output Format
 
-Reports the path that was processed on success. Warnings appear if any file could not be read or written.
+Prints a summary — `format-yml: N file(s) checked, M changed` — so an already-formatted file is distinguishable from a failed run. Warnings appear if any file could not be read or written.
 
-Errors exit non-zero with a message.
+Pass `--check` to report which files need formatting without touching them; it exits 1 when at least one file would change, so it works as a CI gate. Errors exit non-zero with a message.
 
 ## Pipe Mode
 

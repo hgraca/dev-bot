@@ -30,6 +30,7 @@ USAGE = """\
 Usage:
   format-md.py <directory>         Format all .md files in directory (recursive)
   format-md.py <file> [<file>...]  Format specific files in-place
+  format-md.py --check <path>...   Report files that need formatting (exit 1 if any)
   cat file.md | format-md.py       Pipe mode: stdin -> stdout
   format-md.py --help              Show this help
 """
@@ -62,17 +63,19 @@ def format_md_text(text: str, extra_args: list[str] | None = None) -> str:
     """
     cmd = PRETTIER_CMD + (extra_args or [])
     try:
-        proc = subprocess.run(cmd, input=text, capture_output=True, text=True, timeout=30)
+        proc = subprocess.run(
+            cmd, input=text.encode("utf-8"), capture_output=True, timeout=30
+        )
     except FileNotFoundError as e:
         # The binary vanished between the availability check and the exec.
         # Reported as a formatting failure — never as a vanished file, whose
         # warning exits 0 and would hide a broken installation.
         raise ValueError(f"prettier could not be executed: {e}") from e
     if proc.returncode != 0:
-        stderr = proc.stderr.strip()
+        stderr = proc.stderr.decode("utf-8", "replace").strip()
         raise ValueError(f"prettier formatting failed: {stderr or '(no error output)'}")
 
-    return proc.stdout
+    return proc.stdout.decode("utf-8")
 
 
 # ── File-level operations ──────────────────────────────────────────────────
@@ -90,37 +93,42 @@ def _warn_missing(path: str) -> None:
     print(f"WARN: {path!r} is not a file or directory — nothing to format", file=sys.stderr)
 
 
-def format_file(path: str) -> None:
-    """Format a single markdown file in-place via prettier pipe.
+def format_file(path: str, check: bool = False, embedded: bool = True) -> bool:
+    """Format one file in place, or report it in check mode.
 
-    Passes --stdin-filepath so prettier can locate .editorconfig
-    from the file's directory tree.
+    Returns True when the file needs changing (check) or was changed (write).
     """
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8", newline="") as f:
         original = f.read()
-    formatted = format_md_text(original, extra_args=["--stdin-filepath", path])
+    extra = ["--stdin-filepath", path]
+    if not embedded:
+        extra += ["--embedded-language-formatting", "off"]
+    formatted = format_md_text(original, extra_args=extra)
     if formatted == original:
-        return
+        return False
+    if check:
+        return True
     # Formatting spans a prettier subprocess, so the file can change while it
     # runs — the agent's next edit landing in that window. Writing the result
     # computed from the stale read would silently discard that edit, so re-read
     # and back off; the next edit event formats the newer content.
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8", newline="") as f:
         current = f.read()
     if current != original:
         print(
             f"WARN: {path} changed while it was being formatted — not overwriting",
             file=sys.stderr,
         )
-        return
+        return False
     with open(path, "w", encoding="utf-8") as f:
         f.write(formatted)
+    return True
 
 
-def format_files_batch(file_paths: list[str]) -> None:
+def format_files_batch(file_paths: list[str]) -> bool:
     """Format multiple markdown files in a single prettier --write invocation."""
     if not file_paths:
-        return
+        return True
 
     cmd = PRETTIER_CMD + ["--embedded-language-formatting", "off", "--write"] + file_paths
     try:
@@ -128,8 +136,11 @@ def format_files_batch(file_paths: list[str]) -> None:
         if proc.returncode != 0:
             stderr = proc.stderr.strip()
             print(f"Error: prettier batch formatting failed: {stderr or '(no error output)'}", file=sys.stderr)
+            return False
     except subprocess.TimeoutExpired:
         print(f"Error: prettier timed out formatting {len(file_paths)} files", file=sys.stderr)
+        return False
+    return True
 
 
 def find_md_files(directory: str) -> list[str]:
@@ -179,9 +190,20 @@ def main() -> int:
             return 1
         return 0
 
-    # File and directory runs: a missing prettier is a no-op, never a failure —
-    # the file.edited hook must not fail an edit.
+    check = "--check" in args
+    if check:
+        args = [a for a in args if a != "--check"]
+        if not args:
+            print("Error: --check requires at least one path.", file=sys.stderr)
+            print(USAGE, end="", file=sys.stderr)
+            return 1
+
+    # A missing prettier is a no-op for the edit hook, but a --check gate that
+    # cannot run must not report a false green.
     if not available:
+        if check:
+            print("ERROR: prettier (or node) not found — cannot verify formatting", file=sys.stderr)
+            return 2
         print("WARN: prettier (or node) not found — skipping markdown formatting", file=sys.stderr)
         return 0
 
@@ -189,38 +211,84 @@ def main() -> int:
     # imposes a standard the project never adopted, and fights one it did (a Biome
     # project's multi-line "files" array was collapsed by exactly that). A
     # multi-path call is judged by its first path — the hook always passes one.
-    if not has_prettier_config(args[0]):
+    if not args or not has_prettier_config(args[0]):
+        if check:
+            print("ERROR: no prettier config — cannot verify formatting", file=sys.stderr)
+            return 2
+        print("format-md: no prettier config — skipped")
         return 0
 
     paths = args
     errors = 0
+    checked = 0
+    changed = 0
 
     for path in paths:
         if os.path.isdir(path):
             md_files = find_md_files(path)
+            if check:
+                for md_file in md_files:
+                    checked += 1
+                    try:
+                        if format_file(md_file, check=True, embedded=False):
+                            changed += 1
+                            print(md_file)
+                    except Exception as e:
+                        print(f"Error formatting {path}: {e}", file=sys.stderr)
+                        errors += 1
+                continue
             if md_files:
                 print(f"Formatting {len(md_files)} markdown files in {path}...")
+                before = {}
+                for md_file in md_files:
+                    try:
+                        with open(md_file, "r", encoding="utf-8", newline="") as f:
+                            before[md_file] = f.read()
+                    except OSError:
+                        pass
                 try:
-                    format_files_batch(md_files)
+                    if not format_files_batch(md_files):
+                        errors += 1
                 except Exception as e:
                     print(f"Error formatting {path}: {e}", file=sys.stderr)
                     errors += 1
+                for md_file, old in before.items():
+                    try:
+                        with open(md_file, "r", encoding="utf-8", newline="") as f:
+                            if f.read() != old:
+                                changed += 1
+                    except OSError:
+                        pass
+                checked += len(md_files)
         elif os.path.isfile(path):
+            checked += 1
             try:
-                format_file(path)
+                if format_file(path, check=check):
+                    changed += 1
+                    if check:
+                        print(path)
             except FileNotFoundError:
                 # Renamed or deleted while prettier was running — the same
                 # "nothing to format" case as below, one window later.
                 _warn_missing(path)
+                if check:
+                    errors += 1
             except Exception as e:
                 print(f"Error formatting {path}: {e}", file=sys.stderr)
                 errors += 1
         else:
             # Nothing to format: the hook can fire for a path that is renamed
             # or deleted before it runs. Warn, but exit 0 — a vanished file
-            # must not fail the hook.
+            # must not fail the hook. A --check gate is different: a missing
+            # target is a failed verification, not a no-op.
             _warn_missing(path)
+            if check:
+                errors += 1
 
+    if check:
+        print(f"format-md: {checked} file(s) checked, {changed} need formatting")
+        return 1 if changed or errors else 0
+    print(f"format-md: {checked} file(s) checked, {changed} changed")
     return 0 if errors == 0 else 1
 
 
