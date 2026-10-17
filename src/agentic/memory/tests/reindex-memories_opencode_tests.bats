@@ -17,7 +17,7 @@ setup() {
   #
   # audit-56: two file.edited hooks (one on latent/, one on latent/(global|
   # learnings)) ran two identical builds; the second hook and its carve-out
-  # regex are gone — ONE hook covers the whole latent tree and the canonical
+  # regex are gone — ONE hook covers the whole indexed memory tree (latent + work + thinking) and the canonical
   # reindex engine (reindex-passive-memories.sh) is its single target.
   run python3 -c "
 import json
@@ -26,7 +26,7 @@ hooks = data['hooks']
 assert len(hooks) == 1, hooks
 hook = hooks[0]
 assert hook['event'] == 'file.edited', hook
-assert hook['match']['file'] == '/memory/latent/.*\\\\.md\$', hook
+assert hook['match']['file'] == '/memory/.*\\\\.md\$', hook
 assert 'reindex-passive-memories.sh' in hook['run'][1], hook
 assert '--file' in hook['run'], hook
 assert '--worktree' in hook['run'], hook

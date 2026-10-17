@@ -192,8 +192,14 @@ EOF
     sleep 0.1
   done
   run cat "${call_log}"
-  assert_line --index 0 "cleanup"
-  assert_line --index 1 "update"
+  # A migration probe (collection show) may precede the rebuild; the rebuild
+  # itself must still run cleanup before update.
+  assert_output --partial "cleanup"
+  assert_output --partial "update"
+  local cleanup_line update_line
+  cleanup_line="$(grep -n "cleanup" "${call_log}" | head -1 | cut -d: -f1 || echo 0)"
+  update_line="$(grep -n "update" "${call_log}" | head -1 | cut -d: -f1 || echo 0)"
+  [[ "$cleanup_line" -gt 0 && "$update_line" -gt 0 && "$cleanup_line" -lt "$update_line" ]]
 
   rm -rf "${fake_qmd}" "${call_log}"
 }

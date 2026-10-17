@@ -6,8 +6,8 @@
 # Rebuilds the index for the engine selected by memory_search_provider:
 #   - qmd:   `qmd cleanup && qmd update`  (BM25-only — no embed; see ADR
 #            20260913072905-qmd-bm25-only-no-model-downloads)
-#   - mdctx: `mdctx build` of the project latent index + the global-memories
-#            index (incremental + hash-cached)
+#   - mdctx: `mdctx build` of the project memory tree (latent + work + thinking)
+#            + the global-memories index (incremental + hash-cached)
 #
 # Every caller funnels here, so adding a future engine means editing ONE place:
 #   - hooks.json (file.edited)                → default (background)
@@ -55,6 +55,7 @@ source "${SCRIPT_DIR}/../functions.sh"
 FILE=""
 WORKTREE=""
 PATH_ARG=""
+FINGERPRINT_DIR=""
 MODE="full"
 
 while [[ $# -gt 0 ]]; do
@@ -73,6 +74,9 @@ while [[ $# -gt 0 ]]; do
     # the supervisor). Falls back to --worktree/$PWD when unresolved.
     --path)
       PATH_ARG="${2:-}"
+      if (( $# >= 2 )); then shift 2; else shift; fi ;;
+    --fingerprint)
+      FINGERPRINT_DIR="${2:-}"
       if (( $# >= 2 )); then shift 2; else shift; fi ;;
     --sync) MODE="sync"; shift ;;
     --ensure) MODE="ensure"; shift ;;
@@ -124,7 +128,7 @@ LOCK_FILE="$LOCK_DIR/reindex-memories.lock"
 
 DEVBOT_DIR="$(_devbot_get_project_dir "${WORKTREE}")"
 DEVBOT_STATE_DIR="${WORKTREE}/${DEVBOT_DIR}"
-LATENT_DIR="${DEVBOT_STATE_DIR}/memory/latent"
+MEMORY_DIR="${DEVBOT_STATE_DIR}/memory"
 LOGS_DIR="${DEVBOT_STATE_DIR}/logs"
 GLOBAL_DIR="${DEV_BOT_ROOT}/storage/global-memories"
 PROJECT_INDEX="${WORKTREE}/.mdctx/context-index.json"
@@ -168,15 +172,52 @@ _current_vault_tree_sha() {
   [[ -n "${root}" ]] || return 0
   rel="${WORKTREE#"${root}"}"
   rel="${rel#/}"
-  rel="${rel:+${rel}/}${DEVBOT_DIR}/memory/latent"
+  rel="${rel:+${rel}/}${DEVBOT_DIR}/memory"
   git -C "${root}" rev-parse "HEAD:${rel}" 2>/dev/null || true
 }
+
+# On-disk corpus fingerprint. The branch record's committed tree sha cannot see
+# gitignored work/thinking notes, so a move or deletion there would leave the
+# index looking current. Path + size + mtime catches moves, edits and deletes.
+_current_corpus_fingerprint() {
+  local root="${1:-${MEMORY_DIR}}"
+  python3 - "${root}" <<'PY'
+import hashlib
+import os
+import sys
+
+root = sys.argv[1]
+digest = hashlib.sha256()
+if os.path.isdir(root):
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames.sort()
+        for name in sorted(filenames):
+            if not name.endswith((".md", ".mdx")):
+                continue
+            path = os.path.join(dirpath, name)
+            if os.path.islink(path):
+                continue
+            stat = os.stat(path)
+            digest.update(os.path.relpath(path, root).encode())
+            digest.update(b"\0")
+            digest.update(str(stat.st_size).encode())
+            digest.update(b"\0")
+            digest.update(str(stat.st_mtime_ns).encode())
+            digest.update(b"\0")
+print(digest.hexdigest())
+PY
+}
+
+if [[ -n "${FINGERPRINT_DIR}" ]]; then
+  _current_corpus_fingerprint "${FINGERPRINT_DIR}"
+  exit 0
+fi
 
 # Emit the record JSON on stdout. json.dump escapes the values: git ref names
 # may contain characters raw interpolation would break on (a double quote is
 # accepted by check-ref-format), producing a malformed or spoofed record.
 _emit_record_json() {
-  python3 - "$1" "$2" "$3" <<'PY'
+  python3 - "$1" "$2" "$3" "$4" <<'PY'
 import datetime
 import json
 import sys
@@ -186,6 +227,8 @@ json.dump(
         "branch": sys.argv[1],
         "provider": sys.argv[2],
         "tree_sha": sys.argv[3],
+        "corpus": "memory",
+        "corpus_fingerprint": sys.argv[4],
         "recorded_at": datetime.datetime.now(datetime.timezone.utc).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         ),
@@ -197,13 +240,13 @@ PY
 }
 
 _record_index_branch() {
-  local branch="$1" tree_sha="$2" tmp
+  local branch="$1" tree_sha="$2" fingerprint="$3" tmp
   mkdir -p "$(dirname "${BRANCH_RECORD}")" 2>/dev/null || true
   # Write-then-rename: never truncate the live record in place (a concurrent
   # reader could see a torn record, and a symlink planted at the path would be
   # followed). A failed write leaves the previous record intact.
   tmp="${BRANCH_RECORD}.tmp.$$"
-  if _emit_record_json "${branch}" "${PROVIDER}" "${tree_sha}" > "${tmp}" 2>/dev/null; then
+  if _emit_record_json "${branch}" "${PROVIDER}" "${tree_sha}" "${fingerprint}" > "${tmp}" 2>/dev/null; then
     mv -f "${tmp}" "${BRANCH_RECORD}" 2>/dev/null || rm -f "${tmp}" 2>/dev/null || true
   fi
 }
@@ -215,23 +258,30 @@ _record_index_branch() {
 _snapshot_checkout() {
   BUILD_BRANCH="$(_current_branch)"
   BUILD_TREE_SHA="$(_current_vault_tree_sha)"
+  BUILD_CORPUS_FP="$(_current_corpus_fingerprint)"
 }
 
-# True (exit 0) only when the record matches the current checkout — the branch,
-# the engine, and the committed vault tree all agree.
+# True (exit 0) only when the record matches the current checkout and the qmd
+# collection is rooted at the whole memory tree.
 _index_record_matches() {
   [[ -f "${BRANCH_RECORD}" ]] || return 1
-  python3 - "${BRANCH_RECORD}" "$(_current_branch)" "${PROVIDER}" "$(_current_vault_tree_sha)" <<'PY'
+  if ! python3 - "${BRANCH_RECORD}" "$(_current_branch)" "${PROVIDER}" "$(_current_vault_tree_sha)" "$(_current_corpus_fingerprint)" <<'PY'
 import json
 import sys
 
-record_path, branch, provider, tree_sha = sys.argv[1:5]
+record_path, branch, provider, tree_sha, corpus_fp = sys.argv[1:6]
 try:
     record = json.load(open(record_path))
 except Exception:
     sys.exit(1)
 
 if record.get("provider") != provider:
+    sys.exit(1)
+# Records written before the whole-memory corpus carry no corpus marker and
+# may describe a latent-only index; force one rebuild so work/thinking appear.
+if record.get("corpus") != "memory":
+    sys.exit(1)
+if record.get("corpus_fingerprint") != corpus_fp:
     sys.exit(1)
 if record.get("branch") != branch:
     sys.exit(1)
@@ -241,6 +291,66 @@ if tree_sha and record.get("tree_sha") != tree_sha:
     sys.exit(1)
 sys.exit(0)
 PY
+  then
+    return 1
+  fi
+  if [[ "${PROVIDER}" == "qmd" ]]; then
+    local collection_name collection_root
+    collection_name="$(_project_collection_name)"
+    collection_root="$(qmd collection show "${collection_name}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')" || return 1
+    [[ "${collection_root}" == "${MEMORY_DIR}" ]]
+  fi
+}
+
+# ── qmd collection migration ─────────────────────────────────────────────────
+# Before the whole-memory scope, qmd collections were rooted at memory/latent.
+# Updating such a collection keeps work/thinking/active unsearchable, so move
+# it to the memory root before the rebuild. The collection name matches
+# search-memories' resolve_collection: project_name or the directory basename.
+_project_collection_name() {
+  local name=""
+  local config="${WORKTREE}/.devbot.project.jsonc"
+  if [[ -f "${config}" ]]; then
+    name="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${config}" project_name 2>/dev/null || true)"
+  fi
+  [[ -n "${name}" ]] || name="$(basename "${WORKTREE}")"
+  printf '%s' "${name}"
+}
+
+_migrate_qmd_collection() {
+  [[ -d "${MEMORY_DIR}" ]] || return 0
+  local name current_path old_path
+  name="$(_project_collection_name)"
+  if ! qmd collection show "${name}" >/dev/null 2>&1; then
+    echo "[reindex-memories] registering collection ${name} at ${MEMORY_DIR}"
+    qmd collection add "${MEMORY_DIR}" --name "${name}" >/dev/null 2>&1 || return 1
+    current_path="$(qmd collection show "${name}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
+    [[ "${current_path}" == "${MEMORY_DIR}" ]] || return 1
+    return 0
+  fi
+  current_path="$(qmd collection show "${name}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
+  if [[ -z "${current_path}" ]]; then
+    echo "ERROR: qmd collection ${name} has no readable root path" >&2
+    return 1
+  fi
+  [[ "${current_path}" != "${MEMORY_DIR}" ]] || return 0
+  if [[ "${current_path}" != "${MEMORY_DIR}/latent" ]]; then
+    echo "ERROR: collection ${name} is registered at ${current_path}, not this checkout's ${MEMORY_DIR}; refusing to repoint (name collision)" >&2
+    return 1
+  fi
+  old_path="${current_path}"
+  echo "[reindex-memories] migrating collection ${name}: ${current_path} -> ${MEMORY_DIR}"
+  qmd collection remove "${name}" >/dev/null 2>&1 || return 1
+  if ! qmd collection add "${MEMORY_DIR}" --name "${name}" >/dev/null 2>&1; then
+    qmd collection add "${old_path}" --name "${name}" >/dev/null 2>&1 || true
+    return 1
+  fi
+  # Confirm the root actually moved before the rebuild and the corpus marker.
+  current_path="$(qmd collection show "${name}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
+  [[ "${current_path}" == "${MEMORY_DIR}" ]] && return 0
+  qmd collection remove "${name}" >/dev/null 2>&1 || true
+  qmd collection add "${old_path}" --name "${name}" >/dev/null 2>&1 || true
+  return 1
 }
 
 # ── Engine build ─────────────────────────────────────────────────────────────
@@ -253,9 +363,9 @@ _engine_build() {
   GLOBAL_BUILD_RC=0
   CLEANUP_BUILD_RC=0
   if [[ "${PROVIDER}" == "mdctx" ]]; then
-    if [[ -d "${LATENT_DIR}" ]]; then
+    if [[ -d "${MEMORY_DIR}" ]]; then
       mkdir -p "$(dirname "${PROJECT_INDEX}")"
-      mdctx build "${LATENT_DIR}" -o "${PROJECT_INDEX}"
+      mdctx build "${MEMORY_DIR}" -o "${PROJECT_INDEX}"
       PROJECT_BUILD_RC=$?
     fi
     if [[ -d "${GLOBAL_DIR}" ]]; then
@@ -264,6 +374,11 @@ _engine_build() {
       GLOBAL_BUILD_RC=$?
     fi
   else
+    if ! _migrate_qmd_collection; then
+      echo "ERROR: qmd collection migration failed — refusing to record a memory-corpus index" >&2
+      PROJECT_BUILD_RC=1
+      return 1
+    fi
     qmd cleanup
     CLEANUP_BUILD_RC=$?
     qmd update
@@ -284,8 +399,8 @@ _engine_rc_suffix() {
 # actually rebuilt.
 _record_if_built() {
   [[ "${PROJECT_BUILD_RC}" == "0" ]] || return 0
-  [[ -d "${LATENT_DIR}" ]] || return 0
-  _record_index_branch "${BUILD_BRANCH}" "${BUILD_TREE_SHA}"
+  [[ -d "${MEMORY_DIR}" ]] || return 0
+  _record_index_branch "${BUILD_BRANCH}" "${BUILD_TREE_SHA}" "${BUILD_CORPUS_FP}"
 }
 
 # ── Foreground build (--sync / --ensure) ─────────────────────────────────────
@@ -327,14 +442,14 @@ _foreground_build() {
 }
 
 if [[ "${MODE}" == "sync" ]]; then
-  [[ -d "${LATENT_DIR}" ]] || { echo '{"status":"no-vault"}'; exit 0; }
+  [[ -d "${MEMORY_DIR}" ]] || { echo '{"status":"no-vault"}'; exit 0; }
   _acquire_build_lock || _stale "build-lock-timeout"
   _foreground_build
 fi
 
 if [[ "${MODE}" == "ensure" ]]; then
   # Fail-open: without a vault there is nothing to index and nothing to record.
-  [[ -d "${LATENT_DIR}" ]] || { echo '{"status":"no-vault"}'; exit 0; }
+  [[ -d "${MEMORY_DIR}" ]] || { echo '{"status":"no-vault"}'; exit 0; }
 
   if _index_record_matches; then
     echo '{"status":"current"}'

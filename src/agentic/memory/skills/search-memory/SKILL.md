@@ -19,10 +19,20 @@ When you need information, use right tool for question type:
 | Architecture, relationships, god nodes         | Use `devbot:graphify` skill                  |
 | Code by meaning ("find auth logic")            | Use the `codebase-index` MCP (ask naturally) |
 
-`search-memories` covers every recall question — it searches the project vault
-and the shared global store under the configured engine (`memory_search_provider`,
-qmd or mdctx). Both engines are keyword-only (BM25); there is no semantic/vector
-route. The ACTIVE engine's skill (`devbot:qmd` / `devbot:mdctx`) is linked for
+`search-memories` covers every recall question — it searches the project memory
+tree (`latent/`, `work/`, `thinking/` and `active/`) and the shared global store under the
+configured engine (`memory_search_provider`, qmd or mdctx). Both engines are
+keyword-only (BM25); there is no semantic/vector route. The ACTIVE engine's skill (`devbot:qmd` / `devbot:mdctx`) is linked for
 engine-specific index maintenance, not for memory search.
 
-If `search-memories` returns no matches, the index may not be built yet or a reindex may still be running — do **not** loop reindex → search → reindex. Check `reindex-memories status`; if a reindex is `in_progress`, wait and re-search once. Repeated `reindex-memories` calls coalesce into a single job — they don't make results appear faster.
+If `search-memories` returns no matches, read the note it appends: `index may be stale
+(<reason>)` means the index could not be refreshed, while a bare "no matches" means
+the index was current. Do **not** loop reindex → search → reindex. Check
+`reindex-memories status`; if a reindex is `in_progress`, wait and re-search once.
+Repeated `reindex-memories` calls coalesce into a single job — they don't make
+results appear faster. When the index is stale and the question is whether a
+note exists, grep `<devbot-dir>/memory` directly: that is the authoritative fallback.
+
+A `WARN: HEAD moved ...` line means the checkout changed during the search. Re-check
+the branch (`git status -sb`) before any commit; the memory index refresh must never
+decide which branch your work lands on.

@@ -232,6 +232,36 @@ def ensure_index_current(project_root: Path, provider: str) -> tuple[bool, str]:
     return status in ("current", "rebuilt", "no-vault"), (status or out)
 
 
+def current_head(project_root: Path) -> str | None:
+    """The checked-out commit, or the branch name on an unborn branch.
+
+    A full SHA catches a same-branch commit landing during the search, which a
+    branch name cannot. The symbolic-ref fallback covers a freshly initialised
+    repository with no commit yet.
+    """
+    def _git(*args: str) -> str | None:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(project_root), *args],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        if result.returncode != 0:
+            return None
+        return result.stdout.strip() or None
+
+    sha = _git("rev-parse", "HEAD")
+    branch = _git("symbolic-ref", "--short", "HEAD")
+    if sha:
+        # Same-SHA branch switches and detached HEAD moves are invisible to a
+        # bare SHA; pair it with the symbolic ref (or "detached").
+        return f"{sha} {branch or 'detached'}"
+    return branch
+
+
 def run_mdctx_cli(args: list[str]) -> tuple[str | None, str | None]:
     """Run mdctx CLI with given args. Returns (stdout, error_message)."""
     mdctx_path = shutil.which("mdctx")
@@ -382,16 +412,16 @@ def resolve_mdctx_indexes(
     mdctx builds one flat JSON index per real root (it does not follow
     symlinks — the project vault's latent/global symlink is therefore NOT
     covered by the project index). This mirrors search_qmd's dual-store
-    contract (project collection + dev-bot-global): the project latent vault
+    contract (project collection + dev-bot-global): the project memory tree
     and the shared global-memories store are each indexed and searched.
 
     Returns [(root_dir, index_file)]:
-      - project: <project>/.agents/memory/latent  + <project>/.mdctx/context-index.json
+      - project: <project>/.agents/memory  + <project>/.mdctx/context-index.json
       - global:  <DEV_BOT_ROOT>/storage/global-memories + <DEV_BOT_ROOT>/storage/.mdctx/context-index.json
     """
     devbot_dir = resolve_devbot_dir(project_root)
-    latent = project_root / devbot_dir / "memory" / "latent"
-    project_pair = (latent, project_root / ".mdctx" / "context-index.json")
+    memory_root = project_root / devbot_dir / "memory"
+    project_pair = (memory_root, project_root / ".mdctx" / "context-index.json")
     global_pair = (
         DEVBOT_ROOT / "storage" / "global-memories",
         DEVBOT_ROOT / "storage" / ".mdctx" / "context-index.json",
@@ -399,7 +429,49 @@ def resolve_mdctx_indexes(
     return [project_pair, global_pair]
 
 
-def _scoped_mdctx_pairs(project_roots: list[Path]) -> list[tuple[Path, Path, bool, int]]:
+def _index_corpus_root(project_root: Path, index_file: Path) -> Path:
+    """The root an mdctx index was built from: memory/ or memory/latent/.
+
+    The branch record is authoritative when it carries the new corpus marker.
+    A legacy index has no such record and its entries are flat (a.md); a
+    whole-memory index has nested entries (latent/a.md, work/b.md, ...).
+    """
+    devbot_dir = resolve_devbot_dir(project_root)
+    memory = project_root / devbot_dir / "memory"
+    record = project_root / devbot_dir / "logs" / "memory-index-branch.json"
+    try:
+        data = json.loads(record.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    if data.get("corpus") == "memory":
+        return memory
+    try:
+        index = json.loads(index_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return memory / "latent"
+    # mdctx records the directory it built from; trust it over any filename
+    # heuristic (a legacy latent index can contain a work/note.md entry).
+    root = index.get("root")
+    if root:
+        root_path = Path(root)
+        if not root_path.is_absolute():
+            # mdctx records the root relative to the index file.
+            root_path = index_file.parent / root_path
+        root_path = root_path.resolve()
+        if root_path == memory.resolve():
+            return memory
+        if root_path == (memory / "latent").resolve():
+            return memory / "latent"
+    entries = index.get("entries", {})
+    paths = entries.keys() if isinstance(entries, dict) else []
+    if any(str(path).startswith(("latent/", "work/", "thinking/", "active/")) for path in paths):
+        return memory
+    return memory / "latent"
+
+
+def _scoped_mdctx_pairs(
+    project_roots: list[Path],
+) -> list[tuple[Path, Path, bool, int]]:
     """(docs_root, index_file, is_global, group) pairs for a read set + global store.
 
     `group` is the project's position in the read set (focus projects first,
@@ -418,8 +490,7 @@ def _scoped_mdctx_pairs(project_roots: list[Path]) -> list[tuple[Path, Path, boo
         index = root / ".mdctx" / "context-index.json"
         if not index.is_file():
             continue
-        devbot_dir = resolve_devbot_dir(root)
-        pairs.append((root / devbot_dir / "memory" / "latent", index, False, group))
+        pairs.append((_index_corpus_root(root, index), index, False, group))
     global_index = DEVBOT_ROOT / "storage" / ".mdctx" / "context-index.json"
     if global_index.is_file():
         pairs.append((DEVBOT_ROOT / "storage" / "global-memories", global_index, True, -1))
@@ -680,9 +751,11 @@ def fetch_mdctx_body(file_path: str) -> tuple[str | None, str | None]:
 # ---------------------------------------------------------------------------
 
 
-def format_markdown(results: list[dict]) -> str:
+def format_markdown(results: list[dict], note: str | None = None) -> str:
     if not results:
-        return "# Memories\n\n_No memory vault matches found._\n"
+        cleaned = re.sub(r"\s+", " ", note).strip() if note else ""
+        suffix = f" — {cleaned}" if cleaned else ""
+        return f"# Memories\n\n_No memory vault matches found{suffix}._\n"
     parts = ["# Memories", ""]
     for r in results:
         file_uri = r.get("file", "")
@@ -703,13 +776,16 @@ def format_markdown(results: list[dict]) -> str:
     return "\n".join(parts)
 
 
-def format_json(results: list[dict]) -> dict:
+def format_json(results: list[dict], note: str | None = None) -> dict:
     # Each memory carries its source file (qmd uri or absolute path) so
     # callers can tell project-vs-global provenance (audit-51/52 NOTE).
     memories = []
     for r in results:
         memories.append({"file": r.get("file", ""), "body": r.get("_body") or ""})
-    return {"memories": memories}
+    payload: dict[str, object] = {"memories": memories}
+    if note and not memories:
+        payload["note"] = note
+    return payload
 
 
 # ---------------------------------------------------------------------------
@@ -843,8 +919,14 @@ def main() -> None:
     # tree_sha} matches and rebuilds synchronously when it does not. Fail-open
     # (a failed refresh only warns — the search proceeds). Run per project in
     # the read set so a sibling's index is current before it is queried.
+    index_ok = True
+    index_detail = ""
+    heads_before = {str(project): current_head(project) for project in read_projects}
     for read_project in read_projects:
-        ensure_index_current(read_project, provider)
+        ok, detail = ensure_index_current(read_project, provider)
+        if not ok:
+            index_ok = False
+            index_detail = detail
 
     # Engine dispatch: qmd and mdctx are interchangeable behind this CLI,
     # selected by memory_search_provider. Each engine's search covers the
@@ -852,7 +934,10 @@ def main() -> None:
     # qmd's project collection + dev-bot-global).
     if provider == "mdctx":
         results, err = search_mdctx(
-            args.query, project_root, args.max_results, projects=read_projects
+            args.query,
+            project_root,
+            args.max_results,
+            projects=read_projects,
         )
         body_fetch = fetch_mdctx_body
     else:
@@ -908,10 +993,26 @@ def main() -> None:
         unique_results.append(r)
     results = unique_results
 
+    # Final HEAD snapshot after search and body retrieval: a checkout change
+    # during those operations can mix indexed paths with another tree's files.
+    for read_project in read_projects:
+        key = str(read_project)
+        head_before = heads_before.get(key)
+        head_after = current_head(read_project)
+        if head_before and head_after and head_before != head_after:
+            drift = (
+                f"HEAD moved from {head_before} to {head_after} during the search; "
+                "re-check the branch before committing"
+            )
+            print(f"WARN: {drift}", file=sys.stderr)
+            index_ok = False
+            index_detail = f"{index_detail}; {drift}" if index_detail else drift
+
+    note = None if index_ok else f"index may be stale ({index_detail})"
     if args.format == "json":
-        print(json.dumps(format_json(results), indent=2))
+        print(json.dumps(format_json(results, note), indent=2))
     else:
-        print(format_markdown(results))
+        print(format_markdown(results, note))
 
 
 if __name__ == "__main__":

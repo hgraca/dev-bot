@@ -288,7 +288,14 @@ setup() {
 #!/usr/bin/env bash
 echo "$(python3 -c 'import time; print(time.time())') $*" >> "${QMD_CALL_LOG}"
 case "$1" in
-  collection|context) exit 0 ;;
+  collection)
+    if [[ "$2" == "show" ]]; then
+      echo "Collection: test"
+      echo "  Path: ${QMD_TEST_MEMORY}"
+    fi
+    exit 0
+    ;;
+  context) exit 0 ;;
   update|cleanup) exit 0 ;;
 esac
 exit 0
@@ -301,6 +308,7 @@ SCRIPT
   run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)")" \
     XDG_CACHE_HOME="$sandbox/cache" \
     QMD_CALL_LOG="$call_log" \
+    QMD_TEST_MEMORY="${sandbox}/.agents/memory" \
     bash "${MODULE_DIR}/init.sh" "${sandbox}"
 
   assert_success
@@ -331,3 +339,86 @@ SCRIPT
   [ ! -f "$MODULE_DIR/mcp.json.future" ]
 }
 
+
+@test "init.sh migrates an existing latent collection to the memory root" {
+  local sandbox
+  sandbox="$(mktemp -d)"
+  mkdir -p "${sandbox}/bin" "${sandbox}/.agents/memory/latent" "${sandbox}/cache"
+  local name
+  name="$(basename "${sandbox}")"
+
+  cat > "${sandbox}/bin/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$*" >> "${QMD_CALL_LOG}"
+case "$1" in
+  --version) echo "qmd 1.0"; exit 0 ;;
+  collection)
+    case "$2" in
+      show) echo "Collection: $3"; echo "  Path: $(cat "${STATE_FILE}")" ;;
+      add) printf '%s' "$3" > "${STATE_FILE}" ;;
+    esac
+    exit 0
+    ;;
+  context|cleanup|update) exit 0 ;;
+esac
+exit 0
+SCRIPT
+  chmod +x "${sandbox}/bin/qmd"
+
+  local call_log="${sandbox}/qmd-calls.log"
+  local state_file="${sandbox}/qmd-state.txt"
+  : > "$call_log"
+  printf '%s' "${sandbox}/.agents/memory/latent" > "$state_file"
+
+  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)")" \
+    XDG_CACHE_HOME="${sandbox}/cache" \
+    QMD_CALL_LOG="$call_log" \
+    STATE_FILE="$state_file" \
+    bash "${MODULE_DIR}/init.sh" "${sandbox}"
+
+  assert_success
+  run cat "$call_log"
+  assert_output --partial "collection remove ${name}"
+  assert_output --partial "collection add ${sandbox}/.agents/memory --name ${name}"
+
+  rm -r "$sandbox"
+}
+
+@test "init.sh refuses to repoint a collection owned by another checkout" {
+  local sandbox
+  sandbox="$(mktemp -d)"
+  mkdir -p "${sandbox}/bin" "${sandbox}/.agents/memory/latent" "${sandbox}/cache"
+
+  cat > "${sandbox}/bin/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$*" >> "${QMD_CALL_LOG}"
+case "$1" in
+  --version) echo "qmd 1.0"; exit 0 ;;
+  collection)
+    if [[ "$2" == "show" ]]; then
+      echo "Collection: test"
+      echo "  Path: /other/checkout/.agents/memory"
+    fi
+    exit 0
+    ;;
+  context|cleanup|update) exit 0 ;;
+esac
+exit 0
+SCRIPT
+  chmod +x "${sandbox}/bin/qmd"
+
+  local call_log="${sandbox}/qmd-calls.log"
+  : > "$call_log"
+
+  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)")" \
+    XDG_CACHE_HOME="${sandbox}/cache" \
+    QMD_CALL_LOG="$call_log" \
+    bash "${MODULE_DIR}/init.sh" "${sandbox}"
+
+  assert_failure
+  assert_output --partial "name collision"
+  refute_output --partial "collection remove"
+  refute_output --partial "collection add"
+
+  rm -r "$sandbox"
+}

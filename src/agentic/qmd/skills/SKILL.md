@@ -34,18 +34,14 @@ model download — do not use them.
 
 ## Collection scope
 
-The project collection is scoped to **`.agents/memory/latent/`** by design —
-the vault's _promoted_ knowledge (ADRs, PDRs, learnings, global notes). Scratch
-content under `.agents/memory/thinking/` is deliberately **not indexed**: it is
-ephemeral WIP that is either promoted to `latent/` or deleted, so indexing it
-would return stale or throwaway matches.
+The project collection is scoped to **`.agents/memory/`** — the whole memory tree
+(`latent/`, `work/`, `thinking/`, and `active/`). The goal is that a note is
+searchable as soon as it is written, not only after it is promoted to `latent/`.
 
-- A note that exists only under `thinking/` will **not** be found until it is
-  promoted to `latent/`.
-- If you must search scratch/thinking content, use `grep` on
-  `.agents/memory/thinking/` — qmd is the wrong tool for it.
-
-Add a second collection explicitly and pass its name to every search:
+- `work/` carries active plans and backlogs; they are searchable while in flight.
+- `thinking/` carries scratch notes; they are searchable, and stale ones are
+  removed by the next incremental prune.
+- The shared global store is a separate collection (`dev-bot-global`).
 
 ```bash
 qmd collection add .agents/memory/thinking --name my-project-thinking

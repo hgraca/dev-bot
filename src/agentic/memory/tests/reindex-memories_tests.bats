@@ -25,13 +25,59 @@ setup() {
   mkdir -p "$STUB_DIR"
   cat > "$STUB_DIR/qmd" <<'SCRIPT'
 #!/usr/bin/env bash
-exit 0
+state="${XDG_CACHE_HOME}/qmd-collection-path"
+case "${1:-} ${2:-}" in
+  "collection show")
+    path="$(cat "$state" 2>/dev/null || true)"
+    [[ -n "$path" ]] || exit 1
+    printf 'Path: %s\n' "$path"
+    ;;
+  "collection add") printf '%s\n' "${3:-}" > "$state" ;;
+  "collection remove") : > "$state" ;;
+esac
 SCRIPT
   chmod +x "$STUB_DIR/qmd"
 }
 
 teardown() {
   rm -rf "$WORK"
+}
+
+_make_qmd_migration_stub() {
+  cat > "$STUB_DIR/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$*" >> "$QMD_ALL_CALLS"
+case "${1:-} ${2:-}" in
+  "collection show")
+    if [[ "${QMD_SHOW_FAIL:-0}" == "1" ]]; then
+      exit 1
+    fi
+    if [[ "${QMD_OMIT_PATH:-0}" == "1" ]]; then
+      echo "Collection exists"
+      exit 0
+    fi
+    path="$(cat "$QMD_STATE" 2>/dev/null || true)"
+    [[ -n "$path" ]] || exit 1
+    printf 'Path: %s\n' "$path"
+    ;;
+  "collection remove")
+    : > "$QMD_STATE"
+    ;;
+  "collection add")
+    if [[ "${QMD_SHOW_FAIL:-0}" == "1" && -s "$QMD_STATE" ]]; then
+      exit 1
+    fi
+    if [[ "${3:-}" == "${QMD_TARGET}" && "${QMD_FAIL_TARGET_ADD:-0}" == "1" ]]; then
+      exit 1
+    fi
+    printf '%s\n' "${3:-}" > "$QMD_STATE"
+    ;;
+  "cleanup "| "update ")
+    echo "$1" >> "$QMD_CALL_LOG"
+    ;;
+esac
+SCRIPT
+  chmod +x "$STUB_DIR/qmd"
 }
 
 @test "tool: exists and is executable" {
@@ -221,6 +267,158 @@ SCRIPT
   assert_output --partial '"status":"started"'
 }
 
+@test "qmd migration uses root project config and confirms the whole-memory root" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local old_path="$proj/.agents/memory/latent"
+  mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
+  printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
+  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  printf '%s\n' "$old_path" > "$state"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"rebuilt"'
+  [[ "$(cat "$state")" == "$proj/.agents/memory" ]]
+  grep -q "collection show configured-project" "$calls"
+  grep -qx "cleanup" "$build_calls"
+  grep -qx "update" "$build_calls"
+}
+
+@test "qmd ensure rechecks the collection root before trusting a matching freshness record" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local old_path="$proj/.agents/memory/latent"
+  mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
+  printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
+  local fingerprint
+  fingerprint="$(PATH="$STUB_DIR:$PATH" bash "$pass" --fingerprint "$proj/.agents/memory")"
+  printf '{"branch":"","provider":"qmd","tree_sha":"","corpus":"memory","corpus_fingerprint":"%s"}\n' \
+    "$fingerprint" > "$proj/.agents/logs/memory-index-branch.json"
+  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  printf '%s\n' "$old_path" > "$state"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --ensure --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"rebuilt"'
+  [[ "$(cat "$state")" == "$proj/.agents/memory" ]]
+  grep -qx "update" "$build_calls"
+}
+
+@test "qmd migration restores the old registration and does not mark freshness when adding the whole-memory root fails" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local old_path="$proj/.agents/memory/latent"
+  mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
+  printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
+  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  printf '%s\n' "$old_path" > "$state"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" QMD_FAIL_TARGET_ADD=1 \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"stale"'
+  [[ "$(cat "$state")" == "$old_path" ]]
+  [[ ! -s "$build_calls" ]]
+  [[ ! -f "$proj/.agents/logs/memory-index-branch.json" ]]
+}
+
+@test "qmd migration fails closed when an existing collection has no readable root" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local old_path="$proj/.agents/memory/latent"
+  mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
+  printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
+  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  printf '%s\n' "$old_path" > "$state"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" QMD_OMIT_PATH=1 \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"stale"'
+  [[ "$(cat "$state")" == "$old_path" ]]
+  [[ ! -s "$build_calls" ]]
+  [[ ! -f "$proj/.agents/logs/memory-index-branch.json" ]]
+}
+
+@test "qmd migration registers and verifies a missing collection before indexing" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs"
+  printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
+  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  : > "$state"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"rebuilt"'
+  [[ "$(cat "$state")" == "$proj/.agents/memory" ]]
+  grep -qx "update" "$build_calls"
+}
+
+@test "qmd migration does not record freshness after an unconfirmed collection lookup" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local old_path="$proj/.agents/memory/latent"
+  mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
+  printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
+  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  printf '%s\n' "$old_path" > "$state"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" QMD_SHOW_FAIL=1 \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"stale"'
+  [[ "$(cat "$state")" == "$old_path" ]]
+  [[ ! -s "$build_calls" ]]
+  [[ ! -f "$proj/.agents/logs/memory-index-branch.json" ]]
+}
+
 # ── Background job logging (audit-49 NOTE-2) ─────────────────────────────────
 # The background job used to discard qmd's output to /dev/null, so a slow or
 # failed reindex was unobservable. The job now logs start/done markers with
@@ -355,8 +553,8 @@ SCRIPT
     sleep 0.1
   done
   run cat "$call_log"
-  # One build per store: the project latent index + the global-memories index.
-  assert_line --index 0 --regexp "^build ${proj}/\.agents/memory/latent -o ${proj}/\.mdctx/context-index\.json$"
+  # One build per store: the project memory tree + the global-memories index.
+  assert_line --index 0 --regexp "^build ${proj}/\.agents/memory -o ${proj}/\.mdctx/context-index\.json$"
   assert_line --index 1 --regexp "^build ${devroot}/storage/global-memories -o ${devroot}/storage/\.mdctx/context-index\.json$"
 
   # Log markers (engine-agnostic memory-index.log).
