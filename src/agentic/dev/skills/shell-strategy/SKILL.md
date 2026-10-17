@@ -41,6 +41,7 @@ The `pty_*` tools are available to the **primary agent only**; a `task` subagent
 
 - **`pty_spawn` execs the command directly, without a shell — wrap yourself in one when you need shell syntax.** `pty_spawn(command: "make", args: ["test", "</dev/null"])` hands `make` the literal argument `</dev/null`; the redirect never happens. Spawn a shell instead: `pty_spawn(command: "bash", args: ["-c", "make test </dev/null"])`.
 - **Wire stdin from `/dev/null` for commands that expect a non-interactive shell.** A PTY makes stdin a tty, so a command that branches on `[ -t 0 ]` or prompts blocks forever waiting for input that never comes. Redirecting _stdin_ is right; redirecting _stdout_ is what hides the run.
+- **Do not redirect stdin when the command needs a TTY.** `docker compose exec`/`run` with `-it` and a `make up` that attaches to a TTY-enabled container fail with "stdin is not a terminal" when stdin is `/dev/null`. Omit the redirect for those, or pass `-T` to compose. The no-input rule applies to commands that branch on interactivity, not to commands that require a terminal.
 
 ## Waiting for a duration
 
@@ -54,6 +55,7 @@ Then end your turn (top-level session only — a subagent is blocked from PTYs, 
 
 ## Gotchas
 
+- **A TTY-enabled container is the `/dev/null` exception.** `make up` and `docker compose exec -it` need a terminal; redirecting stdin there turns a working command into an error.
 - **Commit through bash, never a PTY.** The post-commit hooks (memory capture, graph indexing) are wired to the bash tool's after-hook — a commit run in a PTY silently skips them. `git commit` is quick, so bash is the right channel anyway.
 - **PTY sessions do not inherit `DEV_BOT_SESSION_ID`.** The session environment is injected into the bash tool only; a tool that reports the session id (e.g. the grade-tools skill) must run through bash.
 - **A PTY session outlives the tool call.** Nothing stops it when the turn ends — kill it explicitly.

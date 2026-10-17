@@ -30,7 +30,7 @@ agent-communication --msg-file <path>
 
 ## Output Format
 
-The tool prints `[agent-communication] OK — terminal marker found` on success (including non-assistant or empty messages, which have nothing to validate) and `[agent-communication] Missing terminal marker. Last line: "…"` on failure. Exit codes: `0` marker found (or nothing to validate), `1` marker missing, `2` file-not-found / parse error / missing `jq`.
+The tool prints `[agent-communication] OK — terminal marker found` on success, `[agent-communication] OK — empty message, nothing to validate` when there is no content to check, and `[agent-communication] Missing terminal marker. Last line: "…"` on failure. Exit codes: `0` marker found (or nothing to validate), `1` marker missing, `2` file-not-found / parse error / missing `jq`.
 
 ## Post-Delegation Verification
 
