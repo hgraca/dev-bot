@@ -18,6 +18,7 @@ Everything an agent needs to make safe, reviewable commits — and to inspect or
 
 ## What git-report reports
 
+- Repository path (pass `--cwd` to inspect a sibling repo or linked worktree)
 - Current branch and default remote branch
 - Recent commit history
 - Working-tree status (modified, staged, untracked)

@@ -26,10 +26,19 @@ setup() {
   git -C "$REPO" add -A && git -C "$REPO" commit -m "initial commit" &>/dev/null
 
   command -v python3 &>/dev/null || skip "python3 not installed"
+
+  # A second repo, for --cwd: the tool must report the target, not the CWD.
+  OTHER="$(mktemp -d)"
+  git -C "$OTHER" init --initial-branch=feature &>/dev/null
+  git -C "$OTHER" config user.email "test@test.com"
+  git -C "$OTHER" config user.name "Test"
+  git -C "$OTHER" config commit.gpgsign false
+  echo "other" > "$OTHER/other.txt"
+  git -C "$OTHER" add -A && git -C "$OTHER" commit -m "other repo commit" &>/dev/null
 }
 
 teardown() {
-  rm -rf "$REPO" 2>/dev/null || true
+  rm -rf "$REPO" "$OTHER" 2>/dev/null || true
 }
 
 # Helper: run tool in the test repo directory
@@ -69,6 +78,30 @@ run_tool() {
   assert_success
   assert_output --partial "### Commits Unique to Current Branch"
   assert_output --partial "_(none — branch is up to date or default branch unknown)_"
+}
+
+@test "--cwd: reports the target repository, not the process CWD" {
+  run_tool --cwd "$OTHER"
+
+  assert_success
+  assert_output --partial "**Repository:** \`$(cd "$OTHER" && pwd -P)\`"
+  assert_output --partial "**Current branch:** \`feature\`"
+  assert_output --partial "other repo commit"
+}
+
+@test "--cwd: a missing directory is an error" {
+  run -2 bash -c "cd '$REPO' && bash '$TOOL' --cwd /nonexistent/repo"
+
+  assert_output --partial "ERROR: --cwd is not a directory"
+}
+
+@test "--cwd: a directory outside git is an error" {
+  local plain="$BATS_TEST_TMPDIR/plain"
+  mkdir -p "$plain"
+
+  run -2 bash -c "cd '$REPO' && bash '$TOOL' --cwd '$plain'"
+
+  assert_output --partial "ERROR: --cwd is not a git repository"
 }
 
 @test "default: shows current branch" {
