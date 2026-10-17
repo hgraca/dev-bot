@@ -34,6 +34,11 @@ REQUIRED_COLUMNS = ("session_id", "datetime", "project", "notes")
 MCP_PREFIX = "mcp:"
 SKILL_PREFIX = "skill:"
 DEV_TOOLS = "devbot-tools"
+# Older matrices recorded the server name twice (``mcp:devbot-tools:devbot-tools:tree``).
+# A rename left both spellings in the wild, splitting one tool's history across
+# two columns. Fold them together when reading; the writer emits the canonical
+# single-prefix form.
+_DOUBLED_DEV_TOOLS = f"{MCP_PREFIX}{DEV_TOOLS}:{DEV_TOOLS}:"
 POOR_GRADES = (1, 2, 3)
 # Quality is absolute — the 0-5 rubric is. Demand is relative: "often used" only
 # means anything against the rest of the dataset, so the bar is recomputed per
@@ -62,14 +67,38 @@ def project_name(project_root: str) -> str:
     return "/".join(parts[-2:])
 
 
+def canonical_column(column: str) -> str:
+    """The single spelling of a tool column.
+
+    Only the historical doubled ``devbot-tools`` prefix is rewritten; every
+    other column passes through unchanged.
+    """
+    if column.startswith(_DOUBLED_DEV_TOOLS):
+        return f"{MCP_PREFIX}{DEV_TOOLS}:{column[len(_DOUBLED_DEV_TOOLS):]}"
+    return column
+
+
+def column_sources(header: list[str]) -> dict[str, list[str]]:
+    """Map each canonical tool column to the raw columns that feed it.
+
+    The canonical spelling comes first, so a row that carries both the old and
+    new column is counted once, from the canonical one.
+    """
+    sources: dict[str, list[str]] = {}
+    for column in header:
+        if column in BASE_COLUMNS:
+            continue
+        if not (column.startswith(MCP_PREFIX) or column.startswith(SKILL_PREFIX)):
+            continue
+        sources.setdefault(canonical_column(column), []).append(column)
+    for canonical, raws in sources.items():
+        raws.sort(key=lambda raw: raw != canonical)
+    return sources
+
+
 def tool_columns(header: list[str]) -> list[str]:
-    """The graded tool columns — every ``mcp:``/``skill:`` column."""
-    return [
-        column
-        for column in header
-        if column not in BASE_COLUMNS
-        and (column.startswith(MCP_PREFIX) or column.startswith(SKILL_PREFIX))
-    ]
+    """The graded tool columns, one per tool after canonicalisation."""
+    return list(column_sources(header))
 
 
 def tool_kind(column: str) -> str:
@@ -273,7 +302,8 @@ def aggregate(
     now: datetime | None = None,
 ) -> dict:
     """Average per tool over used rows; collect poor-grade reasons per tool."""
-    columns = tool_columns(header)
+    sources = column_sources(header)
+    columns = list(sources)
     grades: dict[str, list[int]] = {column: [] for column in columns}
     reasons: dict[str, list[str]] = {column: [] for column in columns}
     # The total stays all-time, so the report can say how much of the matrix the
@@ -289,15 +319,22 @@ def aggregate(
         in_scope += 1
         notes = row.get("notes", "")
         poor_columns: list[str] = []
-        for column in columns:
-            raw = row.get(column, "").strip()
-            if not raw:
-                continue
-            try:
-                grade = int(raw)
-            except ValueError:
-                continue
-            if grade < 1:
+        for column, raw_columns in sources.items():
+            grade: int | None = None
+            for raw_column in raw_columns:
+                raw = row.get(raw_column, "").strip()
+                if not raw:
+                    continue
+                try:
+                    candidate = int(raw)
+                except ValueError:
+                    continue
+                # A backfilled 0 means "not used in this row", not "grade 0".
+                # Keep looking so a legacy column's real grade is not lost.
+                if candidate >= 1:
+                    grade = candidate
+                    break
+            if grade is None:
                 continue
             grades[column].append(grade)
             if grade in POOR_GRADES:
