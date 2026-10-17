@@ -138,6 +138,53 @@ class RecordGradesTest(unittest.TestCase):
         self.assertEqual(rows[1][0], "ses_a2-01")
         self.assertEqual(rows[2][0], "ses_a-01")
 
+    # ── last-row helper ──────────────────────────────────────────────────────
+
+    def last_row(self, *, session: str = "ses_test", actor: str = "DevBot") -> str:
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            self.run_main("--last-row", session=session, actor=actor)
+        return stdout.getvalue().strip()
+
+    def test_last_row_prints_the_highest_matching_row(self) -> None:
+        self.run_main("--notes", "", session="ses_test", actor="DevBot")
+        self.run_main("--notes", "", session="ses_test", actor="DevBot")
+
+        self.assertEqual(self.last_row(), "ses_test-02")
+
+    def test_last_row_ignores_other_sessions_and_actors(self) -> None:
+        self.run_main("--notes", "", session="ses_other", actor="DevBot")
+        self.run_main("--notes", "", session="ses_test", actor="reviewer")
+        self.run_main("--notes", "", session="ses_test", actor="DevBot")
+
+        self.assertEqual(self.last_row(), "ses_test-02")
+        self.assertEqual(self.last_row(actor="reviewer"), "ses_test-01")
+
+    def test_last_row_matches_the_actor_case_insensitively(self) -> None:
+        self.run_main("--notes", "", actor="DevBot")
+
+        self.assertEqual(self.last_row(actor="devbot"), "ses_test-01")
+
+    def test_last_row_prints_none_when_nothing_matches(self) -> None:
+        self.assertEqual(self.last_row(), "none")
+
+    def test_last_row_does_not_treat_a_blank_actor_as_devbot(self) -> None:
+        os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
+        with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("session_id,datetime,project,notes,actor,skill:git-report\n")
+            fh.write(f"ses_test-01,{NOW},{PROJECT},DevBot row,DevBot,4\n")
+            fh.write(f"ses_test-02,{NOW},{PROJECT},unnamed row,,4\n")
+
+        self.assertEqual(self.last_row(actor="DevBot"), "ses_test-01")
+
+    def test_last_row_treats_a_pre_actor_row_as_devbot(self) -> None:
+        os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
+        with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
+            fh.write("session_id,datetime,project,notes,skill:git-report\n")
+            fh.write(f"ses_test-01,{NOW},{PROJECT},legacy row,4\n")
+
+        self.assertEqual(self.last_row(actor="DevBot"), "ses_test-01")
+
     # ── the actor column ─────────────────────────────────────────────────────
 
     def test_actor_is_appended_to_the_base_columns(self) -> None:

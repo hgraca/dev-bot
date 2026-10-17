@@ -54,10 +54,17 @@ Resolve the session id, your own actor, and the last row belonging to both:
 1. Read the session id from the shell: `echo "$DEV_BOT_SESSION_ID"` — if it is empty, the session id is `unknown`.
 2. Read your actor the same way: `echo "$DEV_BOT_AGENT_NAME"`. `record-grades.py` resolves that variable
    by itself, so you only need it here to find your own boundary.
-3. Read `<DEV_BOT_ROOT>/.agents/logs/tools-grades.csv` and take the highest row id **whose session and actor both match yours** — the id starts with `<session-id>-`, and its `actor` column is your name. Compare the actor case-insensitively: rows written before that column existed carry `DevBot`, and the harness may report your name in any case.
+3. Ask the script for the boundary instead of filtering the CSV by hand:
 
-If no such row exists, the slice is the whole session so far. Otherwise the slice is the work done
-after that row. Grade that slice only.
+   ```bash
+   python3 <skill-base-dir>/scripts/record-grades.py --last-row
+   ```
+
+   It prints the highest row id whose session and actor both match yours, or `none`. Actor matching
+   is case-insensitive; rows written before that column existed count as `DevBot`.
+
+If no such row exists (`none`), the slice is the whole session so far. Otherwise the slice is the
+work done after that row. Grade that slice only.
 
 ### Step 2 — Enumerate the tools used in the slice
 
