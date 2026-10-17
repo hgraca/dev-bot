@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
@@ -598,7 +598,8 @@ class TestSearchMdctx(unittest.TestCase):
         self.root = Path(self.tmpdir.name)
         # Latent + global docs roots with real files, and existing indexes so
         # the "not built yet" guard passes.
-        self.latent = self.root / ".agents" / "memory" / "latent"
+        self.memory = self.root / ".agents" / "memory"
+        self.latent = self.memory / "latent"
         self.latent.mkdir(parents=True)
         (self.root / ".mdctx").mkdir()
         (self.latent / "a.md").write_text("# A\n\ncontent a zorblatt-fenwick-nine")
@@ -606,7 +607,9 @@ class TestSearchMdctx(unittest.TestCase):
         self.global_dir.mkdir(parents=True)
         (self.root / "storage" / ".mdctx").mkdir(parents=True)
         (self.global_dir / "g.md").write_text("# G\n\ncontent g")
-        (self.root / ".mdctx" / "context-index.json").write_text("{}")
+        (self.root / ".mdctx" / "context-index.json").write_text(
+            '{"entries":{"latent/a.md":{}}}'
+        )
         (self.root / "storage" / ".mdctx" / "context-index.json").write_text("{}")
 
     def tearDown(self):
@@ -633,9 +636,9 @@ class TestSearchMdctx(unittest.TestCase):
         with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
             with patch.object(_search_memories, "run_mdctx_cli") as mock_run:
                 mock_run.side_effect = [
-                    (json.dumps([self._hit("a.md", 0.9, "A")]), None),            # q1 project
+                    (json.dumps([self._hit("latent/a.md", 0.9, "A")]), None),            # q1 project
                     (json.dumps([self._hit("g.md", 0.5, "G")]), None),            # q1 global
-                    (json.dumps([self._hit("a.md", 0.8, "A")]), None),            # q2 project (dup)
+                    (json.dumps([self._hit("latent/a.md", 0.8, "A")]), None),            # q2 project (dup)
                     (json.dumps([self._hit("g.md", 0.4, "G")]), None),            # q2 global (dup)
                 ]
                 results, err = _search_memories.search_mdctx(["q1", "q2"], self.root, 10)
@@ -661,7 +664,7 @@ class TestSearchMdctx(unittest.TestCase):
         self.assertIn(str(self.root / "storage" / ".mdctx" / "context-index.json"), index_flags)
 
     def test_limits_to_max_results(self):
-        many = [self._hit(f"f{i}.md", 1.0 - i * 0.01, f"T{i}") for i in range(15)]
+        many = [self._hit(f"latent/f{i}.md", 1.0 - i * 0.01, f"T{i}") for i in range(15)]
         for i in range(15):
             (self.latent / f"f{i}.md").write_text(f"# F{i}\n")
         with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
@@ -699,7 +702,7 @@ class TestSearchMdctx(unittest.TestCase):
     def test_skips_results_with_empty_path(self):
         # Project store carries the empty-path hit + a real one; global store
         # is empty — the empty path must be dropped and a.md kept exactly once.
-        project_out = json.dumps([{"path": "", "score": 9.0}, self._hit("a.md", 0.5)])
+        project_out = json.dumps([{"path": "", "score": 9.0}, self._hit("latent/a.md", 0.5)])
         with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
             with patch.object(
                 _search_memories,
@@ -716,7 +719,7 @@ class TestSearchMdctx(unittest.TestCase):
         # audit-80 N3: a note deleted from disk still surfaces via the stale
         # index until the next prune; it must not render as a dangling
         # "body not fetched" result.
-        project_out = json.dumps([self._hit("gone.md", 9.0), self._hit("a.md", 0.5, "A")])
+        project_out = json.dumps([self._hit("latent/gone.md", 9.0), self._hit("latent/a.md", 0.5, "A")])
         with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
             with patch.object(
                 _search_memories,
@@ -734,7 +737,7 @@ class TestSearchMdctx(unittest.TestCase):
         # project vault on fuzzy queries, burying the project note below the
         # window. Merge is project-first: the project hit must rank above the
         # higher raw-scoring global hit even without a boost.
-        project_out = json.dumps([self._hit("a.md", 0.6, "A")])  # project
+        project_out = json.dumps([self._hit("latent/a.md", 0.6, "A")])  # project
         global_out = json.dumps([self._hit("g.md", 9.0, "G")])  # global (much higher raw)
         with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
             with patch.object(
@@ -754,7 +757,7 @@ class TestSearchMdctx(unittest.TestCase):
         # audit-53 FAIL-1 repro: a 1-doc project vault whose full match scores
         # ~1.5 vs global partial matches at 5.7-6.0. The project hit must be
         # first at the default window (5), never silently missing.
-        project_out = json.dumps([self._hit("a.md", 1.482, "A")])  # full match
+        project_out = json.dumps([self._hit("latent/a.md", 1.482, "A")])  # full match
         global_out = json.dumps(
             [self._hit(f"g{i}.md", 5.7 + i * 0.1, f"G{i}") for i in range(5)]
         )
@@ -795,6 +798,54 @@ class TestSearchMdctx(unittest.TestCase):
         self.assertEqual(results[0]["file"], str((self.latent / "a.md").resolve()))
         self.assertEqual(results[0]["score"], 0.0)
 
+
+class TestStaleAndDriftNotes(unittest.TestCase):
+    def test_format_markdown_appends_the_stale_note(self):
+        text = _search_memories.format_markdown([], "index may be stale (rebuild-failed)")
+        self.assertIn("No memory vault matches found — index may be stale (rebuild-failed).", text)
+
+    def test_format_json_carries_the_stale_note_only_when_empty(self):
+        payload = _search_memories.format_json([], "index may be stale (x)")
+        self.assertEqual(payload["memories"], [])
+        self.assertEqual(payload["note"], "index may be stale (x)")
+
+        payload = _search_memories.format_json([{"file": "a.md", "_body": "x"}], "ignored")
+        self.assertNotIn("note", payload)
+
+    def test_current_head_reads_the_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "-C", tmp, "init", "-q", "--initial-branch=main"], check=True)
+            self.assertEqual(_search_memories.current_head(Path(tmp)), "main")
+
+    def test_current_head_changes_when_the_branch_changes_at_the_same_sha(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "-C", tmp, "init", "-q", "--initial-branch=main"], check=True)
+            subprocess.run(["git", "-C", tmp, "config", "user.email", "t@example.com"], check=True)
+            subprocess.run(["git", "-C", tmp, "config", "user.name", "T"], check=True)
+            subprocess.run(["git", "-C", tmp, "config", "commit.gpgsign", "false"], check=True)
+            Path(tmp, "a.txt").write_text("a")
+            subprocess.run(["git", "-C", tmp, "add", "a.txt"], check=True)
+            subprocess.run(["git", "-C", tmp, "commit", "-qm", "init"], check=True)
+            before = _search_memories.current_head(Path(tmp))
+            subprocess.run(["git", "-C", tmp, "checkout", "-qb", "other"], check=True)
+            after = _search_memories.current_head(Path(tmp))
+        self.assertNotEqual(before, after)
+
+    def test_current_head_is_none_outside_a_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(_search_memories.current_head(Path(tmp)))
+
+    def test_main_warns_when_head_moves_during_the_search(self):
+        err = io.StringIO()
+        with patch.object(_search_memories, "resolve_provider", return_value="mdctx"), \
+             patch.object(_search_memories, "resolve_supervisor", return_value=False), \
+             patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
+             patch.object(_search_memories, "current_head", side_effect=["main", "feature"]), \
+             patch.object(_search_memories, "search_mdctx", return_value=([], None)), \
+             patch.object(sys, "argv", ["search-memories", "--query", "q"]), \
+             redirect_stderr(err), redirect_stdout(io.StringIO()):
+            _search_memories.main()
+        self.assertIn("HEAD moved from main to feature", err.getvalue())
 
 # ---------------------------------------------------------------------------
 # fetch_mdctx_body (direct disk read + frontmatter strip)
@@ -1155,8 +1206,8 @@ class TestSupervisorReadProjects(_SandboxTest):
 class TestScopedMdctxPairs(_SandboxTest):
     def _scaffold(self, project):
         (project / ".mdctx").mkdir(parents=True, exist_ok=True)
-        (project / ".mdctx" / "context-index.json").write_text("{}")
-        (project / ".agents" / "memory" / "latent").mkdir(parents=True, exist_ok=True)
+        (project / ".mdctx" / "context-index.json").write_text('{"entries":{"latent/a.md":{}}}')
+        (project / ".agents" / "memory").mkdir(parents=True, exist_ok=True)
         return project
 
     def test_project_pairs_then_global(self):
@@ -1170,7 +1221,7 @@ class TestScopedMdctxPairs(_SandboxTest):
         self.assertEqual([p[2] for p in pairs], [False, False, True])
         # group = read-set position; the global pair is group -1
         self.assertEqual([p[3] for p in pairs], [0, 1, -1])
-        self.assertEqual(str(pairs[0][0]), str(a / ".agents" / "memory" / "latent"))
+        self.assertEqual(str(pairs[0][0]), str(a / ".agents" / "memory"))
 
     def test_skips_projects_without_an_index(self):
         a = self._project("a")  # no .mdctx/index
@@ -1234,8 +1285,55 @@ class TestSearchMdctxScoped(_SandboxTest):
         latent = project / ".agents" / "memory" / "latent"
         latent.mkdir(parents=True, exist_ok=True)
         (latent / "n.md").write_text(content)
-        (project / ".mdctx" / "context-index.json").write_text("{}")
+        (project / ".mdctx" / "context-index.json").write_text(
+            '{"entries":{"latent/n.md":{}}}'
+        )
         return project
+
+    def test_legacy_index_without_a_record_is_rooted_at_latent(self):
+        project = self._project("legacy-root")
+        (project / ".mdctx").mkdir(parents=True, exist_ok=True)
+        index = project / ".mdctx" / "context-index.json"
+        index.write_text('{"entries":{"a.md":{}}}')
+        self.assertEqual(
+            _search_memories._index_corpus_root(project, index),
+            project / ".agents" / "memory" / "latent",
+        )
+
+    def test_explicit_index_root_wins_over_entry_prefixes(self):
+        project = self._project("explicit-root")
+        (project / ".mdctx").mkdir(parents=True, exist_ok=True)
+        index = project / ".mdctx" / "context-index.json"
+        root = project / ".agents" / "memory" / "latent"
+        index.write_text(
+            '{"root":"' + str(root) + '","entries":{"work/note.md":{}}}'
+        )
+        self.assertEqual(
+            _search_memories._index_corpus_root(project, index),
+            project / ".agents" / "memory" / "latent",
+        )
+
+    def test_relative_index_root_is_resolved_against_the_index_directory(self):
+        project = self._project("relative-root")
+        (project / ".mdctx").mkdir(parents=True, exist_ok=True)
+        index = project / ".mdctx" / "context-index.json"
+        index.write_text(
+            '{"root":"../.agents/memory/latent","entries":{"work/note.md":{}}}'
+        )
+        self.assertEqual(
+            _search_memories._index_corpus_root(project, index),
+            project / ".agents" / "memory" / "latent",
+        )
+
+    def test_nested_index_entries_are_rooted_at_the_memory_tree(self):
+        project = self._project("memory-root")
+        (project / ".mdctx").mkdir(parents=True, exist_ok=True)
+        index = project / ".mdctx" / "context-index.json"
+        index.write_text('{"entries":{"latent/a.md":{}}}')
+        self.assertEqual(
+            _search_memories._index_corpus_root(project, index),
+            project / ".agents" / "memory",
+        )
 
     def test_merges_project_and_supervisor_hits_before_global(self):
         a = self._scaffold(self._project("a"), "# A\n\nfile aaa")
@@ -1252,7 +1350,7 @@ class TestSearchMdctxScoped(_SandboxTest):
             with patch.object(
                 _search_memories,
                 "run_mdctx_cli",
-                side_effect=[(hit("n.md", 0.4), None), (hit("n.md", 0.9), None), (hit("g.md", 9.9), None)],
+                side_effect=[(hit("latent/n.md", 0.4), None), (hit("latent/n.md", 0.9), None), (hit("g.md", 9.9), None)],
             ):
                 results, err = _search_memories.search_mdctx(
                     ["q"], sup, 10, projects=[a, sup]
@@ -1280,7 +1378,7 @@ class TestMainSupervisorScope(_SandboxTest):
             ensured.append(str(root))
             return True, ""
 
-        def fake_search(queries, project_root, max_results, projects=None):
+        def fake_search(queries, project_root, max_results, projects=None, fallback_latent_root=False):
             seen["projects"] = [str(p) for p in (projects or [])]
             return [], None
 
@@ -1352,7 +1450,7 @@ class TestNonSupervisorUnchanged(unittest.TestCase):
             ensured.append(str(root))
             return True, ""
 
-        def fake_search(queries, project_root, max_results, projects=None):
+        def fake_search(queries, project_root, max_results, projects=None, fallback_latent_root=False):
             seen["projects"] = [str(p) for p in (projects or [])]
             return [], None
 

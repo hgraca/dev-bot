@@ -33,13 +33,13 @@ main() {
       _ok "QMD upgraded: ${before} → ${after}"
     fi
 
-    # Refresh the local vault index if latent/ exists
-    if [[ -d "$(_devbot_get_project_dir "$(pwd)")/memory/latent" ]]; then
+    # Refresh the local vault index if the memory tree exists
+    if [[ -d "$(_devbot_get_project_dir "$(pwd)")/memory" ]]; then
       _info "Refreshing QMD index..."
       qmd update 2>/dev/null || true
       _ok "QMD index refreshed"
     else
-      _skip "No latent/ directory found — skipping index refresh"
+      _skip "No memory/ directory found — skipping index refresh"
     fi
   else
     _fatal "QMD upgrade failed — try: npm install -g @tobilu/qmd"

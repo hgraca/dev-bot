@@ -8,7 +8,7 @@
 # memory module — no model download, no embeddings (see ADR
 # ADRs/20260913072905-qmd-bm25-only-no-model-downloads). This init script:
 #   1. Checks qmd CLI is installed
-#   2. Registers a project collection for <devbot-dir>/memory/latent/
+#   2. Registers a project collection for <devbot-dir>/memory/
 #   3. Adds QMD context entries for agent guidance
 #   4. Runs the initial BM25 index (cleanup + update)
 #
@@ -52,29 +52,62 @@ _ok "qmd CLI: $(qmd --version 2>/dev/null || echo 'installed')"
 
 # ── Check vault exists ────────────────────────────────────────────────────────
 
-LATENT_DIR="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/memory/latent"
-if [[ ! -d "${LATENT_DIR}" ]]; then
-  _warn "No latent memory directory found at:"
-  echo "    ${LATENT_DIR}"
-  echo "  Create it or ensure your project has the <devbot-dir>/memory/latent/ structure."
+MEMORY_DIR="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/memory"
+if [[ ! -d "${MEMORY_DIR}" ]]; then
+  _warn "No memory directory found at:"
+  echo "    ${MEMORY_DIR}"
+  echo "  Create it or ensure your project has the <devbot-dir>/memory/ structure."
   echo "  Continuing with global collection only."
-  HAS_LATENT=false
+  HAS_MEMORY=false
 else
-  HAS_LATENT=true
-  _ok "Latent directory: ${LATENT_DIR}"
+  HAS_MEMORY=true
+  _ok "Memory directory: ${MEMORY_DIR}"
 fi
 
 # ── Register project collection ───────────────────────────────────────────────
 
-if [[ "$HAS_LATENT" == "true" ]]; then
+if [[ "$HAS_MEMORY" == "true" ]]; then
   _header_3 "Registering QMD collections"
 
-  # Check if collection already exists (exact match, not substring)
+  # Check if collection already exists (exact match, not substring). An
+  # existing collection may still be rooted at memory/latent from before the
+  # whole-memory scope; migrate it so work/thinking/active become searchable.
   if qmd collection show "${PROJECT_NAME}" >/dev/null 2>&1; then
-    _skip "Collection '${PROJECT_NAME}' already registered"
+    current_path="$(qmd collection show "${PROJECT_NAME}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
+    if [[ -z "${current_path}" ]]; then
+      _warn "Could not determine the root of collection '${PROJECT_NAME}'"
+      exit 1
+    elif [[ "${current_path}" != "${MEMORY_DIR}" ]]; then
+      if [[ "${current_path}" != "${MEMORY_DIR}/latent" ]]; then
+        _error "Collection '${PROJECT_NAME}' is registered at ${current_path}, not this checkout's ${MEMORY_DIR} (name collision); refusing to repoint"
+        exit 1
+      fi
+      _info "Migrating collection '${PROJECT_NAME}' from ${current_path} to ${MEMORY_DIR}..."
+      if ! qmd collection remove "${PROJECT_NAME}" >/dev/null 2>&1; then
+        _warn "Could not remove the old collection '${PROJECT_NAME}'"
+        exit 1
+      fi
+      if qmd collection add "${MEMORY_DIR}" --name "${PROJECT_NAME}"; then
+        if ! migrated_path="$(qmd collection show "${PROJECT_NAME}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"; then
+          migrated_path=""
+        fi
+      else
+        migrated_path=""
+      fi
+      if [[ "${migrated_path}" == "${MEMORY_DIR}" ]]; then
+        _ok "Collection '${PROJECT_NAME}' migrated"
+      else
+        _warn "Could not migrate collection '${PROJECT_NAME}'"
+        qmd collection remove "${PROJECT_NAME}" >/dev/null 2>&1 || true
+        qmd collection add "${current_path}" --name "${PROJECT_NAME}" >/dev/null 2>&1 || true
+        exit 1
+      fi
+    else
+      _skip "Collection '${PROJECT_NAME}' already registered"
+    fi
   else
-    _info "Registering collection '${PROJECT_NAME}' for latent/..."
-    qmd collection add "${LATENT_DIR}" \
+    _info "Registering collection '${PROJECT_NAME}' for memory/..."
+    qmd collection add "${MEMORY_DIR}" \
       --name "${PROJECT_NAME}"
     _ok "Collection '${PROJECT_NAME}' registered"
   fi

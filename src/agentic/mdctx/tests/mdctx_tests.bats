@@ -330,13 +330,13 @@ MOCK
 
   assert_success
   run cat "${MDCTX_ARGS_FILE}"
-  assert_output --regexp '^build .*/.agents/memory/latent -o .*/\.mdctx/context-index\.json$'
+  assert_output --regexp '^build .*/.agents/memory -o .*/\.mdctx/context-index\.json$'
   [ -d "${PROJECT_DIR}/.mdctx" ]
   run grep -q '^\.mdctx$' "${PROJECT_DIR}/.git/info/exclude"
   assert_success
 }
 
-@test "init.sh: creates the latent directory when missing and builds the index" {
+@test "init.sh: creates the memory directory when missing and builds the index" {
   _setup_sandbox
   _mock_mdctx_cli
   PROJECT_DIR="$(mktemp -d)"
@@ -347,9 +347,9 @@ MOCK
   run bash "$MODULE_DIR/init.sh" "${PROJECT_DIR}"
 
   assert_success
-  [ -d "${PROJECT_DIR}/.agents/memory/latent" ]
+  [ -d "${PROJECT_DIR}/.agents/memory" ]
   run cat "${MDCTX_ARGS_FILE}"
-  assert_output --regexp '^build .*/.agents/memory/latent -o .*/\.mdctx/context-index\.json$'
+  assert_output --regexp '^build .*/.agents/memory -o .*/\.mdctx/context-index\.json$'
   [ -d "${PROJECT_DIR}/.mdctx" ]
 }
 

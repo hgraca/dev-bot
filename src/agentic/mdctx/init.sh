@@ -6,16 +6,16 @@
 # mdctx is a zero-ML-dependency keyword index (RAKE + BM25) over a directory of
 # markdown files. This init script:
 #   1. Checks the mdctx CLI is installed
-#   2. Builds an incremental index over <devbot-dir>/memory/latent, written to
+#   2. Builds an incremental index over <devbot-dir>/memory, written to
 #      <project>/.mdctx/context-index.json (explicit -o — the index must never
-#      pollute the latent tree it indexes)
+#      pollute the memory tree it indexes)
 #   3. Excludes the project's .mdctx/ dir from git (.git/info/exclude) so the
 #      generated index JSON is never committed
 #
 # The shared global store (DEV_BOT_ROOT/storage/global-memories) is indexed by
 # the memory module's init.sh (it owns that store); this script covers only the
-# per-project latent vault. mdctx does not follow symlinks, so the
-# latent/global symlink is NOT covered here — hence the separate global index.
+# per-project memory tree. mdctx does not follow symlinks, so the
+# memory/latent/global symlink is NOT covered here — hence the separate global index.
 #
 # Usage:
 #   init.sh                         # init in current directory
@@ -47,15 +47,15 @@ _ok "mdctx CLI: $(mdctx --version 2>/dev/null || echo 'installed')"
 # ── Check vault exists ────────────────────────────────────────────────────────
 
 DEVBOT_DIR="$(_devbot_get_project_dir "${PROJECT_DIR}")"
-LATENT_DIR="${PROJECT_DIR}/${DEVBOT_DIR}/memory/latent"
+MEMORY_DIR="${PROJECT_DIR}/${DEVBOT_DIR}/memory"
 
-if [[ ! -d "${LATENT_DIR}" ]]; then
+if [[ ! -d "${MEMORY_DIR}" ]]; then
   # mdctx sorts before the memory module, so on a fresh init the vault does
   # not exist yet — create it so the project index still builds.
-  mkdir -p "${LATENT_DIR}"
-  _ok "Created latent directory: ${LATENT_DIR}"
+  mkdir -p "${MEMORY_DIR}"
+  _ok "Created memory directory: ${MEMORY_DIR}"
 else
-  _ok "Latent directory: ${LATENT_DIR}"
+  _ok "Memory directory: ${MEMORY_DIR}"
 fi
 
 # ── Build project index ───────────────────────────────────────────────────────
@@ -71,10 +71,10 @@ _header_3 "Building mdctx project index"
 # and byte-stable (no spurious diffs). Never run `mdctx init` here — it
 # installs git hooks + a CI workflow into the project (devbot policy: our
 # manifests/lifecycle own registration, not the engine's auto-config).
-if mdctx build "${LATENT_DIR}" -o "${INDEX_FILE}" 2>&1 | sed 's/^/  /'; then
+if mdctx build "${MEMORY_DIR}" -o "${INDEX_FILE}" 2>&1 | sed 's/^/  /'; then
   _ok "mdctx project index written: ${INDEX_FILE}"
 else
-  _error "mdctx build failed — check mdctx is installed (install.sh) and the latent dir is readable."
+  _error "mdctx build failed — check mdctx is installed (install.sh) and the memory dir is readable."
   exit 1
 fi
 

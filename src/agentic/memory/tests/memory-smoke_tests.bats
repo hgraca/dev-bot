@@ -192,6 +192,69 @@ SCRIPT
   rm -rf "$tmpdir" "$stubdir"
 }
 
+@test "qmd init: restores the previous collection and fails when migration add fails" {
+  local stubdir tmpdir project old_path state
+  stubdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  project="$tmpdir/project with spaces"
+  old_path="$project/.agents/memory/latent"
+  state="$tmpdir/collection-path"
+  mkdir -p "$project/.agents/memory/latent" "$old_path"
+  printf '{"project_name":"configured-project"}\n' > "$project/.devbot.project.jsonc"
+  printf '%s\n' "$old_path" > "$state"
+  cat > "$stubdir/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+case "${1:-} ${2:-}" in
+  "--version ") echo "qmd test" ;;
+  "collection show")
+    if [[ "${QMD_FAIL_VERIFY:-0}" == "1" && "$(cat "$QMD_STATE" 2>/dev/null || true)" == "${QMD_TARGET}" ]]; then
+      exit 1
+    fi
+    path="$(cat "$QMD_STATE" 2>/dev/null || true)"
+    [[ -n "$path" ]] || exit 1
+    printf 'Path: %s\n' "$path"
+    ;;
+  "collection remove")
+    : > "$QMD_STATE"
+    ;;
+  "collection add")
+    if [[ "${3:-}" == "${QMD_TARGET}" && "${QMD_FAIL_TARGET_ADD:-0}" == "1" ]]; then
+      exit 1
+    fi
+    printf '%s\n' "${3:-}" > "$QMD_STATE"
+    ;;
+  "context list") ;;
+esac
+SCRIPT
+  chmod +x "$stubdir/qmd"
+
+  run env PATH="$stubdir:$PATH" QMD_STATE="$state" \
+    QMD_TARGET="$project/.agents/memory" QMD_FAIL_TARGET_ADD=1 \
+    bash "$MODULE_DIR/../qmd/init.sh" "$project"
+
+  assert_failure
+  assert_output --partial "Could not migrate collection"
+  [[ "$(cat "$state")" == "$old_path" ]]
+
+  run env PATH="$stubdir:$PATH" QMD_STATE="$state" \
+    QMD_TARGET="$project/.agents/memory" \
+    bash "$MODULE_DIR/../qmd/init.sh" "$project"
+
+  assert_success
+  [[ "$(cat "$state")" == "$project/.agents/memory" ]]
+
+  printf '%s\n' "$old_path" > "$state"
+  run env PATH="$stubdir:$PATH" QMD_STATE="$state" \
+    QMD_TARGET="$project/.agents/memory" QMD_FAIL_VERIFY=1 \
+    bash "$MODULE_DIR/../qmd/init.sh" "$project"
+
+  assert_failure
+  assert_output --partial "Could not migrate collection"
+  [[ "$(cat "$state")" == "$old_path" ]]
+
+  rm -rf "$tmpdir" "$stubdir"
+}
+
 @test "init.sh: builds the mdctx global index when provider is mdctx" {
   # Under the mdctx engine the global store is indexed at a sandboxed
   # DEV_BOT_ROOT/storage/.mdctx — hermetic regardless of any real index.

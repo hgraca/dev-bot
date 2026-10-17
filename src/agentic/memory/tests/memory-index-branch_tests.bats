@@ -73,10 +73,13 @@ _record_field() {
 }
 
 _vault_tree_sha() {
-  git -C "$1" rev-parse "HEAD:.agents/memory/latent"
+  git -C "$1" rev-parse "HEAD:.agents/memory"
 }
 
 _write_record() {
+  local proj fingerprint
+  proj="$(dirname "$(dirname "$(dirname "$1")")")"
+  fingerprint="$(PATH="$STUB_DIR:$PATH" bash "$TOOL" --fingerprint "${proj}/.agents/memory")"
   python3 -c '
 import json, sys
 json.dump(
@@ -84,11 +87,13 @@ json.dump(
         "branch": sys.argv[2],
         "provider": sys.argv[3],
         "tree_sha": sys.argv[4],
+        "corpus": "memory",
+        "corpus_fingerprint": sys.argv[5],
         "recorded_at": "2026-01-01T00:00:00Z",
     },
     open(sys.argv[1], "w"),
 )
-' "$1" "$2" "$3" "$4"
+' "$1" "$2" "$3" "$4" "$fingerprint"
 }
 
 # ── AC1: missing record → build + record ─────────────────────────────────────
@@ -162,6 +167,47 @@ json.dump(
   assert_success
   grep -q "build" "$MDCTX_CALL_LOG"
   [ "$(_record_field "$(_record_path "$proj")" tree_sha)" = "$(_vault_tree_sha "$proj")" ]
+}
+
+@test "--ensure: rebuilds a record written before the whole-memory corpus" {
+  local proj="$WORK/project-legacy-corpus"
+  _make_git_project "$proj"
+  # A pre-change record has no corpus marker; it may describe a latent-only index.
+  python3 -c '
+import json, sys
+json.dump(
+    {
+        "branch": "main",
+        "provider": "mdctx",
+        "tree_sha": sys.argv[2],
+        "recorded_at": "2026-01-01T00:00:00Z",
+    },
+    open(sys.argv[1], "w"),
+)
+' "$(_record_path "$proj")" "$(_vault_tree_sha "$proj")"
+
+  cd "$proj"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --ensure
+  cd "$WORK"
+
+  assert_success
+  grep -q "build" "$MDCTX_CALL_LOG"
+  [ "$(_record_field "$(_record_path "$proj")" corpus)" = "memory" ]
+}
+
+@test "--ensure: rebuilds when a note moves on disk without a commit" {
+  local proj="$WORK/project-moved-note"
+  _make_git_project "$proj"
+  _write_record "$(_record_path "$proj")" main mdctx "$(_vault_tree_sha "$proj")"
+
+  mv "$proj/.agents/memory/latent/note.md" "$proj/.agents/memory/latent/moved.md"
+
+  cd "$proj"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --ensure
+  cd "$WORK"
+
+  assert_success
+  grep -q "build" "$MDCTX_CALL_LOG"
 }
 
 # ── AC3: unrelated commit → no rebuild ───────────────────────────────────────
