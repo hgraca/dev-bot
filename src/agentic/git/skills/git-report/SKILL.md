@@ -25,10 +25,11 @@ Snapshots the current git state and returns a structured Markdown report. Use be
 git-report
 ```
 
-| Parameter     | Required | Description                                    |
-| ------------- | -------- | ---------------------------------------------- |
-| (none)        | —        | Default output: Markdown, 10 recent commits    |
-| `--log-count` | no       | Number of recent commits to show (default: 10) |
+| Parameter     | Required | Description                                                         |
+| ------------- | -------- | ------------------------------------------------------------------- |
+| (none)        | —        | Default output: Markdown, 10 recent commits, session project        |
+| `--log-count` | no       | Number of recent commits to show (default: 10)                      |
+| `--cwd`       | no       | Repository directory to inspect — a sibling repo or linked worktree |
 
 No format parameters — output is always Markdown.
 
@@ -36,7 +37,7 @@ No format parameters — output is always Markdown.
 
 | Section                              | Content                                                                             |
 | ------------------------------------ | ----------------------------------------------------------------------------------- |
-| **Git Report** header                | Current branch, default branch (local + remote)                                     |
+| **Git Report** header                | Repository path, current branch, default branch (local + remote)                    |
 | **Recent Commits**                   | `git log --oneline -<count>` output                                                 |
 | **Status**                           | `git status` output                                                                 |
 | **Staged Changes (summary)**         | `git diff --staged --stat` output                                                   |
@@ -58,4 +59,7 @@ git-report
 
 git-report --log-count 3
 # → Same report, only 3 recent commits shown
+
+git-report --cwd ../sibling-repo
+# → Same report, read from the sibling repository instead of the session project
 ```

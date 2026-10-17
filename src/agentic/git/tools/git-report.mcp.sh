@@ -16,6 +16,7 @@
 # Usage:
 #   git-report.mcp.sh                                    # default: 10 recent commits
 #   git-report.mcp.sh --log-count 20                     # show 20 recent commits
+#   git-report.mcp.sh --cwd ../sibling                   # inspect another repo/worktree
 #
 # Dependencies: python3, git
 # =============================================================================
@@ -25,7 +26,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"git-report","description":"Capture a snapshot of the current git state: current branch, default branch, recent commits, working tree status, staged diff, commits unique to the current branch, and index integrity","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"Options passed to git-report (e.g. --log-count 20)"}},"required":["args"]}}
+{"name":"git-report","description":"Capture a snapshot of a git repository's state: repository path, current branch, default branch, recent commits, working tree status, staged diff, commits unique to the current branch, and index integrity. Pass --cwd to inspect a sibling repo or worktree instead of the session project.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"Options passed to git-report (e.g. --log-count 20, --cwd /path/to/repo)"}},"required":["args"]}}
 JSON
     exit 0
     ;;
