@@ -80,9 +80,11 @@ Id you do NOT have the `git-report` tool available, use the bash fallback:
 bash devbot tool git-report --format markdown
 ```
 
-### 4. Gather sibling projects
+### 4. Gather sibling projects (only when the task may cross repositories)
 
-Use the `list-projects` tool to list the sibling projects configured in the global devbot config — each with its name, full path, and whether the agent has access to it.
+Skip this step for a repository-local question — a 27-project roster adds noise, not context. Use the
+`list-projects` tool only when the delegation mentions another service, a cross-repo change, or an
+unknown sibling, and pass `--filter`/`--only` when the relevant names are already known.
 
 If you do NOT have the `list-projects` tool available, use the bash fallback:
 
@@ -90,18 +92,20 @@ If you do NOT have the `list-projects` tool available, use the bash fallback:
 bash devbot tool list-projects
 ```
 
-### 5. Gather codebase relationships knowledge (if topic is code-related)
+### 5. Gather codebase relationships knowledge (code-related topics only, and only when indexed)
 
-Use the `graphify` MCP tools with the identified keywords to get a graphify report.
+Use the `graphify` MCP tools only when the topic is code-related **and** the graph is populated. Check
+`graphify_graph_stats` first; when it reports zero nodes or the server is unavailable, write
+`Graphify: not indexed — skipped` and move on. Do not query an empty graph.
 
 If you do NOT have the `graphify` MCP tools available, use glob + grep as fallback:
 
 - `glob("**/*.md")` to list relevant documentation files
 - `grep("keyword")` to find related content
 
-### 6. Gather codebase patterns and architecture context (if topic is code-related)
+### 6. Gather codebase patterns and architecture context (code-related topics only)
 
-Use the project's active codebase engine. Consult the `devbot:codebase-index` skill — the shared slot that documents whichever engine `codebase_index_provider` selects (`codebase-memory` by default, `codebase-index` otherwise) — and use the MCP tools it names.
+Use the project's active codebase engine. Consult the `devbot:codebase-index` skill — the shared slot that documents whichever engine `codebase_index_provider` selects (`codebase-memory` by default, `codebase-index` otherwise) — and use the MCP tools it names. If the engine is unavailable, says the project is not indexed, or reports the index as stale, record that in one line and fall back to grep/read; do not retry the same call.
 
 If those MCP tools are not available, use glob + grep as fallback:
 
