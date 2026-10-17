@@ -56,11 +56,47 @@ setup() {
   assert_output --partial "sub_file.txt"
 }
 
-@test "single dir: includes hidden files (-a flag)" {
+@test "single dir: hides hidden files by default" {
   run bash "$TOOL" "$FIXTURES"
 
   assert_success
+  refute_output --partial ".hidden"
+}
+
+@test "single dir: --all includes hidden files" {
+  run bash "$TOOL" --all "$FIXTURES"
+
+  assert_success
   assert_output --partial ".hidden"
+}
+
+@test "single dir: excludes dependency and VCS dirs by default" {
+  mkdir -p "$FIXTURES/node_modules" "$FIXTURES/vendor" "$FIXTURES/.git"
+  echo noise > "$FIXTURES/node_modules/junk.txt"
+  echo noise > "$FIXTURES/vendor/junk.txt"
+  echo noise > "$FIXTURES/.git/junk.txt"
+
+  run bash "$TOOL" "$FIXTURES"
+
+  assert_success
+  refute_output --partial "junk.txt"
+  refute_output --partial "node_modules"
+  refute_output --partial "vendor"
+
+  rm -rf "$FIXTURES/node_modules" "$FIXTURES/vendor" "$FIXTURES/.git"
+}
+
+@test "--exclude adds a project-specific exclusion" {
+  mkdir -p "$FIXTURES/build"
+  echo noise > "$FIXTURES/build/junk.txt"
+
+  run bash "$TOOL" --exclude build "$FIXTURES"
+
+  assert_success
+  refute_output --partial "build"
+  refute_output --partial "junk.txt"
+
+  rm -rf "$FIXTURES/build"
 }
 
 # ── Multiple directories ───────────────────────────────────────────────────────
@@ -286,11 +322,11 @@ setup() {
   rm -rf "$TEST_DIR/fixtures/with space"
 }
 
-@test "deeply nested directory: shows full tree" {
+@test "deeply nested directory: shows full tree within the depth limit" {
   mkdir -p "$TEST_DIR/fixtures/deep/a/b/c"
   echo "leaf" > "$TEST_DIR/fixtures/deep/a/b/c/leaf.txt"
 
-  run bash "$TOOL" "$TEST_DIR/fixtures/deep"
+  run bash "$TOOL" --max-depth 4 "$TEST_DIR/fixtures/deep"
 
   assert_success
   assert_output --partial "deep"
@@ -334,4 +370,17 @@ setup() {
   PATH="$BUN:$(mktemp -d)" run "$BASH" "$TOOL" "$FIXTURES"
 
   assert_failure
+}
+
+@test "--all with --exclude still honours the exclusion" {
+  mkdir -p "$FIXTURES/build"
+  echo noise > "$FIXTURES/build/junk.txt"
+
+  run bash "$TOOL" --all --exclude build "$FIXTURES"
+
+  assert_success
+  refute_output --partial "build"
+  refute_output --partial "junk.txt"
+
+  rm -r "$FIXTURES/build"
 }

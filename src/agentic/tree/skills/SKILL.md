@@ -5,7 +5,7 @@ description: "Use when you need to see a directory's structure."
 
 # Tree
 
-Inspects one or more directories and returns the full directory tree (all subfolders and files) as Markdown.
+Inspects one or more directories and returns a depth-limited directory tree as Markdown. VCS, dependency and cache directories are excluded by default, so a repository-wide map stays readable.
 
 ## When to Use
 
@@ -30,9 +30,9 @@ Inspects one or more directories and returns the full directory tree (all subfol
 tree args=["<dir>"]
 ```
 
-| Parameter | Required | Description                                                                                                                                  |
-| --------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `args`    | yes      | CLI args, in order: optional flags (`--markdown` / `--json` / `--format <fmt>`, `--max-depth <n>` / `-L <n>`), then one or more directories. |
+| Parameter | Required | Description                                                                                                                                                                                                                                                          |
+| --------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `args`    | yes      | CLI args, in order: optional flags (`--markdown` / `--json` / `--format <fmt>`, `--max-depth <n>` / `-L <n>`, `--all`, `--exclude <pattern>`), then one or more directories. Depth defaults to 3; `--all` includes hidden entries and disables the default excludes. |
 
 No other parameters.
 
@@ -74,11 +74,12 @@ Run `devbot:tree` on each top-level directory to build a mental model of where e
 
 ### Limitations
 
-| Limitation                                    | Workaround                                 |
-| --------------------------------------------- | ------------------------------------------ |
-| Shows structure only, not contents            | Use **Read** for contents                  |
-| No pattern filtering                          | Use **Glob** for `**/*.ts` matching        |
-| Large directories (10k+ entries) may truncate | Narrow scope: `tree args=["-L","2","src"]` |
+| Limitation                         | Workaround                                      |
+| ---------------------------------- | ----------------------------------------------- |
+| Shows structure only, not contents | Use **Read** for contents                       |
+| No pattern filtering               | Use **Glob** for `**/*.ts` matching             |
+| Depth is capped at 3 by default    | Raise it: `tree args=["--max-depth","6","src"]` |
+| Noise dirs are hidden by default   | Include them: `tree args=["--all","src"]`       |
 
 ## Examples
 
