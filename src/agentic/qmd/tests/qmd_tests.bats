@@ -341,8 +341,9 @@ SCRIPT
 
 
 @test "init.sh migrates an existing latent collection to the memory root" {
-  local sandbox
-  sandbox="$(mktemp -d)"
+  local base sandbox
+  base="$(mktemp -d)"
+  sandbox="${base}/project with spaces"
   mkdir -p "${sandbox}/bin" "${sandbox}/.agents/memory/latent" "${sandbox}/cache"
   local name
   name="$(basename "${sandbox}")"
@@ -381,7 +382,7 @@ SCRIPT
   assert_output --partial "collection remove ${name}"
   assert_output --partial "collection add ${sandbox}/.agents/memory --name ${name}"
 
-  rm -r "$sandbox"
+  rm -r "$base"
 }
 
 @test "init.sh refuses to repoint a collection owned by another checkout" {
