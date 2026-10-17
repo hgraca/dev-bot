@@ -339,3 +339,116 @@ STUB
   assert_output --partial "prettier (or node) not found"
   assert_output --partial "longheader"
 }
+
+# ── Change reporting and --check ──────────────────────────────────────────────
+
+@test "single file: reports how many files changed" {
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
+  printf '| a | b |\n| --- | --- |\n| 1 | 2 |\n' > "$tmpfile"
+
+  run bash "$TOOL" "$tmpfile"
+
+  assert_success
+  assert_output --partial "format-md: 1 file(s) checked, 1 changed"
+}
+
+@test "single file: reports zero changed when already formatted" {
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
+  printf '| a | b |\n| --- | --- |\n| 1 | 2 |\n' > "$tmpfile"
+
+  run bash "$TOOL" "$tmpfile"
+  run bash "$TOOL" "$tmpfile"
+
+  assert_success
+  assert_output --partial "format-md: 1 file(s) checked, 0 changed"
+}
+
+@test "--check: exits 1 and lists a file that needs formatting" {
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
+  printf '| a | b |\n| --- | --- |\n| 1 | 2 |\n' > "$tmpfile"
+
+  run bash "$TOOL" --check "$tmpfile"
+
+  assert_failure
+  assert_output --partial "$tmpfile"
+  assert_output --partial "1 need formatting"
+  # It must report, not rewrite.
+  run cat "$tmpfile"
+  assert_output --partial '| 1 | 2 |'
+}
+
+@test "--check: exits 0 when the file is already formatted" {
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
+  printf '| a | b |\n| --- | --- |\n| 1 | 2 |\n' > "$tmpfile"
+
+  bash "$TOOL" "$tmpfile" >/dev/null
+  run bash "$TOOL" --check "$tmpfile"
+
+  assert_success
+  assert_output --partial "0 need formatting"
+}
+
+@test "--check without a path: usage error" {
+  run bash "$TOOL" --check
+
+  assert_failure
+  assert_output --partial "--check requires at least one path"
+}
+
+@test "--check with no prettier on PATH: exits 2 instead of a false green" {
+  local sb="$BATS_TEST_TMPDIR/stub-noprettier-check"
+  mkdir -p "$sb"
+  ln -sf "$(command -v python3)" "$sb/python3"
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
+  printf '# Heading\n' > "$tmpfile"
+
+  run env PATH="$sb" python3 "$MODULE_DIR/tools/format-md.py" --check "$tmpfile"
+
+  assert_failure
+  assert_output --partial "cannot verify formatting"
+}
+
+@test "--check missing file: exits 1 instead of a false green" {
+  run bash "$TOOL" --check "$BATS_TEST_TMPDIR/missing.md"
+
+  assert_failure
+  assert_output --partial "is not a file or directory"
+  assert_output --partial "0 file(s) checked"
+}
+
+@test "--check detects CRLF that the writer would normalize" {
+  local tmpfile
+  tmpfile="$(mktemp -p "$BATS_TEST_TMPDIR" tmp.XXXXXX.md)"
+  printf '# Heading\r\n\r\nSome text.\r\n' > "$tmpfile"
+
+  run bash "$TOOL" --check "$tmpfile"
+  assert_failure
+  assert_output --partial "1 need formatting"
+
+  bash "$TOOL" "$tmpfile" >/dev/null
+  run bash "$TOOL" --check "$tmpfile"
+  assert_success
+  assert_output --partial "0 need formatting"
+}
+
+@test "--check respects an explicit CRLF formatter configuration" {
+  local dir="$BATS_TEST_TMPDIR/crlf-config"
+  mkdir -p "$dir"
+  printf '{"endOfLine":"crlf"}\n' > "$dir/.prettierrc.json"
+  printf '# Heading\r\n\r\nSome text.\r\n' > "$dir/a.md"
+
+  run bash "$TOOL" --check "$dir/a.md"
+  assert_success
+  assert_output --partial "0 need formatting"
+
+  run bash "$TOOL" "$dir/a.md"
+  assert_success
+  run bash "$TOOL" --check "$dir/a.md"
+  assert_success
+  assert_output --partial "0 need formatting"
+}

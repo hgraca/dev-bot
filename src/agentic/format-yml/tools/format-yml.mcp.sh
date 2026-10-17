@@ -9,7 +9,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"format-yml","description":"Format YAML files with consistent 2-space indentation via prettier","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"File path(s) to format"}},"required":["args"]}}
+{"name":"format-yml","description":"Format YAML files with consistent 2-space indentation via prettier","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"File path(s) to format; pass --check to report without writing"}},"required":["args"]}}
 JSON
     exit 0
     ;;
