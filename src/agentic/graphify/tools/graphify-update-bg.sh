@@ -64,6 +64,7 @@ fi
 
 # ── Launch graphify update in background ──
 (
+  cd "${PROJECT_PATH}" || exit 0
   echo "${BASHPID}" > "${PID_FILE}"
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] graphify update started" >> "${LOG_FILE}"
   graphify update . >> "${LOG_FILE}" 2>&1
