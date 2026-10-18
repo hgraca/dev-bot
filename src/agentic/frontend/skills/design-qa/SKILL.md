@@ -239,8 +239,8 @@ containers with visible background, border, padding or gap.
 
 Locate each target with a **stable locator**:
 
-- Prefer `text` (exact visible text) plus an optional `role`/tag, or a component-library class
-  (`MuiButton-root`, `MuiChip-root`, `MuiTab-root`, … — use the project's own classes).
+- Prefer `text` (exact visible text) plus an optional `role`/tag, or a stable component-library
+  class the project's own UI kit emits.
 - Use `nth` for repeats.
 - Never use generated Emotion class names (`css-xxxx`).
 
@@ -248,7 +248,10 @@ Run a single `browser_evaluate` with the targets embedded:
 
 ```js
 () => {
-  const T = [/* { key:'page-title', text:'Bookings', sel:'h1,h2,.MuiTypography-root' }, { key:'primary-btn', sel:'.MuiButton-containedPrimary', nth:0 }, ... */];
+  const T = [
+    /* { key: "page-title", text: "<exact visible text>", sel: "h1,h2" }, */
+    /* { key: "primary-btn", sel: "<stable class or role>", nth: 0 }, */
+  ];
   const P = ["color", "backgroundColor", "fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "textTransform", "textAlign", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "marginTop", "marginBottom", "gap", "rowGap", "columnGap", "borderTopWidth", "borderTopStyle", "borderTopColor", "borderBottomWidth", "borderBottomColor", "borderRadius", "boxShadow", "opacity", "display", "flexDirection", "justifyContent", "alignItems", "width", "height"];
   const find = (t) => {
     const pool = [...document.querySelectorAll(t.sel || "*")].filter((e) => e.offsetParent !== null || e.tagName === "svg");
@@ -268,10 +271,7 @@ Run a single `browser_evaluate` with the targets embedded:
     return {
       key: t.key,
       tag: e.tagName.toLowerCase(),
-      cls: [...e.classList]
-        .filter((c) => /^Mui/.test(c))
-        .slice(0, 4)
-        .join(" "),
+      cls: [...e.classList].slice(0, 4).join(" "),
       text: e.textContent.trim().slice(0, 40),
       x: Math.round(r.x),
       y: Math.round(r.y),
@@ -379,7 +379,7 @@ Status is one of: Open (still differs) · Resolved (implementation already match
 ```
 
 - Sort the table by severity (High → Medium), then by position on the page top to bottom.
-- Use clickable markdown links for File:line, e.g. `[Card.tsx:42](src/features/example/Card.tsx#L42)`.
+- Use clickable markdown links for File:line, e.g. `[Card.tsx:42](path/to/Card.tsx#L42)`.
 - Omit the "Designer notes" section if there are none. Omit "Hardcoded values" when `project.tokens`
   is absent.
 
