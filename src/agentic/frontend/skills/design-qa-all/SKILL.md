@@ -167,7 +167,7 @@ Overwrite `design-qa-report.md` in the repo root:
 | ----- | ------ |
 ```
 
-- Use repo-relative markdown links for File:line, e.g. `[X.tsx:42](src/pages/x/X.tsx#L42)`.
+- Use repo-relative markdown links for File:line, e.g. `[X.tsx:42](path/to/X.tsx#L42)`.
 - Omit the Skipped section if nothing was skipped.
 
 ## 6. Reply in chat
