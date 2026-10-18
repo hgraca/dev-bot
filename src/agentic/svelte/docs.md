@@ -1,17 +1,17 @@
 ---
 title: "Svelte"
-description: "Svelte and SvelteKit conventions, with the Svelte MCP server."
-skills: ["svelte"]
+description: "Svelte framework integration, with vendored Svelte 5 and SvelteKit conventions."
 mcps:
   svelte: "Svelte framework integration"
 ---
 
-Svelte and SvelteKit conventions for an agent, plus the Svelte MCP server.
+The Svelte MCP server, plus the Svelte 5 and SvelteKit conventions this module wires from vendored
+skills.
 
 ## What it does
 
-- **`svelte`** — the conventions skill: scaffolding, components, and SvelteKit project structure.
-- **svelte** — the Svelte MCP server, reached through the shared MCP gateway (`http://127.0.0.1:18503/mcp`).
+- **`svelte`** — the Svelte MCP server, reached through the shared MCP gateway (`http://127.0.0.1:18503/mcp`).
+- **Vendored skills** — `mindrally-svelte`, `sveltekit-structure`, and `svelte5-best-practices` are linked into the project's skill farm when the module is enabled.
 
 ## Configuration
 
