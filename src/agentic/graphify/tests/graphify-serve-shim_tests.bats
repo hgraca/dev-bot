@@ -54,22 +54,27 @@ EOF
   assert_success
 }
 
-@test "shim: exits 0 when serve.py runs to completion normally" {
+@test "shim: exits 0 when the server build runs to completion normally" {
   cat > "${FAKE_PKG}/graphify/serve.py" <<'EOF'
-print("graphify.serve running normally")
+def _build_server(graph_path):
+    print("graphify.serve running normally")
+    raise SystemExit(0)
 EOF
 
   run python3 "${SHIM}" /tmp/whatever-graph.json
 
   assert_success
+  assert_output --partial "graphify.serve running normally"
 }
 
-@test "shim: forwards the graph.json argument to serve.py (argv passthrough)" {
+@test "shim: forwards the graph.json argument to the server build" {
   local argfile
   argfile="$(mktemp)"
   cat > "${FAKE_PKG}/graphify/serve.py" <<EOF
-import pathlib, sys
-pathlib.Path(sys.argv[1]).write_text("received: " + sys.argv[1])
+import pathlib
+def _build_server(graph_path):
+    pathlib.Path("${argfile}").write_text("received: " + graph_path)
+    raise SystemExit(0)
 EOF
 
   run python3 "${SHIM}" "${argfile}"
@@ -81,7 +86,8 @@ EOF
 
 @test "shim: propagates genuine errors (non-BrokenPipe) with non-zero exit" {
   cat > "${FAKE_PKG}/graphify/serve.py" <<'EOF'
-raise RuntimeError("genuine server failure")
+def _build_server(graph_path):
+    raise RuntimeError("genuine server failure")
 EOF
 
   run python3 "${SHIM}" /tmp/whatever-graph.json
