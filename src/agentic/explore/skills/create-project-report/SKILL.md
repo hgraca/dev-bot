@@ -14,8 +14,8 @@ named in one line each so future work has context — diagnosing and fixing them
 
 ## When to Apply
 
-- New project initialised and `description.md` missing or empty.
-- Existing `description.md` stale (repository drifted significantly).
+- New project initialised and `project.md` missing or empty.
+- Existing `project.md` stale (repository drifted significantly).
 - User explicitly asks to explore, describe, or map project.
 - Before planning large initiative in unfamiliar codebase.
 
@@ -117,7 +117,7 @@ possible, remove anything agent cannot act on.
 ### Step 6: Verify and report
 
 1. Re-read `project.md`: confirm every architectural claim maps to real path and no path mangled by
-   compression pass.
+   the optimization pass.
 2. Run `wc -l` on `project.md`. If over 200 lines, compress further before reporting.
 3. Report to caller using `devbot:agent-communication` `[FINISHED]` signal. Include: the file path,
    `project.md` line count, and 3-bullet recap (what project _is_, its dominant architectural pattern,
@@ -229,7 +229,7 @@ See `devbot:search-code` for choosing between them.
 
 ## MUST NOT
 
-- Write to any other location, or create supporting files in `bootstrap/`.
+- Write to any other location, or create supporting files in `active/`.
 - Include install/build/test step-by-step instructions — link to canonical doc.
 - Recommend fixes in _Rough edges_ section; flag only.
 - Read or describe files marked `no-vcs` or excluded by `ignore.md`.
