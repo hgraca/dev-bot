@@ -31,7 +31,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"search-memories","description":"Search the memory vault and return full file bodies. Fast keyword (BM25) search across memories indexed by the configured engine (qmd or mdctx) — no GPU or LLM models required. Branch-aware: refreshes the index first when it was built for a different git branch or checkout. In a supervisor project, --focus scopes the search to the touched project(s) plus the supervisor and the global store.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <query> [--collection <name>] [--max-results <n>] [--focus <path>] [--json]"}},"required":["args"]}}
+{"name":"search-memories","description":"Search the memory vault and return full file bodies. Fast keyword (BM25) search across the project vault, the shared global store, and every collection configured under memory_collections, using the configured engine (qmd or mdctx) — no GPU or LLM models required. Branch-aware: refreshes the index first when it was built for a different git branch or checkout. In a supervisor project, --focus scopes the project vaults to the touched project(s) plus the supervisor; global and custom collections are always searched.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <query> [--collection <name>] [--max-results <n>] [--focus <path>] [--json]"}},"required":["args"]}}
 JSON
     exit 0
     ;;

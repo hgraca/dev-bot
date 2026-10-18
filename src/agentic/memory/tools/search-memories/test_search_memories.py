@@ -406,6 +406,14 @@ class TestSearchQmd(unittest.TestCase):
         self.assertIn("myproject", cmd)
         self.assertIn("dev-bot-global", cmd)
 
+    def test_include_global_false_searches_one_collection_only(self):
+        with patch.object(_search_memories, "run_qmd_cli", return_value=("[]", None)) as mock_run:
+            search_qmd(["q1"], "col", 10, include_global=False)
+
+        cmd = mock_run.call_args[0][0]
+        self.assertIn("col", cmd)
+        self.assertNotIn("dev-bot-global", cmd)
+
     def test_uses_bm25_keyword_search(self):
         """search-memories uses `qmd search` (BM25) — not the GPU/LLM semantic route."""
         with patch.object(_search_memories, "run_qmd_cli", return_value=("[]", None)) as mock_run:
@@ -1218,7 +1226,7 @@ class TestScopedMdctxPairs(_SandboxTest):
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
             pairs = _search_memories._scoped_mdctx_pairs([a, sup])
         self.assertEqual(len(pairs), 3)
-        self.assertEqual([p[2] for p in pairs], [False, False, True])
+        self.assertEqual([p[2] for p in pairs], ["project", "project", "global"])
         # group = read-set position; the global pair is group -1
         self.assertEqual([p[3] for p in pairs], [0, 1, -1])
         self.assertEqual(str(pairs[0][0]), str(a / ".agents" / "memory"))
@@ -1228,6 +1236,53 @@ class TestScopedMdctxPairs(_SandboxTest):
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
             pairs = _search_memories._scoped_mdctx_pairs([a])
         self.assertEqual(pairs, [])
+
+    def test_selected_project_entry_limits_the_project_pairs(self):
+        a = self._scaffold(self._project("a"))
+        b = self._scaffold(self._project("b"))
+        (self.devbot / "storage" / ".mdctx").mkdir(parents=True)
+        (self.devbot / "storage" / ".mdctx" / "context-index.json").write_text("{}")
+        collections = [
+            {"key": "project", "path": str(b / ".agents" / "memory"),
+             "semantic": False, "physical": "b", "kind": "project",
+             "source": "project", "exists": True,
+             "index": str(b / ".mdctx" / "context-index.json")},
+        ]
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            pairs = _search_memories._scoped_mdctx_pairs([a, b], collections)
+
+        self.assertEqual([p[3] for p in pairs if p[2] == "project"], [1])
+
+    def test_configured_project_root_wins_over_the_conventional_memory_dir(self):
+        project = self._project("docs-project")
+        docs = project / "docs"
+        docs.mkdir()
+        (project / ".mdctx").mkdir()
+        (project / ".mdctx" / "context-index.json").write_text(
+            '{"entries":{"n.md":{}}}'
+        )
+        (project / ".devbot.project.jsonc").write_text(
+            '{"project_name":"docs-project"}'
+        )
+        collections = [
+            {"key": "project", "path": str(docs), "semantic": False,
+             "physical": "docs-project", "kind": "project",
+             "source": "project", "exists": True,
+             "index": str(project / ".mdctx" / "context-index.json")},
+            {"key": "global", "path": str(self.devbot / "storage" / "global-memories"),
+             "semantic": False, "physical": "dev-bot-global", "kind": "global",
+             "source": "default", "exists": True,
+             "index": str(self.devbot / "storage" / ".mdctx" / "context-index.json")},
+        ]
+        (self.devbot / "storage" / ".mdctx").mkdir(parents=True)
+        (self.devbot / "storage" / ".mdctx" / "context-index.json").write_text("{}")
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            pairs = _search_memories._scoped_mdctx_pairs([project], collections)
+
+        project_pair = next(p for p in pairs if p[2] == "project")
+        self.assertEqual(project_pair[0], docs.resolve())
 
 
 class TestSearchQmdScoped(unittest.TestCase):
@@ -1369,6 +1424,209 @@ class TestSearchMdctxScoped(_SandboxTest):
         self.assertTrue(files[2].startswith(str(self.devbot / "storage")))
 
 
+class TestConfiguredCollections(_SandboxTest):
+    def _project(self, name):
+        path = super()._project(name)
+        (path / ".agents" / "memory").mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _run_main(self, project, extra_args=None):
+        seen = {}
+
+        def fake_scoped(queries, collections, max_results, include_global=True):
+            seen["collections"] = collections
+            seen["include_global"] = include_global
+            return [], None
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot), \
+             patch.object(_search_memories, "resolve_provider", return_value="qmd"), \
+             patch.object(_search_memories, "resolve_supervisor", return_value=False), \
+             patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
+             patch.object(_search_memories, "search_qmd_scoped", side_effect=fake_scoped), \
+             patch.object(_search_memories.os, "getcwd", return_value=str(project)), \
+             patch.object(sys, "argv", ["search-memories", "--query", "q"] + (extra_args or [])):
+            _search_memories.main()
+        return seen
+
+    def test_session_collections_merges_project_global_and_customs(self):
+        project = self._project("proj")
+        (project / ".devbot.project.jsonc").write_text(
+            json.dumps(
+                {
+                    "project_name": "proj-name",
+                    "memory_collections": {"notes": {"path": "~/notes", "semantic": True}},
+                }
+            )
+        )
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            entries = _search_memories.session_collections(project, [project])
+
+        self.assertEqual([e["key"] for e in entries], ["project", "global", "notes"])
+        notes = next(e for e in entries if e["key"] == "notes")
+        self.assertTrue(notes["physical"].startswith("dev-bot-custom-"))
+        self.assertTrue(notes["semantic"])
+
+    def test_supervisor_takes_project_slots_from_the_read_set(self):
+        a = self._project("a")
+        sup = self._project("sup")
+        (a / ".devbot.project.jsonc").write_text('{"project_name": "a-name"}')
+        (sup / ".devbot.project.jsonc").write_text(
+            '{"project_name": "sup-name", '
+            '"memory_collections": {"notes": {"path": "/notes"}}}'
+        )
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            entries = _search_memories.session_collections(sup, [a, sup])
+
+        physicals = [e["physical"] for e in entries]
+        self.assertEqual(physicals[:3], ["a-name", "sup-name", "dev-bot-global"])
+        self.assertTrue(physicals[3].startswith("dev-bot-custom-"))
+
+    def test_main_qmd_searches_custom_collections(self):
+        project = self._project("proj")
+        docs = project / "docs"
+        docs.mkdir()
+        (self.devbot / "storage" / "global-memories").mkdir(
+            parents=True, exist_ok=True
+        )
+        (project / ".devbot.project.jsonc").write_text(
+            json.dumps(
+                {
+                    "project_name": "proj-name",
+                    "memory_collections": {"notes": {"path": str(docs)}},
+                }
+            )
+        )
+
+        seen = self._run_main(project)
+
+        self.assertEqual(seen["collections"][0], "proj-name")
+        self.assertTrue(seen["collections"][1].startswith("dev-bot-custom-"))
+        self.assertTrue(seen["include_global"])
+
+    def test_main_qmd_skips_a_missing_collection_root(self):
+        project = self._project("proj")
+        (project / ".devbot.project.jsonc").write_text(
+            json.dumps(
+                {
+                    "project_name": "proj-name",
+                    "memory_collections": {"gone": {"path": "/does/not/exist"}},
+                }
+            )
+        )
+
+        seen = self._run_main(project)
+
+        self.assertEqual(seen["collections"], ["proj-name"])
+        self.assertFalse(seen["include_global"])
+
+    def test_main_qmd_collection_override_selects_one_key(self):
+        project = self._project("proj")
+        docs = project / "docs"
+        docs.mkdir()
+        (project / ".devbot.project.jsonc").write_text(
+            json.dumps(
+                {
+                    "project_name": "proj-name",
+                    "memory_collections": {"notes": {"path": str(docs)}},
+                }
+            )
+        )
+
+        seen = self._run_main(project, ["--collection", "notes"])
+
+        self.assertEqual(len(seen["collections"]), 1)
+        self.assertTrue(
+            seen["collections"][0].startswith("dev-bot-custom-")
+        )
+        self.assertFalse(seen["include_global"])
+
+    def test_main_qmd_collection_key_wins_over_a_matching_physical_name(self):
+        project = self._project("proj")
+        docs = project / "docs"
+        docs.mkdir()
+        (project / ".devbot.project.jsonc").write_text(
+            json.dumps(
+                {
+                    "project_name": "notes",
+                    "memory_collections": {"notes": {"path": str(docs)}},
+                }
+            )
+        )
+
+        seen = self._run_main(project, ["--collection", "notes"])
+
+        self.assertEqual(len(seen["collections"]), 1)
+        self.assertTrue(
+            seen["collections"][0].startswith("dev-bot-custom-")
+        )
+
+    def test_main_qmd_collection_override_accepts_an_ad_hoc_collection(self):
+        project = self._project("proj")
+        (project / ".devbot.project.jsonc").write_text('{"project_name": "proj-name"}')
+
+        seen = self._run_main(project, ["--collection", "ad-hoc"])
+
+        self.assertEqual(seen["collections"], ["ad-hoc"])
+        self.assertFalse(seen["include_global"])
+
+    def test_main_qmd_notices_the_reserved_semantic_flag(self):
+        project = self._project("proj")
+        (project / ".devbot.project.jsonc").write_text(
+            json.dumps(
+                {
+                    "project_name": "proj-name",
+                    "memory_collections": {
+                        "notes": {"path": "/notes", "semantic": True}
+                    },
+                }
+            )
+        )
+        err = io.StringIO()
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot), \
+             patch.object(_search_memories, "resolve_provider", return_value="qmd"), \
+             patch.object(_search_memories, "resolve_supervisor", return_value=False), \
+             patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
+             patch.object(_search_memories, "search_qmd_scoped", return_value=([], None)), \
+             patch.object(_search_memories.os, "getcwd", return_value=str(project)), \
+             patch.object(sys, "argv", ["search-memories", "--query", "q"]), \
+             redirect_stderr(err):
+            _search_memories.main()
+
+        self.assertIn("semantic is reserved", err.getvalue())
+
+    def test_mdctx_pairs_include_custom_collection_indexes(self):
+        project = self._project("proj")
+        collections = [
+            {"key": "project", "path": str(project / ".agents" / "memory"),
+             "semantic": False, "physical": "proj", "kind": "project",
+             "source": "project", "exists": True,
+             "index": str(project / ".mdctx" / "context-index.json")},
+            {"key": "global", "path": str(self.devbot / "storage" / "global-memories"),
+             "semantic": False, "physical": "dev-bot-global", "kind": "global",
+             "source": "default", "exists": True,
+             "index": str(self.devbot / "storage" / ".mdctx" / "context-index.json")},
+            {"key": "notes", "path": "/notes", "semantic": False,
+             "physical": "dev-bot-custom-notes", "kind": "custom",
+             "source": "project", "exists": True,
+             "index": str(self.devbot / "storage" / ".mdctx" / "collections" / "notes.json")},
+        ]
+        (project / ".mdctx").mkdir()
+        (project / ".mdctx" / "context-index.json").write_text("{}")
+        (self.devbot / "storage" / ".mdctx" / "collections").mkdir(parents=True)
+        (self.devbot / "storage" / ".mdctx" / "context-index.json").write_text("{}")
+        (self.devbot / "storage" / ".mdctx" / "collections" / "notes.json").write_text("{}")
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            pairs = _search_memories._scoped_mdctx_pairs([project], collections)
+
+        self.assertEqual([p[2] for p in pairs], ["project", "global", "custom"])
+        self.assertEqual(pairs[2][0], Path("/notes"))
+        self.assertEqual(pairs[2][4], "notes")
+
+
 class TestMainSupervisorScope(_SandboxTest):
     def test_main_ensures_and_searches_the_read_set(self):
         ensured = []
@@ -1378,7 +1636,7 @@ class TestMainSupervisorScope(_SandboxTest):
             ensured.append(str(root))
             return True, ""
 
-        def fake_search(queries, project_root, max_results, projects=None, fallback_latent_root=False):
+        def fake_search(queries, project_root, max_results, projects=None, collections=None, fallback_latent_root=False):
             seen["projects"] = [str(p) for p in (projects or [])]
             return [], None
 
@@ -1397,12 +1655,14 @@ class TestMainSupervisorScope(_SandboxTest):
     def test_main_qmd_supervisor_uses_scoped_collections(self):
         seen = {}
 
-        def fake_scoped(queries, collections, max_results):
+        def fake_scoped(queries, collections, max_results, include_global=True):
             seen["collections"] = collections
             return [], None
 
         a = self._project("a")
         sup = self._project("sup")
+        (a / ".agents" / "memory").mkdir(parents=True)
+        (sup / ".agents" / "memory").mkdir(parents=True)
         (a / ".devbot.project.jsonc").write_text('{"project_name": "a-name"}')
         (sup / ".devbot.project.jsonc").write_text('{"project_name": "sup-name"}')
         with patch.object(_search_memories, "resolve_provider", return_value="qmd"), \
@@ -1417,12 +1677,14 @@ class TestMainSupervisorScope(_SandboxTest):
     def test_main_qmd_warns_on_collection_name_collision(self):
         seen = {}
 
-        def fake_scoped(queries, collections, max_results):
+        def fake_scoped(queries, collections, max_results, include_global=True):
             seen["collections"] = collections
             return [], None
 
         a = self._project("a")
         b = self._project("b")
+        (a / ".agents" / "memory").mkdir(parents=True)
+        (b / ".agents" / "memory").mkdir(parents=True)
         (a / ".devbot.project.jsonc").write_text('{"project_name": "same"}')
         (b / ".devbot.project.jsonc").write_text('{"project_name": "same"}')
         err = io.StringIO()
@@ -1450,7 +1712,7 @@ class TestNonSupervisorUnchanged(unittest.TestCase):
             ensured.append(str(root))
             return True, ""
 
-        def fake_search(queries, project_root, max_results, projects=None, fallback_latent_root=False):
+        def fake_search(queries, project_root, max_results, projects=None, collections=None, fallback_latent_root=False):
             seen["projects"] = [str(p) for p in (projects or [])]
             return [], None
 

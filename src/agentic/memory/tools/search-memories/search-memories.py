@@ -284,7 +284,10 @@ def run_mdctx_cli(args: list[str]) -> tuple[str | None, str | None]:
 
 
 def search_qmd(
-    queries: list[str], collection: str, max_results: int
+    queries: list[str],
+    collection: str,
+    max_results: int,
+    include_global: bool = True,
 ) -> tuple[list[dict] | None, str | None]:
     """Search QMD for each query and return merged, deduplicated results."""
     all_results: list[dict] = []
@@ -297,7 +300,7 @@ def search_qmd(
         # Also search the shared global memory collection (covers latent/global symlink).
         # Single fixed name — QMD won't allow duplicate collections per path, and all
         # projects share the same global-memories store (storage/global-memories).
-        global_cmd = cmd + ["-c", "dev-bot-global"]
+        global_cmd = (cmd + ["-c", "dev-bot-global"]) if include_global else cmd
 
         stdout, err = run_qmd_cli(global_cmd)
         # audit-01 (macOS host) FAIL: on a project whose dev-bot-global
@@ -305,7 +308,12 @@ def search_qmd(
         # errors "Collection not found: dev-bot-global" and the combined call
         # fails EVERY query. Degrade gracefully: retry without the global flag
         # so project-vault search still works.
-        if err and "Collection not found" in err and "dev-bot-global" in err:
+        if (
+            include_global
+            and err
+            and "Collection not found" in err
+            and "dev-bot-global" in err
+        ):
             stdout, err = run_qmd_cli(cmd)
         if err:
             return None, err
@@ -344,7 +352,10 @@ def search_qmd(
 
 
 def search_qmd_scoped(
-    queries: list[str], collections: list[str], max_results: int
+    queries: list[str],
+    collections: list[str],
+    max_results: int,
+    include_global: bool = True,
 ) -> tuple[list[dict] | None, str | None]:
     """Search several qmd collections (the supervisor read set) plus global.
 
@@ -365,7 +376,9 @@ def search_qmd_scoped(
                 merged.append(r)
 
     for collection in collections:
-        results, err = search_qmd(queries, collection, max_results)
+        results, err = search_qmd(
+            queries, collection, max_results, include_global=include_global
+        )
         if err:
             if "Collection not found" in err:
                 print(f"NOTICE: {err} — skipping collection {collection!r}", file=sys.stderr)
@@ -377,8 +390,10 @@ def search_qmd_scoped(
     # Each per-collection call bundles `-c dev-bot-global`, but a missing
     # project collection fails that combined call — so when no collection
     # succeeded, search the shared global store on its own.
-    if not any_success:
-        results, err = search_qmd(queries, "", max_results)
+    if not any_success and include_global:
+        results, err = search_qmd(
+            queries, "dev-bot-global", max_results, include_global=False
+        )
         if err and "Collection not found" not in err:
             return None, err
         _extend(results)
@@ -471,30 +486,104 @@ def _index_corpus_root(project_root: Path, index_file: Path) -> Path:
 
 def _scoped_mdctx_pairs(
     project_roots: list[Path],
-) -> list[tuple[Path, Path, bool, int]]:
-    """(docs_root, index_file, is_global, group) pairs for a read set + global store.
+    collections: list[dict] | None = None,
+) -> list[tuple[Path, Path, str, int, str]]:
+    """(docs_root, index_file, kind, group, key) pairs for a read set.
 
     `group` is the project's position in the read set (focus projects first,
     then the supervisor), so callers rank hits project-by-project instead of
     comparing corpus-relative BM25 scores across vaults. Projects whose mdctx
-    index has not been built yet are skipped; the global pair is appended last.
+    index has not been built yet are skipped.
+
+    When `collections` is None the legacy pair is returned (read-set project
+    indexes + the global store). Otherwise global and custom collections come
+    from the resolved config: the global index lives under `storage/.mdctx/`,
+    and each custom collection gets its own shared index under
+    `storage/.mdctx/collections/<key>.json`.
     """
-    pairs: list[tuple[Path, Path, bool, int]] = []
-    seen: set[str] = set()
-    for group, root in enumerate(project_roots):
-        root = Path(root)
-        key = str(root)
-        if key in seen:
+    pairs: list[tuple[Path, Path, str, int, str]] = []
+    selected_indexes = (
+        None
+        if collections is None
+        else {
+            str(Path(entry["index"]).resolve())
+            for entry in collections
+            if entry["kind"] == "project"
+        }
+    )
+    if selected_indexes is None or selected_indexes:
+        seen: set[str] = set()
+        for group, root in enumerate(project_roots):
+            root = Path(root)
+            key = str(root)
+            if key in seen:
+                continue
+            seen.add(key)
+            index = root / ".mdctx" / "context-index.json"
+            index_key = str(index.resolve())
+            if selected_indexes is not None and index_key not in selected_indexes:
+                continue
+            if not index.is_file():
+                continue
+            configured = next(
+                (
+                    entry
+                    for entry in (collections or [])
+                    if entry["kind"] == "project"
+                    and str(Path(entry["index"]).resolve()) == index_key
+                ),
+                None,
+            )
+            conventional = root / resolve_devbot_dir(root) / "memory"
+            if (
+                configured is not None
+                and Path(configured["path"]).resolve() != conventional.resolve()
+            ):
+                corpus_root = Path(configured["path"])
+            else:
+                corpus_root = _index_corpus_root(root, index)
+            pairs.append((corpus_root, index, "project", group, "project"))
+
+    if collections is None:
+        global_index = DEVBOT_ROOT / "storage" / ".mdctx" / "context-index.json"
+        if global_index.is_file():
+            pairs.append(
+                (
+                    DEVBOT_ROOT / "storage" / "global-memories",
+                    global_index,
+                    "global",
+                    -1,
+                    "global",
+                )
+            )
+        return pairs
+
+    for entry in collections:
+        kind = entry["kind"]
+        if kind not in ("global", "custom"):
             continue
-        seen.add(key)
-        index = root / ".mdctx" / "context-index.json"
+        index = Path(entry["index"])
         if not index.is_file():
+            if kind == "custom":
+                print(
+                    f"NOTICE: collection '{entry['key']}' has no mdctx index at "
+                    f"{index} — run reindex-memories",
+                    file=sys.stderr,
+                )
             continue
-        pairs.append((_index_corpus_root(root, index), index, False, group))
-    global_index = DEVBOT_ROOT / "storage" / ".mdctx" / "context-index.json"
-    if global_index.is_file():
-        pairs.append((DEVBOT_ROOT / "storage" / "global-memories", global_index, True, -1))
-    return pairs
+        group = -1 if kind == "global" else -2
+        pairs.append((Path(entry["path"]), index, kind, group, entry["key"]))
+
+    # Two logical keys naming the same corpus share one index; query it once.
+    unique: list[tuple[Path, Path, str, int, str]] = []
+    seen_indexes: set[str] = set()
+    for pair in pairs:
+        key = str(pair[1].resolve())
+        if key in seen_indexes:
+            continue
+        seen_indexes.add(key)
+        unique.append(pair)
+    return unique
 
 
 def search_mdctx(
@@ -502,6 +591,7 @@ def search_mdctx(
     project_root: Path,
     max_results: int,
     projects: list[Path] | None = None,
+    collections: list[dict] | None = None,
 ) -> tuple[list[dict] | None, str | None]:
     """Search the mdctx project + global indexes for each query.
 
@@ -520,7 +610,7 @@ def search_mdctx(
     silent behind global noise.
     """
     read_projects = list(projects) if projects else [project_root]
-    pairs = _scoped_mdctx_pairs(read_projects)
+    pairs = _scoped_mdctx_pairs(read_projects, collections)
     if not pairs:
         return None, (
             "mdctx index not found — run `devbot reinit` (or mdctx init.sh) so the "
@@ -529,6 +619,7 @@ def search_mdctx(
 
     project_buckets: dict[int, list[dict]] = {}
     global_results: list[dict] = []
+    custom_buckets: dict[str, list[dict]] = {}
     seen_files: set[str] = set()
 
     def _append(store_results: list[dict], root: Path, rel: str, score: float, title: str) -> None:
@@ -552,7 +643,7 @@ def search_mdctx(
         )
 
     for query in queries:
-        for root, index_file, is_global, group in pairs:
+        for root, index_file, kind, group, key in pairs:
             cmd = ["search", query, "--json", "-n", str(max_results), "-i", str(index_file)]
             stdout, err = run_mdctx_cli(cmd)
             if err:
@@ -567,9 +658,12 @@ def search_mdctx(
             if not isinstance(data, list):
                 continue
 
-            store_results = (
-                global_results if is_global else project_buckets.setdefault(group, [])
-            )
+            if kind == "global":
+                store_results = global_results
+            elif kind == "custom":
+                store_results = custom_buckets.setdefault(key, [])
+            else:
+                store_results = project_buckets.setdefault(group, [])
             for r in data:
                 rel = r.get("path", "")
                 if not rel:
@@ -586,15 +680,24 @@ def search_mdctx(
         ordered.extend(bucket)
     global_results.sort(key=lambda r: r.get("score", 0), reverse=True)
 
+    # Custom collections are their own corpora too: never compare their
+    # corpus-relative scores against the vaults or the global store. They rank
+    # last, in key order.
+    custom_results: list[dict] = []
+    for key in sorted(custom_buckets):
+        bucket = custom_buckets[key]
+        bucket.sort(key=lambda r: r.get("score", 0), reverse=True)
+        custom_results.extend(bucket)
+
     # audit-52/55/56 NOTE: mdctx indexes a capped set of extracted keywords per
     # file — an exact literal (error code, slug, numeric/dashed marker, filename
     # stem) is usually NOT among them, so a keyword search silently misses files
     # that plainly contain the term. When the keyword index yields nothing, fall
     # back to a bounded full-text substring scan of the vault roots.
-    if not ordered and not global_results:
-        return _literal_fallback(queries, [(r, i) for r, i, _, _ in pairs], max_results), None
+    if not ordered and not global_results and not custom_results:
+        return _literal_fallback(queries, [(r, i) for r, i, *_ in pairs], max_results), None
 
-    merged = (ordered + global_results)[:max_results]
+    merged = (ordered + global_results + custom_results)[:max_results]
     return merged, None
 
 
@@ -806,6 +909,79 @@ def resolve_collection(project_root: Path) -> str:
     return project_name or project_root.name
 
 
+def _import_memory_collections():
+    """Import the shared collection resolver from this checkout (fail-open None)."""
+    shared = Path(__file__).resolve().parents[4] / "_shared"
+    if shared.is_dir() and str(shared) not in sys.path:
+        sys.path.insert(0, str(shared))
+    try:
+        import importlib
+
+        return importlib.import_module("memory_collections")
+    except Exception:  # noqa: BLE001 — an old install lacks the module
+        return None
+
+
+def _builtin_collections(project_root: Path) -> list[dict]:
+    """The pre-config default: the project vault + the shared global store."""
+    devbot_dir = resolve_devbot_dir(project_root)
+    memory = project_root / devbot_dir / "memory"
+    global_dir = DEVBOT_ROOT / "storage" / "global-memories"
+    return [
+        {
+            "key": "project",
+            "path": str(memory),
+            "semantic": False,
+            "physical": resolve_collection(project_root),
+            "kind": "project",
+            "source": "default",
+            "exists": memory.is_dir(),
+            "index": str(project_root / ".mdctx" / "context-index.json"),
+        },
+        {
+            "key": "global",
+            "path": str(global_dir),
+            "semantic": False,
+            "physical": "dev-bot-global",
+            "kind": "global",
+            "source": "default",
+            "exists": global_dir.is_dir(),
+            "index": str(DEVBOT_ROOT / "storage" / ".mdctx" / "context-index.json"),
+        },
+    ]
+
+
+def load_collections_for(project_root: Path) -> list[dict]:
+    """Resolve memory_collections for one project, falling back to the built-ins."""
+    resolver = _import_memory_collections()
+    if resolver is None:
+        return _builtin_collections(project_root)
+    try:
+        return resolver.load_collections(project_root, DEVBOT_ROOT)
+    except Exception as exc:  # noqa: BLE001 — a bad config degrades, never breaks search
+        print(f"ERROR: {exc} — using the built-in collections", file=sys.stderr)
+        return _builtin_collections(project_root)
+
+
+def session_collections(project_root: Path, read_projects: list[Path]) -> list[dict]:
+    """Collections for a search: per-read-project `project` slots + global/custom.
+
+    A supervisor session takes the `project` slot from each project it reads
+    (the focus scope), while global and custom collections come from the
+    session project's config (plus the global config). A normal session's read
+    set is just itself, so this is the full merged set.
+    """
+    session = load_collections_for(project_root)
+    entries = [entry for entry in session if entry["kind"] in ("global", "custom")]
+    projects = []
+    for read_project in read_projects:
+        source = session if str(read_project) == str(project_root) else load_collections_for(read_project)
+        entry = next((c for c in source if c["kind"] == "project"), None)
+        if entry is not None:
+            projects.append(entry)
+    return projects + entries
+
+
 def _import_shared(name: str):
     """Import a module from <DEVBOT_ROOT>/src/_shared (fail-open None).
 
@@ -877,7 +1053,10 @@ def main() -> None:
     parser.add_argument(
         "--collection",
         default="",
-        help="qmd collection name (qmd engine only; mdctx resolves roots on disk)",
+        help=(
+            "configured collection key (or physical name) to search exclusively; "
+            "qmd also accepts an ad-hoc registered collection name"
+        ),
     )
     parser.add_argument(
         "--focus",
@@ -928,39 +1107,104 @@ def main() -> None:
             index_ok = False
             index_detail = detail
 
+    # Resolve the configured collections for this session. A normal project
+    # searches its own vault + the global store + configured customs; a
+    # supervisor scopes `project` slots to the read set but always searches
+    # global and custom collections.
+    collections = session_collections(project_root, read_projects)
+    if args.collection:
+        # A logical key wins over a physical name: `project_name` can equal a
+        # custom key, and selecting the key must not also select the vault.
+        selected = [
+            entry for entry in collections if entry["key"] == args.collection
+        ]
+        if not selected:
+            selected = [
+                entry
+                for entry in collections
+                if entry["physical"] == args.collection
+            ]
+        if selected:
+            collections = selected
+        elif provider == "qmd":
+            # Legacy: --collection may name an ad-hoc qmd collection registered
+            # outside memory_collections (the qmd skill documents this).
+            collections = [
+                {
+                    "key": args.collection,
+                    "path": "",
+                    "semantic": False,
+                    "physical": args.collection,
+                    "kind": "custom",
+                    "source": "explicit",
+                    "exists": True,
+                }
+            ]
+        else:
+            print(
+                f"ERROR: collection '{args.collection}' is not configured",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+    include_global = not bool(args.collection)
+    global_exists = any(
+        entry["kind"] == "global" and entry["exists"] for entry in collections
+    )
+    include_global = include_global and global_exists
+    for entry in collections:
+        if not entry["exists"]:
+            print(
+                f"NOTICE: collection '{entry['key']}' path does not exist: "
+                f"{entry['path']}",
+                file=sys.stderr,
+            )
+
     # Engine dispatch: qmd and mdctx are interchangeable behind this CLI,
-    # selected by memory_search_provider. Each engine's search covers the
-    # project vault AND the shared global store ("as it currently works" for
-    # qmd's project collection + dev-bot-global).
+    # selected by memory_search_provider. Both consume the resolved collections.
     if provider == "mdctx":
         results, err = search_mdctx(
             args.query,
             project_root,
             args.max_results,
             projects=read_projects,
+            collections=collections,
         )
         body_fetch = fetch_mdctx_body
     else:
-        if supervisor and not args.collection:
-            collections = []
-            by_name: dict[str, str] = {}
-            for project in read_projects:
-                name = resolve_collection(project)
-                if not name:
-                    continue
-                if name in by_name:
-                    print(
-                        f"WARN: qmd collection {name!r} maps to both "
-                        f"{by_name[name]} and {project}; searching it once",
-                        file=sys.stderr,
-                    )
-                    continue
-                by_name[name] = str(project)
-                collections.append(name)
-            results, err = search_qmd_scoped(args.query, collections, args.max_results)
-        else:
-            collection = args.collection or resolve_collection(project_root)
-            results, err = search_qmd(args.query, collection, args.max_results)
+        semantic_keys = [entry["key"] for entry in collections if entry["semantic"]]
+        if semantic_keys:
+            print(
+                "NOTICE: semantic is reserved (qmd runs BM25-only); ignoring for: "
+                + ", ".join(semantic_keys),
+                file=sys.stderr,
+            )
+        # `global` is bundled into every search_qmd call; search it once by
+        # leaving it out of the per-collection list.
+        by_name: dict[str, str] = {}
+        for entry in collections:
+            # A configured root that no longer exists must not fall back to a
+            # stale qmd registration pointing at the old corpus.
+            if not entry["exists"]:
+                continue
+            if entry["kind"] == "global":
+                if not include_global:
+                    by_name[entry["physical"]] = entry["path"]
+                continue
+            name = entry["physical"]
+            if name in by_name and by_name[name] != entry["path"]:
+                print(
+                    f"WARN: qmd collection {name!r} maps to both "
+                    f"{by_name[name]} and {entry['path']}; searching it once",
+                    file=sys.stderr,
+                )
+                continue
+            by_name[name] = entry["path"]
+        results, err = search_qmd_scoped(
+            args.query,
+            list(by_name),
+            args.max_results,
+            include_global=include_global,
+        )
         body_fetch = fetch_file_body
 
     if err:
