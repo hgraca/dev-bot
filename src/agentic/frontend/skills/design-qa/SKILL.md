@@ -64,21 +64,25 @@ that entry's frame, not this one.
 
 The `project` block carries everything that would otherwise be a literal from one consumer's codebase:
 
-| Field                                                       | Use                                                                |
-| ----------------------------------------------------------- | ------------------------------------------------------------------ |
-| `project.userTypes`                                         | Allowed `--as` values; `public` means no login                     |
-| `project.session.storage` / `.key`                          | Where the session object lives (`localStorage` / `sessionStorage`) |
-| `project.session.detect`                                    | Map userType → JS expression over the session object `u`           |
-| `project.publicRoutes`                                      | Routes that need no session                                        |
-| `project.stabilise.freezeAnimations`                        | Freeze animations/transitions (default `true`)                     |
-| `project.stabilise.hideSelectors`                           | Overlays hidden before measuring                                   |
-| `project.stabilise.loadingSelectors`                        | Selectors waited out before measuring                              |
-| `project.sourceRoot`                                        | Root searched when mapping issues and imports to source            |
-| `project.sharedRoots`                                       | Directories whose changes affect importing entries (batch)         |
-| `project.globalStyleFiles`                                  | Files whose changes affect every entry (batch)                     |
-| `project.tokens.colors` / `.theme` / `.spacing` / `.layout` | Token sources for the hardcoded-value check                        |
-| `project.lint.lint` / `.format` / `.stylelint`              | Commands run on changed files after `--fix`                        |
-| `project.baseBranch`                                        | Default base for `--changed-only` in the batch skill               |
+| Field                                                                       | Use                                                                |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `project.userTypes`                                                         | Allowed `--as` values; `public` means no login                     |
+| `project.session.storage` / `.key`                                          | Where one session object lives (`localStorage` / `sessionStorage`) |
+| `project.session.detect`                                                    | Map userType → JS expression over the session object `u`           |
+| `project.publicRoutes`                                                      | Routes that need no session                                        |
+| `project.stabilise.freezeAnimations`                                        | Freeze animations/transitions (default `true`)                     |
+| `project.stabilise.hideSelectors`                                           | Overlays hidden with `display:none` before measuring               |
+| `project.stabilise.skeletonSelectors`                                       | Placeholders hidden with `visibility:hidden` (layout preserved)    |
+| `project.stabilise.loadingSelectors`                                        | Selectors waited out before measuring                              |
+| `project.sourceRoot`                                                        | Root searched when mapping issues and imports to source            |
+| `project.sharedRoots`                                                       | Directories whose changes affect importing entries (batch)         |
+| `project.globalStyleFiles`                                                  | Files whose changes affect every entry (batch)                     |
+| `project.tokens.colors` / `.theme` / `.spacing` / `.layout` / `.typography` | Token sources for the hardcoded-value check                        |
+| `project.lint.lint` / `.format` / `.stylelint`                              | Commands that accept file paths, run after `--fix`                 |
+| `project.baseBranch`                                                        | Default base for `--changed-only` in the batch skill               |
+
+`project.session` models **one** storage key. A project that keeps each role under its own key cannot
+be detected this way; omit `detect` and treat the type check as unverified (see step 3).
 
 When the file or a field is absent, use these defaults:
 
@@ -91,7 +95,7 @@ When the file or a field is absent, use these defaults:
 | `project.userTypes`        | `["public"]` — configure the project's roles to use `--as` |
 | `project.publicRoutes`     | `[]`                                                       |
 | `project.stabilise`        | freeze animations only                                     |
-| `project.sourceRoot`       | `.`                                                        |
+| `project.sourceRoot`       | `src/`                                                     |
 | `project.sharedRoots`      | `[]`                                                       |
 | `project.globalStyleFiles` | `[]`                                                       |
 | `project.tokens`           | none — skip the hardcoded-value check                      |
@@ -153,25 +157,41 @@ proximity), and its position. Exclude all markup from the element comparison.
 2. Navigate to the target URL.
 3. **Session check (when the route is not public).** A route is public when it is listed in
    `project.publicRoutes` or the selected `userType` is `public`. Otherwise read the session in one
-   evaluate — `storage` and `key` come from `project.session`, and `project.session.detect` maps each
-   userType to an expression over `u`, the parsed session object:
+   evaluate. Substitute `{{STORAGE}}` (`localStorage` / `sessionStorage`), `{{KEY}}` (the JSON-quoted
+   `project.session.key`), and one arrow-function entry per `project.session.detect` pair — each
+   expression is spliced into the body, so no string evaluation is needed:
 
    ```js
    () => {
-     const raw = JSON.parse(localStorage.getItem('user') || 'null')
-     const u = raw || {}
-     // one entry per project.userTypes role, from project.session.detect
-     const detect = { <userType>: '<expression from project.session.detect>' }
-     const type = Object.entries(detect).find(([, expr]) => new Function('u', `return ${expr}`)(u))?.[0] || null
-     return { pathname: location.pathname, type, hasSession: raw !== null }
+     let raw = null;
+     try {
+       raw = JSON.parse({{STORAGE}}.getItem({{KEY}}) || "null");
+     } catch {
+       raw = null;
+     }
+     const u = raw || {};
+     // One entry per project.session.detect: userType -> arrow function of u.
+     const detect = {
+       {{USER_TYPE}}: (u) => ({{EXPRESSION}}),
+     };
+     const type =
+       Object.entries(detect).find(([, matches]) => {
+         try {
+           return matches(u);
+         } catch {
+           return false;
+         }
+       })?.[0] || null;
+     return { pathname: location.pathname, type, hasSession: raw !== null };
    }
    ```
 
-   - If you landed on a public route, or the detected type differs from the selected `userType`, stop
-     with "login needed as <userType>": ask the user to log in as that user in the Playwright browser
-     window, then run the command again. Don't clear the existing session.
-   - If `project.session.detect` is absent, only a session's presence can be verified; add an
-     Observation that the user type could not be checked.
+   - If you landed on a public route, `hasSession` is false, or a configured `detect` resolved a type
+     different from the selected `userType`, stop with "login needed as <userType>": ask the user to
+     log in as that user in the Playwright browser window, then run the command again. Don't clear the
+     existing session.
+   - When `project.session.detect` is absent, emit `const detect = {}`, verify presence only, and add
+     an Observation that the user type could not be checked.
 
 4. Wait until it is stable. Apps commonly keep a websocket or a feature-flag stream open, so **do not
    rely on network idle alone**:
@@ -181,26 +201,32 @@ proximity), and its position. Exclude all markup from the element comparison.
    flags didn't exist. If the page clearly shows a different variant than Figma, report it as an
    observation, not as N issues.
 
-Stabilisation script (`browser_evaluate`) — substitute the resolved `project.stabilise` values for
-`FREEZE`, `HIDE_SELECTORS` and `LOADING_SELECTORS`:
+Stabilisation script (`browser_evaluate`). Substitute the resolved `project.stabilise` values as JS
+literals: `{{FREEZE}}` → `true`/`false`, and each `{{…_SELECTORS}}` → a JSON array of selectors (`[]`
+when unconfigured). `hideSelectors` are removed from the layout (`display:none`); `skeletonSelectors`
+are hidden but keep their box (`visibility:hidden`), which is what preserves the spacing a skeleton
+occupies; `loadingSelectors` are waited out. Configure the skeleton/loader selectors your UI kit uses
+— otherwise placeholders and loading states are measured as if they were the design:
 
 ```js
 async () => {
-  if (FREEZE) {
+  if ({{FREEZE}}) {
     const s = document.createElement("style");
     s.id = "design-qa-freeze";
     s.textContent = `*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}`;
     document.head.appendChild(s);
   }
-  document.querySelectorAll(HIDE_SELECTORS.join(",") || "__none__").forEach((e) => (e.style.display = "none"));
+  document.querySelectorAll({{HIDE_SELECTORS}}.join(",") || "__none__").forEach((e) => (e.style.display = "none"));
+  document.querySelectorAll({{SKELETON_SELECTORS}}.join(",") || "__none__").forEach((e) => (e.style.visibility = "hidden"));
   await document.fonts.ready;
+  const loading = {{LOADING_SELECTORS}}.join(",") || "__none__";
   const until = Date.now() + 8000;
-  while (Date.now() < until && document.querySelector(LOADING_SELECTORS.join(",") || "__none__")) {
+  while (Date.now() < until && document.querySelector(loading)) {
     await new Promise((r) => setTimeout(r, 250));
   }
   return {
     fonts: [...document.fonts].filter((f) => f.status === "loaded").map((f) => `${f.family} ${f.weight}`),
-    loading: !!document.querySelector(LOADING_SELECTORS.join(",") || "__none__"),
+    loading: !!document.querySelector(loading),
     innerWidth,
     dpr: devicePixelRatio,
   };
@@ -400,5 +426,7 @@ Only when `--fix` is passed:
    - A table: `# | Fix | File:line | Verified (✅/❌)`.
    - Any remaining issues.
    - A reminder that nothing was committed.
-6. Run the commands in `project.lint` on the changed files only, and report the results. Skip the
-   step when `project.lint` is absent.
+6. Run each command in `project.lint` with the changed file paths appended, and report the results.
+   The values are commands that accept paths (e.g. `eslint`, `prettier --check`, `phpcs`), not
+   whole-repo scripts; a whole-repo script would surface unrelated failures and break the
+   changed-files contract. Skip the step when `project.lint` is absent.
