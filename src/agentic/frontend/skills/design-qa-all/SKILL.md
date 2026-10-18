@@ -36,7 +36,9 @@ Read `design-map.json` from the repo root. If it's missing, stop and say so.
 ### --changed-only
 
 1. Find the changed files with the shell. Don't run `git fetch`; use what's local. The base is
-   `--base`, else `project.baseBranch`, else `origin/HEAD`, else `main`.
+   `--base`, else `project.baseBranch`, else `origin/HEAD`, else `main`. Set `project.baseBranch` to
+   the repository's **integration branch** — the one PRs target, which is not always `main`; the
+   remote default can otherwise select a far larger changeset than the branch actually carries.
 
    ```bash
    BASE=<branch>
@@ -83,11 +85,13 @@ Don't run these entries; list each under **Skipped** with its reason:
 1. **App is up:**
 
    ```bash
-   PUBLIC_ROUTE="<project.publicRoutes[0] or empty>"
-   curl -s -o /dev/null -w "%{http_code}" "<baseUrl>${PUBLIC_ROUTE}"
+   PREFLIGHT_ROUTE="<project.preflightRoute, default \"/\">"
+   curl -sL -o /dev/null -w "%{http_code}" "<baseUrl>${PREFLIGHT_ROUTE}"
    ```
 
-   If the result isn't `200`, stop and tell the user to start the local app.
+   Treat any **2xx or 3xx** as up; a redirect from `/` to the authentication page is normal. If the result is
+   not 2xx/3xx, stop and tell the user to start the local app. Point `project.preflightRoute` at a
+   route that answers without authentication — the root or the first `project.publicRoutes` entry.
 
 2. **Order.** Sort the remaining entries by `userType` (public first, then the order in
    `project.userTypes`), so entries for the same user run together.
@@ -113,7 +117,7 @@ Rules for this run:
 - Non-interactive: never ask the user anything. If you would stop to ask (state doesn't match and the entry's `state` can't fix it, not logged in as the right user, zoom can't be fixed), stop and return status "blocked" with a one-line reason. If the blocker is the session, start the reason with "login needed".
 - If browser zoom is not 100%, continue and add it to observations.
 
-Return ONLY this, nothing else. Repeat the block per viewport, starting each with "VIEWPORT: <px>"; put NOTES only in the first.
+Return ONLY the block below and the terminal marker. Repeat the block per viewport, starting each with "VIEWPORT: <px>"; put NOTES only in the first. End with `[FINISHED]` when done, or `[BLOCKED]` when blocked.
 
 STATUS: done | blocked | error — <one-line reason if not done>
 COUNTS: High N · Medium N · Notes N · Hardcoded N
@@ -129,7 +133,8 @@ HARDCODED:
 OBSERVATIONS: at most 3 bullets
 ```
 
-Don't keep the subagent's raw MCP output. Keep only the returned block.
+Don't keep the subagent's raw MCP output. Keep only the returned block, stripping its terminal marker
+(`[FINISHED]` / `[BLOCKED]`) before aggregating.
 
 If a subagent returns `blocked — login needed…`, don't run the remaining entries for that `userType`.
 List them under **Skipped** with the reason `log in as <userType> in the Playwright browser and re-run`.
