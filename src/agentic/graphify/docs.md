@@ -46,8 +46,12 @@ files.
 The block is terminal — everything from its `SOURCE SCOPE (auto)` marker to the
 end of the file is managed, so hand-written patterns belong above it.
 
-When `graphify-out/graph.json` is missing, `init`/`up` write an empty placeholder
-graph so the MCP server can start before the first build.
+When `graphify-out/graph.json` is missing, the MCP wrapper creates an empty
+placeholder so the server can start. The wrapper immediately starts a
+background `graphify update` (seeding an empty linked worktree from the main
+checkout first), answers tool calls with `graphify: not_ready (...)` until the
+graph has nodes, and lets upstream's mtime/size hot-reload serve the graph once
+the build finishes. No git hook is required.
 
 The AST cache under `graphify-out/cache` is pruned on `devbot up` — entries not
 modified in more than **7 days** are removed. Override the retention window with

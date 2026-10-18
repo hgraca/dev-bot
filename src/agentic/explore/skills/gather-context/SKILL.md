@@ -94,9 +94,10 @@ bash devbot tool list-projects
 
 ### 5. Gather codebase relationships knowledge (code-related topics only, and only when indexed)
 
-Use the `graphify` MCP tools only when the topic is code-related **and** the graph is populated. Check
-`graphify_graph_stats` first; when it reports zero nodes or the server is unavailable, write
-`Graphify: not indexed — skipped` and move on. Do not query an empty graph.
+Use the `graphify` MCP tools only when the topic is code-related **and** the graph is populated. Call
+`graphify_graph_stats` first. A `graphify: not_ready (building)` result means the graph is being
+built on MCP start: wait briefly and retry once. `not_ready (disabled)` or `not_ready (failed)`
+means skip graph queries and write the reason in the report. Do not query an empty graph.
 
 If you do NOT have the `graphify` MCP tools available, use glob + grep as fallback:
 

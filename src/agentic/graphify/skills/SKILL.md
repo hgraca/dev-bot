@@ -36,12 +36,20 @@ Turn any folder of files into a navigable knowledge graph with community detecti
 
 ## Preflight before querying an existing graph
 
-- Check `graphify-out/graph.json` exists and is non-empty (`graphify_graph_stats`).
-- When stats report zero nodes, the server is disabled, or the graph is unreachable, record
-  `Graphify: not indexed — skipped` and fall back to grep/read. Do not run `query_graph` on an empty
-  graph: it returns unrelated nodes and reads as evidence when it is none.
-- An empty or stale graph is not evidence that a symbol does not exist.
-- After modifying code, run `graphify update .` (AST-only, no API cost) to keep the graph current.
+- The MCP server starts a build on launch. If a tool returns
+  `graphify: not_ready (building) — ...`, the graph is still being built: do **not** treat that as
+  "no results". Wait briefly (for example a 10–30s `sleep` PTY) and retry once.
+- `not_ready (disabled)` means `.graphifyignore` deliberately disables indexing; skip graph queries.
+- `not_ready (failed)` points at `graphify-out/.graphify-update.log`; retry after fixing the build or
+  fall back to grep/read.
+- Only `ready` graphs should be queried. An empty or stale graph is not evidence that a symbol does
+  not exist.
+- A linked worktree seeds its empty graph from the main checkout (paths in the graph are
+  project-relative), then rebuilds it for the worktree branch. The seed is a starting point, not
+  branch truth.
+- The build is triggered on MCP/session start and is non-blocking; no git hook is required. After
+  modifying code, run `graphify update .` (AST-only, no API cost) if you need the graph fresh in the
+  same session.
 
 ## What graphify is for
 

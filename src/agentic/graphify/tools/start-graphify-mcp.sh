@@ -28,6 +28,7 @@ if [[ -z "${DEVBOT_ROOT:-}" ]]; then
   done
   DEVBOT_ROOT="$(cd -P "$(dirname "${SOURCE}")/../../../.." && pwd)"
 fi
+export DEVBOT_ROOT
 
 # shellcheck source=/dev/null
 source "${DEVBOT_ROOT}/src/_shared/functions.sh"
@@ -40,22 +41,10 @@ source "${DEVBOT_ROOT}/src/_shared/functions.sh"
 # NOTE: rotated/*graphify-mcp-*.log crash traces).
 GRAPHIFY_SHIM="${DEVBOT_ROOT}/src/agentic/graphify/tools/graphify-serve-shim.py"
 
-# ── Wait for graph.json ──────────────────────────────────────────────────────
-# On first init the graph is built in the background (nohup graphify update)
-# and can take ~1 min. If opencode launches this MCP server before the build
-# finishes, block until graph.json appears (or give up after the timeout).
-if [[ ! -f "${GRAPH_FILE}" ]]; then
-  WAIT_SECONDS="${GRAPHIFY_MCP_WAIT_SECONDS:-120}"
-  waited=0
-  while [[ ! -f "${GRAPH_FILE}" && ${waited} -lt ${WAIT_SECONDS} ]]; do
-    sleep 1
-    waited=$((waited + 1))
-  done
-  if [[ ! -f "${GRAPH_FILE}" ]]; then
-    _log_file ".agents/logs/graphify-mcp.log" "graphify: graph.json still absent at ${GRAPH_FILE} after ${WAIT_SECONDS}s — giving up"
-    exit 0
-  fi
-fi
+# ── No pre-launch wait ───────────────────────────────────────────────────────
+# The shim creates the placeholder, seeds a worktree from the main checkout,
+# starts `graphify update` in the background, and answers `not_ready` until the
+# graph has nodes. Blocking here on a missing graph would deadlock that flow.
 
 # Try the interpreter recorded by install.sh (stores Python path with graphify.serve)
 if [[ -f "${DEVBOT_ROOT}/storage/secrets/graphify-python" ]]; then
