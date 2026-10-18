@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # =============================================================================
 # src/agentic/svelte/tests/svelte_tests.bats
-# Tests for the svelte module (Svelte/SvelteKit MCP server + skills).
+# Tests for the svelte module (Svelte/SvelteKit MCP server).
 #
 # The MCP server is a machine-wide docker compose gateway (docker-compose.yml)
 # reached over streamable-http — one container serves every harness instance

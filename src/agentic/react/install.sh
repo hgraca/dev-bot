@@ -49,9 +49,9 @@ main() {
   # MCP server package check (informational — runtime uses npx)
   _info "Next.js DevTools MCP: will use 'npx -y next-devtools-mcp@latest' at runtime"
   _info "External skills (3): declared in external-modules.json — wired by 'devbot init'"
-  _info "  - react                  (mindrally/skills)"
-  _info "  - nextjs-react-typescript (mindrally/skills)"
-  _info "  - react-best-practices    (mindrally/skills)"
+  _info "  - mindrally-react                (mindrally/skills)"
+  _info "  - mindrally-nextjs               (mindrally/skills)"
+  _info "  - mindrally-react-best-practices (mindrally/skills)"
 
   _ok "react module — all dependencies satisfied"
 }
