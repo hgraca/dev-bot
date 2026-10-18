@@ -123,6 +123,9 @@ restart: ## Stop then start
 build-test-image:
 	cd tests/test-project && docker build --no-cache -t devbot-test .
 
+# The "./" in the bun invocation below makes bun treat the argument as a path.
+# A bare `bun test src/` is a filter, and matching one walks the whole checkout
+# (storage/ alone is hundreds of thousands of files) before any test runs.
 test: ## Run the full test suite
 	echo -e "\n\033[1m\033[34m━━━ Running tests... ━━━\033[0m"
 	@if ! command -v bats &>/dev/null; then \
@@ -170,7 +173,7 @@ test: ## Run the full test suite
 		echo "  bun not found — install via: curl -fsSL https://bun.sh/install | bash"; \
 		exit 1; \
 	fi
-	@$(HERMETIC_GIT) bun test src/
+	@$(HERMETIC_GIT) bun test ./src/
 	@echo -e "\n\033[1m\033[34m━━━ Running python tests... ━━━\033[0m"
 	@if ! command -v python3 &>/dev/null; then \
 		echo "  python3 not found — install python3 to run the python tests"; \

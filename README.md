@@ -121,7 +121,7 @@ runner for the shell test suite:
 > only one on `PATH` (install from its
 > [releases](https://github.com/shenwei356/rush)).
 
-`make test` runs all three suites — BATS, `bun test src/`, then the Python
+`make test` runs all three suites — BATS, `bun test ./src/`, then the Python
 unittests. The BATS stage accounts for ~99% of the runtime, so that is the one
 parallelised. The job count defaults to the CPU count, capped at 8; override it
 with `DEV_BOT_TEST_JOBS`:
