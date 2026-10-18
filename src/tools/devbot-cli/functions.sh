@@ -92,8 +92,17 @@ _link_skills() {
   local generated="${DEV_BOT_ROOT}/storage/${mod_name}/skills"
   [[ -f "${generated}/.devbot-generated" ]] && skill_dir="${generated}"
 
-  [[ ! -d "${skill_dir}" ]] && return
   local link_name="${AGENTS_DIR}/skills/devbot/${mod_name}"
+
+  # A module that ships no skills must not leave a dangling farm link behind.
+  # Only a link this function created — one pointing at the expected dir — is ours to remove.
+  if [[ ! -d "${skill_dir}" ]]; then
+    if [[ -L "${link_name}" && "$(readlink "${link_name}")" == "${skill_dir}" ]]; then
+      rm -f "${link_name}"
+      _ok "skills/devbot/${mod_name} pruned (module ships no skills)"
+    fi
+    return
+  fi
 
   if [[ -L "${link_name}" ]]; then
     local current
