@@ -1,17 +1,17 @@
 ---
 title: "React"
-description: "React 18+ and Next.js conventions, with Next.js runtime diagnostics."
-skills: ["react"]
+description: "Next.js runtime diagnostics for an agent, with vendored React and Next.js conventions."
 mcps:
   next-devtools: "Next.js runtime diagnostics"
 ---
 
-React and Next.js conventions for an agent, plus a window into a running Next.js dev server.
+A window into a running Next.js dev server, plus the React and Next.js conventions this module wires
+from vendored skills.
 
 ## What it does
 
-- **`react`** — the conventions skill: scaffolding, components, and Next.js project structure.
-- **next-devtools** — the Next.js devtools MCP server (`npx -y next-devtools-mcp@latest`), which reports runtime diagnostics from the dev server.
+- **`next-devtools`** — the Next.js devtools MCP server (`npx -y next-devtools-mcp@latest`), which reports runtime diagnostics from the dev server.
+- **Vendored skills** — `mindrally-react`, `nextjs-react-typescript`, and `modern-web-development` are linked into the project's skill farm when the module is enabled.
 
 ## Configuration
 
