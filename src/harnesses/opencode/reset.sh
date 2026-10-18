@@ -312,6 +312,26 @@ for k in data.get('mcp', {}):
       rm -f "${dyn_manifest}"
       _ok "${disabled_name}: removed $(basename "${dyn_manifest}") (module disabled)"
     done
+
+    # The manifest is a regular file, so it can be gone before this reset runs
+    # (a user cleared .opencode/, or the project was re-seeded) while the merged
+    # key stays in opencode.jsonc — leaving nothing for the loop above to key
+    # on, and a disabled module's server live across every later reinit. A
+    # dynamic module declares no canonical mcp.json, and its servers are named
+    # after it (<name>, <name>-<detail>) — the same exact-or-hyphen ownership
+    # rule _devbot_manifest_owner_disabled applies to the manifest filename — so
+    # prune those keys by name.
+    if [[ ! -f "${mod_dir}/mcp.json" && -f "${REMOVE_MCP_PY}" ]]; then
+      while IFS= read -r orphan_key; do
+        [[ -n "${orphan_key}" ]] || continue
+        python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${orphan_key}" 2>/dev/null || true
+        _ok "${disabled_name}: removed orphaned MCP '${orphan_key}' (module disabled)"
+      done < <(
+        python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
+          | jq -r --arg name "${disabled_name}" \
+            'keys[] | select(. == $name or startswith($name + "-"))' 2>/dev/null || true
+      )
+    fi
   done < <(echo "${_disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
   unset REMOVE_PLUGIN_PY
 fi

@@ -534,3 +534,70 @@ print('D8-DYNAMIC-PRUNE:OK')
   refute_output --partial "nothing to reset"
   assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
 }
+
+# A dynamic module's registered key can outlive its manifest: the manifest is a
+# regular file, so a user or a rebuilt .opencode/ can remove it while the merged
+# entry stays in opencode.jsonc. The manifest-keyed prune then has nothing to
+# find and the disabled module's server stays live across every reinit.
+# Ownership follows the same exact-or-hyphen rule as the manifest filename
+# (<name>, <name>-<detail>) — the rule _devbot_manifest_owner_disabled applies.
+_write_orphaned_key_fixture() {
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "modules": {
+    "opencode": true,
+    "jetbrains": false
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "jetbrains": {"type": "remote", "url": "http://127.0.0.1:64442/stream", "enabled": true},
+    "jetbrains-lsp": {"type": "remote", "url": "http://127.0.0.1:64443/stream"},
+    "jetbrainstorm": {"type": "remote", "url": "http://127.0.0.1:1/stream"},
+    "other": {"type": "local", "command": ["other-mcp"]}
+  }
+}
+JSONC_EOF
+}
+
+@test "D9: reset prunes a disabled dynamic module's key when its manifest is gone" {
+  _write_orphaned_key_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'jetbrains' not in mcp, mcp
+assert 'jetbrains-lsp' not in mcp, mcp
+assert 'jetbrainstorm' in mcp, mcp
+assert 'other' in mcp, mcp
+print('D9-ORPHAN-PRUNE:OK')
+"
+  assert_success
+  grep -qF 'D9-ORPHAN-PRUNE:OK' <<< "$output" || fail "orphaned disabled-module key not pruned"
+}
+
+@test "D9: second reset is byte-idempotent (orphan prune)" {
+  _write_orphaned_key_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  local after_first
+  after_first="$(cat "${SANDBOX_DIR}/opencode.jsonc")"
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
+}
