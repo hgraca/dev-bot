@@ -34,13 +34,29 @@ plus an automated Design QA check that compares a running page against its Figma
 
 ## Design QA
 
-Both commands need two MCP servers: `figma` (declared by this module, shipped **wired but not
-started**) and `playwright` (the `playwright` module, also shipped not started). Enable both, and
-authenticate Figma interactively (`/mcp` → figma → Authenticate).
+Both commands need two MCP servers: `figma` (declared by this module) and `playwright` (the
+`playwright` module). Both ship **wired but not started** — `enabled: false` — because they are heavy
+or optional. How to turn them on depends on the harness:
 
-The check never logs in or handles credentials. Log in by hand, once per user type, in the browser
-window Playwright opens; its profile keeps the session between runs. Reset that browser's per-site
-zoom to 100% (Cmd+0 / Ctrl+0) — widths and positions are measured in CSS px.
+- **opencode** — the servers are registered with `mcp.<name>.enabled: false`. Set both to `true` in the
+  project's `opencode.jsonc` and restart; opencode reads its config once at startup.
+- **Claude Code** — `.mcp.json` has no per-server switch, so a server declared `enabled: false` is
+  **omitted** from it (and regenerated without it). Register the remote server in Claude Code's own
+  user config instead: `claude mcp add --transport http figma https://mcp.figma.com/mcp`. Enable the
+  `playwright` module first, so its server is wired into `.mcp.json`.
+
+Then authenticate Figma (`/mcp` → figma → Authenticate).
+
+Prerequisites:
+
+- The app is running at `baseUrl` — the batch preflight checks it.
+- `design-map.json` exists at the project root (both commands read it).
+- A human logs in to the app, once per user type, in the browser window Playwright opens; its profile
+  keeps the session between runs. The check never logs in and never handles credentials.
+- Reset that browser's per-site zoom to 100% (Cmd+0 / Ctrl+0) — widths and positions are measured in
+  CSS px.
+- Ignore `.playwright-mcp/` and `design-qa-report.md`: the report can contain authenticated-app data
+  (names, amounts, statuses), and the Playwright directory holds screenshots and console logs.
 
 ```text
 /devbot:design-qa <figma-link> <route-or-url> [viewport] [--as <userType>] [--scope "<component>"] [--fix]
@@ -66,20 +82,38 @@ commands, shared roots — live in its `project` block; none are baked into the 
     "session": {
       "storage": "localStorage",
       "key": "user",
-      "detect": { "backoffice": "u.isBackoffice === true", "customer": "Boolean(u.customer)" }
+      "detect": {
+        "backoffice": "u.isBackoffice === true",
+        "hotel": "Boolean(u.hotel)",
+        "customer": "Boolean(u.customer)"
+      }
     },
     "publicRoutes": ["/sign-in", "/forgot-password"],
+    "preflightRoute": "/sign-in",
     "sourceRoot": "src/",
     "sharedRoots": ["src/components/", "src/layouts/"],
     "globalStyleFiles": ["src/theme.ts", "src/index.css"],
-    "stabilise": { "hideSelectors": ["#third-party-launcher"] },
+    "stabilise": {
+      "hideSelectors": ["#third-party-launcher"],
+      "skeletonSelectors": [".skeleton"],
+      "loadingSelectors": [".spinner"]
+    },
     "tokens": {
-      "colors": { "file": "src/constants/colors.ts", "name": "COLORS", "style": "UPPER_SNAKE_CASE" },
+      "colors": {
+        "file": "src/constants/colors.ts",
+        "name": "COLORS",
+        "style": "UPPER_SNAKE_CASE"
+      },
       "theme": { "file": "src/theme.ts" },
       "spacing": "mui-8px",
-      "layout": ["TOOLBAR_HEIGHT"]
+      "layout": ["TOOLBAR_HEIGHT"],
+      "typography": ["h1", "h2", "body1"]
     },
-    "lint": { "lint": "pnpm lint", "format": "pnpm prettier:check" },
+    "lint": {
+      "lint": "pnpm exec eslint",
+      "format": "pnpm exec prettier --check",
+      "stylelint": null
+    },
     "baseBranch": "develop"
   },
   "entries": [
@@ -99,21 +133,26 @@ commands, shared roots — live in its `project` block; none are baked into the 
 }
 ```
 
-`entries[]` requires `id`, `type` (`page` or `component`), `figma` and `url`; `userType`, `state`,
-`scope`, `viewports`, `sourcePaths` and `ignore` are optional. A `url` that still carries a route
-parameter (`:id`) is skipped by the batch, because it needs a concrete record that matches the state
-the frame shows.
+`entries[]` requires `id`, `type` (`page` or `component`), `figma` and — for a `page` — `url`; a
+`component` without a `url` is skipped by the batch because there is no page to render it on.
+`userType`, `state`, `scope`, `viewports`, `sourcePaths` and `ignore` are optional. A `url` that still
+carries a route parameter (`:id`) is skipped too, because it needs a concrete record that matches the
+state the frame shows.
+
+The `project` fields are commands and selectors, not literals: `lint`/`format` must accept file paths
+(the workflow appends the changed files), `baseBranch` names the branch PRs target, and
+`preflightRoute` is a route that answers without authentication.
 
 When the file or a field is absent the workflow falls back to `http://localhost:3000`, a ±4px
-tolerance and a 1440px viewport; the `project` block has no fallbacks beyond that, so an unconfigured
-project simply skips the features it does not declare (token checks, lint, shared-root selection).
+tolerance, a 1440px viewport and a `src/` source root; `project.userTypes` defaults to `["public"]`.
+The rest of the `project` block has no defaults, so an unconfigured project skips what it does not
+declare (token checks, lint, shared-root selection, type detection).
 
 ## Configuration
 
-Enable the module. `design-qa` additionally needs the `playwright` module enabled and the Figma MCP
-authenticated; the figma server ships `enabled: false`, so opt the module in and turn the server on in
-the harness (opencode: `mcp.figma.enabled: true` in `opencode.jsonc`; on Claude Code, enabling the
-module wires it). No OS packages are installed — both servers are remote or MCP-managed.
+Enable the module, then turn on the two servers as described under [Design QA](#design-qa): the figma
+server ships `enabled: false`, and the `playwright` module does the same. No OS packages are installed
+— both servers are remote or MCP-managed.
 
 ## See also
 
