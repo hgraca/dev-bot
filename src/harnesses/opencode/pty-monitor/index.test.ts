@@ -19,9 +19,30 @@
 // effects, not rendering.
 // =============================================================================
 
-import { describe, expect, mock, test } from "bun:test"
+import { describe, expect, mock, setDefaultTimeout, setSystemTime, test } from "bun:test"
+
+// A wait resumes on progress, so a slow machine costs latency, not a red
+// suite. Give the per-test budget room for a wait's own safety deadline (below)
+// to be the thing that expires, rather than bun cutting the test off mid-wait.
+setDefaultTimeout(30_000)
 
 type El = { tag: string; props: Record<string, unknown>; children: El[]; text?: string }
+
+/**
+ * Wake-ups for `waitFor`.
+ *
+ * Every mocked state change and every side effect a test can wait on pings
+ * these listeners, so a wait resumes the moment the plugin reports progress.
+ * A short fixed poll interval with a short deadline would instead make a loaded
+ * machine look like a broken plugin: nothing is wrong, the timer just did not
+ * fire in time. Timers below are only a liveness net for a condition that can
+ * turn true without a mocked signal.
+ */
+const progressListeners = new Set<() => void>()
+
+function reportProgress() {
+  for (const wake of progressListeners) wake()
+}
 
 mock.module("@opentui/solid", () => {
   // Text nodes carry their content in `text`, like the real renderable, so a
@@ -64,6 +85,7 @@ mock.module("solid-js", () => ({
       () => value,
       (next: unknown) => {
         value = typeof next === "function" ? (next as (prev: unknown) => unknown)(value) : next
+        reportProgress()
       },
     ]
   },
@@ -122,12 +144,14 @@ function stubApi(options: { rejectCreate?: boolean; throwingToast?: boolean } = 
         register: (def: { slots: { sidebar_content: () => El } }) => {
           calls.slots++
           slots = def
+          reportProgress()
         },
       },
       command: {
         register: (fn: () => { onSelect: () => void }[]) => {
           calls.commands++
           commands = fn
+          reportProgress()
         },
       },
       lifecycle: {
@@ -139,6 +163,7 @@ function stubApi(options: { rejectCreate?: boolean; throwingToast?: boolean } = 
       ui: {
         toast: (input: { variant?: string }) => {
           calls.toasts.push(input.variant || "info")
+          reportProgress()
           // Models a host toast that throws, so the plugin's best-effort
           // handling around it is exercised rather than assumed.
           if (options.throwingToast) throw new Error("toast exploded")
@@ -146,6 +171,7 @@ function stubApi(options: { rejectCreate?: boolean; throwingToast?: boolean } = 
         DialogConfirm: (props: unknown) => {
           calls.confirms++
           confirm = props as { onConfirm?: () => void }
+          reportProgress()
           return { tag: "confirm", props: {}, children: [] }
         },
         // Counts every dialog the plugin pushes, so a test can tell a removal
@@ -155,6 +181,7 @@ function stubApi(options: { rejectCreate?: boolean; throwingToast?: boolean } = 
           replace: (render: () => unknown) => {
             calls.dialogs++
             dialogTree = render() as El
+            reportProgress()
           },
           clear: () => {},
           setSize: () => {},
@@ -166,6 +193,7 @@ function stubApi(options: { rejectCreate?: boolean; throwingToast?: boolean } = 
         session: {
           create: () => {
             calls.serverStarts++
+            reportProgress()
             return options.rejectCreate
               ? Promise.reject(new Error("create failed"))
               : new Promise(() => {})
@@ -176,13 +204,49 @@ function stubApi(options: { rejectCreate?: boolean; throwingToast?: boolean } = 
   }
 }
 
-/** Wait until `cond` holds, or give up. Keeps the tests free of fixed sleeps. */
-async function waitFor(cond: () => boolean, ms = 750): Promise<boolean> {
-  const deadline = Date.now() + ms
-  while (!cond() && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 10))
+/**
+ * How long a wait keeps watching for progress before it gives up.
+ *
+ * This is a safety net for a condition that never becomes true — a broken
+ * assertion should still fail — NOT the mechanism: a wait wakes on the next
+ * progress signal, so CPU contention only delays how soon the check runs.
+ */
+const WAIT_SAFETY_MS = 10_000
+
+/**
+ * How often a wait re-checks a condition that has no mocked signal behind it.
+ *
+ * Progress wakes it sooner; this only stops a condition that becomes true by
+ * other means (a fixture server answering, say) from waiting out the deadline.
+ */
+const WAIT_LIVENESS_MS = 250
+
+/** Wait until `cond` holds. Keeps the tests free of fixed sleeps. */
+async function waitFor(cond: () => boolean, ms = WAIT_SAFETY_MS): Promise<boolean> {
+  if (cond()) return true
+  // Monotonic: a test may freeze `Date.now` to pin a rendered duration.
+  const deadline = performance.now() + ms
+  let wake: (() => void) | null = null
+  const listener = () => wake?.()
+  progressListeners.add(listener)
+  try {
+    while (!cond()) {
+      if (performance.now() >= deadline) return false
+      await new Promise<void>((resolve) => {
+        // Cleared by the progress listener, so a busy run does not leave a
+        // timer per wait behind it.
+        const timer = setTimeout(resolve, WAIT_LIVENESS_MS)
+        wake = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+      })
+      wake = null
+    }
+    return true
+  } finally {
+    progressListeners.delete(listener)
   }
-  return cond()
 }
 
 describe("pty-monitor tui factory", () => {
@@ -202,13 +266,16 @@ describe("pty-monitor tui factory", () => {
     let probed = false
     globalThis.fetch = (() => {
       probed = true
+      reportProgress()
       return new Promise(() => {})
     }) as typeof fetch
     const { api, calls, disposeNow } = stubApi()
     try {
+      // The bound detects a factory that BLOCKS on discovery, not one that is
+      // slow to load: promptness is not asserted here.
       const outcome = await Promise.race([
         plugin.tui(api as never).then(() => "resolved"),
-        new Promise((resolve) => setTimeout(() => resolve("blocked"), 750)),
+        new Promise((resolve) => setTimeout(() => resolve("blocked"), WAIT_SAFETY_MS)),
       ])
       expect(probed).toBe(true) // the fixture listener really was discovered
       expect(outcome).toBe("resolved") // and the factory resolved anyway
@@ -222,11 +289,13 @@ describe("pty-monitor tui factory", () => {
   })
 
   test("does not start the PTY server on load", async () => {
-    const { api, calls, disposeNow } = stubApi()
+    const stub = stubApi()
+    const { calls, disposeNow } = stub
     try {
-      await plugin.tui(api as never)
-      // Let the detached load-time refresh run its course.
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      await plugin.tui(stub.api as never)
+      // The load-time refresh is detached, so wait for its observable outcome
+      // (no server found -> the idle status) instead of sleeping on a guess.
+      expect(await waitFor(() => headerText(stub).includes("not running"))).toBe(true)
       expect(calls.serverStarts).toBe(0)
     } finally {
       disposeNow()
@@ -256,7 +325,7 @@ describe("pty-monitor tui factory", () => {
       expect(release).not.toBeNull() // the load refresh really is mid-discovery
       runExplicitRequest() // arrives while that refresh is still in flight
       release!()
-      expect(await waitFor(() => calls.serverStarts > 0, 1500)).toBe(true)
+      expect(await waitFor(() => calls.serverStarts > 0)).toBe(true)
     } finally {
       globalThis.fetch = realFetch
       listener.stop(true)
@@ -279,12 +348,15 @@ describe("pty-monitor tui factory", () => {
   test("does not start the PTY server when the panel is collapsed", async () => {
     // A failing create keeps every attempt short-lived, so a spurious ask on
     // collapse would show up as a real extra attempt rather than being deferred.
-    const { api, calls, disposeNow, clickHeader } = stubApi({ rejectCreate: true })
+    const stub = stubApi({ rejectCreate: true })
+    const { calls, disposeNow, clickHeader } = stub
     try {
-      await plugin.tui(api as never)
+      await plugin.tui(stub.api as never)
       clickHeader() // expand -> asks
       expect(await waitFor(() => calls.serverStarts > 0)).toBe(true)
-      await new Promise((resolve) => setTimeout(resolve, 50)) // let it settle
+      // Let the attempt finish before sampling: the failing create's status is
+      // the progress signal that says the bootstrap has settled.
+      expect(await waitFor(() => headerText(stub).includes("starting server"))).toBe(true)
       const afterExpand = calls.serverStarts
       clickHeader() // collapse -> must NOT ask
       await new Promise((resolve) => setTimeout(resolve, 100))
@@ -332,7 +404,7 @@ describe("pty-monitor tui factory", () => {
       // Backing off must not make the panel a dead end: expanding again retries.
       const beforeRetry = calls.serverStarts
       clickHeader() // expand
-      expect(await waitFor(() => calls.serverStarts > beforeRetry, 1500)).toBe(true)
+      expect(await waitFor(() => calls.serverStarts > beforeRetry)).toBe(true)
     } finally {
       disposeNow()
     }
@@ -363,9 +435,9 @@ function ptyFixture(sessions: unknown[]) {
       }
       if (req.method === "DELETE" && url.pathname.endsWith("/cleanup")) {
         deletes.push(url.pathname)
+        reportProgress()
         // Serve the list WITHOUT the removed session afterwards, so a test can
-        // observe that the panel's own refresh ran — the next poll is 2.5s away,
-        // far outside the window a test waits.
+        // observe that the panel's own refresh ran rather than inferring it.
         const id = url.pathname.split("/")[3]
         const at = sessions.findIndex((s) => (s as { id?: unknown }).id === id)
         if (at >= 0) sessions.splice(at, 1)
@@ -392,9 +464,33 @@ function waitForRows(stub: ReturnType<typeof stubApi>, count: number) {
   return waitFor(() => rowsOf(stub).filter((r) => r.tag === "box").length === count)
 }
 
+/**
+ * Start the plugin with periodic polling switched off.
+ *
+ * A test that proves "the refresh a removal triggers is what updates the list"
+ * cannot also let the background poll run: a broken forced refresh would be
+ * rescued by the next tick, and a wait generous enough for a loaded machine
+ * would happily accept that. Patching only the factory call is enough — the
+ * interval handle is never created, so nothing needs restoring afterwards.
+ */
+async function startWithoutPolling(api: unknown) {
+  const realSetInterval = globalThis.setInterval
+  globalThis.setInterval = (() => 0) as unknown as typeof setInterval
+  try {
+    await plugin.tui(api as never)
+  } finally {
+    globalThis.setInterval = realSetInterval
+  }
+}
+
 /** A row's `✕`: the bullet, the label, then the remove glyph. */
 function removeControl(row: El) {
   return row.children[2]!
+}
+
+/** The header's rendered text: chevron, panel name, status. */
+function headerText(stub: ReturnType<typeof stubApi>) {
+  return stub.sidebar().children[0]!.children[0]!.children[0]?.text ?? ""
 }
 
 /** The header's clear-finished label as rendered ("" when there is none). */
@@ -431,7 +527,9 @@ describe("pty-monitor session removal", () => {
     ])
     const stub = stubApi()
     try {
-      await plugin.tui(stub.api as never)
+      // No background poll: the row going away below must be the removal's own
+      // forced refresh, not the next tick.
+      await startWithoutPolling(stub.api)
       stub.clickHeader() // expand; the panel starts collapsed
       expect(await waitForRows(stub, 1)).toBe(true)
       // Discovery reached the fixture, so no throwaway bootstrap session ran.
@@ -530,6 +628,9 @@ describe("pty-monitor session removal", () => {
 
       clickControl(removeControl(rowsOf(stub)[0]!).props.onMouseUp, { value: false })
       expect(await waitFor(() => deletes.length > 0)).toBe(true)
+      // The removal's own refresh is the point where both toast branches have
+      // run, so sample the toasts after it rather than racing the response.
+      expect(await waitForRows(stub, 0)).toBe(true)
       // The success toast threw. The removal still succeeded, so it must NOT be
       // followed by a failure toast — reporting it as failed is the regression
       // this pins.
@@ -565,29 +666,33 @@ describe("pty-monitor session removal", () => {
 
 describe("pty-monitor output dialog", () => {
   test("shows how long the process has run, fixed once it exits", async () => {
-    // Fixed timestamps, so the expected label does not depend on the clock: the
-    // finished session ran exactly one minute, the running one is still going.
+    // Freeze the clock for the whole test — Date.now and `new Date` — so the
+    // expected label does not depend on how long setup took: the finished
+    // session ran exactly one minute, and the running one is exactly 90s old at
+    // every render. Restored in the finally, including when setup throws.
     const base = Date.now()
-    const { server } = ptyFixture([
-      {
-        id: "pty_done",
-        title: "build",
-        status: "exited",
-        exitCode: 0,
-        lineCount: 1,
-        createdAt: new Date(base - 65_000).toISOString(),
-        exitAt: new Date(base - 5_000).toISOString(),
-      },
-      {
-        id: "pty_live",
-        title: "dev server",
-        status: "running",
-        lineCount: 3,
-        createdAt: new Date(base - 90_000).toISOString(),
-      },
-    ])
+    setSystemTime(base)
     const stub = stubApi()
+    let server: ReturnType<typeof ptyFixture>["server"] | null = null
     try {
+      server = ptyFixture([
+        {
+          id: "pty_done",
+          title: "build",
+          status: "exited",
+          exitCode: 0,
+          lineCount: 1,
+          createdAt: new Date(base - 65_000).toISOString(),
+          exitAt: new Date(base - 5_000).toISOString(),
+        },
+        {
+          id: "pty_live",
+          title: "dev server",
+          status: "running",
+          lineCount: 3,
+          createdAt: new Date(base - 90_000).toISOString(),
+        },
+      ]).server
       await plugin.tui(stub.api as never)
       stub.clickHeader() // expand
       expect(await waitForRows(stub, 2)).toBe(true)
@@ -604,7 +709,8 @@ describe("pty-monitor output dialog", () => {
       clickControl(rowsOf(stub)[1]!.props.onMouseUp, { value: false })
       expect(await waitFor(() => textNodesOf(stub.dialogElement()).includes("1m 30s"))).toBe(true)
     } finally {
-      server.stop(true)
+      setSystemTime()
+      server?.stop(true)
       stub.disposeNow()
     }
   })
