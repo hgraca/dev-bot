@@ -15,12 +15,13 @@ When you need information, use right tool for question type:
 | Project-specific lessons                       | Use `search-memories` tool                   |
 | Product decisions + stakeholder answers (PDRs) | Use `search-memories` tool                   |
 | Architectural/technical decisions (ADRs)       | Use `search-memories` tool                   |
-| Memory semantic search ("did we ever...?")     | Use `search-memories` tool                   |
+| Memory recall ("did we ever...?")              | Use `search-memories` tool                   |
 | Architecture, relationships, god nodes         | Use `devbot:graphify` skill                  |
 | Code by meaning ("find auth logic")            | Use the `codebase-index` MCP (ask naturally) |
 
 `search-memories` covers every recall question — it searches the project memory
-tree (`latent/`, `work/`, `thinking/` and `active/`) and the shared global store under the
+tree (`latent/`, `work/`, `thinking/` and `active/`), the shared global store,
+and any custom collection configured under `memory_collections`, using the
 configured engine (`memory_search_provider`, qmd or mdctx). Both engines are
 keyword-only (BM25); there is no semantic/vector route. The ACTIVE engine's skill (`devbot:qmd` / `devbot:mdctx`) is linked for
 engine-specific index maintenance, not for memory search.

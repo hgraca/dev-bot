@@ -159,8 +159,8 @@ Regex content search across files.
 The canonical way to search the agent memory vault — `.md` notes under
 `.agents/memory/` (latent notes, ADRs, PDRs, gotchas, patterns, work artefacts,
 decisions, retrospectives). `search-memories` searches the CURRENT project
-vault **and** the shared global store, under whichever engine
-`memory_search_provider` selects (qmd or mdctx).
+vault, the shared global store, **and** any configured custom collection, under
+whichever engine `memory_search_provider` selects (qmd or mdctx).
 
 **Use when:**
 

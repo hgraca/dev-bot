@@ -306,7 +306,7 @@ titles/keywords under either engine.
 **Upgrade note:** existing installs that do not set this key get the `mdctx`
 default and will stop registering `qmd` on the next reinit. Pin
 `"memory_search_provider": "qmd"` _before_ updating dev-bot to keep the
-semantic/GPU engine and its existing collections.
+BM25 engine and its existing collections.
 
 **Flip:** after changing the key, run `devbot reinit` so the newly selected
 engine's MCP/skill is registered, the losing engine's entries are pruned, and
@@ -320,12 +320,12 @@ module unregisters its declared plugin/MCP entries at the next `devbot reinit`.
 
 ### `memory_collections`
 
-```jsonc
+```json
 {
   "memory_collections": {
     "project": { "path": "{project}/{devbot_dir}/memory", "semantic": false },
-    "notes": { "path": "~/notes", "semantic": true },
-  },
+    "notes": { "path": "~/notes", "semantic": true }
+  }
 }
 ```
 
@@ -347,7 +347,16 @@ The two built-ins are reserved:
 
 Custom keys may be set in either file. The two maps merge (global first, then
 project); when both define the same custom key, the project entry **replaces**
-the global one wholesale.
+the global one wholesale. A custom collection's identity is derived from its
+normalized path: its qmd collection is `dev-bot-custom-<path-hash>` and its
+mdctx index is `collections/<path-hash>.json`, where `<path-hash>` is the first
+12 hex characters of SHA-256. Keys and projects that name the same path share
+one registration and index; different paths never collide. The logical key is
+what `--collection` selects. A custom collection cannot alias another
+registered project's vault; that project's own sessions own it. If the built-in
+`global` path is overridden, it gets its own mdctx index under `collections/`;
+the mdctx gateway continues to serve the shipped store, so the two cannot
+overwrite each other.
 
 Placeholders: `{project}` (the project root), `{devbot_dir}` (the resolved
 `devbot_dir`), `${DEV_BOT_ROOT}` (the dev-bot install root), and `~` (home).
@@ -359,7 +368,10 @@ a search emits a `NOTICE` and runs BM25. It will select qmd's model path when
 that path is restored.
 
 In a supervisor project, the `project` collections follow the `--focus` read
-set, while the `global` and custom collections are always searched.
+set, while the `global` and custom collections are always searched. Custom
+collections resolve from the session project's config plus the global config;
+a focused child's own project-level custom collections are not pulled into the
+supervisor's search (a session started inside that child searches them).
 
 ---
 

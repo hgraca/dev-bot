@@ -147,7 +147,7 @@ title: DevBot
       </div>
       <div class="feature-card">
         <h3><a href="{{ '/modules/agentic/qmd' | relative_url }}">QMD Knowledge Vault</a></h3>
-        <p>Curated knowledge vault with semantic search. Goals, decisions, patterns, and gotchas in human-readable markdown notes.</p>
+        <p>Curated knowledge vault with keyword search. Goals, decisions, patterns, and gotchas in human-readable markdown notes.</p>
       </div>
       <div class="feature-card">
         <h3><a href="{{ '/modules/agentic/mdctx' | relative_url }}">mdctx Keyword Search</a></h3>

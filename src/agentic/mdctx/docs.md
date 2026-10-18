@@ -23,8 +23,8 @@ read, diff, and commit. No SQLite, no vector DB, no embedding model, no GPU.
 ## How agents use it
 
 The canonical memory-search route is **`search-memories`** — it scopes to the
-current project vault + the shared global store and swaps engines
-transparently. `mdctx`'s native CLI/index tools are for operators: build and
+current project vault + the shared global store + any configured custom
+collection, and swaps engines transparently. `mdctx`'s native CLI/index tools are for operators: build and
 refresh the per-corpus indexes, browse an index, or search a corpus you built
 yourself.
 
@@ -38,10 +38,14 @@ server on `devbot init`.
 Indexes are written to gitignored locations (mdctx does not follow symlinks,
 so each real corpus gets its own index):
 
-| Corpus                                   | Docs root                                 | Index file                                          |
-| ---------------------------------------- | ----------------------------------------- | --------------------------------------------------- |
-| Project memory tree (per project)        | `<project>/.agents/memory`                | `<project>/.mdctx/context-index.json`               |
-| Shared global store (one, under dev-bot) | `${DEV_BOT_ROOT}/storage/global-memories` | `${DEV_BOT_ROOT}/storage/.mdctx/context-index.json` |
+| Corpus                                   | Docs root                                 | Index file                                                    |
+| ---------------------------------------- | ----------------------------------------- | ------------------------------------------------------------- |
+| Project memory tree (per project)        | `<project>/.agents/memory`                | `<project>/.mdctx/context-index.json`                         |
+| Shared global store (one, under dev-bot) | `${DEV_BOT_ROOT}/storage/global-memories` | `${DEV_BOT_ROOT}/storage/.mdctx/context-index.json`           |
+| Custom collection (per corpus path)      | the configured `path`                     | `${DEV_BOT_ROOT}/storage/.mdctx/collections/<path-hash>.json` |
+
+An overridden `memory_collections.global.path` gets its own index under
+`collections/`; the gateway still serves the shipped global store.
 
 ## Selecting the engine
 
@@ -49,14 +53,15 @@ This module is one of two interchangeable memory-search engines. Which one is
 active is set by `memory_search_provider` in `.devbot.global.jsonc` (see
 [Configuration](/configuration)):
 
-| Provider | Engine                                                          |
-| -------- | --------------------------------------------------------------- |
-| `mdctx`  | Zero-ML keyword BM25 over a flat git-diffable index (default)   |
-| `qmd`    | Hybrid semantic + BM25 over per-project collections (llama/GPU) |
+| Provider | Engine                                                        |
+| -------- | ------------------------------------------------------------- |
+| `mdctx`  | Zero-ML keyword BM25 over a flat git-diffable index (default) |
+| `qmd`    | BM25 keyword search over registered collections (no models)   |
 
 The two are mutually exclusive — flip the key, run `devbot reinit`, and only
-the selected engine is wired. `mdctx` is keyword-only by design: no
-semantic/vector search, no LLM reranking. Choose `qmd` when you need those.
+the selected engine is wired. Both engines are keyword-only: no
+semantic/vector search and no LLM reranking. A custom collection's `semantic`
+flag is ignored under `mdctx`; under `qmd` it is accepted but reserved.
 
 ## Known limits
 
@@ -73,10 +78,14 @@ semantic/vector search, no LLM reranking. Choose `qmd` when you need those.
 
 ## Configuration
 
-No project configuration is required.
+No project configuration is required for the built-in project and global
+indexes. Add a custom corpus under `memory_collections` (project or global
+config) and reindex builds its shared index under
+`storage/.mdctx/collections/`.
 
 ## See also
 
-- [QMD](/modules/agentic/qmd) — the sibling semantic/GPU engine
-- [Configuration](/configuration) — `memory_search_provider` key
+- [QMD](/modules/agentic/qmd) — the sibling keyword engine
+- [Configuration](/configuration) — `memory_search_provider` and
+  `memory_collections`
 - [Codebase Memory](/modules/agentic/codebase-memory) — the sibling codebase engine swap

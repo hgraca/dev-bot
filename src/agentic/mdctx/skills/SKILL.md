@@ -29,7 +29,8 @@ browsing the index), not the everyday search route.
 | Checking what the mdctx MCP server exposes                        | `search_context` / `refresh_index` / `list_context` |
 
 **Prefer `search-memories` for memory-vault search.** It scopes to the current
-project vault + the shared global store and swaps engines transparently. This
+project vault, the shared global store, and any configured custom collection,
+and swaps engines transparently. This
 skill's CLI is for operators building/refreshing indexes and for engine-native
 queries (e.g. a raw index you built yourself).
 
@@ -56,10 +57,11 @@ mdctx search "<query>" [-i <index.json>] [-n <limit>] [--json]
 
 `mdctx` does **not** follow symlinks, so each real root gets its own index:
 
-| Corpus                                   | Docs root                                 | Index file                                          |
-| ---------------------------------------- | ----------------------------------------- | --------------------------------------------------- |
-| Project memory tree (per project)        | `<project>/<devbot-dir>/memory`           | `<project>/.mdctx/context-index.json`               |
-| Shared global store (one, under dev-bot) | `${DEV_BOT_ROOT}/storage/global-memories` | `${DEV_BOT_ROOT}/storage/.mdctx/context-index.json` |
+| Corpus                                   | Docs root                                 | Index file                                                    |
+| ---------------------------------------- | ----------------------------------------- | ------------------------------------------------------------- |
+| Project memory tree (per project)        | `<project>/<devbot-dir>/memory`           | `<project>/.mdctx/context-index.json`                         |
+| Shared global store (one, under dev-bot) | `${DEV_BOT_ROOT}/storage/global-memories` | `${DEV_BOT_ROOT}/storage/.mdctx/context-index.json`           |
+| Custom collection (per corpus path)      | the configured `path`                     | `${DEV_BOT_ROOT}/storage/.mdctx/collections/<path-hash>.json` |
 
 The project index is built by the mdctx module's `init.sh` on `devbot reinit`;
 the global index by the memory module's `init.sh`. `search-memories` searches

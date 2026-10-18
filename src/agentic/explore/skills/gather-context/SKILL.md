@@ -36,7 +36,8 @@ project, in parallel**. Scout never delegates, so the fan-out is the primary
 agent's job — this skill describes what each per-project scout does.
 
 A scout scoped to a project passes that project as the memory focus, so its
-search covers the project + the supervisor + the global store:
+search covers the project + the supervisor + the global store + configured
+custom collections:
 
 ```bash
 search-memories --query "<keyword>" --focus "<a path inside the project>"

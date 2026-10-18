@@ -12,8 +12,8 @@ embeddings are computed (ADR `20260913072905-qmd-bm25-only-no-model-downloads`).
 
 > **Agents do not invoke qmd directly.** Memory recall goes through the
 > **`search-memories`** tool (see `devbot:search-memory`) — it wraps qmd's
-> `search` (BM25) path and scopes to the current project vault plus the shared
-> global store. There is no qmd tool in the palette (the qmd MCP server was
+> `search` (BM25) path and scopes to the current project vault, the shared
+> global store, and any configured custom collection. There is no qmd tool in the palette (the qmd MCP server was
 > removed) and direct `qmd` CLI invocation is blocked by a `guards` rule. This
 > skill is a reference for the engine, not an invocation guide.
 
