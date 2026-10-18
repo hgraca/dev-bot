@@ -49,8 +49,8 @@ disk_mcps() {
 @test "every command declares name: devbot:<filename> and a description" {
   for path in "${MODULE}"/commands/*.md; do
     name="$(basename "$path" .md)"
-    run front_matter "$path"
-    assert_output --partial "name: devbot:${name}"
+    run grep -qx "name: devbot:${name}" "$path"
+    assert_success
     run grep -q '^description: ' "$path"
     assert_success
   done
@@ -59,7 +59,8 @@ disk_mcps() {
 @test "every command delegates to its skill" {
   for path in "${MODULE}"/commands/*.md; do
     name="$(basename "$path" .md)"
-    run grep -q "devbot:${name}" "$path"
+    body="$(awk 'NR == 1 && /^---$/ { inside = 1; next } inside && /^---$/ { inside = 0; next } !inside' "$path")"
+    run grep -qF "following the \`devbot:${name}\` skill" <<<"$body"
     assert_success
   done
 }
@@ -135,10 +136,34 @@ PY
   assert_success
   run grep -q 'defaults.tolerancePx' "${MODULE}/skills/design-qa/SKILL.md"
   assert_success
+  run grep -q '`src/`' "${MODULE}/skills/design-qa/SKILL.md"
+  assert_success
+}
+
+@test "the single-page workflow never handles credentials or forces flags" {
+  run grep -qF 'Never log in yourself and never handle credentials' \
+    "${MODULE}/skills/design-qa/SKILL.md"
+  assert_success
+  run grep -qF 'force or stub feature flags' "${MODULE}/skills/design-qa/SKILL.md"
+  assert_success
+}
+
+@test "the batch workflow stays report-only" {
+  run grep -qF 'Report-only. Never edit files, never use --fix.' \
+    "${MODULE}/skills/design-qa-all/SKILL.md"
+  assert_success
+  run grep -qF 'never pass `--fix`' "${MODULE}/skills/design-qa-all/SKILL.md"
+  assert_success
 }
 
 @test "the ported workflow carries no consumer-specific literal" {
-  run grep -RInE 'hotels\.get-e\.local|src/pages\.ts|src/constants/urlPaths\.ts|#launcher|chmln|MuiSkeleton' \
+  local dir
+  for dir in commands skills/design-qa skills/design-qa-all; do
+    [[ -d "${MODULE}/${dir}" ]] || fail "missing workflow directory: ${dir}"
+  done
+  run grep -RInE 'hotels\.get-e\.local|backoffice|customer|hotel|develop|pnpm|src/pages|theme\.ts|COLORS|sign-in|Pusher|LaunchDarkly|MuiSkeleton|#launcher|chmln' \
     "${MODULE}/commands" "${MODULE}/skills/design-qa" "${MODULE}/skills/design-qa-all"
   assert_failure
+  # 1 = no match; 2 means grep failed (missing path, bad pattern) — not evidence.
+  [[ "$status" -eq 1 ]] || fail "grep exited ${status}: ${output}"
 }
