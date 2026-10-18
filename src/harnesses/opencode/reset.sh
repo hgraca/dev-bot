@@ -182,7 +182,8 @@ for k in data.get('mcp', {}):
     # disabled-module prune (both keyed on a module's mcp.json) can locate the
     # key. Prune it explicitly so existing configs shed the dead server. qmd's
     # `qmd mcp` server was removed (qmd is BM25-only and not agent-exposed).
-    for retired_key in qmd; do
+    RETIRED_MCP_KEYS=(qmd)
+    for retired_key in "${RETIRED_MCP_KEYS[@]}"; do
       if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
         | grep -q "\"${retired_key}\""; then
         python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${retired_key}" 2>/dev/null || true
