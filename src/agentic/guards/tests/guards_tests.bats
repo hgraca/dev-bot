@@ -80,6 +80,146 @@ print('CHANNELS:OK')
   assert_output --partial '"blocked":true'
 }
 
+@test "guards block a force-push wrapped in a command runner" {
+  run bun run "$TOOL" --command 'bash -c "git push --force origin main"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push wrapped in env" {
+  run bun run "$TOOL" --command 'env FOO=bar git push --force origin main' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards do not block a non-push git command mentioning a force push" {
+  run bun run "$TOOL" --command 'git commit -m "fix push --force handling"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
+@test "guards block a force-push after git global options" {
+  run bun run "$TOOL" --command 'git -C /tmp/worktree push --force origin main' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push with a quoted -C value" {
+  run bun run "$TOOL" --command 'git -C "/tmp/worktree with spaces" push --force origin main' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push with a quoted -c value" {
+  run bun run "$TOOL" --command 'git -c "user.name=Jane Doe" push --force' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push with a mixed quoted option value" {
+  run bun run "$TOOL" --command 'git -c user.name="Jane Doe" push --force' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push with a quoted generic option value" {
+  run bun run "$TOOL" --command 'git --foo="a b" push --force' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push with a double-quoted push subcommand" {
+  run bun run "$TOOL" --command 'git "push" --force origin main' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push with a single-quoted push subcommand" {
+  run bun run "$TOOL" --command "git 'push' --force-with-lease origin main" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push with escaped quotes in an option value" {
+  run bun run "$TOOL" --command 'git -c user.name="A\" B" push --force' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push with a space-separated --git-dir" {
+  run bun run "$TOOL" --command 'git --git-dir /tmp/repo/.git push --force origin main' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push with a space-separated --work-tree" {
+  run bun run "$TOOL" --command 'git --work-tree /tmp/repo push --force origin main' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards stay fast on repeated value-taking options" {
+  local cmd="git"
+  local i
+  for i in $(seq 1 40); do
+    cmd+=" --git-dir /tmp/repo/.git"
+  done
+  cmd+=" status"
+
+  run bun run "$TOOL" --command "$cmd" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+
+  assert_output --partial '"blocked":false'
+}
+
+@test "guards stay fast on repeated long options" {
+  local cmd="git"
+  local i
+  for i in $(seq 1 40); do
+    cmd+=" --no-pager"
+  done
+  cmd+=" status"
+
+  run bun run "$TOOL" --command "$cmd" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+
+  assert_output --partial '"blocked":false'
+}
+
+@test "guards stay fast on mixed quoted options" {
+  local cmd="git"
+  local i
+  for i in $(seq 1 40); do
+    cmd+=' -c user.name="a b"'
+  done
+  cmd+=" status"
+
+  run bun run "$TOOL" --command "$cmd" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+
+  assert_output --partial '"blocked":false'
+}
+
+@test "guards do not block a commit with global options and a push in its message" {
+  run bun run "$TOOL" --command 'git -C /tmp/worktree commit -m "fix push --force handling"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
+@test "guards do not block a commit with a -c option and a push in its message" {
+  run bun run "$TOOL" --command 'git -c "user.name=Jane Doe" commit -m "fix push --force handling"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
+@test "guards stay fast on repeated -C options" {
+  local cmd="git"
+  local i
+  for i in $(seq 1 40); do
+    cmd+=" -C -C"
+  done
+  cmd+=" status"
+
+  run bun run "$TOOL" --command "$cmd" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+
+  assert_output --partial '"blocked":false'
+}
+
+@test "guards stay fast on a long non-push git command" {
+  local cmd="git"
+  local i
+  for i in $(seq 1 40); do
+    cmd+=' -c "a=b"'
+  done
+  cmd+=" status"
+
+  run bun run "$TOOL" --command "$cmd" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+
+  assert_output --partial '"blocked":false'
+}
+
 @test "guards still block command substitution containing the pattern" {
   run bun run "$TOOL" --command 'echo \$(rm -rf /tmp/guards-sub)' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":true'

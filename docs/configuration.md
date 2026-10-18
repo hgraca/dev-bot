@@ -20,7 +20,7 @@ Two files exist at different scopes, both optional:
 
 ## Resolution
 
-Scalar settings resolve project-over-global, falling back to a built-in default when neither is set (`devbot_dir`, `harness`). Map settings (`modules`) merge per key, the project value winning; list settings (`devbot:guards`) are concatenated and evaluated first-match-wins (project rules first, then global). `search-memories` reads only the project config. If a file is missing, its settings are skipped.
+Scalar settings resolve project-over-global, falling back to a built-in default when neither is set (`devbot_dir`, `harness`). Map settings (`modules`, `memory_collections`) merge per key, the project value winning; list settings (`devbot:guards`) are concatenated and evaluated first-match-wins (project rules first, then global). If a file is missing, its settings are skipped.
 
 ### Auto-reinit on config change
 
@@ -318,6 +318,51 @@ module unregisters its declared plugin/MCP entries at the next `devbot reinit`.
 
 ---
 
+### `memory_collections`
+
+```jsonc
+{
+  "memory_collections": {
+    "project": { "path": "{project}/{devbot_dir}/memory", "semantic": false },
+    "notes": { "path": "~/notes", "semantic": true },
+  },
+}
+```
+
+**Type:** `object` (name → `{ path, semantic }`)
+**Default:** the built-in `project` + `global` pair
+**Required:** no
+**Scope:** project and global, merged
+
+Lists the document collections `search-memories` and `reindex-memories` search.
+The object key is the collection name; each value carries a `path` and a
+`semantic` flag (default `false`).
+
+The two built-ins are reserved:
+
+| Key       | Where it may be set | Default path                              |
+| --------- | ------------------- | ----------------------------------------- |
+| `project` | project config only | `{project}/{devbot_dir}/memory`           |
+| `global`  | global config only  | `${DEV_BOT_ROOT}/storage/global-memories` |
+
+Custom keys may be set in either file. The two maps merge (global first, then
+project); when both define the same custom key, the project entry **replaces**
+the global one wholesale.
+
+Placeholders: `{project}` (the project root), `{devbot_dir}` (the resolved
+`devbot_dir`), `${DEV_BOT_ROOT}` (the dev-bot install root), and `~` (home).
+Relative paths resolve against the project root.
+
+`semantic` is reserved: a `true` value is accepted and stored but is inert
+today — both engines are keyword-only (BM25; see `memory_search_provider`), so
+a search emits a `NOTICE` and runs BM25. It will select qmd's model path when
+that path is restored.
+
+In a supervisor project, the `project` collections follow the `--focus` read
+set, while the `global` and custom collections are always searched.
+
+---
+
 ### `devbot:guards`
 
 ```jsonc
@@ -569,6 +614,11 @@ agent first calls it.
 
   // Commit the memory vault to version control
   "commit_memory": false,
+
+  // Document collections searched by `search-memories`
+  "memory_collections": {
+    "project": { "path": "{project}/{devbot_dir}/memory", "semantic": false },
+  },
 
   // Isolate each task's commits in a worktree (false = commit in the main checkout)
   "worktrees": true,

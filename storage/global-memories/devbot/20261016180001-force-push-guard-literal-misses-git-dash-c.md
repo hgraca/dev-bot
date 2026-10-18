@@ -10,13 +10,16 @@ trigger-on: ["devbot-guard-rule"]
 The `guards` rule `"regex": "git push --force"` is a plain substring match, so a force-push that
 inserts `-C <path>` — `git -C /path/.agents/worktrees/feat push --force-with-lease`, the natural
 form when acting on a worktree — does **not** match. The guard is silently bypassed, which is
-how a worktree branch gets force-pushed despite the rule. Anchor the pattern to a command
-position and allow the intervening arguments:
+how a worktree branch gets force-pushed despite the rule. Allow the intervening arguments:
 
-`(^|[\n;&|]\s*)git\b[^\n]*\bpush\b[^\n]*(\s-f\b|\s--force)`
+`git\b(?:\s+(?:-C|-c)\s+(?:"(?:[^"\\]|\\.)*"|'[^']*'|\\[^\n]|[^\s"'\\])+|\s+(?:--git-dir|--work-tree|--namespace|--exec-path|--super-prefix|--config-env)\s+(?:"(?:[^"\\]|\\.)*"|'[^']*'|\\[^\n]|[^\s"'\\])+|\s+(?!(?:-C|-c|(?:--git-dir|--work-tree|--namespace|--exec-path|--super-prefix|--config-env))(?:\s|$))-(?:"(?:[^"\\]|\\.)*"|'[^']*'|\\[^\n]|[^\s"'\\])+)*\s+(?:push\b|"push"|'push')[^\n]*(\s-f\b|\s--force)`
 
-It also catches `git push -f` and `--force-with-lease`, and — because `git` must start a command
-segment (`^`, newline, `;`, `&`, `|`) — it does **not** fire on the phrase in prose. That matters:
+Do **not** add a start-of-command anchor (`(^|[\n;&|]\s*)`): the guard evaluator (`guards.ts`)
+anchors ordinary command segments itself and deliberately leaves runner segments (`bash -c`,
+`env`, `xargs`, …) unanchored, so an explicit anchor would miss
+`bash -c "git push --force"` and `env FOO=bar git push --force`. The unanchored pattern still
+catches `git push -f` and `--force-with-lease`, while the evaluator's segment anchoring keeps it
+from firing on prose. That matters:
 the sibling rule `sudo .*` matches anywhere in the command, so `gh pr create --body "... sudo ..."`
 (and even `echo 'git push --force'`) is blocked outright, refusing work that never executes the
 guarded command. Prefer anchored patterns, and treat a guard hit as "reword or ask the human" —
