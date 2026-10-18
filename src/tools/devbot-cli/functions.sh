@@ -95,7 +95,8 @@ _link_skills() {
   local link_name="${AGENTS_DIR}/skills/devbot/${mod_name}"
 
   # A module that ships no skills must not leave a dangling farm link behind.
-  # Only a link this function created — one pointing at the expected dir — is ours to remove.
+  # Only a link this function created — one pointing at the expected dir — is ours
+  # to remove; links from a previous install root are left alone.
   if [[ ! -d "${skill_dir}" ]]; then
     if [[ -L "${link_name}" && "$(readlink "${link_name}")" == "${skill_dir}" ]]; then
       rm -f "${link_name}"

@@ -5,7 +5,9 @@
 # (<DEV_BOT_ROOT>/storage/<module>/skills) ONLY when it carries the
 # `.devbot-generated` sentinel — an explicit opt-in. Without the sentinel the
 # committed skills/ dir is used, so a module that merely writes its own
-# storage/<name>/skills (e.g. signoz) is never farmed here.
+# storage/<name>/skills (e.g. signoz) is never farmed here. A module that ships
+# no skills dir must have its stale farm link pruned — without touching a foreign
+# link or a real directory at the same name.
 # =============================================================================
 
 setup() {
@@ -74,4 +76,44 @@ teardown() {
   _link_skills "${DEV_BOT_ROOT}/src/agentic/signoz/"
 
   assert [ ! -e "${AGENTS_DIR}/skills/devbot/signoz" ]
+}
+
+# ── Stale-link pruning ────────────────────────────────────────────────────────
+
+@test "_link_skills: prunes a stale farm link when the module ships no skills" {
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/empty-module"
+  AGENTS_DIR="${SANDBOX}/project/.agents"
+  mkdir -p "${AGENTS_DIR}/skills/devbot"
+  ln -s "${DEV_BOT_ROOT}/src/agentic/empty-module/skills" \
+    "${AGENTS_DIR}/skills/devbot/empty-module"
+
+  _link_skills "${DEV_BOT_ROOT}/src/agentic/empty-module/"
+
+  assert [ ! -e "${AGENTS_DIR}/skills/devbot/empty-module" ]
+  assert [ ! -L "${AGENTS_DIR}/skills/devbot/empty-module" ]
+}
+
+@test "_link_skills: leaves a link pointing elsewhere untouched" {
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/empty-module" "${SANDBOX}/foreign"
+  AGENTS_DIR="${SANDBOX}/project/.agents"
+  mkdir -p "${AGENTS_DIR}/skills/devbot"
+  ln -s "${SANDBOX}/foreign" "${AGENTS_DIR}/skills/devbot/empty-module"
+
+  _link_skills "${DEV_BOT_ROOT}/src/agentic/empty-module/"
+
+  assert [ -L "${AGENTS_DIR}/skills/devbot/empty-module" ]
+  [ "$(readlink "${AGENTS_DIR}/skills/devbot/empty-module")" = "${SANDBOX}/foreign" ]
+}
+
+@test "_link_skills: leaves a real directory at the link name untouched" {
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/empty-module"
+  AGENTS_DIR="${SANDBOX}/project/.agents"
+  local link="${AGENTS_DIR}/skills/devbot/empty-module"
+  mkdir -p "${link}"
+  printf 'keep\n' > "${link}/SKILL.md"
+
+  _link_skills "${DEV_BOT_ROOT}/src/agentic/empty-module/"
+
+  [ ! -L "${link}" ]
+  [ "$(cat "${link}/SKILL.md")" = "keep" ]
 }
