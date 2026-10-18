@@ -308,24 +308,27 @@ SCRIPT
   rm -rf "$tmpdir" "$devroot"
 }
 
-@test "init.sh: reinit does not clobber per-project active files" {
+@test "init.sh: removes retired preemptive skill loading manifests" {
   local tmpdir
   tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  local active="$tmpdir/.agents/memory/active"
+  mkdir -p "$active"
+  echo "# stale" > "$active/preemptive-skill-loading-list.md"
+  echo "# stale" > "$active/preemptive-skill-loading.md"
 
   run bash "$MODULE_DIR/init.sh" "$tmpdir"
   assert_success
 
-  # Simulate per-project content (create-project-report / generate-mcp-guide output)
-  local manifest="$tmpdir/.agents/memory/active/preemptive-skill-loading-list.md"
-  echo "- devbot:custom-project-skill" >> "$manifest"
+  [ ! -e "$active/preemptive-skill-loading-list.md" ] || fail "list manifest was not removed"
+  [ ! -e "$active/preemptive-skill-loading.md" ] || fail "legacy manifest was not removed"
+  # The same sweep must not disturb the rest of the vault.
+  [ -f "$active/ignore.md" ] || fail "unrelated active file was not scaffolded"
 
+  # A dangling symlink at a retired name is swept too, and a second run is a no-op.
+  ln -s "$tmpdir/missing-target" "$active/preemptive-skill-loading-list.md"
   run bash "$MODULE_DIR/init.sh" "$tmpdir"
   assert_success
-
-  # The scaffold must NOT have overwritten the curated manifest with the
-  # template default (audit-22: a reinit silently reverted a curated fixture).
-  run grep -q "devbot:custom-project-skill" "$manifest"
-  assert_success
+  [ ! -L "$active/preemptive-skill-loading-list.md" ] || fail "dangling symlink was not removed"
 
   rm -rf "$tmpdir"
 }

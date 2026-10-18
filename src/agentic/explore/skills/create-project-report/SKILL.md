@@ -6,9 +6,8 @@ description: "Use when onboarding to a project or when its description is missin
 # Skill: Explore Project
 
 Produce concise, technical project description any agent or human can load at session start to understand
-_what this project is_, _how laid out_, and _where rough edges are_. Output: two files —
-`.agents/memory/active/project.md` (project map) and `.agents/memory/active/preemptive-skill-loading-list.md`
-(skills manifest for future sessions).
+_what this project is_, _how laid out_, and _where rough edges are_. Output:
+`.agents/memory/active/project.md` (project map).
 
 This is one-page map, not findings report. Rough edges
 named in one line each so future work has context — diagnosing and fixing them out of scope.
@@ -24,11 +23,11 @@ named in one line each so future work has context — diagnosing and fixing them
 
 ### Step 1: Check existing state
 
-Read `.agents/memory/active/project.md` and `.agents/memory/active/preemptive-skill-loading-list.md`
-if they exist. Treat every claim in both files as hypothesis to verify against codebase (source of truth).
-Note assertions to confirm, refute, or update during exploration. If either file exists, the goal is
-**update where necessary**, not replace wholesale — preserve accurate content, fix stale claims, add
-new observations. If a file does not exist, create it during its corresponding step.
+Read `.agents/memory/active/project.md` if it exists. Treat every claim in it as hypothesis to verify
+against codebase (source of truth). Note assertions to confirm, refute, or update during exploration.
+If the file exists, the goal is **update where necessary**, not replace wholesale — preserve accurate
+content, fix stale claims, add new observations. If it does not exist, create it during its
+corresponding step.
 
 ### Step 2: Survey repository
 
@@ -108,110 +107,21 @@ Constraints on output:
 - **No procedures**: do not document _how_ to install/build/test in detail — link to canonical doc instead.
 - **Flag, do not solve**: _Rough edges_ section names problems without prescribing fixes.
 
-### Step 5: Create or update preemptive skill loading manifest
+### Step 5: Optimize for agent consumption
 
-Write or update `.agents/memory/active/preemptive-skill-loading-list.md` — a file that instructs future agent sessions
-to preemptively load a concrete, explicit set of context skills based on this project's technologies and conventions.
-This manifest eliminates the discovery cost at every session start.
+`project.md` is loaded into every future agent session — token cost compounds. Load the
+`devbot:optimize-instructions` context skill and apply its writing-rules checklist (economy,
+precision, non-redundant, scoped) to the file. Drop hedging, collapse prose into tables where
+possible, remove anything agent cannot act on.
 
-If the file already exists: verify each listed skill's trigger signal is still present in the project. Remove
-skills whose signals have disappeared (e.g., project dropped Docker), add skills for newly detected technologies.
-If it does not exist, create it.
+### Step 6: Verify and report
 
-**How to infer the skill list**: Examine the technology signals gathered in Step 2 and reflected in `project.md`:
-
-| Signal (from project exploration)                                                                      | Concrete skills to list                                                                                                                         |
-| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Message bus / CQRS (Command/Query/Event handlers)                                                      | `devbot:software-development`                                                                                                                   |
-| Language / framework (dedicated rules + test + framework skills — see Language-specific signals below) | the language's dedicated skills                                                                                                                 |
-| DDD / Hexagonal architecture (layered `src/`, ports/adapters)                                          | `devbot:explicit-architecture`, `devbot:architecture-rules`                                                                                     |
-| Git version control (`.git/` present)                                                                  | `devbot:git-commits`, `devbot:git-conventional-commits`, `devbot:git-atomic-commits`, `devbot:git-fixup-commits`, `git-workflow-and-versioning` |
-| Makefile (`Makefile` with test/build targets)                                                          | `devbot:makefile`                                                                                                                               |
-| Tests (test directory present)                                                                         | `test-driven-development`, `devbot:make-tests`                                                                                                  |
-| REST API (API routes/controllers)                                                                      | `devbot:rest-conventions`, `api-and-interface-design`                                                                                           |
-| Docker containers (`docker-compose.yml`, `Dockerfile*`)                                                | `devbot:dockerfile-authoring`                                                                                                                   |
-| Security-sensitive (auth, payments, PII handling)                                                      | `security-and-hardening`                                                                                                                        |
-| Frontend UI (React, Vue, Svelte, etc.)                                                                 | `frontend-ui-engineering`                                                                                                                       |
-| React specifically                                                                                     | `devbot:react`                                                                                                                                  |
-| Svelte specifically                                                                                    | `devbot:svelte`                                                                                                                                 |
-| Documentation (`docs/`, ADRs)                                                                          | `devbot:documentation-rules`                                                                                                                    |
-| CI/CD (`.github/workflows/`, `.gitlab-ci.yml`)                                                         | `ci-cd-and-automation`                                                                                                                          |
-| Kubernetes manifests (`k8s/`, `deploy/`)                                                               | `devbot:lint-k8s`                                                                                                                               |
-| Git hooks / automation (post-commit, pre-push scripts)                                                 | `git-workflow-and-versioning`                                                                                                                   |
-| Observability / logging tooling                                                                        | `observability-and-instrumentation`                                                                                                             |
-
-Language-specific signals are handled separately: for each detected language/framework, map to its dedicated skills (rules, test conventions, framework conventions). See the PHP/Laravel example below for the pattern.
-
-**Process**:
-
-1. Review the signals discovered during Step 2 and recorded in `project.md`.
-2. Map each signal to its concrete skill name(s) using the table above. Only include skills whose
-   trigger signal was actually observed — do not guess or pad.
-3. Combine into a deduplicated, sorted list.
-4. Select the **top 5–8 most impactful** skills (highest signal density). Avoid listing every
-   possible skill; prioritize those the agent will use on every interaction.
-5. Write the manifest.
-
-**File format**:
-
-```markdown
----
-tags: [bootstrap, session, skills]
-description: Context skills that must be preemptively loaded for correct agent behavior
----
-
-## Preemptive Context Skill Loading
-
-The agent must preemptively load the following context skills at the start of every session:
-
-- `skill-name-1`
-- `skill-name-2`
-- `skill-name-3`
-
-[One-sentence rationale per listed context skill — why loading it is necessary for this project.]
-```
-
-Example for a PHP/Laravel project:
-
-```markdown
----
-tags: [bootstrap, session, skills]
-description: Context skills to preemptively load — PHP / Laravel project with message bus and hexagonal architecture
----
-
-## Preemptive Context Skill Loading
-
-The agent must preemptively load the following context skills at the start of every session:
-
-- `devbot:software-development` — generic craft hub for code-quality, tests-first, and commit protocol; carries language-specific rules.
-- `devbot:explicit-architecture` — DDD + Hexagonal layering; needed for correct file placement.
-- `devbot:git-commits` — the shared commit rules (subject, Problems/Solutions body, history-rewrite safety); every commit depends on them.
-- `devbot:git-conventional-commits` — conventional commit message format (types, scope, ticket IDs); needed before any commit.
-- `devbot:makefile` — all test/build commands run via `make` inside containers.
-- `test-driven-development` — TDD workflow; tests must be written before implementation.
-```
-
-### Step 6: Optimize for agent consumption
-
-Both deliverables (`project.md` and `preemptive-skill-loading-list.md`) are loaded into every future agent
-session — token cost compounds. Run two passes on **both files**:
-
-1. **Structure pass** — load the `devbot:optimize-instructions` context skill and apply its writing-rules checklist (economy,
-   precision, non-redundant, scoped) to each file. Drop hedging, collapse prose into tables where
-   possible, remove anything agent cannot act on.
-2. **Skill list pass** — for `preemptive-skill-loading-list.md` specifically: verify every listed skill
-   name matches an actual available skill. Remove any skill whose trigger signal was not observed in
-   the project. The list must be concrete and justified.
-
-### Step 7: Verify and report
-
-1. Re-read both written files. For `project.md`: confirm every architectural claim maps to real path
-   and no path mangled by compression pass. For `preemptive-skill-loading-list.md`: confirm every skill
-   name is exact and maps to a real skill definition.
+1. Re-read `project.md`: confirm every architectural claim maps to real path and no path mangled by
+   compression pass.
 2. Run `wc -l` on `project.md`. If over 200 lines, compress further before reporting.
-3. Report to caller using `devbot:agent-communication` `[FINISHED]` signal. Include: both file paths,
-   `project.md` line count, skill count from `preemptive-skill-loading-list.md`, and 3-bullet recap
-   (what project _is_, its dominant architectural pattern, top rough edge).
+3. Report to caller using `devbot:agent-communication` `[FINISHED]` signal. Include: the file path,
+   `project.md` line count, and 3-bullet recap (what project _is_, its dominant architectural pattern,
+   top rough edge).
 
 If exploration cannot proceed (repo unreadable, no source detected, write target inaccessible), follow
 `devbot:exception-handling` and emit `[BLOCKED]` with specific cause and what needed to unblock.
@@ -308,17 +218,14 @@ See `devbot:search-code` for choosing between them.
 ## MUST
 
 - Write final description to `.agents/memory/active/project.md` and nowhere else.
-- Write preemptive skill loading manifest to `.agents/memory/active/preemptive-skill-loading-list.md`.
-- Update existing files where necessary — preserve accurate content, fix stale claims, add new observations.
-  If files do not exist, create them.
+- Update the file where necessary — preserve accurate content, fix stale claims, add new observations.
+  If it does not exist, create it.
 - Cite real paths for every architectural claim; verify each path exists before writing.
 - If the project has a `Makefile`, list its key commands in the description (Lifecycle & workflows) and note they are the preferred way to run project commands.
 - Record the project's runtime, deployment mechanism, and CI system (with its jobs and actions) in the description.
 - Record whether the memory vault is committed to git (from `commit_memory` config and `git ls-files <devbot_dir>/memory/`) so future agents know whether to commit memory files.
-- List only concrete skill names in `preemptive-skill-loading-list.md` — never use categories like "all PHP skills".
-- Run `devbot:optimize-instructions` pass before compression pass — order matters.
 - Keep `project.md` at or under 200 lines; aim for 80–150 _after_ compression.
-- End with `[FINISHED]` signal containing both file paths, line count, skill count, and 3-bullet recap.
+- End with `[FINISHED]` signal containing the file path, line count, and 3-bullet recap.
 
 ## MUST NOT
 
@@ -327,5 +234,3 @@ See `devbot:search-code` for choosing between them.
 - Recommend fixes in _Rough edges_ section; flag only.
 - Read or describe files marked `no-vcs` or excluded by `ignore.md`.
 - Pad with marketing language, aspirations, or generic best-practice advice.
-- List skills not observed in the project — every skill must have a trigger signal found during exploration.
-- Use generic categories (e.g., "all PHP skills") instead of concrete skill names.

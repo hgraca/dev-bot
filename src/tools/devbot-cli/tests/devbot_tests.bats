@@ -43,7 +43,8 @@ teardown() {
 
   # ── Verify bootstrap files ─────────────────────────────────────────────
   [ -f "$test_project/.agents/memory/active/ignore.md" ]
-  [ -f "$test_project/.agents/memory/active/preemptive-skill-loading-list.md" ]
+  [ ! -f "$test_project/.agents/memory/active/preemptive-skill-loading-list.md" ]
+  [ ! -f "$test_project/.agents/memory/active/preemptive-skill-loading.md" ]
   [ -f "$test_project/.agents/memory/active/memory.md" ]
 
   # ── Verify latent subdirectories with .gitkeep ─────────────────────────
