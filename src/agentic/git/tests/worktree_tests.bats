@@ -66,6 +66,29 @@ worktree() {
     "$(git -C "$WORK" rev-parse origin/main)"
 }
 
+@test "create --base: cuts the worktree from the given ref, not origin/main" {
+  git -C "$WORK" checkout -q -b release/v1.9
+  printf 'release\n' >> "$WORK/file.txt"
+  git -C "$WORK" commit -qam "release work"
+  git -C "$WORK" push -q origin release/v1.9
+  git -C "$WORK" checkout -q main
+
+  worktree create feat/from-release --base origin/release/v1.9 --no-link
+
+  assert_success
+  assert_equal "$(git -C "$WORKTREES/feat-from-release" rev-parse HEAD)" \
+    "$(git -C "$WORK" rev-parse origin/release/v1.9)"
+  refute_equal "$(git -C "$WORKTREES/feat-from-release" rev-parse HEAD)" \
+    "$(git -C "$WORK" rev-parse origin/main)"
+}
+
+@test "create --base: refuses a ref that does not resolve" {
+  worktree create feat/bad-base --base does-not-exist --no-link
+
+  assert_failure
+  assert_output --partial "does not resolve"
+}
+
 @test "create: the new branch has no upstream (--no-track)" {
   worktree create feat/untracked
 

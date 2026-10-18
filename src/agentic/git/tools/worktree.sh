@@ -9,13 +9,14 @@
 # checkout's checked-out branch, and every worktree is cut from the *remote*
 # default branch, not from whatever the main checkout happens to be on.
 #
-#   create <branch> [--link <dir>]... [--no-link]
+#   create <branch> [--base <ref>] [--link <dir>]... [--no-link]
 #                    — add a worktree under <devbot_dir>/worktrees/<slug>, on a
-#                      new untracked branch <branch> based on origin/<default>,
-#                      then hard-link the dependency dirs listed by --link
-#                      (default: vendor, node_modules) from the main checkout.
-#                      Prints the worktree path (stdout). Refused when the
-#                      project set `"worktrees": false`.
+#                      new untracked branch <branch> based on --base <ref>
+#                      (default: origin/<default>), then hard-link the
+#                      dependency dirs listed by --link (default: vendor,
+#                      node_modules) from the main checkout. Prints the worktree
+#                      path (stdout). Refused when the project set
+#                      `"worktrees": false`.
 #   enabled          — print true/false and exit 0/1 for the worktrees setting.
 #   list             — list the worktrees under <devbot_dir>/worktrees.
 #   merge  <branch>  — plain merge <branch> into the local default branch.
@@ -157,10 +158,15 @@ _ignore_in_worktree() {
 # ── create ───────────────────────────────────────────────────────────────────
 
 cmd_create() {
-  local branch="" no_link=false
+  local branch="" no_link=false base=""
   local links=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --base)
+        [[ -n "${2:-}" ]] || _fatal "create: --base requires a <ref>"
+        base="$2"
+        shift 2
+        ;;
       --link)
         [[ -n "${2:-}" ]] || _fatal "create: --link requires a <dir>"
         case "${2}" in
@@ -202,7 +208,7 @@ cmd_create() {
     link_dirs=(vendor node_modules)
   fi
 
-  local root devbot_dir default slug path
+  local root devbot_dir default base_ref slug path
   root="$(_git_root)"
   [[ -n "${root}" ]] || _fatal "create: not inside a git repository"
   if ! _worktrees_enabled "${root}"; then
@@ -211,6 +217,8 @@ cmd_create() {
   devbot_dir="$(_devbot_dir_for "${root}")"
   default="$(_remote_default "${root}")"
   [[ -n "${default}" ]] || _fatal "create: could not resolve the remote default branch"
+  base_ref="${base:-${DEFAULT_REMOTE}/${default}}"
+  [[ "${base_ref}" != -* ]] || _fatal "create: --base must not start with '-'"
 
   slug="$(_slug "${branch}")"
   path="${root}/${devbot_dir}/worktrees/${slug}"
@@ -227,8 +235,10 @@ cmd_create() {
   _ensure_ignored "${root}" "${devbot_dir}"
 
   git -C "${root}" fetch --quiet "${DEFAULT_REMOTE}" || _fatal "create: git fetch failed"
+  git -C "${root}" rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null \
+    || _fatal "create: --base '${base_ref}' does not resolve to a commit"
   git -C "${root}" worktree add --quiet --no-track -b "${branch}" "${path}" \
-    "${DEFAULT_REMOTE}/${default}" \
+    "${base_ref}" \
     || _fatal "create: could not create the worktree"
 
   if [[ "${#link_dirs[@]}" -gt 0 ]]; then
@@ -341,12 +351,12 @@ _usage() {
 Usage: worktree.sh <subcommand> [options]
 
 Subcommands:
-  create <branch> [--link <dir>]... [--no-link]
+  create <branch> [--base <ref>] [--link <dir>]... [--no-link]
                     create a worktree under <devbot_dir>/worktrees/<slug> on a
-                    new branch based on origin/<default>; hard-link the --link
-                    dirs (repeatable; default vendor, node_modules) from the
-                    main checkout. --no-link disables. Prints the path
-                    (refused when the project set "worktrees": false)
+                    new branch based on --base <ref> (default origin/<default>);
+                    hard-link the --link dirs (repeatable; default vendor,
+                    node_modules) from the main checkout. --no-link disables.
+                    Prints the path (refused when "worktrees": false)
   enabled           print true/false and exit 0/1 for the worktrees setting
   list              list the worktrees under <devbot_dir>/worktrees
   merge  <branch>   merge <branch> into the local default branch (plain merge)
