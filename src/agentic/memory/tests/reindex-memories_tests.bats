@@ -56,24 +56,35 @@ case "${1:-} ${2:-}" in
       echo "Collection exists"
       exit 0
     fi
-    path="$(cat "$QMD_STATE" 2>/dev/null || true)"
+    path="$(cat "${QMD_STATE:?}/${3:-}" 2>/dev/null || true)"
     [[ -n "$path" ]] || exit 1
     printf 'Path: %s\n' "$path"
     ;;
   "collection remove")
-    : > "$QMD_STATE"
+    rm -f "${QMD_STATE:?}/${3:-}"
     ;;
   "collection add")
-    if [[ "${QMD_SHOW_FAIL:-0}" == "1" && -s "$QMD_STATE" ]]; then
+    shift 2
+    path=""; name=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --name) name="$2"; shift 2 ;;
+        *) [[ -z "$path" ]] && path="$1"; shift ;;
+      esac
+    done
+    if [[ "${QMD_SHOW_FAIL:-0}" == "1" && -n "$(ls -A "${QMD_STATE:?}" 2>/dev/null)" ]]; then
       exit 1
     fi
-    if [[ "${3:-}" == "${QMD_TARGET}" && "${QMD_FAIL_TARGET_ADD:-0}" == "1" ]]; then
+    if [[ "${path}" == "${QMD_TARGET}" && "${QMD_FAIL_TARGET_ADD:-0}" == "1" ]]; then
       exit 1
     fi
-    printf '%s\n' "${3:-}" > "$QMD_STATE"
+    printf '%s\n' "$path" > "${QMD_STATE:?}/${name}"
     ;;
   "cleanup "| "update ")
     echo "$1" >> "$QMD_CALL_LOG"
+    if [[ "$1" == "update" && "${QMD_UPDATE_FAIL:-0}" == "1" ]]; then
+      exit 1
+    fi
     ;;
 esac
 SCRIPT
@@ -152,10 +163,10 @@ SCRIPT
   done
 
   run cat "$call_log"
-  assert_line --index 0 "cleanup"
-  assert_line --index 1 "update"
-  # Exactly two calls — embed must never run.
-  assert [ "$(wc -l < "$call_log" 2>/dev/null || echo 0)" = "2" ]
+  assert_line "cleanup"
+  assert_line "update"
+  # Registration calls may precede them; embed must never run.
+  refute_line --regexp '^embed'
 }
 
 @test "tool: prune mode runs the same qmd cleanup + update (no embed)" {
@@ -181,10 +192,10 @@ SCRIPT
   done
 
   run cat "$call_log"
-  assert_line --index 0 "cleanup"
-  assert_line --index 1 "update"
-  # Exactly two calls — embed must never run.
-  assert [ "$(wc -l < "$call_log" 2>/dev/null || echo 0)" = "2" ]
+  assert_line "cleanup"
+  assert_line "update"
+  # Registration calls may precede them; embed must never run.
+  refute_line --regexp '^embed'
 }
 
 # ── audit-24 NOTE-4: flock serializes the pidfile check-then-act ─────────────
@@ -273,8 +284,9 @@ SCRIPT
   local old_path="$proj/.agents/memory/latent"
   mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
   printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
-  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
-  printf '%s\n' "$old_path" > "$state"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$old_path" > "$state/configured-project"
   : > "$calls"
   : > "$build_calls"
   _make_qmd_migration_stub
@@ -287,7 +299,7 @@ SCRIPT
 
   assert_success
   assert_output --partial '"status":"rebuilt"'
-  [[ "$(cat "$state")" == "$proj/.agents/memory" ]]
+  [[ "$(cat "$state/configured-project")" == "$proj/.agents/memory" ]]
   grep -q "collection show configured-project" "$calls"
   grep -qx "cleanup" "$build_calls"
   grep -qx "update" "$build_calls"
@@ -303,8 +315,9 @@ SCRIPT
   fingerprint="$(PATH="$STUB_DIR:$PATH" bash "$pass" --fingerprint "$proj/.agents/memory")"
   printf '{"branch":"","provider":"qmd","tree_sha":"","corpus":"memory","corpus_fingerprint":"%s"}\n' \
     "$fingerprint" > "$proj/.agents/logs/memory-index-branch.json"
-  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
-  printf '%s\n' "$old_path" > "$state"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$old_path" > "$state/configured-project"
   : > "$calls"
   : > "$build_calls"
   _make_qmd_migration_stub
@@ -317,7 +330,7 @@ SCRIPT
 
   assert_success
   assert_output --partial '"status":"rebuilt"'
-  [[ "$(cat "$state")" == "$proj/.agents/memory" ]]
+  [[ "$(cat "$state/configured-project")" == "$proj/.agents/memory" ]]
   grep -qx "update" "$build_calls"
 }
 
@@ -327,8 +340,9 @@ SCRIPT
   local old_path="$proj/.agents/memory/latent"
   mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
   printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
-  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
-  printf '%s\n' "$old_path" > "$state"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$old_path" > "$state/configured-project"
   : > "$calls"
   : > "$build_calls"
   _make_qmd_migration_stub
@@ -341,7 +355,7 @@ SCRIPT
 
   assert_success
   assert_output --partial '"status":"stale"'
-  [[ "$(cat "$state")" == "$old_path" ]]
+  [[ "$(cat "$state/configured-project")" == "$old_path" ]]
   [[ ! -s "$build_calls" ]]
   [[ ! -f "$proj/.agents/logs/memory-index-branch.json" ]]
 }
@@ -352,8 +366,9 @@ SCRIPT
   local old_path="$proj/.agents/memory/latent"
   mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
   printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
-  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
-  printf '%s\n' "$old_path" > "$state"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$old_path" > "$state/configured-project"
   : > "$calls"
   : > "$build_calls"
   _make_qmd_migration_stub
@@ -366,7 +381,7 @@ SCRIPT
 
   assert_success
   assert_output --partial '"status":"stale"'
-  [[ "$(cat "$state")" == "$old_path" ]]
+  [[ "$(cat "$state/configured-project")" == "$old_path" ]]
   [[ ! -s "$build_calls" ]]
   [[ ! -f "$proj/.agents/logs/memory-index-branch.json" ]]
 }
@@ -376,8 +391,8 @@ SCRIPT
   local proj="$WORK/custom project"
   mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs"
   printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
-  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
-  : > "$state"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
   : > "$calls"
   : > "$build_calls"
   _make_qmd_migration_stub
@@ -390,7 +405,7 @@ SCRIPT
 
   assert_success
   assert_output --partial '"status":"rebuilt"'
-  [[ "$(cat "$state")" == "$proj/.agents/memory" ]]
+  [[ "$(cat "$state/configured-project")" == "$proj/.agents/memory" ]]
   grep -qx "update" "$build_calls"
 }
 
@@ -400,8 +415,9 @@ SCRIPT
   local old_path="$proj/.agents/memory/latent"
   mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
   printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
-  local state="$WORK/qmd-collection-path" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
-  printf '%s\n' "$old_path" > "$state"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$old_path" > "$state/configured-project"
   : > "$calls"
   : > "$build_calls"
   _make_qmd_migration_stub
@@ -414,7 +430,7 @@ SCRIPT
 
   assert_success
   assert_output --partial '"status":"stale"'
-  [[ "$(cat "$state")" == "$old_path" ]]
+  [[ "$(cat "$state/configured-project")" == "$old_path" ]]
   [[ ! -s "$build_calls" ]]
   [[ ! -f "$proj/.agents/logs/memory-index-branch.json" ]]
 }
@@ -637,8 +653,9 @@ EOF
 
 @test "passive script: --path outside any registered project falls back to --worktree" {
   local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
-  local sup="$WORK/sup" outside="$WORK/outside"
-  mkdir -p "$sup/.agents/memory/latent" "$outside"
+  local sup="$WORK/sup"
+  mkdir -p "$sup/.agents/memory/latent"
+  printf 'x\n' > "$sup/.agents/memory/latent/x.md"
   printf '{ "projects": [], "devbot_dir": ".agents" }\n' > "$WORK/global.jsonc"
 
   cd "$WORK"
@@ -646,7 +663,7 @@ EOF
     DEV_BOT_GLOBAL_CONFIG="$WORK/global.jsonc" \
     XDG_CACHE_HOME="$WORK" \
     PATH="$STUB_DIR:$PATH" \
-    bash "$pass" --sync --worktree "$sup" --path "$outside/x.md"
+    bash "$pass" --sync --worktree "$sup" --path "$sup/.agents/memory/latent/x.md"
 
   assert_success
   [ -f "$sup/.agents/logs/memory-index-branch.json" ]
@@ -671,4 +688,427 @@ EOF
   assert_success
   [ -f "$wt/.agents/logs/memory-index-branch.json" ]
   [ ! -f "$proj/.agents/logs/memory-index-branch.json" ]
+}
+
+# ── Configured collections ─────────────────────────────────────────────────────
+
+# Sandbox with the real resolver (so the config is parsed) + a project vault +
+# a docs corpus. The resolver is copied into the sandbox devbot root so the
+# global store and custom indexes stay isolated from the real install.
+_setup_configured_collections() {
+  DEVROOT="$WORK/devroot"
+  PROJ="$WORK/proj"
+  DOCS="$WORK/docs"
+  mkdir -p "$DEVROOT/src/_shared" "$DEVROOT/storage/global-memories"
+  cp "$MODULE_DIR/../../_shared/memory_collections.py" "$DEVROOT/src/_shared/"
+  cp "$MODULE_DIR/../../_shared/read_jsonc.py" "$DEVROOT/src/_shared/"
+  mkdir -p "$PROJ/.agents/memory/latent" "$PROJ/.agents/logs" "$DOCS"
+  printf 'note\n' > "$PROJ/.agents/memory/latent/a.md"
+  printf 'doc\n' > "$DOCS/n.md"
+  export DEV_BOT_ROOT="$DEVROOT"
+  export MDCTX_CALL_LOG="$WORK/mdctx-calls.log"
+  : > "$MDCTX_CALL_LOG"
+  cat > "$STUB_DIR/mdctx" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$*" >> "${MDCTX_CALL_LOG:?}"
+SCRIPT
+  chmod +x "$STUB_DIR/mdctx"
+}
+
+@test "configured collections: mdctx builds a custom collection index" {
+  export DEVBOT_MEMORY_SEARCH_PROVIDER=mdctx
+  _setup_configured_collections
+  printf '{"memory_collections": {"notes": {"path": "%s"}}}\n' "$DOCS" \
+    > "$PROJ/.devbot.project.jsonc"
+
+  cd "$PROJ"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --sync
+  cd "$WORK"
+
+  assert_success
+  grep -q "storage/.mdctx/collections/" "$MDCTX_CALL_LOG"
+}
+
+@test "configured collections: adding one forces an --ensure rebuild" {
+  export DEVBOT_MEMORY_SEARCH_PROVIDER=mdctx
+  _setup_configured_collections
+  printf '{}\n' > "$PROJ/.devbot.project.jsonc"
+
+  cd "$PROJ"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --sync
+  assert_success
+  before="$(wc -l < "$MDCTX_CALL_LOG")"
+
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --ensure
+  assert_success
+  [ "$(wc -l < "$MDCTX_CALL_LOG")" -eq "$before" ] \
+    || fail "unexpected rebuild with an unchanged collection set"
+
+  printf '{"memory_collections": {"notes": {"path": "%s"}}}\n' "$DOCS" \
+    > "$PROJ/.devbot.project.jsonc"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --ensure
+  cd "$WORK"
+
+  assert_success
+  [ "$(wc -l < "$MDCTX_CALL_LOG")" -gt "$before" ]
+  grep -q "storage/.mdctx/collections/" "$MDCTX_CALL_LOG"
+}
+
+@test "configured collections: qmd registers a custom collection by name" {
+  export DEVBOT_MEMORY_SEARCH_PROVIDER=qmd
+  _setup_configured_collections
+  printf '{"memory_collections": {"notes": {"path": "%s"}}}\n' "$DOCS" \
+    > "$PROJ/.devbot.project.jsonc"
+
+  # Name-keyed fake qmd: collection state lives in $QMD_STATE_DIR/<name>.
+  export QMD_STATE_DIR="$WORK/qmd-state"
+  export QMD_ALL_CALLS="$WORK/qmd-calls.log"
+  mkdir -p "$QMD_STATE_DIR"
+  : > "$QMD_ALL_CALLS"
+  cat > "$STUB_DIR/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$*" >> "${QMD_ALL_CALLS:?}"
+case "${1:-} ${2:-}" in
+  "collection show")
+    path="$(cat "${QMD_STATE_DIR:?}/${3:-}" 2>/dev/null || true)"
+    [[ -n "$path" ]] || exit 1
+    printf 'Path: %s\n' "$path"
+    ;;
+  "collection add")
+    shift 2
+    path=""; name=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --name) name="$2"; shift 2 ;;
+        *) [[ -z "$path" ]] && path="$1"; shift ;;
+      esac
+    done
+    printf '%s\n' "$path" > "${QMD_STATE_DIR:?}/${name}"
+    ;;
+  "collection remove") rm -f "${QMD_STATE_DIR:?}/${3:-}" ;;
+esac
+SCRIPT
+  chmod +x "$STUB_DIR/qmd"
+
+  cd "$PROJ"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --sync
+  cd "$WORK"
+
+  assert_success
+  grep -q "collection add ${DOCS} --name dev-bot-custom-" "$QMD_ALL_CALLS"
+}
+
+@test "configured collections: a reserved key aborts before the engine runs" {
+  export DEVBOT_MEMORY_SEARCH_PROVIDER=mdctx
+  _setup_configured_collections
+  printf '{"memory_collections": {"global": {"path": "/x"}}}\n' \
+    > "$PROJ/.devbot.project.jsonc"
+
+  cd "$PROJ"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --sync
+  cd "$WORK"
+
+  assert_failure
+  assert_output --partial "may only be set in the global config"
+  [ ! -s "$MDCTX_CALL_LOG" ] || fail "engine ran despite an invalid collection config"
+}
+
+@test "configured collections: a custom-corpus edit forces an --ensure rebuild" {
+  export DEVBOT_MEMORY_SEARCH_PROVIDER=mdctx
+  _setup_configured_collections
+  printf '{"memory_collections": {"notes": {"path": "%s"}}}\n' "$DOCS" \
+    > "$PROJ/.devbot.project.jsonc"
+
+  cd "$PROJ"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --sync
+  assert_success
+  before="$(wc -l < "$MDCTX_CALL_LOG")"
+
+  printf 'edited\n' >> "$DOCS/n.md"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --ensure
+  cd "$WORK"
+
+  assert_success
+  [ "$(wc -l < "$MDCTX_CALL_LOG")" -gt "$before" ] \
+    || fail "an edit under a custom collection did not trigger a rebuild"
+}
+
+@test "configured collections: an edit outside every collection is skipped" {
+  export DEVBOT_MEMORY_SEARCH_PROVIDER=mdctx
+  _setup_configured_collections
+  printf '{"memory_collections": {"notes": {"path": "%s"}}}\n' "$DOCS" \
+    > "$PROJ/.devbot.project.jsonc"
+  printf 'readme\n' > "$WORK/README.md"
+
+  cd "$PROJ"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --sync --path "$WORK/README.md"
+  cd "$WORK"
+
+  assert_success
+  assert_output --partial '"status":"skipped"'
+  [ ! -s "$MDCTX_CALL_LOG" ] || fail "an unrelated markdown edit triggered a build"
+}
+
+@test "configured collections: qmd honors an overridden built-in project path" {
+  export DEVBOT_MEMORY_SEARCH_PROVIDER=qmd
+  _setup_configured_collections
+  local alt="$WORK/alt-corpus"
+  mkdir -p "$alt"
+  printf 'alt\n' > "$alt/a.md"
+  printf '{"project_name": "proj", "memory_collections": {"project": {"path": "%s"}}}\n' \
+    "$alt" > "$PROJ/.devbot.project.jsonc"
+
+  export QMD_STATE_DIR="$WORK/qmd-state"
+  export QMD_ALL_CALLS="$WORK/qmd-calls.log"
+  mkdir -p "$QMD_STATE_DIR"
+  : > "$QMD_ALL_CALLS"
+  cat > "$STUB_DIR/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$*" >> "${QMD_ALL_CALLS:?}"
+case "${1:-} ${2:-}" in
+  "collection show")
+    path="$(cat "${QMD_STATE_DIR:?}/${3:-}" 2>/dev/null || true)"
+    [[ -n "$path" ]] || exit 1
+    printf 'Path: %s\n' "$path"
+    ;;
+  "collection add")
+    shift 2
+    path=""; name=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --name) name="$2"; shift 2 ;;
+        *) [[ -z "$path" ]] && path="$1"; shift ;;
+      esac
+    done
+    printf '%s\n' "$path" > "${QMD_STATE_DIR:?}/${name}"
+    ;;
+  "collection remove") rm -f "${QMD_STATE_DIR:?}/${3:-}" ;;
+esac
+SCRIPT
+  chmod +x "$STUB_DIR/qmd"
+
+  cd "$PROJ"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --sync
+  cd "$WORK"
+
+  assert_success
+  grep -q "collection add ${alt} --name proj" "$QMD_ALL_CALLS"
+}
+
+@test "qmd migration allows a changed external project root" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local old_root="$WORK/vault-one" new_root="$WORK/vault-two"
+  mkdir -p "$proj/.agents/logs" "$old_root" "$new_root"
+  printf '{"project_name":"configured-project","memory_collections":{"project":{"path":"%s"}}}\n' \
+    "$new_root" > "$proj/.devbot.project.jsonc"
+  printf '{"project_collection_path":"%s"}\n' "$old_root" \
+    > "$proj/.agents/logs/memory-index-branch.json"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$old_root" > "$state/configured-project"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$new_root" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"rebuilt"'
+  [[ "$(cat "$state/configured-project")" == "$new_root" ]]
+}
+
+@test "qmd migration refuses a nested worktree's registration" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local wt="$proj/.agents/worktrees/feat-x"
+  mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" \
+    "$wt/.agents/memory/latent"
+  printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
+  printf '{"project_collection_path":"%s"}\n' "$proj/.agents/memory" \
+    > "$proj/.agents/logs/memory-index-branch.json"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$wt/.agents/memory" > "$state/configured-project"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"stale"'
+  [[ "$(cat "$state/configured-project")" == "$wt/.agents/memory" ]]
+}
+
+@test "qmd reindex keeps the previous project ownership when the new root is missing" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local old_root="$WORK/vault-one"
+  mkdir -p "$proj/.agents/logs" "$old_root"
+  printf '{"project_name":"configured-project","memory_collections":{"project":{"path":"%s"}}}\n' \
+    "$WORK/does-not-exist" > "$proj/.devbot.project.jsonc"
+  printf '{"project_collection_path":"%s"}\n' "$old_root" \
+    > "$proj/.agents/logs/memory-index-branch.json"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$old_root" > "$state/configured-project"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$WORK/does-not-exist" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"rebuilt"'
+  python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["project_collection_path"] == sys.argv[2]' \
+    "$proj/.agents/logs/memory-index-branch.json" "$old_root"
+}
+
+@test "qmd reindex persists repoint ownership when update fails" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local root_a="$WORK/vault-a" root_b="$WORK/vault-b"
+  mkdir -p "$proj/.agents/logs" "$root_a" "$root_b"
+  printf '{"project_collection_path":"%s"}\n' "$root_a" \
+    > "$proj/.agents/logs/memory-index-branch.json"
+  printf '{"project_name":"configured-project","memory_collections":{"project":{"path":"%s"}}}\n' \
+    "$root_b" > "$proj/.devbot.project.jsonc"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$root_a" > "$state/configured-project"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$root_b" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" QMD_UPDATE_FAIL=1 \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"stale"'
+  [[ "$(cat "$state/configured-project")" == "$root_b" ]]
+  python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["project_collection_path"] == sys.argv[2]' \
+    "$proj/.agents/logs/memory-index-branch.json" "$root_b"
+
+  printf '{"project_name":"configured-project","memory_collections":{"project":{"path":"%s"}}}\n' \
+    "$root_a" > "$proj/.devbot.project.jsonc"
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$root_a" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"rebuilt"'
+  [[ "$(cat "$state/configured-project")" == "$root_a" ]]
+}
+
+@test "qmd migration releases a custom registration at the new project root" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local old_root="$WORK/old-root" docs="$WORK/docs"
+  mkdir -p "$proj/.agents/logs" "$old_root" "$docs"
+  printf '{"project_name":"configured-project","memory_collections":{"project":{"path":"%s"}}}\n' \
+    "$docs" > "$proj/.devbot.project.jsonc"
+  printf '{"project_collection_path":"%s"}\n' "$old_root" \
+    > "$proj/.agents/logs/memory-index-branch.json"
+  local custom
+  custom="dev-bot-custom-$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])' "$docs")"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$old_root" > "$state/configured-project"
+  printf '%s\n' "$docs" > "$state/$custom"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$docs" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"rebuilt"'
+  [[ "$(cat "$state/configured-project")" == "$docs" ]]
+  [[ ! -f "$state/$custom" ]]
+}
+
+@test "qmd migration releases a custom registration at the default project root" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local memory="$proj/.agents/memory"
+  local legacy="$memory/latent"
+  mkdir -p "$legacy" "$proj/.agents/logs"
+  printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
+  local custom
+  custom="dev-bot-custom-$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])' "$memory")"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$legacy" > "$state/configured-project"
+  printf '%s\n' "$memory" > "$state/$custom"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$memory" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"rebuilt"'
+  [[ "$(cat "$state/configured-project")" == "$memory" ]]
+  [[ ! -f "$state/$custom" ]]
+}
+
+@test "qmd ensure rebuilds when a global registration points elsewhere" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  local memory="$proj/.agents/memory"
+  mkdir -p "$memory/latent" "$proj/.agents/logs"
+  printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$memory/latent" > "$state/configured-project"
+  printf '%s\n' "$DEV_BOT_ROOT/storage/global-memories" > "$state/dev-bot-global"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$memory" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+  assert_success
+  local before
+  before="$(wc -l < "$build_calls")"
+
+  printf '%s\n' "$WORK/other-global" > "$state/dev-bot-global"
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$memory" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --ensure --worktree "$proj"
+
+  assert_success
+  [ "$(wc -l < "$build_calls")" -gt "$before" ] \
+    || fail "a mismatched global registration did not force a rebuild"
 }

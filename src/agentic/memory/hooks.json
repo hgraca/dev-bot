@@ -4,7 +4,7 @@
       "id": "reindex-memories",
       "event": "file.edited",
       "match": {
-        "file": "/memory/.*\\.md$"
+        "file": "\\.mdx?$"
       },
       "run": [
         "bash",

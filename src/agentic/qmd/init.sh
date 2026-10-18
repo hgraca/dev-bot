@@ -71,6 +71,46 @@ fi
 
 # ── Register project collection ───────────────────────────────────────────────
 
+# The last successful build records the project collection root it registered.
+# A changed external root is a legitimate migration when it matches; anything
+# else at the same name belongs to another checkout.
+_persist_project_collection_path() {
+  local path="$1"
+  local record="${PROJECT_DIR}/${DEVBOT_DIR}/logs/memory-index-branch.json"
+  mkdir -p "$(dirname "${record}")" 2>/dev/null || true
+  python3 - "${record}" "${path}" <<'PY'
+import json
+import os
+import sys
+
+record, path = sys.argv[1], sys.argv[2]
+try:
+    data = json.load(open(record))
+except Exception:
+    data = {}
+data["project_collection_path"] = path
+tmp = f"{record}.tmp.{os.getpid()}"
+with open(tmp, "w") as handle:
+    json.dump(data, handle)
+os.replace(tmp, record)
+PY
+}
+
+previous_path=""
+record="${PROJECT_DIR}/${DEVBOT_DIR}/logs/memory-index-branch.json"
+if [[ -f "${record}" ]]; then
+  previous_path="$(python3 - "${record}" <<'PY'
+import json
+import sys
+
+try:
+    print(json.load(open(sys.argv[1])).get("project_collection_path", ""))
+except Exception:
+    pass
+PY
+)"
+fi
+
 if [[ "$HAS_MEMORY" == "true" ]]; then
   _header_3 "Registering QMD collections"
 
@@ -85,16 +125,14 @@ if [[ "$HAS_MEMORY" == "true" ]]; then
       exit 1
     elif [[ "${current_path}" != "${MEMORY_DIR}" ]]; then
       if [[ "${current_path}" != "${MEMORY_DIR}/latent" ]]; then
-        # A former override lives inside this checkout; repoint it back to the
-        # resolved root. A path outside the checkout is another project's
-        # registration.
-        case "${current_path}" in
-          "${PROJECT_DIR}"/*) ;;
-          *)
-            _error "Collection '${PROJECT_NAME}' is registered at ${current_path}, not this checkout's ${MEMORY_DIR} (name collision); refusing to repoint"
-            exit 1
-            ;;
-        esac
+        # Only a root recorded by this checkout's last successful build is a
+        # legitimate former override. A nested worktree is a descendant of
+        # PROJECT_DIR but has its own record, so a prefix check would let the
+        # main checkout steal the worktree's registration.
+        if [[ -z "${previous_path}" || "${current_path}" != "${previous_path}" ]]; then
+          _error "Collection '${PROJECT_NAME}' is registered at ${current_path}, not this checkout's ${MEMORY_DIR} (name collision); refusing to repoint"
+          exit 1
+        fi
       fi
       _info "Migrating collection '${PROJECT_NAME}' from ${current_path} to ${MEMORY_DIR}..."
       released="$(_devbot_release_custom_at_path "${MEMORY_DIR}")"
@@ -132,6 +170,9 @@ if [[ "$HAS_MEMORY" == "true" ]]; then
     fi
     _ok "Collection '${PROJECT_NAME}' registered"
   fi
+  # Record ownership for the next init/reindex. A record without the index
+  # fingerprints is still stale, so this never marks an unbuilt index fresh.
+  _persist_project_collection_path "${MEMORY_DIR}"
 fi
 
 # ── Add QMD context ───────────────────────────────────────────────────────────

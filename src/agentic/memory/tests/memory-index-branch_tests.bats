@@ -76,10 +76,68 @@ _vault_tree_sha() {
   git -C "$1" rev-parse "HEAD:.agents/memory"
 }
 
+_collections_fingerprint() {
+  python3 - "${1}/.agents/memory" "${DEV_BOT_ROOT}/storage/global-memories" <<'PY'
+import hashlib
+import os
+import sys
+
+digest = hashlib.sha256()
+
+
+def add(value):
+    digest.update(value.encode() if isinstance(value, str) else value)
+    digest.update(b"\0")
+
+
+project_memory = sys.argv[1]
+global_root = sys.argv[2]
+project_root = os.path.dirname(os.path.dirname(project_memory))
+for key, path, physical, index_path in sorted(
+    [
+        (
+            "project",
+            project_memory,
+            os.path.basename(project_root),
+            os.path.join(project_root, ".mdctx", "context-index.json"),
+        ),
+        (
+            "global",
+            global_root,
+            "dev-bot-global",
+            os.path.join(os.path.dirname(global_root), ".mdctx", "context-index.json"),
+        ),
+    ]
+):
+    add(key)
+    add(path)
+    add("0")
+    add(physical)
+    add(index_path)
+    add("1" if os.path.isdir(path) else "0")
+    if not os.path.isdir(path):
+        continue
+    for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
+        dirnames.sort()
+        for name in sorted(filenames):
+            if not name.endswith((".md", ".mdx")):
+                continue
+            file_path = os.path.join(dirpath, name)
+            if os.path.islink(file_path):
+                continue
+            stat = os.stat(file_path)
+            add(os.path.relpath(file_path, path))
+            add(str(stat.st_size))
+            add(str(stat.st_mtime_ns))
+print(digest.hexdigest())
+PY
+}
+
 _write_record() {
-  local proj fingerprint
+  local proj fingerprint collections_fp
   proj="$(dirname "$(dirname "$(dirname "$1")")")"
   fingerprint="$(PATH="$STUB_DIR:$PATH" bash "$TOOL" --fingerprint "${proj}/.agents/memory")"
+  collections_fp="$(_collections_fingerprint "$proj")"
   python3 -c '
 import json, sys
 json.dump(
@@ -89,11 +147,12 @@ json.dump(
         "tree_sha": sys.argv[4],
         "corpus": "memory",
         "corpus_fingerprint": sys.argv[5],
+        "collections_fingerprint": sys.argv[6],
         "recorded_at": "2026-01-01T00:00:00Z",
     },
     open(sys.argv[1], "w"),
 )
-' "$1" "$2" "$3" "$4" "$fingerprint"
+' "$1" "$2" "$3" "$4" "$fingerprint" "$collections_fp"
 }
 
 # ── AC1: missing record → build + record ─────────────────────────────────────
@@ -455,4 +514,29 @@ SCRIPT
     "$(_record_path "$proj")"
   assert_success
   assert_output 'feat"quote'
+}
+
+@test "--ensure: a missing global root becoming empty forces a rebuild" {
+  local proj="$WORK/project-global-missing"
+  _make_git_project "$proj"
+  rmdir "$DEV_BOT_ROOT/storage/global-memories"
+
+  cd "$proj"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --sync
+  assert_success
+  local before
+  before="$(wc -l < "$MDCTX_CALL_LOG")"
+
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --ensure
+  assert_success
+  [ "$(wc -l < "$MDCTX_CALL_LOG")" -eq "$before" ] \
+    || fail "unexpected rebuild while the global root is missing"
+
+  mkdir -p "$DEV_BOT_ROOT/storage/global-memories"
+  run env PATH="$STUB_DIR:$PATH" bash "$TOOL" --ensure
+  cd "$WORK"
+
+  assert_success
+  [ "$(wc -l < "$MDCTX_CALL_LOG")" -gt "$before" ] \
+    || fail "an empty global root did not force a rebuild"
 }
