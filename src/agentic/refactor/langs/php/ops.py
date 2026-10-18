@@ -353,9 +353,9 @@ def find_declaring_namespaces(project: str, name: str, kind: str, roots=None) ->
 
 def resolve_namespace(request: dict, spec: dict, from_name: str, to_name: str = "") -> str:
     """The namespace for a qualified op: explicit, else derived, else fatal."""
-    explicit = request.get("namespace")
-    if explicit:
-        return explicit
+    # An explicit namespace may legitimately be the empty (global) namespace.
+    if request.get("namespace") is not None:
+        return request["namespace"]
 
     kind = spec.get("declaration") or "function"
     project = request.get("project") or ""
@@ -527,14 +527,123 @@ def find_text_references(project: str, name: str, roots=None) -> list:
     return hits
 
 
-def namespace_target_dir(path: str, old_fq: str, new_fq: str):
+def psr4_map(project: str) -> list:
+    """(namespace prefix, directory) from composer's psr-4 maps, longest first."""
+    entries = []
+    composer = os.path.join(project, "composer.json")
+    if not os.path.isfile(composer):
+        return entries
+    try:
+        with open(composer, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return entries
+
+    for section in ("autoload", "autoload-dev"):
+        block = data.get(section)
+        if not isinstance(block, dict):
+            continue
+        mapping = block.get("psr-4")
+        if not isinstance(mapping, dict):
+            continue
+        for prefix, value in mapping.items():
+            if not isinstance(prefix, str):
+                continue
+            for item in value if isinstance(value, list) else [value]:
+                if not isinstance(item, str):
+                    continue
+                directory = os.path.normpath(item.strip().replace("\\", "/"))
+                if directory in (".", ""):
+                    directory = ""
+                elif (
+                    os.path.isabs(directory)
+                    or directory == ".."
+                    or directory.startswith("../")
+                ):
+                    continue
+                directory = directory.strip("/")
+                if directory == "vendor" or directory.startswith("vendor/"):
+                    continue
+                entries.append((prefix.strip("\\"), directory))
+
+    entries.sort(key=lambda entry: -len(entry[0]))
+    return entries
+
+
+def psr4_locations(project: str, entries: list, fqcn: str):
+    """All (path, root) locations for `fqcn`, in composer's base order."""
+    found = []
+    for prefix, directory in entries:
+        if prefix and fqcn != prefix and not fqcn.startswith(prefix + "\\"):
+            continue
+        suffix = fqcn[len(prefix) + 1 :] if prefix else fqcn
+        parts = [part for part in suffix.split("\\") if part]
+        if not parts:
+            continue
+        root = os.path.join(project, directory) if directory else project
+        found.append((os.path.join(root, *parts) + ".php", root))
+    return found
+
+
+def _is_under(path: str, directory: str) -> bool:
+    path = os.path.normpath(path)
+    directory = os.path.normpath(directory)
+    return path == directory or path.startswith(directory + os.sep)
+
+
+def namespace_target_dir(project: str, path: str, old_fq: str, new_fq: str):
     """The PSR-4 directory for a class moved to another namespace, or None.
 
-    The source directory mirrors the source namespace's tail (the namespace minus
-    its root prefix); the target is rebuilt the same way. Returns None when the
-    layout does not mirror the namespace — guessing would move the file somewhere
-    that does not match, and a wrong move is worse than no move.
+    Composer's psr-4 maps are authoritative when they cover the source: the
+    source path must match its own FQCN and the target must resolve through its
+    own mapping. Without a mapping — or for a global source — the source
+    directory mirrors the source namespace's tail, and the target is rebuilt the
+    same way. Returns None when the layout cannot be resolved: guessing would
+    move the file somewhere that does not match.
     """
+    entries = psr4_map(project)
+    if entries and "\\" in old_fq:
+        # A prefix may map to several base directories; keep the base that
+        # actually contains the declaration, not merely the first one.
+        sources = [
+            location
+            for location in psr4_locations(project, entries, old_fq)
+            if os.path.normpath(location[0]) == os.path.normpath(path)
+        ]
+        if sources:
+            _source_path, source_root = sources[0]
+            if "\\" not in new_fq:
+                return source_root
+            targets = psr4_locations(project, entries, new_fq)
+            if not targets:
+                return None
+            # Prefer the base the source already lives in; otherwise composer's
+            # first base wins. The caller appends the file name.
+            for target_path, target_root in targets:
+                if os.path.normpath(target_root) == os.path.normpath(source_root):
+                    return os.path.dirname(target_path)
+            return os.path.dirname(targets[0][0])
+
+        # A class from a classmap or another declared root has no PSR-4 location:
+        # fall back to the legacy layout. A path under a PSR-4 base that does not
+        # match its own FQCN is a genuine mismatch and stays refused.
+        psr4_dirs = [
+            os.path.join(project, directory) if directory else project
+            for _prefix, directory in entries
+        ]
+        if any(_is_under(path, directory) for directory in psr4_dirs):
+            return None
+
+    # A global source has no mapping of its own, but a namespaced target still
+    # does: resolve that before falling back to the source directory.
+    if "\\" not in old_fq and "\\" in new_fq and entries:
+        targets = psr4_locations(project, entries, new_fq)
+        if targets:
+            return os.path.dirname(targets[0][0])
+        # Composer is present but cannot autoload the target: guessing a
+        # directory would produce a class that never loads.
+        return None
+
     old_ns = old_fq.split("\\")[:-1]
     new_ns = new_fq.split("\\")[:-1]
     tail = old_ns[1:]
@@ -716,9 +825,10 @@ def main(argv: list) -> int:
 
     if command == "move-target":
         # The host file a class rename must relocate: Rector moves no files, and a
-        # PSR-4 autoloader keys on the file name. Emits nothing when the op does
-        # not move files, when the declaration is absent, or when it is ambiguous
-        # (several matches) — the caller leaves those to the human.
+        # PSR-4 autoloader keys on the file name. An op that moves no files stays
+        # silent; a move op that cannot resolve exactly one target emits an error
+        # and exits non-zero, and the plugin aborts — running the rules anyway
+        # would repoint the references at a class the move never delivered.
         request = json.load(sys.stdin)
         spec = OPS.get(request.get("op") or "")
         if not spec or not spec.get("move_file"):
@@ -726,31 +836,138 @@ def main(argv: list) -> int:
 
         old = request.get("from") or ""
         new = request.get("to") or ""
-        # The declaration carries the SHORT name; `from` may be qualified.
-        found = find_declarations(
-            request.get("project") or "",
-            old.rsplit("\\", 1)[-1],
-            spec.get("declaration") or "",
-            request.get("roots"),
-        )
-        if len(found) != 1:
-            return 0
+        project = request.get("project") or ""
+        roots = request.get("roots") or DEFAULT_ROOTS
+        short = old.rsplit("\\", 1)[-1]
 
-        _namespace, path = found[0]
+        # move-class has no declaration rename: a differing short name would move
+        # a file whose class keeps the old name, breaking PSR-4 loading.
+        if spec.get("namespace_move") and short != new.rsplit("\\", 1)[-1]:
+            print(
+                json.dumps(
+                    {
+                        "error": "move-class keeps the class name; '%s' -> '%s' changes it — use rename-class"
+                        % (old, new)
+                    }
+                )
+            )
+            return 1
+
+        # The scan keys on the SHORT name, so a namesake in another namespace is a
+        # candidate too. Resolve the caller's own evidence before counting: a
+        # qualified `from` names the FQCN exactly, else `--file` names the path.
+        found = find_declarations(project, short, spec.get("declaration") or "", roots)
+        candidates = [(qualify(namespace, short), path) for namespace, path in found]
+        if "\\" in old:
+            qualified = old.lstrip("\\")
+            candidates = [item for item in candidates if item[0] == qualified]
+        elif request.get("file"):
+            requested = os.path.normpath(os.path.join(project, request["file"]))
+            candidates = [
+                item for item in candidates if os.path.normpath(item[1]) == requested
+            ]
+
+        # Overlapping roots (src and src/Sub) return the same declaration twice;
+        # it is one candidate, not an ambiguity.
+        seen = set()
+        unique = []
+        for item in candidates:
+            key = (item[0], os.path.normpath(item[1]))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(item)
+        candidates = unique
+
+        if not candidates:
+            print(
+                json.dumps(
+                    {
+                        "error": "no declaration of '%s' found under %s — the name may be wrong, or the declaration may sit outside the source roots"
+                        % (old, " or ".join(roots))
+                    }
+                )
+            )
+            return 1
+        if len(candidates) > 1:
+            where = ", ".join(
+                "%s (%s)" % (fqcn, os.path.relpath(path, project) if project else path)
+                for fqcn, path in candidates
+            )
+            print(
+                json.dumps(
+                    {
+                        "error": "declaration of '%s' is ambiguous — found %d: %s"
+                        % (old, len(candidates), where)
+                    }
+                )
+            )
+            return 1
+
+        _fqcn, path = candidates[0]
         short = new.rsplit("\\", 1)[-1]
 
-        result = {"from": path}
+        # `from` may be unqualified; carry the resolved FQCN so the caller renders
+        # the rules against the real class rather than the short name. Ops with a
+        # `qualify` step resolve the namespace themselves and need the short name.
+        result = {
+            "from": path,
+            "fqcn": _fqcn,
+            "namespace": _fqcn.rsplit("\\", 1)[0] if "\\" in _fqcn else "",
+            "qualify": bool(spec.get("qualify")),
+        }
         if spec.get("namespace_move"):
-            target_dir = namespace_target_dir(path, old, new)
+            # An unqualified `from` was resolved by FQCN or --file; the resolved
+            # FQCN locates the PSR-4 root, not the bare short name.
+            old_fq = old.lstrip("\\") if "\\" in old else _fqcn
+            target_dir = namespace_target_dir(project, path, old_fq, new)
             if target_dir is None:
-                return 0
+                print(
+                    json.dumps(
+                        {
+                            "error": "cannot infer a PSR-4 target directory for '%s' — namespace '%s' does not mirror %s"
+                            % (
+                                old_fq,
+                                old_fq.rsplit("\\", 1)[0] if "\\" in old_fq else "(global)",
+                                os.path.relpath(path, project) if project else path,
+                            )
+                        }
+                    )
+                )
+                return 1
             # The plugin rewrites the namespace in this one file: a namespace step
             # in Rector would hit every file in the namespace instead.
-            result["namespace_from"] = old.rsplit("\\", 1)[0] if "\\" in old else ""
+            result["namespace_from"] = old_fq.rsplit("\\", 1)[0] if "\\" in old_fq else ""
             result["namespace_to"] = new.rsplit("\\", 1)[0] if "\\" in new else ""
             result["to"] = os.path.join(target_dir, short + ".php")
         else:
             result["to"] = os.path.join(os.path.dirname(path), short + ".php")
+
+        # `mv` overwrites silently: a collision would destroy an unrelated class.
+        # Refuse while the target is still a plan, before any rule has run. A
+        # target prefix may map to several bases, and an earlier base shadows the
+        # chosen one, so every target location is checked.
+        destinations = [result["to"]]
+        if spec.get("namespace_move") and "\\" in new:
+            destinations += [
+                location[0]
+                for location in psr4_locations(project, psr4_map(project), new)
+                if os.path.normpath(location[0]) != os.path.normpath(result["to"])
+            ]
+        for destination in destinations:
+            if os.path.normpath(destination) == os.path.normpath(path):
+                continue
+            if not os.path.lexists(destination):
+                continue
+            print(
+                json.dumps(
+                    {
+                        "error": "destination already exists: %s — refusing to overwrite it"
+                        % (os.path.relpath(destination, project) if project else destination)
+                    }
+                )
+            )
+            return 1
 
         if os.path.normpath(path) == os.path.normpath(result["to"]) and not spec.get("namespace_move"):
             return 0

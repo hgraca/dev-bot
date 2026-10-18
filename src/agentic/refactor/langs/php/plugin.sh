@@ -404,9 +404,22 @@ print(json.dumps(r))' <<<"${request}")"
 
   # Resolve the file move BEFORE the rules run: afterwards the old declaration
   # name is gone from the file, so it can no longer be found by it.
-  local move_json mv_from="" mv_to=""
-  move_json="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" move-target 2>/dev/null || true)"
-  local mv_from_rel="" mv_to_rel="" mv_ns_from="" mv_ns_to=""
+  local move_json mv_from="" mv_to="" move_rc=0
+  move_json="$(printf '%s' "${request}" | python3 "${PLUGIN_DIR}/ops.py" move-target 2>/dev/null)" || move_rc=$?
+  local mv_from_rel="" mv_to_rel="" mv_ns_from="" mv_ns_to="" mv_fqcn="" mv_qualify="" mv_namespace=""
+  if [[ ${move_rc} -ne 0 ]]; then
+    # An unresolvable move is fatal: running the rules would repoint the
+    # references at a class the move never delivered. A crash is fatal too —
+    # empty output must never read as "this op moves no files".
+    local move_error
+    move_error="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("error") or "")' 2>/dev/null || true)"
+    if [[ -n "${move_error}" ]]; then
+      echo "ERROR: ${move_error}" >&2
+    else
+      echo "ERROR: could not resolve the move target" >&2
+    fi
+    exit 1
+  fi
   if [[ -n "${move_json}" ]]; then
     mv_from="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["from"])')"
     mv_to="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["to"])')"
@@ -414,6 +427,29 @@ print(json.dumps(r))' <<<"${request}")"
     mv_to_rel="${mv_to#"${project}"/}"
     mv_ns_from="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("namespace_from") or "")')"
     mv_ns_to="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("namespace_to") or "")')"
+    mv_fqcn="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("fqcn") or "")')"
+    mv_qualify="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(1 if json.load(sys.stdin).get("qualify") else 0)')"
+    mv_namespace="$(printf '%s' "${move_json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("namespace") or "")')"
+  fi
+
+  # An unqualified `from` was resolved to a declaration. A `qualify` op needs its
+  # short name but the file-selected namespace made explicit; a non-qualify op
+  # renders against the FQCN so references in its namespace are repointed.
+  if [[ -n "${mv_fqcn}" && "${from}" != *"\\"* ]]; then
+    if [[ "${mv_qualify}" == "1" ]]; then
+      request="$(RESOLVED_NAMESPACE="${mv_namespace}" python3 -c '
+import json, os, sys
+r = json.load(sys.stdin)
+if r.get("namespace") is None:
+    r["namespace"] = os.environ["RESOLVED_NAMESPACE"]
+print(json.dumps(r))' <<<"${request}")"
+    else
+      request="$(FROM_FQCN="${mv_fqcn}" python3 -c '
+import json, os, sys
+r = json.load(sys.stdin)
+r["from"] = os.environ["FROM_FQCN"]
+print(json.dumps(r))' <<<"${request}")"
+    fi
   fi
 
   # One Rector run per rule. A single config carrying both a usages rule and the
@@ -429,51 +465,193 @@ print(json.dumps(r))' <<<"${request}")"
   errfile="$(mktemp)"
   rcfile="$(mktemp)"
 
+  # A later step can fail after an earlier one has written. Snapshot the scope so
+  # a failed run is rolled back instead of leaving a half-applied tree.
+  local backup=""
+  local -a scope_roots=()
+  if [[ "${mode}" == "apply" ]]; then
+    # Nested roots (src and src/Sub) would be copied into each other; keep only
+    # the shortest ancestors so the snapshot is one independent tree.
+    mapfile -t scope_roots < <(printf '%s' "${roots_json}" | python3 -c '
+import json, sys
+roots = sorted(set(json.load(sys.stdin)), key=lambda root: (root.count("/"), root))
+kept = []
+for root in roots:
+    if any(root == parent or root.startswith(parent + "/") for parent in kept):
+        continue
+    kept.append(root)
+print("\n".join(kept))')
+    if [[ ${#scope_roots[@]} -gt 0 ]]; then
+      backup="$(mktemp -d)"
+      local scope_root
+      for scope_root in "${scope_roots[@]}"; do
+        mkdir -p "${backup}/$(dirname "${scope_root}")"
+        cp -a "${project}/${scope_root}" "${backup}/${scope_root}"
+      done
+    fi
+  fi
+
+  rollback() {
+    [[ -n "${backup}" ]] || return 0
+    local scope_root
+    for scope_root in "${scope_roots[@]}"; do
+      rm -rf "${project:?}/${scope_root}"
+      mkdir -p "$(dirname "${project}/${scope_root}")"
+      cp -a "${backup}/${scope_root}" "${project}/${scope_root}"
+    done
+    rm -rf "${backup}"
+    backup=""
+  }
+
   if ! _run_steps "${dry}" "${outfile}" "${errfile}" "${rcfile}"; then
+    rollback
     rm -f "${outfile}" "${errfile}" "${rcfile}"
     echo '{"ok":false,"error":"could not render the Rector config"}' >&2
     exit 1
+  fi
+
+  # A failed Rector step must not reach the relocation: the namespace rewrite and
+  # the mv are not undone by the rules, and would leave a half-applied tree.
+  local steps_ok="true"
+  if [[ -s "${rcfile}" ]]; then
+    if [[ "${mode}" == "apply" ]]; then
+      if ! awk 'int($1) != 0 { exit 1 }' "${rcfile}"; then
+        steps_ok="false"
+        rollback
+      fi
+    elif ! awk 'int($1) != 0 && int($1) != 2 { exit 1 }' "${rcfile}"; then
+      # Rector exits 2 from a dry run that found changes; that is success.
+      steps_ok="false"
+    fi
+  fi
+
+  # Rector can report errors in its document while exiting 0; the report below
+  # treats those as failure, so the relocation must not run on them either.
+  local step_errors=0
+  step_errors="$(python3 - "${outfile}" <<'PY'
+import json, sys
+
+raw = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+if not raw.strip():
+    print(-1)
+    raise SystemExit(0)
+decoder = json.JSONDecoder()
+index = 0
+errors = 0
+while index < len(raw):
+    while index < len(raw) and raw[index] in " \t\r\n":
+        index += 1
+    if index >= len(raw):
+        break
+    try:
+        doc, index = decoder.raw_decode(raw, index)
+    except Exception:
+        print(-1)
+        raise SystemExit(0)
+    if not isinstance(doc, dict):
+        print(-1)
+        raise SystemExit(0)
+    errors += int((doc.get("totals") or {}).get("errors") or 0)
+print(errors)
+PY
+)"
+  if [[ "${step_errors}" -lt 0 || "${step_errors}" -gt 0 ]]; then
+    steps_ok="false"
+    if [[ "${mode}" == "apply" ]]; then
+      rollback
+    fi
   fi
 
   # Relocate the file resolved before the rules ran. Rector rewrites the
   # declaration and the references but moves no files, and a PSR-4 autoloader
   # keys on the file name — leaving it produces a class that no longer loads.
   local move_note=""
-  if [[ -n "${mv_to}" ]]; then
+  if [[ -n "${mv_to}" && "${steps_ok}" == "true" ]]; then
     if [[ "${mode}" == "apply" ]]; then
-      if [[ -n "${mv_ns_to}" ]]; then
+      if [[ "${mv_ns_from}" != "${mv_ns_to}" ]]; then
         # Rewrite the namespace on this file ALONE: Rector's rules are project
         # scoped, and a namespace rule would rewrite every file in the namespace
-        # rather than the single class being moved.
+        # rather than the single class being moved. An empty side is the global
+        # namespace: remove the declaration, or insert one after <?php/declare.
         if ! python3 - "${mv_from}" "${mv_ns_from}" "${mv_ns_to}" <<'PY'
 import re, sys
 
 path, old, new = sys.argv[1:4]
 text = open(path, encoding="utf-8").read()
-pattern = re.compile(r"^(\s*namespace\s+)" + re.escape(old) + r"(\s*;)", re.M)
-updated, count = pattern.subn(lambda m: m.group(1) + new + m.group(2), text, count=1)
-if count != 1:
-    sys.exit("could not rewrite the namespace statement in %s" % path)
+
+if old:
+    pattern = re.compile(r"^([ \t]*)namespace\s+" + re.escape(old) + r"\s*;[ \t]*\n?", re.M)
+    replacement = (lambda m: m.group(1) + "namespace %s;\n" % new) if new else (lambda m: "")
+    updated, count = pattern.subn(replacement, text, count=1)
+    if count != 1:
+        sys.exit("could not rewrite the namespace statement in %s" % path)
+else:
+    # PHP allows only declare() before a namespace. Skip the opening tag, blank
+    # lines and leading comments, then insert after any leading declare.
+    lines = text.splitlines(keepends=True)
+    index = 0
+    while index < len(lines) and not re.match(r"^\s*<\?php", lines[index]):
+        index += 1
+    if index >= len(lines):
+        sys.exit("could not find the opening <?php in %s" % path)
+    index += 1
+
+    in_comment = False
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if in_comment:
+            if "*/" in stripped:
+                in_comment = False
+            index += 1
+            continue
+        if not stripped or stripped.startswith("//") or stripped.startswith("#"):
+            index += 1
+            continue
+        if stripped.startswith("/*"):
+            in_comment = "*/" not in stripped
+            index += 1
+            continue
+        if stripped.startswith("declare"):
+            while index < len(lines) and ";" not in lines[index]:
+                index += 1
+            index += 1
+            break
+        break
+
+    updated = "".join(lines[:index]) + "namespace %s;\n\n" % new + "".join(lines[index:])
+
 open(path, "w", encoding="utf-8").write(updated)
 PY
         then
+          rollback
           rm -f "${outfile}" "${errfile}" "${rcfile}"
           echo "ERROR: could not rewrite the namespace in ${mv_from}" >&2
           exit 1
         fi
       fi
       mkdir -p "$(dirname "${mv_to}")"
-      if mv "${mv_from}" "${mv_to}"; then
+      if [[ "${mv_from}" == "${mv_to}" ]]; then
+        # A namespace change can leave the path unchanged (e.g. to the global
+        # namespace); mv treats the file as its own destination and fails.
+        move_note="rewrote namespace of ${mv_from_rel}"
+      elif mv "${mv_from}" "${mv_to}"; then
         move_note="moved ${mv_from_rel} -> ${mv_to_rel}"
       else
+        rollback
         rm -f "${outfile}" "${errfile}" "${rcfile}"
         echo "ERROR: could not move ${mv_from} to ${mv_to}" >&2
         exit 1
       fi
     else
-      move_note="would move ${mv_from_rel} -> ${mv_to_rel}"
+      if [[ "${mv_from}" == "${mv_to}" ]]; then
+        move_note="would rewrite namespace of ${mv_from_rel}"
+      else
+        move_note="would move ${mv_from_rel} -> ${mv_to_rel}"
+      fi
     fi
   fi
+
+  [[ -n "${backup}" ]] && rm -rf "${backup}"
 
   # Confirm the apply finished: re-run every step as a dry run and count what
   # would still change. A partial rename — a rule that did not match, a move that
@@ -528,7 +706,8 @@ PY
       python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("hits") or []))' 2>/dev/null || echo '[]')"
   fi
 
-  REFACTOR_MOVE_NOTE="${move_note}" REFACTOR_MOVE_FROM_REL="${mv_from_rel}" REFACTOR_MOVE_TO_REL="${mv_to_rel}" REFACTOR_STRING_HITS="${string_hits}" REFACTOR_REMAINING="${remaining}" REFACTOR_CLASS_NOTICE="${class_notice}" REFACTOR_ROOTS="${roots_json}" REFACTOR_TEXT_HITS="${text_hits}" python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY'
+  local report_rc=0
+  REFACTOR_MOVE_NOTE="${move_note}" REFACTOR_MOVE_FROM_REL="${mv_from_rel}" REFACTOR_MOVE_TO_REL="${mv_to_rel}" REFACTOR_STRING_HITS="${string_hits}" REFACTOR_REMAINING="${remaining}" REFACTOR_CLASS_NOTICE="${class_notice}" REFACTOR_ROOTS="${roots_json}" REFACTOR_TEXT_HITS="${text_hits}" python3 - "${outfile}" "${errfile}" "${rcfile}" "${via}" "${version}" "${mode}" "${from}" "${to}" <<'PY' || report_rc=$?
 import json, os, sys
 
 outfile, errfile, rcfile, via, version, mode, old, new = sys.argv[1:9]
@@ -558,12 +737,12 @@ while index < len(raw):
         doc, index = decoder.raw_decode(raw, index)
     except Exception as exc:
         print(json.dumps({"ok": False, "error": "unparseable Rector output: %s" % exc, "warnings": warnings}))
-        raise SystemExit
+        raise SystemExit(1)
     docs.append(doc)
 
 if not docs:
     print(json.dumps({"ok": False, "error": "no output from Rector", "warnings": warnings}))
-    raise SystemExit
+    raise SystemExit(1)
 
 # Rector reports config failures as stdout {"fatal_errors":[...]} with exit 1.
 # Without this the agent sees only "exited 1 with 0 error(s)", which says nothing.
@@ -574,7 +753,7 @@ if fatal:
         "error": "Rector could not build its config: %s" % "; ".join(fatal),
         "warnings": warnings,
     }))
-    raise SystemExit
+    raise SystemExit(1)
 
 files = []
 errors = 0
@@ -658,8 +837,10 @@ if notice:
     result["notice"] = notice
 
 print(json.dumps(result))
+sys.exit(0 if result.get("ok") else 1)
 PY
   rm -f "${outfile}" "${errfile}" "${rcfile}"
+  return "${report_rc}"
 }
 
 case "${1:-}" in
