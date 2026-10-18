@@ -22,3 +22,11 @@ setup() {
   run grep -qi 'preemptive' "$SKILL"
   assert_failure
 }
+
+@test "skill avoids the retired description.md and bootstrap/ paths" {
+  run grep -q 'description\.md' "$SKILL"
+  assert_failure
+
+  run grep -q 'bootstrap/' "$SKILL"
+  assert_failure
+}
