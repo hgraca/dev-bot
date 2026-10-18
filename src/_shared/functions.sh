@@ -816,6 +816,60 @@ _devbot_get_memory_search_provider() {
   esac
 }
 
+# _devbot_memory_collection_field <project_dir> <key> <field>
+#   Prints one field of a resolved memory collection (empty when the resolver
+#   or the key is absent). The shared resolver is the single source of truth
+#   for collection paths, physical names and index locations.
+_devbot_memory_collection_field() {
+  local project_dir="${1:?Usage: _devbot_memory_collection_field <project_dir> <key> <field>}"
+  local key="${2:?}" field="${3:?}"
+  local resolver="${DEV_BOT_ROOT}/src/_shared/memory_collections.py"
+  [[ -f "${resolver}" ]] || return 0
+  python3 "${resolver}" --project-root "${project_dir}" | python3 -c '
+import json
+import sys
+
+key, field = sys.argv[1], sys.argv[2]
+for collection in json.load(sys.stdin)["collections"]:
+    if collection["key"] == key:
+        print(collection[field])
+        break
+' "${key}" "${field}"
+}
+
+# _devbot_custom_collection_name <path>
+#   The qmd name a custom collection gets for a resolved root (mirrors
+#   memory_collections._physical: dev-bot-custom-<sha256(path)[:12]>).
+_devbot_custom_collection_name() {
+  python3 - "$1" <<'PY'
+import hashlib
+import sys
+
+print("dev-bot-custom-" + hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])
+PY
+}
+
+# _devbot_release_custom_at_path <path>
+#   Remove a custom registration rooted at <path>, echoing its name (empty when
+#   none). Used when a built-in collection takes over that root.
+_devbot_release_custom_at_path() {
+  local path="$1" name current
+  command -v qmd >/dev/null 2>&1 || return 0
+  name="$(_devbot_custom_collection_name "${path}")"
+  qmd collection show "${name}" >/dev/null 2>&1 || return 0
+  current="$(qmd collection show "${name}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
+  [[ "${current}" == "${path}" ]] || return 0
+  qmd collection remove "${name}" >/dev/null 2>&1 || return 0
+  printf '%s' "${name}"
+}
+
+_devbot_restore_custom_at_path() {
+  local name="$1" path="$2"
+  [[ -n "${name}" ]] || return 0
+  command -v qmd >/dev/null 2>&1 || return 0
+  qmd collection add "${path}" --name "${name}" >/dev/null 2>&1 || true
+}
+
 # _devbot_ensure_global_default <key> <value>
 #   Adds `<key>: "<value>"` (a string) to $(_devbot_global_config)
 #   ONLY when the key is absent — an existing value is never overwritten (an

@@ -47,23 +47,29 @@ _ok "mdctx CLI: $(mdctx --version 2>/dev/null || echo 'installed')"
 # ── Check vault exists ────────────────────────────────────────────────────────
 
 DEVBOT_DIR="$(_devbot_get_project_dir "${PROJECT_DIR}")"
-MEMORY_DIR="${PROJECT_DIR}/${DEVBOT_DIR}/memory"
+CONVENTIONAL_MEMORY="${PROJECT_DIR}/${DEVBOT_DIR}/memory"
+MEMORY_DIR="$(_devbot_memory_collection_field "${PROJECT_DIR}" project path)"
+[[ -n "${MEMORY_DIR}" ]] || MEMORY_DIR="${CONVENTIONAL_MEMORY}"
+INDEX_FILE="$(_devbot_memory_collection_field "${PROJECT_DIR}" project index)"
+[[ -n "${INDEX_FILE}" ]] || INDEX_FILE="${PROJECT_DIR}/.mdctx/context-index.json"
 
 if [[ ! -d "${MEMORY_DIR}" ]]; then
-  # mdctx sorts before the memory module, so on a fresh init the vault does
-  # not exist yet — create it so the project index still builds.
-  mkdir -p "${MEMORY_DIR}"
-  _ok "Created memory directory: ${MEMORY_DIR}"
+  if [[ "${MEMORY_DIR}" == "${CONVENTIONAL_MEMORY}" ]]; then
+    # mdctx sorts before the memory module, so on a fresh init the vault does
+    # not exist yet — create it so the project index still builds.
+    mkdir -p "${MEMORY_DIR}"
+    _ok "Created memory directory: ${MEMORY_DIR}"
+  else
+    _warn "Configured project collection path is missing: ${MEMORY_DIR}"
+    exit 0
+  fi
 else
   _ok "Memory directory: ${MEMORY_DIR}"
 fi
 
 # ── Build project index ───────────────────────────────────────────────────────
 
-INDEX_DIR="${PROJECT_DIR}/.mdctx"
-INDEX_FILE="${INDEX_DIR}/context-index.json"
-
-mkdir -p "${INDEX_DIR}"
+mkdir -p "$(dirname "${INDEX_FILE}")"
 
 _header_3 "Building mdctx project index"
 

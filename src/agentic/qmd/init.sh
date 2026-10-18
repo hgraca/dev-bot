@@ -29,13 +29,15 @@ source "${MODULE_DIR}/functions.sh"
 # ── Resolve paths ─────────────────────────────────────────────────────────────
 
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd)"
-PROJECT_NAME=""
+PROJECT_NAME="$(_devbot_memory_collection_field "${PROJECT_DIR}" project physical)"
 
-# Resolve project name from .devbot.project.jsonc (matches search-memories.py),
-# fall back to directory basename if config is missing or unreadable.
-local_config="${PROJECT_DIR}/.devbot.project.jsonc"
-if [[ -f "${local_config}" ]]; then
-  PROJECT_NAME=$(python3 "${MODULE_DIR}/../../_shared/read_jsonc.py" "${local_config}" 2>/dev/null | jq -r '.project_name // ""' 2>/dev/null || echo "")
+if [[ -z "${PROJECT_NAME}" ]]; then
+  # Resolve project name from .devbot.project.jsonc (matches search-memories.py),
+  # fall back to directory basename if config is missing or unreadable.
+  local_config="${PROJECT_DIR}/.devbot.project.jsonc"
+  if [[ -f "${local_config}" ]]; then
+    PROJECT_NAME=$(python3 "${MODULE_DIR}/../../_shared/read_jsonc.py" "${local_config}" 2>/dev/null | jq -r '.project_name // ""' 2>/dev/null || echo "")
+  fi
 fi
 PROJECT_NAME="${PROJECT_NAME:-$(basename "${PROJECT_DIR}")}"
 
@@ -52,7 +54,10 @@ _ok "qmd CLI: $(qmd --version 2>/dev/null || echo 'installed')"
 
 # ── Check vault exists ────────────────────────────────────────────────────────
 
-MEMORY_DIR="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/memory"
+DEVBOT_DIR="$(_devbot_get_project_dir "${PROJECT_DIR}")"
+CONVENTIONAL_MEMORY="${PROJECT_DIR}/${DEVBOT_DIR}/memory"
+MEMORY_DIR="$(_devbot_memory_collection_field "${PROJECT_DIR}" project path)"
+[[ -n "${MEMORY_DIR}" ]] || MEMORY_DIR="${CONVENTIONAL_MEMORY}"
 if [[ ! -d "${MEMORY_DIR}" ]]; then
   _warn "No memory directory found at:"
   echo "    ${MEMORY_DIR}"
@@ -72,6 +77,7 @@ if [[ "$HAS_MEMORY" == "true" ]]; then
   # Check if collection already exists (exact match, not substring). An
   # existing collection may still be rooted at memory/latent from before the
   # whole-memory scope; migrate it so work/thinking/active become searchable.
+  released=""
   if qmd collection show "${PROJECT_NAME}" >/dev/null 2>&1; then
     current_path="$(qmd collection show "${PROJECT_NAME}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
     if [[ -z "${current_path}" ]]; then
@@ -79,11 +85,21 @@ if [[ "$HAS_MEMORY" == "true" ]]; then
       exit 1
     elif [[ "${current_path}" != "${MEMORY_DIR}" ]]; then
       if [[ "${current_path}" != "${MEMORY_DIR}/latent" ]]; then
-        _error "Collection '${PROJECT_NAME}' is registered at ${current_path}, not this checkout's ${MEMORY_DIR} (name collision); refusing to repoint"
-        exit 1
+        # A former override lives inside this checkout; repoint it back to the
+        # resolved root. A path outside the checkout is another project's
+        # registration.
+        case "${current_path}" in
+          "${PROJECT_DIR}"/*) ;;
+          *)
+            _error "Collection '${PROJECT_NAME}' is registered at ${current_path}, not this checkout's ${MEMORY_DIR} (name collision); refusing to repoint"
+            exit 1
+            ;;
+        esac
       fi
       _info "Migrating collection '${PROJECT_NAME}' from ${current_path} to ${MEMORY_DIR}..."
+      released="$(_devbot_release_custom_at_path "${MEMORY_DIR}")"
       if ! qmd collection remove "${PROJECT_NAME}" >/dev/null 2>&1; then
+        _devbot_restore_custom_at_path "${released}" "${MEMORY_DIR}"
         _warn "Could not remove the old collection '${PROJECT_NAME}'"
         exit 1
       fi
@@ -100,6 +116,7 @@ if [[ "$HAS_MEMORY" == "true" ]]; then
         _warn "Could not migrate collection '${PROJECT_NAME}'"
         qmd collection remove "${PROJECT_NAME}" >/dev/null 2>&1 || true
         qmd collection add "${current_path}" --name "${PROJECT_NAME}" >/dev/null 2>&1 || true
+        _devbot_restore_custom_at_path "${released}" "${MEMORY_DIR}"
         exit 1
       fi
     else
@@ -107,8 +124,12 @@ if [[ "$HAS_MEMORY" == "true" ]]; then
     fi
   else
     _info "Registering collection '${PROJECT_NAME}' for memory/..."
-    qmd collection add "${MEMORY_DIR}" \
-      --name "${PROJECT_NAME}"
+    released="$(_devbot_release_custom_at_path "${MEMORY_DIR}")"
+    if ! qmd collection add "${MEMORY_DIR}" --name "${PROJECT_NAME}"; then
+      _devbot_restore_custom_at_path "${released}" "${MEMORY_DIR}"
+      _warn "Could not register collection '${PROJECT_NAME}'"
+      exit 1
+    fi
     _ok "Collection '${PROJECT_NAME}' registered"
   fi
 fi

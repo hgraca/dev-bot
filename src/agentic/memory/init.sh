@@ -48,6 +48,11 @@ _scaffold_vault() {
   local devbot_dir
   devbot_dir="$(_devbot_get_project_dir "${target_path}")"
   local vault="${target_path}/${devbot_dir}/memory"
+  local global_memories_dir global_index
+  global_memories_dir="$(_devbot_memory_collection_field "${target_path}" global path)"
+  [[ -n "${global_memories_dir}" ]] || global_memories_dir="${GLOBAL_MEMORIES_DIR}"
+  global_index="$(_devbot_memory_collection_field "${target_path}" global index)"
+  [[ -n "${global_index}" ]] || global_index="${DEV_BOT_ROOT}/storage/.mdctx/context-index.json"
 
   echo
   _info "memory — vault scaffolding at ${target_path}"
@@ -94,8 +99,8 @@ _scaffold_vault() {
   # Symlink global-memories to the dev-bot central store
   # Remove first if it exists as a real dir (from template copy or prior run)
   [[ -e "${vault}/latent/global" && ! -L "${vault}/latent/global" ]] && rm -rf "${vault}/latent/global"
-  if ln -sfn "${GLOBAL_MEMORIES_DIR}" "${vault}/latent/global"; then
-    _ok "Global memories linked (${vault}/latent/global → ${GLOBAL_MEMORIES_DIR})"
+  if ln -sfn "${global_memories_dir}" "${vault}/latent/global"; then
+    _ok "Global memories linked (${vault}/latent/global → ${global_memories_dir})"
   else
     _warn "Could not create global memories symlink at ${vault}/latent/global"
   fi
@@ -119,25 +124,48 @@ _scaffold_vault() {
     if ! command -v mdctx >/dev/null 2>&1; then
       _warn "mdctx not installed — skipping global index build (run 'devbot install' first)"
     else
-      local global_index_dir="${DEV_BOT_ROOT}/storage/.mdctx"
-      mkdir -p "${global_index_dir}"
-      if mdctx build "${GLOBAL_MEMORIES_DIR}" -o "${global_index_dir}/context-index.json" >/dev/null 2>&1; then
-        _ok "mdctx global index written (${global_index_dir}/context-index.json)"
+      mkdir -p "$(dirname "${global_index}")"
+      if mdctx build "${global_memories_dir}" -o "${global_index}" >/dev/null 2>&1; then
+        _ok "mdctx global index written (${global_index})"
       else
-        _warn "Could not build mdctx global index for ${GLOBAL_MEMORIES_DIR}"
+        _warn "Could not build mdctx global index for ${global_memories_dir}"
         _warn "The global memory store will be unreachable via search-memories — check that mdctx is installed."
       fi
     fi
   else
     local global_collection="dev-bot-global"
+    local released=""
 
     if qmd collection show "${global_collection}" >/dev/null 2>&1; then
-      _skip "QMD collection '${global_collection}' already exists"
-    elif qmd collection add "${GLOBAL_MEMORIES_DIR}" --name "${global_collection}" >/dev/null 2>&1; then
-      _ok "QMD collection '${global_collection}' created"
+      local current_global
+      current_global="$(qmd collection show "${global_collection}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
+      if [[ -z "${current_global}" ]]; then
+        _warn "Could not read the root of QMD collection '${global_collection}'"
+      elif [[ "${current_global}" == "${global_memories_dir}" ]]; then
+        _skip "QMD collection '${global_collection}' already exists"
+      else
+        released="$(_devbot_release_custom_at_path "${global_memories_dir}")"
+        if ! qmd collection remove "${global_collection}" >/dev/null 2>&1; then
+          _devbot_restore_custom_at_path "${released}" "${global_memories_dir}"
+          _warn "Could not repoint QMD collection '${global_collection}' to ${global_memories_dir}"
+          _warn "The global memory store will be unreachable via search-memories — check that qmd is installed."
+        elif qmd collection add "${global_memories_dir}" --name "${global_collection}" >/dev/null 2>&1; then
+          _ok "QMD collection '${global_collection}' repointed to ${global_memories_dir}"
+        else
+          qmd collection add "${current_global}" --name "${global_collection}" >/dev/null 2>&1 || true
+          _devbot_restore_custom_at_path "${released}" "${global_memories_dir}"
+          _warn "Could not repoint QMD collection '${global_collection}'; restored ${current_global}"
+        fi
+      fi
     else
-      _warn "Could not register QMD collection '${global_collection}' for ${GLOBAL_MEMORIES_DIR}"
-      _warn "The global memory store will be unreachable via search-memories — check that qmd is installed."
+      released="$(_devbot_release_custom_at_path "${global_memories_dir}")"
+      if qmd collection add "${global_memories_dir}" --name "${global_collection}" >/dev/null 2>&1; then
+        _ok "QMD collection '${global_collection}' created"
+      else
+        _devbot_restore_custom_at_path "${released}" "${global_memories_dir}"
+        _warn "Could not register QMD collection '${global_collection}' for ${global_memories_dir}"
+        _warn "The global memory store will be unreachable via search-memories — check that qmd is installed."
+      fi
     fi
   fi
 
