@@ -34,7 +34,7 @@ Every enabled server's tool schemas are injected into the session context, and e
 | devbot-tools    | 11    | ~1.1k             |
 | mdctx           | 3     | ~0.3k             |
 
-Seven of these already ship **disabled by default** — `atlassian`, `chrome-devtools`, `playwright`, `sentry`, `signoz`, `jetbrains` and each `datasources-<name>` gateway — so an enabled project pays nothing for them until they are switched on ([Per-server enablement](#per-server-enablement)). `atlassian` and `sentry` are additionally opt-in _modules_, so they are absent from the config entirely until enabled in the `modules` map. To remove a server from the config entirely, **disable its module**:
+Eight of these already ship **disabled by default** — `atlassian`, `chrome-devtools`, `figma`, `playwright`, `sentry`, `signoz`, `jetbrains` and each `datasources-<name>` gateway — so an enabled project pays nothing for them until they are switched on ([Per-server enablement](#per-server-enablement)). `atlassian` and `sentry` are additionally opt-in _modules_, so they are absent from the config entirely until enabled in the `modules` map. To remove a server from the config entirely, **disable its module**:
 
 ```jsonc
 // .devbot.project.jsonc
@@ -56,7 +56,7 @@ In opencode a server entry may carry `"enabled": false`: the server is still **r
 | opencode   | Emitted as `mcp.<name>.enabled: false` in `opencode.jsonc` — registered but not started. Flip it to `true` (or toggle it in the harness) and restart; opencode reads its config once at startup.                                                                                          |
 | claudecode | **Not wired.** The server is omitted from `.mcp.json` — it has no per-server on/off, and Claude Code ignores a `disabled`/`enabled` key in it, so a disabled server is simply not registered. This matches opencode's end state (registered but not started): no process, no tool schema. |
 
-Seven servers ship disabled by default — `atlassian`, `chrome-devtools`, `playwright`, `sentry`, `signoz`, the per-datasource `datasources-<name>` gateways, and `jetbrains` (`atlassian` and `sentry` as opt-in modules, absent entirely until enabled). On both harnesses they are inert: opencode registers each but does not start it, and Claude Code does not receive it at all — so neither pays tool-schema tokens or a process for a server a session never uses.
+Eight servers ship disabled by default — `atlassian`, `chrome-devtools`, `figma`, `playwright`, `sentry`, `signoz`, the per-datasource `datasources-<name>` gateways, and `jetbrains` (`atlassian` and `sentry` as opt-in modules, absent entirely until enabled). On both harnesses they are inert: opencode registers each but does not start it, and Claude Code does not receive it at all — so neither pays tool-schema tokens or a process for a server a session never uses.
 
 `enabled` is optional and defaults to **true** — a manifest that omits it is wired and started exactly as before. Declare it only to opt out. To switch one on, set its `enabled` to `true` in the generated `opencode.jsonc` entry (or toggle it in the harness) and restart.
 
