@@ -12,6 +12,17 @@ setup() {
   EDGE_LANGS="${TEST_DIR}/fixtures/langs-edge"
   PHP_PLUGIN="${MODULE_DIR}/langs/php/plugin.sh"
   PHP_FIXTURES="${TEST_DIR}/fixtures/php"
+  # The repo-wide vendor/ ignore rule keeps this stub out of a fresh checkout,
+  # so a machine without it cannot exercise the project-engine path. Write to a
+  # temp file and rename so parallel BATS files never observe a partial stub.
+  if [[ ! -x "${PHP_FIXTURES}/with-rector/vendor/bin/rector" ]]; then
+    mkdir -p "${PHP_FIXTURES}/with-rector/vendor/bin"
+    local stub
+    stub="$(mktemp "${PHP_FIXTURES}/with-rector/vendor/bin/.rector.XXXXXX")"
+    printf '#!/usr/bin/env bash\necho "Rector 2.6.4"\n' > "${stub}"
+    chmod +x "${stub}"
+    mv "${stub}" "${PHP_FIXTURES}/with-rector/vendor/bin/rector"
+  fi
   TS_PLUGIN="${MODULE_DIR}/langs/ts/plugin.sh"
   TS_FIXTURES="${TEST_DIR}/fixtures/ts"
   PY_PLUGIN="${MODULE_DIR}/langs/py/plugin.sh"
