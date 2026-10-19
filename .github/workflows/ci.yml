@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install linters
+        run: |
+          npm install -g prettier@3.9.4
+          curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz \
+            | tar -xJ -C /tmp
+          sudo install -m 0755 /tmp/shellcheck-v0.11.0/shellcheck /usr/local/bin/shellcheck
+      - run: make lint
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEV_BOT_ROOT: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test tooling
+        run: |
+          npm install -g prettier@3.9.4 bats@1.13.0 bats-assert@2.2.4 bats-support@0.3.0
+          sudo apt-get update
+          sudo apt-get install -y jq parallel
+      - name: Prepare test fixtures
+        run: |
+          cp .devbot.global.dist.jsonc .devbot.global.jsonc
+          touch .env
+          git config --global user.name "devbot CI"
+          git config --global user.email "ci@devbot.local"
+          bash src/tools/devbot-cli/init.sh "$GITHUB_WORKSPACE"
+      - run: make test

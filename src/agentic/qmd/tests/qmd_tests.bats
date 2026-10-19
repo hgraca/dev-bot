@@ -305,7 +305,7 @@ SCRIPT
   local call_log="${sandbox}/qmd-calls.log"
   : > "$call_log"
 
-  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)")" \
+  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)"):/usr/bin:/bin" \
     XDG_CACHE_HOME="$sandbox/cache" \
     QMD_CALL_LOG="$call_log" \
     QMD_TEST_MEMORY="${sandbox}/.agents/memory" \
@@ -371,7 +371,7 @@ SCRIPT
   : > "$call_log"
   printf '%s' "${sandbox}/.agents/memory/latent" > "$state_file"
 
-  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)")" \
+  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)"):/usr/bin:/bin" \
     XDG_CACHE_HOME="${sandbox}/cache" \
     QMD_CALL_LOG="$call_log" \
     STATE_FILE="$state_file" \
@@ -455,7 +455,7 @@ SCRIPT
   local call_log="${sandbox}/qmd-calls.log"
   : > "$call_log"
 
-  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)")" \
+  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)"):/usr/bin:/bin" \
     XDG_CACHE_HOME="${sandbox}/cache" \
     QMD_CALL_LOG="$call_log" \
     bash "${MODULE_DIR}/init.sh" "${sandbox}"

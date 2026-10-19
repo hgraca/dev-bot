@@ -2090,6 +2090,12 @@ _qmd_gpu_value() {
 #   Never fails the caller: prints informational messages, returns 0.
 
 _devbot_detect_gpu() {
+  # GPU detection legitimately rewrites gpu_enabled from the host, which would
+  # mask a reconciler assertion in a test. Opt out explicitly.
+  if [[ "${DEVBOT_SKIP_GPU_DETECT:-0}" == "1" ]]; then
+    _skip "gpu detection skipped (DEVBOT_SKIP_GPU_DETECT=1)"
+    return 0
+  fi
   local config
   config="$(_devbot_global_config)"
   if [[ ! -f "${config}" ]]; then

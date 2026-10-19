@@ -151,6 +151,7 @@ Two layers interact: agent instructions (the persona — rules the LLM follows) 
 | `devbot up` / `down`                        | Start/stop local LLM services (docker compose)                                                                                                                                        |
 | `devbot models`, `tool`, `list <type>`      | Ollama model mgmt, run a tool, list inventory (incl. `list mcps`)                                                                                                                     |
 | `make test`                                 | **Preferred full suite** — BATS (`src/` + `bin/`), `bun test src/`, python `unittest` over `test_*.py` (~4 min; heavy e2e: search-memories, git-report, init scaffold, harness reset) |
+| `make lint`                                 | **Linters** — shellcheck, prettier (md/json/yml), `py_compile`                                                                                                                        |
 | `make docs` / `make build-test-image`       | Serve docs site locally / build `devbot-test` e2e fixture                                                                                                                             |
 
 Disabled modules in this repo instance (config): claudecode, graphify, litellm, react, signoz, svelte.
@@ -161,7 +162,12 @@ dev-bot is an **installed toolkit**, not a deployed app: it runs inside a consum
 
 ## CI/CD
 
-Single GitHub Actions workflow — `.github/workflows/jekyll-gh-pages.yml`: builds the Jekyll docs site (Ruby 3.3, bundler cache in `docs/`) and deploys to Pages on pushes to `main` touching `docs/**`, `src/**/docs.md`, the aggregate templates (`src/agentic/docs/tools/templates/**`), or the workflow itself; manual `workflow_dispatch` available. **No CI runs the test suite** — `make test` is local-only. Merge to `main` == docs redeploy (no app deploy exists).
+Two GitHub Actions workflows:
+
+- `.github/workflows/ci.yml` — on `pull_request` (and manual dispatch): a `lint` job runs `make lint` (shellcheck, prettier, `py_compile`); a `test` job runs `make test` (BATS, bun, python) after seeding the gitignored fixtures (`.devbot.global.jsonc`, `.env`) and the `.agents/tools` farm. Pinned toolchain: Node 22, bun 1.3.13, Python 3.12, prettier 3.9.4, shellcheck 0.11.0.
+- `.github/workflows/jekyll-gh-pages.yml` — builds the Jekyll docs site (Ruby 3.3, bundler cache in `docs/`) and deploys to Pages on pushes to `main` touching `docs/**`, `src/**/docs.md`, the aggregate templates (`src/agentic/docs/tools/templates/**`), or the workflow itself; manual `workflow_dispatch` available.
+
+Merge to `main` == docs redeploy (no app deploy exists).
 
 ## Critical conventions
 
@@ -174,7 +180,7 @@ Single GitHub Actions workflow — `.github/workflows/jekyll-gh-pages.yml`: buil
 - Tool roles: `.ts` authoritative (agents invoke directly), `.sh` thin CLI wrappers delegating via `bun run`, `.py` internal helpers (never primary entry point). `.py` must parse (`python3 -m py_compile`) before commit.
 - **Detached silent spawn pattern** for hooks: `Bun.spawn([...], { stdio: ["ignore","ignore","ignore"], detached: true }).unref()` — never `await $` (BunShell) in hooks.
 - Cross-platform shell (Linux Mint, Fedora, macOS): no GNU-only tools (`readlink -f`, bare `sed -i`); resolve paths bash-natively, never shell out to `python3`.
-- BATS per module (`tests/<module>_tests.bats`); full suite via `make test` only.
+- BATS per module (`tests/<module>_tests.bats`); full suite via `make test`; linters via `make lint`.
 - Conventional Commits are the repo style; commits must be atomic (one logical change each).
 - External module content arrives via `vendor/` clone — treat as read-only reference, not editable source.
 
@@ -185,7 +191,6 @@ Single GitHub Actions workflow — `.github/workflows/jekyll-gh-pages.yml`: buil
 - Docs tables kept in sync by hand: recent commits exist purely to "align mcps.md table with the live inventory".
 - Two config worlds: committed `*.dist.jsonc` vs gitignored runtime `*.jsonc`/`*.json` — easy to edit the wrong one.
 - Symlink-heavy wiring: tools that don't follow symlinks break on `.opencode/`/`.agents/` farms (glob, qmd index — verified gotchas in memory).
-- No CI gate for tests or lint — `make test` is the only check, so regressions ship to `main` silently if not run locally.
 - **Waiting on upstream `--allow-partial-sources` (mcp-toolbox).** The `datasources` module filters its config to sources the gateway can actually initialize, because toolbox treats an unreachable source as fatal at startup _and_ on reload — one down database would otherwise take the whole shared gateway down. Verified not in `1.11.0` or `1.12.0` (`--help`); the feature is in flight upstream (mcp-toolbox PRs #2662 / #2959). Once released, the filter + canary + quarantine machinery can be deleted and the gateway can serve the full catalogue, degrading only the tools of the unreachable source. This is the intended simplification — do not build new filtering machinery before it lands.
 
 ## When to read docs vs code

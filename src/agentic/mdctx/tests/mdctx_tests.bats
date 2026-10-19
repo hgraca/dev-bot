@@ -199,6 +199,15 @@ _setup_sandbox() {
       *) dirs="${dirs}:${d}" ;;
     esac
   done
+  # Coreutils live here on Linux and macOS; the interpreter dirs above may be
+  # toolcache dirs without them (and are dropped when they hold the real mdctx).
+  for d in /usr/bin /bin; do
+    [ -x "$d/mdctx" ] && continue
+    case ":$dirs:" in
+      *":$d:"*) ;;
+      *) dirs="${dirs}:${d}" ;;
+    esac
+  done
   export PATH="${MOCKBIN}:${dirs#:}"
 }
 

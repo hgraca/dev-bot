@@ -40,6 +40,17 @@ _setup_sandbox() {
       *) dirs="${dirs}:${d}" ;;
     esac
   done
+  # Coreutils live here on Linux and macOS. Keep them even when the interpreter
+  # dirs above were skipped for holding a real prettier: a single-prefix node
+  # install puts node/npm and prettier in the same bin dir, and dropping it
+  # would also drop cat/chmod.
+  for d in /usr/bin /bin; do
+    [ -x "$d/prettier" ] && continue
+    case ":$dirs:" in
+      *":$d:"*) ;;
+      *) dirs="${dirs}:${d}" ;;
+    esac
+  done
   export PATH="${MOCKBIN}:${dirs#:}"
 }
 

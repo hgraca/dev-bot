@@ -117,6 +117,9 @@ JSONC_EOF
 JSONC_EOF
   _publish_release "g.txt" "release 1.2.0" "1.2.0"
 
+  # Assert reconciliation, not host GPU detection: the post-jump refresh
+  # rewrites gpu_enabled from the machine, which differs on CI.
+  export DEVBOT_SKIP_GPU_DETECT=1
   _run_update
 
   [ "$UPDATE_STATUS" -eq 0 ]

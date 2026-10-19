@@ -318,10 +318,6 @@ _setup_idx_sandbox() {
   # Pretend the shared gateway's repo mount covers the sandbox (its real default
   # is $HOME). The scope guard skips a project outside that root.
   export CODEBASE_MEMORY_ROOT="${SANDBOX}"
-  # Only python3's own directory: the hook's reachability guard is a bash
-  # /dev/tcp connect and needs no PATH entry, so nothing else has to be present
-  # for the hook to run — this is what the index helper is invoked with.
-  export PATH="$(dirname "$(command -v python3)")"
   # Stub docker out: the scope guard asks the running gateway container for its
   # repo mount, and the test host may run a real one, which would make the result
   # non-hermetic. Tests then exercise the env-based fallback unless they override
@@ -329,7 +325,11 @@ _setup_idx_sandbox() {
   mkdir -p "${SANDBOX}/stubbin"
   printf '#!/bin/bash\nexit 1\n' > "${SANDBOX}/stubbin/docker"
   chmod +x "${SANDBOX}/stubbin/docker"
-  export PATH="${SANDBOX}/stubbin:${PATH}"
+  # The hook needs only python3 (its reachability guard is a bash /dev/tcp
+  # connect), but this fixture still calls coreutils (mkdir/chmod/cat). A CI
+  # python3 lives in a toolcache directory without them, so include the system
+  # directories explicitly.
+  export PATH="${SANDBOX}/stubbin:$(dirname "$(command -v python3)"):/usr/bin:/bin"
 
   # Stub gateway. The hook indexes through the shared gateway over MCP now, not
   # a host binary, so exercise the real streamable-http conversation: the

@@ -109,12 +109,14 @@ devbot update   # update to the latest release tag
 Working on DevBot itself needs the runtime prerequisites plus one parallel
 runner for the shell test suite:
 
-| Tool                     | Why                                                               | Install                                          |
-| ------------------------ | ----------------------------------------------------------------- | ------------------------------------------------ |
-| `bats` + support libs    | Shell test suite — the bulk of `make test`                        | `npm install -g bats bats-assert bats-support`   |
-| GNU `parallel` or `rush` | Runs the BATS suite in parallel; without it `make test` is serial | `apt install parallel` · `brew install parallel` |
-| `bun`                    | TypeScript test suite and the `.ts` tools                         | `curl -fsSL https://bun.sh/install \| bash`      |
-| `python3`                | `src/_shared` helpers and the Python test suite                   | system package manager                           |
+| Tool                     | Why                                                               | Install                                              |
+| ------------------------ | ----------------------------------------------------------------- | ---------------------------------------------------- |
+| `bats` + support libs    | Shell test suite — the bulk of `make test`                        | `npm install -g bats bats-assert bats-support`       |
+| GNU `parallel` or `rush` | Runs the BATS suite in parallel; without it `make test` is serial | `apt install parallel` · `brew install parallel`     |
+| `bun`                    | TypeScript test suite and the `.ts` tools                         | `curl -fsSL https://bun.sh/install \| bash`          |
+| `python3`                | `src/_shared` helpers and the Python test suite                   | system package manager                               |
+| `prettier`               | Format checks in `make lint` and the format test suites           | `npm install -g prettier`                            |
+| `shellcheck`             | Shell static analysis in `make lint`                              | `apt install shellcheck` · `brew install shellcheck` |
 
 > [!NOTE]
 > GNU `parallel` is preferred; `rush` is picked up automatically when it is the
@@ -130,9 +132,11 @@ with `DEV_BOT_TEST_JOBS`:
 make test DEV_BOT_TEST_JOBS=4
 ```
 
+`make lint` runs shellcheck, the prettier format checks, and `py_compile`.
+
 > [!NOTE]
-> No CI runs the test suite — `make test` is the only gate, so run it before
-> every commit.
+> CI runs both `make lint` and `make test` on every pull request
+> (`.github/workflows/ci.yml`), so run them before every commit.
 
 ---
 
