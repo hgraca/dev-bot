@@ -55,11 +55,11 @@ Before accepting [FINISHED] on any PHP change, verify these:
 
 1. **PHPUnit version check**: `./vendor/bin/phpunit --version` — if <10, use `/** @test` not `#[Test]`
 2. **`fopen` + `stream_get_contents`**: Always check `fopen` for `false` separately before passing to `stream_get_contents`. Pattern:
-    ```php
-    $stream = fopen($url, 'r');
-    if ($stream === false) { throw new \RuntimeException(...); }
-    $result = stream_get_contents($stream);
-    ```
+   ```php
+   $stream = fopen($url, 'r');
+   if ($stream === false) { throw new \RuntimeException(...); }
+   $result = stream_get_contents($stream);
+   ```
 3. **`match` exhaustiveness**: Always include a `default` case — `match` is exhaustive by design
 4. **`null` handling**: When `levelFor()` or similar returns `?Type`, handle `null` with `?? throw` rather than letting `null` propagate
 5. **`Closure::fromCallable`**: Prefer `static function` over `Closure::fromCallable` — both are equivalent but `static` is simpler

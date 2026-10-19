@@ -86,19 +86,19 @@
           "description": "CSS colour class for the column header and its nodes. Must match a known layer class: cli, ctrl, uc, handler, port, adapter, http, event, listnr, cb, indirect.",
           "pattern": "^(cli|ctrl|uc|handler|port|adapter|http|event|listnr|cb|indirect)$"
         },
-    "items": {
-      "type": "array",
-      "description": "Units within this column — either a regular unit, a UseCase, Query, Event, or Listener.",
-      "items": {
-        "oneOf": [
-          { "$ref": "#/definitions/Unit" },
-          { "$ref": "#/definitions/UseCase" },
-          { "$ref": "#/definitions/Query" },
-          { "$ref": "#/definitions/Event" },
-          { "$ref": "#/definitions/Listener" }
-        ]
-      }
-    }
+        "items": {
+          "type": "array",
+          "description": "Units within this column — either a regular unit, a UseCase, Query, Event, or Listener.",
+          "items": {
+            "oneOf": [
+              { "$ref": "#/definitions/Unit" },
+              { "$ref": "#/definitions/UseCase" },
+              { "$ref": "#/definitions/Query" },
+              { "$ref": "#/definitions/Event" },
+              { "$ref": "#/definitions/Listener" }
+            ]
+          }
+        }
       },
       "required": ["title", "color", "items"],
       "additionalProperties": false
@@ -136,7 +136,15 @@
         "type": {
           "type": "string",
           "description": "Type identifier for this node. One of: unit, command, query, event, listener. Used by renderers to determine layout and arrow styling.",
-          "enum": ["unit", "use-case", "command", "command-handler", "query", "event", "event-listener"]
+          "enum": [
+            "unit",
+            "use-case",
+            "command",
+            "command-handler",
+            "query",
+            "event",
+            "event-listener"
+          ]
         }
       },
       "required": ["title"],

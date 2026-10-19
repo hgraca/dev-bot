@@ -48,5 +48,4 @@
 
 name: devbot
 include:
-
-- ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.gpu.yml
+  - ${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.gpu.yml

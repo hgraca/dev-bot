@@ -10,15 +10,15 @@ A dev-tools consumer's Traefik host is built from variables the managed `Makefil
 getting one wrong silently points every worktree at the main checkout.
 
 - `PROJECT_NAME` — compose project, container names and router/service names. The managed
-  Makefile re-assigns it to the **worktree directory name** *after* including `Makefile.proj.mk`
+  Makefile re-assigns it to the **worktree directory name** _after_ including `Makefile.proj.mk`
   (with `override`), so a proj.mk `PROJECT_NAME=transfers` (plain `=`) no longer defeats it.
   That clobber was the bug: every worktree targeted `transfers-app-1` and ran against the main
   checkout's code.
 - `TRAEFIK_SUBDOMAIN_PREFIX` (+ `PROJECT_BASE`) — for a **single host with no main subdomain**:
   `Host(\`${TRAEFIK_SUBDOMAIN_PREFIX}${PROJECT_BASE}.get-e.local\`)`. It is not worktree-scoped
-  once `TRAEFIK_SUBDOMAIN` is set, so a project with a main subdomain must not use it.
+once `TRAEFIK_SUBDOMAIN` is set, so a project with a main subdomain must not use it.
 - `WORKTREE_PREFIX` — empty in the main checkout, `<dir>.` in a worktree. For **multi-host or
-  subdomain** projects: prefix the *literal* main host, e.g.
+  subdomain** projects: prefix the _literal_ main host, e.g.
   `Host(\`${WORKTREE_PREFIX}api.hotels.get-e.local\`)`. This is the only form that scopes every
   host without changing the main checkout.
 - `PROJECT_BASE` must be **declared** (`PROJECT_BASE ?= <base>`). Capturing it from `PROJECT_NAME`
@@ -33,7 +33,7 @@ Two traps that a `Host(...)`/port-only check misses:
 - Core's DB key is **`DB_API_DATABASE`** (not the template's `DB_DATABASE`), so the per-worktree
   `.env` rewrite must use the project's real key — plus `DB_MONGO_DATABASE`.
 
-Hosts flow: `host-requirements/run.sh` (run by the managed `up` *before* `init`/`init-hosts`,
+Hosts flow: `host-requirements/run.sh` (run by the managed `up` _before_ `init`/`init-hosts`,
 so it covers a worktree `make up` too) makes `/etc/hosts` writable via
 `hosts-file-permissions/fix.sh` (self-elevating). Once writable,
 `scripts/ensure-hosts.sh` adds/removes the per-worktree entries with no sudo — and the worktree

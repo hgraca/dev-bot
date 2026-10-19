@@ -19,12 +19,12 @@
       "items": { "$ref": "#/$defs/legendEntry" }
     },
     "subtitle": {
-          "type": "string",
-          "description": "Optional subtitle."
-        },
-        "x": { "type": "integer", "description": "Optional X position." },
-        "y": { "type": "integer", "description": "Optional Y position." },
-        "items": {
+      "type": "string",
+      "description": "Optional subtitle."
+    },
+    "x": { "type": "integer", "description": "Optional X position." },
+    "y": { "type": "integer", "description": "Optional Y position." },
+    "items": {
       "type": "array",
       "items": {
         "anyOf": [

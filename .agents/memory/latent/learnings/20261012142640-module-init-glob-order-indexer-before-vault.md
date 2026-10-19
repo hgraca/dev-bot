@@ -18,7 +18,7 @@ keywords: ["devbot-init", "mdctx", "module-init-order", "memory-vault"]
 directory, and printed a warning then `exit 0` — skipping the project index
 build for that run.
 
-`qmd` carries the *same* latent check but sorts **after** `memory` (`q` > `m`),
+`qmd` carries the _same_ latent check but sorts **after** `memory` (`q` > `m`),
 so it never hit the trap. The defect was latent and masked purely by alphabet.
 
 ## Fix

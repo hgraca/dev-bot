@@ -18,7 +18,7 @@ Every finding was addressed as its own commit, per `devbot:address-review`. Both
 
 ## What was not
 
-- The **13 fix commits** were never re-reviewed; the stakeholder accepted them on the full suite being green. That is where a regression *introduced by* an address would live — two were caught mid-fix (a `re.sub` callback with no capture group, and a `pkill -f` that killed its own shell).
+- The **13 fix commits** were never re-reviewed; the stakeholder accepted them on the full suite being green. That is where a regression _introduced by_ an address would live — two were caught mid-fix (a `re.sub` callback with no capture group, and a `pkill -f` that killed its own shell).
 - `dc4b1acf` itself, as the base of the first range, was never reviewed; only the files it leaves untouched (`external-modules.json`, `pre.sh`, `update.sh`, `functions.sh`) survive from it.
 
 A later audit should read "31 commits, reviewed" as **18 reviewed + 13 unreviewed fixes**, not full coverage.

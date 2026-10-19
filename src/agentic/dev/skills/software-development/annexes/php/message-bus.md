@@ -25,9 +25,9 @@ This file is an annex of the `devbot:software-development` hub. Read it only whe
 
 - Must dispatch messages through actual `get-e/message-bus` — never instantiate handlers directly
 - Use `GetE\MessageBus\Support\Laravel\Test\MessageBusTestCaseTrait` and `QueueTestCaseTrait`:
-    - **Command handlers**: `dispatchCommandAsync($command)`, process with `runQueueWorker($queueName)`, assert with `assertDispatched()`
-    - **Event listeners**: `dispatchEvent($event, ListenerClass::class)`, assert with `assertDispatched()`
-    - **Query handlers**: `dispatchQuery($query)`, assert returned read model
+  - **Command handlers**: `dispatchCommandAsync($command)`, process with `runQueueWorker($queueName)`, assert with `assertDispatched()`
+  - **Event listeners**: `dispatchEvent($event, ListenerClass::class)`, assert with `assertDispatched()`
+  - **Query handlers**: `dispatchQuery($query)`, assert returned read model
 - Nested messages (dispatched by handler under test) logged but not executed — assert with `assertDispatched()`, `assertDispatchedAsync()`, `assertNotDispatched()`
 - Use `\GetE\MessageBus\Port\Context\MessageBusContext` when `Context` implementation needed in tests
 
@@ -366,24 +366,24 @@ When generating UseCase:
 
 1. Create UseCase folder in `app/Core/Component/{ComponentName}/Application/UseCase/`
 2. Generate Command class with:
-    - Correct namespace
-    - `readonly` modifier
-    - `Command` or user-given interfaces
-    - PHPDoc with `@implements Command<ReturnType>`
-    - Constructor with promoted properties
+   - Correct namespace
+   - `readonly` modifier
+   - `Command` or user-given interfaces
+   - PHPDoc with `@implements Command<ReturnType>`
+   - Constructor with promoted properties
 3. Generate CommandHandler class with:
-    - Correct namespace
-    - `readonly` modifier (unless state mutation needed)
-    - `CommandHandler` interface
-    - PHPDoc with `@implements CommandHandler<CommandClass>`
-    - Constructor with required dependencies
-    - `__invoke` method with implementation
+   - Correct namespace
+   - `readonly` modifier (unless state mutation needed)
+   - `CommandHandler` interface
+   - PHPDoc with `@implements CommandHandler<CommandClass>`
+   - Constructor with required dependencies
+   - `__invoke` method with implementation
 4. Create test folder in `tests/Integration/Core/Component/{ComponentName}/Application/UseCase/`
 5. Generate Integration test class with:
-    - Correct namespace
-    - `setUp()` calling `setupSyncDispatcher()`
-    - At least one test method with `#[Test]` attribute
-    - Proper arrange/act/assert structure
+   - Correct namespace
+   - `setUp()` calling `setupSyncDispatcher()`
+   - At least one test method with `#[Test]` attribute
+   - Proper arrange/act/assert structure
 
 ### Imports Reference
 

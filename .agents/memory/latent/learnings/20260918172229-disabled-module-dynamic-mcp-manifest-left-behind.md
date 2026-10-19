@@ -13,7 +13,7 @@ A module init may emit `.opencode/<name>.mcp.json` (opencode) or `.claude/<name>
 
 - **The file is a regular file, not a symlink.** `_reset_symlinks_in_dir` only deletes symlinks, so it never touched the manifest.
 - **The disabled-module prune keyed on a canonical `mcp.json` / `plugin.opencode.json`** — files jetbrains declares neither of. So there was no server key to remove from `opencode.jsonc` either.
-- **`_register_dynamic_mcps` / `_wire_mcp` had no disabled-module gate**, so every reinit merged the leftover manifest back in. `bin/init.sh` skips a disabled module's `init.sh`, so the manifest was *left*, never recreated — but the ungated merge re-registered its server anyway.
+- **`_register_dynamic_mcps` / `_wire_mcp` had no disabled-module gate**, so every reinit merged the leftover manifest back in. `bin/init.sh` skips a disabled module's `init.sh`, so the manifest was _left_, never recreated — but the ungated merge re-registered its server anyway.
 
 Observed symptom: `jetbrains: false` in both configs, yet `.opencode/jetbrains.mcp.json` and the `jetbrains` key in `opencode.jsonc` persisted, and reinit was not idempotent for that project.
 

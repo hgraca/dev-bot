@@ -18,7 +18,7 @@ Two changes make the fixture indexable (commit `a30f70b2`):
   existing registered `projects` — never below `$HOME`, never `/`), and exports
   it before compose interpolates the mount.
 - the fixture launcher passes `CODEBASE_MEMORY_ROOT=<the gateway's real bind
-  source>` (read via `docker inspect` — `test-lib.sh:codebase_gateway_mount`)
+source>` (read via `docker inspect` — `test-lib.sh:codebase_gateway_mount`)
   and `CODEBASE_MEMORY_HOST_PROJECT=<the host run dir>`; `index-project.sh` maps
   the project-relative `src|app` subdir onto the host path and scope-checks THAT
   against the gateway root before calling `mcp-index.py`.

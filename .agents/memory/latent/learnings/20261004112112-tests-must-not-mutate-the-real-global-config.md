@@ -19,7 +19,7 @@ Fix: a `DEV_BOT_GLOBAL_CONFIG` env override, resolved once in `_devbot_global_co
 (`bin/init.sh`, `module.sh`, external-modules scripts, `list-projects.mcp.sh`, the
 wiring-sha helpers). Config-mutating tests point it at a `mktemp` copy seeded from the
 real file, so the real one is never touched — verify with a sha before/after the run.
-Two gotchas: (a) files that compute the path *before* sourcing `functions.sh` (e.g.
+Two gotchas: (a) files that compute the path _before_ sourcing `functions.sh` (e.g.
 `module.sh:20`) must use the inline `${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}`
 form, not the resolver; (b) BATS tests that `awk`-extract a subset of `functions.sh`
 into a sandbox (`up_compose_opts`, `up_config_baseline`, `reinit_dirty_flag`) must also

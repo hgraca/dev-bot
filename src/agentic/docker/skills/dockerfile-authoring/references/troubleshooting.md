@@ -12,11 +12,11 @@ To see the full logs, raise or disable the limit. The variables are `BUILDKIT_ST
   `Environment="BUILDKIT_STEP_LOG_MAX_SIZE=-1"` and `Environment="BUILDKIT_STEP_LOG_MAX_SPEED=-1"`,
   then `systemctl daemon-reload && systemctl restart docker`.
 - **`docker-container` driver / Docker Desktop / any setup:** bake them into a dedicated builder:
-    ```
-    docker buildx create --use --name biglogs \
-      --driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=-1 \
-      --driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=-1
-    ```
+  ```
+  docker buildx create --use --name biglogs \
+    --driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=-1 \
+    --driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=-1
+  ```
 
 Also pass `--progress=plain` for continuous, non-collapsed output.
 

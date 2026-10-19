@@ -10,6 +10,7 @@ When a plan's security claim (e.g., "the `$` tag from `@opencode-ai/plugin` elim
 Example: The original `[VERIFY: gate-plugin-api]` marker only checked export shape (.quiet(), .nothrow(), .exitCode). It did not verify the critical security property — is the argument passed as a separate spawn argument or concatenated into a shell string? If `$` concatenates (like `execSync`), replacing `execSync` with `$` is cosmetic only.
 
 Fix: each `[VERIFY: gate-*]` marker must explicitly list:
+
 1. The **property the claim depends on** (e.g., "argument-array spawning, not shell-string concatenation")
 2. **How to verify it** (e.g., "read the SDK source to confirm `child_process.spawn` with args array" or "test with `; echo injected` and verify injection payload appears as literal text, not executed")
 3. **Why it matters** (e.g., "the entire shell-injection fix depends on this being true")

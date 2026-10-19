@@ -5,7 +5,7 @@ keywords: ["datasources", "genai-toolbox", "red mcp", "lazy activation", "poller
 
 # The datasources MCP goes red when its database is unreachable — and how to reproduce it
 
-The `datasources` module renders `tools.yaml` from only the **usable** datasources — env-complete *and* TCP-reachable, decided by `available_catalogue.py` — and genai-toolbox treats an unreachable source as fatal. A DB outage therefore removes the toolset entirely: `/mcp/<name>` answers `{"code":-32600,"message":"toolset does not exist"}` and opencode paints that server red. A detached poller (`poller.sh`, `DATASOURCES_REFRESH_INTERVAL`, default 10s) re-renders whenever the usable set changes, and the toolbox hot-reloads the rewritten config **in place** (`cp`, not `mv`, because toolbox tracks the file by inode) — so the server side self-heals with no restart of anything. The client does not self-heal; that is the opencode MCP-client-cache behaviour recorded in the global store.
+The `datasources` module renders `tools.yaml` from only the **usable** datasources — env-complete _and_ TCP-reachable, decided by `available_catalogue.py` — and genai-toolbox treats an unreachable source as fatal. A DB outage therefore removes the toolset entirely: `/mcp/<name>` answers `{"code":-32600,"message":"toolset does not exist"}` and opencode paints that server red. A detached poller (`poller.sh`, `DATASOURCES_REFRESH_INTERVAL`, default 10s) re-renders whenever the usable set changes, and the toolbox hot-reloads the rewritten config **in place** (`cp`, not `mv`, because toolbox tracks the file by inode) — so the server side self-heals with no restart of anything. The client does not self-heal; that is the opencode MCP-client-cache behaviour recorded in the global store.
 
 ## Reproducing it
 

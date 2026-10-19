@@ -7,7 +7,7 @@ keywords: ["testing", "harness-init", "bats", "sandbox", "opencode"]
 
 `src/harnesses/opencode/init.sh` and `src/harnesses/claudecode/init.sh` are top-level scripts — sourcing them executes the whole init, so a single function (e.g. `_register_dynamic_mcps`, `_wire_mcp`) cannot be unit-tested in isolation.
 
-They *can* be executed against a throwaway project dir:
+They _can_ be executed against a throwaway project dir:
 
 ```bash
 SB=$(mktemp -d)
@@ -24,4 +24,4 @@ Three testing patterns exist in this repo; pick by what you need:
 - **real run in a sandbox** (this note; `src/harnesses/*/tests/dynamic_mcp_tests.bats`) — faithful end-to-end behavior, at ~5s per test because the full init runs.
 - **extracted pure helper** (e.g. `_devbot_manifest_owner_disabled`, `_mcp_declares_hybrid`) — when the unit under test is a decision, pull it into `_shared/functions.sh` and unit-test it directly.
 
-Caveat: a new helper in `_shared/functions.sh` needs mirroring in the *stubbed* BATS fixtures (`bin/tests/*.bats`) only when the code under test calls it; the real-run sandbox pattern picks it up automatically.
+Caveat: a new helper in `_shared/functions.sh` needs mirroring in the _stubbed_ BATS fixtures (`bin/tests/*.bats`) only when the code under test calls it; the real-run sandbox pattern picks it up automatically.

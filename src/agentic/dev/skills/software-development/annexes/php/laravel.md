@@ -28,10 +28,10 @@ This project upgraded from Laravel 10 without migrating to new file structure. T
 - Middleware: `app/Http/Middleware/`
 - Service providers: `app/Providers/`
 - No `bootstrap/app.php` application configuration:
-    - Middleware registration: `app/Http/Kernel.php`
-    - Exception handling: `app/Exceptions/Handler.php`
-    - Console commands/schedule: `app/Console/Kernel.php`
-    - Rate limits: `RouteServiceProvider` or `app/Http/Kernel.php`
+  - Middleware registration: `app/Http/Kernel.php`
+  - Exception handling: `app/Exceptions/Handler.php`
+  - Console commands/schedule: `app/Console/Kernel.php`
+  - Rate limits: `RouteServiceProvider` or `app/Http/Kernel.php`
 
 ## Conventions
 
