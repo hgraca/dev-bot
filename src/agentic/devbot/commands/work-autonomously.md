@@ -21,13 +21,12 @@ If no task path or URL is given, ask for it before doing anything else.
    — then push the branch and open a pull request onto the default branch following the
    `devbot:gh-create-pr` skill, requesting `@copilot` as a reviewer.
 
-3. **Iterate on Copilot review** — if Copilot was not requested at creation, request it
-   (`gh pr edit <pr> --add-reviewer @copilot`). Wait for the review to land by polling the PR. Read
-   **both** the line comments (`gh api repos/{owner}/{repo}/pulls/<pr>/comments`) **and** the
-   review-body table (`gh api repos/{owner}/{repo}/pulls/<pr>/reviews`) — Copilot findings live in
-   each. Fix every finding autonomously as per your own recommendation, commit each as a `fixup!`
-   (`devbot:git-fixup-commits`), push, and request another Copilot review. Keep repeating this loop
-   until Copilot raises no further findings.
+3. **Iterate on Copilot review** — run the Copilot review loop from `devbot:gh-create-pr`: if
+   Copilot was not requested at creation, request it (`gh pr edit <pr> --add-reviewer @copilot`);
+   wait and re-check on the skill's schedule; read both the line comments and the review-body table;
+   fix every finding autonomously as per your own recommendation, commit each as a `fixup!`
+   (`devbot:git-fixup-commits`), push, and mark the addressed comments. Repeat until a new Copilot
+   review introduces no new findings.
 
 4. **Hand back** — stop and report the pull request. The reviewer will review it themselves, squash
    the fixups and merge.

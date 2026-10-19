@@ -28,7 +28,10 @@ If no branch is given, use the current branch.
 
 4. Compose the title and body per the `devbot:gh-create-pr` skill.
 5. Show the user exactly what will happen — base branch, head branch, title, body, ready/draft,
-   assignee, reviewers, and whether the branch will be pushed — and **wait for explicit approval**.
+   assignee, reviewers, whether the branch will be pushed, and that each Copilot review request may
+   wait up to an hour and several rounds may be needed. Also state that the loop edits, commits,
+   pushes, and marks findings on GitHub, and ask whether those findings may be fixed autonomously
+   or need per-finding approval — then **wait for explicit approval**.
 6. On approval: push the branch if it has no upstream (`git push -u origin <branch>`), then create
    the PR:
 
@@ -38,6 +41,7 @@ If no branch is given, use the current branch.
    ```
 
 7. Print the PR URL.
+8. If Copilot was requested, run the review loop from the skill.
 
 ## Must not
 

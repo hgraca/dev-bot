@@ -17,9 +17,10 @@ address the comments it already has.
 - **`gh-pages`** — scaffolds a Jekyll documentation site deployed to GitHub Pages: a project site, or
   the org-level umbrella that indexes every project's docs site.
 
-`gh-create-pr` is the one write the module makes to GitHub: creating the pull request, plus the
-`git push -u origin <branch>` a never-pushed branch needs. The review commands keep their output
-local — no replies, comments or resolutions are ever posted back.
+`gh-create-pr` is the module's write path to GitHub: creating the pull request, the
+`git push -u origin <branch>` a never-pushed branch needs, and marking findings in its Copilot
+review loop. The review commands keep their output local — no replies, comments or resolutions are
+ever posted back.
 
 ## Configuration
 

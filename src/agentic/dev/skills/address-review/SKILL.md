@@ -60,12 +60,12 @@ commit it fixes, never the fixup — `fixup! fixup! <subject>` cannot be autosqu
 - Collect the user's decisions for all comments in one reply — do not wait for a decision between comments.
 - Defer all implementation until every comment has a decision — never write code or commit mid-discussion.
 - Obtain an explicit decision from the user on each comment, unless the caller granted autonomy explicitly.
-- Keep all actions local — never post replies, comments, or resolutions back to the review source.
+- Keep all actions local — never post replies, comments, or resolutions back to the review source, except in the Copilot loop in `devbot:gh-create-pr`, which marks its findings.
 - Record each independent finding as an atomic fixup commit against the branch commit that introduced the code — keep it atomic, squashable into its target, and traceable. On a feature branch this is required; squash before merging, and never record a fixup on the default branch.
 
 ## MUST NOT
 
-- Post replies, comments, or resolutions back to the review source — all communication is local only.
+- Post replies, comments, or resolutions back to the review source — all communication is local only, except in the Copilot loop in `devbot:gh-create-pr`.
 - Write code, make commits, or mark issues resolved while any comment is still undecided.
 - Discuss comments one at a time — present them all together in a single round.
 - Skip the explain/assess/propose step for any comment.
