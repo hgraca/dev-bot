@@ -7,7 +7,7 @@ EXEC_SHELL=/bin/bash
 # Declare all non-file targets as phony so a same-named file or directory in the
 # repo root never shadows them (e.g. a stray `test` dir would otherwise make
 # `make test` silently report "up to date" and run nothing).
-.PHONY: help install update uninstall up down restart test logs docs docs-gather app
+.PHONY: help install update uninstall up down restart test lint logs docs docs-gather app
 # SECONDEXPANSION is needed to be able to resolve `psr4: .docker-wrap-$$@` to `psr4: .docker-wrap-psr4`
 .SECONDEXPANSION:
 
@@ -185,6 +185,76 @@ test: ## Run the full test suite
 		(cd "$$(dirname "$$f")" && $(HERMETIC_GIT) python3 -m unittest "$$(basename "$$f" .py)") || failed=1; \
 	done < <(find src -name 'test_*.py' -not -path '*/node_modules/*' 2>/dev/null | sort); \
 	[ $${failed} -eq 0 ]
+
+# Keep the prettier flags in sync with the format-* hooks
+# (src/agentic/format-*/tools/*.py): they define the project's standard.
+# Shellcheck scope excludes .bats: BATS is its own syntax and does not parse as
+# shell. The .bash helpers and the extensionless bin/devbot are included.
+lint: ## Run the linters (shellcheck, prettier, py_compile)
+	echo -e "\n\033[1m\033[34m━━━ Running linters... ━━━\033[0m"
+	@failed=0; \
+	if ! command -v shellcheck >/dev/null 2>&1; then \
+		echo "ERROR: shellcheck not found — install it first (apt install shellcheck or a release binary)"; \
+		failed=1; \
+	else \
+		scripts=(); \
+		while IFS= read -r f; do scripts+=("$$f"); done < <(git ls-files '*.sh' '*.bash' 'bin/devbot' 'bin/devbot-*'); \
+		if [ $${#scripts[@]} -eq 0 ]; then \
+			echo "ERROR: no shell scripts found — git ls-files returned nothing"; \
+			failed=1; \
+		elif shellcheck -x --severity=warning "$${scripts[@]}"; then \
+			echo "  shellcheck: clean"; \
+		else \
+			failed=1; \
+		fi; \
+	fi; \
+	if ! command -v prettier >/dev/null 2>&1; then \
+		echo "ERROR: prettier not found — install it first (npm install -g prettier)"; \
+		failed=1; \
+	elif ! command -v node >/dev/null 2>&1; then \
+		echo "ERROR: node not found — prettier requires node"; \
+		failed=1; \
+	else \
+		md=(); while IFS= read -r f; do md+=("$$f"); done < <(git ls-files '*.md' | grep -vE '(^|/)(storage|tests)/'); \
+		json=(); while IFS= read -r f; do json+=("$$f"); done < <(git ls-files '*.json' '*.jsonc' | grep -vE '(^|/)(storage|tests)/'); \
+		yml=(); while IFS= read -r f; do yml+=("$$f"); done < <(git ls-files '*.yml' '*.yaml' | grep -vE '(^|/)(storage|tests)/'); \
+		if [ $${#md[@]} -eq 0 ]; then \
+			echo "ERROR: no markdown files found — git ls-files returned nothing"; failed=1; \
+		elif ! prettier --parser markdown --print-width 999 --embedded-language-formatting off --ignore-path /dev/null --check "$${md[@]}"; then \
+			failed=1; \
+		else \
+			echo "  prettier md: clean"; \
+		fi; \
+		if [ $${#json[@]} -eq 0 ]; then \
+			echo "ERROR: no json files found — git ls-files returned nothing"; failed=1; \
+		elif ! prettier --parser json --print-width 80 --ignore-path /dev/null --check "$${json[@]}"; then \
+			failed=1; \
+		else \
+			echo "  prettier json: clean"; \
+		fi; \
+		if [ $${#yml[@]} -eq 0 ]; then \
+			echo "ERROR: no yaml files found — git ls-files returned nothing"; failed=1; \
+		elif ! prettier --parser yaml --print-width 999 --ignore-path /dev/null --check "$${yml[@]}"; then \
+			failed=1; \
+		else \
+			echo "  prettier yml: clean"; \
+		fi; \
+	fi; \
+	if ! command -v python3 >/dev/null 2>&1; then \
+		echo "ERROR: python3 not found — install python3"; \
+		failed=1; \
+	else \
+		pycache="$$(mktemp -d)"; \
+		pyfailed=0; \
+		while IFS= read -r f; do PYTHONPYCACHEPREFIX="$$pycache" python3 -m py_compile "$$f" || pyfailed=1; done < <(git ls-files '*.py'); \
+		rm -r "$$pycache" 2>/dev/null || true; \
+		if [ $${pyfailed} -eq 0 ]; then \
+			echo "  py_compile: clean"; \
+		else \
+			failed=1; \
+		fi; \
+	fi; \
+	exit $${failed}
 
 logs:
 	tail -f "$$(ls -t ~/.local/share/opencode/log/*.log | head -1)" -n 100
