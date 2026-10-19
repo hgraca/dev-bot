@@ -252,7 +252,12 @@ PY
     || fail "watchdog hook double-registered as standalone plugin"
 
   # ── Verify module files created by init scripts ────────────────────────
-  [ -f "$test_project/.graphifyignore" ]
+  # graphify's init exits before wiring .graphifyignore when the CLI is not
+  # installed (a test runner need not install it); the git hooks below already
+  # carry the same condition.
+  if command -v graphify >/dev/null 2>&1; then
+    [ -f "$test_project/.graphifyignore" ]
+  fi
   [ -f "$test_project/repomix.config.json" ]
 
   # ── Verify git hooks created by graphify (optional, requires graphify binary) ──
