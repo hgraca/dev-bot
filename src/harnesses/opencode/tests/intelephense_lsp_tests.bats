@@ -72,6 +72,20 @@ _stub_intelephense() {
   rm -rf "${root}"
 }
 
+@test "wrapper: the enforced heap cap wins over an inherited NODE_OPTIONS" {
+  local root
+  root="$(mktemp -d)"
+  _stub_intelephense "${root}/storage/intelephense/node_modules/.bin"
+
+  run env DEV_BOT_ROOT="${root}" HOME="${root}/home" PATH="/usr/bin:/bin" \
+    NODE_OPTIONS="--max-old-space-size=4096" "${BASH_BIN}" "${WRAPPER}"
+
+  assert_success
+  # Node uses the last occurrence; the enforced cap must be last.
+  assert_output --partial "--max-old-space-size=4096 --max-old-space-size=2048"
+  rm -rf "${root}"
+}
+
 @test "wrapper: FATALs when intelephense cannot be found" {
   local root
   root="$(mktemp -d)"

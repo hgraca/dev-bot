@@ -18,7 +18,7 @@ DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." 
 
 # Cap each server's V8 heap so a run-away index can swap out the machine
 # (a single instance has been seen holding ~3.3 GB of swap while indexing).
-export NODE_OPTIONS="--max-old-space-size=2048 ${NODE_OPTIONS:-}"
+export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=2048"
 
 # Honour the XDG base-dir overrides — opencode resolves its bin under
 # ${XDG_DATA_HOME:-~/.local/share}/opencode/bin.
