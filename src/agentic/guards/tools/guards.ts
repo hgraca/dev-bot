@@ -82,6 +82,43 @@ const COMMAND_RUNNERS = new Set([
   "nsenter", "chroot",
 ])
 
+/**
+ * Fold each quoted shell argument into a single token, replacing the spaces it
+ * contains with \x1f (a non-whitespace byte the patterns match as token text).
+ * This keeps argument boundaries intact: `-c "user.name=Jane Doe"` stays one
+ * value, and `"-C"` becomes the bare option name.
+ */
+function foldQuotedTokens(segment: string): string {
+  let out = ""
+  let i = 0
+  while (i < segment.length) {
+    const ch = segment[i]
+    if (ch === '"' || ch === "'") {
+      const quote = ch
+      let value = ""
+      i += 1
+      while (i < segment.length) {
+        if (quote === '"' && segment[i] === "\\" && i + 1 < segment.length) {
+          value += segment[i + 1]
+          i += 2
+          continue
+        }
+        if (segment[i] === quote) {
+          i += 1
+          break
+        }
+        value += segment[i]
+        i += 1
+      }
+      out += value.replace(/\s/g, "\x1f")
+      continue
+    }
+    out += ch
+    i += 1
+  }
+  return out
+}
+
 /** Evaluate a command against guard rules. First matching rule wins. */
 function evaluate(command: string, guards: GuardRule[]): GuardResult {
   // A raw substring match blocks ANY command whose TEXT contains the pattern —
@@ -101,7 +138,11 @@ function evaluate(command: string, guards: GuardRule[]): GuardResult {
         if (!trimmed) continue
         const name = trimmed.split(/\s+/)[0]
         const substring = COMMAND_RUNNERS.has(name) || /\$\(|`/.test(trimmed)
-        if ((substring ? new RegExp(g.regex) : anchored).test(trimmed)) {
+        const matcher = substring ? new RegExp(g.regex) : anchored
+        // Shell-equivalent quoting must not bypass a guard. Test the raw text
+        // (runner contents stay visible) and a boundary-preserving fold.
+        const folded = foldQuotedTokens(trimmed)
+        if (matcher.test(trimmed) || (folded !== trimmed && matcher.test(folded))) {
           return { blocked: true, message: g.message }
         }
       }

@@ -120,6 +120,21 @@ print('CHANNELS:OK')
   assert_output --partial '"blocked":true'
 }
 
+@test "guards do not block a grep argument mentioning a force push" {
+  run bun run "$TOOL" --command 'git log --grep="push --force"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
+@test "guards block a force-push with a quoted option name" {
+  run bun run "$TOOL" --command 'git "-C" /tmp/worktree push --force origin main' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "guards block a force-push with a quoted long option name" {
+  run bun run "$TOOL" --command 'git "--no-pager" push --force origin main' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
 @test "guards block a force-push with a double-quoted push subcommand" {
   run bun run "$TOOL" --command 'git "push" --force origin main' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
   assert_output --partial '"blocked":true'
