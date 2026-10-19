@@ -1,0 +1,9 @@
+{
+  "mcp": {
+    "figma": {
+      "type": "http",
+      "enabled": false,
+      "url": "https://mcp.figma.com/mcp"
+    }
+  }
+}
