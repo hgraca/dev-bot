@@ -33,6 +33,7 @@ Every module follows the same structure; **all entries are optional** — includ
   pre.sh                Prerequisites check
   functions.sh          Thin wrapper sourcing `src/_shared/functions.sh`
   mcp.json              Canonical MCP server manifest (harness-agnostic — see [MCP configuration](/mcp-config))
+  mcp.dynamic.json      Server-key prefixes this module writes at runtime (dynamic MCP emitters only)
   plugin.opencode.json  OpenCode plugin names declared by this module (optional)
   external-modules.json External module dependencies declared by this module
 ```
@@ -114,6 +115,8 @@ Declare the MCP server(s) once in a canonical, harness-agnostic `mcp.json` — b
 ```
 
 Enabling/disabling the module is the main gate. A server can also declare `"enabled": false` to ship **wired but not started** (the manifest entry below would become `"enabled": false,` right after `type`) — opencode registers it but does not start it; claudecode omits the server entirely, since `.mcp.json` has no per-server on/off. If the module's integration with a harness is plugin-based (like codebase-index on opencode), declare it in `plugin.opencode.json` instead — the opencode registration adapter skips plugin-provided servers to avoid double-loading.
+
+A server whose definition is only known at init time (a detected port, a per-connection name) is written as a **runtime manifest** instead — `.opencode/<name>.mcp.json` / `.opencode/<name>-<detail>.mcp.json`, applied by the harness. Ship an `mcp.dynamic.json` next to `init.sh` declaring the key prefixes it writes (`{"prefixes": ["my-module"]}`): reset prunes a disabled emitter's `<prefix>` / `<prefix>-<detail>` keys by that declaration, never by module name alone — so a user's own `mcp.<some-module>` entry is not destroyed when a module that ships no MCP server is disabled. The prefix is the module directory name, written without the trailing hyphen an emitter may use internally (`aws`, not `aws-`).
 
 ### Documentation (`docs.md`)
 

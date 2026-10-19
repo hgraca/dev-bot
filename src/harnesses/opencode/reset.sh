@@ -317,21 +317,34 @@ for k in data.get('mcp', {}):
     # The manifest is a regular file, so it can be gone before this reset runs
     # (a user cleared .opencode/, or the project was re-seeded) while the merged
     # key stays in opencode.jsonc — leaving nothing for the loop above to key
-    # on, and a disabled module's server live across every later reinit. A
-    # dynamic module declares no canonical mcp.json, and its servers are named
-    # after it (<name>, <name>-<detail>) — the same exact-or-hyphen ownership
-    # rule _devbot_manifest_owner_disabled applies to the manifest filename — so
-    # prune those keys by name.
-    if [[ ! -f "${mod_dir}/mcp.json" && -f "${REMOVE_MCP_PY}" ]]; then
-      while IFS= read -r orphan_key; do
-        [[ -n "${orphan_key}" ]] || continue
-        python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${orphan_key}" 2>/dev/null || true
-        _ok "${disabled_name}: removed orphaned MCP '${orphan_key}' (module disabled)"
-      done < <(
-        python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
-          | jq -r --arg name "${disabled_name}" \
-            'keys[] | select(. == $name or startswith($name + "-"))' 2>/dev/null || true
-      )
+    # on, and a disabled module's server live across every later reinit.
+    #
+    # Absence of a manifest does NOT establish ownership: most modules (git,
+    # format-*, …) ship no MCP server, and a user may have registered a server
+    # of the same name themselves. Only a dynamic emitter — a module shipping
+    # mcp.dynamic.json with the key prefixes it writes — owns <prefix> /
+    # <prefix>-<detail> keys, so only those are swept by name.
+    if [[ -f "${mod_dir}/mcp.dynamic.json" && -f "${REMOVE_MCP_PY}" ]]; then
+      dynamic_prefixes="$(jq -r '.prefixes[]?' "${mod_dir}/mcp.dynamic.json" 2>/dev/null || true)"
+      [[ -n "${dynamic_prefixes}" ]] \
+        || _warn "${disabled_name}: mcp.dynamic.json declares no usable prefixes — skipping orphan sweep"
+      while IFS= read -r dynamic_prefix; do
+        [[ -n "${dynamic_prefix}" ]] || continue
+        # Declarations name the module, the same ownership rule the manifest
+        # filename follows — tolerate a prefix written with the trailing hyphen
+        # its emitter uses internally (aws- / datasources-).
+        dynamic_prefix="${dynamic_prefix%-}"
+        [[ -n "${dynamic_prefix}" ]] || continue
+        while IFS= read -r orphan_key; do
+          [[ -n "${orphan_key}" ]] || continue
+          python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${orphan_key}" 2>/dev/null || true
+          _ok "${disabled_name}: removed orphaned MCP '${orphan_key}' (module disabled)"
+        done < <(
+          python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
+            | jq -r --arg prefix "${dynamic_prefix}" \
+              'keys[] | select(. == $prefix or startswith($prefix + "-"))' 2>/dev/null || true
+        )
+      done <<< "${dynamic_prefixes}"
     fi
   done < <(echo "${_disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
   unset REMOVE_PLUGIN_PY

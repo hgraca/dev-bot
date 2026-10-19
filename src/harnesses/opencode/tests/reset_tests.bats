@@ -540,7 +540,10 @@ print('D8-DYNAMIC-PRUNE:OK')
 # entry stays in opencode.jsonc. The manifest-keyed prune then has nothing to
 # find and the disabled module's server stays live across every reinit.
 # Ownership follows the same exact-or-hyphen rule as the manifest filename
-# (<name>, <name>-<detail>) — the rule _devbot_manifest_owner_disabled applies.
+# (<name>, <name>-<detail>) — the rule _devbot_manifest_owner_disabled applies —
+# but it must be DECLARED: only a module shipping mcp.dynamic.json (the runtime
+# manifest emitter) is swept by name, so a module with no MCP server never
+# deletes a user's same-named entry.
 _write_orphaned_key_fixture() {
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
 {
@@ -600,4 +603,165 @@ print('D9-ORPHAN-PRUNE:OK')
   assert_success
 
   assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
+}
+
+# ── D10: the disable sweep requires declared dynamic-MCP ownership ──────────
+# Absence of a canonical mcp.json does not mean the module ever registered a
+# key: most modules (git, docs, format-*, …) ship no MCP server at all. A user
+# may still configure `mcp.git` themselves, and disabling the module must not
+# delete it. Only a module declaring mcp.dynamic.json — the runtime-manifest
+# emitter — owns <prefix> / <prefix>-<detail> keys.
+_write_unowned_key_fixture() {
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "modules": {
+    "opencode": true,
+    "git": false,
+    "docs": false
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "git": {"type": "local", "command": ["uvx", "mcp-server-git"]},
+    "docs-lint": {"type": "local", "command": ["docs-lint-mcp"]}
+  }
+}
+JSONC_EOF
+}
+
+@test "D10: a disabled module with no dynamic-MCP declaration keeps the user's same-named server" {
+  _write_unowned_key_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'git' in mcp, mcp
+assert 'docs-lint' in mcp, mcp
+print('D10-UNOWNED-KEPT:OK')
+"
+  assert_success
+  grep -qF 'D10-UNOWNED-KEPT:OK' <<< "$output" || fail "unowned user MCP server was pruned"
+}
+
+# ── D11: declared prefixes of a disabled dynamic module are swept ───────────
+# datasources and aws own several keys (<name>-<detail>), so their declaration
+# lists a prefix rather than a single server name; the hyphen boundary and the
+# user's unrelated key are asserted alongside.
+_write_multi_prefix_fixture() {
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "modules": {
+    "opencode": true,
+    "datasources": false,
+    "aws": false
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "datasources-mariadb": {"type": "remote", "url": "http://127.0.0.1:1/mcp"},
+    "datasources-extra": {"type": "remote", "url": "http://127.0.0.1:2/mcp"},
+    "aws-prod": {"type": "local", "command": ["aws-mcp"]},
+    "datasourcesque": {"type": "local", "command": ["user-mcp"]},
+    "user": {"type": "local", "command": ["user-mcp"]}
+  }
+}
+JSONC_EOF
+}
+
+@test "D11: reset sweeps every declared dynamic prefix, honouring the hyphen boundary" {
+  _write_multi_prefix_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'datasources-mariadb' not in mcp, mcp
+assert 'datasources-extra' not in mcp, mcp
+assert 'aws-prod' not in mcp, mcp
+assert 'datasourcesque' in mcp, mcp
+assert 'user' in mcp, mcp
+print('D11-PREFIX-PRUNE:OK')
+"
+  assert_success
+  grep -qF 'D11-PREFIX-PRUNE:OK' <<< "$output" || fail "declared dynamic prefixes not swept"
+}
+
+# ── D12: canonical-manifest modules keep their disable prune ────────────────
+# The task's criterion names qmd/mdctx/tools-mcp: qmd is a retired key (D7
+# above) and mdctx/tools-mcp ship canonical mcp.json manifests, whose keys are
+# pruned by the manifest branch — independent of the dynamic-owner sweep.
+_write_canonical_fixture() {
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "modules": {
+    "opencode": true,
+    "mdctx": false,
+    "tools-mcp": false
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  # Entries must be CURRENT against their templates: tools-mcp is on
+  # REFRESH_MODULES, so a stale literal would be dropped by the refresh path
+  # before the disabled-module canonical branch ever sees it — the test would
+  # pass without exercising the prune under test.
+  python3 - "${PROJECT_ROOT}/src/_shared" "${PROJECT_ROOT}" "${SANDBOX_DIR}" <<'PY_EOF'
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from mcp_translate import load_canonical, server_map, translate
+
+entries = {}
+for module, key in (("mdctx", "mdctx"), ("tools-mcp", "devbot-tools")):
+    canon = load_canonical(sys.argv[2] + "/src/agentic/" + module + "/mcp.json")
+    entries[key] = translate(server_map(canon)[key], "opencode")
+
+entries["user"] = {"type": "local", "command": ["user-mcp"]}
+with open(sys.argv[3] + "/opencode.jsonc", "w") as f:
+    json.dump({"mcp": entries}, f, indent=2)
+    f.write("\n")
+PY_EOF
+}
+
+@test "D12: canonical mcp.json keys of disabled mdctx and tools-mcp are pruned" {
+  _write_canonical_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'mdctx' not in mcp, mcp
+assert 'devbot-tools' not in mcp, mcp
+assert 'user' in mcp, mcp
+print('D12-CANONICAL-PRUNE:OK')
+"
+  assert_success
+  grep -qF 'D12-CANONICAL-PRUNE:OK' <<< "$output" || fail "canonical keys of disabled modules not pruned"
 }
