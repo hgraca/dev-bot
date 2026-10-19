@@ -85,7 +85,7 @@ resolve against the named schema stays an error.
 ## Workflow
 
 1. **Identify** all YAML/YML/JSON manifest files under the target path. Directory sweeps gather only files that look like Kubernetes manifests (contain an `apiVersion` and a `kind` key) — non-manifest YAML/JSON (config files, editor/tool caches such as `.opencode/index/` or `graphify-out`) is skipped, so a sweep never drowns real findings in "missing 'kind' key" noise. Pass an explicit file path to lint a file that the sweep would skip.
-2. **Invoke** `lint-k8s` with `args=["<target-path>"]`. On a review, add
+2. **Invoke** `lint-k8s` with `args=["<target-path>", "--json"]`. On a review, add
    `["--changed", "--base", "<merge-base>"]` — the default base is `HEAD`, which skips a clean
    feature branch's committed changes. Use `git merge-base origin/<default> HEAD` (or the base
    branch) as `<merge-base>`. Options go in the `args` array, not named properties.
