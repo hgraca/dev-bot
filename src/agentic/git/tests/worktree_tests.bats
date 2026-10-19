@@ -78,7 +78,7 @@ worktree() {
   assert_success
   assert_equal "$(git -C "$WORKTREES/feat-from-release" rev-parse HEAD)" \
     "$(git -C "$WORK" rev-parse origin/release/v1.9)"
-  refute_equal "$(git -C "$WORKTREES/feat-from-release" rev-parse HEAD)" \
+  assert_not_equal "$(git -C "$WORKTREES/feat-from-release" rev-parse HEAD)" \
     "$(git -C "$WORK" rev-parse origin/main)"
 }
 
