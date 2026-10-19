@@ -226,7 +226,7 @@ cmd_install() {
                 # Existing repo - fetch updates
                 _info "Updating ${name} ..."
                 (cd "${dest}" && git fetch --depth 1 origin +refs/heads/*:refs/remotes/origin/* && \
-                  git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)) >/dev/null 2>&1 || {
+                  git reset --hard origin/"$(git rev-parse --abbrev-ref HEAD)") >/dev/null 2>&1 || {
                     _warn "Failed to update ${name}"
                     continue
                 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2034  # fixtures consumed by the tests that load this helper
 # Shared setup() and helpers for the refactor test files (loaded via `load`).
 
 setup() {

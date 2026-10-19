@@ -1,4 +1,5 @@
 #!/usr/bin/env bats
+# shellcheck disable=SC2034  # fixtures consumed by the tests that load this helper
 # =============================================================================
 # src/agentic/git/tests/release_test_helper.bash
 #

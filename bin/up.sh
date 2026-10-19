@@ -22,8 +22,10 @@ export DEV_BOT_ROOT
 # starts directly as the host uid (mdctx); codebase-memory passes them to its
 # entrypoint instead, which chowns the store volume and then drops privileges to
 # them — its store is a named volume, so `user:` would remove the chown it needs.
-export DEV_UID="$(id -u)"
-export DEV_GID="$(id -g)"
+DEV_UID="$(id -u)"
+export DEV_UID
+DEV_GID="$(id -g)"
+export DEV_GID
 
 # ── Source shared library ──────────────────────────────────────────────────────
 # shellcheck source=../src/_shared/functions.sh
@@ -313,7 +315,7 @@ _ensure_writable_bind_sources() {
     if [[ -d "${source}" ]]; then
       continue
     fi
-    if mkdir -p -m 700 "${source}" 2>/dev/null; then
+    if (umask 077 && mkdir -p "${source}") 2>/dev/null; then
       _ok "created writable mount source ${source}"
     else
       _warn "could not create mount source ${source}"

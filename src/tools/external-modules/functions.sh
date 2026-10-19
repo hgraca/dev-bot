@@ -187,7 +187,7 @@ _install_one_module() {
     if [[ -d "${dest}/.git" ]]; then
         _info "Updating ${name} ..."
         if (cd "${dest}" && git fetch --depth 1 origin +refs/heads/*:refs/remotes/origin/* && \
-            git reset --hard origin/$(git rev-parse --abbrev-ref HEAD)) >/dev/null 2>&1; then
+            git reset --hard origin/"$(git rev-parse --abbrev-ref HEAD)") >/dev/null 2>&1; then
             _ok "${name} updated"
         else
             _warn "Failed to update ${name}"

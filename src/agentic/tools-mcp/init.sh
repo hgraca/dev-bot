@@ -7,6 +7,7 @@ PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd)"
 source "${MODULE_DIR}/functions.sh"
 
 # Force-correct DEV_BOT_ROOT — _shared/functions.sh computes it one level too deep
+# shellcheck disable=SC2034  # consumed by the sourced _shared functions
 DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../../.." && pwd)"
 
 _header_3 "Tools MCP Init"

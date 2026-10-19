@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034,SC2154  # fixtures set/read by the suites that load this helper
 # =============================================================================
 # bin/tests/update_helpers.bash
 # Shared fixture builders for the bin/update.sh suites. Never run directly —

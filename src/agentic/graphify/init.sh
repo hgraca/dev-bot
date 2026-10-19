@@ -37,6 +37,7 @@ _fmt_duration() {
 source "${MODULE_DIR}/../../_shared/functions.sh"
 
 # Force-correct DEV_BOT_ROOT — _shared/functions.sh computes it one level too deep
+# shellcheck disable=SC2034  # consumed by the sourced _shared functions
 DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../../.." && pwd)"
 
 _header_3 "Graphify Init"

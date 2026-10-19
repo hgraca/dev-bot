@@ -21,8 +21,6 @@ source "${MODULE_DIR}/functions.sh"
 main() {
   _info "codebase-index — install"
 
-  PROJECT_DIR="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-
   # Ensure the embedding model exists on the ollama API — non-blocking: skips
   # models already present and pulls missing ones as independent processes, so
   # install never waits on a model download.

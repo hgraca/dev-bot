@@ -115,7 +115,8 @@ _fmt_duration() {
 
 _devbot_is_true() {
   local key="$1"
-  local config="$(_devbot_global_config)"
+  local config
+  config="$(_devbot_global_config)"
   [[ ! -f "${config}" ]] && return 1
   grep -q "\"${key}\"[[:space:]]*:[[:space:]]*true" "${config}" 2>/dev/null && return 0
   return 1
@@ -132,7 +133,8 @@ _devbot_get_bool() {
 
 _devbot_set_bool() {
   local key="$1" value="$2"
-  local config="$(_devbot_global_config)"
+  local config
+  config="$(_devbot_global_config)"
 
   if [[ ! -f "${config}" ]]; then
     _warn ".devbot.global.jsonc not found at ${config}"
@@ -176,7 +178,8 @@ _devbot_get_config() {
 
   # Fall back to global config
   if [[ -z "${value}" ]]; then
-    local global_config="$(_devbot_global_config)"
+    local global_config
+    global_config="$(_devbot_global_config)"
     if [[ -f "${global_config}" ]]; then
       value=$(python3 "${reader}" "${global_config}" "${key}" 2>/dev/null || true)
     fi
@@ -668,7 +671,8 @@ _devbot_get_codebase_provider() {
   local shared_dir
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local reader="${shared_dir}/read_jsonc.py"
-  local global_config="$(_devbot_global_config)"
+  local global_config
+  global_config="$(_devbot_global_config)"
 
   local provider=""
   if [[ -f "${global_config}" ]]; then
@@ -801,7 +805,8 @@ _devbot_get_memory_search_provider() {
   local shared_dir
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local reader="${shared_dir}/read_jsonc.py"
-  local global_config="$(_devbot_global_config)"
+  local global_config
+  global_config="$(_devbot_global_config)"
 
   # DEVBOT_MEMORY_SEARCH_PROVIDER env override wins (hermetic tests — mirrors
   # search-memories.py's SEARCH_MEMORIES_PROVIDER).
@@ -909,7 +914,8 @@ _devbot_install_version() {
 _devbot_set_global_value() {
   local key="${1:?Usage: _devbot_set_global_value <key> <raw-json>}"
   local raw="${2:?Usage: _devbot_set_global_value <key> <raw-json>}"
-  local config="$(_devbot_global_config)"
+  local config
+  config="$(_devbot_global_config)"
   [[ -f "${config}" ]] || return 1
 
   # read_jsonc lives beside this file — pass its dir so the validator imports
@@ -974,7 +980,8 @@ PY
 _devbot_ensure_global_value() {
   local key="${1:?Usage: _devbot_ensure_global_value <key> <raw-json>}"
   local raw="${2:?Usage: _devbot_ensure_global_value <key> <raw-json>}"
-  local config="$(_devbot_global_config)"
+  local config
+  config="$(_devbot_global_config)"
   [[ -f "${config}" ]] || return 1
   if grep -q "\"${key}\"[[:space:]]*:" "${config}" 2>/dev/null; then
     return 0
@@ -1003,7 +1010,8 @@ _devbot_get_disabled_modules() {
   local shared_dir
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local reader="${shared_dir}/read_jsonc.py"
-  local global_config="$(_devbot_global_config)"
+  local global_config
+  global_config="$(_devbot_global_config)"
 
   # Read global modules map
   local global_states="{}"
@@ -1093,7 +1101,8 @@ _devbot_manifest_owner_disabled() {
 #   storage/external-agentic-modules/ filesystem directories.
 
 _devbot_get_external_modules() {
-  local global_config="$(_devbot_global_config)"
+  local global_config
+  global_config="$(_devbot_global_config)"
   [[ -f "${global_config}" ]] || return 0
   python3 -c "
 import json, sys
@@ -1153,7 +1162,8 @@ for name in sorted(declarers):
 #   not deny its external modules to the others.
 
 _devbot_rebuild_external_module_config() {
-  local config_file="$(_devbot_global_config)"
+  local config_file
+  config_file="$(_devbot_global_config)"
   local merge_script="${DEV_BOT_ROOT}/src/_shared/merge_modules_jsonc.py"
 
   local found_count=0
@@ -1705,7 +1715,8 @@ _devbot_wiring_sha() {
 _devbot_config_changed() {
   local project_dir="${1:-$(pwd)}"
   local project_config="${project_dir}/.devbot.project.jsonc"
-  local global_config="$(_devbot_global_config)"
+  local global_config
+  global_config="$(_devbot_global_config)"
   [[ -f "${project_config}" || -f "${global_config}" ]] || return 1
   local sha_path current stored
   sha_path="$(_devbot_config_sha_path "${project_config}")"
@@ -1719,7 +1730,8 @@ _devbot_config_changed() {
 _devbot_write_config_sha() {
   local project_dir="${1:-$(pwd)}"
   local project_config="${project_dir}/.devbot.project.jsonc"
-  local global_config="$(_devbot_global_config)"
+  local global_config
+  global_config="$(_devbot_global_config)"
   [[ -f "${project_config}" || -f "${global_config}" ]] || return 0
   local sha_path current
   sha_path="$(_devbot_config_sha_path "${project_config}")"
@@ -1775,7 +1787,8 @@ _devbot_auto_reinit_if_config_changed() {
 #   argv, config files) stable, or re-exec the new bin/devbot after a move.
 
 _devbot_auto_update_if_enabled() {
-  local global_config="$(_devbot_global_config)"
+  local global_config
+  global_config="$(_devbot_global_config)"
   local enabled="true"
   if [[ -f "${global_config}" ]]; then
     local shared_dir reader
@@ -2077,7 +2090,8 @@ _qmd_gpu_value() {
 #   Never fails the caller: prints informational messages, returns 0.
 
 _devbot_detect_gpu() {
-  local config="$(_devbot_global_config)"
+  local config
+  config="$(_devbot_global_config)"
   if [[ ! -f "${config}" ]]; then
     _skip "gpu detection skipped — no .devbot.global.jsonc yet (run install's config step first)"
     return 0

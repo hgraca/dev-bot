@@ -525,14 +525,13 @@ start_docker_daemon() {
   # run user is not in the docker group without a re-login — polling `docker
   # info` before the chmod would just spin. (Disposable privileged container;
   # this exposes nothing off the machine.)
-  local i
-  for i in $(seq 1 40); do
+  for _ in $(seq 1 40); do
     [ -S /var/run/docker.sock ] && break
     sleep 1
   done
   sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
 
-  for i in $(seq 1 10); do
+  for _ in $(seq 1 10); do
     docker info >/dev/null 2>&1 && break
     sleep 1
   done

@@ -6,4 +6,5 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${MODULE_DIR}/../../_shared/functions.sh"
 
 # ie: LOCAL_MODELS=(qwen2.5-coder:7b)
+# shellcheck disable=SC2034  # consumed by the scripts that source this file
 LOCAL_MODELS=()

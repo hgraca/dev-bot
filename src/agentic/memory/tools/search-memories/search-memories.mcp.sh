@@ -54,7 +54,6 @@ fi
 
 # Parse args: positional args become --query values; flags pass through.
 FORMAT="markdown"
-HAS_FORMAT=false
 QUERIES=()
 EXTRA_ARGS=()
 SKIP_NEXT=false
@@ -69,14 +68,14 @@ for i in "$@"; do
   fi
   case "${i}" in
     --markdown)
-      FORMAT="markdown"; HAS_FORMAT=true ;;
+      FORMAT="markdown" ;;
     --json)
-      FORMAT="json"; HAS_FORMAT=true ;;
+      FORMAT="json" ;;
     --format|--collection|--max-results|--query|--focus)
       EXTRA_ARGS+=("${i}")
       SKIP_NEXT=true ;;
     --format=*)
-      FORMAT="${i#--format=}"; HAS_FORMAT=true ;;
+      FORMAT="${i#--format=}" ;;
     --collection=*|--max-results=*|--query=*|--focus=*)
       EXTRA_ARGS+=("${i}") ;;
     --*)

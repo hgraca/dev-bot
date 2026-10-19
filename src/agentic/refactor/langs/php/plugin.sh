@@ -334,12 +334,12 @@ _run_steps() {
 }
 
 cmd_run() {
-  local mode="$1" request op klass from to req_image
+  local mode="$1" request op _ from to req_image
   request="$(cat)"
 
   # Split on the ASCII unit separator, not a tab: tab counts as IFS whitespace,
   # so bash would collapse the empty `class` field rename-class legitimately has.
-  IFS=$'\x1f' read -r op klass from to req_image < <(printf '%s' "${request}" | python3 -c '
+  IFS=$'\x1f' read -r op _ from to req_image < <(printf '%s' "${request}" | python3 -c '
 import json, sys
 r = json.load(sys.stdin)
 print("\x1f".join([str(r.get("op") or ""), str(r.get("class") or ""),

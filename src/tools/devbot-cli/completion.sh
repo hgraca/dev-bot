@@ -9,6 +9,9 @@
 #   complete -F _devbot_complete devbot
 # =============================================================================
 
+# shellcheck disable=SC2034  # completion vars are populated by _init_completion
+# shellcheck disable=SC2207  # mapfile is unavailable in macOS's bash 3.2
+
 if ! type -t _init_completion >/dev/null 2>&1 && ! type -t compgen >/dev/null 2>&1; then
   return 0
 fi

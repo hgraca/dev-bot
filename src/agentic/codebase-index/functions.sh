@@ -11,6 +11,7 @@ source "${MODULE_DIR}/../../_shared/functions.sh"
 
 # Ollama models required by codebase-index.
 # Shared between install.sh and update.sh.
+# shellcheck disable=SC2034  # consumed by the scripts that source this file
 LOCAL_MODELS=(
   "nomic-embed-text:latest"
 )

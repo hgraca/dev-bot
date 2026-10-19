@@ -56,7 +56,8 @@ cmd_doctor() {
     exit 1
   fi
 
-  local resolved_image="$(_resolve_image "${image}")"
+  local resolved_image
+  resolved_image="$(_resolve_image "${image}")"
   local root
   if ! root="$(_engine_root)"; then
     printf '{"ok":false,"lang":"py","project":"%s","image":"%s","error":"no rope engine found","hint":"run: plugin.sh provision"}\n' \
