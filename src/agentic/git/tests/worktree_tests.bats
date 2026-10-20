@@ -106,6 +106,70 @@ worktree() {
   assert_equal "$(git -C "$WORKTREES/feat-from-head" rev-parse HEAD)" "$caller_head"
 }
 
+@test "create --project: creates the worktree in the named project from outside it" {
+  run bash -c "cd '$SANDBOX' && bash '$SCRIPT' create feat/from-elsewhere --project '$WORK' --no-link"
+
+  assert_success
+  assert_output "$WORKTREES/feat-from-elsewhere"
+  assert [ -d "$WORKTREES/feat-from-elsewhere" ]
+}
+
+@test "create: refuses a repository with no commits" {
+  local empty="$SANDBOX/empty"
+  git init -q --initial-branch=main "$empty"
+
+  run bash -c "cd '$empty' && bash '$SCRIPT' create feat/nope --no-link"
+
+  assert_failure
+  assert_output --partial "FATAL:"
+  assert_output --partial "has no commits"
+  assert_output --partial "initial commit"
+}
+
+@test "create --project: a named project with no commits asks for an initial commit" {
+  local empty="$SANDBOX/empty"
+  git init -q --initial-branch=main "$empty"
+
+  run bash -c "cd '$WORK' && bash '$SCRIPT' create feat/nope --project '$empty' --no-link"
+
+  assert_failure
+  assert_output --partial "initial commit"
+  refute_output --partial "pass --project"
+}
+
+@test "enabled: refuses a supervisor project and points at --project" {
+  local sup="$SANDBOX/supervisor"
+  git init -q --initial-branch=main "$sup"
+  printf '{ "supervisor": true, "worktrees": true }\n' > "$sup/.devbot.project.jsonc"
+
+  run bash -c "cd '$sup' && bash '$SCRIPT' enabled"
+
+  assert_failure
+  assert_output --partial "is a supervisor project"
+  assert_output --partial "--project"
+}
+
+@test "create: refuses a supervisor project even when it has commits" {
+  local sup="$SANDBOX/supervisor"
+  git init -q --initial-branch=main "$sup"
+  git -C "$sup" config user.email "test@test.com"
+  git -C "$sup" config user.name "Test"
+  git -C "$sup" config commit.gpgsign false
+  printf 'base\n' > "$sup/file.txt"
+  git -C "$sup" add -A
+  git -C "$sup" commit -qm "base"
+  printf '{ "supervisor": true, "worktrees": true }\n' > "$sup/.devbot.project.jsonc"
+
+  run bash -c "cd '$sup' && bash '$SCRIPT' create feat/nope --no-link"
+  assert_failure
+  assert_output --partial "is a supervisor project"
+  assert_output --partial "--project"
+
+  run bash -c "cd '$WORK' && bash '$SCRIPT' create feat/nope --project '$sup' --no-link"
+  assert_failure
+  assert_output --partial "is a supervisor project"
+}
+
 @test "create: the new branch has no upstream (--no-track)" {
   worktree create feat/untracked
 
@@ -309,6 +373,13 @@ worktree() {
 
 @test "enabled: reports true by default" {
   worktree enabled
+
+  assert_success
+  assert_output "true"
+}
+
+@test "enabled --project: reads the named project's setting from outside it" {
+  run bash -c "cd '$SANDBOX' && bash '$SCRIPT' enabled --project '$WORK'"
 
   assert_success
   assert_output "true"

@@ -48,10 +48,14 @@ _warn() { echo "WARN: $*" >&2; }
 
 # ── git plumbing helpers ─────────────────────────────────────────────────────
 
-# The main checkout's root — the first `worktree list` entry, so the tool
-# behaves the same when invoked from inside a linked worktree.
+# The main checkout's root — the first `worktree list` entry of the repository
+# containing <dir> (default: the current directory), so the tool behaves the
+# same when invoked from inside a linked worktree. Naming the project matters in
+# a supervisor session, where the session root is a container repository and the
+# task belongs to a child.
 _git_root() {
-  git worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | head -1 || true
+  local dir="${1:-.}"
+  git -C "${dir}" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | head -1 || true
 }
 
 # `<devbot_dir>` for the given project root (default `.agents`).
@@ -158,13 +162,19 @@ _ignore_in_worktree() {
 # ── create ───────────────────────────────────────────────────────────────────
 
 cmd_create() {
-  local branch="" no_link=false base=""
+  local branch="" no_link=false base="" project=""
   local links=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --base)
         [[ -n "${2:-}" ]] || _fatal "create: --base requires a <ref>"
         base="$2"
+        shift 2
+        ;;
+      --project)
+        [[ -n "${2:-}" ]] || _fatal "create: --project requires a <dir>"
+        [[ -d "${2}" ]] || _fatal "create: --project '${2}' is not a directory"
+        project="$2"
         shift 2
         ;;
       --link)
@@ -209,8 +219,14 @@ cmd_create() {
   fi
 
   local root devbot_dir default base_ref slug path base_sha
-  root="$(_git_root)"
+  root="$(_git_root "${project}")"
   [[ -n "${root}" ]] || _fatal "create: not inside a git repository"
+  if [[ "$(_devbot_get_config "supervisor" "${root}")" == "true" ]]; then
+    _fatal "create: ${root} is a supervisor project, not a codebase — pass --project <owning-project> to create the worktree there"
+  fi
+  if ! git -C "${root}" rev-parse --verify --quiet HEAD >/dev/null; then
+    _fatal "create: ${root} has no commits — make an initial commit before creating a worktree"
+  fi
   if ! _worktrees_enabled "${root}"; then
     _fatal "create: worktrees are disabled for this project (\"worktrees\": false) — commit in the main checkout"
   fi
@@ -238,8 +254,10 @@ cmd_create() {
 
   # Resolve --base in the INVOKING checkout: HEAD, @ and @{upstream} are
   # per-worktree, so resolving them with -C <root> from a linked worktree would
-  # silently pick the main checkout's commit.
-  base_sha="$(git rev-parse --verify --quiet "${base_ref}^{commit}")" \
+  # silently pick the main checkout's commit. With --project the caller names
+  # the repository explicitly, so the ref resolves there instead.
+  local base_cwd="${project:-.}"
+  base_sha="$(git -C "${base_cwd}" rev-parse --verify --quiet "${base_ref}^{commit}")" \
     || _fatal "create: --base '${base_ref}' does not resolve to a commit"
   git -C "${root}" worktree add --quiet --no-track -b "${branch}" "${path}" \
     "${base_sha}" \
@@ -257,9 +275,29 @@ cmd_create() {
 # Source of truth for the opt-out: prints `true`/`false`, exits 0 when enabled
 # (the default) and 1 when the project disabled worktrees.
 cmd_enabled() {
+  local project=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project)
+        [[ -n "${2:-}" ]] || _fatal "enabled: --project requires a <dir>"
+        [[ -d "${2}" ]] || _fatal "enabled: --project '${2}' is not a directory"
+        project="$2"
+        shift 2
+        ;;
+      -h | --help)
+        _usage
+        return 0
+        ;;
+      *) _fatal "enabled: unknown argument '$1'" ;;
+    esac
+  done
+
   local root
-  root="$(_git_root)"
+  root="$(_git_root "${project}")"
   [[ -n "${root}" ]] || _fatal "enabled: not inside a git repository"
+  if [[ "$(_devbot_get_config "supervisor" "${root}")" == "true" ]]; then
+    _fatal "enabled: ${root} is a supervisor project, not a codebase — pass --project <owning-project>"
+  fi
 
   if _worktrees_enabled "${root}"; then
     printf 'true\n'
@@ -355,13 +393,16 @@ _usage() {
 Usage: worktree.sh <subcommand> [options]
 
 Subcommands:
-  create <branch> [--base <ref>] [--link <dir>]... [--no-link]
+  create <branch> [--base <ref>] [--project <dir>] [--link <dir>]... [--no-link]
                     create a worktree under <devbot_dir>/worktrees/<slug> on a
                     new branch based on --base <ref> (default origin/<default>);
                     hard-link the --link dirs (repeatable; default vendor,
                     node_modules) from the main checkout. --no-link disables.
+                    --project names the owning project (default: cwd) — required
+                    in a supervisor session, whose root has no commits.
                     Prints the path (refused when "worktrees": false)
-  enabled           print true/false and exit 0/1 for the worktrees setting
+  enabled [--project <dir>]
+                    print true/false and exit 0/1 for the worktrees setting
   list              list the worktrees under <devbot_dir>/worktrees
   merge  <branch>   merge <branch> into the local default branch (plain merge)
   remove <branch>   remove the worktree for <branch> (the branch ref stays)
