@@ -2,9 +2,12 @@
 date: 2026-10-01
 keywords: ["git", "github", "copilot", "pull-request", "code-review"]
 trigger-on: ["copilot-code-review", "gh-pr-create-reviewer"]
+superseded_by: ["git/20261020081824-copilot-review-effort-balanced-default-and-inheritance.md"]
 ---
 
 ## Copilot code review's effort level cannot be set from the CLI
+
+> **Superseded by** `git/20261020081824-copilot-review-effort-balanced-default-and-inheritance.md` (2026-10-20).
 
 GitHub Copilot code review runs at one of two **effort levels** — **Lite** (fast, targeted feedback
 on bugs, security and style; the default) and **Balanced** (a higher-reasoning model for complex,
