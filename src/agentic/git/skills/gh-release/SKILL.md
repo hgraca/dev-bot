@@ -40,6 +40,18 @@ List the remotes with `git remote`. **If there is more than one, ask the user
 which the release should go to** before rendering the preview; with a single
 remote, use it without asking.
 
+In a `supervisor: true` project, every command in steps 1–4 must run in the **owning project**,
+not the session root. Resolve it and `cd` once — `tag.sh`, `release.sh`, `git` and `gh` all act on
+the current checkout:
+
+```bash
+OWNER="$(devbot tool project-for-path <file> --json | jq -r .path)"
+cd "$OWNER"
+```
+
+If you cannot change directory, add `git -C "$OWNER"` to every git call and `--repo <owner-slug>`
+to every `gh` call. The supervisor root has no remote, so a command run there resolves nothing.
+
 ## 3. Present one combined preview and get one approval
 
 Render both halves — the git steps and the GitHub step — as a single preview:

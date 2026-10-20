@@ -55,6 +55,8 @@ interface implementations and dispatch patterns that a text search misses.
 - Explicit architecture directory structure (see `devbot:explicit-architecture` skill)
 - `sg` (ast-grep) in PATH — for AST-level dispatch pattern matching
 - Docker (optional) — used if local PHP CLI is not available; auto-detects PHP version from composer.json
+- In a `supervisor: true` project, `--project-root` is the **owning project** of the code being
+  mapped (`devbot tool project-for-path <path>`), never the supervisor root. One map per project.
 
 ## Tool: `use-case-map`
 

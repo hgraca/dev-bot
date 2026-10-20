@@ -22,6 +22,20 @@ datasources-mariadb-dev_mariadb-dev_execute_sql  { "sql": "SELECT 1" }
 One statement per call. For MongoDB the tool takes a whole aggregation
 pipeline, and the collection is a parameter you choose.
 
+## Supervisor sessions
+
+The wired datasource tools belong to the **session project's** selection
+(`.devbot.project.jsonc::datasources`). A supervisor root often selects none. Before querying a
+child's data source, resolve the owning project and its selection:
+
+```bash
+devbot tool project-for-path <path> --key datasources
+```
+
+If the source is not selected for the session, say so — do not guess a host or credentials. Every
+query names the datasource it targets, so a multi-project session never mixes two sources
+silently.
+
 ## Sidecar datasources
 
 Not every source is a database. A datasource whose `type` is `opensearch` or `s3`

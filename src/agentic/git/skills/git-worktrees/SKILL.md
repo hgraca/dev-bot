@@ -12,12 +12,31 @@ main checkout's checked-out branch untouched, and gives each task an isolated br
 
 ## Before editing (MUST)
 
-First check whether worktrees are enabled for this project — exit `1` means the project opted out
-(see [Opting out](#opting-out)), so work and commit in the main checkout as normal and this policy
-does not apply:
+### Supervisor sessions
+
+In a `supervisor: true` project, resolve the owning project of the files in play first — a
+supervisor is a container for sibling repositories, not a codebase, so `create` refuses it even
+when it has commits. Carry the owner through every command in this skill with one variable; the
+worktree then lands under the **owner's** `<devbot_dir>/worktrees/` and the owner's `worktrees`
+setting decides whether it is allowed:
 
 ```bash
-bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" enabled
+project=(--project "$(devbot tool project-for-path <file> --json | jq -r .path)")
+```
+
+In a normal project the variable stays empty and the commands run as written:
+
+```bash
+project=()
+```
+
+Then check whether worktrees are enabled for this project — exit `1` means the project opted out
+(see [Opting out](#opting-out)), so work and commit in the **owning project's** main checkout as
+normal (in a supervisor session that is `git -C "$owner"`, never the session root) and this
+policy does not apply:
+
+```bash
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" enabled "${project[@]}"
 ```
 
 When they are enabled, detect where you are:
@@ -31,7 +50,7 @@ git rev-parse --git-dir --git-common-dir
 - **The same path** — you are in the main checkout. Create a worktree **before the first edit**:
 
 ```bash
-bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create <branch>
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create <branch> "${project[@]}"
 ```
 
 `<branch>` is a descriptive name for the task — `feat/add-login`, `fix/null-token`. The tool:

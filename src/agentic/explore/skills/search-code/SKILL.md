@@ -15,6 +15,11 @@ Selects right search tool for question. Different tools excel at different queri
 - Exploring unfamiliar codebase area
 - Packing code for full-context analysis
 
+In a `supervisor: true` project, resolve the owning project of the files you are looking for
+(`devbot tool project-for-path <path>`) and scope the search to it. A structural engine indexes
+one project at a time, so query the owner's index and attribute hits to the project they came
+from.
+
 ## Tool Selection
 
 | Question type                                          | Tool                        | Why                                                                            |

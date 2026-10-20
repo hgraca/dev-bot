@@ -18,6 +18,8 @@ Reconcile only the work items **this session touched** — created via `devbot:m
 
 A **work-item root** is a top-level folder directly under `work/<state>/` (`YYYYMMDD-HHMMSS-NN-<slug>/`). An epic root carries its story sub-folders; moving the root moves them with it.
 
+In a `supervisor: true` session, a work item lives in the vault of the project it concerns — reconcile each item in **its own** vault, and only coordination-level items in the supervisor's. A supervisor session may therefore touch several `work/` trees in one reconcile pass.
+
 ## Procedure
 
 1. **List the touched work items.** From the session's own activity, collect the top-level `work/todo/` and `work/active/` folders this session created, started, or edited. If there are none, stop — there is nothing to reconcile.

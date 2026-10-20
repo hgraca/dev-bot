@@ -13,7 +13,7 @@ description: "Use when writing tests or choosing a test strategy."
 
 ## Running Tests
 
-Prefer the project's own test commands where they exist (check the project's `Makefile`, package scripts, or `project.md`). This skill defines _what_ to test and _where_; it does not prescribe how to invoke the test runner — that is project-specific.
+Prefer the project's own test commands where they exist (check the project's `Makefile`, package scripts, or `project.md`). This skill defines _what_ to test and _where_; it does not prescribe how to invoke the test runner — that is project-specific. In a `supervisor: true` project, run them from the owning project's directory and against its container.
 
 ## Detect the stack first
 

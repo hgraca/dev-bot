@@ -25,6 +25,10 @@ Same as `devbot:use-case-map`: a PHP project with `composer.json`, message-bus c
 explicit-architecture layout, plus `sg` (ast-grep) and a PHP CLI (or Docker). `graphify-out/graph.json`
 is used for file grouping when present.
 
+In a `supervisor: true` project, `--project-root` and the branch under review are the **owning
+project** of the changed files (`devbot tool project-for-path <path>`), never the supervisor root.
+One diagram per project.
+
 ## Tool: `impact-diagram`
 
 Plain CLI (in the docs module's `tools/ImpactDiagram/`), **not** exposed over MCP:

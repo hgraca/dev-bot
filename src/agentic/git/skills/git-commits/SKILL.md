@@ -92,7 +92,8 @@ explicit approval, and on a protected or shared branch prefer a normal follow-up
 
 By default, commit from a linked git worktree, never from the main checkout. Before the first
 edit, confirm worktrees are enabled — `worktree.sh enabled` exits `1` when a project opted out
-(`"worktrees": false`), in which case commit in the main checkout as usual. Otherwise check where
+(`"worktrees": false`), in which case commit in the **owning project's** main checkout (in a
+`supervisor: true` session, `git -C <owner>`; otherwise the current one). Otherwise check where
 you are: `git rev-parse --git-dir --git-common-dir` printing the **same** path means you are in
 the main checkout and must isolate the work first:
 
@@ -103,6 +104,12 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create <branch>
 The worktree is cut from `origin/<default>` under `<devbot_dir>/worktrees/<slug>`; all edits use
 its absolute path and all git commands run with `-C <worktree>`. The full policy — the tool's
 subcommands, the opt-out, and the finish flow — is `devbot:git-worktrees`.
+
+In a `supervisor: true` project the repository is the **owning project** of the files in the
+commit (`devbot tool project-for-path <file>`), never the supervisor root. Create the worktree
+with `--project <owner>`; after that, run edits and commits with `git -C <worktree>`, and reserve
+`git -C <owner>` for owner-scoped commands (worktree creation, merge, remove). A commit never
+spans two repositories.
 
 ## Routing
 

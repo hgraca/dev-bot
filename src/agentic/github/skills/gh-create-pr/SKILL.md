@@ -18,16 +18,21 @@ PR description follows the same rules as a commit message — see `devbot:git-co
 - `gh` is installed and authenticated (`gh auth status`). If it is not, stop and say so — do not
   guess at credentials.
 - The head branch exists and holds the commits the PR is for.
+- In a `supervisor: true` project, resolve the **owning project** of the changeset
+  (`devbot tool project-for-path <file>`) and run every command below in it. `cd "$owner"` once
+  covers git and `gh`; if you stay in the supervisor root, pass `git -C "$owner"` to every git
+  call and `--repo <owner-slug>` to every `gh` call. The supervisor root has no remote, so a
+  command run there resolves nothing. One PR, one repository.
 
 ## Determine the base
 
 The base is the repository's default branch — never assume `main`:
 
 ```bash
-gh repo view --json defaultBranchRef --jq .defaultBranchRef.name
+gh repo view [<owner-slug>] --json defaultBranchRef --jq .defaultBranchRef.name
 ```
 
-The head is the given branch, or the current one (`git rev-parse --abbrev-ref HEAD`).
+The head is the given branch, or the current one (`git [-C "$owner"] rev-parse --abbrev-ref HEAD`).
 
 ## Title
 
@@ -67,6 +72,7 @@ command drives this, but the rule holds whenever this skill is used. Then:
 
 ```bash
 gh pr create \
+  [--repo <owner-slug>] \
   --base <default-branch> \
   --head <branch> \
   --title '<title>' \
@@ -85,7 +91,7 @@ Print the PR URL that `gh pr create` returns.
 If the branch has no upstream, push it first — only after approval:
 
 ```bash
-git push -u origin <branch>
+git [-C "$owner"] push -u origin <branch>
 ```
 
 ## Copilot review

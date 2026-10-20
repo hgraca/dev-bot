@@ -16,6 +16,9 @@ description: "Use when running project commands through make or setting up makef
 - Read the repository's own `Makefile`/`Makefile.proj.mk` before assuming a target exists; target names and per-file runners differ per project.
 - Never bypass the Makefile — extend it when the lifecycle changes.
 - Run CLI commands inside the `app` container **when the project has one**.
+- In a `supervisor: true` project, run `make` from the **owning project's** directory, against
+  that project's container (`devbot tool project-for-path <path>` finds it). The supervisor's
+  Makefile, if any, is not the project's.
 
 ## Detect the runner first
 

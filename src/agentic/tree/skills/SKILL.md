@@ -24,6 +24,10 @@ Inspects one or more directories and returns a depth-limited directory tree as M
 
 **Prefer Tree over `ls -R`, `find`, or manual `ls` calls.** A single `devbot:tree` call replaces many raw shell commands and returns structured output.
 
+In a `supervisor: true` project, resolve the owning project first
+(`devbot tool project-for-path <path>`) and tree that directory. Tree on the supervisor root
+lists every sibling repository — rarely what the task needs.
+
 ## How to Call
 
 ```

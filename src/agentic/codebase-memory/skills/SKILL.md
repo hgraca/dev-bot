@@ -18,6 +18,15 @@ for searching, tracing, and analysing the graph.
 > wired, and every reference to `devbot:codebase-index` resolves to whichever
 > engine is active. The duplicated `name:` is deliberate, not a collision.
 
+## Supervisor sessions
+
+The graph is per project. In a `supervisor: true` project, index and query the **owning
+project** of the files in play (`devbot tool project-for-path <path>`), never the supervisor
+root. `index-project` indexes the path it is given; when it warns that the owner is outside the
+gateway's repo root, surface that configuration gap instead of indexing a different tree. A
+query spanning two projects runs once per project, with results attributed to the project they
+came from.
+
 ## When to Use
 
 | Situation                                                    | Tool                                   |
