@@ -5,22 +5,14 @@ aliases: ["guard regex", "git -C push", "force push prohibited"]
 trigger-on: ["devbot-guard-rule"]
 ---
 
-## A literal guard pattern misses `git -C <path> push --force` — and still matches prose
+## Match git force-pushes by tokens, not by a literal regex
 
-The `guards` rule `"regex": "git push --force"` is a plain substring match, so a force-push that
-inserts `-C <path>` — `git -C /path/.agents/worktrees/feat push --force-with-lease`, the natural
-form when acting on a worktree — does **not** match. The guard is silently bypassed, which is
-how a worktree branch gets force-pushed despite the rule. Allow the intervening arguments:
+A guard rule written as `"regex": "git push --force"` is fragile: it misses `git -C <path> push --force` (options before the subcommand) and blocks prose that merely mentions the phrase. Widening the regex to parse Git's option grammar then creates two more problems: shell quoting (`"-C"`, quoted values, backticks) and catastrophic backtracking on repeated tokens.
 
-`git\b(?:\s+(?:-C|-c)\s+(?:"(?:[^"\\]|\\.)*"|'[^']*'|\\[^\n]|[^\s"'\\])+|\s+(?:--git-dir|--work-tree|--namespace|--exec-path|--super-prefix|--config-env)\s+(?:"(?:[^"\\]|\\.)*"|'[^']*'|\\[^\n]|[^\s"'\\])+|\s+(?!(?:-C|-c|(?:--git-dir|--work-tree|--namespace|--exec-path|--super-prefix|--config-env))(?:\s|$))-(?:"(?:[^"\\]|\\.)*"|'[^']*'|\\[^\n]|[^\s"'\\])+)*\s+(?:push\b|"push"|'push')[^\n]*(\s-f\b|\s--force)`
+`guards.ts` therefore tokenizes the command (`shellWords` — quotes removed, escapes resolved, spaces inside a value sentinel-encoded) and scans the words:
 
-Do **not** add a start-of-command anchor (`(^|[\n;&|]\s*)`): the guard evaluator (`guards.ts`)
-anchors ordinary command segments itself and deliberately leaves runner segments (`bash -c`,
-`env`, `xargs`, …) unanchored, so an explicit anchor would miss
-`bash -c "git push --force"` and `env FOO=bar git push --force`. The unanchored pattern still
-catches `git push -f` and `--force-with-lease`, while the evaluator's segment anchoring keeps it
-from firing on prose. That matters:
-the sibling rule `sudo .*` matches anywhere in the command, so `gh pr create --body "... sudo ..."`
-(and even `echo 'git push --force'`) is blocked outright, refusing work that never executes the
-guarded command. Prefer anchored patterns, and treat a guard hit as "reword or ask the human" —
-never as "rephrase the command to slip past the pattern".
+- an exact `push` word followed by `-f`, `--force` or `--force-with-lease` is a force-push, regardless of Git options, quoting, `$`/backtick expansions, or a runner wrapper (`env git …`, `bash -c "git …"`).
+- quoted prose is one token, so `git commit -m "… push --force"` and `git log --grep="push --force"` do not trip it.
+- any inline `-c alias.NAME=…` / `-calias.NAME=…` global option before the subcommand is blocked outright: alias values may be shell bodies or use Git config quoting, and Git aliases cannot shadow built-ins, so resolving a hidden force-push is not worth the risk. `git grep -c alias.publish` is a read-only search and is not blocked.
+
+The dist configs keep only the `rm -rf`, `sudo` and `qmd` regex rules; the git checks are deterministic token scans, so they cannot be bypassed by re-quoting or stalled by backtracking. Run the command directly instead of hiding it behind an alias, and treat a guard hit as "reword or ask the human" — never as "rephrase the command to slip past the pattern".

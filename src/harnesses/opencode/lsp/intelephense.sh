@@ -18,6 +18,8 @@ DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." 
 
 # Cap each server's V8 heap so a run-away index can swap out the machine
 # (a single instance has been seen holding ~3.3 GB of swap while indexing).
+# Append AFTER inherited options: Node uses the LAST occurrence, so prepending
+# would let an inherited --max-old-space-size override the cap.
 export NODE_OPTIONS="${NODE_OPTIONS:-} --max-old-space-size=2048"
 
 # Honour the XDG base-dir overrides — opencode resolves its bin under

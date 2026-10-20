@@ -72,17 +72,17 @@ _stub_intelephense() {
   rm -rf "${root}"
 }
 
-@test "wrapper: the enforced heap cap wins over an inherited NODE_OPTIONS" {
+@test "wrapper: appends the heap cap after inherited NODE_OPTIONS" {
   local root
   root="$(mktemp -d)"
   _stub_intelephense "${root}/storage/intelephense/node_modules/.bin"
 
   run env DEV_BOT_ROOT="${root}" HOME="${root}/home" PATH="/usr/bin:/bin" \
-    NODE_OPTIONS="--max-old-space-size=4096" "${BASH_BIN}" "${WRAPPER}"
+    NODE_OPTIONS="--max-old-space-size=8192" "${BASH_BIN}" "${WRAPPER}"
 
   assert_success
-  # Node uses the last occurrence; the enforced cap must be last.
-  assert_output --partial "--max-old-space-size=4096 --max-old-space-size=2048"
+  # Node uses the LAST occurrence, so the cap must come after the inherited one.
+  assert_output --partial "NODE_OPTIONS=--max-old-space-size=8192 --max-old-space-size=2048"
   rm -rf "${root}"
 }
 

@@ -89,6 +89,23 @@ worktree() {
   assert_output --partial "does not resolve"
 }
 
+@test "create --base HEAD: resolves HEAD in the invoking worktree, not the main checkout" {
+  worktree create feat/caller --no-link
+  assert_success
+  local caller="$WORKTREES/feat-caller"
+  printf 'caller\n' >> "$caller/file.txt"
+  git -C "$caller" commit -qam "caller work"
+  local caller_head main_head
+  caller_head="$(git -C "$caller" rev-parse HEAD)"
+  main_head="$(git -C "$WORK" rev-parse HEAD)"
+  assert_not_equal "$caller_head" "$main_head"
+
+  run bash -c "cd '$caller' && bash '$SCRIPT' create feat/from-head --base HEAD --no-link"
+
+  assert_success
+  assert_equal "$(git -C "$WORKTREES/feat-from-head" rev-parse HEAD)" "$caller_head"
+}
+
 @test "create: the new branch has no upstream (--no-track)" {
   worktree create feat/untracked
 

@@ -82,41 +82,144 @@ const COMMAND_RUNNERS = new Set([
   "nsenter", "chroot",
 ])
 
-/**
- * Fold each quoted shell argument into a single token, replacing the spaces it
- * contains with \x1f (a non-whitespace byte the patterns match as token text).
- * This keeps argument boundaries intact: `-c "user.name=Jane Doe"` stays one
- * value, and `"-C"` becomes the bare option name.
- */
-function foldQuotedTokens(segment: string): string {
-  let out = ""
-  let i = 0
-  while (i < segment.length) {
+// Shell whitespace only: Bash does not treat a nonbreaking space (or other
+// Unicode spaces) as a word separator, and neither may the guard.
+const SHELL_SPACE = /[ \t\n\r]/
+
+// Shell word splitting: quotes group and are removed, a backslash escapes the
+// next character (outside single quotes). The guard matches an argument vector,
+// not the literal quoting, so `git "-C" /tmp` and `git -C /tmp` are equivalent.
+function shellWords(segment: string): string[] {
+  const words: string[] = []
+  let word = ""
+  let inWord = false
+  let quote: '"' | "'" | null = null
+
+  for (let i = 0; i < segment.length; i++) {
     const ch = segment[i]
-    if (ch === '"' || ch === "'") {
-      const quote = ch
-      let value = ""
-      i += 1
-      while (i < segment.length) {
-        if (quote === '"' && segment[i] === "\\" && i + 1 < segment.length) {
-          value += segment[i + 1]
-          i += 2
-          continue
-        }
-        if (segment[i] === quote) {
-          i += 1
-          break
-        }
-        value += segment[i]
-        i += 1
+    if (quote === "'") {
+      if (ch === "'") quote = null
+      else {
+        word += ch
+        inWord = true
       }
-      out += value.replace(/\s/g, "\x1f")
       continue
     }
-    out += ch
-    i += 1
+    if (quote === '"') {
+      if (ch === '"') quote = null
+      else if (ch === "\\" && i + 1 < segment.length) {
+        word += segment[++i]
+        inWord = true
+      } else {
+        word += ch
+        inWord = true
+      }
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch
+      inWord = true
+      continue
+    }
+    if (ch === "\\" && i + 1 < segment.length) {
+      word += segment[++i]
+      inWord = true
+      continue
+    }
+    if (SHELL_SPACE.test(ch)) {
+      if (inWord) {
+        words.push(word)
+        word = ""
+        inWord = false
+      }
+      continue
+    }
+    word += ch
+    inWord = true
+  }
+  if (inWord) words.push(word)
+  return words
+}
+
+// Re-encode one shell word as a single regex subject: a space inside the word
+// (quoted or escaped) becomes a sentinel so it is not a token boundary, and a
+// literal quote/backslash is escaped so the rule's backslash branch consumes it.
+function encodeWord(word: string): string {
+  if (word === "") return "\x1f" // an empty quoted argument is still a token
+  let out = ""
+  for (const ch of word) {
+    if (SHELL_SPACE.test(ch)) out += "\x1f"
+    else if (ch === "\\" || ch === '"' || ch === "'") out += "\\" + ch
+    else out += ch
   }
   return out
+}
+
+const FORCE_PUSH_MESSAGE = "force push is prohibited"
+const INLINE_ALIAS_MESSAGE = "inline git aliases are prohibited — run the command directly"
+
+// A token scan, not a regex: `push` followed by a force flag is a force-push
+// regardless of options, quoting, expansions or backticks. Quoted prose stays
+// one token (sentinel-encoded), so `-m "… push --force"` is not misread.
+function hasForcePush(words: string[]): boolean {
+  for (let i = 0; i < words.length; i++) {
+    if (words[i] !== "push") continue
+    for (let j = i + 1; j < words.length; j++) {
+      const w = words[j]
+      if (
+        w === "-f" ||
+        w === "--force" ||
+        w === "--force-with-lease" ||
+        w.startsWith("--force-with-lease=")
+      ) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+// Inline aliases are prohibited outright: alias values may be shell bodies or
+// use Git config quoting, so resolving a force-push hidden in one is unsafe.
+// Only global options before the subcommand count — `git grep -c alias.x` is a
+// read-only search, not an alias definition.
+function hasInlineAlias(words: string[]): boolean {
+  if (words[0] !== "git") return false
+  const valueOptions = new Set([
+    "-C",
+    "--git-dir",
+    "--work-tree",
+    "--namespace",
+    "--exec-path",
+    "--config-env",
+  ])
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i]
+    if (w === "-c") {
+      if (i + 1 < words.length && /^alias\./i.test(words[i + 1])) return true
+      i++
+      continue
+    }
+    if (/^-c[Aa][Ll][Ii][Aa][Ss]\./.test(w)) return true
+    if (valueOptions.has(w)) {
+      i++
+      continue
+    }
+    if (w.startsWith("-")) continue
+    break
+  }
+  return false
+}
+
+// The word vector starting at the git invocation: the segment itself, or the
+// first `git` argument of a supported runner (`env git …`).
+function gitWords(words: string[]): string[] | null {
+  if (words[0] === "git") return words
+  if (COMMAND_RUNNERS.has(words[0])) {
+    const at = words.indexOf("git")
+    if (at > 0) return words.slice(at)
+  }
+  return null
 }
 
 /** Evaluate a command against guard rules. First matching rule wins. */
@@ -129,20 +232,43 @@ function evaluate(command: string, guards: GuardRule[]): GuardResult {
   // substring test when the segment's command is a command-runner or uses
   // command substitution ($( ), ` `), where the danger hides in arguments.
   const segments = command.split(SEGMENT_SPLIT)
+  // Bash expansions and ANSI-C quoting are not fully modelled by the
+  // tokenizer; when present, fall back to a text check for a git force-push.
+  const shellSyntax = /\$\(|`|\$'/.test(command)
+  const parsed: Array<{ raw: string; words: string[]; canonical: string; runner: boolean }> = []
+  for (const seg of segments) {
+    const raw = seg.trim()
+    if (!raw) continue
+    const words = shellWords(raw)
+    if (words.length === 0) continue
+    parsed.push({
+      raw,
+      words,
+      canonical: words.map(encodeWord).join(" "),
+      runner: COMMAND_RUNNERS.has(words[0]) || /\$\(|`/.test(raw),
+    })
+  }
+
+  // Configured rules first: they own the message, including a customized
+  // force-push rule.
   for (const g of guards) {
     if (typeof g !== "object" || !g?.regex || !g?.message) continue
     try {
       const anchored = new RegExp("^" + (g.regex.startsWith("^") ? g.regex.slice(1) : g.regex))
-      for (const seg of segments) {
-        const trimmed = seg.trim()
-        if (!trimmed) continue
-        const name = trimmed.split(/\s+/)[0]
-        const substring = COMMAND_RUNNERS.has(name) || /\$\(|`/.test(trimmed)
-        const matcher = substring ? new RegExp(g.regex) : anchored
-        // Shell-equivalent quoting must not bypass a guard. Test the raw text
-        // (runner contents stay visible) and a boundary-preserving fold.
-        const folded = foldQuotedTokens(trimmed)
-        if (matcher.test(trimmed) || (folded !== trimmed && matcher.test(folded))) {
+      for (const p of parsed) {
+        if (p.runner) {
+          const re = new RegExp(g.regex)
+          if (re.test(p.raw) || re.test(p.canonical)) {
+            return { blocked: true, message: g.message }
+          }
+          // A runner carries a command as an argument (`bash -c "git push …"`).
+          // Re-parse each argument that contains whitespace as a nested command.
+          for (const word of p.words) {
+            if (!SHELL_SPACE.test(word)) continue
+            const inner = shellWords(word).map(encodeWord).join(" ")
+            if (re.test(inner)) return { blocked: true, message: g.message }
+          }
+        } else if (anchored.test(p.raw) || anchored.test(p.canonical)) {
           return { blocked: true, message: g.message }
         }
       }
@@ -150,6 +276,35 @@ function evaluate(command: string, guards: GuardRule[]): GuardResult {
       // Invalid regex — skip the rule.
     }
   }
+
+  // Built-in git safety: deterministic token scans, independent of the config.
+  for (const p of parsed) {
+    const git = gitWords(p.words)
+    if (git) {
+      if (hasInlineAlias(git)) return { blocked: true, message: INLINE_ALIAS_MESSAGE }
+      if (hasForcePush(git)) return { blocked: true, message: FORCE_PUSH_MESSAGE }
+    }
+    // Only a runner's arguments are nested commands; a quoted argument of an
+    // ordinary command (`echo "git push --force"`) is prose, not an invocation.
+    if (p.runner) {
+      for (const word of p.words) {
+        if (!SHELL_SPACE.test(word)) continue
+        const innerGit = gitWords(shellWords(word))
+        if (!innerGit) continue
+        if (hasInlineAlias(innerGit)) return { blocked: true, message: INLINE_ALIAS_MESSAGE }
+        if (hasForcePush(innerGit)) return { blocked: true, message: FORCE_PUSH_MESSAGE }
+      }
+    }
+    if (
+      shellSyntax &&
+      p.raw.includes("push") &&
+      (p.raw.includes("--force") || /(?:^|[ \t\n\r])-f(?:[ \t\n\r]|$)/.test(p.raw)) &&
+      (gitWords(p.words) || COMMAND_RUNNERS.has(p.words[0]))
+    ) {
+      return { blocked: true, message: FORCE_PUSH_MESSAGE }
+    }
+  }
+
   return { blocked: false }
 }
 

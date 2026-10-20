@@ -3,12 +3,6 @@
   "harness": "opencode",
   "devbot_dir": ".agents",
   "commit_memory": false,
-  // Document collections searched by `search-memories`. `project` is reserved
-  // for this project's own vault; custom keys add extra corpora. `semantic` is
-  // reserved for qmd's model path and is inert today (BM25).
-  "memory_collections": {
-    "project": { "path": "{project}/{devbot_dir}/memory", "semantic": false }
-  },
   "worktrees": true,
   // A supervisor project orchestrates work and memory across the managed
   // projects registered in .devbot.global.jsonc::projects. Memory scope is
@@ -29,10 +23,6 @@
     {
       "regex": "sudo .*",
       "message": "sudo is blocked"
-    },
-    {
-      "regex": "git\\b(?:\\s+(?:-C|-c)\\s+(?:\"(?:[^\"\\\\]|\\\\.)*\"|'[^']*'|\\\\[^\\n]|[^\\s\"'\\\\])+|\\s+(?:--git-dir|--work-tree|--namespace|--exec-path|--super-prefix|--config-env)\\s+(?:\"(?:[^\"\\\\]|\\\\.)*\"|'[^']*'|\\\\[^\\n]|[^\\s\"'\\\\])+|\\s+(?!(?:-C|-c|(?:--git-dir|--work-tree|--namespace|--exec-path|--super-prefix|--config-env))(?:\\s|$))-(?:\"(?:[^\"\\\\]|\\\\.)*\"|'[^']*'|\\\\[^\\n]|[^\\s\"'\\\\])+)*\\s+(?:push\\b|\"push\"|'push')[^\\n]*(\\s-f\\b|\\s--force)",
-      "message": "force push is prohibited"
     }
   ]
 }

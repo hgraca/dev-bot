@@ -8,15 +8,7 @@
   "worktrees": true, // isolate each task's commits in a worktree; set false to commit in the main checkout
   "ollama_local_api": "http://localhost:18434", // Ollama API endpoint for model pulls; read only by the codebase-index engine — inert when another codebase engine is selected
   "codebase_index_provider": "codebase-memory", // codebase-index | codebase-memory (absent => codebase-memory); pin "codebase-index" to keep the Ollama-based engine
-  "memory_search_provider": "mdctx", // qmd | mdctx (absent => mdctx); pin "qmd" to keep the BM25 engine
-  // Document collections searched by `search-memories`. `global` is reserved
-  // for the shared store; custom keys add extra corpora machine-wide.
-  "memory_collections": {
-    "global": {
-      "path": "${DEV_BOT_ROOT}/storage/global-memories",
-      "semantic": false
-    }
-  },
+  "memory_search_provider": "mdctx", // qmd | mdctx (absent => mdctx); pin "qmd" to keep the semantic/GPU engine
   "modules": {
     "atlassian": false,
     "aws": false,
@@ -48,10 +40,6 @@
     {
       "regex": "sudo .*",
       "message": "sudo is blocked"
-    },
-    {
-      "regex": "git\\b(?:\\s+(?:-C|-c)\\s+(?:\"(?:[^\"\\\\]|\\\\.)*\"|'[^']*'|\\\\[^\\n]|[^\\s\"'\\\\])+|\\s+(?:--git-dir|--work-tree|--namespace|--exec-path|--super-prefix|--config-env)\\s+(?:\"(?:[^\"\\\\]|\\\\.)*\"|'[^']*'|\\\\[^\\n]|[^\\s\"'\\\\])+|\\s+(?!(?:-C|-c|(?:--git-dir|--work-tree|--namespace|--exec-path|--super-prefix|--config-env))(?:\\s|$))-(?:\"(?:[^\"\\\\]|\\\\.)*\"|'[^']*'|\\\\[^\\n]|[^\\s\"'\\\\])+)*\\s+(?:push\\b|\"push\"|'push')[^\\n]*(\\s-f\\b|\\s--force)",
-      "message": "force push is prohibited"
     },
     {
       "regex": "(?<![*\\w])qmd(?![*\\w])",

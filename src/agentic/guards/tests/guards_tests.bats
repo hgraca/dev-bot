@@ -240,6 +240,398 @@ print('CHANNELS:OK')
   assert_output --partial '"blocked":true'
 }
 
+# ── Shipped force-push guard ─────────────────────────────────────────────────
+# The engine anchors ordinary command segments itself and deliberately matches
+# command-runner arguments unanchored (guards.ts). The shipped rule must not
+# embed a command-position anchor, or a wrapped force-push slips through.
+
+@test "shipped guards block a force-push wrapped in bash -c" {
+  run bun run "$TOOL" --command 'bash -c "git push --force origin topic"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a force-push wrapped in env" {
+  run bun run "$TOOL" --command "env git push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a force-push with intervening git options" {
+  run bun run "$TOOL" --command "git -C /tmp/repo push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a force-push with a quoted -C value" {
+  run bun run "$TOOL" --command 'git -C "/tmp/my repo" push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a force-push with a quoted -c value" {
+  run bun run "$TOOL" --command 'git -c user.name="Dev Bot" push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an attached -C value" {
+  run bun run "$TOOL" --command "git -C. push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an attached -C path" {
+  run bun run "$TOOL" --command "git -C/tmp/repo push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block --config-env with a separate value" {
+  run bun run "$TOOL" --command "git --config-env core.sshCommand=GIT_SSH_COMMAND push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an attached quoted -C value" {
+  run bun run "$TOOL" --command 'git -C"/tmp/my repo" push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an attached quoted -c value" {
+  run bun run "$TOOL" --command 'git -cuser.name="Dev Bot" push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an escaped-space -C value" {
+  run bun run "$TOOL" --command 'git -C /tmp/my\ repo push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an attached escaped-space -C value" {
+  run bun run "$TOOL" --command 'git -C/tmp/my\ repo push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a double-quoted push subcommand" {
+  run bun run "$TOOL" --command 'git "push" --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a single-quoted push subcommand" {
+  run bun run "$TOOL" --command "git 'push' --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a quoted -C option name" {
+  run bun run "$TOOL" --command 'git "-C" /tmp/repo push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a single-quoted -C option name" {
+  run bun run "$TOOL" --command "git '-C' /tmp/repo push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a quoted attached -C option" {
+  run bun run "$TOOL" --command 'git "-C/tmp/repo" push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a quoted attached -C value with a space" {
+  run bun run "$TOOL" --command 'git "-C/tmp/my repo" push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block equals-valued --git-dir" {
+  run bun run "$TOOL" --command "git --git-dir=/tmp/repo/.git push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block equals-valued --work-tree" {
+  run bun run "$TOOL" --command "git --work-tree=/tmp/work push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block equals-valued --namespace" {
+  run bun run "$TOOL" --command "git --namespace=refs/heads/x push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block equals-valued --config-env" {
+  run bun run "$TOOL" --command "git --config-env=core.sshCommand=GIT_SSH_COMMAND push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an inline alias expanding to a force-push" {
+  run bun run "$TOOL" --command "git -c alias.publish='push --force' publish origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an attached inline force-push alias" {
+  run bun run "$TOOL" --command "git -calias.publish='push --force' publish origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards match an uppercase alias section" {
+  run bun run "$TOOL" --command "git -c ALIAS.publish='push --force' publish origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a hyphenated alias name" {
+  run bun run "$TOOL" --command "git -c alias.force-push='push --force' force-push origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a dotted alias name" {
+  run bun run "$TOOL" --command "git -c alias.force.push='push --force' force.push origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a read-only alias definition" {
+  run bun run "$TOOL" --command "git -c alias.audit='log --grep=push --grep=--force' audit" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards do NOT block a read-only grep for alias text" {
+  run bun run "$TOOL" --command "git grep -c alias.publish" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards do NOT block a -C path starting with alias" {
+  run bun run "$TOOL" --command "git -Calias.publish status" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards block a force flag followed by a command substitution" {
+  run bun run "$TOOL" --command "git push --force\$(printf '') origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an ANSI-C quoted subcommand" {
+  run bun run "$TOOL" --command "git \$'push' --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an unresolved expansion in the option prefix" {
+  run bun run "$TOOL" --command 'opts=-C; git "$opts" /tmp/repo push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "global guards block a backtick substitution in the option prefix" {
+  run bun run "$TOOL" --command 'git -C `git rev-parse --show-toplevel` push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config /dev/null
+  assert_output --partial '"blocked":true'
+}
+
+@test "project guards block a backtick substitution in the option prefix" {
+  run bun run "$TOOL" --command 'git -C `git rev-parse --show-toplevel` push --force origin topic' --global-config /dev/null --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards complete quickly on NBSP-joined options" {
+  command -v timeout >/dev/null 2>&1 || skip "timeout not available"
+  local nbsp=$'\xc2\xa0'
+  local payload="git "
+  local i
+  for i in {1..24}; do payload+="${nbsp}-Cfoo"; done
+  payload+=" status"
+
+  run timeout 5 bun run "$TOOL" --command "$payload" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_success
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards complete quickly on repeated expansions" {
+  command -v timeout >/dev/null 2>&1 || skip "timeout not available"
+  local payload="git"
+  local i
+  for i in {1..44}; do payload+=" \$opts"; done
+  payload+=" status"
+
+  run timeout 5 bun run "$TOOL" --command "$payload" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_success
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards complete quickly on mixed expansion tokens" {
+  command -v timeout >/dev/null 2>&1 || skip "timeout not available"
+  local payload="git"
+  local i
+  for i in {1..24}; do payload+=" \$opts --no-pager"; done
+  payload+=" status"
+
+  run timeout 5 bun run "$TOOL" --command "$payload" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_success
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards block a force-with-lease alias value" {
+  run bun run "$TOOL" --command "git -c alias.publish='push --force-with-lease=refs/heads/topic' publish origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards do NOT block literal alias text in a quoted argument" {
+  run bun run "$TOOL" --command "echo -c 'alias.publish=push --force'" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
+@test "a config without the alias rule does not block literal alias text" {
+  local cfg
+  cfg="$(mktemp)"
+  cat > "$cfg" <<'JSONC'
+{ "guards": [ { "regex": "rm -rf", "message": "rm -rf is blocked" } ] }
+JSONC
+  run bun run "$TOOL" --command "echo -c 'alias.publish=push --force'" --global-config "$cfg" --project-config "$cfg"
+  rm -f "$cfg"
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards block a quoted push despite an alias named push" {
+  run bun run "$TOOL" --command 'git -c alias.push=status "push" --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a quoted push despite an alias named git" {
+  run bun run "$TOOL" --command 'git -c alias.git=status "push" --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block any inline alias" {
+  run bun run "$TOOL" --command "git -c alias.st=status st" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a shell-body alias" {
+  run bun run "$TOOL" --command "git -c alias.publish='! git push --force' publish origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a config-quoted alias value" {
+  run bun run "$TOOL" --command "git -c 'alias.publish=\"push\" --force' publish origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a recursive alias definition quickly" {
+  command -v timeout >/dev/null 2>&1 || skip "timeout not available"
+  local payload="git -c alias.a='"
+  local i
+  for i in {1..100}; do payload+="a "; done
+  payload+="' a"
+
+  run timeout 5 bun run "$TOOL" --command "$payload" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_success
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a Unicode-space path" {
+  local nbsp=$'\xc2\xa0'
+  run bun run "$TOOL" --command "git -C /tmp/my${nbsp}repo push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "custom raw rule still matches quoted argument values" {
+  local cfg
+  cfg="$(mktemp)"
+  cat > "$cfg" <<'JSONC'
+{ "guards": [ { "regex": "curl .*Authorization: Bearer", "message": "no tokens" } ] }
+JSONC
+  run bun run "$TOOL" --command 'curl -H "Authorization: Bearer test-token" https://example.test' --global-config "$cfg" --project-config "$cfg"
+  rm -f "$cfg"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block escaped literal quotes in a value" {
+  run bun run "$TOOL" --command 'git -c user.name=\"-foo\" push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a single-quoted value starting with a dash" {
+  run bun run "$TOOL" --command "git -C '-repo\\' push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block an empty -C value" {
+  run bun run "$TOOL" --command 'git -C "" push --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a quoted subcommand in a wrapper vector" {
+  run bun run "$TOOL" --command 'env git "push" --force origin topic' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a quoted subcommand in an embedded shell string" {
+  run bun run "$TOOL" --command 'bash -c "git '\''push'\'' --force origin topic"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a trailing backslash in single quotes" {
+  run bun run "$TOOL" --command "git -c 'user.name=Dev\\' push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block a single-quoted backslash value" {
+  run bun run "$TOOL" --command "git -c core.commentChar='\\' push --force origin topic" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+# The value matcher's alternatives must stay disjoint: overlapping token
+# alternatives made the guard backtrack exponentially on non-push input.
+@test "shipped guards complete quickly on concatenated quoted fragments" {
+  command -v timeout >/dev/null 2>&1 || skip "timeout not available"
+  local payload='git -c user.name='
+  local i
+  for i in {1..20}; do payload+='"ab"'; done
+  payload+=" status"
+
+  run timeout 5 bun run "$TOOL" --command "$payload" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_success
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards complete quickly on repeated option tokens" {
+  command -v timeout >/dev/null 2>&1 || skip "timeout not available"
+  local payload="git"
+  local i
+  for i in {1..16}; do payload+=' -c core.quotePath="false"'; done
+  payload+=" status"
+
+  run timeout 5 bun run "$TOOL" --command "$payload" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_success
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards complete quickly on repeated attached -C options" {
+  command -v timeout >/dev/null 2>&1 || skip "timeout not available"
+  local payload="git"
+  local i
+  for i in {1..24}; do payload+=" -Cfoo"; done
+  payload+=" status"
+
+  run timeout 5 bun run "$TOOL" --command "$payload" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_success
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards complete quickly on repeated long options" {
+  command -v timeout >/dev/null 2>&1 || skip "timeout not available"
+  local payload="git"
+  local i
+  for i in {1..44}; do payload+=" --git-dir"; done
+  payload+=" status"
+
+  run timeout 5 bun run "$TOOL" --command "$payload" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_success
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards do NOT block prose mentioning a force-push" {
+  run bun run "$TOOL" --command 'echo "git push --force is prohibited"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards do NOT block a commit message mentioning a force-push" {
+  run bun run "$TOOL" --command 'git commit -m "docs: explain push --force"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
+@test "shipped guards do NOT block a log grep mentioning a force-push" {
+  run bun run "$TOOL" --command 'git log --grep="push --force"' --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":false'
+}
+
 # ── Shipped qmd guard (ADR 20260913072905-qmd-bm25-only-no-model-downloads) ──
 # qmd is BM25-only and not agent-invokable; the shipped global config blocks the
 # CLI. Tested against the DIST config — the live .devbot.global.jsonc is

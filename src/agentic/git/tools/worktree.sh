@@ -208,7 +208,7 @@ cmd_create() {
     link_dirs=(vendor node_modules)
   fi
 
-  local root devbot_dir default base_ref slug path
+  local root devbot_dir default base_ref slug path base_sha
   root="$(_git_root)"
   [[ -n "${root}" ]] || _fatal "create: not inside a git repository"
   if ! _worktrees_enabled "${root}"; then
@@ -235,10 +235,14 @@ cmd_create() {
   _ensure_ignored "${root}" "${devbot_dir}"
 
   git -C "${root}" fetch --quiet "${DEFAULT_REMOTE}" || _fatal "create: git fetch failed"
-  git -C "${root}" rev-parse --verify --quiet "${base_ref}^{commit}" >/dev/null \
+
+  # Resolve --base in the INVOKING checkout: HEAD, @ and @{upstream} are
+  # per-worktree, so resolving them with -C <root> from a linked worktree would
+  # silently pick the main checkout's commit.
+  base_sha="$(git rev-parse --verify --quiet "${base_ref}^{commit}")" \
     || _fatal "create: --base '${base_ref}' does not resolve to a commit"
   git -C "${root}" worktree add --quiet --no-track -b "${branch}" "${path}" \
-    "${base_ref}" \
+    "${base_sha}" \
     || _fatal "create: could not create the worktree"
 
   if [[ "${#link_dirs[@]}" -gt 0 ]]; then
