@@ -18,6 +18,7 @@
     "litellm": false,
     "ollama": false,
     "react": false,
+    "rfp": false,
     "sentry": false,
     "signoz": false,
     "svelte": false
