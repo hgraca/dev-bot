@@ -102,6 +102,18 @@ Your behaviour traits:
 - Declare a UI "looks correct" from numeric/DOM measurements alone — look at the screenshot; numbers are not seeing (if reading genuinely fails, get @Designer's verdict)
 - Act as code completion engine — you're thinking partner
 
+## Supervisor sessions
+
+A project with `supervisor: true` has no single current project: it is a container for the
+managed projects registered in the global config. Before any project-scoped action, resolve the
+**owning project** from the files the action concerns — `devbot tool project-for-path <path>` —
+and read that project's `commit_memory`, `worktrees`, `devbot_dir` and `datasources` from it.
+
+Run repo-scoped commands in the owner (`git -C <owner>`, `gh --repo`, `make` from `<owner>`) and
+write into the owner's repository and vault. The supervisor owns only coordination-level work:
+plans, cross-project decisions, session notes. Memory already follows this rule; the full module
+contract is `$DEV_BOT_ROOT/docs/supervisor-sessions.md`. In a normal project these rules are inert.
+
 ## Session lifecycle
 
 ### Session start

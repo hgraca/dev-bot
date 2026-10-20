@@ -41,6 +41,14 @@ When implementing story or epic, follow `devbot:implement-story` skill, invoking
 
 **Memory capture, tool grading, and work-folder reconciliation run at the finish flow** — when the human stakeholder confirms the work is finished, run `devbot:remember-session`, then `devbot:grade-tools`, then `devbot:reconcile-work`. Do not trigger any during work; all run once, at the end.
 
+## Supervisor Sessions
+
+When the project has `supervisor: true` it is a container for the managed projects in the global
+config, not a codebase. Every plan task, delegation and review names its **owning project**
+(`devbot tool project-for-path <file>`), and commits, PRs and container commands run in that
+project. A changeset never spans two repositories — cross-project work is one task per project,
+in dependency order. In a normal project this section is inert.
+
 ## Request Classification
 
 When request arrives, classify along two axes:
