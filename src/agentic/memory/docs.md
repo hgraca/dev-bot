@@ -59,6 +59,7 @@ are listed under `memory_collections`.
 
 ## See also
 
+- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
 - [QMD](/modules/agentic/qmd) — the BM25 vault search engine
 - [mdctx](/modules/agentic/mdctx) — the keyword vault search engine
 - [Configuration](/configuration) — `memory_search_provider`, `memory_collections`, and `commit_memory`

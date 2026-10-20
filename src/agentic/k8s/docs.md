@@ -18,4 +18,5 @@ No project configuration is required.
 
 ## See also
 
+- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
 - [Docker](/module-reference) — Dockerfile authoring patterns

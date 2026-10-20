@@ -52,5 +52,6 @@ Sidecars run on the `uv` image and resolve their server's dependencies at contai
 
 ## See also
 
+- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
 - [MCP configuration](/mcp-config) — the manifest schema and the shared gateways
 - [Configuration](/configuration) — the global config keys

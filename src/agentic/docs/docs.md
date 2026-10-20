@@ -21,5 +21,6 @@ The site is a static Jekyll build under `docs/`. `make docs` runs the gather bef
 
 ## See also
 
+- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
 - [Create a module](/create-a-module) — how to document a module
 - [Module Reference](/module-reference) — module anatomy

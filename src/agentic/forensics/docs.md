@@ -107,5 +107,6 @@ Complexity is a decision-point count (1 + branches, cases and boolean operators)
 
 ## See also
 
+- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
 - [Architecture](/modules/agentic/architecture) — the boundaries coupling is judged against
 - [Refactor](/modules/agentic/refactor) — the same core-plus-plugins pattern applied to writing

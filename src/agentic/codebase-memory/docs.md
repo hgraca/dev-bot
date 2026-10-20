@@ -62,6 +62,7 @@ No project configuration is required.
 
 ## See also
 
+- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
 - [Codebase Index](/modules/agentic/codebase-index) — the sibling Ollama-based engine
 - [Graphify](/modules/agentic/graphify) — structural knowledge graph
 - [QMD](/modules/agentic/qmd) — knowledge vault search

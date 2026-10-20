@@ -36,5 +36,6 @@ No project configuration is required.
 
 ## See also
 
+- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
 - [Graphify](/modules/agentic/graphify) — structural knowledge graph
 - [QMD](/modules/agentic/qmd) — knowledge vault search

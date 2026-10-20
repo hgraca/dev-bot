@@ -26,5 +26,6 @@ No project configuration is required.
 
 ## See also
 
+- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
 - [Memory](/modules/agentic/memory) — where the project report is stored
 - [Git](/modules/agentic/git) — the git-report tool `gather-context` calls

@@ -173,6 +173,10 @@ A supervisor lives anywhere — physical nesting of the managed projects is irre
 
 Used by `search-memories` and the memory skills; the reindex engine targets the owning project via its `--path` resolution.
 
+Every other project-scoped module follows the same owning-project rule — resolve it with
+`devbot tool project-for-path <path>`. See [Supervisor sessions](/supervisor-sessions) for the
+per-module contract.
+
 ---
 
 ### `modules`

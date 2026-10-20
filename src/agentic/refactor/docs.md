@@ -168,6 +168,7 @@ No project configuration is required.
 
 ## See also
 
+- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
 - [Tools](/tools) — the full tool index
 - [Codebase Memory](/modules/agentic/codebase-memory) — structural lookup used to plan
   larger refactors
