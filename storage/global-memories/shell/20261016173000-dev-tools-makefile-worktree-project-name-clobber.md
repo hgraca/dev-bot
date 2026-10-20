@@ -1,0 +1,10 @@
+---
+date: 2026-10-16
+keywords: ["shell", "makefile", "git-worktree", "docker-compose", "dev-tools"]
+aliases: ["PROJECT_NAME clobber", "worktree container collision", "transfers-app-1", "TRAEFIK_SUBDOMAIN", "shared compose services"]
+trigger-on: ["makefile-worktree-isolation"]
+---
+
+## A project Makefile that hard-assigns a variable after `include` defeats the managed Makefile's worktree isolation
+
+In the GET-E dev-tools stack the managed root `Makefile` (copied into each consumer by the `get-e/dev-tools` Composer plugin on `post-install`/`post-update`) detects a linked worktree and force-sets `PROJECT_NAME := <worktree-dir>` and `TRAEFIK_SUBDOMAIN := <worktree-dir>` so each worktree gets its own compose project, container set and Traefik `Host(...)` — but it does so **before** `include Makefile.proj.mk`, so a consumer whose project Makefile hard-assigns the name (plain `=`, e.g. `PROJECT_NAME=transfers` in core and positioning-activities) wins the later assignment and every worktree silently targets the *main* checkout's `<project>-app-1`, whose `../:/app` bind mount points at the main tree — tests then run against main's code with no warning. The shared layer (MariaDB/Redis/Traefik, compose project `shared`, external `get-e-dev` network) is deliberately machine-global and is already guarded: `up` refuses to start shared containers from a worktree and `down-all`/`purge-all` refuse to tear them down. The fix follows GNU-Make precedence — a later `=` overrides an earlier `:=` and `override` is required to beat a project-file assignment: either move the worktree force-set in the managed Makefile to *after* the project includes and mark it `override`, or, per-project, override in a gitignored `Makefile.vars.local.mk` (included last) with `PROJECT_NAME := <worktree-dir>`. Confirm the live scope with `docker inspect <container> --format '{{index .Config.Labels "com.docker.compose.project"}}'`. `/etc/hosts` still needs a per-worktree entry (hosts files have no wildcard), and `make up` aborts at `init-hosts` because it wants `sudo` — the workaround is to skip it and bring the app container up directly.
