@@ -2,7 +2,7 @@
 title: "CLI commands"
 description: "The devbot command-line interface — lifecycle, management, and reporting commands."
 commands: ["audit", "audit-fix"]
-tools: ["list-projects"]
+tools: ["list-projects", "project-for-path"]
 ---
 
 The `devbot` CLI is the single entry point for installing, configuring and running DevBot. It is installed to `$PATH` by `make install` and delegates each subcommand to a lifecycle script under `bin/`.
@@ -89,6 +89,12 @@ Because each container has a fixed `container_name` (`dev-bot-*`), a container l
 ### `devbot tool <name> [args...]`
 
 Run a dev-bot tool by name (e.g. `devbot tool tree`, `devbot tool git-report`). Run `devbot tool` with no name to list available tools.
+
+`devbot tool project-for-path <path>` resolves a file or directory to the registered project that owns it — the longest `projects` entry containing the path — and reports that project's effective `commit_memory`, `worktrees`, `devbot_dir`, `datasources` and `modules`. Use it in a supervisor session before any project-scoped action; see [Supervisor sessions](/supervisor-sessions). Format the output with `--json`, or read one value with `--key <name>`. An unregistered path exits `3`.
+
+```bash
+devbot tool project-for-path src/index.ts --key worktrees
+```
 
 ### `devbot list <type> [-a|--all]`
 
