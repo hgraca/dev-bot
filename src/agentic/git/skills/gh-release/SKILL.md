@@ -59,6 +59,16 @@ again.
 **When the tag is already pushed** — the git half is done — show only the
 `release.sh plan` output and, on approval, run only the `release` step of step 4.
 
+## Never push a protected default branch
+
+The git half is `devbot:git-tag`, and its
+[Never push a protected default branch](../git-tag/SKILL.md#never-push-a-protected-default-branch)
+rule applies unchanged: when the default branch requires a pull request or
+status checks, push the source branch and land it through a PR, then tag.
+State that path in the combined preview, so the approval covers the PR rather
+than a direct push. `tag.sh push` refuses to move a protected branch and prints
+the remediation; a push reporting `Bypassed rule violations` is a failure.
+
 ## 4. On approval, run in order
 
 ```

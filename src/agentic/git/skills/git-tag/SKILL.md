@@ -52,6 +52,32 @@ Show the output **verbatim** — it is the exact plan. Ask for approval or chang
 requests. A change request (a different version, description, or remotes) means
 going back to the relevant step, re-rendering the plan, and asking again.
 
+## Never push a protected default branch
+
+Before the merge step, check whether the default branch accepts direct pushes:
+
+```
+gh api "repos/<owner>/<repo>/branches/<default>/protection" >/dev/null 2>&1 && echo protected
+```
+
+When it is protected — required pull request, required status checks, or any
+ruleset that rejects a direct push — **do not merge locally and push**. Land the
+release commits through a PR instead:
+
+```
+git push origin <source-branch>
+gh pr create --base <default> --head <source-branch> --title "<release title>"
+gh pr merge <pr> --rebase        # or --squash, per the repo's convention
+```
+
+Wait for the required checks, then run `tag` and `push`. The default branch is
+already in sync at that point, so `push` sends only the tag.
+
+`tag.sh push` refuses to move a protected branch and prints this same
+remediation — treat that refusal as the correct outcome, not an obstacle to
+work around. A push that reports `Bypassed rule violations` is a failure: the
+work has to go back through a PR.
+
 ## 4. On approval, run the tag in order
 
 ```

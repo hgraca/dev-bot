@@ -212,6 +212,19 @@ cmd_tag() {
   printf 'created tag %s\n' "${version}"
 }
 
+# ── default-branch protection ────────────────────────────────────────────────
+
+# True when the remote's default branch requires a pull request (or any ruleset that
+# rejects a direct push). Best-effort: no gh, no network or no permission means "unknown",
+# which is treated as unprotected so the release can still run offline.
+_branch_is_protected() {
+  local remote="$1" branch="$2" repo
+  command -v gh >/dev/null 2>&1 || return 1
+  repo="$(git remote get-url "${remote}" 2>/dev/null | sed -E 's#.*github\.com[:/]##; s#\.git$##')"
+  [[ -n "${repo}" ]] || return 1
+  gh api "repos/${repo}/branches/${branch}/protection" >/dev/null 2>&1
+}
+
 # ── push ─────────────────────────────────────────────────────────────────────
 
 cmd_push() {
@@ -224,6 +237,23 @@ cmd_push() {
 
   local failed="" remote
   for remote in ${REMOTES//,/ }; do
+    # A protected default branch must move through a PR, never through this command. The
+    # tag is unaffected: after the PR is merged the branch is already in sync, so the
+    # check passes and only the tag is sent.
+    local remote_ref local_ref
+    remote_ref="$(git rev-parse --verify --quiet "refs/remotes/${remote}/${branch}" || true)"
+    local_ref="$(git rev-parse --verify --quiet "refs/heads/${branch}" || true)"
+    if [[ -n "${remote_ref}" && -n "${local_ref}" && "${remote_ref}" != "${local_ref}" ]] \
+      && _branch_is_protected "${remote}" "${branch}"; then
+      _error "push: '${branch}' on '${remote}' is protected — this push would bypass its rules."
+      _error "remediation: push the source branch and merge it through a pull request,"
+      _error "  then re-run this push; it will send only the tag:"
+      _error "    git push ${remote} <source-branch>"
+      _error "    gh pr create --base ${branch} --head <source-branch>"
+      _error "    gh pr merge <pr> --rebase   # or --squash, per the repo's convention"
+      _fatal "push: refusing to update a protected '${branch}' directly"
+    fi
+
     if git push --quiet "${remote}" "${branch}" \
       && git push --quiet "${remote}" "refs/tags/${version}"; then
       printf 'pushed %s and %s to %s\n' "${branch}" "${version}" "${remote}"
