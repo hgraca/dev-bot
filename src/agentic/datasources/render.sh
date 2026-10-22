@@ -188,9 +188,13 @@ main() {
   # the multi-document YAML toolbox reads. `pipefail` (set above) means a
   # failing stage aborts before anything is written, so a bad render can never
   # replace a working config.
+  # Install renders without the toolbox oracle: `docker run` would pull the
+  # pinned image (a large download) and require a daemon install does not need.
+  local -a validator_args=()
+  [[ "${DATASOURCES_SKIP_CANARY:-0}" == "1" ]] && validator_args+=("--skip-canary")
   printf '%s' "${catalogue}" |
     python3 "${MODULE_DIR}/available_catalogue.py" |
-    python3 "${VALIDATOR}" |
+    python3 "${VALIDATOR}" ${validator_args[@]+"${validator_args[@]}"} |
     python3 "${MODULE_DIR}/render_tools_yaml.py" > "${CONF_DIR}/tools.yaml.tmp"
 
   # Publishing empty is the right answer when every declared source was

@@ -21,13 +21,10 @@ source "${MODULE_DIR}/functions.sh"
 main() {
   _info "codebase-index — install"
 
-  # Ensure the embedding model exists on the ollama API — non-blocking: skips
-  # models already present and pulls missing ones as independent processes, so
-  # install never waits on a model download.
-  if [[ ${#LOCAL_MODELS[@]} -gt 0 ]]; then
-    _ensure_ollama_models_detached "${LOCAL_MODELS[@]}"
-  fi
-
+  # No model ensure here: up.sh pulls nomic-embed-text on every `devbot up`, and
+  # the shared ensure helper falls back to booting the ollama container when the
+  # API is down — which pulls the 4.8 GB image at install time, the exact
+  # download this module stopped doing.
   _ok "codebase-index installation complete"
 }
 

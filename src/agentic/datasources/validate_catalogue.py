@@ -447,9 +447,10 @@ def load_versions(path: str) -> dict:
     return values
 
 
-def _parse_args(argv: List[str]) -> float:
-    """The canary timeout. Fails loudly on anything unexpected."""
+def _parse_args(argv: List[str]) -> Tuple[float, bool]:
+    """The canary timeout and whether the canary is skipped. Fails loudly."""
     timeout = DEFAULT_TIMEOUT
+    skip_canary = False
     index = 0
     while index < len(argv):
         flag = argv[index]
@@ -460,16 +461,20 @@ def _parse_args(argv: List[str]) -> float:
             except ValueError:
                 raise ValidationError(f"invalid timeout: {value}", EXIT_INPUT)
             index += 2
+        elif flag == "--skip-canary":
+            skip_canary = True
+            index += 1
         else:
             raise ValidationError(
-                "usage: validate_catalogue.py [--timeout SECONDS]", EXIT_INPUT
+                "usage: validate_catalogue.py [--timeout SECONDS] [--skip-canary]",
+                EXIT_INPUT,
             )
-    return timeout
+    return timeout, skip_canary
 
 
 def main() -> int:
     try:
-        timeout = _parse_args(sys.argv[1:])
+        timeout, skip_canary = _parse_args(sys.argv[1:])
     except ValidationError as exc:
         sys.stderr.write(f"ERROR: {exc}\n")
         return exc.code
@@ -491,7 +496,15 @@ def main() -> int:
     engines = {n: s for n, s in catalogue.items() if not is_sidecar(s)}
 
     accepted: dict = {}
-    if engines:
+    if skip_canary and engines:
+        # Validation starts the pinned toolbox, and docker downloads it when
+        # missing — a large pull, and a docker dependency, that install must not
+        # inherit. The catalogue is structural only; first use validates it.
+        sys.stderr.write(
+            "INFO: validation skipped — datasources are checked on first use\n"
+        )
+        accepted = dict(engines)
+    elif engines:
         versions = load_versions(VERSIONS_FILE)
         image = versions.get("TOOLBOX_IMAGE")
         version = versions.get("TOOLBOX_VERSION")

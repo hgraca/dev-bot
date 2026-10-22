@@ -533,5 +533,34 @@ class TestAnnounceImagePull(unittest.TestCase):
         self.assertEqual(self._stderr_of(self._proc(0), None), "")
 
 
+class TestSkipCanary(unittest.TestCase):
+    """--skip-canary renders without the toolbox, for install."""
+
+    def test_engines_pass_through_without_docker(self):
+        import json
+
+        catalogue = {
+            "scratch": {"type": "sqlite", "env": {"SQLITE_DATABASE": "/data/x.db"}}
+        }
+        # No docker on PATH: without the skip this is an infra error, because
+        # install must never need a daemon or download the image.
+        environment = dict(os.environ, PATH="/nonexistent")
+        proc = subprocess.run(
+            [
+                sys.executable,
+                os.path.join(MODULE_DIR, "validate_catalogue.py"),
+                "--skip-canary",
+            ],
+            input=json.dumps(catalogue),
+            capture_output=True,
+            text=True,
+            env=environment,
+        )
+
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(json.loads(proc.stdout), catalogue)
+        self.assertIn("validation skipped", proc.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -94,6 +94,21 @@ SH
   export PATH="${SANDBOX_DIR}/recbin:${PATH}"
 }
 
+# A pass-through validator that also records the arguments it was given, so a
+# test can see whether render.sh forwarded --skip-canary.
+_recording_validator() {
+  VALIDATOR_ARGS_LOG="${SANDBOX_DIR}/validator-args.log"
+  : > "${VALIDATOR_ARGS_LOG}"
+  local stub="${SANDBOX_DIR}/recording-validator.py"
+  cat > "${stub}" <<PY
+import json, sys
+with open("${VALIDATOR_ARGS_LOG}", "a", encoding="utf-8") as log:
+    log.write(" ".join(sys.argv[1:]) + "\\n")
+json.dump(json.load(sys.stdin), sys.stdout)
+PY
+  export DATASOURCES_VALIDATOR="${stub}"
+}
+
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
 # The global catalogue. The argument is JSON, so it is passed single-quoted and
@@ -167,9 +182,10 @@ SH
   export PATH="${SANDBOX_DIR}/runbin:${PATH}"
 }
 
-# ── install.sh toolbox pull gate (audit-80 N8) ───────────────────────────────
-# A fresh install ships an empty catalogue; pulling the toolbox image then only
-# produced a "could not pull" warning.
+# ── install.sh never pulls the toolbox image ─────────────────────────────────
+# install runs with `--all`, so a pull here downloads the gateway image for a
+# machine that may never enable it. docker compose pulls it on first `up`, and
+# bin/up.sh announces the download.
 
 _install_toolbox_probe() {
   PULL_LOG="${SANDBOX_DIR}/docker-pulls.log"
@@ -184,25 +200,27 @@ SH
   export PATH="${SANDBOX_DIR}/pullbin:${PATH}"
 }
 
-@test "install: skips the toolbox image pull when no datasource is declared" {
-  _catalogue '{}'
-  _install_toolbox_probe
+@test "install: never pulls the toolbox image, with or without a declared datasource" {
+  local catalogue
+  for catalogue in empty declared; do
+    _catalogue '{}'
+    [[ "${catalogue}" == "declared" ]] && _sqlite_catalogue
+    _install_toolbox_probe
 
-  run bash "${MODULE_DIR}/install.sh"
-  assert_success
-  assert_output --partial "no datasources declared"
-  if [[ -f "${PULL_LOG}" ]] && grep -q '^pull ' "${PULL_LOG}"; then
-    fail "toolbox image pulled despite an empty catalogue"
-  fi
-}
-
-@test "install: pulls the toolbox image when a datasource is declared" {
-  _sqlite_catalogue
-  _install_toolbox_probe
-
-  run bash "${MODULE_DIR}/install.sh"
-  assert_success
-  grep -q '^pull ' "${PULL_LOG}" || fail "expected the toolbox image to be pulled"
+    _recording_validator
+    run bash "${MODULE_DIR}/install.sh"
+    assert_success
+    assert_output --partial "pulled by the module's up.sh on first use"
+    # Declared sources used to reach the validator's canary, whose `docker run`
+    # pulls the toolbox image. Install renders with the canary skipped instead.
+    if [[ "${catalogue}" == "declared" ]]; then
+      grep -q -- '--skip-canary' "${VALIDATOR_ARGS_LOG}" ||
+        fail "install did not skip the toolbox canary (${catalogue} catalogue)"
+    fi
+    if [[ -f "${PULL_LOG}" ]] && grep -qE '^(pull|run) ' "${PULL_LOG}"; then
+      fail "toolbox image pulled during install (${catalogue} catalogue)"
+    fi
+  done
 }
 
 # ── render.sh ────────────────────────────────────────────────────────────────
@@ -768,6 +786,17 @@ PY
   run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
   assert_success
   refute_output --partial "not present locally"
+}
+
+@test "up: renders through the toolbox oracle, never skipping the canary" {
+  # The skip exists for install only; up must still validate against the real
+  # toolbox, or an unusable source would take the gateway down.
+  _sqlite_catalogue
+  _recording_validator
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+  refute grep -q -- '--skip-canary' "${VALIDATOR_ARGS_LOG}"
 }
 
 @test "up: stays silent about the image when the docker daemon is unreachable" {

@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Install ollama — runs inside a Docker container, no host binary needed.
-# Ensures the ollama/ollama Docker image is pulled and available locally.
+# Install ollama — nothing to install on the host: the service runs in Docker.
 #
-# GPU detection no longer lives here: _devbot_detect_gpu (src/_shared/
-# functions.sh) records gpu_enabled from bin/install.sh / bin/update.sh, so
-# the result survives the ollama module being disabled in the `modules` map
-# (it is off by default; consumer compose fragments boot it on demand). If
-# this module's install runs at all (module enabled), docker compose pulls
-# the image on first `up` regardless — the explicit pull here just warms it.
+# No image is pulled here. `bin/install.sh` runs install scripts with `--all`,
+# so this one runs even when the ollama module is disabled (it is off by
+# default) — and the image is 4.8 GB. `docker compose up` pulls it on the first
+# `up` that actually needs it, and `bin/up.sh` announces the download first.
+#
+# GPU detection no longer lives here either: _devbot_detect_gpu (src/_shared/
+# functions.sh) records gpu_enabled from bin/install.sh / bin/update.sh, so the
+# result survives the module being disabled in the `modules` map.
 
 set -euo pipefail
 
@@ -19,23 +20,7 @@ source "${MODULE_DIR}/functions.sh"
 
 main() {
   _info "ollama"
-
-  # Inside a container there is no docker daemon to run ollama with — skip
-  # cleanly instead of failing the pull. The host's ollama serves the API.
-  if ! docker info >/dev/null 2>&1; then
-    _skip "no docker daemon (inside a container?) — ollama not installed here; the host serves the ollama API instead"
-    return 0
-  fi
-
-  # ── 1. Pull the Docker image ─────────────────────────────────────────────
-  if docker image inspect ollama/ollama:latest >/dev/null 2>&1; then
-    _skip "ollama/ollama:latest image already pulled"
-  else
-    _info "Pulling ollama/ollama:latest Docker image..."
-    docker pull ollama/ollama:latest
-    _ok "ollama/ollama:latest image pulled"
-  fi
-
+  _skip "ollama/ollama:latest is pulled by docker compose on first use — nothing downloaded now"
   _ok "ollama ready"
 }
 

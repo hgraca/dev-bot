@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Install LiteLLM proxy — runs inside a Docker container, no host binary needed.
-# Ensures the LiteLLM Docker image is pulled and config file is set up.
+# Writes the default config; the image is pulled by docker compose on first use
+# (install runs with `--all`, so pulling here would download 1.2 GB for a module
+# that may never be enabled — `bin/up.sh` announces the pull when it happens).
 
 set -euo pipefail
 
@@ -17,23 +19,7 @@ main() {
   # shellcheck source=./functions.sh
   source "${DEV_BOT_ROOT}/src/tools/litellm/functions.sh"
 
-  # Inside a container there is no docker daemon to run litellm with — skip
-  # cleanly instead of failing the pull.
-  if ! docker info >/dev/null 2>&1; then
-    _skip "no docker daemon (inside a container?) — litellm not installed here; run it on the host instead"
-    return 0
-  fi
-
-  # ── 1. Pull the Docker image ────────────────────────────────────────────
-  if docker image inspect ghcr.io/berriai/litellm:main-latest >/dev/null 2>&1; then
-    _skip "ghcr.io/berriai/litellm:main-latest image already pulled"
-  else
-    _info "Pulling LiteLLM Docker image..."
-    docker pull ghcr.io/berriai/litellm:main-latest
-    _ok "LiteLLM image pulled"
-  fi
-
-  # ── 3. Copy default config to project root ──────────────────────────────
+  # ── Copy default config to project root ─────────────────────────────────
   local config_src="${DEV_BOT_ROOT}/src/tools/litellm/config.yaml"
   local config_dst="${DEV_BOT_ROOT}/litellm.config.yaml"
 
