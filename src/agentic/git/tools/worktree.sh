@@ -19,8 +19,8 @@
 #                      `"worktrees": false`.
 #   enabled          — print true/false and exit 0/1 for the worktrees setting.
 #   list             — list the worktrees under <devbot_dir>/worktrees.
-#   merge  <branch>  — plain merge <branch> into the local default branch.
-#                      Requires the main checkout already on the default branch.
+#   push   <branch>  — push <branch> to origin and set its upstream, so it can
+#                      be opened as a pull request. Nothing local is merged.
 #   remove <branch>  — remove the worktree for <branch>. The branch ref stays.
 #
 # GATE: Linux and macOS. bash 3.2-safe, no GNU-only tools. git >= 2.23.
@@ -43,7 +43,6 @@ source "${SCRIPT_DIR}/../functions.sh"
 DEFAULT_REMOTE="origin"
 
 _fatal() { echo "FATAL: $*" >&2; exit 1; }
-_error() { echo "ERROR: $*" >&2; }
 _warn() { echo "WARN: $*" >&2; }
 
 # ── git plumbing helpers ─────────────────────────────────────────────────────
@@ -324,45 +323,28 @@ cmd_list() {
   '
 }
 
-# ── merge ────────────────────────────────────────────────────────────────────
+# ── push ─────────────────────────────────────────────────────────────────────
 
-cmd_merge() {
+cmd_push() {
   local branch="${1:-}"
-  [[ -n "${branch}" ]] || _fatal "merge: <branch> is required"
+  [[ -n "${branch}" ]] || _fatal "push: <branch> is required"
 
-  local root default current
+  local root devbot_dir slug path default
   root="$(_git_root)"
-  [[ -n "${root}" ]] || _fatal "merge: not inside a git repository"
+  [[ -n "${root}" ]] || _fatal "push: not inside a git repository"
+  devbot_dir="$(_devbot_dir_for "${root}")"
+  slug="$(_slug "${branch}")"
+  path="${root}/${devbot_dir}/worktrees/${slug}"
+
+  [[ -e "${path}" ]] || _fatal "push: no worktree at ${path}"
+
   default="$(_remote_default "${root}")"
-  current="$(git -C "${root}" branch --show-current)"
 
-  if [[ "${current}" != "${default}" ]]; then
-    _fatal "merge: the main checkout is on '${current}', not '${default}' — switch it to '${default}' first (this tool never switches it)"
-  fi
+  git -C "${path}" push --quiet --set-upstream "${DEFAULT_REMOTE}" "${branch}" \
+    || _fatal "push: could not push '${branch}' to ${DEFAULT_REMOTE}"
 
-  # Checked first so an FF failure below genuinely means divergence, not a
-  # dirty tree that would have blocked the checkout.
-  [[ -z "$(git -C "${root}" status --porcelain)" ]] \
-    || _fatal "merge: the working tree is not clean"
-
-  git -C "${root}" fetch --quiet "${DEFAULT_REMOTE}" || _fatal "merge: git fetch failed"
-
-  # Bring the local default up to the remote before integrating, so the merge
-  # is a clean fast-forward. A diverged local default is the human's to rebase.
-  if git -C "${root}" rev-parse --verify --quiet "refs/remotes/${DEFAULT_REMOTE}/${default}" >/dev/null; then
-    if ! git -C "${root}" merge --ff-only --quiet "${DEFAULT_REMOTE}/${default}" >/dev/null 2>&1; then
-      _fatal "merge: '${default}' has diverged from ${DEFAULT_REMOTE}/${default} — rebase it onto ${DEFAULT_REMOTE}/${default} first"
-    fi
-  fi
-
-  if ! git -C "${root}" merge --no-edit "${branch}" >/dev/null; then
-    _error "merge of '${branch}' into '${default}' failed — conflicting paths:"
-    git -C "${root}" --no-pager diff --name-only --diff-filter=U >&2 || true
-    git -C "${root}" merge --abort >/dev/null 2>&1 || true
-    _fatal "nothing was merged"
-  fi
-
-  printf 'merged %s into %s\n' "${branch}" "${default}"
+  printf 'pushed %s to %s/%s\n' "${branch}" "${DEFAULT_REMOTE}" "${branch}"
+  printf 'next: open the pull request against %s\n' "${default}"
 }
 
 # ── remove ───────────────────────────────────────────────────────────────────
@@ -404,10 +386,10 @@ Subcommands:
   enabled [--project <dir>]
                     print true/false and exit 0/1 for the worktrees setting
   list              list the worktrees under <devbot_dir>/worktrees
-  merge  <branch>   merge <branch> into the local default branch (plain merge)
+  push   <branch>   push <branch> to origin and set its upstream
   remove <branch>   remove the worktree for <branch> (the branch ref stays)
 
-Requires: git >= 2.23 (git switch, git branch --show-current).
+Requires: git >= 2.23.
 EOF
 }
 
@@ -418,7 +400,7 @@ main() {
     create) cmd_create "$@" ;;
     enabled) cmd_enabled "$@" ;;
     list) cmd_list "$@" ;;
-    merge) cmd_merge "$@" ;;
+    push) cmd_push "$@" ;;
     remove) cmd_remove "$@" ;;
     "" | -h | --help) _usage ;;
     *) _fatal "unknown subcommand '${sub}'" ;;

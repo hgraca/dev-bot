@@ -427,47 +427,50 @@ worktree() {
   refute_output --partial "$WORK main"
 }
 
-# ── merge ────────────────────────────────────────────────────────────────────
+# ── push ─────────────────────────────────────────────────────────────────────
 
-@test "merge: merges the worktree branch into the default branch" {
-  worktree create feat/merged
+@test "push: pushes the worktree branch and sets its upstream" {
+  worktree create feat/pushed
   assert_success
 
-  local path="$WORKTREES/feat-merged"
+  local path="$WORKTREES/feat-pushed"
   printf 'work\n' > "$path/feature.txt"
   git -C "$path" add -A
   git -C "$path" commit -qm "feature work"
   local sha
   sha="$(git -C "$path" rev-parse HEAD)"
 
-  worktree merge feat/merged
+  worktree push feat/pushed
 
   assert_success
-  assert_equal "$(git -C "$WORK" branch --show-current)" "main"
-  run git -C "$WORK" merge-base --is-ancestor "$sha" HEAD
-  assert_success
+  assert_output --partial "pushed feat/pushed to origin/feat/pushed"
+  assert_output --partial "next: open the pull request against main"
+  assert_equal "$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}')" "origin/feat/pushed"
+  assert_equal "$(git --git-dir="$ORIGIN" rev-parse refs/heads/feat/pushed)" "$sha"
 }
 
-@test "merge: refuses when the main checkout is not on the default branch" {
+@test "push: leaves the main checkout's branch untouched" {
   git -C "$WORK" switch -qc other
 
-  worktree merge feat/anything
+  worktree create feat/pushed-from-other
+  assert_success
 
-  assert_failure
-  assert_output --partial "FATAL:"
+  local path="$WORKTREES/feat-pushed-from-other"
+  printf 'work\n' > "$path/feature.txt"
+  git -C "$path" add -A
+  git -C "$path" commit -qm "feature work"
+
+  worktree push feat/pushed-from-other
+
+  assert_success
   assert_equal "$(git -C "$WORK" branch --show-current)" "other"
 }
 
-@test "merge: refuses when the working tree is dirty" {
-  worktree create feat/merge-dirty
-  assert_success
-  printf 'dirty\n' >> "$WORK/file.txt"
-
-  worktree merge feat/merge-dirty
+@test "push: fails when there is no worktree for the branch" {
+  worktree push feat/missing
 
   assert_failure
   assert_output --partial "FATAL:"
-  assert_output --partial "not clean"
 }
 
 # ── remove ───────────────────────────────────────────────────────────────────

@@ -67,10 +67,9 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create <branch> "${projec
 The main checkout's branch is never switched. The tool fails if the branch or worktree path
 already exists.
 
-Before you start, confirm the main checkout is on the repository's default branch
-(`git branch --show-current`). The finish merge lands there and never switches it, so starting
-from another branch dead-ends the automated finish — if it is elsewhere, ask the human to switch
-before you begin.
+Nothing in this flow depends on the main checkout's branch or its local state: the worktree is cut
+from `origin/<default>`, the commits live on the worktree branch, and finishing pushes that branch
+and opens a pull request. Leave the main checkout wherever it happens to be.
 
 ## Work in the worktree
 
@@ -121,21 +120,30 @@ starting host-port-bound services per worktree.
 
 ## Finish
 
-The primary agent's finish flow (`devbot:remember-session`) writes memories; commit them on the
-**main checkout's local default branch** — that is where the finish flow runs, and committing
-them there directly means only the work commits travel on the worktree branch.
-
-Then **ask the user** whether to land the worktree branch and clean up. The main checkout must
-already be on the default branch — the tool never switches it:
+Finishing means pushing the worktree branch and opening a pull request — nothing is merged, checked
+out, or otherwise changed locally:
 
 ```bash
-bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" merge <branch>   # plain merge into <default>
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" push <branch>   # push + set upstream
+```
+
+Then open the PR against `<default>` with `devbot:gh-create-pr`. `push` only pushes the worktree
+branch to `origin` and sets its upstream; it does not touch the main checkout, so the whole flow is
+independent of the local situation.
+
+**Keep the worktree while the pull request is open.** Review feedback is fixed in it, on the same
+branch — removing it early strands the follow-up work. Remove it only once the user states the work
+is finished:
+
+```bash
 bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" remove <branch>  # removes the dir; keeps the branch ref
 ```
 
-`merge` fast-forwards the local default to `origin/<default>` first, then merges `--no-edit`;
-on a conflict it aborts and leaves nothing merged. `remove` refuses a worktree with uncommitted
-changes. Never push — the human decides.
+`remove` refuses a worktree with uncommitted changes.
+
+The primary agent's finish flow (`devbot:remember-session`) writes memories; commit them on the
+**main checkout's local default branch** — that is where the finish flow runs, and committing
+them there directly means only the work commits travel on the worktree branch.
 
 ### Drop the worktree's databases
 
