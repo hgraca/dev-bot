@@ -113,7 +113,7 @@ if [[ "${GATEWAY_INDEX_ROOT}" != "${GATEWAY_ROOT}" && "${GATEWAY_INDEX_ROOT}" !=
   exit 0
 fi
 
-exec 200>"${LOCK_FILE}" 2>/dev/null || exit 0
+{ exec 200>"${LOCK_FILE}"; } 2>/dev/null || exit 0
 # audit-25 F2: flock(1) is util-linux (Linux-only) — macOS lacks it. Fall back
 # to python fcntl on the inherited fd 200.
 { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; } || exit 0

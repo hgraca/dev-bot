@@ -66,7 +66,7 @@ teardown() {
   local files
   files="$(find "${SESSIONS_DIR}" -maxdepth 1 -name 'session-*' | wc -l | tr -d ' ')"
   [ "${files}" -eq 1 ]
-  exec 210>&- 2>/dev/null || true
+  { exec 210>&-; } 2>/dev/null || true
 }
 
 @test "two registers create two session files (two live sessions)" {
@@ -82,7 +82,7 @@ teardown() {
   [ "${files}" -eq 2 ]
 
   kill "${holder}" 2>/dev/null || true
-  exec 210>&- 2>/dev/null || true
+  { exec 210>&-; } 2>/dev/null || true
 }
 
 @test "register releases the registry lock after publishing its file" {
@@ -91,7 +91,7 @@ teardown() {
   _devbot_session_register
   run flock -n "${SESSIONS_DIR}" -c true
   assert_success
-  exec 210>&- 2>/dev/null || true
+  { exec 210>&-; } 2>/dev/null || true
 }
 
 # ── Project identity ─────────────────────────────────────────────────────────
@@ -103,14 +103,14 @@ teardown() {
   _devbot_session_register "${DEV_BOT_ROOT}"
   run cat "${SESSIONS_DIR}/session-$$"
   assert_output "${DEV_BOT_ROOT}"
-  exec 210>&- 2>/dev/null || true
+  { exec 210>&-; } 2>/dev/null || true
 }
 
 @test "register defaults the recorded project to the current directory" {
   _devbot_session_register
   run cat "${SESSIONS_DIR}/session-$$"
   assert_output "$(pwd)"
-  exec 210>&- 2>/dev/null || true
+  { exec 210>&-; } 2>/dev/null || true
 }
 
 @test "live_session_projects lists the project of a live session" {
@@ -310,4 +310,51 @@ EOF
   _devbot_session_release
   run bash -c "find '${SESSIONS_DIR}' -maxdepth 1 -type f | wc -l | tr -d ' '"
   assert_output "0"
+}
+
+# ── stderr must survive the registry ─────────────────────────────────────────
+# An `exec N>&-` close with a trailing `2>/dev/null` applies BOTH redirections
+# to the current shell when
+# `exec` has no command, so that redirect — meant to silence a
+# failed fd close — permanently sent the whole process's stderr to /dev/null.
+# Everything after registration (all of bin/up.sh, with compose's own errors)
+# then failed invisibly: the reported symptom was `devbot up` tearing every
+# container down and printing nothing about why. The close is now grouped so
+# its redirection cannot outlive it.
+
+@test "register leaves stderr usable — a later error is still visible" {
+  run bash -c "
+    export DEV_BOT_ROOT='${DEV_BOT_ROOT}'
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    _devbot_session_register
+    echo 'ERROR: still visible' >&2
+  "
+
+  assert_success
+  assert_output --partial "ERROR: still visible"
+}
+
+@test "release leaves stderr usable — teardown output is not swallowed" {
+  run bash -c "
+    export DEV_BOT_ROOT='${DEV_BOT_ROOT}'
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    _devbot_session_register
+    _devbot_session_release
+    echo 'ERROR: still visible' >&2
+  "
+
+  assert_success
+  assert_output --partial "ERROR: still visible"
+}
+
+@test "no script opens or closes an fd with a shell-wide stderr redirect" {
+  # Any `exec N>file 2>/dev/null` / `exec N>&- 2>/dev/null` applies BOTH
+  # redirections to the current shell when `exec` has no command — permanently
+  # silencing the process's stderr. Group it: `{ exec …; } 2>/dev/null`.
+  # Anchored at the start of the statement: a subshell such as
+  # `(exec 3<>"/dev/tcp/…") 2>/dev/null` is already scoped and legitimate.
+  run grep -rnE '^[[:space:]]*exec [0-9]+[<>][^;]*2>[[:space:]]*/dev/null' "${PROJECT_ROOT}/bin" "${PROJECT_ROOT}/src" \
+    --exclude-dir=tests
+  assert_failure
+  [ -z "${output}" ]
 }

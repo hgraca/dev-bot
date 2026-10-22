@@ -379,7 +379,10 @@ _devbot_session_register() {
 
   # Hold an exclusive flock on this session's file for the process lifetime.
   # fd 210 is distinct from _devbot_lock_wait's fd 200.
-  exec 210>"${dir}/session-$$" 2>/dev/null || true
+  # Grouped: ungrouped, `exec` with only redirections applies them to THIS
+  # shell, so the stderr redirect would outlive it and silence every later
+  # error — including the whole of bin/up.sh, which runs after registration.
+  { exec 210>"${dir}/session-$$"; } 2>/dev/null || true
   flock -x 210 2>/dev/null || true
 
   # Written AFTER the lock is held: a probing reader treats this session as live
@@ -387,7 +390,7 @@ _devbot_session_register() {
   # file (a session started by an older revision) is harmless.
   printf '%s\n' "${project_dir}" >&210 2>/dev/null || true
 
-  exec 200>&- 2>/dev/null || true  # release the registry lock
+  { exec 200>&-; } 2>/dev/null || true  # release the registry lock
 }
 
 _devbot_session_release() {
@@ -401,7 +404,7 @@ _devbot_session_release() {
   # Release our own lock and remove our file so a concurrent probe never sees
   # us as live (an inherited fd on this inode is irrelevant once unlinked).
   flock -u 210 2>/dev/null || true
-  exec 210>&- 2>/dev/null || true
+  { exec 210>&-; } 2>/dev/null || true
   rm -f "${dir}/session-$$" 2>/dev/null || true
 
   [[ -d "${dir}" ]] || return 0
@@ -435,7 +438,7 @@ _devbot_session_release() {
     _DEVBOT_REGISTRY_LOCK_HELD=1 _run_service_scripts "reconcile.sh" >/dev/null 2>&1 || true
   fi
 
-  exec 200>&- 2>/dev/null || true  # release the registry lock
+  { exec 200>&-; } 2>/dev/null || true  # release the registry lock
   return 0
 }
 

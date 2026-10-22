@@ -324,7 +324,7 @@ _update_dependencies() {
   fi
   npm update --prefix "${DEV_BOT_ROOT}"
   if [[ "${locked}" == true ]]; then
-    exec 200>&- 2>/dev/null || true
+    { exec 200>&-; } 2>/dev/null || true
   fi
   _ok "npm dependencies updated"
 }
@@ -605,7 +605,7 @@ main() {
 
   # The git move is done — release the update lock so the npm step below can
   # take fd 200 for its own lock.
-  exec 200>&- 2>/dev/null || true
+  { exec 200>&-; } 2>/dev/null || true
 
   # Only reached when the checkout moved onto the new release.
   _check_python3

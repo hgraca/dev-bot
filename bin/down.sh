@@ -89,7 +89,7 @@ _down_guard() {
 # Release the registry lock, but only if WE took it — never yank the caller's.
 _down_release_lock() {
   _down_lock_held && return 0
-  exec 200>&- 2>/dev/null || true
+  { exec 200>&-; } 2>/dev/null || true
 }
 
 # ── Module down scripts ────────────────────────────────────────────────────────

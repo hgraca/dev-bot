@@ -193,7 +193,7 @@ main() {
       wanted=""
       _warn "datasources — could not read the catalogue; leaving the running sidecars untouched"
     fi
-    exec 200>&- 2>/dev/null || true
+    { exec 200>&-; } 2>/dev/null || true
   else
     _warn "datasources — session registry lock unavailable; not reconciling sidecars"
     # shellcheck disable=SC2046  # project paths are space-free; split on purpose

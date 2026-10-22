@@ -151,7 +151,7 @@ _install_dependencies() {
   fi
   npm install --prefix "${DEV_BOT_ROOT}"
   if [[ "${locked}" == true ]]; then
-    exec 200>&- 2>/dev/null || true
+    { exec 200>&-; } 2>/dev/null || true
   fi
   _ok "npm dependencies installed"
 }
