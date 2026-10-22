@@ -12,7 +12,7 @@ The default way to work with dev-bot: one agent beside you, not over you.
 - **`devbot`** — the primary pair-programming agent. Works in small increments, suggests before writing, and asks before acting; it runs autonomously only when you invoke `work-autonomously`.
 - **`expert`** — a subagent for deep technical problem analysis on a higher-grade model. It traces root causes and proposes options with trade-offs, and never writes code.
 - **`designer`** — a subagent covering UX and UI: interaction specs, screen designs, visual acceptance criteria, and visual validation of implemented UI.
-- **`work-autonomously`** — the opt-in autonomous mode: implement a task end to end, self-review with `@code-reviewer`, then iterate on Copilot review until the pull request is clean.
+- **`work-autonomously`** — the opt-in autonomous mode: take a task given inline, as a file path or as a URL, resume it if it is already in progress, self-review with `@code-reviewer`, then iterate on Copilot review until the pull request is clean.
 
 ## How it is used
 

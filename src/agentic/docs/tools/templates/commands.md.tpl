@@ -7,9 +7,14 @@ nav_section: docs
 
 ## Structure
 
-A command is a markdown file — `name`/`description` frontmatter plus an instruction body (`$1`, `$2`,
-… for arguments) — living in a module's `commands/` dir: `src/agentic/<module>/` for agentic modules,
+A command is a markdown file — `name`/`description` frontmatter plus an instruction body — living in
+a module's `commands/` dir: `src/agentic/<module>/` for agentic modules,
 `src/tools/<module>/` for tool modules.
+
+Arguments reach the body two ways. `$ARGUMENTS` is the whole argument tail as one string — use it when
+the argument is free-form prose (`devbot:work-autonomously` takes the task itself). `$1`, `$2`, … are
+positional, one per argument — use them when the argument has a fixed shape (a path, a branch, a PR
+URL).
 
 Installation symlinks **each file** into a single `devbot/` category, named after the frontmatter
 `name:` with the `devbot:` prefix stripped:
