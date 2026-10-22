@@ -34,8 +34,8 @@ If no task path or URL is given, ask for it before doing anything else.
      then the built-in default (Balanced). Select Lite before requesting and re-select it for every
      request. Copilot records the level in its review body (`**Review effort:**`); if it reports
      anything else, ask the user to set Lite and re-request before addressing the findings.
-   - **Wait** — 5 minutes after each request before the first check. If the review has not landed,
-     re-check every 5 minutes, for a maximum of 12 checks per request (the first check counts).
+   - **Wait** — 1 minute after each request before the first check. If the review has not landed,
+     re-check every 1 minute, for a maximum of 60 checks per request (the first check counts).
      Then stop and ask the user for instructions.
    - **Read** — fetch all pages (`gh api --paginate`). Select the new review by `submitted_at`,
      then its bot-authored comments by `pull_request_review_id` — `/comments` has `created_at`, not
