@@ -227,6 +227,49 @@ for m in json.loads(sys.stdin.read()):
   done
 }
 
+# ── Announce the images `up` is about to download ─────────────────────────────
+# `docker compose up` pulls a missing image without asking. The layers arrive
+# under compose's own output, and a first run can spend minutes and several GB
+# there — so name what is being downloaded first, or the wait reads as a hang.
+# A service that builds its own image is skipped: compose builds it locally.
+_announce_missing_images() {
+  # Best effort: when the model cannot be resolved (compose missing, config
+  # broken) the `up` below reports the real error — staying silent here avoids
+  # inventing a second, less accurate one.
+  local model
+  model="$(docker compose "${COMPOSE_OPTS[@]}" config --format json 2>/dev/null)" || return 0
+  [[ -n "${model}" ]] || return 0
+
+  local images
+  images="$(printf '%s' "${model}" | python3 -c '
+import json, sys
+
+data = json.load(sys.stdin)
+seen = set()
+for service in (data.get("services") or {}).values():
+    if service.get("build"):
+        continue
+    image = service.get("image")
+    if image and image not in seen:
+        seen.add(image)
+        print(image)
+' 2>/dev/null)" || return 0
+  [[ -n "${images}" ]] || return 0
+
+  local -a missing=()
+  local image
+  while IFS= read -r image; do
+    [[ -n "${image}" ]] || continue
+    docker image inspect "${image}" >/dev/null 2>&1 || missing+=("${image}")
+  done <<< "${images}"
+  [[ ${#missing[@]} -gt 0 ]] || return 0
+
+  _warn "${#missing[@]} image(s) not present locally — downloading now (this can take several GB):"
+  for image in "${missing[@]}"; do
+    echo -e "      ${TEXT_DIM}• ${image}${TEXT_CLEAR}"
+  done
+}
+
 # ── Docker services ────────────────────────────────────────────────────────────
 
 _docker_up() {
@@ -258,6 +301,7 @@ _docker_up() {
 
   cd "${DEV_BOT_ROOT}"
   _reclaim_stale_containers
+  _announce_missing_images
   _log "docker compose ${COMPOSE_OPTS[*]} up -d --no-recreate"
   if ! docker compose "${COMPOSE_OPTS[@]}" up -d --no-recreate; then
     _error "docker compose up failed — docker services not started"

@@ -78,6 +78,22 @@ teardown() {
   rm -rf "${SANDBOX_DIR}" "${PROJECT_DIR}" 2>/dev/null || true
 }
 
+# A docker stub that reports the toolbox image as absent (`image inspect` fails)
+# so the pre-pull notice fires; records calls like _record_docker.
+_docker_without_toolbox_image() {
+  DOCKER_LOG="${SANDBOX_DIR}/docker-calls.log"
+  mkdir -p "${SANDBOX_DIR}/recbin"
+  cat > "${SANDBOX_DIR}/recbin/docker" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${DOCKER_LOG}"
+[[ "\$1" == "inspect" ]] && echo false
+[[ "\$1" == "image" && "\$2" == "inspect" ]] && exit 1
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/recbin/docker"
+  export PATH="${SANDBOX_DIR}/recbin:${PATH}"
+}
+
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
 # The global catalogue. The argument is JSON, so it is passed single-quoted and
@@ -729,6 +745,72 @@ PY
   assert_output --partial "no usable datasources; gateway not started"
 
   refute grep -q "up -d" "${DOCKER_LOG}"
+}
+
+@test "up: announces a missing toolbox image before the gateway pull" {
+  # The gateway's compose is generated under storage/, so bin/up.sh's notice
+  # cannot cover this download — the module has to say it here, before compose
+  # starts pulling a large image.
+  _sqlite_catalogue
+  _docker_without_toolbox_image
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+  assert_output --partial "not present locally"
+  assert_output --partial "downloading now"
+  grep -q "up -d --no-deps datasources-mcp" "${DOCKER_LOG}"
+}
+
+@test "up: says nothing about the image when it is already present" {
+  _sqlite_catalogue
+  _record_docker   # `image inspect` succeeds → the image is present
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+  refute_output --partial "not present locally"
+}
+
+@test "up: stays silent about the image when the docker daemon is unreachable" {
+  # `docker image inspect` also fails when the daemon is down or the socket is
+  # denied, but nothing can be downloaded then — compose reports the real error,
+  # and a "downloading now" would mislead.
+  _sqlite_catalogue
+  mkdir -p "${SANDBOX_DIR}/nodaemon"
+  cat > "${SANDBOX_DIR}/nodaemon/docker" <<SH
+#!/usr/bin/env bash
+[[ "\$1" == "info" ]] && exit 1
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/nodaemon/docker"
+  export PATH="${SANDBOX_DIR}/nodaemon:${PATH}"
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 bash "${MODULE_DIR}/up.sh"
+  assert_success
+  refute_output --partial "not present locally"
+}
+
+@test "up: bounds the image probe so a wedged daemon cannot hang the boot" {
+  # The probes sit on the `devbot up` critical path; an unresponsive socket must
+  # hit the watchdog rather than block startup, and a timeout never announces a
+  # download that is not happening.
+  _sqlite_catalogue
+  mkdir -p "${SANDBOX_DIR}/slowbin"
+  cat > "${SANDBOX_DIR}/slowbin/docker" <<SH
+#!/usr/bin/env bash
+if [[ "\$1" == "info" ]]; then sleep 30; fi
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/slowbin/docker"
+  export PATH="${SANDBOX_DIR}/slowbin:${PATH}"
+
+  local started=${SECONDS}
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 DATASOURCES_DOCKER_PROBE_TIMEOUT=1 \
+    bash "${MODULE_DIR}/up.sh"
+  local elapsed=$(( SECONDS - started ))
+
+  assert_success
+  refute_output --partial "not present locally"
+  [ "${elapsed}" -lt 20 ]
 }
 
 @test "up: a usable datasource still starts the gateway" {

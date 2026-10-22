@@ -292,6 +292,34 @@ def _sweep_stale_canaries(runner, docker: str) -> None:
         runner([docker, "rm", "-f", stale])
 
 
+def _announce_image_pull(image: str, version: str, docker: str = "docker") -> None:
+    """Warn when the canary is about to download the toolbox image.
+
+    `docker run` pulls a missing image, and the canary's output cannot show that
+    the wait is a download — render.sh pipes the validator's stdout on. Say it
+    on stderr first. Best effort: a failed probe just means no line, and the
+    canary reports the real problem itself.
+    """
+    # `docker image inspect` fails for an unreachable daemon or a denied socket
+    # exactly as it does for a missing image, and only the missing image would
+    # download anything. Probe the daemon first, or a broken docker would
+    # announce a download that cannot happen and hide the real failure.
+    # Both probes go through _run: a wedged socket must not hang the boot, and a
+    # timeout (None) is inconclusive — never "the image is missing".
+    daemon = _run([docker, "info"])
+    if daemon is None or daemon.returncode != 0:
+        return
+
+    probe = _run([docker, "image", "inspect", f"{image}:{version}"])
+    if probe is None:
+        return
+    if probe.returncode != 0:
+        sys.stderr.write(
+            f"WARNING: toolbox image {image}:{version} not present locally — downloading now "
+            "(this can take a few minutes)\n"
+        )
+
+
 def docker_canary(
     tools_yaml: str,
     *,
@@ -478,6 +506,8 @@ def main() -> int:
             return EXIT_INFRA
 
         data_dir = os.path.join(DEV_BOT_ROOT, "storage", "datasources", "data")
+
+        _announce_image_pull(image, version)
 
         # Clear leftovers from a run that was killed, once, before the canaries
         # start — see _sweep_stale_canaries for why this cannot be per canary.

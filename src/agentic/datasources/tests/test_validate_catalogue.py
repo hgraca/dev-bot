@@ -8,6 +8,7 @@
 # container itself is exercised by the committed e2e.
 # =============================================================================
 
+import io
 import os
 import subprocess
 import sys
@@ -491,6 +492,45 @@ class TestSidecarPassthrough(unittest.TestCase):
 
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), catalogue)
+
+
+class TestAnnounceImagePull(unittest.TestCase):
+    """The canary's `docker run` pulls a missing image; say so before it starts."""
+
+    def _stderr_of(self, daemon, probe):
+        # Both probes go through the module's bounded _run; None means it hit
+        # DOCKER_TIMEOUT, which the announcement must treat as inconclusive.
+        with mock.patch("validate_catalogue._run", side_effect=[daemon, probe]):
+            buffer = io.StringIO()
+            with mock.patch("sys.stderr", new=buffer):
+                validate_catalogue._announce_image_pull("toolbox", "1.2.3")
+        return buffer.getvalue()
+
+    @staticmethod
+    def _proc(returncode):
+        return subprocess.CompletedProcess([], returncode)
+
+    def test_warns_when_the_image_is_absent(self):
+        output = self._stderr_of(self._proc(0), self._proc(1))
+
+        self.assertIn("toolbox:1.2.3 not present locally", output)
+        self.assertIn("downloading now", output)
+
+    def test_is_silent_when_the_image_is_present(self):
+        self.assertEqual(self._stderr_of(self._proc(0), self._proc(0)), "")
+
+    def test_is_silent_when_the_daemon_is_unreachable(self):
+        # `image inspect` fails for a dead daemon just as for a missing image,
+        # but nothing can be downloaded — announcing one would hide the real
+        # infra failure the canary reports.
+        self.assertEqual(self._stderr_of(self._proc(1), self._proc(1)), "")
+
+    def test_is_silent_when_the_daemon_probe_times_out(self):
+        self.assertEqual(self._stderr_of(None, None), "")
+
+    def test_is_silent_when_the_image_probe_times_out(self):
+        # A wedged socket is inconclusive, not "absent": compose reports it.
+        self.assertEqual(self._stderr_of(self._proc(0), None), "")
 
 
 if __name__ == "__main__":

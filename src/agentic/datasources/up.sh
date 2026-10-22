@@ -63,6 +63,56 @@ _stop_gateway() {
   ) >/dev/null 2>&1 || true
 }
 
+# The toolbox image is a multi-hundred-MB download, and this compose is rendered
+# into storage/ where bin/up.sh's discovery — and so its centralized
+# _announce_missing_images notice — cannot see it. Say it here, before compose
+# starts pulling, for the same reason: a silent multi-minute wait reads as a
+# hang. Best effort: a failed probe just means no notice.
+# Run a command with a hard cap. A wedged docker socket must not block the boot,
+# and GNU `timeout` is absent on macOS, so this is a portable bash watchdog (the
+# same pattern as bin/update.sh's tag fetch). Returns 124 when the cap is hit —
+# callers treat that as "inconclusive", never as "the image is absent".
+_docker_bounded() {
+  local cap="${DATASOURCES_DOCKER_PROBE_TIMEOUT:-10}"
+  "$@" >/dev/null 2>&1 &
+  local pid=$! waited=0
+  while kill -0 "${pid}" 2>/dev/null; do
+    if [[ "${waited}" -ge "${cap}" ]]; then
+      kill "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+      return 124
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "${pid}" 2>/dev/null
+}
+
+_announce_missing_toolbox_image() {
+  # `docker image inspect` fails for an unreachable daemon just as it does for a
+  # missing image, and only the latter downloads anything. Probe the daemon
+  # first: a broken docker gets its real error from compose a moment later, not
+  # a "downloading now" that cannot happen. A probe that times out is
+  # inconclusive and stays silent for the same reason.
+  local rc=0
+  _docker_bounded docker info || rc=$?
+  [[ ${rc} -eq 0 ]] || return 0
+
+  rc=0
+  _docker_bounded docker image inspect "${TOOLBOX_IMAGE}:${TOOLBOX_VERSION}" || rc=$?
+  [[ ${rc} -ne 0 ]] || return 0 # image present
+
+  # A timed-out probe is inconclusive: say nothing rather than promise a
+  # download that may not be happening. An `if`, not `&&` — under `set -e` a
+  # short-circuited `&&` would abort the boot.
+  if [[ ${rc} -eq 124 ]]; then
+    return 0
+  fi
+
+  _warn "datasources — image ${TOOLBOX_IMAGE}:${TOOLBOX_VERSION} not present locally"
+  _warn "  downloading now (this can take a few minutes) before the gateway starts"
+}
+
 # The gateway's container name, read from the template so compose.tpl.yml stays
 # the single source of truth for it.
 _container_name() {
@@ -175,6 +225,7 @@ main() {
   # independent of the sidecars in the same project.
   local gateway_started="false"
   if [[ "${has_sources}" == "true" ]]; then
+    _announce_missing_toolbox_image
     # No --no-recreate (unlike the other gateways): the whole point of this
     # container is the credentials it is handed, so rotating a value in .env must
     # take effect on the next `devbot up`.

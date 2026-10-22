@@ -136,8 +136,13 @@ if [[ "$1" == "ps" ]]; then
   exit 0
 fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
-  cat "${IMAGE_ID_FILE}" 2>/dev/null || true
-  exit 0
+  # Real docker exits non-zero when the image is absent; an empty fixture means
+  # exactly that, so the exit code must not read as "present".
+  if [[ -s "${IMAGE_ID_FILE}" ]]; then
+    cat "${IMAGE_ID_FILE}"
+    exit 0
+  fi
+  exit 1
 fi
 if [[ "$1" == "compose" ]]; then
   case " $* " in
@@ -822,4 +827,70 @@ assert not [b for b in ro if not re.search(r'create_host_path:\s*false', b)], 'a
 " "${f}"
     assert_success
   done
+}
+
+# ── Missing-image announcement ────────────────────────────────────────────────
+# A first `up` can spend several GB on image pulls; the user must see that it is
+# happening rather than watching a silent compose command.
+
+# Seed the service image names `docker compose config --format json` reports.
+# A leading `build:` marks the service as locally built, so it is not pulled.
+_seed_compose_images() {
+  local row name image built services=""
+  for row in "$@"; do
+    name="${row%%|*}"
+    image="${row##*|}"
+    built=false
+    [[ "${name}" == build-* ]] && built=true
+    services="${services}${services:+, }\"${name}\": {\"image\": \"${image}\""
+    [[ "${built}" == true ]] && services="${services}, \"build\": {\"context\": \".\"}"
+    services="${services}}"
+  done
+  MOCK_COMPOSE_CONFIG_FILE="${SANDBOX_DIR}/compose-model.json"
+  printf '{"services": {%s}}\n' "${services}" > "${MOCK_COMPOSE_CONFIG_FILE}"
+  export MOCK_COMPOSE_CONFIG_FILE
+}
+
+# Same as _run_docker_up, but with the output helpers unmuted so the
+# announcement is observable (the sandbox stubs them to `true`).
+_run_docker_up_verbose() {
+  # shellcheck disable=SC1091
+  source "${SANDBOX_DIR}/bin/up.sh"
+  _info() { echo "INFO: $*"; }
+  _warn() { echo "WARN: $*"; }
+  _docker_up
+}
+
+@test "announces images that are not present locally" {
+  _setup_sandbox '{}'
+  _seed_compose_images 'ollama|ollama/ollama:latest'
+  : > "${IMAGE_ID_FILE}"   # empty = image absent
+
+  run _run_docker_up_verbose
+
+  assert_success
+  assert_output --partial "downloading now"
+  assert_output --partial "ollama/ollama:latest"
+}
+
+@test "announces nothing when every image is already present" {
+  _setup_sandbox '{}'
+  _seed_compose_images 'ollama|ollama/ollama:latest'
+  echo "sha256:present" > "${IMAGE_ID_FILE}"
+
+  run _run_docker_up_verbose
+
+  assert_success
+  refute_output --partial "downloading now"
+}
+
+@test "does not announce an image the module builds locally" {
+  _setup_sandbox '{}'
+  _seed_compose_images 'build-mdctx|dev-bot-mdctx-mcp:local'
+  : > "${IMAGE_ID_FILE}"
+
+  run _run_docker_up_verbose
+
+  assert_success
+  refute_output --partial "dev-bot-mdctx-mcp"
 }

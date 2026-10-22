@@ -2180,7 +2180,9 @@ _pull_ollama_models() {
     container_was_running=true
   else
     _info "Ollama container not running — starting it temporarily to pull models..."
-    if docker compose -f "${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml" up -d ollama 2>/dev/null; then
+    # Output is deliberately NOT silenced: on a machine that has never pulled
+    # the image, this up downloads several GB and the user must see it happen.
+    if docker compose -f "${DEV_BOT_ROOT}/src/tools/ollama/docker-compose.yml" up -d ollama; then
       started_container=true
       # Wait for ollama to be ready
       local retries=10
@@ -2257,7 +2259,8 @@ _devbot_ollama_exec() {
     container_was_running=true
   else
     _info "Ollama container not running — starting it temporarily..."
-    if docker compose "${compose_opts[@]}" up -d ollama 2>/dev/null; then
+    # Not silenced: this is where a missing ollama image (several GB) is pulled.
+    if docker compose "${compose_opts[@]}" up -d ollama; then
       started_container=true
       # Wait for ollama to be ready before exec'ing into it.
       local retries=15
