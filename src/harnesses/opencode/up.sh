@@ -8,7 +8,7 @@
 # `make up` (auto-discovered by bin/up.sh).
 #
 # A non-zero exit here is REPORTED but not fatal to the start sequence:
-# _run_service_scripts counts a failed module script as "had issues" and still
+# _run_service_scripts warns about a failed module script and still
 # returns 0. start.sh re-runs the same check, and only there is the launch
 # actually refused.
 #

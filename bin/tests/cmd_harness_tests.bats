@@ -36,7 +36,7 @@ setup() {
 echo "up-called"
 local_files="\$(find "${SANDBOX}/storage/run/sessions" -maxdepth 1 -name 'session-*' 2>/dev/null | wc -l | tr -d ' ')"
 echo "sessions-at-up=\${local_files}" >> "${SANDBOX}/up.log"
-exit 0
+exit "\${UP_RC:-0}"
 EOF
   chmod +x "${SANDBOX}/bin/up.sh"
 
@@ -136,6 +136,22 @@ _run_cmd_harness() {
     cmd_harness \"\$@\"
   " _ "$@"
   cd "${PROJECT_ROOT}"
+}
+
+@test "cmd_harness reports a failed up instead of exiting silently" {
+  # The EXIT trap tears the containers down and suppresses its own message on a
+  # failed start, so without this line the user sees the teardown and nothing
+  # about the cause.
+  export UP_RC=3
+  rm -f "${SANDBOX}/start-args.log"
+
+  _run_cmd_harness
+
+  unset UP_RC
+  assert_failure 3
+  assert_output --partial "devbot up failed (exit 3)"
+  assert_output --partial "torn down on exit"
+  [ ! -f "${SANDBOX}/start-args.log" ]
 }
 
 @test "cmd_harness forwards all args unchanged when no -- is present" {

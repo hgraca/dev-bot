@@ -1917,12 +1917,17 @@ _run_service_scripts() {
 
       echo
       _header_3 "Running ${module_name} ${script_name}..."
-      local start=${SECONDS}
-      if bash "${script}" "$@"; then
+      local start=${SECONDS} rc=0
+      bash "${script}" "$@" || rc=$?
+      if [[ ${rc} -eq 0 ]]; then
         _ok "${module_name} ${script_name} done ($(_fmt_duration $(( SECONDS - start ))))"
         count=$((count + 1))
       else
-        _skip "${module_name} ${script_name} had issues"
+        # A warn, not a dim skip: a module script that exits non-zero has
+        # FAILED, and "had issues" reads as a tolerated no-op. The run still
+        # continues (one broken module must not block the rest), so the exit
+        # code and the script's own output above are the only diagnosis.
+        _warn "${module_name} ${script_name} FAILED (exit ${rc}) — continuing; see its output above"
         failed=$((failed + 1))
       fi
       echo
@@ -1933,7 +1938,11 @@ _run_service_scripts() {
     _info "No ${script_name} scripts found"
   else
     echo
-    _ok "${count} ${script_name} script(s) completed${skipped:+ (${skipped} skipped)}"
+    if [[ ${failed} -gt 0 ]]; then
+      _warn "${count} ${script_name} script(s) completed, ${failed} FAILED${skipped:+, ${skipped} skipped}"
+    else
+      _ok "${count} ${script_name} script(s) completed${skipped:+ (${skipped} skipped)}"
+    fi
   fi
 }
 

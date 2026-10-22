@@ -359,6 +359,26 @@ _add_init_module() {
   assert_output --partial "keep_me_ran"
 }
 
+@test "_run_service_scripts warns with the exit code when a module script fails" {
+  # `devbot up` is the only diagnosis the user gets for a module that failed
+  # mid-boot: a dim "had issues" skip reads as a tolerated no-op.
+  _source_lib
+  command -v jq &>/dev/null || skip "jq not installed"
+  export MOCK_DISABLED_MODULES='[]'
+  _add_module "src/tools" "failer" "up.sh" 'echo "failer_ran"; exit 2'
+  _add_module "src/tools" "survivor" "up.sh" 'echo "survivor_ok"'
+
+  run _run_service_scripts "up.sh" "/fake/project"
+
+  # One broken module must not block the rest: the runner still returns 0.
+  assert_success
+  assert_output --partial "failer_ran"
+  assert_output --partial "survivor_ok"
+  assert_output --partial "FAILED (exit 2)"
+  # ... but the phase summary must not read as unqualified success.
+  assert_output --partial "1 up.sh script(s) completed, 1 FAILED"
+}
+
 @test "_run_service_scripts --all passes remaining args through" {
   _source_lib
   export MOCK_DISABLED_MODULES='[]'

@@ -547,6 +547,13 @@ cmd_harness() {
   bash "${DEV_BOT_ROOT}/bin/up.sh" "$(pwd)" || up_rc=$?
   if [[ "${up_rc}" -ne 0 ]]; then
     _DEVBOT_START_FAILED=1
+    # Never exit a failed start silently: the teardown that follows suppresses
+    # its own "Last session ended" line, so without this the user sees the
+    # containers disappear and nothing about why. up.sh reports its own cause;
+    # this names the outcome and the teardown, which would otherwise read as an
+    # unrelated event or a second failure.
+    _error "devbot up failed (exit ${up_rc}) — see the error above for the cause."
+    _error "  The devbot containers this attempt started are torn down on exit."
     exit "${up_rc}"
   fi
   local harness

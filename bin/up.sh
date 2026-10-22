@@ -31,6 +31,27 @@ export DEV_GID
 # shellcheck source=../src/_shared/functions.sh
 source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 
+# ── Failure reporting ─────────────────────────────────────────────────────────
+# `set -e` aborts on the first unguarded failure — which on its own exits the
+# script with no line saying what broke, and the caller then tears the
+# containers down. Every abort is reported instead, naming the step in
+# progress: the command that failed and its line only tell half the story.
+_UP_STEP="startup"
+
+_up_failed() {
+  local rc="${1:-1}" line="${2:-?}" cmd="${3:-?}"
+  _error "devbot up failed during '${_UP_STEP}' (exit ${rc}, line ${line})."
+  _error "  failing command: ${cmd}"
+  _error "  fix the cause above, then re-run 'devbot up'."
+}
+
+# Installs the trap. `set -E` is what makes it fire inside functions and
+# subshells, not only at top level — where most of this script's work happens.
+_up_install_trap() {
+  set -E
+  trap '_up_failed "$?" "${LINENO}" "${BASH_COMMAND}"' ERR
+}
+
 # The codebase-memory gateway mounts ONE repo root
 # (${CODEBASE_MEMORY_ROOT:-$HOME}, see its compose) at the same absolute path.
 # It is resolved in main() after .env is loaded — see
@@ -523,16 +544,30 @@ main() {
 
   _header_1 "DevBot Up"
 
+  _UP_STEP="environment"
   _load_env_file
+  _UP_STEP="codebase-memory root"
   _devbot_resolve_codebase_memory_root
+  _UP_STEP="codebase-memory scope"
   _check_codebase_memory_scope
+  _UP_STEP="bind-mount sources"
   _ensure_writable_bind_sources
+  _UP_STEP="docker services"
   _docker_up
+  _UP_STEP="external module config"
   _rebuild_external_module_config
+  _UP_STEP="module up scripts"
   _run_up_scripts
 
   echo -e "  ${TEXT_DIM}⏱  Total: $(_fmt_duration $(( SECONDS - total_start )))${TEXT_CLEAR}"
   echo
 }
+
+# Only when executed: this file is SOURCED by its tests, and an ERR trap (or
+# `set -E`) installed there would leak into the calling shell. `-E` is what
+# makes the trap fire inside functions and subshells, not just at top level.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  _up_install_trap
+fi
 
 main "$@"

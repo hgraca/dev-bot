@@ -9,10 +9,9 @@
 #
 # Two call sites, both covered:
 #   - up.sh     — surfaces it on `devbot` / `devbot up` / `make up`.
-#   - start.sh  — the hard gate. up.sh's non-zero exit is swallowed by
-#                 _run_service_scripts (it counts a failed module script as
-#                 "had issues" and returns 0), so only start.sh can refuse the
-#                 launch itself.
+#   - start.sh  — the hard gate. _run_service_scripts warns with a failed
+#                 module script's exit code but still returns 0, so only
+#                 start.sh can refuse the launch itself.
 # =============================================================================
 
 setup() {

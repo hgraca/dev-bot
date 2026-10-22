@@ -14,7 +14,7 @@ source "${MODULE_DIR}/../../_shared/functions.sh"
 #
 # Two call sites: up.sh surfaces it on `devbot` / `make up`, and start.sh gates
 # the launch. start.sh is the one that actually refuses — _run_service_scripts
-# swallows a module up.sh's non-zero exit (it counts it as "had issues" and
+# swallows a module up.sh's non-zero exit (it warns with the exit code and
 # returns 0), so up.sh alone cannot stop the start sequence.
 #
 # Fail-open on everything but a confidently-detected 2.x: a missing binary is
