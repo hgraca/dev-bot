@@ -188,6 +188,31 @@ _devbot_get_config() {
   echo "${value}"
 }
 
+# _devbot_get_workflow [project_dir]
+#   The effective workflow for a project: its `workflow` key, then its
+#   not-yet-migrated `worktrees` key (true -> worktrees, false -> trunk), then
+#   the global config in the same order, then `worktrees`. Keeping the retired
+#   mapping here means every reader resolves a failed migration the same way.
+_devbot_get_workflow() {
+  local project_dir="${1:-$(pwd)}" file value legacy
+  for file in "${project_dir}/.devbot.project.jsonc" "$(_devbot_global_config)"; do
+    [[ -f "${file}" ]] || continue
+    value="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${file}" workflow 2>/dev/null || true)"
+    if [[ -n "${value}" ]]; then
+      printf '%s' "${value}"
+      return 0
+    fi
+    legacy="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${file}" worktrees 2>/dev/null || true)"
+    case "${legacy}" in
+      "") ;;
+      true) printf 'worktrees'; return 0 ;;
+      false) printf 'trunk'; return 0 ;;
+      *) printf '%s' "${legacy}"; return 0 ;;
+    esac
+  done
+  printf 'worktrees'
+}
+
 _devbot_get_project_dir() {
   local project_dir="${1:-$(pwd)}"
   local devbot_dir

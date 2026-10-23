@@ -13,7 +13,7 @@
 # Usage:
 #   project-for-path.mcp.sh <path>                    # markdown table
 #   project-for-path.mcp.sh <path> --json             # JSON object
-#   project-for-path.mcp.sh <path> --key worktrees    # one resolved value
+#   project-for-path.mcp.sh <path> --key workflow     # one resolved value
 #   project-for-path.mcp.sh <path> --global-config F  # non-default registry
 #
 # Exit codes: 0 resolved, 2 usage error, 3 no registered project contains <path>.
@@ -24,7 +24,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective commit_memory, worktrees, devbot_dir, datasources and modules. Use it in a supervisor session before any project-scoped action.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--global-config <file>]"}},"required":["args"]}}
+{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective commit_memory, workflow, devbot_dir, datasources and modules. Use it in a supervisor session before any project-scoped action.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--global-config <file>]"}},"required":["args"]}}
 JSON
     exit 0
     ;;
@@ -97,7 +97,7 @@ if not owner:
 
 DEFAULTS = {
     "commit_memory": "false",
-    "worktrees": "true",
+    "workflow": "worktrees",
     "devbot_dir": ".agents",
     "datasources": [],
     "modules": {},
@@ -124,6 +124,19 @@ def resolve_scalar(name):
         if value is not None and value != "":
             return value
     return DEFAULTS.get(name, "")
+
+
+def resolve_workflow():
+    """The effective workflow: `workflow`, else the retired `worktrees` key
+    (true -> worktrees, false -> trunk) until `devbot update` migrates it."""
+    for candidate in (PROJECT_CONFIG, config_path):
+        value = _get(candidate, "workflow")
+        if value is not None and value != "":
+            return as_text(value)
+        legacy = _get(candidate, "worktrees")
+        if legacy is not None:
+            return {"true": "worktrees", "false": "trunk"}.get(as_text(legacy), as_text(legacy))
+    return DEFAULTS["workflow"]
 
 
 def resolve_datasources():
@@ -157,7 +170,7 @@ def as_text(value):
 
 resolved = {
     "commit_memory": as_text(resolve_scalar("commit_memory")),
-    "worktrees": as_text(resolve_scalar("worktrees")),
+    "workflow": resolve_workflow(),
     "devbot_dir": as_text(resolve_scalar("devbot_dir")),
     "datasources": resolve_datasources(),
     "modules": resolve_modules(),
@@ -179,7 +192,7 @@ report = {
     "supervisor": resolved["supervisor"],
     "config": {
         "commit_memory": as_text(resolved["commit_memory"]),
-        "worktrees": as_text(resolved["worktrees"]),
+        "workflow": as_text(resolved["workflow"]),
         "devbot_dir": as_text(resolved["devbot_dir"]),
         "datasources": resolved["datasources"] or [],
         "modules": resolved["modules"] or {},
@@ -201,7 +214,7 @@ print()
 print("| Key | Value |")
 print("| --- | --- |")
 print(f"| commit_memory | {report['config']['commit_memory']} |")
-print(f"| worktrees | {report['config']['worktrees']} |")
+print(f"| workflow | {report['config']['workflow']} |")
 print(f"| devbot_dir | {report['config']['devbot_dir']} |")
 print(f"| datasources | {', '.join(datasources) if datasources else '(none)'} |")
 if modules:

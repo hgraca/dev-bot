@@ -137,21 +137,29 @@ Used by memory init and the devbot init gitignore step.
 
 ---
 
-### `worktrees`
+### `workflow`
 
 ```jsonc
-{ "worktrees": true }
+{ "workflow": "worktrees" }
 ```
 
-**Type:** `boolean`
-**Default:** `true`
+**Type:** `string`
+**Default:** `"worktrees"`
 **Required:** no
 
-When `true` (default), agents isolate each task's commits in a linked git worktree under `<devbot_dir>/worktrees/`, cut from the remote default branch, leaving the main checkout untouched. When `false`, agents edit and commit in the main checkout as before, and the worktree tool refuses to create one.
+Selects the workflow an agent follows for a task — the end-to-end way the work is carried through
+the project. `worktrees` (default) isolates each task's commits in a linked git worktree under
+`<devbot_dir>/worktrees/`, cut from the remote default branch, and carries it to an open pull
+request. `trunk` works directly on the default branch with no pull request, and stops for the
+user's gate before pushing. The workflows themselves are defined in the Workflows section of the
+`software-development` skill.
 
-Project config takes precedence over global: an explicit value in `.devbot.project.jsonc` wins; otherwise the value from `.devbot.global.jsonc` is used; unset in both means `true`.
+Project config takes precedence over global: an explicit value in `.devbot.project.jsonc` wins; otherwise the value from `.devbot.global.jsonc` is used; unset in both means `worktrees`. An explicit user instruction overrides both for that run.
 
-Used by the `worktree` tool (`enabled` / `create`) and the `git-worktrees` skill.
+Until `devbot update` migrates a config, a retired `worktrees` value is still honoured — `true` means
+`worktrees`, `false` means `trunk` — so a migration that failed cannot flip a project's workflow.
+
+Used by the `worktree` tool (`enabled` / `create`), `project-for-path`, and the `git-worktrees` skill.
 
 ---
 
@@ -636,8 +644,8 @@ agent first calls it.
     "project": { "path": "{project}/{devbot_dir}/memory", "semantic": false },
   },
 
-  // Isolate each task's commits in a worktree (false = commit in the main checkout)
-  "worktrees": true,
+  // Workflow a task follows end to end: worktrees (isolated) or trunk (default branch)
+  "workflow": "worktrees",
 
   // Orchestrate memory across the global `projects` registry (default: false)
   "supervisor": false,

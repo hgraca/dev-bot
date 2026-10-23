@@ -99,12 +99,12 @@ Memory files under `.agents/memory/` are tracked **only when the effective `comm
 - **Keep the memory capture as the final memory action** — make these commits the last writes to the memory vault and write no further memory files afterward, so the memory capture stays a one-shot operation. The finish flow then runs `devbot:grade-tools` (tool quality) and `devbot:reconcile-work` (work-folder housekeeping) — neither writes memory notes.
 
 **Supervisor sessions** — route each memory file to its **owning project's**
-repo and honour _that project's_ `commit_memory` and `worktrees` settings,
+repo and honour _that project's_ `commit_memory` and `workflow` settings,
 never the supervisor's (resolve `_devbot_get_config commit_memory <owner>` and
-`_devbot_get_config worktrees <owner>` — project-first, global-fallback for the
-owner). Group findings by owning project and commit once per repo; a child with
+`_devbot_get_workflow <owner>` — project-first, global-fallback, legacy-key-aware
+for the owner). Group findings by owning project and commit once per repo; a child with
 `commit_memory: false` gets no memory commit even when the supervisor commits,
-and a child with `worktrees: false` commits in its own main checkout. When the
+and a child following the `trunk` workflow commits in its own main checkout. When the
 owner is not a git repo (e.g. a supervisor root never `git init`ed), skip the
 commit and append a **notice** line to the owner's `.agents/logs/memory-index.log`
 — no warning, no failure.

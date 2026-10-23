@@ -132,11 +132,13 @@ by the **files the session touches**:
   file or behaviour → that child's vault; cross-project / org-wide → the
   supervisor's vault; reusable across projects → `latent/global/<tech>/`.
 - **Child config, not the supervisor's** — resolve `commit_memory` and
-  `worktrees` for the **owning project** before writing or committing
-  (`_devbot_get_config <key> <child_dir>`, project-first → global-fallback). A
+  `workflow` for the **owning project** before writing or committing
+  (`_devbot_get_config commit_memory <child_dir>` and `_devbot_get_workflow <child_dir>` — both
+  project-first → global-fallback, the workflow resolver legacy-key-aware). A
   child with `commit_memory: false` is never committed even when the supervisor
-  commits; a child with `worktrees: false` commits in its own main checkout; a
-  non-git owner is skipped with a **notice log line** (never a warning).
+  commits; a child following the `trunk` workflow commits in its own main
+  checkout; a non-git owner is skipped with a **notice log line** (never a
+  warning).
 
 A session launched _inside_ a managed project is unaffected: it searches its own
 vault + the global store + its configured custom collections, never the

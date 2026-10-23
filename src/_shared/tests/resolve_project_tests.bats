@@ -69,15 +69,37 @@ teardown() {
   assert_output "$A"
 }
 
-@test "a child's own commit_memory/worktrees win over the supervisor's" {
+@test "a child's own commit_memory/workflow win over the supervisor's" {
   mkdir -p "$BASE/sup" "$BASE/child"
-  printf '{ "commit_memory": true, "worktrees": true }\n' >"$BASE/sup/.devbot.project.jsonc"
-  printf '{ "commit_memory": false, "worktrees": false }\n' >"$BASE/child/.devbot.project.jsonc"
-  printf '{ "commit_memory": true, "worktrees": true }\n' >"$BASE/global.jsonc"
+  printf '{ "commit_memory": true, "workflow": "worktrees" }\n' >"$BASE/sup/.devbot.project.jsonc"
+  printf '{ "commit_memory": false, "workflow": "trunk" }\n' >"$BASE/child/.devbot.project.jsonc"
+  printf '{ "commit_memory": true, "workflow": "worktrees" }\n' >"$BASE/global.jsonc"
 
   run env -u DEV_BOT_ROOT DEV_BOT_GLOBAL_CONFIG="$BASE/global.jsonc" bash -c \
-    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_get_config commit_memory '$BASE/child' && _devbot_get_config worktrees '$BASE/child'"
+    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_get_config commit_memory '$BASE/child' && _devbot_get_config workflow '$BASE/child'"
   assert_success
   assert_line --index 0 "false"
-  assert_line --index 1 "false"
+  assert_line --index 1 "trunk"
+}
+
+@test "the effective workflow is project-first across the retired key" {
+  mkdir -p "$BASE/sup" "$BASE/child"
+  # The child still carries the retired key; the global config is migrated.
+  printf '{ "worktrees": false }\n' >"$BASE/child/.devbot.project.jsonc"
+  printf '{ "workflow": "worktrees" }\n' >"$BASE/global.jsonc"
+
+  run env -u DEV_BOT_ROOT DEV_BOT_GLOBAL_CONFIG="$BASE/global.jsonc" bash -c \
+    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_get_workflow '$BASE/child' && echo && _devbot_get_workflow '$BASE/sup'"
+  assert_success
+  assert_line --index 0 "trunk"
+  assert_line --index 1 "worktrees"
+}
+
+@test "the effective workflow defaults to worktrees when nothing is set" {
+  mkdir -p "$BASE/plain"
+
+  run env -u DEV_BOT_ROOT DEV_BOT_GLOBAL_CONFIG="$BASE/missing.jsonc" bash -c \
+    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_get_workflow '$BASE/plain'"
+  assert_success
+  assert_output "worktrees"
 }

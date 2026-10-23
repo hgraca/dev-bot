@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---
-# description: Isolate a task's commits in a linked git worktree under <devbot_dir>/worktrees, based on the remote default branch; a project opts out with "worktrees": false
+# description: Isolate a task's commits in a linked git worktree under <devbot_dir>/worktrees, based on the remote default branch; used by the default `worktrees` workflow
 # ---
 # =============================================================================
 # src/agentic/git/tools/worktree.sh
@@ -15,9 +15,10 @@
 #                      (default: origin/<default>), then hard-link the
 #                      dependency dirs listed by --link (default: vendor,
 #                      node_modules) from the main checkout. Prints the worktree
-#                      path (stdout). Refused when the project set
-#                      `"worktrees": false`.
-#   enabled          — print true/false and exit 0/1 for the worktrees setting.
+#                      path (stdout). Refused when the project follows a
+#                      workflow other than `worktrees`.
+#   enabled          — print true/false and exit 0/1 for the resolved workflow;
+#                      exit 2 when the configured workflow is unknown.
 #   list             — list the worktrees under <devbot_dir>/worktrees.
 #   push   <branch>  — push <branch> to origin and set its upstream, so it can
 #                      be opened as a pull request. Nothing local is merged.
@@ -102,12 +103,11 @@ _ensure_ignored() {
     "${devbot_dir}/worktrees/"
 }
 
-# Worktrees are the default way of working; a project (or the global config)
-# opts out with `"worktrees": false`. Only an explicit false disables them.
-_worktrees_enabled() {
-  local root="$1" value
-  value="$(_devbot_get_config "worktrees" "${root}")"
-  [[ "${value}" != "false" ]]
+# The effective workflow — `worktrees` (the default) or `trunk` — including the
+# retired-key compatibility and the project-first precedence:
+# see `_devbot_get_workflow` in src/_shared/functions.sh.
+_workflow() {
+  _devbot_get_workflow "$1"
 }
 
 # Hard-link the dependency dirs from the main checkout into the fresh worktree,
@@ -226,9 +226,13 @@ cmd_create() {
   if ! git -C "${root}" rev-parse --verify --quiet HEAD >/dev/null; then
     _fatal "create: ${root} has no commits — make an initial commit before creating a worktree"
   fi
-  if ! _worktrees_enabled "${root}"; then
-    _fatal "create: worktrees are disabled for this project (\"worktrees\": false) — commit in the main checkout"
-  fi
+  local workflow
+  workflow="$(_workflow "${root}")"
+  case "${workflow}" in
+    worktrees) ;;
+    trunk) _fatal "create: this project follows the trunk workflow — commit on the default branch instead" ;;
+    *) _fatal "create: unknown workflow '${workflow}' — known workflows: worktrees, trunk" ;;
+  esac
   devbot_dir="$(_devbot_dir_for "${root}")"
   default="$(_remote_default "${root}")"
   [[ -n "${default}" ]] || _fatal "create: could not resolve the remote default branch"
@@ -298,12 +302,23 @@ cmd_enabled() {
     _fatal "enabled: ${root} is a supervisor project, not a codebase — pass --project <owning-project>"
   fi
 
-  if _worktrees_enabled "${root}"; then
-    printf 'true\n'
-  else
-    printf 'false\n'
-    return 1
-  fi
+  local workflow
+  workflow="$(_workflow "${root}")"
+  case "${workflow}" in
+    worktrees)
+      printf 'true\n'
+      return 0
+      ;;
+    trunk)
+      printf 'false\n'
+      return 1
+      ;;
+    *)
+      # A distinct status: callers must stop and ask, not fall back to trunk.
+      printf 'ERROR: unknown workflow %s — known workflows: worktrees, trunk\n' "'${workflow}'" >&2
+      return 2
+      ;;
+  esac
 }
 
 # ── list ─────────────────────────────────────────────────────────────────────
@@ -382,9 +397,10 @@ Subcommands:
                     node_modules) from the main checkout. --no-link disables.
                     --project names the owning project (default: cwd) — required
                     in a supervisor session, whose root has no commits.
-                    Prints the path (refused when "worktrees": false)
+                    Prints the path (refused outside the worktrees workflow)
   enabled [--project <dir>]
-                    print true/false and exit 0/1 for the worktrees setting
+                    print true/false and exit 0/1 for the resolved workflow;
+                    exit 2 when the configured workflow is unknown
   list              list the worktrees under <devbot_dir>/worktrees
   push   <branch>   push <branch> to origin and set its upstream
   remove <branch>   remove the worktree for <branch> (the branch ref stays)

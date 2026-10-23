@@ -12,7 +12,7 @@ Everything an agent needs to make safe, reviewable commits — and to inspect or
 
 - **Commit craft**: `git-commits` (subject form and the Problems/Solutions body), `git-conventional-commits` (the type/scope taxonomy), `git-atomic-commits` (one logical change per commit, staged file by file), and `git-fixup-commits` (correcting an earlier commit on the branch).
 - **History surgery**: `git-advanced-operations` — partial staging, splitting a commit already made, and reflog recovery.
-- **Worktrees**: `git-worktrees` and the `worktree` tool isolate each task's commits under `<devbot_dir>/worktrees/`, cut from the remote default branch, leaving the main checkout untouched. `create` hard-links `vendor`/`node_modules` (override with `--link`, skip with `--no-link`) into the worktree, and the skill directs builds and tests through a worktree-scoped container so parallel agents never share one.
+- **Worktrees**: when the project follows the `worktrees` workflow, `git-worktrees` and the `worktree` tool isolate each task's commits under `<devbot_dir>/worktrees/`, cut from the remote default branch, leaving the main checkout untouched. `create` hard-links `vendor`/`node_modules` (override with `--link`, skip with `--no-link`) into the worktree, and the skill directs builds and tests through a worktree-scoped container so parallel agents never share one.
 - **Releases**: `git-changelog` writes the release file from the branch's commits; the `git-tag` skill (with the `tag` tool) creates and pushes the tag, and the `gh-release` skill and command (with the `release` tool) publish the GitHub release. Both tools share the plumbing in `git.sh`.
 - **Inspection**: the `git-report` tool snapshots the repository state before you commit, review, or plan.
 
@@ -32,7 +32,7 @@ The `git-report` tool primes new sessions with the current git state (the `explo
 
 ## Configuration
 
-`worktrees` (boolean, default `true`) — when `false`, agents edit and commit in the main checkout instead of isolating each task in a worktree. Project config overrides global. See [Configuration](/configuration#worktrees).
+`workflow` (string, default `worktrees`) — selects how a task is carried end to end. `worktrees` isolates each task in a linked worktree and carries it to a pull request; `trunk` works on the default branch and stops before the push. A config not yet migrated still honours its retired `worktrees` value (`true` → `worktrees`, `false` → `trunk`). Project config overrides global. See [Configuration](/configuration#workflow).
 
 ## See also
 

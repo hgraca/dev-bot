@@ -60,11 +60,11 @@ search-memories --query "<keyword>" --focus "<a path inside the project>"
 ```
 
 Step 0 loads the child's memory before anything else in the child. Also resolve
-the child's own `commit_memory` and `worktrees` from its `.devbot.project.jsonc`
+the child's own `commit_memory` and `workflow` from its `.devbot.project.jsonc`
 (project-first, global-fallback) and state them in the report, so downstream
-writes commit in the right place and under the right worktree policy. The
-scout's report does not stand in for the orchestrator loading that same memory
-before its first read or edit in the child. Every report still lands in the
+writes commit in the right place and the work follows the workflow the child
+selected. The scout's report does not stand in for the orchestrator loading that
+same memory before its first read or edit in the child. Every report still lands in the
 **supervisor's** `memory/thinking/`.
 
 ### 2. Gather memories

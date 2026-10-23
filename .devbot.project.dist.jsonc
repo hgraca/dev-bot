@@ -3,7 +3,7 @@
   "harness": "opencode",
   "devbot_dir": ".agents",
   "commit_memory": false,
-  "worktrees": true,
+  "workflow": "worktrees",
   // A supervisor project orchestrates work and memory across the managed
   // projects registered in .devbot.global.jsonc::projects. Memory scope is
   // resolved from the files the session touches. Default: a normal project.

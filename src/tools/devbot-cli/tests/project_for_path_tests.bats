@@ -24,14 +24,14 @@ setup() {
   cat > "${GLOBAL}" <<EOF
 {
   "commit_memory": true,
-  "worktrees": true,
+  "workflow": "worktrees",
   "datasources": { "catalogue-a": { "type": "mysql" } },
   "modules": { "qmd": false, "signoz": true },
   "projects": ["${A}", "${B}"]
 }
 EOF
 
-  printf '{ "worktrees": false, "datasources": ["db-b"], "modules": { "signoz": false } }\n' \
+  printf '{ "workflow": "trunk", "datasources": ["db-b"], "modules": { "signoz": false } }\n' \
     > "${B}/.devbot.project.jsonc"
 }
 
@@ -69,7 +69,7 @@ run_tool() {
   run_tool "${B}/src/file.ts" --json
 
   assert_success
-  assert_equal "$(jq -r .config.worktrees <<< "${output}")" "false"
+  assert_equal "$(jq -r .config.workflow <<< "${output}")" "trunk"
   assert_equal "$(jq -r .config.commit_memory <<< "${output}")" "true"
   assert_equal "$(jq -r '.config.datasources[0]' <<< "${output}")" "db-b"
   assert_equal "$(jq -r '.config.modules.signoz' <<< "${output}")" "false"
@@ -96,13 +96,27 @@ run_tool() {
 }
 
 @test "project-for-path: --key prints one resolved value" {
-  run_tool "${B}/src/file.ts" --key worktrees
+  run_tool "${B}/src/file.ts" --key workflow
   assert_success
-  assert_output "false"
+  assert_output "trunk"
 
   run_tool "${B}/src/file.ts" --key commit_memory
   assert_success
   assert_output "true"
+}
+
+@test "project-for-path: maps the retired worktrees key until migration runs" {
+  printf '{ "worktrees": false, "datasources": ["db-b"] }\n' > "${B}/.devbot.project.jsonc"
+
+  run_tool "${B}/src/file.ts" --key workflow
+  assert_success
+  assert_output "trunk"
+
+  printf '{ "worktrees": true }\n' > "${B}/.devbot.project.jsonc"
+
+  run_tool "${B}/src/file.ts" --key workflow
+  assert_success
+  assert_output "worktrees"
 }
 
 @test "project-for-path: reports supervisor from the project config, default false" {
@@ -121,7 +135,7 @@ run_tool() {
 
   assert_success
   assert_output --partial "## Owning project"
-  assert_output --partial "| worktrees | false |"
+  assert_output --partial "| workflow | trunk |"
   assert_output --partial "| datasources | db-b |"
 }
 

@@ -25,10 +25,10 @@ setup() {
   git init --bare -q --initial-branch=main "$ORIGIN"
 
   git init -q --initial-branch=main "$WORK"
-  # Hermetic: pin the project config (devbot_dir + worktrees) so the machine's
+  # Hermetic: pin the project config (devbot_dir + workflow) so the machine's
   # real global config is never consulted; excluded so it doesn't dirty the tree.
   printf '.devbot.project.jsonc\nvendor/\nnode_modules/\n' > "$WORK/.git/info/exclude"
-  printf '{ "devbot_dir": ".agents", "worktrees": true }\n' > "$WORK/.devbot.project.jsonc"
+  printf '{ "devbot_dir": ".agents", "workflow": "worktrees" }\n' > "$WORK/.devbot.project.jsonc"
   git -C "$WORK" config user.email "test@test.com"
   git -C "$WORK" config user.name "Test"
   # Hermetic: don't inherit the developer's global signing config.
@@ -140,7 +140,7 @@ worktree() {
 @test "enabled: refuses a supervisor project and points at --project" {
   local sup="$SANDBOX/supervisor"
   git init -q --initial-branch=main "$sup"
-  printf '{ "supervisor": true, "worktrees": true }\n' > "$sup/.devbot.project.jsonc"
+  printf '{ "supervisor": true, "workflow": "worktrees" }\n' > "$sup/.devbot.project.jsonc"
 
   run bash -c "cd '$sup' && bash '$SCRIPT' enabled"
 
@@ -158,7 +158,7 @@ worktree() {
   printf 'base\n' > "$sup/file.txt"
   git -C "$sup" add -A
   git -C "$sup" commit -qm "base"
-  printf '{ "supervisor": true, "worktrees": true }\n' > "$sup/.devbot.project.jsonc"
+  printf '{ "supervisor": true, "workflow": "worktrees" }\n' > "$sup/.devbot.project.jsonc"
 
   run bash -c "cd '$sup' && bash '$SCRIPT' create feat/nope --no-link"
   assert_failure
@@ -369,13 +369,73 @@ worktree() {
   assert_output --partial "FATAL:"
 }
 
-# ── enabled / opt-out ────────────────────────────────────────────────────────
+# ── enabled / workflow ───────────────────────────────────────────────────────
 
 @test "enabled: reports true by default" {
   worktree enabled
 
   assert_success
   assert_output "true"
+}
+
+@test "enabled: defaults to the worktrees workflow when the key is unset" {
+  printf '{ "devbot_dir": ".agents" }\n' > "$WORK/.devbot.project.jsonc"
+
+  worktree enabled
+
+  assert_success
+  assert_output "true"
+}
+
+@test "enabled: reports an unknown workflow with a distinct status" {
+  printf '{ "devbot_dir": ".agents", "workflow": "banana" }\n' > "$WORK/.devbot.project.jsonc"
+
+  worktree enabled
+
+  # 2, not 1: callers must stop and ask instead of falling back to trunk.
+  assert_failure 2
+  assert_output --partial "unknown workflow 'banana'"
+  refute_output --partial "false"
+}
+
+@test "enabled: maps the retired worktrees false key to trunk" {
+  printf '{ "devbot_dir": ".agents", "worktrees": false }\n' > "$WORK/.devbot.project.jsonc"
+
+  worktree enabled
+
+  assert_failure
+  assert_output "false"
+}
+
+@test "enabled: maps the retired worktrees true key to worktrees" {
+  printf '{ "devbot_dir": ".agents", "worktrees": true }\n' > "$WORK/.devbot.project.jsonc"
+
+  worktree enabled
+
+  assert_success
+  assert_output "true"
+}
+
+@test "enabled: a project's retired key wins over a migrated global workflow" {
+  printf '{ "devbot_dir": ".agents", "worktrees": false }\n' > "$WORK/.devbot.project.jsonc"
+  printf '{ "workflow": "worktrees" }\n' > "$SANDBOX/global.jsonc"
+  export DEV_BOT_GLOBAL_CONFIG="$SANDBOX/global.jsonc"
+
+  worktree enabled
+
+  assert_failure
+  assert_output "false"
+}
+
+@test "enabled: falls back to the global config's retired key" {
+  printf '{ "devbot_dir": ".agents" }\n' > "$WORK/.devbot.project.jsonc"
+  printf '{ "worktrees": false }\n' > "$SANDBOX/global.jsonc"
+  export DEV_BOT_GLOBAL_CONFIG="$SANDBOX/global.jsonc"
+
+  worktree enabled
+
+  assert_failure
+  assert_output "false"
 }
 
 @test "enabled --project: reads the named project's setting from outside it" {
@@ -385,8 +445,8 @@ worktree() {
   assert_output "true"
 }
 
-@test "enabled: reports false when the project opts out" {
-  printf '{ "devbot_dir": ".agents", "worktrees": false }\n' > "$WORK/.devbot.project.jsonc"
+@test "enabled: reports false when the project follows the trunk workflow" {
+  printf '{ "devbot_dir": ".agents", "workflow": "trunk" }\n' > "$WORK/.devbot.project.jsonc"
 
   worktree enabled
 
@@ -394,18 +454,19 @@ worktree() {
   assert_output "false"
 }
 
-@test "create: refuses when the project opted out" {
-  printf '{ "devbot_dir": ".agents", "worktrees": false }\n' > "$WORK/.devbot.project.jsonc"
+@test "create: refuses when the project follows the trunk workflow" {
+  printf '{ "devbot_dir": ".agents", "workflow": "trunk" }\n' > "$WORK/.devbot.project.jsonc"
 
   worktree create feat/nope
 
   assert_failure
   assert_output --partial "FATAL:"
+  assert_output --partial "trunk"
   assert [ ! -d "$WORKTREES/feat-nope" ]
 }
 
-@test "create: proceeds when the project explicitly enables worktrees" {
-  printf '{ "devbot_dir": ".agents", "worktrees": true }\n' > "$WORK/.devbot.project.jsonc"
+@test "create: proceeds when the project selects the worktrees workflow" {
+  printf '{ "devbot_dir": ".agents", "workflow": "worktrees" }\n' > "$WORK/.devbot.project.jsonc"
 
   worktree create feat/yes
 

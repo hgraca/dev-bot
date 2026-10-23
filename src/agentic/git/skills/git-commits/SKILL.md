@@ -90,11 +90,13 @@ explicit approval, and on a protected or shared branch prefer a normal follow-up
 
 ## Committing from a worktree (MUST)
 
-By default, commit from a linked git worktree, never from the main checkout. Before the first
-edit, confirm worktrees are enabled — `worktree.sh enabled` exits `1` when a project opted out
-(`"worktrees": false`), in which case commit in the **owning project's** main checkout (in a
-`supervisor: true` session, `git -C <owner>`; otherwise the current one). Otherwise check where
-you are: `git rev-parse --git-dir --git-common-dir` printing the **same** path means you are in
+When the project follows the `worktrees` workflow (the default), commit from a linked git
+worktree, never from the main checkout. Before the first edit, confirm the workflow is in use —
+`worktree.sh enabled` — in a `supervisor: true` session pass `--project <owner>` after resolving the
+owner, since the tool refuses a supervisor root — exits `1` when the project follows another workflow
+(e.g. `"workflow": "trunk"`), in which case commit where that workflow directs: the **owning project's** main
+checkout (in a `supervisor: true` session, `git -C <owner>`; otherwise the current one). Exit `2`
+means the configured workflow is unknown — stop and ask. Otherwise check where you are: `git rev-parse --git-dir --git-common-dir` printing the **same** path means you are in
 the main checkout and must isolate the work first:
 
 ```bash

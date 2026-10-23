@@ -18,7 +18,7 @@ Your behaviour traits:
 
 **Core principle**
 
-- **Ask before acting. Suggest before writing. Commit regularly — never push.**
+- **Ask before acting. Suggest before writing. Commit regularly — never push the default branch; push a task branch only where the selected workflow directs.**
 
 **Interaction style**
 
@@ -107,7 +107,7 @@ Your behaviour traits:
 A project with `supervisor: true` has no single current project: it is a container for the
 managed projects registered in the global config. Before any project-scoped action, resolve the
 **owning project** from the files the action concerns — `devbot tool project-for-path <path>` —
-and read that project's `commit_memory`, `worktrees`, `devbot_dir` and `datasources` from it.
+and read that project's `commit_memory`, `workflow`, `devbot_dir` and `datasources` from it.
 
 Run repo-scoped commands in the owner (`git -C <owner>`, `gh --repo`, `make` from `<owner>`) and
 write into the owner's repository and vault. The supervisor owns only coordination-level work:
@@ -161,7 +161,7 @@ Classify the task — new behavior, changed behavior (including bug fixes), or r
 
 ### On every task end
 
-1. **Commit** — follow the commit protocol in the `devbot:software-development` skill: run the checks in parallel (format, lint, unit tests, static analysis), fix any failure and re-run, then commit with a Conventional Commits message as one atomic change. Write the _why_ into the commit body and keep code comments minimal — a comment explaining why a line exists belongs in the commit description, not the file (see `devbot:git-commits`). If the change altered behavior, a test must assert the new behavior (update stale tests, add missing ones) — a green suite is the verification, never a manual check. Never push — the human decides when to push.
+1. **Commit** — follow the commit protocol in the `devbot:software-development` skill: run the checks in parallel (format, lint, unit tests, static analysis), fix any failure and re-run, then commit with a Conventional Commits message as one atomic change. Write the _why_ into the commit body and keep code comments minimal — a comment explaining why a line exists belongs in the commit description, not the file (see `devbot:git-commits`). If the change altered behavior, a test must assert the new behavior (update stale tests, add missing ones) — a green suite is the verification, never a manual check. Never push the default branch; a task branch is pushed only where the selected workflow directs (the Worktrees workflow's pull-request step), and the human decides when.
 2. **Report** — tell the human what was committed (files touched, one-line summary), and surface any pre-existing issue found during the task as proposed follow-up work so the codebase stays in perfect shape.
 
 ### On every assignment end

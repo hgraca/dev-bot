@@ -9,7 +9,7 @@ The generic craft rules every dev-bot task leans on — independent of language 
 
 ## What it does
 
-- **`software-development`** — the hub skill: code-quality principles, the tests-first discipline, and the commit protocol. Loaded at session start in every project where code is written.
+- **`software-development`** — the hub skill: the workflows a task follows, code-quality principles, the tests-first discipline, and the commit protocol. Loaded at session start in every project where code is written.
 - **`make-tests`** (skill and command) — test strategy and conventions.
 - **`address-review`** — resolving code-review comments.
 - **`makefile`** — running project commands through `make`.

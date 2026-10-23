@@ -1,14 +1,15 @@
 ---
 name: devbot:git-worktrees
-description: "Use when you are about to make changes you will commit and are not already inside a linked git worktree — before editing, isolate the work in a worktree under <devbot_dir>/worktrees/, so the main checkout stays untouched."
+description: "Under the `worktrees` workflow (the default): use when you are about to make changes you will commit and are not already inside a linked git worktree — before editing, isolate the work in a worktree under <devbot_dir>/worktrees/, so the main checkout stays untouched."
 ---
 
 # Git Worktrees
 
-Every commit is made from a **linked worktree**, never from the main checkout. This keeps the
+Under the `worktrees` workflow every commit is made from a **linked worktree**, never from the main
+checkout. This keeps the
 main checkout's checked-out branch untouched, and gives each task an isolated branch cut from the
-**remote** default branch. This is the default; a project opts out with `"worktrees": false` (see
-[Opting out](#opting-out)).
+**remote** default branch. This is the `worktrees` workflow, the default; a project selects
+another workflow with the `workflow` key (see [Opting out](#opting-out)).
 
 ## Before editing (MUST)
 
@@ -17,8 +18,8 @@ main checkout's checked-out branch untouched, and gives each task an isolated br
 In a `supervisor: true` project, resolve the owning project of the files in play first — a
 supervisor is a container for sibling repositories, not a codebase, so `create` refuses it even
 when it has commits. Carry the owner through every command in this skill with one variable; the
-worktree then lands under the **owner's** `<devbot_dir>/worktrees/` and the owner's `worktrees`
-setting decides whether it is allowed:
+worktree then lands under the **owner's** `<devbot_dir>/worktrees/` and the owner's `workflow`
+setting decides whether it applies:
 
 ```bash
 project=(--project "$(devbot tool project-for-path <file> --json | jq -r .path)")
@@ -30,16 +31,17 @@ In a normal project the variable stays empty and the commands run as written:
 project=()
 ```
 
-Then check whether worktrees are enabled for this project — exit `1` means the project opted out
-(see [Opting out](#opting-out)), so work and commit in the **owning project's** main checkout as
-normal (in a supervisor session that is `git -C "$owner"`, never the session root) and this
-policy does not apply:
+Then check the workflow in use — exit `0` means the `worktrees` workflow applies; exit `1` means the
+project selected another workflow (see [Opting out](#opting-out)), so work and commit in the **owning
+project's** main checkout as that workflow directs (in a supervisor session that is `git -C
+"$owner"`, never the session root); exit `2` means the configured workflow is unknown — **stop and
+ask**, never guess. This policy does not apply outside `worktrees`:
 
 ```bash
 bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" enabled "${project[@]}"
 ```
 
-When they are enabled, detect where you are:
+When the `worktrees` workflow is in use, detect where you are:
 
 ```bash
 git rev-parse --git-dir --git-common-dir
@@ -179,15 +181,17 @@ recipe adds, with `${WORKTREE_PREFIX}` (the worktree directory and a dot) in fro
 
 ## Opting out
 
-Worktrees are the project default. A project (or the global config) turns the policy off with:
+The `worktrees` workflow is the project default. A project (or the global config) selects another
+workflow with:
 
 ```jsonc
 // .devbot.project.jsonc
-{ "worktrees": false }
+{ "workflow": "trunk" }
 ```
 
-Agents then edit and commit in the main checkout as before, and `worktree.sh create` refuses with
-a `FATAL:` — raw `git worktree` is still available to a human who wants one anyway.
+Agents then follow that workflow — `trunk` edits and commits on the default branch — and
+`worktree.sh create` refuses with a `FATAL:` — raw `git worktree` is still available to a human who
+wants one anyway.
 
 ## See also
 

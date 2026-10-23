@@ -90,10 +90,10 @@ Because each container has a fixed `container_name` (`dev-bot-*`), a container l
 
 Run a dev-bot tool by name (e.g. `devbot tool tree`, `devbot tool git-report`). Run `devbot tool` with no name to list available tools.
 
-`devbot tool project-for-path <path>` resolves a file or directory to the registered project that owns it — the longest `projects` entry containing the path — and reports that project's effective `commit_memory`, `worktrees`, `devbot_dir`, `datasources` and `modules`. Use it in a supervisor session before any project-scoped action; see [Supervisor sessions](/supervisor-sessions). Format the output with `--json`, or read one value with `--key <name>`. An unregistered path exits `3`.
+`devbot tool project-for-path <path>` resolves a file or directory to the registered project that owns it — the longest `projects` entry containing the path — and reports that project's effective `commit_memory`, `workflow`, `devbot_dir`, `datasources` and `modules`. Use it in a supervisor session before any project-scoped action; see [Supervisor sessions](/supervisor-sessions). Format the output with `--json`, or read one value with `--key <name>`. An unregistered path exits `3`.
 
 ```bash
-devbot tool project-for-path src/index.ts --key worktrees
+devbot tool project-for-path src/index.ts --key workflow
 ```
 
 `devbot tool project-memory <path>` loads the always-on memory of the project that owns the path: its `AGENTS.md` and/or `CLAUDE.md` when present, then `<devbot_dir>/memory/active/**/*.md` recursively in sorted path order, each labelled by file (a symlinked file also shows its resolved target). Run it once per project, before the first read or edit there in a supervisor session — the output states that the memory applies only within that project. An unregistered path exits `3`; a project with no memory prints a notice and exits `0`.

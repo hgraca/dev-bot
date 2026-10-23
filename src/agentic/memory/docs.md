@@ -37,7 +37,7 @@ the session touches: `search-memories --focus <path>` searches the touched
 projects' vaults + the supervisor's vault + the shared global store + any
 configured custom collection, and a finding routes back to the project it
 concerns. Each child's own
-`commit_memory` and `worktrees` govern its memory commits. A session launched
+`commit_memory` and `workflow` govern its memory commits. A session launched
 inside a child is unchanged — it searches the child + global, never the
 supervisor.
 
