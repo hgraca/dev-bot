@@ -13,6 +13,76 @@ Generic craft rules that apply to writing, changing, and committing code — ind
 - Any task that commits code
 - Any task that writes or reviews tests
 
+## Workflows
+
+A workflow is the end-to-end way a task is carried through the project: how it starts, where its
+commits land, how it is reviewed, and where it stops. Select it in this order — the first match wins:
+
+1. **Explicit user instruction** — when the user names a workflow or asks to deviate from the
+   configured one, follow it for that run.
+2. **Project configuration** — the `workflow` key in `.devbot.project.jsonc`, falling back to that
+   same file's not-yet-migrated `worktrees` key (`true` → `worktrees`, `false` → `trunk`), then to
+   `.devbot.global.jsonc` in the same order. In a `supervisor: true` session _the project_ is the
+   **owning project** of the task's files — resolve it first (`devbot tool project-for-path <path>`),
+   never the supervisor root, and run the workflow's repo-scoped steps in that owner.
+3. **Default** — the [Worktrees workflow](#worktrees-workflow) when no configuration names one.
+
+**Check in after every step.** In an interactive session, end each step with a two-line report — what
+you did and what comes next — and ask the user whether to continue or change something. Do not start
+the next step until they answer. Runs with no human to answer are the only exception:
+`devbot:work-autonomously` skips the check-ins, and a delegated subagent reports to its orchestrator
+instead.
+
+### Worktrees workflow
+
+The default. Each task gets its own branch in a linked worktree and is carried to an open pull
+request; nothing is merged.
+
+1. **Resolve the task** — the task is what the user asked for, or the content of a file path or URL
+   they gave. With nothing to go on, ask before doing anything else.
+2. **Assess progress** — never assume a fresh start. Collect the default branch, the commits already
+   on the task's branch, any pull request in **any** state (`gh pr list --head <branch> --state all --json number,url,state,mergedAt` — a query restricted to open pull requests cannot tell a merged or closed one from none at all), and `git status --porcelain`; report the state in three lines and resume at the first incomplete step. The branch is the task's identity:
+   continue it rather than cutting a new one, never reopen a closed pull request, and never stash or
+   discard changes that are not this task's.
+3. **Work in the task's worktree** — when the assessment found the task already in a linked
+   worktree, continue there; never create a second one. Only when the task is not in a worktree yet,
+   create it before the first edit from the main checkout (`worktree.sh create <branch>` per
+   `devbot:git-worktrees`). All edits use the worktree's absolute paths and all git commands run
+   with `-C <worktree>`.
+4. **Work the task** — implement what remains of it in small atomic commits
+   (`devbot:git-atomic-commits`).
+5. **Self-review** — when the task is done, delegate a review of the whole changeset against the
+   default branch to the session's code reviewer, following the session's review gate (DevBot asks
+   the user first and delegates to `@reviewer`; an autonomous run delegates straight away to
+   `@code-reviewer` as `devbot:work-autonomously` directs), and address every finding as your own
+   recommendation (`devbot:address-review`).
+6. **Open the pull request and run the review loop** — push the branch and open the pull request with
+   `devbot:gh-create-pr`, then loop until a review introduces no new findings: request the reviewer,
+   read both the line comments and the review body, fix each finding as a fixup, and reply then
+   resolve each thread. `devbot:work-autonomously` carries the loop's cadence and reviewer-effort
+   mechanics.
+7. **Hand back** — stop and report the pull request. The reviewer squashes the fixups and merges; you
+   never merge it.
+
+### Trunk workflow
+
+Work directly on the default branch, review locally, and stop for the user's gate before pushing.
+There are no pull requests. The worktree-first rule in `devbot:git-worktrees` belongs to the
+Worktrees workflow; this one commits on the default branch.
+
+1. **Resolve the task** — as in the Worktrees workflow.
+2. **Assess progress** — collect the default branch, the commits not yet pushed, and
+   `git status --porcelain`; report the state in three lines and resume at the first incomplete step.
+   When the checkout is not on the default branch, stop and ask whether to switch to it or to follow
+   the Worktrees workflow instead.
+3. **Work on the default branch** — implement what remains of it in small atomic commits
+   (`devbot:git-atomic-commits`). No branch, no worktree, no pull request.
+4. **Self-review** — delegate a review of the commits against `origin/<default>` to the session's
+   code reviewer under the same gate, and address every finding as your own recommendation
+   (`devbot:address-review`).
+5. **Hand back before the push** — stop and report. The user gates the push to `origin/<default>`;
+   you never push the default branch yourself.
+
 ## Stack-Specific Instructions (MUST)
 
 Before writing or reviewing code, identify the stack, then **read** the matching annex file(s):
@@ -118,7 +188,9 @@ docs answer for the wrong major version is worse than no answer.
 
 ## Commit Protocol
 
-Commit after every completed, verifiable unit of work. Never push — the human decides when to push.
+Commit after every completed, verifiable unit of work. Never push the default branch; push a task
+branch only where the selected workflow directs (see [Workflows](#workflows)), and the human decides
+when.
 
 Before committing, run the following **in parallel**; all of them must pass before the commit is made:
 
