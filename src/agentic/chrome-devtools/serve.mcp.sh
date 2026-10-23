@@ -90,7 +90,9 @@ fi
 #   Failed to create .../SingletonLock: File exists (17)
 #   Aborting now to avoid profile corruption.
 # (exit 21), so its browser never starts at all.
-ARGS=(--headless --isolated)
+# Headful on purpose: this browser is also how the human sees the UI being
+# verified, so no --headless here — a headless default hides the page from them.
+ARGS=(--isolated)
 if [[ -n "${CHROME_REAL}" ]]; then
   WRAP="${HOME}/.cache/ms-playwright/chrome-nosandbox"
   printf '#!/bin/bash\nexec "%s" --no-sandbox "$@"\n' "${CHROME_REAL}" > "${WRAP}"

@@ -194,7 +194,9 @@ print('DISABLED-BY-DEFAULT:OK')
   # own temporary profile. Order-tolerant: assert on the ARGS assignment.
   local args_line
   args_line="$(grep -m1 '^ARGS=' "${MODULE_DIR}/serve.mcp.sh")"
-  [[ "${args_line}" == *--headless* ]]
+  # Headful on purpose: the human watches this browser, so --headless must not
+  # come back silently.
+  [[ "${args_line}" != *--headless* ]]
   [[ "${args_line}" == *--isolated* ]]
 }
 
