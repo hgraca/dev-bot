@@ -164,7 +164,7 @@ dev-bot is an **installed toolkit**, not a deployed app: it runs inside a consum
 
 Two GitHub Actions workflows:
 
-- `.github/workflows/ci.yml` — on `pull_request` (and manual dispatch): a `lint` job runs `make lint` (shellcheck, prettier, `py_compile`); a `test` job runs `make test` (BATS, bun, python) after seeding the gitignored fixtures (`.devbot.global.jsonc`, `.env`) and the `.agents/tools` farm. Pinned toolchain: Node 22, bun 1.3.13, Python 3.12, prettier 3.9.4, shellcheck 0.11.0.
+- `.github/workflows/ci.yml` — on `pull_request` (and manual dispatch): a `lint` job runs `make lint` (shellcheck, prettier, `py_compile`); a `test-slice` job matrix runs the BATS suite as three parallel slices (`make test-bats-slice SLICE=1|2|3`, with bun and python on slice 1) after seeding the gitignored fixtures (`.devbot.global.jsonc`, `.env`) and the `.agents/tools` farm, and a `test` gate job (the name branch protection requires; a skipped job reports success) fails unless every slice passed. Pinned toolchain: Node 22, bun 1.3.13, Python 3.12, prettier 3.9.4, shellcheck 0.11.0.
 - `.github/workflows/jekyll-gh-pages.yml` — builds the Jekyll docs site (Ruby 3.3, bundler cache in `docs/`) and deploys to Pages on pushes to `main` touching `docs/**`, `src/**/docs.md`, the aggregate templates (`src/agentic/docs/tools/templates/**`), or the workflow itself; manual `workflow_dispatch` available.
 
 Merge to `main` == docs redeploy (no app deploy exists).
