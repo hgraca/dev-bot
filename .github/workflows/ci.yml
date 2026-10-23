@@ -31,9 +31,21 @@ jobs:
           sudo install -m 0755 /tmp/shellcheck-v0.11.0/shellcheck /usr/local/bin/shellcheck
       - run: make lint
 
-  test:
+  # The BATS suite is ~99% of the test runtime, and one job spends most of its
+  # wall clock with a worker idle. Running it as three parallel jobs — one matrix
+  # slice each — brings the suite down to about a third of the time. The split is
+  # computed by `make test-bats-slice` from the files in git, so a new test file
+  # is picked up without editing this workflow.
+  test-slice:
+    name: test-slice (${{ matrix.slice }}/3)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
+    strategy:
+      # A failing slice must not cancel the others: the run should report all
+      # three results, not just the first one to go red.
+      fail-fast: false
+      matrix:
+        slice: [1, 2, 3]
     env:
       DEV_BOT_ROOT: ${{ github.workspace }}
     steps:
@@ -59,4 +71,25 @@ jobs:
           git config --global user.name "devbot CI"
           git config --global user.email "ci@devbot.local"
           bash src/tools/devbot-cli/init.sh "$GITHUB_WORKSPACE"
-      - run: make test
+      - name: Run BATS slice ${{ matrix.slice }}/3
+        run: make test-bats-slice SLICE=${{ matrix.slice }}
+      # The bun and python suites take seconds, so they ride along on the first
+      # slice instead of paying for a job of their own.
+      - name: Run the bun and python suites
+        if: matrix.slice == 1
+        run: make test-ts test-py
+
+  # Branch protection on main requires the status check named exactly `test`, so
+  # the slices report under their own names and this gate carries the required
+  # one. It fails — rather than reporting skipped — whenever a slice is not green,
+  # so the required check never silently passes on a red suite.
+  test:
+    name: test
+    needs: test-slice
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every BATS slice passed
+        run: |
+          echo "test-slice: ${{ needs.test-slice.result }}"
+          [ "${{ needs.test-slice.result }}" = "success" ]

@@ -132,11 +132,19 @@ with `DEV_BOT_TEST_JOBS`:
 make test DEV_BOT_TEST_JOBS=4
 ```
 
+CI also splits the BATS stage across three parallel jobs instead of one: each job
+runs `make test-bats-slice SLICE=1`, `2` or `3`, which takes an approximately
+equal third of the suite (the split is computed from the test files in git and
+weighed by measured cost, so a new file never needs registering anywhere). The
+bun and Python suites ride along on the first slice.
+
 `make lint` runs shellcheck, the prettier format checks, and `py_compile`.
 
 > [!NOTE]
-> CI runs both `make lint` and `make test` on every pull request
-> (`.github/workflows/ci.yml`), so run them before every commit.
+> CI runs `make lint` and everything `make test` covers on every pull request
+> (`.github/workflows/ci.yml`) — the BATS stage split across three jobs
+> (`make test-bats-slice`), then `make test-ts test-py`. Run `make lint` and
+> `make test` before every commit.
 
 ---
 
