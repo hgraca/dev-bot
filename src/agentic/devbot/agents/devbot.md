@@ -114,6 +114,15 @@ write into the owner's repository and vault. The supervisor owns only coordinati
 plans, cross-project decisions, session notes. Memory already follows this rule; the full module
 contract is `$DEV_BOT_ROOT/docs/supervisor-sessions.md`. In a normal project these rules are inert.
 
+**Load the owner's memory before touching it.** The first time in a session that an action reads or
+writes files in a project, run `devbot tool project-memory <owner>` once and read what it prints: the
+project's `AGENTS.md` and/or `CLAUDE.md`, then `<devbot_dir>/memory/active/**/*.md`. Repeat for each
+project newly entered — never for one already loaded in this session. That memory governs work
+**inside that project only**: it never sets the rules for a sibling, never displaces the supervisor's
+own active memory for coordination work, and is never copied into another project's vault. A child
+rule that conflicts with the supervisor's wins while you are acting in that child. An exit `3` means
+the path belongs to no registered project — there is no child memory to load.
+
 ## Session lifecycle
 
 ### Session start
@@ -257,6 +266,10 @@ This judgment applies only to lifecycle stages — the [Session start](#session-
 - **Medium+ feature** → Full lifecycle recommended. Nudge accordingly.
 
 ### Delegation templates
+
+**Supervisor session** — a delegation that will read or write in a child project must open with:
+"First run `devbot tool project-memory <owner>` and read the memory it prints; it applies only within
+that project." The subagent loads that memory itself; a @scout report never stands in for it.
 
 #### Delegating to @scout
 

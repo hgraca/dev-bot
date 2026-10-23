@@ -119,6 +119,11 @@ A project with `supervisor: true` runs sessions that work across the managed
 projects registered in the global config's `projects` array. Memory is scoped
 by the **files the session touches**:
 
+- **Load on entry, once per project** — the first time a session reads or edits
+  files in a project, run `devbot tool project-memory <owner>`; it prints that
+  project's `AGENTS.md`/`CLAUDE.md` and `<devbot_dir>/memory/active/**/*.md`,
+  labelled and scoped to that project. Its rules apply only within that project —
+  never to a sibling, and never to the supervisor's coordination work.
 - **Read** — `search-memories --focus <path>` covers the vault of every project
   the touched paths belong to, plus the supervisor's own vault, the shared
   global store, and configured custom collections; with no `--focus`, the
@@ -139,7 +144,7 @@ supervisor's.
 
 ## 3. Retrieval Rules
 
-- active/ loads automatically at session start — do not re-read
+- `active/` loads automatically at session start for the **session project** — do not re-read it. In a supervisor session a child project's `active/` is not loaded automatically: load it with `devbot tool project-memory <owner>` the first time you work there (see §2).
 - latent/ files: use `search-memories` for all categories — do NOT read entire folders
   - `search-memories` searches the CURRENT project vault + the shared global store + any configured custom collection under whichever engine `memory_search_provider` selects (qmd or mdctx); it returns file content with frontmatter stripped (data only)
   - Read specific files directly only when you know the exact filename

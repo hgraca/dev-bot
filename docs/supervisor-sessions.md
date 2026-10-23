@@ -21,9 +21,13 @@ action:
    from the session's working directory.
 2. **Read that project's config**, project-first then global
    (`commit_memory`, `worktrees`, `devbot_dir`, `datasources`, `modules`).
-3. **Run repo-scoped commands in that project** (`git -C <owner>`, `gh --repo`,
+3. **Load that project's memory** before the first read or edit of the project's
+   own files — resolution and config reads are exempt — once per project per
+   session: `devbot tool project-memory <owner>` (see [Loading a child's active
+   memory](#loading-a-childs-active-memory)).
+4. **Run repo-scoped commands in that project** (`git -C <owner>`, `gh --repo`,
    `make` from `<owner>`, containers belong to `<owner>`).
-4. **Write into the owner**, not into the supervisor. A change belongs to the
+5. **Write into the owner**, not into the supervisor. A change belongs to the
    supervisor only when it spans projects or is coordination-level (plans,
    cross-repo decisions, session notes).
 
@@ -47,6 +51,39 @@ path is genuinely workspace-level; otherwise stop and ask.
 The same resolution is available in Bash as
 `_devbot_resolve_project_for_path <path> [default]` and in Python as
 `src/_shared/resolve_project.py`.
+
+## Loading a child's active memory
+
+A supervisor session auto-loads only its **own** `AGENTS.md` and
+`<devbot_dir>/memory/active/**/*.md`. A child's always-on context is not in scope
+until it is loaded, and a child is not otherwise reachable except through
+`search-memories --focus`, which is search rather than always-on context.
+
+```bash
+devbot tool project-memory src/foo.ts     # memory of the project that owns the path
+```
+
+The tool resolves the owning project (same rule as `project-for-path`), reads its
+`devbot_dir`, and prints — labelled by file and in this order — `AGENTS.md` and/or
+`CLAUDE.md` when present, then `<devbot_dir>/memory/active/**/*.md` recursively in
+sorted order. A symlinked memory file is still read — a project may link shared
+module memory in deliberately — and is labelled with its resolved target, so the
+scope statement stays accurate. It exits `3` for a path that belongs to no registered project —
+there is no child memory to load, so continue with the supervisor's own — and
+prints an explicit "no active memory" notice when the project has none.
+
+Run it **once per project per session**, at the point work first reads or writes
+files there — not at session start for every project, and not again for a project
+already loaded. The memory it prints is scoped to that project:
+
+- it never sets the rules for a sibling project;
+- it never displaces the supervisor's own active memory for coordination work;
+- it is never copied into another project's vault.
+
+Where a child rule conflicts with the supervisor's, the child's rule wins while
+the work is in that child. Subagents sent into a child are told to run the tool
+themselves as their first step — a `@scout` report about the child does not stand
+in for it.
 
 ## Module contracts
 
@@ -93,6 +130,9 @@ Each code change that implements a contract above carries a test:
 
 - the resolver: owner selection, longest-prefix, unregistered path, project-first
   config resolution;
+- the memory loader: owner selection, the owner's own `devbot_dir`, `AGENTS.md`
+  and `CLAUDE.md`, nested `active/` files in sorted order, an empty project and an
+  unregistered path;
 - the worktree: `--project` targets the given repo, and a repository with no
   commits is refused with a `FATAL:`.
 

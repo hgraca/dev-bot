@@ -14,9 +14,25 @@ Use at session start to collect targeted context for the orchestrator before wor
 
 ## Procedure
 
-### 0. Ensure the project description exists
+### 0. Load the scoped project's memory, then ensure its description
 
-Check whether `.agents/memory/active/project.md` exists. If it does **not** exist, follow the `devbot:create-project-report` skill to generate it before continuing. If it exists, proceed to the next step.
+Load the always-on memory of the project this assignment is scoped to — the child
+in a supervisor session, otherwise the session project — before any other read or
+edit in it:
+
+```bash
+devbot tool project-memory "<a path inside the project>"
+```
+
+It prints that project's `AGENTS.md` and/or `CLAUDE.md` plus its
+`<devbot_dir>/memory/active/**/*.md`, scoped to the project; report what it
+returned under its own heading. The `devbot_dir` is the scoped project's own —
+never assume `.agents`. In a normal session the harness has already loaded the
+session project's active memory, so the command matters for a child.
+
+Then check whether that same project's `<devbot_dir>/memory/active/project.md`
+exists. If it does **not** exist, follow the `devbot:create-project-report` skill
+to generate it before continuing. If it exists, proceed to the next step.
 
 ### 1. Parse the delegation prompt
 
@@ -43,10 +59,12 @@ custom collections:
 search-memories --query "<keyword>" --focus "<a path inside the project>"
 ```
 
-Before the scout touches the child, resolve the child's own `commit_memory` and
-`worktrees` from its `.devbot.project.jsonc` (project-first, global-fallback)
-and state them in the report, so downstream writes commit in the right place
-and under the right worktree policy. Every report still lands in the
+Step 0 loads the child's memory before anything else in the child. Also resolve
+the child's own `commit_memory` and `worktrees` from its `.devbot.project.jsonc`
+(project-first, global-fallback) and state them in the report, so downstream
+writes commit in the right place and under the right worktree policy. The
+scout's report does not stand in for the orchestrator loading that same memory
+before its first read or edit in the child. Every report still lands in the
 **supervisor's** `memory/thinking/`.
 
 ### 2. Gather memories

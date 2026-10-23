@@ -2,7 +2,7 @@
 title: "CLI commands"
 description: "The devbot command-line interface — lifecycle, management, and reporting commands."
 commands: ["audit", "audit-fix"]
-tools: ["list-projects", "project-for-path"]
+tools: ["list-projects", "project-for-path", "project-memory"]
 ---
 
 The `devbot` CLI is the single entry point for installing, configuring and running DevBot. It is installed to `$PATH` by `make install` and delegates each subcommand to a lifecycle script under `bin/`.
@@ -94,6 +94,12 @@ Run a dev-bot tool by name (e.g. `devbot tool tree`, `devbot tool git-report`). 
 
 ```bash
 devbot tool project-for-path src/index.ts --key worktrees
+```
+
+`devbot tool project-memory <path>` loads the always-on memory of the project that owns the path: its `AGENTS.md` and/or `CLAUDE.md` when present, then `<devbot_dir>/memory/active/**/*.md` recursively in sorted path order, each labelled by file (a symlinked file also shows its resolved target). Run it once per project, before the first read or edit there in a supervisor session — the output states that the memory applies only within that project. An unregistered path exits `3`; a project with no memory prints a notice and exits `0`.
+
+```bash
+devbot tool project-memory platform/src/index.php
 ```
 
 ### `devbot list <type> [-a|--all]`

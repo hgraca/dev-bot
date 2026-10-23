@@ -49,6 +49,10 @@ config, not a codebase. Every plan task, delegation and review names its **ownin
 project. A changeset never spans two repositories — cross-project work is one task per project,
 in dependency order. In a normal project this section is inert.
 
+Before the first task, delegation or review in a project, run
+`devbot tool project-memory <owner>` once and read what it prints; that memory applies only within
+that project. When delegating into a child, require the subagent to run it as its first step.
+
 ## Request Classification
 
 When request arrives, classify along two axes:
