@@ -7,7 +7,7 @@ EXEC_SHELL=/bin/bash
 # Declare all non-file targets as phony so a same-named file or directory in the
 # repo root never shadows them (e.g. a stray `test` dir would otherwise make
 # `make test` silently report "up to date" and run nothing).
-.PHONY: help install update uninstall up down restart test lint logs docs docs-gather app
+.PHONY: help install update uninstall up down restart test test-bats test-bats-slice test-ts test-py lint logs docs docs-gather app
 # SECONDEXPANSION is needed to be able to resolve `psr4: .docker-wrap-$$@` to `psr4: .docker-wrap-psr4`
 .SECONDEXPANSION:
 
@@ -126,8 +126,29 @@ build-test-image:
 # The "./" in the bun invocation below makes bun treat the argument as a path.
 # A bare `bun test src/` is a filter, and matching one walks the whole checkout
 # (storage/ alone is hundreds of thousands of files) before any test runs.
-test: ## Run the full test suite
-	echo -e "\n\033[1m\033[34m━━━ Running tests... ━━━\033[0m"
+test: test-bats test-ts test-py ## Run the full test suite
+
+# CI runs the BATS suite as N parallel jobs (a build matrix in ci.yml) to bring
+# the wall clock down to about a third of a full run. bin/test-slices.sh
+# computes the slices from the files git knows about, never from a list, so a
+# new test file cannot be silently skipped; bin/tests/ci_slices_tests.bats
+# guards both that partition and the handoff to bats below.
+# SLICES is how many jobs the workflow starts — keep it in step with the matrix.
+SLICES ?= 3
+
+test-bats-slice: ## Run one CI slice of the BATS suite (set SLICE to 1, 2 or 3)
+	@tmp="$$(mktemp)"; \
+	trap 'rm -f "$$tmp"' EXIT; \
+	bin/test-slices.sh "$${SLICE:-}" "$(SLICES)" > "$$tmp" || exit 2; \
+	if [ -n "$${FILES_ONLY:-}" ]; then cat "$$tmp"; exit 0; fi; \
+	echo "  bats: slice $${SLICE}/$(SLICES), $$(wc -l < "$$tmp") files"; \
+	$(MAKE) test-bats BATS_FILES_FILE="$$tmp"
+
+# FILES_ONLY above prints the slice instead of running it — the guard test reads
+# the partition that way. BATS_FILES_FILE is the same seam for `test-bats`: a
+# newline-separated list of files to run instead of the whole bin/ and src/ tree.
+test-bats: ## Run the BATS suite (BATS_FILES_FILE points at a list to narrow it)
+	@echo -e "\n\033[1m\033[34m━━━ Running tests... ━━━\033[0m"
 	@if ! command -v bats &>/dev/null; then \
 		echo "  bats not found — installing via npm..."; \
 		npm install -g bats bats-assert bats-support &>/dev/null; \
@@ -137,11 +158,18 @@ test: ## Run the full test suite
 	# TTY (claudecode asks before changing an existing default agent), so a
 	# suite run from a terminal would block on that read instead of asserting.
 	# Parallel BATS: GNU parallel is preferred, rush is the fallback — see
-	# README, Development. bin/ runs first on purpose: the update suites
-	# (bin/tests/update_*_tests.bats) are the heaviest cluster, so starting them
-	# early keeps them off the critical path.
+	# README, Development. Without BATS_FILES_FILE, bin/ runs first on purpose:
+	# the update suites (bin/tests/update_*_tests.bats) are the heaviest cluster,
+	# so starting them early keeps them off the critical path. A slice arrives
+	# already ordered heaviest-first.
 	# DEV_BOT_TEST_JOBS overrides the derived job count (1 forces a serial run).
-	@jobs="$${DEV_BOT_TEST_JOBS:-}"; \
+	@targets=(); \
+	if [ -n "$${BATS_FILES_FILE:-}" ]; then \
+		mapfile -t targets < "$$BATS_FILES_FILE"; \
+	else \
+		targets=(-r bin/ src/); \
+	fi; \
+	jobs="$${DEV_BOT_TEST_JOBS:-}"; \
 	if [ -z "$$jobs" ]; then \
 		jobs="$$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"; \
 	fi; \
@@ -157,23 +185,27 @@ test: ## Run the full test suite
 	fi; \
 	if [ "$$runner" = "parallel" ]; then \
 		echo "  bats: $$jobs parallel jobs"; \
-		$(HERMETIC_GIT) BATS_LIB_PATH="$$(npm root -g)" bats -T --jobs "$$jobs" --no-parallelize-within-files -r bin/ src/ </dev/null; \
+		$(HERMETIC_GIT) BATS_LIB_PATH="$$(npm root -g)" bats -T --jobs "$$jobs" --no-parallelize-within-files "$${targets[@]}" </dev/null; \
 	elif [ "$$runner" = "rush" ]; then \
 		echo "  bats: $$jobs parallel jobs (rush)"; \
-		$(HERMETIC_GIT) BATS_LIB_PATH="$$(npm root -g)" bats -T --jobs "$$jobs" --parallel-binary-name rush --no-parallelize-within-files -r bin/ src/ </dev/null; \
+		$(HERMETIC_GIT) BATS_LIB_PATH="$$(npm root -g)" bats -T --jobs "$$jobs" --parallel-binary-name rush --no-parallelize-within-files "$${targets[@]}" </dev/null; \
 	else \
 		if [ "$$jobs" -gt 1 ]; then \
 			echo "  WARN: GNU parallel/rush not found — BATS runs serially (slow)."; \
 			echo "        Install GNU parallel or rush (see README, Development)."; \
 		fi; \
-		$(HERMETIC_GIT) BATS_LIB_PATH="$$(npm root -g)" bats -T -r src/ bin/ </dev/null; \
+		$(HERMETIC_GIT) BATS_LIB_PATH="$$(npm root -g)" bats -T "$${targets[@]}" </dev/null; \
 	fi
+
+test-ts: ## Run the bun (TypeScript) test suite
 	@echo -e "\n\033[1m\033[34m━━━ Running bun tests... ━━━\033[0m"
 	@if ! command -v bun &>/dev/null; then \
 		echo "  bun not found — install via: curl -fsSL https://bun.sh/install | bash"; \
 		exit 1; \
 	fi
 	@$(HERMETIC_GIT) bun test ./src/
+
+test-py: ## Run the python test suite
 	@echo -e "\n\033[1m\033[34m━━━ Running python tests... ━━━\033[0m"
 	@if ! command -v python3 &>/dev/null; then \
 		echo "  python3 not found — install python3 to run the python tests"; \
