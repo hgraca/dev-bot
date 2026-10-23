@@ -26,8 +26,9 @@
 #        update.sh under src/tools/, agentic pre.sh + update.sh, each harness's
 #        update.sh (machine-wide provisioning only — per-project wiring is never
 #        touched here and still reinits lazily), a refresh of
-#        the external module repos (module.sh install), and recording the
-#        release tag in the global config's `version`.
+#        the external module repos (module.sh install), a migration of the
+#        retired `worktrees` key to `workflow` across the registered projects,
+#        and recording the release tag in the global config's `version`.
 #   4. Nothing else: writing `version` changes each project's combined wiring
 #      hash, so every registered project reinit-wires itself on its next
 #      `devbot` start (lazy, per project).
@@ -414,6 +415,46 @@ _record_installed_version() {
   fi
 }
 
+# ── Workflow config migration ─────────────────────────────────────────────────
+# Runs before the reconciler so the global config keeps its intent: `worktrees:
+# false` meant the trunk workflow, while the reconciler would replace the
+# retired key with the dist default. Every project in the global `projects`
+# array is migrated too; a file without the key is skipped (idempotent).
+_migrate_workflow_config() {
+  _header_2 "Workflow config migration"
+
+  local global_config tool report
+  global_config="$(_devbot_global_config)"
+  tool="${DEV_BOT_ROOT}/src/_shared/migrate_workflow_config.py"
+
+  if [[ ! -f "${global_config}" ]]; then
+    _skip "no global config at ${global_config} — nothing to migrate"
+    return 0
+  fi
+  if [[ ! -f "${tool}" ]]; then
+    _warn "migration tool not found — skipping"
+    return 0
+  fi
+
+  if ! report="$(python3 "${tool}" "${global_config}" 2>&1)"; then
+    _warn "workflow config migration needs attention"
+    [[ -n "${report}" ]] && echo "  ${report}" >&2
+    return 1
+  fi
+
+  if [[ -z "${report}" ]]; then
+    _skip "no config carries the retired worktrees key"
+    return 0
+  fi
+
+  local line
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] && _ok "${line}"
+  done <<< "${report}"
+
+  return 0
+}
+
 # ── Global config reconciliation ──────────────────────────────────────────────
 # Realign the runtime global config with the shipped schema after an upgrade:
 # add top-level properties the dist template gained, drop the ones it retired.
@@ -642,8 +683,14 @@ main() {
   # Record the release so every project reinits on its next start.
   _record_installed_version "${target}"
 
-  # Realign the runtime global config with the (possibly changed) dist schema.
-  _reconcile_global_config
+  # Migrate the retired worktrees key before the reconciler drops it. Skip the
+  # reconciler when the migration failed: it would remove the retired key and
+  # copy the dist default, silently replacing the machine's intent.
+  if _migrate_workflow_config; then
+    _reconcile_global_config
+  else
+    _warn "global config reconciliation skipped — resolve the workflow key above, then run devbot update again"
+  fi
 
   UPDATED="${tool_count}" FAILED="${tool_failed}"
   MODULE_UPDATED="${module_count}" MODULE_FAILED="${module_failed}"

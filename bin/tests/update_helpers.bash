@@ -168,6 +168,7 @@ _install_machinery() {
   cp "${REPO_ROOT}/src/_shared/functions.sh" \
     "${REPO_ROOT}/src/_shared/read_jsonc.py" \
     "${REPO_ROOT}/src/_shared/reconcile_global_config.py" \
+    "${REPO_ROOT}/src/_shared/migrate_workflow_config.py" \
     "${INSTALL}/src/_shared/"
 
   # module.sh stub — records invocation, never touches the network.
