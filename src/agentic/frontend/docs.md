@@ -2,7 +2,7 @@
 title: "Frontend"
 description: "Framework-agnostic frontend conventions — atomic design, design tokens, Storybook, and a Figma-to-app Design QA check — shared by every UI framework module."
 commands: ["design-qa", "design-qa-all"]
-skills: ["atomic-design", "storybook", "design-qa", "design-qa-all"]
+skills: ["atomic-design", "storybook", "design-qa", "design-qa-all", "show-ui-in-browser"]
 mcps:
   figma: "Read Figma frames, variables and screenshots"
 ---
@@ -27,6 +27,8 @@ plus an automated Design QA check that compares a running page against its Figma
 - **`design-qa-all`** — run the same check for every entry in the project's `design-map.json`, only
   the entries a branch changed, or a single entry, and write `design-qa-report.md`. Report-only: it
   never edits source.
+- **`show-ui-in-browser`** — get the app answering at a URL and leave a visible browser window on the
+  page the user asked for, including the login step and the check that it actually rendered.
 - **`modern-web-guidance`** (vendored) — Google's
   [modern-web-guidance](https://github.com/GoogleChrome/modern-web-guidance) skill pack, wired in
   when the module is enabled; it adds modern web-platform guidance (HTML, CSS, accessibility,
