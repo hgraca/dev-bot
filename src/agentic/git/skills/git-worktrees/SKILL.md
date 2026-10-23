@@ -14,6 +14,20 @@ another workflow with the `workflow` key (see [Opting out](#opting-out)).
 
 ## Before editing (MUST)
 
+### No silent exceptions
+
+A worktree commit is inert for the running session when the changed files are harness-consumed
+tooling: skills, commands, MCP launchers/config, hooks — everything the harness reads through
+symlinks into the main checkout. If you believe a worktree commit will not take effect, **stop and
+ask** — do not silently work in the main checkout. The two sanctioned options are:
+
+- **(a) worktree commit** — the change takes effect after merge or checkout; say so in the hand-back.
+- **(b) main-checkout commit, user-approved** — only with the user's explicit go-ahead: work on the
+  **current branch** (never the default branch unless explicitly requested by the user), stage only
+  your files and commit with a pathspec, and never push.
+
+State the chosen option in the hand-back so the trade-off stays visible.
+
 ### Supervisor sessions
 
 In a `supervisor: true` project, resolve the owning project of the files in play first — a

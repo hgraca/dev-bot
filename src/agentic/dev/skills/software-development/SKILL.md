@@ -214,6 +214,7 @@ Commit style:
 - **Atomic commits** — one logical change per commit; each commit builds and reviews on its own (see `devbot:git-atomic-commits`).
 - **Partial staging** — when a file holds unrelated changes, stage hunks selectively with `git add -p` rather than the whole file (see `devbot:git-advanced-operations`).
 - **Fixup commits** — when a commit needs a correction and it is unique to the current feature branch, record the fix with `git commit --fixup` against the earlier commit rather than creating a new standalone commit. This is the required form on a feature branch; the fixups are squashed into their targets before the branch is merged (projects commonly enforce this with a no-fixup CI guard) and must never be recorded on the default branch itself (see `devbot:git-fixup-commits`).
+- **Worktree first, no silent exceptions** — commit from a linked worktree. If you believe a worktree commit will not take effect (harness-consumed tooling), ask the user instead of silently working in the main checkout; a user-approved main-checkout commit is staged and committed by pathspec (see `devbot:git-worktrees` and `devbot:git-commits`).
 
 ## Cross-Cutting Rules
 

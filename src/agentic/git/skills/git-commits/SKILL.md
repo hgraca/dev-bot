@@ -145,6 +145,21 @@ with `--project <owner>`; after that, run edits and commits with `git -C <worktr
 `git -C <owner>` for owner-scoped commands (worktree creation, merge, remove). A commit never
 spans two repositories.
 
+## Committing in a shared main checkout (MUST)
+
+When the user explicitly approves committing in the main checkout (see `devbot:git-worktrees`), the
+index may already hold another agent's staged work. Never commit bare — pass the same paths you
+staged:
+
+```bash
+git add <your-file> [<your-file>…]
+git commit -m "<message>" -- <your-file> [<your-file>…]
+git show --stat HEAD   # must list only your files
+```
+
+The pathspec leaves every other index entry untouched. If `git show --stat` lists a file you did not
+change, stop and surface it — never "fix" or discard another agent's staged work.
+
 ## Routing
 
 | Doing this                                                                 | Read                              |
