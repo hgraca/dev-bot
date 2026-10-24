@@ -27,6 +27,23 @@ Solutions:
 The `<type>(<scope>)` taxonomy, the version impact of each type, footers, and breaking-change
 notation live in `devbot:git-conventional-commits` — this skill defines the skeleton they fill in.
 
+## Message checklist (MUST)
+
+Check every message against this list before the commit is made. A rule that is not checked is a
+rule that gets skipped, and a message is read far more often than it is written:
+
+- Subject: imperative, lowercase start, no trailing period, ≤72 characters.
+- Body: `Problems:` and `Solutions:`, each with at least one bullet.
+- Every bullet: one idea, ≤72 characters, so it reads unwrapped in a terminal.
+- No paragraph body — not even one explaining the why. That reasoning belongs
+  in the bullets; any prose body is a defect, not a style choice.
+- Exempt from this list: `Merge`/`Revert` as git writes them, and the
+  `fixup!`/`amend!`/`squash!` markers as `git commit --fixup`/`--squash` writes
+  them. Git writes their subject and body, so neither the subject rules nor the
+  two-list form apply. A marker prefix you type yourself is not an exemption.
+
+The sections below explain each rule in full; this list is the gate they exist to enforce.
+
 ## Subject
 
 - Imperative mood — "add", not "added" or "adds".
@@ -53,9 +70,10 @@ State it as two lists:
 - **Problems** — what was wrong, missing, or at risk. One bullet per distinct problem, ≤72 chars.
 - **Solutions** — what the commit does about each one. One bullet per solution, ≤72 chars.
 
-A commit that solves nothing has no reason to exist, and a body that only restates the diff is
-noise. Keep each bullet to a single idea, and keep it under 72 characters so it reads unwrapped in a
-terminal.
+A commit that solves nothing has no reason to exist. The reasoning has a home too: the `Problems:`
+bullet that names the problem, and the `Solutions:` bullet that says what changes — not a paragraph
+above the lists. Keep each bullet to a single idea, and keep it under 72 characters so it reads
+unwrapped in a terminal.
 
 ```text
 fix(api): retry idempotent requests on 503
@@ -68,6 +86,11 @@ Solutions:
 - retry twice with backoff on idempotent calls
 - exclude non-idempotent calls deliberately
 ```
+
+The only messages outside this form are the ones git writes itself: `Merge`, `Revert`, and the
+`fixup!`/`amend!`/`squash!` markers — their subject and body are git's, so neither rule set applies
+to them. Writing a marker prefix by hand does not opt a message out. See
+[Message checklist](#message-checklist-must).
 
 **The why belongs here, not in code comments.** A comment explaining why a line exists, what
 workaround it encodes, or what would break without it is a commit-description line that ended up in
