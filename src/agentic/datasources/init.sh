@@ -34,13 +34,10 @@ export DEV_BOT_ROOT
 source "${MODULE_DIR}/functions.sh"
 
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd)"
-GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
-PROJECT_CONFIG="${PROJECT_DIR}/.devbot.project.jsonc"
 # Shared helpers live beside this module, never under DEV_BOT_ROOT — which is
 # overridden to a sandbox root in tests (see _devbot_get_disabled_modules).
 READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
 REMOVE_KEY="${MODULE_DIR}/../../_shared/remove_mcp_key.py"
-MCP_BASE="http://127.0.0.1:${DATASOURCES_PORT:-18510}/mcp"
 
 # Server names and manifest files are prefixed, so a datasource can never
 # collide with a module-declared MCP server of the same name.
@@ -53,61 +50,6 @@ PREFIX="datasources-"
 SIDECAR_PORTS="{}"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
-
-# The datasource names this project opted into (a JSON array in its config).
-_datasources_selected() {
-  [[ -f "${PROJECT_CONFIG}" ]] || return 0
-  python3 "${READER}" "${PROJECT_CONFIG}" datasources 2>/dev/null |
-    python3 -c '
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    data = None
-print(" ".join(data) if isinstance(data, list) else "")
-' 2>/dev/null || true
-}
-
-# The datasource names the machine declares (keys of the global catalogue).
-_datasources_declared() {
-  [[ -f "${GLOBAL_CONFIG}" ]] || return 0
-  python3 "${READER}" "${GLOBAL_CONFIG}" datasources 2>/dev/null |
-    python3 -c '
-import json, sys
-try:
-    data = json.load(sys.stdin)
-except Exception:
-    data = None
-print(" ".join(data) if isinstance(data, dict) else "")
-' 2>/dev/null || true
-}
-
-# Is a harness module turned off? Mirrors how the jetbrains module gates its
-# manifests on module enablement.
-_datasources_harness_disabled() {
-  _devbot_get_disabled_modules "${PROJECT_DIR}" |
-    jq -e --arg m "$1" 'index($m) != null' >/dev/null 2>&1
-}
-
-# The sidecar name -> port map, straight from the renderer that allocates the
-# ports. The catalogue is filtered by the SAME static demand rule render.sh
-# applies, so a manifest URL and the service's listener cannot drift. An
-# unreadable catalogue degrades to "no sidecars" rather than aborting init — the
-# toolbox path then applies exactly as before.
-_datasources_sidecar_ports() {
-  [[ -f "${GLOBAL_CONFIG}" ]] || { echo "{}"; return 0; }
-  local ports=""
-  ports="$(python3 "${READER}" "${GLOBAL_CONFIG}" datasources 2>/dev/null |
-    python3 "${MODULE_DIR}/demand.py" --static-filter "${GLOBAL_CONFIG}" "${PROJECT_DIR}" 2>/dev/null |
-    python3 "${MODULE_DIR}/render_compose.py" --sidecar-ports 2>/dev/null)" || true
-  # An explicit branch, not ${ports:-{}} — the closing brace of the expansion
-  # would be read as a literal, appending a stray '}' to valid JSON.
-  if [[ -z "${ports}" ]]; then
-    echo "{}"
-  else
-    echo "${ports}"
-  fi
-}
 
 # The URL this datasource's manifest points at: a sidecar's own listener, or its
 # toolset on the shared gateway.
@@ -124,7 +66,7 @@ print(ports.get(sys.argv[2], ""))
   if [[ -n "${port}" ]]; then
     printf 'http://127.0.0.1:%s/mcp' "${port}"
   else
-    printf '%s/%s' "${MCP_BASE}" "${name}"
+    printf '%s/%s' "$(_datasources_gateway_url)" "${name}"
   fi
 }
 
@@ -143,14 +85,14 @@ _datasources_write_manifests() {
   url="$(_datasources_url "${name}")"
   server="${PREFIX}${name}"
 
-  if ! _datasources_harness_disabled opencode; then
+  if ! _datasources_harness_disabled "${PROJECT_DIR}" opencode; then
     local dir="${PROJECT_DIR}/.opencode"
     mkdir -p "${dir}"
     printf '{"%s": {"type": "remote", "url": "%s", "enabled": false}}\n' \
       "${server}" "${url}" > "${dir}/${PREFIX}${name}.mcp.json"
   fi
 
-  if ! _datasources_harness_disabled claudecode; then
+  if ! _datasources_harness_disabled "${PROJECT_DIR}" claudecode; then
     local dir="${PROJECT_DIR}/.claude"
     mkdir -p "${dir}"
     printf '{"mcpServers": {"%s": {"type": "http", "url": "%s", "enabled": true}}}\n' \
@@ -216,10 +158,16 @@ _datasources_prune() {
 main() {
   _header_3 "datasources init — $(basename "${PROJECT_DIR}")"
 
+  # The manifest must point where the gateway will actually listen, and
+  # `DATASOURCES_PORT` may live in the repo .env that bin/init.sh never reads.
+  # Load it before any URL is built: a manifest on the default port while
+  # compose binds the configured one is a server the client can never reach.
+  _devbot_load_env
+
   local selected declared name
-  selected="$(_datasources_selected)"
+  selected="$(_datasources_selected "${PROJECT_DIR}")"
   declared="$(_datasources_declared)"
-  SIDECAR_PORTS="$(_datasources_sidecar_ports)"
+  SIDECAR_PORTS="$(_datasources_sidecar_ports "${PROJECT_DIR}")"
 
   for name in ${selected}; do
     if ! printf ' %s ' "${declared}" | grep -Fq " ${name} "; then
@@ -239,11 +187,11 @@ main() {
   fi
 
   # An `if`, not `&&`: under `set -e` a short-circuited `&&` would abort here.
-  if ! _datasources_harness_disabled opencode; then
+  if ! _datasources_harness_disabled "${PROJECT_DIR}" opencode; then
     _datasources_reconcile_opencode "${selected}"
     _datasources_prune "${PROJECT_DIR}/.opencode" "${selected}"
   fi
-  if ! _datasources_harness_disabled claudecode; then
+  if ! _datasources_harness_disabled "${PROJECT_DIR}" claudecode; then
     _datasources_prune "${PROJECT_DIR}/.claude" "${selected}"
   fi
 

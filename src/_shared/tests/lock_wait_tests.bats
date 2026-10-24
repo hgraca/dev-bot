@@ -52,3 +52,38 @@ teardown() {
   "
   assert_output --partial "stderr-visible"
 }
+
+@test "lock_acquire holds a lock on a descriptor the caller opened" {
+  # Regression: up.sh holds the datasources lifecycle lock (its own fd) and then
+  # takes the session-registry lock on 200 in the same process. Both used to
+  # share one descriptor, so the second call silently released the first.
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    exec 201>'${SANDBOX_DIR}/outer.lock'
+    _devbot_lock_acquire 201 0 '' || exit 10
+    _devbot_lock_wait '${SANDBOX_DIR}/inner.lock' 0 '' || exit 20
+    exec 202>'${SANDBOX_DIR}/outer.lock'
+    _devbot_lock_acquire 202 0 '' && exit 30
+    echo BOTH-HELD
+    exit 7
+  "
+  assert_output --partial "BOTH-HELD"
+  [ "$status" -eq 7 ]
+}
+
+@test "lock_wait never evaluates the lock path" {
+  # A checkout or runtime dir whose name carries shell syntax must not run. The
+  # path is opened directly; an eval here would execute $() while locking.
+  local marker="${SANDBOX_DIR}/pwned"
+  local dir="${SANDBOX_DIR}/weird\$(touch ${marker})"
+  mkdir -p "${dir}"
+
+  run bash -c "
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    exec 201>'${dir}/x.lock'
+    _devbot_lock_acquire 201 0 '' || exit 1
+    echo LOCKED
+  "
+  assert_output --partial "LOCKED"
+  [ ! -e "${marker}" ]
+}

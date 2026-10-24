@@ -7,8 +7,16 @@
 # than lingering until the next boot. It is the same rule up.sh applies at boot
 # (see functions.sh), so the two converge.
 #
-# The caller holds the registry lock and exports _DEVBOT_REGISTRY_LOCK_HELD; this
-# script takes no lock — it only talks to docker — so that flag is informational.
+# The caller holds the registry lock and exports _DEVBOT_REGISTRY_LOCK_HELD. This
+# script takes the module LIFECYCLE lock itself: a stop it applies must not land
+# between a reload's sidecar reconciliation and its verification, or a healthy
+# sidecar would read as unavailable.
+#
+# It takes that lock WITHOUT waiting. up.sh holds the lifecycle lock and then
+# waits for the registry lock, so a blocking acquisition here — under the
+# registry lock — would be the other half of a deadlock. Non-blocking is also
+# the benign direction for an exit: either the lock is free and the converge
+# runs, or a lifecycle run owns the containers and the next boot reconciles.
 #
 # Non-fatal by design: a failed reconcile must never fail a session exit.
 set -euo pipefail
@@ -23,6 +31,11 @@ source "${MODULE_DIR}/functions.sh"
 main() {
   command -v docker >/dev/null 2>&1 || return 0
   docker info >/dev/null 2>&1 || return 0
+
+  if ! DATASOURCES_LOCK_WAIT=0 _datasources_lock; then
+    _warn "datasources — another lifecycle run is in progress; leaving the running sidecars untouched"
+    return 0
+  fi
 
   local wanted
   # shellcheck disable=SC2046  # project paths are space-free; split on purpose

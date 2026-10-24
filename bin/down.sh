@@ -100,7 +100,12 @@ _down_release_lock() {
 
 _run_down_scripts() {
   _header_2 "Down Scripts"
-  _run_service_scripts --all "down.sh" "${PROJECT_DIR}"
+  # The registry lock is held here — _down_guard returns 0 only after taking it
+  # — so module down scripts must not block on their own lifecycle locks: up.sh
+  # holds the datasources lifecycle lock and then waits for the registry lock,
+  # and waiting the other way round here would deadlock the two. The flag tells
+  # them to take it non-blocking.
+  _DEVBOT_REGISTRY_LOCK_HELD=1 _run_service_scripts --all "down.sh" "${PROJECT_DIR}"
 }
 
 # ── Docker services ────────────────────────────────────────────────────────────

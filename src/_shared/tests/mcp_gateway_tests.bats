@@ -56,13 +56,13 @@ _is_generated_gateway() {
     local dir="${PROJECT_ROOT}/src/agentic/${mod}"
 
     if _is_generated_gateway "${mod}"; then
-      # Nothing shipped to read: the manifest URL (init.sh), the port the
-      # server binds (compose.tpl.yml) and the URL up.sh probes all have to
-      # agree on ONE number, or the harness talks to nothing.
-      grep -q "${port}" "${dir}/up.sh" \
-        || { echo "up.sh: ${mod} does not name port ${port}"; fail=1; }
-      grep -q "${port}" "${dir}/init.sh" \
-        || { echo "init.sh: ${mod} does not name port ${port}"; fail=1; }
+      # Nothing shipped to read: the port the server binds
+      # (compose.tpl.yml) and the URL every lifecycle script uses must agree on
+      # ONE number, or the harness talks to nothing. That URL lives in
+      # functions.sh, which init.sh's manifests, up.sh and reload.sh all
+      # resolve at call time — one fact, not one copy per script.
+      grep -q "${port}" "${dir}/functions.sh" \
+        || { echo "functions.sh: ${mod} does not name port ${port}"; fail=1; }
       grep -q "${port}" "${dir}/compose.tpl.yml" \
         || { echo "compose.tpl.yml: ${mod} does not name port ${port}"; fail=1; }
     else

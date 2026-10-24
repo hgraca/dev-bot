@@ -270,11 +270,29 @@ _devbot_lock_wait() {
     mkdir -p "$(dirname "${lockfile}")" 2>/dev/null || return 1
     { exec 200>"${lockfile}"; } 2>/dev/null || return 1
   fi
+  _devbot_lock_acquire 200 "${cap}" "${msg}"
+}
+
+# Wait for an exclusive lock on an ALREADY-OPEN descriptor. Split out so a module
+# can hold a second lock on a descriptor of its own — the descriptor is opened by
+# the caller with a plain literal redirection, so:
+#
+# - nothing is `eval`ed: the lock path comes from DEV_BOT_ROOT / runtime dirs,
+#   and a checkout whose name carries `$(...)` would execute on the way to
+#   locking;
+# - no `exec {var}>`: dynamic descriptor allocation is bash 4+, while this
+#   repository keeps its shell helpers macOS bash 3.2 compatible.
+#
+# `flock -n "${fd}"` takes the number as an argument, which 3.2 handles fine.
+_devbot_lock_acquire() {
+  local fd="$1"
+  local cap="${2:-600}"
+  local msg="${3:-}"
   local waited=0 first_wait=1
-  while ! { flock -n 200 2>/dev/null || python3 -c 'import fcntl; fcntl.flock(200, fcntl.LOCK_EX|fcntl.LOCK_NB)' 2>/dev/null; }; do
+  while ! { flock -n "${fd}" 2>/dev/null || python3 -c "import fcntl; fcntl.flock(${fd}, fcntl.LOCK_EX|fcntl.LOCK_NB)" 2>/dev/null; }; do
     if (( first_wait )); then
       first_wait=0
-      _info "waiting for lock $(basename "${lockfile}") (held by another process)…"
+      _info "waiting for lock (held by another process)…"
     fi
     waited=$((waited + 2))
     if (( waited >= cap )); then

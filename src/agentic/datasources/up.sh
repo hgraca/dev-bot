@@ -24,30 +24,6 @@ PROJECT_DIR="${1:-}"
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
-# shellcheck source=./versions.env
-source "${MODULE_DIR}/versions.env"
-
-RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
-COMPOSE_FILE="${RUNTIME_DIR}/docker-compose.yml"
-CONF_FILE="${RUNTIME_DIR}/conf/tools.yaml"
-# A poller left behind by an older dev-bot. Refresh is no longer backgrounded —
-# datasources are evaluated once, at startup — so the only poller that can
-# exist is one an older install started and never stopped. It is detached, so
-# it would outlive the upgrade and keep rewriting the config for the gateway we
-# are about to restart.
-LEGACY_POLLER_PID="${RUNTIME_DIR}/refresh.pid"
-MCP_URL="http://127.0.0.1:${DATASOURCES_PORT:-18510}/mcp"
-
-_stop_legacy_poller() {
-  [[ -f "${LEGACY_POLLER_PID}" ]] || return 0
-  local previous
-  previous="$(cat "${LEGACY_POLLER_PID}")"
-  if [[ -n "${previous}" ]]; then
-    kill "${previous}" 2>/dev/null || true
-  fi
-  rm -f "${LEGACY_POLLER_PID}"
-}
-
 # Take the gateway down before rendering. render.sh verifies a publish against
 # a RUNNING gateway by waiting a reload interval — twice, if the first read
 # looks like a rejection — so a container left over from the previous session
@@ -63,80 +39,6 @@ _stop_gateway() {
   ) >/dev/null 2>&1 || true
 }
 
-# The toolbox image is a multi-hundred-MB download, and this compose is rendered
-# into storage/ where bin/up.sh's discovery — and so its centralized
-# _announce_missing_images notice — cannot see it. Say it here, before compose
-# starts pulling, for the same reason: a silent multi-minute wait reads as a
-# hang. Best effort: a failed probe just means no notice.
-# Run a command with a hard cap. A wedged docker socket must not block the boot,
-# and GNU `timeout` is absent on macOS, so this is a portable bash watchdog (the
-# same pattern as bin/update.sh's tag fetch). Returns 124 when the cap is hit —
-# callers treat that as "inconclusive", never as "the image is absent".
-_docker_bounded() {
-  local cap="${DATASOURCES_DOCKER_PROBE_TIMEOUT:-10}"
-  "$@" >/dev/null 2>&1 &
-  local pid=$! waited=0
-  while kill -0 "${pid}" 2>/dev/null; do
-    if [[ "${waited}" -ge "${cap}" ]]; then
-      kill "${pid}" 2>/dev/null || true
-      wait "${pid}" 2>/dev/null || true
-      return 124
-    fi
-    sleep 1
-    waited=$((waited + 1))
-  done
-  wait "${pid}" 2>/dev/null
-}
-
-_announce_missing_toolbox_image() {
-  # `docker image inspect` fails for an unreachable daemon just as it does for a
-  # missing image, and only the latter downloads anything. Probe the daemon
-  # first: a broken docker gets its real error from compose a moment later, not
-  # a "downloading now" that cannot happen. A probe that times out is
-  # inconclusive and stays silent for the same reason.
-  local rc=0
-  _docker_bounded docker info || rc=$?
-  [[ ${rc} -eq 0 ]] || return 0
-
-  rc=0
-  _docker_bounded docker image inspect "${TOOLBOX_IMAGE}:${TOOLBOX_VERSION}" || rc=$?
-  [[ ${rc} -ne 0 ]] || return 0 # image present
-
-  # A timed-out probe is inconclusive: say nothing rather than promise a
-  # download that may not be happening. An `if`, not `&&` — under `set -e` a
-  # short-circuited `&&` would abort the boot.
-  if [[ ${rc} -eq 124 ]]; then
-    return 0
-  fi
-
-  _warn "datasources — image ${TOOLBOX_IMAGE}:${TOOLBOX_VERSION} not present locally"
-  _warn "  downloading now (this can take a few minutes) before the gateway starts"
-}
-
-# The gateway's container name, read from the template so compose.tpl.yml stays
-# the single source of truth for it.
-_container_name() {
-  grep -m1 '^[[:space:]]*container_name:' "${MODULE_DIR}/compose.tpl.yml" | awk '{print $2}'
-}
-
-# The rendered catalogue holds one `kind: source` document per usable
-# datasource. The empty catalogue is a single comment line, so a missing file
-# and a placeholder both count as "nothing to serve".
-_catalogue_has_sources() {
-  [[ -f "$1" ]] && grep -q '^kind: source' "$1"
-}
-
-# The sidecar SERVICE names, read from the rendered compose rather than
-# re-derived from the config: the answer must describe what is actually on disk,
-# the same discipline `_catalogue_has_sources` follows. The gateway's own
-# container is excluded — a service name is the datasource name.
-_sidecar_services() {
-  [[ -f "${COMPOSE_FILE}" ]] || return 0
-  grep -oE 'container_name: dev-bot-datasources-[a-z0-9-]+' "${COMPOSE_FILE}" 2>/dev/null |
-    sed 's/^container_name: dev-bot-datasources-//' |
-    grep -vx 'mcp' || true
-}
-
 main() {
   _info "datasources — up"
 
@@ -145,6 +47,22 @@ main() {
   # render for.
   if ! command -v docker >/dev/null 2>&1; then
     _warn "docker not found — datasources gateway not started."
+    return 0
+  fi
+
+  # One lifecycle run at a time: this stops the gateway before rendering, which
+  # would otherwise pull the floor out from under a concurrent `datasources
+  # reload` verifying what it just rendered.
+  #
+  # A boot WAITS rather than skipping. It is the authoritative convergence for
+  # its own project: a session registers before it invokes this script, so once
+  # the lock is had the sidecar-demand snapshot below sees it. Skipping would
+  # let a session start with a sidecar its project selected and nothing serving
+  # it — the very outage this module refuses to leave silent. The cap is
+  # generous because a reload is bounded (canary + gateway wait + probes); only
+  # a genuinely stuck run hits it, and then the boot says so instead of hiding it.
+  if ! DATASOURCES_LOCK_WAIT="${DATASOURCES_BOOT_LOCK_WAIT:-180}" _datasources_lock; then
+    _warn "datasources — another lifecycle run is still in progress; your datasources may not answer until the next start"
     return 0
   fi
 
@@ -157,7 +75,7 @@ main() {
   # (an unreadable catalogue, docker down, or an inconclusive run). Keep going
   # with the config already on disk: a gateway up on the last good config beats
   # no gateway at all, and the next `devbot up` re-renders.
-  if ! bash "${MODULE_DIR}/render.sh" "${PROJECT_DIR}"; then
+  if ! DATASOURCES_LIFECYCLE_HELD=1 bash "${MODULE_DIR}/render.sh" "${PROJECT_DIR}"; then
     _warn "datasources — render failed; starting the gateway with the previous config."
   fi
 
@@ -201,22 +119,14 @@ main() {
   fi
 
   sidecars="$(_sidecar_services)"
-  _catalogue_has_sources "${CONF_FILE}" && has_sources="true"
+  _catalogue_has_sources && has_sources="true"
 
   if [[ "${has_sources}" != "true" && -z "${sidecars}" ]]; then
     _skip "datasources — no usable datasources; gateway not started"
     return 0
   fi
 
-  # Compose interpolates ${VAR} from THIS process's environment, and it only
-  # auto-reads a .env beside the compose file — which is storage/, not the repo
-  # root. Load the repo .env explicitly, for the same reason bin/up.sh does.
-  if [[ -f "${DEV_BOT_ROOT}/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "${DEV_BOT_ROOT}/.env"
-    set +a
-  fi
+  _devbot_load_env
 
   # Each service is brought up ON ITS OWN. `docker compose up` fails as a unit
   # when any service's image or build context cannot be prepared — which would
@@ -225,16 +135,7 @@ main() {
   # independent of the sidecars in the same project.
   local gateway_started="false"
   if [[ "${has_sources}" == "true" ]]; then
-    _announce_missing_toolbox_image
-    # No --no-recreate (unlike the other gateways): the whole point of this
-    # container is the credentials it is handed, so rotating a value in .env must
-    # take effect on the next `devbot up`.
-    if (
-      cd "${RUNTIME_DIR}" &&
-        DEV_UID="${DEV_UID:-$(id -u)}" DEV_GID="${DEV_GID:-$(id -g)}" \
-        TOOLBOX_IMAGE="${TOOLBOX_IMAGE}" TOOLBOX_VERSION="${TOOLBOX_VERSION}" \
-          docker compose -f "${COMPOSE_FILE}" up -d --no-deps datasources-mcp
-    ); then
+    if _start_gateway; then
       gateway_started="true"
     else
       _warn "datasources gateway failed to start — continuing without it."
@@ -243,20 +144,13 @@ main() {
     _skip "datasources — no toolbox sources; gateway not started"
   fi
 
-  # Sidecars: --build so a changed server or re-pinned package rebuilds here
-  # rather than silently reusing a stale image, and a failure stays local to its
-  # own source. Only a RENDERED service that is also demanded runs: a live
-  # project absent from the configured project list can demand a sidecar the
-  # render gate never emitted, and `up --build` on that would fail every boot.
+  # Only a RENDERED service that is also demanded runs: a live project absent
+  # from the configured project list can demand a sidecar the render gate never
+  # emitted, and `up --build` on that would fail every boot.
   local service
   for service in ${sidecars}; do
     printf ' %s ' "${wanted}" | grep -Fq " ${service} " || continue
-    if (
-      cd "${RUNTIME_DIR}" &&
-        DEV_UID="${DEV_UID:-$(id -u)}" DEV_GID="${DEV_GID:-$(id -g)}" \
-        TOOLBOX_IMAGE="${TOOLBOX_IMAGE}" TOOLBOX_VERSION="${TOOLBOX_VERSION}" \
-          docker compose -f "${COMPOSE_FILE}" up -d --build "${service}"
-    ); then
+    if _start_sidecar "${service}"; then
       _ok "datasources — sidecar '${service}' started"
     else
       _warn "datasources — sidecar '${service}' failed to start; its manifest will not answer"
@@ -268,11 +162,13 @@ main() {
     return 0
   fi
 
-  # An `if`, not `&&`: under `set -e` a short-circuited `&&` would abort here.
+  # An `if`, not `&&`: under `set -e` a short-circuited `&&` would abort the boot.
   # The container name lets the wait stop as soon as the gateway has exited,
   # instead of retrying a URL nothing can answer.
-  if _devbot_wait_for_mcp_gateway datasources "${MCP_URL}" "" "$(_container_name)"; then
-    _ok "datasources gateway reachable at ${MCP_URL}"
+  local gateway_url
+  gateway_url="$(_datasources_gateway_url)"
+  if _devbot_wait_for_mcp_gateway datasources "${gateway_url}" "" "$(_gateway_container_name)"; then
+    _ok "datasources gateway reachable at ${gateway_url}"
   fi
 
   return 0

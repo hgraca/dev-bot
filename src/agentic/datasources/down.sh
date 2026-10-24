@@ -13,9 +13,6 @@ export DEV_BOT_ROOT
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
-# shellcheck source=./versions.env
-source "${MODULE_DIR}/versions.env"
-
 RUNTIME_DIR="${DEV_BOT_ROOT}/storage/datasources"
 COMPOSE_FILE="${RUNTIME_DIR}/docker-compose.yml"
 LEGACY_POLLER_PID="${RUNTIME_DIR}/refresh.pid"
@@ -37,6 +34,27 @@ _stop_legacy_poller() {
 }
 
 main() {
+  # Before the compose check, not after it: a reload that is rendering its FIRST
+  # compose file observes no file just like this does, so an unserialised no-op
+  # here could return while the reload goes on to start containers — a teardown
+  # that tears nothing down and still loses the race.
+  #
+  # Teardown is a lifecycle operation: it must not pull the gateway out from
+  # under a reload that is verifying what it just rendered. Best effort by
+  # design — a session exit must never hang — so a lock that cannot be had
+  # within the cap warns and proceeds.
+  #
+  # The last-session teardown calls this with the REGISTRY lock held, while up.sh
+  # takes the lifecycle lock and then waits for the registry lock: waiting here
+  # would deadlock the two. Under the registry lock the acquisition is therefore
+  # non-blocking, and a miss proceeds straight to the stop.
+  if [[ -n "${_DEVBOT_REGISTRY_LOCK_HELD:-}" ]]; then
+    DATASOURCES_LOCK_WAIT=0 _datasources_lock ||
+      _warn "datasources — another lifecycle run is in progress; stopping anyway"
+  elif ! _datasources_lock; then
+    _warn "datasources — another lifecycle run is in progress; stopping anyway"
+  fi
+
   _stop_legacy_poller
 
   if [[ ! -f "${COMPOSE_FILE}" ]]; then
