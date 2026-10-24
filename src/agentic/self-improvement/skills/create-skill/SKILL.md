@@ -137,6 +137,23 @@ scripts/extract.py
 
 Keep file references one level deep from SKILL.md. Avoid deeply nested reference chains.
 
+#### Referencing another skill
+
+A skill may require another skill to be loaded. Do not restate enough of it that the reference can
+be skipped: name the skill, say when to load it, and point at it for the rules.
+
+```markdown
+Before wording a commit message, load `devbot:some-skill`; its checklist is normative and is not
+repeated here.
+```
+
+Restating is worse than silence. The reader who finishes the summarising skill believes it has read
+the rule — so the skill that actually holds it never gets loaded, and the two copies drift. Never
+copy the other skill's checklist, table, or examples into this one, and never let the summarising
+skill read as self-sufficient: say plainly that it is not, and that the rule lives in the skill you
+named. Existing skills that still restate a referenced rule are follow-up work, not a licence to add
+more.
+
 #### Validation
 
 After creating a skill, validate it with the [skills-ref](https://github.com/agentskills/agentskills/tree/main/skills-ref) tool:
