@@ -93,3 +93,31 @@ teardown() {
   refute_output --partial "HARNESS-STARTED"
   assert_output --partial "Unknown command"
 }
+
+# ── datasources ─────────────────────────────────────────────────────────────
+# `devbot datasources reload` is the recovery path for a source that was
+# unreachable when `devbot up` rendered (a database behind a VPN that was
+# down): without it the only re-evaluation is a full restart.
+
+@test "devbot datasources reload runs the module script with the current project" {
+  mkdir -p "${SANDBOX}/src/agentic/datasources"
+  cat > "${SANDBOX}/src/agentic/datasources/reload.sh" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$#" > "${DEV_BOT_ROOT}/reload-argc.log"
+printf '%s\n' "$1" > "${DEV_BOT_ROOT}/reload-args.log"
+exit 0
+EOF
+  chmod +x "${SANDBOX}/src/agentic/datasources/reload.sh"
+
+  run bash "${SANDBOX}/bin/devbot" datasources reload
+  assert_success
+
+  assert_equal "$(cat "${SANDBOX}/reload-argc.log")" "1"
+  assert_equal "$(cat "${SANDBOX}/reload-args.log")" "$(pwd)"
+}
+
+@test "devbot datasources refuses an unknown action instead of starting a harness" {
+  run bash "${SANDBOX}/bin/devbot" datasources frobnicate
+  assert_failure
+  assert_output --partial "Unknown datasources subcommand"
+}

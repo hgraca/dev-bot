@@ -2,7 +2,7 @@
 title: "DevBot"
 description: "The pair-programming agent, with the Expert and Designer subagents it delegates to."
 agents: ["designer", "devbot", "expert"]
-commands: ["work-autonomously"]
+commands: ["reload-datasources", "work-autonomously"]
 ---
 
 The default way to work with dev-bot: one agent beside you, not over you.
@@ -12,6 +12,7 @@ The default way to work with dev-bot: one agent beside you, not over you.
 - **`devbot`** — the primary pair-programming agent. Works in small increments, suggests before writing, and asks before acting; it runs autonomously only when you invoke `work-autonomously`.
 - **`expert`** — a subagent for deep technical problem analysis on a higher-grade model. It traces root causes and proposes options with trade-offs, and never writes code.
 - **`designer`** — a subagent covering UX and UI: interaction specs, screen designs, visual acceptance criteria, and visual validation of implemented UI.
+- **`reload-datasources`** — re-evaluates the datasource catalogue and verifies the shared gateway serves it: the recovery path for a database behind a VPN that was down when `devbot` started, instead of restarting the session.
 - **`work-autonomously`** — the opt-in autonomous mode: take a task given inline, as a file path or as a URL, or continue the assignment already in progress, follow the workflow in use without its check-ins, self-review, then iterate on the pull-request review until it is clean — stopping one step before the merge.
 
 ## How it is used

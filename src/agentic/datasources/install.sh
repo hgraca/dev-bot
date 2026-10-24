@@ -13,9 +13,6 @@ export DEV_BOT_ROOT
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
-# shellcheck source=./versions.env
-source "${MODULE_DIR}/versions.env"
-
 main() {
   _info "datasources — install"
 
