@@ -40,7 +40,7 @@ Canonical reference for all `.agents/memory/` vault operations. Other memory ski
 
 Folders differ in git status — by design, not an oversight:
 
-- **Tracked** (committed when `commit_memory: true`): `active/`, `latent/ADRs/`, `latent/PDRs/`, `latent/learnings/`, `reference/`.
+- **Tracked** (committed when `commit_memory: true`): `active/`, `latent/ADRs/`, `latent/PDRs/`, `latent/learnings/`, `reference/`. They are committed as normal commits on the main checkout's local default branch, never as fixups and never in a worktree (see `devbot:remember-session`).
 - **Local, gitignored** (never committed): `work/` (plans, backlogs, WIP), `thinking/` (scratch), and the `latent/global/` symlink — its target, `storage/global-memories/`, is tracked separately.
 
 Work items (`work/{todo,active,archive}/<…>`) and every `thinking/` note are **local artifacts**: never `git add` or commit them, and never ask the user where they live or whether to commit them — that is settled. An artifact that must survive across machines belongs in `reference/` or `latent/`.

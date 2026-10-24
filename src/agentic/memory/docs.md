@@ -36,10 +36,11 @@ registered in `.devbot.global.jsonc::projects`. Memory is scoped by the files
 the session touches: `search-memories --focus <path>` searches the touched
 projects' vaults + the supervisor's vault + the shared global store + any
 configured custom collection, and a finding routes back to the project it
-concerns. Each child's own
-`commit_memory` and `workflow` govern its memory commits. A session launched
-inside a child is unchanged — it searches the child + global, never the
-supervisor.
+concerns. Only each child's own
+`commit_memory` gates its memory commits; they are normal commits made in that
+child's main checkout, never in a worktree (see `devbot:remember-session`). A
+session launched inside a child is unchanged — it searches the child + global,
+never the supervisor.
 
 ## Collections
 
