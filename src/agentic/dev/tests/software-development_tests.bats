@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 # =============================================================================
 # src/agentic/dev/tests/software-development_tests.bats
-# Guards the skill's Workflows section: the selection order, the check-in
-# mandate, and the two workflows it defines.
+# Guards the skill's Workflows section (selection order, the check-in mandate,
+# the two workflows) and its Commit Protocol delegation to git-commits.
 # =============================================================================
 
 setup() {
@@ -112,5 +112,35 @@ setup() {
 
   # The poll schedule belongs to devbot:work-autonomously.
   run grep -qF '60 checks' "$SKILL"
+  assert_failure
+}
+
+@test "commit protocol mandates git-commits before any message is worded" {
+  local protocol load cadence checks
+  protocol="$(grep -n '^## Commit Protocol' "$SKILL" | cut -d: -f1)"
+  load="$(grep -nF 'Word no message before loading `devbot:git-commits`' "$SKILL" | cut -d: -f1)"
+  cadence="$(grep -nF 'Commit after every completed, verifiable unit of work' "$SKILL" | cut -d: -f1)"
+  checks="$(grep -nF 'Before committing, run the following' "$SKILL" | cut -d: -f1)"
+
+  [ -n "${protocol}" ] && [ -n "${load}" ] && [ -n "${cadence}" ] && [ -n "${checks}" ]
+  # Inside the section — and first in it, before the cadence and the checks.
+  [ "${protocol}" -lt "${load}" ]
+  [ "${load}" -lt "${cadence}" ]
+  [ "${load}" -lt "${checks}" ]
+}
+
+@test "the message anatomy is delegated to git-commits, never restated here" {
+  run grep -qF 'This section does not restate them' "$FLAT"
+  assert_success
+  run grep -qF 'Reading this file is not a substitute' "$FLAT"
+  assert_success
+
+  # The body shape belongs to devbot:git-commits alone: no headings, and no
+  # message template in a fence.
+  run grep -qE '^Problems:$' "$SKILL"
+  assert_failure
+  run grep -qE '^Solutions:$' "$SKILL"
+  assert_failure
+  run grep -qF 'fix(api): retry idempotent requests on 503' "$SKILL"
   assert_failure
 }

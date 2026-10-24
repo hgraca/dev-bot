@@ -99,7 +99,8 @@ Read the annex _before_ implementing or reviewing — not after. Stack detection
 ## Preemptive Context Skill Loading
 
 On first load, load `devbot:git-commits` preemptively if it is not already loaded — every commit
-depends on the shared rules it carries.
+depends on the shared rules it carries. Reading this file is not a substitute: the message anatomy
+is defined there, and the Commit Protocol below deliberately does not restate it.
 
 Do **not** preload the other commit-technique or test skills. They fire from their own triggers:
 
@@ -187,6 +188,10 @@ docs answer for the wrong major version is worse than no answer.
 - Verification of a behavior change is test-based, never manual — "I ran it and it worked" or "the output looks right" is not proof. When a change alters behavior, update every test that asserted the old behavior (a red test after your change is the signal, not an annoyance) and add tests for behavior that had none; a change whose behavior isn't covered by a passing test is not complete.
 
 ## Commit Protocol
+
+**Word no message before loading `devbot:git-commits`.** Its message checklist is normative — the
+subject rules, the `Problems:`/`Solutions:` body, and the only exemptions live there and nowhere
+else. This section does not restate them, so following it alone is not following the rule.
 
 Commit after every completed, verifiable unit of work. Never push the default branch; push a task
 branch only where the selected workflow directs (see [Workflows](#workflows)), and the human decides
