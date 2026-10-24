@@ -16,6 +16,7 @@
     "frontend": false,
     "jetbrains": false,
     "litellm": false,
+    "notion": false,
     "ollama": false,
     "react": false,
     "rfp": false,

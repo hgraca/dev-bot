@@ -112,7 +112,7 @@ print('DYN-CC-MCP:OK')
   run python3 -c "
 import json
 servers = json.load(open('${SANDBOX_DIR}/.mcp.json'))['mcpServers']
-for name in ('atlassian', 'chrome-devtools', 'playwright', 'signoz'):
+for name in ('atlassian', 'chrome-devtools', 'notion', 'playwright', 'signoz'):
     assert name not in servers, (name, sorted(servers))
 print('CC-DISABLED-OMITTED:OK')
 "
