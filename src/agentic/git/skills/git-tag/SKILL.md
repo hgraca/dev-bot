@@ -65,10 +65,95 @@ ruleset that rejects a direct push — **do not merge locally and push**. Land t
 release commits through a PR instead:
 
 ```
+# The branch can gain commits while the PR is open, so the guards are a function
+# run before publishing and again immediately before merging.
+check_release_guards() {
+  git rev-parse --verify --quiet origin/<default> >/dev/null \
+    || { echo "ERROR: origin/<default> is unavailable — cannot verify vault commits"; return 1; }
+
+  # Fixups: consume the stream to EOF — under pipefail `grep -q` can SIGPIPE git.
+  if git log --format=%s origin/<default>..<source-branch> \
+    | awk '/^(fixup|squash|amend)!/ { found=1 } END { exit found ? 0 : 1 }'; then
+    echo "ERROR: fold the fixups before merging"
+    return 1
+  fi
+
+  # Vault commits are ordinary commits, so the subject check cannot see them.
+  # `.` is a valid <devbot_dir>: git emits `memory/...`, not `./memory/...`.
+  local vault="<devbot_dir>"
+  case "$vault" in . | ./) vault="" ;; ./*) vault="${vault#./}" ;; esac
+  while [ "${vault%/}" != "$vault" ]; do vault="${vault%/}"; done
+  case "$vault" in
+    /*) echo "ERROR: absolute <devbot_dir> — refusing to guess the vault path"; return 1 ;;
+  esac
+  case "/$vault/" in */./* | */../* | *//*) echo "ERROR: non-canonical <devbot_dir> — refusing to guess the vault path"; return 1 ;; esac
+  vault="${vault:+${vault}/}memory/"
+
+  # Commit-level path history: a net tree diff misses a vault file added then
+  # deleted. Merge commits contribute only their conflict resolutions (`--cc`).
+  # Every read is checked — an error piped into awk would look like a clean
+  # range. The local default publishes too, when it exists.
+  local range merges m paths
+  local ranges="origin/<default>..<source-branch>"
+  git rev-parse --verify --quiet <default> >/dev/null && ranges="$ranges origin/<default>..<default>"
+  for range in $ranges; do
+    paths="$(git log --format= --name-only "$range")" \
+      || { echo "ERROR: cannot inspect '$range'"; return 1; }
+    merges="$(git log --merges --format='%H' "$range")" \
+      || { echo "ERROR: cannot inspect '$range'"; return 1; }
+    for m in $merges; do
+      paths="$paths
+$(git -c core.quotePath=false show --cc --name-only --format= "$m")" \
+        || { echo "ERROR: cannot inspect merge '$m'"; return 1; }
+    done
+    # Git C-quotes a control-character path, which the prefix test cannot see.
+    if printf '%s\n' "$paths" | grep '^"' >/dev/null; then
+      echo "ERROR: git quoted a path in '$range' — refusing to guess"
+      return 1
+    fi
+    if printf '%s\n' "$paths" | VAULT_PREFIX="$vault" awk 'index($0, ENVIRON["VAULT_PREFIX"]) == 1 { found=1 } END { exit found ? 0 : 1 }'; then
+      echo "ERROR: memory-vault commits would be published on $range; resolve them first"
+      return 1
+    fi
+  done
+}
+
+check_release_guards || exit 1
 git push origin <source-branch>
 gh pr create --base <default> --head <source-branch> --title "<release title>"
+
+# After review: capture the lease, fold the fixups added since (PR stage,
+# devbot:git-fixup-commits), then hand over the leased push. `gh pr merge` uses
+# the REMOTE head, so the rewrite is invisible until it is published.
+expected="$(git rev-parse origin/<source-branch>)"
+# The lease is only safe when the checkout already matches that head; anything
+# else means the source moved and must be reconciled first.
+[ "$(git rev-parse HEAD)" = "$expected" ] \
+  || { echo "ERROR: local <source-branch> does not match origin — reconcile before rewriting"; exit 1; }
+# ... run the PR-stage squash ...
+# hand this to the human:
+git push --force-with-lease=refs/heads/<source-branch>:$expected origin <source-branch>
+# Verify the handoff landed, then only once that push has landed:
+git fetch origin <source-branch>
+[ "$(git rev-parse origin/<source-branch>)" = "$(git rev-parse HEAD)" ] \
+  || { echo "ERROR: the leased push did not land — remote and local still differ"; exit 1; }
+check_release_guards || exit 1
 gh pr merge <pr> --rebase        # or --squash, per the repo's convention
+
+# The PR merge advanced only the remote: bring the local default up before
+# tagging, or `tag` would tag the stale pre-merge checkout.
+git fetch origin <default>
+git switch <default>
+git merge --ff-only origin/<default>
 ```
+
+`tag.sh merge` runs both checks itself and refuses with `FATAL:` instead of publishing a fixup or a
+vault commit.
+
+**On this protected path the PR merge replaces the local merge.** Do not run `tag.sh merge`
+afterwards: the remote tip is no longer an ancestor of the updated default branch (and a deleted
+source branch cannot be merged at all), so a local merge would reintroduce commits that already
+landed. Continue with `tag` and `push` only.
 
 Wait for the required checks, then run `tag` and `push`. The default branch is
 already in sync at that point, so `push` sends only the tag.

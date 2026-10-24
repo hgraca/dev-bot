@@ -7,9 +7,11 @@ description: "Use when staging part of a file, splitting a made commit, or recov
 
 Techniques for cases where a plain `git add` + `git commit` isn't enough: changes tangled inside one file, commits that need breaking apart after the fact, and recovery when a rewrite goes wrong.
 
-**Safety rule that governs everything below** — anything that rewrites history is safe on unpushed
-commits and dangerous on shared ones. The check to run before rewriting is in `devbot:git-commits`
-under **Rewriting history (MUST)**.
+**Safety rule that governs everything below** — anything that rewrites history is safe on commits
+only your machine has, and dangerous on history another branch can already reach. The check to run
+before rewriting is in `devbot:git-commits` under **Rewriting history (MUST)**. The approved
+pre-merge squash of a pull-request branch is the sanctioned exception — see
+`devbot:git-fixup-commits`.
 
 ## Partial staging
 

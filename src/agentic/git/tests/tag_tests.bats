@@ -302,6 +302,346 @@ setup() {
   assert_equal "$(git -C "$WORK" rev-list --count main)" "7"
 }
 
+@test "merge: refuses to publish memory-vault commits" {
+  git -C "$WORK" switch -q feature/v1.5
+  mkdir -p "$WORK/.agents/memory/latent"
+  printf 'note\n' > "$WORK/.agents/memory/latent/note.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore(memory): capture the session"
+  local before
+  before="$(git -C "$WORK" rev-parse main)"
+
+  release merge --source feature/v1.5
+
+  assert_failure
+  assert_output --partial 'memory-vault'
+  assert_equal "$(git -C "$WORK" rev-parse main)" "$before"
+}
+
+@test "merge: refuses a non-string devbot_dir" {
+  git -C "$WORK" switch -q feature/v1.5
+  printf '{ "devbot_dir": [] }\n' > "$WORK/.devbot.project.jsonc"
+  git -C "$WORK" add .devbot.project.jsonc
+  git -C "$WORK" commit -qm "chore: array devbot_dir"
+
+  release merge --source feature/v1.5
+
+  assert_failure
+  assert_output --partial 'non-string'
+}
+
+@test "merge: fails closed when the project config cannot be read" {
+  git -C "$WORK" switch -q feature/v1.5
+  printf '{ not json\n' > "$WORK/.devbot.project.jsonc"
+  git -C "$WORK" add .devbot.project.jsonc
+  git -C "$WORK" commit -qm "chore: broken project config"
+
+  release merge --source feature/v1.5
+
+  assert_failure
+  assert_output --partial 'refusing to guess'
+}
+
+@test "merge: resolves a custom vault when DEV_BOT_ROOT is unset" {
+  git -C "$WORK" switch -q feature/v1.5
+  printf '{ "devbot_dir": ".dev" }\n' > "$WORK/.devbot.project.jsonc"
+  mkdir -p "$WORK/.dev/memory/latent"
+  printf 'note\n' > "$WORK/.dev/memory/latent/custom.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore(memory): custom vault capture"
+
+  run env -u DEV_BOT_ROOT bash -c "cd '$WORK' && bash '$SCRIPT' merge --source feature/v1.5"
+
+  assert_failure
+  assert_output --partial 'memory-vault'
+}
+
+@test "vault guard: detects a vault file added and later deleted" {
+  git -C "$WORK" switch -q feature/v1.5
+  mkdir -p "$WORK/.agents/memory/latent"
+  printf 'note\n' > "$WORK/.agents/memory/latent/tmp.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore(memory): add a note"
+  git -C "$WORK" rm -q .agents/memory/latent/tmp.md
+  git -C "$WORK" commit -qm "chore(memory): drop the note"
+
+  run bash -c "cd '$WORK' && source '$MODULE_DIR/tools/git.sh' && _vault_paths origin/main feature/v1.5"
+  assert_success
+  assert_output --partial 'tmp.md'
+}
+
+@test "merge: refuses a local default that is ahead of origin" {
+  git -C "$WORK" switch -q main
+  git -C "$WORK" commit -q --allow-empty -m "chore: unrelated local commit"
+
+  release merge --source feature/v1.5
+
+  assert_failure
+  assert_output --partial 'ahead of origin'
+}
+
+@test "merge: refuses a fixup whose target cannot be autosquashed" {
+  git -C "$WORK" switch -q feature/v1.5
+  git -C "$WORK" commit -q --allow-empty -m "fixup! no such target"
+
+  release merge --source feature/v1.5
+
+  assert_failure
+  assert_output --partial 'unmatched fixup'
+}
+
+@test "vault guard: rejects an absolute devbot directory" {
+  run bash -c "cd '$WORK' && source '$MODULE_DIR/tools/git.sh' && _vault_paths origin/main feature/v1.5 /tmp/state"
+  assert_failure
+  assert_output --partial 'absolute'
+}
+
+@test "vault guard: rejects repeated separators in the devbot directory" {
+  run bash -c "cd '$WORK' && source '$MODULE_DIR/tools/git.sh' && _vault_paths origin/main feature/v1.5 '.dev//state'"
+  assert_failure
+  assert_output --partial 'non-canonical'
+}
+
+@test "vault guard: rejects a non-canonical devbot directory" {
+  run bash -c "cd '$WORK' && source '$MODULE_DIR/tools/git.sh' && _vault_paths origin/main feature/v1.5 'foo/../.agents'"
+  assert_failure
+  assert_output --partial 'non-canonical'
+}
+
+@test "vault guard: normalises a trailing separator in the devbot directory" {
+  git -C "$WORK" switch -q feature/v1.5
+  mkdir -p "$WORK/.dev/memory/latent"
+  printf 'note\n' > "$WORK/.dev/memory/latent/slashed.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore(memory): custom vault capture"
+
+  run bash -c "cd '$WORK' && source '$MODULE_DIR/tools/git.sh' && _vault_paths origin/main feature/v1.5 .dev/"
+  assert_success
+  assert_output --partial '.dev/memory/latent/slashed.md'
+}
+
+@test "merge: fails closed when the effective global config cannot be read" {
+  printf '{ not json\n' > "$SANDBOX/broken-global.jsonc"
+
+  run env DEV_BOT_GLOBAL_CONFIG="$SANDBOX/broken-global.jsonc" \
+    bash -c "cd '$WORK' && bash '$SCRIPT' merge --source feature/v1.5"
+
+  assert_failure
+  assert_output --partial 'refusing to guess'
+}
+
+@test "vault guard: detects a dot-rooted vault" {
+  git -C "$WORK" switch -q feature/v1.5
+  mkdir -p "$WORK/memory/latent"
+  printf 'note\n' > "$WORK/memory/latent/rooted.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore(memory): dot-rooted capture"
+
+  run bash -c "cd '$WORK' && source '$MODULE_DIR/tools/git.sh' && _vault_paths origin/main feature/v1.5 ."
+  assert_success
+  assert_output --partial 'memory/latent/rooted.md'
+}
+
+@test "vault guard: fails closed when the base ref is unavailable" {
+  run bash -c "cd '$WORK' && source '$MODULE_DIR/tools/git.sh' && _vault_paths origin/does-not-exist main"
+  assert_failure
+  assert_output --partial 'is unavailable'
+}
+
+@test "merge: refuses unsquashed fixups stranded on the default branch" {
+  git -C "$WORK" switch -q main
+  printf 'local work\n' >> "$WORK/file.txt"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore: local work"
+  git -C "$WORK" commit -q --allow-empty -m "fixup! chore: local work"
+
+  release merge --source main
+
+  assert_failure
+  assert_output --partial 'unsquashed fixup'
+}
+
+@test "merge: refuses stranded vault commits on the default-branch no-op path" {
+  git -C "$WORK" switch -q main
+  mkdir -p "$WORK/.agents/memory/latent"
+  printf 'note\n' > "$WORK/.agents/memory/latent/stranded.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore(memory): stranded capture"
+
+  release merge --source main
+
+  assert_failure
+  assert_output --partial 'memory-vault'
+}
+
+@test "vault guard: detects an older vault under another state dir" {
+  git -C "$WORK" switch -q feature/v1.5
+  mkdir -p "$WORK/.agents/memory/latent"
+  printf 'note\n' > "$WORK/.agents/memory/latent/old.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore(memory): old vault"
+
+  run bash -c "cd '$WORK' && source '$MODULE_DIR/tools/git.sh' && _vault_paths origin/main feature/v1.5 .dev"
+  assert_success
+  assert_output --partial '.agents/memory/latent/old.md'
+}
+
+@test "merge: resolves a custom vault from the main checkout for a linked worktree" {
+  git -C "$WORK" switch -q main
+  # The project config is gitignored, so it exists only in the main checkout.
+  printf '.devbot.project.jsonc\n' >> "$WORK/.git/info/exclude"
+  printf '{ "devbot_dir": ".dev" }\n' > "$WORK/.devbot.project.jsonc"
+  git -C "$WORK" worktree add -q "$SANDBOX/wt" -b feature/dev feature/v1.5
+  mkdir -p "$SANDBOX/wt/.dev/memory/latent"
+  printf 'note\n' > "$SANDBOX/wt/.dev/memory/latent/custom.md"
+  git -C "$SANDBOX/wt" add -A
+  git -C "$SANDBOX/wt" commit -qm "chore(memory): custom vault"
+
+  release merge --source feature/dev
+
+  assert_failure
+  assert_output --partial 'memory-vault'
+}
+
+@test "vault guard: refuses a devbot directory git must quote" {
+  git -C "$WORK" switch -q feature/v1.5
+  mkdir -p "$WORK/.dev\\bot/memory/latent"
+  printf 'note\n' > "$WORK/.dev\\bot/memory/latent/bs.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore(memory): backslash vault"
+
+  run bash -c "cd '$WORK' && source '$MODULE_DIR/tools/git.sh' && _vault_paths origin/main feature/v1.5 '.dev\\bot'"
+  assert_failure
+  assert_output --partial 'quoted'
+}
+
+@test "vault guard: fails closed on a quoted path" {
+  git -C "$WORK" switch -q feature/v1.5
+  mkdir -p "$WORK/.agents/memory/latent"
+  printf 'x\n' > "$WORK/.agents/memory/latent/note"$'\n'"name.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore: newline path"
+
+  run bash -c "cd '$WORK' && source '$MODULE_DIR/tools/git.sh' && _vault_paths origin/main feature/v1.5"
+  assert_failure
+  assert_output --partial 'quoted'
+}
+
+@test "merge: refuses a source that is behind origin" {
+  git -C "$WORK" switch -q feature/v1.5
+  printf 'extra\n' >> "$WORK/feature.txt"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "extra feature work"
+  git -C "$WORK" push -q origin feature/v1.5
+  git -C "$WORK" reset -q --hard HEAD~1
+
+  release merge --source feature/v1.5
+
+  assert_failure
+  assert_output --partial 'does not match origin'
+}
+
+@test "merge: refuses a dirty source worktree" {
+  git -C "$WORK" worktree add -q "$SANDBOX/wt" -b feature/wt feature/v1.5
+  printf 'uncommitted\n' >> "$SANDBOX/wt/feature.txt"
+
+  release merge --source feature/wt
+
+  assert_failure
+  assert_output --partial 'uncommitted changes'
+}
+
+@test "merge: refuses when the default branch lives in another worktree" {
+  git -C "$WORK" switch -q main
+  git -C "$WORK" worktree add -q "$SANDBOX/wt" -b feature/wt feature/v1.5
+
+  run bash -c "cd '$SANDBOX/wt' && bash '$SCRIPT' merge --source feature/wt"
+
+  assert_failure
+  assert_output --partial 'run this from that checkout'
+}
+
+@test "merge: handles a source worktree path containing a space" {
+  git -C "$WORK" worktree add -q "$SANDBOX/wt with space" -b feature/sp feature/v1.5
+  printf 'more\n' >> "$SANDBOX/wt with space/feature.txt"
+  git -C "$SANDBOX/wt with space" add -A
+  git -C "$SANDBOX/wt with space" commit -qm "more feature work"
+  printf 'fixed\n' >> "$SANDBOX/wt with space/feature.txt"
+  git -C "$SANDBOX/wt with space" add -A
+  git -C "$SANDBOX/wt with space" commit -qm "fixup! more feature work"
+
+  release merge --source feature/sp
+
+  assert_success
+  run git -C "$WORK" log --format=%s main
+  refute_output --partial 'fixup!'
+  assert_output --partial 'more feature work'
+}
+
+@test "merge: squashes a source checked out in another worktree" {
+  git -C "$WORK" worktree add -q "$SANDBOX/wt" -b feature/wt feature/v1.5
+  printf 'more\n' >> "$SANDBOX/wt/feature.txt"
+  git -C "$SANDBOX/wt" add -A
+  git -C "$SANDBOX/wt" commit -qm "more feature work"
+  printf 'fixed\n' >> "$SANDBOX/wt/feature.txt"
+  git -C "$SANDBOX/wt" add -A
+  git -C "$SANDBOX/wt" commit -qm "fixup! more feature work"
+
+  release merge --source feature/wt
+
+  assert_success
+  run git -C "$WORK" log --format=%s main
+  refute_output --partial 'fixup!'
+  assert_output --partial 'more feature work'
+}
+
+@test "merge: squashes the named source even when another branch is checked out" {
+  git -C "$WORK" switch -q feature/v1.5
+  printf 'more\n' >> "$WORK/feature.txt"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "more feature work"
+  printf 'fixed\n' >> "$WORK/feature.txt"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "fixup! more feature work"
+  git -C "$WORK" switch -q main
+
+  release merge --source feature/v1.5
+
+  assert_success
+  run git -C "$WORK" log --format=%s main
+  refute_output --partial 'fixup!'
+  assert_output --partial 'more feature work'
+  assert_equal "$(git -C "$WORK" branch --show-current)" "main"
+}
+
+@test "merge: refuses when the local default carries unpushed vault commits" {
+  git -C "$WORK" switch -q main
+  mkdir -p "$WORK/.agents/memory/latent"
+  printf 'note\n' > "$WORK/.agents/memory/latent/local.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "chore(memory): local capture"
+  local before
+  before="$(git -C "$WORK" rev-parse main)"
+
+  release merge --source feature/v1.5
+
+  assert_failure
+  assert_output --partial 'unpushed memory-vault'
+  assert_equal "$(git -C "$WORK" rev-parse main)" "$before"
+}
+
+@test "merge: ignores a non-vault directory named memory" {
+  git -C "$WORK" switch -q feature/v1.5
+  mkdir -p "$WORK/docs/memory/reference"
+  printf 'guide\n' > "$WORK/docs/memory/reference/guide.md"
+  git -C "$WORK" add -A
+  git -C "$WORK" commit -qm "docs: add a memory guide"
+
+  release merge --source feature/v1.5
+
+  assert_success
+}
+
 @test "merge: reports the fixups it squashed" {
   git -C "$WORK" switch -q feature/v1.5
   printf 'more\n' >> "$WORK/feature.txt"

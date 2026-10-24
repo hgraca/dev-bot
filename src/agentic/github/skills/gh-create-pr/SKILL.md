@@ -104,5 +104,6 @@ skill's job; the loop lives in `devbot:work-autonomously`.
 ## Must not
 
 - Do not open a pull request without showing the plan and getting explicit approval.
-- Do not force-push.
+- Do not force-push — the guards module blocks it. The pre-merge squash is published by the human
+  with `--force-with-lease` (see `devbot:git-fixup-commits`).
 - Do not compose the title or body from the branch name alone — read the commits and the diff.

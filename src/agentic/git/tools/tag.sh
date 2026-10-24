@@ -22,6 +22,14 @@
 set -euo pipefail
 
 _GIT_SH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The skill documents running this tool with DEV_BOT_ROOT unset; derive it from
+# the checkout that holds the script before the shared config helpers use it.
+DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${_GIT_SH_DIR}/../../../.." && pwd)}"
+export DEV_BOT_ROOT
+# Sourced first: the shared helpers define a non-exiting `_fatal`, and git.sh's
+# exiting version must win.
+# shellcheck source=../functions.sh
+source "${_GIT_SH_DIR}/../functions.sh"
 # shellcheck source=./git.sh
 source "${_GIT_SH_DIR}/git.sh"
 
@@ -134,7 +142,11 @@ cmd_plan() {
 # had it — never half-merged, never on the wrong branch.
 _restore_branch() {
   git merge --abort >/dev/null 2>&1 || true
-  git switch --quiet "$1" >/dev/null 2>&1 || true
+  if [[ -n "${2:-}" ]]; then
+    git switch --quiet --detach "$2" >/dev/null 2>&1 || true
+  else
+    git switch --quiet "$1" >/dev/null 2>&1 || true
+  fi
 }
 
 cmd_merge() {
@@ -150,35 +162,219 @@ cmd_merge() {
 
   [[ -z "$(git status --porcelain)" ]] || _fatal "merge: the working tree is not clean"
 
+  git fetch --tags --quiet || _fatal "merge: git fetch failed"
+  # The vault guards compare against origin/<default>; a stale ref would hide a
+  # commit the merge then pulls in.
+  git fetch --quiet origin "${default_branch}" \
+    || _fatal "merge: could not fetch origin/${default_branch} — cannot verify its memory-vault commits"
+  # Pin the exact commit that was checked: a second fetch (`pull`) could bring a
+  # vault commit in after the guard and publish it.
+  local checked_default=""
+  if git rev-parse --verify --quiet "refs/remotes/origin/${default_branch}" >/dev/null; then
+    checked_default="$(git rev-parse "refs/remotes/origin/${default_branch}")"
+  fi
+  [[ -n "${checked_default}" ]] \
+    || _fatal "merge: origin/${default_branch} is unavailable — cannot verify its memory-vault commits"
+
+  local source_wt default_wt current_root
+  source_wt="$(git worktree list --porcelain \
+    | awk -v b="refs/heads/${source}" '$1 == "worktree" { p = substr($0, index($0, " ") + 1) } $1 == "branch" && $2 == b { print p; exit }')"
+  default_wt="$(git worktree list --porcelain \
+    | awk -v b="refs/heads/${default_branch}" '$1 == "worktree" { p = substr($0, index($0, " ") + 1) } $1 == "branch" && $2 == b { print p; exit }')"
+  current_root="$(git rev-parse --show-toplevel)"
+  # The merge has to happen where the default branch lives; a checkout that
+  # holds it elsewhere cannot be switched out from under its worktree.
+  if [[ -n "${default_wt}" && "${default_wt}" != "${current_root}" ]]; then
+    _fatal "merge: ${default_branch} is checked out at '${default_wt}' — run this from that checkout"
+  fi
+
+  local original_branch original_head
+  original_branch="$(git branch --show-current)"
+  original_head="$(git rev-parse HEAD)"
+  # A detached start must be restored to its commit, not to a branch name. The
+  # EXIT trap outlives this frame, so the value lives in a global.
+  DETACHED_HEAD=""
+  [[ -n "${original_branch}" ]] || DETACHED_HEAD="${original_head}"
+  MERGE_SOURCE="${original_branch:-${source}}"
+  trap '_restore_branch "${MERGE_SOURCE}" "${DETACHED_HEAD}"' EXIT
+
+  # The guards and the squash read the source tree: use its worktree when it is
+  # already checked out elsewhere, otherwise switch to it.
+  if [[ -n "${source_wt}" ]]; then
+    source_root="${source_wt}"
+  else
+    git switch --quiet "${source}" \
+      || _fatal "merge: could not check out '${source}'"
+    source_root="$(git rev-parse --show-toplevel)"
+  fi
+
+  # A dirty source worktree would be squashed and merged without its changes.
+  [[ -z "$(git -C "${source_root}" status --porcelain)" ]] \
+    || _fatal "merge: the source worktree '${source_root}' has uncommitted changes"
+
+  # A stale source tip would release a default branch that omits a PR commit.
+  # Query origin directly: a deleted or never-fetched tracking ref must not skip
+  # the check. Exit 2 is a confirmed absence; anything else is a query error.
+  local source_head="" remote_source="" ls_rc=0
+  if [[ "${source}" != "${default_branch}" ]]; then
+    git ls-remote --exit-code --heads origin "${source}" >/dev/null 2>&1 || ls_rc=$?
+    if [[ "${ls_rc}" -eq 0 ]]; then
+      git fetch --quiet origin "${source}" \
+        || _fatal "merge: could not fetch origin/${source}"
+      source_head="$(git -C "${source_root}" rev-parse HEAD)"
+      remote_source="$(git rev-parse "refs/remotes/origin/${source}")" \
+        || _fatal "merge: cannot resolve origin/${source} after fetching it"
+      [[ "${source_head}" == "${remote_source}" ]] \
+        || _fatal "merge: local '${source}' does not match origin/${source}; reconcile before releasing"
+    elif [[ "${ls_rc}" -ne 2 ]]; then
+      _fatal "merge: cannot query origin for '${source}' — refusing to guess its head"
+    fi
+  fi
+
+  # `.devbot.project.jsonc` is gitignored and absent from a linked worktree, so
+  # a custom devbot_dir there lives in the main checkout. Prefer a source-tree
+  # config when present (a tracked one), else the main checkout's copy.
+  local config_root="${source_root}" main_root
+  if [[ ! -f "${config_root}/.devbot.project.jsonc" ]]; then
+    main_root="$(git worktree list --porcelain \
+      | awk 'NR == 1 && $1 == "worktree" { print substr($0, index($0, " ") + 1); exit }')"
+    if [[ -n "${main_root}" && -f "${main_root}/.devbot.project.jsonc" ]]; then
+      config_root="${main_root}"
+    fi
+  fi
+
+  local vet_root devbot_dir project_config global_config vault_base vault_paths
+  vet_root="${config_root}"
+  project_config="${vet_root}/.devbot.project.jsonc"
+  global_config="$(_devbot_global_config 2>/dev/null || true)"
+  # The resolver falls back to `.agents` when it cannot read a config, which
+  # would make a custom vault invisible to this guard — so an unreadable config
+  # is fatal rather than a silent default. Validate only the file that actually
+  # supplies devbot_dir: an irrelevant malformed fallback must not block a
+  # release whose project config already pins the vault.
+  local project_dir_value="" project_pins_dir=0
+  if [[ -f "${project_config}" ]]; then
+    project_dir_value="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${project_config}" devbot_dir)" \
+      || _fatal "merge: cannot read '${project_config}' — refusing to guess the vault path"
+    [[ -z "${project_dir_value}" ]] || project_pins_dir=1
+  fi
+  if [[ "${project_pins_dir}" -eq 0 && -n "${global_config}" && -f "${global_config}" ]] \
+    && ! python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${global_config}" devbot_dir >/dev/null 2>&1; then
+    _fatal "merge: cannot read '${global_config}' — refusing to guess the vault path"
+  fi
+  if ! devbot_dir="$(_devbot_get_project_dir "${vet_root}")"; then
+    _fatal "merge: cannot resolve the devbot directory for '${vet_root}' — refusing to guess the vault path"
+  fi
+  # A readable but non-string value (`[]`, `{}`, `null`, a number, a boolean)
+  # would build a bogus prefix while a real vault commit slips past.
+  case "${devbot_dir}" in
+    "" | \[* | \{* | null | None | true | false)
+      _fatal "merge: the devbot directory resolved to a non-string ('${devbot_dir}') — refusing to guess the vault path" ;;
+  esac
+  case "${devbot_dir}" in
+    *[!0-9]*) : ;;  # contains something other than digits: a plausible path
+    *) _fatal "merge: the devbot directory resolved to a bare number ('${devbot_dir}') — refusing to guess the vault path" ;;
+  esac
+  vault_base="${checked_default}"
+  if ! vault_paths="$(_vault_paths "${vault_base}" "${source}" "${devbot_dir}")"; then
+    _fatal "merge: cannot verify memory-vault commits — base '${vault_base}' is unavailable; publish ${default_branch} first"
+  fi
+  if [[ -n "${vault_paths}" ]]; then
+    _fatal "merge: '${source}' carries memory-vault commits; move them to the local default branch, or merge them deliberately:
+$(printf '%s\n' "${vault_paths}" | head -5)"
+  fi
+
+  # The local default is outside the merge range, but `release push` publishes
+  # it — an unpushed vault commit there would ride out with the release. This
+  # runs before the same-branch no-op return, which is exactly that case.
+  local default_vault_paths=""
+  if git rev-parse --verify --quiet "refs/heads/${default_branch}" >/dev/null; then
+    if ! default_vault_paths="$(_vault_paths "${vault_base}" "${default_branch}" "${devbot_dir}")"; then
+      _fatal "merge: cannot verify memory-vault commits — base '${vault_base}' is unavailable; publish ${default_branch} first"
+    fi
+    if [[ -n "${default_vault_paths}" ]]; then
+      _fatal "merge: the local ${default_branch} carries unpushed memory-vault commits; move or publish them before releasing:
+$(printf '%s\n' "${default_vault_paths}" | head -5)"
+    fi
+
+    # A fixup already on the local default is outside `_squash_fixups`, which
+    # the same-branch no-op return skips — the release push would publish it.
+    local local_fixups
+    local_fixups="$(_fixup_subjects "${vault_base}" "${default_branch}")"
+    if [[ -n "${local_fixups}" ]]; then
+      _fatal "merge: the local ${default_branch} carries unsquashed fixup commits; fold them before releasing:
+$(printf '%s\n' "${local_fixups}" | head -5)"
+    fi
+
+    # Any local commit ahead of the checked remote is published by the merge
+    # that follows (and by the release push), whether or not it touches a vault.
+    local local_ahead
+    local_ahead="$(git rev-list --count "${vault_base}..${default_branch}")"
+    if [[ "${local_ahead}" -gt 0 ]]; then
+      _fatal "merge: the local ${default_branch} is ${local_ahead} commit(s) ahead of origin/${default_branch}; reconcile it before releasing"
+    fi
+  fi
+
   if [[ "${source}" == "${default_branch}" ]]; then
+    # Behind, not ahead (the ahead case is rejected above): the next `tag` would
+    # otherwise tag a stale local tip instead of the fetched release.
+    git merge --ff-only --quiet "${checked_default}" >/dev/null 2>&1 \
+      || _fatal "merge: the local ${default_branch} cannot fast-forward to origin/${default_branch}"
     printf 'already on %s — nothing to merge\n' "${default_branch}"
     return 0
   fi
 
-  MERGE_SOURCE="${source}"
-  trap '_restore_branch "$MERGE_SOURCE"' EXIT
+  # A vault-shaped path under another dot-rooted state dir is caught by
+  # `_vault_paths`; a tracked project-config change is reported here.
+  local config_changed
+  if ! config_changed="$(git log --format= --name-only "${checked_default}..${source}" 2>/dev/null \
+    | awk '$0 == ".devbot.project.jsonc" { found=1 } END { print found ? 1 : 0 }')"; then
+    config_changed=1
+  fi
+  [[ "${config_changed}" == "0" ]] \
+    || _fatal "merge: the release range changes .devbot.project.jsonc — resolve the vault path for each change first"
 
-  git fetch --tags --quiet || _fatal "merge: git fetch failed"
+  # Squash against the commit the guards verified, not a ref that may have moved.
+  if [[ -n "${source_wt}" ]]; then
+    ( cd "${source_wt}" && _squash_fixups "${source}" "${default_branch}" "${checked_default}" ) \
+      || _fatal "merge: could not squash '${source}' in its worktree"
+  else
+    _squash_fixups "${source}" "${default_branch}" "${checked_default}"
+  fi
 
-  _squash_fixups "${source}" "${default_branch}"
+  # The PR branch must not move while we rewrite: re-verify the pinned head.
+  if [[ -n "${remote_source}" ]]; then
+    git fetch --quiet origin "${source}" \
+      || _fatal "merge: could not re-fetch origin/${source}"
+    [[ "$(git rev-parse "refs/remotes/origin/${source}")" == "${source_head}" ]] \
+      || _fatal "merge: origin/${source} moved during the squash; reconcile and retry"
+  fi
+
+  # Pin the rewritten source too: another worktree could commit there while we
+  # merge. Merge the exact commit that was scanned, not the movable branch ref.
+  local squashed_sha
+  squashed_sha="$(git -C "${source_root}" rev-parse HEAD)"
 
   # When the local default branch does not exist yet, this creates it. If the
-  # pull or the merge then fails, the trap restores the source branch but that
-  # new branch stays behind, sitting at the same commit as origin/<default> —
-  # harmless, and deliberately not deleted: removing a branch is a more
-  # destructive act than the residue it would clean up.
+  # merge fails, the trap restores the branch you started on but that new branch
+  # stays behind, sitting at the same commit as origin/<default> — harmless, and
+  # deliberately not deleted: removing a branch is a more destructive act than
+  # the residue it would clean up.
   git switch --quiet "${default_branch}" 2>/dev/null \
     || git switch --quiet -c "${default_branch}" "origin/${default_branch}" \
     || _fatal "merge: could not switch to '${default_branch}'"
 
-  if git rev-parse --verify --quiet "refs/remotes/origin/${default_branch}" >/dev/null; then
-    git pull --ff-only --quiet origin "${default_branch}" \
-      || _fatal "merge: could not fast-forward '${default_branch}' from origin"
+  if [[ -n "${checked_default}" ]]; then
+    git merge --ff-only --quiet "${checked_default}" \
+      || _fatal "merge: could not fast-forward '${default_branch}' to the checked remote commit"
   else
     _warn "origin/${default_branch} is not present — merging into the local branch as-is"
   fi
 
-  if ! git merge --no-edit "${source}" >/dev/null; then
+  [[ "$(git rev-parse "refs/heads/${source}")" == "${squashed_sha}" ]] \
+    || _fatal "merge: '${source}' moved during the release; reconcile and retry"
+
+  if ! git merge --no-edit "${squashed_sha}" >/dev/null; then
     _error "merge of '${source}' into '${default_branch}' failed — conflicting paths:"
     git --no-pager diff --name-only --diff-filter=U >&2 || true
     trap - EXIT

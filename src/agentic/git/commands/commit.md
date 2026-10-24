@@ -3,8 +3,9 @@ name: devbot:commit
 description: Commit the current changeset
 ---
 
-Commit your changes in atomic commits, use fixup commits when you want to amend commits not yet in another branch,
-and the conventional commits style.
+Commit your changes in atomic commits, and use the conventional commits style. A correction to a
+commit unique to the current branch — including one already pushed on a branch with an open pull
+request — is a fixup against that commit, not a new `fix(...)` commit (`devbot:git-fixup-commits`).
 
 Commit where the project's workflow puts the work. Resolve it with
 `bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" enabled` — never read the config keys

@@ -138,20 +138,110 @@ _fixup_count() {
   fi
 }
 
+# Paths under the project's memory vault in <base>..<source> — precisely
+# `<devbot_dir>/memory/`, so an unrelated `docs/memory/reference/` never
+# matches. A vault commit is an ordinary commit, so the subject grep above
+# cannot see it; this is the only check that catches one before a merge
+# publishes it to the default branch.
+_vault_paths() {
+  local base="$1" source="$2" devbot_dir="${3:-.agents}"
+  # Fail closed: an unresolvable base means the range proves nothing, and
+  # treating it as empty would let a vault commit through.
+  if ! git rev-parse --verify --quiet "${base}^{commit}" >/dev/null; then
+    echo "vault guard: base ref '${base}' is unavailable" >&2
+    return 2
+  fi
+  # `.` is a valid devbot_dir: git then emits `memory/...`, not `./memory/...`.
+  # An absolute value is rejected before trimming, so `/` cannot become the
+  # repo-root vault while the resolver places it at `/memory`.
+  if [[ "${devbot_dir}" == /* ]]; then
+    echo "vault guard: absolute devbot_dir '${devbot_dir}'" >&2
+    return 2
+  fi
+  case "${devbot_dir}" in
+    . | ./) devbot_dir="" ;;
+    ./*) devbot_dir="${devbot_dir#./}" ;;
+  esac
+  # A trailing separator is valid config (`.dev/`) but would build `.dev//memory/`.
+  while [[ "${devbot_dir}" == */ ]]; do devbot_dir="${devbot_dir%/}"; done
+  # Interior `.`/`..` or a doubled separator cannot be matched against git's
+  # canonical paths; fail closed rather than search for a path git never prints.
+  if [[ "${devbot_dir}" == *"//"* || "/${devbot_dir}/" == *"/./"* || "/${devbot_dir}/" == *"/../"* ]]; then
+    echo "vault guard: non-canonical devbot_dir '${devbot_dir}'" >&2
+    return 2
+  fi
+  local prefix="memory/"
+  [[ -z "${devbot_dir}" ]] || prefix="${devbot_dir}/memory/"
+  # Commit-level path history: a net tree diff misses a vault file added then
+  # deleted in a later commit. Merge commits contribute only their conflict
+  # resolutions (`--cc`), never the default-branch changes they bring along.
+  # Every read is status-checked: an unreadable object must not look clean.
+  local paths merges merge
+  if ! paths="$(git -c core.quotePath=false log --format= --name-only "${base}..${source}")"; then
+    echo "vault guard: cannot read '${base}..${source}'" >&2
+    return 2
+  fi
+  if ! merges="$(git log --merges --format='%H' "${base}..${source}")"; then
+    echo "vault guard: cannot read merges in '${base}..${source}'" >&2
+    return 2
+  fi
+  # Git C-quotes paths with control characters (a newline in a name), so the
+  # prefix test cannot see them; refuse rather than report the range as clean.
+  if printf '%s\n' "${paths}" | grep '^"' >/dev/null; then
+    echo "vault guard: git quoted a path in '${base}..${source}' — refusing to guess" >&2
+    return 2
+  fi
+  while IFS= read -r merge; do
+    [[ -n "${merge}" ]] || continue
+    if ! paths="${paths}
+$(git -c core.quotePath=false show --cc --name-only --format= "${merge}")"; then
+      echo "vault guard: cannot read merge '${merge}'" >&2
+      return 2
+    fi
+  done <<< "${merges}"
+  if printf '%s\n' "${paths}" | grep '^"' >/dev/null; then
+    echo "vault guard: git quoted a path in a merge of '${base}..${source}' — refusing to guess" >&2
+    return 2
+  fi
+  # An awk failure must not look like a clean range: print the matches and let
+  # this pipeline's status reach the caller, which treats non-zero as fatal.
+  # ENVIRON, not -v: `-v` would interpret backslash escapes in the prefix.
+  # Also match any dot-rooted state dir: an older `<dir>/memory` commit from a
+  # previous devbot_dir setting must not slip past the currently configured one.
+  printf '%s\n' "${paths}" \
+    | VAULT_PREFIX="${prefix}" awk '
+        index($0, ENVIRON["VAULT_PREFIX"]) == 1 { print; next }
+        $0 ~ /^\.[^\/]+(\/[^\/]+)*\/memory\/(active|latent|thinking|work|reference)\// { print }
+      '
+}
+
 # Folds every fixup/squash/amend! commit not yet on the default branch into its
 # target, so a release tag never freezes a commit that only ever corrected an
 # earlier one. No fixups means no rebase — the branch's commit ids survive.
 # On failure the rebase is aborted and the branch is left as it was.
 _squash_fixups() {
-  local source="$1" default_branch="$2" base count
-  base="$(_default_base_ref "${default_branch}")"
+  local source="$1" default_branch="$2" base="${3:-}" count pre_sha
+  [[ -n "${base}" ]] || base="$(_default_base_ref "${default_branch}")"
   count="$(_fixup_count "${base}" "${source}")"
   [[ "${count}" -gt 0 ]] || return 0
 
+  pre_sha="$(git rev-parse "${source}")"
   if ! GIT_SEQUENCE_EDITOR=: git rebase --quiet --interactive --autosquash "${base}" >/dev/null; then
     git rebase --abort >/dev/null 2>&1 || true
     _fatal "merge: could not squash the fixup commits on '${source}'"
   fi
+
+  # Autosquash leaves a fixup whose target subject does not match as a normal
+  # commit; a successful rebase is not proof that none remain. Put the branch
+  # back before failing so a refused merge leaves no rewritten history behind.
+  local remaining
+  remaining="$(_fixup_subjects "${base}" "${source}")"
+  if [[ -n "${remaining}" ]]; then
+    git reset --hard "${pre_sha}" >/dev/null 2>&1 || true
+    _fatal "merge: autosquash left unmatched fixup commits on '${source}':
+$(printf '%s\n' "${remaining}" | head -5)"
+  fi
+
   printf 'squashed %s fixup commit(s) on %s\n' "${count}" "${source}"
 }
 

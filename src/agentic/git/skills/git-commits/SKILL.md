@@ -86,12 +86,21 @@ git log --oneline @{upstream}..HEAD   # the range that is yours alone
 ```
 
 If the commit is on a remote, rewriting forces every collaborator to reset or force-pull. Get
-explicit approval, and on a protected or shared branch prefer a normal follow-up commit.
+explicit approval. When the target commit is already reachable from the default branch — or from
+another branch or repository — prefer a normal follow-up commit: that is the shared history this rule
+protects.
+
+Creating a fixup commit is **not** rewriting — it only adds a commit, so it is safe on a pushed
+feature branch and needs no approval, including a branch with an open pull request. The rewrite is
+the squash that folds it in; on a pull-request branch that squash is the expected pre-merge step, and
+the human publishes it with `git push --force-with-lease` — the guards module blocks force-pushes for
+the agent (see `devbot:git-fixup-commits`).
 
 ## Committing from a worktree (MUST)
 
 When the project follows the `worktrees` workflow (the default), commit from a linked git
-worktree, never from the main checkout. Before the first edit, confirm the workflow is in use —
+worktree, never from the main checkout — except the finish flow's memory commits, which are normal
+commits made on the main checkout's local default branch (`devbot:remember-session`). Before the first edit, confirm the workflow is in use —
 `worktree.sh enabled` — in a `supervisor: true` session pass `--project <owner>` after resolving the
 owner, since the tool refuses a supervisor root — exits `1` when the project follows another workflow
 (e.g. `"workflow": "trunk"`), in which case commit where that workflow directs: the **owning project's** main

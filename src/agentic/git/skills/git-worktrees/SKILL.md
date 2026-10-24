@@ -6,7 +6,8 @@ description: "Under the `worktrees` workflow (the default): use when you are abo
 # Git Worktrees
 
 Under the `worktrees` workflow every commit is made from a **linked worktree**, never from the main
-checkout. This keeps the
+checkout — except the finish flow's memory commits, which are normal commits on the main checkout's
+local default branch (`devbot:remember-session`). This keeps the
 main checkout's checked-out branch untouched, and gives each task an isolated branch cut from the
 **remote** default branch. This is the `worktrees` workflow, the default; a project selects
 another workflow with the `workflow` key (see [Opting out](#opting-out)).
@@ -133,6 +134,41 @@ Then open the PR against `<default>` with `devbot:gh-create-pr`. `push` only pus
 branch to `origin` and sets its upstream; it does not touch the main checkout, so the whole flow is
 independent of the local situation.
 
+### Squash fixups before merge
+
+Corrections made while the pull request is open are fixups against the branch's own commits. They
+must not reach the default branch, so squash them just before merge — after showing the plan and
+getting approval:
+
+```bash
+# Remember the remote head before refreshing: a fetch hides a force-reset or deletion.
+before=""
+git -C <worktree> rev-parse --verify --quiet origin/<branch> >/dev/null \
+  && before="$(git -C <worktree> rev-parse origin/<branch>)"
+git -C <worktree> fetch --all --prune
+after="$(git -C <worktree> rev-parse --verify --quiet origin/<branch> 2>/dev/null || true)"
+[ "$before" = "$after" ] || { echo "origin/<branch> changed — reconcile before squashing"; exit 1; }
+if [ -n "$after" ]; then
+  [ "$(git -C <worktree> rev-list --count HEAD..origin/<branch>)" -eq 0 ] \
+    || { echo "origin/<branch> is ahead — reconcile before squashing"; exit 1; }
+fi
+expected_sha="$after"                            # the lease the handoff uses
+GIT_SEQUENCE_EDITOR=: git -C <worktree> rebase -i --autosquash origin/<default>
+# hand this to the human — the agent cannot force-push
+git -C <worktree> push --force-with-lease=refs/heads/<branch>:<expected-sha> origin <branch>
+```
+
+On a branch that has never been pushed there is no lease: the human publishes it with an ordinary
+`git -C <worktree> push -u origin <branch>` after the squash. A checkout behind `origin/<branch>`
+stops before the lease is captured — another checkout pushed commits this one never incorporated.
+
+Base on **`origin/<default>`, never the local default**: local may hold unpushed memory commits, and
+rebasing onto it would make them ancestors and publish them. `GIT_SEQUENCE_EDITOR=:` applies the plan
+you showed non-interactively; agents have no editor to drive it. Do **not** fetch `<branch>` before
+the push — that would adopt a colleague's new tip as the lease and overwrite it; fetch only
+`<default>`. The agent prepares the push and hands it over — the guards module denies force-push. See
+steps 5–7 of `devbot:git-fixup-commits`.
+
 **Keep the worktree while the pull request is open.** Review feedback is fixed in it, on the same
 branch — removing it early strands the follow-up work. Remove it only once the user states the work
 is finished:
@@ -143,9 +179,16 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" remove <branch>  # remove
 
 `remove` refuses a worktree with uncommitted changes.
 
-The primary agent's finish flow (`devbot:remember-session`) writes memories; commit them on the
-**main checkout's local default branch** — that is where the finish flow runs, and committing
-them there directly means only the work commits travel on the worktree branch.
+The primary agent's finish flow (`devbot:remember-session`) writes memories; commit them as
+**normal commits** (never fixups) on the **main checkout's local default branch** — that is where the
+finish flow runs, and keeping them off the worktree branch leaves the PR with only the work commits.
+If the main checkout is on any other branch, do not commit: leave the files uncommitted and surface
+them, rather than putting vault commits on that branch.
+
+They are the human's to manage. `create` bases new branches on `origin/<default>`, so memory commits
+sitting on the local default do not ride along automatically: when you find them, say so and name
+them, then let the user decide how they reach origin. Do not reset, rebase, or push them, and do not
+widen a new worktree's base to carry them on your own.
 
 ### Drop the worktree's databases
 

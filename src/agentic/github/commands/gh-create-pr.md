@@ -42,4 +42,5 @@ If no branch is given, use the current branch.
 ## Must not
 
 - Do not create the PR before the user approves the plan.
-- Do not force-push.
+- Do not force-push — it is blocked, and the pre-merge squash is published by the human
+  (`devbot:git-fixup-commits`).

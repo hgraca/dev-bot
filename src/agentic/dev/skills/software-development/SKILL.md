@@ -190,7 +190,9 @@ docs answer for the wrong major version is worse than no answer.
 
 Commit after every completed, verifiable unit of work. Never push the default branch; push a task
 branch only where the selected workflow directs (see [Workflows](#workflows)), and the human decides
-when.
+when — the guards module blocks force-pushes for the agent. After a pre-merge squash of a
+pull-request branch, hand the human the exact `git push --force-with-lease` command to run (see
+`devbot:git-fixup-commits`).
 
 Before committing, run the following **in parallel**; all of them must pass before the commit is made:
 

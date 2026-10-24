@@ -69,6 +69,10 @@ git commit -m "fix: correct null check in validator"
 
 The `git diff --cached` step is what keeps commits atomic. Skipping it is how unrelated changes leak in.
 
+A `fix:` commit corrects behaviour that is already on the default branch. A correction to code an
+earlier commit unique to _this_ branch introduced is a fixup against that commit, not a new `fix(...)`
+commit — including when the branch already has an open pull request. See `devbot:git-fixup-commits`.
+
 ### 4. Verify and push
 
 ```bash
