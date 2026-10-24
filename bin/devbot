@@ -52,6 +52,8 @@ cmd_help() {
   echo "  down         Stop docker services (docker compose down)"
   echo "  prune [days] [--all|-a]  Prune old opencode sessions (default: 30 days)"
   echo "  stats [--days=N] [--all|-a] [--harness=H]  Tool + MCP usage report (default: 30 days)"
+  echo "  datasources  Datasource gateway maintenance"
+  echo "             reload            Re-render the catalogue, start what is reachable, verify it"
   echo "  models     Manage LLM models via Ollama"
   echo "             pull <model>     Pull a model from registry"
   echo "             list-local        List locally available models"
@@ -142,6 +144,37 @@ cmd_models() {
     *)
       echo "Unknown models subcommand: ${action}"
       echo "Run 'devbot models help' for available subcommands."
+      exit 1
+      ;;
+  esac
+}
+
+# Datasource gateway maintenance. `reload` re-renders the catalogue against the
+# network as it is now, starts what is newly reachable, and verifies the
+# gateway serves it — the recovery path for a source that was unreachable when
+# `devbot up` rendered (a database behind a VPN that was down). Without it the
+# only re-evaluation is a full restart, and the harness keeps a manifest the
+# gateway cannot serve.
+cmd_datasources() {
+  local action="${1:-help}"
+
+  case "${action}" in
+    reload)
+      if [[ ! -f "${DEV_BOT_ROOT}/src/agentic/datasources/reload.sh" ]]; then
+        _error "datasources reload not found — is the datasources module installed?"
+        exit 1
+      fi
+      exec bash "${DEV_BOT_ROOT}/src/agentic/datasources/reload.sh" "$(pwd)"
+      ;;
+    help|--help|-h)
+      echo "Usage: devbot datasources <subcommand>"
+      echo ""
+      echo "Subcommands:"
+      echo "  reload             Re-evaluate the catalogue and hot-reload a running gateway"
+      ;;
+    *)
+      _error "Unknown datasources subcommand: '${action}'"
+      echo "Run 'devbot datasources help' for available subcommands." >&2
       exit 1
       ;;
   esac
@@ -607,6 +640,10 @@ main() {
     update)
       shift
       cmd_update "$@"
+      ;;
+    datasources)
+      shift
+      cmd_datasources "$@"
       ;;
     models)
       shift

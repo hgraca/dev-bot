@@ -277,6 +277,25 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn("kind:", out)
 
+    def test_toolbox_names_flag_omits_sidecars(self):
+        # Sidecars are their own MCP servers and never reach tools.yaml, so a
+        # caller counting what the gateway serves must not count them — they
+        # would read as dropped sources on every boot.
+        proc = subprocess.run(
+            [sys.executable, RENDERER, "--toolbox-names"],
+            input=json.dumps(
+                {
+                    "hotels": {"type": "mysql", "env": {}},
+                    "search": {"type": "opensearch", "env": {}},
+                }
+            ),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(proc.stdout.split(), ["hotels"])
+
     def test_env_names_flag_prints_a_json_array(self):
         # Consumed by the compose renderer via the shell.
         proc = subprocess.run(

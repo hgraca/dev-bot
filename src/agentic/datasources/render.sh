@@ -107,6 +107,22 @@ _reload_rejected() {
     grep -q 'unable to initialize source'
 }
 
+# Point at the recovery path when a declared source was dropped. The manifest
+# for a selected source exists whatever this render decided, so the user's next
+# step would otherwise be turning it on and watching it fail: only a restart
+# re-renders, unless they know about `reload`.
+_warn_unusable() {
+  # reload.sh reports the same fact precisely (which names, and why) — the hint
+  # would be circular advice inside it.
+  if [[ "${DATASOURCES_SUPPRESS_RELOAD_HINT:-0}" == "1" ]]; then
+    return 0
+  fi
+  local declared="$1" available="$2" unusable
+  unusable=$(( declared - available ))
+  [[ ${unusable} -gt 0 ]] || return 0
+  _warn "datasources — ${unusable} of ${declared} declared datasource(s) unusable now; run 'devbot datasources reload' once they are reachable or configured"
+}
+
 main() {
   mkdir -p "${RUNTIME_DIR}"
   mkdir -p "${CONF_DIR}"
@@ -114,6 +130,19 @@ main() {
   # One render at a time: `devbot up`, install and update can each render, and
   # they must not interleave publishes or the rollback backup. The lock is held
   # for this shell's lifetime. A cap of 0 means fail fast, not wait.
+  # Rendering WRITES the artifacts every lifecycle run starts and probes against,
+  # so a render by install/update/direct invocation must not land in the middle
+  # of a reload either. Taken BEFORE the render lock, matching reload.sh's order
+  # (it holds the lifecycle lock and then renders): the reverse order deadlocks
+  # when a standalone render and a reload meet. The caller that already holds it
+  # (up.sh, reload.sh) says so, because re-taking it here would deadlock.
+  if [[ "${DATASOURCES_LIFECYCLE_HELD:-0}" != "1" ]]; then
+    if ! _datasources_lock; then
+      _error "datasources — another lifecycle run is in progress; skipping this render"
+      return 1
+    fi
+  fi
+
   if ! _devbot_lock_wait "${RUNTIME_DIR}/render.lock" "${DATASOURCES_RENDER_LOCK_WAIT:-60}"; then
     _error "datasources — another render is in progress; skipping this one"
     return 1
@@ -205,15 +234,20 @@ main() {
   # An INCONCLUSIVE validation (docker down, or a canary that never became
   # ready) is a different thing and never reaches here: the validator exits
   # non-zero, `pipefail` fails the pipeline, and nothing is published.
-  local declared available
+  local declared available toolbox_names
+  # Count TOOLBOX sources on both sides of the ratio. A sidecar never appears in
+  # tools.yaml — it is its own server — so counting the raw catalogue would
+  # report every healthy sidecar as a dropped source on every boot.
   # A parse failure here must abort, not default to a datasource count.
-  if ! declared="$(printf '%s' "${catalogue}" | python3 -c \
-    'import json, sys; print(len(json.load(sys.stdin)))' 2>/dev/null)"; then
+  if ! toolbox_names="$(printf '%s' "${catalogue}" |
+    python3 "${MODULE_DIR}/render_tools_yaml.py" --toolbox-names 2>/dev/null)"; then
     rm -f "${CONF_DIR}/tools.yaml.tmp" "${RUNTIME_DIR}/docker-compose.yml.tmp"
     _error "datasources — could not count the declared datasources; keeping the last good config"
     return 1
   fi
+  declared="$(printf '%s' "${toolbox_names}" | wc -w | tr -d '[:space:]')"
   available="$(grep -c '^kind: source' "${CONF_DIR}/tools.yaml.tmp" || true)"
+  _warn_unusable "${declared}" "${available}"
 
   # Nothing changed: skipping the publish also skips the reload — and the
   # verification wait — it would trigger.

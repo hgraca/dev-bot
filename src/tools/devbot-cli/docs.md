@@ -224,6 +224,14 @@ To add an adapter for a new harness:
 4. Keep presentation out of the adapter — the parent renders the Markdown.
 5. Add BATS tests under `src/harnesses/<name>/tests/` using fixtures; never point tests at real user data.
 
+### `devbot datasources <subcommand>`
+
+| Subcommand | Description                                                         |
+| ---------- | ------------------------------------------------------------------- |
+| `reload`   | Re-render the datasource catalogue and verify the gateway serves it |
+
+`reload` re-evaluates the datasources against the network **as it is now**. The catalogue is otherwise evaluated once, at `devbot up`: a database behind a VPN that was down at boot is dropped from the gateway config while its harness manifest stays registered, so enabling it fails until a restart. `reload` re-renders, hands the config to a running gateway (toolbox reloads on its own poll), starts a gateway or sidecar a boot never started, and confirms every published — and every selected — source answers a `tools/list` request. It is explicit: nothing re-evaluates in the background. See [Datasources](/modules/agentic/datasources).
+
 ### `devbot models <subcommand>`
 
 Manage LLM models via Ollama:

@@ -182,6 +182,116 @@ SH
   export PATH="${SANDBOX_DIR}/runbin:${PATH}"
 }
 
+# A docker stub whose `inspect` reports the gateway as RUNNING, so the reload
+# sees a container it must not restart. `logs` stays silent: no reload
+# rejection to find.
+_docker_with_running_gateway() {
+  DOCKER_LOG="${SANDBOX_DIR}/docker-calls.log"
+  mkdir -p "${SANDBOX_DIR}/upbin"
+  cat > "${SANDBOX_DIR}/upbin/docker" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${DOCKER_LOG}"
+case "\$1" in
+  inspect) echo true ;;
+esac
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/upbin/docker"
+  export PATH="${SANDBOX_DIR}/upbin:${PATH}"
+}
+
+# A curl stub that answers a `tools/list` probe the way a SERVING toolset does:
+# a result carrying the tool declared for that source. The source name is read
+# from the URL, so the stub also proves the probe targets the right endpoint.
+# Records the argv it was handed — the URL is part of the contract.
+_record_curl() {
+  CURL_LOG="${SANDBOX_DIR}/curl-calls.log"
+  mkdir -p "${SANDBOX_DIR}/curlbin"
+  cat > "${SANDBOX_DIR}/curlbin/curl" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${CURL_LOG}"
+url=""
+for arg in "\$@"; do
+  case "\$arg" in */mcp/*) url="\$arg" ;; esac
+done
+printf '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"%s_execute_sql"}]}}\n' "\${url##*/}"
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/curlbin/curl"
+  export PATH="${SANDBOX_DIR}/curlbin:${PATH}"
+}
+
+# A curl stub that answers the way toolbox does for a toolset it never loaded:
+# HTTP 200 with a JSON-RPC error body. Status alone would read as success.
+_record_missing_toolset_curl() {
+  CURL_LOG="${SANDBOX_DIR}/curl-calls.log"
+  mkdir -p "${SANDBOX_DIR}/curlbin"
+  cat > "${SANDBOX_DIR}/curlbin/curl" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${CURL_LOG}"
+printf '{"jsonrpc":"2.0","id":2,"error":{"code":-32600,"message":"toolset does not exist"}}\n'
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/curlbin/curl"
+  export PATH="${SANDBOX_DIR}/curlbin:${PATH}"
+}
+
+# A curl stub standing in for a STATEFUL MCP server: it issues a session id on
+# initialize and rejects a tools/list that does not carry it. Toolbox 1.11.0 is
+# stateless, but a sidecar built on the stateful transport is not — a bare
+# tools/list would read as "not serving" for a perfectly healthy server.
+_record_stateful_curl() {
+  CURL_LOG="${SANDBOX_DIR}/curl-calls.log"
+  mkdir -p "${SANDBOX_DIR}/statefulbin"
+  cat > "${SANDBOX_DIR}/statefulbin/curl" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${CURL_LOG}"
+case "\$*" in
+  *tools/list*)
+    if printf '%s' "\$*" | grep -qi 'mcp-session-id: s-42'; then
+      printf '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"scratch_execute_sql"}]}}\n'
+    else
+      printf '{"jsonrpc":"2.0","id":2,"error":{"code":-32600,"message":"missing session"}}\n'
+    fi
+    ;;
+  *)
+    printf 'HTTP/1.1 200 OK\r\nMcp-Session-Id: s-42\r\nContent-Type: application/json\r\n\r\n{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}\n'
+    ;;
+esac
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/statefulbin/curl"
+  export PATH="${SANDBOX_DIR}/statefulbin:${PATH}"
+}
+
+# A curl stub for a fully compliant stateful server: it issues a session id,
+# refuses tools/list until `notifications/initialized` arrives on that session,
+# and records the DELETE that closes it.
+_record_compliant_stateful_curl() {
+  CURL_LOG="${SANDBOX_DIR}/curl-calls.log"
+  STATE="${SANDBOX_DIR}/curl-initialized"
+  mkdir -p "${SANDBOX_DIR}/compliantbin"
+  cat > "${SANDBOX_DIR}/compliantbin/curl" <<SH
+#!/usr/bin/env bash
+printf '%s\\n' "\$*" >> "${CURL_LOG}"
+case "\$*" in
+  *notifications/initialized*) : > "${STATE}"; printf '{}\n' ;;
+  *tools/list*)
+    if [[ -f "${STATE}" ]]; then
+      printf '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"scratch_execute_sql"}]}}\n'
+    else
+      printf '{"jsonrpc":"2.0","id":2,"error":{"code":-32600,"message":"not initialized"}}\n'
+    fi
+    ;;
+  *DELETE*) printf '{}\n' ;;
+  *) printf 'HTTP/1.1 200 OK\r\nMcp-Session-Id: s-7\r\nContent-Type: application/json\r\n\r\n{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05"}}\n' ;;
+esac
+exit 0
+SH
+  chmod +x "${SANDBOX_DIR}/compliantbin/curl"
+  export PATH="${SANDBOX_DIR}/compliantbin:${PATH}"
+}
+
 # ── install.sh never pulls the toolbox image ─────────────────────────────────
 # install runs with `--all`, so a pull here downloads the gateway image for a
 # machine that may never enable it. docker compose pulls it on first `up`, and
@@ -287,6 +397,46 @@ PY
 
   run cat "${CONF_DIR}/tools.yaml"
   refute_output --partial "kind: source"
+}
+
+@test "render: points at reload when a declared source was dropped" {
+  # The manifest survives the drop, so the user's next move is the toggle that
+  # would fail. Name the command that fixes it, at the moment the decision is
+  # made.
+  local drop="${SANDBOX_DIR}/validator-drop-db.py"
+  cat > "${drop}" <<'PY'
+import json, sys
+data = json.load(sys.stdin)
+data.pop("db", None)
+json.dump(data, sys.stdout)
+PY
+  export DATASOURCES_VALIDATOR="${drop}"
+
+  _catalogue '{ "scratch": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/scratch.db" } }, "db": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/db.db" } } }'
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+  assert_output --partial "1 of 2 declared datasource(s) unusable now"
+  assert_output --partial "devbot datasources reload"
+}
+
+@test "render: a healthy sidecar is not counted as a dropped source" {
+  # Sidecars are their own servers and never appear in tools.yaml, so counting
+  # the raw catalogue reported every one of them as dropped on every boot.
+  _catalogue '{ "scratch": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/scratch.db" } }, "search": { "type": "opensearch", "env": {} } }'
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+  assert_output --partial "1/1 datasource(s) usable"
+  refute_output --partial "unusable now"
+}
+
+@test "render: stays quiet about reload when every source is usable" {
+  _sqlite_catalogue
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+  refute_output --partial "devbot datasources reload"
 }
 
 @test "render: the compose env list carries references, never literals" {
@@ -626,6 +776,21 @@ JSON
   assert_output --partial "mdctx"
 }
 
+@test "init: the manifest URL follows a DATASOURCES_PORT from .env" {
+  # The manifest must point where the gateway will listen. bin/init.sh does not
+  # read the repo .env itself, so init has to load it before building the URL —
+  # otherwise a configured port leaves every manifest on the default one.
+  _sqlite_catalogue
+  _project_config '["scratch"]'
+  printf 'DATASOURCES_PORT=18600\n' > "${SANDBOX_DIR}/.env"
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${PROJECT_DIR}/.opencode/datasources-scratch.mcp.json"
+  assert_output --partial "127.0.0.1:18600/mcp/scratch"
+}
+
 @test "init: a selection absent from the catalogue is warned about" {
   _catalogue '{}'
   _project_config '["typo-db"]'
@@ -696,6 +861,43 @@ JSON
 
 # ── down.sh ──────────────────────────────────────────────────────────────────
 
+@test "down: never waits for the lifecycle lock while the registry lock is held" {
+  # The last-session teardown calls this with the registry lock held, while up.sh
+  # holds the lifecycle lock and waits for the registry. Blocking here would
+  # deadlock both until their caps expire.
+  _catalogue '{}'
+  mkdir -p "${RUNTIME_DIR}/conf"
+  printf 'services:\n  datasources-mcp:\n    image: x\n' > "${RUNTIME_DIR}/docker-compose.yml"
+  _record_docker
+  ( exec 205>"${RUNTIME_DIR}/lifecycle.lock"; flock -x 205; sleep 5 ) &
+  sleep 0.3
+
+  local started=${SECONDS}
+  run env _DEVBOT_REGISTRY_LOCK_HELD=1 DATASOURCES_LOCK_WAIT=60 \
+    bash "${MODULE_DIR}/down.sh"
+  local elapsed=$(( SECONDS - started ))
+  assert_success
+  [ "${elapsed}" -lt 5 ]
+  grep -q 'compose .* down' "${DOCKER_LOG}"
+}
+
+@test "down: waits for the lifecycle lock but never hangs a teardown" {
+  # Teardown must not pull the gateway from under a reload that is verifying it
+  # — but a session exit must never hang, so an unavailable lock warns and
+  # proceeds rather than skipping the stop.
+  _catalogue '{}'
+  mkdir -p "${RUNTIME_DIR}/conf"
+  printf 'services:\n  datasources-mcp:\n    image: x\n' > "${RUNTIME_DIR}/docker-compose.yml"
+  _record_docker
+  ( exec 205>"${RUNTIME_DIR}/lifecycle.lock"; flock -x 205; sleep 5 ) &
+  sleep 0.3
+
+  run env DATASOURCES_LOCK_WAIT=0 bash "${MODULE_DIR}/down.sh"
+  assert_success
+  assert_output --partial "stopping anyway"
+  grep -q 'compose .* down' "${DOCKER_LOG}"
+}
+
 @test "down: no generated compose file is a clean no-op" {
   run bash "${MODULE_DIR}/down.sh"
   assert_success
@@ -703,6 +905,42 @@ JSON
 }
 
 # ── up.sh ────────────────────────────────────────────────────────────────────
+
+@test "up: waits for a lifecycle run in flight, then converges" {
+  # The boot is the authoritative convergence for its own project — a session
+  # registers before invoking this script, so once the lock is had its sidecar
+  # demand is visible. Skipping would let the session start unserved.
+  _sqlite_catalogue
+  _record_docker
+  mkdir -p "${RUNTIME_DIR}"
+  ( exec 200>"${RUNTIME_DIR}/lifecycle.lock"; flock -x 200; sleep 2 ) &
+  sleep 0.3
+
+  local started=${SECONDS}
+  run env DATASOURCES_PORT=1 DATASOURCES_BOOT_LOCK_WAIT=20 DEV_BOT_MCP_WAIT_TRIES=1 \
+    bash "${MODULE_DIR}/up.sh"
+  local elapsed=$(( SECONDS - started ))
+  assert_success
+  refute_output --partial "still in progress"
+  grep -q 'up -d --no-deps datasources-mcp' "${DOCKER_LOG}"
+  [ "${elapsed}" -ge 1 ]
+}
+
+@test "up: warns, and does not claim a clean start, when the lock stays held" {
+  # Only a genuinely stuck run reaches the cap; the boot must not pretend it
+  # converged the datasources then.
+  _sqlite_catalogue
+  _record_docker
+  mkdir -p "${RUNTIME_DIR}"
+  ( exec 200>"${RUNTIME_DIR}/lifecycle.lock"; flock -x 200; sleep 5 ) &
+  sleep 0.3
+
+  run env DATASOURCES_PORT=1 DATASOURCES_BOOT_LOCK_WAIT=0 DEV_BOT_MCP_WAIT_TRIES=1 \
+    bash "${MODULE_DIR}/up.sh"
+  assert_success
+  assert_output --partial "may not answer until the next start"
+  refute grep -q 'up -d' "${DOCKER_LOG}"
+}
 
 @test "up: a failed render still starts on the last good config" {
   # A render failure (docker down, inconclusive validation) must not abort the
@@ -999,6 +1237,31 @@ SH
   [ ! -f "${RUNTIME_DIR}/refresh.pid" ]
 }
 
+@test "render: takes the lifecycle lock, so it cannot land mid-reload" {
+  # A render WRITES the artifacts a reload is verifying against, so install.sh or
+  # a direct render must wait like any other lifecycle run.
+  _sqlite_catalogue
+  mkdir -p "${RUNTIME_DIR}"
+  ( exec 205>"${RUNTIME_DIR}/lifecycle.lock"; flock -x 205; sleep 5 ) &
+  sleep 0.3
+
+  run env DATASOURCES_LOCK_WAIT=0 bash "${MODULE_DIR}/render.sh"
+  assert_failure
+  assert_output --partial "another lifecycle run is in progress"
+}
+
+@test "render: does not re-take the lock its caller already holds" {
+  # up.sh and reload.sh hold it across their render; re-taking would deadlock.
+  _sqlite_catalogue
+  mkdir -p "${RUNTIME_DIR}"
+  ( exec 205>"${RUNTIME_DIR}/lifecycle.lock"; flock -x 205; sleep 5 ) &
+  sleep 0.3
+
+  run env DATASOURCES_LOCK_WAIT=0 DATASOURCES_LIFECYCLE_HELD=1 bash "${MODULE_DIR}/render.sh"
+  assert_success
+  assert_output --partial "1/1 datasource(s) usable"
+}
+
 @test "render: skips when another render holds the lock" {
   command -v flock >/dev/null 2>&1 || skip "flock not available"
   mkdir -p "${RUNTIME_DIR}"
@@ -1013,7 +1276,471 @@ SH
   kill "${holder}" 2>/dev/null || true
 }
 
-# ── container e2e (real docker) ──────────────────────────────────────────────
+# ── reload.sh ────────────────────────────────────────────────────────────────
+
+@test "reload: hands the new config to a running gateway without a cold start" {
+  # The whole point: a source that was unreachable at boot becomes servable
+  # without a `devbot up`, so flipping it on in the harness stops failing. The
+  # gateway is reconciled through compose (a no-op when nothing changed) rather
+  # than torn down and rebuilt.
+  _sqlite_catalogue
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=1 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+
+  assert_output --partial "gateway reconciled with the rendered config"
+  refute grep -qE 'compose .* down' "${DOCKER_LOG}"
+  grep -q 'up -d --no-deps datasources-mcp' "${DOCKER_LOG}"
+  # The source is proven on its own toolset URL, not just on the gateway root.
+  grep -q '/mcp/scratch' "${CURL_LOG}"
+}
+
+@test "reload: a tool schema that declares an error property is still served" {
+  # Only a TOP-LEVEL JSON-RPC `error` marks a failure. A tool may legitimately
+  # have an input property called `error`, which a substring check would read as
+  # a failed response and report a healthy server unavailable.
+  _sqlite_catalogue
+  _docker_with_running_gateway
+  CURL_LOG="${SANDBOX_DIR}/curl-calls.log"
+  mkdir -p "${SANDBOX_DIR}/schemabin"
+  cat > "${SANDBOX_DIR}/schemabin/curl" <<SH
+#!/usr/bin/env bash
+printf '%s\\n' "\$*" >> "${CURL_LOG}"
+printf '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"scratch_execute_sql","inputSchema":{"type":"object","properties":{"error":{"type":"string"}}}}]}}\\n'
+SH
+  chmod +x "${SANDBOX_DIR}/schemabin/curl"
+  export PATH="${SANDBOX_DIR}/schemabin:${PATH}"
+
+  run env DATASOURCES_PORT=1 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "scratch answers"
+}
+
+@test "reload: refuses while another lifecycle run holds the lock" {
+  # The render lock covers the publish only. A concurrent `devbot up` stops the
+  # gateway BEFORE it renders, so a reload without a lifecycle lock could verify
+  # a catalogue that another run has already replaced.
+  _sqlite_catalogue
+  _docker_with_running_gateway
+  _record_curl
+  mkdir -p "${RUNTIME_DIR}"
+  ( exec 200>"${RUNTIME_DIR}/lifecycle.lock"; flock -x 200; sleep 5 ) &
+  sleep 0.3
+
+  run env DATASOURCES_PORT=1 DATASOURCES_LOCK_WAIT=0 DATASOURCES_RELOAD_WAIT=0 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_failure
+  assert_output --partial "another lifecycle run is in progress"
+  refute grep -q 'up -d' "${DOCKER_LOG}"
+}
+
+@test "reload: starts the gateway a boot with every source down never started" {
+  _sqlite_catalogue
+  _record_docker   # inspect → false: no container
+  _record_curl
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+
+  grep -q "up -d --no-deps datasources-mcp" "${DOCKER_LOG}"
+  assert_output --partial "gateway reachable"
+}
+
+@test "reload: a failed render aborts without touching the running config" {
+  # Not survivable here, unlike at boot: the command exists to make a source
+  # usable, and a silent partial answer is the trap it removes.
+  _sqlite_catalogue
+  _record_docker
+  local boom="${SANDBOX_DIR}/validator-boom.py"
+  cat > "${boom}" <<'PY'
+import sys
+sys.exit(2)
+PY
+  export DATASOURCES_VALIDATOR="${boom}"
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_failure
+  assert_output --partial "reload aborted"
+  refute grep -q 'up -d' "${DOCKER_LOG}"
+}
+
+@test "reload: starts a demanded sidecar that is not running" {
+  _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
+  _project_config '["search"]'
+  _record_docker
+  _record_curl
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+
+  grep -q "up -d --build search" "${DOCKER_LOG}"
+  assert_output --partial "sidecar 'search' started"
+}
+
+@test "reload: reconciles an already-running sidecar without rebuilding it" {
+  # Running is not the same as matching: this render may have re-allocated the
+  # sidecar's port, so `up` (which recreates only on a changed definition) runs.
+  # The image is not rebuilt — that is boot work, not reload work.
+  _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
+  _project_config '["search"]'
+  _docker_reporting_running_sidecars search
+  _record_curl
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+
+  assert_output --partial "sidecar 'search' reconciled with the rendered config"
+  grep -q "up -d search" "${DOCKER_LOG}"
+  refute grep -q "up -d --build search" "${DOCKER_LOG}"
+}
+
+@test "reload: a live project's sidecar that was never rendered is unpublishable" {
+  # The render's demand set is the configured project list plus this project; a
+  # live project outside that list can select a sidecar with no compose service
+  # at all, so its manifest points at nothing. Declared is not the same as
+  # served.
+  local other
+  other="$(mktemp -d)"
+  printf '{"datasources": ["search"]}\n' >"${other}/.devbot.project.jsonc"
+  _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
+  _project_config '[]'
+  _live_session "${other}"
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=18510 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "another live project selects what is still unpublishable"
+  assert_output --partial "search ($(basename "${other}"))"
+
+  rm -rf "${other}"
+}
+
+@test "reload: a published source that does not answer fails the command" {
+  # Claiming success while the toolset endpoint is dead would recreate the
+  # exact confusion this command exists to end.
+  _sqlite_catalogue
+  _record_docker   # gateway absent; the probe then hits a dead port for real
+
+  run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_failure
+  assert_output --partial "is published but does not answer"
+}
+
+@test "reload: a toolset the gateway never loaded is not mistaken for success" {
+  # toolbox answers `initialize` — and the HTTP status — for ANY /mcp/<name>,
+  # including one it never loaded. Only the tools/list BODY distinguishes them,
+  # and this is the exact failure the command exists to report.
+  _sqlite_catalogue
+  _docker_with_running_gateway
+  _record_missing_toolset_curl
+
+  run env DATASOURCES_PORT=1 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_failure
+  assert_output --partial "does not answer"
+  assert_output --partial "is not served at"
+}
+
+@test "reload: carries the session id a stateful server issues" {
+  _sqlite_catalogue
+  _docker_with_running_gateway
+  _record_stateful_curl
+
+  run env DATASOURCES_PORT=1 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+
+  grep -qi 'mcp-session-id: s-42' "${CURL_LOG}"
+}
+
+@test "reload: accepts a pretty-printed tools/list body and declares the protocol" {
+  # A sidecar may pretty-print its JSON, and the negotiated protocol version
+  # belongs on every request after initialize.
+  _sqlite_catalogue
+  _docker_with_running_gateway
+  CURL_LOG="${SANDBOX_DIR}/curl-calls.log"
+  mkdir -p "${SANDBOX_DIR}/prettybin"
+  cat > "${SANDBOX_DIR}/prettybin/curl" <<SH
+#!/usr/bin/env bash
+printf '%s\\n' "\$*" >> "${CURL_LOG}"
+printf '{\n  "jsonrpc": "2.0",\n  "id": 2,\n  "result": {\n    "tools": [\n      {"name": "scratch_execute_sql"}\n    ]\n  }\n}\n'
+SH
+  chmod +x "${SANDBOX_DIR}/prettybin/curl"
+  export PATH="${SANDBOX_DIR}/prettybin:${PATH}"
+
+  run env DATASOURCES_PORT=1 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "scratch answers"
+  grep -q 'MCP-Protocol-Version: 2024-11-05' "${CURL_LOG}"
+}
+
+@test "reload: completes and closes the MCP session it opens" {
+  # A compliant stateful server refuses tools/list until notifications/initialized
+  # arrives, and accumulates sessions unless the client closes them. Both are part
+  # of the handshake, not of our convenience.
+  _sqlite_catalogue
+  _docker_with_running_gateway
+  _record_compliant_stateful_curl
+
+  run env DATASOURCES_PORT=1 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "scratch answers"
+  grep -q 'notifications/initialized' "${CURL_LOG}"
+  grep -q 'DELETE' "${CURL_LOG}"
+}
+
+@test "reload: probes the port the .env configures, not the default" {
+  # DATASOURCES_PORT is documented as a compose override, and .env is loaded
+  # after the module's shared file is sourced — the URL must therefore be
+  # resolved at call time, or the probe and the container disagree.
+  _sqlite_catalogue
+  printf 'DATASOURCES_PORT=18600\n' > "${SANDBOX_DIR}/.env"
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  grep -q '127.0.0.1:18600/mcp/scratch' "${CURL_LOG}"
+}
+
+@test "reload: a selected source the gateway still cannot serve is not a success" {
+  # The bug scenario: the project selects a source the render dropped. Its
+  # manifest exists, so enabling it would fail — say so instead of reporting a
+  # clean reload because the other sources answer.
+  local drop="${SANDBOX_DIR}/validator-drop-db.py"
+  cat > "${drop}" <<'PY'
+import json, sys
+data = json.load(sys.stdin)
+data.pop("db", None)
+json.dump(data, sys.stdout)
+PY
+  export DATASOURCES_VALIDATOR="${drop}"
+  _catalogue '{ "scratch": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/scratch.db" } }, "db": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/db.db" } } }'
+  _project_config '["scratch", "db"]'
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=1 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_failure
+  assert_output --partial "selected but still unpublishable: db"
+}
+
+@test "reload: warns when another live project's selected source is unpublishable" {
+  # The gateway is machine-wide: a source this render drops is dropped for every
+  # live project that selected it. That outage is not this project's failure,
+  # but it must not be silent either.
+  local other
+  other="$(mktemp -d)"
+  printf '{"datasources": ["db"]}\n' >"${other}/.devbot.project.jsonc"
+  _live_session "${other}"
+  _project_config '["scratch"]'
+  local drop="${SANDBOX_DIR}/validator-drop-db.py"
+  cat > "${drop}" <<'PY'
+import json, sys
+data = json.load(sys.stdin)
+data.pop("db", None)
+json.dump(data, sys.stdout)
+PY
+  export DATASOURCES_VALIDATOR="${drop}"
+  _catalogue '{ "scratch": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/scratch.db" } }, "db": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/db.db" } } }'
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=1 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "another live project selects what is still unpublishable"
+  assert_output --partial "db ($(basename "${other}"))"
+
+  rm -rf "${other}"
+}
+
+@test "reload: reaps a poller left behind by an older dev-bot" {
+  # A detached poller from an older install would rewrite tools.yaml under this
+  # render — even after the verification — so the catalogue the command checked
+  # may not be the one the gateway is handed.
+  _sqlite_catalogue
+  _docker_with_running_gateway
+  _record_curl
+  sleep 60 &
+  local sleeper=$!
+  mkdir -p "${RUNTIME_DIR}"
+  printf '%s\n' "${sleeper}" > "${RUNTIME_DIR}/refresh.pid"
+
+  run env DATASOURCES_PORT=1 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run kill -0 "${sleeper}"
+  assert_failure
+  [ ! -f "${RUNTIME_DIR}/refresh.pid" ]
+
+  kill "${sleeper}" 2>/dev/null || true
+}
+
+@test "reload: reports a harness manifest that points at a stale endpoint" {
+  # A re-render can move a sidecar port, and the harness caches the URL it read
+  # at init. Saying "complete" while the toggle would still hit the old port is
+  # the same silent failure this command exists to remove.
+  _sqlite_catalogue
+  _project_config '["scratch"]'
+  mkdir -p "${PROJECT_DIR}/.opencode"
+  printf '{"datasources-scratch": {"type": "remote", "url": "http://127.0.0.1:1/mcp/scratch", "enabled": false}}\n' \
+    > "${PROJECT_DIR}/.opencode/datasources-scratch.mcp.json"
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=18510 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_failure
+  assert_output --partial "harness manifests are stale"
+  assert_output --partial "devbot reinit"
+}
+
+@test "reload: reports a stale Claude manifest too" {
+  # claudecode's manifest nests the server under mcpServers; a Claude-only
+  # project must not be reported clean while it points at the old endpoint.
+  _sqlite_catalogue
+  _project_config '["scratch"]'
+  mkdir -p "${PROJECT_DIR}/.claude"
+  printf '{"mcpServers": {"datasources-scratch": {"type": "http", "url": "http://127.0.0.1:1/mcp/scratch", "enabled": true}}}\n' \
+    > "${PROJECT_DIR}/.claude/datasources-scratch.mcp.json"
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=18510 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_failure
+  assert_output --partial "harness manifests are stale"
+}
+
+@test "reload: a stale manifest of a disabled harness is not reported" {
+  # init neither writes nor prunes a disabled harness's manifests, so a leftover
+  # from when it was enabled must not fail every reload.
+  _sqlite_catalogue
+  _project_config '["scratch"]' '{"claudecode": false}'
+  mkdir -p "${PROJECT_DIR}/.claude"
+  printf '{"mcpServers": {"datasources-scratch": {"type": "http", "url": "http://127.0.0.1:1/mcp/scratch", "enabled": true}}}\n' \
+    > "${PROJECT_DIR}/.claude/datasources-scratch.mcp.json"
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=18510 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  refute_output --partial "manifests are stale"
+}
+
+@test "reload: a manifest that matches the rendered endpoint is not stale" {
+  _sqlite_catalogue
+  _project_config '["scratch"]'
+  mkdir -p "${PROJECT_DIR}/.opencode"
+  printf '{"datasources-scratch": {"type": "remote", "url": "http://127.0.0.1:18510/mcp/scratch", "enabled": false}}\n' \
+    > "${PROJECT_DIR}/.opencode/datasources-scratch.mcp.json"
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=18510 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  refute_output --partial "manifests are stale"
+}
+
+@test "reload: a selected datasource the catalogue never declares is not a success" {
+  # A typo: init writes the manifest and warns, but no render can ever publish
+  # it. "Nothing to serve" must therefore not read as a successful reload.
+  _catalogue '{}'
+  _project_config '["typo-db"]'
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=1 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_failure
+  assert_output --partial "selected but still unpublishable: typo-db"
+}
+
+@test "reload: a sidecar is accepted on a clean tools/list, with no toolbox tool" {
+  # A sidecar's tools come from its own server, never from tools.yaml. Holding
+  # it to a `<name>_...` entry would report a healthy sidecar as unavailable.
+  _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
+  _project_config '["search"]'
+  _record_docker
+  CURL_LOG="${SANDBOX_DIR}/curl-calls.log"
+  mkdir -p "${SANDBOX_DIR}/sidecarbin"
+  cat > "${SANDBOX_DIR}/sidecarbin/curl" <<SH
+#!/usr/bin/env bash
+printf '%s\\n' "\$*" >> "${CURL_LOG}"
+printf '{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"opensearch_search"}]}}\\n'
+SH
+  chmod +x "${SANDBOX_DIR}/sidecarbin/curl"
+  export PATH="${SANDBOX_DIR}/sidecarbin:${PATH}"
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "search answers"
+}
+
+@test "reload: does not verify a sidecar no live session demands" {
+  # The compose carries a sidecar for every project that ever selects it, but
+  # only a demanded one runs. Verifying the rest would fail every reload on a
+  # multi-project machine.
+  local other
+  other="$(mktemp -d)"
+  printf '{"datasources": ["search"]}\n' >"${other}/.devbot.project.jsonc"
+  _catalogue_projects '{ "search": { "type": "opensearch", "env": {} } }' "[\"${other}\"]"
+  _project_config '[]'
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=18510 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  refute_output --partial "does not answer"
+  refute grep -q '/mcp$' "${CURL_LOG}"
+
+  rm -rf "${other}"
+}
+
+@test "reconcile: leaves sidecars alone while another lifecycle run holds the lock" {
+  # A stop landing between a reload's sidecar reconciliation and its probe would
+  # read as a healthy sidecar being unavailable. Leaving it running is benign —
+  # the next boot reconciles — and a session exit must not block.
+  _catalogue '{ "search": { "type": "opensearch", "env": {} } }'
+  _project_config '[]'
+  _docker_reporting_running_sidecars search
+  mkdir -p "${RUNTIME_DIR}"
+  ( exec 205>"${RUNTIME_DIR}/lifecycle.lock"; flock -x 205; sleep 5 ) &
+  sleep 0.3
+
+  # Even with a generous cap in the environment it must not wait: the caller
+  # holds the registry lock, and up.sh (lifecycle → registry) would deadlock.
+  local started=${SECONDS}
+  run env DATASOURCES_LOCK_WAIT=60 bash "${MODULE_DIR}/reconcile.sh"
+  local elapsed=$(( SECONDS - started ))
+  assert_success
+  assert_output --partial "leaving the running sidecars untouched"
+  refute grep -q 'stop dev-bot-datasources-search' "${DOCKER_LOG}"
+  [ "${elapsed}" -lt 5 ]
+}
+
+# ── container e2e (real docker) ───────────────────────────────────────────────
 
 @test "e2e: the oracle accepts a working source and names a bad one" {
   # The only test that runs the pinned image for real. It is what proves the

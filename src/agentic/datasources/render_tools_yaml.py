@@ -636,6 +636,15 @@ def main():
     # `--env-names` prints just the env var name set, for the compose renderer.
     if "--env-names" in sys.argv[1:]:
         sys.stdout.write(json.dumps(effective_env_names(catalogue)) + "\n")
+    # `--toolbox-names` prints the toolbox-backed names, for callers counting
+    # what the gateway can serve at all. A sidecar never appears in tools.yaml,
+    # so counting the raw catalogue reports every sidecar as a dropped source.
+    elif "--toolbox-names" in sys.argv[1:]:
+        names = [
+            n for n, spec in catalogue.items()
+            if not (isinstance(spec, dict) and is_sidecar(spec))
+        ]
+        sys.stdout.write(" ".join(names) + "\n")
     else:
         sys.stdout.write(render(catalogue))
 
