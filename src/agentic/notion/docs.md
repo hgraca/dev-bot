@@ -14,7 +14,33 @@ Ships one skill (`devbot:notion`) documenting how to drive the **Notion MCP serv
 
 ## Configuration
 
-The server is declared `enabled: false` in the module's `mcp.json`; enabling the `notion` module links the skill but does not start the server. On opencode, set `mcp.notion.enabled` to `true` in the generated `opencode.jsonc` and restart. Claude Code omits a disabled server from `.mcp.json`, so set `enabled: true` in the manifest and run `devbot reinit` (or add it at user scope with `claude mcp add --scope user --transport http notion https://mcp.notion.com/mcp`). Authentication is the hosted server's OAuth flow: `opencode mcp auth notion`, or `/mcp` in Claude Code. Business and Enterprise workspaces may instead use an MCP token as a bearer header for non-interactive use.
+The server is declared `enabled: false` in the module's `mcp.json`; enabling the `notion` module links the skill but does not start the server. On opencode, set `mcp.notion.enabled` to `true` in the generated `opencode.jsonc` and restart. Claude Code omits a disabled server from `.mcp.json`, so set `enabled: true` in the manifest and run `devbot reinit` (or add it at user scope with `claude mcp add --scope user --transport http notion https://mcp.notion.com/mcp`).
+
+### Authentication
+
+OAuth is the recommended method: the consent flow selects the workspace and the pages/databases the connection may touch, and every call is limited by your Notion permissions.
+
+```text
+opencode mcp auth notion        # opencode: browser consent
+/mcp                            # Claude Code: run inside the session
+```
+
+For non-interactive use, Business and Enterprise workspaces can issue an **MCP token** (a workspace owner creates it in the Notion developer portal). Set `"oauth": false` on the server entry and pass the token as a bearer header, read from the environment:
+
+```json
+{
+  "mcp": {
+    "notion": {
+      "type": "http",
+      "url": "https://mcp.notion.com/mcp",
+      "oauth": false,
+      "headers": { "Authorization": "Bearer {env:NOTION_MCP_TOKEN}" }
+    }
+  }
+}
+```
+
+Only workspace members can connect — guests are refused — and a workspace-owned connection created by an admin exposes only the tools selected for it. Prefer OAuth for interactive sessions.
 
 ## See also
 
