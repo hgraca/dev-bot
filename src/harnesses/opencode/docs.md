@@ -48,6 +48,8 @@ opencode auto-starts a language server for every language it detects in the proj
 
 The shipped `opencode.jsonc` sets `lsp` to an object that overrides the built-in `"php intelephense"` server: it trims Intelephense's index to skip `vendor/**/tests`, `vendor/**/docs` and nested vendor trees while keeping vendor library symbols resolvable, caps its heap via `NODE_OPTIONS`, and launches it through `lsp/intelephense.sh` — which prefers the Intelephense version devbot pins (`versions.env`) over the older copy opencode bundles. Intelephense only reads these settings through LSP `workspace/configuration`, which opencode answers from the override's `initialization`; a project-root `intelephense.config.json` is **not** read.
 
+opencode starts one server per directory it walks into and never tears a stale one down, so a long session accumulates idle servers in directories it has since left. `lsp/reap.sh` reclaims them: it walks the session's opencode process tree and kills only servers that are provably not working — no CPU tick between two samples, or a working directory that no longer exists (a removed worktree) — leaving an active index alone. `devbot:reconcile-work` runs it on every wrap-up (silently, decisions logged to `.agents/logs/lsp-reap.log`); a reaped server respawns on demand the next time its directory is visited. `--dry-run` prints the classification without killing anything.
+
 The object form overrides named servers only, keeping every other built-in enabled, and the key must be the built-in id (`"php intelephense"`) — a key like `"intelephense"` names a _custom_ server and silently does nothing. To disable a language server:
 
 ```jsonc
