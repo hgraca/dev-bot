@@ -1,9 +1,10 @@
 #!/usr/bin/env bats
 # =============================================================================
 # src/agentic/devbot/tests/work-autonomously_tests.bats
-# Guards the work-autonomously command's contract: it follows whichever
-# workflow is in use, skips the check-ins, and stops one step before the
-# merge — while carrying the pull-request review loop's mechanics.
+# Guards the work-autonomously command's contract: it refines a task with an
+# open outcome once up front, follows whichever workflow is in use,
+# skips the check-ins, and stops one step before the merge — while carrying
+# the pull-request review loop's mechanics.
 # =============================================================================
 
 setup() {
@@ -39,6 +40,50 @@ setup() {
   # Uncommitted work corroborates, it never defines the assignment.
   grep -q 'corroborate that the assignment is the same one' "$FLAT"
   grep -q 'never adopt or discard them' "$FLAT"
+}
+
+@test "command refines an underspecified task once, before any work" {
+  # Ordering, not just existence: refinement has to be the step before the workflow.
+  refine_line="$(grep -n '^2\. \*\*Refine' "$COMMAND" | cut -d: -f1)"
+  workflow_line="$(grep -n '^3\. \*\*Load the workflow' "$COMMAND" | cut -d: -f1)"
+  [ -n "$refine_line" ] && [ -n "$workflow_line" ]
+  [ "$refine_line" -lt "$workflow_line" ]
+  ! grep -q '^2\. \*\*Load the workflow' "$COMMAND"
+}
+
+@test "command gates the refinement on an open outcome" {
+  grep -qi 'refine when the task leaves the outcome open' "$FLAT"
+  grep -q 'more than one plausible reading of what to build' "$FLAT"
+  grep -q 'no acceptance criteria derivable' "$FLAT"
+  # A contract, architecture or migration change confirms the restate even with a spec.
+  grep -q 'a public contract, the architecture or a data migration confirms the restate' "$FLAT"
+}
+
+@test "command skips the refinement when any skip condition holds" {
+  grep -q 'Skip it when any of these holds' "$FLAT"
+  grep -q 'resuming work already in progress' "$FLAT"
+  grep -q 'the task is already a written spec' "$FLAT"
+  grep -q 'one unambiguous, well-scoped change' "$FLAT"
+}
+
+@test "command refines through the grilling and interview-me skills" {
+  grep -qi 'load the `grilling` and `interview-me`' "$FLAT"
+  # grilling's round loop survives: rounds repeat until the frontier is empty.
+  grep -q 'one batched round at a time until it is empty' "$FLAT"
+  grep -q 'Outcome / User / Why now / Success / Constraint / Out of scope' "$FLAT"
+  grep -q 'silence is not confirmation' "$FLAT"
+  grep -q 'no human to answer, stop and report the blocker' "$FLAT"
+  # The named exception: batched cadence and the non-interactive rule's scope.
+  grep -q "takes \`grilling\`'s batched cadence" "$FLAT"
+  grep -q 'covers the autonomous phase that follows, not this round' "$FLAT"
+}
+
+@test "refinement is the run's only planned pause" {
+  grep -q "the run's only planned pause" "$FLAT"
+  grep -q "this step is the run's DEFINE" "$FLAT"
+  grep -q 'carried into the todo list when that list is created' "$FLAT"
+  # The emergency stops survive: the check-in step defers to step 2 and adds its own.
+  grep -q 'Stop only where step 2 or the workflow itself says to stop' "$FLAT"
 }
 
 @test "command follows the workflow in use, never a hard-coded one" {
