@@ -473,14 +473,25 @@ EOF
 @test "up: leaves no orphaned watchdog timer after a warm call" {
   preclone
   # A `sleep` shim records each timer's pid, so the assertion does not depend
-  # on anything else running on the machine.
+  # on anything else running on the machine. The git shim keeps the compared
+  # command busy long enough for the timer to start writing — a warm call that
+  # finishes first can be killed before the timer ever runs, which proves
+  # nothing.
+  local real_sleep real_git
+  real_sleep="$(command -v sleep)"
+  real_git="$(command -v git)"
   mkdir -p "${SANDBOX}/bin"
   cat > "${SANDBOX}/bin/sleep" <<EOF
 #!/usr/bin/env bash
 echo "\$\$" >> "${SANDBOX}/sleeps.log"
-exec "$(command -v sleep)" "\$@"
+exec "${real_sleep}" "\$@"
 EOF
-  chmod +x "${SANDBOX}/bin/sleep"
+  cat > "${SANDBOX}/bin/git" <<EOF
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "ls-remote" ]]; then "${real_sleep}" 0.5; fi
+exec "${real_git}" "\$@"
+EOF
+  chmod +x "${SANDBOX}/bin/sleep" "${SANDBOX}/bin/git"
 
   run env PATH="${SANDBOX}/bin:${PATH}" DEV_BOT_FETCH_TIMEOUT=60 bash "${SCRIPT}"
 
