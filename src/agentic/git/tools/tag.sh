@@ -99,6 +99,16 @@ _resolve_tag_only_ref() {
     || _fatal "plan: cannot resolve --ref '${ref}'"
 }
 
+# Remotes as inline code for a plan line: "`origin`, `hgraca`".
+# Args: space-separated remotes
+_format_remotes() {
+  local remote out=""
+  for remote in $1; do
+    out="${out}${out:+, }\`${remote}\`"
+  done
+  printf '%s' "${out}"
+}
+
 cmd_plan() {
   _parse_common plan "$@"
   if [[ "${TAG_ONLY}" -ne 1 && -n "${REF}" ]]; then
@@ -148,8 +158,7 @@ cmd_plan() {
     printf '1. Create the annotated tag `%s` at `%s`:\n' "${version}" "${ref_commit}"
     printf '   `tag.sh tag --tag-only --version %s --ref %s --notes-file <notes>`\n' \
       "${version}" "${ref_commit}"
-    printf '2. Push only `%s` to:%s.\n' "${version}" \
-      "$(for r in ${remotes}; do printf ' `%s' "${r}"; done)"
+    printf '2. Push only `%s` to %s.\n' "${version}" "$(_format_remotes "${remotes}")"
     printf '\n_No VCS change has been made yet._\n'
     return 0
   fi
@@ -207,8 +216,8 @@ cmd_plan() {
     printf '1. Merge `%s` into `%s` and switch to it.\n' "${SOURCE}" "${default_branch}"
   fi
   printf '2. Create the annotated tag `%s`.\n' "${version}"
-  printf '3. Push `%s` and `%s` to:%s.\n' "${default_branch}" "${version}" \
-    "$(for r in ${remotes}; do printf ' `%s`' "${r}"; done)"
+  printf '3. Push `%s` and `%s` to %s.\n' "${default_branch}" "${version}" \
+    "$(_format_remotes "${remotes}")"
   printf '\n_No VCS change has been made yet._\n'
 }
 
@@ -602,17 +611,18 @@ Usage: tag.sh <subcommand> [options]
 Subcommands:
   version  [--version V] [--remote R]                     resolve the version to tag
   plan     --version V [--notes-file F] [--remotes a,b]   print the approval preview
-  merge    [--source B] [--default D]                      squash fixups, then merge into the default branch
-  tag      --version V --notes-file F                      create the annotated tag (normal flow)
-  tag      --tag-only --version V --ref R --notes-file F   tag an already-merged commit R
-  push     --version V [--branch B] --remotes a,b [--tag-only]
-                                                           push the branch and the tag
-                                                           (--tag-only: the tag alone)
+           [--tag-only [--ref R]]
+  merge    [--source B] [--default D]                     squash fixups, then merge into the default branch
+  tag      --version V --notes-file F                     create the annotated tag
+           [--tag-only --ref R]
+  push     --version V [--branch B] --remotes a,b         push the branch and the tag
+           [--tag-only]
 
-Already-merged release (tag only, no branch push):
-  plan --tag-only --version V --ref R --notes-file F --remotes a,b
-  tag  --tag-only --version V --ref R --notes-file F
-  push --tag-only --version V --remotes a,b
+Options:
+  --tag-only  already-merged release: tag alone, no source branch, no branch push
+              plan --ref resolves the remote's tip read-only; tag --ref takes the
+              full SHA the plan printed; push sends only the tag
+  --ref R     the commit to tag (with --tag-only); rejected otherwise
 
 Requires: bash; git >= 2.23 (git switch), git >= 2.18 (ls-remote --sort).
 EOF

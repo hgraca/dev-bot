@@ -888,3 +888,22 @@ setup() {
   assert_output --partial "cannot verify 'broken/main' on 'broken'"
   assert_output --partial "fetch it, or pass the commit SHA"
 }
+
+# ── plan formatting ─────────────────────────────────────────────────────────
+
+@test "plan: the remote list in the approval step reads as a comma-separated list" {
+  release plan --version 1.5.0 --notes-file "$NOTES" --remotes origin,second
+
+  assert_success
+  assert_output --partial "to \`origin\`, \`second\`"
+}
+
+@test "plan --tag-only: the remote list reads as a comma-separated list" {
+  local target
+  target="$(git -C "$WORK" rev-parse origin/main)"
+
+  release plan --tag-only --version 1.5.0 --ref "$target" --notes-file "$NOTES" --remotes origin,second
+
+  assert_success
+  assert_output --partial "to \`origin\`, \`second\`"
+}
