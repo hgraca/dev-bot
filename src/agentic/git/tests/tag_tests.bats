@@ -729,3 +729,162 @@ setup() {
   assert_output --partial 'broken'
   assert_equal "$(git -C "$ORIGIN" rev-parse refs/tags/1.5.0)" "$(git -C "$WORK" rev-parse 1.5.0)"
 }
+
+# ── tag-only: an already-merged release ─────────────────────────────────────
+
+@test "plan --tag-only: works from a detached HEAD and plans no branch push" {
+  git -C "$WORK" switch -q --detach origin/main
+
+  release plan --tag-only --version 1.5.0 --ref origin/main --notes-file "$NOTES" --remotes origin
+
+  assert_success
+  assert_output --partial "Tag:** \`1.5.0\` (annotated)"
+  assert_output --partial "Branch push:** none"
+  refute_output --partial "Source branch"
+  refute_output --partial "Merge:"
+}
+
+@test "tag --ref: tags the given commit, not HEAD" {
+  local target
+  target="$(git -C "$WORK" rev-parse origin/main)"
+
+  release tag --tag-only --version 1.5.0 --ref "$target" --notes-file "$NOTES"
+
+  assert_success
+  assert_equal "$(git -C "$WORK" rev-parse refs/tags/1.5.0^{commit})" "$target"
+  [ "$(git -C "$WORK" rev-parse HEAD)" != "$target" ]
+}
+
+@test "tag --tag-only: refuses a branch ref — only the approved SHA is pinned" {
+  release tag --tag-only --version 1.5.0 --ref origin/main --notes-file "$NOTES"
+
+  assert_failure
+  assert_output --partial "needs the full commit SHA from the plan"
+  run git -C "$WORK" rev-parse --verify --quiet refs/tags/1.5.0
+  [ "$status" -ne 0 ]
+}
+
+@test "tag --ref: an unresolvable ref fails without creating a tag" {
+  release tag --tag-only --version 1.5.0 --ref 1111111111111111111111111111111111111111 --notes-file "$NOTES"
+
+  assert_failure
+  assert_output --partial "is not in this checkout"
+  run git -C "$WORK" rev-parse --verify --quiet refs/tags/1.5.0
+  [ "$status" -ne 0 ]
+}
+
+@test "push --tag-only: sends the tag and leaves the remote branch alone" {
+  local before target
+  before="$(git -C "$ORIGIN" rev-parse refs/heads/main)"
+  target="$(git -C "$WORK" rev-parse origin/main)"
+  release tag --tag-only --version 1.5.0 --ref "$target" --notes-file "$NOTES"
+  assert_success
+
+  release push --tag-only --version 1.5.0 --remotes origin
+
+  assert_success
+  assert_equal "$(git -C "$ORIGIN" rev-parse refs/tags/1.5.0^{commit})" \
+    "$(git -C "$WORK" rev-parse origin/main)"
+  # The branch was not pushed: still where it was before.
+  assert_equal "$(git -C "$ORIGIN" rev-parse refs/heads/main)" "$before"
+}
+
+@test "push --tag-only: a failing remote's remediation names only the tag" {
+  local target
+  target="$(git -C "$WORK" rev-parse origin/main)"
+  release tag --tag-only --version 1.5.0 --ref "$target" --notes-file "$NOTES"
+  assert_success
+
+  release push --tag-only --version 1.5.0 --remotes nope
+
+  assert_failure
+  assert_output --partial "git push <remote> refs/tags/1.5.0"
+  refute_output --partial "git push <remote> main"
+}
+
+@test "plan --tag-only: a remote-tracking ref is read from the remote, not the stale local ref" {
+  # Advance origin/main without fetching in WORK: its refs/remotes/origin/main
+  # still points at the pre-merge commit.
+  local clone="$SANDBOX/clone"
+  git clone -q "$ORIGIN" "$clone"
+  git -C "$clone" config user.email "test@test.com"
+  git -C "$clone" config user.name "Test"
+  git -C "$clone" config commit.gpgsign false
+  printf 'merged\n' > "$clone/merged.txt"
+  git -C "$clone" add -A
+  git -C "$clone" commit -qm "merged upstream"
+  git -C "$clone" push -q origin main
+  local remote_tip stale_tip
+  remote_tip="$(git -C "$ORIGIN" rev-parse refs/heads/main)"
+  stale_tip="$(git -C "$WORK" rev-parse refs/remotes/origin/main)"
+  [ "$remote_tip" != "$stale_tip" ]
+
+  release plan --tag-only --version 1.5.0 --ref origin/main --notes-file "$NOTES" --remotes origin
+
+  assert_success
+  assert_output --partial "**Target:** \`${remote_tip}\`"
+  refute_output --partial "**Target:** \`${stale_tip}\`"
+}
+
+@test "tag --tag-only: an approved SHA missing locally gets the fetch remediation" {
+  release tag --tag-only --version 1.5.0 \
+    --ref 1111111111111111111111111111111111111111 --notes-file "$NOTES"
+
+  assert_failure
+  assert_output --partial "is not in this checkout — fetch the release branch first"
+}
+
+@test "tag --tag-only: accepts the native object-id length (SHA-256 repositories)" {
+  local sha256_repo="$SANDBOX/sha256"
+  git init -q --object-format=sha256 "$sha256_repo" 2>/dev/null \
+    || skip "git without SHA-256 object-format support"
+  git -C "$sha256_repo" config user.email "test@test.com"
+  git -C "$sha256_repo" config user.name "Test"
+  git -C "$sha256_repo" config commit.gpgsign false
+  printf 'x\n' > "$sha256_repo/f.txt"
+  git -C "$sha256_repo" add -A
+  git -C "$sha256_repo" commit -qm "sha256 commit"
+  local sha notes
+  sha="$(git -C "$sha256_repo" rev-parse HEAD)"
+  [ ${#sha} -eq 64 ]
+  notes="$SANDBOX/sha256-notes.md"
+  printf '# Release v1.5.0\n' > "$notes"
+
+  run bash -c "cd '$sha256_repo' && bash '$SCRIPT' tag --tag-only --version 1.5.0 --ref '$sha' --notes-file '$notes'"
+
+  assert_success
+  assert_equal "$(git -C "$sha256_repo" rev-parse refs/tags/1.5.0^{commit})" "$sha"
+}
+
+@test "plan: --ref without --tag-only is rejected — the normal plan has no ref" {
+  release plan --version 1.5.0 --ref HEAD --notes-file "$NOTES" --remotes origin
+
+  assert_failure
+  assert_output --partial "applies only with --tag-only"
+}
+
+@test "tag: --ref without --tag-only is rejected — never tag an unapproved target" {
+  release tag --version 1.5.0 --ref HEAD --notes-file "$NOTES"
+
+  assert_failure
+  assert_output --partial "applies only with --tag-only"
+  run git -C "$WORK" rev-parse --verify --quiet refs/tags/1.5.0
+  [ "$status" -ne 0 ]
+}
+
+@test "push: --ref is rejected — push sends a created tag" {
+  release push --version 1.5.0 --ref HEAD --remotes origin
+
+  assert_failure
+  assert_output --partial "--ref does not apply"
+}
+
+@test "plan --tag-only: an unreachable remote reports the fetch remediation" {
+  git -C "$WORK" remote add broken "$SANDBOX/does-not-exist.git"
+
+  release plan --tag-only --version 1.5.0 --ref broken/main --notes-file "$NOTES" --remotes broken
+
+  assert_failure
+  assert_output --partial "cannot verify 'broken/main' on 'broken'"
+  assert_output --partial "fetch it, or pass the commit SHA"
+}

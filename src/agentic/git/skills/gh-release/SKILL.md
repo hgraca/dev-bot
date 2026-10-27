@@ -71,6 +71,17 @@ again.
 **When the tag is already pushed** — the git half is done — show only the
 `release.sh plan` output and, on approval, run only the `release` step of step 4.
 
+**When the release commit is already merged and the local default branch must
+not move** (the PR is merged, or the local default branch is ahead/diverged),
+use the tag-only path — fetch the release branch first (`git fetch <remote>
+<default>`), because the plan resolves the remote's tip while `tag` needs that
+commit locally: `tag.sh plan --tag-only --version <version>
+--ref <release-commit> --notes-file <notes file> --remotes <remotes>`, then
+`tag.sh tag --tag-only --ref <the SHA the plan printed>` (never the branch ref —
+it can advance between the approval and the tag), `tag.sh push --tag-only`, and
+`release.sh release`. The plan has no merge step and no branch push, so the
+combined preview is tag-only too.
+
 ## Never push a protected default branch
 
 The git half is `devbot:git-tag`, and its
@@ -92,6 +103,19 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/release.sh" release \
 ```
 
 Run them one at a time, in that order, and report each step's outcome.
+
+**Tag-only release** — when the mode above applies, run this sequence instead;
+never `merge`, and never push a branch:
+
+```
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/tag.sh" tag --tag-only \
+  --version "<version>" --ref "<the SHA the plan printed>" \
+  --notes-file "<notes file>"
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/tag.sh" push --tag-only \
+  --version "<version>" --remotes <remotes>
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/release.sh" release \
+  --version "<version>" --notes-file "<notes file>" --remotes <remotes>
+```
 
 - **`merge`** folds every `fixup!`/`squash!`/`amend!` commit into its target,
   then merges the branch into the default branch. On a conflict it aborts,

@@ -71,11 +71,88 @@ cmd_version() {
 
 # ── plan ─────────────────────────────────────────────────────────────────────
 
+# Resolve a tag-only --ref to a commit. A remote-tracking ref (`origin/main`)
+# is read from the remote itself with `ls-remote` — read-only, no ref writes —
+# so a local tracking ref that predates a remote merge cannot advertise the
+# pre-merge commit as the release target.
+_resolve_tag_only_ref() {
+  local ref="$1"
+  local remote branch sha
+
+  case "${ref}" in
+    */*)
+      remote="${ref%%/*}"
+      branch="${ref#*/}"
+      if git remote get-url "${remote}" >/dev/null 2>&1; then
+        # `|| sha=""`: under `set -e`/pipefail a failed ls-remote (unreachable
+        # remote) would exit here, hiding the actionable diagnostic below.
+        sha="$(git ls-remote "${remote}" "refs/heads/${branch}" 2>/dev/null | cut -f1)" || sha=""
+        [[ -n "${sha}" ]] \
+          || _fatal "plan: cannot verify '${ref}' on '${remote}' — fetch it, or pass the commit SHA"
+        printf '%s\n' "${sha}"
+        return 0
+      fi
+      ;;
+  esac
+
+  git rev-parse --verify --quiet "${ref}^{commit}" \
+    || _fatal "plan: cannot resolve --ref '${ref}'"
+}
+
 cmd_plan() {
   _parse_common plan "$@"
+  if [[ "${TAG_ONLY}" -ne 1 && -n "${REF}" ]]; then
+    _fatal "plan: --ref applies only with --tag-only (the normal plan tags the merged HEAD)"
+  fi
 
   local version
   version="$(_resolve_version plan)"
+
+  local remotes
+  remotes="$(_remotes_to_use)"
+
+  # Tag-only: the release commit is already on the remote (the PR is merged),
+  # so there is no source branch to merge and no branch to push. Only the tag
+  # travels — the safe case on a protected default branch.
+  if [[ "${TAG_ONLY}" -eq 1 ]]; then
+    local ref="${REF:-HEAD}"
+    local ref_commit
+    ref_commit="$(_resolve_tag_only_ref "${ref}")"
+    local ref_subject="(not fetched locally — run git fetch before tagging)"
+    if git cat-file -e "${ref_commit}^{commit}" 2>/dev/null; then
+      ref_subject="$(git log -1 --format=%s "${ref_commit}")"
+    fi
+
+    printf '## Tag plan\n\n'
+    printf -- '- **Version:** `%s`\n' "${version}"
+    printf -- '- **Tag:** `%s` (annotated)\n' "${version}"
+    printf -- '- **Target:** `%s` %s\n' "${ref_commit}" "${ref_subject}"
+    printf -- '- **Branch push:** none (tag only)\n'
+
+    printf '\n### Remotes\n\n'
+    for remote in ${remotes}; do
+      printf -- '- `%s`\n' "${remote}"
+    done
+
+    printf '\n### Tag description\n\n'
+    if [[ -n "${NOTES}" ]]; then
+      [[ -f "${NOTES}" ]] || _fatal "plan: notes file not found: ${NOTES}"
+      printf '```text\n'
+      cat "${NOTES}"
+      printf '```\n'
+    else
+      printf '(no notes)\n'
+    fi
+
+    printf '\n### What happens on approval\n\n'
+    printf '1. Create the annotated tag `%s` at `%s`:\n' "${version}" "${ref_commit}"
+    printf '   `tag.sh tag --tag-only --version %s --ref %s --notes-file <notes>`\n' \
+      "${version}" "${ref_commit}"
+    printf '2. Push only `%s` to:%s.\n' "${version}" \
+      "$(for r in ${remotes}; do printf ' `%s' "${r}"; done)"
+    printf '\n_No VCS change has been made yet._\n'
+    return 0
+  fi
 
   SOURCE="${SOURCE:-$(git branch --show-current)}"
   [[ -n "${SOURCE}" ]] || _fatal "plan: cannot determine the source branch (detached HEAD)"
@@ -92,8 +169,7 @@ cmd_plan() {
   local fixup_count
   fixup_count="$(_fixup_count "${base_ref}" "${SOURCE}")"
 
-  local remotes remote
-  remotes="$(_remotes_to_use)"
+  local remote
 
   printf '## Tag plan\n\n'
   printf -- '- **Version:** `%s`\n' "${version}"
@@ -151,6 +227,9 @@ _restore_branch() {
 
 cmd_merge() {
   _parse_common merge "$@"
+  if [[ "${TAG_ONLY}" -eq 1 || -n "${REF}" ]]; then
+    _fatal "merge: --tag-only/--ref do not apply — merge has a source branch to fold in"
+  fi
 
   local source="${SOURCE:-$(git branch --show-current)}"
   [[ -n "${source}" ]] || _fatal "merge: cannot determine the source branch (detached HEAD)"
@@ -400,12 +479,46 @@ cmd_tag() {
     _fatal "tag ${version} already exists"
   fi
 
+  # --ref tags an already-merged commit (e.g. origin/main) without checking it
+  # out — the local default branch may be ahead or diverged. In tag-only mode it
+  # must be the full SHA the plan approved: a branch ref can advance between the
+  # approval and this call, and the tag would land on an unapproved commit.
+  local ref="${REF:-HEAD}"
+  if [[ "${TAG_ONLY}" -ne 1 && -n "${REF}" ]]; then
+    _fatal "tag: --ref applies only with --tag-only (the normal tag runs on the merged HEAD)"
+  fi
+  if [[ "${TAG_ONLY}" -eq 1 ]]; then
+    # Full-SHA form first: rev-parse would reject an unfetched approved commit
+    # with a generic error and hide the fetch remediation below.
+    case "${ref}" in
+      *[!0-9a-f]* | "") _fatal "tag: --tag-only needs the full commit SHA from the plan, not '${ref}'" ;;
+    esac
+    # Object-id length is repository-defined (40 for SHA-1, 64 for SHA-256):
+    # derive it instead of assuming SHA-1.
+    local native_head
+    native_head="$(git rev-parse --verify HEAD 2>/dev/null || true)"
+    [[ -n "${native_head}" ]] \
+      || _fatal "tag: cannot determine this repository's object-id length"
+    [[ ${#ref} -eq ${#native_head} ]] \
+      || _fatal "tag: --tag-only needs the full commit SHA from the plan, not '${ref}'"
+    git cat-file -e "${ref}^{commit}" 2>/dev/null \
+      || _fatal "tag: '${ref}' is not in this checkout — fetch the release branch first"
+  fi
+  git rev-parse --verify --quiet "${ref}^{commit}" >/dev/null \
+    || _fatal "tag: cannot resolve --ref '${ref}'"
+
+  # Tag the resolved commit, never the original ref: an annotated tag passed as
+  # --ref would otherwise create a nested tag instead of one on the release
+  # commit.
+  local ref_commit
+  ref_commit="$(git rev-parse --verify "${ref}^{commit}")"
+
   # --cleanup=whitespace is load-bearing: the default cleanup strips lines
   # starting with '#' and would silently drop the notes' markdown heading.
-  git tag -a "${version}" --cleanup=whitespace -F "${NOTES}" \
+  git tag -a "${version}" "${ref_commit}" --cleanup=whitespace -F "${NOTES}" \
     || _fatal "could not create tag ${version}"
 
-  printf 'created tag %s\n' "${version}"
+  printf 'created tag %s at %s\n' "${version}" "${ref_commit}"
 }
 
 # ── default-branch protection ────────────────────────────────────────────────
@@ -429,10 +542,20 @@ cmd_push() {
   local version
   version="$(_resolve_version push)"
   [[ -n "${REMOTES}" ]] || _fatal "push: --remotes is required"
+  [[ -z "${REF}" ]] || _fatal "push: --ref does not apply — push sends a created tag"
   local branch="${DEFAULT_BRANCH:-$(_default_branch)}"
 
   local failed="" remote
   for remote in ${REMOTES//,/ }; do
+    if [[ "${TAG_ONLY}" -eq 1 ]]; then
+      if git push --quiet "${remote}" "refs/tags/${version}"; then
+        printf 'pushed tag %s to %s\n' "${version}" "${remote}"
+      else
+        failed="${failed} ${remote}"
+        _error "could not push tag ${version} to '${remote}'"
+      fi
+      continue
+    fi
     # A protected default branch must move through a PR, never through this command. The
     # tag is unaffected: after the PR is merged the branch is already in sync, so the
     # check passes and only the tag is sent.
@@ -461,7 +584,11 @@ cmd_push() {
 
   if [[ -n "${failed}" ]]; then
     _error "push failed for:${failed}"
-    _error "remediation: git push <remote> ${branch} && git push <remote> refs/tags/${version}"
+    if [[ "${TAG_ONLY}" -eq 1 ]]; then
+      _error "remediation: git push <remote> refs/tags/${version}"
+    else
+      _error "remediation: git push <remote> ${branch} && git push <remote> refs/tags/${version}"
+    fi
     exit 1
   fi
 }
@@ -476,8 +603,16 @@ Subcommands:
   version  [--version V] [--remote R]                     resolve the version to tag
   plan     --version V [--notes-file F] [--remotes a,b]   print the approval preview
   merge    [--source B] [--default D]                      squash fixups, then merge into the default branch
-  tag      --version V --notes-file F                      create the annotated tag
-  push     --version V [--branch B] --remotes a,b          push the branch and the tag
+  tag      --version V --notes-file F                      create the annotated tag (normal flow)
+  tag      --tag-only --version V --ref R --notes-file F   tag an already-merged commit R
+  push     --version V [--branch B] --remotes a,b [--tag-only]
+                                                           push the branch and the tag
+                                                           (--tag-only: the tag alone)
+
+Already-merged release (tag only, no branch push):
+  plan --tag-only --version V --ref R --notes-file F --remotes a,b
+  tag  --tag-only --version V --ref R --notes-file F
+  push --tag-only --version V --remotes a,b
 
 Requires: bash; git >= 2.23 (git switch), git >= 2.18 (ls-remote --sort).
 EOF

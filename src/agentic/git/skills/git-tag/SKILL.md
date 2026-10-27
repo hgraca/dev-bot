@@ -52,6 +52,38 @@ Show the output **verbatim** — it is the exact plan. Ask for approval or chang
 requests. A change request (a different version, description, or remotes) means
 going back to the relevant step, re-rendering the plan, and asking again.
 
+## Already-merged releases: tag only
+
+When the release commit is already on the remote — the PR is merged, or the
+local default branch is ahead or diverged so pushing it would be wrong — do not
+merge or push a branch at all. Set `--tag-only` and point `--ref` at the
+release commit:
+
+```
+# <remote> is the release remote chosen in step 3 and <default> its default
+# branch — neither is necessarily `origin` or `main`. Fetch first: the plan
+# resolves the remote's tip read-only, and the tag step needs that commit in
+# the local object database.
+git fetch <remote> <default>
+
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/tag.sh" plan --tag-only \
+  --version "<version>" --ref <remote>/<default> \
+  --notes-file "release.v<VERSION>.no-vcs.md" --remotes <remotes>
+
+# --tag-only takes the immutable SHA the plan printed, never the branch ref:
+# origin/main can advance between the approval and this call.
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/tag.sh" tag --tag-only \
+  --version "<version>" --ref <sha-from-the-plan> \
+  --notes-file "release.v<VERSION>.no-vcs.md"
+
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/tag.sh" push --tag-only \
+  --version "<version>" --remotes <remotes>
+```
+
+The plan then carries no source branch and no merge line, and `push` sends the
+tag alone. For the full GitHub release, `devbot:gh-release` drives the same
+three commands.
+
 ## Never push a protected default branch
 
 Before the merge step, check whether the default branch accepts direct pushes:

@@ -311,6 +311,8 @@ _parse_common() {
   REMOTES=""
   SOURCE=""
   DEFAULT_BRANCH=""
+  REF=""
+  TAG_ONLY=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -338,6 +340,15 @@ _parse_common() {
         [[ $# -ge 2 ]] || _fatal "$1 needs a value"
         DEFAULT_BRANCH="$2"
         shift 2
+        ;;
+      --ref)
+        [[ $# -ge 2 ]] || _fatal "$1 needs a value"
+        REF="$2"
+        shift 2
+        ;;
+      --tag-only)
+        TAG_ONLY=1
+        shift
         ;;
       *)
         _fatal "$sub: unknown argument '$1'"
