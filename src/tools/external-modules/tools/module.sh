@@ -109,13 +109,18 @@ _wire_module() {
     shift 3
     local project_dirs=("$@")
 
+    if ! _external_module_paths_ok "${paths_json}"; then
+        _warn "${name}: invalid paths config — refusing to wire it"
+        return 1
+    fi
+
     for type in skills agents commands plugins; do
         local rel_path
-        rel_path="$(python3 -c "
+        rel_path="$(python3 -c '
 import json, sys
-paths = json.loads('${paths_json}')
-print(paths.get('${type}', ''))
-")"
+paths = json.loads(sys.argv[1])
+print(paths.get(sys.argv[2], ""))
+' "${paths_json}" "${type}")"
         [[ -z "${rel_path}" ]] && continue
 
         local type_src
@@ -207,58 +212,14 @@ cmd_install() {
         return 0
     fi
 
-    # Process each module
-    while IFS=$'\x1f' read -r name url local_path paths_json; do
-        if [[ -n "${local_path}" ]]; then
-            # Local module - verify it exists
-            if [[ ! -d "${local_path}" ]]; then
-                _warn "${name}: local path not found (${local_path})"
-                continue
-            fi
-            _skip "${name}: local module at ${local_path}"
-        elif [[ -n "${url}" ]]; then
-            # Git module - clone or pull
-            local vendor_rel
-            vendor_rel="$(_derive_vendor_path "${url}")"
-            local dest="${MODULES_DIR}/${vendor_rel}"
-
-            if [[ -d "${dest}/.git" ]]; then
-                # Existing repo - fetch updates
-                _info "Updating ${name} ..."
-                (cd "${dest}" && git fetch --depth 1 origin +refs/heads/*:refs/remotes/origin/* && \
-                  git reset --hard origin/"$(git rev-parse --abbrev-ref HEAD)") >/dev/null 2>&1 || {
-                    _warn "Failed to update ${name}"
-                    continue
-                }
-                _ok "${name} updated"
-                _remove_readme_from_paths "${dest}" "${paths_json}"
-            else
-                # New repo - clone
-                _info "Cloning ${name} ..."
-                mkdir -p "$(dirname "${dest}")"
-                git clone --depth 1 "${url}" "${dest}" >/dev/null 2>&1 || {
-                    _warn "Failed to clone ${name}"
-                    continue
-                }
-                _ok "${name} cloned"
-                _remove_readme_from_paths "${dest}" "${paths_json}"
-            fi
-        else
-            _warn "${name}: missing url and local_path — skipping"
-            continue
-        fi
-    done < <(python3 "${READ_JSONC}" "${CONFIG_FILE}" external_modules | \
-        python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for name, entry in data.items():
-    if not isinstance(entry, dict):
-        continue  # boolean enable/disable flags are not module definitions
-    url = entry.get('url', '')
-    local_path = entry.get('local_path', '')
-    paths = json.dumps(entry.get('paths', {}))
-    print(f'{name}\x1f{url}\x1f{local_path}\x1f{paths}')
-    ")
+    # Same implementation as install.sh: clone or update each destination, then
+    # mirror it. The validated update path applies here too — a configured path
+    # that vanished upstream cancels that module's update and keeps its legacy
+    # checkout, instead of resetting onto a broken commit.
+    if ! _external_module_install_all "${CONFIG_FILE}" "${DEV_BOT_ROOT}"; then
+        _error "external modules: some modules were not installed/updated — see the errors above"
+        return 1
+    fi
 
     _ok "external-modules installation complete"
 }
@@ -272,7 +233,7 @@ cmd_init() {
         exit 1
     fi
 
-    DEV_BOT_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
+    DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${SCRIPT_DIR}/../../../.." && pwd)}"
     CONFIG_FILE="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
     MODULES_DIR="${DEV_BOT_ROOT}/vendor"
 
@@ -302,16 +263,38 @@ cmd_init() {
 
     # Process each module
     while IFS=$'\x1f' read -r name url local_path paths_json; do
+        if [[ "${name}" == $'\tINVALID' ]]; then
+            _warn "invalid module name — skipping wiring"
+            continue
+        fi
+        if ! _external_module_name_ok "${name}"; then
+            _warn "${name}: invalid module name — skipping wiring"
+            continue
+        fi
+
+        if ! _external_module_paths_ok "${paths_json}"; then
+            _warn "${name}: invalid paths config — skipping wiring"
+            continue
+        fi
+
         # Determine source directory
         if [[ -n "${local_path}" ]]; then
             local src_dir="${local_path}"
         elif [[ -n "${url}" ]]; then
             local vendor_rel
-            vendor_rel="$(_derive_vendor_path "${url}")"
+            if ! vendor_rel="$(_derived_vendor_path "${url}")"; then
+                _warn "${name}: URL does not map inside vendor/ — skipping"
+                continue
+            fi
             local src_dir="${MODULES_DIR}/${vendor_rel}"
             # Ensure the module is cloned (should have been done by install.sh)
             if [[ ! -d "${src_dir}" ]]; then
                 _warn "${name}: source not found at ${src_dir} — run install.sh first"
+                continue
+            fi
+            # A retained checkout of another repository must not be wired under
+            # this name (same guard as init.sh/up.sh/module add).
+            if ! _checkout_belongs_to "${name}" "${src_dir}" "${url}"; then
                 continue
             fi
         else
@@ -321,13 +304,13 @@ cmd_init() {
 
         # Parse paths JSON
         local paths_map
-        paths_map="$(python3 -c "
+        paths_map="$(python3 -c '
 import json, sys
-paths = json.loads('${paths_json}')
+paths = json.loads(sys.argv[1])
 # Output as key=value lines
 for k, v in paths.items():
-    print(f'{k}={v}')
-")"
+    print(f"{k}={v}")
+' "${paths_json}")"
 
         # Wire each path type
         while IFS='=' read -r type rel_path; do
@@ -359,18 +342,9 @@ for k, v in paths.items():
                 fi
             done
         done <<< "${paths_map}"
-    done < <(python3 "${READ_JSONC}" "${CONFIG_FILE}" external_modules | \
-        python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for name, entry in data.items():
-    if not isinstance(entry, dict):
-        continue  # boolean enable/disable flags are not module definitions
-    url = entry.get('url', '')
-    local_path = entry.get('local_path', '')
-    paths = json.dumps(entry.get('paths', {}))
-    print(f'{name}\x1f{url}\x1f{local_path}\x1f{paths}')
-    ")
+    # Shared parser: it escapes/rejects control characters in a key instead of
+    # letting one crafted name split into several records.
+    done <<< "$(_external_module_entries "${CONFIG_FILE}")"
 
     _ok "external-modules wiring complete"
 }
@@ -401,8 +375,8 @@ cmd_list() {
             [[ -d "${_local_path}" ]] && source_ok="✔"
             loc="${_local_path}"
         else
-            loc="$(_derive_vendor_path "${_url}")"
-            [[ -d "${MODULES_DIR}/${loc}/.git" ]] && source_ok="✔"
+            loc="$(_derived_vendor_path "${_url}")" || loc="<url outside vendor/>"
+            [[ "${loc}" != "<url outside vendor/>" && -d "${MODULES_DIR}/${loc}/.git" ]] && source_ok="✔"
         fi
         local status="✖"
         [[ "${source_ok}" == "✔" && -d "${storage_base}/${_name}" ]] && status="✔"
@@ -464,6 +438,14 @@ cmd_add() {
         local_abs_path="$(cd -P "${url_or_path}" && pwd)"
     fi
 
+    # The name becomes a link path under .opencode/.agents: it must be exactly
+    # one path component, whether derived from the source or passed by flag.
+    local requested_name="${opt_name:-$(basename "${url_or_path}")}"
+    if ! _external_module_name_ok "${requested_name}"; then
+        _error "Invalid module name '${requested_name}' — use a single path component without control characters"
+        return 1
+    fi
+
     if [[ "${is_local}" == true ]]; then
         local name="${opt_name:-$(basename "${local_abs_path}")}"
         local existing_url existing_local
@@ -493,15 +475,16 @@ print(json.dumps(paths))
         fi
 
         _step "Registering in .devbot.global.jsonc ..."
-        python3 "${READ_JSONC}" "${CONFIG_FILE}" | python3 -c "
+        # name/path/paths are data: pass them as argv, never inside the source.
+        python3 "${READ_JSONC}" "${CONFIG_FILE}" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
-modules = data.setdefault('external_modules', {})
-modules['${name}'] = {'local_path': '${local_abs_path}', 'paths': ${paths_json}}
-with open('${CONFIG_FILE}', 'w') as f:
+modules = data.setdefault("external_modules", {})
+modules[sys.argv[1]] = {"local_path": sys.argv[2], "paths": json.loads(sys.argv[3])}
+with open(sys.argv[4], "w") as f:
     json.dump(data, f, indent=2)
-    f.write('\n')
-"
+    f.write("\n")
+' "${name}" "${local_abs_path}" "${paths_json}" "${CONFIG_FILE}"
         _format_config
         _ok "Registered: ${name}"
     else
@@ -518,10 +501,18 @@ with open('${CONFIG_FILE}', 'w') as f:
         fi
 
         local vendor_rel
-        vendor_rel="$(_derive_vendor_path "${url}")"
+        if ! vendor_rel="$(_derived_vendor_path "${url}")"; then
+            _error "${name}: URL does not map inside vendor/ — refusing to register it"
+            return 1
+        fi
         local dest="${MODULES_DIR}/${vendor_rel}"
 
         if [[ -d "${dest}/.git" ]]; then
+            # A retained checkout must belong to this URL; otherwise the new
+            # module would expose another repository's code.
+            if ! _checkout_belongs_to "${name}" "${dest}" "${url}"; then
+                return 1
+            fi
             _skip "Already cloned: ${dest}"
         else
             _step "Cloning ${url} → ${dest} ..."
@@ -532,16 +523,21 @@ with open('${CONFIG_FILE}', 'w') as f:
 
         _step "Detecting available paths ..."
         local paths_json
-        paths_json="$(python3 -c "
-import json, os
-dest = '${dest}'
-defaults = {'skills': '${opt_skills:-./skills}', 'agents': '${opt_agents:-./agents}', 'commands': '${opt_commands:-./commands}', 'plugins': '${opt_plugins:-./plugins}'}
+        paths_json="$(python3 -c '
+import json, os, sys
+dest = sys.argv[1]
+defaults = {
+    "skills": sys.argv[2],
+    "agents": sys.argv[3],
+    "commands": sys.argv[4],
+    "plugins": sys.argv[5],
+}
 paths = {}
 for key, rel in defaults.items():
     if os.path.isdir(os.path.join(dest, rel)):
         paths[key] = rel
 print(json.dumps(paths))
-")"
+' "${dest}" "${opt_skills:-./skills}" "${opt_agents:-./agents}" "${opt_commands:-./commands}" "${opt_plugins:-./plugins}")"
         if [[ "${paths_json}" == "{}" ]]; then
             _warn "No standard paths found, using defaults"
             paths_json='{"skills":"./skills","agents":"./agents","commands":"./commands","plugins":"./plugins"}'
@@ -550,15 +546,16 @@ print(json.dumps(paths))
         _remove_readme_from_paths "${dest}" "${paths_json}"
 
         _step "Registering in .devbot.global.jsonc ..."
-        python3 "${READ_JSONC}" "${CONFIG_FILE}" | python3 -c "
+        # name/url/paths are data: pass them as argv, never inside the source.
+        python3 "${READ_JSONC}" "${CONFIG_FILE}" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
-modules = data.setdefault('external_modules', {})
-modules['${name}'] = {'url': '${url}', 'paths': ${paths_json}}
-with open('${CONFIG_FILE}', 'w') as f:
+modules = data.setdefault("external_modules", {})
+modules[sys.argv[1]] = {"url": sys.argv[2], "paths": json.loads(sys.argv[3])}
+with open(sys.argv[4], "w") as f:
     json.dump(data, f, indent=2)
-    f.write('\n')
-"
+    f.write("\n")
+' "${name}" "${url}" "${paths_json}" "${CONFIG_FILE}"
         _format_config
         _ok "Registered: ${name}"
 
@@ -585,6 +582,12 @@ cmd_remove() {
         _fatal "Usage: module.sh remove <name>"
         exit 1
     fi
+    # Removal walks link paths built from the name: refuse anything that is not
+    # a single component rather than deleting outside the managed tree.
+    if ! _external_module_name_ok "${name}"; then
+        _error "Invalid module name '${name}' — use a single path component without control characters"
+        return 1
+    fi
 
     _header_3 "Module remove: ${name}"
 
@@ -604,15 +607,15 @@ cmd_remove() {
     done < <(_discover_projects | sort -u)
     _unwire_module "${name}" "${projects[@]}"
 
-    # Remove from config
-    python3 "${READ_JSONC}" "${CONFIG_FILE}" | python3 -c "
+    # Remove from config. The name is data: pass it as argv, never source.
+    python3 "${READ_JSONC}" "${CONFIG_FILE}" | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
-data.get('external_modules', {}).pop('${name}', None)
-with open('${CONFIG_FILE}', 'w') as f:
+data.get("external_modules", {}).pop(sys.argv[1], None)
+with open(sys.argv[2], "w") as f:
     json.dump(data, f, indent=2)
-    f.write('\n')
-"
+    f.write("\n")
+' "${name}" "${CONFIG_FILE}"
     _format_config
 
     # Remove storage structure (config is now the source of truth — no longer configured)

@@ -39,7 +39,8 @@ teardown() { _update_teardown; }
   grep -q 'feature work' "${INSTALL}/feature.txt"
   [[ "$UPDATE_OUTPUT" == *"not a release checkout"* ]]
   [[ "$UPDATE_OUTPUT" == *"skipping update"* ]]
-  ! _refresh_ran
+  # No release move, but an explicit update still refreshes external modules.
+  _refresh_ran
 }
 
 @test "--auto on a diverged branch: echoes and continues without updating" {
@@ -114,7 +115,7 @@ teardown() { _update_teardown; }
 
   [ "$UPDATE_STATUS" -eq 0 ]
   [[ "$UPDATE_OUTPUT" == *"Already on 1.1.0"* ]]
-  ! _refresh_ran
+  _refresh_ran
 }
 
 @test "explicit nonexistent tag: errors, lists tags, exits 1" {

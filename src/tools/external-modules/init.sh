@@ -28,6 +28,22 @@ MODULE_ENTRIES=""  # name\x1furl\x1flocal_path\x1fpaths_json per line (pre-built
 PROCESSED_NAMES="" # names already wired by the declared-module loop
 
 # ── Helpers ─────────────────────────────────────────────────────────────────────
+# Run a command under one destination's clone lock. init runs before the
+# start-time sync, so its install and mirror render must serialize with a
+# concurrent start's fetch/reset on the same checkout.
+# Args: dest cap command...
+_locked() {
+  local dest="$1"
+  local cap="$2"
+  shift 2
+
+  _devbot_lock_wait "${dest}.lock" "${cap}" "clone lock held >${cap}s — continuing without it" || true
+  local rc=0
+  "$@" || rc=$?
+  { exec 200>&-; } 2>/dev/null || true
+  return "${rc}"
+}
+
 
 _resolve_project_dir() {
   PROJECT_DIR="${1:-$(pwd)}"
@@ -110,7 +126,8 @@ _resolve_source_dir() {
     return 0
   elif [[ -n "${url}" ]]; then
     local vendor_rel
-    vendor_rel="$(_derive_vendor_path "${url}")"
+    vendor_rel="$(_derived_vendor_path "${url}")" || return 1
+    _external_module_migrate_legacy_checkout "${MODULES_DIR}" "${url}" "${MODULES_DIR}/${vendor_rel}"
     echo "${MODULES_DIR}/${vendor_rel}"
     return 0
   fi
@@ -122,58 +139,6 @@ _lookup_entry() {
   local line
   line=$(echo "${MODULE_ENTRIES}" | grep -F "${name}"$'\x1f' 2>/dev/null || true)
   echo "${line}"
-}
-
-_wire_one_module() {
-  local name="$1"
-  local src_dir="$2"
-  local paths_json="$3"
-
-  local paths_map
-  paths_map="$(python3 -c "
-import json, sys
-paths = json.loads('${paths_json}')
-for k, v in paths.items():
-    print(f'{k}={v}')
-" 2>/dev/null || true)"
-
-  [[ -n "${paths_map}" ]] || return 0
-
-  # External artifacts go into the DEVBOT DIR (e.g. .agents/), like the
-  # internal artifacts — NOT .opencode/ — so both harnesses get them through
-  # the harness delegation (.claude/* → .agents/*) and opencode's direct
-  # .agents discovery. Each external module is its own namespace under the
-  # type dir (.agents/skills/addyosmani, .agents/agents/addyosmani, ...).
-  local devbot_dir
-  devbot_dir="$(_devbot_get_project_dir "${PROJECT_DIR}")"
-
-  while IFS='=' read -r type rel_path; do
-    [[ -z "${type}" || -z "${rel_path}" ]] && continue
-    [[ ! -d "${src_dir}/${rel_path}" ]] && continue
-
-    local type_src="${src_dir}/${rel_path}"
-    local target_dir="${PROJECT_DIR}/${devbot_dir}/${type}"
-    local link_path="${target_dir}/${name}"
-
-    mkdir -p "${target_dir}"
-
-    if [[ -L "${link_path}" ]]; then
-      local current
-      current="$(readlink "${link_path}")"
-      if [[ "${current}" == "${type_src}" ]]; then
-        _skip "${name} → ${devbot_dir}/${type}/${name} (already correct)"
-      else
-        rm "${link_path}"
-        ln -s "${type_src}" "${link_path}"
-        _log "${name} → ${devbot_dir}/${type}/${name} repaired"
-      fi
-    elif [[ -e "${link_path}" ]]; then
-      _warn "${link_path} exists but is not a symlink — skipping"
-    else
-      ln -s "${type_src}" "${link_path}"
-      _log "${name} → ${devbot_dir}/${type}/${name} linked"
-    fi
-  done <<< "${paths_map}"
 }
 
 _setup_one_storage() {
@@ -217,19 +182,27 @@ _process_agentic_module() {
 
     local src_dir
     src_dir=$(_resolve_source_dir "${url}" "${local_path}") || {
-      _warn "${ext_name}: missing url and local_path — skipping"
+      _warn "${ext_name}: url/local_path missing, or the URL does not map inside vendor/ — skipping"
       continue
     }
 
     if [[ -z "${local_path}" && ! -d "${src_dir}" ]]; then
-      _install_one_module "${ext_name}" "${url}" "${src_dir}" "${paths_json}" || {
+      _locked "${src_dir}" "${DEV_BOT_MODULE_UPDATE_LOCK_WAIT:-120}" \
+        _install_one_module "${ext_name}" "${url}" "${src_dir}" "${paths_json}" || {
         _warn "${ext_name}: source not found at ${src_dir} — auto-install failed"
         continue
       }
+    elif [[ -z "${local_path}" ]] && ! _checkout_belongs_to "${ext_name}" "${src_dir}" "${url}"; then
+      # A retained checkout of another repository must never be wired under
+      # this entry's name, even before up.sh gets a chance to reject it.
+      continue
     fi
 
-    _wire_one_module "${ext_name}" "${src_dir}" "${paths_json}"
-    _setup_one_storage "${ext_name}" "${src_dir}" "${paths_json}"
+    _wire_one_module "${ext_name}" "${src_dir}" "${paths_json}" ||
+      _warn "${ext_name}: wiring skipped"
+    _locked "${src_dir}" "${DEV_BOT_MODULE_UPDATE_LOCK_WAIT:-120}" \
+      _setup_one_storage "${ext_name}" "${src_dir}" "${paths_json}" ||
+      _warn "${ext_name}: mirror render failed"
     PROCESSED_NAMES+="${ext_name}"$'\n'
   done <<< "${declared_names}"
 }
@@ -242,17 +215,9 @@ main() {
   _check_config_exists || return 0
 
   # Pre-read module config and disabled modules once
-  MODULE_ENTRIES=$(python3 -c "
-import json, sys
-sys.path.insert(0, '${MODULE_DIR}/../../_shared')
-from read_jsonc import load_jsonc
-data = load_jsonc('${CONFIG_FILE}')
-for name, entry in data.get('external_modules', {}).items():
-    url = entry.get('url', '')
-    local_path = entry.get('local_path', '')
-    paths = json.dumps(entry.get('paths', {}))
-    print(f'{name}\x1f{url}\x1f{local_path}\x1f{paths}')
-" 2>/dev/null || true)
+  # Shared parser: control characters in a key are reported through its
+  # sentinel record instead of splitting the transport into fake entries.
+  MODULE_ENTRIES="$(_external_module_entries "${CONFIG_FILE}")"
 
   local disabled_json
   disabled_json=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
@@ -274,6 +239,10 @@ for name, entry in data.get('external_modules', {}).items():
   # usable after reinit (audit-29 FAIL-1).
   while IFS=$'\x1f' read -r name url local_path paths_json; do
     [[ -z "${name}" ]] && continue
+    if [[ "${name}" == $'\tINVALID' ]]; then
+      _warn "invalid module name — skipping wiring"
+      continue
+    fi
     [[ -z "${url}" && -z "${local_path}" ]] && continue
 
     if echo "${PROCESSED_NAMES}" | grep -Fxq "${name}" 2>/dev/null; then
@@ -299,19 +268,25 @@ for name, entry in data.get('external_modules', {}).items():
 
     local src_dir
     src_dir=$(_resolve_source_dir "${url}" "${local_path}") || {
-      _warn "${name}: missing url and local_path — skipping"
+      _warn "${name}: url/local_path missing, or the URL does not map inside vendor/ — skipping"
       continue
     }
 
     if [[ -z "${local_path}" && ! -d "${src_dir}" ]]; then
-      _install_one_module "${name}" "${url}" "${src_dir}" "${paths_json}" || {
+      _locked "${src_dir}" "${DEV_BOT_MODULE_UPDATE_LOCK_WAIT:-120}" \
+        _install_one_module "${name}" "${url}" "${src_dir}" "${paths_json}" || {
         _warn "${name}: source not found at ${src_dir} — auto-install failed"
         continue
       }
+    elif [[ -z "${local_path}" ]] && ! _checkout_belongs_to "${name}" "${src_dir}" "${url}"; then
+      continue
     fi
 
-    _wire_one_module "${name}" "${src_dir}" "${paths_json}"
-    _setup_one_storage "${name}" "${src_dir}" "${paths_json}"
+    _wire_one_module "${name}" "${src_dir}" "${paths_json}" ||
+      _warn "${name}: wiring skipped"
+    _locked "${src_dir}" "${DEV_BOT_MODULE_UPDATE_LOCK_WAIT:-120}" \
+      _setup_one_storage "${name}" "${src_dir}" "${paths_json}" ||
+      _warn "${name}: mirror render failed"
     PROCESSED_NAMES+="${name}"$'\n'
   done <<< "${MODULE_ENTRIES}"
 

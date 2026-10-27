@@ -371,21 +371,27 @@ _ensure_legacy_providers() {
 }
 
 # ── External module repos (vendor) ───────────────────────────────────────────
-# Refresh the registered external module git repos (clone or pull) via the
-# module manager — `devbot module install`. Harnesses are deliberately not
-# updated here.
-_update_external_modules() {
+# An explicit `devbot update` promises everything is current, external module
+# clones included. A moving release refreshes them through the module update
+# loop (src/tools/external-modules/update.sh runs install.sh); the no-move exits
+# below never reach that loop, so refresh there instead.
+#
+# `--auto` (the bare-`devbot` start) deliberately does NOT: the start-time check
+# in external-modules/up.sh has its own 24h gate, and a full fetch here would
+# defeat it on every start.
+_sync_external_modules_on_noop() {
+  [[ "${AUTO_QUIET}" -eq 1 ]] && return 0
+
+  local script="${DEV_BOT_ROOT}/src/tools/external-modules/update.sh"
+  [[ -f "${script}" ]] || return 0
+
   _header_2 "External Modules"
-  local module_tool="${DEV_BOT_ROOT}/src/tools/external-modules/tools/module.sh"
-  if [[ ! -f "${module_tool}" ]]; then
-    _skip "module manager not found — skipping external module refresh"
-    return 0
-  fi
-  if bash "${module_tool}" install; then
+  if bash "${script}"; then
     _ok "external modules refreshed"
   else
     _warn "external modules refresh reported issues — see output above"
   fi
+  return 0
 }
 
 # ── Record the installed release ──────────────────────────────────────────────
@@ -587,6 +593,7 @@ main() {
     target="$(_newest_release)"
     if [[ -z "${target}" ]]; then
       _skip "No release tags found — nothing to update."
+      _sync_external_modules_on_noop
       exit 0
     fi
   fi
@@ -600,6 +607,7 @@ main() {
       else
         _ok "Already on the latest version (${target})."
       fi
+      _sync_external_modules_on_noop
       exit 0
       ;;
     ahead)
@@ -610,6 +618,7 @@ main() {
         _jump_to_release "${target}" || exit 1
       else
         _ok "Already on the latest version (${target})."
+        _sync_external_modules_on_noop
         exit 0
       fi
       ;;
@@ -639,6 +648,7 @@ main() {
         else
           _ok "Branch '${dev_branch}' is not a release checkout — skipping update."
         fi
+        _sync_external_modules_on_noop
         exit 0
       fi
       ;;
@@ -677,8 +687,6 @@ main() {
   _update_modules "${DEV_BOT_ROOT}/src/harnesses"
   module_count=$(( module_count + ${MODULE_SCRIPT_COUNT:-0} ))
   module_failed=$(( module_failed + ${MODULE_SCRIPT_FAILED:-0} ))
-
-  _update_external_modules
 
   # Record the release so every project reinits on its next start.
   _record_installed_version "${target}"

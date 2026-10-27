@@ -71,6 +71,8 @@ The installed dev-bot release tag. Written by `devbot update` when it moves onto
 
 When not `false`, a bare `devbot` start runs `devbot update --auto` before wiring. The update is a no-op when already on the newest release; a failure warns and the start continues on the current version.
 
+The same switch governs the external-module check: unless it is `false`, every start (`devbot up` as well as a bare `devbot`) compares each git-backed external module in `vendor/` against its remote and updates the ones that moved. See [External modules](/modules/tools/external-modules#updating-on-start).
+
 ---
 
 ### `project_name`

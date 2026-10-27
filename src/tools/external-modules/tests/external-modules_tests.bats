@@ -329,7 +329,7 @@ JSON
   rm -rf "${DEV_BOT_ROOT}/storage"
 }
 
-@test "storage: warns when source directory does not exist" {
+@test "storage: a missing configured source fails the render" {
   source "${MODULE_DIR}/functions.sh"
 
   local module_name="test-missing-src"
@@ -337,11 +337,12 @@ JSON
   local paths_json='{"skills":"skills"}'
 
   mkdir -p "${TEST_HOME}/vendor/test-org/missing-repo"
-  # Don't create skills/ subdir
+  # Don't create skills/ subdir: a configured path with no source is a broken
+  # mirror, so callers must not report the render as complete.
 
   run _setup_external_module_storage "${src_dir}" "${module_name}" "${paths_json}" "${DEV_BOT_ROOT}"
 
-  assert_success
+  assert_failure
   assert_output --partial "source dir not found"
 
   rm -rf "${DEV_BOT_ROOT}/storage"
@@ -515,4 +516,220 @@ EOF
   refute_output --partial "clone"
   # Nothing registered, nothing cloned into vendor/.
   assert [ ! -e "${DEV_BOT_ROOT}/vendor/--help" ]
+}
+
+@test "add: refuses a name that is not a single path component" {
+  local src="${TEST_HOME}/local-src"
+  mkdir -p "${src}/skills"
+
+  run bash "$TOOL" add "${src}" --name=../escape
+
+  assert_failure
+  assert_output --partial "Invalid module name"
+  local config="${DEV_BOT_ROOT}/.devbot.jsonc"
+  ! grep -q "escape" "$config"
+}
+
+# ── Render failures and ownership guards ─────────────────────────────────────
+
+@test "storage: a regular file at a lifecycle link fails the render" {
+  source "${MODULE_DIR}/functions.sh"
+
+  local src="${TEST_HOME}/vendor/test-org/src"
+  local name="test-blocked-lifecycle"
+  mkdir -p "${src}"
+  printf '#!/usr/bin/env bash\n' > "${src}/up.sh"
+  local mirror="${DEV_BOT_ROOT}/storage/external-agentic-modules/${name}"
+  mkdir -p "${mirror}"
+  printf 'not a link\n' > "${mirror}/up.sh"
+
+  run _setup_external_module_storage "${src}" "${name}" '{}' "${DEV_BOT_ROOT}"
+
+  assert_failure
+  assert_output --partial "exists but not symlink"
+
+  rm -rf "${DEV_BOT_ROOT}/storage"
+}
+
+@test "init: skips a retained checkout that belongs to another repository" {
+  local project="${TEST_HOME}/project"
+  mkdir -p "${project}"
+  printf '{"devbot_dir": ".agents"}
+' > "${project}/.devbot.project.jsonc"
+
+  local dest="${DEV_BOT_ROOT}/vendor/org/repo"
+  mkdir -p "${dest}"
+  git init -q "${dest}"
+  git -C "${dest}" remote add origin "https://example.com/other/repo.git"
+
+  cat > "${DEV_BOT_ROOT}/.devbot.global.jsonc" <<'JSON'
+{"external_modules":{"foreign":{"url":"https://example.com/org/repo.git","paths":{"skills":"skills"}}}}
+JSON
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "belongs to"
+  [ ! -e "${project}/.agents/skills/foreign" ]
+}
+
+@test "init: a control-character module name is skipped, not mis-parsed" {
+  local project="${TEST_HOME}/project"
+  mkdir -p "${project}"
+  printf '{"devbot_dir": ".agents"}
+' > "${project}/.devbot.project.jsonc"
+
+  # A newline in the key would split the entry transport without the sentinel.
+  # The escape sequence is what the JSON parser turns into the control char.
+  cat > "${DEV_BOT_ROOT}/.devbot.global.jsonc" <<'JSON'
+{"external_modules":{"bad\u000aname":{"url":"https://example.com/org/repo.git","paths":{"skills":"skills"}}}}
+JSON
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "invalid module name"
+  [ ! -e "${project}/.agents/skills/name" ]
+}
+
+@test "add: refuses a retained checkout that belongs to another repository" {
+  local dest="${DEV_BOT_ROOT}/vendor/org/repo"
+  mkdir -p "${dest}"
+  git init -q "${dest}"
+  git -C "${dest}" remote add origin "https://example.com/other/repo.git"
+
+  run bash "$TOOL" add "https://example.com/org/repo.git"
+
+  assert_failure
+  assert_output --partial "belongs to"
+  ! grep -q '"repo"' "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+}
+
+@test "storage: a conflicting file is reported but not deleted" {
+  source "${MODULE_DIR}/functions.sh"
+
+  local src="${TEST_HOME}/vendor/test-org/src"
+  local name="test-conflict-keep"
+  mkdir -p "${src}/skills"
+  local mirror="${DEV_BOT_ROOT}/storage/external-agentic-modules/${name}"
+  mkdir -p "${mirror}"
+  printf 'user data\n' > "${mirror}/skills"
+
+  run _setup_external_module_storage "${src}" "${name}" '{"skills":"skills"}' "${DEV_BOT_ROOT}"
+
+  assert_failure
+  assert_output --partial "exists but not symlink"
+  [ -f "${mirror}/skills" ]
+  [ "$(cat "${mirror}/skills")" = "user data" ]
+
+  rm -rf "${DEV_BOT_ROOT}/storage"
+}
+
+@test "add: writes a name with quotes and semicolons as data" {
+  local src="${TEST_HOME}/local-src"
+  mkdir -p "${src}/skills"
+  local evil="x'] or __import__('os').system('true') or ['"
+
+  run bash "$TOOL" add "${src}" "--name=${evil}"
+
+  assert_success
+  # The config holds the literal name; nothing was executed or corrupted.
+  python3 - "${DEV_BOT_ROOT}/.devbot.global.jsonc" "${evil}" <<'PY'
+import json, sys
+with open(sys.argv[1]) as fh:
+    data = json.load(fh)
+assert sys.argv[2] in data.get("external_modules", {}), data
+PY
+}
+
+@test "init: skips a retained checkout that belongs to another repository (module init)" {
+  local project="${TEST_HOME}/project"
+  mkdir -p "${project}"
+  printf '{"devbot_dir": ".agents"}
+' > "${project}/.devbot.project.jsonc"
+
+  local dest="${DEV_BOT_ROOT}/vendor/org/repo"
+  mkdir -p "${dest}"
+  git init -q "${dest}"
+  git -C "${dest}" remote add origin "https://example.com/other/repo.git"
+  mkdir -p "${dest}/skills"
+
+  cat > "${DEV_BOT_ROOT}/.devbot.global.jsonc" <<'JSON'
+{"external_modules":{"foreign":{"url":"https://example.com/org/repo.git","paths":{"skills":"skills"}}}}
+JSON
+
+  run bash "$TOOL" init "${project}"
+
+  assert_success
+  assert_output --partial "belongs to"
+}
+
+@test "remove: a name carrying a quote is removed as data" {
+  local src="${TEST_HOME}/local-src"
+  mkdir -p "${src}/skills"
+  local name="x'y"
+
+  run bash "$TOOL" add "${src}" "--name=${name}"
+  assert_success
+
+  run bash "$TOOL" remove "${name}"
+
+  assert_success
+  python3 - "${DEV_BOT_ROOT}/.devbot.global.jsonc" "${name}" <<'PY'
+import json, sys
+with open(sys.argv[1]) as fh:
+    data = json.load(fh)
+assert sys.argv[2] not in data.get("external_modules", {}), data
+PY
+}
+
+@test "install: exports the fallback root for the shared helpers" {
+  grep -q 'export DEV_BOT_ROOT=' "${MODULE_DIR}/install.sh"
+}
+
+@test "init: an invalid path key cannot create a link outside .agents" {
+  local project="${TEST_HOME}/project"
+  mkdir -p "${project}"
+  printf '{"devbot_dir": ".agents"}\n' > "${project}/.devbot.project.jsonc"
+  local src="${TEST_HOME}/local-src"
+  mkdir -p "${src}/skills"
+
+  printf '{"external_modules":{"bad":{"local_path":"%s","paths":{"../../escape":"skills"}}}}\n' "${src}" \
+    > "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "invalid paths config"
+  [ ! -e "${TEST_HOME}/escape/bad" ]
+}
+
+@test "layout: a legacy scp-style checkout is moved to the canonical path" {
+  source "${MODULE_DIR}/functions.sh"
+
+  local modules="${TEST_HOME}/vendor"
+  mkdir -p "${modules}/repo"
+  git init -q "${modules}/repo"
+  git -C "${modules}/repo" remote add origin "git@github.com:acme/repo.git"
+
+  run _external_module_migrate_legacy_checkout "${modules}" "git@github.com:acme/repo.git" "${modules}/acme/repo"
+
+  assert_success
+  [ -d "${modules}/acme/repo/.git" ]
+  [ ! -e "${modules}/repo" ]
+}
+
+@test "layout: a legacy checkout of another repository is left alone" {
+  source "${MODULE_DIR}/functions.sh"
+
+  local modules="${TEST_HOME}/vendor"
+  mkdir -p "${modules}/repo"
+  git init -q "${modules}/repo"
+  git -C "${modules}/repo" remote add origin "git@github.com:other/repo.git"
+
+  run _external_module_migrate_legacy_checkout "${modules}" "git@github.com:acme/repo.git" "${modules}/acme/repo"
+
+  assert_success
+  [ ! -e "${modules}/acme/repo" ]
+  [ -d "${modules}/repo/.git" ]
 }

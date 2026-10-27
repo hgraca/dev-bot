@@ -18,13 +18,14 @@ teardown() { _update_teardown; }
 
 # ── No-newer-release paths (echo + exit, nothing else) ───────────────────────
 
-@test "already at the newest tag: says latest and exits 0 with no refresh" {
+@test "already at the newest tag: an explicit update still refreshes external modules" {
   _new_sandbox "1.0.0:1.1.0"
   _run_update
 
   [ "$UPDATE_STATUS" -eq 0 ]
   [[ "$UPDATE_OUTPUT" == *"Already on the latest version (1.1.0)"* ]]
-  ! _refresh_ran
+  # No move to do, but "update" promises everything current — externals too.
+  _refresh_ran
 }
 
 @test "ahead of the newest tag (dev on main): says latest and exits 0" {
@@ -39,7 +40,7 @@ teardown() { _update_teardown; }
 
   [ "$UPDATE_STATUS" -eq 0 ]
   [[ "$UPDATE_OUTPUT" == *"Already on the latest version (1.1.0)"* ]]
-  ! _refresh_ran
+  _refresh_ran
 }
 
 @test "no tags at all: reports nothing to update and exits 0" {
@@ -48,7 +49,7 @@ teardown() { _update_teardown; }
 
   [ "$UPDATE_STATUS" -eq 0 ]
   [[ "$UPDATE_OUTPUT" == *"release tags"* ]]
-  ! _refresh_ran
+  _refresh_ran
 }
 
 @test "fetch failure: exits 1 with an error" {
@@ -97,6 +98,7 @@ EOF
   [[ "$UPDATE_OUTPUT" == *"Already on the latest version (1.1.0)"* ]]
   [[ "$UPDATE_OUTPUT" != *"DevBot Update"* ]]
   [[ "$UPDATE_OUTPUT" != *"Fetching release tags"* ]]
+  # --auto is the bare-`devbot` start path: the start-time check owns externals.
   ! _refresh_ran
 }
 

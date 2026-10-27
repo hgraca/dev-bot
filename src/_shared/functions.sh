@@ -1819,6 +1819,23 @@ _devbot_auto_reinit_if_config_changed() {
 
 # ── Auto-update (devbot start) ──────────────────────────────────────────────────
 #
+# _devbot_auto_update_enabled [config_file]
+#   The start-time update switch: the global config's `auto_update` is on
+#   unless it is explicitly false (absent => enabled). Shared by the dev-bot
+#   self-update and the external-module check so the two cannot drift.
+#   Returns 0 when updates are enabled.
+_devbot_auto_update_enabled() {
+  local config_file="${1:-$(_devbot_global_config)}"
+  local enabled="true"
+  if [[ -f "${config_file}" ]]; then
+    local shared_dir reader
+    shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    reader="${shared_dir}/read_jsonc.py"
+    enabled="$(python3 "${reader}" "${config_file}" auto_update 2>/dev/null || true)"
+  fi
+  [[ "${enabled}" != "false" ]]
+}
+
 # _devbot_auto_update_if_enabled
 #   Runs `bin/update.sh --auto` before the start wiring when the global config's
 #   `auto_update` is not explicitly false (absent => enabled). `update.sh --auto`
@@ -1831,18 +1848,8 @@ _devbot_auto_reinit_if_config_changed() {
 #   start.sh) are the new version — the upgrade start runs a mix of old and new
 #   code. Keep the contract between this file and those children (project dir,
 #   argv, config files) stable, or re-exec the new bin/devbot after a move.
-
 _devbot_auto_update_if_enabled() {
-  local global_config
-  global_config="$(_devbot_global_config)"
-  local enabled="true"
-  if [[ -f "${global_config}" ]]; then
-    local shared_dir reader
-    shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    reader="${shared_dir}/read_jsonc.py"
-    enabled="$(python3 "${reader}" "${global_config}" auto_update 2>/dev/null || true)"
-  fi
-  [[ "${enabled}" == "false" ]] && return 0
+  _devbot_auto_update_enabled || return 0
 
   local update_script="${DEV_BOT_ROOT}/bin/update.sh"
   [[ -f "${update_script}" ]] || return 0

@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
-# Install external modules — clone/pull configured repos.
-# Idempotent — skips if already at desired state.
+# Install external modules — clone/pull configured repos and render their
+# mirrors.
+#
+# One implementation with `devbot module install`: both call
+# _external_module_install_all, so the validated update path (a configured path
+# that vanished upstream cancels that module's update and keeps its legacy
+# checkout) applies to `devbot install`, `devbot update` and the CLI alike.
 #
 # GATE: This module must work on Ubuntu, Fedora, and macOS.
 
@@ -16,10 +21,14 @@ source "${MODULE_DIR}/functions.sh"
 main() {
   _info "external-modules — install/update"
 
+  # DEV_BOT_ROOT is set by bin/install.sh and bin/update.sh; honour it so the
+  # script also works from a sandbox/test root, and fall back to this checkout.
+  # It must be EXPORTED: the shared helpers resolve their root from the
+  # environment, not from a local.
   local dev_bot_root
-  dev_bot_root="$(cd "${MODULE_DIR}/../../.." && pwd)"
-  local config_file="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
-  local modules_dir="${dev_bot_root}/vendor"
+  dev_bot_root="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
+  export DEV_BOT_ROOT="${dev_bot_root}"
+  local config_file="${DEV_BOT_GLOBAL_CONFIG:-${dev_bot_root}/.devbot.global.jsonc}"
 
   # ── Rebuild external module config from declarations ──────────────────
   # Every module's declarations are merged regardless of enablement: the
@@ -43,39 +52,10 @@ main() {
   # (enablement is not consulted), vendor/ is never pruned, and the storage
   # mirror is keyed off the same list — so removal happens only via
   # `devbot module remove`.
-  while IFS=$'\x1f' read -r name url local_path paths_json; do
-    local src_dir=""
-    if [[ -n "${local_path}" ]]; then
-      # Local module - verify it exists
-      if [[ ! -d "${local_path}" ]]; then
-        _warn "${name}: local path not found (${local_path})"
-        continue
-      fi
-      src_dir="${local_path}"
-    elif [[ -n "${url}" ]]; then
-      local vendor_rel dest
-      vendor_rel="$(_derive_vendor_path "${url}")"
-      dest="${modules_dir}/${vendor_rel}"
-      _install_one_module "${name}" "${url}" "${dest}" "${paths_json}" || continue
-      src_dir="${dest}"
-    else
-      _warn "${name}: missing url and local_path — skipping"
-      continue
-    fi
-
-    _setup_external_module_storage "${src_dir}" "${name}" "${paths_json}" "${dev_bot_root}"
-  done < <(python3 "${MODULE_DIR}/../../_shared/read_jsonc.py" "${config_file}" external_modules | \
-    python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for name, entry in data.items():
-    if not isinstance(entry, dict):
-        continue  # boolean enable/disable flags are not module definitions
-    url = entry.get('url', '')
-    local_path = entry.get('local_path', '')
-    paths = json.dumps(entry.get('paths', {}))
-    print(f'{name}\x1f{url}\x1f{local_path}\x1f{paths}')
-  ")
+  if ! _external_module_install_all "${config_file}" "${dev_bot_root}"; then
+    _error "external modules: some modules were not installed/updated — see the errors above"
+    return 1
+  fi
 
   _ok "external-modules installation/update complete"
 }

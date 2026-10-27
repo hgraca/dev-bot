@@ -171,13 +171,16 @@ _install_machinery() {
     "${REPO_ROOT}/src/_shared/migrate_workflow_config.py" \
     "${INSTALL}/src/_shared/"
 
-  # module.sh stub — records invocation, never touches the network.
-  cat > "${INSTALL}/src/tools/external-modules/tools/module.sh" <<'STUB'
+  # external-modules update stub — records that devbot update refreshed the
+  # external module repos. That happens through the module update loop
+  # (src/tools/*/update.sh; the real update.sh is a symlink to install.sh), not
+  # through a separate pass, so the stub sits where the loop looks.
+  cat > "${INSTALL}/src/tools/external-modules/update.sh" <<'STUB'
 #!/usr/bin/env bash
-# Test stub: record that devbot update invoked the external-modules refresh.
+# Test stub: record that devbot update ran the external-modules refresh.
 touch "${MODULE_STUB_MARKER:-/tmp/module-stub-ran}"
 STUB
-  chmod +x "${INSTALL}/src/tools/external-modules/tools/module.sh"
+  chmod +x "${INSTALL}/src/tools/external-modules/update.sh"
 
   # Harness stub — records that the harnesses update loop ran.
   mkdir -p "${INSTALL}/src/harnesses/opencode"
