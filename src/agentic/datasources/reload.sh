@@ -216,15 +216,16 @@ _unpublished_selected() {
       continue
     fi
     if printf ' %s ' "${toolbox}" | grep -Fq " ${name} "; then
-      # A toolbox source is published, or it is not.
-      printf ' %s ' "${published}" | grep -Fq " ${name} " || echo "${name}"
+      # A toolbox source is published, or it is not. One name per line: a
+      # space-padded pattern silently matched only single-entry lists.
+      printf '%s\n' "${published}" | grep -Fqx "${name}" || echo "${name}"
       continue
     fi
     # A declared sidecar is served by its OWN container — but only if the render
     # emitted its service. A live project absent from the configured project
     # list selects one the static demand filter never renders, so its manifest
     # points at nothing even though the name is declared.
-    printf ' %s ' "$(_sidecar_services)" | grep -Fq " ${name} " || echo "${name}"
+    printf '%s\n' "$(_sidecar_services)" | grep -Fqx "${name}" || echo "${name}"
   done
 }
 

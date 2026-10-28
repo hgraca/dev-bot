@@ -1540,6 +1540,39 @@ PY
   assert_output --partial "selected but still unpublishable: db"
 }
 
+@test "reload: two published sources are both served, not reported unpublishable" {
+  # The real shape: several sources answer and the reload still claims every one
+  # of them is unpublishable. The published list is newline-separated, so a
+  # space-padded membership test matched nothing and failed the whole reload.
+  _catalogue '{ "alpha": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/alpha.db" } }, "beta": { "type": "sqlite", "env": { "SQLITE_DATABASE": "/data/beta.db" } } }'
+  _project_config '["alpha", "beta"]'
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=18510 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "alpha answers"
+  assert_output --partial "beta answers"
+  refute_output --partial "selected but still unpublishable"
+}
+
+@test "reload: two demanded sidecars are both served, not reported unpublishable" {
+  # Same trap on the compose side, in the shape observability actually demands:
+  # opensearch AND s3.
+  _catalogue '{ "alpha": { "type": "opensearch", "env": {} }, "beta": { "type": "s3", "env": {} } }'
+  _project_config '["alpha", "beta"]'
+  _docker_with_running_gateway
+  _record_curl
+
+  run env DATASOURCES_PORT=18510 DEV_BOT_MCP_WAIT_TRIES=1 DATASOURCES_RELOAD_PROBE_TRIES=1 \
+    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial "alpha answers"
+  assert_output --partial "beta answers"
+  refute_output --partial "selected but still unpublishable"
+}
+
 @test "reload: warns when another live project's selected source is unpublishable" {
   # The gateway is machine-wide: a source this render drops is dropped for every
   # live project that selected it. That outage is not this project's failure,
