@@ -340,7 +340,7 @@ SH
 
   run bash "${MODULE_DIR}/render.sh"
   assert_success
-  assert_output --partial "1/1 datasource(s) usable"
+  assert_output --partial "1/1 toolbox source(s) usable"
 
   run cat "${CONF_DIR}/tools.yaml"
   assert_output --partial "kind: source"
@@ -416,7 +416,7 @@ PY
 
   run bash "${MODULE_DIR}/render.sh"
   assert_success
-  assert_output --partial "1 of 2 declared datasource(s) unusable now"
+  assert_output --partial "1 of 2 toolbox source(s) unusable now"
   assert_output --partial "devbot datasources reload"
 }
 
@@ -427,7 +427,7 @@ PY
 
   run bash "${MODULE_DIR}/render.sh"
   assert_success
-  assert_output --partial "1/1 datasource(s) usable"
+  assert_output --partial "1/1 toolbox source(s) usable"
   refute_output --partial "unusable now"
 }
 
@@ -519,7 +519,7 @@ PY
 
   run bash "${MODULE_DIR}/render.sh"
   assert_success
-  assert_output --partial "0/1 datasource(s) usable"
+  assert_output --partial "0/1 toolbox source(s) usable"
 
   run cat "${CONF_DIR}/tools.yaml"
   assert_output --partial "No datasources configured"
@@ -1259,7 +1259,7 @@ SH
 
   run env DATASOURCES_LOCK_WAIT=0 DATASOURCES_LIFECYCLE_HELD=1 bash "${MODULE_DIR}/render.sh"
   assert_success
-  assert_output --partial "1/1 datasource(s) usable"
+  assert_output --partial "1/1 toolbox source(s) usable"
 }
 
 @test "render: skips when another render holds the lock" {
@@ -1538,6 +1538,7 @@ PY
     bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
   assert_failure
   assert_output --partial "selected but still unpublishable: db"
+  assert_output --partial "reload applied, but not every selected source is served"
 }
 
 @test "reload: two published sources are both served, not reported unpublishable" {
@@ -1554,6 +1555,7 @@ PY
   assert_success
   assert_output --partial "alpha answers"
   assert_output --partial "beta answers"
+  assert_output --partial "reload complete; every selected source is served"
   refute_output --partial "selected but still unpublishable"
 }
 
@@ -1570,6 +1572,8 @@ PY
   assert_success
   assert_output --partial "alpha answers"
   assert_output --partial "beta answers"
+  # Sidecars only: the counter is about toolbox sources, so it must not claim 0/0.
+  assert_output --partial "no toolbox sources declared"
   refute_output --partial "selected but still unpublishable"
 }
 

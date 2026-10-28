@@ -29,6 +29,7 @@ setup() {
 
 @test "command tells the agent how to read each outcome" {
   grep -qi 'every selected source is served' "$FLAT"
+  grep -qi 'not every selected source is served' "$FLAT"
   grep -qi 'is published but does not answer' "$FLAT"
   grep -qi 'selected but still unpublishable' "$FLAT"
   grep -qi 'another live project selects what is still unpublishable' "$FLAT"

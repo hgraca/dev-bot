@@ -120,7 +120,7 @@ _warn_unusable() {
   local declared="$1" available="$2" unusable
   unusable=$(( declared - available ))
   [[ ${unusable} -gt 0 ]] || return 0
-  _warn "datasources — ${unusable} of ${declared} declared datasource(s) unusable now; run 'devbot datasources reload' once they are reachable or configured"
+  _warn "datasources — ${unusable} of ${declared} toolbox source(s) unusable now; run 'devbot datasources reload' once they are reachable or configured"
 }
 
 main() {
@@ -242,12 +242,17 @@ main() {
   if ! toolbox_names="$(printf '%s' "${catalogue}" |
     python3 "${MODULE_DIR}/render_tools_yaml.py" --toolbox-names 2>/dev/null)"; then
     rm -f "${CONF_DIR}/tools.yaml.tmp" "${RUNTIME_DIR}/docker-compose.yml.tmp"
-    _error "datasources — could not count the declared datasources; keeping the last good config"
+    _error "datasources — could not count the declared toolbox sources; keeping the last good config"
     return 1
   fi
   declared="$(printf '%s' "${toolbox_names}" | wc -w | tr -d '[:space:]')"
   available="$(grep -c '^kind: source' "${CONF_DIR}/tools.yaml.tmp" || true)"
   _warn_unusable "${declared}" "${available}"
+
+  local rendered="no toolbox sources declared"
+  if [[ "${declared}" -gt 0 ]]; then
+    rendered="${available}/${declared} toolbox source(s) usable"
+  fi
 
   # Nothing changed: skipping the publish also skips the reload — and the
   # verification wait — it would trigger.
@@ -255,7 +260,7 @@ main() {
     cmp -s "${CONF_DIR}/tools.yaml.tmp" "${CONF_DIR}/tools.yaml"; then
     rm -f "${CONF_DIR}/tools.yaml.tmp"
     mv "${RUNTIME_DIR}/docker-compose.yml.tmp" "${RUNTIME_DIR}/docker-compose.yml"
-    _skip "datasources — ${available}/${declared} datasource(s) usable; config unchanged"
+    _skip "datasources — ${rendered}; config unchanged"
     return 0
   fi
 
@@ -277,7 +282,7 @@ main() {
     return 1
   fi
 
-  _ok "datasources — ${available}/${declared} datasource(s) usable, rendered into ${RUNTIME_DIR}"
+  _ok "datasources — ${rendered}, rendered into ${RUNTIME_DIR}"
 }
 
 main "$@"

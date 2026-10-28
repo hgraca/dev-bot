@@ -377,7 +377,7 @@ main() {
     _skip "datasources — no usable datasources; nothing to serve"
     if [[ -n "${unpublished}" ]]; then
       _warn "datasources — selected but still unpublishable: ${unpublished}"
-      _error "datasources — reload incomplete; see the warnings above"
+      _error "datasources — reload applied, but not every selected source is served"
       return 1
     fi
     return 0
@@ -498,7 +498,7 @@ main() {
   fi
 
   if [[ ${failed} -ne 0 ]]; then
-    _error "datasources — reload incomplete; see the warnings above"
+    _error "datasources — reload applied, but not every selected source is served"
     return 1
   fi
 
