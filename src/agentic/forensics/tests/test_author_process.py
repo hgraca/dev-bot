@@ -103,5 +103,27 @@ class AuthorProcessTests(unittest.TestCase):
         self.assertEqual({row["author"] for row in rows}, {"", "ana"})
 
 
+class BusFactorViewTests(unittest.TestCase):
+    def test_view_returns_the_single_summary_row(self):
+        conn = _store()
+        for index in range(5):
+            _commit(conn, "a%d" % index, "ana", "2026-10-01T10:00:00+00:00", 1, 1, 0)
+        for index in range(3):
+            _commit(conn, "b%d" % index, "bo", "2026-10-01T11:00:00+00:00", 1, 1, 0)
+        for index in range(2):
+            _commit(conn, "c%d" % index, "cy", "2026-10-01T12:00:00+00:00", 1, 1, 0)
+
+        rows = analyse.bus_factor_view(conn)
+
+        self.assertEqual(len(rows), 1, rows)
+        self.assertEqual(rows[0]["authors"], 3)
+        self.assertEqual(rows[0]["total_commits"], 10)
+        self.assertEqual(rows[0]["bus_factor"], 1)
+
+    def test_view_is_registered(self):
+        self.assertIn("bus-factor", analyse._VIEWS)
+        self.assertIn("author-process", analyse._VIEWS)
+
+
 if __name__ == "__main__":
     unittest.main()

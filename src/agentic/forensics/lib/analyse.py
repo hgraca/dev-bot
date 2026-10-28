@@ -261,6 +261,12 @@ def commit_types(conn: sqlite3.Connection, top=None) -> list:
     return results[:top] if top is not None else results
 
 
+def bus_factor_view(conn: sqlite3.Connection, top=None) -> list:
+    """The knowledge-loss summary as a one-row view, so it can be exported like any other."""
+    del top
+    return [bus_factor(conn)]
+
+
 def authors(conn: sqlite3.Connection, top=None) -> list:
     """Per-author commit mix and Conventional Commits compliance."""
     rows = conn.execute(
@@ -779,6 +785,7 @@ _VIEWS = {
     "time-to-fix": time_to_fix,
     "fixers": fixers,
     "process": process,
+    "bus-factor": bus_factor_view,
     "author-process": author_process,
     "releases": releases,
     "architecture": architecture,

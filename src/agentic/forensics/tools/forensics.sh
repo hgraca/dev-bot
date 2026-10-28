@@ -60,7 +60,7 @@ Commands:
   analyse <db> [--view <view>] [--top N] [--format md|json|csv]
                         Query one view: hotspots, change-rate, coupling,
                         ownership, concentration, unit-ownership,
-                        unit-concentration, commit-types, authors, tickets,
+                        unit-concentration, commit-types, authors, bus-factor, tickets,
                         defects, time-to-fix, fixers, process, author-process, releases.
   report <db> [--out <dir|file>] [--format md|json|html] [--with-prs] [--with-analysis]
                         Full Tornhill + commit-history report. A --out path
