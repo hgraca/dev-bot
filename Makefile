@@ -149,10 +149,25 @@ test-bats-slice: ## Run one CI slice of the BATS suite (set SLICE to 1, 2 or 3)
 # newline-separated list of files to run instead of the whole bin/ and src/ tree.
 test-bats: ## Run the BATS suite (BATS_FILES_FILE points at a list to narrow it)
 	@echo -e "\n\033[1m\033[34m━━━ Running tests... ━━━\033[0m"
-	@if ! command -v bats &>/dev/null; then \
-		echo "  bats not found — installing via npm..."; \
-		npm install -g bats bats-assert bats-support &>/dev/null; \
-		echo "  bats installed."; \
+	# bats is installed as three separate npm packages. A machine can have bats
+	# without the libraries, and then every test fails in setup() with
+	# "Could not find library 'bats-support'" rather than a useful failure.
+	# Check each one, so the suite self-heals instead of looking broken.
+	@missing=""; \
+	command -v bats &>/dev/null || missing="bats"; \
+	lib_root="$$(npm root -g 2>/dev/null || true)"; \
+	for lib in bats-assert bats-support; do \
+		if [ -z "$$lib_root" ] || [ ! -d "$$lib_root/$$lib" ]; then \
+			missing="$$missing $$lib"; \
+		fi; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "  missing:$$missing — installing via npm..."; \
+		if ! npm install -g $$missing &>/dev/null; then \
+			printf 'FATAL: could not install:%s\n' "$$missing" >&2; \
+			exit 1; \
+		fi; \
+		echo "  installed:$$missing"; \
 	fi
 	# stdin from /dev/null: harness inits legitimately prompt when stdin is a
 	# TTY (claudecode asks before changing an existing default agent), so a
