@@ -37,6 +37,31 @@ main() {
   esac
 
   _ok "gh ($(gh --version | head -1))"
+
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "  ${TEXT_BOLD}${TEXT_YELLOW}⚠${TEXT_CLEAR}  jq not installed — re-run install." >&2
+  else
+    case "$(uname -s)" in
+      Darwin)
+        _info "Updating jq via Homebrew..."
+        brew upgrade jq 2>/dev/null || brew install jq 2>/dev/null
+        ;;
+      Linux)
+        if command -v dnf >/dev/null 2>&1; then
+          _info "Updating jq via dnf..."
+          sudo dnf upgrade -y jq 2>/dev/null || true
+        elif command -v apt-get >/dev/null 2>&1; then
+          if sudo -n true 2>/dev/null; then
+            _info "Updating jq via apt..."
+            sudo apt-get install --only-upgrade -y jq
+          else
+            echo -e "  ${TEXT_BOLD}${TEXT_YELLOW}›${TEXT_CLEAR}  jq already installed (apt requires interactive sudo)." >&2
+          fi
+        fi
+        ;;
+    esac
+    _ok "jq ($(jq --version))"
+  fi
 }
 
 main

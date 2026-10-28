@@ -24,12 +24,19 @@ setup() {
 echo "gh version 2.45.0 (2024-05-06)"
 MOCK
   chmod +x "${MOCKBIN}/gh"
+  cat > "${MOCKBIN}/jq" <<'MOCK'
+#!/usr/bin/env bash
+echo "jq-1.7.1"
+MOCK
+  chmod +x "${MOCKBIN}/jq"
   export PATH="${MOCKBIN}:${PATH}"
 
   run bash "${INSTALL_SH}"
 
   assert_success
-  # Skip path taken — no "Installing gh via ..." install branch reached.
+  # Skip path taken — no "Installing <tool> via ..." install branch reached.
   [[ "$output" == *"gh (gh version"* ]]
   [[ "$output" != *"Installing gh via"* ]]
+  [[ "$output" == *"jq (jq-1.7.1"* ]]
+  [[ "$output" != *"Installing jq via"* ]]
 }

@@ -61,6 +61,36 @@ main() {
 
     _ok "gh installed ($(gh --version | head -1))"
   fi
+
+  # gh-configure-repo parses every API response with jq, so jq is a hard
+  # dependency of the module rather than an optional convenience.
+  if command -v jq >/dev/null 2>&1; then
+    _skip "jq ($(jq --version || echo 'installed'))"
+  else
+    case "$(uname -s)" in
+      Darwin)
+        _info "Installing jq via Homebrew..."
+        brew install jq
+        ;;
+      Linux)
+        if command -v dnf >/dev/null 2>&1; then
+          _info "Installing jq via dnf..."
+          sudo dnf install -y jq
+        elif command -v apt-get >/dev/null 2>&1; then
+          _info "Installing jq via apt..."
+          sudo apt-get install -y jq
+        else
+          _fatal "No supported package manager found (dnf, apt-get). Install jq manually: https://jqlang.github.io/jq/download/"
+          exit 1
+        fi
+        ;;
+      *)
+        _fatal "Unsupported OS: $(uname -s). Install jq manually: https://jqlang.github.io/jq/download/"
+        exit 1
+        ;;
+    esac
+    _ok "jq installed ($(jq --version))"
+  fi
 }
 
 main

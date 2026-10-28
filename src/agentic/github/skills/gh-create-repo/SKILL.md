@@ -19,7 +19,7 @@ changes it.
 
 - `gh` is installed and authenticated (`gh auth status`). If it is not, stop and say so — do not guess
   at credentials.
-- `jq` is installed — `gh-configure-repo` requires it and the module's installer does not provision it.
+- `jq` is installed — `gh-configure-repo` requires it; the module's install script provisions it.
 - In a `supervisor: true` project, resolve the **owning project** (`devbot tool project-for-path <path>`)
   and run every command there.
 

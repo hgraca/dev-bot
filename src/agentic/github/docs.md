@@ -33,9 +33,8 @@ repository and its ruleset, reconfiguring an existing one, and creating a pull r
 
 ## Configuration
 
-Needs the `gh` CLI, authenticated on the machine; the module's lifecycle scripts install and update it.
-`gh-configure-repo` also needs `jq`, which is not provisioned automatically — install it with the
-platform package manager. No project configuration is required.
+Needs the `gh` CLI and `jq`, authenticated on the machine; the module's lifecycle scripts install and
+update both. No project configuration is required.
 
 ## See also
 
