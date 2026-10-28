@@ -1334,6 +1334,7 @@ SH
   run env DATASOURCES_PORT=1 DATASOURCES_LOCK_WAIT=0 DATASOURCES_RELOAD_WAIT=0 \
     bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
   assert_failure
+  [ "$status" -eq 2 ]   # nothing applied, not "applied with a source down"
   assert_output --partial "another lifecycle run is in progress"
   refute grep -q 'up -d' "${DOCKER_LOG}"
 }
@@ -1366,6 +1367,7 @@ PY
   run env DATASOURCES_PORT=1 DEV_BOT_MCP_WAIT_TRIES=1 \
     bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
   assert_failure
+  [ "$status" -eq 2 ]   # the running config was never replaced
   assert_output --partial "reload aborted"
   refute grep -q 'up -d' "${DOCKER_LOG}"
 }

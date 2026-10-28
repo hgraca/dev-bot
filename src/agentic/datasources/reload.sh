@@ -17,6 +17,9 @@
 # Usage:
 #   reload.sh              # reload for the current directory's project
 #   reload.sh <project>    # ...for that project (which sidecars it demands)
+#
+# Exit: 0 complete · 1 applied, but a selected source is unserved · 2 nothing applied
+# (a missing dependency, another lifecycle run holding the lock, or a render abort)
 set -euo pipefail
 
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -296,11 +299,11 @@ main() {
 
   command -v docker >/dev/null 2>&1 || {
     _error "datasources — docker not found; cannot reload"
-    return 1
+    return 2
   }
   command -v curl >/dev/null 2>&1 || {
     _error "datasources — curl not found; cannot verify the reload"
-    return 1
+    return 2
   }
 
   # Held across render, compose reconciliation and verification. Without it a
@@ -309,7 +312,7 @@ main() {
   # catalogue while another is being published.
   if ! _datasources_lock; then
     _error "datasources — another lifecycle run is in progress; nothing was reloaded"
-    return 1
+    return 2
   fi
 
   _devbot_load_env
@@ -327,7 +330,7 @@ main() {
   if ! DATASOURCES_SUPPRESS_RELOAD_HINT=1 DATASOURCES_LIFECYCLE_HELD=1 \
     bash "${MODULE_DIR}/render.sh" "${PROJECT_DIR}"; then
     _error "datasources — reload aborted; the gateway keeps its current config"
-    return 1
+    return 2
   fi
 
   local gateway_url has_sources="false" sidecars=""

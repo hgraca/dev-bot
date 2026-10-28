@@ -11,8 +11,10 @@ devbot datasources reload
 
 Then read the output; do not assume success from the exit code alone.
 
+The exit code separates "a result" from "no run": `0` complete, `1` the render applied but a selected source is unserved, `2` nothing was applied — a missing `docker`/`curl`, another lifecycle run holding the lock, or a render abort, in each case leaving the running config untouched. Do not report a `2` as "the reload finished with some sources down": nothing was reloaded.
+
 - `reload complete; every selected source is served` — every source the project selects answers a real `tools/list` on the gateway. Enabling its `datasources-<name>` MCP entry now works, and needs no restart.
-- `reload applied, but not every selected source is served` — the render did take effect: the config was published, the gateway reconciled and the demanded sidecars started. What failed is the proof, not the apply — read the warnings above it for the source. The command exits non-zero.
+- `reload applied, but not every selected source is served` — the render did take effect; what failed is the proof, not the apply. Read the warnings above it for the source.
 - `<name> is published but does not answer` or `is not served at` — the gateway is up but that toolset is not served. The command exits non-zero.
 - `selected but still unpublishable: <names>` — the project selects a source the render could not honour: unreachable, missing an environment variable, or not declared in `.devbot.global.jsonc`. Fix the cause and run it again; nothing about the network is hidden from you here.
 - `another live project selects what is still unpublishable:` — another session's source was dropped by this render. Report which project is affected; it is not this project's failure.

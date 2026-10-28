@@ -35,6 +35,13 @@ setup() {
   grep -qi 'another live project selects what is still unpublishable' "$FLAT"
 }
 
+@test "command separates an aborted reload from a partial one" {
+  # Exit 1 means "applied, a source is down"; exit 2 means "nothing ran". An
+  # agent that conflates them reports a reload that never happened.
+  grep -qi 'nothing was applied' "$FLAT"
+  grep -qi 'leaving the running config untouched' "$FLAT"
+}
+
 @test "command forbids the restart it exists to replace — except for a stale manifest" {
   grep -qi 'do not restart the harness or the session to recover an ordinary datasource' "$FLAT"
   grep -qi 'stale-manifest failure is the exception' "$FLAT"
