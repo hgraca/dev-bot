@@ -23,7 +23,11 @@ import subprocess
 # Allow importing from src/_shared/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../_shared"))
 from editorconfig import get_prettier_args  # noqa: E402  # type: ignore[import-not-found]
-from prettier_gate import has_prettier_config, prettier_available  # noqa: E402
+from prettier_gate import (  # noqa: E402
+    prettier_available,
+    prettier_batch_config_args,
+    prettier_config_args,
+)
 
 
 USAGE = """\
@@ -100,7 +104,7 @@ def format_file(path: str, check: bool = False, embedded: bool = True) -> bool:
     """
     with open(path, "r", encoding="utf-8", newline="") as f:
         original = f.read()
-    extra = ["--stdin-filepath", path]
+    extra = prettier_config_args(path) + ["--stdin-filepath", path]
     if not embedded:
         extra += ["--embedded-language-formatting", "off"]
     formatted = format_md_text(original, extra_args=extra)
@@ -126,20 +130,21 @@ def format_file(path: str, check: bool = False, embedded: bool = True) -> bool:
 
 
 def format_files_batch(file_paths: list[str]) -> bool:
-    """Format multiple markdown files in a single prettier --write invocation."""
+    """Format multiple markdown files, one prettier --write per config group."""
     if not file_paths:
         return True
 
-    cmd = PRETTIER_CMD + ["--embedded-language-formatting", "off", "--write"] + file_paths
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if proc.returncode != 0:
-            stderr = proc.stderr.strip()
-            print(f"Error: prettier batch formatting failed: {stderr or '(no error output)'}", file=sys.stderr)
+    for batch, config_args in prettier_batch_config_args(file_paths):
+        cmd = PRETTIER_CMD + config_args + ["--embedded-language-formatting", "off", "--write"] + batch
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if proc.returncode != 0:
+                stderr = proc.stderr.strip()
+                print(f"Error: prettier batch formatting failed: {stderr or '(no error output)'}", file=sys.stderr)
+                return False
+        except subprocess.TimeoutExpired:
+            print(f"Error: prettier timed out formatting {len(batch)} files", file=sys.stderr)
             return False
-    except subprocess.TimeoutExpired:
-        print(f"Error: prettier timed out formatting {len(file_paths)} files", file=sys.stderr)
-        return False
     return True
 
 
@@ -205,17 +210,6 @@ def main() -> int:
             print("ERROR: prettier (or node) not found — cannot verify formatting", file=sys.stderr)
             return 2
         print("WARN: prettier (or node) not found — skipping markdown formatting", file=sys.stderr)
-        return 0
-
-    # ...and only where the project actually declares prettier. Running it anyway
-    # imposes a standard the project never adopted, and fights one it did (a Biome
-    # project's multi-line "files" array was collapsed by exactly that). A
-    # multi-path call is judged by its first path — the hook always passes one.
-    if not args or not has_prettier_config(args[0]):
-        if check:
-            print("ERROR: no prettier config — cannot verify formatting", file=sys.stderr)
-            return 2
-        print("format-md: no prettier config — skipped")
         return 0
 
     paths = args

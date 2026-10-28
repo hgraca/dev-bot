@@ -23,7 +23,11 @@ import subprocess
 # Allow importing from src/_shared/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../_shared"))
 from editorconfig import get_prettier_args  # noqa: E402  # type: ignore[import-not-found]
-from prettier_gate import has_prettier_config, prettier_available  # noqa: E402
+from prettier_gate import (  # noqa: E402
+    prettier_available,
+    prettier_batch_config_args,
+    prettier_config_args,
+)
 
 
 USAGE = """\
@@ -31,7 +35,7 @@ Usage:
   format-json.py <directory>               Format all .json/.jsonc files in directory (recursive)
   format-json.py <file> [<file>...]         Format specific files in-place
   format-json.py --check <path>...          Report files that need formatting (exit 1 if any)
-  format-json.py --force <file> [<file>...] Format even without a project prettier config
+  format-json.py --force <file> [<file>...] Accepted for compatibility (no effect)
   cat file.json | format-json.py           Pipe mode: stdin -> stdout
   format-json.py --help                    Show this help
 """
@@ -109,7 +113,11 @@ def format_file(path: str, check: bool = False) -> bool:
     with open(path, 'r', encoding='utf-8', newline='') as f:
         original = f.read()
 
-    formatted = format_json_text(original, file_path=path, extra_args=["--stdin-filepath", path])
+    formatted = format_json_text(
+        original,
+        file_path=path,
+        extra_args=prettier_config_args(path) + ["--stdin-filepath", path],
+    )
 
     if formatted == original:
         return False
@@ -136,20 +144,21 @@ def format_file(path: str, check: bool = False) -> bool:
 
 
 def format_files_batch(file_paths: list[str]) -> bool:
-    """Format multiple JSON/JSONC files in a single prettier --write invocation."""
+    """Format multiple JSON/JSONC files, one prettier --write per config group."""
     if not file_paths:
         return True
 
-    cmd = PRETTIER_CMD + ["--write"] + file_paths
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-        if proc.returncode != 0:
-            stderr = proc.stderr.strip()
-            print(f"Error: prettier batch formatting failed: {stderr or '(no error output)'}", file=sys.stderr)
+    for batch, config_args in prettier_batch_config_args(file_paths):
+        cmd = PRETTIER_CMD + config_args + ["--write"] + batch
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if proc.returncode != 0:
+                stderr = proc.stderr.strip()
+                print(f"Error: prettier batch formatting failed: {stderr or '(no error output)'}", file=sys.stderr)
+                return False
+        except subprocess.TimeoutExpired:
+            print(f"Error: prettier timed out formatting {len(batch)} files", file=sys.stderr)
             return False
-    except subprocess.TimeoutExpired:
-        print(f"Error: prettier timed out formatting {len(file_paths)} files", file=sys.stderr)
-        return False
     return True
 
 
@@ -174,13 +183,10 @@ def main() -> int:
         print(USAGE, end='')
         return 0
 
-    # --force normalizes dev-bot's OWN generated configs (opencode.jsonc,
-    # .devbot.global.jsonc) even in a project that never declares prettier. The
-    # gate protects a project's source from a formatter it did not adopt — it is
-    # not meant to leave dev-bot's artifacts half-formatted.
-    force = "--force" in args
-    if force:
-        args = [a for a in args if a != "--force"]
+    # --force is accepted for compatibility with callers written against the old
+    # prettier gate (`devbot reinit` passes it); a project without a config is now
+    # formatted with dev-bot's defaults anyway, so it has no further effect.
+    args = [a for a in args if a != "--force"]
     check = "--check" in args
     if check:
         args = [a for a in args if a != "--check"]
@@ -222,16 +228,6 @@ def main() -> int:
             print("ERROR: prettier (or node) not found — cannot verify formatting", file=sys.stderr)
             return 2
         print("WARN: prettier (or node) not found — skipping JSON formatting", file=sys.stderr)
-        return 0
-
-    # ...and only where the project actually declares prettier. Running it anyway
-    # imposes a standard the project never adopted, and fights one it did. A
-    # multi-path call is judged by its first path — the hook always passes one.
-    if not args or (not force and not has_prettier_config(args[0])):
-        if check:
-            print("ERROR: no prettier config — cannot verify formatting", file=sys.stderr)
-            return 2
-        print("format-json: no prettier config — skipped")
         return 0
 
     paths = args

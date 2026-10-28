@@ -636,8 +636,8 @@ print('REGISTERED-DISABLED:OK')
 # ── Generated-config formatting ──────────────────────────────────────────────
 # opencode.jsonc and .devbot.global.jsonc are dev-bot's OWN artifacts: they must
 # be normalized even in a project that never declares prettier, or the MCP-merge
-# output keeps its inserted-entry formatting (audit-69 NOTE-4). The format-json
-# gate protects a project's source, so these call sites pass --force.
+# output keeps its inserted-entry formatting (audit-69 NOTE-4). The call sites
+# still pass --force, which format-json accepts for compatibility with them.
 @test "generated configs: the formatter is called with --force" {
   run grep -qF -- '--force "${config}"' "${PROJECT_ROOT}/bin/init.sh"
   assert_success

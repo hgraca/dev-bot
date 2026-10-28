@@ -18,9 +18,8 @@ setup() {
   command -v python3 &>/dev/null || skip "python3 not installed"
   command -v node &>/dev/null || skip "node not installed"
 
-  # The tool formats only a project that declares prettier, so the fixtures
-  # declare it — without this every formatting assertion below would pass
-  # vacuously.
+  # Declare prettier so the formatting assertions below exercise the project's
+  # own configuration; the no-config fallback has its own tests.
   mkdir -p "$BATS_TEST_TMPDIR"
   printf '{}\n' > "$BATS_TEST_TMPDIR/.prettierrc.json"
 }
@@ -339,9 +338,9 @@ STUB
   [ ! -f "$tmpfile" ]
 }
 
-# ── prettier gate ─────────────────────────────────────────────────────────────
+# ── prettier config resolution ────────────────────────────────────────────────
 
-@test "no prettier config in the project: the file is left untouched" {
+@test "no prettier config in the project: formats with dev-bot's default config" {
   local project
   project="$(mktemp -d)"
   local tmpfile="$project/tmp.yml"
@@ -351,8 +350,48 @@ STUB
 
   assert_success
   run cat "$tmpfile"
-  # Still unnormalised: prettier would have written "a: 1".
-  assert_output --partial "a:   1"
+  # Normalised by the default config: prettier writes "a: 1".
+  assert_output --partial "a: 1"
+}
+
+@test "no prettier config in the project: --check reports instead of exiting 2" {
+  # The reported failure: the prettier gate turned a check into exit 2.
+  local project
+  project="$(mktemp -d)"
+  local tmpfile="$project/tmp.yml"
+  printf 'a:   1\n' > "$tmpfile"
+
+  run bash "$TOOL" --check "$tmpfile"
+
+  assert_failure 1
+  assert_output --partial "$tmpfile"
+}
+
+@test "the default config is passed to prettier only when the project declares none" {
+  # `{}` is byte-identical to prettier's own defaults, so the formatted output
+  # cannot prove the fallback ran — assert on prettier's argv instead.
+  local sb="$BATS_TEST_TMPDIR/stub-argv"
+  local argv="$BATS_TEST_TMPDIR/prettier.argv"
+  mkdir -p "$sb"
+  : > "$argv"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\ncat\n' "$argv" > "$sb/prettier"
+  chmod +x "$sb/prettier"
+  ln -sf "$(command -v node)" "$sb/node"
+
+  local project tmpfile
+  project="$(mktemp -d)"
+  tmpfile="$project/tmp.yml"
+  printf 'a:   1\n' > "$tmpfile"
+
+  PATH="$sb:$PATH" bash "$TOOL" "$tmpfile"
+  run head -n 1 "$argv"
+  assert_output --partial "prettier.default.json"
+
+  # A declared config is prettier's to resolve; we must not pass one.
+  printf '{}\n' > "$project/.prettierrc.json"
+  PATH="$sb:$PATH" bash "$TOOL" "$tmpfile"
+  run tail -n 1 "$argv"
+  refute_output --partial "prettier.default.json"
 }
 
 @test "no prettier on PATH: warns, exits 0, and leaves the file untouched" {

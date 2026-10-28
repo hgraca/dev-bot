@@ -16,9 +16,8 @@ setup() {
   command -v python3 &>/dev/null || skip "python3 not installed"
   command -v node &>/dev/null || skip "node not installed"
 
-  # The tool formats only a project that declares prettier, so the fixtures
-  # declare it — without this every formatting assertion below would pass
-  # vacuously (an untouched file still contains "a" and "b").
+  # Declare prettier so the formatting assertions below exercise the project's
+  # own configuration; the no-config fallback has its own tests.
   mkdir -p "$BATS_TEST_TMPDIR"
   printf '{}\n' > "$BATS_TEST_TMPDIR/.prettierrc.json"
 }
@@ -285,11 +284,11 @@ STUB
   [ ! -f "$tmpfile" ]
 }
 
-# ── prettier gate ─────────────────────────────────────────────────────────────
+# ── prettier config resolution ────────────────────────────────────────────────
 
-@test "no prettier config in the project: the file is left untouched" {
-  # Prettier is not every project's formatter. One that never declares it must
-  # not have its files rewritten to a standard it did not adopt.
+@test "no prettier config in the project: formats with dev-bot's default config" {
+  # A project that never declares prettier must still be formattable; the run
+  # uses the defaults dev-bot ships rather than skipping the file.
   local project
   project="$(mktemp -d)"
   local tmpfile="$project/tmp.md"
@@ -299,8 +298,48 @@ STUB
 
   assert_success
   run cat "$tmpfile"
-  # Still unpadded: prettier would have widened the separator row.
-  assert_output --partial "|---|---|"
+  # Padded to the header width, which only the default config's table formatting does.
+  assert_output --partial "| longheader | b   |"
+}
+
+@test "no prettier config in the project: --check reports instead of exiting 2" {
+  # The reported failure: the prettier gate turned a check into exit 2.
+  local project
+  project="$(mktemp -d)"
+  local tmpfile="$project/tmp.md"
+  printf '| a | b |\n|---|---|\n|1|2|\n' > "$tmpfile"
+
+  run bash "$TOOL" --check "$tmpfile"
+
+  assert_failure 1
+  assert_output --partial "$tmpfile"
+}
+
+@test "the default config is passed to prettier only when the project declares none" {
+  # `{}` is byte-identical to prettier's own defaults, so the formatted output
+  # cannot prove the fallback ran — assert on prettier's argv instead.
+  local sb="$BATS_TEST_TMPDIR/stub-argv"
+  local argv="$BATS_TEST_TMPDIR/prettier.argv"
+  mkdir -p "$sb"
+  : > "$argv"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\ncat\n' "$argv" > "$sb/prettier"
+  chmod +x "$sb/prettier"
+  ln -sf "$(command -v node)" "$sb/node"
+
+  local project tmpfile
+  project="$(mktemp -d)"
+  tmpfile="$project/tmp.md"
+  printf '# Title\n' > "$tmpfile"
+
+  PATH="$sb:$PATH" bash "$TOOL" "$tmpfile"
+  run head -n 1 "$argv"
+  assert_output --partial "prettier.default.json"
+
+  # A declared config is prettier's to resolve; we must not pass one.
+  printf '{}\n' > "$project/.prettierrc.json"
+  PATH="$sb:$PATH" bash "$TOOL" "$tmpfile"
+  run tail -n 1 "$argv"
+  refute_output --partial "prettier.default.json"
 }
 
 @test "no prettier on PATH: warns, exits 0, and leaves the file untouched" {
@@ -452,3 +491,18 @@ STUB
   assert_success
   assert_output --partial "0 need formatting"
 }
+
+@test "directory write: an embedded code fence is left alone, like single-file mode" {
+  # prettier formats fenced code by default; the hook turns that off for single
+  # files and --check, so a directory run must not rewrite a fence either.
+  local dir="$BATS_TEST_TMPDIR/embedded-fence"
+  mkdir -p "${dir}"
+  printf '```js\nconst x = {a:1};\n```\n' > "${dir}/doc.md"
+
+  run bash "$TOOL" "${dir}"
+
+  assert_success
+  run cat "${dir}/doc.md"
+  assert_output --partial "const x = {a:1};"
+}
+

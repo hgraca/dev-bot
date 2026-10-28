@@ -24,7 +24,11 @@ import subprocess
 # Allow importing from src/_shared/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../_shared"))
 from editorconfig import get_prettier_args  # noqa: E402  # type: ignore[import-not-found]
-from prettier_gate import has_prettier_config, prettier_available  # noqa: E402
+from prettier_gate import (  # noqa: E402
+    prettier_available,
+    prettier_batch_config_args,
+    prettier_config_args,
+)
 
 
 USAGE = """\
@@ -109,7 +113,11 @@ def format_file(path: str, check: bool = False) -> bool:
     with open(path, 'r', encoding='utf-8', newline='') as f:
         original = f.read()
 
-    formatted = format_yaml_text(original, file_path=path, extra_args=["--stdin-filepath", path])
+    formatted = format_yaml_text(
+        original,
+        file_path=path,
+        extra_args=prettier_config_args(path) + ["--stdin-filepath", path],
+    )
 
     if formatted == original:
         return False
@@ -136,20 +144,21 @@ def format_file(path: str, check: bool = False) -> bool:
 
 
 def format_files_batch(file_paths: list[str]) -> bool:
-    """Format multiple YAML files in a single prettier --write invocation."""
+    """Format multiple YAML files, one prettier --write per config group."""
     if not file_paths:
         return True
 
-    cmd = PRETTIER_CMD + ["--write"] + file_paths
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if proc.returncode != 0:
-            stderr = proc.stderr.strip()
-            print(f"Error: prettier batch formatting failed: {stderr or '(no error output)'}", file=sys.stderr)
+    for batch, config_args in prettier_batch_config_args(file_paths):
+        cmd = PRETTIER_CMD + config_args + ["--write"] + batch
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+            if proc.returncode != 0:
+                stderr = proc.stderr.strip()
+                print(f"Error: prettier batch formatting failed: {stderr or '(no error output)'}", file=sys.stderr)
+                return False
+        except subprocess.TimeoutExpired:
+            print(f"Error: prettier timed out formatting {len(batch)} files", file=sys.stderr)
             return False
-    except subprocess.TimeoutExpired:
-        print(f"Error: prettier timed out formatting {len(file_paths)} files", file=sys.stderr)
-        return False
     return True
 
 
@@ -218,13 +227,6 @@ def main() -> int:
             print("ERROR: prettier (or node) not found — cannot verify formatting", file=sys.stderr)
             return 2
         print("WARN: prettier (or node) not found — skipping YAML formatting", file=sys.stderr)
-        return 0
-
-    if not args or not has_prettier_config(args[0]):
-        if check:
-            print("ERROR: no prettier config — cannot verify formatting", file=sys.stderr)
-            return 2
-        print("format-yml: no prettier config — skipped")
         return 0
 
     paths = args

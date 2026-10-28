@@ -1,10 +1,9 @@
-"""Tests for the prettier availability/config gate shared by the format-* tools.
+"""Tests for the prettier availability/config resolution shared by the format-* tools.
 
-The format-* hooks install into every project dev-bot scaffolds, but prettier is
-not every project's formatter. Running it anyway rewrites files to a standard the
-project never adopted — and can fight the one it did adopt (a Biome project lost
-its intentionally multi-line "files" array that way, and a README gained
-semicolons in a JS sample). These tests pin both halves of the gate.
+The format-* hooks install into every project dev-bot scaffolds, but not every
+project is a prettier project. These tests pin both halves: a project that
+declares prettier keeps its own configuration, and one that declares none is
+formatted with the defaults dev-bot ships instead of being skipped.
 """
 
 from __future__ import annotations
@@ -17,7 +16,12 @@ import unittest
 from unittest import mock
 
 import prettier_gate
-from prettier_gate import has_prettier_config, prettier_available
+from prettier_gate import (
+    has_prettier_config,
+    prettier_available,
+    prettier_batch_config_args,
+    prettier_config_args,
+)
 
 
 class PrettierAvailableTest(unittest.TestCase):
@@ -59,8 +63,8 @@ class HasPrettierConfigTest(unittest.TestCase):
         return root
 
     def test_detects_each_config_filename(self) -> None:
-        # Mirrors prettier's own resolver: this list drifting from it silently
-        # leaves a prettier project unformatted.
+        # Mirrors prettier's own resolver (docs/configuration): this list drifting
+        # from it silently overrides a prettier project with dev-bot's defaults.
         for name in (
             ".prettierrc",
             ".prettierrc.json",
@@ -68,10 +72,18 @@ class HasPrettierConfigTest(unittest.TestCase):
             ".prettierrc.yaml",
             ".prettierrc.yml",
             ".prettierrc.toml",
+            ".prettierrc.js",
+            ".prettierrc.cjs",
+            ".prettierrc.mjs",
+            ".prettierrc.ts",
+            ".prettierrc.mts",
+            ".prettierrc.cts",
             "prettier.config.js",
             "prettier.config.cjs",
             "prettier.config.mjs",
             "prettier.config.ts",
+            "prettier.config.mts",
+            "prettier.config.cts",
         ):
             with self.subTest(name=name):
                 self.assertTrue(has_prettier_config(self._config_dir(name)))
@@ -110,6 +122,66 @@ class HasPrettierConfigTest(unittest.TestCase):
         os.makedirs(nested, exist_ok=True)
         target = self._write(os.path.join("a", "doc.md"), "# x\n")
         self.assertFalse(has_prettier_config(target))
+
+
+class PrettierConfigArgsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.root = tempfile.mkdtemp(prefix="prettier-args-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+
+    def test_the_shipped_default_config_is_valid_json(self) -> None:
+        # A malformed default would fail every run in a project without a config.
+        with open(prettier_gate.DEFAULT_CONFIG_PATH, encoding="utf-8") as handle:
+            self.assertIsInstance(json.load(handle), dict)
+
+    def test_a_project_without_a_config_gets_the_dev_bot_default(self) -> None:
+        self.assertEqual(
+            prettier_config_args(self.root),
+            ["--config", prettier_gate.DEFAULT_CONFIG_PATH],
+        )
+
+    def test_a_project_that_declares_prettier_resolves_its_own_config(self) -> None:
+        with open(os.path.join(self.root, ".prettierrc.json"), "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        self.assertEqual(prettier_config_args(self.root), [])
+
+    def test_a_typescript_module_config_is_recognised(self) -> None:
+        # Prettier 3 reads prettier.config.mts/.cts and .prettierrc.mts/.cts;
+        # missing them would hand such a project dev-bot's defaults instead.
+        with open(os.path.join(self.root, "prettier.config.mts"), "w", encoding="utf-8") as handle:
+            handle.write("export default {};")
+        self.assertEqual(prettier_config_args(self.root), [])
+
+    def test_a_batch_without_any_config_gets_the_dev_bot_default(self) -> None:
+        targets = [self.root, os.path.join(self.root, "a.json")]
+        self.assertEqual(
+            prettier_batch_config_args(targets),
+            [(targets, ["--config", prettier_gate.DEFAULT_CONFIG_PATH])],
+        )
+
+    def test_a_mixed_batch_is_split_so_every_file_keeps_its_config(self) -> None:
+        # One --config applies to the whole invocation: a single pass would
+        # either override the nested project's settings or drop dev-bot's
+        # defaults for the file that declares none.
+        nested = os.path.join(self.root, "nested")
+        os.makedirs(nested)
+        with open(os.path.join(nested, ".prettierrc.json"), "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        configured = os.path.join(nested, "a.json")
+        unconfigured = os.path.join(self.root, "b.json")
+        self.assertEqual(
+            prettier_batch_config_args([configured, unconfigured]),
+            [
+                ([configured], []),
+                ([unconfigured], ["--config", prettier_gate.DEFAULT_CONFIG_PATH]),
+            ],
+        )
+
+    def test_a_wholly_configured_batch_passes_no_config(self) -> None:
+        with open(os.path.join(self.root, ".prettierrc.json"), "w", encoding="utf-8") as handle:
+            handle.write("{}")
+        targets = [os.path.join(self.root, "a.json")]
+        self.assertEqual(prettier_batch_config_args(targets), [(targets, [])])
 
 
 if __name__ == "__main__":
