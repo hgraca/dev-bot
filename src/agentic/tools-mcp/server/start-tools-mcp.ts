@@ -29,14 +29,15 @@ const TOOLS_DIRS = [
 const SERVER_NAME = "devbot-tools";
 const SERVER_VERSION = "0.2.0";
 
-// Per-tool wall-clock bound. When the MCP client gives up waiting, nothing else
-// stops the tool subprocess — a hung or slow tool (and its children, e.g.
-// qmd/llama.cpp holding GPU memory) would keep running indefinitely (orphan).
+// Default per-tool wall-clock bound, overridable per tool through its mcp-meta.
+// When the MCP client gives up waiting, nothing else stops the tool subprocess —
+// a hung or slow tool (and its children, e.g. qmd/llama.cpp holding GPU memory)
+// would keep running indefinitely (orphan).
 const DEFAULT_TOOL_TIMEOUT_MS = 120_000;
 
 function toolTimeoutMs(): number {
     const raw = Number(process.env.TOOLS_MCP_TIMEOUT_MS);
-    return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_TOOL_TIMEOUT_MS;
+    return validTimeout(raw) ?? DEFAULT_TOOL_TIMEOUT_MS;
 }
 
 interface ToolDef {
@@ -48,9 +49,25 @@ interface ToolDef {
     required?: string[];
   };
   scriptPath: string;
+  timeoutMs?: number;
 }
 
-async function runMcpMeta(scriptPath: string): Promise<{ name: string; description: string; parameters?: object } | null> {
+// Bun and Node clamp a timer delay above 2^31-1 ms to 1 ms, so an out-of-range
+// bound would kill the tool instantly instead of extending it — the opposite of
+// what it declares. Both bounds below reject anything past this ceiling.
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+// A tool may override its own wall-clock bound: a datasource reload outlives the
+// default by design. Only a real JSON number within the timer's range counts —
+// `Number("5000")` and `Number(true)` would let a malformed mcp-meta become a
+// working bound (the latter a 1 ms one) — so anything else falls back to the
+// server bound instead of removing it.
+function validTimeout(value: unknown): number | undefined {
+  if (typeof value !== "number") return undefined;
+  return Number.isSafeInteger(value) && value > 0 && value <= MAX_TIMEOUT_MS ? value : undefined;
+}
+
+async function runMcpMeta(scriptPath: string): Promise<{ name: string; description: string; parameters?: object; timeoutMs?: number } | null> {
   const proc = Bun.spawn(["bash", scriptPath, "mcp-meta"], {
     stdout: "pipe",
     stderr: "pipe",
@@ -113,6 +130,7 @@ async function discoverTools(): Promise<ToolDef[]> {
           description: meta.description,
           inputSchema: (meta.parameters as ToolDef["inputSchema"]) ?? { type: "object", properties: {} },
           scriptPath,
+          timeoutMs: validTimeout(meta.timeoutMs),
         });
       } else {
         log(`skipping ${entry}: mcp-meta missing name/description`);
@@ -203,12 +221,12 @@ async function callTool(tool: ToolDef, args: Record<string, unknown>): Promise<s
       }
     };
 
-    const timeoutMs = toolTimeoutMs();
+    const timeoutMs = tool.timeoutMs ?? toolTimeoutMs();
     const termTimer = setTimeout(() => {
       timedOut = true;
       killTree("SIGTERM");
     }, timeoutMs);
-    const killTimer = setTimeout(() => killTree("SIGKILL"), timeoutMs + 5_000);
+    const killTimer = setTimeout(() => killTree("SIGKILL"), Math.min(timeoutMs + 5_000, MAX_TIMEOUT_MS));
     for (const timer of [termTimer, killTimer]) (timer as { unref?: () => void }).unref?.();
 
     const reader = proc.stdout.getReader();

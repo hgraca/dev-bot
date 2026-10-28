@@ -46,6 +46,7 @@ esac
 {
   "name": "greet", // required — MCP tool name (becomes devbot-tools_greet)
   "description": "...", // required — human-readable description
+  "timeoutMs": 900000, // optional — overrides the 120s default bound
   "parameters": {
     // required — JSON Schema for inputs
     "type": "object",
@@ -65,6 +66,14 @@ esac
 All tools use a single `args` (string array) parameter. The LLM constructs the full CLI command as an array, and the server passes it to the script as positional arguments. This works universally regardless of each script's CLI convention (flags, positional, etc.).
 
 For tools that take no arguments (e.g. fire-and-forget), use an empty `properties: {}` and omit `required`.
+
+**`timeoutMs`** is optional. The server kills a tool's whole process group at the default bound
+(`TOOLS_MCP_TIMEOUT_MS`, 120 000 ms). A tool that legitimately outlives it — an image pull, a
+container build, a canary per source — declares its own bound here, which replaces both the default
+and the environment value, so an operator cannot cap a tool that declares more. Anything that is not
+a positive integer of at most 2 147 483 647 ms is ignored: a malformed value falls back to the
+default rather than removing the bound (a larger delay is clamped to 1 ms by the runtime, which
+would kill the tool instantly).
 
 ## Output contract
 

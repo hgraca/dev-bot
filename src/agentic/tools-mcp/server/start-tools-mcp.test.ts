@@ -53,8 +53,71 @@ exit 0
 `,
   )
 
+  // Declares its own bound through mcp-meta and outlives the server default,
+  // which is set deliberately tiny below so the override is what saves it.
+  fs.writeFileSync(
+    path.join(toolsDir, "slow-tool.mcp.sh"),
+    `#!/usr/bin/env bash
+if [[ "\${1:-}" == "mcp-meta" ]]; then
+  cat <<'EOF'
+{"name":"slow-tool","description":"A stub tool that declares its own timeout","timeoutMs":5000,"parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"}},"required":[]}}}
+EOF
+  exit 0
+fi
+sleep 0.6
+echo "slow-tool ok"
+`,
+  )
+
+  // Declares no bound: the server default must still kill it.
+  fs.writeFileSync(
+    path.join(toolsDir, "hang-tool.mcp.sh"),
+    `#!/usr/bin/env bash
+if [[ "\${1:-}" == "mcp-meta" ]]; then
+  cat <<'EOF'
+{"name":"hang-tool","description":"A stub tool with no declared timeout","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"}},"required":[]}}}
+EOF
+  exit 0
+fi
+sleep 2
+echo "never printed"
+`,
+  )
+
+  // Declares an unusable bound (0): it must be ignored, not treated as "kill at
+  // once", or a typo turns a generous timeout into an immediate failure.
+  fs.writeFileSync(
+    path.join(toolsDir, "bad-timeout-tool.mcp.sh"),
+    `#!/usr/bin/env bash
+if [[ "\${1:-}" == "mcp-meta" ]]; then
+  cat <<'EOF'
+{"name":"bad-timeout-tool","description":"A stub tool with an out-of-range timeout","timeoutMs":0,"parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"}},"required":[]}}}
+EOF
+  exit 0
+fi
+sleep 2
+echo "never printed"
+`,
+  )
+
+  // Declares its bound as a string: the contract is a JSON number, so this must
+  // be rejected rather than coerced (Number("5000") is a working 5s bound).
+  fs.writeFileSync(
+    path.join(toolsDir, "string-timeout-tool.mcp.sh"),
+    `#!/usr/bin/env bash
+if [[ "\${1:-}" == "mcp-meta" ]]; then
+  cat <<'EOF'
+{"name":"string-timeout-tool","description":"A stub tool declaring its timeout as a string","timeoutMs":"5000","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"}},"required":[]}}}
+EOF
+  exit 0
+fi
+sleep 2
+echo "never printed"
+`,
+  )
+
   proc = spawn("bun", ["run", SERVER], {
-    env: { ...process.env, TOOLS_MCP_PROJECT_DIR: tmpDir },
+    env: { ...process.env, TOOLS_MCP_PROJECT_DIR: tmpDir, TOOLS_MCP_TIMEOUT_MS: "500" },
     stdio: ["pipe", "pipe", "pipe"],
   })
 
@@ -139,6 +202,40 @@ describe("devbot-tools MCP server", () => {
     await new Promise((r) => setTimeout(r, 150))
     const discoveries = stderr.match(/discovered \d+ tool\(s\)/g)
     expect(discoveries ?? []).toHaveLength(1)
+  })
+
+  test("a tool that declares its own timeoutMs outlives the server default", async () => {
+    // A datasource reload outlives the 120s default by design: it may pull an
+    // image, canary every source and build sidecars. mcp-meta lets it say so.
+    send(8, "tools/call", { name: "slow-tool", arguments: { args: [] } })
+    const res = await next()
+    expect(res.id).toBe(8)
+    expect(res.result.isError).toBeUndefined()
+    expect(res.result.content[0].text).toContain("slow-tool ok")
+  })
+
+  test("a tool without a declared timeout is still bounded by the default", async () => {
+    send(9, "tools/call", { name: "hang-tool", arguments: { args: [] } })
+    const res = await next()
+    expect(res.id).toBe(9)
+    expect(res.result.isError).toBe(true)
+    expect(res.result.content[0].text).toContain("timed out after 500ms")
+  })
+
+  test("an out-of-range timeoutMs is ignored and the default still applies", async () => {
+    send(10, "tools/call", { name: "bad-timeout-tool", arguments: { args: [] } })
+    const res = await next()
+    expect(res.id).toBe(10)
+    expect(res.result.isError).toBe(true)
+    expect(res.result.content[0].text).toContain("timed out after 500ms")
+  })
+
+  test("a non-numeric timeoutMs is rejected rather than coerced", async () => {
+    send(11, "tools/call", { name: "string-timeout-tool", arguments: { args: [] } })
+    const res = await next()
+    expect(res.id).toBe(11)
+    expect(res.result.isError).toBe(true)
+    expect(res.result.content[0].text).toContain("timed out after 500ms")
   })
 
   test("a tool that exits 0 with only a stderr diagnostic surfaces it", async () => {
