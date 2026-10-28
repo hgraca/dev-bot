@@ -127,7 +127,7 @@ except Exception:
       *) continue ;; # a server this module does not own
     esac
     name="${key#"${PREFIX}"}"
-    if ! printf ' %s ' "${selected}" | grep -Fq " ${name} "; then
+    if ! _list_has_word "${name}" "${selected}"; then
       python3 "${REMOVE_KEY}" "${config}" "${key}" \
         >/dev/null 2>&1 || true
       _skip "datasources — unregistered ${key} (no longer selected)"
@@ -146,7 +146,7 @@ _datasources_prune() {
     name="$(basename "${file}")"
     name="${name#"${PREFIX}"}"
     name="${name%.mcp.json}"
-    if ! printf ' %s ' "${selected}" | grep -Fq " ${name} "; then
+    if ! _list_has_word "${name}" "${selected}"; then
       rm -f "${file}"
       _skip "datasources — pruned ${name} (no longer selected)"
     fi
@@ -170,7 +170,7 @@ main() {
   SIDECAR_PORTS="$(_datasources_sidecar_ports "${PROJECT_DIR}")"
 
   for name in ${selected}; do
-    if ! printf ' %s ' "${declared}" | grep -Fq " ${name} "; then
+    if ! _list_has_word "${name}" "${declared}"; then
       # A typo would otherwise register a server that answers 200 and then a
       # JSON-RPC error — visible only at call time, never at connect time.
       _warn "datasources — '${name}' is selected but not declared in .devbot.global.jsonc"

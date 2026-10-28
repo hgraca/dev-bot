@@ -80,7 +80,7 @@ _probe_toolset() {
   local source="$1" url="$2" tries="$3" expected="" attempt=1 body session
   # Only a PUBLISHED toolbox source has a tool to look for. Deriving it by name
   # alone would hold a sidecar to a tools.yaml entry it can never have.
-  if _published_sources | grep -qx "${source}"; then
+  if _list_has "${source}" "$(_published_sources)"; then
     expected="$(_published_tools | grep -E "^${source}_" | head -1 || true)"
   fi
 
@@ -212,23 +212,23 @@ _unpublished_selected() {
     # Not in the catalogue at all: a typo. init writes its manifest and warns,
     # but no render can ever publish it. Only this project's own typos count
     # against this command — another project's config error is not ours to fail.
-    if ! printf ' %s ' "${declared}" | grep -Fq " ${name} "; then
+    if ! _list_has_word "${name}" "${declared}"; then
       if [[ "${strict}" == "1" ]]; then
         echo "${name}"
       fi
       continue
     fi
-    if printf ' %s ' "${toolbox}" | grep -Fq " ${name} "; then
+    if _list_has_word "${name}" "${toolbox}"; then
       # A toolbox source is published, or it is not. One name per line: a
       # space-padded pattern silently matched only single-entry lists.
-      printf '%s\n' "${published}" | grep -Fqx "${name}" || echo "${name}"
+      _list_has "${name}" "${published}" || echo "${name}"
       continue
     fi
     # A declared sidecar is served by its OWN container — but only if the render
     # emitted its service. A live project absent from the configured project
     # list selects one the static demand filter never renders, so its manifest
     # points at nothing even though the name is declared.
-    printf '%s\n' "$(_sidecar_services)" | grep -Fqx "${name}" || echo "${name}"
+    _list_has "${name}" "$(_sidecar_services)" || echo "${name}"
   done
 }
 
@@ -426,9 +426,9 @@ main() {
     _warn "datasources — could not read the catalogue; sidecars left as they are"
   fi
   for service in ${sidecars}; do
-    printf ' %s ' "${wanted}" | grep -Fq " ${service} " || continue
+    _list_has_word "${service}" "${wanted}" || continue
     verify_sidecars+=" ${service}"
-    if _running_sidecars | grep -qx "${service}"; then
+    if _list_has "${service}" "$(_running_sidecars)"; then
       # Running is not the same as matching: this render may have re-allocated
       # the sidecar's port (another sidecar sorted before it, or a different
       # DATASOURCES_PORT), and the old container still listens on the old one.
@@ -479,7 +479,7 @@ main() {
       continue
     fi
     tries="${DATASOURCES_RELOAD_PROBE_TRIES:-3}"
-    if printf ' %s ' "${fresh_sidecars}" | grep -Fq " ${name} "; then
+    if _list_has_word "${name}" "${fresh_sidecars}"; then
       tries="${DEV_BOT_MCP_WAIT_TRIES:-30}"
     fi
     if _probe_toolset "${name}" "http://127.0.0.1:${port}/mcp" "${tries}"; then

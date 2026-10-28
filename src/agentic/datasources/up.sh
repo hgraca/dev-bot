@@ -149,7 +149,7 @@ main() {
   # emitted, and `up --build` on that would fail every boot.
   local service
   for service in ${sidecars}; do
-    printf ' %s ' "${wanted}" | grep -Fq " ${service} " || continue
+    _list_has_word "${service}" "${wanted}" || continue
     if _start_sidecar "${service}"; then
       _ok "datasources — sidecar '${service}' started"
     else

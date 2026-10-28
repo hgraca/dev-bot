@@ -72,7 +72,7 @@ _verify_reload() {
   local container
   container="$(_container_name)"
   [[ -n "${container}" ]] || return 0
-  if ! docker inspect -f '{{.State.Running}}' "${container}" 2>/dev/null | grep -qx true; then
+  if [[ "$(docker inspect -f '{{.State.Running}}' "${container}" 2>/dev/null)" != "true" ]]; then
     return 0
   fi
   local wait="${DATASOURCES_RELOAD_WAIT:-6}"

@@ -1811,3 +1811,34 @@ SH
   [[ "${out}" != *'"bad"'* ]] || fail "the bad source was accepted: ${out}"
   [[ "${err}" == *"datasource 'bad' is not usable"* ]] || fail "no reason for 'bad': ${err}"
 }
+
+# ── list membership (pipefail / SIGPIPE) ─────────────────────────────────────
+
+@test "list membership: an early entry in a list past the pipe buffer is found" {
+  # The trap this pins: `printf … | grep -q` exits on the match and the writer
+  # takes SIGPIPE on its next write, so `pipefail` reports the pipeline failed
+  # for a name that IS present — intermittently for short lists, and
+  # deterministically for the first entry once the list passes the 64 KiB pipe
+  # buffer. That is how the reload flagged a served sidecar as unpublishable.
+  local script="${SANDBOX_DIR}/list-membership.sh"
+  cat > "${script}" <<SH
+set -euo pipefail
+source "${MODULE_DIR}/functions.sh"
+haystack="\$(seq 1 8000 | sed 's/^/sidecar-/')"
+words="\$(tr '\n' ' ' <<< "\${haystack}")"
+if printf '%s\n' "\${haystack}" | grep -Fqx sidecar-1; then echo "PIPELINE-OK"; else echo "PIPELINE-FAILED"; fi
+_list_has sidecar-1 "\${haystack}" && echo "LINE-FOUND"
+_list_has sidecar-99999 "\${haystack}" || echo "LINE-ABSENT"
+_list_has_word sidecar-1 "\${words}" && echo "WORD-FOUND"
+SH
+
+  run bash "${script}"
+
+  assert_success
+  # The fixture must reproduce the trap, or the assertions below pass vacuously.
+  assert_output --partial "PIPELINE-FAILED"
+  assert_output --partial "LINE-FOUND"
+  assert_output --partial "LINE-ABSENT"
+  assert_output --partial "WORD-FOUND"
+}
+

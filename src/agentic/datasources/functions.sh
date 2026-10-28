@@ -17,6 +17,26 @@ RUNTIME_DIR="${RUNTIME_DIR:-${DEV_BOT_ROOT}/storage/datasources}"
 COMPOSE_FILE="${COMPOSE_FILE:-${RUNTIME_DIR}/docker-compose.yml}"
 CONF_FILE="${CONF_FILE:-${RUNTIME_DIR}/conf/tools.yaml}"
 
+# ── Membership tests ─────────────────────────────────────────────────────────
+#
+# Never `writer | grep -q`: grep exits on the first match, the writer takes
+# SIGPIPE on its next write, and `pipefail` reports the pipeline as failed — so
+# a name that IS in a long list reads as absent. It flagged a served sidecar as
+# unpublishable in CI (the first entry of a multi-line list, intermittently).
+# A here-string is not a pipeline, so there is nothing to report failure for.
+
+# Is <needle> one whole line of <haystack>?
+_list_has() {
+  local needle="$1" haystack="$2"
+  grep -Fqx -- "${needle}" <<< "${haystack}"
+}
+
+# Is <needle> one space-separated word of <haystack>?
+_list_has_word() {
+  local needle="$1" haystack="$2"
+  grep -Fq -- " ${needle} " <<< " ${haystack} "
+}
+
 # Resolved at CALL time, never at source time: DATASOURCES_PORT may arrive with
 # the .env each entry point loads after it sources this file.
 _datasources_gateway_url() {
@@ -144,7 +164,7 @@ _gateway_running() {
   local container
   container="$(_gateway_container_name)"
   [[ -n "${container}" ]] || return 1
-  docker inspect -f '{{.State.Running}}' "${container}" 2>/dev/null | grep -qx true
+  [[ "$(docker inspect -f '{{.State.Running}}' "${container}" 2>/dev/null)" == "true" ]]
 }
 
 # The rendered catalogue holds one `kind: source` document per usable
@@ -320,7 +340,7 @@ _wanted_sidecars() {
 _reconcile_sidecars() {
   local wanted="$1" svc
   for svc in $(_running_sidecars); do
-    if ! printf ' %s ' "${wanted}" | grep -Fq " ${svc} "; then
+    if ! _list_has_word "${svc}" "${wanted}"; then
       if docker stop "dev-bot-datasources-${svc}" >/dev/null 2>&1; then
         _ok "datasources — sidecar '${svc}' stopped (no live session wants it)"
       else
