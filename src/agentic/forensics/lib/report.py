@@ -28,6 +28,7 @@ SECTIONS = (
     ("risk", "Risk (hotspot x defects)", 20),
     ("fixers", "Fixer ↔ originator", 20),
     ("process", "Commit process", 1),
+    ("author-process", "Commit process per author", 20),
     ("releases", "Releases", 20),
     ("modules", "Modules", 20),
     ("architecture", "Cross-module coupling", 20),

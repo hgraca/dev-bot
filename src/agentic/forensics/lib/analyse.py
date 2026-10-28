@@ -430,6 +430,54 @@ def process(conn: sqlite3.Connection, top=None) -> list:
     ]
 
 
+def author_process(conn: sqlite3.Connection, top=None) -> list:
+    """Per-author batch size, churn and Conventional Commits hygiene.
+
+    The per-author counterpart to :func:`process` — the same measures, grouped by
+    ``author_email``, so one developer's release habits can be read on their own.
+    """
+    rows = conn.execute(
+        "SELECT author_email AS author, committer_date, files_changed, lines_added, lines_deleted, type FROM commits"
+    ).fetchall()
+    if not rows:
+        return []
+
+    per_author = {}
+    for row in rows:
+        # author_email is nullable; a missing identity sorts as an empty string rather than None,
+        # so the ordering below stays total when the store holds both kinds of row.
+        entry = per_author.setdefault(
+            row["author"] or "", {"commits": 0, "sizes": [], "churn": [], "days": set(), "conventional": 0}
+        )
+        entry["commits"] += 1
+        entry["sizes"].append(row["files_changed"] or 0)
+        entry["churn"].append((row["lines_added"] or 0) + (row["lines_deleted"] or 0))
+        if row["committer_date"]:
+            entry["days"].add(row["committer_date"][:10])
+        if row["type"]:
+            entry["conventional"] += 1
+
+    results = []
+    for author, entry in per_author.items():
+        commits = entry["commits"] or 1
+        results.append(
+            {
+                "author": author,
+                "commits": entry["commits"],
+                "active_days": len(entry["days"]),
+                "commits_per_day": round(entry["commits"] / len(entry["days"]), 2) if entry["days"] else 0.0,
+                "avg_files_per_commit": round(sum(entry["sizes"]) / commits, 2),
+                "max_files_in_commit": max(entry["sizes"]),
+                "avg_lines_per_commit": round(sum(entry["churn"]) / commits, 1),
+                "large_commits": sum(1 for value in entry["churn"] if value > LARGE_COMMIT_LINES),
+                "conventional_pct": round(100.0 * entry["conventional"] / commits, 1),
+            }
+        )
+
+    results.sort(key=lambda item: (item["commits"], item["author"]), reverse=True)
+    return results[:top] if top is not None else results
+
+
 def releases(conn: sqlite3.Connection, top=None) -> list:
     """Tags in creation order — the release history."""
     rows = conn.execute("SELECT tag, date FROM releases ORDER BY date").fetchall()
@@ -731,6 +779,7 @@ _VIEWS = {
     "time-to-fix": time_to_fix,
     "fixers": fixers,
     "process": process,
+    "author-process": author_process,
     "releases": releases,
     "architecture": architecture,
     "modules": modules,
