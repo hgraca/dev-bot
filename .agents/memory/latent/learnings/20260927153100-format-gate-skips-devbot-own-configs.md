@@ -1,9 +1,14 @@
 ---
 date: 2026-09-27
 keywords: ["format-json", "prettier-gate", "opencode.jsonc", "force"]
+superseded_by: ["ADRs/20261028151924-format-hooks-fall-back-to-devbot-prettier-defaults.md"]
 ---
 
 # The prettier gate silently stops dev-bot normalizing its own generated configs
+
+> **Superseded.** There is no prettier gate any more: a project that declares no prettier config
+> is formatted with dev-bot's shipped defaults, so these call sites format without `--force`.
+> See ADR `20261028151924-format-hooks-fall-back-to-devbot-prettier-defaults.md`.
 
 `src/_shared/prettier_gate.py` gates every file/directory `format-*` run on the
 TARGET PROJECT declaring prettier (`.prettierrc*`, `prettier.config.*`, or a

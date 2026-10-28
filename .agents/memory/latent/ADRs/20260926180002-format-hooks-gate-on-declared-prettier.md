@@ -1,8 +1,15 @@
 ---
 date: 2026-09-26
 keywords: ["prettier", "format-hooks", "biome", "format-md", "format-json"]
+superseded_by: ["ADRs/20261028151924-format-hooks-fall-back-to-devbot-prettier-defaults.md"]
 ---
 
 ## The `format-*` hooks only run where the project declares prettier
+
+> **Superseded.** The gate is gone: ADR
+> `20261028151924-format-hooks-fall-back-to-devbot-prettier-defaults.md` formats a project that
+> declares no prettier config with dev-bot's shipped defaults, because the gate made `--check`
+> exit 2 there. The Biome trade-off recorded below now applies again, with disabling the module
+> as the opt-out.
 
 The `format-md`/`format-json`/`format-yml` hooks install into every project dev-bot scaffolds, but they ran prettier regardless of whether the project uses it — rewriting files to a standard the project never adopted and fighting the one it had: a Biome project's deliberately multi-line `"files"` array was collapsed, breaking its own format check, and its README gained semicolons in a JS sample contradicting the repo's style. File and directory runs now proceed only when prettier is available **and** the project declares it — `.prettierrc*` (including `.prettierrc.toml`), `prettier.config.*`, or a `prettier` key in `package.json`, mirroring how prettier resolves its own config, searched upward from the target via `src/_shared/prettier_gate.py`. Pipe mode is an explicit request with no project to consult, so it stays ungated and passes its input through unformatted (with a warning) rather than swallowing it. A missing prettier or node is never fatal — it warns and exits 0, because the `file.edited` hook must not fail an edit — but a prettier that `which` found and the exec could not run is reported as a _formatting_ failure, never as main's vanished-file warning (same "WARN + exit 0" shape, so the distinction must be tested by message, not by exit code). `install.sh` and `update.sh` now install prettier when missing and **verify it is runnable** before reporting success, since a failing command substitution does not abort under `set -e`. dev-bot itself declared no prettier at all (it relied on a globally installed binary), so it gained a `.prettierrc.json` containing `{}` — byte-identical output to no config, and the only thing that keeps dev-bot's own hooks running under the gate.
