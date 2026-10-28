@@ -96,9 +96,15 @@ each declared source and keeps only what that accepts, so a wrong credential or
 a blocked host is excluded too, not just a down database.
 
 - No tool for a database you expected usually means **the database is down**,
-  not a misconfiguration. Boot the environment and run `devbot up` again.
-- The set is decided once, at startup: a database that comes up later is not
-  picked up until the next `devbot up`. Nothing retries in the background.
+  not a misconfiguration. Bring the environment up, then recover the source
+  without restarting: the `reload-datasources` tool, or the CLI
+  `devbot datasources reload`, re-evaluates the catalogue and proves the
+  gateway serves it. The tool ends with `reload: complete`, `reload: not
+complete` (the render applied, a source is still unserved) or `reload: not
+applied` (nothing ran, no config changed); the CLI with `reload complete;
+every selected source is served`.
+- The set is decided once, at startup: nothing retries in the background, so a
+  database that comes up later needs that reload.
 - Reasons are printed on `devbot up`, and the gateway's own log shows config
   rejections.
 

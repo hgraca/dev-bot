@@ -2,6 +2,8 @@
 title: "Datasources"
 description: "One shared gateway for a project's databases and data stores — a free-form query tool per source, or a sidecar server where toolbox has none."
 skills: ["datasources"]
+tools:
+  reload-datasources: Re-evaluate the catalogue and verify the gateway serves it
 ---
 
 Agents reach a project's data sources through one declared catalogue: a database becomes a free-form query tool on a shared gateway, and a source toolbox cannot host (OpenSearch, S3) becomes its own small MCP server.
@@ -55,6 +57,8 @@ Sidecars run on the `uv` image and resolve their server's dependencies at contai
 The catalogue is evaluated **once, at startup**. A database behind a VPN that is down when `devbot up` runs is left out of the gateway for that session — but its harness manifest is not, because manifests follow the project's _selection_, never the render's verdict. Enabling it then points the client at a toolset nothing serves, which is why only a restart used to help.
 
 `devbot datasources reload` is the step in between. Run from the project once the network is back, it re-renders the catalogue against the network as it is now, hands the result to a running gateway (toolbox reloads its config on its own poll), starts a gateway a boot never started, starts the sidecars live sessions demand, and confirms every published source answers a `tools/list` request on its own endpoint — plus that every source this project selects is published at all. A success therefore means enabling the datasource will work; a selected source the gateway still cannot serve is reported by name and fails the command. Like the rest of the lifecycle it is explicit: nothing re-evaluates in the background.
+
+An agent can run that same recovery itself: the `reload-datasources` MCP tool wraps the command, reports every source and ends with one of three lines: `reload: complete`, `reload: not complete` (the render applied, a source is still unserved) or `reload: not applied` (nothing ran and the running config is untouched). It flattens the whole report onto stdout and exits 0 even when a source is still unserved, so the per-source detail reaches the agent instead of being replaced by the error line.
 
 The boot path names the command whenever it drops a declared source, so the recovery is one line away at the moment it is needed.
 
