@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # =============================================================================
-# src/agentic/devbot/tests/work-autonomously_tests.bats
-# Guards the work-autonomously command's contract: it refines a task with an
+# src/agentic/devbot/tests/auto-dev_tests.bats
+# Guards the auto-dev command's contract: it refines a task with an
 # open outcome once up front, follows whichever workflow is in use,
 # skips the check-ins, and stops one step before the merge — while carrying
 # the pull-request review loop's mechanics.
@@ -10,16 +10,16 @@
 setup() {
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
-  COMMAND="$MODULE_DIR/commands/work-autonomously.md"
+  COMMAND="$MODULE_DIR/commands/auto-dev.md"
   # Prose wraps and is indented: grep each assertion against one flattened line.
   FLAT="$BATS_TEST_TMPDIR/command-flat.md"
   tr '\n' ' ' < "$COMMAND" | tr -s ' ' > "$FLAT"
 }
 
-@test "command frontmatter names devbot:work-autonomously" {
+@test "command frontmatter names devbot:auto-dev" {
   run sed -n '1,4p' "$COMMAND"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"name: devbot:work-autonomously"* ]]
+  [[ "$output" == *"name: devbot:auto-dev"* ]]
 }
 
 @test "command takes the whole argument, so a task can be given inline" {

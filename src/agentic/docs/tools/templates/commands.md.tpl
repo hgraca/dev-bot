@@ -12,7 +12,7 @@ a module's `commands/` dir: `src/agentic/<module>/` for agentic modules,
 `src/tools/<module>/` for tool modules.
 
 Arguments reach the body two ways. `$ARGUMENTS` is the whole argument tail as one string — use it when
-the argument is free-form prose (`devbot:work-autonomously` takes the task itself). `$1`, `$2`, … are
+the argument is free-form prose (`devbot:auto-dev` takes the task itself). `$1`, `$2`, … are
 positional, one per argument — use them when the argument has a fixed shape (a path, a branch, a PR
 URL).
 

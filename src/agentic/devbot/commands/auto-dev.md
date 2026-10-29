@@ -1,5 +1,5 @@
 ---
-name: devbot:work-autonomously
+name: devbot:auto-dev
 description: Work a task autonomously to the last step before the merge — from a task given inline, a file path or a URL, resuming work already in progress.
 ---
 

@@ -30,7 +30,7 @@ commits land, how it is reviewed, and where it stops. Select it in this order �
 **Check in after every step.** In an interactive session, end each step with a two-line report — what
 you did and what comes next — and ask the user whether to continue or change something. Do not start
 the next step until they answer. Runs with no human to answer are the only exception:
-`devbot:work-autonomously` skips the check-ins, and a delegated subagent reports to its orchestrator
+`devbot:auto-dev` skips the check-ins, and a delegated subagent reports to its orchestrator
 instead.
 
 ### Worktrees workflow
@@ -54,12 +54,12 @@ request; nothing is merged.
 5. **Self-review** — when the task is done, delegate a review of the whole changeset against the
    default branch to the session's code reviewer, following the session's review gate (DevBot asks
    the user first and delegates to `@reviewer`; an autonomous run delegates straight away to
-   `@code-reviewer` as `devbot:work-autonomously` directs), and address every finding as your own
+   `@code-reviewer` as `devbot:auto-dev` directs), and address every finding as your own
    recommendation (`devbot:address-review`).
 6. **Open the pull request and run the review loop** — push the branch and open the pull request with
    `devbot:gh-create-pr`, then loop until a review introduces no new findings: request the reviewer,
    read both the line comments and the review body, fix each finding as a fixup, and reply then
-   resolve each thread. `devbot:work-autonomously` carries the loop's cadence and reviewer-effort
+   resolve each thread. `devbot:auto-dev` carries the loop's cadence and reviewer-effort
    mechanics.
 7. **Hand back** — stop and report the pull request and its URL (`devbot:gh-create-pr`). The reviewer
    squashes the fixups and merges; you never merge it.

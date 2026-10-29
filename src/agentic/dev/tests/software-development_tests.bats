@@ -59,7 +59,7 @@ setup() {
   run grep -qF 'ask the user whether to continue or change something' "$FLAT"
   assert_success
 
-  run grep -qF 'devbot:work-autonomously' "$FLAT"
+  run grep -qF 'devbot:auto-dev' "$FLAT"
   assert_success
 
   # A delegated subagent has no human to answer the check-in.
@@ -119,7 +119,7 @@ setup() {
   run grep -qF "cadence and reviewer-effort mechanics" "$FLAT"
   assert_success
 
-  # The poll schedule belongs to devbot:work-autonomously.
+  # The poll schedule belongs to devbot:auto-dev.
   run grep -qF '60 checks' "$SKILL"
   assert_failure
 }
