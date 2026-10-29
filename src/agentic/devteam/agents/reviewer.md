@@ -39,6 +39,7 @@ If changeset exceeds 30 files or 1500 lines, request developer break into smalle
 ## Responsibilities
 
 - Review code for correctness, performance, security, and maintainability.
+- Flag each code comment that does not explain something a reader would find odd, or that exceeds 2 lines of 52 characters each — the reasoning belongs in the commit body (see `devbot:software-development`).
 - Verify the design follows the industry-standard / canonical approach for its domain — protocols, auth/security, integrations, API contracts, data formats. Flag deviations from the standard even when the code is correct; a deviation without a documented rationale is a finding.
 - Run test suite — do not read code.
 - Approve or request changes before merging.

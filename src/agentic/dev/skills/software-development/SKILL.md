@@ -163,10 +163,10 @@ docs answer for the wrong major version is worse than no answer.
 
 ### Comments
 
-- **The _why_ belongs in the commit description, not the code.** A comment explaining why a line exists, what workaround it encodes, or what would break without it is a commit-body line in the wrong file — invisible to `git log`, and a duplicate of the message. Put the reasoning in the body; reserve in-code comments for the 1–2 lines of mechanics a reader genuinely cannot infer.
-- **No prose in the middle of code.** Narration ("now we iterate and build the map…") restates what the code already says and rots as it moves. Let names and structure carry the meaning; delete the rest.
-- **Docblocks only when they earn their place** — the function/method signature is not self-documenting (non-obvious contract, side effects, ordering, units, a surprising return), or a static-analysis tool requires one. A docblock that merely restates the name and parameters is noise.
-- **At most 1–2 lines for genuinely unreadable code** — a little-known native function or a dense chain of calls. Prefer instead to extract it into a function with a short, meaningful name (≤ ~32 chars): the name states the intent, and the extraction is testable.
+- **Only where the code would otherwise look odd.** A comment exists to stop a reader asking "why is this here?" — a workaround, a deliberate ordering, an unusual constant. Everything else (the _why_ of the change, narration, what the code already says) belongs in the commit body, where `git log` can find it.
+- **Hard limit: 2 lines of 52 characters each.** That is the whole budget, and it includes the ones that feel justified. If the thought does not fit, the code needs a better name or an extracted function, not more prose.
+- **A little-known call is an extraction, not a comment.** Pull it into a function named for its intent (≤ ~32 chars): the name states the purpose and the extraction is testable.
+- **Docblocks are for contracts, not prose** — only when the signature cannot carry it (non-obvious side effects, ordering, units, a surprising return) or a static-analysis tool requires one. Same budget applies wherever the tool allows.
 
 ## Testing Discipline
 
