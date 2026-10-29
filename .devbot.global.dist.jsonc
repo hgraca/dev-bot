@@ -33,6 +33,17 @@
   // Every value is either a literal or a "${VAR}" reference to an environment
   // variable — put a secret behind a reference and it exists in no file at
   // all. See docs/configuration.md.
+  // Example:
+  // "datasources": {
+  //   "hotels-dev": {
+  //     "type": "mysql",
+  //     "env": {
+  //       "MYSQL_HOST": "localhost",
+  //       "MYSQL_USER": "root",
+  //       "MYSQL_PASSWORD": "${HOTELS_DEV_DB_PASSWORD}"
+  //     }
+  //   }
+  // },
   "datasources": {},
   // Cluster access for agents, rendered by src/agentic/k8s/init.sh into
   // ~/.kube/devbot.yaml plus an exec credential wrapper and ~/.kube/devbot.env.
