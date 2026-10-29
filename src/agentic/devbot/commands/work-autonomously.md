@@ -59,7 +59,8 @@ Task: $ARGUMENTS
    commits with the push still pending. Never merge a pull request, never push the default branch,
    and never open a pull request the workflow does not call for.
 
-6. **Hand back** — stop and report what the workflow's last step leaves for the user.
+6. **Hand back** — stop and report what the workflow's last step leaves for the user; a pull request
+   is always reported with its URL (`devbot:gh-create-pr`).
 
 ## Review loop (when the workflow opens a pull request)
 

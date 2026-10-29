@@ -135,7 +135,7 @@ git push --force-with-lease=refs/heads/<branch>:<expected-sha> origin <branch>
 `<expected-sha>`. The bare form compares against the local remote-tracking ref instead, so fetching
 `<branch>` first would adopt a colleague's new tip as the expected value and overwrite it silently —
 never fetch `<branch>` between capturing the sha and the push, and never use bare `--force`. Tell the
-human the new head and that the PR's checks will re-run when they push.
+human the new head and the pull request's URL; its checks re-run when they push.
 
 A branch that has never been pushed has no `origin/<branch>` and no lease to capture: the human
 publishes it after the squash with an ordinary `git push -u origin <branch>`.

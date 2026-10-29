@@ -316,6 +316,23 @@ setup() {
   grep -qi 'human' "$CREATE_PR_CMD"
 }
 
+@test "the worktree finish reports the pull request by its URL" {
+  local finish
+  finish="$(section "$WORKTREES" 'Finish' | tr '\n' ' ' | tr -s ' ')"
+  [ -n "$finish" ]
+  printf '%s\n' "$finish" | grep -qF 'and report its URL'
+  # The bare forms are banned: a number, `#<n>`, and "the PR".
+  ! printf '%s\n' "$finish" | grep -qE '(PR|pull request) ?#[0-9]+'
+}
+
+@test "the squash hand-over names the pull request by its URL" {
+  local step
+  step="$(subsection "$FIXUP" '7. Hand the publish to the human' | tr '\n' ' ' | tr -s ' ')"
+  [ -n "$step" ]
+  printf '%s\n' "$step" | grep -qF "the pull request's URL"
+  ! printf '%s\n' "$step" | grep -qF "the PR's"
+}
+
 @test "advanced operations points at the sanctioned pre-merge squash" {
   grep -qi 'exception' "$ADVANCED_FLAT"
   grep -qi 'devbot:git-fixup-commits' "$ADVANCED_FLAT"

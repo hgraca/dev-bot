@@ -94,6 +94,15 @@ If the branch has no upstream, push it first — only after approval:
 git [-C "$owner"] push -u origin <branch>
 ```
 
+## Reference the PR by its URL
+
+Reference every pull request by its URL — in a hand-back, a status report, a review summary, a
+question, anywhere you name one. Give the full link, never a bare number, `#<number>`, or "the PR":
+none of them identifies the repository, so the reader has to go looking.
+
+`gh pr create` prints the URL; `gh pr view <url> --json url` recovers it afterwards. A pull request
+that does not exist yet has no URL — name the branch instead.
+
 ## Copilot review
 
 `--reviewer @copilot` requests GitHub Copilot code review at creation; it is the CLI's special

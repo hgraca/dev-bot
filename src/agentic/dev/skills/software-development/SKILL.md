@@ -61,8 +61,8 @@ request; nothing is merged.
    read both the line comments and the review body, fix each finding as a fixup, and reply then
    resolve each thread. `devbot:work-autonomously` carries the loop's cadence and reviewer-effort
    mechanics.
-7. **Hand back** — stop and report the pull request. The reviewer squashes the fixups and merges; you
-   never merge it.
+7. **Hand back** — stop and report the pull request and its URL (`devbot:gh-create-pr`). The reviewer
+   squashes the fixups and merges; you never merge it.
 
 ### Trunk workflow
 

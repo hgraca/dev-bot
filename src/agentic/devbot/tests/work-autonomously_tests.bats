@@ -117,6 +117,13 @@ setup() {
   grep -q 'never push the default branch' "$FLAT"
 }
 
+@test "command's hand-back reports a pull request with its URL" {
+  grep -q 'a pull request is always reported with its URL' "$FLAT"
+  grep -q 'devbot:gh-create-pr' "$FLAT"
+  # ...and never by a bare number.
+  ! grep -qE '(PR|pull request) ?#[0-9]+' "$FLAT"
+}
+
 @test "command carries the pull-request review loop mechanics" {
   grep -q '@copilot' "$COMMAND"
   grep -q 'requestReviews' "$COMMAND"

@@ -130,9 +130,9 @@ out, or otherwise changed locally:
 bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" push <branch>   # push + set upstream
 ```
 
-Then open the PR against `<default>` with `devbot:gh-create-pr`. `push` only pushes the worktree
-branch to `origin` and sets its upstream; it does not touch the main checkout, so the whole flow is
-independent of the local situation.
+Then open the PR against `<default>` with `devbot:gh-create-pr`, and report its URL. `push` only
+pushes the worktree branch to `origin` and sets its upstream; it does not touch the main checkout, so
+the whole flow is independent of the local situation.
 
 ### Squash fixups before merge
 

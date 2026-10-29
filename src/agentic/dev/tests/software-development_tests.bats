@@ -93,6 +93,15 @@ setup() {
   done
 }
 
+@test "worktrees hand-back reports the pull request by its URL" {
+  run grep -qF 'report the pull request and its URL (`devbot:gh-create-pr`)' "$FLAT"
+  assert_success
+
+  # ...and never by a bare number.
+  run grep -qE '(PR|pull request) ?#[0-9]+' "$FLAT"
+  assert_failure
+}
+
 @test "trunk workflow works on the default branch with no pull request, stopping before the push" {
   local needle
   for needle in \
