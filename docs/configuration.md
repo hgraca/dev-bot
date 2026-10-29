@@ -625,6 +625,84 @@ take every datasource with it. A sidecar is its own container and cannot do that
 so one that fails to start fails only its own manifest, which surfaces when the
 agent first calls it.
 
+### `kubectl`
+
+Cluster access for agents, rendered by `src/agentic/k8s/init.sh` on every init.
+The script writes three files outside the repo — `~/.kube/devbot.yaml`,
+`~/.kube/devbot/exec-credential.sh` and `~/.kube/devbot.env` — and regenerates
+all three from scratch, so a cluster removed here disappears from the kubeconfig
+on the next init.
+
+```jsonc
+"kubectl": {
+  "profile": "devbot-agent", // AWS profile the exec plugin runs `aws eks get-token` under
+  "credential_env": {
+    // Destination name → ${VAR} reference, exactly as in a datasource.
+    "AWS_ACCESS_KEY_ID": "${AWS_KEY}",
+    "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
+  },
+  "clusters": [
+    { "name": "k8s-prod", "context": "k8s-prod-ro", "region": "eu-central-1" },
+    { "name": "k8s-stg", "context": "k8s-stg-rw", "region": "eu-central-1" }
+  ]
+}
+```
+
+`context` is the kubeconfig context name and defaults to the cluster name.
+`namespace` is not configurable: contexts open in `default`, which is where the
+workloads live in this workspace. Both cluster and context names must match
+`[A-Za-z0-9._-]+` — the context is emitted as a YAML plain scalar, so a value
+like `"team: prod"` would be parsed as a mapping and corrupt the file.
+
+The config lives in its own file, not in `~/.kube/config`. kubectl only reads
+`~/.kube/config` unless `KUBECONFIG` says otherwise, so init also writes
+`~/.kube/devbot.env`:
+
+```sh
+. ~/.kube/devbot.env            # export KUBECONFIG=~/.kube/devbot.yaml
+kubectl --context k8s-prod-ro get pods
+```
+
+Keeping it separate is deliberate. Merging agent contexts into a human's admin
+kubeconfig is how a `--context` typo reaches production, and the agent's
+permissions only hold while the context it uses is the one carrying the exec
+plugin.
+
+**The `${VAR}` references are not resolved at init.** They are copied verbatim
+into the generated exec wrapper, which the shell expands when kubectl asks for a
+token — so the value only ever exists in the environment of that one process and
+never in a file. This differs from a datasource, where the reference is
+interpolated into a process environment at render time; here the consumer is a
+file, so resolving it early would write the secret to disk. Reading
+`~/.kube/devbot/exec-credential.sh` shows `${AWS_KEY}`, not a key.
+
+`profile` must already exist in `~/.aws/config`; dev-bot does not create it,
+because rewriting a shared credentials file is not an init step. A profile that
+is missing, or a reference whose variable is unset, is reported as a `WARN` and
+skips the render rather than writing a kubeconfig that authenticates as nobody.
+
+A `credential_env` value **must** be a whole `${VAR}` reference. A literal is
+refused: it would be copied into the wrapper, where shell metacharacters become
+executable syntax and the value itself becomes a credential on disk.
+
+Pruning is explicit. Removing a cluster from `clusters` drops it from the
+regenerated kubeconfig; removing the **last** one deletes both generated files.
+Omitting `clusters` altogether means "not configured" and leaves whatever is on
+disk untouched, so shipping the empty default never takes away a kubeconfig an
+agent was already using.
+
+The wrapper is a `credential_source = Environment` profile plus a
+`role_arn` — the profile assumes the cluster-access role, and the mapped
+environment supplies the source credentials. Point `profile` at a role profile,
+not at one carrying long-lived keys used directly.
+
+That distinction is enforced rather than documented only: init resolves the
+profile's identity with `sts get-caller-identity` and refuses to render when it
+is not an `assumed-role` session. Environment credentials win over a profile's
+own access keys, so a misconfigured profile would otherwise have the agent
+acting as the source identity with whatever that key can do — a silent
+escalation, visible only later in CloudTrail.
+
 ## Example: full project config
 
 ```jsonc

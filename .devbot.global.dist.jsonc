@@ -34,6 +34,24 @@
   // variable — put a secret behind a reference and it exists in no file at
   // all. See docs/configuration.md.
   "datasources": {},
+  // Cluster access for agents, rendered by src/agentic/k8s/init.sh into
+  // ~/.kube/devbot.yaml plus an exec credential wrapper and ~/.kube/devbot.env.
+  // Credential values stay in the environment: a value must be a "${VAR}"
+  // reference, never the secret itself. See the `kubectl` section of
+  // docs/configuration.md.
+  // Example:
+  // "kubectl": {
+  //   "profile": "devbot-agent",
+  //   "credential_env": {
+  //     "AWS_ACCESS_KEY_ID": "${AWS_KEY}",
+  //     "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
+  //   },
+  //   "clusters": [
+  //     { "name": "k8s-prod", "context": "k8s-prod-ro", "region": "eu-central-1" },
+  //     { "name": "k8s-stg", "context": "k8s-stg-rw", "region": "eu-central-1" }
+  //   ]
+  // },
+  "kubectl": {},
   "guards": [
     {
       "regex": "rm -rf",
