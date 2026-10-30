@@ -131,6 +131,14 @@ setup() {
   grep -q '\*\*Review effort:\*\*' "$COMMAND"
 }
 
+@test "review loop replies succinctly and resolves each thread" {
+  grep -q 'one to three bullet points only' "$FLAT"
+  grep -q 'each line at most 72 characters' "$FLAT"
+  grep -q 'no prose' "$FLAT"
+  grep -q 'then resolve the thread' "$FLAT"
+  grep -q 'in the same format' "$FLAT"
+}
+
 @test "command polls Copilot every minute, 60 times" {
   grep -q '1 minute after each request before the first check' "$FLAT"
   grep -q 'maximum of 60 checks per request' "$FLAT"

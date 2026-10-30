@@ -116,11 +116,15 @@ setup() {
 }
 
 @test "the review-loop mechanics stay in the command, not the always-loaded skill" {
-  run grep -qF "cadence and reviewer-effort mechanics" "$FLAT"
+  run grep -qF "carries the loop's mechanics" "$FLAT"
   assert_success
 
   # The poll schedule belongs to devbot:auto-dev.
   run grep -qF '60 checks' "$SKILL"
+  assert_failure
+
+  # So does the resolution reply's format.
+  run grep -qF 'one to three bullet points only' "$SKILL"
   assert_failure
 }
 

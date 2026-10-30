@@ -91,9 +91,11 @@ check-ins. Run it until a review introduces no new findings.
   branch and push explicitly to it.
 - **Fix** — address every finding as per your own recommendation, commit each as a `fixup!`
   (`devbot:git-fixup-commits`), and push.
-- **Mark** — reply with what changed, then resolve the thread. A false positive gets a reply
-  explaining why. A finding that exists only as a review-body row has no thread: record its
-  resolution in a PR comment. This posting is the deliberate exception to
+- **Mark** — reply with a succinct resolution comment, then resolve the thread. The reply is one to
+  three bullet points only, each line at most 72 characters (the whole line, including its `- `
+  marker), with no prose around them. A false positive gets the same format, explaining why no change
+  was made. A finding that exists only as a review-body row has no thread: post its resolution as a
+  PR comment in the same format. This posting is the deliberate exception to
   `devbot:address-review`'s local-only rule.
 - **Track** — follow the underlying issue and affected code across both sources, keeping comment
   IDs for the replies and resolutions. A re-raised finding already addressed or judged a false
