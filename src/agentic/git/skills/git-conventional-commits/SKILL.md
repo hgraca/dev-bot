@@ -11,19 +11,19 @@ can drive automated versioning and changelogs. The message skeleton and the body
 
 ## Types
 
-| Type       | Use for                                                                                             | Version impact |
-| ---------- | --------------------------------------------------------------------------------------------------- | -------------- |
-| `feat`     | New feature for the user (adds new behaviour)                                                       | MINOR          |
-| `fix`      | Bug fix for the user (Changes existing incorrect behaviour)                                         | PATCH          |
-| `docs`     | Documentation only                                                                                  | —              |
-| `style`    | Formatting, whitespace, semicolons; no code meaning change                                          | —              |
-| `refactor` | Restructuring that neither fixes a bug nor adds a feature (changes code without changing behaviour) | —              |
-| `perf`     | Performance improvement                                                                             | PATCH          |
-| `test`     | Adding or correcting tests                                                                          | —              |
-| `build`    | Build system or external dependencies                                                               | —              |
-| `ci`       | CI configuration and scripts                                                                        | —              |
-| `chore`    | Anything else not touching src or tests                                                             | —              |
-| `revert`   | Reverts a previous commit                                                                           | —              |
+| Type       | Use for                                                                                                                                     | Version impact |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `feat`     | New feature for the user (adds new behaviour)                                                                                               | MINOR          |
+| `fix`      | Bug fix for the user (Changes existing incorrect behaviour, only allowed for changes already in the default branch, otherwise its a fixup!) | PATCH          |
+| `docs`     | Documentation only                                                                                                                          | —              |
+| `style`    | Formatting, whitespace, semicolons; no code meaning change                                                                                  | —              |
+| `refactor` | Restructuring that neither fixes a bug nor adds a feature (changes code without changing behaviour)                                         | —              |
+| `perf`     | Performance improvement                                                                                                                     | PATCH          |
+| `test`     | Adding or correcting tests                                                                                                                  | —              |
+| `build`    | Build system or external dependencies                                                                                                       | —              |
+| `ci`       | CI configuration and scripts                                                                                                                | —              |
+| `chore`    | Anything else not touching src or tests                                                                                                     | —              |
+| `revert`   | Reverts a previous commit                                                                                                                   | —              |
 
 Anything marked `!` or carrying a `BREAKING CHANGE:` footer is MAJOR regardless of type.
 
