@@ -9,9 +9,9 @@
 #     its trailing // comment)
 #   - remove each runtime key absent from the dist file
 #   - leave keys present in both byte-for-byte (runtime value + comment win)
-#   - nested objects are OPAQUE — never reconciled — EXCEPT the catalogue maps
-#     in MERGE_MAPS (`external_modules`), merged additively (dist entries the
-#     runtime lacks are added; existing entries are never touched or removed)
+#   - nested objects are OPAQUE — never reconciled — EXCEPT the maps in
+#     MERGE_MAPS (`external_modules`, `modules`), merged additively (dist entries
+#     the runtime lacks are added; existing entries are never touched or removed)
 #   - text surgery: comments/layout of untouched properties are preserved
 # =============================================================================
 
@@ -115,15 +115,43 @@ JSONC_EOF
   refute grep -qF '// dist default' "$WORK/runtime.jsonc"
 }
 
-@test "nested objects are opaque — a differing modules map is not reconciled" {
+@test "modules gains dist defaults missing from the runtime and keeps machine choices" {
   cat > "$WORK/dist.jsonc" <<'JSONC_EOF'
 {
-  "modules": { "react": false }
+  "modules": { "react": false, "sonarqube": false }
 }
 JSONC_EOF
   cat > "$WORK/runtime.jsonc" <<'JSONC_EOF'
 {
-  "modules": { "svelte": false }
+  "modules": { "react": true }
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/dist.jsonc" "$WORK/runtime.jsonc"
+  assert_success
+  grep -qF 'ADDED: modules.sonarqube' <<< "$output" || fail "nested ADDED not reported"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/runtime.jsonc')
+assert d['modules'] == {'react': True, 'sonarqube': False}, d
+print('MERGED')
+"
+  assert_success
+  assert_output "MERGED"
+}
+
+@test "nested objects are opaque — a differing auto_recover map is not reconciled" {
+  cat > "$WORK/dist.jsonc" <<'JSONC_EOF'
+{
+  "auto_recover": { "max_attempts": 5 }
+}
+JSONC_EOF
+  cat > "$WORK/runtime.jsonc" <<'JSONC_EOF'
+{
+  "auto_recover": { "max_attempts": 2 }
 }
 JSONC_EOF
 
@@ -135,7 +163,7 @@ import sys
 sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
 from read_jsonc import load_jsonc
 d = load_jsonc('${WORK}/runtime.jsonc')
-assert d['modules'] == {'svelte': False}, d
+assert d['auto_recover'] == {'max_attempts': 2}, d
 print('OPAQUE')
 "
   assert_success
@@ -516,3 +544,43 @@ JSONC_EOF
 }
 
 
+
+@test "two maps merge without stale offsets when the first precedes the second" {
+  # Merging external_modules first shifts every offset below it; the modules
+  # span must be recomputed before its own merge, or the reconciler reads at a
+  # stale offset and fails.
+  cat > "$WORK/dist.jsonc" <<'JSONC_EOF'
+{
+  "external_modules": {
+    "a": { "url": "https://example.com/a.git" },
+    "b": { "url": "https://example.com/b.git" }
+  },
+  "modules": { "react": true, "sonarqube": false }
+}
+JSONC_EOF
+  cat > "$WORK/runtime.jsonc" <<'JSONC_EOF'
+{
+  "external_modules": {
+    "a": { "url": "https://example.com/a.git" }
+  },
+  "modules": { "react": true }
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/dist.jsonc" "$WORK/runtime.jsonc"
+  assert_success
+  grep -qF 'ADDED: external_modules.b' <<< "$output" || fail "external_modules merge missing"
+  grep -qF 'ADDED: modules.sonarqube' <<< "$output" || fail "modules merge missing"
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+d = load_jsonc('${WORK}/runtime.jsonc')
+assert set(d['external_modules']) == {'a', 'b'}, d
+assert d['modules'] == {'react': True, 'sonarqube': False}, d
+print('BOTH-MERGED')
+"
+  assert_success
+  assert_output "BOTH-MERGED"
+}

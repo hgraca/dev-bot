@@ -9,11 +9,12 @@ dist schema evolves. `devbot update` runs this tool to realign the two:
     its trailing comment;
   - remove each runtime key absent from the dist file;
   - leave the value and trailing comment of keys present in both untouched;
-  - treat nested objects as opaque — never reconciled — EXCEPT the catalogue
-    maps in MERGE_MAPS (`external_modules`), which are merged additively: dist
+  - treat nested objects as opaque — never reconciled — EXCEPT the maps in
+    MERGE_MAPS (`external_modules`, `modules`), which are merged additively: dist
     entries the runtime lacks are added, existing entries are never touched or
-    removed. A catalogue describes what is available, so a dist that gains an
-    entry must reach existing installs.
+    removed. A catalogue describes what is available, and a module's default
+    enablement must reach existing installs without overriding a machine's own
+    choice — so a dist that gains an entry reaches every runtime file.
 
 Edits are text surgery: only the added/removed properties change, so comments
 and formatting of everything else are preserved. The result is validated in a
@@ -51,10 +52,11 @@ sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from read_jsonc import load_jsonc  # noqa: E402
 
 # Nested maps merged ADDITIVELY (dist entries missing from the runtime are
-# added; existing entries are never touched or removed). These are catalogues of
-# what is available, not machine preferences — so a dist that gains an entry
-# must reach existing installs. Every other nested object stays opaque.
-MERGE_MAPS = ("external_modules",)
+# added; existing entries are never touched or removed). A catalogue describes
+# what is available, and a module's default enablement is the same kind of data:
+# a new module must arrive disabled/enabled as the dist says, while a machine
+# that already chose a value keeps it. Every other nested object stays opaque.
+MERGE_MAPS = ("external_modules", "modules")
 
 
 def _skip_string(text, i):
@@ -379,12 +381,14 @@ def main():
         if additions:
             new_text = _insert_props(new_text, additions)
 
-        # Nested merges run AFTER the top-level surgery, re-scanning the new
-        # text so the property spans match what will actually be written.
+        # Nested merges run AFTER the top-level surgery. Re-scan the text for
+        # every map: inserting into one shifts the offsets of every property
+        # below it, so a span cached before the previous merge is stale when
+        # the maps appear in the other order in the file.
         if map_added:
-            new_props, _ = _top_level_props(new_text)
-            new_by_key = {p["key"]: p for p in new_props}
             for key in map_added:
+                new_props, _ = _top_level_props(new_text)
+                new_by_key = {p["key"]: p for p in new_props}
                 new_text, _ = _merge_map_entries(
                     new_text, new_by_key[key], dist_text, prop_by_key[key]
                 )

@@ -465,8 +465,11 @@ _migrate_workflow_config() {
 # Realign the runtime global config with the shipped schema after an upgrade:
 # add top-level properties the dist template gained, drop the ones it retired.
 # A key present in both keeps its runtime value and comment (the machine's
-# choice wins); nested objects are never touched. The tool is a no-op when the
-# key sets already match. See src/_shared/reconcile_global_config.py.
+# choice wins); nested objects are otherwise never touched — except the
+# catalogue/default maps (`external_modules`, `modules`), which are merged
+# additively so a newly shipped module reaches existing installs with the dist
+# default while an explicit machine value always wins. The tool is a no-op when
+# the key sets already match. See src/_shared/reconcile_global_config.py.
 _reconcile_global_config() {
   _header_2 "Global config reconciliation"
 
