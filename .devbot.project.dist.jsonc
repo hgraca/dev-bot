@@ -12,6 +12,10 @@
   // are registered with this project's harness — the rest cost nothing, not
   // even context.
   "datasources": [],
+  // Opt in BY NAME to clusters declared in .devbot.global.jsonc::kubectl.clusters.
+  // The project gets its own ~/.kube/devbot/<project>.yaml; nothing is rendered
+  // while this list is absent. Order sets the current-context.
+  "kubectl": [],
   "auto_recover": {
     "max_attempts": 5
   },
