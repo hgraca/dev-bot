@@ -630,12 +630,23 @@ agent first calls it.
 ### `kubectl`
 
 Cluster access for agents, rendered by `src/agentic/k8s/init.sh` on every init.
-The script writes three files outside the repo — `~/.kube/devbot.yaml`,
-`~/.kube/devbot/exec-credential.sh` and `~/.kube/devbot.env` — and regenerates
-all three from scratch, so a cluster removed here disappears from the kubeconfig
-on the next init.
+The global node is a **catalogue**; each project opts in by naming clusters, the
+way it does for `datasources` and `aws_connections`. The script then writes that
+project's own `~/.kube/devbot/<project>.yaml` and
+`~/.kube/devbot/<project>.env`, plus one shared exec credential wrapper
+`~/.kube/devbot/exec-credential.sh`, and regenerates them from scratch — so a
+cluster dropped from the selection disappears from that project's kubeconfig on
+the next init.
+
+The project slug is `project_name` (or the directory name when the config has
+none), folded to `[A-Za-z0-9._-]`, plus the first eight hex characters of the
+absolute path's SHA-256. The hash is what makes it unique: two checkouts both
+named `demo` get different files, so initialising one can neither widen nor
+overwrite another. Moving a project changes its slug and leaves the old file
+behind.
 
 ```jsonc
+// .devbot.global.jsonc — the catalogue every project may select from
 "kubectl": {
   "profile": "devbot-agent", // AWS profile the exec plugin runs `aws eks get-token` under
   "credential_env": {
@@ -648,7 +659,17 @@ on the next init.
     { "name": "k8s-stg", "context": "k8s-stg-rw", "region": "eu-central-1" }
   ]
 }
+
+// .devbot.project.jsonc — opt in by cluster name; nothing is rendered without it
+"kubectl": ["k8s-prod", "k8s-stg"]
 ```
+
+Selection order is cluster order, so the first selected cluster that renders
+successfully becomes the generated `current-context`. A name the catalogue does
+not declare, or a cluster that cannot be described, is reported as a `WARN` and
+left out — the next selected cluster takes its place, so `current-context` is
+not necessarily the first name listed. A selection that matches no catalogue
+entry at all prunes the project's files.
 
 `context` is the kubeconfig context name and defaults to the cluster name.
 `namespace` is not configurable: contexts open in `default`, which is where the
@@ -657,11 +678,11 @@ workloads live in this workspace. Both cluster and context names must match
 like `"team: prod"` would be parsed as a mapping and corrupt the file.
 
 The config lives in its own file, not in `~/.kube/config`. kubectl only reads
-`~/.kube/config` unless `KUBECONFIG` says otherwise, so init also writes
-`~/.kube/devbot.env`:
+`~/.kube/config` unless `KUBECONFIG` says otherwise, so init also writes the
+project's env file:
 
 ```sh
-. ~/.kube/devbot.env            # export KUBECONFIG=~/.kube/devbot.yaml
+. ~/.kube/devbot/<project>.env   # export KUBECONFIG=~/.kube/devbot/<project>.yaml
 kubectl --context k8s-prod-ro get pods
 ```
 
@@ -687,11 +708,26 @@ A `credential_env` value **must** be a whole `${VAR}` reference. A literal is
 refused: it would be copied into the wrapper, where shell metacharacters become
 executable syntax and the value itself becomes a credential on disk.
 
-Pruning is explicit. Removing a cluster from `clusters` drops it from the
-regenerated kubeconfig; removing the **last** one deletes both generated files.
-Omitting `clusters` altogether means "not configured" and leaves whatever is on
-disk untouched, so shipping the empty default never takes away a kubeconfig an
-agent was already using.
+Pruning is explicit and scoped to the project. Removing a cluster from its
+selection drops it from the regenerated kubeconfig; emptying the selection
+(`"kubectl": []`) deletes that project's kubeconfig and env file. Omitting the
+project key altogether means "not configured" for that project and leaves
+whatever is on disk untouched, so a template that ships no key never takes away
+a kubeconfig an agent was already using. The shared wrapper is never pruned by
+one project's removal: it is addressed by region and cluster name on every call
+and carries only references.
+
+Anything wider than the selection is revoked before the environment is touched:
+if the existing kubeconfig lists a cluster outside the permitted set — the
+selection intersected with the catalogue — it is deleted first, so a missing AWS
+CLI, an expired credential or a non-role profile cannot preserve access the
+project has since dropped. A selection that names no catalogue entry at all is
+pruned regardless of whether AWS is reachable. A render that fails part-way keeps
+the file only when every cluster in it is still permitted.
+
+The pre-selection machine-wide `~/.kube/devbot.yaml` and `~/.kube/devbot.env` are
+removed by the first init after upgrading — but only when the kubeconfig
+references devbot's own wrapper, so a human's kubeconfig is never touched.
 
 The wrapper is a `credential_source = Environment` profile plus a
 `role_arn` — the profile assumes the cluster-access role, and the mapped

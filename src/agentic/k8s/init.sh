@@ -10,6 +10,12 @@
 # call time. Resolving it at init would put the secret in a file on disk, which
 # is exactly what the reference exists to prevent.
 #
+# The global node's `clusters` is a catalogue: the project opts in by naming
+# clusters in `.devbot.project.jsonc` → `kubectl`, the way `datasources` and
+# `aws_connections` work. Nothing is rendered without that opt-in, and each
+# project gets its own `~/.kube/devbot/<project>.yaml` — one project's selection
+# cannot widen another's.
+#
 # That guarantee is only as good as the input, so credential_env values must BE
 # references: a literal is refused rather than quietly copied into the wrapper.
 #
@@ -28,11 +34,22 @@ export DEV_BOT_ROOT
 source "${MODULE_DIR}/functions.sh"
 
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd)"
+PROJECT_CONFIG="${PROJECT_DIR}/.devbot.project.jsonc"
 READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
 
-KUBECONFIG_PATH="${HOME}/.kube/devbot.yaml"
-WRAPPER_PATH="${HOME}/.kube/devbot/exec-credential.sh"
-ENV_PATH="${HOME}/.kube/devbot.env"
+# `kubectl.clusters` in the global config is the catalogue; each project names
+# the clusters it may use. The render therefore belongs to the project, not the
+# machine: one kubeconfig per project, so initialising one project never changes
+# what another one sees. The exec wrapper stays shared — it is addressed by
+# region and cluster name on every call, so it carries nothing project-specific.
+WORK_DIR="${HOME}/.kube/devbot"
+WRAPPER_PATH="${WORK_DIR}/exec-credential.sh"
+KUBECONFIG_PATH=""
+ENV_PATH=""
+# Written by the pre-selection implementation, when every project shared one
+# kubeconfig. Removed after a scoped render succeeds — see _migrate_legacy.
+LEGACY_KUBECONFIG="${HOME}/.kube/devbot.yaml"
+LEGACY_ENV="${HOME}/.kube/devbot.env"
 
 # A whole-value reference: everything else is a literal or a shell fragment and
 # has no business in a generated file.
@@ -50,6 +67,29 @@ _ref_value() {
   local name
   name="$(_ref_name "$1")"
   printf '%s' "${!name:-}"
+}
+
+# The project name becomes a filename, so anything outside the kubeconfig-safe
+# alphabet is folded to '-' rather than rejected: the slug labels a generated
+# file, it is not an identity the user chose for kubectl.
+#
+# The name alone is not unique — `devbot init` defaults `project_name` to the
+# directory basename, so `/work/a/demo` and `/work/b/demo` would share a slug and
+# the second init would silently overwrite the first project's kubeconfig. The
+# absolute path, hashed, restores the isolation the per-project render exists
+# for; it stays stable unless the project moves.
+_project_slug() {
+  local name hash
+  name="$(python3 "${READER}" "${PROJECT_CONFIG}" project_name 2>/dev/null || true)"
+  if [[ -z "${name}" || "${name}" == "null" ]]; then
+    name="$(basename "${PROJECT_DIR}")"
+  fi
+  # python3 is already a hard dependency (read_jsonc) and is the portable way to
+  # hash: macOS has no `sha256sum`, and a silently empty hash would put every
+  # same-named project back on one shared file.
+  hash="$(printf '%s' "${PROJECT_DIR}" \
+    | python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest()[:8])')"
+  printf '%s-%s' "${name//[^A-Za-z0-9._-]/-}" "${hash}"
 }
 
 _credential_pairs() {
@@ -155,13 +195,22 @@ _with_credentials() {
   )
 }
 
+# Cluster names recorded in a kubeconfig this module generated: each user's exec
+# args are "<region>", "<cluster>". Reading them back is how the all-failed path
+# decides whether the file on disk still sits inside the project's selection.
+_existing_clusters() {
+  [[ -f "${KUBECONFIG_PATH}" ]] || return 0
+  grep -o 'args: \["[^"]*", "[^"]*"\]' "${KUBECONFIG_PATH}" 2>/dev/null \
+    | sed 's/.*", "\([^"]*\)"\]$/\1/' || true
+}
+
+# Only this project's own files are pruned. The wrapper is shared by every
+# project on the machine, so deleting it here would break the others; it holds
+# references, never values, and is harmless while unused.
 _prune_generated() {
   local removed=0
   if [[ -e "${KUBECONFIG_PATH}" ]]; then
     rm -f "${KUBECONFIG_PATH}" && removed=1
-  fi
-  if [[ -e "${WRAPPER_PATH}" ]]; then
-    rm -f "${WRAPPER_PATH}" && removed=1
   fi
   if [[ -e "${ENV_PATH}" ]]; then
     rm -f "${ENV_PATH}" && removed=1
@@ -169,10 +218,29 @@ _prune_generated() {
   [[ "${removed}" -eq 1 ]]
 }
 
-main() {
-  _header_3 "kubectl init — $(basename "${PROJECT_DIR}")"
+# The machine-wide files of the previous implementation are the one artefact that
+# can outlive this change: a shell that already sourced the old env file keeps
+# pointing at a kubeconfig listing every cluster, so the per-project boundary is
+# not enforced for it. Remove them once a scoped render succeeds — but only when
+# the kubeconfig references our own wrapper, because a human's kubeconfig is
+# never ours to delete.
+_migrate_legacy() {
+  if [[ ! -f "${LEGACY_KUBECONFIG}" ]]; then
+    return 0
+  fi
+  grep -qF "${WRAPPER_PATH}" "${LEGACY_KUBECONFIG}" || return 0
+  rm -f "${LEGACY_KUBECONFIG}" "${LEGACY_ENV}"
+  _ok "kubectl — removed the legacy machine-wide kubeconfig and env"
+}
 
-  local config spec
+main() {
+  # Upgrade path, run before any return below: the machine-wide files of the
+  # pre-selection implementation are shared, and a shell that already sourced
+  # the old env file keeps pointing at them — so they must not survive an init
+  # that bails out early either.
+  _migrate_legacy
+
+  local config spec slug selection
   config="$(_devbot_global_config)"
   spec="$(python3 "${READER}" "${config}" kubectl 2>/dev/null || true)"
 
@@ -189,13 +257,89 @@ main() {
     return 0
   fi
 
+  slug="$(_project_slug)"
+  KUBECONFIG_PATH="${WORK_DIR}/${slug}.yaml"
+  ENV_PATH="${WORK_DIR}/${slug}.env"
+
+  _header_3 "kubectl init — ${slug}"
+
   if [[ "$(echo "${spec}" | jq -r '.clusters | length')" -eq 0 ]]; then
     if _prune_generated; then
-      _ok "kubectl — no clusters configured; removed the generated kubeconfig and wrapper"
+      _ok "kubectl — no clusters configured; removed the generated kubeconfig for ${slug}"
     else
       _skip "kubectl — no clusters configured and nothing to prune"
     fi
     return 0
+  fi
+
+  selection="$(python3 "${READER}" "${PROJECT_CONFIG}" kubectl 2>/dev/null || true)"
+  if [[ -z "${selection}" || "${selection}" == "null" ]]; then
+    _skip "kubectl — no 'kubectl' selection in the project config; opt in with cluster names"
+    return 0
+  fi
+  if [[ "$(echo "${selection}" | jq -r 'type')" != "array" ]]; then
+    _warn "kubectl — the project's 'kubectl' must be an array of cluster names; skipping"
+    return 0
+  fi
+  if [[ "$(echo "${selection}" | jq -r 'length')" -eq 0 ]]; then
+    if _prune_generated; then
+      _ok "kubectl — no clusters selected; removed the generated kubeconfig for ${slug}"
+    else
+      _skip "kubectl — no clusters selected and nothing to prune"
+    fi
+    return 0
+  fi
+
+  # Catalogue membership and the selection's size are decided before anything
+  # environment-dependent: a selection that names no catalogue entry has to
+  # revoke access even when AWS is unreachable or the credentials are stale,
+  # otherwise a broken environment silently keeps the previous kubeconfig alive.
+  local unknown
+  while IFS= read -r unknown; do
+    _warn "kubectl — cluster '${unknown}' is not in the global kubectl catalogue; leaving it out"
+  done < <(echo "${spec}" | jq -r --argjson sel "${selection}" \
+    '[.clusters[].name] as $have | $sel[] as $n | select(($have | index($n)) == null) | $n')
+
+  local permitted
+  permitted="$(echo "${spec}" | jq -c --argjson sel "${selection}" \
+    '.clusters as $c
+     | ($sel | reduce .[] as $x ([]; if index($x) then . else . + [$x] end)) as $s
+     | [$s[] as $n | ($c[] | select(.name == $n)) | .name]')"
+
+  # A selection that matches nothing is not a cluster that is temporarily
+  # unavailable: it is a project whose access was removed, or renamed, or whose
+  # catalogue entry went away. Keeping the previous file would leave the old
+  # selection's credentials live, so prune it here — the "describe failed" case
+  # below is the one that may keep what is on disk.
+  if [[ "$(echo "${permitted}" | jq -r 'length')" -eq 0 ]]; then
+    if _prune_generated; then
+      _ok "kubectl — no selected cluster is in the global catalogue; removed the generated kubeconfig for ${slug}"
+    else
+      _skip "kubectl — no selected cluster is in the global catalogue and nothing to prune"
+    fi
+    return 0
+  fi
+
+  # Revoke anything wider than the permitted set *before* the environment is
+  # touched. Every return below this point may leave the file on disk, so it
+  # must already be within the selection — otherwise a missing AWS CLI, an
+  # expired credential or a non-role profile would preserve access the project
+  # has since dropped. The comparison is against the catalogue intersection, not
+  # the raw selection: a name the catalogue no longer declares is not permitted
+  # merely because the project still lists it.
+  local stale=0 existing
+  while IFS= read -r existing; do
+    [[ -n "${existing}" ]] || continue
+    if ! echo "${permitted}" | jq -e --arg c "${existing}" 'index($c) != null' >/dev/null; then
+      stale=1
+      break
+    fi
+  done < <(_existing_clusters)
+
+  if [[ "${stale}" -eq 1 ]]; then
+    if _prune_generated; then
+      _ok "kubectl — the existing kubeconfig reached outside the selection; removed it"
+    fi
   fi
 
   local profile
@@ -246,9 +390,18 @@ main() {
     printf -v block '  - name: %s\n    cluster:\n      server: %s\n      certificate-authority-data: %s\n' \
       "${name}" "${endpoint}" "${ca}"
     clusters_yaml+="${block}"
-  done < <(echo "${spec}" | jq -r '.clusters[] | "\(.name)\t\(.region)\t\(.context // .name)"')
+  # Selection order becomes cluster order, so the first name the project lists
+  # is the generated current-context. Duplicates are folded; an unknown name
+  # simply matches nothing (reported above).
+  done < <(echo "${spec}" | jq -r --argjson perm "${permitted}" \
+    '.clusters as $c
+     | $perm[] as $n
+     | ($c[] | select(.name == $n))
+     | "\(.name)\t\(.region)\t\(.context // .name)"')
 
   if [[ ${#names[@]} -eq 0 ]]; then
+    # Nothing rendered. Anything wider than the selection was already revoked
+    # above, so what is left is safe to keep through a transient failure.
     _warn "kubectl — no cluster could be described; leaving the existing kubeconfig untouched"
     return 0
   fi
