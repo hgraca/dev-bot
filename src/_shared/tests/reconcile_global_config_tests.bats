@@ -496,4 +496,23 @@ JSONC_EOF
   [ ! -e "$WORK/runtime.jsonc.reconcile.tmp" ]
 }
 
+# The shipped schema is a release contract for machines already running: a
+# global-only catalogue added after the first release must be in the dist, or
+# reconciliation deletes what the user declared there.
+@test "shipped dist keeps the kubectl and aws_connections catalogues" {
+  cp "${PROJECT_ROOT}/.devbot.global.dist.jsonc" "$WORK/dist.jsonc"
+  cat > "$WORK/runtime.jsonc" <<'JSONC_EOF'
+{
+  "kubectl": { "clusters": [] },
+  "aws_connections": { "aws-prod-ro": { "region": "eu-central-1" } }
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/dist.jsonc" "$WORK/runtime.jsonc"
+  assert_success
+  refute_output --partial "REMOVED:"
+  assert_equal "$(_read_key aws_connections | jq -r 'keys[0]')" "aws-prod-ro"
+  assert_equal "$(_read_key kubectl | jq -r '.clusters | length')" "0"
+}
+
 
