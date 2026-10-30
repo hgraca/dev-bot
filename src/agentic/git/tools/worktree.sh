@@ -20,6 +20,8 @@
 #   enabled          — print true/false and exit 0/1 for the resolved workflow;
 #                      exit 2 when the configured workflow is unknown.
 #   list             — list the worktrees under <devbot_dir>/worktrees.
+#   path   <branch>  — print the absolute path git registered for <branch>, read
+#                      from the registration. The one way to ask.
 #   push   <branch>  — push <branch> to origin and set its upstream, so it can
 #                      be opened as a pull request. Nothing local is merged.
 #   remove <branch>  — remove the worktree for <branch>. The branch ref stays.
@@ -91,6 +93,55 @@ _slug() {
   printf '%s' "$1" | sed 's#[^A-Za-z0-9._-]#-#g'
 }
 
+# The path git registered for a *linked* worktree of <branch>
+# (full ref accepted too), or nothing. Never rebuilt.
+_registered_worktree() {
+  local root="$1" branch="$2" listing
+  branch="${branch#refs/heads/}"
+  # Read the whole listing before matching: an early
+  # awk exit would SIGPIPE git under pipefail.
+  listing="$(git -C "${root}" worktree list --porcelain)" || return 1
+  printf '%s\n' "${listing}" \
+    | awk -v want="refs/heads/${branch}" -v main="${root}" '
+    /^worktree / { path = substr($0, 10); hit = 0; primary = (path == main) }
+    /^branch /   { hit = (substr($0, 8) == want) && !primary }
+    /^$/         { if (hit && !done) { print path; done = 1 } }
+    END          { if (!done && hit) print path }
+  '
+}
+
+# A path is ours when its Git dir is this repo's
+# <git>/worktrees/<slug> with <branch> checked out.
+_is_linked_worktree() {
+  local root="$1" branch="$2" path="$3" root_git path_git head
+  root_git="$(git -C "${root}" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
+  path_git="$(git -C "${path}" rev-parse --absolute-git-dir 2>/dev/null)" || return 1
+  case "${path_git}" in
+    "${root_git}/worktrees/"*) ;;
+    *) return 1 ;;
+  esac
+  head="$(git -C "${path}" symbolic-ref --quiet --short HEAD 2>/dev/null)" || return 1
+  [[ "${head}" == "${branch}" ]]
+}
+
+# The registered path for <branch>, insisting it still exists and is still
+# ours: a stale or replaced directory fails later with a bare message.
+_worktree_for() {
+  local cmd="$1" root="$2" branch="$3" path qroot
+  branch="${branch#refs/heads/}"
+  path="$(_registered_worktree "${root}" "${branch}")"
+  [[ -n "${path}" ]] || _fatal "${cmd}: no worktree is registered for '${branch}'"
+  qroot="$(printf '%q' "${root}")"
+  if [[ ! -d "${path}" ]]; then
+    _fatal "${cmd}: ${path} is registered but gone — drop it with: git -C ${qroot} worktree prune"
+  fi
+  # prune ignores a registration whose path exists, so a replaced one
+  # needs the path moved out of the way first.
+  _is_linked_worktree "${root}" "${branch}" "${path}" \
+    || _fatal "${cmd}: ${path} is not a live worktree of ${root} — move it aside, then: git -C ${qroot} worktree prune"
+  printf '%s\n' "${path}"
+}
+
 # Keep the worktree directory out of `git status` — it lives inside the main
 # checkout, so without this every worktree reads as untracked noise.
 _ensure_ignored() {
@@ -156,6 +207,19 @@ _ignore_in_worktree() {
     "# >>> DEVBOT - linked dependencies" \
     "# <<< DEVBOT - linked dependencies" \
     "${lines[@]}"
+}
+
+# A fresh worktree can be briefly unreadable on some
+# filesystems; retry, then fail instead of lying.
+_await_usable() {
+  local path="$1" branch="$2" attempt=0
+  until git -C "${path}" rev-parse --show-toplevel >/dev/null 2>&1; do
+    attempt=$((attempt + 1))
+    if [[ "${attempt}" -ge 5 ]]; then
+      _fatal "create: ${path} is registered but not readable — the branch and worktree exist; resolve it with: worktree.sh path ${branch}"
+    fi
+    sleep 0.2
+  done
 }
 
 # ── create ───────────────────────────────────────────────────────────────────
@@ -266,6 +330,8 @@ cmd_create() {
     "${base_sha}" \
     || _fatal "create: could not create the worktree"
 
+  _await_usable "${path}" "${branch}"
+
   if [[ "${#link_dirs[@]}" -gt 0 ]]; then
     _link_deps "${root}" "${path}" "${link_dirs[@]}"
   fi
@@ -338,20 +404,56 @@ cmd_list() {
   '
 }
 
+# ── path ─────────────────────────────────────────────────────────────────────
+
+# The directory is the branch's slug, so a path built
+# from the branch name points at nothing. Ask here.
+cmd_path() {
+  local branch="" project=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project)
+        [[ -n "${2:-}" ]] || _fatal "path: --project requires a <dir>"
+        [[ -d "${2}" ]] || _fatal "path: --project '${2}' is not a directory"
+        project="$2"
+        shift 2
+        ;;
+      -h | --help)
+        _usage
+        return 0
+        ;;
+      -*)
+        _fatal "path: unknown option '$1'"
+        ;;
+      *)
+        [[ -z "${branch}" ]] || _fatal "path: unexpected argument '$1'"
+        branch="$1"
+        shift
+        ;;
+    esac
+  done
+  [[ -n "${branch}" ]] || _fatal "path: <branch> is required"
+
+  local root path
+  root="$(_git_root "${project}")"
+  [[ -n "${root}" ]] || _fatal "path: not inside a git repository"
+
+  path="$(_worktree_for path "${root}" "${branch}")"
+
+  printf '%s\n' "${path}"
+}
+
 # ── push ─────────────────────────────────────────────────────────────────────
 
 cmd_push() {
   local branch="${1:-}"
   [[ -n "${branch}" ]] || _fatal "push: <branch> is required"
 
-  local root devbot_dir slug path default
+  local root path default
   root="$(_git_root)"
   [[ -n "${root}" ]] || _fatal "push: not inside a git repository"
-  devbot_dir="$(_devbot_dir_for "${root}")"
-  slug="$(_slug "${branch}")"
-  path="${root}/${devbot_dir}/worktrees/${slug}"
 
-  [[ -e "${path}" ]] || _fatal "push: no worktree at ${path}"
+  path="$(_worktree_for push "${root}" "${branch}")"
 
   default="$(_remote_default "${root}")"
 
@@ -368,14 +470,11 @@ cmd_remove() {
   local branch="${1:-}"
   [[ -n "${branch}" ]] || _fatal "remove: <branch> is required"
 
-  local root devbot_dir slug path
+  local root path
   root="$(_git_root)"
   [[ -n "${root}" ]] || _fatal "remove: not inside a git repository"
-  devbot_dir="$(_devbot_dir_for "${root}")"
-  slug="$(_slug "${branch}")"
-  path="${root}/${devbot_dir}/worktrees/${slug}"
 
-  [[ -e "${path}" ]] || _fatal "remove: no worktree at ${path}"
+  path="$(_worktree_for remove "${root}" "${branch}")"
 
   git -C "${root}" worktree remove "${path}" \
     || _fatal "remove: could not remove ${path} — commit or discard its changes first"
@@ -402,6 +501,9 @@ Subcommands:
                     print true/false and exit 0/1 for the resolved workflow;
                     exit 2 when the configured workflow is unknown
   list              list the worktrees under <devbot_dir>/worktrees
+  path   <branch> [--project <dir>]
+                    print the absolute path registered for <branch>; the
+                    directory is the branch's slug, so never build it by hand
   push   <branch>   push <branch> to origin and set its upstream
   remove <branch>   remove the worktree for <branch> (the branch ref stays)
 
@@ -416,6 +518,7 @@ main() {
     create) cmd_create "$@" ;;
     enabled) cmd_enabled "$@" ;;
     list) cmd_list "$@" ;;
+    path) cmd_path "$@" ;;
     push) cmd_push "$@" ;;
     remove) cmd_remove "$@" ;;
     "" | -h | --help) _usage ;;

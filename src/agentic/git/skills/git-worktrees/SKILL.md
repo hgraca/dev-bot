@@ -104,6 +104,38 @@ git -C "$W" commit -m "feat: add login"
 Commit exactly as `devbot:git-commits` and `devbot:git-atomic-commits` describe — the commits just
 land on the worktree branch.
 
+### Resolve the path, never rebuild it
+
+The directory is the branch's **slug**, not the branch name — `feat/add-login` lives in
+`feat-add-login/`. A path assembled from the branch name points at nothing, and the resulting
+`fatal: cannot change to '…': No such file or directory` reads like a worktree that vanished.
+
+Ask the tool instead — it reads git's own registration, so it also finds a worktree someone placed
+elsewhere:
+
+```bash
+W="$(bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" path feat/add-login)"
+```
+
+`create` prints the same path for the worktree it just made, `list` shows every worktree under
+`<devbot_dir>/worktrees/`, and `push`/`remove` take the registered path from the same lookup. Never
+retype a path from memory, never derive it from the branch name, and never hand a branch-shaped
+path to a human to run.
+
+Two more ways the same error is produced:
+
+- a **relative destination** passed to `git -C <repo> worktree add` is resolved from inside `<repo>`,
+  so a path already carrying the repo prefix — `repo/.agents/worktrees/x` — nests into
+  `repo/repo/.agents/worktrees/x`. Always pass an absolute path.
+- `git worktree remove <relative path>` fails with `is not a working tree` while the worktree is
+  still registered. Pass the absolute path, or use `worktree.sh remove <branch>`.
+
+`create` verifies the new worktree is readable before it returns, retrying briefly. Worktree
+directories have been observed unreadable for a short window on some filesystems (ecryptfs home
+directories among them), and that window was reported as the worktree vanishing; if it persists,
+`create` fails naming the branch and the command that resolves it, instead of printing a path
+nothing can use.
+
 ## Dependencies
 
 A fresh worktree contains only tracked files, so gitignored dependency dirs are absent. `create`

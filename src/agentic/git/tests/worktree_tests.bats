@@ -185,6 +185,20 @@ worktree() {
   assert [ -d "$WORKTREES/feature-deep-nested" ]
 }
 
+@test "create: the new worktree is usable the moment create returns" {
+  worktree create feat/usable --no-link
+
+  assert_success
+
+  local path="$WORKTREES/feat-usable" physical
+  physical="$(cd "$path" && pwd -P)"
+  run git -C "$path" status --porcelain
+  assert_success
+  run git -C "$path" rev-parse --show-toplevel
+  assert_success
+  assert_output "$physical"
+}
+
 @test "create: ignores the worktrees dir so it never pollutes status" {
   worktree create feat/clean
 
@@ -488,6 +502,138 @@ worktree() {
   refute_output --partial "$WORK main"
 }
 
+# ── path ─────────────────────────────────────────────────────────────────────
+
+@test "path: prints the registered worktree for a branch" {
+  worktree create feat/known
+  assert_success
+
+  worktree path feat/known
+
+  assert_success
+  assert_output "$WORKTREES/feat-known"
+}
+
+@test "path: the directory is the branch slug, not the branch path" {
+  worktree create feat/deep/nested
+  assert_success
+
+  worktree path feat/deep/nested
+
+  assert_success
+  assert_output "$WORKTREES/feat-deep-nested"
+  assert [ ! -e "$WORKTREES/feat/deep/nested" ]
+}
+
+@test "path: reads the registration, so a worktree placed elsewhere is found" {
+  git -C "$WORK" worktree add --quiet --no-track -b feat/elsewhere "$SANDBOX/elsewhere" origin/main
+
+  worktree path feat/elsewhere
+
+  assert_success
+  assert_output "$SANDBOX/elsewhere"
+}
+
+@test "path --project: reads the named project's registration from outside it" {
+  worktree create feat/from-outside --no-link
+  assert_success
+
+  run bash -c "cd '$SANDBOX' && bash '$SCRIPT' path feat/from-outside --project '$WORK'"
+
+  assert_success
+  assert_output "$WORKTREES/feat-from-outside"
+}
+
+@test "path: fails when no worktree is registered for the branch" {
+  worktree path feat/missing
+
+  assert_failure
+  assert_output --partial "FATAL:"
+  assert_output --partial "no worktree is registered"
+}
+
+@test "path: accepts a full ref and rejects a registration whose directory is gone" {
+  worktree create feat/stale --no-link
+  assert_success
+
+  worktree path refs/heads/feat/stale
+  assert_success
+  assert_output "$WORKTREES/feat-stale"
+
+  rm -rf "$WORKTREES/feat-stale"
+  worktree path feat/stale
+
+  assert_failure
+  assert_output --partial "is registered but gone"
+}
+
+@test "path: returns the match among many registrations" {
+  local i
+  for i in $(seq 1 30); do
+    git -C "$WORK" worktree add --quiet --no-track -b "feat/many-$i" "$WORKTREES/feat-many-$i" origin/main
+  done
+
+  worktree path feat/many-17
+
+  assert_success
+  assert_output "$WORKTREES/feat-many-17"
+}
+
+@test "path: refuses the main checkout's own branch" {
+  worktree path main
+
+  assert_failure
+  assert_output --partial "no worktree is registered"
+}
+
+@test "path: rejects a registration whose directory is now another repository" {
+  worktree create feat/replaced --no-link
+  assert_success
+
+  rm -rf "$WORKTREES/feat-replaced"
+  git init -q "$WORKTREES/feat-replaced"
+
+  worktree path feat/replaced
+
+  assert_failure
+  assert_output --partial "not a live worktree of"
+  assert_output --partial "move it aside"
+}
+
+@test "path: rejects a path that now holds another branch's worktree" {
+  worktree create feat/one --no-link
+  worktree create feat/two --no-link
+  assert_success
+  mv "$WORKTREES/feat-one" "$SANDBOX/one-moved"
+  mv "$WORKTREES/feat-two" "$WORKTREES/feat-one"
+
+  worktree path feat/one
+
+  assert_failure
+  assert_output --partial "not a live worktree of"
+}
+
+@test "path: the recovery command stays executable for a root with spaces" {
+  local spaced="$SANDBOX/space dir"
+  git clone -q "$WORK" "$spaced"
+  printf '{ "devbot_dir": ".agents", "workflow": "worktrees" }\n' > "$spaced/.devbot.project.jsonc"
+  run bash -c "cd '$spaced' && bash '$SCRIPT' create feat/spaced --no-link"
+  assert_success
+  mv "$spaced/.agents/worktrees/feat-spaced" "$SANDBOX/moved"
+
+  run bash -c "cd '$spaced' && bash '$SCRIPT' path feat/spaced"
+
+  assert_failure
+  assert_output --partial "space\\ dir worktree prune"
+}
+
+@test "path: two positional args is fatal" {
+  worktree path feat/one feat/two
+
+  assert_failure
+  assert_output --partial "FATAL:"
+}
+
 # ── push ─────────────────────────────────────────────────────────────────────
 
 @test "push: pushes the worktree branch and sets its upstream" {
@@ -527,6 +673,38 @@ worktree() {
   assert_equal "$(git -C "$WORK" branch --show-current)" "other"
 }
 
+@test "push: pushes a worktree git registered outside <devbot_dir>" {
+  git -C "$WORK" worktree add --quiet --no-track -b feat/elsewhere "$SANDBOX/elsewhere" origin/main
+  local path="$SANDBOX/elsewhere"
+  printf 'work\n' > "$path/feature.txt"
+  git -C "$path" add -A
+  git -C "$path" commit -qm "feature work"
+
+  worktree push feat/elsewhere
+
+  assert_success
+  assert_equal "$(git -C "$path" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}')" "origin/feat/elsewhere"
+}
+
+@test "push: reports a stale registration instead of a bare push failure" {
+  worktree create feat/stale-push --no-link
+  assert_success
+  rm -rf "$WORKTREES/feat-stale-push"
+
+  worktree push feat/stale-push
+
+  assert_failure
+  assert_output --partial "is registered but gone"
+  assert_output --partial "git -C $WORK worktree prune"
+}
+
+@test "push: refuses the main checkout's own branch" {
+  worktree push main
+
+  assert_failure
+  assert_output --partial "no worktree is registered"
+}
+
 @test "push: fails when there is no worktree for the branch" {
   worktree push feat/missing
 
@@ -546,6 +724,29 @@ worktree() {
   assert [ ! -d "$WORKTREES/feat-bye" ]
   run git -C "$WORK" show-ref --verify --quiet refs/heads/feat/bye
   assert_success
+}
+
+@test "remove: removes a worktree git registered outside <devbot_dir>" {
+  git -C "$WORK" worktree add --quiet --no-track -b feat/elsewhere "$SANDBOX/elsewhere" origin/main
+
+  worktree remove feat/elsewhere
+
+  assert_success
+  assert [ ! -d "$SANDBOX/elsewhere" ]
+  run git -C "$WORK" show-ref --verify --quiet refs/heads/feat/elsewhere
+  assert_success
+}
+
+@test "remove: reports a stale registration instead of a bare removal failure" {
+  worktree create feat/stale-remove --no-link
+  assert_success
+  rm -rf "$WORKTREES/feat-stale-remove"
+
+  worktree remove feat/stale-remove
+
+  assert_failure
+  assert_output --partial "is registered but gone"
+  assert_output --partial "git -C $WORK worktree prune"
 }
 
 @test "remove: fails when there is no such worktree" {
