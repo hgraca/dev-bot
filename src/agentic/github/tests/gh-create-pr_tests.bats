@@ -43,3 +43,17 @@ setup() {
   ! printf '%s\n' "$RULE" | grep -qF 'number-or-url'
   ! printf '%s\n' "$RULE" | grep -qE '(PR|pull request) ?#[0-9]+'
 }
+
+@test "Copilot review section verifies the request actually registered" {
+  COPILOT="$(section_flat "$SKILL" 'Copilot review')"
+  [ -n "$COPILOT" ]
+  # The CLI can claim success with no request queued.
+  printf '%s\n' "$COPILOT" | grep -qF 'review_requested'
+  printf '%s\n' "$COPILOT" | grep -qF 'timeline'
+  printf '%s\n' "$COPILOT" | grep -qF 'devbot:auto-dev'
+}
+
+@test "command sends a requested Copilot review through the verification" {
+  CMD="$MODULE_DIR/commands/gh-create-pr.md"
+  grep -q 'Copilot review section' "$CMD"
+}

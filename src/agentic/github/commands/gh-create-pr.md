@@ -37,7 +37,8 @@ If no branch is given, use the current branch.
      [--draft] [--assignee @me] [--reviewer @copilot]
    ```
 
-7. Print the PR URL.
+7. Print the PR URL. When Copilot was requested, confirm the request registered first — the CLI can
+   exit 0 without queuing it (see the skill's Copilot review section).
 
 ## Must not
 

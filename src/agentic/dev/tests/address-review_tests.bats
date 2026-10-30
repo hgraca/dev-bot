@@ -48,3 +48,13 @@ setup() {
   run grep -q 'has no thread' "$FLAT"
   assert_success
 }
+
+@test "Copilot loop never trusts a zero exit code for the review request" {
+  # The CLI exits 0 while registering nothing: the timeline is the evidence.
+  run grep -q 'zero exit code' "$FLAT"
+  assert_success
+  run grep -q 'timeline' "$FLAT"
+  assert_success
+  run grep -q 'GraphQL' "$FLAT"
+  assert_success
+}

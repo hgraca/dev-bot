@@ -61,6 +61,7 @@ commit it fixes, never the fixup — `fixup! fixup! <subject>` cannot be autosqu
 - Defer all implementation until every comment has a decision — never write code or commit mid-discussion.
 - Obtain an explicit decision from the user on each comment, unless the caller granted autonomy explicitly.
 - Keep all actions local — never post replies, comments, or resolutions back to the review source, except in the Copilot loop in `devbot:auto-dev`, which marks its findings.
+- In that Copilot loop, never treat a zero exit code as a registered review request — confirm the `review_requested` event in the PR timeline and use the GraphQL fallback when it is absent (`devbot:auto-dev` carries the mechanics).
 - In that Copilot loop, reply to each finding with a succinct resolution comment — one to three bullet points only, each line at most 72 characters (the whole line, including its `- ` marker), no prose — and mark its thread resolved; a finding that exists only as a review-body row has no thread, so post its resolution as a PR comment in the same format.
 - Record each independent finding as an atomic fixup commit against the branch commit that introduced the code — keep it atomic, squashable into its target, and traceable. On a feature branch this is required; squash before merging, and never record a fixup on the default branch.
 

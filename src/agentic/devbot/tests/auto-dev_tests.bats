@@ -131,6 +131,44 @@ setup() {
   grep -q '\*\*Review effort:\*\*' "$COMMAND"
 }
 
+@test "review loop verifies a request registered by reading the timeline" {
+  # Stable signals only: event names, the scoped login and the baseline timestamp.
+  grep -q 'review_requested' "$COMMAND"
+  grep -q 'copilot_work_started' "$COMMAND"
+  # Scoped to the bot, so a human reviewer's request cannot pass for Copilot's.
+  grep -q 'requested_reviewer' "$COMMAND"
+  grep -q 'issues/<pr>/timeline' "$COMMAND"
+  # An event-id cursor, captured before the request: same-second timestamps
+  # cannot reject a real request, and an older round's event cannot pass for it.
+  grep -q 'since=' "$COMMAND"
+  # --paginate runs --jq per page, so the per-page maxima are reduced here.
+  grep -q -- '--paginate' "$COMMAND"
+  grep -q 'sort -n' "$COMMAND"
+  grep -q 'tail -1' "$COMMAND"
+  cursor_line="$(grep -n 'since=' "$COMMAND" | cut -d: -f1 | head -1)"
+  request_line="$(grep -n 'gh pr edit <pr> --add-reviewer' "$COMMAND" | cut -d: -f1 | head -1)"
+  [ -n "$cursor_line" ] && [ -n "$request_line" ]
+  [ "$cursor_line" -lt "$request_line" ]
+}
+
+@test "review loop falls back to the GraphQL request when nothing registered" {
+  grep -q 'requestReviews' "$COMMAND"
+  grep -q 'botIds' "$COMMAND"
+  # The fallback must be executable: declared variables, bound by `gh api graphql`.
+  grep -q 'gh api graphql' "$COMMAND"
+  grep -q 'mutation($pr:ID!,$bot:ID!)' "$COMMAND"
+  grep -q -- '-f bot=' "$COMMAND"
+  # The fallback follows the timeline check, it does not replace it.
+  timeline_line="$(grep -n 'issues/<pr>/timeline' "$COMMAND" | cut -d: -f1 | head -1)"
+  fallback_line="$(grep -n 'requestReviews' "$COMMAND" | cut -d: -f1 | head -1)"
+  [ -n "$timeline_line" ] && [ -n "$fallback_line" ]
+  [ "$timeline_line" -lt "$fallback_line" ]
+  # The baseline is re-captured before the mutation, so its own event still counts.
+  recapture_line="$(grep -n 're-record' "$COMMAND" | cut -d: -f1 | head -1)"
+  [ -n "$recapture_line" ]
+  [ "$recapture_line" -lt "$fallback_line" ]
+}
+
 @test "review loop replies succinctly and resolves each thread" {
   grep -q 'one to three bullet points only' "$FLAT"
   grep -q 'each line at most 72 characters' "$FLAT"

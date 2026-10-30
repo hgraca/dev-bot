@@ -67,13 +67,24 @@ Task: $ARGUMENTS
 The Worktrees workflow's review loop is this one; an interactive run uses it too, pausing at the
 check-ins. Run it until a review introduces no new findings.
 
-- **Request** Copilot with the CLI's special reviewer value `@copilot` at creation, or
-  `gh pr edit <pr> --add-reviewer @copilot`. A bare `copilot` is not a reviewer. If the CLI
-  rejects it, request the bot directly: resolve
-  `gh api '/users/copilot-pull-request-reviewer%5Bbot%5D' --jq .node_id` and the PR node id,
-  then call the GraphQL `requestReviews` mutation with `botIds`. Re-request explicitly after
-  each push — Copilot does not re-review on its own — but skip the request while a review is
-  still pending, and do not ask for one you have already read.
+- **Request** Record a timeline cursor before requesting —
+  `since="$(gh api repos/<owner>/<repo>/issues/<pr>/timeline --paginate --jq '[.[] | select(.event
+== "review_requested" or .event == "copilot_work_started") | .id] | max // 0' | sort -n |
+tail -1)"` — then request Copilot with the CLI's special reviewer value `@copilot` at creation,
+  or `gh pr edit <pr> --add-reviewer @copilot`; a bare `copilot` is not a reviewer. Verify the
+  request registered from the timeline, not the exit status, which is 0 even when the request is
+  dropped: fetch the timeline again and require a `review_requested` for a
+  `requested_reviewer.login` of `Copilot`, or a `copilot_work_started`, whose `id` is greater than
+  `$since`. Anything at or below it belongs to an earlier round. When nothing registered, re-record
+  `since` before retrying, then fall back to the GraphQL request: resolve
+  `BOT="$(gh api '/users/copilot-pull-request-reviewer%5Bbot%5D' --jq .node_id)"` and
+  `PR="$(gh pr view <pr> --json id --jq .id)"`, then run
+  `gh api graphql -f query='mutation($pr:ID!,$bot:ID!){ requestReviews(input:{pullRequestId:$pr,
+botIds:[$bot]}) { pullRequest { id } } }' -f pr="$PR" -f bot="$BOT"`, and check the timeline
+  again.
+  Never report a re-request on a zero exit code alone. Re-request explicitly after each push —
+  Copilot does not re-review on its own — but skip the request while a review is still pending,
+  and do not ask for one you have already read.
 - **Lite effort** — neither the CLI nor the API sets it. A request inherits the PR's previous
   effort, then your personal Copilot setting, then the repository and organization defaults,
   then the built-in default (Balanced). Select Lite before requesting and re-select it for every

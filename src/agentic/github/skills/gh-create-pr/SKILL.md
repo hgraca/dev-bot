@@ -106,7 +106,9 @@ that does not exist yet has no URL — name the branch instead.
 ## Copilot review
 
 `--reviewer @copilot` requests GitHub Copilot code review at creation; it is the CLI's special
-reviewer value, not a login. Copilot's effort level is selected in the PR's Reviewers panel, not the
+reviewer value, not a login. The CLI can exit 0 without registering the request, so confirm the
+`review_requested` event in the PR timeline and fall back to the loop's GraphQL request when it is
+absent (`devbot:auto-dev`). Copilot's effort level is selected in the PR's Reviewers panel, not the
 CLI — select Lite when the review should run at that level. Iterating on the review is not this
 skill's job; the loop lives in `devbot:auto-dev`.
 
