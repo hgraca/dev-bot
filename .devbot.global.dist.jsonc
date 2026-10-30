@@ -22,6 +22,7 @@
     "rfp": false,
     "sentry": false,
     "signoz": false,
+    "sonarqube": false,
     "svelte": false
   },
   "auto_recover": {

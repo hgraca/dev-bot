@@ -1,0 +1,16 @@
+{
+  "mcp": {
+    "sonarqube": {
+      "type": "stdio",
+      "enabled": false,
+      "command": [
+        "bash",
+        "-c",
+        "mkdir -p .agents/logs && exec bash {harness-dir}/sonarqube-serve.mcp.sh 2>>.agents/logs/sonarqube-mcp.log"
+      ],
+      "env": {
+        "SONARQUBE_TOKEN": "{env:SONARQUBE_TOKEN}"
+      }
+    }
+  }
+}

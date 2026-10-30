@@ -34,7 +34,7 @@ Every enabled server's tool schemas are injected into the session context, and e
 | devbot-tools    | 11    | ~1.1k             |
 | mdctx           | 3     | ~0.3k             |
 
-Nine of these already ship **disabled by default** — `atlassian`, `chrome-devtools`, `figma`, `notion`, `playwright`, `sentry`, `signoz`, `jetbrains` and each `datasources-<name>` gateway — so an enabled project pays nothing for them until they are switched on ([Per-server enablement](#per-server-enablement)). `atlassian`, `notion` and `sentry` are additionally opt-in _modules_, so they are absent from the config entirely until enabled in the `modules` map. To remove a server from the config entirely, **disable its module**:
+Ten of these already ship **disabled by default** — `atlassian`, `chrome-devtools`, `figma`, `notion`, `playwright`, `sentry`, `signoz`, `sonarqube`, `jetbrains` and each `datasources-<name>` gateway — so an enabled project pays nothing for them until they are switched on ([Per-server enablement](#per-server-enablement)). `atlassian`, `notion`, `sentry` and `sonarqube` are additionally opt-in _modules_, so they are absent from the config entirely until enabled in the `modules` map. To remove a server from the config entirely, **disable its module**:
 
 ```jsonc
 // .devbot.project.jsonc
@@ -56,7 +56,7 @@ In opencode a server entry may carry `"enabled": false`: the server is still **r
 | opencode   | Emitted as `mcp.<name>.enabled: false` in `opencode.jsonc` — registered but not started. Flip it to `true` (or toggle it in the harness) and restart; opencode reads its config once at startup.                                                                                          |
 | claudecode | **Not wired.** The server is omitted from `.mcp.json` — it has no per-server on/off, and Claude Code ignores a `disabled`/`enabled` key in it, so a disabled server is simply not registered. This matches opencode's end state (registered but not started): no process, no tool schema. |
 
-Nine servers ship disabled by default — `atlassian`, `chrome-devtools`, `figma`, `notion`, `playwright`, `sentry`, `signoz`, the per-datasource `datasources-<name>` gateways, and `jetbrains` (`atlassian`, `notion` and `sentry` as opt-in modules, absent entirely until enabled). On both harnesses they are inert: opencode registers each but does not start it, and Claude Code does not receive it at all — so neither pays tool-schema tokens or a process for a server a session never uses.
+Ten servers ship disabled by default — `atlassian`, `chrome-devtools`, `figma`, `notion`, `playwright`, `sentry`, `signoz`, `sonarqube`, the per-datasource `datasources-<name>` gateways, and `jetbrains` (`atlassian`, `notion`, `sentry` and `sonarqube` as opt-in modules, absent entirely until enabled). On both harnesses they are inert: opencode registers each but does not start it, and Claude Code does not receive it at all — so neither pays tool-schema tokens or a process for a server a session never uses.
 
 `enabled` is optional and defaults to **true** — a manifest that omits it is wired and started exactly as before. Declare it only to opt out. To switch one on, set its `enabled` to `true` in the generated `opencode.jsonc` entry (or toggle it in the harness) and restart.
 
@@ -76,6 +76,8 @@ opencode runs the consent flow and stores the tokens itself; `opencode mcp logou
 ## Shared machine-wide gateways
 
 A dev-bot MCP server must never launch its own per-instance process. Servers that are stateless and machine-global run **once per machine** as a docker compose service; every harness instance connects over streamable-http instead of spawning its own stdio copy. This follows the module-owned compose pattern (`docker-compose.yml` in the module dir, auto-discovered by `devbot up`/`down`; `up` is gated by the `modules` map, while `down` is machine-wide and session-gated).
+
+The gateway pattern is for machine-global, stateless servers. A server that carries a per-user identity or per-project context — `aws`, `chrome-devtools`, `playwright`, `sonarqube` — stays stdio and is started only when its module and MCP entry are both enabled.
 
 The canonical manifest declares such a server as `http`:
 

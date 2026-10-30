@@ -1,0 +1,8 @@
+{
+  "sonarqube-agent-plugins": {
+    "url": "https://github.com/SonarSource/sonarqube-agent-plugins.git",
+    "paths": {
+      "skills": "skills"
+    }
+  }
+}

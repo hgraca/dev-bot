@@ -202,6 +202,8 @@ per-module contract.
 
 Per-module enablement. A module set to `false` is skipped during **init** — its symlink wiring and declared MCP servers are not installed into the project. A module absent from both files is enabled. The global and project maps merge per key, with the project value winning, so a project can re-enable a globally disabled module, or vice versa.
 
+`devbot update` merges the dist schema into an existing global config additively: a module key the runtime does not have picks up the dist default (so a newly shipped module arrives disabled or enabled exactly as declared), while a key the runtime already sets keeps the machine's value. Set a module to `true` explicitly to keep it enabled; do not rely on deleting its key, which the merge re-adds from the dist default.
+
 The machine-wide commands ignore this map: `install`, `update`, `uninstall` and prereq checks run **every** module's scripts, disabled ones included — their assets are machine-wide, and a module disabled in one project may be enabled in another (the same rule `down` follows). Enablement is otherwise honoured by the per-project lifecycle (`init`, `up`) and by `devbot list`, which hides disabled modules' artifacts unless `--all` is given.
 
 Disabling a module also removes its MCP servers from every harness config — this is the lever for dropping a heavy server's tool-schema and process cost (see [MCP configuration](/mcp-config#reducing-the-footprint)).
