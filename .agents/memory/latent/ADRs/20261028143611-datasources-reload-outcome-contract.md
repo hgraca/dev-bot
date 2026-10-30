@@ -18,6 +18,6 @@ suppressed entirely when the catalogue declares none; it describes the whole cat
 project's selection. And the reload is exposed to agents as the `reload-datasources` MCP tool, which
 flattens the whole transcript onto stdout and exits `0` for the three documented statuses (it ends
 with `reload: complete`, `reload: not complete` or `reload: not applied`), propagating only a
-malfunction status: the devbot-tools server surfaces stderr *instead of* stdout once a tool exits
+malfunction status: the devbot-tools server surfaces stderr _instead of_ stdout once a tool exits
 non-zero having written to both, so a partial run would otherwise reach the agent as a bare error
 line with every per-source result lost.

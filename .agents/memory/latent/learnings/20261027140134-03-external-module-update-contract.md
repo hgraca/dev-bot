@@ -16,7 +16,7 @@ aliases: ["module update on start", "vendor clone sync", "mirror completeness", 
 
 ## Mirror invariants
 
-`storage/external-agentic-modules/<name>/` holds symlinks only: configured paths plus any lifecycle script (`up.sh`, `init.sh`, …) the checkout ships. `_external_module_mirror_incomplete` verifies each link's *target*, not mere existence, and the start path runs it on every pass; a conflicting regular file is reported, preserved, and makes the render fail so no stamp is written. Entries are wired into the project (`.agents/<type>/<name>`) only after a successful render and only when the project does not disable the module.
+`storage/external-agentic-modules/<name>/` holds symlinks only: configured paths plus any lifecycle script (`up.sh`, `init.sh`, …) the checkout ships. `_external_module_mirror_incomplete` verifies each link's _target_, not mere existence, and the start path runs it on every pass; a conflicting regular file is reported, preserved, and makes the render fail so no stamp is written. Entries are wired into the project (`.agents/<type>/<name>`) only after a successful render and only when the project does not disable the module.
 
 ## One sync implementation
 
