@@ -44,6 +44,8 @@ cmd_help() {
   echo "  install    Install all tools (bin/install.sh)"
   echo "  update [tag] [--auto]  Update dev-bot: newest release tag, or <tag> if given (bin/update.sh)"
   echo "  tool <name>  Run a dev-bot tool by name (e.g. tree, git-report)"
+  echo "  kube [env|contexts|run] [path]  Reach a project's Kubernetes clusters"
+  echo "             run -- <kubectl args>  Run kubectl against the project's kubeconfig"
   echo "  list <type>  List agentic artifacts (commands, agents, skills, hooks, mcps, tools)"
   echo "             [-a|--all]  Include artifacts from disabled modules"
   echo "  init [path]  Initialize dev-bot in a project directory (default: .)"
@@ -652,6 +654,14 @@ main() {
     tool)
       shift
       cmd_tool "$@"
+      ;;
+    kube)
+      shift
+      if [[ ! -f "${DEV_BOT_ROOT}/src/agentic/k8s/kube.sh" ]]; then
+        _error "kube: ${DEV_BOT_ROOT}/src/agentic/k8s/kube.sh is missing"
+        exit 1
+      fi
+      exec "${DEV_BOT_ROOT}/src/agentic/k8s/kube.sh" "$@"
       ;;
     list)
       shift
