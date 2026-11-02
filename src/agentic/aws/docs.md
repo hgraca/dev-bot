@@ -74,6 +74,8 @@ Narrow `S3DataRead` to the buckets you actually need — as written it reads eve
 
 **3. Create the access key.** Open the user → _Security credentials_ → _Access keys_ → _Create access key_ → **"Application running outside AWS"**. The use case only changes the console's guidance; the key pair is identical whichever you pick (the exception is _"running on an AWS compute service"_, which offers a role instead — never hold static keys on a workload that can assume one). Copy the **Access key ID** and the **Secret access key**; the secret is shown once, and a user can hold at most two keys.
 
+**Bulk provisioning.** `tools/create-devbot-users.sh <person>…` does steps 2 and 3 for several names in one pass: it creates `devbot-<person>` (lowercased), adds it to `devbot`, issues one access key and prints it once — the same rows also land in a mode-600 CSV in the current directory. `--dry-run` shows the plan without changing anything; `--group` targets another group. It needs an admin identity — the users it creates deliberately cannot.
+
 **4. Hand the values to the connection.** Put them in the repo-root `.env` (gitignored — the launcher and the `datasources` renderer both load it) under the names the connection references:
 
 ```bash

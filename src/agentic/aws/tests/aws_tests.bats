@@ -20,6 +20,7 @@ setup() {
 
   READ_JSONC="$REPO_ROOT/src/_shared/read_jsonc.py"
   LAUNCHER="$MODULE_DIR/tools/aws-mcp-proxy.sh"
+  USERS="$MODULE_DIR/tools/create-devbot-users.sh"
   INSTALL="$MODULE_DIR/install.sh"
   UP="$MODULE_DIR/up.sh"
   UPDATE="$MODULE_DIR/update.sh"
@@ -809,4 +810,104 @@ _pre_bin_dir() {
   assert_success
   refute_output --partial "NOTICE"
   refute_output --partial "ERROR"
+}
+
+# ── create-devbot-users.sh — bulk user provisioning ───────────────────────────
+#
+# Every AWS call goes through a fake `aws` on PATH that records its argv and
+# answers get-user from $TMP/existing-users, so nothing here touches an account.
+
+_fake_aws_users() {
+  mkdir -p "$TMP/bin"
+  cat > "$TMP/bin/aws" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$TMP/aws-calls.log"
+case "\$1 \$2" in
+  "iam get-user")
+    grep -qx "\$4" "$TMP/existing-users" 2>/dev/null && exit 0
+    exit 254
+    ;;
+  "iam create-access-key")
+    printf 'AKIA%s\tSECRET%s\n' "\$4" "\$4"
+    exit 0
+    ;;
+  *) exit 0 ;;
+esac
+EOF
+  chmod +x "$TMP/bin/aws"
+}
+
+# Run the provisioner from a scratch dir so its CSV lands there, never in the
+# repo.
+_run_users() {
+  mkdir -p "$TMP/work"
+  cd "$TMP/work" || return 1
+  run env PATH="$TMP/bin:/usr/bin:/bin" bash "$USERS" "$@"
+}
+
+_users_csv() {
+  find "$TMP/work" -maxdepth 1 -name 'devbot-credentials-*.csv' | head -1
+}
+
+@test "create-devbot-users: creates the user, joins the group, writes a 600 CSV" {
+  _fake_aws_users
+  _run_users Jovan.Ilic
+  assert_success
+  assert_output --partial "OK    devbot-jovan.ilic"
+
+  run grep -c -- "add-user-to-group --user-name devbot-jovan.ilic --group-name devbot" \
+    "$TMP/aws-calls.log"
+  assert_output "1"
+
+  local csv
+  csv="$(_users_csv)"
+  assert [ -n "$csv" ]
+  run find "$csv" -maxdepth 0 -perm 600
+  assert_output "$csv"
+  run grep -c '^devbot-jovan.ilic,AKIAdevbot-jovan.ilic,SECRETdevbot-jovan.ilic$' "$csv"
+  assert_output "1"
+}
+
+@test "create-devbot-users: prints the secret it wrote" {
+  _fake_aws_users
+  _run_users milos.babic
+  assert_success
+  assert_output --partial "SECRETdevbot-milos.babic"
+}
+
+@test "create-devbot-users: skips an existing user and issues no second key" {
+  _fake_aws_users
+  echo 'devbot-milos.babic' > "$TMP/existing-users"
+  _run_users milos.babic
+  assert_success
+  assert_output --partial "SKIP  devbot-milos.babic"
+  run grep -c "create-access-key" "$TMP/aws-calls.log"
+  assert_output "0"
+}
+
+@test "create-devbot-users: --dry-run changes nothing" {
+  _fake_aws_users
+  _run_users --dry-run jovan.ilic
+  assert_success
+  assert_output --partial "PLAN  devbot-jovan.ilic"
+  run grep -cE "create-user|add-user-to-group|create-access-key" "$TMP/aws-calls.log"
+  assert_output "0"
+  assert [ -z "$(_users_csv)" ]
+}
+
+@test "create-devbot-users: rejects an invalid name without calling AWS" {
+  _fake_aws_users
+  _run_users 'bad name'
+  assert_failure
+  assert_output --partial "invalid IAM user name"
+  assert [ ! -s "$TMP/aws-calls.log" ]
+}
+
+@test "create-devbot-users: --group overrides the target group" {
+  _fake_aws_users
+  _run_users --group devbot-admin jovan.ilic
+  assert_success
+  run grep -c -- "add-user-to-group --user-name devbot-jovan.ilic --group-name devbot-admin" \
+    "$TMP/aws-calls.log"
+  assert_output "1"
 }
