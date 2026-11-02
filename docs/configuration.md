@@ -538,6 +538,16 @@ tool requires a database, so one mongo datasource covers one database. A
 `mongodb+srv://` URI is resolved by the toolbox itself — dev-bot never parses
 the URI, so SRV records need no port assumption.
 
+A field you **declare** as a `${VAR}` reference makes that variable the source of
+truth: if it is unset or empty and the field has a non-empty default (a host, a
+port), the datasource is excluded rather than falling back. The default applies
+only to an **omitted** field. That distinction matters for hosts —
+`MYSQL_HOST` / `POSTGRES_HOST` default to `localhost` only when left out, so a
+variable meant to point at a production replica but empty drops the datasource
+instead of silently retargeting it at your local database. A field whose default
+is deliberately empty (`MYSQL_DATABASE`) keeps the datasource with no default
+schema, because an empty value there means "no schema", not "fall back".
+
 `type` is `mysql` (MariaDB included), `postgres`, `sqlite`, `mongodb` or
 `redis` — or a **sidecar** type (`opensearch`, `s3`), served by its own container
 instead of by the shared gateway (see [Sidecar datasources](#sidecar-datasources)).

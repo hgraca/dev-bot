@@ -4,7 +4,8 @@
 # Filter the datasources catalogue down to the ones complete enough to hand to
 # the gateway.
 #
-# A datasource is a CANDIDATE when every required env var is set. That is a
+# A datasource is a CANDIDATE when every required env var is set, and no
+# explicitly declared reference resolves empty to a real default. That is a
 # pure environment check — this script opens no connections.
 #
 # It deliberately does NOT decide reachability. dev-bot used to probe with a
@@ -35,12 +36,18 @@ def fail(message: str) -> NoReturn:
     sys.exit(1)
 
 
-def _resolve_field(declared_value, default, environ) -> tuple:
+def _resolve_field(declared_value, default, environ, explicit=False) -> tuple:
     """(value, missing_var).
 
     A literal is always present, whatever the environment says. A `${VAR}`
     reference is missing when the variable is unset or empty and the field has
-    no default — which is exactly when toolbox would refuse to start.
+    no default — a safe subset of what toolbox would start.
+
+    An explicitly declared reference that resolves empty is missing when the
+    field has a real fallback default: that default belongs to an OMITTED field,
+    not to a variable the config points at and the environment left empty.
+    Otherwise a datasource aimed at a production host silently becomes
+    localhost. An empty default means absence, not a fallback, so it stays valid.
     """
     ref = env_ref(declared_value)
     if ref is None:
@@ -48,7 +55,7 @@ def _resolve_field(declared_value, default, environ) -> tuple:
     value = environ.get(ref)
     if value:
         return value, None
-    if default is not None:
+    if default is not None and (not explicit or default == ""):
         return default, None
     return None, ref
 
@@ -63,8 +70,9 @@ def _field_values(spec: dict, engine: dict, environ) -> tuple:
     values, missing = {}, []
     for field in engine["fields"]:
         _yaml_field, engine_var, default, _where, optional = field_parts(field)
-        source = declared[engine_var] if engine_var in declared else "${" + engine_var + "}"
-        value, absent = _resolve_field(source, default, environ)
+        explicit = engine_var in declared
+        source = declared[engine_var] if explicit else "${" + engine_var + "}"
+        value, absent = _resolve_field(source, default, environ, explicit)
         if absent and optional:
             absent = None  # an optional field being absent is not a failure
         values[engine_var] = value
@@ -82,7 +90,7 @@ def is_candidate(spec: dict, engine: dict, environ) -> tuple:
     """
     _values, missing = _field_values(spec, engine, environ)
     if missing:
-        return False, f"required env not set: {', '.join(sorted(missing))}"
+        return False, f"required env not set or empty: {', '.join(sorted(missing))}"
     return True, "usable"
 
 

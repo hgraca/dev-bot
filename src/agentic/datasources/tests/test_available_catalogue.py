@@ -96,6 +96,58 @@ class TestAvailableCatalogue(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(list(json.loads(out)), ["db"])
 
+    def test_an_explicitly_empty_host_drops_the_datasource(self):
+        # Declaring the host as a reference makes that variable the source of
+        # truth; an empty value must not silently become localhost.
+        catalogue = {
+            "db": {
+                "type": "mysql",
+                "env": {
+                    "MYSQL_HOST": "${DB_HOST}",
+                    "MYSQL_USER": "u",
+                    "MYSQL_PASSWORD": "p",
+                },
+            }
+        }
+
+        code, out, err = self.run_filter(catalogue, {"DB_HOST": ""})
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {})
+        self.assertIn("DB_HOST", err)
+
+    def test_an_omitted_host_still_defaults_to_localhost(self):
+        # Omitting the field is the supported way to ask for the engine default.
+        catalogue = {
+            "db": {
+                "type": "mysql",
+                "env": {"MYSQL_USER": "u", "MYSQL_PASSWORD": "p"},
+            }
+        }
+
+        code, out, _ = self.run_filter(catalogue)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(list(json.loads(out)), ["db"])
+
+    def test_an_explicitly_empty_field_with_an_empty_default_does_not_gate(self):
+        catalogue = {
+            "db": {
+                "type": "mysql",
+                "env": {
+                    "MYSQL_HOST": "127.0.0.1",
+                    "MYSQL_DATABASE": "${DB_NAME}",
+                    "MYSQL_USER": "u",
+                    "MYSQL_PASSWORD": "p",
+                },
+            }
+        }
+
+        code, out, _ = self.run_filter(catalogue, {"DB_NAME": ""})
+
+        self.assertEqual(code, 0)
+        self.assertEqual(list(json.loads(out)), ["db"])
+
     def test_keeps_an_env_complete_sqlite_datasource(self):
         code, out, _ = self.run_filter(
             {"scratch": {"type": "sqlite", "env": {"SQLITE_DATABASE": "S_DB"}}},
