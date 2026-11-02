@@ -1,7 +1,7 @@
 ---
 title: "K8s"
 description: "Kubernetes manifest linting and cluster access."
-skills: ["lint-k8s"]
+skills: ["lint-k8s", "k8s-access"]
 hooks: ["lint-k8s"]
 tools: ["lint-k8s"]
 ---
@@ -16,19 +16,54 @@ Auto-lints on file save when editing K8s YAML files. Agents can also invoke it e
 
 `init.sh` reads the `kubectl` node of the global config — a catalogue of
 clusters — together with the project's `kubectl` list of cluster names to opt
-into. It writes `~/.kube/devbot/<project>.yaml`, that project's `.env`, and one
-shared exec credential wrapper. Everything is derived, so the kubeconfig is
-regenerated on every init and never edited by hand. A project that names no
-clusters gets none, and each project's file is its own: one project's selection
-cannot widen another's.
+into. It writes **two files per project**:
 
-The generated config is **not** merged into `~/.kube/config`. Point kubectl at it
-explicitly:
+```
+~/.kube/devbot/<project_name>-<8-hex>.yaml   the kubeconfig
+~/.kube/devbot/<project_name>-<8-hex>.env    the env file (KUBECONFIG only)
+```
+
+`<8-hex>` is the first eight characters of the sha256 of the project's absolute
+path, so two checkouts that share a directory name keep separate files. Neither
+name is guessable — resolve them with `devbot kube` rather than listing the
+directory.
+
+The context names come from each catalogue entry's `context` field. In the
+default catalogue that is `gete-prod-ro` (read-only production) and
+`gete-staging-rw` (staging); the identity lands in the `gete-agents-readonly` and
+`gete-agents-writer` groups. **Do not use `~/.kube/config`** — its contexts are
+SSO exec contexts that expire; these use the devbot profile.
+
+### Using it
 
 ```sh
-. ~/.kube/devbot/<project>.env
-kubectl --context k8s-prod-ro get pods
+devbot kube env      [path]   # KUBECONFIG + current context (no credentials)
+devbot kube contexts [path]   # cluster name, context, region
+devbot kube run      [path] -- get pods -n core
 ```
+
+`devbot kube run` execs `kubectl --kubeconfig <file>`. Credentials come from the
+`credential_env` map in the global catalogue: each entry is exported as its key
+(`AWS_ACCESS_KEY_ID`) with the value of the `${VAR}` it references (`AWS_KEY`),
+and the kubeconfig's exec wrapper reads those at call time. So the **referenced**
+variables — `AWS_KEY`, `AWS_SECRET` with the shipped catalogue — must be set in
+the environment before the command runs; `devbot kube env` prints which ones
+your catalogue needs. The generated `.env` holds only `KUBECONFIG`, never a
+credential.
+
+The generated config is **not** merged into `~/.kube/config`. If you must call
+`kubectl` yourself, point it at the generated file explicitly:
+
+```sh
+devbot kube env ~/Development/Get-e/core   # prints the KUBECONFIG path
+kubectl --kubeconfig <path> --context gete-staging-rw get pods -n core
+```
+
+The files are rendered, not read live: after changing the project's `kubectl`
+selection or the global catalogue, run `devbot reinit <path>`.
+
+RBAC boundaries, what the reader and writer groups grant, and the exec
+restriction are documented in the `k8s-access` skill.
 
 ## Configuration
 
