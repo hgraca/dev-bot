@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 const PROJECT_DIR = process.env.TOOLS_MCP_PROJECT_DIR || process.cwd();
@@ -50,6 +51,9 @@ interface ToolDef {
   };
   scriptPath: string;
   timeoutMs?: number;
+  // mcp-meta's `inProcess`: run in the server,
+  // not in a spawned subprocess.
+  inProcess?: string;
 }
 
 // Bun and Node clamp a timer delay above 2^31-1 ms to 1 ms, so an out-of-range
@@ -67,7 +71,37 @@ function validTimeout(value: unknown): number | undefined {
   return Number.isSafeInteger(value) && value > 0 && value <= MAX_TIMEOUT_MS ? value : undefined;
 }
 
-async function runMcpMeta(scriptPath: string): Promise<{ name: string; description: string; parameters?: object; timeoutMs?: number } | null> {
+// In-process handlers, keyed by mcp-meta's
+// `inProcess`. Needs the server's own heap.
+type InProcessHandler = (args: string[]) => Promise<string>;
+
+async function serverHeapSnapshot(args: string[]): Promise<string> {
+  const out = args[0]?.trim() || path.join(os.tmpdir(), `devbot-heap-${Date.now()}.heapsnapshot`);
+  const buf = Bun.generateHeapSnapshot("v8", "arraybuffer");
+  writePrivate(out, new Uint8Array(buf));
+  return `Wrote ${(buf.byteLength / 1e6).toFixed(1)} MB V8 heap snapshot (pid ${process.pid}) to ${out}`;
+}
+
+function writePrivate(out: string, data: Uint8Array): void {
+  // "wx" fails on an existing path or symlink.
+  const fd = fs.openSync(out, "wx", 0o600);
+  try {
+    fs.writeFileSync(fd, data);
+    fs.fchmodSync(fd, 0o600);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+const IN_PROCESS_HANDLERS: Record<string, InProcessHandler> = {
+  "server-heap-snapshot": serverHeapSnapshot,
+};
+
+function isKnownHandler(value: unknown): value is string {
+  return typeof value === "string" && Object.hasOwn(IN_PROCESS_HANDLERS, value);
+}
+
+async function runMcpMeta(scriptPath: string): Promise<{ name: string; description: string; parameters?: object; timeoutMs?: number; inProcess?: unknown } | null> {
   const proc = Bun.spawn(["bash", scriptPath, "mcp-meta"], {
     stdout: "pipe",
     stderr: "pipe",
@@ -125,12 +159,21 @@ async function discoverTools(): Promise<ToolDef[]> {
       const meta = await runMcpMeta(scriptPath);
 
       if (meta && meta.name && meta.description) {
+        let inProcess: string | undefined;
+        if ("inProcess" in meta) {
+          if (!isKnownHandler(meta.inProcess)) {
+            log(`skipping ${entry}: unknown inProcess handler '${String(meta.inProcess)}'`);
+            continue;
+          }
+          inProcess = meta.inProcess;
+        }
         tools.push({
           name: meta.name,
           description: meta.description,
           inputSchema: (meta.parameters as ToolDef["inputSchema"]) ?? { type: "object", properties: {} },
           scriptPath,
           timeoutMs: validTimeout(meta.timeoutMs),
+          inProcess,
         });
       } else {
         log(`skipping ${entry}: mcp-meta missing name/description`);
@@ -196,6 +239,10 @@ async function callTool(tool: ToolDef, args: Record<string, unknown>): Promise<s
 
   if (Array.isArray(args.args)) {
     scriptArgs.push(...args.args.map(String));
+  }
+
+  if (tool.inProcess) {
+    return await IN_PROCESS_HANDLERS[tool.inProcess](scriptArgs);
   }
 
   return new Promise((resolve, reject) => {

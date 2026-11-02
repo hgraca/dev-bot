@@ -116,6 +116,58 @@ echo "never printed"
 `,
   )
 
+  // In-process tool: only mcp-meta is meaningful. Its body exits non-zero, so
+  // a regression that spawns it instead of dispatching fails the call loudly.
+  fs.copyFileSync(
+    path.resolve(import.meta.dir, "../tools/heap-snapshot.mcp.sh"),
+    path.join(toolsDir, "heap-snapshot.mcp.sh"),
+  )
+
+  // Unknown in-process handler: must be hidden,
+  // not advertised as a broken tool.
+  fs.writeFileSync(
+    path.join(toolsDir, "bogus-inproc.mcp.sh"),
+    `#!/usr/bin/env bash
+if [[ "\${1:-}" == "mcp-meta" ]]; then
+  cat <<'EOF'
+{"name":"bogus-inproc","description":"A stub tool declaring an unknown in-process handler","inProcess":"no-such-handler","parameters":{"type":"object","properties":{}}}
+EOF
+  exit 0
+fi
+echo "bogus-inproc body must never run" >&2
+exit 1
+`,
+  )
+
+  // Empty inProcess is presence of the key, not absence: it must stay hidden
+  // and must never fall back to spawning the body.
+  fs.writeFileSync(
+    path.join(toolsDir, "empty-inproc.mcp.sh"),
+    `#!/usr/bin/env bash
+if [[ "\${1:-}" == "mcp-meta" ]]; then
+  cat <<'EOF'
+{"name":"empty-inproc","description":"A stub tool declaring an empty in-process handler","inProcess":"","parameters":{"type":"object","properties":{}}}
+EOF
+  exit 0
+fi
+exit 1
+`,
+  )
+
+  // Inherited Object.prototype names must not pass as handlers.
+  fs.writeFileSync(
+    path.join(toolsDir, "proto-inproc.mcp.sh"),
+    `#!/usr/bin/env bash
+if [[ "\${1:-}" == "mcp-meta" ]]; then
+  cat <<'EOF'
+{"name":"proto-inproc","description":"A stub tool naming an inherited handler","inProcess":"toString","parameters":{"type":"object","properties":{}}}
+EOF
+  exit 0
+fi
+exit 1
+`,
+  )
+
   proc = spawn("bun", ["run", SERVER], {
     env: { ...process.env, TOOLS_MCP_PROJECT_DIR: tmpDir, TOOLS_MCP_TIMEOUT_MS: "500" },
     stdio: ["pipe", "pipe", "pipe"],
@@ -246,5 +298,63 @@ describe("devbot-tools MCP server", () => {
     expect(res.id).toBe(7)
     expect(res.result.content[0].text).toContain("WARN: the index is stale")
     expect(res.result.content[0].text).not.toContain("completed successfully")
+  })
+
+  test("an in-process tool is listed and dispatches inside the server", async () => {
+    // A subprocess has its own heap, so a script
+    // would snapshot an empty process.
+    send(12, "tools/list")
+    const list = await next()
+    expect(list.result.tools.map((t: any) => t.name)).toContain("heap-snapshot")
+
+    const out = path.join(tmpDir, "snap.heapsnapshot")
+    send(13, "tools/call", { name: "heap-snapshot", arguments: { args: [out] } })
+    const res = await next()
+    expect(res.id).toBe(13)
+    expect(res.result.isError).toBeUndefined()
+    expect(res.result.content[0].text).toContain(out)
+    expect(res.result.content[0].text).toMatch(/Wrote \d+\.\d MB/)
+
+    // Process memory: owner-only, never the umask default.
+    expect(fs.statSync(out).mode & 0o777).toBe(0o600)
+
+    const snapshot = JSON.parse(fs.readFileSync(out, "utf-8"))
+    expect(snapshot.snapshot.meta.node_fields).toBeDefined()
+    expect(Array.isArray(snapshot.nodes)).toBe(true)
+  })
+
+  test("a tool declaring an unknown in-process handler is not advertised", async () => {
+    send(14, "tools/list")
+    const res = await next()
+    expect(res.result.tools.map((t: any) => t.name)).not.toContain("bogus-inproc")
+
+    await new Promise((r) => setTimeout(r, 150))
+    expect(stderr).toContain("unknown inProcess handler")
+  })
+
+  test("an inherited property name is not a registered handler", async () => {
+    send(15, "tools/list")
+    const res = await next()
+    expect(res.result.tools.map((t: any) => t.name)).not.toContain("proto-inproc")
+  })
+
+  test("an empty inProcess value is not advertised and never spawns", async () => {
+    send(16, "tools/list")
+    const res = await next()
+    expect(res.result.tools.map((t: any) => t.name)).not.toContain("empty-inproc")
+  })
+
+  test("refuses to write through a pre-existing symlink", async () => {
+    // /tmp is world-writable: a guessed name must not be a write primitive.
+    const victim = path.join(tmpDir, "victim.txt")
+    fs.writeFileSync(victim, "untouched")
+    const link = path.join(tmpDir, "evil.heapsnapshot")
+    fs.symlinkSync(victim, link)
+
+    send(17, "tools/call", { name: "heap-snapshot", arguments: { args: [link] } })
+    const res = await next()
+    expect(res.id).toBe(17)
+    expect(res.result.isError).toBe(true)
+    expect(fs.readFileSync(victim, "utf-8")).toBe("untouched")
   })
 })

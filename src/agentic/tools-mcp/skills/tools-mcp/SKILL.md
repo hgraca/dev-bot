@@ -47,6 +47,7 @@ esac
   "name": "greet", // required — MCP tool name (becomes devbot-tools_greet)
   "description": "...", // required — human-readable description
   "timeoutMs": 900000, // optional — overrides the 120s default bound
+  "inProcess": "server-heap-snapshot", // optional — run in the server, not a subprocess
   "parameters": {
     // required — JSON Schema for inputs
     "type": "object",
@@ -75,6 +76,25 @@ a positive integer of at most 2 147 483 647 ms is ignored: a malformed value fal
 default rather than removing the bound (a larger delay is clamped to 1 ms by the runtime, which
 would kill the tool instantly).
 
+### In-process tools
+
+A tool that needs the server's own heap — or any state a child process cannot reach — declares
+`"inProcess": "<handler>"` in its `mcp-meta`, and the server calls that handler instead of spawning
+the script. The script body never runs, so it should exit non-zero with a diagnostic if executed
+anyway: that turns a dispatch regression into a loud failure rather than a silent one.
+
+The handler is registered in `start-tools-mcp.ts` (`IN_PROCESS_HANDLERS`), keyed by that value. It
+receives the same `args` array and returns the text result. The key's presence marks the tool
+in-process — which is why a value that is empty, not a string, or not a registered handler is
+skipped with a log rather than falling back to spawning the script. `timeoutMs` does not apply: the
+call runs in the server's event loop, so the handler must return.
+
+The shipped in-process tool is `heap-snapshot` (`tools/heap-snapshot.mcp.sh`), which writes a V8
+heap snapshot of the server process to `args[0]`, defaulting to
+`<tmpdir>/devbot-heap-<timestamp>.heapsnapshot`. The file is created exclusively (`O_EXCL`) with
+`0600` permissions: an existing file or a symlink at that path fails the call instead of being
+written through.
+
 ## Output contract
 
 - **stdout** is the tool's result — what the agent reads.
@@ -90,8 +110,13 @@ would kill the tool instantly).
 1. Place a `*.mcp.sh` script in `.agents/tools/` (the `.mcp.sh` extension is what marks it as an MCP tool)
 2. Make it executable (`chmod +x`)
 3. Handle the `mcp-meta` subcommand (see above) — REQUIRED for the tool to be exposed
-4. The MCP server picks it up on the next `tools/list` request
+4. If `mcp-meta` declares `inProcess`, register the handler in `start-tools-mcp.ts`
+5. The MCP server picks it up on the next `tools/list` request
 
 ## Security
 
 The MCP server executes arbitrary scripts. Only place trusted tools in the tools directories.
+
+An in-process tool shares the server's memory. `heap-snapshot` writes a dump of the whole process
+(environment, tool output, prompt content) to an owner-only file created exclusively (`0600`, never
+written through a pre-existing path) — treat that file as sensitive.

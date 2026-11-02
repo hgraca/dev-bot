@@ -15,7 +15,7 @@ Makes dev-bot's own tools callable the way any other MCP tool is, so an agent ca
 
 ## Configuration
 
-Each tool describes itself through its `mcp-meta` subcommand, so adding a tool needs no change to the server. Registered on `devbot init` when the module is enabled; logs land in `.agents/logs/devbot-tools-mcp.log`.
+Each tool describes itself through its `mcp-meta` subcommand, so a spawned tool needs no change to the server; an in-process tool (`inProcess`) additionally registers a handler there. Registered on `devbot init` when the module is enabled; logs land in `.agents/logs/devbot-tools-mcp.log`.
 
 ## See also
 
