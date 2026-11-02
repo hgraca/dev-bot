@@ -24,6 +24,16 @@ Authentication is **non-interactive**: no `aws login`, no `aws sso login`, no br
 
 Use a `${VAR}` reference for anything secret: a literal value in the config is convenient for non-secret settings, but a literal secret sits in a file.
 
+The `env` block's **keys** are the names the AWS SDK reads — normally `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` — and its **values** are literals or `${VAR}` references to your own shell variables. The launcher exports each pair verbatim, so a connection-specific variable name belongs on the right-hand side, never in the key.
+
+A bare `aws sts get-caller-identity` does not see the referenced variables. To verify a connection by hand, map the references onto the standard names and clear the ambient profile and session token:
+
+```bash
+AWS_ACCESS_KEY_ID="$AWS_PROD_RO_ACCESS_KEY_ID" \
+  AWS_SECRET_ACCESS_KEY="$AWS_PROD_RO_SECRET_ACCESS_KEY" \
+  env -u AWS_PROFILE -u AWS_SESSION_TOKEN aws sts get-caller-identity
+```
+
 Declaring both forms is rejected — credential precedence would be ambiguous. An optional `account_id` turns the identity into a _checked_ property: the launcher calls `sts get-caller-identity` and refuses to start when the reported account differs.
 
 ## Read-only is an IAM property
@@ -93,6 +103,8 @@ AWS_PROD_RO_SECRET_ACCESS_KEY=…
 | ----------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `aws_connections` | `.devbot.global.jsonc`  | catalogue of connections — a name mapped to `region`, plus `env` (values or `${VAR}`) **or** `profile`, and an optional `account_id` |
 | `aws_connections` | `.devbot.project.jsonc` | list of connection names this project opts into                                                                                      |
+
+The `aws` **module** must also be enabled (`modules.aws: true`). The shipped global template defaults it to `false`, and a disabled module's init never runs — `aws_connections` alone registers nothing. Init now warns when connections are declared while the module is disabled.
 
 A connection that is declared but not selected is not wired; a selected connection that is not declared is **not wired either** — it warns and is skipped, since a manifest for it would register a server that cannot start.
 

@@ -67,6 +67,8 @@
   // AWS role connections offered to agents. Declared once here, so the key
   // always exists: reconciliation removes runtime keys the dist lacks, and a
   // machine that declared connections would lose them on `devbot update`.
+  // The `aws` module must be enabled (`modules.aws: true`): a disabled
+  // module's init never runs, so this catalogue alone wires no server.
   // Each project opts in by NAME in .devbot.project.jsonc. A connection is a
   // region plus "env" or "profile", and an optional account_id; credential
   // values are "${VAR}" references, as in a datasource.
