@@ -742,7 +742,14 @@ references devbot's own wrapper, so a human's kubeconfig is never touched.
 The wrapper is a `credential_source = Environment` profile plus a
 `role_arn` — the profile assumes the cluster-access role, and the mapped
 environment supplies the source credentials. Point `profile` at a role profile,
-not at one carrying long-lived keys used directly.
+not at one carrying long-lived keys used directly:
+
+```ini
+# ~/.aws/config — must exist before init; dev-bot does not create it
+[profile devbot-agent]
+role_arn = arn:aws:iam::<account-id>:role/<cluster-access-role>
+credential_source = Environment
+```
 
 That distinction is enforced rather than documented only: init resolves the
 profile's identity with `sts get-caller-identity` and refuses to render when it

@@ -38,6 +38,21 @@ section of [configuration](/docs/configuration) for the shape, and note that
 credential values stay in the environment — the generated wrapper carries a
 `${VAR}` reference, never a key.
 
+The `profile` named there must already exist in `~/.aws/config`, and it must be
+an **assumable role** profile — `role_arn` plus `credential_source =
+Environment`. dev-bot does not create it, and init refuses to render when the
+profile resolves to anything but an assumed-role session:
+
+```ini
+[profile devbot-agent]
+role_arn = arn:aws:iam::<account-id>:role/<cluster-access-role>
+credential_source = Environment
+```
+
+A profile carrying only access keys is rejected on purpose: environment
+credentials win over a profile's own keys, so without a `role_arn` the agent
+would silently run as the key's owner instead of the scoped cluster role.
+
 ## See also
 
 - [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
