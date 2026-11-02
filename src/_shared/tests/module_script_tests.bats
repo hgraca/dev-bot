@@ -89,6 +89,42 @@ _add_init_module() {
   assert_output --partial "skip-me: disabled per config"
 }
 
+@test "warns when a disabled module still has configuration that it consumes" {
+  _source_lib
+  export MOCK_DISABLED_MODULES='["aws"]'
+  cat > "${SANDBOX_DIR}/.devbot.global.jsonc" <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1" } } }
+EOF
+  _add_module "src/agentic" "aws"
+
+  run _run_module_script "${SANDBOX_DIR}/src/agentic" "init.sh" "Initializing" "initialized"
+  assert_success
+  assert_output --partial "declares aws_connections"
+  assert_output --partial "enable modules.aws"
+}
+
+@test "does not warn when a disabled module's configuration is empty" {
+  _source_lib
+  export MOCK_DISABLED_MODULES='["aws"]'
+  echo '{ "aws_connections": {} }' > "${SANDBOX_DIR}/.devbot.global.jsonc"
+  _add_module "src/agentic" "aws"
+
+  run _run_module_script "${SANDBOX_DIR}/src/agentic" "init.sh" "Initializing" "initialized"
+  assert_success
+  refute_output --partial "declares aws_connections"
+}
+
+@test "does not warn when a disabled module's configuration is null" {
+  _source_lib
+  export MOCK_DISABLED_MODULES='["aws"]'
+  echo '{ "aws_connections": null }' > "${SANDBOX_DIR}/.devbot.global.jsonc"
+  _add_module "src/agentic" "aws"
+
+  run _run_module_script "${SANDBOX_DIR}/src/agentic" "init.sh" "Initializing" "initialized"
+  assert_success
+  refute_output --partial "declares aws_connections"
+}
+
 @test "skips modules without the script" {
   _source_lib
   _add_module "src/tools" "has-script"    "install.sh" 'echo "has_ok"'

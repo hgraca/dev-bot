@@ -1413,6 +1413,32 @@ _run_module_prereqs() {
   export MODULE_PREREQ_PASSED="${passed}" MODULE_PREREQ_FAILED="${failed}" MODULE_PREREQ_SKIPPED="${skipped}"
 }
 
+# ── Configuration that outlives its module ─────────────────────────────────────
+#
+# A disabled module's init never runs, so configuration only that module reads
+# fails silently. Warn when such configuration is present and points nowhere.
+#
+# _warn_disabled_module_config <module_name>
+#   Emits a warning for a known module whose global configuration is non-empty
+#   while the module is disabled. Silent for every other module and for empty
+#   configuration.
+
+_warn_disabled_module_config() {
+  local module="$1" config reader value
+  case "${module}" in
+    aws)
+      config="$(_devbot_global_config)"
+      reader="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/read_jsonc.py"
+      [[ -f "${config}" ]] || return 0
+      value=$(python3 "${reader}" "${config}" "aws_connections" 2>/dev/null || true)
+      case "${value}" in
+        "" | "{}" | "None" | "null") return 0 ;;
+      esac
+      _warn "aws — module disabled but .devbot.global.jsonc declares aws_connections; enable modules.aws for this project or no aws-* server is wired"
+      ;;
+  esac
+}
+
 # ── Generic module script runner ─────────────────────────────────────────────────
 #
 # _run_module_script [--all] <base_dir> <script_name> <label> <ok_label> [extra_args...]
@@ -1456,6 +1482,7 @@ _run_module_script() {
 
     if [[ ${include_disabled} -eq 0 ]] && echo "${disabled_modules}" | grep -Fxq "${module_name}" 2>/dev/null; then
       _skip "${module_name}: disabled per config — skipping"
+      _warn_disabled_module_config "${module_name}"
       skipped=$((skipped + 1))
       continue
     fi
