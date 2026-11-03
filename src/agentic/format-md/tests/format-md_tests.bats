@@ -506,3 +506,84 @@ STUB
   assert_output --partial "const x = {a:1};"
 }
 
+
+# ── Project ignore rules ──────────────────────────────────────────────────────
+
+@test "prettierignore: an ignored file is left untouched" {
+  mkdir -p "$BATS_TEST_TMPDIR/project"
+  printf '{}\n' > "$BATS_TEST_TMPDIR/project/.prettierrc.json"
+  printf '/*\n!/src/\n!/src/**\n' > "$BATS_TEST_TMPDIR/project/.prettierignore"
+  mkdir -p "$BATS_TEST_TMPDIR/project/docs"
+  local ignored="$BATS_TEST_TMPDIR/project/docs/ignored.md"
+  printf '#    Title\n' > "$ignored"
+
+  run bash "$TOOL" "$ignored"
+
+  assert_success
+  assert_output --partial "0 changed"
+  run cat "$ignored"
+  assert_output --partial "#    Title"
+}
+
+@test "prettierignore: a re-included file is still formatted" {
+  mkdir -p "$BATS_TEST_TMPDIR/project"
+  printf '{}\n' > "$BATS_TEST_TMPDIR/project/.prettierrc.json"
+  printf '/*\n!/src/\n!/src/**\n' > "$BATS_TEST_TMPDIR/project/.prettierignore"
+  mkdir -p "$BATS_TEST_TMPDIR/project/src"
+  local target="$BATS_TEST_TMPDIR/project/src/a.md"
+  printf '#    Sub\n' > "$target"
+
+  run bash "$TOOL" "$target"
+
+  assert_success
+  assert_output --partial "1 changed"
+  run cat "$target"
+  assert_output --partial "# Sub"
+}
+
+@test "prettierignore: --check passes for an ignored file" {
+  mkdir -p "$BATS_TEST_TMPDIR/project"
+  printf '{}\n' > "$BATS_TEST_TMPDIR/project/.prettierrc.json"
+  printf '/*\n!/src/\n!/src/**\n' > "$BATS_TEST_TMPDIR/project/.prettierignore"
+  mkdir -p "$BATS_TEST_TMPDIR/project/docs"
+  local ignored="$BATS_TEST_TMPDIR/project/docs/ignored.md"
+  printf 'name:    x\n' > "$ignored"
+
+  run bash "$TOOL" --check "$ignored"
+
+  assert_success
+  assert_output --partial "0 need formatting"
+}
+
+@test "ignore rules: the .agents workspace is exempt from .prettierignore" {
+  mkdir -p "$BATS_TEST_TMPDIR/project"
+  printf '{}\n' > "$BATS_TEST_TMPDIR/project/.prettierrc.json"
+  printf '/*\n' > "$BATS_TEST_TMPDIR/project/.prettierignore"
+  printf '{"devbot_dir": ".agents"}\n' > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
+  mkdir -p "$BATS_TEST_TMPDIR/project/.agents/memory"
+  local note="$BATS_TEST_TMPDIR/project/.agents/memory/n.md"
+  printf '#    Note\n' > "$note"
+
+  run bash "$TOOL" "$note"
+
+  assert_success
+  assert_output --partial "1 changed"
+  run cat "$note"
+  assert_output --partial "# Note"
+}
+
+@test "ignore rules: a .gitignore entry does not stop formatting" {
+  mkdir -p "$BATS_TEST_TMPDIR/project"
+  printf '{}\n' > "$BATS_TEST_TMPDIR/project/.prettierrc.json"
+  printf 'out/\n' > "$BATS_TEST_TMPDIR/project/.gitignore"
+  mkdir -p "$BATS_TEST_TMPDIR/project/out"
+  local target="$BATS_TEST_TMPDIR/project/out/x.md"
+  printf '#    Git\n' > "$target"
+
+  run bash "$TOOL" "$target"
+
+  assert_success
+  assert_output --partial "1 changed"
+  run cat "$target"
+  assert_output --partial "# Git"
+}

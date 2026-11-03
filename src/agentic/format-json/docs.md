@@ -20,7 +20,7 @@ A run uses the project's prettier configuration when it declares one — a `.pre
 
 ## Configuration
 
-A project that declares prettier gets its own settings, apart from the parser, print width and ignore path dev-bot pins on the command line; without a declaration dev-bot's defaults apply. Nothing needs adding to `opencode.json`.
+A project that declares prettier gets its own settings, apart from the parser and print width dev-bot pins on the command line, and its `.prettierignore` is honoured — the `.agents/` workspace is always formatted. Without a declaration dev-bot's defaults apply. Nothing needs adding to `opencode.json`.
 
 ## See also
 

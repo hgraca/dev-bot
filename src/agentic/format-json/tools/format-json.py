@@ -27,6 +27,7 @@ from prettier_gate import (  # noqa: E402
     prettier_available,
     prettier_batch_config_args,
     prettier_config_args,
+    prettier_ignore_args,
 )
 
 
@@ -42,11 +43,11 @@ Usage:
 
 # File mode: prettier natively reads .editorconfig for indent settings.
 # Pipe mode: extra args from .editorconfig are appended at runtime.
-# --ignore-path /dev/null: prettier otherwise follows the project .gitignore
-# from its CWD and silently skips every gitignored path — including .agents/**
-# (the agent's own workspace). Our tools decide what to format (explicit file
-# args, EXCLUDED_DIRS for directory mode); prettier must not re-apply ignore.
-PRETTIER_CMD = ["prettier", "--parser", "json", "--print-width", "80", "--ignore-path", "/dev/null"]
+# --ignore-path: pinned per target by prettier_gate.prettier_ignore_args — the
+# project's .prettierignore, or /dev/null where it declares none. Passing it at
+# all replaces prettier's default [.gitignore, .prettierignore], which keeps the
+# deliberate behaviour that a gitignored .agents/** workspace is still formatted.
+PRETTIER_CMD = ["prettier", "--parser", "json", "--print-width", "80"]
 
 
 # ── Core formatting logic via prettier ──────────────────────────────────────
@@ -116,7 +117,7 @@ def format_file(path: str, check: bool = False) -> bool:
     formatted = format_json_text(
         original,
         file_path=path,
-        extra_args=prettier_config_args(path) + ["--stdin-filepath", path],
+        extra_args=prettier_config_args(path) + prettier_ignore_args(path) + ["--stdin-filepath", path],
     )
 
     if formatted == original:
@@ -148,8 +149,8 @@ def format_files_batch(file_paths: list[str]) -> bool:
     if not file_paths:
         return True
 
-    for batch, config_args in prettier_batch_config_args(file_paths):
-        cmd = PRETTIER_CMD + config_args + ["--write"] + batch
+    for batch, batch_args in prettier_batch_config_args(file_paths):
+        cmd = PRETTIER_CMD + batch_args + ["--write"] + batch
         try:
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
             if proc.returncode != 0:
@@ -214,7 +215,7 @@ def main() -> int:
             sys.stdout.write(text)
             return 0
         try:
-            extra = get_prettier_args(".jsonc")
+            extra = get_prettier_args(".jsonc") + ["--ignore-path", os.devnull]
             sys.stdout.write(format_json_text(text, file_path=None, extra_args=extra))
         except ValueError as e:
             print(f"Error: {e}", file=sys.stderr)
