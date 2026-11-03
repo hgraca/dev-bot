@@ -396,6 +396,40 @@ with open('$tmpfile', 'w') as f:
   rm -f "$tmpfile"
 }
 
+@test "tool agent-communication: accepts a pull URL followed by sentence punctuation" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'PR #4988 — https://github.com/GET-E/core/pull/4988.\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_success
+
+  rm -f "$tmpfile"
+}
+
+@test "tool agent-communication: does not demand a URL for an issue reference" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'Merged the PR; tracked in issue #42.\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_success
+
+  rm -f "$tmpfile"
+}
+
 # ── validateMessage: user messages are always valid ───────────────────────────
 
 @test "tool agent-communication: user messages always pass (no marker check)" {

@@ -114,14 +114,16 @@ if not re.search(r"\b(PRs?|pull[ -]requests?)\b", text, re.I):
 urls = {
     (m.group(1), m.group(2))
     for m in re.finditer(
-        r"https://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)(?=[/?#\s)\]>]|$)", text
+        r"https://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)(?=[/?#\s)\]>.,;:!?]|$)", text
     )
 }
-# A reference may name its repository (`GET-E/core#4988`) or just the number.
-refs = {
-    (m.group(1) if m.group(1) else None, m.group(2))
-    for m in re.finditer(r"(?:([\w.-]+/[\w.-]+))?#(\d+)\b", text)
-}
+refs = set()
+for m in re.finditer(r"(?:([\w.-]+/[\w.-]+))?#(\d+)\b", text):
+    # "issue #42" is not a pull request, so it needs no URL.
+    before = text[max(0, m.start() - 12) : m.start()].lower()
+    if re.search(r"issues?\s*$", before):
+        continue
+    refs.add((m.group(1) if m.group(1) else None, m.group(2)))
 # A number only satisfies a reference from the same repository, so identically
 # numbered PRs in two repositories cannot cover for each other.
 missing = sorted(
