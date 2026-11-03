@@ -583,3 +583,94 @@ JSONC
   assert_output --partial "reached outside the selection"
   refute [ -e "$previous" ]
 }
+
+# ── Module memory ─────────────────────────────────────────────────────────────
+# The module's always-on instructions live in the project's vault, written by
+# this module rather than hand-copied into project.md. reinit clears the folder
+# and every enabled module rewrites its own file, so the text has one source.
+
+memory_file() {
+  printf '%s\n' "$BATS_TEST_TMPDIR/project/.agents/memory/active/modules/k8s.md"
+}
+
+@test "writes the module memory file when the project opts in" {
+  write_config
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  assert [ -f "$(memory_file)" ]
+  run cat "$(memory_file)"
+  assert_output --partial "devbot kube run"
+  assert_output --partial "pods/exec"
+}
+
+@test "a project that does not opt in gets no module memory file" {
+  write_config
+  printf '{ "project_name": "demo" }\n' > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  refute [ -e "$(memory_file)" ]
+}
+
+@test "an empty selection gets no module memory file" {
+  write_config
+  printf '{ "project_name": "demo", "kubectl": [] }\n' > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  refute [ -e "$(memory_file)" ]
+}
+
+@test "no kubectl node in the global config gets no module memory file" {
+  printf '{ "version": "test" }\n' > "$DEV_BOT_GLOBAL_CONFIG"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  refute [ -e "$(memory_file)" ]
+}
+
+@test "the module memory file survives a failed identity check" {
+  write_config
+  export STUB_IDENTITY=user
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  assert_output --partial "not a role session"
+  assert [ -f "$(memory_file)" ]
+}
+
+@test "the module memory file survives a cluster that cannot be described" {
+  write_config
+  export STUB_FAIL_CLUSTER="k8s-prod"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  assert_output --partial "cannot describe cluster k8s-prod"
+  assert [ -f "$(memory_file)" ]
+}
+
+@test "does not write through a symlinked module memory file" {
+  write_config
+  local outside
+  outside="$(mktemp -d)"
+  printf 'untouched\n' > "${outside}/victim.md"
+  mkdir -p "$BATS_TEST_TMPDIR/project/.agents/memory/active/modules"
+  ln -s "${outside}/victim.md" "$(memory_file)"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  run cat "${outside}/victim.md"
+  assert_output "untouched"
+  refute [ -L "$(memory_file)" ]
+  run cat "$(memory_file)"
+  assert_output --partial "devbot kube run"
+  rm -r "${outside}"
+}

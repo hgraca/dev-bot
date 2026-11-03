@@ -39,6 +39,7 @@ _error() { echo "ERROR: $*" >&2; }
 _fatal() { echo "FATAL: $*" >&2; exit 1; }
 _fmt_duration() { echo "0s"; }
 _collect_module_scripts() { true; }
+_devbot_get_project_dir() { echo ".agents"; }
 TEXT_BOLD=''; TEXT_BLUE=''; TEXT_CLEAR=''; TEXT_DIM=''
 TEXT_GREEN=''; TEXT_YELLOW=''; TEXT_ORANGE=''; TEXT_RED=''
 STUB
@@ -50,6 +51,8 @@ STUB
     awk '/^_devbot_config_changed\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_write_config_sha\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_clear_config_sha\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_devbot_is_plain_relative_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_devbot_module_memory_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
   } >> "${SANDBOX}/src/_shared/functions.sh"
 
   printf '{}\n' > "${SANDBOX}/.devbot.global.jsonc"

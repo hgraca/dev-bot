@@ -220,6 +220,119 @@ _devbot_get_project_dir() {
   echo "${devbot_dir:-.agents}"
 }
 
+# ── Config path validation ─────────────────────────────────────────────────────
+#
+# _devbot_is_plain_relative_path <value>
+#   True when <value> is a relative path with no `..` component. Config values
+#   are joined onto a project path and some of the results are deleted, so an
+#   absolute path or a `..` escape must be rejected rather than resolved.
+_devbot_is_plain_relative_path() {
+  local value="$1"
+  [[ -n "${value}" ]] || return 1
+  [[ "${value}" == /* ]] && return 1
+  [[ "${value}" == ".." ]] && return 1
+  [[ "${value}" == "../"* ]] && return 1
+  [[ "${value}" == *"/../"* ]] && return 1
+  [[ "${value}" == *"/.." ]] && return 1
+  # Path characters only. A glob or shell metacharacter here would be expanded
+  # rather than taken literally, and would reach .gitignore as a wildcard rule.
+  [[ "${value}" =~ ^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || return 1
+  return 0
+}
+
+# ── Module memory ─────────────────────────────────────────────────────────────
+#
+# _devbot_module_memory_path <project_dir> [active|modules]
+#   Print the module-memory folder of a project, or fail with a warning when it
+#   would land outside it. `devbot_dir` is project-controlled and the vault may
+#   contain symlinks, so every component is checked before anything is created:
+#   `mkdir -p` would otherwise follow a link out of the project.
+_devbot_module_memory_path() {
+  local project_dir="$1"
+  local leaf="${2:-modules}"
+  local devbot_dir probe comp
+  local -a parts
+
+  devbot_dir="$(_devbot_get_project_dir "${project_dir}")"
+  if ! _devbot_is_plain_relative_path "${devbot_dir}"; then
+    _warn "module memory — '${devbot_dir}' is not a plain relative path" >&2
+    return 1
+  fi
+
+  # `read`, not word splitting: no pathname expansion even if the grammar above
+  # ever loosens. Quote the here-string so the value is never re-parsed.
+  IFS='/' read -ra parts <<< "${devbot_dir}/memory/active"
+
+  probe="${project_dir}"
+  for comp in "${parts[@]}"; do
+    probe="${probe}/${comp}"
+    if [[ -L "${probe}" ]]; then
+      _warn "module memory — ${probe} is a symlink" >&2
+      return 1
+    fi
+  done
+
+  if [[ "${leaf}" == "modules" ]]; then
+    probe="${probe}/modules"
+    if [[ -L "${probe}" ]]; then
+      _warn "module memory — ${probe} is a symlink" >&2
+      return 1
+    fi
+  fi
+
+  printf '%s\n' "${probe}"
+}
+
+# _devbot_write_module_memory <project_dir> <file-name> <source-file>
+#   Copy a module's instructions into its generated memory folder. Fails with a
+#   warning when the destination escapes the project or the source is missing;
+#   never writes through a symlink placed at the destination file.
+_devbot_write_module_memory() {
+  local project_dir="$1"
+  local name="$2"
+  local source="$3"
+  local modules_dir dest
+
+  if [[ ! -f "${source}" ]]; then
+    _warn "module memory — source ${source} not found; ${name} not written"
+    return 1
+  fi
+
+  modules_dir="$(_devbot_module_memory_path "${project_dir}" modules)" || return 1
+  dest="${modules_dir}/${name}"
+
+  mkdir -p "${modules_dir}"
+  # A link is replaced; never written through.
+  if [[ -L "${dest}" ]]; then
+    rm -f -- "${dest}"
+  fi
+  # A directory here would make `cp` nest the file instead of writing it, and
+  # the promised path would simply not exist — say so rather than stay silent.
+  if [[ -d "${dest}" ]]; then
+    _warn "module memory — ${dest} is a directory; ${name} not written"
+    return 1
+  fi
+  cp "${source}" "${dest}"
+}
+
+# _devbot_remove_legacy_module_memory <project_dir> <file-name>
+#   Drop a module's pre-`active/modules/` copy, refusing a vault that is a
+#   symlink so the delete cannot reach outside the project.
+_devbot_remove_legacy_module_memory() {
+  local project_dir="$1"
+  local name="$2"
+  local active_dir
+
+  active_dir="$(_devbot_module_memory_path "${project_dir}" active)" || return 0
+
+  local legacy="${active_dir}/${name}"
+  # A directory is not the stray copy this is here to remove; leave it alone.
+  if [[ -d "${legacy}" && ! -L "${legacy}" ]]; then
+    return 0
+  fi
+  rm -f -- "${legacy}"
+}
+
 # ── Supervisor / cross-project resolution ──────────────────────────────────────
 #
 # _devbot_resolve_project_for_path <path> [default_dir]
@@ -2472,6 +2585,14 @@ _upsert_section_impl() {
       for line in "$@"; do echo "${line}"; done
       echo "${marker_end}"
     } >> "${tmpfile}"
+  fi
+
+  # mktemp creates 0600 and mv keeps it, which would strip a tracked file's
+  # group/world read access on every run — preserve the destination's mode.
+  if [[ -f "${file}" ]]; then
+    local mode
+    mode="$(stat -c %a "${file}" 2>/dev/null || stat -f %Lp "${file}" 2>/dev/null || true)"
+    [[ -n "${mode}" ]] && chmod "${mode}" "${tmpfile}" 2>/dev/null || true
   fi
 
   mv "${tmpfile}" "${file}"

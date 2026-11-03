@@ -62,6 +62,15 @@ kubectl --kubeconfig <path> --context gete-staging-rw get pods -n core
 The files are rendered, not read live: after changing the project's `kubectl`
 selection or the global catalogue, run `devbot reinit <path>`.
 
+### Always-on instructions
+
+When the project opts in, `init.sh` also copies the module's `k8s.md` to
+`<devbot_dir>/memory/active/modules/k8s.md`, so the agent reads the access rules
+without them being hand-copied into the project's `project.md`. The file is
+written before the AWS and credential checks — it describes the module, not the
+state of this machine — and `devbot reinit` clears `active/modules/` first, so a
+project that drops its selection loses the file.
+
 RBAC boundaries, what the reader and writer groups grant, and the exec
 restriction are documented in the `k8s-access` skill.
 

@@ -49,7 +49,7 @@ cmd_help() {
   echo "  list <type>  List agentic artifacts (commands, agents, skills, hooks, mcps, tools)"
   echo "             [-a|--all]  Include artifacts from disabled modules"
   echo "  init [path]  Initialize dev-bot in a project directory (default: .)"
-  echo "  reinit [--all|-a]  Re-initialize dev-bot (current project, or all with --all)"
+  echo "  reinit [path] [--all|-a]  Re-initialize dev-bot (project, or all with --all)"
   echo "  up           Start docker services (docker compose up)"
   echo "  down         Stop docker services (docker compose down)"
   echo "  prune [days] [--all|-a]  Prune old opencode sessions (default: 30 days)"

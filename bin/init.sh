@@ -423,6 +423,36 @@ _remove_broken_symlinks() {
   fi
 }
 
+# ── Keep generated module memory out of the project's history ─────────────────
+# Each enabled module writes its own active/modules/<name>.md on init and reinit
+# clears the folder first, so the content is machine-local output. The entry is
+# unconditional: it must be in place before the first module writes, and a
+# project with no module memory yet still gets it.
+_ignore_module_memory() {
+  local project_dir="$1"
+  local devbot_dir="$2"
+
+  # The value comes from project config; an escaping path must not be written
+  # into .gitignore as an ignore rule that then reads as project intent.
+  if ! _devbot_is_plain_relative_path "${devbot_dir}"; then
+    _warn "not ignoring module memory: devbot_dir '${devbot_dir}' is not a plain relative path"
+    return 0
+  fi
+
+  # `rev-parse`, not a `.git` directory test: in a linked worktree and in a
+  # submodule `.git` is a file, and both are normal places to run init.
+  git -C "${project_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+
+  if _upsert_gitignore_section "${project_dir}/.gitignore" \
+    "# >>> DEVBOT - module memory" \
+    "# <<< DEVBOT - module memory" \
+    "${devbot_dir}/memory/active/modules/"; then
+    _ok ".gitignore ignores ${devbot_dir}/memory/active/modules/"
+  else
+    _warn "could not add ${devbot_dir}/memory/active/modules/ to .gitignore"
+  fi
+}
+
 main() {
   local total_start=${SECONDS}
 
@@ -506,6 +536,9 @@ for m in modules:
     config_file="${PROJECT_DIR}/opencode.json"
     config_name="opencode.json"
   fi
+
+  # ── 1b. Module memory is generated, never committed ──────────────────────
+  _ignore_module_memory "${PROJECT_DIR}" "${devbot_dir}"
 
   # ── 2. Init scripts (tools → agentic → harnesses) ────────────────────────
   # Modules are harness-agnostic: they only emit declarations (plugin.opencode.json,

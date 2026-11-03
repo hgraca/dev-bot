@@ -167,6 +167,24 @@ Dev-bot runs these automatically, identically for internal and external modules:
 
 All must be idempotent and source `functions.sh`.
 
+### Module memory
+
+A module whose behaviour needs always-on instructions writes them to
+`<devbot_dir>/memory/active/modules/<module-name>.md` from its `init.sh` — one
+file per module, never a section hand-copied into the project's `project.md`.
+
+- `devbot reinit` deletes `active/modules/` before running init, so every
+  enabled module rewrites its own file and a module that is disabled or no
+  longer applies leaves nothing behind.
+- `devbot init` adds `active/modules/` to the project's `.gitignore`: the files
+  are generated output, not project content.
+- Write the file before any environment-dependent early return in `init.sh` —
+  the instructions describe the module, not the state of the machine, so an
+  unreachable dependency must not drop them.
+- Keep the text static. Anything that varies per project belongs in
+  `project.md`; anything that varies per machine belongs in the module's
+  `docs.md` or skill.
+
 ## 4. Test
 
 Tests use the **bats** framework (fixtures in `tests/fixtures/`). `make test` auto-installs bats if missing.

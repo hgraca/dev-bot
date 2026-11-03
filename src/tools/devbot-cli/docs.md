@@ -70,9 +70,9 @@ Move the install to the newest **release tag** (or an explicit tag: `devbot upda
 
 Initialize dev-bot in a project directory (default: current directory). Writes `.devbot.project.jsonc` and wires modules into `.opencode/` and `.agents/`.
 
-### `devbot reinit [--all|-a]`
+### `devbot reinit [path] [--all|-a]`
 
-Re-initialize the current project, or all registered projects with `--all`.
+Re-initialize the given project, the current directory, or all registered projects with `--all`.
 
 ### `devbot up` / `devbot down`
 

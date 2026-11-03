@@ -195,6 +195,17 @@ _prune_generated() {
   [[ "${removed}" -eq 1 ]]
 }
 
+# The module's always-on instructions belong to the module, not to the project's
+# project.md: reinit clears active/modules/ and every enabled module rewrites its
+# own file, so the text has one source and no per-project copy to drift.
+_write_memory() {
+  if ! _devbot_write_module_memory "${PROJECT_DIR}" "k8s.md" "${MODULE_DIR}/k8s.md"; then
+    _skip "kubectl — module memory not written"
+    return 0
+  fi
+  _ok "kubectl — active/modules/k8s.md"
+}
+
 # The machine-wide files of the previous implementation are the one artefact that
 # can outlive this change: a shell that already sourced the old env file keeps
 # pointing at a kubeconfig listing every cluster, so the per-project boundary is
@@ -266,6 +277,10 @@ main() {
     fi
     return 0
   fi
+
+  # Before the environment checks below: the instructions describe the module,
+  # not the state of this machine, so an unreachable AWS must not drop them.
+  _write_memory
 
   # Catalogue membership and the selection's size are decided before anything
   # environment-dependent: a selection that names no catalogue entry has to
