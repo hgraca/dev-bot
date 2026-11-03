@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Prune opencode's SQLite database: drop rows older than N days, reclaim space.
 
-Only derived state is touched. The ``event`` replay journal (~13 GB in a real
-database) is keyed to ``event_sequence.aggregate_id``, not to ``session``, so it
-is deleted explicitly — deleting a session does not cascade to it. Sessions do
-cascade to ``message``/``part``/``todo``/``session_share``/``session_message``/
-``session_input``/``session_context_epoch``. ``project`` rows are never
+Only derived state is touched. opencode keeps two session stores: the v1
+``session`` table (cascading to ``message``/``part``/``todo``/``session_share``/
+``session_input``/``session_context_epoch``) and the v2 ``session_v2`` table
+(cascading to ``session_message``/``instruction_entry``/``instruction_state``/
+``session_pending``/``session_inbox``). Both are age-pruned; the v2 table is
+checked for existence first so an older schema still prunes. The ``event``
+replay journal (~13 GB in a real database) is keyed to
+``event_sequence.aggregate_id``, not to a session, so it is deleted explicitly —
+deleting a session does not cascade to it. ``project`` rows are never
 age-pruned: ``session.project_id`` cascades *from* ``project``, so deleting an
 aged project would remove every session still in it, recent ones included.
 ``event_sequence`` rows whose session is already gone (opencode's own
-``session delete`` leaves them — there is no FK to ``session``) have no timestamp
+``session delete`` leaves them — there is no FK to a session) have no timestamp
 to age on, so they are removed outright.
 
 Runs offline, invoked manually via ``devbot prune --db``. Fail-open: a missing,
@@ -64,26 +68,55 @@ def _vacuum(con):
         print(f"WARN vacuum failed ({exc}) — rows deleted, space not reclaimed", file=sys.stderr)
 
 
+def _table_exists(con, name):
+    return (
+        con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        is not None
+    )
+
+
+def _live_session_ids(con):
+    """SQL subquery of every live session id across both stores."""
+    if _table_exists(con, "session_v2"):
+        return "SELECT id FROM session UNION SELECT id FROM session_v2"
+    return "SELECT id FROM session"
+
+
 def _prune(con, cutoff):
     """Delete aged + orphaned rows in one transaction.
 
-    Returns ``(sessions, orphans)`` — the session rows removed and the orphan
-    journal sequences removed.
+    Returns ``(v1_sessions, v2_sessions, orphans)`` — the v1 and v2 session rows
+    removed and the orphan journal sequences removed.
     """
     con.execute("BEGIN IMMEDIATE")
     try:
+        # event_sequence has no FK to either store. Delete the journal of aged
+        # v1 sessions, but keep any id that is still a live v2 session.
+        aged = "SELECT id FROM session WHERE time_updated < ?"
+        params = [cutoff]
+        if _table_exists(con, "session_v2"):
+            aged += " AND id NOT IN (SELECT id FROM session_v2 WHERE time_updated >= ?)"
+            params.append(cutoff)
         con.execute(
-            "DELETE FROM event_sequence WHERE aggregate_id IN "
-            "(SELECT id FROM session WHERE time_updated < ?)",
-            (cutoff,),
+            f"DELETE FROM event_sequence WHERE aggregate_id IN ({aged})", params
         )
         deleted = con.execute(
             "DELETE FROM session WHERE time_updated < ?", (cutoff,)
         ).rowcount
-        # After the session delete, any sequence whose aggregate is no longer a
+        # v2 sessions live in their own table; session_message and the other v2
+        # dependents cascade from it, so this is the only delete needed.
+        deleted_v2 = 0
+        if _table_exists(con, "session_v2"):
+            deleted_v2 = con.execute(
+                "DELETE FROM session_v2 WHERE time_updated < ?", (cutoff,)
+            ).rowcount
+        # After the session deletes, any sequence whose aggregate is no longer a
         # session is unreachable — remove it (its events cascade).
         orphans = con.execute(
-            "DELETE FROM event_sequence WHERE aggregate_id NOT IN (SELECT id FROM session)"
+            "DELETE FROM event_sequence WHERE aggregate_id NOT IN "
+            f"({_live_session_ids(con)})"
         ).rowcount
         con.execute("COMMIT")
     except sqlite3.Error:
@@ -92,7 +125,7 @@ def _prune(con, cutoff):
         except sqlite3.Error:
             pass
         raise
-    return deleted, orphans
+    return deleted, deleted_v2, orphans
 
 
 def main(argv=None):
@@ -131,9 +164,14 @@ def main(argv=None):
             old = con.execute(
                 "SELECT COUNT(*) FROM session WHERE time_updated < ?", (cutoff,)
             ).fetchone()[0]
+            old_v2 = 0
+            if _table_exists(con, "session_v2"):
+                old_v2 = con.execute(
+                    "SELECT COUNT(*) FROM session_v2 WHERE time_updated < ?", (cutoff,)
+                ).fetchone()[0]
             orphans = con.execute(
                 "SELECT COUNT(*) FROM event_sequence "
-                "WHERE aggregate_id NOT IN (SELECT id FROM session)"
+                f"WHERE aggregate_id NOT IN ({_live_session_ids(con)})"
             ).fetchone()[0]
         except sqlite3.Error as exc:
             print(f"ERROR cannot read opencode db {path}: {exc}", file=sys.stderr)
@@ -141,16 +179,16 @@ def main(argv=None):
 
         print(f"opencode db: {path}")
         print(
-            f"retention: {args.days} day(s) — sessions older than cutoff: {old}; "
-            f"orphan journals: {orphans}"
+            f"retention: {args.days} day(s) — sessions older than cutoff: "
+            f"{old} (v1) + {old_v2} (v2); orphan journals: {orphans}"
         )
-        if old == 0 and orphans == 0:
+        if old == 0 and old_v2 == 0 and orphans == 0:
             print("nothing to prune")
             return 0
 
         before = os.path.getsize(path)
         try:
-            deleted, removed_orphans = _prune(con, cutoff)
+            deleted, deleted_v2, removed_orphans = _prune(con, cutoff)
         except sqlite3.Error as exc:
             if _is_schema_error(exc):
                 print(f"ERROR opencode db schema mismatch — not pruned: {exc}", file=sys.stderr)
@@ -158,8 +196,9 @@ def main(argv=None):
                 print(f"ERROR prune aborted (database busy or locked?): {exc}", file=sys.stderr)
             return 0
         print(
-            f"deleted {deleted} session(s) and {removed_orphans} orphan journal(s); "
-            "cascaded to message/part/todo/…"
+            f"deleted {deleted} v1 session(s), {deleted_v2} v2 session(s) and "
+            f"{removed_orphans} orphan journal(s); "
+            "cascaded to message/part/session_message/…"
         )
 
         _vacuum(con)

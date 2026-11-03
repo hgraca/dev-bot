@@ -4,10 +4,11 @@
 # Tests for the opencode SQLite DB prune (`devbot prune --db`):
 #
 #   src/harnesses/opencode/prune_opencode_db.py — deletes rows older than the
-#   cutoff and VACUUMs the file. Sessions cascade to message/part/todo/
-#   session_share; the event journal (FK'd to event_sequence, NOT to session) is
-#   deleted explicitly, as are orphan journals (no session row); project rows are
-#   never age-pruned (session.project_id cascades FROM project).
+#   cutoff and VACUUMs the file. v1 sessions cascade to message/part/todo/
+#   session_share; v2 sessions (session_v2) cascade to session_message; the event
+#   journal (FK'd to event_sequence, NOT to a session) is deleted explicitly, as
+#   are orphan journals (no session row); project rows are never age-pruned
+#   (session.project_id cascades FROM project).
 #
 # Run from project root:
 #   bats bin/tests/prune_db_tests.bats
@@ -56,6 +57,12 @@ c.executescript(
     CREATE TABLE session_share(session_id TEXT PRIMARY KEY, id TEXT NOT NULL, url TEXT NOT NULL,
       time_created INTEGER NOT NULL,
       FOREIGN KEY(session_id) REFERENCES session(id) ON DELETE CASCADE);
+    CREATE TABLE session_v2(id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL);
+    CREATE TABLE session_message(id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+      type TEXT NOT NULL, seq INTEGER NOT NULL, time_created INTEGER NOT NULL,
+      time_updated INTEGER NOT NULL, data TEXT NOT NULL,
+      FOREIGN KEY(session_id) REFERENCES session_v2(id) ON DELETE CASCADE);
     """
 )
 now = int(time.time() * 1000)
@@ -83,6 +90,11 @@ for i in range(2):
     c.execute("INSERT INTO event VALUES(?,'orphan-agg',?,'message.part.updated','{}')", (f"e-orphan-{i}", i))
 c.execute("INSERT INTO todo VALUES('s-old','x',0,?,?)", (old, old))
 c.execute("INSERT INTO session_share VALUES('s-old','sh1','https://x',?)", (old,))
+# v2 store: session_message cascades from session_v2, not from session.
+c.execute("INSERT INTO session_v2 VALUES('v2-old','p1',?,?)", (old, old))
+c.execute("INSERT INTO session_v2 VALUES('v2-new','p1',?,?)", (new, new))
+c.execute("INSERT INTO session_message VALUES('sm-old','v2-old','user',1,?,?,?)", (old, old, blob))
+c.execute("INSERT INTO session_message VALUES('sm-new','v2-new','user',1,?,?,'{}')", (new, new))
 c.commit()
 c.close()
 PY
@@ -116,6 +128,50 @@ _size() {
   [ "$(_count part)" -eq 1 ]
   [ "$(_count todo)" -eq 0 ]
   [ "$(_count session_share)" -eq 0 ]
+}
+
+@test "--db prunes v2 sessions and cascades to session_message" {
+  run bash "${PRUNE_SH}" --db 30 --force
+  assert_success
+  [ "$(_count session_v2)" -eq 1 ]
+  [ "$(_count session_message)" -eq 1 ]
+}
+
+@test "--db prunes a v1-only database (no session_v2 table)" {
+  python3 -c 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.executescript("DROP TABLE session_message; DROP TABLE session_v2;"); c.commit()' "${OPENCODE_DB_PATH}"
+  run bash "${PRUNE_SH}" --db 30 --force
+  assert_success
+  [ "$(_count session)" -eq 1 ]
+  assert_output --partial "0 v2 session(s)"
+}
+
+@test "--db keeps the journal of an id aged in v1 but live in v2" {
+  local db="${SANDBOX}/shared.db"
+  python3 - "$db" <<'PY'
+import sqlite3, sys, time
+c = sqlite3.connect(sys.argv[1])
+c.executescript("""
+CREATE TABLE session(id TEXT PRIMARY KEY, time_updated INTEGER NOT NULL);
+CREATE TABLE session_v2(id TEXT PRIMARY KEY, time_updated INTEGER NOT NULL);
+CREATE TABLE event_sequence(aggregate_id TEXT PRIMARY KEY, seq INTEGER NOT NULL, owner_id TEXT);
+CREATE TABLE event(id TEXT PRIMARY KEY, aggregate_id TEXT NOT NULL, seq INTEGER NOT NULL,
+  type TEXT NOT NULL, data TEXT NOT NULL,
+  FOREIGN KEY(aggregate_id) REFERENCES event_sequence(aggregate_id) ON DELETE CASCADE);
+""")
+now = int(time.time()*1000)
+old = now - 40*86400*1000
+c.execute("INSERT INTO session VALUES('shared',?)", (old,))
+c.execute("INSERT INTO session_v2 VALUES('shared',?)", (now,))
+c.execute("INSERT INTO event_sequence VALUES('shared',1,NULL)")
+c.commit(); c.close()
+PY
+  OPENCODE_DB_PATH="$db" bash "${PRUNE_SH}" --db 30 --force
+  python3 - "$db" <<'PY'
+import sqlite3, sys
+c = sqlite3.connect(sys.argv[1])
+count = c.execute("SELECT COUNT(*) FROM event_sequence WHERE aggregate_id='shared'").fetchone()[0]
+assert count == 1, f"shared journal removed (count={count})"
+PY
 }
 
 @test "--db prunes the event journal of old sessions and keeps recent events" {
