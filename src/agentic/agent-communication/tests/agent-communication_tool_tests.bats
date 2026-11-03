@@ -246,6 +246,61 @@ with open('$tmpfile', 'w') as f:
   rm -f "$tmpfile"
 }
 
+# ── Pull requests must be referenced by URL ──────────────────────────────────
+
+@test "tool agent-communication: rejects a PR table referenced by number" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': '| Repo | PR |\n| --- | --- |\n| core | #4988 |\n| audit-log | #177 |\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_failure
+  [[ "$output" == *"referenced by URL"* ]] || fail "expected a URL requirement (got: ${output:0:300})"
+  [[ "$output" == *"#4988"* ]] || fail "expected the offending number (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+}
+
+@test "tool agent-communication: accepts PRs referenced by URL" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': '| Repo | PR |\n| --- | --- |\n| core | [GET-E/core#4988](https://github.com/GET-E/core/pull/4988) |\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_success
+
+  rm -f "$tmpfile"
+}
+
+@test "tool agent-communication: ignores bare numbers when no PR is mentioned" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'Split into 3 of the #12 series.\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_success
+
+  rm -f "$tmpfile"
+}
+
 # ── validateMessage: user messages are always valid ───────────────────────────
 
 @test "tool agent-communication: user messages always pass (no marker check)" {

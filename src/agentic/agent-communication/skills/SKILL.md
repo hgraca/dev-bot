@@ -98,6 +98,25 @@ An answer is a verdict plus whatever changes the decision. Depth of justificatio
 - **Show the journey only where it serves debugging or a decision, then only in bullets.** The path you took is worth showing exactly when the human needs it to follow a decision or to debug one; anywhere else, give the result and omit the path. When it is warranted, it is a bullet list of actions and findings — one per line, **each at most 128 characters**. A bullet that cannot fit is two findings, or one that has not been reduced to its point yet.
 - **A confirmation request is one line**, justified only as far as the risk warrants.
 - **Fit the message to the question.** A question about one object gets an answer about that object, not a survey of everything adjacent to it.
+- **Reference every pull request by its URL** — never by a bare number — in a hand-back, a status report, a review summary, or a table. The number is not a handle anyone can open, and a reader with ten PRs in front of them cannot act on `#4988`.
+
+### Referencing pull requests
+
+Density is the usual reason the URL gets dropped: eleven rows of full URLs read badly, so the numbers
+creep in. Keep the URL as the link text and the table stays readable:
+
+```markdown
+| Repo        | PR                                                                     |
+| ----------- | ---------------------------------------------------------------------- |
+| core        | [GET-E/core#4988](https://github.com/GET-E/core/pull/4988)             |
+| message-bus | [GET-E/message-bus#183](https://github.com/GET-E/message-bus/pull/183) |
+```
+
+A prose reference takes the same form: `[GET-E/core#4988](https://github.com/GET-E/core/pull/4988)`.
+`gh pr create` prints the URL; `gh pr view <pr> --json url` recovers it afterwards.
+
+The `agent-communication` tool enforces this: a message that mentions a PR and carries a bare `#<n>`
+with no matching `pull/<n>` URL fails validation.
 
 Worked example — "can we remove that pod, since it's unused?"
 
