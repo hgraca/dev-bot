@@ -102,12 +102,13 @@ fi
 # The rule lives in skills/SKILL.md ("Referencing pull requests"). It is checked
 # here because density is exactly what makes an agent drop the URL for a number,
 # and no amount of prose survives that pressure reliably.
+PR_STATUS=0
 PR_REFS=$(printf '%s' "$TEXT" | python3 -c '
 import re, sys
 text = sys.stdin.read()
 # Fenced blocks legitimately contain bare numbers.
 text = re.sub(r"```.*?```", "", text, flags=re.S)
-if not re.search(r"\b(PR|pull request|pull-request)\b", text, re.I):
+if not re.search(r"\b(PRs?|pull[ -]requests?)\b", text, re.I):
     print("OK")
     raise SystemExit(0)
 urls = {
@@ -117,7 +118,14 @@ urls = {
 bare = {m.group(1) for m in re.finditer(r"(?<![/\w])#(\d+)\b", text)}
 missing = sorted(bare - urls)
 print("MISSING " + ", ".join("#" + n for n in missing) if missing else "OK")
-' 2>/dev/null || echo OK)
+' 2>/dev/null) || PR_STATUS=$?
+
+# A checker that cannot run must not read as "no PRs mentioned", or the rule
+# silently turns itself off on a machine without python3.
+if [[ "$PR_STATUS" -ne 0 || -z "$PR_REFS" ]]; then
+  echo "[agent-communication] ERROR: the PR-reference check could not run" >&2
+  exit 2
+fi
 
 case "$PR_REFS" in
   MISSING*)

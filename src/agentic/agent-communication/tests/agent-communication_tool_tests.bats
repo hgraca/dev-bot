@@ -301,6 +301,47 @@ with open('$tmpfile', 'w') as f:
   rm -f "$tmpfile"
 }
 
+@test "tool agent-communication: rejects plural PR references by number" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'Opened these PRs: #4988 and #177.\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_failure
+  [[ "$output" == *"referenced by URL"* ]] || fail "expected a URL requirement (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+}
+
+@test "tool agent-communication: fails when the PR-reference checker cannot run" {
+  local tmpfile fakebin
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+  fakebin="$(mktemp -d)"
+
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/python3"
+  chmod +x "$fakebin/python3"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'All done.\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run env PATH="$fakebin:$PATH" bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_failure
+  [[ "$output" == *"could not run"* ]] || fail "expected the checker failure to surface (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+  rm -rf "$fakebin"
+}
+
 # ── validateMessage: user messages are always valid ───────────────────────────
 
 @test "tool agent-communication: user messages always pass (no marker check)" {
