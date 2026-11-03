@@ -342,6 +342,60 @@ with open('$tmpfile', 'w') as f:
   rm -rf "$fakebin"
 }
 
+@test "tool agent-communication: a malformed pull URL does not satisfy a reference" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'PR #4988 — https://github.com/GET-E/core/pull/4988abc\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_failure
+  [[ "$output" == *"#4988"* ]] || fail "expected the unlinked reference (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+}
+
+@test "tool agent-communication: rejects a repository-qualified reference without a URL" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'Opened PR GET-E/core#4988 for review.\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_failure
+  [[ "$output" == *"GET-E/core#4988"* ]] || fail "expected the qualified reference (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+}
+
+@test "tool agent-communication: a URL for another repo does not satisfy a reference" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'PR GET-E/core#4988 is unrelated to https://github.com/GET-E/other/pull/4988\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_failure
+  [[ "$output" == *"GET-E/core#4988"* ]] || fail "expected the cross-repo reference (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+}
+
 # ── validateMessage: user messages are always valid ───────────────────────────
 
 @test "tool agent-communication: user messages always pass (no marker check)" {

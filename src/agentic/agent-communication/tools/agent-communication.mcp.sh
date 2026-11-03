@@ -112,12 +112,27 @@ if not re.search(r"\b(PRs?|pull[ -]requests?)\b", text, re.I):
     print("OK")
     raise SystemExit(0)
 urls = {
-    m.group(1)
-    for m in re.finditer(r"https://github\.com/[^/\s]+/[^/\s]+/pull/(\d+)", text)
+    (m.group(1), m.group(2))
+    for m in re.finditer(
+        r"https://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)(?=[/?#\s)\]>]|$)", text
+    )
 }
-bare = {m.group(1) for m in re.finditer(r"(?<![/\w])#(\d+)\b", text)}
-missing = sorted(bare - urls)
-print("MISSING " + ", ".join("#" + n for n in missing) if missing else "OK")
+# A reference may name its repository (`GET-E/core#4988`) or just the number.
+refs = {
+    (m.group(1) if m.group(1) else None, m.group(2))
+    for m in re.finditer(r"(?:([\w.-]+/[\w.-]+))?#(\d+)\b", text)
+}
+# A number only satisfies a reference from the same repository, so identically
+# numbered PRs in two repositories cannot cover for each other.
+missing = sorted(
+    ("#" + number) if repo is None else (repo + "#" + number)
+    for repo, number in refs
+    if not any(
+        number == url_number and (repo is None or repo.lower() == url_repo.lower())
+        for url_repo, url_number in urls
+    )
+)
+print("MISSING " + ", ".join(missing) if missing else "OK")
 ' 2>/dev/null) || PR_STATUS=$?
 
 # A checker that cannot run must not read as "no PRs mentioned", or the rule
