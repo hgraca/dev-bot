@@ -2,9 +2,12 @@
 date: 2026-11-03
 keywords: ["devbot", "format-yml", "prettier", "hook", "workflow"]
 aliases: ["format hook reindent", "tabWidth 4 yaml", "hook reformatted my file"]
+superseded_by: ["devbot/20261103173500-format-tools-now-honour-prettierignore.md"]
 ---
 
 ## The format-yml hook rewrites the whole YAML file, ignoring the repo's .prettierignore scoping
+
+> **Superseded by** `devbot/20261103173500-format-tools-now-honour-prettierignore.md` (2026-11-03) — the tools now honour `.prettierignore`; the workaround below no longer applies.
 
 Editing one line of a committed workflow can come back as a 195-line diff: the `format-yml` hook
 runs prettier with the project `.prettierrc`, so a repo with `"tabWidth": 4` gets every
