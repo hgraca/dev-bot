@@ -201,29 +201,25 @@ print('OK')
   assert [ ! -f "$TMP/proj/.claude/aws-dev.mcp.json" ]
 }
 
-@test "init.sh: copies the AWS agent rules into the memory vault" {
+@test "init.sh: copies the AWS agent rules into the module memory folder" {
   _aws_seed_project
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
   assert_success
-  run cat "$TMP/proj/.agents/memory/active/aws-agent-rules.md"
+  run cat "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md"
   assert_output "# aws rules"
 }
 
-@test "init.sh: excludes the copied rules from the project's history" {
-  # The file lands in a dir the memory module un-ignores, so it needs its own
-  # local exclude entry or it shows up as untracked noise in every project.
+@test "init.sh: removes the pre-modules rules file" {
+  # Leaving it behind would load the same instructions twice.
   _aws_seed_project
+  mkdir -p "$TMP/proj/.agents/memory/active"
+  printf '# aws rules\n' > "$TMP/proj/.agents/memory/active/aws-agent-rules.md"
+
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+
   assert_success
-
-  run cat "$TMP/proj/.git/info/exclude"
-  assert_output --partial "# >>> DEVBOT - aws"
-  assert_output --partial ".agents/memory/active/aws-agent-rules.md"
-
-  # Idempotent: a second run must not duplicate the section.
-  env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj" >/dev/null
-  run grep -c "# >>> DEVBOT - aws" "$TMP/proj/.git/info/exclude"
-  assert_output "1"
+  assert [ -f "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md" ]
+  assert [ ! -e "$TMP/proj/.agents/memory/active/aws-agent-rules.md" ]
 }
 
 @test "init.sh: writes no rules when the module is disabled for the project" {
@@ -234,8 +230,38 @@ print('OK')
   assert_success
   assert_output --partial "module disabled for this project"
 
+  assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md" ]
+}
+
+@test "init.sh: does not write through a symlinked rules file" {
+  _aws_seed_project
+  local outside
+  outside="$(mktemp -d)"
+  printf 'untouched\n' > "${outside}/victim.md"
+  mkdir -p "$TMP/proj/.agents/memory/active/modules"
+  ln -s "${outside}/victim.md" "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+
+  assert_success
+  run cat "${outside}/victim.md"
+  assert_output "untouched"
+  run cat "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md"
+  assert_output "# aws rules"
+  rm -r "${outside}"
+}
+
+@test "init.sh: removes the pre-modules rules file when the source is missing" {
+  _aws_seed_project
+  rm -f "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  mkdir -p "$TMP/proj/.agents/memory/active"
+  printf '# aws rules\n' > "$TMP/proj/.agents/memory/active/aws-agent-rules.md"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+
+  assert_success
+  assert_output --partial "AWS rules not found"
   assert [ ! -e "$TMP/proj/.agents/memory/active/aws-agent-rules.md" ]
-  assert [ ! -e "$TMP/proj/.git/info/exclude" ]
 }
 
 @test "init.sh: a project without git is not an error" {
@@ -244,8 +270,7 @@ print('OK')
 
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
   assert_success
-  assert_output --partial "not a git repo"
-  assert [ -f "$TMP/proj/.agents/memory/active/aws-agent-rules.md" ]
+  assert [ -f "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md" ]
 }
 
 @test "init.sh: removes a deselected connection's key from opencode.jsonc" {

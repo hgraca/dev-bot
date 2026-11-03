@@ -88,6 +88,6 @@ devbot up               # verifies every declared connection; never logs in
 - `account_id` is enforced: a key resolving to another account refuses to start
   the server.
 - Skills arrive via the `agent-toolkit-for-aws` external module; the agent rules
-  land in `.agents/memory/active/aws-agent-rules.md`.
+  land in `.agents/memory/active/modules/aws-agent-rules.md`.
 - Read-only is an IAM property of the connection's identity; the connection pin
   covers the MCP path only.

@@ -42,6 +42,16 @@ DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../../.." && pwd)"
 
 _header_3 "Graphify Init"
 
+# ── Module memory ─────────────────────────────────────────────────────────────
+# Written before the CLI gate below: reinit clears active/modules/, so exiting
+# here on a missing binary would silently drop the module's always-on context.
+_devbot_remove_legacy_module_memory "${PROJECT_DIR}" "graphify.md"
+if _devbot_write_module_memory "${PROJECT_DIR}" "graphify.md" "${MODULE_DIR}/graphify.md"; then
+  _log "Installed graphify bootstrap memory → $(_devbot_get_project_dir "${PROJECT_DIR}")/memory/active/modules/graphify.md"
+else
+  _warn "graphify.md template not found — skipping bootstrap memory"
+fi
+
 if ! command -v graphify >/dev/null 2>&1; then
   _warn "graphify not found — run install.sh first"
   exit 1
@@ -179,26 +189,13 @@ if [[ "${_IS_OPENCODE_DISABLED}" != "true" ]]; then
   fi
 fi
 
-# ── Install graphify bootstrap memory from module template ────────────────────
-AGENTS_MD="${PROJECT_DIR}/AGENTS.md"
-GRAPHIFY_BOOTSTRAP_TEMPLATE="${MODULE_DIR}/graphify.md"
-GRAPHIFY_BOOTSTRAP="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/memory/active/graphify.md"
-
-mkdir -p "$(dirname "${GRAPHIFY_BOOTSTRAP}")"
-
-if [[ -f "${GRAPHIFY_BOOTSTRAP_TEMPLATE}" ]]; then
-  cp "${GRAPHIFY_BOOTSTRAP_TEMPLATE}" "${GRAPHIFY_BOOTSTRAP}"
-  _log "Installed graphify bootstrap memory → $(_devbot_get_project_dir "${PROJECT_DIR}")/memory/active/graphify.md"
-else
-  _warn "graphify.md template not found — skipping bootstrap memory"
-fi
-
 # Remove the graphify section from AGENTS.md if present (graphify install writes
 # it, but the always-on context now lives in the memory vault). Also drop
 # trailing blank lines: graphify install appends the section (with a blank
 # separator) at EOF, and a plain section-strip leaves that separator behind —
 # making reinit not byte-idempotent (audit-32 NOTE: AGENTS.md drifted between
 # consecutive reinits).
+AGENTS_MD="${PROJECT_DIR}/AGENTS.md"
 if [[ -f "${AGENTS_MD}" ]] && grep -q '^## graphify[[:space:]]*$' "${AGENTS_MD}"; then
   awk '
     /^## graphify[[:space:]]*$/   { skip = 1; next }

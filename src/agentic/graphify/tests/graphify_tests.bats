@@ -422,9 +422,73 @@ setup_init() {
 
   assert_success
   assert_output --partial "Installed graphify bootstrap memory"
-  [[ -f "$tmpdir/.agents/memory/active/graphify.md" ]]
-  run grep -q '^## graphify' "$tmpdir/.agents/memory/active/graphify.md"
+  [[ -f "$tmpdir/.agents/memory/active/modules/graphify.md" ]]
+  run grep -q '^## graphify' "$tmpdir/.agents/memory/active/modules/graphify.md"
   assert_success
+
+  rm -rf "$tmpdir"
+}
+
+@test "init.sh: writes module memory before the graphify CLI gate" {
+  # reinit clears active/modules/, so a copy below the `command -v graphify`
+  # exit would drop the module's always-on context whenever the CLI is absent.
+  setup_init
+
+  local mem gate
+  mem="$(grep -n '_devbot_write_module_memory' "$INIT_TOOL" | head -1 | cut -d: -f1)"
+  gate="$(grep -n 'command -v graphify >/dev/null' "$INIT_TOOL" | head -1 | cut -d: -f1)"
+
+  assert [ -n "$mem" ]
+  assert [ -n "$gate" ]
+  assert [ "$mem" -lt "$gate" ]
+}
+
+@test "init.sh: does not write through a symlinked bootstrap memory file" {
+  if ! command -v graphify &>/dev/null; then
+    skip "graphify CLI not installed"
+  fi
+
+  setup_init
+
+  local tmpdir outside
+  tmpdir="$(mktemp -d)"
+  outside="$(mktemp -d)"
+  mkdir -p "$tmpdir/src" "$tmpdir/.git/hooks"
+  mkdir -p "$tmpdir/.agents/memory/active/modules"
+  printf 'untouched\n' > "$outside/victim.md"
+  ln -s "$outside/victim.md" "$tmpdir/.agents/memory/active/modules/graphify.md"
+
+  STORAGE_ROOT="$tmpdir/graphify-storage" run bash "$INIT_TOOL" "$tmpdir"
+
+  assert_success
+  run cat "$outside/victim.md"
+  assert_output "untouched"
+  run grep -q '^## graphify' "$tmpdir/.agents/memory/active/modules/graphify.md"
+  assert_success
+
+  rm -r "$outside"
+  rm -rf "$tmpdir"
+}
+
+@test "init.sh: removes the pre-modules graphify memory file" {
+  if ! command -v graphify &>/dev/null; then
+    skip "graphify CLI not installed"
+  fi
+
+  setup_init
+
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  mkdir -p "$tmpdir/src"
+  mkdir -p "$tmpdir/.git/hooks"
+  mkdir -p "$tmpdir/.agents/memory/active"
+  printf '## graphify\n\nstale\n' > "$tmpdir/.agents/memory/active/graphify.md"
+
+  STORAGE_ROOT="$tmpdir/graphify-storage" run bash "$INIT_TOOL" "$tmpdir"
+
+  assert_success
+  assert [ -f "$tmpdir/.agents/memory/active/modules/graphify.md" ]
+  assert [ ! -e "$tmpdir/.agents/memory/active/graphify.md" ]
 
   rm -rf "$tmpdir"
 }

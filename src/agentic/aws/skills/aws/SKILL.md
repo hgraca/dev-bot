@@ -9,7 +9,7 @@ This module wires the Agent Toolkit for AWS into dev-bot. It provides three thin
 
 1. **AWS MCP servers** (`aws-<connection>`) — the full AWS API surface reached through sandboxed script execution, plus real-time docs search. One server per configured **connection**.
 2. **AWS skills** — curated packages installed from `aws/agent-toolkit-for-aws` (see `.agents/skills/agent-toolkit-for-aws/`).
-3. **AWS agent rules** — guidance in `.agents/memory/active/aws-agent-rules.md`.
+3. **AWS agent rules** — guidance in `.agents/memory/active/modules/aws-agent-rules.md`.
 
 ## Connections
 

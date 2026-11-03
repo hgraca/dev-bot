@@ -95,7 +95,7 @@ AWS_PROD_RO_SECRET_ACCESS_KEY=…
 
 **5. OpenSearch needs a second gate.** IAM permission alone is not enough: the domain must allow the principal too. Add the user (or the group) to the domain's **access policy**, or — with fine-grained access control, which is what makes this genuinely read-only despite `es:ESHttpPost` — map it to a **backend role** with read-only index permissions. A correct IAM policy that still returns 403 on search almost always means this step is missing.
 
-**The copied rules file is local, and only on an enabled module.** `init.sh` fetches AWS's own `aws-agent-rules.md` into the project's devbot dir (`<devbot_dir>/memory/active/`), but only when the `aws` module is **enabled for that project** — it is machine-local bootstrap content, not project source. It is listed in the project's `.git/info/exclude` under a `DEVBOT - aws` block, so it never enters the project's history.
+**The copied rules file is local, and only on an enabled module.** `init.sh` copies AWS's own `aws-agent-rules.md` into the project's module memory folder (`<devbot_dir>/memory/active/modules/`), but only when the `aws` module is **enabled for that project** — it is machine-local bootstrap content, not project source. That folder is ignored by the `DEVBOT - module memory` section `devbot init` writes to `.gitignore`, so it never enters the project's history.
 
 ## Configuration
 

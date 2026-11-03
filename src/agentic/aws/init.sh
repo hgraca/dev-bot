@@ -90,27 +90,6 @@ _aws_module_disabled() {
     jq -e 'index("aws") != null' >/dev/null 2>&1
 }
 
-# Keep the copied rules out of the project's history. The file lands in the
-# project's devbot dir, which the memory module deliberately un-ignores
-# (`!.agents`), so it cannot inherit that block's protection — it gets its own
-# local exclude entry instead of a .gitignore edit, since only this machine
-# writes the file.
-_aws_exclude_rules() {
-  local rel_path="$1"
-  [[ -d "${PROJECT_DIR}/.git" ]] || {
-    _skip "aws — not a git repo; ${rel_path} not excluded"
-    return 0
-  }
-  if _upsert_gitignore_section "${PROJECT_DIR}/.git/info/exclude" \
-    "# >>> DEVBOT - aws" \
-    "# <<< DEVBOT - aws" \
-    "${rel_path}"; then
-    _ok ".git/info/exclude updated (${rel_path})"
-  else
-    _skip "aws — .git/info/exclude upsert failed"
-  fi
-}
-
 # A connection name becomes a server name and a filename, so keep it boring.
 _aws_valid_name() {
   [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]
@@ -268,23 +247,20 @@ main() {
   fi
 
   # ── AWS agent rules into the project's memory vault ─────────────────────────
-  # Only when the module is enabled for this project, and never committed: the
-  # rules are machine-local bootstrap content, so they land in the project's
-  # devbot dir and go on the local exclude list.
+  # Only when the module is enabled for this project. Module memory lives under
+  # active/modules/, which init keeps out of the project's history and reinit
+  # clears before every module rewrites its own file.
   if _aws_module_disabled; then
     _skip "aws — module disabled for this project; aws-agent-rules.md not written"
   else
     local rules_src="${DEV_BOT_ROOT}/storage/aws/rules/aws-agent-rules.md"
-    local project_dir_rel rules_rel memory_dir
-    project_dir_rel="$(_devbot_get_project_dir "${PROJECT_DIR}")"
-    rules_rel="${project_dir_rel}/memory/active/aws-agent-rules.md"
-    memory_dir="${PROJECT_DIR}/${project_dir_rel}/memory/active"
 
-    if [[ -f "${rules_src}" ]]; then
-      mkdir -p "${memory_dir}"
-      cp "${rules_src}" "${PROJECT_DIR}/${rules_rel}"
-      _log "Copied aws-agent-rules.md → ${PROJECT_DIR}/${rules_rel}"
-      _aws_exclude_rules "${rules_rel}"
+    # The pre-modules location: leaving it behind would load the same text twice.
+    # Cleared before the copy so an unavailable source does not leave it active.
+    _devbot_remove_legacy_module_memory "${PROJECT_DIR}" "aws-agent-rules.md"
+
+    if _devbot_write_module_memory "${PROJECT_DIR}" "aws-agent-rules.md" "${rules_src}"; then
+      _log "Copied aws-agent-rules.md → $(_devbot_get_project_dir "${PROJECT_DIR}")/memory/active/modules/aws-agent-rules.md"
     else
       _warn "AWS rules not found at ${rules_src} — run 'devbot install' first"
     fi
