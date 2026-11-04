@@ -224,13 +224,18 @@ steps 5–7 of `devbot:git-fixup-commits`.
 
 **Keep the worktree while the pull request is open.** Review feedback is fixed in it, on the same
 branch — removing it early strands the follow-up work. Remove it only once the user states the work
-is finished:
+is finished **and** the branch is landed — the pull request `MERGED`, or, with no pull request, the
+branch an ancestor of `origin/<default>`:
 
 ```bash
 bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" remove <branch> "${project[@]}"  # removes the dir; keeps the branch ref
+git -C <root> branch -D <branch>   # a squash-merge is not ancestry, so -d refuses
 ```
 
-`remove` refuses a worktree with uncommitted changes.
+`remove` refuses a worktree with uncommitted changes, and neither command discards work — anything
+unpushed stays where it is and is reported instead. The finish flow performs this teardown:
+`devbot:reconcile-work` step 1 walks every worktree and applies exactly this rule, so a wrap-up does
+not leave a landed worktree behind.
 
 The primary agent's finish flow (`devbot:remember-session`) writes memories; commit them as
 **normal commits** (never fixups) on the **main checkout's local default branch** — that is where the

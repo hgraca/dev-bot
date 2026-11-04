@@ -145,7 +145,7 @@ The primary agent (devbot or teamlead) must not emit `[FINISHED]` on its own ini
 - **Yes** → run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then the `devbot:reconcile-work` skill, then end with `[FINISHED]`.
 - **No** → the user provides new directions and the agent continues working.
 
-This replaces the automatic post-commit memory capture — `devbot:remember-session` (memory), `devbot:grade-tools` (tool quality), and `devbot:reconcile-work` (work-folder housekeeping) run once, at the end, only after the user confirms the work is finished. This flow applies only to the human-facing primary agent.
+This replaces the automatic post-commit memory capture — `devbot:remember-session` (memory), `devbot:grade-tools` (tool quality), and `devbot:reconcile-work` (work-folder and worktree housekeeping) run once, at the end, only after the user confirms the work is finished. This flow applies only to the human-facing primary agent.
 
 ## Finish Flow (subagent)
 

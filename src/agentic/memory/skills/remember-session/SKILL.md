@@ -98,7 +98,7 @@ Memory files under `.agents/memory/` are tracked **only when the effective `comm
 - **Only on the main checkout's local default branch** — the finish flow runs there; commit there, not in the worktree (`devbot:git-worktrees`). If that checkout is on any other branch — a feature branch, a detached HEAD — do not commit: leave the memory files uncommitted and surface them, because a commit there would ride into that branch's pull request.
 - **Never push** — commits only; the human decides when to push.
 - **Surface what you leave behind** — when the main checkout still holds memory changes, or its local default branch carries memory commits that `origin/<default>` does not, say so and name them. The human decides how they reach origin: do not reset, rebase, or push them, and do not change a new branch's base to carry them without their say.
-- **Keep the memory capture as the final memory action** — make these commits the last writes to the memory vault and write no further memory files afterward, so the memory capture stays a one-shot operation. The finish flow then runs `devbot:grade-tools` (tool quality) and `devbot:reconcile-work` (work-folder housekeeping) — neither writes memory notes.
+- **Keep the memory capture as the final memory action** — make these commits the last writes to the memory vault and write no further memory files afterward, so the memory capture stays a one-shot operation. The finish flow then runs `devbot:grade-tools` (tool quality) and `devbot:reconcile-work` (work-folder and worktree housekeeping) — neither writes memory notes.
 
 **Supervisor sessions** — route each memory file to its **owning project's**
 repo and honour _that project's_ `commit_memory`, never the supervisor's
