@@ -74,7 +74,7 @@ devbot init
 
 This wires the agents, commands, skills, tools, and MCP servers into the project.
 To override the global configuration for one project, edit
-`.devbot.project.jsonc` and run `devbot reinit`.
+`.devbot.project.jsonc` and run `devbot init` again.
 
 ### Start working
 

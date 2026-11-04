@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
 # bin/init.sh
-# Initialises dev-bot in a project directory. Sets up the agent vault
-# and runs all init.sh scripts discovered under src/.
+# Initialises dev-bot in a project directory. A project that already carries a
+# `.devbot.project.jsonc` is reset first (module reset.sh scripts, module
+# memory, pre-modules memory files) and then wired; anything else is wired
+# directly. Re-running it is idempotent.
 #
 # Usage:
-#   bin/init.sh                    # init in current directory
-#   bin/init.sh /path/to/project   # init in specified project
+#   bin/init.sh                        # init/reinit the current directory
+#   bin/init.sh /path/to/project       # init/reinit the given project
+#   bin/init.sh --all|-a               # every project in the global config
+#   bin/init.sh --full|-f              # full reset: drop QMD/index data too
 #
 # Adding a new init step:
 #   Create src/tools/<module>/init.sh or src/agentic/<module>/init.sh — it will be auto-discovered and run.
@@ -21,13 +25,6 @@ export DEV_BOT_ROOT
 # ── Source shared library ──────────────────────────────────────────────────────
 # shellcheck source=../src/_shared/functions.sh
 source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
-
-PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
-
-if [[ -z "${PROJECT_DIR}" || ! -d "${PROJECT_DIR}" ]]; then
-  _fatal "Directory '${1:-.}' does not exist or cannot be resolved."
-  exit 1
-fi
 
 _register_module_mcp() {
   local mod_dir="$1"
@@ -453,10 +450,11 @@ _ignore_module_memory() {
   fi
 }
 
-main() {
+_init_wiring() {
+  PROJECT_DIR="$1"
   local total_start=${SECONDS}
 
-  _header_1 "DevBot Init"
+  _header_2 "Wiring ${PROJECT_DIR}"
 
   # Mark the wiring dirty for the duration of this init: a run interrupted
   # before step 8b leaves the baseline missing, so the next `devbot` start
@@ -595,7 +593,7 @@ for m in modules:
   # Configs registered above may reference {env:VAR} tokens that must exist
   # in the env of whatever launches the harness. If any are missing, tell
   # the user and wait for an acknowledgement before continuing. Under
-  # `devbot reinit --all` the DEV_BOT_DEFER_ENV_DIALOG marker collapses this
+  # `devbot init --all` the DEV_BOT_DEFER_ENV_DIALOG marker collapses this
   # to a compact per-project notice; the end-of-run dialog shows the union.
   _devbot_check_mcp_env_vars "${PROJECT_DIR}" ack
 
@@ -641,10 +639,10 @@ for m in modules:
   # ── 8b. Baseline wiring hash (auto-reinit detection) ────────────────────
   # Record the combined hash of the global + project configs AFTER
   # registration/symlink steps mutated them, so the next `devbot` start
-  # compares equal and does not re-trigger a reinit. Written by every init —
-  # reinit ends by running init.sh, so it refreshes the baseline too. Missing
+  # compares equal and does not re-trigger a reinit. Written by every wiring
+  # run — the reset path ends by calling this, so it refreshes it too. Missing
   # .sha (fresh project, or an install upgrading from the retired per-file
-  # baselines) counts as changed, so one reinit establishes it.
+  # baselines) counts as changed, so one init establishes it.
   _devbot_write_config_sha "${PROJECT_DIR}"
 
   # ── 9. Final header ─────────────────────────────────────────────────────
@@ -654,4 +652,338 @@ for m in modules:
   echo
 }
 
+# ── Reset path ────────────────────────────────────────────────────────────────
+#
+# An initialised project is reset before wiring; a fresh one is wired directly.
+
+# Read the projects array from the global config.
+_get_projects() {
+  local config
+  config="$(_devbot_global_config)"
+  if [[ ! -f "${config}" ]]; then
+    echo "[]"
+    return
+  fi
+
+  python3 -c "
+import json, sys
+sys.path.insert(0, '${DEV_BOT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+try:
+    data = load_jsonc('${config}')
+    projects = data.get('projects', [])
+    print(json.dumps(projects))
+except Exception as e:
+    print('[]', file=sys.stderr)
+" 2>/dev/null || echo "[]"
+}
+
+# Run a reset script for a given project. FULL_RESET passes --full through.
+_run_reset() {
+  local reset_script="$1"
+  local project_dir="$2"
+
+  if [[ ! -f "${reset_script}" || ! -x "${reset_script}" ]]; then
+    return 1
+  fi
+
+  local name
+  name="$(basename "$(dirname "${reset_script}")")"
+  _header_3 "Running ${name} reset..."
+  local start=${SECONDS}
+
+  local -a args=("${reset_script}" "${project_dir}")
+  if [[ "${FULL_RESET:-false}" == "true" ]]; then
+    args+=("--full")
+  fi
+
+  if bash "${args[@]}"; then
+    _ok "${name} reset done ($(_fmt_duration $(( SECONDS - start ))))"
+  else
+    _warn "${name} reset had issues (exit: $?)"
+  fi
+}
+
+# Resolve the module-memory folders, refusing anything that escapes the
+# project — the caller deletes them. Sets _MODULE_MEMORY_ACTIVE/_MODULES.
+_module_memory_paths() {
+  local project_dir="$1"
+
+  _MODULE_MEMORY_ACTIVE=""
+  _MODULE_MEMORY_MODULES=""
+
+  # Both paths come from `_devbot_module_memory_path`, which rejects an escaping
+  # `devbot_dir` and a symlink anywhere along the vault path.
+  if ! _MODULE_MEMORY_ACTIVE="$(_devbot_module_memory_path "${project_dir}" active)"; then
+    _warn "init — refusing module memory cleanup for ${project_dir}"
+    return 1
+  fi
+
+  if ! _MODULE_MEMORY_MODULES="$(_devbot_module_memory_path "${project_dir}" modules)"; then
+    _warn "init — refusing module memory cleanup for ${project_dir}"
+    return 1
+  fi
+}
+
+# A function under if/|| loses errexit, so wire in a
+# child; the flag skips the detection recursion.
+_wire_project() {
+  DEV_BOT_WIRING_ONLY=1 bash "${DEV_BOT_ROOT}/bin/init.sh" "$1"
+}
+
+# Reset a single project, then wire it.
+_reinit_project() {
+  local project_dir="$1"
+  shift
+  # Remaining args are reset scripts, split by marker
+  local -a scripts=("$@")
+
+  if [[ ! -d "${project_dir}" ]]; then
+    _warn "Directory does not exist — skipping: ${project_dir}"
+    return
+  fi
+
+  # Module memory is regenerated during init. Validated first: a refused
+  # project must not have its tree mutated by the reset scripts.
+  local active_dir modules_dir
+  if ! _module_memory_paths "${project_dir}"; then
+    return 1
+  fi
+  active_dir="${_MODULE_MEMORY_ACTIVE}"
+  modules_dir="${_MODULE_MEMORY_MODULES}"
+
+  # Mark the wiring dirty BEFORE the reset scripts delete anything: a run
+  # killed mid-way leaves the baseline missing, so the next `devbot` start
+  # re-detects the change and repairs the tree. The wiring restores it.
+  _devbot_clear_config_sha "${project_dir}"
+
+  # Run all provided reset scripts
+  if [[ ${#scripts[@]} -gt 0 ]]; then
+    for reset_script in "${scripts[@]}"; do
+      _run_reset "${reset_script}" "${project_dir}" || true
+    done
+  fi
+
+  if [[ -d "${modules_dir}" ]]; then
+    rm -rf -- "${modules_dir}"
+    _ok "Cleared ${modules_dir#"${project_dir}/"}"
+  fi
+
+  # Pre-modules locations. They are cleaned here, not only in the module's own
+  # init.sh, because a disabled module's init never runs and would leave its
+  # old copy behind as a second source.
+  local legacy
+  for legacy in graphify.md aws-agent-rules.md; do
+    rm -f -- "${active_dir}/${legacy}"
+  done
+
+  _header_3 "Running devbot init..."
+  local init_start=${SECONDS}
+  if _wire_project "${project_dir}"; then
+    _ok "devbot init done ($(_fmt_duration $(( SECONDS - init_start ))))"
+    return 0
+  fi
+
+  # Propagate the failure: the auto-reinit caller aborts the start on a
+  # non-zero exit, so swallowing it launches on half-built wiring.
+  _error "devbot init failed for ${project_dir}"
+  return 1
+}
+
+# ── Dispatch ─────────────────────────────────────────────────────────────────
+
+_usage() {
+  echo "Usage: devbot init [<project-dir>] [--all|-a] [--full|-f]"
+  echo ""
+  echo "Initialise dev-bot for a project, the current directory, or all"
+  echo "registered projects. A project that is already initialised is reset"
+  echo "first, so re-running 'devbot init' is safe and idempotent."
+  echo ""
+  echo "Arguments:"
+  echo "  <project-dir>  Project to initialise (default: current directory)"
+  echo ""
+  echo "Options:"
+  echo "  --all, -a    Initialise all registered projects"
+  echo "  --full, -f   Full reset: remove QMD collection + codebase index data"
+  echo "  --help, -h   Show this help"
+}
+
+_process_project() {
+  local project_dir="$1"
+  shift
+  local -a reset_scripts=("$@")
+
+  # A stale entry can stay in the global registry after a directory is moved.
+  if [[ ! -d "${project_dir}" ]]; then
+    _warn "Directory does not exist — skipping: ${project_dir}"
+    return 0
+  fi
+
+  if _devbot_project_initialized "${project_dir}"; then
+    _info "Already initialised — resetting before wiring"
+    _reinit_project "${project_dir}" "${reset_scripts[@]+"${reset_scripts[@]}"}"
+    return
+  fi
+
+  _info "Not initialised yet — wiring from scratch"
+  _wire_project "${project_dir}"
+}
+
+main() {
+  local total_start=${SECONDS}
+  local failed=0
+
+  # Internal: the reset path re-enters this script to wire one project with
+  # errexit live (see _wire_project), skipping the detection below.
+  if [[ "${DEV_BOT_WIRING_ONLY:-0}" == "1" ]]; then
+    _init_wiring "${1:?wiring target required}"
+    exit 0
+  fi
+
+  _header_1 "DevBot Init"
+
+  # ── 1. Parse arguments ───────────────────────────────────────────────────
+  local all_projects=false
+  local target_project=""
+  FULL_RESET=false
+
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      --all|-a)
+        all_projects=true
+        ;;
+      --full|-f)
+        FULL_RESET=true
+        ;;
+      --help|-h)
+        _usage
+        exit 0
+        ;;
+      -*)
+        _error "Unknown option: ${arg}"
+        _usage >&2
+        exit 1
+        ;;
+      *)
+        if [[ -n "${target_project}" ]]; then
+          _error "Too many arguments: ${target_project} ${arg}"
+          exit 1
+        fi
+        target_project="${arg}"
+        ;;
+    esac
+  done
+
+  # Mutually exclusive: defaulting to the broader interpretation would turn a
+  # typo into a --full reset of every registered project.
+  if [[ "${all_projects}" == "true" && -n "${target_project}" ]]; then
+    _error "Cannot combine --all with a project path (${target_project})"
+    exit 1
+  fi
+
+  if [[ "${FULL_RESET}" == "true" ]]; then
+    _info "Full reset mode: QMD collections and codebase index data will be removed"
+  fi
+
+  # ── 2. Read registered projects ──────────────────────────────────────────
+  local projects_json
+  projects_json="$(_get_projects)"
+
+  local project_count
+  project_count=$(echo "${projects_json}" | python3 -c "import json,sys; print(len(json.loads(sys.stdin.read())))" 2>/dev/null || echo "0")
+
+  # ── 3. Discover reset scripts (unified — tools + agentic + external) ─────
+  local -a reset_scripts=()
+  local -a reset_base_dirs=("${DEV_BOT_ROOT}/src/tools" "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/harnesses")
+  [[ -d "${DEV_BOT_ROOT}/storage/external-agentic-modules" ]] && reset_base_dirs+=("${DEV_BOT_ROOT}/storage/external-agentic-modules")
+
+  while IFS= read -r script; do
+    [[ -n "${script}" ]] && reset_scripts+=("${script}")
+  done < <(_collect_module_scripts "reset.sh" "${reset_base_dirs[@]}")
+
+  _info "Found ${#reset_scripts[@]} reset script(s)"
+
+  # ── 4. Determine mode: single project or all ─────────────────────────────
+  if [[ "${all_projects}" == "true" ]]; then
+    # --all: process every registered project
+    if [[ ${project_count} -eq 0 ]]; then
+      _info "No projects registered in the global config"
+      _info "Run 'devbot init' in a project to register it first."
+      exit 0
+    fi
+
+    _info "Found ${project_count} registered project(s):"
+    echo "${projects_json}" | python3 -c "
+import json, sys
+for p in json.loads(sys.stdin.read()):
+    print(f'    {p}')
+" 2>/dev/null
+    echo
+
+    local i=0
+    # Each per-project init emits only a compact env-var notice; the single
+    # end-of-run dialog below shows the union across all projects.
+    export DEV_BOT_DEFER_ENV_DIALOG=1
+    while IFS= read -r project_dir; do
+      i=$((i + 1))
+      _header_2 "Project ${i}/${project_count}: ${project_dir}"
+      _process_project "${project_dir}" "${reset_scripts[@]+"${reset_scripts[@]}"}" || failed=1
+      echo
+    done < <(echo "${projects_json}" | python3 -c "
+import json, sys
+for p in json.loads(sys.stdin.read()):
+    print(p)
+" 2>/dev/null)
+    unset DEV_BOT_DEFER_ENV_DIALOG
+
+    # ── 4b. End-of-run env-var dialog (union across every processed project) ──
+    # init.sh only warned per project (deferred). Present the union once:
+    # collect refs from all projects, dedupe, and run the full notice + ack.
+    local union_refs=""
+    while IFS= read -r project_dir; do
+      [[ -d "${project_dir}" ]] || continue
+      local proj_refs
+      proj_refs="$(_devbot_missing_mcp_env_vars "${project_dir}")"
+      if [[ -n "${proj_refs}" ]]; then
+        union_refs+="${proj_refs}"$'\n'
+      fi
+    done < <(echo "${projects_json}" | python3 -c "
+import json, sys
+for p in json.loads(sys.stdin.read()):
+    print(p)
+" 2>/dev/null)
+
+    if [[ -n "${union_refs}" ]]; then
+      # Dedupe identical ref lines across projects (same module+server+key+var).
+      local deduped
+      deduped="$(echo "${union_refs}" | awk '!seen[$0]++')"
+      _devbot_present_missing_env_vars "${deduped}" ack
+    fi
+  elif [[ -n "${target_project}" ]]; then
+    if [[ ! -d "${target_project}" ]]; then
+      _error "Not a directory: ${target_project}"
+      exit 1
+    fi
+    _process_project "$(cd "${target_project}" && pwd)" "${reset_scripts[@]+"${reset_scripts[@]}"}" || failed=1
+  else
+    # Single project: init the current working directory
+    _process_project "$(pwd)" "${reset_scripts[@]+"${reset_scripts[@]}"}" || failed=1
+  fi
+
+  # ── 5. Summary ──────────────────────────────────────────────────────────
+  if [[ "${failed}" -ne 0 ]]; then
+    _error "Init failed — fix the cause and re-run 'devbot init'."
+    echo
+    exit 1
+  fi
+
+  if [[ "${all_projects}" == "true" ]]; then
+    _header_2 "✔  DevBot init complete for ${project_count} project(s)"
+  fi
+  echo -e "  ${TEXT_DIM}⏱  Total: $(_fmt_duration $(( SECONDS - total_start )))${TEXT_CLEAR}"
+  echo
+}
+
 main "$@"
+

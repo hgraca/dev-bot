@@ -35,7 +35,7 @@ devbot                       # start the harness (opencode or claudecode)
 
 ### `devbot` — start the harness
 
-Run with no subcommand inside a project to start the configured harness (`opencode` or `claudecode`, per the `harness` setting) after running `devbot up`. Harness flags (`-*`, including the `--` separator) are forwarded; any other unknown command is refused with a usage error. Outside a project it prints help.
+Run with no subcommand inside a project to start the configured harness (`opencode` or `claudecode`, per the `harness` setting) after running `devbot up`. Harness flags (`-*`, including the `--` separator) are forwarded; any other unknown command is refused with a usage error. Outside an initialised project it refuses to start and tells you to run `devbot init` there first.
 
 **Auto-update.** Before wiring, a bare start runs `devbot update --auto` — a quiet no-op when already on the newest release. A version change rewrites the global config's `version`, which triggers a per-project reinit on this project's start and on every other project's next start. Set the global `auto_update` to `false` to opt out. A failed update (offline, conflict) warns and the start continues on the current version.
 
@@ -66,13 +66,17 @@ Install all tools. Idempotent — safe to re-run. Writes `.devbot.global.jsonc` 
 
 Move the install to the newest **release tag** (or an explicit tag: `devbot update <tag>` pins/downgrades). Fetches tags from origin, and is a clean no-op when already on the newest tag. On a real move it refreshes tools, agentic modules, and external modules, then records the release in the global config's `version` so every project reinits on its next start. `--auto` is the quiet, non-interactive form used by the bare `devbot` start — a single-line no-op that never prompts; without it the usual update output is printed.
 
-### `devbot init [path]`
+### `devbot init [path] [--all|-a] [--full|-f]`
 
 Initialize dev-bot in a project directory (default: current directory). Writes `.devbot.project.jsonc` and wires modules into `.opencode/` and `.agents/`.
 
-### `devbot reinit [path] [--all|-a]`
+Idempotent: a directory that already carries `.devbot.project.jsonc` is reset first — every module `reset.sh`, the generated module memory and the pre-modules memory files — and then wired, so re-running it rebuilds the wiring from scratch. A directory without that config is wired directly.
 
-Re-initialize the given project, the current directory, or all registered projects with `--all`.
+`--all` initializes every project registered in the global config (mutually exclusive with a path); `--full` also drops the project's QMD collection and codebase-index data.
+
+### `devbot reinit [args...]`
+
+Deprecated alias for `devbot init` — same arguments, same detection, same behaviour.
 
 ### `devbot up` / `devbot down`
 

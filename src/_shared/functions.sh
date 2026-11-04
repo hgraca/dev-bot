@@ -1688,7 +1688,7 @@ _collect_module_scripts() {
 #     report — print the notice, no prompt
 #     ack    — print the notice, ask the user to press any key, continue
 #     gate   — print the notice, ask y/N "launch the harness anyway"; N → 1
-#   DEV_BOT_DEFER_ENV_DIALOG=1 (reinit --all defers the dialog to the end of
+#   DEV_BOT_DEFER_ENV_DIALOG=1 (init --all defers the dialog to the end of
 #   the run), SKIP_CONFIRM=1 and non-TTY stdin all collapse ack/gate to
 #   report — never block a non-interactive run.
 #
@@ -1762,7 +1762,7 @@ _devbot_present_missing_env_vars() {
   local mode="${2:-report}"
   [[ -n "${refs}" ]] || return 0
 
-  # reinit --all defers the dialog to the end of the run: each per-project
+  # init --all defers the dialog to the end of the run: each per-project
   # init emits only a COMPACT notice (the end-of-run dialog dedupes and shows
   # the full detail). SKIP_CONFIRM and a non-TTY stdin mean nobody is there
   # to answer — emit the full notice but never prompt.
@@ -1776,7 +1776,7 @@ _devbot_present_missing_env_vars() {
         compact_vars+="${var} "
       fi
     done <<<"${refs}"
-    _warn "MCP configs reference unset env var(s): ${compact_vars}— full notice at end of reinit"
+    _warn "MCP configs reference unset env var(s): ${compact_vars}— full notice at end of init"
     return 0
   fi
 
@@ -1948,6 +1948,13 @@ _devbot_clear_config_sha() {
   local sha_path
   sha_path="$(_devbot_config_sha_path "${project_dir}/.devbot.project.jsonc")"
   rm -f "${sha_path}"
+}
+
+# The project config, not the .sha: every run clears the .sha,
+# so an interrupted run would read as never initialised.
+_devbot_project_initialized() {
+  local project_dir="${1:-$(pwd)}"
+  [[ -f "${project_dir}/.devbot.project.jsonc" ]]
 }
 
 _devbot_auto_reinit_if_config_changed() {

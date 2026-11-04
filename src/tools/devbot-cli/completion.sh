@@ -26,7 +26,7 @@ _devbot_complete() {
   fi
 
   # ── Level 1 commands ──────────────────────────────────────────────────────
-  local -a L1_COMMANDS=(help install update models tool init)
+  local -a L1_COMMANDS=(help install update models tool init reinit)
 
   # ── Determine which word index we're completing ───────────────────────────
   local word_idx=${COMP_CWORD}
@@ -93,9 +93,13 @@ _devbot_complete() {
       return 0
       ;;
 
-    # ── init: directory path ────────────────────────────────────────────────
-    init)
-      COMPREPLY=($(compgen -A directory -- "${cur}"))
+    # ── init|reinit: flags and directory path ──────────────────────────────
+    init|reinit)
+      if [[ "${cur}" == -* ]]; then
+        COMPREPLY=($(compgen -W "--all -a --full -f --help -h" -- "${cur}"))
+      else
+        COMPREPLY=($(compgen -A directory -- "${cur}"))
+      fi
       return 0
       ;;
 

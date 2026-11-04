@@ -48,8 +48,9 @@ cmd_help() {
   echo "             run -- <kubectl args>  Run kubectl against the project's kubeconfig"
   echo "  list <type>  List agentic artifacts (commands, agents, skills, hooks, mcps, tools)"
   echo "             [-a|--all]  Include artifacts from disabled modules"
-  echo "  init [path]  Initialize dev-bot in a project directory (default: .)"
-  echo "  reinit [path] [--all|-a]  Re-initialize dev-bot (project, or all with --all)"
+  echo "  init [path] [--all|-a] [--full|-f]  Initialize dev-bot (default: .)"
+  echo "             an already-initialized project is rebuilt from scratch first"
+  echo "  reinit [args...]  Alias for 'init' (same arguments and detection)"
   echo "  up           Start docker services (docker compose up)"
   echo "  down         Stop docker services (docker compose down)"
   echo "  prune [days] [--all|-a]  Prune old opencode sessions (default: 30 days)"
@@ -547,9 +548,10 @@ cmd_stats() {
   }
 
 cmd_harness() {
-  if [[ ! -f "$(pwd)/.devbot.project.jsonc" ]]; then
-    cmd_help
-    return
+  if ! _devbot_project_initialized "$(pwd)"; then
+    _error "Not a dev-bot project: $(pwd)"
+    _error "Run 'devbot init' here first."
+    exit 1
   fi
 
   # Bring the install to the newest release before wiring/up. Non-fatal: an

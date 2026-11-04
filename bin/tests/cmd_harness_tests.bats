@@ -402,3 +402,24 @@ EOF
   run cat "${SANDBOX}/down.log"
   assert_output "down-called"
 }
+
+# ── Start refusal outside an initialised project ────────────────────────────
+# A bare `devbot` in a folder that was never initialised must say so and point
+# at `devbot init`; it must not fall through to up.sh and the harness.
+
+@test "cmd_harness refuses to start a folder that was never initialised" {
+  local bare
+  bare="$(mktemp -d)"
+
+  cd "${bare}"
+  DEV_BOT_ROOT="${SANDBOX}" run bash -c "
+    source '${SANDBOX}/bin/devbot'
+    cmd_harness
+  "
+  cd "${PROJECT_ROOT}"
+  rmdir "${bare}"
+
+  assert_failure
+  assert_output --partial "devbot init"
+  refute_output --partial "up-called"
+}

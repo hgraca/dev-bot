@@ -275,7 +275,7 @@ JSON_EOF
   assert_success
   assert_output --partial "unset env var(s)"
   assert_output --partial "ENVMOD_SECRET"
-  assert_output --partial "full notice at end of reinit"
+  assert_output --partial "full notice at end of init"
   refute_output --partial ".bashrc"
   refute_output --partial "Press any key"
 }
