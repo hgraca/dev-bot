@@ -42,6 +42,9 @@
   },
   "model": "opencode/nemotron-3.5-lightning-free", // or "litellm/default"
   "small_model": "opencode/big-pickle", // or "litellm/low"
+  // Snapshot tracking diffs the whole workspace on every step; disabled
+  // because undo/revert is not used in this workspace.
+  "snapshots": false,
   //  "provider": {
   //    "litellm": {
   //      "npm": "@ai-sdk/openai-compatible",

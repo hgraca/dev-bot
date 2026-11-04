@@ -57,6 +57,14 @@ setup() {
   assert_output --partial '"opencode-pty@'
 }
 
+@test "opencode.dist.jsonc disables snapshots by default" {
+  # Snapshot tracking runs a git diff over the whole workspace on every
+  # message/tool step; on large multi-repo workspaces that is ~1.2s per step.
+  run python3 "$READER" "$DIST" snapshots
+  assert_success
+  assert_output "false"
+}
+
 @test "opencode.dist.jsonc plugin array excludes TUI plugins" {
   # TUI plugins belong in tui.json. opencode.json's schema declares no "tui"
   # key and sets additionalProperties:false, so a TUI plugin listed here is
