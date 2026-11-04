@@ -758,6 +758,42 @@ own access keys, so a misconfigured profile would otherwise have the agent
 acting as the source identity with whatever that key can do — a silent
 escalation, visible only later in CloudTrail.
 
+### `netsuite`
+
+NetSuite account for the MCP server. The `netsuite` module ships **enabled by
+default**; its `init.sh` builds the account URL from this value and emits a
+`netsuite-<account_id>` dynamic manifest with the server `enabled: false` —
+wired but not started, so it is connected from the harness when needed. The
+account is part of the server name because opencode stores MCP authentication
+per server name, so a production account and a sandbox can both stay
+authenticated.
+
+```jsonc
+// .devbot.global.jsonc — machine default
+"netsuite": { "account_id": "1234567" }
+
+// .devbot.project.jsonc — overrides the global value for this project
+"netsuite": { "account_id": "1234567-sb1", "enabled": true }
+```
+
+`account_id` is the value under NetSuite **Setup → Company → Company
+Information** (`1234567`), or a sandbox ID such as `1234567_SB1`; the emitted
+hostname lowercases it and turns underscores into hyphens. It must match
+`[A-Za-z0-9][A-Za-z0-9_-]*`; an unset or invalid value removes the server from
+the project rather than registering a broken URL. The value is not a secret —
+authentication is OAuth 2.0, run once per machine by the harness (`opencode mcp
+auth netsuite-<account_id>`, or `/mcp` in Claude Code). See the [NetSuite module
+page](/modules/agentic/netsuite) for the NetSuite-side setup and the
+different-user/role authorisation.
+
+`enabled` (default `false`) sets the emitted server's initial state. opencode can
+also flip it from its MCP dialog; set it here when the harness is Claude Code,
+where a disabled server is omitted from `.mcp.json` and there is no per-server
+toggle.
+
+A project that sets `modules.netsuite: false` gets no server, and a reinit prunes
+a key a previous run registered.
+
 ## Example: full project config
 
 ```jsonc
@@ -787,6 +823,9 @@ escalation, visible only later in CloudTrail.
 
   // Data sources this project may use, by name (see `datasources` above)
   "datasources": ["hotels-dev"],
+
+  // NetSuite account the MCP server connects to (module enabled by default)
+  "netsuite": { "account_id": "1234567" },
 
   // Per-module enablement — `false` skips a module during init/up
   "modules": { "claudecode": false, "react": false, "signoz": false, "svelte": false },

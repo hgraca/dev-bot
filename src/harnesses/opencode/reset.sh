@@ -240,7 +240,7 @@ for k in data.get('mcp', {}):
   # one) must not be listed: disabling it would delete a user's same-named entry.
   _is_dynamic_manifest_producer() {
     case "$1" in
-      aws|datasources|jetbrains) return 0 ;;
+      aws|datasources|jetbrains|netsuite) return 0 ;;
     esac
     return 1
   }

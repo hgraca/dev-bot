@@ -84,6 +84,13 @@
   //   }
   // },
   "aws_connections": {},
+  // NetSuite MCP connection. `account_id` is the NetSuite account the project
+  // connects as; the module ships enabled and registers a `netsuite-<account>`
+  // server disabled by default (set `enabled: true` to wire it on). A project
+  // value overrides this global one.
+  // Example:
+  // "netsuite": { "account_id": "1234567", "enabled": true },
+  "netsuite": {},
   "guards": [
     {
       "regex": "rm -rf",

@@ -686,3 +686,44 @@ print('D9-HARNESS-KEPT:OK')
   assert_success
   grep -qF 'D9-HARNESS-KEPT:OK' <<< "$output" || fail "disabled harness pruned user MCP keys"
 }
+
+@test "D9: reset prunes a disabled netsuite key whose manifest is already gone" {
+  # The netsuite module emits netsuite-<account>.mcp.json with no canonical
+  # mcp.json, so the orphan path is the only thing that can remove a key left
+  # behind when the manifest disappears out of band.
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "modules": {
+    "opencode": true,
+    "netsuite": false
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "netsuite-1234567": {"type": "remote", "url": "https://1234567.suitetalk.api.netsuite.com/services/mcp/v1/all", "enabled": false},
+    "other": {"type": "local", "command": ["other-mcp"]}
+  }
+}
+JSONC_EOF
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'netsuite-1234567' not in mcp, mcp
+assert 'other' in mcp, mcp
+print('D9-NETSUITE-ORPHAN:OK')
+"
+  assert_success
+  grep -qF 'D9-NETSUITE-ORPHAN:OK' <<< "$output" || fail "disabled netsuite's orphan key survived"
+}

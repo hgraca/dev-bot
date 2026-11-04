@@ -1,0 +1,8 @@
+{
+  "netsuite-suitecloud": {
+    "url": "https://github.com/oracle/netsuite-suitecloud-sdk.git",
+    "paths": {
+      "skills": "packages/agent-skills"
+    }
+  }
+}
