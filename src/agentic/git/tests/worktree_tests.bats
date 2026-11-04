@@ -502,6 +502,23 @@ worktree() {
   refute_output --partial "$WORK main"
 }
 
+@test "list --project: lists the named project's worktrees from outside it" {
+  worktree create feat/listed
+  assert_success
+
+  run bash -c "cd '$SANDBOX' && bash '$SCRIPT' list --project '$WORK'"
+
+  assert_success
+  assert_output --partial "$WORKTREES/feat-listed feat/listed"
+}
+
+@test "list: rejects an unknown option instead of ignoring it" {
+  worktree list --verbose
+
+  assert_failure
+  assert_output --partial "unknown option '--verbose'"
+}
+
 # ── path ─────────────────────────────────────────────────────────────────────
 
 @test "path: prints the registered worktree for a branch" {
@@ -712,6 +729,31 @@ worktree() {
   assert_output --partial "FATAL:"
 }
 
+@test "push --project: pushes the named project's worktree from outside it" {
+  worktree create feat/away-push
+  assert_success
+
+  local path="$WORKTREES/feat-away-push"
+  printf 'work\n' > "$path/feature.txt"
+  git -C "$path" add -A
+  git -C "$path" commit -qm "feature work"
+  local sha
+  sha="$(git -C "$path" rev-parse HEAD)"
+
+  run bash -c "cd '$SANDBOX' && bash '$SCRIPT' push feat/away-push --project '$WORK'"
+
+  assert_success
+  assert_output --partial "pushed feat/away-push to origin/feat/away-push"
+  assert_equal "$(git --git-dir="$ORIGIN" rev-parse refs/heads/feat/away-push)" "$sha"
+}
+
+@test "push: rejects an unknown option instead of treating it as a branch" {
+  worktree push --force
+
+  assert_failure
+  assert_output --partial "unknown option '--force'"
+}
+
 # ── remove ───────────────────────────────────────────────────────────────────
 
 @test "remove: removes the worktree directory but keeps the branch" {
@@ -754,4 +796,23 @@ worktree() {
 
   assert_failure
   assert_output --partial "FATAL:"
+}
+
+@test "remove --project: removes the named project's worktree from outside it" {
+  worktree create feat/away-remove
+  assert_success
+
+  run bash -c "cd '$SANDBOX' && bash '$SCRIPT' remove feat/away-remove --project '$WORK'"
+
+  assert_success
+  assert [ ! -d "$WORKTREES/feat-away-remove" ]
+  run git -C "$WORK" show-ref --verify --quiet refs/heads/feat/away-remove
+  assert_success
+}
+
+@test "remove: rejects an unknown option instead of treating it as a branch" {
+  worktree remove --force
+
+  assert_failure
+  assert_output --partial "unknown option '--force'"
 }

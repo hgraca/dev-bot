@@ -46,6 +46,13 @@ In a normal project the variable stays empty and the commands run as written:
 project=()
 ```
 
+Every subcommand that needs a repository takes that array — `create`, `enabled`, `list`, `path`,
+`push` and `remove` — so a supervisor session acts on a child while running from its own root.
+`create` and `enabled` refuse the supervisor root itself; the rest would silently resolve the
+supervisor's repository, so always carry `--project`. `<branch>` is the branch name, never the
+worktree directory name. Running the tool with the child's main checkout as the working directory
+works too, but `--project` does not depend on the shell's location.
+
 Then check the workflow in use — exit `0` means the `worktrees` workflow applies; exit `1` means the
 project selected another workflow (see [Opting out](#opting-out)), so work and commit in the **owning
 project's** main checkout as that workflow directs (in a supervisor session that is `git -C
@@ -95,7 +102,7 @@ path**, and **all git commands run with `-C <worktree>`**. It has no `.agents/` 
 skills, tools, and memory are served from the main checkout.
 
 ```bash
-W="$(bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/add-login)"
+W="$(bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/add-login "${project[@]}")"
 # edit "$W/src/..."
 git -C "$W" add src/...
 git -C "$W" commit -m "feat: add login"
@@ -114,7 +121,7 @@ Ask the tool instead — it reads git's own registration, so it also finds a wor
 elsewhere:
 
 ```bash
-W="$(bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" path feat/add-login)"
+W="$(bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" path feat/add-login "${project[@]}")"
 ```
 
 `create` prints the same path for the worktree it just made, `list` shows every worktree under
@@ -128,7 +135,7 @@ Two more ways the same error is produced:
   so a path already carrying the repo prefix — `repo/.agents/worktrees/x` — nests into
   `repo/repo/.agents/worktrees/x`. Always pass an absolute path.
 - `git worktree remove <relative path>` fails with `is not a working tree` while the worktree is
-  still registered. Pass the absolute path, or use `worktree.sh remove <branch>`.
+  still registered. Pass the absolute path, or use `worktree.sh remove <branch> "${project[@]}"`.
 
 `create` verifies the new worktree is readable before it returns, retrying briefly. Worktree
 directories have been observed unreadable for a short window on some filesystems (ecryptfs home
@@ -143,9 +150,9 @@ hard-links `vendor/` and `node_modules/` from the main checkout into the worktre
 tests run without re-installing them. Name the dirs explicitly for another ecosystem:
 
 ```bash
-bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/x --link .venv              # .venv only
-bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/x --link libs --link build  # several
-bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/x --no-link                 # none
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/x "${project[@]}" --link .venv              # .venv only
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/x "${project[@]}" --link libs --link build  # several
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" create feat/x "${project[@]}" --no-link                 # none
 ```
 
 Any `--link` replaces the defaults (`vendor`, `node_modules`). Linking is best-effort: a missing
@@ -173,7 +180,7 @@ Finishing means pushing the worktree branch and opening a pull request — nothi
 out, or otherwise changed locally:
 
 ```bash
-bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" push <branch>   # push + set upstream
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" push <branch> "${project[@]}"   # push + set upstream
 ```
 
 Then open the PR against `<default>` with `devbot:gh-create-pr`, and report its URL. `push` only
@@ -220,7 +227,7 @@ branch — removing it early strands the follow-up work. Remove it only once the
 is finished:
 
 ```bash
-bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" remove <branch>  # removes the dir; keeps the branch ref
+bash "$DEV_BOT_ROOT/src/agentic/git/tools/worktree.sh" remove <branch> "${project[@]}"  # removes the dir; keeps the branch ref
 ```
 
 `remove` refuses a worktree with uncommitted changes.

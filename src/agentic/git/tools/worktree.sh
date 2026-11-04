@@ -390,8 +390,30 @@ cmd_enabled() {
 # ── list ─────────────────────────────────────────────────────────────────────
 
 cmd_list() {
+  local project=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project)
+        [[ -n "${2:-}" ]] || _fatal "list: --project requires a <dir>"
+        [[ -d "${2}" ]] || _fatal "list: --project '${2}' is not a directory"
+        project="$2"
+        shift 2
+        ;;
+      -h | --help)
+        _usage
+        return 0
+        ;;
+      -*)
+        _fatal "list: unknown option '$1'"
+        ;;
+      *)
+        _fatal "list: unexpected argument '$1'"
+        ;;
+    esac
+  done
+
   local root devbot_dir prefix
-  root="$(_git_root)"
+  root="$(_git_root "${project}")"
   [[ -n "${root}" ]] || _fatal "list: not inside a git repository"
   devbot_dir="$(_devbot_dir_for "${root}")"
   prefix="${root}/${devbot_dir}/worktrees/"
@@ -446,11 +468,33 @@ cmd_path() {
 # ── push ─────────────────────────────────────────────────────────────────────
 
 cmd_push() {
-  local branch="${1:-}"
+  local branch="" project=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project)
+        [[ -n "${2:-}" ]] || _fatal "push: --project requires a <dir>"
+        [[ -d "${2}" ]] || _fatal "push: --project '${2}' is not a directory"
+        project="$2"
+        shift 2
+        ;;
+      -h | --help)
+        _usage
+        return 0
+        ;;
+      -*)
+        _fatal "push: unknown option '$1'"
+        ;;
+      *)
+        [[ -z "${branch}" ]] || _fatal "push: unexpected argument '$1'"
+        branch="$1"
+        shift
+        ;;
+    esac
+  done
   [[ -n "${branch}" ]] || _fatal "push: <branch> is required"
 
   local root path default
-  root="$(_git_root)"
+  root="$(_git_root "${project}")"
   [[ -n "${root}" ]] || _fatal "push: not inside a git repository"
 
   path="$(_worktree_for push "${root}" "${branch}")"
@@ -467,11 +511,33 @@ cmd_push() {
 # ── remove ───────────────────────────────────────────────────────────────────
 
 cmd_remove() {
-  local branch="${1:-}"
+  local branch="" project=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --project)
+        [[ -n "${2:-}" ]] || _fatal "remove: --project requires a <dir>"
+        [[ -d "${2}" ]] || _fatal "remove: --project '${2}' is not a directory"
+        project="$2"
+        shift 2
+        ;;
+      -h | --help)
+        _usage
+        return 0
+        ;;
+      -*)
+        _fatal "remove: unknown option '$1'"
+        ;;
+      *)
+        [[ -z "${branch}" ]] || _fatal "remove: unexpected argument '$1'"
+        branch="$1"
+        shift
+        ;;
+    esac
+  done
   [[ -n "${branch}" ]] || _fatal "remove: <branch> is required"
 
   local root path
-  root="$(_git_root)"
+  root="$(_git_root "${project}")"
   [[ -n "${root}" ]] || _fatal "remove: not inside a git repository"
 
   path="$(_worktree_for remove "${root}" "${branch}")"
@@ -500,12 +566,32 @@ Subcommands:
   enabled [--project <dir>]
                     print true/false and exit 0/1 for the resolved workflow;
                     exit 2 when the configured workflow is unknown
-  list              list the worktrees under <devbot_dir>/worktrees
+  list   [--project <dir>]
+                    list the worktrees under <devbot_dir>/worktrees
   path   <branch> [--project <dir>]
                     print the absolute path registered for <branch>; the
                     directory is the branch's slug, so never build it by hand
-  push   <branch>   push <branch> to origin and set its upstream
-  remove <branch>   remove the worktree for <branch> (the branch ref stays)
+  push   <branch> [--project <dir>]
+                    push <branch> to origin and set its upstream
+  remove <branch> [--project <dir>]
+                    remove the worktree for <branch> (the branch ref stays)
+
+Every subcommand that needs a repository takes --project <dir>. <branch> is
+always the branch name, never the worktree directory name.
+
+Supervisor sessions:
+  A supervisor session's root is a container for sibling repositories, so the
+  tool resolves the wrong repo unless told which one. Pass the child's main
+  checkout as --project and run it from anywhere:
+
+    owner="$(devbot tool project-for-path "$file" --json | jq -r .path)"
+    worktree.sh create feat/thing --project "$owner"
+    worktree.sh push   feat/thing --project "$owner"
+    worktree.sh remove feat/thing --project "$owner"
+
+  create and enabled refuse a supervisor root even when it has commits. Running
+  the tool with the child's main checkout as the working directory also works,
+  but --project does not depend on where the shell happens to be.
 
 Requires: git >= 2.23.
 EOF
