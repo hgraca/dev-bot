@@ -8,7 +8,7 @@ source "${MODULE_DIR}/../../_shared/functions.sh"
 # Refuse an opencode 2.x host.
 #
 # dev-bot's whole plugin surface — the server hooks in hooks/on-hooks.ts and the
-# TUI plugins (pty-monitor, tui-defaults) — is the opencode V1 plugin API, which
+# TUI plugins under tui-plugins/ — is the opencode V1 plugin API, which
 # v2 replaced. On a v2 host none of it loads while the seeded config still
 # applies: a silent half-working install. Refuse it loudly instead.
 #

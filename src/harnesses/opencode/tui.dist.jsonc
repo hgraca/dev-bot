@@ -41,9 +41,13 @@
   //   tui-defaults seeds the tool-details default (hidden) at startup, but only
   //                while the user has not configured one — an explicit choice is
   //                never overridden, so toggling it in the TUI is the opt-out
+  //   provider-ttft fills the order-100 sidebar row with the active session's
+  //                last-request time-to-first-token; it relies on
+  //                internal:sidebar-context staying disabled, as shipped here
   "plugin": [
     "opencode-tabs@0.3.0",
     "./tui-plugins/pty-monitor/index.ts",
-    "./tui-plugins/tui-defaults/index.ts"
+    "./tui-plugins/tui-defaults/index.ts",
+    "./tui-plugins/provider-ttft/index.ts"
   ]
 }

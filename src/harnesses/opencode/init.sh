@@ -145,7 +145,7 @@ sys.exit(1)
 #
 # Every name here must also appear in tui.dist.jsonc and required-plugins.jsonc;
 # a test asserts the three stay in step.
-_TUI_PLUGINS=(pty-monitor tui-defaults)
+_TUI_PLUGINS=(pty-monitor tui-defaults provider-ttft)
 
 _link_tui_plugins() {
   local name

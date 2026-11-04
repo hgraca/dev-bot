@@ -92,6 +92,12 @@ A dist-backed config is **seed-once**: `init.sh` writes it only when the file is
 
 The seed fires **only while the key is absent**: a value already in kv is an explicit choice and is never overridden, and the key being present makes every later start a no-op. Toggling the setting in the TUI is therefore the opt-out — an install or update never undoes it.
 
+#### Provider TTFT
+
+`src/harnesses/opencode/provider-ttft/` shows the **active session's last request time-to-first-token** as `TTFT 1.2s` in the sidebar, in place of opencode's built-in context block: it registers `sidebar_content` at order 100 — the row `internal:sidebar-context` used — which stays disabled in `plugin_enabled`, as the dist template already ships it. Panels there are additive, so the built-in row can be occupied but never extended. The row shows `-` until that session's first measurement.
+
+opencode publishes no provider-latency metric, so the value is **derived**: an assistant message's `time.created` starts the clock and the first `message.part.delta` for that message stops it (deltas carry no timestamp, so the handler stamps `Date.now()`). The first reading for a request is final, and the entry is dropped when the message completes. A request that fails or is aborted before its first token therefore leaves that session's **previous** reading in place — the panel shows the last measurement, never a blank. Readings are kept per session, so switching sessions shows each session's own value; they include any retry backoff before the first token, and assume the TUI and the opencode server share a clock. A remote server running **behind** the TUI inflates the reading, while one running **ahead** makes the delta look earlier than `time.created` — a negative duration, which the plugin discards, so that session keeps its previous value.
+
 ## Configuration
 
 `opencode.jsonc` and `.opencode/tui.json` are written once from the harness templates (`opencode.dist.jsonc`, `tui.dist.jsonc`), then treated as user-owned — this is why an `lsp` override survives `devbot reinit`. Config is read once at startup: restart opencode after editing.
