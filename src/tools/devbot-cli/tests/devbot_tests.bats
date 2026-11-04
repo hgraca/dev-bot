@@ -19,6 +19,13 @@ teardown() {
   unset DEV_BOT_GLOBAL_CONFIG
 }
 
+# `devbot init` skips a disabled module's init entirely, so a project with the
+# graphify module disabled has no .graphifyignore even when the CLI is installed.
+graphify_disabled() {
+  bash -c "source '${PROJECT_ROOT}/src/_shared/functions.sh'; _devbot_get_disabled_modules '$1'" \
+    | grep -q '"graphify"'
+}
+
 @test "devbot init scaffolds a project directory from the test template" {
   local test_project="$PROJECT_ROOT/storage/test"
   local template_dir="$TEST_DIR/_test-template"
@@ -253,9 +260,9 @@ PY
 
   # ── Verify module files created by init scripts ────────────────────────
   # graphify's init exits before wiring .graphifyignore when the CLI is not
-  # installed (a test runner need not install it); the git hooks below already
-  # carry the same condition.
-  if command -v graphify >/dev/null 2>&1; then
+  # installed, and never runs at all when the module is disabled for the
+  # project — either way the file is legitimately absent.
+  if command -v graphify >/dev/null 2>&1 && ! graphify_disabled "$test_project"; then
     [ -f "$test_project/.graphifyignore" ]
   fi
   [ -f "$test_project/repomix.config.json" ]
