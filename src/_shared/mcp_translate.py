@@ -15,6 +15,7 @@ Canonical module manifest (src/agentic/<module>/mcp.json):
                              "url": "...",           // http
                              "oauth": bool,          // http passthrough
                              "enabled": bool,        // opencode-only (see below)
+                             "timeout": int,         // ms — opencode-only
                              "headers": { "K": "V" },// http-only; {env:VAR} may
                                                      // be embedded ("Bearer {env:T}")
                              "env": { "K": "V" } } } }
@@ -28,6 +29,12 @@ the user to disable the whole module. opencode honors it as
 than translating them, matching opencode's not-started end state. This
 translator DROPS the key either way, since it is not a Claude Code field.
 
+`timeout` (optional, milliseconds) is the same kind of opencode-only field: it
+raises the 30 s default opencode allows for connecting and fetching tools,
+which a container-backed server exceeds on a cold start. Claude Code sets its
+equivalent through the MCP_TIMEOUT environment variable, not `.mcp.json`, so
+the translator DROPS it for claudecode.
+
 Tokens resolved at translation time:
   {harness-dir}  -> .opencode | .claude   (wrapper/serve-script paths)
   {host}         -> opencode | claudecode (server --host args)
@@ -38,7 +45,8 @@ and applies its own placeholder-insensitive comparison afterwards.
 Output shapes:
   opencode   stdio -> {type: local, command, environment}   (env renamed)
              http  -> {type: remote, url, oauth?, headers?}
-             either also carries `enabled` when the manifest declares it
+             either also carries `enabled` and `timeout` when the manifest
+             declares them
   claudecode stdio -> {type: stdio, command: argv[0], args: argv[1:], env}
              http  -> {type: http, url, headers?, env?}     (oauth and enabled
                                                              dropped; an embedded
@@ -63,7 +71,7 @@ TRANSPORTS = ("stdio", "http")
 # annotations at any level and are ignored (hooks.json convention). Anything
 # else is a migration mistake — a leftover harness-specific field such as
 # "environment" — and fails loudly rather than being silently dropped.
-ENTRY_KEYS = ("type", "command", "url", "oauth", "enabled", "headers", "env")
+ENTRY_KEYS = ("type", "command", "url", "oauth", "enabled", "timeout", "headers", "env")
 
 # A well-formed {env:VAR} reference. An env VALUE must be exactly one of these
 # (whole-value-only); a header VALUE may embed one alongside text, because an
@@ -116,6 +124,12 @@ def _validate_entry(server: str, entry: Any) -> None:
         )
     if "enabled" in entry and not isinstance(entry["enabled"], bool):
         raise ValueError(f"server '{server}': enabled must be a boolean")
+    if "timeout" in entry:
+        timeout = entry["timeout"]
+        if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
+            raise ValueError(
+                f"server '{server}': timeout must be a positive integer (milliseconds)"
+            )
     transport = entry.get("type")
     if transport not in TRANSPORTS:
         raise ValueError(
@@ -264,6 +278,8 @@ def translate(
                 out["headers"] = _substitute(entry["headers"], harness, gpu, root)
         if "enabled" in entry:
             out["enabled"] = entry["enabled"]
+        if "timeout" in entry:
+            out["timeout"] = entry["timeout"]
         env = entry.get("env")
         if isinstance(env, dict) and env:
             out["environment"] = {
@@ -275,7 +291,8 @@ def translate(
     # claudecode. `enabled` is dropped: .mcp.json has no per-server on/off — an
     # `enabled` key in it is ignored upstream. The caller skips `enabled: false`
     # servers before reaching here, so the dropped key only appears on servers
-    # that are being wired enabled anyway.
+    # that are being wired enabled anyway. `timeout` is dropped too: Claude Code
+    # takes its equivalent from MCP_TIMEOUT, not from .mcp.json.
     if transport == "stdio":
         argv = _substitute(entry["command"], harness, gpu, root)
         out = {"type": "stdio", "command": argv[0]}

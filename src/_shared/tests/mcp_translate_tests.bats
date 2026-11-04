@@ -188,6 +188,45 @@ JSON_EOF
 }
 JSON_EOF
 
+  # Per-server timeout: a slow-starting server needs longer than opencode's
+  # 30 s default before `initialize` answers.
+  cat > "$WORK/timeout.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "sonarqube": {
+      "type": "stdio",
+      "command": ["bash", "-c", "exec bash {harness-dir}/sonarqube-serve.mcp.sh"],
+      "enabled": false,
+      "timeout": 120000
+    }
+  }
+}
+JSON_EOF
+
+  cat > "$WORK/timeout-nonint.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": { "type": "stdio", "command": ["qmd", "mcp"], "timeout": "90000" }
+  }
+}
+JSON_EOF
+
+  cat > "$WORK/timeout-nonpositive.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": { "type": "stdio", "command": ["qmd", "mcp"], "timeout": 0 }
+  }
+}
+JSON_EOF
+
+  cat > "$WORK/timeout-bool.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": { "type": "stdio", "command": ["qmd", "mcp"], "timeout": true }
+  }
+}
+JSON_EOF
+
   # http headers carrying a token. {env:VAR} may be EMBEDDED here (unlike env
   # values, where it stays whole-value-only): the upstream API needs a scheme
   # prefix on the same value ("Sentry-Bearer <token>").
@@ -416,6 +455,39 @@ assert_json_eq() {
   run python3 "$TOOL" "$WORK/enabled-nonbool.json" opencode
   assert_failure
   assert_output --partial "boolean"
+}
+
+@test "timeout is emitted for opencode alongside enabled" {
+  run python3 "$TOOL" "$WORK/timeout.json" opencode
+  assert_success
+  assert_json_eq "$output" '{"sonarqube": {"type": "local", "command": ["bash", "-c", "exec bash .opencode/sonarqube-serve.mcp.sh"], "enabled": false, "timeout": 120000}}'
+}
+
+@test "translator: claudecode output drops timeout (translator-level)" {
+  # Claude Code's .mcp.json has no per-connection timeout field — it is set
+  # with the MCP_TIMEOUT environment variable — so the key is not emitted.
+  run python3 "$TOOL" "$WORK/timeout.json" claudecode
+  assert_success
+  refute_output --partial "timeout"
+  assert_json_eq "$output" '{"sonarqube": {"type": "stdio", "command": "bash", "args": ["-c", "exec bash .claude/sonarqube-serve.mcp.sh"]}}'
+}
+
+@test "a non-integer timeout fails loudly" {
+  run python3 "$TOOL" "$WORK/timeout-nonint.json" opencode
+  assert_failure
+  assert_output --partial "positive integer"
+}
+
+@test "a non-positive timeout fails loudly" {
+  run python3 "$TOOL" "$WORK/timeout-nonpositive.json" opencode
+  assert_failure
+  assert_output --partial "positive integer"
+}
+
+@test "a boolean timeout fails loudly (bools are not ints)" {
+  run python3 "$TOOL" "$WORK/timeout-bool.json" opencode
+  assert_failure
+  assert_output --partial "positive integer"
 }
 
 @test "unsupported harness fails loudly" {
