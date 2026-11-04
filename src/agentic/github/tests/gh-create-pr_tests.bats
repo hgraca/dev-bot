@@ -55,5 +55,42 @@ setup() {
 
 @test "command sends a requested Copilot review through the verification" {
   CMD="$MODULE_DIR/commands/gh-create-pr.md"
-  grep -q 'Copilot review section' "$CMD"
+  grep -qF 'review_requested' "$CMD"
+}
+
+@test "skill makes the Copilot request the default with an explicit opt-out" {
+  COPILOT="$(section_flat "$SKILL" 'Copilot review')"
+  printf '%s\n' "$COPILOT" | grep -qF 'default for every pull request'
+  printf '%s\n' "$COPILOT" | grep -qF 'skip it only when the user explicitly asked to'
+}
+
+@test "skill never requests a reviewer at creation" {
+  OPEN_PR="$(section_flat "$SKILL" 'Open the PR')"
+  # A rejected reviewer aborts creation, so the flag must not be on it.
+  printf '%s\n' "$OPEN_PR" | grep -qF 'No `--reviewer` here'
+  ! printf '%s\n' "$OPEN_PR" | grep -qF -- '--reviewer @copilot'
+}
+
+@test "skill requests Copilot after creation and verifies it" {
+  COPILOT_DEFAULT="$(section_flat "$SKILL" 'Copilot review')"
+  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 'default for every pull request'
+  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF -- 'gh pr edit <url>'
+  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF -- '--add-reviewer @copilot'
+  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 'review_requested'
+}
+
+@test "skill pages the verification and re-checks after the fallback" {
+  COPILOT_DEFAULT="$(section_flat "$SKILL" 'Copilot review')"
+  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF -- '--paginate'
+  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 're-read the timeline'
+}
+
+@test "command creates without a reviewer and requests Copilot afterwards" {
+  local cmd="$MODULE_DIR/commands/gh-create-pr.md"
+  grep -qF 'Copilot review is requested by default' "$cmd"
+  ! grep -qF -- '--reviewer @copilot' "$cmd"
+  grep -qF -- 'gh pr edit <url> --add-reviewer @copilot' "$cmd"
+  grep -qF 'requested by default after the PR exists' "$cmd"
+  grep -qF 'only when the user explicitly asked to' "$cmd"
+  grep -qF 'Do not pass `--reviewer` to `gh pr create`' "$cmd"
 }

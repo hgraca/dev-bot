@@ -22,7 +22,9 @@ If no branch is given, use the current branch.
      `ABC-123`), offer it as the default.
    - **Assignee** — set the user as the PR assignee?
    - **State** — ready for review, or draft?
-   - **Copilot reviewer** — request GitHub Copilot as a reviewer?
+
+   Copilot review is requested by default after the PR exists (step 6) — do not ask about it. Skip
+   that request only when the user explicitly asked to.
 
    Use the harness's question tool when it has one; otherwise ask in plain text.
 
@@ -30,18 +32,27 @@ If no branch is given, use the current branch.
 5. Show the user exactly what will happen — base branch, head branch, title, body, ready/draft,
    assignee, reviewers, and whether the branch will be pushed — and **wait for explicit approval**.
 6. On approval: push the branch if it has no upstream (`git push -u origin <branch>`), then create
-   the PR:
+   the PR **without** a reviewer — a rejected reviewer aborts creation:
 
    ```bash
    gh pr create --base <default> --head <branch> --title '<title>' --body '<body>' \
-     [--draft] [--assignee @me] [--reviewer @copilot]
+     [--draft] [--assignee @me]
    ```
 
-7. Print the PR URL. When Copilot was requested, confirm the request registered first — the CLI can
-   exit 0 without queuing it (see the skill's Copilot review section).
+   Then request Copilot, unless the user explicitly asked to skip it:
+
+   ```bash
+   gh pr edit <url> --add-reviewer @copilot
+   ```
+
+7. Print the PR URL. When Copilot was requested, confirm it registered — the CLI can exit 0 without
+   queuing it, so check for a `review_requested` event in the PR timeline (see the skill's Copilot
+   review section). A failed request does not invalidate the PR.
 
 ## Must not
 
 - Do not create the PR before the user approves the plan.
 - Do not force-push — it is blocked, and the pre-merge squash is published by the human
   (`devbot:git-fixup-commits`).
+- Do not pass `--reviewer` to `gh pr create` — a rejected reviewer aborts creation.
+- Do not omit the Copilot reviewer request unless the user explicitly asked to skip it.

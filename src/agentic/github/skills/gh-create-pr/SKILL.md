@@ -78,13 +78,13 @@ gh pr create \
   --title '<title>' \
   --body '<body>' \
   [--draft] \
-  [--assignee @me] \
-  [--reviewer @copilot]
+  [--assignee @me]
 ```
 
 - `--draft` when the PR is not ready for review.
 - `--assignee @me` when the user should be the assignee.
-- `--reviewer @copilot` when Copilot should review — the CLI's special reviewer value, not a login.
+- **No `--reviewer` here.** A rejected reviewer aborts creation, leaving no PR to repair; Copilot is
+  requested after the PR exists (see [Copilot review](#copilot-review)).
 
 Print the PR URL that `gh pr create` returns.
 
@@ -105,12 +105,41 @@ that does not exist yet has no URL — name the branch instead.
 
 ## Copilot review
 
-`--reviewer @copilot` requests GitHub Copilot code review at creation; it is the CLI's special
-reviewer value, not a login. The CLI can exit 0 without registering the request, so confirm the
-`review_requested` event in the PR timeline and fall back to the loop's GraphQL request when it is
-absent (`devbot:auto-dev`). Copilot's effort level is selected in the PR's Reviewers panel, not the
-CLI — select Lite when the review should run at that level. Iterating on the review is not this
-skill's job; the loop lives in `devbot:auto-dev`.
+Requesting Copilot's review is the **default for every pull request**: skip it only when the user
+explicitly asked to. Request it **after** the PR exists — never as a `gh pr create` flag, because a
+rejected reviewer makes `gh` abort creation (`could not request reviewer: '@copilot' not found`) and
+leaves no PR to repair:
+
+```bash
+gh pr edit <url> [--repo <owner-slug>] --add-reviewer @copilot
+```
+
+Confirm the request actually registered: `gh pr edit` can exit 0 without queuing it, and
+`--json reviewRequests` does not list bot reviewers, so the signal is a `review_requested` event
+whose reviewer is `Copilot` in the PR timeline. Page through it — the event can be past the first
+page:
+
+```bash
+gh api --paginate repos/<owner>/<repo>/issues/<number>/timeline \
+  --jq '.[] | select(.event=="review_requested" and .requested_reviewer.login=="Copilot") | .created_at' \
+  | tail -1
+```
+
+If it did not register, retry with the GraphQL mutation. Resolve both ids first — a new PR has no
+prior Copilot review to read the bot id from:
+
+```bash
+bot_id="$(gh api 'users/copilot-pull-request-reviewer%5Bbot%5D' --jq .node_id)"
+pr_id="$(gh pr view <url> --json id --jq .id)"
+gh api graphql -f query='mutation($pr: ID!, $bot: ID!) { requestReviews(input: {pullRequestId: $pr, botIds: [$bot]}) { clientMutationId } }' \
+  -f pr="$pr_id" -f bot="$bot_id"
+```
+
+A zero exit from the mutation is not proof the review was queued: re-read the timeline the same way
+and require a `Copilot` `review_requested` event newer than the attempt. If none appears, report the
+failure and carry on — a failed request never blocks the PR. Copilot's effort level is selected in
+the PR's Reviewers panel, not the CLI — select Lite when the review should run at that level.
+Iterating on the review is not this skill's job; the loop lives in `devbot:auto-dev`.
 
 ## Must not
 
@@ -118,3 +147,5 @@ skill's job; the loop lives in `devbot:auto-dev`.
 - Do not force-push — the guards module blocks it. The pre-merge squash is published by the human
   with `--force-with-lease` (see `devbot:git-fixup-commits`).
 - Do not compose the title or body from the branch name alone — read the commits and the diff.
+- Do not pass `--reviewer` to `gh pr create` — a rejected reviewer aborts creation.
+- Do not skip the Copilot review request unless the user explicitly asked to.
