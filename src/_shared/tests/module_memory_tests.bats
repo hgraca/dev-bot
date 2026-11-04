@@ -28,6 +28,7 @@ STUB
     awk '/^_devbot_module_memory_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_write_module_memory\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_remove_legacy_module_memory\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_devbot_remove_module_memory\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
   } >> "${SANDBOX}/src/_shared/functions.sh"
 
   # shellcheck source=/dev/null
@@ -208,5 +209,55 @@ modules_dir() {
 
   assert_success
   assert [ -f "${outside}/graphify.md" ]
+  rm -r "${outside}"
+}
+
+@test "module removal deletes the generated file" {
+  mkdir -p "$(modules_dir)"
+  printf '# old\n' > "$(modules_dir)/aws-agent-rules.md"
+
+  run _devbot_remove_module_memory "${PROJECT}" "aws-agent-rules.md"
+
+  assert_success
+  assert [ ! -e "$(modules_dir)/aws-agent-rules.md" ]
+}
+
+@test "module removal leaves a directory at the path alone" {
+  mkdir -p "$(modules_dir)/aws-agent-rules.md"
+
+  run _devbot_remove_module_memory "${PROJECT}" "aws-agent-rules.md"
+
+  assert_success
+  assert [ -d "$(modules_dir)/aws-agent-rules.md" ]
+}
+
+@test "module removal refuses a symlinked modules folder" {
+  local outside
+  outside="$(mktemp -d)"
+  printf '# old\n' > "${outside}/aws-agent-rules.md"
+  mkdir -p "${PROJECT}/.agents/memory/active"
+  ln -s "${outside}" "${PROJECT}/.agents/memory/active/modules"
+
+  run _devbot_remove_module_memory "${PROJECT}" "aws-agent-rules.md"
+
+  assert_success
+  assert_output --partial "is a symlink"
+  assert [ -f "${outside}/aws-agent-rules.md" ]
+  rm -r "${outside}"
+}
+
+@test "module removal unlinks a symlink without touching its target" {
+  local outside
+  outside="$(mktemp -d)"
+  printf 'untouched\n' > "${outside}/victim.md"
+  mkdir -p "$(modules_dir)"
+  ln -s "${outside}/victim.md" "$(modules_dir)/aws-agent-rules.md"
+
+  run _devbot_remove_module_memory "${PROJECT}" "aws-agent-rules.md"
+
+  assert_success
+  assert [ ! -e "$(modules_dir)/aws-agent-rules.md" ]
+  run cat "${outside}/victim.md"
+  assert_output "untouched"
   rm -r "${outside}"
 }

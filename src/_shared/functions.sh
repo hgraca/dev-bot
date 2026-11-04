@@ -333,6 +333,23 @@ _devbot_remove_legacy_module_memory() {
   rm -f -- "${legacy}"
 }
 
+# _devbot_remove_module_memory <project_dir> <file-name>
+#   Delete a module's generated memory file. A directory is not ours to remove,
+#   and `rm -f` on a symlink removes the link, never its target.
+_devbot_remove_module_memory() {
+  local project_dir="$1"
+  local name="$2"
+  local modules_dir dest
+
+  modules_dir="$(_devbot_module_memory_path "${project_dir}" modules)" || return 0
+
+  dest="${modules_dir}/${name}"
+  if [[ -d "${dest}" && ! -L "${dest}" ]]; then
+    return 0
+  fi
+  rm -f -- "${dest}"
+}
+
 # ── Supervisor / cross-project resolution ──────────────────────────────────────
 #
 # _devbot_resolve_project_for_path <path> [default_dir]

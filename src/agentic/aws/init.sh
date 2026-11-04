@@ -185,6 +185,35 @@ _aws_prune() {
   done
 }
 
+# ── module memory ─────────────────────────────────────────────────────────────
+
+# One file: our rule, then AWS's rules when fetched.
+# Two files would leave the CLI fallback live.
+_write_memory() {
+  local rules_src="${DEV_BOT_ROOT}/storage/aws/rules/aws-agent-rules.md"
+  local tmp rc=0
+
+  # A rules-only file would let the CLI fallback stand uncontradicted.
+  if [[ ! -f "${MODULE_DIR}/aws.md" ]]; then
+    _warn "aws — ${MODULE_DIR}/aws.md is missing; module memory not written"
+    return 1
+  fi
+
+  tmp="$(mktemp "${TMPDIR:-/tmp}/devbot-aws-memory.XXXXXX")"
+  cat "${MODULE_DIR}/aws.md" > "${tmp}"
+  if [[ -f "${rules_src}" ]]; then
+    printf '\n' >> "${tmp}"
+    cat "${rules_src}" >> "${tmp}"
+  else
+    _warn "AWS rules not found at ${rules_src} — run 'devbot install' first"
+  fi
+  # mktemp is 600; a memory file has to be readable by the harness user.
+  chmod 644 "${tmp}"
+  _devbot_write_module_memory "${PROJECT_DIR}" "aws.md" "${tmp}" || rc=$?
+  rm -f -- "${tmp}"
+  return "${rc}"
+}
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 main() {
@@ -204,9 +233,15 @@ main() {
     _log "Linked .claude/${LAUNCHER_NAME}"
   fi
 
-  local selected declared name
+  local selected declared name wired=0 mcp_available=0
   selected="$(_aws_selected)"
   declared="$(_aws_declared)"
+
+  # The memory file says the MCP servers are the way in, so it may only be
+  # written when at least one harness can start them.
+  if ! _aws_harness_disabled opencode || ! _aws_harness_disabled claudecode; then
+    mcp_available=1
+  fi
 
   for name in ${selected}; do
     if ! _aws_valid_name "${name}"; then
@@ -233,6 +268,7 @@ main() {
         continue
       fi
       _aws_write_manifests "${name}"
+      wired=1
       _ok "aws — ${PREFIX}${name} -> aws-mcp-proxy.sh ${name}"
     done
   fi
@@ -246,24 +282,23 @@ main() {
     _aws_prune "${PROJECT_DIR}/.claude" "${selected}"
   fi
 
-  # ── AWS agent rules into the project's memory vault ─────────────────────────
-  # Only when the module is enabled for this project. Module memory lives under
-  # active/modules/, which init keeps out of the project's history and reinit
-  # clears before every module rewrites its own file.
+  # ── AWS agent memory ─────────────────────────────────────────────────────────
+  # One memory file, only when a server is wired:
+  # it says use the MCP, so it must not claim none.
+  # The pre-`active/modules/` copy is a cleanup, never a second source.
+  _devbot_remove_legacy_module_memory "${PROJECT_DIR}" "aws-agent-rules.md"
+  _devbot_remove_module_memory "${PROJECT_DIR}" "aws-agent-rules.md"
+
   if _aws_module_disabled; then
-    _skip "aws — module disabled for this project; aws-agent-rules.md not written"
-  else
-    local rules_src="${DEV_BOT_ROOT}/storage/aws/rules/aws-agent-rules.md"
-
-    # The pre-modules location: leaving it behind would load the same text twice.
-    # Cleared before the copy so an unavailable source does not leave it active.
-    _devbot_remove_legacy_module_memory "${PROJECT_DIR}" "aws-agent-rules.md"
-
-    if _devbot_write_module_memory "${PROJECT_DIR}" "aws-agent-rules.md" "${rules_src}"; then
-      _log "Copied aws-agent-rules.md → $(_devbot_get_project_dir "${PROJECT_DIR}")/memory/active/modules/aws-agent-rules.md"
-    else
-      _warn "AWS rules not found at ${rules_src} — run 'devbot install' first"
+    _devbot_remove_module_memory "${PROJECT_DIR}" "aws.md"
+    _skip "aws — module disabled for this project; aws.md not written"
+  elif [[ "${wired}" -eq 1 && "${mcp_available}" -eq 1 ]]; then
+    if _write_memory; then
+      _log "Wrote aws.md → $(_devbot_get_project_dir "${PROJECT_DIR}")/memory/active/modules/aws.md"
     fi
+  else
+    _devbot_remove_module_memory "${PROJECT_DIR}" "aws.md"
+    _skip "aws — no connection wired; aws.md not written"
   fi
 
   _notice "AWS connections are declared in .devbot.global.jsonc → aws_connections."

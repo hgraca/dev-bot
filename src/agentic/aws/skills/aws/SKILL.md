@@ -9,7 +9,7 @@ This module wires the Agent Toolkit for AWS into dev-bot. It provides three thin
 
 1. **AWS MCP servers** (`aws-<connection>`) — the full AWS API surface reached through sandboxed script execution, plus real-time docs search. One server per configured **connection**.
 2. **AWS skills** — curated packages installed from `aws/agent-toolkit-for-aws` (see `.agents/skills/agent-toolkit-for-aws/`).
-3. **AWS agent rules** — guidance in `.agents/memory/active/modules/aws-agent-rules.md`.
+3. **AWS agent memory** — `.agents/memory/active/modules/aws.md`: use the MCP servers, never the `aws` CLI, plus AWS's own agent rules.
 
 ## Connections
 
@@ -62,8 +62,8 @@ A connection's `region` sets the default region for its operations. When it is a
 | --------------------------------------------------------------------------- | -------------------------------------------------------- |
 | Inspect or manage AWS resources, run sandboxed scripts, search AWS docs     | **AWS MCP server** (`aws-<connection>` tools)            |
 | Service-specific guidance (CDK, serverless, containers, billing, SDK usage) | **AWS skills** (`.agents/skills/agent-toolkit-for-aws/`) |
-| One-off CLI commands and identity checks                                    | **AWS CLI** (`aws ...`)                                  |
-| Before acting, confirm the rule about the MCP server / discovering skills   | **aws-agent-rules.md**                                   |
+| One-off commands and identity checks                                        | **AWS MCP server** — never the `aws` CLI                 |
+| Before acting, confirm the MCP-only rule and how to discover skills         | **aws.md**                                               |
 
 ## Troubleshooting
 

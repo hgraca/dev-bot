@@ -181,6 +181,9 @@ file per module, never a section hand-copied into the project's `project.md`.
 - Write the file before any environment-dependent early return in `init.sh` —
   the instructions describe the module, not the state of the machine, so an
   unreachable dependency must not drop them.
+- A file that asserts a capability may be written only when that capability is
+  actually wired for the project; otherwise it would instruct the agent to use
+  something that does not exist.
 - Keep the text static. Anything that varies per project belongs in
   `project.md`; anything that varies per machine belongs in the module's
   `docs.md` or skill.

@@ -201,12 +201,96 @@ print('OK')
   assert [ ! -f "$TMP/proj/.claude/aws-dev.mcp.json" ]
 }
 
-@test "init.sh: copies the AWS agent rules into the module memory folder" {
+# ── init.sh — module memory ───────────────────────────────────────────────────
+#
+# One file, written only when a connection is actually wired: the rule in it is
+# to use the wired servers instead of the CLI, so it must not claim a project
+# that wired none.
+
+@test "init.sh: writes one aws.md holding the project rule and the AWS rules" {
   _aws_seed_project
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
   assert_success
-  run cat "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md"
-  assert_output "# aws rules"
+
+  local memory="$TMP/proj/.agents/memory/active/modules/aws.md"
+  run cat "${memory}"
+  assert_output --partial "# AWS access in this project"
+  assert_output --partial "aws-<connection>"
+  assert_output --partial "# aws rules"
+
+  # The project rule must be read before the upstream fallback it overrides.
+  local head_line rules_line
+  head_line="$(grep -n '^# AWS access in this project' "${memory}" | cut -d: -f1)"
+  rules_line="$(grep -n '^# aws rules' "${memory}" | cut -d: -f1)"
+  [ "${head_line}" -lt "${rules_line}" ] \
+    || fail "project rule must precede the AWS rules (${head_line} vs ${rules_line})"
+}
+
+@test "init.sh: writes no memory when no connection is selected" {
+  _aws_seed_project
+  echo '{}' > "$TMP/proj/.devbot.project.jsonc"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+  assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws.md" ]
+}
+
+@test "init.sh: writes no memory when the only selected connection is undeclared" {
+  _aws_seed_project
+  echo '{"aws_connections": ["ghost"]}' > "$TMP/proj/.devbot.project.jsonc"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+  assert_output --partial "not declared"
+  assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws.md" ]
+}
+
+@test "init.sh: writes no memory when every harness is disabled" {
+  _aws_seed_project
+  echo '{"aws_connections": ["prod"], "modules": {"opencode": false, "claudecode": false}}' \
+    > "$TMP/proj/.devbot.project.jsonc"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+  assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws.md" ]
+}
+
+@test "init.sh: writes memory when only claudecode is enabled" {
+  _aws_seed_project
+  echo '{"aws_connections": ["prod"], "modules": {"opencode": false}}' \
+    > "$TMP/proj/.devbot.project.jsonc"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+  assert [ -f "$TMP/proj/.claude/aws-prod.mcp.json" ]
+  assert [ -f "$TMP/proj/.agents/memory/active/modules/aws.md" ]
+}
+
+@test "init.sh: writes no memory when the module is disabled for the project" {
+  _aws_seed_project
+  echo '{"aws_connections": ["prod"], "modules": {"aws": false}}' \
+    > "$TMP/proj/.devbot.project.jsonc"
+  # A file from an earlier init must not survive the module being disabled.
+  mkdir -p "$TMP/proj/.agents/memory/active/modules"
+  printf '# stale\n' > "$TMP/proj/.agents/memory/active/modules/aws.md"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  assert_success
+  assert_output --partial "module disabled for this project"
+
+  assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws.md" ]
+}
+
+@test "init.sh: removes the superseded aws-agent-rules.md from module memory" {
+  _aws_seed_project
+  mkdir -p "$TMP/proj/.agents/memory/active/modules"
+  printf '# old rules\n' > "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+
+  assert_success
+  assert [ -f "$TMP/proj/.agents/memory/active/modules/aws.md" ]
+  assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md" ]
 }
 
 @test "init.sh: removes the pre-modules rules file" {
@@ -218,40 +302,57 @@ print('OK')
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
 
   assert_success
-  assert [ -f "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md" ]
+  assert [ -f "$TMP/proj/.agents/memory/active/modules/aws.md" ]
   assert [ ! -e "$TMP/proj/.agents/memory/active/aws-agent-rules.md" ]
 }
 
-@test "init.sh: writes no rules when the module is disabled for the project" {
+@test "init.sh: clears a stale aws.md when the project stops opting in" {
   _aws_seed_project
-  echo '{"modules": {"aws": false}}' > "$TMP/proj/.devbot.project.jsonc"
+  mkdir -p "$TMP/proj/.agents/memory/active/modules"
+  printf '# stale\n' > "$TMP/proj/.agents/memory/active/modules/aws.md"
+  echo '{}' > "$TMP/proj/.devbot.project.jsonc"
 
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
   assert_success
-  assert_output --partial "module disabled for this project"
-
-  assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md" ]
+  assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws.md" ]
 }
 
-@test "init.sh: does not write through a symlinked rules file" {
+@test "init.sh: does not write through a symlinked aws.md" {
   _aws_seed_project
   local outside
   outside="$(mktemp -d)"
   printf 'untouched\n' > "${outside}/victim.md"
   mkdir -p "$TMP/proj/.agents/memory/active/modules"
-  ln -s "${outside}/victim.md" "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md"
+  ln -s "${outside}/victim.md" "$TMP/proj/.agents/memory/active/modules/aws.md"
 
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
 
   assert_success
   run cat "${outside}/victim.md"
   assert_output "untouched"
-  run cat "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md"
-  assert_output "# aws rules"
+  run cat "$TMP/proj/.agents/memory/active/modules/aws.md"
+  assert_output --partial "# AWS access in this project"
+  assert_output --partial "# aws rules"
   rm -r "${outside}"
 }
 
-@test "init.sh: removes the pre-modules rules file when the source is missing" {
+@test "init.sh: writes no memory when its own rule file is missing" {
+  # A rules-only file would let the CLI fallback stand uncontradicted, so the
+  # write is refused entirely. A copied module tree keeps this off the source.
+  _aws_seed_project
+  mkdir -p "$TMP/root/src/agentic/aws" "$TMP/root/src/_shared"
+  cp -r "$MODULE_DIR/." "$TMP/root/src/agentic/aws/"
+  cp -r "$REPO_ROOT/src/_shared/." "$TMP/root/src/_shared/"
+  rm -f "$TMP/root/src/agentic/aws/aws.md"
+
+  run env DEV_BOT_ROOT="$TMP/root" bash "$TMP/root/src/agentic/aws/init.sh" "$TMP/proj"
+
+  assert_success
+  assert_output --partial "aws.md is missing"
+  assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws.md" ]
+}
+
+@test "init.sh: keeps the project rule when the AWS rules source is missing" {
   _aws_seed_project
   rm -f "$TMP/root/storage/aws/rules/aws-agent-rules.md"
   mkdir -p "$TMP/proj/.agents/memory/active"
@@ -262,6 +363,9 @@ print('OK')
   assert_success
   assert_output --partial "AWS rules not found"
   assert [ ! -e "$TMP/proj/.agents/memory/active/aws-agent-rules.md" ]
+
+  run cat "$TMP/proj/.agents/memory/active/modules/aws.md"
+  assert_output --partial "aws-<connection>"
 }
 
 @test "init.sh: a project without git is not an error" {
@@ -270,7 +374,7 @@ print('OK')
 
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
   assert_success
-  assert [ -f "$TMP/proj/.agents/memory/active/modules/aws-agent-rules.md" ]
+  assert [ -f "$TMP/proj/.agents/memory/active/modules/aws.md" ]
 }
 
 @test "init.sh: removes a deselected connection's key from opencode.jsonc" {
