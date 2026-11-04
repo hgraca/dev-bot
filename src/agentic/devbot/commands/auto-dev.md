@@ -64,50 +64,7 @@ Task: $ARGUMENTS
 
 ## Review loop (when the workflow opens a pull request)
 
-The Worktrees workflow's review loop is this one; an interactive run uses it too, pausing at the
-check-ins. Run it until a review introduces no new findings.
-
-- **Request** Record a timeline cursor before requesting —
-  `since="$(gh api repos/<owner>/<repo>/issues/<pr>/timeline --paginate --jq '[.[] | select(.event
-== "review_requested" or .event == "copilot_work_started") | .id] | max // 0' | sort -n |
-tail -1)"` — then request Copilot with the CLI's special reviewer value `@copilot` at creation,
-  or `gh pr edit <pr> --add-reviewer @copilot`; a bare `copilot` is not a reviewer. Verify the
-  request registered from the timeline, not the exit status, which is 0 even when the request is
-  dropped: fetch the timeline again and require a `review_requested` for a
-  `requested_reviewer.login` of `Copilot`, or a `copilot_work_started`, whose `id` is greater than
-  `$since`. Anything at or below it belongs to an earlier round. When nothing registered, re-record
-  `since` before retrying, then fall back to the GraphQL request: resolve
-  `BOT="$(gh api '/users/copilot-pull-request-reviewer%5Bbot%5D' --jq .node_id)"` and
-  `PR="$(gh pr view <pr> --json id --jq .id)"`, then run
-  `gh api graphql -f query='mutation($pr:ID!,$bot:ID!){ requestReviews(input:{pullRequestId:$pr,
-botIds:[$bot]}) { pullRequest { id } } }' -f pr="$PR" -f bot="$BOT"`, and check the timeline
-  again.
-  Never report a re-request on a zero exit code alone. Re-request explicitly after each push —
-  Copilot does not re-review on its own — but skip the request while a review is still pending,
-  and do not ask for one you have already read.
-- **Lite effort** — neither the CLI nor the API sets it. A request inherits the PR's previous
-  effort, then your personal Copilot setting, then the repository and organization defaults,
-  then the built-in default (Balanced). Select Lite before requesting and re-select it for every
-  request. Copilot records the level in its review body (`**Review effort:**`); if it reports
-  anything else, ask the user to set Lite and re-request before addressing the findings.
-- **Wait** — 1 minute after each request before the first check. If the review has not landed,
-  re-check every 1 minute, for a maximum of 60 checks per request (the first check counts).
-  Then stop and ask the user for instructions.
-- **Read** — fetch all pages (`gh api --paginate`). Select the new review by `submitted_at`,
-  then its bot-authored comments by `pull_request_review_id` — `/comments` has `created_at`, not
-  `submitted_at`. Read **both** the line comments (`.../pulls/<pr>/comments`) and the review
-  body (`.../pulls/<pr>/reviews`); findings live in each.
-- **Checkout** — confirm the checkout is the PR's head branch before editing: an explicit
-  `--head` may differ from the checked-out branch. Work in a clean checkout or worktree of that
-  branch and push explicitly to it.
-- **Fix** — address every finding as per your own recommendation, commit each as a `fixup!`
-  (`devbot:git-fixup-commits`), and push.
-- **Mark** — reply with a succinct resolution comment, then resolve the thread. The reply is one to
-  three bullet points only, each line at most 72 characters (the whole line, including its `- `
-  marker), with no prose around them. A false positive gets the same format, explaining why no change
-  was made. A finding that exists only as a review-body row has no thread: post its resolution as a
-  PR comment in the same format. This posting is the deliberate exception to
-  `devbot:address-review`'s local-only rule.
-- **Track** — follow the underlying issue and affected code across both sources, keeping comment
-  IDs for the replies and resolutions. A re-raised finding already addressed or judged a false
-  positive does not restart the loop.
+The loop is `devbot:gh-review-loop`: load that skill and run it until a review introduces no new
+findings. It carries the request/verify mechanics, the wait cadence, and the read/fix/mark/track
+steps; an interactive run uses the same skill, pausing at its own check-ins. Finish where it says —
+squash the fixups and hand the user the force-push command. Never merge.

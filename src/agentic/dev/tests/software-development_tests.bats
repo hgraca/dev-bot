@@ -115,11 +115,11 @@ setup() {
   done
 }
 
-@test "the review-loop mechanics stay in the command, not the always-loaded skill" {
+@test "the review-loop mechanics stay in devbot:gh-review-loop, not the always-loaded skill" {
   run grep -qF "carries the loop's mechanics" "$FLAT"
   assert_success
 
-  # The poll schedule belongs to devbot:auto-dev.
+  # The poll schedule belongs to devbot:gh-review-loop.
   run grep -qF '60 checks' "$SKILL"
   assert_failure
 

@@ -1,8 +1,8 @@
 ---
 title: "GitHub"
 description: "Create a repository, open a pull request from a branch or work one locally, and scaffold a GitHub Pages docs site."
-commands: ["gh-create-repo", "gh-address-review", "gh-make-review", "gh-create-pr"]
-skills: ["gh-create-repo", "gh-create-pr", "gh-pages"]
+commands: ["gh-create-repo", "gh-address-review", "gh-make-review", "gh-create-pr", "gh-review-loop"]
+skills: ["gh-create-repo", "gh-create-pr", "gh-review-loop", "gh-pages"]
 tools: ["gh-configure-repo"]
 ---
 
@@ -17,6 +17,9 @@ review its changeset, or address the comments it already has.
 - **`gh-create-pr`** — opens a pull request from a branch onto the default branch.
 - **`gh-make-review`** — checks out a PR and code-reviews its changeset locally.
 - **`gh-address-review`** — reads a PR's review comments and addresses them locally.
+- **`gh-review-loop`** — runs the Copilot review loop for a pull request until a review introduces no
+  new findings: request, wait, fix each finding as a fixup, re-request; it finishes by squashing the
+  fixups and handing over the force-push.
 - **`gh-pages`** — scaffolds a Jekyll documentation site deployed to GitHub Pages: a project site, or
   the org-level umbrella that indexes every project's docs site.
 
@@ -28,8 +31,9 @@ with `--apply`, and is idempotent.
 
 `gh-create-repo`, `gh-configure-repo` and `gh-create-pr` are the module's writes to GitHub: creating a
 repository and its ruleset, reconfiguring an existing one, and creating a pull request plus the
-`git push -u origin <branch>` a never-pushed branch needs. The review commands keep their output local
-— no replies, comments or resolutions are ever posted back.
+`git push -u origin <branch>` a never-pushed branch needs. The review commands keep their output
+local — no replies, comments or resolutions are posted back — except in the Copilot loop, where
+marking each finding resolved is the point.
 
 ## Configuration
 

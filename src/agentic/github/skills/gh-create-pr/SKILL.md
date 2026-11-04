@@ -139,7 +139,7 @@ A zero exit from the mutation is not proof the review was queued: re-read the ti
 and require a `Copilot` `review_requested` event newer than the attempt. If none appears, report the
 failure and carry on — a failed request never blocks the PR. Copilot's effort level is selected in
 the PR's Reviewers panel, not the CLI — select Lite when the review should run at that level.
-Iterating on the review is not this skill's job; the loop lives in `devbot:auto-dev`.
+Iterating on the review is not this skill's job; the loop lives in `devbot:gh-review-loop`.
 
 ## Must not
 

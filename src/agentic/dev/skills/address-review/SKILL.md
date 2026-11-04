@@ -60,14 +60,14 @@ commit it fixes, never the fixup — `fixup! fixup! <subject>` cannot be autosqu
 - Collect the user's decisions for all comments in one reply — do not wait for a decision between comments.
 - Defer all implementation until every comment has a decision — never write code or commit mid-discussion.
 - Obtain an explicit decision from the user on each comment, unless the caller granted autonomy explicitly.
-- Keep all actions local — never post replies, comments, or resolutions back to the review source, except in the Copilot loop in `devbot:auto-dev`, which marks its findings.
-- In that Copilot loop, never treat a zero exit code as a registered review request — confirm the `review_requested` event in the PR timeline and use the GraphQL fallback when it is absent (`devbot:auto-dev` carries the mechanics).
+- Keep all actions local — never post replies, comments, or resolutions back to the review source, except in the Copilot loop (`devbot:gh-review-loop`), which marks its findings.
+- In that Copilot loop, never treat a zero exit code as a registered review request — confirm the `review_requested` event in the PR timeline and use the GraphQL fallback when it is absent (`devbot:gh-review-loop` carries the mechanics).
 - In that Copilot loop, reply to each finding with a succinct resolution comment — one to three bullet points only, each line at most 72 characters (the whole line, including its `- ` marker), no prose — and mark its thread resolved; a finding that exists only as a review-body row has no thread, so post its resolution as a PR comment in the same format.
 - Record each independent finding as an atomic fixup commit against the branch commit that introduced the code — keep it atomic, squashable into its target, and traceable. On a feature branch this is required; squash before merging, and never record a fixup on the default branch.
 
 ## MUST NOT
 
-- Post replies, comments, or resolutions back to the review source — all communication is local only, except in the Copilot loop in `devbot:auto-dev`.
+- Post replies, comments, or resolutions back to the review source — all communication is local only, except in the Copilot loop (`devbot:gh-review-loop`).
 - Write code, make commits, or mark issues resolved while any comment is still undecided.
 - Discuss comments one at a time — present them all together in a single round.
 - Skip the explain/assess/propose step for any comment.

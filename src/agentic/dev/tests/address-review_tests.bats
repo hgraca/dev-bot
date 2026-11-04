@@ -28,7 +28,7 @@ setup() {
   assert_success
   run grep -q 'never post replies, comments, or resolutions back to the review source' "$FLAT"
   assert_success
-  run grep -q 'except in the Copilot loop in `devbot:auto-dev`' "$FLAT"
+  run grep -q 'except in the Copilot loop (`devbot:gh-review-loop`)' "$FLAT"
   assert_success
 }
 

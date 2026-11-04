@@ -50,7 +50,7 @@ setup() {
   # The CLI can claim success with no request queued.
   printf '%s\n' "$COPILOT" | grep -qF 'review_requested'
   printf '%s\n' "$COPILOT" | grep -qF 'timeline'
-  printf '%s\n' "$COPILOT" | grep -qF 'devbot:auto-dev'
+  printf '%s\n' "$COPILOT" | grep -qF 'devbot:gh-review-loop'
 }
 
 @test "command sends a requested Copilot review through the verification" {
