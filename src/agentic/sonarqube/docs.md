@@ -79,6 +79,15 @@ window. It is read-only by default; switch to `rw` only if an analysis call
 needs to write there. Disable the mount for very large trees or when the harness
 cwd is not the project root.
 
+The analyzers the server syncs at startup are kept in the named Docker volume
+`devbot-sonarqube-mcp-storage` (mounted at `/app/storage`), so a restart reuses
+them instead of re-downloading. Remove it with
+`docker volume rm devbot-sonarqube-mcp-storage` to force a clean sync.
+
+A cold start — image pull, container boot, analyzer sync — measures 29-46 s,
+past opencode's 30 s default MCP timeout, which reports the enabled server as
+`failed`. The manifest therefore ships `"timeout": 120000`.
+
 The image is pinned in `versions.env` and pulled lazily the first time the MCP
 starts; `devbot update` moves the pin to the newest release. The server needs
 Docker, and the connected SonarQube instance must be 2025.1 / Community Build

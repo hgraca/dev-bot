@@ -62,6 +62,10 @@ Ten servers ship disabled by default — `atlassian`, `chrome-devtools`, `figma`
 
 An `enabled` value in the config is **yours**: `reinit` never reverts it. The module's declared default applies only to an entry that expresses no opinion — so a release newly declaring `enabled` still reaches an existing install, while a server you switched on stays on.
 
+### Slow-starting servers
+
+opencode allows a server 30 s to connect and fetch tools. A container-backed server can exceed that on a cold start — `sonarqube` pulls its image once, boots a JVM and syncs analyzers — and the harness then reports the enabled server as `failed`, not `connected`. Declare `timeout` (milliseconds) in the canonical manifest to raise it: `sonarqube` ships `120000`. opencode applies the same value to tool calls, which suits a long analysis better than the default.
+
 ### Authenticating a server
 
 A server whose canonical manifest omits `oauth` — the two hosted OAuth servers, `atlassian` and `notion` — is authenticated once per machine, from the project directory:
@@ -175,15 +179,16 @@ If the container is not running the server is simply unavailable; there is no st
 }
 ```
 
-| Field     | Required | Meaning                                                                                                                                                                               |
-| --------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`    | yes      | Transport: `stdio` (spawn a local command) or `http` (remote endpoint).                                                                                                               |
-| `command` | stdio    | Uniform argv array launching the server (claudecode splits `argv[0]`/`args`).                                                                                                         |
-| `url`     | http     | Remote MCP endpoint.                                                                                                                                                                  |
-| `oauth`   | http     | Optional `false` to disable opencode's automatic OAuth detection.                                                                                                                     |
-| `enabled` | no       | `false` disables the server: opencode registers it **wired but not started**, claudecode omits it entirely (see [Per-server enablement](#per-server-enablement)). Defaults to `true`. |
-| `headers` | http     | Request headers for a remote server. An `{env:VAR}` token may be **embedded** here (see [Tokens and placeholders](#tokens-and-placeholders)).                                         |
-| `env`     | no       | Environment for the server process — single source of truth for both harnesses.                                                                                                       |
+| Field     | Required | Meaning                                                                                                                                                                                                                                                              |
+| --------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `type`    | yes      | Transport: `stdio` (spawn a local command) or `http` (remote endpoint).                                                                                                                                                                                              |
+| `command` | stdio    | Uniform argv array launching the server (claudecode splits `argv[0]`/`args`).                                                                                                                                                                                        |
+| `url`     | http     | Remote MCP endpoint.                                                                                                                                                                                                                                                 |
+| `oauth`   | http     | Optional `false` to disable opencode's automatic OAuth detection.                                                                                                                                                                                                    |
+| `enabled` | no       | `false` disables the server: opencode registers it **wired but not started**, claudecode omits it entirely (see [Per-server enablement](#per-server-enablement)). Defaults to `true`.                                                                                |
+| `timeout` | no       | Milliseconds opencode may spend connecting and fetching tools, default `30000`. Raise it for a server whose start (image pull, container boot, background sync) outruns the default. Dropped for claudecode, which takes `MCP_TIMEOUT` from the environment instead. |
+| `headers` | http     | Request headers for a remote server. An `{env:VAR}` token may be **embedded** here (see [Tokens and placeholders](#tokens-and-placeholders)).                                                                                                                        |
+| `env`     | no       | Environment for the server process — single source of truth for both harnesses.                                                                                                                                                                                      |
 
 Any other key (e.g. a leftover `environment`) fails translation loudly — a migration safety net. Keys starting with `_` are ignored (annotation convention, as in `hooks.json`).
 
@@ -226,8 +231,9 @@ The notice tells the user to add the vars to their shell profile (`~/.bashrc` or
 | `stdio`   | `{type: local, command, environment}`   | `{type: stdio, command, args, env}`    |
 | `http`    | `{type: remote, url, oauth?, headers?}` | `{type: http, url, headers?, env?}`    |
 | `enabled` | carried when declared                   | disabled servers omitted (key dropped) |
+| `timeout` | carried when declared                   | key dropped (`MCP_TIMEOUT` instead)    |
 
-The canonical `env` block is renamed per harness (`environment` for opencode, `env` for claudecode); placeholders resolve at registration except when comparing templates (below). `enabled` is carried to opencode; for claudecode a disabled server is omitted from `.mcp.json` (the key itself has no equivalent field).
+The canonical `env` block is renamed per harness (`environment` for opencode, `env` for claudecode); placeholders resolve at registration except when comparing templates (below). `enabled` is carried to opencode; for claudecode a disabled server is omitted from `.mcp.json` (the key itself has no equivalent field). `timeout` is carried to opencode only; Claude Code reads its equivalent from `MCP_TIMEOUT`, so writing the key into `.mcp.json` would claim a setting the client ignores.
 
 ### Registration
 
