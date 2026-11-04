@@ -141,6 +141,9 @@ _reset_symlinks_in_dir "${OPENCODE_DIR}"
 # chrome-devtools is listed for the canonical `enabled` field: entries
 # registered before it existed lack the key, so they read as stale and are
 # refreshed — otherwise the server stays enabled forever on existing installs.
+#
+# sonarqube is listed for the canonical `timeout` field: entries registered
+# before it existed lack the key and keep opencode's 30 s startup default.
 OPENCODE_CONFIG="${PROJECT_DIR}/opencode.jsonc"
 if [[ -f "${OPENCODE_CONFIG}" ]]; then
   REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
@@ -151,7 +154,7 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
     # manifest; no module on the refresh list below declares one (qmd, the only
     # one, had its MCP server removed).
     GPU_VALUE="$(_qmd_gpu_value)"
-    REFRESH_MODULES=(codebase-memory mdctx signoz svelte tools-mcp playwright chrome-devtools)
+    REFRESH_MODULES=(codebase-memory mdctx signoz svelte tools-mcp playwright chrome-devtools sonarqube)
     for mod_name in "${REFRESH_MODULES[@]}"; do
       local_tpl="${DEV_BOT_ROOT}/src/agentic/${mod_name}/mcp.json"
       [[ -f "${local_tpl}" ]] || continue

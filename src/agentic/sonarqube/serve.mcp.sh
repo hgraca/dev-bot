@@ -53,6 +53,10 @@ done
 # of receiving their content through the context window. Read-only by default;
 # opt out with SONARQUBE_WORKSPACE_MOUNT=false, or use rw with
 # SONARQUBE_WORKSPACE_MODE=rw if an analysis call needs to write there.
+# Cache analyzers: the sync dominates startup.
+# Without it, every launch re-downloads plugins.
+STORAGE_ARGS=(-v "devbot-sonarqube-mcp-storage:/app/storage")
+
 MOUNT_ARGS=()
 if [[ "${SONARQUBE_WORKSPACE_MOUNT:-true}" != "false" && -d "${PWD}" ]]; then
   case "${SONARQUBE_WORKSPACE_MODE:-ro}" in
@@ -64,4 +68,4 @@ fi
 
 # ${arr[@]+...} keeps an empty MOUNT_ARGS safe under set -u on bash 3.2
 # (macOS /bin/bash), where a bare "${arr[@]}" is an unbound-variable error.
-exec docker "${ARGS[@]}" "${ENV_ARGS[@]}" ${MOUNT_ARGS[@]+"${MOUNT_ARGS[@]}"} "${IMAGE}"
+exec docker "${ARGS[@]}" "${ENV_ARGS[@]}" "${STORAGE_ARGS[@]}" ${MOUNT_ARGS[@]+"${MOUNT_ARGS[@]}"} "${IMAGE}"

@@ -132,6 +132,14 @@ JSONC_EOF
   done
 }
 
+@test "sonarqube is on the stale-refresh list (canonical timeout key is new)" {
+  # Existing opencode.jsonc entries predate the `timeout` key, so they read as
+  # stale and must be dropped for init to re-register them with it.
+  run grep -E '^[[:space:]]*REFRESH_MODULES=\(' "${RESET_SCRIPT}"
+  assert_success
+  [[ "$output" == *"sonarqube"* ]] || fail "sonarqube missing from REFRESH_MODULES: $output"
+}
+
 @test "enabled: removes devbot-tools AND the retired qmd MCP key" {
   _write_project_config enabled
   _create_opencode_dir

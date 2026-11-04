@@ -3,6 +3,7 @@
     "sonarqube": {
       "type": "stdio",
       "enabled": false,
+      "timeout": 120000,
       "command": [
         "bash",
         "-c",

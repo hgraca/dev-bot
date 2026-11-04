@@ -37,6 +37,19 @@ print('MCP:OK')
   grep -qF 'MCP:OK' <<< "$output" || fail "canonical mcp.json shape wrong"
 }
 
+@test "the manifest raises the MCP startup timeout above opencode's 30 s default" {
+  # Container boot plus analyzer sync measured at 29-46 s, so the default
+  # startup timeout reports the enabled server as failed.
+  run python3 -c "
+import json
+m = json.load(open('${MODULE_DIR}/mcp.json'))['mcp']['sonarqube']
+assert m.get('timeout') == 120000, m
+print('TIMEOUT:OK')
+"
+  assert_success
+  grep -qF 'TIMEOUT:OK' <<< "$output" || fail "manifest startup timeout wrong"
+}
+
 @test "the manifest translates for both harnesses" {
   local tool="${PROJECT_ROOT}/src/_shared/mcp_translate.py"
 
@@ -107,6 +120,27 @@ MOCK
   refute grep -Fxq -- 'SONARQUBE_ORG' <<< "$output"
   grep -Fq -- '/app/mcp-workspace:ro' <<< "$output" || fail "workspace mount missing"
   grep -Fq -- 'sonarsource/sonarqube-mcp:' <<< "$output" || fail "image missing"
+
+  rm -rf "${mockbin}"
+}
+
+@test "serve.mcp.sh persists the analyzer cache in a named volume" {
+  # Without a persistent volume the server re-downloads its analyzers on every
+  # start — the dominant cost of the cold start it must fit inside `timeout`.
+  local mockbin
+  mockbin="$(mktemp -d)"
+  cat > "${mockbin}/docker" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$@"
+MOCK
+  chmod +x "${mockbin}/docker"
+
+  run env PATH="${mockbin}:${PATH}" SONARQUBE_TOKEN=tok \
+    bash -c "cd '${MODULE_DIR}' && '${MODULE_DIR}/serve.mcp.sh'"
+
+  assert_success
+  grep -Fq -- 'devbot-sonarqube-mcp-storage:/app/storage' <<< "$output" \
+    || fail "persistent analyzer volume missing"
 
   rm -rf "${mockbin}"
 }
