@@ -879,6 +879,88 @@ except OSError:
 ' "$1" "$2" 2>/dev/null
 }
 
+# Sparse checkout: a module is consumed only through its declared paths.
+# `set --no-cone` needs git 2.35; older gits keep the full tree.
+_external_module_sparse_supported() {
+    git version 2>/dev/null | awk '{
+        split($3, v, ".")
+        if (v[1] > 2 || (v[1] == 2 && v[2] >= 35)) exit 0
+        exit 1
+    }'
+}
+
+# Pathspecs a set of paths maps declare: configured directories, file-map source
+# files, and the root lifecycle scripts. Args: paths-map JSON strings.
+_external_module_sparse_patterns() {
+    python3 - "$@" <<'PY'
+import json, sys
+
+seen = []
+for raw in sys.argv[1:]:
+    try:
+        paths = json.loads(raw)
+    except Exception:
+        continue
+    if not isinstance(paths, dict):
+        continue
+    for value in paths.values():
+        if isinstance(value, str):
+            sources = [value]
+        elif isinstance(value, dict):
+            sources = list(value)
+        else:
+            sources = []
+        for source in sources:
+            if source and source not in seen:
+                seen.append(source)
+
+for name in (
+    "functions.sh",
+    "pre.sh",
+    "install.sh",
+    "update.sh",
+    "up.sh",
+    "down.sh",
+    "init.sh",
+    "reset.sh",
+    "uninstall.sh",
+):
+    if name not in seen:
+        seen.append(name)
+
+# Anchored, so a declared name cannot also match a same-named nested path.
+print("\n".join("/" + p.lstrip("/") for p in seen))
+PY
+}
+
+# Restrict <dir> to the paths it is linked from. Args: dir, then paths-map JSON
+# strings. Falls back to a full checkout, so callers never lose a declared path.
+_external_module_sparse_set() {
+    local dir="$1"
+    shift
+
+    _external_module_sparse_supported || return 0
+
+    local patterns_out
+    patterns_out="$(_external_module_sparse_patterns "$@" 2>/dev/null || true)"
+    [[ -n "${patterns_out}" ]] || return 0
+
+    local -a patterns=()
+    local line
+    while IFS= read -r line; do
+        [[ -n "${line}" ]] && patterns+=("${line}")
+    done <<< "${patterns_out}"
+
+    local cap
+    cap="$(_external_module_fetch_timeout)"
+
+    # Guarded like every other git call: a partial clone fetches blobs here.
+    if ! _external_module_git_network "${cap}" git -C "${dir}" sparse-checkout set --no-cone "${patterns[@]}" >/dev/null 2>&1; then
+        _warn "sparse checkout failed — falling back to the full tree in ${dir}"
+        _external_module_git_network "${cap}" git -C "${dir}" sparse-checkout disable >/dev/null 2>&1 || true
+    fi
+}
+
 # Clone or update a single git-sourced external module.
 # Args:
 #   $1  name        — module display name
@@ -911,6 +993,14 @@ _install_one_module() {
             return 1
         fi
     done <<< "${paths_json}"$'\n'"${alias_paths}"
+
+    # Maps whose paths define the sparse checkout — this entry plus any alias
+    # sharing the same clone.
+    local -a sparse_maps=("${paths_json}")
+    local alias_map
+    while IFS= read -r alias_map; do
+        [[ -n "${alias_map}" ]] && sparse_maps+=("${alias_map}")
+    done <<< "${alias_paths}"
 
     local cap
     cap="$(_external_module_fetch_timeout)"
@@ -953,10 +1043,14 @@ _install_one_module() {
             return 1
         fi
 
-        if ! git -C "${dest}" reset --hard "origin/${branch}" >/dev/null 2>&1; then
+        # Guarded: a partial clone can fetch the reset's blobs here.
+        if ! _external_module_git_network "${cap}" git -C "${dest}" reset --hard "origin/${branch}" >/dev/null 2>&1; then
             _warn "Failed to update ${name}"
             return 1
         fi
+        # Applied on every update, so a checkout installed before sparse
+        # support existed is narrowed once and stays that way.
+        _external_module_sparse_set "${dest}" "${sparse_maps[@]}"
         _ok "${name} updated"
     else
         _info "Installing ${name} ..."
@@ -973,7 +1067,11 @@ _install_one_module() {
         # Name-free template: the module name is config input and must never
         # shape a filesystem path on its own.
         tmp_dest="$(mktemp -d "${parent}/.clone.XXXXXX")"
-        if _external_module_git_network "${cap}" git clone --depth 1 "${url}" "${tmp_dest}" >/dev/null 2>&1; then
+        local -a clone_flags=(--depth 1)
+        if _external_module_sparse_supported; then
+            clone_flags+=(--filter=blob:none --sparse)
+        fi
+        if _external_module_git_network "${cap}" git clone "${clone_flags[@]}" "${url}" "${tmp_dest}" >/dev/null 2>&1; then
             # Same validation for a first install: there is no legacy version to
             # keep, so a repository without the configured paths is refused.
             local missing
@@ -988,6 +1086,9 @@ _install_one_module() {
                 rm -r "${tmp_dest}" 2>/dev/null || true
                 return 1
             fi
+            # Materialize only the declared paths; a failure here falls back to
+            # the full tree inside the helper.
+            _external_module_sparse_set "${tmp_dest}" "${sparse_maps[@]}"
             # Both steps are checked explicitly: this function runs as an `if`
             # condition, where `set -e` is suspended, so an unchecked failure
             # would still report a successful install with no checkout.

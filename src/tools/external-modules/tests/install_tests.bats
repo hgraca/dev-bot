@@ -211,3 +211,72 @@ remove_upstream() {
   assert_output --partial "invalid module name"
   [ ! -e "${SANDBOX}/escape" ]
 }
+
+# ── sparse checkout ───────────────────────────────────────────────────────────
+
+# Sparse checkout needs git >= 2.35 (--no-cone); older gits keep a full tree.
+_sparse_git() {
+  git version | awk '{ split($3, v, "."); exit !(v[1] > 2 || (v[1] == 2 && v[2] >= 35)) }'
+}
+
+@test "install: materializes only the declared paths" {
+  _sparse_git || skip "git sparse-checkout unavailable (< 2.25)"
+
+  run bash "${INSTALL}"
+  assert_success
+
+  [ -f "${DEST}/skills/SKILL.md" ]
+  [ ! -e "${DEST}/agents/AGENT.md" ]
+  run git -C "${DEST}" config --get core.sparseCheckout
+  assert_output "true"
+  run git -C "${DEST}" rev-parse --is-shallow-repository
+  assert_output "true"
+}
+
+@test "install: an updated checkout stays sparse" {
+  _sparse_git || skip "git sparse-checkout unavailable (< 2.25)"
+
+  run bash "${INSTALL}"
+  assert_success
+
+  printf 'v2\n' > "${SEED}/skills/SKILL.md"
+  git -C "${SEED}" commit -qam "v2"
+  git -C "${SEED}" push -q origin main
+
+  run bash "${INSTALL}"
+  assert_success
+
+  [ "$(cat "${DEST}/skills/SKILL.md")" = "v2" ]
+  [ ! -e "${DEST}/agents/AGENT.md" ]
+}
+
+@test "install: narrows a legacy full checkout on update" {
+  _sparse_git || skip "git sparse-checkout unavailable (< 2.25)"
+
+  run bash "${INSTALL}"
+  assert_success
+
+  # Simulate an install made before sparse support: the full tree is present.
+  git -C "${DEST}" sparse-checkout disable
+  [ -e "${DEST}/agents/AGENT.md" ]
+
+  printf 'v2\n' > "${SEED}/skills/SKILL.md"
+  git -C "${SEED}" commit -qam "v2"
+  git -C "${SEED}" push -q origin main
+
+  run bash "${INSTALL}"
+  assert_success
+
+  [ ! -e "${DEST}/agents/AGENT.md" ]
+}
+
+@test "install: a file-map entry stays materialized under sparse checkout" {
+  _sparse_git || skip "git sparse-checkout unavailable (< 2.25)"
+  write_config '{"external_modules":{"mod1":{"url":"'"${URL}"'","paths":{"skills":"skills","agents":{"agents/AGENT.md":"AGENT.md"}}}}}'
+
+  run bash "${INSTALL}"
+  assert_success
+
+  [ -f "${DEST}/agents/AGENT.md" ]
+  [ -f "${DEST}/skills/SKILL.md" ]
+}

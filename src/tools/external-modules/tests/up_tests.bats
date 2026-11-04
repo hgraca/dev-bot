@@ -1327,3 +1327,44 @@ EOF
   assert_output --partial "1 failed"
   [ ! -f "${DEVROOT}/storage/run/external-modules.checked" ]
 }
+
+# ── sparse checkout (config edits with an unchanged remote) ──────────────────
+
+_sparse_git() {
+  git version | awk '{ split($3, v, "."); exit !(v[1] > 2 || (v[1] == 2 && v[2] >= 35)) }'
+}
+
+@test "up: materializes a path a config edit adds, with the remote unchanged" {
+  _sparse_git || skip "git sparse-checkout unavailable (< 2.35)"
+
+  run env -u DEV_BOT_EXTERNAL_MODULES_CHECK_INTERVAL bash "${SCRIPT}"
+  assert_success
+  [ ! -e "${DEST}/agents" ]
+
+  write_config '{"external_modules":{"mod1":{"url":"'"${URL}"'","paths":{"skills":"skills","agents":"agents"}}}}'
+
+  run env -u DEV_BOT_EXTERNAL_MODULES_CHECK_INTERVAL bash "${SCRIPT}"
+  assert_success
+
+  [ -f "${DEST}/agents/AGENT.md" ]
+  [ -L "${STORAGE}/agents" ]
+}
+
+@test "up: a config edit materializes every co-tenant's added paths" {
+  _sparse_git || skip "git sparse-checkout unavailable (< 2.35)"
+
+  run env -u DEV_BOT_EXTERNAL_MODULES_CHECK_INTERVAL bash "${SCRIPT}"
+  assert_success
+  [ ! -e "${DEST}/agents" ]
+
+  write_config '{"external_modules":{
+    "mod1":{"url":"'"${URL}"'","paths":{"skills":"skills"}},
+    "mod1-alias":{"url":"'"${URL}"'","paths":{"agents":"agents"}}
+  }}'
+
+  run env -u DEV_BOT_EXTERNAL_MODULES_CHECK_INTERVAL bash "${SCRIPT}"
+  assert_success
+
+  [ -f "${DEST}/agents/AGENT.md" ]
+  [ -f "${DEST}/skills/SKILL.md" ]
+}

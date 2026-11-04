@@ -210,6 +210,8 @@ your-module/
   install.sh   # optional lifecycle scripts: pre/install/update/up/down/init/reset.sh
 ```
 
+Only the configured `paths`, their file-mapping sources, and the root lifecycle scripts are checked out — the clone is sparse (git ≥ 2.35; older gits keep the full tree). A lifecycle script that reads another root file (`package.json`, `scripts/…`) must declare that file as a path mapping.
+
 ### Register it
 
 **From a git URL** (clones into `vendor/`, auto-detects `./skills`, `./agents`, `./commands`, `./plugins`):

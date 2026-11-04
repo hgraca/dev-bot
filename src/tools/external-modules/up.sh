@@ -148,6 +148,7 @@ _sync_destination() {
   local lock_file="${dest}.lock"
   local cap="${DEV_BOT_MODULE_UPDATE_LOCK_WAIT:-120}"
   local updated=0 alias_paths="" render_failed=0
+  local -a sparse_maps=("${first_paths_json}")
 
   # A failed acquire warns and proceeds — that is the helper's contract, and
   # the unguarded behaviour is the fallback.
@@ -167,6 +168,7 @@ _sync_destination() {
     [[ "$(_normalize_remote_url "${entry_url}")" == "$(_normalize_remote_url "${url}")" ]] || continue
     [[ "${entry_paths}" == "${first_paths_json}" ]] && continue
     alias_paths+="${entry_paths}"$'\n'
+    sparse_maps+=("${entry_paths}")
   done <<< "${entries}"
 
   # A module that is not cloned yet is installed here rather than warned
@@ -213,6 +215,11 @@ _sync_destination() {
   # Provision every entry on this destination — the first one's update must
   # reach all of them, under the lock taken above.
   if [[ ${mismatch} -eq 0 && -d "${dest}/.git" ]]; then
+    # A sparse checkout carries only the paths it was last told to. A config
+    # edit can declare a path it was never materialized with, and an unchanged
+    # remote skips the update that would refresh it — so re-narrow here, before
+    # the mirror render reads the tree.
+    _external_module_sparse_set "${dest}" "${sparse_maps[@]}"
     local name entry_url local_path paths_json
     while IFS=$'\x1f' read -r name entry_url local_path paths_json; do
       [[ -z "${name}" ]] && continue
