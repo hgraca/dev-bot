@@ -8,9 +8,10 @@
 #   bin/prune.sh --all|-a [days]        # prune all registered projects
 #   bin/prune.sh --db [days] [--force]  # prune the opencode SQLite DB (machine-wide)
 #
-# `--db` deletes DB rows older than <days> and VACUUMs the file. It is machine
-# global (one DB for every opencode project) and skips when opencode is running
-# unless --force is given. Fired detached by the last devbot session exit.
+# `--db` strips workspace-wide LSP diagnostics from stored session payloads,
+# deletes DB rows older than <days>, and VACUUMs the file. It is machine global
+# (one DB for every opencode project) and skips when opencode is running unless
+# --force is given.
 # =============================================================================
 
 set -euo pipefail
@@ -52,7 +53,7 @@ for arg in "$@"; do
       echo ""
       echo "Options:"
       echo "  --all, -a    Prune all registered projects"
-      echo "  --db         Prune the opencode SQLite DB (machine-wide) and VACUUM it"
+      echo "  --db         Prune the opencode SQLite DB: strip diagnostics bloat, drop aged rows, VACUUM"
       echo "  --force      With --db: prune even when opencode is running"
       echo "  --help, -h   Show this help"
       exit 0
@@ -170,15 +171,24 @@ for s in old:
 # ── Prune the opencode SQLite DB (machine-wide) ────────────────────────────────
 _prune_db() {
   local helper="${DEV_BOT_ROOT}/src/harnesses/opencode/prune_opencode_db.py"
+  local strip_helper="${DEV_BOT_ROOT}/src/harnesses/opencode/strip_opencode_diagnostics.py"
 
   if [[ ! -f "${helper}" ]]; then
     _error "prune helper not found at ${helper}"
     return 1
   fi
 
+  # One helper owns both passes, so the database is VACUUMed exactly once.
+  # Routine maintenance, so no per-run database copy — run the standalone strip
+  # helper with --apply when a backup is wanted.
+  local -a args=()
+  if [[ -f "${strip_helper}" ]]; then
+    args+=(--strip-diagnostics)
+  else
+    _warn "diagnostics strip helper not found — pruning without it"
+  fi
   # Let the helper resolve the retention (DEVBOT_OPENCODE_DB_RETENTION_DAYS,
   # default 30) when the caller gave no explicit <days>.
-  local -a args=()
   if [[ "${DAYS_EXPLICIT}" == "true" ]]; then
     args+=(--days "${DAYS}")
   fi

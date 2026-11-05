@@ -16,6 +16,10 @@ aged project would remove every session still in it, recent ones included.
 ``session delete`` leaves them — there is no FK to a session) have no timestamp
 to age on, so they are removed outright.
 
+``--strip-diagnostics`` also removes the workspace-wide LSP diagnostics map that
+opencode attached to every write/edit part; it runs before the age prune so the
+single ``VACUUM`` below reclaims both.
+
 Runs offline, invoked manually via ``devbot prune --db``. Fail-open: a missing,
 corrupt/schema-less, or busy/locked database, or a running opencode, is reported
 and the script exits 0 without changing anything.
@@ -133,6 +137,11 @@ def main(argv=None):
     parser.add_argument("--days", type=int, default=_default_days())
     parser.add_argument("--db", default=None, help="Database path (default $OPENCODE_DB_PATH)")
     parser.add_argument("--force", action="store_true", help="Skip the running-opencode guard")
+    parser.add_argument(
+        "--strip-diagnostics",
+        action="store_true",
+        help="Also strip workspace-wide LSP diagnostics from stored payloads",
+    )
     args = parser.parse_args(argv)
 
     if args.days < 0:
@@ -182,24 +191,55 @@ def main(argv=None):
             f"retention: {args.days} day(s) — sessions older than cutoff: "
             f"{old} (v1) + {old_v2} (v2); orphan journals: {orphans}"
         )
-        if old == 0 and old_v2 == 0 and orphans == 0:
+
+        before = os.path.getsize(path)
+        stripped = 0
+        if args.strip_diagnostics:
+            # Same pass, same connection: the single VACUUM below reclaims both.
+            from strip_opencode_diagnostics import apply_plan, human, plan_strip
+
+            try:
+                plan, reclaim = plan_strip(con)
+                stripped = apply_plan(con, plan)
+            except sqlite3.Error as exc:
+                print(f"ERROR diagnostics strip aborted: {exc}", file=sys.stderr)
+                print(
+                    "WARN earlier batches may already be applied; re-run to finish",
+                    file=sys.stderr,
+                )
+                return 0
+            if stripped:
+                print(
+                    f"diagnostics: stripped {stripped} row(s) "
+                    f"({human(reclaim)} reclaimable)"
+                )
+            else:
+                print("diagnostics: nothing to strip")
+
+        if old == 0 and old_v2 == 0 and orphans == 0 and stripped == 0:
             print("nothing to prune")
             return 0
 
-        before = os.path.getsize(path)
-        try:
-            deleted, deleted_v2, removed_orphans = _prune(con, cutoff)
-        except sqlite3.Error as exc:
-            if _is_schema_error(exc):
-                print(f"ERROR opencode db schema mismatch — not pruned: {exc}", file=sys.stderr)
-            else:
-                print(f"ERROR prune aborted (database busy or locked?): {exc}", file=sys.stderr)
-            return 0
-        print(
-            f"deleted {deleted} v1 session(s), {deleted_v2} v2 session(s) and "
-            f"{removed_orphans} orphan journal(s); "
-            "cascaded to message/part/session_message/…"
-        )
+        if old or old_v2 or orphans:
+            try:
+                deleted, deleted_v2, removed_orphans = _prune(con, cutoff)
+            except sqlite3.Error as exc:
+                if _is_schema_error(exc):
+                    print(
+                        f"ERROR opencode db schema mismatch — not pruned: {exc}",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        f"ERROR prune aborted (database busy or locked?): {exc}",
+                        file=sys.stderr,
+                    )
+                return 0
+            print(
+                f"deleted {deleted} v1 session(s), {deleted_v2} v2 session(s) and "
+                f"{removed_orphans} orphan journal(s); "
+                "cascaded to message/part/session_message/…"
+            )
 
         _vacuum(con)
         after = os.path.getsize(path)

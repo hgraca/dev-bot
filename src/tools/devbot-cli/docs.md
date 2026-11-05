@@ -147,12 +147,25 @@ Prune old OpenCode sessions (default: 30 days).
 ### `devbot prune --db [days] [--force]`
 
 Prune the OpenCode SQLite database itself, machine-wide (default: 30 days, or
-`DEVBOT_OPENCODE_DB_RETENTION_DAYS`). Deletes sessions older than the cutoff and
-their events, then `VACUUM`s the file to reclaim disk — the `event` replay
-journal is the bulk of a large database and OpenCode never trims it. `project`
-rows are never age-pruned. Skips when OpenCode is running unless `--force` is
-given. `VACUUM` rewrites the whole file, so on a multi-gigabyte database the
-command takes minutes — it is not run automatically.
+`DEVBOT_OPENCODE_DB_RETENTION_DAYS`). Two passes, then a single `VACUUM`:
+
+1. **Strip diagnostics bloat.** OpenCode attached a `state.metadata.diagnostics`
+   map covering every file in the workspace to each `write`/`edit` tool part —
+   ~18 MB per call in a multi-repo checkout, stored twice (`part` and the `event`
+   replay journal). It is ~99% of a large session payload and the reason opening
+   an old session takes tens of seconds. The field is removed from both tables;
+   messages, tool inputs and outputs are untouched.
+2. **Delete aged rows.** Sessions older than the cutoff and their events.
+   `project` rows are never age-pruned.
+
+Then `VACUUM`s the file to reclaim disk. Skips when OpenCode is running unless
+`--force` is given. `VACUUM` rewrites the whole file, so on a multi-gigabyte
+database the command takes minutes — it is not run automatically.
+
+`src/harnesses/opencode/strip_opencode_diagnostics.py` is the standalone,
+dry-run-first form of step 1: it reports what it would reclaim and changes
+nothing until `--apply`, and it takes a database copy before applying. Use it
+directly when you want that backup (`devbot prune --db` does not make one).
 
 ### `devbot stats [--days=N] [--project=DIR] [--all|-a] [--harness=HARNESS]`
 
