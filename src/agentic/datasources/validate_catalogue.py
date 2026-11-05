@@ -43,6 +43,7 @@
 
 import http.client
 import json
+import math
 import os
 import re
 import shutil
@@ -72,7 +73,15 @@ VERSIONS_FILE = os.path.join(MODULE_DIR, "versions.env")
 # always, mongodb unless its URI bounds it — so it must stay comfortably ABOVE
 # the connect timeout, or the budget pre-empts the driver and the reason
 # degrades from `i/o timeout` to `did not become ready within Ns`.
-DEFAULT_TIMEOUT = 5.0
+#
+# 15s, not 5s: a staging RDS source missed the 5s budget in practice — its
+# handshake normally takes 1-2s, so the margin was too thin to absorb a slow
+# one — and a false rejection costs that source for the whole session. The
+# canaries run MAX_PARALLEL_CANARIES at a time, so this budget bounds one wave,
+# never one source; a catalogue past that cap spans a wave per batch. An
+# override below this default is refused (see `_parse_args`): the knob only
+# raises the budget, so it can never pre-empt the driver's named error.
+DEFAULT_TIMEOUT = 15.0
 POLL_INTERVAL = 0.25
 # Every docker invocation is bounded, so an unresponsive daemon cannot hang the
 # render (and with it `devbot up`).
@@ -460,6 +469,26 @@ def _parse_args(argv: List[str]) -> Tuple[float, bool]:
                 timeout = float(value)
             except ValueError:
                 raise ValidationError(f"invalid timeout: {value}", EXIT_INPUT)
+            # `float` accepts `inf` and `nan`, and an infinite deadline never
+            # ends: a canary that stays up without ever becoming ready would
+            # spin the poll forever and hang the render.
+            if not math.isfinite(timeout) or timeout <= 0:
+                raise ValidationError(
+                    f"timeout must be a finite, positive number of seconds: {value}",
+                    EXIT_INPUT,
+                )
+            # A datasource's own URI can declare a driver bound above anything
+            # the engine table knows — mongodb keeps an operator-supplied
+            # serverSelectionTimeoutMS — so no floor derived from that table is
+            # safe. The default is the floor instead: this knob only ever
+            # RAISES the budget, and lowering it is exactly how the driver's
+            # named error gets pre-empted.
+            if timeout < DEFAULT_TIMEOUT:
+                raise ValidationError(
+                    f"timeout {value} is below the {DEFAULT_TIMEOUT:g}s default; "
+                    "the budget may be raised, never lowered",
+                    EXIT_INPUT,
+                )
             index += 2
         elif flag == "--skip-canary":
             skip_canary = True

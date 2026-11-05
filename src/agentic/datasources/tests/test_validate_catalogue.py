@@ -25,6 +25,7 @@ from validate_catalogue import (  # noqa: E402
     CanaryResult,
     ValidationError,
     _is_ready,
+    _parse_args,
     _run,
     culprit_reason,
     docker_canary,
@@ -560,6 +561,74 @@ class TestSkipCanary(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(json.loads(proc.stdout), catalogue)
         self.assertIn("validation skipped", proc.stderr)
+
+
+class TestReadinessBudget(unittest.TestCase):
+    """The default must stay far above every dial bound the render declares.
+
+    A budget shorter than the dial bound pre-empts the driver, and the reason
+    degrades from a named `i/o timeout` to "did not become ready within Ns" —
+    which is the unattributable verdict the budget exists to avoid.
+    """
+
+    def _dial_bound_seconds(self):
+        from render_tools_yaml import ENGINES
+
+        found = []
+        for engine in ENGINES.values():
+            # The SQL engines declare it in queryParams — a Go duration for
+            # MySQL, seconds for pgx. MongoDB's rides inside the URI, in ms.
+            for key, value in (engine.get("query_params") or {}).items():
+                if key in ("timeout", "connect_timeout"):
+                    found.append(float(str(value).rstrip("s")))
+            for key, value in (engine.get("uri_timeout_params") or {}).items():
+                if key.endswith("MS"):
+                    found.append(float(value) / 1000.0)
+        return found
+
+    def test_default_comfortably_exceeds_every_engine_dial_bound(self):
+        dial = self._dial_bound_seconds()
+        self.assertTrue(dial, "no dial bound found — the engine table changed")
+        self.assertGreaterEqual(validate_catalogue.DEFAULT_TIMEOUT, 3 * max(dial))
+
+
+class TestTimeoutArgument(unittest.TestCase):
+    """An override cannot be allowed to defeat what the budget is for."""
+
+    def test_an_override_above_the_default_is_accepted(self):
+        self.assertEqual(_parse_args(["--timeout", "20"]), (20.0, False))
+
+    def test_no_override_keeps_the_default(self):
+        self.assertEqual(_parse_args([]), (validate_catalogue.DEFAULT_TIMEOUT, False))
+
+    def test_a_non_numeric_value_is_rejected(self):
+        for value in ("soon", ""):
+            with self.subTest(value=value):
+                with self.assertRaises(ValidationError):
+                    _parse_args(["--timeout", value])
+
+    def test_a_non_finite_or_non_positive_value_is_rejected(self):
+        # `inf` would otherwise build a deadline the poll can never reach, and
+        # the render would hang instead of failing.
+        for value in ("inf", "-inf", "nan", "0", "-3", "1e400"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValidationError):
+                    _parse_args(["--timeout", value])
+
+    def test_a_value_below_the_default_is_rejected(self):
+        # Lowering the budget is the original regression. A datasource's own
+        # URI can also declare a driver bound the engine table does not know
+        # (mongodb keeps an operator-supplied serverSelectionTimeoutMS), so the
+        # default is the only floor that is safe for every source.
+        with self.assertRaises(ValidationError) as caught:
+            _parse_args(["--timeout", str(validate_catalogue.DEFAULT_TIMEOUT - 1)])
+        self.assertIn("may be raised, never lowered", str(caught.exception))
+
+    def test_the_default_itself_is_accepted(self):
+        self.assertEqual(
+            _parse_args(["--timeout", str(int(validate_catalogue.DEFAULT_TIMEOUT))]),
+            (validate_catalogue.DEFAULT_TIMEOUT, False),
+        )
 
 
 if __name__ == "__main__":

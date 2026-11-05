@@ -221,6 +221,8 @@ main() {
   # pinned image (a large download) and require a daemon install does not need.
   local -a validator_args=()
   [[ "${DATASOURCES_SKIP_CANARY:-0}" == "1" ]] && validator_args+=("--skip-canary")
+  [[ -n "${DATASOURCES_CANARY_TIMEOUT:-}" ]] &&
+    validator_args+=("--timeout" "${DATASOURCES_CANARY_TIMEOUT}")
   printf '%s' "${catalogue}" |
     python3 "${MODULE_DIR}/available_catalogue.py" |
     python3 "${VALIDATOR}" ${validator_args[@]+"${validator_args[@]}"} |

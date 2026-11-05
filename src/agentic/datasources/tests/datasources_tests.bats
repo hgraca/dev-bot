@@ -335,6 +335,32 @@ SH
 
 # ── render.sh ────────────────────────────────────────────────────────────────
 
+@test "render: DATASOURCES_CANARY_TIMEOUT is forwarded as --timeout" {
+  # The readiness budget is per source and the canaries run in parallel, so a
+  # slow remote handshake is a per-render cost the operator can raise without
+  # editing the default.
+  _sqlite_catalogue
+  _recording_validator
+
+  run env DATASOURCES_CANARY_TIMEOUT=20 bash "${MODULE_DIR}/render.sh"
+  assert_success
+  grep -q -- '--timeout 20' "${VALIDATOR_ARGS_LOG}" ||
+    fail "render.sh did not forward DATASOURCES_CANARY_TIMEOUT"
+}
+
+@test "render: no --timeout is passed when the budget is not overridden" {
+  # Unset must keep the validator's own DEFAULT_TIMEOUT, never an empty flag.
+  _sqlite_catalogue
+  _recording_validator
+
+  run bash "${MODULE_DIR}/render.sh"
+  assert_success
+  # The render line proves the validator actually ran, so the absence below is
+  # a real absence and not an empty log.
+  assert_output --partial "1/1 toolbox source(s) usable"
+  refute grep -q -- '--timeout' "${VALIDATOR_ARGS_LOG}"
+}
+
 @test "render: a usable datasource becomes a source, a tool and a toolset" {
   _sqlite_catalogue
 
