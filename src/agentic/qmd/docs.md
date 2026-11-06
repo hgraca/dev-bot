@@ -19,7 +19,7 @@ QMD is one of two interchangeable memory-search engines; it is active only when
 - **BM25 keyword search**: deterministic, offline ranking over registered
   collections — no model download, no embeddings, no GPU (ADR
   `20260913072905-qmd-bm25-only-no-model-downloads`)
-- **Collections**: the project memory tree, the shared global store, and any
+- **Collections**: the project latent corpus, the shared global store, and any
   custom collection configured under `memory_collections`
 - **Keyword-first**: exact terms and identifiers are the strong case
 

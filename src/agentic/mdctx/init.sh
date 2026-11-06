@@ -6,15 +6,15 @@
 # mdctx is a zero-ML-dependency keyword index (RAKE + BM25) over a directory of
 # markdown files. This init script:
 #   1. Checks the mdctx CLI is installed
-#   2. Builds an incremental index over <devbot-dir>/memory, written to
+#   2. Builds an incremental index over <devbot-dir>/memory/latent, written to
 #      <project>/.mdctx/context-index.json (explicit -o — the index must never
-#      pollute the memory tree it indexes)
+#      pollute the latent corpus it indexes)
 #   3. Excludes the project's .mdctx/ dir from git (.git/info/exclude) so the
 #      generated index JSON is never committed
 #
 # The shared global store (DEV_BOT_ROOT/storage/global-memories) is indexed by
 # the memory module's init.sh (it owns that store); this script covers only the
-# per-project memory tree. mdctx does not follow symlinks, so the
+# per-project latent corpus. mdctx does not follow symlinks, so the
 # memory/latent/global symlink is NOT covered here — hence the separate global index.
 #
 # Usage:
@@ -47,7 +47,7 @@ _ok "mdctx CLI: $(mdctx --version 2>/dev/null || echo 'installed')"
 # ── Check vault exists ────────────────────────────────────────────────────────
 
 DEVBOT_DIR="$(_devbot_get_project_dir "${PROJECT_DIR}")"
-CONVENTIONAL_MEMORY="${PROJECT_DIR}/${DEVBOT_DIR}/memory"
+CONVENTIONAL_MEMORY="${PROJECT_DIR}/${DEVBOT_DIR}/memory/latent"
 MEMORY_DIR="$(_devbot_memory_collection_field "${PROJECT_DIR}" project path)"
 [[ -n "${MEMORY_DIR}" ]] || MEMORY_DIR="${CONVENTIONAL_MEMORY}"
 INDEX_FILE="$(_devbot_memory_collection_field "${PROJECT_DIR}" project index)"

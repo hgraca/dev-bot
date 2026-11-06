@@ -47,11 +47,11 @@ mdctx search "<query>" [-i <index.json>] [-n <limit>] [--json]
 
 ### Key commands
 
-| Command                                | Description                                                          | Example                                                   |
-| -------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------- |
-| `mdctx build <dir> -o <index>`         | Build/refresh a keyword index for a markdown root                    | `mdctx build .agents/memory -o .mdctx/context-index.json` |
-| `mdctx search "<q>" -i <index> --json` | Ranked files relevant to the query (JSON)                            | `mdctx search "auth flow" --json -n 5`                    |
-| `mdctx-mcp` (MCP server)               | Native MCP tools `search_context` / `refresh_index` / `list_context` | env `MDCTX_ROOT` + `MDCTX_INDEX`                          |
+| Command                                | Description                                                          | Example                                                          |
+| -------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `mdctx build <dir> -o <index>`         | Build/refresh a keyword index for a markdown root                    | `mdctx build .agents/memory/latent -o .mdctx/context-index.json` |
+| `mdctx search "<q>" -i <index> --json` | Ranked files relevant to the query (JSON)                            | `mdctx search "auth flow" --json -n 5`                           |
+| `mdctx-mcp` (MCP server)               | Native MCP tools `search_context` / `refresh_index` / `list_context` | env `MDCTX_ROOT` + `MDCTX_INDEX`                                 |
 
 ### Index locations (dev-bot conventions)
 
@@ -59,7 +59,7 @@ mdctx search "<query>" [-i <index.json>] [-n <limit>] [--json]
 
 | Corpus                                   | Docs root                                 | Index file                                                    |
 | ---------------------------------------- | ----------------------------------------- | ------------------------------------------------------------- |
-| Project memory tree (per project)        | `<project>/<devbot-dir>/memory`           | `<project>/.mdctx/context-index.json`                         |
+| Project latent corpus (per project)      | `<project>/<devbot-dir>/memory/latent`    | `<project>/.mdctx/context-index.json`                         |
 | Shared global store (one, under dev-bot) | `${DEV_BOT_ROOT}/storage/global-memories` | `${DEV_BOT_ROOT}/storage/.mdctx/context-index.json`           |
 | Custom collection (per corpus path)      | the configured `path`                     | `${DEV_BOT_ROOT}/storage/.mdctx/collections/<path-hash>.json` |
 

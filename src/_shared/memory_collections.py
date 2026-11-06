@@ -152,7 +152,7 @@ def _project_collection_path(project_root: Path, root: Path) -> str:
     """A project's configured collection root, honoring a `project` override."""
     devbot_dir = _resolve_devbot_dir(project_root, root)
     section = _section(project_root / ".devbot.project.jsonc")
-    location = "{project}/{devbot_dir}/memory"
+    location = "{project}/{devbot_dir}/memory/latent"
     entry = section.get(PROJECT_KEY)
     if isinstance(entry, dict):
         candidate = entry.get("path")
@@ -260,7 +260,7 @@ def load_collections(
 
     merged: dict[str, dict] = {
         PROJECT_KEY: {
-            "path": "{project}/{devbot_dir}/memory",
+            "path": "{project}/{devbot_dir}/memory/latent",
             "semantic": False,
             "source": "default",
         },

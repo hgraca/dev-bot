@@ -593,6 +593,25 @@ class TestResolveMdctxIndexes(unittest.TestCase):
         # global pair roots at storage/global-memories
         global_pair = next(p for p in pairs if p[1].name == "context-index.json" and "storage" in str(p[1]))
         self.assertEqual(str(global_pair[0]), str(self.root / "storage" / "global-memories"))
+        # project pair roots at the latent corpus, never the whole memory tree
+        project_pair = next(
+            p for p in pairs if p[1] == self.root / ".mdctx" / "context-index.json"
+        )
+        self.assertEqual(
+            str(project_pair[0]), str(self.root / ".agents" / "memory" / "latent")
+        )
+
+
+class TestBuiltinCollections(unittest.TestCase):
+    def test_project_fallback_roots_at_the_latent_corpus(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch.object(_search_memories, "DEVBOT_ROOT", root):
+                entries = _search_memories._builtin_collections(root)
+        project = next(e for e in entries if e["key"] == "project")
+        self.assertEqual(
+            project["path"], str(root / ".agents" / "memory" / "latent")
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1231,6 +1250,31 @@ class TestScopedMdctxPairs(_SandboxTest):
         self.assertEqual([p[3] for p in pairs], [0, 1, -1])
         self.assertEqual(str(pairs[0][0]), str(a / ".agents" / "memory"))
 
+    def test_default_latent_collection_honours_a_legacy_whole_memory_record(self):
+        a = self._scaffold(self._project("a"))
+        (a / ".agents" / "memory" / "latent").mkdir(parents=True, exist_ok=True)
+        (a / ".agents" / "logs").mkdir(parents=True, exist_ok=True)
+        (a / ".agents" / "logs" / "memory-index-branch.json").write_text(
+            '{"branch":"main","provider":"mdctx","corpus":"memory"}'
+        )
+        collections = [
+            {
+                "key": "project",
+                "path": str(a / ".agents" / "memory" / "latent"),
+                "semantic": False,
+                "physical": "a",
+                "kind": "project",
+                "source": "default",
+                "exists": True,
+                "index": str(a / ".mdctx" / "context-index.json"),
+            },
+        ]
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            pairs = _search_memories._scoped_mdctx_pairs([a], collections)
+
+        self.assertEqual(str(pairs[0][0]), str(a / ".agents" / "memory"))
+
     def test_skips_projects_without_an_index(self):
         a = self._project("a")  # no .mdctx/index
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
@@ -1427,7 +1471,7 @@ class TestSearchMdctxScoped(_SandboxTest):
 class TestConfiguredCollections(_SandboxTest):
     def _project(self, name):
         path = super()._project(name)
-        (path / ".agents" / "memory").mkdir(parents=True, exist_ok=True)
+        (path / ".agents" / "memory" / "latent").mkdir(parents=True, exist_ok=True)
         return path
 
     def _run_main(self, project, extra_args=None):
@@ -1661,8 +1705,8 @@ class TestMainSupervisorScope(_SandboxTest):
 
         a = self._project("a")
         sup = self._project("sup")
-        (a / ".agents" / "memory").mkdir(parents=True)
-        (sup / ".agents" / "memory").mkdir(parents=True)
+        (a / ".agents" / "memory" / "latent").mkdir(parents=True)
+        (sup / ".agents" / "memory" / "latent").mkdir(parents=True)
         (a / ".devbot.project.jsonc").write_text('{"project_name": "a-name"}')
         (sup / ".devbot.project.jsonc").write_text('{"project_name": "sup-name"}')
         with patch.object(_search_memories, "resolve_provider", return_value="qmd"), \
@@ -1683,8 +1727,8 @@ class TestMainSupervisorScope(_SandboxTest):
 
         a = self._project("a")
         b = self._project("b")
-        (a / ".agents" / "memory").mkdir(parents=True)
-        (b / ".agents" / "memory").mkdir(parents=True)
+        (a / ".agents" / "memory" / "latent").mkdir(parents=True)
+        (b / ".agents" / "memory" / "latent").mkdir(parents=True)
         (a / ".devbot.project.jsonc").write_text('{"project_name": "same"}')
         (b / ".devbot.project.jsonc").write_text('{"project_name": "same"}')
         err = io.StringIO()

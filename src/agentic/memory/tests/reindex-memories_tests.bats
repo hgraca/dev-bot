@@ -278,10 +278,10 @@ SCRIPT
   assert_output --partial '"status":"started"'
 }
 
-@test "qmd migration uses root project config and confirms the whole-memory root" {
+@test "qmd migration uses root project config and confirms the latent root" {
   local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
   local proj="$WORK/custom project"
-  local old_path="$proj/.agents/memory/latent"
+  local old_path="$proj/.agents/memory"
   mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
   printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
   local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
@@ -292,14 +292,14 @@ SCRIPT
   _make_qmd_migration_stub
 
   run env PATH="$STUB_DIR:$PATH" \
-    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory/latent" \
     QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
     DEV_BOT_ROOT="$TEST_DIR/../../../.." \
     bash "$pass" --sync --worktree "$proj"
 
   assert_success
   assert_output --partial '"status":"rebuilt"'
-  [[ "$(cat "$state/configured-project")" == "$proj/.agents/memory" ]]
+  [[ "$(cat "$state/configured-project")" == "$proj/.agents/memory/latent" ]]
   grep -q "collection show configured-project" "$calls"
   grep -qx "cleanup" "$build_calls"
   grep -qx "update" "$build_calls"
@@ -308,12 +308,12 @@ SCRIPT
 @test "qmd ensure rechecks the collection root before trusting a matching freshness record" {
   local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
   local proj="$WORK/custom project"
-  local old_path="$proj/.agents/memory/latent"
+  local old_path="$proj/.agents/memory"
   mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
   printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
   local fingerprint
-  fingerprint="$(PATH="$STUB_DIR:$PATH" bash "$pass" --fingerprint "$proj/.agents/memory")"
-  printf '{"branch":"","provider":"qmd","tree_sha":"","corpus":"memory","corpus_fingerprint":"%s"}\n' \
+  fingerprint="$(PATH="$STUB_DIR:$PATH" bash "$pass" --fingerprint "$proj/.agents/memory/latent")"
+  printf '{"branch":"","provider":"qmd","tree_sha":"","corpus":"latent","corpus_fingerprint":"%s"}\n' \
     "$fingerprint" > "$proj/.agents/logs/memory-index-branch.json"
   local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
   mkdir -p "$state"
@@ -323,21 +323,21 @@ SCRIPT
   _make_qmd_migration_stub
 
   run env PATH="$STUB_DIR:$PATH" \
-    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory/latent" \
     QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
     DEV_BOT_ROOT="$TEST_DIR/../../../.." \
     bash "$pass" --ensure --worktree "$proj"
 
   assert_success
   assert_output --partial '"status":"rebuilt"'
-  [[ "$(cat "$state/configured-project")" == "$proj/.agents/memory" ]]
+  [[ "$(cat "$state/configured-project")" == "$proj/.agents/memory/latent" ]]
   grep -qx "update" "$build_calls"
 }
 
-@test "qmd migration restores the old registration and does not mark freshness when adding the whole-memory root fails" {
+@test "qmd migration restores the old registration and does not mark freshness when adding the latent root fails" {
   local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
   local proj="$WORK/custom project"
-  local old_path="$proj/.agents/memory/latent"
+  local old_path="$proj/.agents/memory"
   mkdir -p "$proj/.agents/memory/latent" "$proj/.agents/logs" "$old_path"
   printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
   local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
@@ -348,7 +348,7 @@ SCRIPT
   _make_qmd_migration_stub
 
   run env PATH="$STUB_DIR:$PATH" \
-    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory/latent" \
     QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" QMD_FAIL_TARGET_ADD=1 \
     DEV_BOT_ROOT="$TEST_DIR/../../../.." \
     bash "$pass" --sync --worktree "$proj"
@@ -386,6 +386,31 @@ SCRIPT
   [[ ! -f "$proj/.agents/logs/memory-index-branch.json" ]]
 }
 
+@test "qmd migration fails closed when a whole-memory collection survives without a latent dir" {
+  local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
+  local proj="$WORK/custom project"
+  mkdir -p "$proj/.agents/logs"
+  printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
+  local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
+  mkdir -p "$state"
+  printf '%s\n' "$proj/.agents/memory" > "$state/configured-project"
+  : > "$calls"
+  : > "$build_calls"
+  _make_qmd_migration_stub
+
+  run env PATH="$STUB_DIR:$PATH" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory/latent" \
+    QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
+    DEV_BOT_ROOT="$TEST_DIR/../../../.." \
+    bash "$pass" --sync --worktree "$proj"
+
+  assert_success
+  assert_output --partial '"status":"stale"'
+  [[ "$(cat "$state/configured-project")" == "$proj/.agents/memory" ]]
+  [[ ! -s "$build_calls" ]]
+  [[ ! -f "$proj/.agents/logs/memory-index-branch.json" ]]
+}
+
 @test "qmd migration registers and verifies a missing collection before indexing" {
   local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
   local proj="$WORK/custom project"
@@ -398,14 +423,14 @@ SCRIPT
   _make_qmd_migration_stub
 
   run env PATH="$STUB_DIR:$PATH" \
-    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory" \
+    QMD_STATE="$state" QMD_TARGET="$proj/.agents/memory/latent" \
     QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
     DEV_BOT_ROOT="$TEST_DIR/../../../.." \
     bash "$pass" --sync --worktree "$proj"
 
   assert_success
   assert_output --partial '"status":"rebuilt"'
-  [[ "$(cat "$state/configured-project")" == "$proj/.agents/memory" ]]
+  [[ "$(cat "$state/configured-project")" == "$proj/.agents/memory/latent" ]]
   grep -qx "update" "$build_calls"
 }
 
@@ -569,8 +594,8 @@ SCRIPT
     sleep 0.1
   done
   run cat "$call_log"
-  # One build per store: the project memory tree + the global-memories index.
-  assert_line --index 0 --regexp "^build ${proj}/\.agents/memory -o ${proj}/\.mdctx/context-index\.json$"
+  # One build per store: the project latent corpus + the global-memories index.
+  assert_line --index 0 --regexp "^build ${proj}/\.agents/memory/latent -o ${proj}/\.mdctx/context-index\.json$"
   assert_line --index 1 --regexp "^build ${devroot}/storage/global-memories -o ${devroot}/storage/\.mdctx/context-index\.json$"
 
   # Log markers (engine-agnostic memory-index.log).
@@ -1049,32 +1074,32 @@ SCRIPT
   [[ ! -f "$state/$custom" ]]
 }
 
-@test "qmd migration releases a custom registration at the default project root" {
+@test "qmd migration releases a custom registration at the latent project root" {
   local pass="$MODULE_DIR/tools/reindex-passive-memories.sh"
   local proj="$WORK/custom project"
   local memory="$proj/.agents/memory"
-  local legacy="$memory/latent"
-  mkdir -p "$legacy" "$proj/.agents/logs"
+  local target="$memory/latent"
+  mkdir -p "$target" "$proj/.agents/logs"
   printf '{"project_name":"configured-project"}\n' > "$proj/.devbot.project.jsonc"
   local custom
-  custom="dev-bot-custom-$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])' "$memory")"
+  custom="dev-bot-custom-$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:12])' "$target")"
   local state="$WORK/qmd-state" calls="$WORK/qmd-all-calls" build_calls="$WORK/qmd-build-calls"
   mkdir -p "$state"
-  printf '%s\n' "$legacy" > "$state/configured-project"
-  printf '%s\n' "$memory" > "$state/$custom"
+  printf '%s\n' "$memory" > "$state/configured-project"
+  printf '%s\n' "$target" > "$state/$custom"
   : > "$calls"
   : > "$build_calls"
   _make_qmd_migration_stub
 
   run env PATH="$STUB_DIR:$PATH" \
-    QMD_STATE="$state" QMD_TARGET="$memory" \
+    QMD_STATE="$state" QMD_TARGET="$target" \
     QMD_ALL_CALLS="$calls" QMD_CALL_LOG="$build_calls" \
     DEV_BOT_ROOT="$TEST_DIR/../../../.." \
     bash "$pass" --sync --worktree "$proj"
 
   assert_success
   assert_output --partial '"status":"rebuilt"'
-  [[ "$(cat "$state/configured-project")" == "$memory" ]]
+  [[ "$(cat "$state/configured-project")" == "$target" ]]
   [[ ! -f "$state/$custom" ]]
 }
 

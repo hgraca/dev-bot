@@ -73,11 +73,11 @@ _record_field() {
 }
 
 _vault_tree_sha() {
-  git -C "$1" rev-parse "HEAD:.agents/memory"
+  git -C "$1" rev-parse "HEAD:.agents/memory/latent"
 }
 
 _collections_fingerprint() {
-  python3 - "${1}/.agents/memory" "${DEV_BOT_ROOT}/storage/global-memories" <<'PY'
+  python3 - "${1}/.agents/memory/latent" "${DEV_BOT_ROOT}/storage/global-memories" <<'PY'
 import hashlib
 import os
 import sys
@@ -92,7 +92,7 @@ def add(value):
 
 project_memory = sys.argv[1]
 global_root = sys.argv[2]
-project_root = os.path.dirname(os.path.dirname(project_memory))
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(project_memory)))
 for key, path, physical, index_path in sorted(
     [
         (
@@ -136,7 +136,7 @@ PY
 _write_record() {
   local proj fingerprint collections_fp
   proj="$(dirname "$(dirname "$(dirname "$1")")")"
-  fingerprint="$(PATH="$STUB_DIR:$PATH" bash "$TOOL" --fingerprint "${proj}/.agents/memory")"
+  fingerprint="$(PATH="$STUB_DIR:$PATH" bash "$TOOL" --fingerprint "${proj}/.agents/memory/latent")"
   collections_fp="$(_collections_fingerprint "$proj")"
   python3 -c '
 import json, sys
@@ -145,7 +145,7 @@ json.dump(
         "branch": sys.argv[2],
         "provider": sys.argv[3],
         "tree_sha": sys.argv[4],
-        "corpus": "memory",
+        "corpus": "latent",
         "corpus_fingerprint": sys.argv[5],
         "collections_fingerprint": sys.argv[6],
         "recorded_at": "2026-01-01T00:00:00Z",
@@ -228,7 +228,7 @@ json.dump(
   [ "$(_record_field "$(_record_path "$proj")" tree_sha)" = "$(_vault_tree_sha "$proj")" ]
 }
 
-@test "--ensure: rebuilds a record written before the whole-memory corpus" {
+@test "--ensure: rebuilds a record written without a corpus marker" {
   local proj="$WORK/project-legacy-corpus"
   _make_git_project "$proj"
   # A pre-change record has no corpus marker; it may describe a latent-only index.
@@ -251,7 +251,7 @@ json.dump(
 
   assert_success
   grep -q "build" "$MDCTX_CALL_LOG"
-  [ "$(_record_field "$(_record_path "$proj")" corpus)" = "memory" ]
+  [ "$(_record_field "$(_record_path "$proj")" corpus)" = "latent" ]
 }
 
 @test "--ensure: rebuilds when a note moves on disk without a commit" {

@@ -339,7 +339,7 @@ module unregisters its declared plugin/MCP entries at the next `devbot reinit`.
 ```json
 {
   "memory_collections": {
-    "project": { "path": "{project}/{devbot_dir}/memory", "semantic": false },
+    "project": { "path": "{project}/{devbot_dir}/memory/latent", "semantic": false },
     "notes": { "path": "~/notes", "semantic": true }
   }
 }
@@ -358,7 +358,7 @@ The two built-ins are reserved:
 
 | Key       | Where it may be set | Default path                              |
 | --------- | ------------------- | ----------------------------------------- |
-| `project` | project config only | `{project}/{devbot_dir}/memory`           |
+| `project` | project config only | `{project}/{devbot_dir}/memory/latent`    |
 | `global`  | global config only  | `${DEV_BOT_ROOT}/storage/global-memories` |
 
 Custom keys may be set in either file. The two maps merge (global first, then
@@ -812,7 +812,7 @@ a key a previous run registered.
 
   // Document collections searched by `search-memories`
   "memory_collections": {
-    "project": { "path": "{project}/{devbot_dir}/memory", "semantic": false },
+    "project": { "path": "{project}/{devbot_dir}/memory/latent", "semantic": false },
   },
 
   // Workflow a task follows end to end: worktrees (isolated) or trunk (default branch)

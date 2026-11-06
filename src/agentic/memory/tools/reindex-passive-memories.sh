@@ -6,9 +6,9 @@
 # Rebuilds the index for the engine selected by memory_search_provider:
 #   - qmd:   `qmd cleanup && qmd update`  (BM25-only — no embed; see ADR
 #            20260913072905-qmd-bm25-only-no-model-downloads)
-#   - mdctx: `mdctx build` of every configured collection — the project memory
-#            tree (latent + work + thinking), the global store, and custom
-#            collections (incremental + hash-cached)
+#   - mdctx: `mdctx build` of every configured collection — the project latent
+#            corpus, the global store, and custom collections (incremental +
+#            hash-cached)
 #
 # Every caller funnels here, so adding a future engine means editing ONE place:
 #   - hooks.json (file.edited)                → default (background)
@@ -136,6 +136,7 @@ LOCK_FILE="$LOCK_DIR/reindex-memories.lock"
 DEVBOT_DIR="$(_devbot_get_project_dir "${WORKTREE}")"
 DEVBOT_STATE_DIR="${WORKTREE}/${DEVBOT_DIR}"
 MEMORY_DIR="${DEVBOT_STATE_DIR}/memory"
+LATENT_DIR="${MEMORY_DIR}/latent"
 LOGS_DIR="${DEVBOT_STATE_DIR}/logs"
 GLOBAL_DIR="${DEV_BOT_ROOT}/storage/global-memories"
 PROJECT_INDEX="${WORKTREE}/.mdctx/context-index.json"
@@ -194,17 +195,17 @@ PY
       FALLBACK_PROJECT_NAME="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${WORKTREE}/.devbot.project.jsonc" project_name 2>/dev/null || true)"
     fi
     [[ -n "${FALLBACK_PROJECT_NAME}" ]] || FALLBACK_PROJECT_NAME="$(basename "${WORKTREE}")"
-    COLLECTIONS_JSON="$(python3 - "${MEMORY_DIR}" "${GLOBAL_DIR}" \
+    COLLECTIONS_JSON="$(python3 - "${LATENT_DIR}" "${GLOBAL_DIR}" \
       "${PROJECT_INDEX}" "${GLOBAL_INDEX}" "${FALLBACK_PROJECT_NAME}" <<'PY'
 import json
 import sys
 
-memory, global_dir, project_index, global_index, project_name = sys.argv[1:6]
+latent, global_dir, project_index, global_index, project_name = sys.argv[1:6]
 print(
     json.dumps(
         {
             "collections": [
-                {"key": "project", "path": memory, "semantic": False,
+                {"key": "project", "path": latent, "semantic": False,
                  "physical": project_name, "kind": "project",
                  "source": "default", "exists": True, "index": project_index},
                 {"key": "global", "path": global_dir, "semantic": False,
@@ -381,7 +382,7 @@ _current_vault_tree_sha() {
   [[ -n "${root}" ]] || return 0
   rel="${WORKTREE#"${root}"}"
   rel="${rel#/}"
-  rel="${rel:+${rel}/}${DEVBOT_DIR}/memory"
+  rel="${rel:+${rel}/}${DEVBOT_DIR}/memory/latent"
   git -C "${root}" rev-parse "HEAD:${rel}" 2>/dev/null || true
 }
 
@@ -389,7 +390,7 @@ _current_vault_tree_sha() {
 # gitignored work/thinking notes, so a move or deletion there would leave the
 # index looking current. Path + size + mtime catches moves, edits and deletes.
 _current_corpus_fingerprint() {
-  local root="${1:-${MEMORY_DIR}}"
+  local root="${1:-${LATENT_DIR}}"
   python3 - "${root}" <<'PY'
 import hashlib
 import os
@@ -436,7 +437,7 @@ json.dump(
         "branch": sys.argv[1],
         "provider": sys.argv[2],
         "tree_sha": sys.argv[3],
-        "corpus": "memory",
+        "corpus": "latent",
         "corpus_fingerprint": sys.argv[4],
         "collections_fingerprint": sys.argv[5],
         "project_collection_path": sys.argv[6],
@@ -474,7 +475,7 @@ _snapshot_checkout() {
 }
 
 # True (exit 0) only when the record matches the current checkout and the qmd
-# collection is rooted at the whole memory tree.
+# collection is rooted at the latent corpus.
 _index_record_matches() {
   [[ -f "${BRANCH_RECORD}" ]] || return 1
   if ! python3 - "${BRANCH_RECORD}" "$(_current_branch)" "${PROVIDER}" "$(_current_vault_tree_sha)" "$(_current_corpus_fingerprint)" "$(_collections_fingerprint)" <<'PY'
@@ -489,9 +490,10 @@ except Exception:
 
 if record.get("provider") != provider:
     sys.exit(1)
-# Records written before the whole-memory corpus carry no corpus marker and
-# may describe a latent-only index; force one rebuild so work/thinking appear.
-if record.get("corpus") != "memory":
+# Records written for the whole-memory corpus carry "memory" and describe an
+# index that also covers work/ and thinking/; force one rebuild so search stops
+# returning them.
+if record.get("corpus") != "latent":
     sys.exit(1)
 if record.get("corpus_fingerprint") != corpus_fp:
     sys.exit(1)
@@ -520,10 +522,10 @@ PY
 }
 
 # ── qmd collection migration ─────────────────────────────────────────────────
-# Before the whole-memory scope, qmd collections were rooted at memory/latent.
-# Updating such a collection keeps work/thinking/active unsearchable, so move
-# it to the memory root before the rebuild. The collection name matches
-# search-memories' resolve_collection: project_name or the directory basename.
+# Collections widened to the whole memory tree are moved back to the latent
+# corpus before the rebuild, so work/thinking/active drop out of search. The
+# collection name matches search-memories' resolve_collection: project_name or
+# the directory basename.
 _project_collection_name() {
   local name=""
   local config="${WORKTREE}/.devbot.project.jsonc"
@@ -535,19 +537,29 @@ _project_collection_name() {
 }
 
 _migrate_qmd_collection() {
-  [[ -d "${MEMORY_DIR}" ]] || return 0
   local name current_path old_path released=""
   name="$(_project_collection_name)"
+  if [[ ! -d "${LATENT_DIR}" ]]; then
+    # Nothing to index. A surviving whole-memory registration would keep
+    # work/thinking searchable while the rebuild records the latent corpus, so
+    # fail closed instead of silently leaving it in place. Registration is the
+    # Path line, the same signal migration reads below.
+    if qmd collection show "${name}" 2>/dev/null | grep -q '^[[:space:]]*Path:'; then
+      echo "ERROR: collection ${name} is still registered but ${LATENT_DIR} is missing; refusing to record a latent-corpus index" >&2
+      return 1
+    fi
+    return 0
+  fi
   if ! qmd collection show "${name}" >/dev/null 2>&1; then
-    echo "[reindex-memories] registering collection ${name} at ${MEMORY_DIR}"
-    released="$(_devbot_release_custom_at_path "${MEMORY_DIR}")"
-    if ! qmd collection add "${MEMORY_DIR}" --name "${name}" >/dev/null 2>&1; then
-      _devbot_restore_custom_at_path "${released}" "${MEMORY_DIR}"
+    echo "[reindex-memories] registering collection ${name} at ${LATENT_DIR}"
+    released="$(_devbot_release_custom_at_path "${LATENT_DIR}")"
+    if ! qmd collection add "${LATENT_DIR}" --name "${name}" >/dev/null 2>&1; then
+      _devbot_restore_custom_at_path "${released}" "${LATENT_DIR}"
       return 1
     fi
     current_path="$(qmd collection show "${name}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
-    if [[ "${current_path}" != "${MEMORY_DIR}" ]]; then
-      _devbot_restore_custom_at_path "${released}" "${MEMORY_DIR}"
+    if [[ "${current_path}" != "${LATENT_DIR}" ]]; then
+      _devbot_restore_custom_at_path "${released}" "${LATENT_DIR}"
       return 1
     fi
     return 0
@@ -557,34 +569,34 @@ _migrate_qmd_collection() {
     echo "ERROR: qmd collection ${name} has no readable root path" >&2
     return 1
   fi
-  [[ "${current_path}" != "${MEMORY_DIR}" ]] || return 0
-  if [[ "${current_path}" != "${MEMORY_DIR}/latent" ]]; then
-    # Only the root recorded by this checkout's last successful build is a
-    # legitimate former override. A nested worktree is a descendant of this
+  [[ "${current_path}" != "${LATENT_DIR}" ]] || return 0
+  if [[ "${current_path}" != "${MEMORY_DIR}" ]]; then
+    # Only the whole-memory root (the previous corpus) or this checkout's last
+    # recorded root is legitimate. A nested worktree is a descendant of this
     # checkout but has its own record, so a prefix check is not ownership.
     if [[ "${current_path}" != "$(_previous_project_collection_path)" ]]; then
-      echo "ERROR: collection ${name} is registered at ${current_path}, not this checkout's ${MEMORY_DIR}; refusing to repoint (name collision)" >&2
+      echo "ERROR: collection ${name} is registered at ${current_path}, not this checkout's ${LATENT_DIR}; refusing to repoint (name collision)" >&2
       return 1
     fi
   fi
   old_path="${current_path}"
-  echo "[reindex-memories] migrating collection ${name}: ${current_path} -> ${MEMORY_DIR}"
-  released="$(_devbot_release_custom_at_path "${MEMORY_DIR}")"
+  echo "[reindex-memories] migrating collection ${name}: ${current_path} -> ${LATENT_DIR}"
+  released="$(_devbot_release_custom_at_path "${LATENT_DIR}")"
   if ! qmd collection remove "${name}" >/dev/null 2>&1; then
-    _devbot_restore_custom_at_path "${released}" "${MEMORY_DIR}"
+    _devbot_restore_custom_at_path "${released}" "${LATENT_DIR}"
     return 1
   fi
-  if ! qmd collection add "${MEMORY_DIR}" --name "${name}" >/dev/null 2>&1; then
+  if ! qmd collection add "${LATENT_DIR}" --name "${name}" >/dev/null 2>&1; then
     qmd collection add "${old_path}" --name "${name}" >/dev/null 2>&1 || true
-    _devbot_restore_custom_at_path "${released}" "${MEMORY_DIR}"
+    _devbot_restore_custom_at_path "${released}" "${LATENT_DIR}"
     return 1
   fi
   # Confirm the root actually moved before the rebuild and the corpus marker.
   current_path="$(qmd collection show "${name}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
-  [[ "${current_path}" == "${MEMORY_DIR}" ]] && return 0
+  [[ "${current_path}" == "${LATENT_DIR}" ]] && return 0
   qmd collection remove "${name}" >/dev/null 2>&1 || true
   qmd collection add "${old_path}" --name "${name}" >/dev/null 2>&1 || true
-  _devbot_restore_custom_at_path "${released}" "${MEMORY_DIR}"
+  _devbot_restore_custom_at_path "${released}" "${LATENT_DIR}"
   return 1
 }
 
@@ -658,29 +670,32 @@ _engine_build() {
     done < <(_collection_rows)
   else
     while IFS="$(printf '\t')" read -r key path kind _ index physical; do
+      # Migrate the project collection before the missing-path skip below: a
+      # surviving whole-memory registration must fail the run, not slip through
+      # while qmd cleanup/update keeps indexing work/ and thinking/.
+      if [[ "${kind}" == "project" && "${path}" == "${LATENT_DIR}" ]]; then
+        if ! _migrate_qmd_collection; then
+          echo "ERROR: qmd project collection migration failed — refusing to record a latent-corpus index" >&2
+          PROJECT_BUILD_RC=1
+        elif [[ -d "${LATENT_DIR}" ]]; then
+          PROJECT_REGISTERED_PATH="${path}"
+          _persist_project_collection_path "${path}"
+        fi
+        continue
+      fi
       if [[ ! -d "${path}" ]]; then
         echo "WARN: collection ${key} path missing: ${path}" >&2
         continue
       fi
-      if [[ "${kind}" == "project" && "${path}" == "${MEMORY_DIR}" ]]; then
-        if ! _migrate_qmd_collection; then
-          echo "ERROR: qmd project collection migration failed — refusing to record a memory-corpus index" >&2
-          PROJECT_BUILD_RC=1
-        else
+      local owner=""
+      [[ "${kind}" == "project" ]] && owner="${WORKTREE}"
+      if _repoint_qmd_collection "${physical}" "${path}" "${owner}"; then
+        if [[ "${kind}" == "project" ]]; then
           PROJECT_REGISTERED_PATH="${path}"
           _persist_project_collection_path "${path}"
         fi
       else
-        local owner=""
-        [[ "${kind}" == "project" ]] && owner="${WORKTREE}"
-        if _repoint_qmd_collection "${physical}" "${path}" "${owner}"; then
-          if [[ "${kind}" == "project" ]]; then
-            PROJECT_REGISTERED_PATH="${path}"
-            _persist_project_collection_path "${path}"
-          fi
-        else
-          CUSTOM_BUILD_RC=$?
-        fi
+        CUSTOM_BUILD_RC=$?
       fi
     done < <(_collection_rows)
     [[ "${PROJECT_BUILD_RC}" == "0" ]] || return 1

@@ -40,7 +40,7 @@ so each real corpus gets its own index):
 
 | Corpus                                   | Docs root                                 | Index file                                                    |
 | ---------------------------------------- | ----------------------------------------- | ------------------------------------------------------------- |
-| Project memory tree (per project)        | `<project>/.agents/memory`                | `<project>/.mdctx/context-index.json`                         |
+| Project latent corpus (per project)      | `<project>/.agents/memory/latent`         | `<project>/.mdctx/context-index.json`                         |
 | Shared global store (one, under dev-bot) | `${DEV_BOT_ROOT}/storage/global-memories` | `${DEV_BOT_ROOT}/storage/.mdctx/context-index.json`           |
 | Custom collection (per corpus path)      | the configured `path`                     | `${DEV_BOT_ROOT}/storage/.mdctx/collections/<path-hash>.json` |
 

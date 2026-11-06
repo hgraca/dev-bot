@@ -43,9 +43,9 @@ setup() {
   printf '# Supervisor\n\nThe sierraspecial marker.\n' >"$SUP/.agents/memory/latent/s.md"
   printf '# Global\n\nThe globalspecial marker.\n' >"$DEVROOT/storage/global-memories/g.md"
 
-  mdctx build "$SUP/.agents/memory" -o "$SUP/.mdctx/context-index.json" >/dev/null 2>&1
-  mdctx build "$CHILD/.agents/memory" -o "$CHILD/.mdctx/context-index.json" >/dev/null 2>&1
-  mdctx build "$OTHER/.agents/memory" -o "$OTHER/.mdctx/context-index.json" >/dev/null 2>&1
+  mdctx build "$SUP/.agents/memory/latent" -o "$SUP/.mdctx/context-index.json" >/dev/null 2>&1
+  mdctx build "$CHILD/.agents/memory/latent" -o "$CHILD/.mdctx/context-index.json" >/dev/null 2>&1
+  mdctx build "$OTHER/.agents/memory/latent" -o "$OTHER/.mdctx/context-index.json" >/dev/null 2>&1
   mdctx build "$DEVROOT/storage/global-memories" -o "$DEVROOT/storage/.mdctx/context-index.json" >/dev/null 2>&1
 }
 

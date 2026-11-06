@@ -44,7 +44,7 @@ never the supervisor.
 
 ## Collections
 
-`search-memories` and `reindex-memories` cover the project memory tree, the
+`search-memories` and `reindex-memories` cover the project latent corpus, the
 shared global store, and any custom collection configured under
 `memory_collections` (project or global config). Each entry is a name mapped to
 a `path` and a `semantic` flag; the flag is reserved — both engines are

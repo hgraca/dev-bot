@@ -339,7 +339,7 @@ MOCK
 
   assert_success
   run cat "${MDCTX_ARGS_FILE}"
-  assert_output --regexp '^build .*/.agents/memory -o .*/\.mdctx/context-index\.json$'
+  assert_output --regexp '^build .*/.agents/memory/latent -o .*/\.mdctx/context-index\.json$'
   [ -d "${PROJECT_DIR}/.mdctx" ]
   run grep -q '^\.mdctx$' "${PROJECT_DIR}/.git/info/exclude"
   assert_success
@@ -356,9 +356,9 @@ MOCK
   run bash "$MODULE_DIR/init.sh" "${PROJECT_DIR}"
 
   assert_success
-  [ -d "${PROJECT_DIR}/.agents/memory" ]
+  [ -d "${PROJECT_DIR}/.agents/memory/latent" ]
   run cat "${MDCTX_ARGS_FILE}"
-  assert_output --regexp '^build .*/.agents/memory -o .*/\.mdctx/context-index\.json$'
+  assert_output --regexp '^build .*/.agents/memory/latent -o .*/\.mdctx/context-index\.json$'
   [ -d "${PROJECT_DIR}/.mdctx" ]
 }
 

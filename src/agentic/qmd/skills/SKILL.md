@@ -34,13 +34,13 @@ model download — do not use them.
 
 ## Collection scope
 
-The project collection is scoped to **`.agents/memory/`** — the whole memory tree
-(`latent/`, `work/`, `thinking/`, and `active/`). The goal is that a note is
-searchable as soon as it is written, not only after it is promoted to `latent/`.
+The project collection is scoped to **`.agents/memory/latent/`** — the passive
+memories only. `work/`, `thinking/` and `active/` are deliberately excluded so a
+search recalls durable knowledge, not plans and scratch notes.
 
-- `work/` carries active plans and backlogs; they are searchable while in flight.
-- `thinking/` carries scratch notes; they are searchable, and stale ones are
-  removed by the next incremental prune.
+- `work/` carries active plans and backlogs: excluded from the project
+  collection. Search it by registering an explicit collection (see below).
+- `thinking/` carries scratch notes: excluded for the same reason.
 - The shared global store is a separate collection (`dev-bot-global`).
 
 ```bash

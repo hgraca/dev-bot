@@ -197,7 +197,7 @@ SCRIPT
   stubdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
   tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
   project="$tmpdir/project with spaces"
-  old_path="$project/.agents/memory/latent"
+  old_path="$project/.agents/memory"
   state="$tmpdir/collection-path"
   mkdir -p "$project/.agents/memory/latent" "$old_path"
   printf '{"project_name":"configured-project"}\n' > "$project/.devbot.project.jsonc"
@@ -229,7 +229,7 @@ SCRIPT
   chmod +x "$stubdir/qmd"
 
   run env PATH="$stubdir:$PATH" QMD_STATE="$state" \
-    QMD_TARGET="$project/.agents/memory" QMD_FAIL_TARGET_ADD=1 \
+    QMD_TARGET="$project/.agents/memory/latent" QMD_FAIL_TARGET_ADD=1 \
     bash "$MODULE_DIR/../qmd/init.sh" "$project"
 
   assert_failure
@@ -237,15 +237,15 @@ SCRIPT
   [[ "$(cat "$state")" == "$old_path" ]]
 
   run env PATH="$stubdir:$PATH" QMD_STATE="$state" \
-    QMD_TARGET="$project/.agents/memory" \
+    QMD_TARGET="$project/.agents/memory/latent" \
     bash "$MODULE_DIR/../qmd/init.sh" "$project"
 
   assert_success
-  [[ "$(cat "$state")" == "$project/.agents/memory" ]]
+  [[ "$(cat "$state")" == "$project/.agents/memory/latent" ]]
 
   printf '%s\n' "$old_path" > "$state"
   run env PATH="$stubdir:$PATH" QMD_STATE="$state" \
-    QMD_TARGET="$project/.agents/memory" QMD_FAIL_VERIFY=1 \
+    QMD_TARGET="$project/.agents/memory/latent" QMD_FAIL_VERIFY=1 \
     bash "$MODULE_DIR/../qmd/init.sh" "$project"
 
   assert_failure

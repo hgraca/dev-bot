@@ -427,15 +427,15 @@ def resolve_mdctx_indexes(
     mdctx builds one flat JSON index per real root (it does not follow
     symlinks — the project vault's latent/global symlink is therefore NOT
     covered by the project index). This mirrors search_qmd's dual-store
-    contract (project collection + dev-bot-global): the project memory tree
+    contract (project collection + dev-bot-global): the project latent corpus
     and the shared global-memories store are each indexed and searched.
 
     Returns [(root_dir, index_file)]:
-      - project: <project>/.agents/memory  + <project>/.mdctx/context-index.json
+      - project: <project>/.agents/memory/latent + <project>/.mdctx/context-index.json
       - global:  <DEV_BOT_ROOT>/storage/global-memories + <DEV_BOT_ROOT>/storage/.mdctx/context-index.json
     """
     devbot_dir = resolve_devbot_dir(project_root)
-    memory_root = project_root / devbot_dir / "memory"
+    memory_root = project_root / devbot_dir / "memory" / "latent"
     project_pair = (memory_root, project_root / ".mdctx" / "context-index.json")
     global_pair = (
         DEVBOT_ROOT / "storage" / "global-memories",
@@ -445,11 +445,12 @@ def resolve_mdctx_indexes(
 
 
 def _index_corpus_root(project_root: Path, index_file: Path) -> Path:
-    """The root an mdctx index was built from: memory/ or memory/latent/.
+    """The root an mdctx index was built from: memory/latent/ or memory/.
 
-    The branch record is authoritative when it carries the new corpus marker.
-    A legacy index has no such record and its entries are flat (a.md); a
-    whole-memory index has nested entries (latent/a.md, work/b.md, ...).
+    The branch record is authoritative when it carries a corpus marker:
+    "latent" is the current corpus, while "memory" describes the older
+    whole-memory index, read as-is until the rebuild replaces it. A legacy
+    index has no such record, so its recorded root decides.
     """
     devbot_dir = resolve_devbot_dir(project_root)
     memory = project_root / devbot_dir / "memory"
@@ -458,6 +459,8 @@ def _index_corpus_root(project_root: Path, index_file: Path) -> Path:
         data = json.loads(record.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         data = {}
+    if data.get("corpus") == "latent":
+        return memory / "latent"
     if data.get("corpus") == "memory":
         return memory
     try:
@@ -534,7 +537,11 @@ def _scoped_mdctx_pairs(
                 ),
                 None,
             )
-            conventional = root / resolve_devbot_dir(root) / "memory"
+            # The default collection is the latent corpus; only a genuinely
+            # different configured path is an override. Comparing against the
+            # latent root keeps a legacy whole-memory index readable through
+            # _index_corpus_root until the rebuild replaces it.
+            conventional = root / resolve_devbot_dir(root) / "memory" / "latent"
             if (
                 configured is not None
                 and Path(configured["path"]).resolve() != conventional.resolve()
@@ -923,9 +930,9 @@ def _import_memory_collections():
 
 
 def _builtin_collections(project_root: Path) -> list[dict]:
-    """The pre-config default: the project vault + the shared global store."""
+    """The pre-config default: the project latent corpus + the shared global store."""
     devbot_dir = resolve_devbot_dir(project_root)
-    memory = project_root / devbot_dir / "memory"
+    memory = project_root / devbot_dir / "memory" / "latent"
     global_dir = DEVBOT_ROOT / "storage" / "global-memories"
     return [
         {

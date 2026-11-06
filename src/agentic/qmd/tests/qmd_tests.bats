@@ -308,7 +308,7 @@ SCRIPT
   run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)"):/usr/bin:/bin" \
     XDG_CACHE_HOME="$sandbox/cache" \
     QMD_CALL_LOG="$call_log" \
-    QMD_TEST_MEMORY="${sandbox}/.agents/memory" \
+    QMD_TEST_MEMORY="${sandbox}/.agents/memory/latent" \
     bash "${MODULE_DIR}/init.sh" "${sandbox}"
 
   assert_success
@@ -340,7 +340,7 @@ SCRIPT
 }
 
 
-@test "init.sh migrates an existing latent collection to the memory root" {
+@test "init.sh migrates an existing whole-memory collection to latent" {
   local base sandbox
   base="$(mktemp -d)"
   sandbox="${base}/project with spaces"
@@ -369,7 +369,7 @@ SCRIPT
   local call_log="${sandbox}/qmd-calls.log"
   local state_file="${sandbox}/qmd-state.txt"
   : > "$call_log"
-  printf '%s' "${sandbox}/.agents/memory/latent" > "$state_file"
+  printf '%s' "${sandbox}/.agents/memory" > "$state_file"
 
   run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)"):/usr/bin:/bin" \
     XDG_CACHE_HOME="${sandbox}/cache" \
@@ -380,7 +380,54 @@ SCRIPT
   assert_success
   run cat "$call_log"
   assert_output --partial "collection remove ${name}"
-  assert_output --partial "collection add ${sandbox}/.agents/memory --name ${name}"
+  assert_output --partial "collection add ${sandbox}/.agents/memory/latent --name ${name}"
+
+  rm -r "$base"
+}
+
+@test "init.sh creates a missing latent dir and migrates the whole-memory collection" {
+  local base sandbox
+  base="$(mktemp -d)"
+  sandbox="${base}/project"
+  mkdir -p "${sandbox}/bin" "${sandbox}/.agents/memory" "${sandbox}/cache"
+  local name
+  name="$(basename "${sandbox}")"
+
+  cat > "${sandbox}/bin/qmd" <<'SCRIPT'
+#!/usr/bin/env bash
+echo "$*" >> "${QMD_CALL_LOG}"
+case "$1" in
+  --version) echo "qmd 1.0"; exit 0 ;;
+  collection)
+    case "$2" in
+      show) echo "Collection: $3"; echo "  Path: $(cat "${STATE_FILE}")" ;;
+      add) printf '%s' "$3" > "${STATE_FILE}" ;;
+      remove) : > "${STATE_FILE}" ;;
+    esac
+    exit 0
+    ;;
+  context|cleanup|update) exit 0 ;;
+esac
+exit 0
+SCRIPT
+  chmod +x "${sandbox}/bin/qmd"
+
+  local call_log="${sandbox}/qmd-calls.log"
+  local state_file="${sandbox}/qmd-state.txt"
+  : > "$call_log"
+  printf '%s' "${sandbox}/.agents/memory" > "$state_file"
+
+  run env PATH="${sandbox}/bin:$(dirname "$(command -v python3)"):/usr/bin:/bin" \
+    XDG_CACHE_HOME="$sandbox/cache" \
+    QMD_CALL_LOG="$call_log" \
+    STATE_FILE="$state_file" \
+    bash "${MODULE_DIR}/init.sh" "${sandbox}"
+
+  assert_success
+  [ -d "${sandbox}/.agents/memory/latent" ]
+  [[ "$(cat "$state_file")" == "${sandbox}/.agents/memory/latent" ]]
+  run cat "$call_log"
+  assert_output --partial "collection add ${sandbox}/.agents/memory/latent --name ${name}"
 
   rm -r "$base"
 }
@@ -424,7 +471,7 @@ SCRIPT
   local record="${sandbox}/.agents/logs/memory-index-branch.json"
   [[ -f "${record}" ]]
   python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["project_collection_path"] == sys.argv[2]' \
-    "${record}" "${sandbox}/.agents/memory"
+    "${record}" "${sandbox}/.agents/memory/latent"
 
   rm -r "$base"
 }

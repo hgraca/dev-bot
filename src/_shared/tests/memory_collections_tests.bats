@@ -65,7 +65,7 @@ print(",".join(c["key"] for c in json.load(sys.stdin)["collections"]))
   resolve
   assert_success
   assert_equal "$(keys)" "project,global"
-  assert_equal "$(field project path)" "${PROJECT_DIR}/.agents/memory"
+  assert_equal "$(field project path)" "${PROJECT_DIR}/.agents/memory/latent"
   assert_equal "$(field project physical)" "$(basename "${PROJECT_DIR}")"
   assert_equal "$(field project kind)" "project"
   assert_equal "$(field global path)" "${SANDBOX_DIR}/storage/global-memories"
@@ -77,7 +77,7 @@ print(",".join(c["key"] for c in json.load(sys.stdin)["collections"]))
 
   resolve
   assert_success
-  assert_equal "$(field project path)" "${PROJECT_DIR}/.custom-agents/memory"
+  assert_equal "$(field project path)" "${PROJECT_DIR}/.custom-agents/memory/latent"
 }
 
 @test "defaults: the physical project name follows project_name" {
@@ -378,7 +378,7 @@ print(",".join(c["key"] for c in json.load(sys.stdin)["collections"]))
 @test "custom: an alias of the project root reuses its identity" {
   _write_project_cfg '{
     "project_name": "proj",
-    "memory_collections": { "alias": { "path": "{project}/.agents/memory" } }
+    "memory_collections": { "alias": { "path": "{project}/.agents/memory/latent" } }
   }'
 
   resolve
@@ -401,12 +401,12 @@ print(",".join(c["key"] for c in json.load(sys.stdin)["collections"]))
 
 @test "custom: an alias of another registered project's vault is rejected" {
   local project_a="$SANDBOX_DIR/project-a" project_b="$SANDBOX_DIR/project-b"
-  mkdir -p "$project_a/.agents/memory" "$project_b/.agents/memory"
+  mkdir -p "$project_a/.agents/memory/latent" "$project_b/.agents/memory/latent"
   printf '{ "project_name": "a" }\n' > "$project_a/.devbot.project.jsonc"
   printf '{ "project_name": "b" }\n' > "$project_b/.devbot.project.jsonc"
   _write_global_cfg "{
     \"projects\": [\"$project_a\", \"$project_b\"],
-    \"memory_collections\": { \"notes\": { \"path\": \"$project_a/.agents/memory\" } }
+    \"memory_collections\": { \"notes\": { \"path\": \"$project_a/.agents/memory/latent\" } }
   }"
 
   run python3 "${RESOLVER}" --project-root "$project_b"
@@ -417,7 +417,7 @@ print(",".join(c["key"] for c in json.load(sys.stdin)["collections"]))
 @test "custom: an alias of a sibling's overridden project path is rejected" {
   local project_a="$SANDBOX_DIR/project-a" project_b="$SANDBOX_DIR/project-b"
   local shared="$SANDBOX_DIR/shared-vault"
-  mkdir -p "$project_a/.agents/memory" "$project_b/.agents/memory" "$shared"
+  mkdir -p "$project_a/.agents/memory/latent" "$project_b/.agents/memory/latent" "$shared"
   printf '{ "project_name": "a", "memory_collections": { "project": { "path": "%s" } } }\n' \
     "$shared" > "$project_a/.devbot.project.jsonc"
   printf '{ "project_name": "b" }\n' > "$project_b/.devbot.project.jsonc"
@@ -434,8 +434,8 @@ print(",".join(c["key"] for c in json.load(sys.stdin)["collections"]))
 @test "custom: a symlink alias of another project's vault is rejected" {
   local project_a="$SANDBOX_DIR/project-a" project_b="$SANDBOX_DIR/project-b"
   local alias_a="$SANDBOX_DIR/alias-a"
-  mkdir -p "$project_a/.agents/memory" "$project_b/.agents/memory"
-  ln -s "$project_a/.agents/memory" "$alias_a"
+  mkdir -p "$project_a/.agents/memory/latent" "$project_b/.agents/memory/latent"
+  ln -s "$project_a/.agents/memory/latent" "$alias_a"
   printf '{ "project_name": "a" }\n' > "$project_a/.devbot.project.jsonc"
   printf '{ "project_name": "b" }\n' > "$project_b/.devbot.project.jsonc"
   _write_global_cfg "{

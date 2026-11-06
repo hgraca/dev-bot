@@ -55,13 +55,23 @@ _ok "qmd CLI: $(qmd --version 2>/dev/null || echo 'installed')"
 # ── Check vault exists ────────────────────────────────────────────────────────
 
 DEVBOT_DIR="$(_devbot_get_project_dir "${PROJECT_DIR}")"
-CONVENTIONAL_MEMORY="${PROJECT_DIR}/${DEVBOT_DIR}/memory"
+CONVENTIONAL_MEMORY="${PROJECT_DIR}/${DEVBOT_DIR}/memory/latent"
+LEGACY_MEMORY_ROOT="${PROJECT_DIR}/${DEVBOT_DIR}/memory"
 MEMORY_DIR="$(_devbot_memory_collection_field "${PROJECT_DIR}" project path)"
 [[ -n "${MEMORY_DIR}" ]] || MEMORY_DIR="${CONVENTIONAL_MEMORY}"
+if [[ ! -d "${MEMORY_DIR}" && "${MEMORY_DIR}" == "${CONVENTIONAL_MEMORY}" ]]; then
+  mkdir -p "${MEMORY_DIR}" 2>/dev/null || true
+fi
 if [[ ! -d "${MEMORY_DIR}" ]]; then
+  # A surviving whole-memory registration would keep work/thinking searchable
+  # while the resolver points at the missing latent path: refuse to leave it.
+  if qmd collection show "${PROJECT_NAME}" >/dev/null 2>&1; then
+    _error "Collection '${PROJECT_NAME}' is registered but ${MEMORY_DIR} is missing; refusing to leave a whole-memory collection active"
+    exit 1
+  fi
   _warn "No memory directory found at:"
   echo "    ${MEMORY_DIR}"
-  echo "  Create it or ensure your project has the <devbot-dir>/memory/ structure."
+  echo "  Create it or ensure your project has the <devbot-dir>/memory/latent/ structure."
   echo "  Continuing with global collection only."
   HAS_MEMORY=false
 else
@@ -115,8 +125,9 @@ if [[ "$HAS_MEMORY" == "true" ]]; then
   _header_3 "Registering QMD collections"
 
   # Check if collection already exists (exact match, not substring). An
-  # existing collection may still be rooted at memory/latent from before the
-  # whole-memory scope; migrate it so work/thinking/active become searchable.
+  # existing collection may still be rooted at the whole-memory scope from
+  # before latent-only indexing; migrate it so work/ and thinking/ notes drop
+  # out of search results.
   released=""
   if qmd collection show "${PROJECT_NAME}" >/dev/null 2>&1; then
     current_path="$(qmd collection show "${PROJECT_NAME}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
@@ -124,7 +135,7 @@ if [[ "$HAS_MEMORY" == "true" ]]; then
       _warn "Could not determine the root of collection '${PROJECT_NAME}'"
       exit 1
     elif [[ "${current_path}" != "${MEMORY_DIR}" ]]; then
-      if [[ "${current_path}" != "${MEMORY_DIR}/latent" ]]; then
+      if [[ "${current_path}" != "${LEGACY_MEMORY_ROOT}" ]]; then
         # Only a root recorded by this checkout's last successful build is a
         # legitimate former override. A nested worktree is a descendant of
         # PROJECT_DIR but has its own record, so a prefix check would let the
@@ -161,7 +172,7 @@ if [[ "$HAS_MEMORY" == "true" ]]; then
       _skip "Collection '${PROJECT_NAME}' already registered"
     fi
   else
-    _info "Registering collection '${PROJECT_NAME}' for memory/..."
+    _info "Registering collection '${PROJECT_NAME}' for the latent corpus..."
     released="$(_devbot_release_custom_at_path "${MEMORY_DIR}")"
     if ! qmd collection add "${MEMORY_DIR}" --name "${PROJECT_NAME}"; then
       _devbot_restore_custom_at_path "${released}" "${MEMORY_DIR}"
