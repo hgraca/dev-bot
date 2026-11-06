@@ -209,7 +209,7 @@ print('DISABLED-BY-DEFAULT:OK')
 @test "audit-25: serve launcher discovers chrome on macOS and Linux" {
   # The Chromium discovery lives in serve.mcp.sh since T1.2 (mcp.json now just
   # execs the launcher).
-  run grep -c 'chrome-mac/Chromium.app/Contents/MacOS/Chromium' \
+  run grep -c 'chrome-mac\*/\*\.app/Contents/MacOS/\*' \
     "${MODULE_DIR}/serve.mcp.sh"
   assert_equal "$output" "1"
   run grep -c 'chrome-linux\*/chrome' \
@@ -217,6 +217,47 @@ print('DISABLED-BY-DEFAULT:OK')
   assert_equal "$output" "1"
   run grep -c 'uname -s' "${MODULE_DIR}/serve.mcp.sh"
   assert_equal "$output" "1"
+  # install.sh gates the download on the same layouts; drifting apart there
+  # means 'devbot install' never sees the browser the launcher needs.
+  run grep -c 'chrome-mac\*/\*\.app/Contents/MacOS/\*' \
+    "${MODULE_DIR}/install.sh"
+  assert_equal "$output" "1"
+}
+
+@test "serve.mcp.sh: resolves the renamed macOS bundle (Google Chrome for Testing)" {
+  # Playwright renamed the macOS download: chrome-mac/Chromium.app became
+  # chrome-mac-<arch>/Google Chrome for Testing.app. A launcher hardcoded to the
+  # old path finds nothing and starts without --executablePath, so on a machine
+  # whose only browser is Playwright's the MCP server has no browser at all.
+  local tmpdir chrome
+  tmpdir="$(mktemp -d)"
+  _stub_runtime_kit "${tmpdir}"
+  # CI runs BATS on ubuntu-latest only, so stub uname to force the Darwin
+  # branch instead of skipping — otherwise this regression never runs.
+  printf '#!/bin/bash\necho Darwin\n' > "${tmpdir}/stubbin/uname"
+  chmod +x "${tmpdir}/stubbin/uname"
+  chrome="${tmpdir}/.cache/ms-playwright/chromium-9999/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+  mkdir -p "$(dirname "${chrome}")"
+  printf '#!/bin/bash\nexit 0\n' > "${chrome}"
+  chmod +x "${chrome}"
+
+  # Launch through a harness dir, the way init.sh wires it: the launcher execs
+  # the shared wrapper from its OWN directory, so running the module file
+  # directly would miss the wrapper.
+  mkdir -p "${tmpdir}/.opencode"
+  ln -s "${SHARED_WRAPPER}" "${tmpdir}/.opencode/chrome-devtools-mcp-wrapper.js"
+  ln -s "${MODULE_DIR}/serve.mcp.sh" "${tmpdir}/.opencode/chrome-devtools-serve.mcp.sh"
+
+  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" \
+    bash "${tmpdir}/.opencode/chrome-devtools-serve.mcp.sh"
+  assert_success
+
+  # The launcher materialises the resolved browser into its --no-sandbox wrapper
+  # before exec, so that file proves which binary discovery picked.
+  run cat "${tmpdir}/.cache/ms-playwright/chrome-nosandbox"
+  assert_output --partial "Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing"
+
+  rm -rf "${tmpdir}"
 }
 
 # ── audit-25 F4: install/update must provision a sandboxable Chromium ────────

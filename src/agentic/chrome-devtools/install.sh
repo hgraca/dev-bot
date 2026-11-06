@@ -33,7 +33,7 @@ _chromium_present() {
   # one of the two platform patterns doesn't match, even if the other does.
   local found
   found="$(ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome \
-    "$HOME"/.cache/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium \
+    "$HOME"/.cache/ms-playwright/chromium-*/chrome-mac*/*.app/Contents/MacOS/* \
     2>/dev/null | head -1)"
   [[ -n "${found}" ]]
 }

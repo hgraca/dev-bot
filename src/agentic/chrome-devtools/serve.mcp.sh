@@ -78,7 +78,9 @@ fi
 
 # ── Discover a sandboxable Chromium (audit-25: macOS + Linux layouts) ────────
 if [ "$(uname -s)" = "Darwin" ]; then
-  CHROME_REAL="$(ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium 2>/dev/null | head -1)"
+  # Playwright renamed the mac bundle: chrome-mac/Chromium.app
+  # became chrome-mac-<arch>/Google Chrome for Testing.app.
+  CHROME_REAL="$(ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-mac*/*.app/Contents/MacOS/* 2>/dev/null | head -1)"
 else
   CHROME_REAL="$(ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | head -1)"
 fi
