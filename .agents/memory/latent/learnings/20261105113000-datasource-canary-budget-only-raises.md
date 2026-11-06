@@ -16,7 +16,7 @@ On 2026-11-05 a healthy staging RDS source (`gete-dev-3.<zone>.rds.amazonaws.com
 way while TCP 3306 connected fine and the pinned toolbox initialized it in 1.1–1.7s, measured over
 six standalone runs. So the 5s budget was a margin problem, not a reachability problem.
 
-Also read the render line carefully: `config unchanged` means the *previous* render had already
+Also read the render line carefully: `config unchanged` means the _previous_ render had already
 excluded that source. A missing toolset at session start usually predates the `reload` the operator
 just ran — the reload only re-evaluates it.
 
