@@ -11,4 +11,5 @@ If no PR is given and none is in context, ask which pull request the user means.
 
 Load the `devbot:gh-review-loop` skill and follow it to the end — it carries the request/verify
 mechanics, the wait cadence, and the read/fix/mark/track steps. Stop when a review introduces no new
-findings, squash the fixups, and tell the user to run the force-push command. Never merge.
+findings and every required check is green with the pull request mergeable, then squash the fixups and
+tell the user to run the force-push command. Never merge.

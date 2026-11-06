@@ -7,7 +7,9 @@ description: Loop Copilot pull-request reviews — request, wait, fix each findi
 
 The Copilot pull-request review loop, end to end: request a review, wait for it to land, read every
 finding, fix each as a fixup, push, re-request, and repeat until a review introduces no new findings.
-Finish by squashing the fixups and handing the user the force-push command — never merge.
+A clean review is not a mergeable pull request: confirm the required checks are green and the pull
+request can actually merge, then squash the fixups and hand the user the force-push command — never
+merge.
 
 `devbot:auto-dev` and the `devbot:gh-review-loop` command both drive this skill; an interactive
 session uses it too, pausing at its own check-ins. `devbot:address-review` defers to it for the
@@ -29,6 +31,8 @@ posting/reply mechanics, which are the deliberate exception to its local-only ru
 - **Poll at the documented cadence** — 1 minute, then every minute, at most 60 checks per request.
 - **Fix every finding as a `fixup!`** (`devbot:git-fixup-commits`), one commit per finding.
 - **Reply and resolve** every thread, including a false positive — with the same succinct format.
+- **Gate on CI, not just the review.** Green required checks and a mergeable pull request come before
+  the history is touched.
 - **Stop one step before the merge**: squash the fixups, hand the user the force-push command.
 
 ## The loop
@@ -135,9 +139,37 @@ Follow the underlying issue and affected code across both sources, keeping comme
 replies and resolutions. A re-raised finding already addressed or judged a false positive does not
 restart the loop.
 
+### Gate
+
+A review that introduces no new findings is not a mergeable pull request. Before touching the history,
+verify the remote gates; in a multi-remote checkout both commands need `--repo <owner>/<repo>`:
+
+```bash
+# Every required check must have finished green (pass, or skipped by design).
+gh pr checks <pr> --repo <owner>/<repo> --required --json name,bucket \
+  --jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | length == 0'
+
+# The pull request's own merge state — green checks alone do not make it mergeable.
+gh pr view <pr> --repo <owner>/<repo> --json mergeable,mergeStateStatus
+```
+
+- **Pending** — a `pending` bucket, or `mergeable: UNKNOWN` while GitHub computes it, is not a pass.
+  Wait on the [Wait](#wait) cadence and check again; never block on a polling loop.
+- **Failing** — fix every failing check as its own `fixup!` (`devbot:git-fixup-commits`), push, then
+  return to [Request](#request). Green checks against a stale review are not the finish line: the push
+  needs a fresh Copilot review, so repeat until a review introduces no new findings **and** every
+  required check passes.
+- **`BEHIND`** — on a ruleset that requires the branch to be current, update it (`gh pr update-branch`)
+  and re-enter the wait; the update re-runs the checks.
+- **`CONFLICTING` / `DIRTY`** — stop and ask the user. A conflict is resolved by rewriting the branch,
+  not by a fixup.
+- **A no-fixup guard is not a failure** — a required check that rejects `fixup!`/`squash!` subjects
+  stays red until the squash, by design, and does not block the gate.
+
 ### Finish
 
-When a review introduces no new findings, squash the fixups into their target commits
-(`devbot:git-worktrees`, "Squash fixups before merge") and hand the user the exact
+Only a clean review **and** a green, mergeable pull request finish the loop. Squash the fixups into
+their target commits (`devbot:git-worktrees`, "Squash fixups before merge") and hand the user the exact
 `git push --force-with-lease=<ref>:<expected-sha>` command. The guards module blocks the agent's
-force-push; the human publishes it. Never merge.
+force-push; the human publishes it. A squash rewrites commits without changing the tree, so the
+checks stay green when it lands. Never merge.

@@ -57,10 +57,11 @@ request; nothing is merged.
    `@code-reviewer` as `devbot:auto-dev` directs), and address every finding as your own
    recommendation (`devbot:address-review`).
 6. **Open the pull request and run the review loop** — push the branch and open the pull request with
-   `devbot:gh-create-pr`, then loop until a review introduces no new findings: request the reviewer,
-   read both the line comments and the review body, fix each finding as a fixup, and reply then
-   resolve each thread. `devbot:gh-review-loop` carries the loop's mechanics — cadence, reviewer effort
-   and the resolution reply.
+   `devbot:gh-create-pr`, then loop until a review introduces no new findings **and** every required
+   check is green with the pull request mergeable: request the reviewer, read both the line comments
+   and the review body, fix each finding as a fixup, reply then resolve each thread, and re-enter the
+   loop for a failing check. `devbot:gh-review-loop` carries the loop's mechanics — cadence, reviewer
+   effort, the CI gate and the resolution reply.
 7. **Hand back** — stop and report the pull request and its URL (`devbot:gh-create-pr`). The reviewer
    squashes the fixups and merges; you never merge it.
 

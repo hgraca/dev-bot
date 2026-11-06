@@ -106,6 +106,28 @@ setup() {
   ! grep -q 'maximum of 12 checks' "${SKILL_FLAT}"
 }
 
+@test "review loop gates on green required checks and mergeability" {
+  grep -q 'gh pr checks' "${SKILL}"
+  grep -q -- '--required' "${SKILL}"
+  # The pull request's own merge state, not only its checks.
+  grep -q 'gh pr view' "${SKILL}"
+  grep -q 'mergeable' "${SKILL}"
+  grep -q 'mergeStateStatus' "${SKILL}"
+  # A failing or pending check sends the loop back round; it never finishes it.
+  grep -q 'return to \[Request\](#request)' "${SKILL_FLAT}"
+  # A no-fixup guard is red until the squash, by design — not a code failure.
+  grep -q 'no-fixup guard' "${SKILL_FLAT}"
+}
+
+@test "the CI gate runs before the squash, not after" {
+  gate_line="$(grep -n '^### Gate' "${SKILL}" | cut -d: -f1)"
+  finish_line="$(grep -n '^### Finish' "${SKILL}" | cut -d: -f1)"
+  squash_line="$(grep -in 'squash the fixups' "${SKILL}" | cut -d: -f1 | tail -1)"
+  [ -n "${gate_line}" ] && [ -n "${finish_line}" ] && [ -n "${squash_line}" ]
+  [ "${gate_line}" -lt "${finish_line}" ]
+  [ "${gate_line}" -lt "${squash_line}" ]
+}
+
 @test "review loop finishes one step before the merge" {
   grep -q 'squash the fixups' "${SKILL_FLAT}"
   grep -q 'push --force-with-lease' "${SKILL_FLAT}"

@@ -55,9 +55,9 @@ Task: $ARGUMENTS
 
 5. **Work the steps to the last one before the merge** — carry the task to the workflow's final
    hand-back, which is the stage just before merging to the default branch: for the worktrees
-   workflow, an open pull request whose review loop is clean; for the trunk workflow, the reviewed
-   commits with the push still pending. Never merge a pull request, never push the default branch,
-   and never open a pull request the workflow does not call for.
+   workflow, an open pull request whose review loop is clean and whose required checks are green; for
+   the trunk workflow, the reviewed commits with the push still pending. Never merge a pull request,
+   never push the default branch, and never open a pull request the workflow does not call for.
 
 6. **Hand back** — stop and report what the workflow's last step leaves for the user; a pull request
    is always reported with its URL (`devbot:gh-create-pr`).
@@ -65,6 +65,7 @@ Task: $ARGUMENTS
 ## Review loop (when the workflow opens a pull request)
 
 The loop is `devbot:gh-review-loop`: load that skill and run it until a review introduces no new
-findings. It carries the request/verify mechanics, the wait cadence, and the read/fix/mark/track
-steps; an interactive run uses the same skill, pausing at its own check-ins. Finish where it says —
-squash the fixups and hand the user the force-push command. Never merge.
+findings and the pull request's required checks are green and it is mergeable. It carries the
+request/verify mechanics, the wait cadence, the read/fix/mark/track steps and the CI gate; an
+interactive run uses the same skill, pausing at its own check-ins. Finish where it says — squash the
+fixups and hand the user the force-push command. Never merge.
