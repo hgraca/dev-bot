@@ -444,6 +444,34 @@ class TestDockerCanaryLifecycle(unittest.TestCase):
         self.assertNotIn("1129", result.error or "")
 
 
+class TestDockerCanaryNetworking(unittest.TestCase):
+    """The canary's network mode follows the platform: host networking on
+    Linux, a published loopback port on macOS, where Docker Desktop cannot do
+    host networking."""
+
+    def _run_args(self, platform):
+        fake = FakeDocker(run_rc=1)
+        with mock.patch.dict(os.environ, {"DATASOURCES_PLATFORM": platform}):
+            docker_canary(
+                "x", image="img", version="1", env_names=[], timeout=0.4, runner=fake
+            )
+        return next(c for c in fake.commands if len(c) > 1 and c[1] == "run")
+
+    def test_linux_uses_host_networking(self):
+        run = self._run_args("linux")
+
+        self.assertIn("--network", run)
+        self.assertIn("host", run)
+        self.assertIn("127.0.0.1", run)
+
+    def test_macos_publishes_a_loopback_port(self):
+        run = self._run_args("darwin")
+
+        self.assertNotIn("--network", run)
+        self.assertTrue(any(a.startswith("-p") for a in run), run)
+        self.assertIn("0.0.0.0", run)
+
+
 class TestIsReady(unittest.TestCase):
     def test_ignores_an_environment_proxy(self):
         # render.sh exports .env into this process, so a proxy set there must

@@ -58,7 +58,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
-from render_tools_yaml import effective_env_names, is_sidecar, load_catalogue, render
+from render_tools_yaml import (
+    effective_env_names,
+    is_sidecar,
+    load_catalogue,
+    on_macos,
+    render,
+)
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEV_BOT_ROOT = os.environ.get("DEV_BOT_ROOT") or os.path.dirname(
@@ -360,10 +366,17 @@ def docker_canary(
 
         # Mirror the gateway's own mounts and identity, so the canary's verdict
         # matches what the real container will do (notably sqlite's /data).
+        # Host networking is Linux-only: on macOS Docker Desktop the container's
+        # loopback is not the host's, so the canary publishes the port instead
+        # and the host probes it through the mapping.
         args = [
-            docker, "run", "-d", "--name", name, "--network", "host",
+            docker, "run", "-d", "--name", name,
             "-v", f"{work_dir}:/app/conf:ro",
         ]
+        if on_macos():
+            args += ["-p", f"127.0.0.1:{port}:{port}"]
+        else:
+            args += ["--network", "host"]
         if data_dir:
             args += ["-v", f"{data_dir}:/data"]
         if hasattr(os, "getuid"):
@@ -374,7 +387,7 @@ def docker_canary(
         args += [
             f"{image}:{version}",
             "--config-folder", "/app/conf",
-            "--address", "127.0.0.1",
+            "--address", "0.0.0.0" if on_macos() else "127.0.0.1",
             "--port", str(port),
             "--allowed-hosts", "127.0.0.1",
             "--allowed-origins", f"http://127.0.0.1:{port}",

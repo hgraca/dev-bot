@@ -19,14 +19,16 @@ def render(catalogue, env=None):
     """Run the generator over a catalogue dict. Returns (exit_code, stdout, stderr).
 
     `env` merges over the inherited environment, so a test can control what a
-    ${VAR} reference resolves to.
+    ${VAR} reference resolves to. The platform is pinned to Linux so the
+    expectations stay deterministic on the macOS host this module now supports;
+    a test that exercises the Darwin path says so explicitly in `env`.
     """
     proc = subprocess.run(
         [sys.executable, RENDERER],
         input=json.dumps(catalogue),
         capture_output=True,
         text=True,
-        env={**os.environ, **(env or {})},
+        env={**os.environ, "DATASOURCES_PLATFORM": "linux", **(env or {})},
     )
     return proc.returncode, proc.stdout, proc.stderr
 
@@ -388,13 +390,16 @@ class TestRenderToolsYaml(unittest.TestCase):
         # The mongodb source has no timeout field, so the dial bound rides in
         # the connection string. Without it the driver's 30s server selection
         # outlasts the canary budget and an unreachable host cannot be named.
+        # Pinned to Linux: on macOS a literal loopback host is rewritten (see
+        # the platform networking tests below).
         code, out, _ = render(
             {
                 "events": {
                     "type": "mongodb",
                     "env": {"MONGODB_URI": "mongodb://localhost", "MONGODB_DATABASE": "d"},
                 }
-            }
+            },
+            env={"DATASOURCES_PLATFORM": "linux"},
         )
 
         self.assertEqual(code, 0)
@@ -554,8 +559,11 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertIn("items:", tool)
 
     def test_redis_address_is_a_sequence(self):
+        # Pinned to Linux: on macOS a literal loopback address is rewritten
+        # (see the platform networking tests below).
         code, out, _ = render(
-            {"cache": {"type": "redis", "env": {"REDIS_ADDRESS": "127.0.0.1:6379"}}}
+            {"cache": {"type": "redis", "env": {"REDIS_ADDRESS": "127.0.0.1:6379"}}},
+            env={"DATASOURCES_PLATFORM": "linux"},
         )
 
         self.assertEqual(code, 0)
@@ -586,6 +594,142 @@ class TestRenderToolsYaml(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertIn("password: ${REDIS_PW}", doc_with(out, "source"))
+
+    # ── macOS loopback rewriting ────────────────────────────────────────────
+    #
+    # Docker Desktop cannot do host networking, so the gateway container is
+    # bridged and its `localhost` is itself. A datasource declared against the
+    # host's loopback must point at host.docker.internal instead. Only LITERALS
+    # are rewritten — a ${VAR} reference is resolved by toolbox inside the
+    # container, where the value is out of reach.
+
+    def test_macos_rewrites_a_literal_loopback_host(self):
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "localhost"}}},
+            env={"DATASOURCES_PLATFORM": "darwin"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("host: 'host.docker.internal'", doc_with(out, "source"))
+
+    def test_linux_keeps_a_literal_loopback_host(self):
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "localhost"}}},
+            env={"DATASOURCES_PLATFORM": "linux"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("host: 'localhost'", doc_with(out, "source"))
+
+    def test_macos_rewrites_a_redis_address(self):
+        code, out, _ = render(
+            {"cache": {"type": "redis", "env": {"REDIS_ADDRESS": "127.0.0.1:6379"}}},
+            env={"DATASOURCES_PLATFORM": "darwin"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("address:\n  - 'host.docker.internal:6379'", doc_with(out, "source"))
+
+    def test_macos_rewrites_a_mongodb_uri(self):
+        code, out, _ = render(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {"MONGODB_URI": "mongodb://localhost", "MONGODB_DATABASE": "d"},
+                }
+            },
+            env={"DATASOURCES_PLATFORM": "darwin"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("uri: 'mongodb://host.docker.internal/", doc_with(out, "source"))
+
+    def test_macos_rewrites_a_credential_bearing_mongodb_uri(self):
+        # Credentials precede the host in the authority; the host token is what
+        # gets rewritten, and the userinfo must survive untouched.
+        code, out, _ = render(
+            {
+                "events": {
+                    "type": "mongodb",
+                    "env": {
+                        "MONGODB_URI": "mongodb://user:pass@localhost:27017/db",
+                        "MONGODB_DATABASE": "d",
+                    },
+                }
+            },
+            env={"DATASOURCES_PLATFORM": "darwin"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn(
+            "uri: 'mongodb://user:pass@host.docker.internal:27017/db",
+            doc_with(out, "source"),
+        )
+
+    def test_macos_leaves_a_non_loopback_uri_alone(self):
+        # A host that merely starts with a loopback name, and a `//localhost`
+        # later in the path, are not the authority's host.
+        for uri in (
+            "mongodb://localhost.example.com/db",
+            "mongodb://db.internal/x//localhost",
+        ):
+            code, out, _ = render(
+                {
+                    "events": {
+                        "type": "mongodb",
+                        "env": {"MONGODB_URI": uri, "MONGODB_DATABASE": "d"},
+                    }
+                },
+                env={"DATASOURCES_PLATFORM": "darwin"},
+            )
+
+            self.assertEqual(code, 0)
+            self.assertIn(f"uri: '{uri}", doc_with(out, "source"))
+
+    def test_macos_rewrites_the_default_host(self):
+        # With MYSQL_HOST undeclared the renderer still emits a default, and
+        # toolbox resolves it inside the bridged container.
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {}}},
+            env={"DATASOURCES_PLATFORM": "darwin"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn(
+            "host: ${MYSQL_HOST:host.docker.internal}", doc_with(out, "source")
+        )
+
+    def test_linux_keeps_the_default_host(self):
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {}}},
+            env={"DATASOURCES_PLATFORM": "linux"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("host: ${MYSQL_HOST:localhost}", doc_with(out, "source"))
+
+    def test_macos_keeps_a_reference_name_and_rewrites_its_default(self):
+        # The reference is resolved by toolbox inside the container, so it is
+        # never rewritten; the fallback it carries is a literal we emit, so it
+        # is.
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "${HOTELS_DB_HOST}"}}},
+            env={"DATASOURCES_PLATFORM": "darwin"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn(
+            "host: ${HOTELS_DB_HOST:host.docker.internal}", doc_with(out, "source")
+        )
+
+    def test_linux_keeps_a_reference_default(self):
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_HOST": "${HOTELS_DB_HOST}"}}},
+            env={"DATASOURCES_PLATFORM": "linux"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("host: ${HOTELS_DB_HOST:localhost}", doc_with(out, "source"))
 
     def test_malformed_catalogue_is_an_error(self):
         proc = subprocess.run(

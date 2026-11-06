@@ -16,12 +16,19 @@ RENDERER = os.path.join(MODULE_DIR, "render_compose.py")
 TEMPLATE = os.path.join(MODULE_DIR, "compose.tpl.yml")
 
 
-def render(catalogue, template=TEMPLATE):
+def render(catalogue, template=TEMPLATE, env=None):
+    """Render the compose file. `env` merges over the inherited environment.
+
+    The platform is pinned to Linux so the expectations stay deterministic on
+    the macOS host this module now supports; the tests that exercise the Darwin
+    path say so explicitly in `env`.
+    """
     proc = subprocess.run(
         [sys.executable, RENDERER, template],
         input=json.dumps(catalogue),
         capture_output=True,
         text=True,
+        env={**os.environ, "DATASOURCES_PLATFORM": "linux", **(env or {})},
     )
     return proc.returncode, proc.stdout, proc.stderr
 
@@ -230,11 +237,13 @@ class TestRenderCompose(unittest.TestCase):
         self.assertEqual(json.loads(proc.stdout), {"a": 18530})
 
     def _template_in(self, tmp, versions_body):
-        """A minimal template with the two markers, and a versions.env beside it."""
+        """A minimal template with the markers, and a versions.env beside it."""
         template = os.path.join(tmp, "compose.tpl.yml")
         with open(template, "w", encoding="utf-8") as handle:
             handle.write(
                 "services:\n  x:\n    environment: __DATASOURCE_ENV__\n"
+                "    # __NETWORK_MODE__\n"
+                "    command:\n      - __BIND_ADDRESS__\n"
                 "# __SIDECAR_SERVICES__\n"
             )
         with open(os.path.join(tmp, "versions.env"), "w", encoding="utf-8") as handle:
@@ -277,6 +286,57 @@ class TestRenderCompose(unittest.TestCase):
 
         self.assertEqual(code, 1)
         self.assertIn("OPENSEARCH_MCP_VERSION", err)
+
+    # ── platform networking ─────────────────────────────────────────────────
+    #
+    # Host networking is Linux-only. On macOS Docker Desktop the container's
+    # loopback is not the host's, so the gateway and sidecars publish a
+    # loopback-bound port instead and bind 0.0.0.0 inside the container.
+
+    def test_linux_gateway_uses_host_networking(self):
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {}}},
+            env={"DATASOURCES_PLATFORM": "linux"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("network_mode: host", out)
+        self.assertNotIn("ports:", out)
+        self.assertIn("- 127.0.0.1", out)
+
+    def test_macos_gateway_publishes_a_loopback_port(self):
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {}}},
+            env={"DATASOURCES_PLATFORM": "darwin"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertNotIn("network_mode: host", out)
+        self.assertIn(
+            '"127.0.0.1:${DATASOURCES_PORT:-18510}:${DATASOURCES_PORT:-18510}"', out
+        )
+        self.assertIn("- 0.0.0.0", out)
+
+    def test_linux_sidecar_uses_host_networking(self):
+        code, out, err = render(
+            {"search": {"type": "opensearch", "env": {"OPENSEARCH_URL": "https://os.example.com"}}},
+            env={"DATASOURCES_PLATFORM": "linux"},
+        )
+
+        self.assertEqual(code, 0, err)
+        self.assertIn("network_mode: host", out)
+        self.assertIn('"127.0.0.1"', out)
+
+    def test_macos_sidecar_publishes_a_loopback_port(self):
+        code, out, err = render(
+            {"search": {"type": "opensearch", "env": {"OPENSEARCH_URL": "https://os.example.com"}}},
+            env={"DATASOURCES_PLATFORM": "darwin"},
+        )
+
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("network_mode: host", out)
+        self.assertIn('"127.0.0.1:18520:18520"', out)
+        self.assertIn('"0.0.0.0"', out)
 
 
 if __name__ == "__main__":

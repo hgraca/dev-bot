@@ -38,8 +38,10 @@ services:
     #
     # Limitation: host networking is a Linux capability. macOS/Windows Docker
     # Desktop would need `host.docker.internal` and databases published on
-    # 0.0.0.0 instead.
-    network_mode: host
+    # 0.0.0.0 instead. render_compose.py substitutes the network stanza below
+    # with a loopback-only published port on macOS, where the container's
+    # loopback is not the host's.
+    # __NETWORK_MODE__
     volumes:
       # Mounted as a DIRECTORY rather than a single file, so the config can
       # grow to several files without touching the container spec. The config
@@ -61,8 +63,10 @@ services:
       # Loopback only. With host networking there is no port mapping between
       # the container and the host, so this is what keeps the gateway off the
       # LAN — upstream defaults to 127.0.0.1, but stating it makes the
-      # guarantee explicit rather than incidental.
-      - 127.0.0.1
+      # guarantee explicit rather than incidental. On macOS the published port
+      # is loopback-bound, so the container binds 0.0.0.0 instead; the address
+      # below is substituted by render_compose.py.
+      - __BIND_ADDRESS__
       - --port
       # One source for the port: both this and the harness URL the module
       # writes derive from DATASOURCES_PORT, so overriding it actually

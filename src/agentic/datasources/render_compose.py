@@ -24,12 +24,28 @@ import re
 import sys
 from typing import NoReturn
 
-from render_tools_yaml import SIDECARS, effective_env_names, is_sidecar, load_catalogue
+from render_tools_yaml import (
+    SIDECARS,
+    effective_env_names,
+    is_sidecar,
+    load_catalogue,
+    on_macos,
+)
 from validate_catalogue import load_versions
 
 # Replaced by the env var name list. Kept on a single line so the substitution
 # is a plain string replace and survives any formatter re-indenting the rest.
 MARKER = "__DATASOURCE_ENV__"
+
+# Replaced by the gateway's network stanza: host networking on Linux, a
+# loopback-only published port on macOS (see _network_mode). A COMMENT line so
+# the template stays valid YAML — and prettier-parseable — on its own.
+NETWORK_MODE_MARKER = "    # __NETWORK_MODE__"
+
+# Replaced by the address the toolbox binds: 127.0.0.1 on Linux (host
+# networking reaches the host loopback directly), 0.0.0.0 on macOS (the
+# published port is what keeps it off the LAN).
+BIND_ADDRESS_MARKER = "__BIND_ADDRESS__"
 
 # Replaced by one compose service per sidecar datasource (empty when there are
 # none). It is written as a COMMENT so the template stays valid YAML on its own —
@@ -70,6 +86,29 @@ def gateway_port() -> int:
         return int(raw)
     except ValueError:
         fail(f"DATASOURCES_PORT={raw!r} is not an integer")
+
+
+def _network_mode(port: int) -> str:
+    """The gateway's network stanza, indented as a compose service entry.
+
+    Host networking is Linux-only: on macOS Docker Desktop the container's
+    loopback is not the host's, so the gateway publishes the port instead. The
+    published port is bound to the host's loopback, keeping the gateway off the
+    LAN exactly as host networking does. Replaces the whole marker line, so the
+    returned lines carry their own indentation.
+    """
+    if on_macos():
+        return (
+            "    ports:\n"
+            f'      - "127.0.0.1:${{DATASOURCES_PORT:-{port}}}:'
+            f'${{DATASOURCES_PORT:-{port}}}"'
+        )
+    return "    network_mode: host"
+
+
+def _bind_address() -> str:
+    """The address the toolbox binds: 127.0.0.1 on Linux, 0.0.0.0 on macOS."""
+    return "0.0.0.0" if on_macos() else "127.0.0.1"
 
 
 def sidecar_ports(catalogue: dict) -> dict:
@@ -153,6 +192,10 @@ def render_sidecar_service(name: str, spec: dict, port: int, versions: dict) -> 
     _warn_unset_refs(name, spec, entry)
 
     command = [_substitute(arg, versions, port) for arg in entry["command"]]
+    if on_macos():
+        # The sidecar's streamable-http listener must answer the published
+        # port, which Docker Desktop forwards to the container's own address.
+        command = ["0.0.0.0" if arg == "127.0.0.1" else arg for arg in command]
 
     lines = [
         f"  {name}:",
@@ -164,16 +207,23 @@ def render_sidecar_service(name: str, spec: dict, port: int, versions: dict) -> 
     lines += [
         f"    container_name: dev-bot-datasources-{name}",
         '    restart: "no"',
+    ]
+    if on_macos():
+        # Loopback-only published port: Docker Desktop cannot do host
+        # networking, and the bind keeps the listener off the LAN.
+        lines.append(f'    ports:\n      - "127.0.0.1:{port}:{port}"')
+    else:
         # Loopback-only, like every other dev-bot gateway: the sidecar's
         # streamable-http listener has no inbound auth, and host networking
         # reaches the host's loopback without exposing a port mapping.
-        "    network_mode: host",
-        "    volumes:",
-        # One host directory shared by every sidecar (see UV_CACHE_DIR).
-        # render.sh creates it as the host user; the container writes it as
-        # root, which is fine for a cache — the directory is disposable.
-        f"      - ${{DEV_BOT_ROOT}}/storage/datasources/{UV_CACHE_HOST_DIR}:{UV_CACHE_DIR}",
-    ]
+        lines.append("    network_mode: host")
+    lines.append("    volumes:")
+    # One host directory shared by every sidecar (see UV_CACHE_DIR).
+    # render.sh creates it as the host user; the container writes it as
+    # root, which is fine for a cache — the directory is disposable.
+    lines.append(
+        f"      - ${{DEV_BOT_ROOT}}/storage/datasources/{UV_CACHE_HOST_DIR}:{UV_CACHE_DIR}"
+    )
 
     declared = spec.get("env", {})
     env_lines = [
@@ -220,7 +270,7 @@ def main():
     except OSError as exc:
         fail(f"cannot read template {template_path}: {exc}")
 
-    for marker in (MARKER, SIDECAR_MARKER):
+    for marker in (MARKER, NETWORK_MODE_MARKER, BIND_ADDRESS_MARKER, SIDECAR_MARKER):
         if marker not in template:
             fail(f"template {template_path} does not contain {marker}")
 
@@ -229,6 +279,8 @@ def main():
     )
 
     out = template.replace(MARKER, json.dumps(effective_env_names(catalogue)))
+    out = out.replace(NETWORK_MODE_MARKER, _network_mode(gateway_port()))
+    out = out.replace(BIND_ADDRESS_MARKER, _bind_address())
     # rstrip: the template already carries the newline after the marker.
     out = out.replace(SIDECAR_MARKER, render_sidecars(catalogue, versions).rstrip("\n"))
     sys.stdout.write(out)

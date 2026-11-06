@@ -303,10 +303,95 @@ def env_ref(value):
     return match.group(1) if match else None
 
 
+def on_macos() -> bool:
+    """True on macOS, where Docker Desktop cannot do host networking.
+
+    DATASOURCES_PLATFORM overrides the detection — the test seam that lets
+    the suite exercise both network modes on one machine.
+    """
+    override = os.environ.get("DATASOURCES_PLATFORM")
+    if override:
+        return override == "darwin"
+    return sys.platform == "darwin"
+
+
+# The host-loopback literals a bridged container must be pointed away from, and
+# the Docker Desktop name that reaches the host instead.
+LOOPBACK_HOSTS = ("localhost", "127.0.0.1")
+HOST_GATEWAY = "host.docker.internal"
+
+# scheme://authority/rest. The authority ends at the first path, query or
+# fragment delimiter; only the host tokens inside it may be rewritten.
+URI_AUTHORITY_RE = re.compile(
+    r"^([A-Za-z][A-Za-z0-9+.\-]*://)([^/?#]*)(.*)$", re.DOTALL
+)
+
+
+def _rewrite_uri_authority(uri: str) -> str:
+    """Point a URI's loopback hosts at the Docker Desktop host gateway.
+
+    The host is matched as a WHOLE authority token, so credentials and port
+    survive untouched (`mongodb://user:pass@localhost:27017/db`), a longer name
+    (`localhost.example`) is left alone, and a `//localhost` appearing later in
+    the path or query is never mistaken for the host. A comma-separated host
+    list is rewritten entry by entry; anything unrecognised is returned as-is.
+    """
+    match = URI_AUTHORITY_RE.match(uri)
+    if not match:
+        return uri
+    scheme, authority, rest = match.groups()
+    userinfo, at, hosts = authority.rpartition("@")
+    entries, changed = [], False
+    for entry in hosts.split(","):
+        # partition, not rsplit: an IPv6 literal keeps its brackets intact and
+        # simply never matches a loopback name, so it is passed through.
+        host, colon, port = entry.partition(":")
+        if host in LOOPBACK_HOSTS:
+            host, changed = HOST_GATEWAY, True
+        entries.append(host + colon + port)
+    if not changed:
+        return uri
+    return scheme + userinfo + at + ",".join(entries) + rest
+
+
+def _macos_loopback_rewrite(yaml_field: str, literal: str) -> str:
+    """Point loopback literals at host.docker.internal on macOS.
+
+    A bridge-networked container's `localhost` is itself, so a datasource
+    declared against the host's loopback (a local mariadb, redis, mongodb)
+    would connect to nothing. Docker Desktop resolves host.docker.internal to
+    the host; Linux keeps host networking and never needs this. Only LITERALS
+    are rewritten — a ${VAR} reference is resolved by toolbox inside the
+    container, where the value is out of reach.
+    """
+    if not on_macos():
+        return literal
+    if yaml_field == "host" and literal in LOOPBACK_HOSTS:
+        return HOST_GATEWAY
+    if yaml_field == "address":
+        for host in LOOPBACK_HOSTS:
+            if literal == host or literal.startswith(host + ":"):
+                return HOST_GATEWAY + literal[len(host):]
+    if yaml_field == "uri":
+        return _rewrite_uri_authority(literal)
+    return literal
+
+
 def _literal_text(value) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
+
+
+def _default_text(yaml_field: str, default) -> str:
+    """An engine default as emitted into the rendered config.
+
+    The default is a literal toolbox resolves inside the container, so inside a
+    bridged macOS container it needs the same loopback rewrite a declared
+    literal gets. The `${VAR}` a default rides in is never touched — only the
+    fallback value.
+    """
+    return _macos_loopback_rewrite(yaml_field, _literal_text(default))
 
 
 def _yaml_scalar(value) -> str:
@@ -522,8 +607,14 @@ def _render_fields(spec, engine, where) -> list:
             if ref is not None:
                 # The value stays out of the file: toolbox reads the variable
                 # from the container's environment when it loads this config.
+                # The reference itself is never rewritten; its declared default
+                # is a literal we emit, so it takes the macOS rewrite like any
+                # other literal.
+                fallback = None
+                if default is not None:
+                    fallback = _default_text(yaml_field, default)
                 value = (
-                    f"${{{ref}:{default}}}" if default is not None else f"${{{ref}}}"
+                    f"${{{ref}:{fallback}}}" if fallback is not None else f"${{{ref}}}"
                 )
                 # Toolbox substitutes ${VAR} mid-string (verified against the
                 # pinned image), so a suffix can ride along — but the separator
@@ -538,13 +629,16 @@ def _render_fields(spec, engine, where) -> list:
                 # database, user) read far better inline; a secret belongs
                 # behind a ${VAR} reference.
                 literal = _literal_text(database[engine_var])
+                literal = _macos_loopback_rewrite(yaml_field, literal)
                 value = _yaml_scalar(
                     literal + _uri_timeout_suffix(engine, yaml_field, literal)
                 )
         elif default is not None:
             # Undeclared: the engine's own variable, defaulted — exporting
-            # MYSQL_HOST still works without declaring anything.
-            value = f"${{{engine_var}:{default}}}"
+            # MYSQL_HOST still works without declaring anything. The default is
+            # a literal toolbox resolves inside the container, so it takes the
+            # same macOS loopback rewrite a declared literal gets.
+            value = f"${{{engine_var}:{_default_text(yaml_field, default)}}}"
         elif optional:
             # Absent by design. Emitting ${VAR} here would turn an optional
             # field into a hard requirement the image refuses to start without.
