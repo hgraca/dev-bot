@@ -1,7 +1,8 @@
 ---
 title: "Atlassian"
 description: "Jira Cloud from an agent, via the official Atlassian Rovo MCP server."
-skills: ["atlassian"]
+skills: ["atlassian", "jira-workflow", "create-jira-issue"]
+commands: ["create-jira-issue"]
 mcps:
   atlassian: "Jira Cloud work items — JQL search, sprints, boards, transitions"
 ---
@@ -10,7 +11,9 @@ Work with Jira from an agent: search issues with JQL, read and update work items
 
 ## What it does
 
-Ships one skill (`devbot:atlassian`) documenting how to drive the **Atlassian Rovo MCP server**, and wires that server into the harness. The server is Atlassian's own hosted one (`https://mcp.atlassian.com/v2/mcp`), so the tool surface tracks Atlassian's releases rather than a dev-bot copy.
+Wires the **Atlassian Rovo MCP server** into the harness and ships three skills: `devbot:atlassian` documents how to drive the server; `devbot:jira-workflow` binds a dev session's lifecycle to one ticket (resolve it at session start, open it before implementation, prefix the pull request, close it at wrap-up); `devbot:create-jira-issue` decides between epic, story, task and subtask and writes the `Problems:`/`Solutions:` description. The server is Atlassian's own hosted one (`https://mcp.atlassian.com/v2/mcp`), so the tool surface tracks Atlassian's releases rather than a dev-bot copy.
+
+`/create-jira-issue` creates a work item outside a dev session.
 
 ## Configuration
 
