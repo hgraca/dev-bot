@@ -22,6 +22,36 @@ off. Turn the server on per harness:
   user scope with
   `claude mcp add --scope user --transport http notion https://mcp.notion.com/mcp`.
 
+## Availability gate
+
+Two independent switches must both be on before any Notion work runs:
+
+```bash
+devbot tool project-for-path <project> --key modules                    # absence => enabled
+devbot tool project-for-path <project> --key mcps [--session-root DIR]  # server map
+```
+
+`modules` reports the module gate, merged project-over-global with absence
+meaning enabled. `mcps` reports the generated harness config's per-server state
+and `mcps_sources` names the files it read. In a supervisor session pass the
+workspace root as `--session-root`: the live config belongs to the checkout the
+harness runs in, not to the project that owns the file. When the module is
+enabled but `notion` is `disabled` or absent from `mcps`, ask the user whether to
+enable the MCP before continuing.
+
+A configured `enabled` server is necessary, not sufficient: it can still be
+offline or unauthenticated. If the first Notion call fails to connect or
+authorise, say so and treat Notion content as unavailable for this session — the
+Authentication section below carries the auth path.
+
+On yes, follow the enabling steps above and restart the harness — MCP tools load
+at start, so this session stays without Notion. On no, skip the Notion work for
+the session. Never edit a config silently.
+
+Module enabled **and** MCP enabled is the only state in which the tool paths
+below run. In every other state skip the Notion work for the session and say so
+once.
+
 ## Authentication
 
 The server authorizes with **OAuth** (authorization code with PKCE). opencode

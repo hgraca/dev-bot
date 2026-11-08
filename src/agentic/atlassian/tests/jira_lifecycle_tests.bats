@@ -26,7 +26,7 @@ line_of() {
 
 @test "devbot: the Jira gate runs before the scout delegation, resolution after it" {
   local gate scout resolve
-  gate="$(line_of "$DEV_AGENT" 'Check the Jira gate before delegating')"
+  gate="$(line_of "$DEV_AGENT" 'Check the external context-source gates before delegating')"
   scout="$(line_of "$DEV_AGENT" 'Delegate to @scout to gather context')"
   resolve="$(line_of "$DEV_AGENT" 'Resolve the Jira ticket')"
 

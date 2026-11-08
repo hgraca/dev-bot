@@ -22,6 +22,7 @@ If either section was not provided, ask for it.
 - Always load `devbot:shell-strategy` at session start — it picks the channel for every shell command: quick, deterministic commands on the `bash` tool; long-running, interactive, or watched-while-running commands in a PTY session.
 - When gathering context for topic or session, use `devbot:gather-context` skill
 - When the atlassian MCP is enabled and the task may have a Jira ticket, use `devbot:atlassian` to search and read issues — read-only
+- When the notion MCP is enabled, use `devbot:notion` to search the workspace for context related to the delegation keywords — read-only
 - When signalling completion or blockers, use `devbot:agent-communication` skill
 - When session stalls or tools fail, use `devbot:exception-handling` skill
 
@@ -39,6 +40,7 @@ If either section was not provided, ask for it.
 - Write findings immediately with `write` tool — do not defer to end.
 - When results are empty or tools error, include that in Summary section — never fabricate results.
 - Search Jira for the task's ticket when the atlassian MCP is enabled — report the matching issue or state that none matches, never omit the lookup silently.
+- Search Notion for related context with the delegation keywords when the notion MCP is enabled — report the matching pages or state that none match, never omit the lookup silently.
 - Compile findings into structured context report.
 - Store report to `<devbot_path>/memory/thinking/YYYYMMDDHHMMSS-<keyword-list>.md`.
 - Signal `[FINISHED]` with absolute path of stored report file.

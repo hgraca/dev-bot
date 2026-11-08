@@ -176,7 +176,50 @@ When nothing matches, say `No matching Jira ticket` and name the JQL you ran.
 Ten Rovo credits per natural-language search is the reason this is JQL, not the
 semantic `search` tool.
 
-### 9. Compile context report
+### 9. Search Notion for related context (only when the notion MCP is live)
+
+Two switches must both be on, and neither is assumed:
+
+```bash
+devbot tool project-for-path <project> --key modules                    # absence => enabled
+devbot tool project-for-path <project> --key mcps [--session-root DIR]  # server map
+```
+
+The lookup runs only when the `modules` map does not disable `notion` **and**
+`mcps` maps `notion` to `enabled`. Another enabled server does not count. When
+the module is disabled, or `notion` is absent or `disabled` from `mcps`, skip
+this step and say so in one line. In a supervisor session pass the workspace
+root as `--session-root`, the checkout the harness runs in.
+
+With both switches on, load `devbot:notion` and discover the search tool the
+connection exposes: `notion-get-tool-access` lists the callable tools. Search
+with `notion-search` and the delegation keywords joined into a short query — up
+to 50 results. When `notion-connector-search` is also listed, call it alongside
+the first search for connected sources (Slack, Drive, …); when `notion-search`
+is absent, use the connector as the fallback; when both `notion-search` and
+`notion-connector-search` are absent, call the legacy `notion-ai-search` by
+name.
+Run one search per keyword only when the keywords name clearly distinct
+concepts and the joined search returns nothing; never fan out further. Open a
+result with `notion-fetch` only when its title or snippet is plausibly relevant.
+When none of the three is exposed, report `Notion search unavailable` and carry
+on without Notion context.
+
+Read-only: never create, update, comment on, move or delete a page or database —
+this step gathers context, it does not edit the workspace. In a supervisor
+session every project's scout runs its own search, in parallel.
+
+Report the best matches with their links, or several when they are genuinely
+plausible:
+
+```text
+<page title> — https://www.notion.so/<page-id>
+```
+
+When nothing matches, say `No matching Notion content` and name the query you
+ran.
+
+### 10. Compile context report
 
 Produce structured Markdown report with sections:
 
@@ -196,6 +239,10 @@ Produce structured Markdown report with sections:
 ## Jira ticket
 
 <!-- the matching issue as `PROJ-123 — summary — URL`, or `No matching Jira ticket`; omit when the atlassian MCP is off -->
+
+## Notion
+
+<!-- the matching pages as `<title> — <url>`, `No matching Notion content`, or `Notion search unavailable` when enabled but no search tool is exposed; omit when the notion module is disabled or the notion MCP is off -->
 
 ## Sibling projects
 
@@ -218,7 +265,7 @@ Produce structured Markdown report with sections:
 <!-- 2-4 sentences: what is known, what is missing, recommended follow-up research -->
 ```
 
-### 10. Store report to file
+### 11. Store report to file
 
 Write the compiled report to a file in `.../memory/thinking/` with the naming convention:
 
@@ -233,7 +280,7 @@ Where:
 
 Example: `20260518143000-auth-jwt-login.md`
 
-### 11. Signal completion
+### 12. Signal completion
 
 Before signaling completion, verify that the report file has in fact been written to disk, using `ls ...`.
 

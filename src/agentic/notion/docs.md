@@ -42,6 +42,10 @@ For non-interactive use, Business and Enterprise workspaces can issue an **MCP t
 
 Only workspace members can connect — guests are refused — and a workspace-owned connection created by an admin exposes only the tools selected for it. Prefer OAuth for interactive sessions.
 
+## Context gathering
+
+When the module and the MCP server are both enabled, the `devbot:gather-context` skill makes the scout discover the connection's available search tools and search the workspace with the delegation keywords — calling `notion-connector-search` alongside `notion-search` for connected sources, and falling back to the connector or the legacy `notion-ai-search` when `notion-search` is unavailable — then report the matching pages in its context report, read-only. The two-switch check and the ask-to-enable path live in the skill's Availability gate.
+
 ## See also
 
 - [MCP configuration](/mcp-config) — the manifest schema and per-harness wiring
