@@ -17,7 +17,9 @@ Task: $ARGUMENTS
    Uncommitted changes corroborate that the assignment is the same one, never define it: changes you
    cannot attribute to this session's assignment mean stop and ask, and never adopt or discard them.
    Only when there is neither an argument nor an assignment in progress, ask for the task before
-   doing anything else.
+   doing anything else. A Jira issue key or URL (`PROJ-123`,
+   `https://<site>.atlassian.net/browse/PROJ-123`) is this run's ticket, not a search target —
+   resolve it with `devbot:jira-workflow`.
 
 2. **Refine once, before any work** — this step is the run's DEFINE and fulfils the agent
    bootstrap's session-start interview; a run that skips it skips that interview with it. Refine
@@ -36,7 +38,9 @@ Task: $ARGUMENTS
    non-interactive runs covers the autonomous phase that follows, not this round. The confirmed
    restate is the acceptance criteria the plan and the self-review are checked against, carried into
    the todo list when that list is created. Everything after it runs without asking; steps 1 and 3
-   and the review loop keep their own instructions to ask.
+   and the review loop keep their own instructions to ask. Every Jira decision that needs a human —
+   resolving or creating the ticket, its project, its epic, an epic's `Stream` — is made inside this
+   pause; `devbot:jira-workflow` carries the steps.
 
 3. **Load the workflow in use** — read the Workflows section of `devbot:software-development` and
    follow the workflow it selects for this run: an explicit instruction in this command wins, then
@@ -53,8 +57,9 @@ Task: $ARGUMENTS
    task's, a checkout off the default branch under the trunk workflow) or where a step's own
    instructions say to ask.
 
-5. **Work the steps to the last one before the merge** — carry the task to the workflow's final
-   hand-back, which is the stage just before merging to the default branch: for the worktrees
+5. **Work the steps to the last one before the merge** — entering BUILD, run `devbot:jira-workflow`'s
+   pre-implementation step: append the restate's insights to the ticket description and move the
+   ticket to DOING or its equivalent. Then carry the task to the workflow's final hand-back, which is the stage just before merging to the default branch: for the worktrees
    workflow, an open pull request whose review loop is clean and whose required checks are green; for
    the trunk workflow, the reviewed commits with the push still pending. Never merge a pull request,
    never push the default branch, and never open a pull request the workflow does not call for.
