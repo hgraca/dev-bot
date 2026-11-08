@@ -173,7 +173,6 @@ JSONC
 }
 
 @test "project-for-path: reports claudecode .mcp.json entries as enabled" {
-  rm -f "${A}/opencode.jsonc"
   printf '{ "mcpServers": { "atlassian": { "type": "http", "url": "x" } } }\n' > "${A}/.mcp.json"
 
   run_tool "${B}/src/file.ts" --key mcps
@@ -195,4 +194,203 @@ JSONC
   run_tool "${B}/src/file.ts"
   assert_success
   assert_output --partial "| mcps | atlassian:disabled |"
+}
+
+@test "project-for-path: the nearest config wins and its ancestors do not leak" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "parent-only": { "enabled": true }, "atlassian": { "enabled": false } } }
+JSONC
+  cat > "${B}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "atlassian": { "enabled": true } } }
+JSONC
+
+  run_tool "${B}/src/file.ts" --key mcps
+  assert_success
+  assert_equal "$(jq -r .atlassian <<< "${output}")" "enabled"
+  assert_equal "$(jq -r 'has("parent-only")' <<< "${output}")" "false"
+}
+
+@test "project-for-path: --session-root reads the live checkout, not the owner's" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "atlassian": { "enabled": false } } }
+JSONC
+  mkdir -p "${SANDBOX}/session"
+  cat > "${SANDBOX}/session/opencode.jsonc" <<'JSONC'
+{ "mcp": { "atlassian": { "enabled": true } } }
+JSONC
+
+  run bash "${TOOL}" "${A}/src/file.ts" --key mcps \
+    --session-root "${SANDBOX}/session" --global-config "${GLOBAL}"
+  assert_success
+  assert_equal "$(jq -r .atlassian <<< "${output}")" "enabled"
+}
+
+@test "project-for-path: reads both harness shapes, opencode authoritative per server" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "atlassian": { "enabled": false } } }
+JSONC
+  printf '{ "mcpServers": { "atlassian": { "url": "x" }, "claude-only": { "url": "y" } } }\n' \
+    > "${A}/.mcp.json"
+
+  run_tool "${A}/src/file.ts" --json
+  assert_success
+  assert_equal "$(jq -r '.config.mcps.atlassian' <<< "${output}")" "disabled"
+  assert_equal "$(jq -r '.config.mcps."claude-only"' <<< "${output}")" "enabled"
+  assert_output --partial "opencode.jsonc"
+  assert_output --partial ".mcp.json"
+}
+
+@test "project-for-path: a malformed config is reported, never collapsed to empty" {
+  printf '{ "mcp": ' > "${A}/opencode.jsonc"
+  printf '{ "mcpServers": { "atlassian": { "url": "x" } } }\n' > "${A}/.mcp.json"
+
+  run_tool "${A}/src/file.ts" --json
+  assert_success
+  assert_equal "$(jq -r '.config.mcps.atlassian' <<< "${output}")" "enabled"
+  run grep -qF 'opencode.jsonc' <<< "$(jq -r '.config.mcps_errors[0]' <<< "${output}")"
+  assert_success
+}
+
+@test "project-for-path: the table distinguishes an empty config from a missing one" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": {} }
+JSONC
+
+  run_tool "${A}/src/file.ts"
+  assert_success
+  assert_output --partial "config found, no MCP servers declared"
+  assert_output --partial "| mcps source | ${A}/opencode.jsonc |"
+}
+
+@test "project-for-path: --session-root is read directly, never walked upward" {
+  mkdir -p "${SANDBOX}/session/empty"
+  cat > "${SANDBOX}/session/opencode.jsonc" <<'JSONC'
+{ "mcp": { "atlassian": { "enabled": true } } }
+JSONC
+
+  # The empty subdir has no config of its own: walking would find the parent's.
+  run bash "${TOOL}" "${A}/src/file.ts" --key mcps \
+    --session-root "${SANDBOX}/session/empty" --global-config "${GLOBAL}"
+  assert_success
+  assert_output "{}"
+}
+
+@test "project-for-path: a non-object mcp map is reported, not crashed" {
+  printf '{ "mcp": ["atlassian"] }\n' > "${A}/opencode.jsonc"
+
+  run_tool "${A}/src/file.ts" --key mcps_errors
+  assert_success
+  assert_output --partial '`mcp` is not an object'
+}
+
+@test "project-for-path: a non-object mcpServers map is reported, not iterated" {
+  printf '{ "mcpServers": [{ "atlassian": {} }] }\n' > "${A}/.mcp.json"
+
+  run_tool "${A}/src/file.ts" --key mcps_errors
+  assert_success
+  assert_output --partial '`mcpServers` is not an object'
+}
+
+@test "project-for-path: --key mcps fails loudly when the config is unreadable" {
+  printf 'not json at all' > "${A}/opencode.jsonc"
+
+  run_tool "${A}/src/file.ts" --key mcps
+  assert_failure 2
+  assert_output --partial "cannot read the harness MCP config"
+}
+
+@test "project-for-path: --key accepts the dashed alias of a snake_case key" {
+  printf '{ "mcp": ["atlassian"] }\n' > "${A}/opencode.jsonc"
+
+  run_tool "${A}/src/file.ts" --key mcps-errors
+  assert_success
+  assert_output --partial '`mcp` is not an object'
+}
+
+@test "project-for-path: a --session-root that is not a directory fails" {
+  run bash "${TOOL}" "${A}/src/file.ts" --key mcps \
+    --session-root "${SANDBOX}/nope" --global-config "${GLOBAL}"
+  assert_failure 2
+  assert_output --partial "not a directory"
+
+  run bash "${TOOL}" "${A}/src/file.ts" --key mcps \
+    --session-root "${GLOBAL}" --global-config "${GLOBAL}"
+  assert_failure 2
+}
+
+@test "project-for-path: the table labels a config error as an error" {
+  printf '{ "mcp": ["atlassian"] }\n' > "${A}/opencode.jsonc"
+
+  run_tool "${A}/src/file.ts"
+  assert_success
+  assert_output --partial "| mcps error |"
+}
+
+@test "project-for-path: an unknown key error echoes the input as typed" {
+  run_tool "${A}/src/file.ts" --key nope-here
+  assert_failure 2
+  assert_output --partial "unknown key 'nope-here'"
+}
+
+@test "project-for-path: mcps keys are sorted regardless of config order" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "zeta": { "enabled": true }, "alpha": { "enabled": true } } }
+JSONC
+
+  run_tool "${A}/src/file.ts" --key mcps
+  assert_success
+  assert_equal "$(jq -r 'keys_unsorted | join(",")' <<< "${output}")" "alpha,zeta"
+}
+
+@test "project-for-path: a multi-line parse error stays on one table row" {
+  printf '{ "mcp": { "a": } }\n' > "${A}/opencode.jsonc"
+
+  run_tool "${A}/src/file.ts"
+  assert_success
+  assert_equal "$(grep -c '^| mcps error |' <<< "${output}")" "1"
+}
+
+@test "project-for-path: a pipe in a table value is escaped, not breaking the row" {
+  mkdir -p "${SANDBOX}/pip|ed"
+  printf '{ "mcp": { "a|b": { "enabled": true } } }\n' > "${SANDBOX}/pip|ed/opencode.jsonc"
+
+  run bash "${TOOL}" "${A}/src/file.ts" --session-root "${SANDBOX}/pip|ed" \
+    --global-config "${GLOBAL}"
+  assert_success
+  assert_output --partial 'a\|b:enabled'
+}
+
+@test "project-for-path: --json exposes MCP sources and errors as arrays" {
+  printf '{ "mcp": { "atlassian": { "enabled": true } } }\n' > "${A}/opencode.jsonc"
+
+  run_tool "${A}/src/file.ts" --json
+  assert_success
+  assert_equal "$(jq -r '.config.mcps_sources | type' <<< "${output}")" "array"
+  assert_equal "$(jq -r '.config.mcps_sources[0]' <<< "${output}")" "${A}/opencode.jsonc"
+  assert_equal "$(jq -r '.config.mcps_errors | type' <<< "${output}")" "array"
+}
+
+@test "project-for-path: a newline in a table value does not split the row" {
+  printf '{ "workflow": "trunk\\nsecond-line", "datasources": [] }\n' > "${A}/.devbot.project.jsonc"
+
+  run_tool "${A}/src/file.ts"
+  assert_success
+  assert_equal "$(grep -c '^| workflow |' <<< "${output}")" "1"
+  assert_output --partial "| workflow | trunk second-line |"
+}
+
+@test "project-for-path: the unknown-key error shows the dashed spellings" {
+  run_tool "${A}/src/file.ts" --key nope
+  assert_failure 2
+  assert_output --partial "mcps-errors"
+  assert_output --partial "dashes map to underscores"
+}
+
+@test "project-for-path: a non-object server entry is reported, not dropped" {
+  printf '{ "mcp": { "atlassian": "oops" } }\n' > "${A}/opencode.jsonc"
+
+  run_tool "${A}/src/file.ts" --json
+  assert_success
+  assert_equal "$(jq -r '.config.mcps | has("atlassian")' <<< "${output}")" "false"
+  assert_output --partial 'server `atlassian` is not an object'
 }

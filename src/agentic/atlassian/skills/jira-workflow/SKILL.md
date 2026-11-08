@@ -14,18 +14,29 @@ write paths) — that skill is the prerequisite, not a duplicate.
 Two independent switches must both be on:
 
 ```bash
-devbot tool project-for-path <project> --key modules   # absence => enabled
-devbot tool project-for-path <project> --key mcps      # {"atlassian": "enabled"}
+devbot tool project-for-path <project> --key modules                    # absence => enabled
+devbot tool project-for-path <project> --key mcps [--session-root DIR]  # server map
 ```
 
 `modules` reports the module gate, merged project-over-global with absence
-meaning enabled. `mcps` reports the live per-server state from the generated
-harness config. When the module is enabled but `atlassian` is `disabled` or
-absent from `mcps`, ask the user whether to enable the MCP before continuing.
+meaning enabled. `mcps` reports the generated harness config's per-server state
+and `mcps_sources` names the files it read. In a supervisor session pass the
+workspace root as `--session-root`: the live config belongs to the checkout the
+harness runs in, not to the project that owns the file. When the module is
+enabled but `atlassian` is `disabled` or absent from `mcps`, ask the user
+whether to enable the MCP before continuing.
 
-On yes, set `mcp.atlassian.enabled` to `true` in the generated harness config
-and say the harness must be restarted — MCP tools load at start, so this session
-stays without Jira. Never edit the config silently.
+A configured `enabled` server is necessary, not sufficient: it can still be
+offline or unauthenticated. If the first Jira call fails to connect or
+authorise, say so and treat the ticket work as unavailable for this session —
+`devbot:atlassian` carries the auth path.
+
+On yes, apply the path the harness needs — `src/agentic/atlassian/docs.md` is
+the source: opencode reads `mcp.atlassian.enabled` from the generated
+`opencode.jsonc`, so set it to `true`; Claude Code has no per-server switch, so
+set `enabled: true` in the module manifest and run `devbot reinit`. Either way
+the harness must be restarted — MCP tools load at start, so this session stays
+without Jira. Never edit a config silently.
 
 Module enabled **and** MCP enabled is the only state in which the steps below
 run. In every other state skip the Jira work for the session and say so once.
@@ -40,9 +51,11 @@ user in one round:
 - otherwise → offer to create one with `devbot:create-jira-issue`, which asks for
   the project, the epic and — for an epic — the `Stream` value.
 
-The ticket must sit in **TODO or the equivalent first actionable status** —
-never in the backlog, never in progress. Read its current status and, when it is
-a backlog status, move it with the transitions the server lists.
+The ticket must end in **TODO or the equivalent first actionable status**. Read
+its current status first: a ticket already in an actionable or in-progress
+state is left alone — a resumed session keeps its DOING ticket DOING. Only a
+backlog status is promoted, using the transitions the server lists, and nothing
+is ever started here.
 
 Keep the resolved key in the conversation and reuse it in every later step.
 Never create a second ticket for the same assignment.
@@ -56,8 +69,9 @@ Before the first code change:
 - list the transitions, then move the ticket to **DOING / In Progress** or its
   equivalent.
 
-Show the description delta and the transition, then act: the plan the user
-approved already covers both.
+Show the description delta and the transition, then act: the approved plan is
+the explicit approval `devbot:atlassian` requires before a write. Anything
+outside that plan goes back to the user first.
 
 ## 3. Pull request title
 
@@ -77,8 +91,19 @@ to **DONE** or its equivalent — **CANCELED** when the work was abandoned. Ask
 which when the outcome does not make it obvious. Add a closing comment only when
 the description no longer explains the result.
 
-A pull request left open is not finished work: the ticket stays DOING until the
-merge lands and the user confirms the finish.
+Before DONE, confirm the work is actually delivered, judged by the workflow in
+use:
+
+- **worktrees** — the pull request is merged (`gh pr view <branch> --json
+state,mergedAt`). An open pull request is not finished work: the ticket stays
+  DOING, say so and leave it.
+- **trunk** — the commit has landed on the default branch
+  (`git log origin/<default> --oneline`), because trunk opens no pull request.
+
+A later session that closes the ticket recovers the key from the pull request
+title (the `PROJ-1234:` prefix Jira links) or by searching Jira for the issue —
+never from the branch name alone, which is not required to carry it. When
+neither finds it, ask the user.
 
 ## Rules
 

@@ -1,6 +1,6 @@
 ---
 name: devbot:reconcile-work
-description: "Use when wrapping up to reconcile the work folders and worktrees a session touched — the finish flow's third step, after devbot:grade-tools."
+description: "Use when wrapping up to reconcile the work folders and worktrees a session touched — the last of the finish flow's capture, grade and reconcile steps, after devbot:grade-tools."
 ---
 
 # Reconcile Work

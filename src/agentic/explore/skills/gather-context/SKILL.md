@@ -148,11 +148,16 @@ bash tree my/path/one my/other/path
 Two switches must both be on, and neither is assumed:
 
 ```bash
-devbot tool project-for-path <project> --key modules   # absence => enabled
-devbot tool project-for-path <project> --key mcps      # {"atlassian": "enabled"}
+devbot tool project-for-path <project> --key modules                    # absence => enabled
+devbot tool project-for-path <project> --key mcps [--session-root DIR]  # server map
 ```
 
-With both on, load `devbot:atlassian` and search once with JQL built from the
+Both on means `mcps` maps `atlassian` to `enabled` — another enabled server does
+not count. When `atlassian` is absent or `disabled`, skip this step and say so in
+one line. In a supervisor session pass the workspace root as `--session-root`,
+the checkout the harness runs in.
+
+With the entry `enabled`, load `devbot:atlassian` and search once with JQL built from the
 delegation keywords — an issue key present in the request, otherwise one
 `text ~ "<keyword>"` term per keyword, `AND`-ed, ordered by `updated DESC` and
 filtered to exclude Done and Canceled. Request only the fields you report. In a

@@ -39,13 +39,15 @@ The head is the given branch, or the current one (`git [-C "$owner"] rev-parse -
 Same rules as a commit subject (`devbot:git-commits`): imperative mood, lowercase start, no trailing
 period, at most 72 characters.
 
-When a ticket ID applies, prefix it:
+When the session has a Jira ticket, the title **must** start with its key — Jira links the pull
+request to the issue from the key alone, so the prefix is not cosmetic:
 
 ```text
-MY-TKT: add the gh-create-pr command
+PROJ-1234: add the gh-create-pr command
 ```
 
-Without a ticket, use the bare imperative subject.
+Take the key from the ticket the session resolved (`devbot:jira-workflow`). Only when no ticket
+exists, use the bare imperative subject.
 
 ## Body — the why, not the how
 

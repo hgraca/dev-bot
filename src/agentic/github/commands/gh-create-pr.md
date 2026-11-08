@@ -18,8 +18,9 @@ If no branch is given, use the current branch.
    `gh repo view --json defaultBranchRef --jq .defaultBranchRef.name`, then
    `git log <default>..<branch>` and `git diff <default>...<branch>`.
 3. Ask the user, in one round:
-   - **Ticket ID** — if any. When the branch name carries one (e.g. `feature/ABC-123-foo` →
-     `ABC-123`), offer it as the default.
+   - **Ticket ID** — the session's resolved Jira ticket when there is one (`devbot:jira-workflow`),
+     otherwise ask. When the branch name carries one (e.g. `feature/ABC-123-foo` → `ABC-123`),
+     offer it as the default. A ticket means the title must be prefixed with its key.
    - **Assignee** — set the user as the PR assignee?
    - **State** — ready for review, or draft?
 

@@ -58,8 +58,8 @@ Ask in one round, then act:
 
 ## 5. Create, then set the status
 
-Show the project, type, summary, description, parent and `Stream`, and wait for
-confirmation. On approval:
+Present the complete issue — project, type, summary, description, parent and
+`Stream` — and wait for one explicit go. On approval:
 
 1. create the issue;
 2. read its status — when it landed in Backlog or another non-actionable status,

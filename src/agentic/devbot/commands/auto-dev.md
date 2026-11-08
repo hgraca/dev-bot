@@ -40,7 +40,11 @@ Task: $ARGUMENTS
    the todo list when that list is created. Everything after it runs without asking; steps 1 and 3
    and the review loop keep their own instructions to ask. Every Jira decision that needs a human —
    resolving or creating the ticket, its project, its epic, an epic's `Stream` — is made inside this
-   pause; `devbot:jira-workflow` carries the steps.
+   pause; `devbot:jira-workflow` carries the steps. This run has no @scout, so resolve the owning project first
+   (`devbot tool project-for-path <file>`) and, when Jira is live and the task carries no issue key,
+   run the `devbot:gather-context` JQL lookup yourself before asking.
+   A skipped refinement does not skip that round: with Jira live and no ticket known, take one short
+   Jira round before implementation and stop there for the answer.
 
 3. **Load the workflow in use** — read the Workflows section of `devbot:software-development` and
    follow the workflow it selects for this run: an explicit instruction in this command wins, then

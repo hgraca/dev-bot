@@ -8,15 +8,19 @@
 # action must first find the project that owns the files it touches. This tool
 # is that lookup plus the owner's effective config: scalars resolve
 # project-first then global; `modules` merges per key; `datasources` is the
-# project's own opt-in selection. `mcps` is the live per-server state, read
-# from the generated harness config nearest the owner (an ancestor), because
-# MCP wiring belongs to the session's checkout, not to the file's project.
+# project's own opt-in selection. `mcps` is the per-server state of the
+# generated harness config: the one under `--session-root` when given (the
+# checkout the harness actually runs in), otherwise the nearest one at or above
+# the owner. `mcps_sources` names the files read, so state is never mistaken for a
+# config that was never consulted. `mcps_errors` reports a config that could not
+# be read, parsed, or shaped as expected.
 #
 # Usage:
-#   project-for-path.mcp.sh <path>                    # markdown table
-#   project-for-path.mcp.sh <path> --json             # JSON object
-#   project-for-path.mcp.sh <path> --key workflow     # one resolved value
-#   project-for-path.mcp.sh <path> --global-config F  # non-default registry
+#   project-for-path.mcp.sh <path>                       # markdown table
+#   project-for-path.mcp.sh <path> --json                # JSON object
+#   project-for-path.mcp.sh <path> --key mcps            # one resolved value
+#   project-for-path.mcp.sh <path> --session-root DIR    # live harness checkout
+#   project-for-path.mcp.sh <path> --global-config F     # non-default registry
 #
 # Exit codes: 0 resolved, 2 usage error, 3 no registered project contains <path>.
 # =============================================================================
@@ -26,7 +30,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective commit_memory, workflow, devbot_dir, datasources, modules and live MCP server state. Use it in a supervisor session before any project-scoped action, and before assuming an MCP server is available.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--global-config <file>]"}},"required":["args"]}}
+{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective commit_memory, workflow, devbot_dir, datasources, modules and configured MCP server state. Use it in a supervisor session before any project-scoped action, and before assuming an MCP server is configured. Configuration does not imply reachability: an enabled server may still be offline or unauthenticated.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--session-root <dir>] [--global-config <file>]"}},"required":["args"]}}
 JSON
     exit 0
     ;;
@@ -50,6 +54,7 @@ CONFIG_FILE="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
 OUTPUT_FORMAT="markdown"
 KEY=""
 TARGET=""
+SESSION_ROOT="${DEV_BOT_PROJECT_ROOT:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --json) OUTPUT_FORMAT="json"; shift ;;
@@ -62,6 +67,11 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "ERROR: --global-config requires a file" >&2; exit 2; }
       CONFIG_FILE="$2"; shift 2
       ;;
+    --session-root)
+      [[ $# -ge 2 ]] || { echo "ERROR: --session-root requires a directory" >&2; exit 2; }
+      SESSION_ROOT="$2"; shift 2
+      ;;
+    --session-root=*) SESSION_ROOT="${1#--session-root=}"; shift ;;
     --global-config=*) CONFIG_FILE="${1#--global-config=}"; shift ;;
     -*) echo "ERROR: unknown argument: $1" >&2; exit 2 ;;
     *)
@@ -76,12 +86,13 @@ if [[ -z "${TARGET}" ]]; then
   exit 2
 fi
 
-python3 - "${SHARED_DIR}" "${TARGET}" "${CONFIG_FILE}" "${OUTPUT_FORMAT}" "${KEY}" <<'PY'
+python3 - "${SHARED_DIR}" "${TARGET}" "${CONFIG_FILE}" "${OUTPUT_FORMAT}" "${KEY}" "${SESSION_ROOT}" <<'PY'
 import json
 import os
 import sys
 
-shared, target, config_path, fmt, key = sys.argv[1:6]
+shared, target, config_path, fmt, raw_key, session_root = sys.argv[1:7]
+key = raw_key.replace("-", "_")
 sys.path.insert(0, shared)
 
 from read_jsonc import load_jsonc  # noqa: E402
@@ -89,6 +100,10 @@ import resolve_project  # noqa: E402
 
 projects = resolve_project.load_projects(config_path)
 owner = resolve_project.resolve_project(target, projects)
+if session_root and not os.path.isdir(session_root):
+    print(f"ERROR: --session-root is not a directory: {session_root}", file=sys.stderr)
+    sys.exit(2)
+
 if not owner:
     print(
         f"ERROR: no registered project contains {os.path.realpath(target)} "
@@ -103,7 +118,6 @@ DEFAULTS = {
     "devbot_dir": ".agents",
     "datasources": [],
     "modules": {},
-    "mcps": {},
     "supervisor": "false",
 }
 
@@ -171,44 +185,91 @@ def as_text(value):
     return str(value)
 
 
-def resolve_mcps():
-    """Live per-server state from the generated harness config.
+def _config_dir():
+    """The checkout whose harness config describes the live session.
 
-    MCP wiring is a property of the checkout the harness started in, so the
-    config is looked up from the owner upward: the nearest ancestor holding
-    `opencode.jsonc` or `.mcp.json` is the session root. `enabled: false` means
-    registered but not started; a `.mcp.json` entry is present only when wired,
-    since Claude Code has no per-server switch.
+    `--session-root` (or DEV_BOT_PROJECT_ROOT) names it outright and is never
+    walked — a parent workspace's unrelated config must not leak in. Only the
+    owner fallback searches ancestors.
     """
-    state = {}
+    if session_root:
+        return os.path.realpath(session_root)
     cur = os.path.realpath(owner)
     while True:
-        opencode = os.path.join(cur, "opencode.jsonc")
-        claudecode = os.path.join(cur, ".mcp.json")
-        found = os.path.isfile(opencode) or os.path.isfile(claudecode)
+        if os.path.isfile(os.path.join(cur, "opencode.jsonc")) or os.path.isfile(
+            os.path.join(cur, ".mcp.json")
+        ):
+            return cur
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return None
+        cur = parent
+
+
+def escape_cell(value):
+    """A markdown table cell cannot carry a pipe or a line break."""
+    return " ".join(str(value).split()).replace("|", "\\|")
+
+
+def _one_line(exc):
+    """A message that survives embedding in a markdown table row."""
+    return " ".join(str(exc).split())
+
+
+def resolve_mcps():
+    """Configured per-server state from the generated harness config.
+
+    Always reads both shapes: opencode's `mcp` map is authoritative per server
+    (`enabled: false` = wired but not started), while a `.mcp.json` entry only
+    adds servers, because Claude Code has no per-server switch. This is
+    configuration, not reachability: an enabled entry can still be offline or
+    unauthenticated. A config that cannot be read, parsed, or shaped is reported
+    through `mcps_errors` — collapsing it to an empty map would read as "server
+    absent". Only those expected failures are caught: a programmer error must
+    surface instead of masquerading as a bad config.
+    """
+    root = _config_dir()
+    state, sources, errors = {}, [], []
+    if root:
+        opencode = os.path.join(root, "opencode.jsonc")
+        claudecode = os.path.join(root, ".mcp.json")
         if os.path.isfile(opencode):
+            sources.append(opencode)
             try:
-                servers = (load_jsonc(opencode) or {}).get("mcp") or {}
-            except Exception:
+                data = load_jsonc(opencode) or {}
+                if not isinstance(data, dict):
+                    raise ValueError("top level is not an object")
+                servers = data.get("mcp") or {}
+                if not isinstance(servers, dict):
+                    raise ValueError("`mcp` is not an object")
+            except (OSError, ValueError) as exc:
+                errors.append(f"{opencode}: {_one_line(exc)}")
                 servers = {}
             for name, cfg in servers.items():
-                if isinstance(cfg, dict):
-                    state[name] = "disabled" if cfg.get("enabled", True) is False else "enabled"
-        elif os.path.isfile(claudecode):
+                if not isinstance(cfg, dict):
+                    errors.append(f"{opencode}: server `{name}` is not an object")
+                    continue
+                state[name] = "disabled" if cfg.get("enabled", True) is False else "enabled"
+        if os.path.isfile(claudecode):
+            sources.append(claudecode)
             try:
                 with open(claudecode, encoding="utf-8") as fh:
-                    servers = (json.load(fh) or {}).get("mcpServers") or {}
-            except Exception:
+                    data = json.load(fh) or {}
+                if not isinstance(data, dict):
+                    raise ValueError("top level is not an object")
+                servers = data.get("mcpServers") or {}
+                if not isinstance(servers, dict):
+                    raise ValueError("`mcpServers` is not an object")
+            except (OSError, ValueError) as exc:
+                errors.append(f"{claudecode}: {_one_line(exc)}")
                 servers = {}
             for name in servers:
                 state.setdefault(name, "enabled")
-        if found:
-            return state
-        parent = os.path.dirname(cur)
-        if parent == cur:
-            return state
-        cur = parent
+    # Sorted: the report must not change shape with the config's key order.
+    return dict(sorted(state.items())), sources, errors
 
+
+mcps_state, mcps_sources, mcps_errors = resolve_mcps()
 
 resolved = {
     "commit_memory": as_text(resolve_scalar("commit_memory")),
@@ -216,13 +277,24 @@ resolved = {
     "devbot_dir": as_text(resolve_scalar("devbot_dir")),
     "datasources": resolve_datasources(),
     "modules": resolve_modules(),
-    "mcps": resolve_mcps(),
+    "mcps": mcps_state,
+    "mcps_sources": mcps_sources,
+    "mcps_errors": mcps_errors,
 }
 resolved["supervisor"] = as_text(resolve_scalar("supervisor")) == "true"
 
 if key:
     if key not in resolved:
-        print(f"ERROR: unknown key '{key}' (known: {', '.join(sorted(resolved))})", file=sys.stderr)
+        known = ", ".join(sorted(resolved)).replace("_", "-")
+        print(f"ERROR: unknown key '{raw_key}' (known: {known}; dashes map to underscores)", file=sys.stderr)
+        sys.exit(2)
+    # An unreadable config and one with no servers are different failures: the
+    # first must not send the user to "enable" a server that is already there.
+    if key == "mcps" and not resolved["mcps"] and resolved["mcps_errors"]:
+        print(
+            f"ERROR: cannot read the harness MCP config: {'; '.join(resolved['mcps_errors'])}",
+            file=sys.stderr,
+        )
         sys.exit(2)
     value = resolved[key]
     print(as_text(value) if not isinstance(value, (list, dict)) else json.dumps(value))
@@ -240,6 +312,8 @@ report = {
         "datasources": resolved["datasources"] or [],
         "modules": resolved["modules"] or {},
         "mcps": resolved["mcps"] or {},
+        "mcps_sources": resolved["mcps_sources"],
+        "mcps_errors": resolved["mcps_errors"],
     },
 }
 
@@ -257,19 +331,27 @@ print(f"**Supervisor:** {'yes' if report['supervisor'] else 'no'}")
 print()
 print("| Key | Value |")
 print("| --- | --- |")
-print(f"| commit_memory | {report['config']['commit_memory']} |")
-print(f"| workflow | {report['config']['workflow']} |")
-print(f"| devbot_dir | {report['config']['devbot_dir']} |")
-print(f"| datasources | {', '.join(datasources) if datasources else '(none)'} |")
+print(f"| commit_memory | {escape_cell(report['config']['commit_memory'])} |")
+print(f"| workflow | {escape_cell(report['config']['workflow'])} |")
+print(f"| devbot_dir | {escape_cell(report['config']['devbot_dir'])} |")
+print(f"| datasources | {escape_cell(', '.join(datasources) if datasources else '(none)')} |")
 if modules:
     rendered = ", ".join(f"{name}:{'true' if enabled else 'false'}" for name, enabled in sorted(modules.items()))
 else:
     rendered = "(all enabled)"
-print(f"| modules | {rendered} |")
+print(f"| modules | {escape_cell(rendered)} |")
 mcps = report["config"]["mcps"]
+sources = report["config"]["mcps_sources"]
+errors = report["config"]["mcps_errors"]
 if mcps:
     served = ", ".join(f"{name}:{state}" for name, state in sorted(mcps.items()))
+elif sources:
+    served = "(config found, no MCP servers declared)"
 else:
     served = "(no harness config found)"
-print(f"| mcps | {served} |")
+print(f"| mcps | {escape_cell(served)} |")
+if sources:
+    print(f"| mcps source | {escape_cell(', '.join(sources))} |")
+if errors:
+    print(f"| mcps error | {escape_cell('; '.join(errors))} |")
 PY
