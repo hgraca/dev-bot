@@ -62,9 +62,9 @@ line_of() {
   run grep -qF 'Open the Jira ticket before BUILD' "$DEV_AGENT"
   assert_success
   # The follow-up-prompt finish flow and the assignment-end finish flow.
-  run grep -qF '`devbot:jira-workflow`: DONE, or CANCELED when abandoned' "$DEV_AGENT"
+  run grep -qF '`devbot:jira-workflow`: DONE once the work has landed' "$DEV_AGENT"
   assert_success
-  run grep -qF 'CANCELED when the work was abandoned' "$DEV_AGENT"
+  run grep -qF 'the commit on the default branch under the trunk workflow' "$DEV_AGENT"
   assert_success
 }
 

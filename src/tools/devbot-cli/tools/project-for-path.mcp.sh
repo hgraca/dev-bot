@@ -236,10 +236,11 @@ def resolve_mcps():
         if os.path.isfile(opencode):
             sources.append(opencode)
             try:
-                data = load_jsonc(opencode) or {}
+                data = load_jsonc(opencode)
                 if not isinstance(data, dict):
                     raise ValueError("top level is not an object")
-                servers = data.get("mcp") or {}
+                # Default only when absent: `or {}` would hide null and [].
+                servers = data["mcp"] if "mcp" in data else {}
                 if not isinstance(servers, dict):
                     raise ValueError("`mcp` is not an object")
             except (OSError, ValueError) as exc:
@@ -249,21 +250,29 @@ def resolve_mcps():
                 if not isinstance(cfg, dict):
                     errors.append(f"{opencode}: server `{name}` is not an object")
                     continue
-                state[name] = "disabled" if cfg.get("enabled", True) is False else "enabled"
+                enabled = cfg.get("enabled", True)
+                # The schema says boolean; "false" or null must not read as on.
+                if not isinstance(enabled, bool):
+                    errors.append(f"{opencode}: server `{name}` has a non-boolean `enabled`")
+                    continue
+                state[name] = "enabled" if enabled else "disabled"
         if os.path.isfile(claudecode):
             sources.append(claudecode)
             try:
                 with open(claudecode, encoding="utf-8") as fh:
-                    data = json.load(fh) or {}
+                    data = json.load(fh)
                 if not isinstance(data, dict):
                     raise ValueError("top level is not an object")
-                servers = data.get("mcpServers") or {}
+                servers = data["mcpServers"] if "mcpServers" in data else {}
                 if not isinstance(servers, dict):
                     raise ValueError("`mcpServers` is not an object")
             except (OSError, ValueError) as exc:
                 errors.append(f"{claudecode}: {_one_line(exc)}")
                 servers = {}
-            for name in servers:
+            for name, cfg in servers.items():
+                if not isinstance(cfg, dict):
+                    errors.append(f"{claudecode}: server `{name}` is not an object")
+                    continue
                 state.setdefault(name, "enabled")
     # Sorted: the report must not change shape with the config's key order.
     return dict(sorted(state.items())), sources, errors

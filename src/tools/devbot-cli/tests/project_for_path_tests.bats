@@ -394,3 +394,38 @@ JSONC
   assert_equal "$(jq -r '.config.mcps | has("atlassian")' <<< "${output}")" "false"
   assert_output --partial 'server `atlassian` is not an object'
 }
+
+@test "project-for-path: a null or empty mcp map is an error, not an empty config" {
+  for value in 'null' '[]'; do
+    printf '{ "mcp": %s }\n' "$value" > "${A}/opencode.jsonc"
+    run_tool "${A}/src/file.ts" --key mcps_errors
+    assert_success
+    assert_output --partial '`mcp` is not an object'
+  done
+}
+
+@test "project-for-path: a non-boolean enabled value is reported and skipped" {
+  printf '{ "mcp": { "atlassian": { "enabled": "false" } } }\n' > "${A}/opencode.jsonc"
+
+  run_tool "${A}/src/file.ts" --json
+  assert_success
+  assert_equal "$(jq -r '.config.mcps | has("atlassian")' <<< "${output}")" "false"
+  assert_output --partial "non-boolean `enabled`"
+}
+
+@test "project-for-path: a null mcpServers map is an error, not an empty config" {
+  printf '{ "mcpServers": null }\n' > "${A}/.mcp.json"
+
+  run_tool "${A}/src/file.ts" --key mcps_errors
+  assert_success
+  assert_output --partial '`mcpServers` is not an object'
+}
+
+@test "project-for-path: a non-object .mcp.json server entry is reported, not enabled" {
+  printf '{ "mcpServers": { "atlassian": false } }\n' > "${A}/.mcp.json"
+
+  run_tool "${A}/src/file.ts" --json
+  assert_success
+  assert_equal "$(jq -r '.config.mcps | has("atlassian")' <<< "${output}")" "false"
+  assert_output --partial 'server `atlassian` is not an object'
+}
