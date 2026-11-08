@@ -164,7 +164,7 @@ expected="$(git rev-parse origin/<source-branch>)"
   || { echo "ERROR: local <source-branch> does not match origin — reconcile before rewriting"; exit 1; }
 # ... run the PR-stage squash ...
 # hand this to the human:
-git push --force-with-lease=refs/heads/<source-branch>:$expected origin <source-branch>
+git push --force-with-lease=<source-branch>:$expected origin "$(git rev-parse HEAD):<source-branch>"
 # Verify the handoff landed, then only once that push has landed:
 git fetch origin <source-branch>
 [ "$(git rev-parse origin/<source-branch>)" = "$(git rev-parse HEAD)" ] \

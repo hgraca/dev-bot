@@ -132,7 +132,7 @@ setup() {
   # Capture and base-fetch belong to the pre-rewrite step, not the hand-off step.
   printf '%s\n' "$step5" | grep -q 'rev-parse origin/<branch>'
   printf '%s\n' "$step5" | grep -q 'fetch origin <default>'
-  printf '%s\n' "$step7" | grep -q 'force-with-lease=refs/heads/<branch>:<expected-sha>'
+  printf '%s\n' "$step7" | grep -q 'force-with-lease=<branch>:<expected-sha>'
   ! printf '%s\n' "$step7" | grep -qE 'git (fetch|rev-parse)'
   ! printf '%s\n' "$workflow" | grep -qE 'git fetch origin <branch>'
 }
@@ -159,7 +159,7 @@ setup() {
   block="$(subsection "$WORKTREES" 'Squash fixups before merge')"
   printf '%s\n' "$block" | grep -q 'GIT_SEQUENCE_EDITOR=:'
   printf '%s\n' "$block" | grep -q 'origin/<default>'
-  printf '%s\n' "$block" | grep -q 'force-with-lease=refs/heads/<branch>:<expected-sha>'
+  printf '%s\n' "$block" | grep -q 'force-with-lease=<branch>:<expected-sha>'
   printf '%s\n' "$block" | grep -qi 'hand this to the human'
   # Refresh, then capture the lease, then rebase — in that order.
   fetch="$(line_no "$block" 'git -C <worktree> fetch --all --prune')"
@@ -242,7 +242,7 @@ setup() {
   [ "$(grep -c 'check_release_guards || exit 1' "$TAG")" -eq 2 ]
   # The rewrite must be published before `gh pr merge`, which reads the remote,
   # and only from a checkout that already matches the remote head.
-  grep -qF 'force-with-lease=refs/heads/<source-branch>:$expected' "$TAG"
+  grep -qF 'force-with-lease=<source-branch>:$expected' "$TAG"
   grep -q 'does not match origin — reconcile before rewriting' "$TAG"
 }
 
@@ -368,4 +368,14 @@ setup() {
   grep -qi 'memory' "$FIXUP_FLAT"
   grep -qi 'normal commit' "$FIXUP_FLAT"
   grep -qi 'remember-session' "$FIXUP_FLAT"
+}
+
+@test "the hand-off keys the lease on the short branch, not a qualified ref" {
+  block="$(subsection "$WORKTREES" 'Squash fixups before merge')"
+  step7="$(section "$FIXUP" 'Workflow')"
+  # A fully-qualified key can leave the push unforced (non-fast-forward).
+  ! printf '%s\n' "$block" | grep -q 'force-with-lease=refs/heads/'
+  ! printf '%s\n' "$step7" | grep -q 'force-with-lease=refs/heads/'
+  printf '%s\n' "$block" | grep -q 'origin "$head_sha:<branch>"'
+  grep -qF 'force-with-lease=<branch>:<expected-sha>' "$FIXUP"
 }

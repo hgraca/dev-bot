@@ -128,13 +128,16 @@ every shell channel — it is deny-only by design, and the publish stays the hum
 Hand over the command with the sha captured in step 5:
 
 ```bash
-git push --force-with-lease=refs/heads/<branch>:<expected-sha> origin <branch>
+git push --force-with-lease=<branch>:<expected-sha> origin <new-head>:<branch>
 ```
 
-`--force-with-lease=<ref>:<sha>` refuses the push unless the remote branch still points at
-`<expected-sha>`. The bare form compares against the local remote-tracking ref instead, so fetching
-`<branch>` first would adopt a colleague's new tip as the expected value and overwrite it silently —
-never fetch `<branch>` between capturing the sha and the push, and never use bare `--force`. Tell the
+`--force-with-lease=<branch>:<expected-sha>` refuses the push unless the remote branch still points
+at `<expected-sha>`. The key must be the **short** branch name, identical to the refspec
+destination: a fully-qualified `refs/heads/<branch>` key can end up not associated with the pushed
+ref, and git then runs the push unforced — reported as a plain `non-fast-forward` rejection. The
+bare form compares against the local remote-tracking ref instead, so fetching `<branch>` first would
+adopt a colleague's new tip as the expected value and overwrite it silently — never fetch `<branch>`
+between capturing the sha and the push, and never use bare `--force`. Tell the
 human the new head and the pull request's URL; its checks re-run when they push.
 
 A branch that has never been pushed has no `origin/<branch>` and no lease to capture: the human
@@ -166,7 +169,7 @@ Just before merge:
 
    `<vault-path>` is `<devbot_dir>/memory` — or plain `memory/` when `<devbot_dir>` is `.`. Vault commits are ordinary commits, so the subject check cannot see them. Anything listed publishes with the branch — confirm the human wants that before merging.
 
-4. **Publish** — hand `git push --force-with-lease=refs/heads/<branch>:<expected-sha> origin <branch>` to the human (step 7).
+4. **Publish** — hand `git push --force-with-lease=<branch>:<expected-sha> origin <new-head>:<branch>` to the human (step 7).
 
 Do not merge the pull request while fixup subjects are still on the branch.
 

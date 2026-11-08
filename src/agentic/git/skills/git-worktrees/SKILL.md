@@ -208,8 +208,14 @@ fi
 expected_sha="$after"                            # the lease the handoff uses
 GIT_SEQUENCE_EDITOR=: git -C <worktree> rebase -i --autosquash origin/<default>
 # hand this to the human — the agent cannot force-push
-git -C <worktree> push --force-with-lease=refs/heads/<branch>:<expected-sha> origin <branch>
+head_sha="$(git -C <worktree> rev-parse HEAD)"
+git -C <worktree> push --force-with-lease=<branch>:<expected-sha> origin "$head_sha:<branch>"
 ```
+
+The lease key is the **short** branch name, identical to the refspec destination; a fully-qualified
+`refs/heads/<branch>` key can end up not associated with the pushed ref, and git then runs the push
+unforced — the human sees a plain `non-fast-forward` rejection instead of the rewrite landing. Pass
+the new head as a sha so the refspec cannot resolve to a different local ref either.
 
 On a branch that has never been pushed there is no lease: the human publishes it with an ordinary
 `git -C <worktree> push -u origin <branch>` after the squash. A checkout behind `origin/<branch>`

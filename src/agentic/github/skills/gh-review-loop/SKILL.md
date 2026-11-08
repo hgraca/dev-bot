@@ -170,6 +170,6 @@ gh pr view <pr> --repo <owner>/<repo> --json mergeable,mergeStateStatus
 
 Only a clean review **and** a green, mergeable pull request finish the loop. Squash the fixups into
 their target commits (`devbot:git-worktrees`, "Squash fixups before merge") and hand the user the exact
-`git push --force-with-lease=<ref>:<expected-sha>` command. The guards module blocks the agent's
+`git push --force-with-lease=<branch>:<expected-sha> origin <new-head>:<branch>` command. The guards module blocks the agent's
 force-push; the human publishes it. A squash rewrites commits without changing the tree, so the
 checks stay green when it lands. Never merge.
