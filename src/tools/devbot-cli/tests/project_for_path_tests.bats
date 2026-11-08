@@ -152,3 +152,47 @@ run_tool() {
   assert_failure 2
   assert_output --partial "unknown key"
 }
+
+# ── Live MCP server state ────────────────────────────────────────────────────
+
+@test "project-for-path: reports live MCP state from the harness config above the owner" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{
+  // wired but not started
+  "mcp": {
+    "atlassian": { "type": "remote", "enabled": false },
+    "datasources": { "type": "local", "command": ["x"] }
+  }
+}
+JSONC
+
+  run_tool "${B}/src/file.ts" --key mcps
+  assert_success
+  assert_equal "$(jq -r .atlassian <<< "${output}")" "disabled"
+  assert_equal "$(jq -r .datasources <<< "${output}")" "enabled"
+}
+
+@test "project-for-path: reports claudecode .mcp.json entries as enabled" {
+  rm -f "${A}/opencode.jsonc"
+  printf '{ "mcpServers": { "atlassian": { "type": "http", "url": "x" } } }\n' > "${A}/.mcp.json"
+
+  run_tool "${B}/src/file.ts" --key mcps
+  assert_success
+  assert_equal "$(jq -r .atlassian <<< "${output}")" "enabled"
+}
+
+@test "project-for-path: reports no MCP servers when no harness config exists" {
+  run_tool "${A}/src/file.ts" --key mcps
+  assert_success
+  assert_output "{}"
+}
+
+@test "project-for-path: renders the MCP row in the markdown table" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "atlassian": { "enabled": false } } }
+JSONC
+
+  run_tool "${B}/src/file.ts"
+  assert_success
+  assert_output --partial "| mcps | atlassian:disabled |"
+}

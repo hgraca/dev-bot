@@ -8,7 +8,9 @@
 # action must first find the project that owns the files it touches. This tool
 # is that lookup plus the owner's effective config: scalars resolve
 # project-first then global; `modules` merges per key; `datasources` is the
-# project's own opt-in selection.
+# project's own opt-in selection. `mcps` is the live per-server state, read
+# from the generated harness config nearest the owner (an ancestor), because
+# MCP wiring belongs to the session's checkout, not to the file's project.
 #
 # Usage:
 #   project-for-path.mcp.sh <path>                    # markdown table
@@ -24,7 +26,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective commit_memory, workflow, devbot_dir, datasources and modules. Use it in a supervisor session before any project-scoped action.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--global-config <file>]"}},"required":["args"]}}
+{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective commit_memory, workflow, devbot_dir, datasources, modules and live MCP server state. Use it in a supervisor session before any project-scoped action, and before assuming an MCP server is available.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--global-config <file>]"}},"required":["args"]}}
 JSON
     exit 0
     ;;
@@ -101,6 +103,7 @@ DEFAULTS = {
     "devbot_dir": ".agents",
     "datasources": [],
     "modules": {},
+    "mcps": {},
     "supervisor": "false",
 }
 
@@ -168,12 +171,52 @@ def as_text(value):
     return str(value)
 
 
+def resolve_mcps():
+    """Live per-server state from the generated harness config.
+
+    MCP wiring is a property of the checkout the harness started in, so the
+    config is looked up from the owner upward: the nearest ancestor holding
+    `opencode.jsonc` or `.mcp.json` is the session root. `enabled: false` means
+    registered but not started; a `.mcp.json` entry is present only when wired,
+    since Claude Code has no per-server switch.
+    """
+    state = {}
+    cur = os.path.realpath(owner)
+    while True:
+        opencode = os.path.join(cur, "opencode.jsonc")
+        claudecode = os.path.join(cur, ".mcp.json")
+        found = os.path.isfile(opencode) or os.path.isfile(claudecode)
+        if os.path.isfile(opencode):
+            try:
+                servers = (load_jsonc(opencode) or {}).get("mcp") or {}
+            except Exception:
+                servers = {}
+            for name, cfg in servers.items():
+                if isinstance(cfg, dict):
+                    state[name] = "disabled" if cfg.get("enabled", True) is False else "enabled"
+        elif os.path.isfile(claudecode):
+            try:
+                with open(claudecode, encoding="utf-8") as fh:
+                    servers = (json.load(fh) or {}).get("mcpServers") or {}
+            except Exception:
+                servers = {}
+            for name in servers:
+                state.setdefault(name, "enabled")
+        if found:
+            return state
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            return state
+        cur = parent
+
+
 resolved = {
     "commit_memory": as_text(resolve_scalar("commit_memory")),
     "workflow": resolve_workflow(),
     "devbot_dir": as_text(resolve_scalar("devbot_dir")),
     "datasources": resolve_datasources(),
     "modules": resolve_modules(),
+    "mcps": resolve_mcps(),
 }
 resolved["supervisor"] = as_text(resolve_scalar("supervisor")) == "true"
 
@@ -196,6 +239,7 @@ report = {
         "devbot_dir": as_text(resolved["devbot_dir"]),
         "datasources": resolved["datasources"] or [],
         "modules": resolved["modules"] or {},
+        "mcps": resolved["mcps"] or {},
     },
 }
 
@@ -222,4 +266,10 @@ if modules:
 else:
     rendered = "(all enabled)"
 print(f"| modules | {rendered} |")
+mcps = report["config"]["mcps"]
+if mcps:
+    served = ", ".join(f"{name}:{state}" for name, state in sorted(mcps.items()))
+else:
+    served = "(no harness config found)"
+print(f"| mcps | {served} |")
 PY
