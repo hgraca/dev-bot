@@ -143,7 +143,35 @@ If you do NOT have the `tree` tool available, use the bash fallback:
 bash tree my/path/one my/other/path
 ```
 
-### 8. Compile context report
+### 8. Look up the task's Jira ticket (only when the atlassian MCP is live)
+
+Two switches must both be on, and neither is assumed:
+
+```bash
+devbot tool project-for-path <project> --key modules   # absence => enabled
+devbot tool project-for-path <project> --key mcps      # {"atlassian": "enabled"}
+```
+
+With both on, load `devbot:atlassian` and search once with JQL built from the
+delegation keywords — an issue key present in the request, otherwise one
+`text ~ "<keyword>"` term per keyword, `AND`-ed, ordered by `updated DESC` and
+filtered to exclude Done and Canceled. Request only the fields you report. In a
+supervisor session every project's scout runs its own search, in parallel.
+
+Read-only: never create, edit or transition an issue — that belongs to the
+primary agent's ticket resolution (`devbot:jira-workflow`).
+
+Report the best match, or several when they are genuinely plausible:
+
+```text
+PROJ-123 — <summary> — https://<site>.atlassian.net/browse/PROJ-123
+```
+
+When nothing matches, say `No matching Jira ticket` and name the JQL you ran.
+Ten Rovo credits per natural-language search is the reason this is JQL, not the
+semantic `search` tool.
+
+### 9. Compile context report
 
 Produce structured Markdown report with sections:
 
@@ -159,6 +187,10 @@ Produce structured Markdown report with sections:
 ## Git status
 
 <!-- output of `git-report` tool -->
+
+## Jira ticket
+
+<!-- the matching issue as `PROJ-123 — summary — URL`, or `No matching Jira ticket`; omit when the atlassian MCP is off -->
 
 ## Sibling projects
 
@@ -181,7 +213,7 @@ Produce structured Markdown report with sections:
 <!-- 2-4 sentences: what is known, what is missing, recommended follow-up research -->
 ```
 
-### 9. Store report to file
+### 10. Store report to file
 
 Write the compiled report to a file in `.../memory/thinking/` with the naming convention:
 
@@ -196,7 +228,7 @@ Where:
 
 Example: `20260518143000-auth-jwt-login.md`
 
-### 10. Signal completion
+### 11. Signal completion
 
 Before signaling completion, verify that the report file has in fact been written to disk, using `ls ...`.
 

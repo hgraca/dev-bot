@@ -88,3 +88,29 @@ run grep -qF "pre-implementation step" "$AUTO_DEV"
   run grep -qF 'DOING' "$AUTO_DEV"
 assert_success
 }
+
+@test "scout: searches Jira read-only when the MCP is enabled" {
+local scout="${PROJECT_ROOT}/src/agentic/devteam/agents/scout.md"
+
+run grep -qF 'devbot:atlassian' "$scout"
+  assert_success
+  run grep -qiF 'read-only' "$scout"
+assert_success
+run grep -qiF 'transition a Jira issue' "$scout"
+assert_success
+}
+
+@test "gather-context: pins both switches, the JQL rule and the report section" {
+local skill="${PROJECT_ROOT}/src/agentic/explore/skills/gather-context/SKILL.md"
+
+run grep -qF -- '--key mcps' "$skill"
+  assert_success
+  run grep -qF -- '--key modules' "$skill"
+assert_success
+run grep -qF 'JQL' "$skill"
+  assert_success
+  run grep -qF 'No matching Jira ticket' "$skill"
+assert_success
+run grep -qF '## Jira ticket' "$skill"
+assert_success
+}
