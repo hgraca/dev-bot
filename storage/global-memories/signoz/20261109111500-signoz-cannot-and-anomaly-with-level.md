@@ -1,0 +1,10 @@
+---
+date: 2026-11-09
+keywords: ["signoz", "alert-rule", "anomaly", "formula", "runningdiff"]
+aliases: ["combine anomaly with threshold", "z-score and level in one rule", "level-gated anomaly"]
+trigger-on: ["signoz-alert-rule", "signoz-anomaly-rule", "signoz-builder-formula"]
+---
+
+## A SigNoz rule cannot AND a seasonal anomaly score with a level — but a formula ternary works
+
+`anomaly_rule` (v1) is the only rule type that runs the daily-seasonality model: it takes one builder query with `functions: [{name: "anomaly", args: [{name: "z_score_threshold", value: N}]}]` and carries `condition.seasonality`/`algorithm`, but it cannot select a `builder_formula`. A `threshold_rule` (v2) does support formulas and multiple queries, but has no `seasonality`/`algorithm`, so it cannot reproduce the model — and a `builder_query` inside it that carries the `anomaly` function silently returns the raw series (observed: the anomaly "query" equalled the un-anomalised metric). So "alert only when the value is above a floor AND anomalous" is not expressible. The supported substitute is a level-gated trend built from formulas: `builder_formula` accepts an (undocumented but working) ternary conditional, e.g. `(((A / B) * 100) > 40) ? ((R / B) * 100) : 0` — verified with `(A > 1000000000) ? 42 : 0` returning `42` and the false branch returning `0`. For an hour-over-hour rise, put `functions: [{name: "runningdiff"}]` on a builder query with `stepInterval: 3600`; at `stepInterval: 60` the same function yields per-minute deltas. Do not use `timeshift`: an unrecognised argument name (e.g. `{"name": "timeShift", "value": 3600}`) is accepted and silently ignored, so the function returns the raw series — always compare a query function's output against the source series before building a rule on it. Evaluate the formula with a threshold tier (`op: above`, `matchType: all_the_times`, a `recoveryTarget` for hysteresis), and keep `evalWindow` at least two steps of the query's `stepInterval` so the gate has more than one point to average over.
