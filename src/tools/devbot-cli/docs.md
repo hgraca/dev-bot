@@ -64,7 +64,7 @@ Install all tools. Idempotent — safe to re-run. Writes `.devbot.global.jsonc` 
 
 ### `devbot update [tag] [--auto]`
 
-Move the install to the newest **release tag** (or an explicit tag: `devbot update <tag>` pins/downgrades). Fetches tags from origin, and is a clean no-op when already on the newest tag. On a real move it refreshes tools, agentic modules, and external modules, then records the release in the global config's `version` so every project reinits on its next start. `--auto` is the quiet, non-interactive form used by the bare `devbot` start — a single-line no-op that never prompts; without it the usual update output is printed.
+Move the install to the newest **release tag** (or an explicit tag: `devbot update <tag>` pins/downgrades). Fetches tags from origin, and is a clean no-op when already on the newest tag. On a real move it refreshes tools, agentic modules, and external modules, then records the release in the global config's `version` so every project reinits on its next start. Each release carries its notes as the annotated tag message, so the run ends by printing the notes of every version it crossed — from the version it left (exclusive) to the one it landed on (inclusive), oldest first; a downgrade shows only the target's notes, and a tag without recorded notes is listed as such. `--auto` is the quiet, non-interactive form used by the bare `devbot` start — a single-line no-op that never prompts; without it the usual update output is printed.
 
 ### `devbot init [path] [--all|-a] [--full|-f]`
 

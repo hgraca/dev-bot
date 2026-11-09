@@ -28,7 +28,8 @@
 #        touched here and still reinits lazily), a refresh of
 #        the external module repos (module.sh install), a migration of the
 #        retired `worktrees` key to `workflow` across the registered projects,
-#        and recording the release tag in the global config's `version`.
+#        recording the release tag in the global config's `version`, and
+#        printing the release notes of every version crossed.
 #   4. Nothing else: writing `version` changes each project's combined wiring
 #      hash, so every registered project reinit-wires itself on its next
 #      `devbot` start (lazy, per project).
@@ -527,6 +528,61 @@ print_summary() {
   echo
 }
 
+# ── Release notes ─────────────────────────────────────────────────────────────
+# Print the notes of every release between $1 and $2: strictly newer than $1,
+# up to and including $2, oldest first. A release stores its notes as the
+# annotated tag message (tag.sh writes release.v<VERSION>.no-vcs.md with -F),
+# which _fetch_tags has already brought down — the file itself is local-only.
+_print_release_notes() {
+  local from="$1" to="$2"
+  [[ -n "${from}" && -n "${to}" ]] || return 0
+
+  local tags=() tag body kind i
+  while IFS= read -r tag; do
+    # Release tags: X.Y.Z stable, 0.X.Y.Z unstable.
+    [[ "${tag}" =~ ^([0-9]*[1-9][0-9]*\.[0-9]+\.[0-9]+|0\.[0-9]+\.[0-9]+\.[0-9]+)$ ]] || continue
+    tags+=("${tag}")
+  done < <(git -C "${DEV_BOT_ROOT}" tag --sort=v:refname)
+
+  local from_idx=-1 to_idx=-1
+  for i in "${!tags[@]}"; do
+    [[ "${tags[$i]}" == "${from}" ]] && from_idx=$i
+    [[ "${tags[$i]}" == "${to}" ]] && to_idx=$i
+  done
+  [[ "${to_idx}" -lt 0 ]] && return 0
+
+  # An unknown source tag or a downgrade leaves no range: show the target only.
+  local start=$(( from_idx + 1 ))
+  if [[ "${from_idx}" -lt 0 || "${start}" -gt "${to_idx}" ]]; then
+    start="${to_idx}"
+  fi
+
+  _header_2 "Release Notes"
+  if [[ "${from_idx}" -lt 0 ]]; then
+    _info "the version being left is not a release tag — showing ${to} only"
+  fi
+  for (( i = start; i <= to_idx; i++ )); do
+    tag="${tags[$i]}"
+    # Lightweight tags hold a commit message, not notes.
+    kind="$(git -C "${DEV_BOT_ROOT}" cat-file -t "${tag}" 2>/dev/null || true)"
+    body="$(git -C "${DEV_BOT_ROOT}" tag -l --format='%(contents)' "${tag}")"
+    if [[ "${kind}" != "tag" || "${body}" != "# Release v"* ]]; then
+      _skip "${tag} — no release notes recorded"
+      continue
+    fi
+    while [[ "${body}" == *$'\n' ]]; do body="${body%$'\n'}"; done
+    echo
+    while IFS= read -r line; do
+      if [[ -z "${line}" ]]; then
+        echo
+      else
+        echo "  ${line}"
+      fi
+    done <<< "${body}"
+  done
+  echo
+}
+
 # ── main ──────────────────────────────────────────────────────────────────────
 main() {
   local total_start=${SECONDS}
@@ -706,6 +762,7 @@ main() {
   UPDATED="${tool_count}" FAILED="${tool_failed}"
   MODULE_UPDATED="${module_count}" MODULE_FAILED="${module_failed}"
   print_summary
+  _print_release_notes "${UPDATE_OLD:-}" "${UPDATE_NEW:-}"
 
   echo -e "  ${TEXT_DIM}⏱  Total: $(_fmt_duration $(( SECONDS - total_start )))${TEXT_CLEAR}"
   echo

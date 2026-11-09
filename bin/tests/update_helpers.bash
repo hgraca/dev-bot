@@ -122,7 +122,8 @@ _new_sandbox() {
   export MODULE_STUB_MARKER="${SANDBOX}/module-stub-ran"
   export HARNESS_STUB_MARKER="${SANDBOX}/harness-stub-ran"
 
-  local versions="${1:-1.0.0:1.1.0}"
+  # "" (as opposed to no argument) means the origin carries no tags at all.
+  local versions="${1-1.0.0:1.1.0}"
 
   if [[ "${versions}" == "1.0.0:1.1.0" && -n "${UPDATE_ORIGIN_CACHE:-}" ]]; then
     _ensure_origin_cache
@@ -227,14 +228,31 @@ _new_shallow_sandbox() {
 }
 
 # Publish a newer release in origin: advance main with a commit touching
-# $1=<file> with content $2, tag it $3.
+# $1=<file> with content $2, tag it $3. When $4 is given the tag is annotated
+# carrying that message — the shape tag.sh produces from a release file;
+# without it the tag stays lightweight, as the older fixtures are.
 _publish_release() {
-  local file="$1" content="$2" version="$3"
+  local file="$1" content="$2" version="$3" notes="${4:-}"
   git -C "${ORIGIN}" checkout -q main
   printf '%s\n' "${content}" > "${ORIGIN}/${file}"
   git -C "${ORIGIN}" add "${file}"
   git -C "${ORIGIN}" commit -qm "release ${version}"
-  git -C "${ORIGIN}" tag "${version}"
+  if [[ -n "${notes}" ]]; then
+    # -F + --cleanup=whitespace mirrors tag.sh: -m defaults to `strip`, which
+    # would delete the release file's "# Release vX" heading as a comment.
+    printf '%s' "${notes}" > "${ORIGIN}/.release-notes"
+    git -C "${ORIGIN}" tag -a "${version}" --cleanup=whitespace -F "${ORIGIN}/.release-notes"
+    rm -f "${ORIGIN}/.release-notes"
+  else
+    git -C "${ORIGIN}" tag "${version}"
+  fi
+}
+
+# Point the fake install at $1 (a tag), fetching first so tags published after
+# the clone are available.
+_checkout_install_tag() {
+  git -C "${INSTALL}" fetch -q --tags origin
+  git -C "${INSTALL}" checkout -q --detach "$1"
 }
 
 _run_update() {
