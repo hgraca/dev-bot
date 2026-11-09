@@ -119,6 +119,8 @@ If the project's Makefile provides them, boot the worktree with its own targets:
   `make up` is the main-checkout path and refuses inside a worktree.
 - `make bootstrap-phpunit` — creates and migrates the `_phpunit` database that `make t` and
   `make unit` need.
+- `make test-bats` — runs the bats suite with `BATS_LIB_PATH` pointed at the global npm root,
+  installing `bats-assert`/`bats-support` there if missing. Raw `bats` cannot find those libs.
 
 When the project defines neither, use its own documented boot and test targets.
 
