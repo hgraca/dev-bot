@@ -111,6 +111,24 @@ git -C "$W" commit -m "feat: add login"
 Commit exactly as `devbot:git-commits` and `devbot:git-atomic-commits` describe — the commits just
 land on the worktree branch.
 
+## Worktree preflight
+
+If the project's Makefile provides them, boot the worktree with its own targets:
+
+- `make up-worktree` — starts the shared stack from the main checkout, then boots this worktree.
+  `make up` is the main-checkout path and refuses inside a worktree.
+- `make bootstrap-phpunit` — creates and migrates the `_phpunit` database that `make t` and
+  `make unit` need.
+
+When the project defines neither, use its own documented boot and test targets.
+
+`worktree.sh create` copies `storage/cache/static_analysis` from the main checkout, and
+`worktree.sh remove` copies it back, so static analysis starts warm.
+
+In a project whose PHP language server roots at the main checkout, `.agents/worktrees/**` is excluded
+from its index; use that project's static-analysis and test targets as the authoritative check for
+worktree code.
+
 ### Resolve the path, never rebuild it
 
 The directory is the branch's **slug**, not the branch name — `feat/add-login` lives in

@@ -67,7 +67,9 @@ Before the first code change:
 - append what the refinement produced to the description — the existing text
   stays, new `Problems:` and `Solutions:` bullets are added;
 - list the transitions, then move the ticket to **DOING / In Progress** or its
-  equivalent.
+  equivalent;
+- the transition screen may not expose `assignee`; if the move rejects it,
+  transition first, then set the assignee with a separate issue edit.
 
 Show the description delta and the transition, then act: the approved plan is
 the explicit approval `devbot:atlassian` requires before a write. Anything
