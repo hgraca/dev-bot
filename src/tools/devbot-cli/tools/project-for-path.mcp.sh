@@ -4,7 +4,7 @@
 # ---
 # =============================================================================
 # src/tools/devbot-cli/tools/project-for-path.mcp.sh
-# A supervisor session has no single current project: every project-scoped
+# A monorepo session has no single current project: every project-scoped
 # action must first find the project that owns the files it touches. This tool
 # is that lookup plus the owner's effective config: scalars resolve
 # project-first then global; `modules` merges per key; `datasources` is the
@@ -30,7 +30,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective commit_memory, workflow, devbot_dir, datasources, modules and configured MCP server state. Use it in a supervisor session before any project-scoped action, and before assuming an MCP server is configured. Configuration does not imply reachability: an enabled server may still be offline or unauthenticated.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--session-root <dir>] [--global-config <file>]"}},"required":["args"]}}
+{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective commit_memory, workflow, devbot_dir, datasources, modules, monorepo state and configured MCP servers. Use it in a monorepo session before any project-scoped action, and before assuming an MCP server is configured. Configuration does not imply reachability: an enabled server may still be offline or unauthenticated.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--session-root <dir>] [--global-config <file>]"}},"required":["args"]}}
 JSON
     exit 0
     ;;

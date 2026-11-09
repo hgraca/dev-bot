@@ -29,18 +29,18 @@ The `remember-session` skill captures what was learned during a session and rout
 
 Say "wrap up", "remember session", or "capture session" to trigger it manually.
 
-## Supervisor sessions
+## Monorepo sessions
 
-A project with `supervisor: true` runs sessions across the managed projects
+A project with `monorepo: true` runs sessions across the managed projects
 registered in `.devbot.global.jsonc::projects`. Memory is scoped by the files
 the session touches: `search-memories --focus <path>` searches the touched
-projects' vaults + the supervisor's vault + the shared global store + any
+projects' vaults + the monorepo's vault + the shared global store + any
 configured custom collection, and a finding routes back to the project it
 concerns. Only each child's own
 `commit_memory` gates its memory commits; they are normal commits made in that
 child's main checkout, never in a worktree (see `devbot:remember-session`). A
 session launched inside a child is unchanged — it searches the child + global,
-never the supervisor.
+never the monorepo.
 
 ## Collections
 
@@ -60,7 +60,7 @@ are listed under `memory_collections`.
 
 ## See also
 
-- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
+- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
 - [QMD](/modules/agentic/qmd) — the BM25 vault search engine
 - [mdctx](/modules/agentic/mdctx) — the keyword vault search engine
 - [Configuration](/configuration) — `memory_search_provider`, `memory_collections`, and `commit_memory`

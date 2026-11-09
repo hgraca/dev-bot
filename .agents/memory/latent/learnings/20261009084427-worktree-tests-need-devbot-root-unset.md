@@ -13,7 +13,7 @@ Python test sources `src/_shared/functions.sh` the library keeps the inherited v
 (`export DEV_BOT_ROOT="${DEV_BOT_ROOT:-...}"`) — so it resolves helper and config paths from the
 MAIN checkout, not the worktree under test. A test can therefore pass or fail against main's code:
 a helper that only exists in the worktree is "not found", and every `_devbot_get_config` read
-falls back to main's config. This bit the supervisor-memory BATS suite: the resolver helper
+falls back to main's config. This bit the monorepo-memory BATS suite: the resolver helper
 appeared absent until the tests pinned `env -u DEV_BOT_ROOT`.
 
 ## The rule

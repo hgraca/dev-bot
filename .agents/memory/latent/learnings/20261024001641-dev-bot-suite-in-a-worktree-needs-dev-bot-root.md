@@ -7,7 +7,7 @@ keywords: ["dev-bot", "bats", "worktree", "DEV_BOT_ROOT", "test-suite"]
 
 ## What happens
 
-`make test` / `make test-bats` run inside `.agents/worktrees/<slug>` inherits whatever `DEV_BOT_ROOT` the session already exported. In a supervisor session that value is the **main checkout** (`/…/Get-e/dev-bot`), not the worktree, and two suites fail in opposite directions:
+`make test` / `make test-bats` run inside `.agents/worktrees/<slug>` inherits whatever `DEV_BOT_ROOT` the session already exported. In a monorepo session that value is the **main checkout** (`/…/Get-e/dev-bot`), not the worktree, and two suites fail in opposite directions:
 
 - **DEV_BOT_ROOT points at the main checkout** — `src/agentic/memory/tests/memory-smoke_tests.bats` fails: `latent/global` is linked to the main checkout's `storage/global-memories` while the test expects the worktree's path.
 - **DEV_BOT_ROOT unset** — `src/harnesses/opencode/tests/delegate_tests.bats` fails: the generated sandbox `init.sh` expands `${DEV_BOT_ROOT:?}` under `set -u`.

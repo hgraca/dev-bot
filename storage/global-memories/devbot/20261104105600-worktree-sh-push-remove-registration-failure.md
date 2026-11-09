@@ -1,10 +1,10 @@
 ---
 date: 2026-11-04
-keywords: ["devbot", "worktree", "worktree.sh", "supervisor"]
+keywords: ["devbot", "worktree", "worktree.sh", "monorepo"]
 aliases: ["no worktree is registered", "worktree.sh push fails", "worktree.sh remove fails"]
 ---
 
-## `worktree.sh push` and `remove` cannot find a registered worktree in a supervisor session
+## `worktree.sh push` and `remove` cannot find a registered worktree in a monorepo session
 
 With `--project <owner>` passed exactly as documented, `worktree.sh create` and
 `worktree.sh path <branch>` resolve the worktree correctly, but `worktree.sh push <branch>

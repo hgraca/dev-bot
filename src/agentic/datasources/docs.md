@@ -66,6 +66,6 @@ The boot path names the command whenever it drops a declared source, so the reco
 
 ## See also
 
-- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
+- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
 - [MCP configuration](/mcp-config) — the manifest schema and the shared gateways
 - [Configuration](/configuration) — the global config keys

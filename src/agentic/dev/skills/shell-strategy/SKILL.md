@@ -11,9 +11,9 @@ Every shell command runs on one of two channels: the built-in `bash` tool, or a 
 
 - Any time you run a shell command — including from inside a skill or workflow.
 
-In a `supervisor: true` project, resolve the owning project of the command
+In a `monorepo: true` project, resolve the owning project of the command
 (`devbot tool project-for-path <path>`) and run it from that project's directory,
-against that project's container. The supervisor root's containers are not the
+against that project's container. The monorepo root's containers are not the
 project's.
 
 ## Choosing the channel

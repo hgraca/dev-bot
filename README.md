@@ -168,7 +168,7 @@ The hand-written pages under [`docs/`](docs/) are:
 2. [Create a module](docs/create-a-module.md) — module anatomy and the `docs.md` contract
 3. [MCP configuration](docs/mcp-config.md)
 4. [Modules & tools map](docs/modules-and-tools.html)
-5. [Supervisor sessions](docs/supervisor-sessions.md)
+5. [Monorepo sessions](docs/monorepo-sessions.md)
 
 > Per-module documentation lives beside each module (`src/<area>/<module>/docs.md`),
 > not under `docs/`.

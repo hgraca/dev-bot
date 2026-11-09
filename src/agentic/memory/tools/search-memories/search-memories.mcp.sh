@@ -22,7 +22,7 @@
 # - collection (string, optional): QMD collection name (default: auto-detected from devbot.jsonc)
 # - max-results (number, optional): max files to return (default: 5)
 # - focus (string, optional, repeatable): path the session is touching; in a
-#   supervisor project it selects the project(s) whose vault is searched too
+#   monorepo project it selects the project(s) whose vault is searched too
 # - format (string, optional): 'json' (default) or 'markdown'
 # =============================================================================
 
@@ -31,7 +31,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"search-memories","description":"Search the memory vault and return full file bodies. Fast keyword (BM25) search across the project vault, the shared global store, and every collection configured under memory_collections, using the configured engine (qmd or mdctx) — no GPU or LLM models required. Branch-aware: refreshes the index first when it was built for a different git branch or checkout. In a supervisor project, --focus scopes the project vaults to the touched project(s) plus the supervisor; global and custom collections are always searched.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <query> [--collection <name>] [--max-results <n>] [--focus <path>] [--json]"}},"required":["args"]}}
+{"name":"search-memories","description":"Search the memory vault and return full file bodies. Fast keyword (BM25) search across the project vault, the shared global store, and every collection configured under memory_collections, using the configured engine (qmd or mdctx) — no GPU or LLM models required. Branch-aware: refreshes the index first when it was built for a different git branch or checkout. In a monorepo project, --focus scopes the project vaults to the touched project(s) plus the monorepo; global and custom collections are always searched.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <query> [--collection <name>] [--max-results <n>] [--focus <path>] [--json]"}},"required":["args"]}}
 JSON
     exit 0
     ;;

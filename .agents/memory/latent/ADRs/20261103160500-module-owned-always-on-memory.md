@@ -5,7 +5,7 @@ keywords: ["devbot", "module-memory", "active-modules", "reinit", "generated-mem
 
 ## Modules own their always-on instructions in memory/active/modules/
 
-A dev-bot module that needs always-on agent instructions writes them to `<devbot_dir>/memory/active/modules/<module-name>.md` from its own `init.sh`, instead of a human hand-copying a section into each project's `memory/active/project.md`. The k8s module's `## Kubernetes access` block had been copied verbatim into 21 project vaults plus the supervisor root with nothing regenerating it, so the copies could only drift.
+A dev-bot module that needs always-on agent instructions writes them to `<devbot_dir>/memory/active/modules/<module-name>.md` from its own `init.sh`, instead of a human hand-copying a section into each project's `memory/active/project.md`. The k8s module's `## Kubernetes access` block had been copied verbatim into 21 project vaults plus the monorepo root with nothing regenerating it, so the copies could only drift.
 
 The contract is: `devbot reinit` deletes the whole `active/modules/` folder (and the two pre-move file locations) before running init, every enabled module rewrites its own file, and `devbot init` adds `active/modules/` to the project's `.gitignore` ahead of the first module init — the output is machine-generated, never project source. `devbot reinit` also accepts a positional project path, which the docs and skills had been recommending all along.
 

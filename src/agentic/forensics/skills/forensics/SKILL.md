@@ -16,8 +16,8 @@ Behavioral code analysis over version-control history, after Adam Tornhill's _Yo
 
 ## How to Run
 
-In a `supervisor: true` project, `<repo>` is the **owning project** of the files being analysed
-(`devbot tool project-for-path <path>`), never the supervisor root — one mine and one report per
+In a `monorepo: true` project, `<repo>` is the **owning project** of the files being analysed
+(`devbot tool project-for-path <path>`), never the monorepo root — one mine and one report per
 repository.
 
 The tool is a plain CLI — a human runs it directly, an agent runs it through bash:

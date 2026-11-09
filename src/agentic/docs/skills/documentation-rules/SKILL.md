@@ -30,7 +30,7 @@ note paths and frontmatter. Read the target repo before applying the rules below
 
 ### Hand-written pages (`docs/`)
 
-- Only pages that belong to no single module live under `docs/`: `index.md`, `configuration.md`, `create-a-module.md`, `mcp-config.md`, `modules-and-tools.html`, `supervisor-sessions.md`.
+- Only pages that belong to no single module live under `docs/`: `index.md`, `configuration.md`, `create-a-module.md`, `mcp-config.md`, `modules-and-tools.html`, `monorepo-sessions.md`.
 - Text docs are `.md` files; each subject is self-contained in one file.
 - Repo README.md must have a TOC pointing to every committed text doc under `docs/`.
 - Whenever a docs file is created or removed, the README TOC must be updated to match.

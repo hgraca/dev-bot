@@ -21,6 +21,6 @@ No project configuration is required.
 
 ## See also
 
-- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
+- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
 - [DevTeam](/modules/agentic/devteam) — the multi-agent workflow built on these conventions
 - [Git](/modules/agentic/git) — the commit protocol's home

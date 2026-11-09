@@ -50,10 +50,10 @@ Create new files using the frontmatter schema and routing table from the already
 | Lesson reusable across projects (tech-specific) | `memory/latent/global/<technology>/` | New file per item, lesson + context + scope. Pick most specific bucket from classification table in `devbot:memory-management` skill (section 2). |
 | Lesson specific to this project                 | `memory/latent/learnings/`           | New file per item, lesson + context + scope                                                                                                       |
 
-**Supervisor sessions** — in a project with `supervisor: true`, route each
+**Monorepo sessions** — in a project with `monorepo: true`, route each
 finding by the files it concerns (see `devbot:memory-management` §2
-"Supervisor sessions"): a finding about a child project's file → that child's
-vault; cross-project / org-wide → the supervisor's vault; tech-generic →
+"Monorepo sessions"): a finding about a child project's file → that child's
+vault; cross-project / org-wide → the monorepo's vault; tech-generic →
 `latent/global/<tech>/`. Dedup-check with `search-memories --focus "<path>"`
 so the owning project's vault is in scope.
 
@@ -100,12 +100,12 @@ Memory files under `.agents/memory/` are tracked **only when the effective `comm
 - **Surface what you leave behind** — when the main checkout still holds memory changes, or its local default branch carries memory commits that `origin/<default>` does not, say so and name them. The human decides how they reach origin: do not reset, rebase, or push them, and do not change a new branch's base to carry them without their say.
 - **Keep the memory capture as the final memory action** — make these commits the last writes to the memory vault and write no further memory files afterward, so the memory capture stays a one-shot operation. The finish flow then runs `devbot:grade-tools` (tool quality) and `devbot:reconcile-work` (work-folder and worktree housekeeping) — neither writes memory notes.
 
-**Supervisor sessions** — route each memory file to its **owning project's**
-repo and honour _that project's_ `commit_memory`, never the supervisor's
+**Monorepo sessions** — route each memory file to its **owning project's**
+repo and honour _that project's_ `commit_memory`, never the monorepo's
 (resolve `_devbot_get_config commit_memory <owner>` — project-first,
 global-fallback for the owner). Group findings by owning project and commit once
 per repo; a child with `commit_memory: false` gets no memory commit even when the
-supervisor commits.
+monorepo commits.
 
 Memory commits always go to the owning project's **main checkout, never a
 worktree, whatever the workflow** — memory files live there, and a worktree has
@@ -113,6 +113,6 @@ no runtime farm. Commit only when that checkout is on the local default branch;
 if it is on any other branch, leave the files uncommitted and surface them —
 never switch the human's branch, and never put vault commits on their feature
 branch. When the owner is not a git repo
-(e.g. a supervisor root never `git init`ed), skip the commit and append a
+(e.g. a monorepo root never `git init`ed), skip the commit and append a
 **notice** line to the owner's `.agents/logs/memory-index.log` — no warning, no
 failure.

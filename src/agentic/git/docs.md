@@ -36,6 +36,6 @@ The `git-report` tool primes new sessions with the current git state (the `explo
 
 ## See also
 
-- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
+- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
 - [Explore](/modules/agentic/explore) — gather-context skill
 - [Configuration](/configuration) — commit and branch settings

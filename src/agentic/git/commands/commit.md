@@ -19,6 +19,6 @@ yourself, because the resolver also honours a not-yet-migrated `worktrees` key:
   record trunk work on a feature branch.
 - **exit `2`** — the configured workflow is unknown: stop and ask; never guess.
 
-In a `supervisor: true` session, resolve the owning project of the files you are committing first and
+In a `monorepo: true` session, resolve the owning project of the files you are committing first and
 pass it — `worktree.sh enabled --project <owner>` — then run the git commands there (`git -C <owner>`);
-the tool refuses a supervisor root.
+the tool refuses a monorepo root.

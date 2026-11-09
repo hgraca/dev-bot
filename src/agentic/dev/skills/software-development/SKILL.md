@@ -22,9 +22,9 @@ commits land, how it is reviewed, and where it stops. Select it in this order �
    configured one, follow it for that run.
 2. **Project configuration** — the `workflow` key in `.devbot.project.jsonc`, falling back to that
    same file's not-yet-migrated `worktrees` key (`true` → `worktrees`, `false` → `trunk`), then to
-   `.devbot.global.jsonc` in the same order. In a `supervisor: true` session _the project_ is the
+   `.devbot.global.jsonc` in the same order. In a `monorepo: true` session _the project_ is the
    **owning project** of the task's files — resolve it first (`devbot tool project-for-path <path>`),
-   never the supervisor root, and run the workflow's repo-scoped steps in that owner.
+   never the monorepo root, and run the workflow's repo-scoped steps in that owner.
 3. **Default** — the [Worktrees workflow](#worktrees-workflow) when no configuration names one.
 
 **Check in after every step.** In an interactive session, end each step with a two-line report — what

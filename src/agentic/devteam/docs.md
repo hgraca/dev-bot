@@ -22,6 +22,6 @@ No project configuration is required.
 
 ## See also
 
-- [Supervisor sessions](/supervisor-sessions) — how this module scopes itself to the owning project
+- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
 - [DevBot](/modules/agentic/devbot) — the pair-programming alternative
 - [Agents](/agents) — the complete roster

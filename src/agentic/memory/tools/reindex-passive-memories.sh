@@ -75,8 +75,8 @@ while [[ $# -gt 0 ]]; do
       WORKTREE="${2:-}"
       if (( $# >= 2 )); then shift 2; else shift; fi ;;
     # --path <file>: resolve the owning registered project from a touched file
-    # (a supervisor session editing a child's note must reindex that child, not
-    # the supervisor). Falls back to --worktree/$PWD when unresolved.
+    # (a monorepo session editing a child's note must reindex that child, not
+    # the monorepo). Falls back to --worktree/$PWD when unresolved.
     --path)
       PATH_ARG="${2:-}"
       if (( $# >= 2 )); then shift 2; else shift; fi ;;
@@ -98,7 +98,7 @@ fi
 SESSION_WORKTREE="${WORKTREE}"
 
 # --path <file> retargets the reindex to the owning project of a touched file
-# (a supervisor editing a child's note). But when the file's owning project is
+# (a monorepo editing a child's note). But when the file's owning project is
 # the session worktree itself or an ancestor of it, the worktree is the right
 # checkout — a linked worktree at <project>/<devbot_dir>/worktrees/<slug> has
 # its own vault and index, so reindex that, never the main checkout.
@@ -160,7 +160,7 @@ if [[ -z "${FINGERPRINT_DIR}" && "${MODE}" != "status" ]]; then
       exit 1
     fi
     if [[ "${SESSION_WORKTREE}" != "${WORKTREE}" ]]; then
-      # A supervisor custom corpus can live under a child project. Resolve the
+      # A monorepo custom corpus can live under a child project. Resolve the
       # session's customs and keep the child's project slot.
       if ! SESSION_COLLECTIONS_JSON="$(
         python3 "${DEV_BOT_ROOT}/src/_shared/memory_collections.py" \

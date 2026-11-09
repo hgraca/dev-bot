@@ -18,7 +18,7 @@
 #
 # Usage:
 #   reload-datasources.mcp.sh                     # TOOLS_MCP_PROJECT_DIR, else cwd
-#   reload-datasources.mcp.sh --project <dir>     # another project (supervisor)
+#   reload-datasources.mcp.sh --project <dir>     # another project (monorepo)
 #
 # Dependencies: docker, curl (the reload's own preflight)
 # =============================================================================

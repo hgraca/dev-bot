@@ -165,26 +165,31 @@ Used by the `worktree` tool (`enabled` / `create`), `project-for-path`, and the 
 
 ---
 
-### `supervisor`
+### `monorepo`
 
 ```jsonc
-{ "supervisor": false }
+{ "monorepo": false }
 ```
 
 **Type:** `boolean`
 **Default:** `false`
 **Required:** no
 
-Marks the project as a **supervisor**: a session launched here orchestrates work across the managed projects registered in the global config's `projects` array, and its **memory scope is resolved from the files the session touches**. Working on a file under project `A`, a search covers `A`'s vault + the shared global store + this supervisor's own vault; a memory about `A` is stored in `A`, cross-project knowledge in the supervisor, and tech-generic knowledge in the global store (see `devbot:memory-management`).
+Marks the project as a **monorepo**: a session launched here orchestrates work across the managed projects registered in the global config's `projects` array, and its **memory scope is resolved from the files the session touches**. Working on a file under project `A`, a search covers `A`'s vault + the shared global store + this monorepo's own vault; a memory about `A` is stored in `A`, cross-project knowledge in the monorepo, and tech-generic knowledge in the global store (see `devbot:memory-management`).
 
-A supervisor lives anywhere — physical nesting of the managed projects is irrelevant; the global `projects` registry is the source of truth. Sessions launched _inside_ a managed project are unaffected: they keep searching their own vault + the global store, never the supervisor's.
+A monorepo lives anywhere — physical nesting of the managed projects is irrelevant; the global `projects` registry is the source of truth. Sessions launched _inside_ a managed project are unaffected: they keep searching their own vault + the global store, never the monorepo's.
 
-`supervisor` resolves project-first, then global, then `false`, like other scalars.
+`monorepo` resolves project-first, then global, then `false`, like other scalars.
 
-Used by `search-memories` and the memory skills; the reindex engine targets the owning project via its `--path` resolution.
+The key was formerly named `supervisor`. `devbot init` rewrites a config that still carries it —
+the project's and the global one — in place; a config that never runs `init` must be renamed by
+hand, because no reader falls back to the retired key.
+
+Used by `search-memories` and the memory skills, the `worktree` tool (`enabled` / `create` refuse a
+monorepo root), and `project-for-path`, which reports it.
 
 Every other project-scoped module follows the same owning-project rule — resolve it with
-`devbot tool project-for-path <path>`. See [Supervisor sessions](/supervisor-sessions) for the
+`devbot tool project-for-path <path>`. See [Monorepo sessions](/monorepo-sessions) for the
 per-module contract.
 
 ---
@@ -383,11 +388,11 @@ today — both engines are keyword-only (BM25; see `memory_search_provider`), so
 a search emits a `NOTICE` and runs BM25. It will select qmd's model path when
 that path is restored.
 
-In a supervisor project, the `project` collections follow the `--focus` read
+In a monorepo project, the `project` collections follow the `--focus` read
 set, while the `global` and custom collections are always searched. Custom
 collections resolve from the session project's config plus the global config;
 a focused child's own project-level custom collections are not pulled into the
-supervisor's search (a session started inside that child searches them).
+monorepo's search (a session started inside that child searches them).
 
 ---
 
@@ -819,7 +824,7 @@ a key a previous run registered.
   "workflow": "worktrees",
 
   // Orchestrate memory across the global `projects` registry (default: false)
-  "supervisor": false,
+  "monorepo": false,
 
   // Data sources this project may use, by name (see `datasources` above)
   "datasources": ["hotels-dev"],

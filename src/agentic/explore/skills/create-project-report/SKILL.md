@@ -12,12 +12,12 @@ _what this project is_, _how laid out_, and _where rough edges are_. Output:
 This is one-page map, not findings report. Rough edges
 named in one line each so future work has context — diagnosing and fixing them out of scope.
 
-## Supervisor sessions
+## Monorepo sessions
 
-A project description describes **one project**. In a `supervisor: true` project, resolve the
+A project description describes **one project**. In a `monorepo: true` project, resolve the
 owning project first (`devbot tool project-for-path <path>`) and write the description to that
-project's vault — never generate a child's description from the supervisor root, and never write
-it into the supervisor's vault. Generate a child's description on demand, when that child is
+project's vault — never generate a child's description from the monorepo root, and never write
+it into the monorepo's vault. Generate a child's description on demand, when that child is
 first touched.
 
 ## When to Apply

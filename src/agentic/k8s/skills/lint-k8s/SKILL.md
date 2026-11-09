@@ -17,8 +17,8 @@ Activate this skill whenever you are:
 - Reviewing PRs that touch YAML/YML files under `k8s/`, `charts/`, `helm/`, `infra/`, or similar paths
 - Asked to "validate", "audit", "lint", or "check" K8s configurations
 
-In a `supervisor: true` project, `path` and any `--changed`/`--base` diff belong to the **owning
-project** of the manifests (`devbot tool project-for-path <path>`), never the supervisor root —
+In a `monorepo: true` project, `path` and any `--changed`/`--base` diff belong to the **owning
+project** of the manifests (`devbot tool project-for-path <path>`), never the monorepo root —
 the change set of a container repository is not the change set of a service.
 
 ## Tool: `devbot:lint-k8s`

@@ -33,7 +33,7 @@ git-report
 
 No format parameters — output is always Markdown.
 
-In a `supervisor: true` project, pass `--cwd <owner>` (from
+In a `monorepo: true` project, pass `--cwd <owner>` (from
 `devbot tool project-for-path <path>`) — the default inspects the session
 project, which is the container repository.
 
