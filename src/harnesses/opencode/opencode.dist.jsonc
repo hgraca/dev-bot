@@ -27,6 +27,7 @@
               "**/.hg/**",
               "**/CVS/**",
               "**/.DS_Store/**",
+              "**/.agents/worktrees/**",
               "**/node_modules/**",
               "**/bower_components/**",
               "**/.history/**",
