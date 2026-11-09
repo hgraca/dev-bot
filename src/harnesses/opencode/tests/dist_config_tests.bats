@@ -40,6 +40,7 @@ setup() {
   assert_output --partial '"php intelephense"'
   assert_output --partial '**/vendor/**/tests/**'
   assert_output --partial '**/vendor/**/vendor/**'
+  assert_output --partial '**/.agents/worktrees/**'
   refute_output --partial '"**/vendor/**"'
   refute_output --partial '"includePaths"'
   assert_output --partial 'telemetry'

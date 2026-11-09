@@ -35,6 +35,21 @@ setup() {
   rm -r "${tmp}"
 }
 
+@test "reset.sh: adds the worktree exclusion to an existing lsp override" {
+  local tmp
+  tmp="$(mktemp -d)"
+  mkdir -p "${tmp}/.opencode"
+  printf '{\n  "lsp": {\n    "php intelephense": {\n      "command": ["bash", "x", "--stdio"],\n      "initialization": { "intelephense": { "files": { "exclude": ["**/.git/**"] } } }\n    }\n  }\n}\n' > "${tmp}/opencode.jsonc"
+
+  run bash "${RESET}" "${tmp}"
+
+  assert_success
+  run python3 "${READER}" "${tmp}/opencode.jsonc" lsp
+  assert_output --partial '**/.agents/worktrees/**'
+  assert_output --partial '**/.git/**'
+  rm -r "${tmp}"
+}
+
 @test "reset.sh: leaves a user's own lsp object untouched" {
   local tmp
   tmp="$(mktemp -d)"

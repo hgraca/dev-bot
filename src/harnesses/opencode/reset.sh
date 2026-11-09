@@ -372,4 +372,121 @@ if [[ -f "${OPENCODE_CONFIG}" ]]; then
   fi
 fi
 
+# Ensure the worktree exclusion is present in an existing lsp override: the dist
+# block is seed-once, so an install seeded before it existed keeps the old list.
+# Insert only the array item, preserving the rest of the JSONC verbatim.
+if [[ -f "${OPENCODE_CONFIG}" ]]; then
+  _lsp_result="$(python3 - "${OPENCODE_CONFIG}" "${DEV_BOT_ROOT}/src/_shared" <<'PY'
+import os
+import re
+import sys
+
+path, shared_dir = sys.argv[1], sys.argv[2]
+sys.path.insert(0, shared_dir)
+from read_jsonc import load_jsonc
+
+ITEM = "**/.agents/worktrees/**"
+
+try:
+    cfg = load_jsonc(path)
+except Exception:
+    sys.exit(0)
+
+lsp = cfg.get("lsp")
+if not isinstance(lsp, dict):
+    sys.exit(0)
+entry = lsp.get("php intelephense")
+if not isinstance(entry, dict):
+    sys.exit(0)
+exclude = entry.get("initialization", {}).get("intelephense", {}).get("files", {}).get("exclude", [])
+if not isinstance(exclude, list) or ITEM in exclude:
+    sys.exit(0)
+
+raw = open(path).read()
+
+
+def skip_literal(text, i):
+    if text[i] == '"':
+        i += 1
+        while i < len(text):
+            if text[i] == '\\':
+                i += 2
+                continue
+            if text[i] == '"':
+                return i + 1
+            i += 1
+        return i
+    if text[i:i + 2] == '//':
+        j = text.find('\n', i)
+        return len(text) if j == -1 else j
+    if text[i:i + 2] == '/*':
+        j = text.find('*/', i + 2)
+        return len(text) if j == -1 else j + 2
+    return i
+
+
+def value_span(text, start, end, key, opener):
+    key_at = text.find(f'"{key}"', start, end)
+    if key_at == -1:
+        return None
+    i = text.find(opener, key_at, end)
+    if i == -1:
+        return None
+    closer = '}' if opener == '{' else ']'
+    depth = 0
+    j = i
+    while j < end:
+        ch = text[j]
+        if ch == '"' or text[j:j + 2] in ('//', '/*'):
+            j = skip_literal(text, j)
+            continue
+        if ch == opener:
+            depth += 1
+        elif ch == closer:
+            depth -= 1
+            if depth == 0:
+                return i, j
+        j += 1
+    return None
+
+
+span = value_span(raw, 0, len(raw), "lsp", "{")
+for key, opener in (
+    ("php intelephense", "{"),
+    ("initialization", "{"),
+    ("intelephense", "{"),
+    ("files", "{"),
+    ("exclude", "["),
+):
+    if span is None:
+        break
+    span = value_span(raw, span[0], span[1], key, opener)
+if span is None:
+    sys.exit(0)
+
+open_bracket = span[0]
+tail = raw[open_bracket + 1:]
+lead = re.match(r'\s*', tail).group(0)
+first = tail[len(lead):len(lead) + 1]
+insert = f'"{ITEM}"' if first == ']' else f'{lead}"{ITEM}",'
+raw = raw[: open_bracket + 1] + insert + raw[open_bracket + 1:]
+
+tmp = path + '.devbot-tmp'
+with open(tmp, 'w') as handle:
+    handle.write(raw)
+try:
+    load_jsonc(tmp)
+except Exception:
+    os.remove(tmp)
+    sys.exit(1)
+os.chmod(tmp, os.stat(path).st_mode)
+os.replace(tmp, path)
+print('updated')
+PY
+)"
+  if [[ "${_lsp_result}" == "updated" ]]; then
+    _log "Added the worktree exclusion to the php intelephense lsp override"
+  fi
+fi
+
 _ok "Opencode reset complete"
