@@ -3,7 +3,7 @@
 # src/_shared/tests/resolve_project_tests.bats
 # _devbot_resolve_project_for_path maps a path to the registered devbot project
 # that contains it (longest path-component prefix in the global config's
-# `projects` array). Backs supervisor memory-scoping and per-child config reads.
+# `projects` array). Backs monorepo memory-scoping and per-child config reads.
 # =============================================================================
 
 setup() {
@@ -69,7 +69,7 @@ teardown() {
   assert_output "$A"
 }
 
-@test "a child's own commit_memory/workflow win over the supervisor's" {
+@test "a child's own commit_memory/workflow win over the monorepo's" {
   mkdir -p "$BASE/sup" "$BASE/child"
   printf '{ "commit_memory": true, "workflow": "worktrees" }\n' >"$BASE/sup/.devbot.project.jsonc"
   printf '{ "commit_memory": false, "workflow": "trunk" }\n' >"$BASE/child/.devbot.project.jsonc"

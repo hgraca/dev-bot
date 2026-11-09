@@ -118,7 +118,7 @@ DEFAULTS = {
     "devbot_dir": ".agents",
     "datasources": [],
     "modules": {},
-    "supervisor": "false",
+    "monorepo": "false",
 }
 
 PROJECT_CONFIG = os.path.join(owner, ".devbot.project.jsonc")
@@ -290,7 +290,7 @@ resolved = {
     "mcps_sources": mcps_sources,
     "mcps_errors": mcps_errors,
 }
-resolved["supervisor"] = as_text(resolve_scalar("supervisor")) == "true"
+resolved["monorepo"] = as_text(resolve_scalar("monorepo")) == "true"
 
 if key:
     if key not in resolved:
@@ -313,7 +313,7 @@ report = {
     "name": os.path.basename(owner.rstrip("/")),
     "path": owner,
     "registered": True,
-    "supervisor": resolved["supervisor"],
+    "monorepo": resolved["monorepo"],
     "config": {
         "commit_memory": as_text(resolved["commit_memory"]),
         "workflow": as_text(resolved["workflow"]),
@@ -336,7 +336,7 @@ print("## Owning project")
 print()
 print(f"**Name:** {report['name']}")
 print(f"**Path:** {report['path']}")
-print(f"**Supervisor:** {'yes' if report['supervisor'] else 'no'}")
+print(f"**Monorepo:** {'yes' if report['monorepo'] else 'no'}")
 print()
 print("| Key | Value |")
 print("| --- | --- |")

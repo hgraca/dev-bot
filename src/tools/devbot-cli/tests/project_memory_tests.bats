@@ -20,7 +20,7 @@ setup() {
   B="${A}/nested-b"
   C="${SANDBOX}/empty-project"
   D="${SANDBOX}/malformed-dir"
-  S="${SANDBOX}/supervisor-root"
+  S="${SANDBOX}/monorepo-root"
   UNREGISTERED="${SANDBOX}/outside"
   GLOBAL="${SANDBOX}/global.jsonc"
 
@@ -43,8 +43,8 @@ setup() {
   printf '# B project facts\n' > "${B}/.devbot-memory/memory/active/project.md"
   printf '{ "devbot_dir": ".devbot-memory" }\n' > "${B}/.devbot.project.jsonc"
 
-  printf '# Supervisor coordination rules\n' > "${S}/.agents/memory/active/project.md"
-  printf '{ "supervisor": true }\n' > "${S}/.devbot.project.jsonc"
+  printf '# Monorepo coordination rules\n' > "${S}/.agents/memory/active/project.md"
+  printf '{ "monorepo": true }\n' > "${S}/.devbot.project.jsonc"
 
   cat > "${GLOBAL}" <<EOF
 {
@@ -173,12 +173,12 @@ line_of() {
   refute_output --partial "###"
 }
 
-@test "project-memory: resolves a supervisor project to itself" {
+@test "project-memory: resolves a monorepo project to itself" {
   run_tool "${S}/file.ts"
 
   assert_success
-  assert_output --partial "## Active memory for supervisor-root"
-  assert_output --partial "# Supervisor coordination rules"
+  assert_output --partial "## Active memory for monorepo-root"
+  assert_output --partial "# Monorepo coordination rules"
 }
 
 @test "project-memory: fails with exit 3 for an unregistered path" {

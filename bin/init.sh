@@ -450,11 +450,146 @@ _ignore_module_memory() {
   fi
 }
 
+# ── Migrate the retired `supervisor` config key to `monorepo` ─────────────────
+# The rename is a hard cut with no read-side fallback, so a config still naming
+# `supervisor` would silently drop out of monorepo mode. Every `monorepo` reader
+# falls back project-first to the global config, so both files are rewritten.
+# Idempotent, and comment-preserving: only the key token itself changes.
+_migrate_supervisor_key_in() {
+  local config="${1:?Usage: _migrate_supervisor_key_in <config-file>}"
+  local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+
+  [[ -f "${config}" ]] || return 0
+
+  # Same parser every reader uses: if it cannot read the file, the mode was
+  # already off and renaming the key would not restore it — say so instead of
+  # skipping a config the user believes is configured.
+  local current
+  if ! current="$(python3 "${reader}" "${config}" supervisor 2>/dev/null)"; then
+    _warn "migrate: cannot parse ${config} — rename \"supervisor\" by hand"
+    return 0
+  fi
+  [[ -n "${current}" ]] || return 0
+
+  # Both keys means the value is ambiguous — never guess which one wins.
+  if [[ -n "$(python3 "${reader}" "${config}" monorepo 2>/dev/null || true)" ]]; then
+    _warn "migrate: ${config} sets both \"monorepo\" and \"supervisor\" — leaving it untouched"
+    return 0
+  fi
+
+  # A token scanner, not a text regex: it walks code, string and comment state,
+  # so it rewrites the key and nothing else — a comment or value that happens to
+  # read "supervisor" keeps its bytes. Comments between the key and its colon
+  # are skipped when looking for the `:` that proves a key, not a value. Only a
+  # top-level key is renamed; a nested object's key of the same name is another
+  # config's business. The write goes through a temp file and a rename, so an
+  # interrupted migration cannot leave a truncated config behind.
+  python3 - "${config}" <<'PY'
+import json
+import os
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as handle:
+    text = handle.read()
+
+size = len(text)
+
+
+def next_significant(index: int) -> int:
+    """Skip whitespace and JSONC comments from `index`."""
+    while index < size:
+        if text[index] in " \t\r\n":
+            index += 1
+        elif text.startswith("//", index):
+            newline = text.find("\n", index)
+            index = size if newline == -1 else newline + 1
+        elif text.startswith("/*", index):
+            close = text.find("*/", index + 2)
+            index = size if close == -1 else close + 2
+        else:
+            break
+    return index
+
+
+out = []
+changed = False
+depth = 0
+at = 0
+while at < size:
+    if text.startswith("//", at):
+        end = text.find("\n", at)
+        end = size if end == -1 else end
+        out.append(text[at:end])
+        at = end
+    elif text.startswith("/*", at):
+        close = text.find("*/", at + 2)
+        end = size if close == -1 else close + 2
+        out.append(text[at:end])
+        at = end
+    elif text[at] == '"':
+        close = at + 1
+        while close < size:
+            if text[close] == "\\":
+                close += 2
+                continue
+            if text[close] == '"':
+                break
+            close += 1
+        token = text[at : close + 1]
+        colon = next_significant(close + 1)
+        if depth == 1 and colon < size and text[colon] == ":":
+            # Decode before comparing: a key written with a \u escape is the
+            # same key, and a raw token comparison would walk straight past it.
+            try:
+                key = json.loads(token)
+            except ValueError:
+                key = None
+            if key == "supervisor":
+                token = '"monorepo"'
+                changed = True
+        out.append(token)
+        at = close + 1
+    else:
+        if text[at] == "{":
+            depth += 1
+        elif text[at] == "}":
+            depth -= 1
+        out.append(text[at])
+        at += 1
+
+if changed:
+    # Resolve first: the config may be a symlink into a dotfiles repo, and a
+    # rename over the link's own path would replace the link with a plain file
+    # and leave the real config stale.
+    real = os.path.realpath(path)
+    temp = f"{real}.migrate"
+    with open(temp, "w", encoding="utf-8") as handle:
+        handle.write("".join(out))
+    os.chmod(temp, os.stat(real).st_mode)
+    os.replace(temp, real)
+PY
+
+  # Read back through the JSONC parser, not a line match: it sees the forms the
+  # rewrite could have missed.
+  if [[ -n "$(python3 "${reader}" "${config}" supervisor 2>/dev/null || true)" ]]; then
+    _warn "migrate: could not rewrite \"supervisor\" to \"monorepo\" in ${config}"
+    return 0
+  fi
+  _ok "Migrated ${config} key \"supervisor\" -> \"monorepo\""
+}
+
+_migrate_supervisor_key() {
+  _migrate_supervisor_key_in "${1:?Usage: _migrate_supervisor_key <project-dir>}/.devbot.project.jsonc"
+}
+
 _init_wiring() {
   PROJECT_DIR="$1"
   local total_start=${SECONDS}
 
   _header_2 "Wiring ${PROJECT_DIR}"
+
+  _migrate_supervisor_key "${PROJECT_DIR}"
 
   # Mark the wiring dirty for the duration of this init: a run interrupted
   # before step 8b leaves the baseline missing, so the next `devbot` start
@@ -885,6 +1020,10 @@ main() {
   if [[ "${FULL_RESET}" == "true" ]]; then
     _info "Full reset mode: QMD collections and codebase index data will be removed"
   fi
+
+  # The global config is the fallback every `monorepo` reader resolves to, and
+  # it belongs to no project, so it is migrated once here rather than per sweep.
+  _migrate_supervisor_key_in "$(_devbot_global_config)"
 
   # ── 2. Read registered projects ──────────────────────────────────────────
   local projects_json

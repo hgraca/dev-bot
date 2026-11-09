@@ -350,7 +350,7 @@ _devbot_remove_module_memory() {
   rm -f -- "${dest}"
 }
 
-# ── Supervisor / cross-project resolution ──────────────────────────────────────
+# ── Monorepo / cross-project resolution ────────────────────────────────────────
 #
 # _devbot_resolve_project_for_path <path> [default_dir]
 #   Prints the registered devbot project (from the global config's `projects`

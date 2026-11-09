@@ -357,12 +357,12 @@ def search_qmd_scoped(
     max_results: int,
     include_global: bool = True,
 ) -> tuple[list[dict] | None, str | None]:
-    """Search several qmd collections (the supervisor read set) plus global.
+    """Search several qmd collections (the monorepo read set) plus global.
 
     One `search_qmd` pass per collection — each also covers `dev-bot-global` —
     merged and deduplicated by file. A collection that was never registered
     ("Collection not found") is skipped rather than failing every query, so one
-    un-indexed child project cannot break a supervisor search.
+    un-indexed child project cannot break a monorepo search.
     """
     merged: list[dict] = []
     seen: set[str] = set()
@@ -494,7 +494,7 @@ def _scoped_mdctx_pairs(
     """(docs_root, index_file, kind, group, key) pairs for a read set.
 
     `group` is the project's position in the read set (focus projects first,
-    then the supervisor), so callers rank hits project-by-project instead of
+    then the monorepo), so callers rank hits project-by-project instead of
     comparing corpus-relative BM25 scores across vaults. Projects whose mdctx
     index has not been built yet are skipped.
 
@@ -678,7 +678,7 @@ def search_mdctx(
                 _append(store_results, root, rel, r.get("score", 0), r.get("title", ""))
 
     # Rank project-by-project in read-set order (focus projects, then the
-    # supervisor), each internally by score, then the global store — never
+    # monorepo), each internally by score, then the global store — never
     # compare corpus-relative BM25 scores across vaults (audit-53).
     ordered: list[dict] = []
     for group in range(len(read_projects)):
@@ -973,7 +973,7 @@ def load_collections_for(project_root: Path) -> list[dict]:
 def session_collections(project_root: Path, read_projects: list[Path]) -> list[dict]:
     """Collections for a search: per-read-project `project` slots + global/custom.
 
-    A supervisor session takes the `project` slot from each project it reads
+    A monorepo session takes the `project` slot from each project it reads
     (the focus scope), while global and custom collections come from the
     session project's config (plus the global config). A normal session's read
     set is just itself, so this is the full merged set.
@@ -1006,11 +1006,11 @@ def _import_shared(name: str):
         return None
 
 
-def resolve_supervisor(project_root: Path) -> bool:
-    """Whether the project is a supervisor (project-first, global-fallback)."""
-    value = _read_jsonc_scalar(project_root / ".devbot.project.jsonc", "supervisor")
+def resolve_monorepo(project_root: Path) -> bool:
+    """Whether the project is a monorepo (project-first, global-fallback)."""
+    value = _read_jsonc_scalar(project_root / ".devbot.project.jsonc", "monorepo")
     if not value:
-        value = _read_jsonc_scalar(DEVBOT_ROOT / ".devbot.global.jsonc", "supervisor")
+        value = _read_jsonc_scalar(DEVBOT_ROOT / ".devbot.global.jsonc", "monorepo")
     return value == "true"
 
 
@@ -1024,10 +1024,10 @@ def resolve_registered_project(path: Path) -> Path | None:
     return Path(match) if match else None
 
 
-def supervisor_read_projects(project_root: Path, focus_paths: list[str]) -> list[Path]:
-    """Project read set for a supervisor session.
+def monorepo_read_projects(project_root: Path, focus_paths: list[str]) -> list[Path]:
+    """Project read set for a monorepo session.
 
-    Focus projects (resolved from the touched paths) first, then the supervisor
+    Focus projects (resolved from the touched paths) first, then the monorepo
     itself. Untouched siblings are never included. The global store is added by
     the engine, not here.
     """
@@ -1071,8 +1071,8 @@ def main() -> None:
         default=[],
         help=(
             "Path the session is touching (file or dir; repeatable). In a "
-            "supervisor session it selects the project(s) whose vault is searched "
-            "alongside the supervisor and the global store; ignored otherwise."
+            "monorepo session it selects the project(s) whose vault is searched "
+            "alongside the monorepo and the global store; ignored otherwise."
         ),
     )
     parser.add_argument(
@@ -1092,11 +1092,11 @@ def main() -> None:
     project_root = Path(os.getcwd())
     provider = resolve_provider()
 
-    # A supervisor session scopes memory to the projects the session touches
+    # A monorepo session scopes memory to the projects the session touches
     # (from --focus) plus itself; a normal project keeps its single vault.
-    supervisor = resolve_supervisor(project_root)
-    if supervisor:
-        read_projects = supervisor_read_projects(project_root, args.focus)
+    monorepo = resolve_monorepo(project_root)
+    if monorepo:
+        read_projects = monorepo_read_projects(project_root, args.focus)
     else:
         read_projects = [project_root]
 
@@ -1116,7 +1116,7 @@ def main() -> None:
 
     # Resolve the configured collections for this session. A normal project
     # searches its own vault + the global store + configured customs; a
-    # supervisor scopes `project` slots to the read set but always searches
+    # monorepo scopes `project` slots to the read set but always searches
     # global and custom collections.
     collections = session_collections(project_root, read_projects)
     if args.collection:

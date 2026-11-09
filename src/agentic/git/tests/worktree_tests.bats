@@ -137,20 +137,20 @@ worktree() {
   refute_output --partial "pass --project"
 }
 
-@test "enabled: refuses a supervisor project and points at --project" {
-  local sup="$SANDBOX/supervisor"
+@test "enabled: refuses a monorepo project and points at --project" {
+  local sup="$SANDBOX/monorepo"
   git init -q --initial-branch=main "$sup"
-  printf '{ "supervisor": true, "workflow": "worktrees" }\n' > "$sup/.devbot.project.jsonc"
+  printf '{ "monorepo": true, "workflow": "worktrees" }\n' > "$sup/.devbot.project.jsonc"
 
   run bash -c "cd '$sup' && bash '$SCRIPT' enabled"
 
   assert_failure
-  assert_output --partial "is a supervisor project"
+  assert_output --partial "is a monorepo project"
   assert_output --partial "--project"
 }
 
-@test "create: refuses a supervisor project even when it has commits" {
-  local sup="$SANDBOX/supervisor"
+@test "create: refuses a monorepo project even when it has commits" {
+  local sup="$SANDBOX/monorepo"
   git init -q --initial-branch=main "$sup"
   git -C "$sup" config user.email "test@test.com"
   git -C "$sup" config user.name "Test"
@@ -158,16 +158,16 @@ worktree() {
   printf 'base\n' > "$sup/file.txt"
   git -C "$sup" add -A
   git -C "$sup" commit -qm "base"
-  printf '{ "supervisor": true, "workflow": "worktrees" }\n' > "$sup/.devbot.project.jsonc"
+  printf '{ "monorepo": true, "workflow": "worktrees" }\n' > "$sup/.devbot.project.jsonc"
 
   run bash -c "cd '$sup' && bash '$SCRIPT' create feat/nope --no-link"
   assert_failure
-  assert_output --partial "is a supervisor project"
+  assert_output --partial "is a monorepo project"
   assert_output --partial "--project"
 
   run bash -c "cd '$WORK' && bash '$SCRIPT' create feat/nope --project '$sup' --no-link"
   assert_failure
-  assert_output --partial "is a supervisor project"
+  assert_output --partial "is a monorepo project"
 }
 
 @test "create: the new branch has no upstream (--no-track)" {

@@ -647,7 +647,7 @@ class TestSearchMdctx(unittest.TestCase):
         return {"path": rel, "score": score, "title": title, "matchedKeywords": []}
 
     def test_projects_none_matches_single_project_read_set(self):
-        # D9: omitting `projects` (non-supervisor) is byte-identical to the
+        # D9: omitting `projects` (non-monorepo) is byte-identical to the
         # explicit single-project read set the old code used.
         with patch.object(_search_memories, "DEVBOT_ROOT", self.root):
             with patch.object(_search_memories, "run_mdctx_cli", return_value=("[]", None)) as m_none:
@@ -865,7 +865,7 @@ class TestStaleAndDriftNotes(unittest.TestCase):
     def test_main_warns_when_head_moves_during_the_search(self):
         err = io.StringIO()
         with patch.object(_search_memories, "resolve_provider", return_value="mdctx"), \
-             patch.object(_search_memories, "resolve_supervisor", return_value=False), \
+             patch.object(_search_memories, "resolve_monorepo", return_value=False), \
              patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
              patch.object(_search_memories, "current_head", side_effect=["main", "feature"]), \
              patch.object(_search_memories, "search_mdctx", return_value=([], None)), \
@@ -1137,7 +1137,7 @@ class TestMainEngineDispatch(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# supervisor scope resolution
+# monorepo scope resolution
 # ---------------------------------------------------------------------------
 
 _REAL_SHARED = _MODULE_PATH.parents[4] / "_shared"
@@ -1169,64 +1169,64 @@ class _SandboxTest(unittest.TestCase):
         )
 
 
-class TestResolveSupervisor(_SandboxTest):
+class TestResolveMonorepo(_SandboxTest):
     def test_true_when_project_flag_true(self):
         project = self._project("p")
-        (project / ".devbot.project.jsonc").write_text('{"supervisor": true}')
-        self.assertTrue(_search_memories.resolve_supervisor(project))
+        (project / ".devbot.project.jsonc").write_text('{"monorepo": true}')
+        self.assertTrue(_search_memories.resolve_monorepo(project))
 
     def test_project_false_wins_over_global_true(self):
         project = self._project("p")
-        (project / ".devbot.project.jsonc").write_text('{"supervisor": false}')
-        (self.devbot / ".devbot.global.jsonc").write_text('{"supervisor": true}')
+        (project / ".devbot.project.jsonc").write_text('{"monorepo": false}')
+        (self.devbot / ".devbot.global.jsonc").write_text('{"monorepo": true}')
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
-            self.assertFalse(_search_memories.resolve_supervisor(project))
+            self.assertFalse(_search_memories.resolve_monorepo(project))
 
     def test_global_fallback_true(self):
         project = self._project("p")
         (project / ".devbot.project.jsonc").write_text('{"project_name": "p"}')
-        (self.devbot / ".devbot.global.jsonc").write_text('{"supervisor": true}')
+        (self.devbot / ".devbot.global.jsonc").write_text('{"monorepo": true}')
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
-            self.assertTrue(_search_memories.resolve_supervisor(project))
+            self.assertTrue(_search_memories.resolve_monorepo(project))
 
     def test_default_false(self):
         project = self._project("p")
         (self.devbot / ".devbot.global.jsonc").write_text("{}")
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
-            self.assertFalse(_search_memories.resolve_supervisor(project))
+            self.assertFalse(_search_memories.resolve_monorepo(project))
 
 
-class TestSupervisorReadProjects(_SandboxTest):
-    def test_focus_projects_then_supervisor(self):
+class TestMonorepoReadProjects(_SandboxTest):
+    def test_focus_projects_then_monorepo(self):
         a = self._project("a")
         b = self._project("b")
         sup = self._project("sup")
         self._write_projects([a, b])
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
-            roots = _search_memories.supervisor_read_projects(
+            roots = _search_memories.monorepo_read_projects(
                 sup, [str(a / "x.py"), str(b / "y.py"), str(a / "z.py")]
             )
         self.assertEqual([str(r) for r in roots], [str(a), str(b), str(sup)])
 
-    def test_no_focus_yields_only_supervisor(self):
+    def test_no_focus_yields_only_monorepo(self):
         sup = self._project("sup")
         self._write_projects([])
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
-            roots = _search_memories.supervisor_read_projects(sup, [])
+            roots = _search_memories.monorepo_read_projects(sup, [])
         self.assertEqual([str(r) for r in roots], [str(sup)])
 
     def test_unresolvable_focus_is_ignored(self):
         sup = self._project("sup")
         self._write_projects([])
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
-            roots = _search_memories.supervisor_read_projects(sup, [str(self.root / "nope")])
+            roots = _search_memories.monorepo_read_projects(sup, [str(self.root / "nope")])
         self.assertEqual([str(r) for r in roots], [str(sup)])
 
-    def test_supervisor_appears_once_when_a_focus_resolves_to_it(self):
+    def test_monorepo_appears_once_when_a_focus_resolves_to_it(self):
         sup = self._project("sup")
         self._write_projects([sup])
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
-            roots = _search_memories.supervisor_read_projects(sup, [str(sup / "f.md")])
+            roots = _search_memories.monorepo_read_projects(sup, [str(sup / "f.md")])
         self.assertEqual([str(r) for r in roots], [str(sup)])
 
 
@@ -1434,7 +1434,7 @@ class TestSearchMdctxScoped(_SandboxTest):
             project / ".agents" / "memory",
         )
 
-    def test_merges_project_and_supervisor_hits_before_global(self):
+    def test_merges_project_and_monorepo_hits_before_global(self):
         a = self._scaffold(self._project("a"), "# A\n\nfile aaa")
         sup = self._scaffold(self._project("sup"), "# S\n\nfile sss")
         (self.devbot / "storage" / ".mdctx").mkdir(parents=True)
@@ -1484,7 +1484,7 @@ class TestConfiguredCollections(_SandboxTest):
 
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot), \
              patch.object(_search_memories, "resolve_provider", return_value="qmd"), \
-             patch.object(_search_memories, "resolve_supervisor", return_value=False), \
+             patch.object(_search_memories, "resolve_monorepo", return_value=False), \
              patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
              patch.object(_search_memories, "search_qmd_scoped", side_effect=fake_scoped), \
              patch.object(_search_memories.os, "getcwd", return_value=str(project)), \
@@ -1511,7 +1511,7 @@ class TestConfiguredCollections(_SandboxTest):
         self.assertTrue(notes["physical"].startswith("dev-bot-custom-"))
         self.assertTrue(notes["semantic"])
 
-    def test_supervisor_takes_project_slots_from_the_read_set(self):
+    def test_monorepo_takes_project_slots_from_the_read_set(self):
         a = self._project("a")
         sup = self._project("sup")
         (a / ".devbot.project.jsonc").write_text('{"project_name": "a-name"}')
@@ -1631,7 +1631,7 @@ class TestConfiguredCollections(_SandboxTest):
 
         with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot), \
              patch.object(_search_memories, "resolve_provider", return_value="qmd"), \
-             patch.object(_search_memories, "resolve_supervisor", return_value=False), \
+             patch.object(_search_memories, "resolve_monorepo", return_value=False), \
              patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
              patch.object(_search_memories, "search_qmd_scoped", return_value=([], None)), \
              patch.object(_search_memories.os, "getcwd", return_value=str(project)), \
@@ -1671,7 +1671,7 @@ class TestConfiguredCollections(_SandboxTest):
         self.assertEqual(pairs[2][4], "notes")
 
 
-class TestMainSupervisorScope(_SandboxTest):
+class TestMainMonorepoScope(_SandboxTest):
     def test_main_ensures_and_searches_the_read_set(self):
         ensured = []
         seen = {}
@@ -1687,8 +1687,8 @@ class TestMainSupervisorScope(_SandboxTest):
         sup = Path("/sup")
         a = Path("/a")
         with patch.object(_search_memories, "resolve_provider", return_value="mdctx"), \
-             patch.object(_search_memories, "resolve_supervisor", return_value=True), \
-             patch.object(_search_memories, "supervisor_read_projects", return_value=[a, sup]), \
+             patch.object(_search_memories, "resolve_monorepo", return_value=True), \
+             patch.object(_search_memories, "monorepo_read_projects", return_value=[a, sup]), \
              patch.object(_search_memories, "ensure_index_current", side_effect=fake_ensure), \
              patch.object(_search_memories, "search_mdctx", side_effect=fake_search), \
              patch.object(sys, "argv", ["search-memories", "--query", "q", "--focus", "/a/x"]):
@@ -1696,7 +1696,7 @@ class TestMainSupervisorScope(_SandboxTest):
         self.assertEqual(ensured, ["/a", "/sup"])
         self.assertEqual(seen["projects"], ["/a", "/sup"])
 
-    def test_main_qmd_supervisor_uses_scoped_collections(self):
+    def test_main_qmd_monorepo_uses_scoped_collections(self):
         seen = {}
 
         def fake_scoped(queries, collections, max_results, include_global=True):
@@ -1710,8 +1710,8 @@ class TestMainSupervisorScope(_SandboxTest):
         (a / ".devbot.project.jsonc").write_text('{"project_name": "a-name"}')
         (sup / ".devbot.project.jsonc").write_text('{"project_name": "sup-name"}')
         with patch.object(_search_memories, "resolve_provider", return_value="qmd"), \
-             patch.object(_search_memories, "resolve_supervisor", return_value=True), \
-             patch.object(_search_memories, "supervisor_read_projects", return_value=[a, sup]), \
+             patch.object(_search_memories, "resolve_monorepo", return_value=True), \
+             patch.object(_search_memories, "monorepo_read_projects", return_value=[a, sup]), \
              patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
              patch.object(_search_memories, "search_qmd_scoped", side_effect=fake_scoped), \
              patch.object(sys, "argv", ["search-memories", "--query", "q"]):
@@ -1733,8 +1733,8 @@ class TestMainSupervisorScope(_SandboxTest):
         (b / ".devbot.project.jsonc").write_text('{"project_name": "same"}')
         err = io.StringIO()
         with patch.object(_search_memories, "resolve_provider", return_value="qmd"), \
-             patch.object(_search_memories, "resolve_supervisor", return_value=True), \
-             patch.object(_search_memories, "supervisor_read_projects", return_value=[a, b]), \
+             patch.object(_search_memories, "resolve_monorepo", return_value=True), \
+             patch.object(_search_memories, "monorepo_read_projects", return_value=[a, b]), \
              patch.object(_search_memories, "ensure_index_current", return_value=(True, "")), \
              patch.object(_search_memories, "search_qmd_scoped", side_effect=fake_scoped), \
              patch.object(sys, "argv", ["search-memories", "--query", "q"]), \
@@ -1744,8 +1744,8 @@ class TestMainSupervisorScope(_SandboxTest):
         self.assertIn("WARN", err.getvalue())
 
 
-class TestNonSupervisorUnchanged(unittest.TestCase):
-    """D9: a non-supervisor session is inert — `--focus` changes nothing."""
+class TestNonMonorepoUnchanged(unittest.TestCase):
+    """D9: a non-monorepo session is inert — `--focus` changes nothing."""
 
     def test_main_ignores_focus_and_scopes_to_the_project(self):
         ensured = []
@@ -1761,7 +1761,7 @@ class TestNonSupervisorUnchanged(unittest.TestCase):
             return [], None
 
         with patch.object(_search_memories, "resolve_provider", return_value="mdctx"), \
-             patch.object(_search_memories, "resolve_supervisor", return_value=False), \
+             patch.object(_search_memories, "resolve_monorepo", return_value=False), \
              patch.object(_search_memories, "ensure_index_current", side_effect=fake_ensure), \
              patch.object(_search_memories, "search_mdctx", side_effect=fake_search), \
              patch.object(sys, "argv", ["search-memories", "--query", "q", "--focus", "/somewhere/x.md"]):

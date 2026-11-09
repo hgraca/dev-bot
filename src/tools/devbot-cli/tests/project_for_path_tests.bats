@@ -119,13 +119,13 @@ run_tool() {
   assert_output "worktrees"
 }
 
-@test "project-for-path: reports supervisor from the project config, default false" {
-  run_tool "${A}/src/file.ts" --key supervisor
+@test "project-for-path: reports monorepo from the project config, default false" {
+  run_tool "${A}/src/file.ts" --key monorepo
   assert_success
   assert_output "false"
 
-  printf '{ "supervisor": true }\n' > "${B}/.devbot.project.jsonc"
-  run_tool "${B}/src/file.ts" --key supervisor
+  printf '{ "monorepo": true }\n' > "${B}/.devbot.project.jsonc"
+  run_tool "${B}/src/file.ts" --key monorepo
   assert_success
   assert_output "true"
 }

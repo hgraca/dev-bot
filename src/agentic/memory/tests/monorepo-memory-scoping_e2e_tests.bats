@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 # =============================================================================
-# src/agentic/memory/tests/supervisor-memory-scoping_e2e_tests.bats
-# End-to-end: a supervisor session's memory read set is resolved from the
-# touched files — child project + supervisor + global store, never an
+# src/agentic/memory/tests/monorepo-memory-scoping_e2e_tests.bats
+# End-to-end: a monorepo session's memory read set is resolved from the
+# touched files — child project + monorepo + global store, never an
 # untouched sibling; a session inside a child stays child + global.
 # Runs against a real mdctx index (skipped when mdctx is absent).
 # =============================================================================
@@ -33,14 +33,14 @@ setup() {
     mkdir -p "$p/.agents/memory/latent" "$p/.mdctx"
   done
 
-  printf '{ "project_name": "sup", "supervisor": true, "devbot_dir": ".agents" }\n' >"$SUP/.devbot.project.jsonc"
+  printf '{ "project_name": "sup", "monorepo": true, "devbot_dir": ".agents" }\n' >"$SUP/.devbot.project.jsonc"
   printf '{ "project_name": "child-a", "devbot_dir": ".agents" }\n' >"$CHILD/.devbot.project.jsonc"
   printf '{ "project_name": "child-b", "devbot_dir": ".agents" }\n' >"$OTHER/.devbot.project.jsonc"
   printf '{ "projects": ["%s"], "devbot_dir": ".agents" }\n' "$CHILD" >"$DEVROOT/.devbot.global.jsonc"
 
   printf '# Child A\n\nThe alphaspecial marker.\n' >"$CHILD/.agents/memory/latent/a.md"
   printf '# Child B\n\nThe betaspecial marker.\n' >"$OTHER/.agents/memory/latent/b.md"
-  printf '# Supervisor\n\nThe sierraspecial marker.\n' >"$SUP/.agents/memory/latent/s.md"
+  printf '# Monorepo\n\nThe sierraspecial marker.\n' >"$SUP/.agents/memory/latent/s.md"
   printf '# Global\n\nThe globalspecial marker.\n' >"$DEVROOT/storage/global-memories/g.md"
 
   mdctx build "$SUP/.agents/memory/latent" -o "$SUP/.mdctx/context-index.json" >/dev/null 2>&1
@@ -66,7 +66,7 @@ _run_search() {
   cd "$WORK"
 }
 
-@test "supervisor + focus returns the touched child, the supervisor and global" {
+@test "monorepo + focus returns the touched child, the monorepo and global" {
   _run_search "$SUP" --query alphaspecial --query sierraspecial --query globalspecial --focus "$CHILD/.agents/memory/latent/a.md"
   assert_success
   assert_output --partial "alphaspecial"
@@ -75,7 +75,7 @@ _run_search() {
   refute_output --partial "betaspecial"
 }
 
-@test "supervisor with no focus returns only the supervisor and global" {
+@test "monorepo with no focus returns only the monorepo and global" {
   _run_search "$SUP" --query alphaspecial --query betaspecial --query sierraspecial --query globalspecial
   assert_success
   assert_output --partial "sierraspecial"
@@ -84,7 +84,7 @@ _run_search() {
   refute_output --partial "betaspecial"
 }
 
-@test "a session inside a child returns the child and global, never the supervisor" {
+@test "a session inside a child returns the child and global, never the monorepo" {
   _run_search "$CHILD" --query alphaspecial --query sierraspecial --query globalspecial
   assert_success
   assert_output --partial "alphaspecial"
