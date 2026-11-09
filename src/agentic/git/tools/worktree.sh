@@ -209,6 +209,51 @@ _ignore_in_worktree() {
     "${lines[@]}"
 }
 
+# The cache gets its own section so a later link does not
+# overwrite it (and vice versa).
+_ignore_cache_in_worktree() {
+  local wt="$1" rel="storage/cache/static_analysis"
+  local exclude
+  exclude="$(git -C "${wt}" rev-parse --git-path info/exclude)"
+  _upsert_gitignore_section "${exclude}" \
+    "# >>> DEVBOT - static-analysis cache" \
+    "# <<< DEVBOT - static-analysis cache" \
+    "${rel}/"
+}
+
+# Warm the worktree's static-analysis cache from the main
+# checkout; remove copies it back before deleting.
+_copy_static_cache() {
+  local root="$1" wt="$2" rel="storage/cache/static_analysis"
+  local src="${root}/${rel}" dest="${wt}/${rel}"
+  [[ -d "${src}" ]] || return 0
+  if [[ -e "${dest}" ]]; then
+    _warn "create: ${rel}/ already exists — skipping cache copy"
+    return 0
+  fi
+  mkdir -p "$(dirname "${dest}")" 2>/dev/null || true
+  cp -a "${src}" "${dest}" 2>/dev/null \
+    || _warn "create: could not copy ${rel}/ — static analysis will rebuild it"
+}
+
+_stage_static_cache() {
+  local wt="$1" staging="$2" rel="storage/cache/static_analysis"
+  local src="${wt}/${rel}"
+  [[ -d "${src}" ]] || return 0
+  cp -a "${src}" "${staging}/" 2>/dev/null && return 0
+  return 1
+}
+
+_merge_static_cache() {
+  local staging="$1" root="$2" rel="storage/cache/static_analysis"
+  local src="${staging}/static_analysis" dest="${root}/${rel}"
+  [[ -d "${src}" ]] || return 0
+  mkdir -p "${dest}" 2>/dev/null || true
+  cp -a "${src}/." "${dest}/" 2>/dev/null && return 0
+  _warn "remove: could not merge the static cache back"
+  return 1
+}
+
 # A fresh worktree can be briefly unreadable on some
 # filesystems; retry, then fail instead of lying.
 _await_usable() {
@@ -312,7 +357,7 @@ cmd_create() {
   fi
 
   if [[ -n "$(git -C "${root}" status --porcelain)" ]]; then
-    _warn "create: the main checkout has uncommitted changes — proceeding; commit them in this worktree"
+    _warn "create: the main checkout has uncommitted changes — leaving them there"
   fi
 
   _ensure_ignored "${root}" "${devbot_dir}"
@@ -335,6 +380,9 @@ cmd_create() {
   if [[ "${#link_dirs[@]}" -gt 0 ]]; then
     _link_deps "${root}" "${path}" "${link_dirs[@]}"
   fi
+
+  _copy_static_cache "${root}" "${path}"
+  _ignore_cache_in_worktree "${path}"
 
   printf '%s\n' "${path}"
 }
@@ -542,8 +590,27 @@ cmd_remove() {
 
   path="$(_worktree_for remove "${root}" "${branch}")"
 
-  git -C "${root}" worktree remove "${path}" \
-    || _fatal "remove: could not remove ${path} — commit or discard its changes first"
+  if [[ -n "$(git -C "${path}" status --porcelain)" ]]; then
+    _fatal "remove: could not remove ${path} — commit or discard its changes first"
+  fi
+
+  # Stage the cache outside the worktree; merge it
+  # only after a successful removal.
+  local staging
+  staging="$(mktemp -d)"
+  _stage_static_cache "${path}" "${staging}" \
+    || _fatal "remove: could not stage the static cache — aborting so it is not lost"
+
+  if git -C "${root}" worktree remove "${path}"; then
+    if _merge_static_cache "${staging}" "${root}"; then
+      rm -rf "${staging}"
+    else
+      _warn "remove: worktree removed; cache merge failed, kept at ${staging}"
+    fi
+  else
+    rm -rf "${staging}"
+    _fatal "remove: could not remove ${path} — commit or discard its changes first"
+  fi
 
   printf 'removed %s\n' "${path}"
 }

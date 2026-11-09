@@ -114,6 +114,16 @@ worktree() {
   assert [ -d "$WORKTREES/feat-from-elsewhere" ]
 }
 
+@test "create: copies the static-analysis cache from the main checkout" {
+  mkdir -p "$WORK/storage/cache/static_analysis/phpstan-tmp"
+  printf 'warm\n' > "$WORK/storage/cache/static_analysis/phpstan-tmp/cache_file"
+
+  worktree create feat/with-cache --no-link
+
+  assert_success
+  assert [ -f "$WORKTREES/feat-with-cache/storage/cache/static_analysis/phpstan-tmp/cache_file" ]
+}
+
 @test "create: refuses a repository with no commits" {
   local empty="$SANDBOX/empty"
   git init -q --initial-branch=main "$empty"
@@ -755,6 +765,32 @@ worktree() {
 }
 
 # ── remove ───────────────────────────────────────────────────────────────────
+
+@test "remove: copies the static-analysis cache back to the main checkout" {
+  worktree create feat/cache-back --no-link
+  assert_success
+  mkdir -p "$WORKTREES/feat-cache-back/storage/cache/static_analysis/phpstan-tmp"
+  printf 'warm-from-worktree\n' > "$WORKTREES/feat-cache-back/storage/cache/static_analysis/phpstan-tmp/cache_file"
+
+  worktree remove feat/cache-back
+
+  assert_success
+  assert [ -f "$WORK/storage/cache/static_analysis/phpstan-tmp/cache_file" ]
+}
+
+@test "remove: a dirty worktree is not removed and the main cache is untouched" {
+  worktree create feat/dirty --no-link
+  assert_success
+  mkdir -p "$WORK/storage/cache/static_analysis"
+  printf 'sentinel\n' > "$WORK/storage/cache/static_analysis/sentinel"
+  printf 'dirty\n' > "$WORKTREES/feat-dirty/file.txt"
+
+  worktree remove feat/dirty
+
+  assert_failure
+  assert [ -d "$WORKTREES/feat-dirty" ]
+  assert [ -f "$WORK/storage/cache/static_analysis/sentinel" ]
+}
 
 @test "remove: removes the worktree directory but keeps the branch" {
   worktree create feat/bye
