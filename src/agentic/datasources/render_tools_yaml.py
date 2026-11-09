@@ -319,6 +319,8 @@ def on_macos() -> bool:
 # the Docker Desktop name that reaches the host instead.
 LOOPBACK_HOSTS = ("localhost", "127.0.0.1")
 HOST_GATEWAY = "host.docker.internal"
+# /etc/hosts pin; Desktop's DNS entry can NXDOMAIN.
+HOST_GATEWAY_BINDING = HOST_GATEWAY + ":host-gateway"
 
 # scheme://authority/rest. The authority ends at the first path, query or
 # fragment delimiter; only the host tokens inside it may be rewritten.

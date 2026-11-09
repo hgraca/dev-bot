@@ -25,6 +25,7 @@ import sys
 from typing import NoReturn
 
 from render_tools_yaml import (
+    HOST_GATEWAY_BINDING,
     SIDECARS,
     effective_env_names,
     is_sidecar,
@@ -38,8 +39,9 @@ from validate_catalogue import load_versions
 MARKER = "__DATASOURCE_ENV__"
 
 # Replaced by the gateway's network stanza: host networking on Linux, a
-# loopback-only published port on macOS (see _network_mode). A COMMENT line so
-# the template stays valid YAML — and prettier-parseable — on its own.
+# loopback-published port plus the host-gateway pin on macOS (see
+# _network_mode). A COMMENT line so the template stays valid YAML — and
+# prettier-parseable — on its own.
 NETWORK_MODE_MARKER = "    # __NETWORK_MODE__"
 
 # Replaced by the address the toolbox binds: 127.0.0.1 on Linux (host
@@ -96,12 +98,17 @@ def _network_mode(port: int) -> str:
     published port is bound to the host's loopback, keeping the gateway off the
     LAN exactly as host networking does. Replaces the whole marker line, so the
     returned lines carry their own indentation.
+
+    Also pins host.docker.internal, whose Desktop-supplied DNS entry
+    can NXDOMAIN behind a VPN resolver.
     """
     if on_macos():
         return (
             "    ports:\n"
             f'      - "127.0.0.1:${{DATASOURCES_PORT:-{port}}}:'
-            f'${{DATASOURCES_PORT:-{port}}}"'
+            f'${{DATASOURCES_PORT:-{port}}}"\n'
+            "    extra_hosts:\n"
+            f'      - "{HOST_GATEWAY_BINDING}"'
         )
     return "    network_mode: host"
 

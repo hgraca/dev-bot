@@ -37,10 +37,11 @@ services:
     # mapping: the server binds the host's loopback directly.
     #
     # Limitation: host networking is a Linux capability. macOS/Windows Docker
-    # Desktop would need `host.docker.internal` and databases published on
-    # 0.0.0.0 instead. render_compose.py substitutes the network stanza below
-    # with a loopback-only published port on macOS, where the container's
-    # loopback is not the host's.
+    # Desktop cannot share the host's loopback, so render_compose.py
+    # substitutes the network stanza below with a loopback-published port and
+    # pins host.docker.internal to the host gateway. Desktop proxies that
+    # address to the host's loopback — unlike Linux, which is why Linux keeps
+    # host networking — so a database can stay published on 127.0.0.1.
     # __NETWORK_MODE__
     volumes:
       # Mounted as a DIRECTORY rather than a single file, so the config can

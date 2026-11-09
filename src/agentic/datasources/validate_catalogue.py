@@ -59,6 +59,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
 
 from render_tools_yaml import (
+    HOST_GATEWAY_BINDING,
     effective_env_names,
     is_sidecar,
     load_catalogue,
@@ -374,7 +375,11 @@ def docker_canary(
             "-v", f"{work_dir}:/app/conf:ro",
         ]
         if on_macos():
-            args += ["-p", f"127.0.0.1:{port}:{port}"]
+            # Same host-gateway pin the gateway's compose stanza carries.
+            args += [
+                "-p", f"127.0.0.1:{port}:{port}",
+                "--add-host", HOST_GATEWAY_BINDING,
+            ]
         else:
             args += ["--network", "host"]
         if data_dir:

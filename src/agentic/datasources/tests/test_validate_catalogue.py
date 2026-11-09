@@ -463,6 +463,7 @@ class TestDockerCanaryNetworking(unittest.TestCase):
         self.assertIn("--network", run)
         self.assertIn("host", run)
         self.assertIn("127.0.0.1", run)
+        self.assertNotIn("--add-host", run)
 
     def test_macos_publishes_a_loopback_port(self):
         run = self._run_args("darwin")
@@ -470,6 +471,13 @@ class TestDockerCanaryNetworking(unittest.TestCase):
         self.assertNotIn("--network", run)
         self.assertTrue(any(a.startswith("-p") for a in run), run)
         self.assertIn("0.0.0.0", run)
+
+    def test_macos_pins_the_host_gateway_name(self):
+        run = self._run_args("darwin")
+
+        self.assertEqual(
+            run[run.index("--add-host") + 1], "host.docker.internal:host-gateway"
+        )
 
 
 class TestIsReady(unittest.TestCase):

@@ -291,7 +291,8 @@ class TestRenderCompose(unittest.TestCase):
     #
     # Host networking is Linux-only. On macOS Docker Desktop the container's
     # loopback is not the host's, so the gateway and sidecars publish a
-    # loopback-bound port instead and bind 0.0.0.0 inside the container.
+    # loopback-bound port instead and bind 0.0.0.0 inside the container. Only
+    # the gateway also pins host.docker.internal.
 
     def test_linux_gateway_uses_host_networking(self):
         code, out, _ = render(
@@ -302,6 +303,7 @@ class TestRenderCompose(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("network_mode: host", out)
         self.assertNotIn("ports:", out)
+        self.assertNotIn("extra_hosts:", out)
         self.assertIn("- 127.0.0.1", out)
 
     def test_macos_gateway_publishes_a_loopback_port(self):
@@ -316,6 +318,17 @@ class TestRenderCompose(unittest.TestCase):
             '"127.0.0.1:${DATASOURCES_PORT:-18510}:${DATASOURCES_PORT:-18510}"', out
         )
         self.assertIn("- 0.0.0.0", out)
+
+    def test_macos_gateway_pins_the_host_gateway_name(self):
+        # Pinned in /etc/hosts: Desktop's DNS entry can NXDOMAIN behind a VPN.
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {}}},
+            env={"DATASOURCES_PLATFORM": "darwin"},
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("extra_hosts:", out)
+        self.assertIn('"host.docker.internal:host-gateway"', out)
 
     def test_linux_sidecar_uses_host_networking(self):
         code, out, err = render(
@@ -335,6 +348,8 @@ class TestRenderCompose(unittest.TestCase):
 
         self.assertEqual(code, 0, err)
         self.assertNotIn("network_mode: host", out)
+        # The gateway block always carries the pin; the sidecar must not.
+        self.assertNotIn("extra_hosts:", out.split("  search:\n", 1)[1])
         self.assertIn('"127.0.0.1:18520:18520"', out)
         self.assertIn('"0.0.0.0"', out)
 
