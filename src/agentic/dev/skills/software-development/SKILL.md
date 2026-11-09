@@ -51,17 +51,21 @@ request; nothing is merged.
    with `-C <worktree>`.
 4. **Work the task** — implement what remains of it in small atomic commits
    (`devbot:git-atomic-commits`).
-5. **Self-review** — when the task is done, delegate a review of the whole changeset against the
-   default branch to the session's code reviewer, following the session's review gate (DevBot asks
-   the user first and delegates to `@reviewer`; an autonomous run delegates straight away to
-   `@code-reviewer` as `devbot:auto-dev` directs), and address every finding as your own
-   recommendation (`devbot:address-review`).
-6. **Open the pull request and run the review loop** — push the branch and open the pull request with
-   `devbot:gh-create-pr`, then loop until a review introduces no new findings **and** every required
-   check is green with the pull request mergeable: request the reviewer, read both the line comments
-   and the review body, fix each finding as a fixup, reply then resolve each thread, and re-enter the
-   loop for a failing check. `devbot:gh-review-loop` carries the loop's mechanics — cadence, reviewer
-   effort, the CI gate and the resolution reply.
+5. **Self-review and fold the fixes in** — when the task is done, delegate a review of the whole
+   changeset against the default branch to the session's code reviewer, following the session's
+   review gate (DevBot asks the user first and delegates to `@reviewer`; an autonomous run delegates
+   straight away to `@code-reviewer` as `devbot:auto-dev` directs), and address every finding as your
+   own recommendation (`devbot:address-review`). Record each fix as a fixup against the commit it
+   corrects. Before the branch is pushed, squash the fixups into their targets with an interactive
+   rebase (`git rebase -i --autosquash origin/<default>`), showing the plan and getting approval
+   first as `devbot:git-fixup-commits` requires — the branch is still local, so this rewrites only
+   your own commits. The branch that gets pushed carries no `fixup!` commits.
+6. **Open the pull request and run the review loop** — only once step 5 is clean, push the branch and
+   open the pull request with `devbot:gh-create-pr`, then loop until a review introduces no new
+   findings **and** every required check is green with the pull request mergeable: request the
+   reviewer, read both the line comments and the review body, fix each finding as a fixup, reply then
+   resolve each thread, and re-enter the loop for a failing check. `devbot:gh-review-loop` carries the
+   loop's mechanics — cadence, reviewer effort, the CI gate and the resolution reply.
 7. **Hand back** — stop and report the pull request and its URL (`devbot:gh-create-pr`). The reviewer
    squashes the fixups and merges; you never merge it.
 
