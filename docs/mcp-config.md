@@ -62,6 +62,14 @@ Ten servers ship disabled by default — `atlassian`, `chrome-devtools`, `figma`
 
 An `enabled` value in the config is **yours**: `reinit` never reverts it. The module's declared default applies only to an entry that expresses no opinion — so a release newly declaring `enabled` still reaches an existing install, while a server you switched on stays on.
 
+### Runtime toggles are written back
+
+opencode keeps enablement in memory: it does not rewrite `opencode.jsonc`, and `opencode mcp list` reads the config back rather than the session. The `mcp-sync` plugin polls the harness's own `mcp.status()` and, when a server's status **changes** between two polls **and the config disagrees**, writes the implied value — `connected` → `enabled: true`, `disabled` → `enabled: false`.
+
+`failed` and `needs_auth` are not user intent and never write, and the first poll only seeds a baseline, so startup states cannot rewrite anything. A failed write keeps its transition pending and is retried. A server declared only in the global config gets a project override, copied from the global file verbatim — never from the harness's resolved config, which can hold an interpolated secret. The edit is span-based, so comments and `{env:VAR}` tokens survive.
+
+The write target is the project's `opencode.jsonc` — the same file `devbot tool project-for-path --key mcps` reads (`resolve_mcps()` does not read `.opencode/` or `opencode.json`). When that file is missing the plugin logs a warning and skips, rather than writing a surface nothing reads. opencode reads its config at startup, so the write takes effect on the next launch.
+
 ### Slow-starting servers
 
 opencode allows a server 30 s to connect and fetch tools. A container-backed server can exceed that on a cold start — `sonarqube` pulls its image once, boots a JVM and syncs analyzers — and the harness then reports the enabled server as `failed`, not `connected`. Declare `timeout` (milliseconds) in the canonical manifest to raise it: `sonarqube` ships `120000`. opencode applies the same value to tool calls, which suits a long analysis better than the default.

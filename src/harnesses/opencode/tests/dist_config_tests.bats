@@ -52,6 +52,9 @@ setup() {
   run python3 "$READER" "$DIST" plugin
   assert_success
   assert_output --partial '.opencode/plugins/on-hooks.ts'
+  # Keeps a runtime MCP toggle in the config, so the project-for-path gate
+  # reports the state the session actually runs with.
+  assert_output --partial '.opencode/plugins/mcp-sync.ts'
   # opencode-pty backs agent capability (non-blocking PTY sessions), so it
   # ships PINNED — an unpinned spec would silently follow upstream `latest`.
   assert_output --partial '"opencode-pty@'

@@ -76,7 +76,11 @@
   // following upstream `latest` is a worse risk than a manual bump. Verify it
   // against the harness before raising the version. TUI plugins live in
   // tui.dist.jsonc — never here (see that file for why).
-  "plugin": [".opencode/plugins/on-hooks.ts", "opencode-pty@0.3.6"],
+  "plugin": [
+    ".opencode/plugins/on-hooks.ts",
+    ".opencode/plugins/mcp-sync.ts",
+    "opencode-pty@0.3.6"
+  ],
   "default_agent": "DevBot",
   // Provider-level timeouts: aborts requests that hang without emitting
   // (cortecs/kimi-k3 was observed to stall silently for minutes — see
