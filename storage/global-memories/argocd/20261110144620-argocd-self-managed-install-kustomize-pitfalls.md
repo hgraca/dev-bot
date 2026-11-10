@@ -1,0 +1,9 @@
+---
+date: 2026-11-10
+keywords: ["argocd", "self-managed", "kustomize", "customresourcedefinition", "serversideapply"]
+trigger-on: ["argocd-self-managed-install", "applicationset-kustomize-overlay"]
+---
+
+## Self-managing ArgoCD with a kustomize overlay over upstream install.yaml: four traps
+
+Putting ArgoCD's own install under an ApplicationSet exposes upstream manifest gaps. (1) `pods/exec` is not granted, so the web terminal breaks silently — add the rule in the overlay. (2) `applications.argoproj.io` (~416 KB) and `applicationsets.argoproj.io` (~1.5 MB) exceed the 256 KiB client-side-apply annotation limit, so the first sync fails on `metadata.annotations: Too long`; annotate those CRDs with `argocd.argoproj.io/sync-options: ServerSideApply=true`. All three ArgoCD CRDs ship with no `metadata.annotations` at all, so the JSON6902 patch must add the whole map (`path: /metadata/annotations`, value a map) rather than a nested key. (3) Never use `commonAnnotations` to scope that annotation: kustomize propagates commons to pod templates, so every ArgoCD workload rolls and the "no disruption" guarantee is lost — patch the three CRDs individually instead. (4) Exclude the stateful config from the rendered set (`argocd-secret`, `argocd-notifications-secret`, `argocd-cm`, `argocd-rbac-cm`, `argocd-cmd-params-cm`, `argocd-tls-certs-cm`, `argocd-ssh-known-hosts-cm`, `argocd-gpg-keys-cm`, `argocd-notifications-cm`) or the first sync resets dex, RBAC, the URL and the session signing key — everyone is logged out and the login path can break outright. Also note that JSON6902 `replace` on an absent path, and `add` to a nested key whose parent is absent, only "work" because kustomize's kyaml is lenient; use `op: add` on `/spec/type` and on the whole `/metadata/annotations` map so a stricter build behaves the same.
