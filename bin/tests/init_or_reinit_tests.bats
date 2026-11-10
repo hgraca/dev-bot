@@ -255,14 +255,14 @@ EOF
 # pin that init actually invokes it, per project and for the global config.
 
 @test "_init_wiring migrates the project config it wires" {
-  printf '{ "polyrepo": true, "commit_memory": true }\n' > "${OTHER}/.devbot.project.jsonc"
+  printf '{ "monorepo": true, "commit_memory": true }\n' > "${OTHER}/.devbot.project.jsonc"
 
   run _sandbox_bash "_init_wiring '${OTHER}' >/dev/null 2>&1 || true"
 
   run cat "${OTHER}/.devbot.project.jsonc"
   assert_output --partial '"type": "polyrepo"'
   assert_output --partial '"commit_memory": true'
-  refute_output --partial '"polyrepo"'
+  refute_output --partial '"monorepo"'
 }
 
 @test "init wires both migration call sites" {

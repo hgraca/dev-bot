@@ -162,7 +162,7 @@ title: DevBot
         <p>OpenCode lifecycle hooks that fire automatically &mdash; format on save, guard dangerous commands, auto-recover from errors.</p>
       </div>
       <div class="feature-card">
-        <h3><a href="{{ '/monorepo-sessions' | relative_url }}">Monorepo sessions</a></h3>
+        <h3><a href="{{ '/polyrepo-sessions' | relative_url }}">Polyrepo sessions</a></h3>
         <p>Work across many registered projects from one session &mdash; every action resolves the project that owns the files it touches.</p>
       </div>
       <div class="feature-card">

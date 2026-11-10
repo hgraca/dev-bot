@@ -13,10 +13,10 @@ Semantic code search powered by Ollama embeddings (`nomic-embed-text`). Provides
 > wired, and every reference to `devbot:codebase-index` resolves to whichever
 > engine is active. The duplicated `name:` is deliberate, not a collision.
 
-## Monorepo sessions
+## Polyrepo sessions
 
-One index per project. In a `monorepo: true` project, index and query the **owning project** of
-the files in play (`devbot tool project-for-path <path>`), never the monorepo root. A
+One index per project. In a polyrepo project, index and query the **owning project** of
+the files in play (`devbot tool project-for-path <path>`), never the polyrepo root. A
 `devbot up` cold start primes only the project it runs in: index a child explicitly before
 querying it, and attribute results to the project they came from.
 

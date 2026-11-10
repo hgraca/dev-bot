@@ -33,7 +33,7 @@ devbot tool project-for-path <project> --key mcps [--session-root DIR]  # server
 
 `modules` reports the module gate, merged project-over-global with absence
 meaning enabled. `mcps` reports the generated harness config's per-server state
-and `mcps_sources` names the files it read. In a monorepo session pass the
+and `mcps_sources` names the files it read. In a polyrepo session pass the
 workspace root as `--session-root`: the live config belongs to the checkout the
 harness runs in, not to the project that owns the file. When the module is
 enabled but `notion` is `disabled` or absent from `mcps`, ask the user whether to

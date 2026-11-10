@@ -121,75 +121,80 @@ Used by memory init, qmd init, the auto-recover and remember-session plugins, ha
 
 ---
 
-### `commit_memory`
+### `workspace`
 
 ```jsonc
-{ "commit_memory": false }
+{
+  "workspace": {
+    "type": "repo", // repo | polyrepo
+    "commit_memory": false,
+    "workflow": "worktrees", // worktrees | trunk
+  },
+}
 ```
 
-**Type:** `boolean`
-**Default:** `false`
+**Type:** `object`
+**Default:** the block in `.devbot.global.jsonc` — `type: "repo"`, `commit_memory: false`,
+`workflow: "worktrees"`
 **Required:** no
 
-When `true`, the memory vault is committed to version control instead of being gitignored. When `false` (default), the `memory/` directory is excluded via `.git/info/exclude`.
+Holds the settings that describe how a workspace behaves. The global config carries the documented
+defaults; a project config carries only the keys it overrides. Each key resolves project-first, then
+global, then the default above.
 
-Project config takes precedence over global: an explicit value in `.devbot.project.jsonc` wins; otherwise the value from `.devbot.global.jsonc` is used; unset in both means `false`.
+| Key             | Type                   | Selects                                                                |
+| --------------- | ---------------------- | ---------------------------------------------------------------------- |
+| `type`          | `repo` \| `polyrepo`   | whether the project is an ordinary project or a container for siblings |
+| `commit_memory` | `boolean`              | whether the memory vault is committed to version control               |
+| `workflow`      | `worktrees` \| `trunk` | how a task is carried end to end                                       |
+
+#### `workspace.type`
+
+`polyrepo` marks the project as a **container**: a session launched here orchestrates work across
+the managed projects registered in the global config's `projects` array, and its **memory scope is
+resolved from the files the session touches**. Working on a file under project `A`, a search covers
+`A`'s vault + the shared global store + this polyrepo's own vault; a memory about `A` is stored in
+`A`, cross-project knowledge in the polyrepo, and tech-generic knowledge in the global store (see
+`devbot:memory-management`).
+
+A polyrepo lives anywhere — physical nesting of the managed projects is irrelevant; the global
+`projects` registry is the source of truth. Sessions launched _inside_ a managed project are
+unaffected: they keep searching their own vault + the global store, never the polyrepo's.
+
+`repo` (the default) is an ordinary project.
+
+Used by `search-memories` and the memory skills, the `worktree` tool (`enabled` / `create` refuse a
+polyrepo root), and `project-for-path`, which reports it as `type`.
+
+#### `workspace.commit_memory`
+
+When `true`, the memory vault is committed to version control instead of being gitignored. When
+`false`, the `memory/` directory is excluded via `.git/info/exclude`.
 
 Used by memory init and the devbot init gitignore step.
 
----
-
-### `workflow`
-
-```jsonc
-{ "workflow": "worktrees" }
-```
-
-**Type:** `string`
-**Default:** `"worktrees"`
-**Required:** no
+#### `workspace.workflow`
 
 Selects the workflow an agent follows for a task — the end-to-end way the work is carried through
-the project. `worktrees` (default) isolates each task's commits in a linked git worktree under
+the project. `worktrees` isolates each task's commits in a linked git worktree under
 `<devbot_dir>/worktrees/`, cut from the remote default branch, and carries it to an open pull
 request. `trunk` works directly on the default branch with no pull request, and stops for the
 user's gate before pushing. The workflows themselves are defined in the Workflows section of the
-`software-development` skill.
-
-Project config takes precedence over global: an explicit value in `.devbot.project.jsonc` wins; otherwise the value from `.devbot.global.jsonc` is used; unset in both means `worktrees`. An explicit user instruction overrides both for that run.
-
-Until `devbot update` migrates a config, a retired `worktrees` value is still honoured — `true` means
-`worktrees`, `false` means `trunk` — so a migration that failed cannot flip a project's workflow.
+`software-development` skill. An explicit user instruction overrides the setting for that run.
 
 Used by the `worktree` tool (`enabled` / `create`), `project-for-path`, and the `git-worktrees` skill.
 
----
+#### Migrating a flat config
 
-### `monorepo`
-
-```jsonc
-{ "monorepo": false }
-```
-
-**Type:** `boolean`
-**Default:** `false`
-**Required:** no
-
-Marks the project as a **monorepo**: a session launched here orchestrates work across the managed projects registered in the global config's `projects` array, and its **memory scope is resolved from the files the session touches**. Working on a file under project `A`, a search covers `A`'s vault + the shared global store + this monorepo's own vault; a memory about `A` is stored in `A`, cross-project knowledge in the monorepo, and tech-generic knowledge in the global store (see `devbot:memory-management`).
-
-A monorepo lives anywhere — physical nesting of the managed projects is irrelevant; the global `projects` registry is the source of truth. Sessions launched _inside_ a managed project are unaffected: they keep searching their own vault + the global store, never the monorepo's.
-
-`monorepo` resolves project-first, then global, then `false`, like other scalars.
-
-The key was formerly named `supervisor`. `devbot init` rewrites a config that still carries it —
-the project's and the global one — in place; a config that never runs `init` must be renamed by
-hand, because no reader falls back to the retired key.
-
-Used by `search-memories` and the memory skills, the `worktree` tool (`enabled` / `create` refuse a
-monorepo root), and `project-for-path`, which reports it.
+The three keys used to sit at the root of the config, next to a boolean `monorepo` (and, before
+that, a boolean `worktrees`). `devbot init` rewrites such a config into this block — in the project
+config and in the global one: `monorepo: true` becomes `type: "polyrepo"`, `monorepo: false`
+becomes `type: "repo"`, `worktrees` maps to `workspace.workflow`, and an explicit `commit_memory`
+or `workflow` is carried across as an override. A config that never runs `init` must be rewritten by
+hand, because no reader falls back to the flat keys.
 
 Every other project-scoped module follows the same owning-project rule — resolve it with
-`devbot tool project-for-path <path>`. See [Monorepo sessions](/monorepo-sessions) for the
+`devbot tool project-for-path <path>`. See [Polyrepo sessions](/polyrepo-sessions) for the
 per-module contract.
 
 ---
@@ -388,11 +393,11 @@ today — both engines are keyword-only (BM25; see `memory_search_provider`), so
 a search emits a `NOTICE` and runs BM25. It will select qmd's model path when
 that path is restored.
 
-In a monorepo project, the `project` collections follow the `--focus` read
+In a polyrepo project, the `project` collections follow the `--focus` read
 set, while the `global` and custom collections are always searched. Custom
 collections resolve from the session project's config plus the global config;
 a focused child's own project-level custom collections are not pulled into the
-monorepo's search (a session started inside that child searches them).
+polyrepo's search (a session started inside that child searches them).
 
 ---
 
@@ -821,19 +826,18 @@ a key a previous run registered.
   // Devbot state directory
   "devbot_dir": ".agents",
 
-  // Commit the memory vault to version control
-  "commit_memory": false,
+  // Workspace behaviour — override the global defaults only when needed
+  "workspace": {
+    "type": "repo", // repo | polyrepo
+    "commit_memory": false,
+    "workflow": "worktrees" // worktrees | trunk
+  },
 
   // Document collections searched by `search-memories`
   "memory_collections": {
     "project": { "path": "{project}/{devbot_dir}/memory/latent", "semantic": false },
   },
 
-  // Workflow a task follows end to end: worktrees (isolated) or trunk (default branch)
-  "workflow": "worktrees",
-
-  // Orchestrate memory across the global `projects` registry (default: false)
-  "monorepo": false,
 
   // Data sources this project may use, by name (see `datasources` above)
   "datasources": ["hotels-dev"],

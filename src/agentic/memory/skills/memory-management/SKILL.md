@@ -113,9 +113,9 @@ Each `latent/` file is a standalone `.md` with YAML frontmatter (`date`, `keywor
 
 If no technology bucket fits, use `learnings/`.
 
-### Monorepo sessions (cross-project scope)
+### Polyrepo sessions (cross-project scope)
 
-A project with `monorepo: true` runs sessions that work across the managed
+A project with `workspace.type: "polyrepo"` runs sessions that work across the managed
 projects registered in the global config's `projects` array. Memory is scoped
 by the **files the session touches**:
 
@@ -123,35 +123,35 @@ by the **files the session touches**:
   files in a project, run `devbot tool project-memory <owner>`; it prints that
   project's `AGENTS.md`/`CLAUDE.md` and `<devbot_dir>/memory/active/**/*.md`,
   labelled and scoped to that project. Its rules apply only within that project —
-  never to a sibling, and never to the monorepo's coordination work.
+  never to a sibling, and never to the polyrepo's coordination work.
 - **Read** — `search-memories --focus <path>` covers the vault of every project
-  the touched paths belong to, plus the monorepo's own vault, the shared
+  the touched paths belong to, plus the polyrepo's own vault, the shared
   global store, and configured custom collections; with no `--focus`, the
-  monorepo + global store + custom collections, never the untouched siblings.
+  polyrepo + global store + custom collections, never the untouched siblings.
 - **Write** — route each finding by the path it concerns: a child project's
   file or behaviour → that child's vault; cross-project / org-wide → the
-  monorepo's vault; reusable across projects → `latent/global/<tech>/`.
-- **Child config, not the monorepo's** — resolve `commit_memory` and
+  polyrepo's vault; reusable across projects → `latent/global/<tech>/`.
+- **Child config, not the polyrepo's** — resolve `commit_memory` and
   `workflow` for the **owning project** before writing or committing
-  (`_devbot_get_config commit_memory <child_dir>` and `_devbot_get_workflow <child_dir>` — both
+  (`_devbot_get_workspace_config commit_memory <child_dir>` and `_devbot_get_workflow <child_dir>` — both
   project-first → global-fallback, the workflow resolver legacy-key-aware). A
-  child with `commit_memory: false` is never committed even when the monorepo
+  child with `commit_memory: false` is never committed even when the polyrepo
   commits; a child following the `trunk` workflow commits in its own main
   checkout; a non-git owner is skipped with a **notice log line** (never a
   warning).
 
 A session launched _inside_ a managed project is unaffected: it searches its own
 vault + the global store + its configured custom collections, never the
-monorepo's.
+polyrepo's.
 
 ## 3. Retrieval Rules
 
-- `active/` loads automatically at session start for the **session project** — do not re-read it. In a monorepo session a child project's `active/` is not loaded automatically: load it with `devbot tool project-memory <owner>` the first time you work there (see §2).
+- `active/` loads automatically at session start for the **session project** — do not re-read it. In a polyrepo session a child project's `active/` is not loaded automatically: load it with `devbot tool project-memory <owner>` the first time you work there (see §2).
 - latent/ files: use `search-memories` for all categories — do NOT read entire folders
   - `search-memories` searches the CURRENT project vault + the shared global store + any configured custom collection under whichever engine `memory_search_provider` selects (qmd or mdctx); it returns file content with frontmatter stripped (data only)
   - Read specific files directly only when you know the exact filename
 - **Memory search MUST go through `search-memories`** (devbot-tools MCP tool or CLI): it always scopes to the CURRENT project vault, the global store, and the configured custom collections — nothing else. Raw engine-native tools (qmd MCP/CLI, mdctx MCP) can span other stores/roots or miss the current project's. Both engines are keyword-only (BM25) — there is no semantic route to reach for.
-- **Monorepo sessions** pass `--focus <path>` so the touched project(s) join the read set (touched projects + monorepo + global + custom collections). A session inside a managed project uses no `--focus` and never sees the monorepo.
+- **Polyrepo sessions** pass `--focus <path>` so the touched project(s) join the read set (touched projects + polyrepo + global + custom collections). A session inside a managed project uses no `--focus` and never sees the polyrepo.
 - All other files: search before read; max 3 non-latent notes per task; discard results with relevance score < 0.6
 - If `search-memories` returns no matches, the index may not be built yet or a reindex may still be in progress — do not loop reindex → search → reindex. Check `reindex-memories status`; if `in_progress`, wait and re-search once. Repeated reindex calls coalesce into one job.
 

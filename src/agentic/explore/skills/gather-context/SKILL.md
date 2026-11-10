@@ -17,7 +17,7 @@ Use at session start to collect targeted context for the orchestrator before wor
 ### 0. Load the scoped project's memory, then ensure its description
 
 Load the always-on memory of the project this assignment is scoped to — the child
-in a monorepo session, otherwise the session project — before any other read or
+in a polyrepo session, otherwise the session project — before any other read or
 edit in it:
 
 ```bash
@@ -43,16 +43,16 @@ The orchestrator's delegation prompt contains two distinct sections:
 
 If neither section was provided, ask for both before proceeding.
 
-### 1a. Monorepo sessions — one scout per touched project
+### 1a. Polyrepo sessions — one scout per touched project
 
-When the session runs in a `monorepo` project (`.devbot.project.jsonc` has
-`monorepo: true`), the primary agent predicts which managed projects the
+When the session runs in a `polyrepo` project (`.devbot.project.jsonc` has
+`workspace.type: "polyrepo"`), the primary agent predicts which managed projects the
 request will touch and dispatches **one @scout assignment per predicted
 project, in parallel**. Scout never delegates, so the fan-out is the primary
 agent's job — this skill describes what each per-project scout does.
 
 A scout scoped to a project passes that project as the memory focus, so its
-search covers the project + the monorepo + the global store + configured
+search covers the project + the polyrepo + the global store + configured
 custom collections:
 
 ```bash
@@ -60,12 +60,12 @@ search-memories --query "<keyword>" --focus "<a path inside the project>"
 ```
 
 Step 0 loads the child's memory before anything else in the child. Also resolve
-the child's own `commit_memory` and `workflow` from its `.devbot.project.jsonc`
+the child's own `workspace.commit_memory` and `workspace.workflow` from its `.devbot.project.jsonc`
 (project-first, global-fallback) and state them in the report, so downstream
 writes commit in the right place and the work follows the workflow the child
 selected. The scout's report does not stand in for the orchestrator loading that
 same memory before its first read or edit in the child. Every report still lands in the
-**monorepo's** `memory/thinking/`.
+**polyrepo's** `memory/thinking/`.
 
 ### 2. Gather memories
 
@@ -154,14 +154,14 @@ devbot tool project-for-path <project> --key mcps [--session-root DIR]  # server
 
 Both on means `mcps` maps `atlassian` to `enabled` — another enabled server does
 not count. When `atlassian` is absent or `disabled`, skip this step and say so in
-one line. In a monorepo session pass the workspace root as `--session-root`,
+one line. In a polyrepo session pass the workspace root as `--session-root`,
 the checkout the harness runs in.
 
 With the entry `enabled`, load `devbot:atlassian` and search once with JQL built from the
 delegation keywords — an issue key present in the request, otherwise one
 `text ~ "<keyword>"` term per keyword, `AND`-ed, ordered by `updated DESC` and
 filtered to exclude Done and Canceled. Request only the fields you report. In a
-monorepo session every project's scout runs its own search, in parallel.
+polyrepo session every project's scout runs its own search, in parallel.
 
 Read-only: never create, edit or transition an issue — that belongs to the
 primary agent's ticket resolution (`devbot:jira-workflow`).
@@ -188,7 +188,7 @@ devbot tool project-for-path <project> --key mcps [--session-root DIR]  # server
 The lookup runs only when the `modules` map does not disable `notion` **and**
 `mcps` maps `notion` to `enabled`. Another enabled server does not count. When
 the module is disabled, or `notion` is absent or `disabled` from `mcps`, skip
-this step and say so in one line. In a monorepo session pass the workspace
+this step and say so in one line. In a polyrepo session pass the workspace
 root as `--session-root`, the checkout the harness runs in.
 
 With both switches on, load `devbot:notion` and discover the search tool the
@@ -206,7 +206,7 @@ When none of the three is exposed, report `Notion search unavailable` and carry
 on without Notion context.
 
 Read-only: never create, update, comment on, move or delete a page or database —
-this step gathers context, it does not edit the workspace. In a monorepo
+this step gathers context, it does not edit the workspace. In a polyrepo
 session every project's scout runs its own search, in parallel.
 
 Report the best matches with their links, or several when they are genuinely

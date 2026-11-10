@@ -43,6 +43,6 @@ update both. No project configuration is required.
 
 ## See also
 
-- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
+- [Polyrepo sessions](/polyrepo-sessions) — how this module scopes itself to the owning project
 - [Git](/modules/agentic/git) — the commit and history skills these commands lean on
 - [Self-improvement](/modules/agentic/self-improvement) — improving what the reviewer catches

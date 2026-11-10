@@ -12,12 +12,12 @@ _what this project is_, _how laid out_, and _where rough edges are_. Output:
 This is one-page map, not findings report. Rough edges
 named in one line each so future work has context — diagnosing and fixing them out of scope.
 
-## Monorepo sessions
+## Polyrepo sessions
 
-A project description describes **one project**. In a `monorepo: true` project, resolve the
+A project description describes **one project**. In a polyrepo project, resolve the
 owning project first (`devbot tool project-for-path <path>`) and write the description to that
-project's vault — never generate a child's description from the monorepo root, and never write
-it into the monorepo's vault. Generate a child's description on demand, when that child is
+project's vault — never generate a child's description from the polyrepo root, and never write
+it into the polyrepo's vault. Generate a child's description on demand, when that child is
 first touched.
 
 ## When to Apply
@@ -78,7 +78,7 @@ sub-structure — that belongs to `devbot:memory-management`.
 control. The vault lives at `<devbot_dir>/memory/` (default `.agents/memory/`; `devbot_dir` comes from
 `.devbot.project.jsonc` / `.devbot.global.jsonc`). Run `git ls-files <devbot_dir>/memory/ | head`: non-empty
 output means the vault is git-tracked (memory files are committed); empty means it is gitignored (not
-committed). The `commit_memory` key in `.devbot.project.jsonc` / `.devbot.global.jsonc` is the intended
+committed). The `workspace.commit_memory` key in `.devbot.project.jsonc` / `.devbot.global.jsonc` is the intended
 signal (`true` = committed, absent/`false` = not). Record the outcome in the description under _Critical
 conventions_ so future agents know whether to commit memory files — if the vault is not tracked, they must
 never `git add` it.

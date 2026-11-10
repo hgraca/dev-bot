@@ -99,5 +99,5 @@ would silently run as the key's owner instead of the scoped cluster role.
 
 ## See also
 
-- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
+- [Polyrepo sessions](/polyrepo-sessions) — how this module scopes itself to the owning project
 - [Docker](/module-reference) — Dockerfile authoring patterns

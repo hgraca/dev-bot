@@ -22,10 +22,10 @@ datasources-mariadb-dev_mariadb-dev_execute_sql  { "sql": "SELECT 1" }
 One statement per call. For MongoDB the tool takes a whole aggregation
 pipeline, and the collection is a parameter you choose.
 
-## Monorepo sessions
+## Polyrepo sessions
 
 The wired datasource tools belong to the **session project's** selection
-(`.devbot.project.jsonc::datasources`). A monorepo root often selects none. Before querying a
+(`.devbot.project.jsonc::datasources`). A polyrepo root often selects none. Before querying a
 child's data source, resolve the owning project and its selection:
 
 ```bash

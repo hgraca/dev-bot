@@ -18,10 +18,10 @@ PR description follows the same rules as a commit message — see `devbot:git-co
 - `gh` is installed and authenticated (`gh auth status`). If it is not, stop and say so — do not
   guess at credentials.
 - The head branch exists and holds the commits the PR is for.
-- In a `monorepo: true` project, resolve the **owning project** of the changeset
+- In a polyrepo project, resolve the **owning project** of the changeset
   (`devbot tool project-for-path <file>`) and run every command below in it. `cd "$owner"` once
-  covers git and `gh`; if you stay in the monorepo root, pass `git -C "$owner"` to every git
-  call and `--repo <owner-slug>` to every `gh` call. The monorepo root has no remote, so a
+  covers git and `gh`; if you stay in the polyrepo root, pass `git -C "$owner"` to every git
+  call and `--repo <owner-slug>` to every `gh` call. The polyrepo root has no remote, so a
   command run there resolves nothing. One PR, one repository.
 
 ## Determine the base

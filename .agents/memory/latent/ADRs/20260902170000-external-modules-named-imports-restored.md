@@ -23,7 +23,7 @@ sanitizer (`/` → `__`) — built over two sessions (~24 commits) — are
 
 - Live config has two trivial single-repo entries. The namespacing + additive
   machinery existed to serve the disabled react/svelte `mindrally/skills`
-  monorepo case (three collections under one repo) — a use case with no real
+  polyrepo case (three collections under one repo) — a use case with no real
   user. Each layer (namespacing → dedup → provenance → per-path → union)
   only justified the one before it.
 - The reverted work was entirely local and unpushed, so the revert is cheap

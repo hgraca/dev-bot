@@ -28,10 +28,10 @@ ask** — do not silently work in the main checkout. The two sanctioned options 
 
 State the chosen option in the hand-back so the trade-off stays visible.
 
-### Monorepo sessions
+### Polyrepo sessions
 
-In a `monorepo: true` project, resolve the owning project of the files in play first — a
-monorepo is a container for sibling repositories, not a codebase, so `create` refuses it even
+In a polyrepo project, resolve the owning project of the files in play first — a
+polyrepo is a container for sibling repositories, not a codebase, so `create` refuses it even
 when it has commits. Carry the owner through every command in this skill with one variable; the
 worktree then lands under the **owner's** `<devbot_dir>/worktrees/` and the owner's `workflow`
 setting decides whether it applies:
@@ -47,15 +47,15 @@ project=()
 ```
 
 Every subcommand that needs a repository takes that array — `create`, `enabled`, `list`, `path`,
-`push` and `remove` — so a monorepo session acts on a child while running from its own root.
-`create` and `enabled` refuse the monorepo root itself; the rest would silently resolve the
-monorepo's repository, so always carry `--project`. `<branch>` is the branch name, never the
+`push` and `remove` — so a polyrepo session acts on a child while running from its own root.
+`create` and `enabled` refuse the polyrepo root itself; the rest would silently resolve the
+polyrepo's repository, so always carry `--project`. `<branch>` is the branch name, never the
 worktree directory name. Running the tool with the child's main checkout as the working directory
 works too, but `--project` does not depend on the shell's location.
 
 Then check the workflow in use — exit `0` means the `worktrees` workflow applies; exit `1` means the
 project selected another workflow (see [Opting out](#opting-out)), so work and commit in the **owning
-project's** main checkout as that workflow directs (in a monorepo session that is `git -C
+project's** main checkout as that workflow directs (in a polyrepo session that is `git -C
 "$owner"`, never the session root); exit `2` means the configured workflow is unknown — **stop and
 ask**, never guess. This policy does not apply outside `worktrees`:
 

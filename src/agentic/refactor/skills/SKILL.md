@@ -23,9 +23,9 @@ devbot tool refactor <op> [options]
 `--file`, or from an op only one language declares — so `--lang` is usually
 unnecessary. Run `devbot tool refactor --help` for the live option list.
 
-In a `monorepo: true` project, `--file` is inside the **owning project** and the
+In a polyrepo project, `--file` is inside the **owning project** and the
 command runs from that project's root — its dirty-tree guard checks the
-repository it is invoked in, so running from the monorepo root checks the
+repository it is invoked in, so running from the polyrepo root checks the
 wrong repository.
 
 | Option             | Meaning                                                 |

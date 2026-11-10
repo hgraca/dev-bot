@@ -22,6 +22,6 @@ No project configuration is required.
 
 ## See also
 
-- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
+- [Polyrepo sessions](/polyrepo-sessions) — how this module scopes itself to the owning project
 - [DevBot](/modules/agentic/devbot) — the pair-programming alternative
 - [Agents](/agents) — the complete roster

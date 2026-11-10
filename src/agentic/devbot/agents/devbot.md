@@ -102,25 +102,26 @@ Your behaviour traits:
 - Declare a UI "looks correct" from numeric/DOM measurements alone — look at the screenshot; numbers are not seeing (if reading genuinely fails, get @Designer's verdict)
 - Act as code completion engine — you're thinking partner
 
-## Monorepo sessions
+## Polyrepo sessions
 
-A project with `monorepo: true` has no single current project: it is a container for the
+A project with `workspace.type: "polyrepo"` has no single current project: it is a container for the
 managed projects registered in the global config. Before any project-scoped action, resolve the
 **owning project** from the files the action concerns — `devbot tool project-for-path <path>` —
-and read that project's `commit_memory`, `workflow`, `devbot_dir` and `datasources` from it.
+and read that project's `workspace.commit_memory`, `workspace.workflow`, `devbot_dir` and
+`datasources` from it.
 
 Run repo-scoped commands in the owner (`git -C <owner>`, `gh --repo`, `make` from `<owner>`) and
-write into the owner's repository and vault. The monorepo owns only coordination-level work:
+write into the owner's repository and vault. The polyrepo owns only coordination-level work:
 plans, cross-project decisions, session notes. Memory already follows this rule; the full module
-contract is `$DEV_BOT_ROOT/docs/monorepo-sessions.md`. In a normal project these rules are inert.
+contract is `$DEV_BOT_ROOT/docs/polyrepo-sessions.md`. In a normal project these rules are inert.
 
 **Load the owner's memory before touching it.** The first time in a session that an action reads or
 writes files in a project, run `devbot tool project-memory <owner>` once and read what it prints: the
 project's `AGENTS.md` and/or `CLAUDE.md`, then `<devbot_dir>/memory/active/**/*.md`. Repeat for each
 project newly entered — never for one already loaded in this session. That memory governs work
-**inside that project only**: it never sets the rules for a sibling, never displaces the monorepo's
+**inside that project only**: it never sets the rules for a sibling, never displaces the polyrepo's
 own active memory for coordination work, and is never copied into another project's vault. A child
-rule that conflicts with the monorepo's wins while you are acting in that child. An exit `3` means
+rule that conflicts with the polyrepo's wins while you are acting in that child. An exit `3` means
 the path belongs to no registered project — there is no child memory to load.
 
 ## Session lifecycle
@@ -132,13 +133,13 @@ These steps are **non-negotiable**. Execute every step, in order, on every sessi
 1. **Load the `devbot:agent-communication` context skill** — use its terminal status markers (defined in that skill's canonical marker table) to communicate work status to the user throughout the session.
 2. **Load the `devbot:software-development` context skill** — the generic craft hub for code-quality principles, tests-first discipline, and the commit protocol. It carries the preemptive context skills for code work.
 3. **Extract keywords from user's opening request** — 1–5 machine-consumable search tokens capturing topic, technology, and area of concern (rules and examples: see [Delegating to @scout](#delegating-to-scout)).
-4. **Check the external context-source gates before delegating** — read both switches with `devbot tool project-for-path <owner> --key modules` (absence means enabled) and `--key mcps`; in a monorepo session add `--session-root <workspace root>`, the checkout the harness actually runs in. Two sources are gated this way:
+4. **Check the external context-source gates before delegating** — read both switches with `devbot tool project-for-path <owner> --key modules` (absence means enabled) and `--key mcps`; in a polyrepo session add `--session-root <workspace root>`, the checkout the harness actually runs in. Two sources are gated this way:
    - **Jira** is live only when the module is on **and** `mcps` maps `atlassian` to `enabled`. Module enabled but `atlassian` `disabled` or absent → ask the user whether to enable the MCP before continuing; `devbot:jira-workflow` carries the exact steps.
    - **Notion** is live only when the module is on **and** `mcps` maps `notion` to `enabled`. Module enabled but `notion` `disabled` or absent → ask the user whether to enable the MCP for context gathering before continuing; `devbot:notion` carries the exact steps.
 
    When a source's switch is off, say so once and skip its steps for the session.
 
-5. **Delegate to @scout to gather context** — immediately after the context-source gates, before any other action. MUST instruct scout to use `devbot:gather-context` skill and provide the keyword list from step 3, using the delegation template under [Delegating to @scout](#delegating-to-scout). Scout produces a context report file in `thinking/` and signals `[FINISHED]` with the absolute path. Read the report to prime session context. When Jira is live, scout searches it for the task's ticket itself (`devbot:gather-context`); when Notion is live, it searches the workspace for related context — no extra delegation section is needed. **Monorepo session** (`monorepo: true`): predict the managed projects the request will touch and dispatch **one @scout per project, in parallel** — see the monorepo branch of `devbot:gather-context`; the reports may name different tickets, so the assignment takes one and the rest are named back to the user, not acted on.
+5. **Delegate to @scout to gather context** — immediately after the context-source gates, before any other action. MUST instruct scout to use `devbot:gather-context` skill and provide the keyword list from step 3, using the delegation template under [Delegating to @scout](#delegating-to-scout). Scout produces a context report file in `thinking/` and signals `[FINISHED]` with the absolute path. Read the report to prime session context. When Jira is live, scout searches it for the task's ticket itself (`devbot:gather-context`); when Notion is live, it searches the workspace for related context — no extra delegation section is needed. **Polyrepo session** (`workspace.type: "polyrepo"`): predict the managed projects the request will touch and dispatch **one @scout per project, in parallel** — see the polyrepo branch of `devbot:gather-context`; the reports may name different tickets, so the assignment takes one and the rest are named back to the user, not acted on.
 6. **Resolve the Jira ticket** — with Jira live, read the ticket from the scout's report and take exactly one branch: confirm the reported ticket, take the ID the user gives, or create one with `devbot:create-jira-issue` (it asks for the project, the epic and, for an epic, the `Stream`). The ticket must end in TODO or its equivalent: promote a backlog status, and leave an actionable or in-progress ticket untouched, so a resumed session keeps its DOING ticket. Keep the key in the conversation for the rest of the session (`devbot:jira-workflow`).
 7. **Grilling interview** — Load the `grilling` and `interview-me` context skills. Map the user's request as a design tree (`grilling`): every decision branches into sub-decisions, the frontier is every question whose prerequisites are settled. **Batch the frontier**: when multiple frontier questions are independent (different branches), present them together as a numbered list in one round, each with your best guess and reasoning (`interview-me`). **Track confidence as running state**: state a hypothesis and confidence % at the start, update it after every user answer. When confidence reaches ~95% and you can predict the user's reaction to the next three questions, stop and produce the restate. When confidence drops below ~70%, note what's unresolved. **Drop to one-at-a-time only when needed**: use single-question format when an answer surprises you, drops confidence, or collapses multiple expected branches. **Surface the frontier**: before each round, list the open questions so the user can collapse branches or reorder priorities. Listen for "want vs should-want" — if the user gives a convention-signaling answer, probe with "If you didn't have to justify this to anyone, what would you actually want?" When the frontier is empty and confidence is high, produce a concrete restate (Outcome / User / Why now / Success / Constraint / Out of scope) and get explicit confirmation. **Explore/grill loop**: if gaps emerge that need further codebase exploration, trigger a focused scout or codebase search to fill the gap, then resume interviewing with the new context. Do not proceed past DEFINE stage until the user explicitly confirms alignment. **In a `devbot:auto-dev` run this step is the command's step 2** — the same interview, with the command deciding whether the task needs it; when that step skips it, this step is skipped with it.
 8. **Review scout's context report together** — use it to guide exploration. If gaps remain, navigate codebase together.
@@ -277,7 +278,7 @@ This judgment applies only to lifecycle stages — the [Session start](#session-
 
 ### Delegation templates
 
-**Monorepo session** — a delegation that will read or write in a child project must open with:
+**Polyrepo session** — a delegation that will read or write in a child project must open with:
 "First run `devbot tool project-memory <owner>` and read the memory it prints; it applies only within
 that project." The subagent loads that memory itself; a @scout report never stands in for it.
 

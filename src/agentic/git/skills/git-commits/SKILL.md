@@ -124,10 +124,10 @@ the agent (see `devbot:git-fixup-commits`).
 When the project follows the `worktrees` workflow (the default), commit from a linked git
 worktree, never from the main checkout — except the finish flow's memory commits, which are normal
 commits made on the main checkout's local default branch (`devbot:remember-session`). Before the first edit, confirm the workflow is in use —
-`worktree.sh enabled` — in a `monorepo: true` session pass `--project <owner>` after resolving the
-owner, since the tool refuses a monorepo root — exits `1` when the project follows another workflow
+`worktree.sh enabled` — in a `workspace.type: "polyrepo"` session pass `--project <owner>` after resolving the
+owner, since the tool refuses a polyrepo root — exits `1` when the project follows another workflow
 (e.g. `"workflow": "trunk"`), in which case commit where that workflow directs: the **owning project's** main
-checkout (in a `monorepo: true` session, `git -C <owner>`; otherwise the current one). Exit `2`
+checkout (in a `workspace.type: "polyrepo"` session, `git -C <owner>`; otherwise the current one). Exit `2`
 means the configured workflow is unknown — stop and ask. Otherwise check where you are: `git rev-parse --git-dir --git-common-dir` printing the **same** path means you are in
 the main checkout and must isolate the work first:
 
@@ -139,8 +139,8 @@ The worktree is cut from `origin/<default>` under `<devbot_dir>/worktrees/<slug>
 its absolute path and all git commands run with `-C <worktree>`. The full policy — the tool's
 subcommands, the opt-out, and the finish flow — is `devbot:git-worktrees`.
 
-In a `monorepo: true` project the repository is the **owning project** of the files in the
-commit (`devbot tool project-for-path <file>`), never the monorepo root. Create the worktree
+In a polyrepo project the repository is the **owning project** of the files in the
+commit (`devbot tool project-for-path <file>`), never the polyrepo root. Create the worktree
 with `--project <owner>`; after that, run edits and commits with `git -C <worktree>`, and reserve
 `git -C <owner>` for owner-scoped commands (worktree creation, merge, remove). A commit never
 spans two repositories.

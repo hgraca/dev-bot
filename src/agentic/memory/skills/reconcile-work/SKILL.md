@@ -18,13 +18,13 @@ Reconcile only the work items **this session touched** — created via `devbot:m
 
 A **work-item root** is a top-level folder directly under `work/<state>/` (`YYYYMMDD-HHMMSS-NN-<slug>/`). An epic root carries its story sub-folders; moving the root moves them with it.
 
-In a `monorepo: true` session, a work item lives in the vault of the project it concerns — reconcile each item in **its own** vault, and only coordination-level items in the monorepo's. A monorepo session may therefore touch several `work/` trees in one reconcile pass.
+In a polyrepo session, a work item lives in the vault of the project it concerns — reconcile each item in **its own** vault, and only coordination-level items in the polyrepo's. A polyrepo session may therefore touch several `work/` trees in one reconcile pass.
 
-Worktrees follow the same rule but are found differently: each sits under its **owning project's** `<devbot_dir>/worktrees/`, and every subcommand takes `--project <owner>`. The flag is required in a `monorepo: true` session, whose root is a container repository with no worktrees of its own. Carry it in `project=(--project <owner>)`, set once per owning project, exactly as `devbot:git-worktrees` describes — empty in a normal project; `<root>` below is that project's main checkout.
+Worktrees follow the same rule but are found differently: each sits under its **owning project's** `<devbot_dir>/worktrees/`, and every subcommand takes `--project <owner>`. The flag is required in a `workspace.type: "polyrepo"` session, whose root is a container repository with no worktrees of its own. Carry it in `project=(--project <owner>)`, set once per owning project, exactly as `devbot:git-worktrees` describes — empty in a normal project; `<root>` below is that project's main checkout.
 
 ## Procedure
 
-1. **Remove the landed worktrees and their local branches.** Do this once per owning project the session touched — a `monorepo: true` session may have worked in several, and each keeps its worktrees under its own `<devbot_dir>/worktrees/`. For each project set `project=(--project <owner>)` exactly as `devbot:git-worktrees` describes (empty in a normal project), take `<root>` as that project's main checkout, and list what it holds:
+1. **Remove the landed worktrees and their local branches.** Do this once per owning project the session touched — a `workspace.type: "polyrepo"` session may have worked in several, and each keeps its worktrees under its own `<devbot_dir>/worktrees/`. For each project set `project=(--project <owner>)` exactly as `devbot:git-worktrees` describes (empty in a normal project), take `<root>` as that project's main checkout, and list what it holds:
 
    ```bash
    bash "${DEV_BOT_ROOT}/src/agentic/git/tools/worktree.sh" list "${project[@]}"
@@ -39,7 +39,7 @@ Worktrees follow the same rule but are found differently: each sits under its **
    | uncommitted changes, or commits not pushed to origin | keep — report it                        |
    | abandoned: no pull request, or one closed unmerged   | keep — ask the user                     |
 
-   **Landed** means a pull request for `<branch>` into `<default>` was merged and none is still open. Run `gh` from `<root>` — in a `monorepo: true` session an unscoped query reads the container repository's pull requests, not the owner's:
+   **Landed** means a pull request for `<branch>` into `<default>` was merged and none is still open. Run `gh` from `<root>` — in a `workspace.type: "polyrepo"` session an unscoped query reads the container repository's pull requests, not the owner's:
 
    ```bash
    git -C <root> fetch --prune origin   # fresh refs; a branch deleted by a merge drops out here

@@ -23,6 +23,6 @@ No project configuration is required.
 
 ## See also
 
-- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
+- [Polyrepo sessions](/polyrepo-sessions) — how this module scopes itself to the owning project
 - [Git Report](/modules/agentic/git) — git state snapshot
 - [Explore](/module-reference) — gather-context skill

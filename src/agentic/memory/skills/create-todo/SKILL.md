@@ -18,7 +18,7 @@ A TODO work item is the same artifact `devbot:make-plan` produces and `devbot:im
 
 ## Procedure
 
-1. **Resolve the target project.** Default to the project this session runs in. When the user names another project ("in project X"), target that project's vault and route per `devbot:memory-management` § "Monorepo sessions". In a `monorepo: true` session the default is the **owning project** of the work the TODO concerns (`devbot tool project-for-path <path>`); only a coordination-level TODO stays in the monorepo's vault.
+1. **Resolve the target project.** Default to the project this session runs in. When the user names another project ("in project X"), target that project's vault and route per `devbot:memory-management` § "Polyrepo sessions". In a polyrepo session the default is the **owning project** of the work the TODO concerns (`devbot tool project-for-path <path>`); only a coordination-level TODO stays in the polyrepo's vault.
 2. **Reuse before creating.** List `<project>/.agents/memory/work/todo/` and `.../active/`. If a work item already covers this TODO, reuse it — never create a second folder for the same thing.
 3. **Create the work-item root** at `<project>/.agents/memory/work/todo/<work-item-root>/`, naming the folder per the vault's work-item convention. The pattern and its rules are defined once in `devbot:make-plan` § "Folder naming" — follow it there, do not restate it here.
 4. **Write the note** to `<work-item-root>/backlog.md` — the filename `devbot:make-plan` uses. Keep it a capture: a title, `**Status**: DRAFT`, a one-paragraph **Brief** of the TODO, and any acceptance criteria or notes the user gave. Do not enumerate tasks or technical actions.

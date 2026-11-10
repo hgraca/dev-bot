@@ -50,10 +50,10 @@ Create new files using the frontmatter schema and routing table from the already
 | Lesson reusable across projects (tech-specific) | `memory/latent/global/<technology>/` | New file per item, lesson + context + scope. Pick most specific bucket from classification table in `devbot:memory-management` skill (section 2). |
 | Lesson specific to this project                 | `memory/latent/learnings/`           | New file per item, lesson + context + scope                                                                                                       |
 
-**Monorepo sessions** — in a project with `monorepo: true`, route each
+**Polyrepo sessions** — in a project with `workspace.type: "polyrepo"`, route each
 finding by the files it concerns (see `devbot:memory-management` §2
-"Monorepo sessions"): a finding about a child project's file → that child's
-vault; cross-project / org-wide → the monorepo's vault; tech-generic →
+"Polyrepo sessions"): a finding about a child project's file → that child's
+vault; cross-project / org-wide → the polyrepo's vault; tech-generic →
 `latent/global/<tech>/`. Dedup-check with `search-memories --focus "<path>"`
 so the owning project's vault is in scope.
 
@@ -92,7 +92,7 @@ Follow thinking/ lifecycle rules in `devbot:memory-management` skill (section 7)
 
 ## 4. Commit memory files (if tracked)
 
-Memory files under `.agents/memory/` are tracked **only when the effective `commit_memory` setting is `true`**. Resolve it with project-first, global-fallback precedence: an explicit `commit_memory` in `.devbot.project.jsonc` wins (even `false`); otherwise the value from `.devbot.global.jsonc`; when neither config sets it, the default is `false` (in which case `memory/init.sh` ignores the vault — `.agents/memory` lands in `.git/info/exclude`). **Check reality before committing**: resolve `commit_memory` from the project config first, falling back to the global config, AND run `git check-ignore <file>` on a captured file — if the effective value is not `true` or the file is ignored, skip the commit (the files stay local; nothing to fix). A pre-existing `.gitignore` blanket rule (e.g. `.agents/**`) can shadow the surgical excludes even with `commit_memory: true` — `git check-ignore` catches that too. Only when the file is genuinely trackable, commit:
+Memory files under `.agents/memory/` are tracked **only when the effective `commit_memory` setting is `true`**. Resolve it with project-first, global-fallback precedence: an explicit `workspace.commit_memory` in `.devbot.project.jsonc` wins (even `false`); otherwise the value from the global config's `workspace.commit_memory`; when neither config sets it, the default is `false` (in which case `memory/init.sh` ignores the vault — `.agents/memory` lands in `.git/info/exclude`). **Check reality before committing**: resolve `commit_memory` from the project config first, falling back to the global config, AND run `git check-ignore <file>` on a captured file — if the effective value is not `true` or the file is ignored, skip the commit (the files stay local; nothing to fix). A pre-existing `.gitignore` blanket rule (e.g. `.agents/**`) can shadow the surgical excludes even with `commit_memory: true` — `git check-ignore` catches that too. Only when the file is genuinely trackable, commit:
 
 - **Normal commits, memory files only** — one commit per repository per capture, staged explicitly (`git add <memory-path>…`, never a blanket add) so nothing but the new or changed memory files rides along. These commits land on the default branch, where fixups are forbidden — never use `--fixup` (see `devbot:git-fixup-commits`).
 - **Only on the main checkout's local default branch** — the finish flow runs there; commit there, not in the worktree (`devbot:git-worktrees`). If that checkout is on any other branch — a feature branch, a detached HEAD — do not commit: leave the memory files uncommitted and surface them, because a commit there would ride into that branch's pull request.
@@ -100,12 +100,12 @@ Memory files under `.agents/memory/` are tracked **only when the effective `comm
 - **Surface what you leave behind** — when the main checkout still holds memory changes, or its local default branch carries memory commits that `origin/<default>` does not, say so and name them. The human decides how they reach origin: do not reset, rebase, or push them, and do not change a new branch's base to carry them without their say.
 - **Keep the memory capture as the final memory action** — make these commits the last writes to the memory vault and write no further memory files afterward, so the memory capture stays a one-shot operation. The finish flow then runs `devbot:grade-tools` (tool quality) and `devbot:reconcile-work` (work-folder and worktree housekeeping) — neither writes memory notes.
 
-**Monorepo sessions** — route each memory file to its **owning project's**
-repo and honour _that project's_ `commit_memory`, never the monorepo's
-(resolve `_devbot_get_config commit_memory <owner>` — project-first,
+**Polyrepo sessions** — route each memory file to its **owning project's**
+repo and honour _that project's_ `commit_memory`, never the polyrepo's
+(resolve `_devbot_get_workspace_config commit_memory <owner>` — project-first,
 global-fallback for the owner). Group findings by owning project and commit once
 per repo; a child with `commit_memory: false` gets no memory commit even when the
-monorepo commits.
+polyrepo commits.
 
 Memory commits always go to the owning project's **main checkout, never a
 worktree, whatever the workflow** — memory files live there, and a worktree has
@@ -113,6 +113,6 @@ no runtime farm. Commit only when that checkout is on the local default branch;
 if it is on any other branch, leave the files uncommitted and surface them —
 never switch the human's branch, and never put vault commits on their feature
 branch. When the owner is not a git repo
-(e.g. a monorepo root never `git init`ed), skip the commit and append a
+(e.g. a polyrepo root never `git init`ed), skip the commit and append a
 **notice** line to the owner's `.agents/logs/memory-index.log` — no warning, no
 failure.

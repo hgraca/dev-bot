@@ -13,12 +13,12 @@ Finding your way around a codebase you have not seen before — the module behin
 - **`create-project-report`** — writes `.agents/memory/active/project.md`, the project's own description, used when it is missing or stale.
 - **`search-code`** — locates a definition and follows the architecture around it.
 
-## Monorepo sessions
+## Polyrepo sessions
 
-In a `monorepo: true` project the session may touch several managed
+In a polyrepo project the session may touch several managed
 projects, so `gather-context` scopes memory search per project with
 `--focus <path>` and the primary agent dispatches **one @scout per predicted
-project, in parallel** — each reporting into the monorepo's `thinking/`.
+project, in parallel** — each reporting into the polyrepo's `thinking/`.
 
 ## Configuration
 
@@ -26,6 +26,6 @@ No project configuration is required.
 
 ## See also
 
-- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
+- [Polyrepo sessions](/polyrepo-sessions) — how this module scopes itself to the owning project
 - [Memory](/modules/agentic/memory) — where the project report is stored
 - [Git](/modules/agentic/git) — the git-report tool `gather-context` calls

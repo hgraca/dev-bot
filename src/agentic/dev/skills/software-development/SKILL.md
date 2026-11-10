@@ -20,11 +20,12 @@ commits land, how it is reviewed, and where it stops. Select it in this order �
 
 1. **Explicit user instruction** — when the user names a workflow or asks to deviate from the
    configured one, follow it for that run.
-2. **Project configuration** — the `workflow` key in `.devbot.project.jsonc`, falling back to that
-   same file's not-yet-migrated `worktrees` key (`true` → `worktrees`, `false` → `trunk`), then to
-   `.devbot.global.jsonc` in the same order. In a `monorepo: true` session _the project_ is the
+2. **Project configuration** — `workspace.workflow` in `.devbot.project.jsonc`, falling back to
+   `workspace.workflow` in `.devbot.global.jsonc`, then to `worktrees`. The retired root `workflow`
+   and `worktrees` keys are not read: `devbot init` migrates them into the block. In a polyrepo
+   session _the project_ is the
    **owning project** of the task's files — resolve it first (`devbot tool project-for-path <path>`),
-   never the monorepo root, and run the workflow's repo-scoped steps in that owner.
+   never the polyrepo root, and run the workflow's repo-scoped steps in that owner.
 3. **Default** — the [Worktrees workflow](#worktrees-workflow) when no configuration names one.
 
 **Check in after every step.** In an interactive session, end each step with a two-line report — what

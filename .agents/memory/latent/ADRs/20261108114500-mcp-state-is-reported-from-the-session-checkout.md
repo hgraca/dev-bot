@@ -7,7 +7,7 @@ aliases: ["is the MCP enabled", "mcp configured vs live", "session checkout conf
 ## `project-for-path` reports configured MCP state from the session checkout
 
 MCP wiring belongs to the checkout the harness runs in, not to the project that owns an arbitrary
-file: a monorepo workspace reads its own `opencode.jsonc`, while a child project may carry a
+file: a polyrepo workspace reads its own `opencode.jsonc`, while a child project may carry a
 different (or no) generated config. `project-for-path` therefore resolves `mcps` from the nearest
 generated config above the owner and accepts `--session-root <dir>` (or `DEV_BOT_PROJECT_ROOT`) to
 name the live checkout outright — a session root is never walked, so a parent workspace's config

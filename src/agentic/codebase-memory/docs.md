@@ -62,7 +62,7 @@ No project configuration is required.
 
 ## See also
 
-- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
+- [Polyrepo sessions](/polyrepo-sessions) — how this module scopes itself to the owning project
 - [Codebase Index](/modules/agentic/codebase-index) — the sibling Ollama-based engine
 - [Graphify](/modules/agentic/graphify) — structural knowledge graph
 - [QMD](/modules/agentic/qmd) — knowledge vault search

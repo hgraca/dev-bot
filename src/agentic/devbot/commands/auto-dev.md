@@ -48,8 +48,8 @@ Task: $ARGUMENTS
 
 3. **Load the workflow in use** — read the Workflows section of `devbot:software-development` and
    follow the workflow it selects for this run: an explicit instruction in this command wins, then
-   the project's `workflow` configuration, then the default. In a `monorepo: true` session the
-   configuration is the **owning project's**, never the monorepo's: derive the owner from the files
+   the project's `workflow` configuration, then the default. In a polyrepo session the
+   configuration is the **owning project's**, never the polyrepo's: derive the owner from the files
    the task concerns (`devbot tool project-for-path <path>`), and when the task names no file, take
    the owner from the task statement or ask before starting. Follow the selected workflow's steps as
    written; when the configuration names a workflow that does not exist, stop and ask. State the

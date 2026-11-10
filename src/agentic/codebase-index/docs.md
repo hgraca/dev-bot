@@ -36,6 +36,6 @@ No project configuration is required.
 
 ## See also
 
-- [Monorepo sessions](/monorepo-sessions) — how this module scopes itself to the owning project
+- [Polyrepo sessions](/polyrepo-sessions) — how this module scopes itself to the owning project
 - [Graphify](/modules/agentic/graphify) — structural knowledge graph
 - [QMD](/modules/agentic/qmd) — knowledge vault search

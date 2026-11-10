@@ -4,10 +4,10 @@
 # ---
 # =============================================================================
 # src/tools/devbot-cli/tools/project-memory.mcp.sh
-# In a monorepo session the agent works across many projects, each with its
+# In a polyrepo session the agent works across many projects, each with its
 # own always-on context. This tool loads the owning project's memory in one
 # call, labelled by file and scoped to that project, so rules read here do not
-# leak into sibling projects or into the monorepo's coordination work.
+# leak into sibling projects or into the polyrepo's coordination work.
 #
 # Usage:
 #   project-memory.mcp.sh <path>                    # active memory of the owner
@@ -22,7 +22,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"project-memory","description":"Print the always-on memory of the registered devbot project that owns <path>: its AGENTS.md and CLAUDE.md when present, plus <devbot_dir>/memory/active/**/*.md. Each file is labelled and the output is scoped to that project. Run it once before the first read or edit in a project during a monorepo session.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--global-config <file>]"}},"required":["args"]}}
+{"name":"project-memory","description":"Print the always-on memory of the registered devbot project that owns <path>: its AGENTS.md and CLAUDE.md when present, plus <devbot_dir>/memory/active/**/*.md. Each file is labelled and the output is scoped to that project. Run it once before the first read or edit in a project during a polyrepo session.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--global-config <file>]"}},"required":["args"]}}
 JSON
     exit 0
     ;;
@@ -125,7 +125,7 @@ print()
 print(f"**Path:** {owner}")
 print(
     "**Scope:** applies only within this project. Do not carry these rules into "
-    "other projects or into the monorepo's coordination work."
+    "other projects or into the polyrepo's coordination work."
 )
 print()
 

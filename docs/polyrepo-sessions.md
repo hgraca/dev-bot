@@ -1,20 +1,20 @@
 ---
 layout: page
-title: Monorepo sessions
-description: The owning-project contract for monorepo sessions.
+title: Polyrepo sessions
+description: The owning-project contract for polyrepo sessions.
 nav_section: docs
 ---
 
-# Monorepo sessions
+# Polyrepo sessions
 
-A project with `monorepo: true` runs sessions that work **across** the managed
+A project with `workspace.type: "polyrepo"` runs sessions that work **across** the managed
 projects registered in the global config's `projects` array. Memory already
 scopes itself that way (see [`devbot:memory-management`](/modules/agentic/memory));
 this document defines the same contract for every other module.
 
 ## The rule
 
-A monorepo session has no single "current project". Before any project-scoped
+A polyrepo session has no single "current project". Before any project-scoped
 action:
 
 1. **Resolve the owning project** from the files the action concerns — never
@@ -27,11 +27,11 @@ action:
    memory](#loading-a-childs-active-memory)).
 4. **Run repo-scoped commands in that project** (`git -C <owner>`, `gh --repo`,
    `make` from `<owner>`, containers belong to `<owner>`).
-5. **Write into the owner**, not into the monorepo. A change belongs to the
-   monorepo only when it spans projects or is coordination-level (plans,
+5. **Write into the owner**, not into the polyrepo. A change belongs to the
+   polyrepo only when it spans projects or is coordination-level (plans,
    cross-repo decisions, session notes).
 
-In a non-monorepo project the owner of every path is the project itself, so
+In a non-polyrepo project the owner of every path is the project itself, so
 these rules are inert and the existing single-project behaviour stands.
 
 ## Resolving the owner
@@ -43,9 +43,9 @@ devbot tool project-for-path src/foo.ts --json   # machine-readable
 
 The tool maps the path to the **longest registered project** that contains it
 (path-component boundaries respected), then prints that project's name, path,
-whether it is a monorepo, and the resolved `commit_memory`, `workflow`,
+whether it is a polyrepo, and the resolved `commit_memory`, `workflow`,
 `devbot_dir`, `datasources` and `modules`. It exits `3` when no registered
-project contains the path — treat that as "the monorepo owns it" only if the
+project contains the path — treat that as "the polyrepo owns it" only if the
 path is genuinely workspace-level; otherwise stop and ask.
 
 The same resolution is available in Bash as
@@ -54,7 +54,7 @@ The same resolution is available in Bash as
 
 ## Loading a child's active memory
 
-A monorepo session auto-loads only its **own** `AGENTS.md` and
+A polyrepo session auto-loads only its **own** `AGENTS.md` and
 `<devbot_dir>/memory/active/**/*.md`. A child's always-on context is not in scope
 until it is loaded, and a child is not otherwise reachable except through
 `search-memories --focus`, which is search rather than always-on context.
@@ -69,7 +69,7 @@ The tool resolves the owning project (same rule as `project-for-path`), reads it
 sorted order. A symlinked memory file is still read — a project may link shared
 module memory in deliberately — and is labelled with its resolved target, so the
 scope statement stays accurate. It exits `3` for a path that belongs to no registered project —
-there is no child memory to load, so continue with the monorepo's own — and
+there is no child memory to load, so continue with the polyrepo's own — and
 prints an explicit "no active memory" notice when the project has none.
 
 Run it **once per project per session**, at the point work first reads or writes
@@ -77,10 +77,10 @@ files there — not at session start for every project, and not again for a proj
 already loaded. The memory it prints is scoped to that project:
 
 - it never sets the rules for a sibling project;
-- it never displaces the monorepo's own active memory for coordination work;
+- it never displaces the polyrepo's own active memory for coordination work;
 - it is never copied into another project's vault.
 
-Where a child rule conflicts with the monorepo's, the child's rule wins while
+Where a child rule conflicts with the polyrepo's, the child's rule wins while
 the work is in that child. Subagents sent into a child are told to run the tool
 themselves as their first step — a `@scout` report about the child does not stand
 in for it.
@@ -91,21 +91,21 @@ in for it.
 
 | Module                             | Contract                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **git**                            | Resolve the owner's `workflow` first (`worktree.sh enabled --project <owner>`). Under `worktrees`, the worktree is created in the **owning project** and commits are made with `git -C <worktree>`; under `trunk`, no worktree or branch is created — commits go on the owner's default branch with `git -C <owner>`. Every worktree subcommand that needs a repository — `create`, `enabled`, `list`, `path`, `push`, `remove` — takes `--project <dir>`, and `create`/`enabled` refuse a monorepo root (even with commits); a repository with no commits asks for an initial commit. `git-report` takes `--cwd <dir>`. |
-| **github**                         | PRs, reviews, releases and `gh` reads target the **owner's** repository (`gh --repo <owner-slug>`). The monorepo root has no remote, so `gh` run from it resolves nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| **datasources**                    | The available datasource tools come from the **session project's** selection. A monorepo that declares `datasources: []` has none — the owner's selection must be resolved explicitly, and a query must still name the datasource it targets.                                                                                                                                                                                                                                                                                                                                                                            |
+| **git**                            | Resolve the owner's `workflow` first (`worktree.sh enabled --project <owner>`). Under `worktrees`, the worktree is created in the **owning project** and commits are made with `git -C <worktree>`; under `trunk`, no worktree or branch is created — commits go on the owner's default branch with `git -C <owner>`. Every worktree subcommand that needs a repository — `create`, `enabled`, `list`, `path`, `push`, `remove` — takes `--project <dir>`, and `create`/`enabled` refuse a polyrepo root (even with commits); a repository with no commits asks for an initial commit. `git-report` takes `--cwd <dir>`. |
+| **github**                         | PRs, reviews, releases and `gh` reads target the **owner's** repository (`gh --repo <owner-slug>`). The polyrepo root has no remote, so `gh` run from it resolves nothing.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| **datasources**                    | The available datasource tools come from the **session project's** selection. A polyrepo that declares `datasources: []` has none — the owner's selection must be resolved explicitly, and a query must still name the datasource it targets.                                                                                                                                                                                                                                                                                                                                                                            |
 | **devteam**                        | Every plan task, implementation step and review names its owning project. Commits and PRs are per owner; a single changeset never spans two repositories.                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **dev / makefile, shell-strategy** | `make`, test runners and container commands run from the **owner's** directory and against the **owner's** container. The monorepo's Makefile, if any, is not the project's.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **dev / makefile, shell-strategy** | `make`, test runners and container commands run from the **owner's** directory and against the **owner's** container. The polyrepo's Makefile, if any, is not the project's.                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 ### Tier 2 — tools that take a path nobody passes
 
 | Module                                                          | Contract                                                                                                                                                                                         |
 | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **codebase-memory / codebase-index**                            | Index and query **one project at a time**, using the owner path. An index root that does not cover the owner is a configuration problem to surface, not to work around by indexing the monorepo. |
-| **explore / create-project-report**                             | A project description describes **one project**. In a monorepo, generate the owner's description on demand; do not write a child's description into the monorepo's vault.                        |
+| **codebase-memory / codebase-index**                            | Index and query **one project at a time**, using the owner path. An index root that does not cover the owner is a configuration problem to surface, not to work around by indexing the polyrepo. |
+| **explore / create-project-report**                             | A project description describes **one project**. In a polyrepo, generate the owner's description on demand; do not write a child's description into the polyrepo's vault.                        |
 | **forensics, docs/use-case-map, docs/impact-diagram, refactor** | The repo / project-root argument is the **owner** derived from the files in play. `forensics` takes `<repo>`; the diagram tools and `refactor` take `--project-root`.                            |
 | **k8s, tree, search-code**                                      | Path arguments are resolved inside the **owner**; a `--changed`/diff mode runs with `git -C <owner>`.                                                                                            |
-| **memory work folders**                                         | A work item that concerns one project lives in that project's `work/` folder; only cross-project coordination work lives in the monorepo's.                                                      |
+| **memory work folders**                                         | A work item that concerns one project lives in that project's `work/` folder; only cross-project coordination work lives in the polyrepo's.                                                      |
 
 ### Tier 3 — unaffected
 
@@ -113,10 +113,10 @@ in for it.
 (operate on given paths), `agent-communication`, `list-projects` (already lists
 the registry), module lifecycle scripts (`init`, `reset`, `up`, `reinit`).
 
-## Worktrees in a monorepo
+## Worktrees in a polyrepo
 
-The monorepo root is a container for independent sibling repositories — often with no commits
-of its own. `worktree.sh create` refuses a monorepo root regardless of its history, and refuses
+The polyrepo root is a container for independent sibling repositories — often with no commits
+of its own. `worktree.sh create` refuses a polyrepo root regardless of its history, and refuses
 a repository with no commits, instead of failing halfway through. The rule is:
 
 ```bash
@@ -124,9 +124,9 @@ owner="$(devbot tool project-for-path "$file" --json | jq -r .path)"
 bash src/agentic/git/tools/worktree.sh create feat/thing --project "$owner"
 ```
 
-The same `--project` reaches every other subcommand that needs a repository, so the monorepo root
+The same `--project` reaches every other subcommand that needs a repository, so the polyrepo root
 can list, locate, push and remove a child's worktrees — `push` and `remove` included. Without it
-they resolve the monorepo's own repository and report `no worktree is registered for '<branch>'`;
+they resolve the polyrepo's own repository and report `no worktree is registered for '<branch>'`;
 that message means "wrong repository", not "no such worktree". `<branch>` is always the branch
 name, never the worktree directory slug, and running the tool with the child's main checkout as the
 working directory works as well as passing `--project`.
@@ -155,6 +155,6 @@ Modules outside those tables are unaffected and do not carry the contract.
 
 ## See also
 
-- [Configuration — `monorepo`](/configuration#monorepo)
+- [Configuration — `polyrepo`](/configuration#workspace)
 - [Memory](/modules/agentic/memory) — the read/write scoping this document extends
 - [Git worktrees](/modules/agentic/git) — worktree creation and teardown

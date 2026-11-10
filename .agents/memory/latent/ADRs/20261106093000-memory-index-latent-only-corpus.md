@@ -2,7 +2,7 @@
 date: 2026-11-06
 keywords: ["memory-index", "latent", "corpus", "search-memories", "mdctx"]
 aliases: ["passive memories only", "work notes not searchable"]
-see: ["ADRs/20260919120352-branch-aware-memory-index.md", "ADRs/20261009084426-monorepo-memory-scope-resolution.md"]
+see: ["ADRs/20260919120352-branch-aware-memory-index.md", "ADRs/20261009084426-polyrepo-memory-scope-resolution.md"]
 ---
 
 ## Memory search indexes only the latent corpus

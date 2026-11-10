@@ -37,19 +37,22 @@ setup() {
 @test "workflows are selected by user, then configuration, then the default" {
   local user config default
   user="$(grep -nF '**Explicit user instruction**' "$SKILL" | cut -d: -f1)"
-  config="$(grep -nF 'the `workflow` key in `.devbot.project.jsonc`' "$SKILL" | cut -d: -f1)"
-
-  # The selection rule also honours a not-yet-migrated retired key.
-  run grep -qF 'not-yet-migrated `worktrees` key' "$FLAT"
-  assert_success
-
-  run grep -qF '`true` → `worktrees`, `false` → `trunk`' "$FLAT"
-  assert_success
+  config="$(grep -nF '`workspace.workflow` in `.devbot.project.jsonc`' "$SKILL" | cut -d: -f1)"
   default="$(grep -nF 'the [Worktrees workflow](#worktrees-workflow) when no configuration names one' "$SKILL" | cut -d: -f1)"
 
   [ -n "$user" ] && [ -n "$config" ] && [ -n "$default" ]
   [ "$user" -lt "$config" ]
   [ "$config" -lt "$default" ]
+}
+
+@test "the workflow rule states the hard cut over the retired keys" {
+  # The reader no longer honours a root `workflow` or `worktrees`; the skill
+  # must say so, or an agent will look for keys that are never set.
+  run grep -qF 'The retired root `workflow`' "$FLAT"
+  assert_success
+
+  run grep -qF '`devbot init` migrates them into the block' "$FLAT"
+  assert_success
 }
 
 @test "every step ends with a check-in, non-interactive runs excepted" {
