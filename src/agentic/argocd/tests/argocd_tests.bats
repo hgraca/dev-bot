@@ -19,7 +19,7 @@ setup() {
 @test "mcp-meta: every tool returns JSON with a name and args schema" {
   command -v jq &>/dev/null || skip "jq not installed"
 
-  for tool in argocd-install argocd-start argocd-upgrade argocd-restart; do
+  for tool in argocd-install argocd-start argocd-restart; do
     run bash "$TOOLS/${tool}.mcp.sh" mcp-meta
     assert_success
     echo "$output" | jq -e '.name != null' >/dev/null
@@ -31,7 +31,7 @@ setup() {
 @test "mcp-meta: names are unique and match the tool file" {
   command -v jq &>/dev/null || skip "jq not installed"
 
-  for tool in argocd-install argocd-start argocd-upgrade argocd-restart; do
+  for tool in argocd-install argocd-start argocd-restart; do
     name=$(bash "$TOOLS/${tool}.mcp.sh" mcp-meta | jq -r .name)
     [ "$name" = "$tool" ]
   done
@@ -51,12 +51,6 @@ setup() {
   assert_output --partial "--token"
 }
 
-@test "upgrade: --help succeeds and documents --settle" {
-  run bash "$SCRIPTS/argocd-upgrade.sh" --help
-  assert_success
-  assert_output --partial "--settle"
-}
-
 @test "restart: --help succeeds and documents --verify-host" {
   run bash "$SCRIPTS/argocd-restart.sh" --help
   assert_success
@@ -64,30 +58,6 @@ setup() {
 }
 
 # ── Argument validation (exit code 2) ─────────────────────────────────────────
-
-@test "upgrade: missing version exits 2" {
-  run bash "$SCRIPTS/argocd-upgrade.sh" --context anything
-  assert_failure
-  [ "$status" -eq 2 ]
-}
-
-@test "upgrade: unknown option exits 2" {
-  run bash "$SCRIPTS/argocd-upgrade.sh" --nope
-  assert_failure
-  [ "$status" -eq 2 ]
-}
-
-@test "upgrade: non-numeric --settle exits 2" {
-  run bash "$SCRIPTS/argocd-upgrade.sh" v3.6.1 --context anything --settle soon
-  assert_failure
-  [ "$status" -eq 2 ]
-}
-
-@test "upgrade: missing --context exits 2" {
-  run bash "$SCRIPTS/argocd-upgrade.sh" v3.6.1
-  assert_failure
-  [ "$status" -eq 2 ]
-}
 
 @test "restart: missing --context exits 2" {
   run bash "$SCRIPTS/argocd-restart.sh"
@@ -115,24 +85,14 @@ setup() {
 
 # ── JSON contract and wrapper resolution ──────────────────────────────────────
 
-@test "upgrade: --json on a preflight failure prints a valid JSON envelope" {
-  command -v jq &>/dev/null || skip "jq not installed"
-
-  rc=0
-  out=$(bash "$SCRIPTS/argocd-upgrade.sh" --json --context no-such-context 2>/dev/null) || rc=$?
-
-  [ "$rc" -eq 2 ]
-  echo "$out" | jq -e '.status == "failed" and .exitCode == 2' >/dev/null
-}
-
 @test "wrapper: resolves its script through a symlink" {
   tmpdir=$(mktemp -d)
-  ln -sf "$TOOLS/argocd-upgrade.mcp.sh" "$tmpdir/argocd-upgrade.mcp.sh"
+  ln -sf "$TOOLS/argocd-restart.mcp.sh" "$tmpdir/argocd-restart.mcp.sh"
 
-  run bash "$tmpdir/argocd-upgrade.mcp.sh" --help
+  run bash "$tmpdir/argocd-restart.mcp.sh" --help
 
-  rm -f "$tmpdir/argocd-upgrade.mcp.sh"
+  rm -f "$tmpdir/argocd-restart.mcp.sh"
   rmdir "$tmpdir"
   assert_success
-  assert_output --partial "argocd-upgrade.sh"
+  assert_output --partial "argocd-restart.sh"
 }
