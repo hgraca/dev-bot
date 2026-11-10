@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read a JSONC file, strip comments, output parsed JSON or a specific field.
+"""Read a JSONC file, strip comments and trailing commas, output parsed JSON or a field.
 
 Usage:
   read_jsonc.py <file>                          # dump entire object as JSON
@@ -12,7 +12,7 @@ import sys
 
 
 def load_jsonc(path):
-    """Read a JSONC file, strip // and /* */ comments (string-aware)."""
+    """Read a JSONC file, strip comments and trailing commas (string-aware)."""
     with open(path) as f:
         raw = f.read()
 
@@ -53,7 +53,27 @@ def load_jsonc(path):
         out.append(raw[i])
         i += 1
 
-    return json.loads("".join(out))
+    return json.loads("".join(_drop_trailing_commas(out)))
+
+
+def _drop_trailing_commas(tokens):
+    """Remove a comma before a closing bracket, but only after a member."""
+    cleaned = []
+    for token in tokens:
+        if token in ("]", "}"):
+            previous = _previous_significant(cleaned, len(cleaned) - 1)
+            if previous >= 0 and cleaned[previous] == ",":
+                member = _previous_significant(cleaned, previous - 1)
+                if member >= 0 and cleaned[member] not in (",", "[", "{"):
+                    del cleaned[previous]
+        cleaned.append(token)
+    return cleaned
+
+
+def _previous_significant(tokens, index):
+    while index >= 0 and tokens[index].isspace():
+        index -= 1
+    return index
 
 
 def main():
