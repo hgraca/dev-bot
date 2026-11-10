@@ -750,13 +750,14 @@ main() {
   # Record the release so every project reinits on its next start.
   _record_installed_version "${target}"
 
-  # Migrate the retired worktrees key before the reconciler drops it. Skip the
-  # reconciler when the migration failed: it would remove the retired key and
-  # copy the dist default, silently replacing the machine's intent.
-  if _migrate_workflow_config; then
+  # Migrate every retired config key before the reconciler drops it — it
+  # removes runtime keys the dist no longer carries and copies the defaults,
+  # which would silently replace the machine's intent. Skip the reconciler when
+  # any migration needs attention, so nothing is lost before it is resolved.
+  if _migrate_workflow_config && _migrate_workspace_config "$(_devbot_global_config)"; then
     _reconcile_global_config
   else
-    _warn "global config reconciliation skipped — resolve the workflow key above, then run devbot update again"
+    _warn "global config reconciliation skipped — resolve the config keys above, then run devbot update again"
   fi
 
   UPDATED="${tool_count}" FAILED="${tool_failed}"

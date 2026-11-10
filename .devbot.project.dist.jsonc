@@ -2,12 +2,13 @@
   "project_name": "__PROJECT_NAME__",
   "harness": "opencode",
   "devbot_dir": ".agents",
-  "commit_memory": false,
-  "workflow": "worktrees",
-  // A monorepo project orchestrates work and memory across the managed
-  // projects registered in .devbot.global.jsonc::projects. Memory scope is
-  // resolved from the files the session touches. Default: a normal project.
-  "monorepo": false,
+  // Workspace behaviour defaults live in .devbot.global.jsonc::workspace.
+  // State a key here only when this project differs from those defaults:
+  //   "workspace": { "type": "polyrepo", "commit_memory": true,
+  //                  "workflow": "trunk" }
+  // `type` is "repo" (the default) or "polyrepo" — a container project that
+  // orchestrates the managed projects registered in the global `projects`
+  // array, with memory scope resolved from the files the session touches.
   // Opt in BY NAME to datasources declared in .devbot.global.jsonc. Only these
   // are registered with this project's harness — the rest cost nothing, not
   // even context.

@@ -53,7 +53,7 @@ _warn() { echo "WARN: $*" >&2; }
 # The main checkout's root — the first `worktree list` entry of the repository
 # containing <dir> (default: the current directory), so the tool behaves the
 # same when invoked from inside a linked worktree. Naming the project matters in
-# a monorepo session, where the session root is a container repository and the
+# a polyrepo session, where the session root is a container repository and the
 # task belongs to a child.
 _git_root() {
   local dir="${1:-.}"
@@ -329,8 +329,8 @@ cmd_create() {
   local root devbot_dir default base_ref slug path base_sha
   root="$(_git_root "${project}")"
   [[ -n "${root}" ]] || _fatal "create: not inside a git repository"
-  if [[ "$(_devbot_get_config "monorepo" "${root}")" == "true" ]]; then
-    _fatal "create: ${root} is a monorepo project, not a codebase — pass --project <owning-project> to create the worktree there"
+  if [[ "$(_devbot_get_workspace_config "type" "${root}")" == "polyrepo" ]]; then
+    _fatal "create: ${root} is a polyrepo project, not a codebase — pass --project <owning-project> to create the worktree there"
   fi
   if ! git -C "${root}" rev-parse --verify --quiet HEAD >/dev/null; then
     _fatal "create: ${root} has no commits — make an initial commit before creating a worktree"
@@ -412,8 +412,8 @@ cmd_enabled() {
   local root
   root="$(_git_root "${project}")"
   [[ -n "${root}" ]] || _fatal "enabled: not inside a git repository"
-  if [[ "$(_devbot_get_config "monorepo" "${root}")" == "true" ]]; then
-    _fatal "enabled: ${root} is a monorepo project, not a codebase — pass --project <owning-project>"
+  if [[ "$(_devbot_get_workspace_config "type" "${root}")" == "polyrepo" ]]; then
+    _fatal "enabled: ${root} is a polyrepo project, not a codebase — pass --project <owning-project>"
   fi
 
   local workflow
@@ -628,7 +628,7 @@ Subcommands:
                     hard-link the --link dirs (repeatable; default vendor,
                     node_modules) from the main checkout. --no-link disables.
                     --project names the owning project (default: cwd) — required
-                    in a monorepo session, whose root has no commits.
+                    in a polyrepo session, whose root has no commits.
                     Prints the path (refused outside the worktrees workflow)
   enabled [--project <dir>]
                     print true/false and exit 0/1 for the resolved workflow;
@@ -646,8 +646,8 @@ Subcommands:
 Every subcommand that needs a repository takes --project <dir>. <branch> is
 always the branch name, never the worktree directory name.
 
-Monorepo sessions:
-  A monorepo session's root is a container for sibling repositories, so the
+Polyrepo sessions:
+  A polyrepo session's root is a container for sibling repositories, so the
   tool resolves the wrong repo unless told which one. Pass the child's main
   checkout as --project and run it from anywhere:
 
@@ -656,7 +656,7 @@ Monorepo sessions:
     worktree.sh push   feat/thing --project "$owner"
     worktree.sh remove feat/thing --project "$owner"
 
-  create and enabled refuse a monorepo root even when it has commits. Running
+  create and enabled refuse a polyrepo root even when it has commits. Running
   the tool with the child's main checkout as the working directory also works,
   but --project does not depend on where the shell happens to be.
 

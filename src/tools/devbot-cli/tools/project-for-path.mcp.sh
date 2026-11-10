@@ -4,7 +4,7 @@
 # ---
 # =============================================================================
 # src/tools/devbot-cli/tools/project-for-path.mcp.sh
-# A monorepo session has no single current project: every project-scoped
+# A polyrepo session has no single current project: every project-scoped
 # action must first find the project that owns the files it touches. This tool
 # is that lookup plus the owner's effective config: scalars resolve
 # project-first then global; `modules` merges per key; `datasources` is the
@@ -30,7 +30,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective commit_memory, workflow, devbot_dir, datasources, modules, monorepo state and configured MCP servers. Use it in a monorepo session before any project-scoped action, and before assuming an MCP server is configured. Configuration does not imply reachability: an enabled server may still be offline or unauthenticated.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--session-root <dir>] [--global-config <file>]"}},"required":["args"]}}
+{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective workspace type, commit_memory, workflow, devbot_dir, datasources, modules and configured MCP servers. Use it in a polyrepo session before any project-scoped action, and before assuming an MCP server is configured. Configuration does not imply reachability: an enabled server may still be offline or unauthenticated.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--session-root <dir>] [--global-config <file>]"}},"required":["args"]}}
 JSON
     exit 0
     ;;
@@ -113,12 +113,15 @@ if not owner:
     sys.exit(3)
 
 DEFAULTS = {
-    "commit_memory": "false",
-    "workflow": "worktrees",
     "devbot_dir": ".agents",
     "datasources": [],
     "modules": {},
-    "monorepo": "false",
+}
+
+WORKSPACE_DEFAULTS = {
+    "type": "repo",
+    "commit_memory": "false",
+    "workflow": "worktrees",
 }
 
 PROJECT_CONFIG = os.path.join(owner, ".devbot.project.jsonc")
@@ -143,17 +146,20 @@ def resolve_scalar(name):
     return DEFAULTS.get(name, "")
 
 
-def resolve_workflow():
-    """The effective workflow: `workflow`, else the retired `worktrees` key
-    (true -> worktrees, false -> trunk) until `devbot update` migrates it."""
+def _get_workspace(config_file, name):
+    workspace = _get(config_file, "workspace")
+    if not isinstance(workspace, dict) or name not in workspace:
+        return None
+    return workspace[name]
+
+
+def resolve_workspace(name):
+    """`workspace.<name>`: project value, then global value, then the default."""
     for candidate in (PROJECT_CONFIG, config_path):
-        value = _get(candidate, "workflow")
+        value = _get_workspace(candidate, name)
         if value is not None and value != "":
             return as_text(value)
-        legacy = _get(candidate, "worktrees")
-        if legacy is not None:
-            return {"true": "worktrees", "false": "trunk"}.get(as_text(legacy), as_text(legacy))
-    return DEFAULTS["workflow"]
+    return as_text(WORKSPACE_DEFAULTS.get(name, ""))
 
 
 def resolve_datasources():
@@ -281,8 +287,9 @@ def resolve_mcps():
 mcps_state, mcps_sources, mcps_errors = resolve_mcps()
 
 resolved = {
-    "commit_memory": as_text(resolve_scalar("commit_memory")),
-    "workflow": resolve_workflow(),
+    "commit_memory": resolve_workspace("commit_memory"),
+    "workflow": resolve_workspace("workflow"),
+    "type": resolve_workspace("type"),
     "devbot_dir": as_text(resolve_scalar("devbot_dir")),
     "datasources": resolve_datasources(),
     "modules": resolve_modules(),
@@ -290,7 +297,6 @@ resolved = {
     "mcps_sources": mcps_sources,
     "mcps_errors": mcps_errors,
 }
-resolved["monorepo"] = as_text(resolve_scalar("monorepo")) == "true"
 
 if key:
     if key not in resolved:
@@ -313,7 +319,7 @@ report = {
     "name": os.path.basename(owner.rstrip("/")),
     "path": owner,
     "registered": True,
-    "monorepo": resolved["monorepo"],
+    "type": resolved["type"],
     "config": {
         "commit_memory": as_text(resolved["commit_memory"]),
         "workflow": as_text(resolved["workflow"]),
@@ -336,7 +342,7 @@ print("## Owning project")
 print()
 print(f"**Name:** {report['name']}")
 print(f"**Path:** {report['path']}")
-print(f"**Monorepo:** {'yes' if report['monorepo'] else 'no'}")
+print(f"**Type:** {report['type']}")
 print()
 print("| Key | Value |")
 print("| --- | --- |")

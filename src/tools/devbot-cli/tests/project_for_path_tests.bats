@@ -23,15 +23,14 @@ setup() {
 
   cat > "${GLOBAL}" <<EOF
 {
-  "commit_memory": true,
-  "workflow": "worktrees",
+  "workspace": { "type": "repo", "commit_memory": true, "workflow": "worktrees" },
   "datasources": { "catalogue-a": { "type": "mysql" } },
   "modules": { "qmd": false, "signoz": true },
   "projects": ["${A}", "${B}"]
 }
 EOF
 
-  printf '{ "workflow": "trunk", "datasources": ["db-b"], "modules": { "signoz": false } }\n' \
+  printf '{ "workspace": { "workflow": "trunk" }, "datasources": ["db-b"], "modules": { "signoz": false } }\n' \
     > "${B}/.devbot.project.jsonc"
 }
 
@@ -105,29 +104,23 @@ run_tool() {
   assert_output "true"
 }
 
-@test "project-for-path: maps the retired worktrees key until migration runs" {
+@test "project-for-path: the retired worktrees key is no longer read" {
   printf '{ "worktrees": false, "datasources": ["db-b"] }\n' > "${B}/.devbot.project.jsonc"
-
-  run_tool "${B}/src/file.ts" --key workflow
-  assert_success
-  assert_output "trunk"
-
-  printf '{ "worktrees": true }\n' > "${B}/.devbot.project.jsonc"
 
   run_tool "${B}/src/file.ts" --key workflow
   assert_success
   assert_output "worktrees"
 }
 
-@test "project-for-path: reports monorepo from the project config, default false" {
-  run_tool "${A}/src/file.ts" --key monorepo
+@test "project-for-path: reports the workspace type, default repo" {
+  run_tool "${A}/src/file.ts" --key type
   assert_success
-  assert_output "false"
+  assert_output "repo"
 
-  printf '{ "monorepo": true }\n' > "${B}/.devbot.project.jsonc"
-  run_tool "${B}/src/file.ts" --key monorepo
+  printf '{ "workspace": { "type": "polyrepo" } }\n' > "${B}/.devbot.project.jsonc"
+  run_tool "${B}/src/file.ts" --key type
   assert_success
-  assert_output "true"
+  assert_output "polyrepo"
 }
 
 @test "project-for-path: renders a markdown table by default" {
@@ -371,7 +364,7 @@ JSONC
 }
 
 @test "project-for-path: a newline in a table value does not split the row" {
-  printf '{ "workflow": "trunk\\nsecond-line", "datasources": [] }\n' > "${A}/.devbot.project.jsonc"
+  printf '{ "workspace": { "workflow": "trunk\\nsecond-line" }, "datasources": [] }\n' > "${A}/.devbot.project.jsonc"
 
   run_tool "${A}/src/file.ts"
   assert_success

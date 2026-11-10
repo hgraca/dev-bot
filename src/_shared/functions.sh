@@ -188,29 +188,69 @@ _devbot_get_config() {
   echo "${value}"
 }
 
-# _devbot_get_workflow [project_dir]
-#   The effective workflow for a project: its `workflow` key, then its
-#   not-yet-migrated `worktrees` key (true -> worktrees, false -> trunk), then
-#   the global config in the same order, then `worktrees`. Keeping the retired
-#   mapping here means every reader resolves a failed migration the same way.
-_devbot_get_workflow() {
-  local project_dir="${1:-$(pwd)}" file value legacy
-  for file in "${project_dir}/.devbot.project.jsonc" "$(_devbot_global_config)"; do
-    [[ -f "${file}" ]] || continue
-    value="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${file}" workflow 2>/dev/null || true)"
-    if [[ -n "${value}" ]]; then
-      printf '%s' "${value}"
-      return 0
+# _devbot_get_workspace_config <key> [project_dir]
+#   Effective value of `workspace.<key>`, with the same project-first,
+#   global-fallback precedence as _devbot_get_config. The global config carries
+#   the documented defaults, so a project states only the keys it overrides.
+_devbot_get_workspace_config() {
+  local key="${1:?Usage: _devbot_get_workspace_config <key> [project_dir]}"
+  local project_dir="${2:-$(pwd)}"
+  local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+  local value=""
+
+  if [[ -n "${project_dir}" && -f "${project_dir}/.devbot.project.jsonc" ]]; then
+    value=$(python3 "${reader}" "${project_dir}/.devbot.project.jsonc" workspace "${key}" 2>/dev/null || true)
+  fi
+
+  if [[ -z "${value}" ]]; then
+    local global_config
+    global_config="$(_devbot_global_config)"
+    if [[ -f "${global_config}" ]]; then
+      value=$(python3 "${reader}" "${global_config}" workspace "${key}" 2>/dev/null || true)
     fi
-    legacy="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${file}" worktrees 2>/dev/null || true)"
-    case "${legacy}" in
+  fi
+
+  echo "${value}"
+}
+
+# _migrate_workspace_config <config-file>
+#   Rewrite a flat config (`commit_memory` / `workflow` / the retired `monorepo`
+#   and `worktrees`) into the `workspace` block. Returns non-zero when the file
+#   needs a hand — the caller must not then let a reconciler copy defaults over
+#   the user's intent. Both `init` and `update` run it.
+_migrate_workspace_config() {
+  local config="${1:?Usage: _migrate_workspace_config <config-file>}"
+  local tool="${DEV_BOT_ROOT}/src/_shared/migrate_workspace_config.py"
+  [[ -f "${config}" ]] || return 0
+  if [[ ! -f "${tool}" ]]; then
+    _warn "workspace migration tool not found — cannot migrate ${config}"
+    return 1
+  fi
+
+  local line failed=0
+  while IFS= read -r line; do
+    case "${line}" in
       "") ;;
-      true) printf 'worktrees'; return 0 ;;
-      false) printf 'trunk'; return 0 ;;
-      *) printf '%s' "${legacy}"; return 0 ;;
+      MIGRATED:*) _ok "Migrated ${line#MIGRATED: }" ;;
+      NEEDS_ATTENTION:*) _warn "migrate: ${line#NEEDS_ATTENTION: }"; failed=1 ;;
+      *) _warn "migrate: ${line}"; failed=1 ;;
     esac
-  done
-  printf 'worktrees'
+  done < <(python3 "${tool}" "${config}" 2>&1)
+  return "${failed}"
+}
+
+# _devbot_get_workflow [project_dir]
+#   The effective workflow: `workspace.workflow` project-first then global, and
+#   `worktrees` when neither states one. The retired `worktrees` key is not
+#   read — `devbot init` migrates it into the workspace block.
+_devbot_get_workflow() {
+  local workflow
+  workflow="$(_devbot_get_workspace_config "workflow" "${1:-$(pwd)}")"
+  if [[ -z "${workflow}" ]]; then
+    printf 'worktrees'
+  else
+    printf '%s' "${workflow}"
+  fi
 }
 
 _devbot_get_project_dir() {
@@ -350,7 +390,7 @@ _devbot_remove_module_memory() {
   rm -f -- "${dest}"
 }
 
-# ── Monorepo / cross-project resolution ────────────────────────────────────────
+# ── Polyrepo / cross-project resolution ────────────────────────────────────────
 #
 # _devbot_resolve_project_for_path <path> [default_dir]
 #   Prints the registered devbot project (from the global config's `projects`

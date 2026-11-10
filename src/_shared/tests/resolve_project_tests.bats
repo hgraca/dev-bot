@@ -3,7 +3,7 @@
 # src/_shared/tests/resolve_project_tests.bats
 # _devbot_resolve_project_for_path maps a path to the registered devbot project
 # that contains it (longest path-component prefix in the global config's
-# `projects` array). Backs monorepo memory-scoping and per-child config reads.
+# `projects` array). Backs polyrepo memory-scoping and per-child config reads.
 # =============================================================================
 
 setup() {
@@ -69,30 +69,30 @@ teardown() {
   assert_output "$A"
 }
 
-@test "a child's own commit_memory/workflow win over the monorepo's" {
+@test "a child's own workspace settings win over the polyrepo's" {
   mkdir -p "$BASE/sup" "$BASE/child"
-  printf '{ "commit_memory": true, "workflow": "worktrees" }\n' >"$BASE/sup/.devbot.project.jsonc"
-  printf '{ "commit_memory": false, "workflow": "trunk" }\n' >"$BASE/child/.devbot.project.jsonc"
-  printf '{ "commit_memory": true, "workflow": "worktrees" }\n' >"$BASE/global.jsonc"
+  printf '{ "workspace": { "type": "polyrepo", "commit_memory": true, "workflow": "worktrees" } }\n' >"$BASE/sup/.devbot.project.jsonc"
+  printf '{ "workspace": { "commit_memory": false, "workflow": "trunk" } }\n' >"$BASE/child/.devbot.project.jsonc"
+  printf '{ "workspace": { "type": "repo", "commit_memory": true, "workflow": "worktrees" } }\n' >"$BASE/global.jsonc"
 
   run env -u DEV_BOT_ROOT DEV_BOT_GLOBAL_CONFIG="$BASE/global.jsonc" bash -c \
-    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_get_config commit_memory '$BASE/child' && _devbot_get_config workflow '$BASE/child'"
+    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_get_workspace_config commit_memory '$BASE/child' && _devbot_get_workflow '$BASE/child'"
   assert_success
   assert_line --index 0 "false"
   assert_line --index 1 "trunk"
 }
 
-@test "the effective workflow is project-first across the retired key" {
-  mkdir -p "$BASE/sup" "$BASE/child"
-  # The child still carries the retired key; the global config is migrated.
+@test "the retired worktrees key is no longer read" {
+  mkdir -p "$BASE/child"
+  # A config that skipped init still carries the retired boolean; the reader
+  # must not honour it — migration is the only path across.
   printf '{ "worktrees": false }\n' >"$BASE/child/.devbot.project.jsonc"
-  printf '{ "workflow": "worktrees" }\n' >"$BASE/global.jsonc"
+  printf '{ "workspace": { "workflow": "worktrees" } }\n' >"$BASE/global.jsonc"
 
   run env -u DEV_BOT_ROOT DEV_BOT_GLOBAL_CONFIG="$BASE/global.jsonc" bash -c \
-    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_get_workflow '$BASE/child' && echo && _devbot_get_workflow '$BASE/sup'"
+    "source '$PROJECT_ROOT/src/_shared/functions.sh' && _devbot_get_workflow '$BASE/child'"
   assert_success
-  assert_line --index 0 "trunk"
-  assert_line --index 1 "worktrees"
+  assert_output "worktrees"
 }
 
 @test "the effective workflow defaults to worktrees when nothing is set" {

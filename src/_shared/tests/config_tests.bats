@@ -51,54 +51,54 @@ _write_project_cfg() {
   printf '%s\n' "$1" > "${PROJECT_DIR}/.devbot.project.jsonc"
 }
 
-# ── _devbot_get_config ──────────────────────────────────────────────────────
+# ── _devbot_get_workspace_config ──────────────────────────────────────────────────────
 
-@test "_devbot_get_config falls back to global when project key is absent (commit_memory bug)" {
-  _write_global_cfg '{ "commit_memory": true }'
+@test "_devbot_get_workspace_config falls back to global when project key is absent (commit_memory bug)" {
+  _write_global_cfg '{ "workspace": { "commit_memory": true } }'
   # project config exists but does not declare the key (template-like)
   _write_project_cfg '{ "project_name": "demo" }'
 
-  run _devbot_get_config "commit_memory" "${PROJECT_DIR}"
+  run _devbot_get_workspace_config "commit_memory" "${PROJECT_DIR}"
   assert_success
   assert_output "true"
 }
 
-@test "_devbot_get_config falls back to global when project config file is missing" {
-  _write_global_cfg '{ "commit_memory": true }'
+@test "_devbot_get_workspace_config falls back to global when project config file is missing" {
+  _write_global_cfg '{ "workspace": { "commit_memory": true } }'
 
-  run _devbot_get_config "commit_memory" "${PROJECT_DIR}"
+  run _devbot_get_workspace_config "commit_memory" "${PROJECT_DIR}"
   assert_success
   assert_output "true"
 }
 
-@test "_devbot_get_config lets an explicit project false win over global true" {
-  _write_global_cfg '{ "commit_memory": true }'
-  _write_project_cfg '{ "commit_memory": false }'
+@test "_devbot_get_workspace_config lets an explicit project false win over global true" {
+  _write_global_cfg '{ "workspace": { "commit_memory": true } }'
+  _write_project_cfg '{ "workspace": { "commit_memory": false } }'
 
-  run _devbot_get_config "commit_memory" "${PROJECT_DIR}"
+  run _devbot_get_workspace_config "commit_memory" "${PROJECT_DIR}"
   assert_success
   assert_output "false"
 }
 
-@test "_devbot_get_config lets an explicit project true win over global false" {
-  _write_global_cfg '{ "commit_memory": false }'
-  _write_project_cfg '{ "commit_memory": true }'
+@test "_devbot_get_workspace_config lets an explicit project true win over global false" {
+  _write_global_cfg '{ "workspace": { "commit_memory": false } }'
+  _write_project_cfg '{ "workspace": { "commit_memory": true } }'
 
-  run _devbot_get_config "commit_memory" "${PROJECT_DIR}"
+  run _devbot_get_workspace_config "commit_memory" "${PROJECT_DIR}"
   assert_success
   assert_output "true"
 }
 
-@test "_devbot_get_config returns project value when global config is absent" {
-  _write_project_cfg '{ "commit_memory": true }'
+@test "_devbot_get_workspace_config returns project value when global config is absent" {
+  _write_project_cfg '{ "workspace": { "commit_memory": true } }'
 
-  run _devbot_get_config "commit_memory" "${PROJECT_DIR}"
+  run _devbot_get_workspace_config "commit_memory" "${PROJECT_DIR}"
   assert_success
   assert_output "true"
 }
 
-@test "_devbot_get_config returns empty when key is unset in both configs" {
-  run _devbot_get_config "commit_memory" "${PROJECT_DIR}"
+@test "_devbot_get_workspace_config returns empty when key is unset in both configs" {
+  run _devbot_get_workspace_config "commit_memory" "${PROJECT_DIR}"
   assert_success
   assert_output ""
 }

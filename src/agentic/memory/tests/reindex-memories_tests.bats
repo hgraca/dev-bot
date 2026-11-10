@@ -671,7 +671,7 @@ EOF
     bash "$pass" --sync --worktree "$sup" --path "$child/.agents/memory/latent/x.md"
 
   assert_success
-  # The index target is the child, not the monorepo passed via --worktree.
+  # The index target is the child, not the polyrepo passed via --worktree.
   [ -f "$child/.agents/logs/memory-index-branch.json" ]
   [ ! -f "$sup/.agents/logs/memory-index-branch.json" ]
 }

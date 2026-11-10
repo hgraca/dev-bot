@@ -26,6 +26,7 @@ setup() {
   # test can source it. It resolves DEV_BOT_ROOT to $SANDBOX from its own path.
   sed '/^main "\$@"/d' "${PROJECT_ROOT}/bin/init.sh" > "${SANDBOX}/bin/init-flow.sh"
   cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX}/src/_shared/read_jsonc.py"
+  cp "${PROJECT_ROOT}/src/_shared/migrate_workspace_config.py" "${SANDBOX}/src/_shared/"
 
   # The wiring child `_wire_project` spawns. Records the call and exits with
   # WIRE_RC, so the tests drive the real child-process boundary.
@@ -71,6 +72,7 @@ STUB
     awk '/^_devbot_is_plain_relative_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_module_memory_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_project_initialized\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_migrate_workspace_config\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
   } >> "${SANDBOX}/src/_shared/functions.sh"
 
   printf '{"project_name": "inited"}\n' > "${INITED}/.devbot.project.jsonc"
@@ -248,175 +250,24 @@ EOF
   refute_output --partial "DevBot init complete"
 }
 
-# ── Retired `supervisor` key migration ───────────────────────────────────────
-# The rename is a hard cut, so an unmigrated config loses monorepo mode. These
-# pin the rewrite, its idempotence, and the ambiguity it refuses to guess.
-
-@test "a config naming the retired supervisor key is migrated in place" {
-  printf '{\n  "devbot_dir": ".agents",\n  "supervisor": true\n}\n' > "${OTHER}/.devbot.project.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '"monorepo": true'
-  refute_output --partial '"supervisor"'
-}
-
-@test "a comment naming the retired key is left byte-for-byte intact" {
-  printf '{\n  // the retired "supervisor": true key\n  "supervisor": false\n}\n' > "${OTHER}/.devbot.project.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '// the retired "supervisor": true key'
-  assert_output --partial '"monorepo": false'
-}
-
-@test "a config already naming monorepo is left untouched" {
-  printf '{ "monorepo": true }\n' > "${OTHER}/.devbot.project.jsonc"
-  local before
-  before="$(cat "${OTHER}/.devbot.project.jsonc")"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  [ -z "${output}" ]
-  [ "$(cat "${OTHER}/.devbot.project.jsonc")" = "${before}" ]
-}
-
-@test "a config setting both keys is reported and left for the user" {
-  printf '{ "supervisor": true, "monorepo": false }\n' > "${OTHER}/.devbot.project.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  assert_output --partial "sets both"
-  run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '"supervisor": true'
-}
-
-@test "a supervisor key in the global config is migrated too" {
-  printf '{ "supervisor": true }\n' > "${OTHER}/global.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key_in '${OTHER}/global.jsonc'"
-
-  assert_success
-  run cat "${OTHER}/global.jsonc"
-  assert_output --partial '"monorepo": true'
-  refute_output --partial '"supervisor"'
-}
-
-@test "init wires both migration call sites" {
-  # Removing either line would leave every existing config unmigrated while the
-  # functional tests above stayed green — the regression this pins.
-  grep -qF '_migrate_supervisor_key "${PROJECT_DIR}"' "${PROJECT_ROOT}/bin/init.sh"
-  grep -qF '_migrate_supervisor_key_in "$(_devbot_global_config)"' "${PROJECT_ROOT}/bin/init.sh"
-}
-
-@test "a key whose colon sits on the next line is still migrated" {
-  printf '{\n  "supervisor"\n  : true\n}\n' > "${OTHER}/.devbot.project.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '"monorepo"'
-  refute_output --partial '"supervisor"'
-}
-
-@test "a block comment between the key and its colon is still migrated" {
-  printf '{\n  "supervisor" /* retired */ : true\n}\n' > "${OTHER}/.devbot.project.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '"monorepo" /* retired */ : true'
-  refute_output --partial '"supervisor"'
-}
-
-@test "a line comment between the key and its colon is still migrated" {
-  printf '{\n  "supervisor" // retired\n  : true\n}\n' > "${OTHER}/.devbot.project.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '"monorepo" // retired'
-  refute_output --partial '"supervisor"'
-}
-
-@test "a nested object's supervisor key is left alone" {
-  printf '{\n  "outer": { "supervisor": true },\n  "supervisor": false\n}\n' > "${OTHER}/.devbot.project.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '"outer": { "supervisor": true }'
-  assert_output --partial '"monorepo": false'
-}
-
-@test "a symlinked config is rewritten through to its target" {
-  printf '{ "supervisor": true }\n' > "${OTHER}/real-config.jsonc"
-  ln -s "real-config.jsonc" "${OTHER}/.devbot.project.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  [ -L "${OTHER}/.devbot.project.jsonc" ]
-  run cat "${OTHER}/real-config.jsonc"
-  assert_output --partial '"monorepo": true'
-  refute_output --partial '"supervisor"'
-}
+# ── Workspace-block migration ────────────────────────────────────────────────
+# The schema rewrite is covered by migrate_workspace_config_tests.bats; these
+# pin that init actually invokes it, per project and for the global config.
 
 @test "_init_wiring migrates the project config it wires" {
-  printf '{ "supervisor": true }\n' > "${OTHER}/.devbot.project.jsonc"
+  printf '{ "polyrepo": true, "commit_memory": true }\n' > "${OTHER}/.devbot.project.jsonc"
 
   run _sandbox_bash "_init_wiring '${OTHER}' >/dev/null 2>&1 || true"
 
   run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '"monorepo": true'
+  assert_output --partial '"type": "polyrepo"'
+  assert_output --partial '"commit_memory": true'
+  refute_output --partial '"polyrepo"'
 }
 
-@test "a realistic config keeps every byte except the key" {
-  cat > "${OTHER}/.devbot.project.jsonc" <<'JSONC'
-{
-  // project settings
-  "project_name": "demo",
-  "datasources": ["mariadb-dev"],
-  "mcp": { "nested": { "supervisor": true } },
-  "supervisor": true // retired key
-}
-JSONC
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '"monorepo": true // retired key'
-  assert_output --partial '"nested": { "supervisor": true }'
-  assert_output --partial '"datasources": ["mariadb-dev"]'
-}
-
-@test "an unparseable config is reported instead of skipped silently" {
-  printf '{ "supervisor": true,, }\n' > "${OTHER}/.devbot.project.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  assert_output --partial "cannot parse"
-}
-
-@test "an escaped key is decoded, matched and migrated" {
-  printf '{ "\\u0073upervisor": true }\n' > "${OTHER}/.devbot.project.jsonc"
-
-  run _sandbox_bash "_migrate_supervisor_key '${OTHER}'"
-
-  assert_success
-  run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '"monorepo": true'
-  refute_output --partial 'upervisor'
+@test "init wires both migration call sites" {
+  # Removing either line leaves every existing config unmigrated while the
+  # end-to-end test above stayed green.
+  grep -qF '_migrate_workspace_config "${PROJECT_DIR}/.devbot.project.jsonc"' "${PROJECT_ROOT}/bin/init.sh"
+  grep -qF '_migrate_workspace_config "$(_devbot_global_config)"' "${PROJECT_ROOT}/bin/init.sh"
 }

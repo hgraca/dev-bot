@@ -194,7 +194,7 @@ _ensure_gitignore() {
   # Read commit_memory with project-first, global-fallback precedence
   # (defaults to false when unset in both configs)
   local commit_memory
-  commit_memory="$(_devbot_get_config "commit_memory" "${project_dir}")"
+  commit_memory="$(_devbot_get_workspace_config "commit_memory" "${project_dir}")"
 
   local -a gitignore_paths=("!${devbot_dir}")
 

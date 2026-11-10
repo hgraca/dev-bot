@@ -20,7 +20,7 @@ setup() {
   B="${A}/nested-b"
   C="${SANDBOX}/empty-project"
   D="${SANDBOX}/malformed-dir"
-  S="${SANDBOX}/monorepo-root"
+  S="${SANDBOX}/polyrepo-root"
   UNREGISTERED="${SANDBOX}/outside"
   GLOBAL="${SANDBOX}/global.jsonc"
 
@@ -43,8 +43,8 @@ setup() {
   printf '# B project facts\n' > "${B}/.devbot-memory/memory/active/project.md"
   printf '{ "devbot_dir": ".devbot-memory" }\n' > "${B}/.devbot.project.jsonc"
 
-  printf '# Monorepo coordination rules\n' > "${S}/.agents/memory/active/project.md"
-  printf '{ "monorepo": true }\n' > "${S}/.devbot.project.jsonc"
+  printf '# Polyrepo coordination rules\n' > "${S}/.agents/memory/active/project.md"
+  printf '{ "workspace": { "type": "polyrepo" } }\n' > "${S}/.devbot.project.jsonc"
 
   cat > "${GLOBAL}" <<EOF
 {
@@ -173,12 +173,12 @@ line_of() {
   refute_output --partial "###"
 }
 
-@test "project-memory: resolves a monorepo project to itself" {
+@test "project-memory: resolves a polyrepo project to itself" {
   run_tool "${S}/file.ts"
 
   assert_success
-  assert_output --partial "## Active memory for monorepo-root"
-  assert_output --partial "# Monorepo coordination rules"
+  assert_output --partial "## Active memory for polyrepo-root"
+  assert_output --partial "# Polyrepo coordination rules"
 }
 
 @test "project-memory: fails with exit 3 for an unregistered path" {

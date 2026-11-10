@@ -87,7 +87,7 @@ def run_qmd_cli(args: list[str]) -> tuple[str | None, str | None]:
         return None, "qmd search timed out after 30s"
 
 
-def _read_jsonc_scalar(cfg_path: Path, key: str) -> str:
+def _read_jsonc_scalar(cfg_path: Path, key: str, section: str = "") -> str:
     """Read a scalar key from a JSONC config via read_jsonc.py.
 
     read_jsonc.py is the canonical JSONC parser (handles full-line, inline
@@ -99,8 +99,12 @@ def _read_jsonc_scalar(cfg_path: Path, key: str) -> str:
     if not cfg_path.is_file() or not reader.is_file():
         return ""
     try:
+        args = ["python3", str(reader), str(cfg_path)]
+        if section:
+            args.append(section)
+        args.append(key)
         result = subprocess.run(
-            ["python3", str(reader), str(cfg_path), key],
+            args,
             capture_output=True,
             text=True,
             timeout=10,
@@ -357,12 +361,12 @@ def search_qmd_scoped(
     max_results: int,
     include_global: bool = True,
 ) -> tuple[list[dict] | None, str | None]:
-    """Search several qmd collections (the monorepo read set) plus global.
+    """Search several qmd collections (the polyrepo read set) plus global.
 
     One `search_qmd` pass per collection — each also covers `dev-bot-global` —
     merged and deduplicated by file. A collection that was never registered
     ("Collection not found") is skipped rather than failing every query, so one
-    un-indexed child project cannot break a monorepo search.
+    un-indexed child project cannot break a polyrepo search.
     """
     merged: list[dict] = []
     seen: set[str] = set()
@@ -494,7 +498,7 @@ def _scoped_mdctx_pairs(
     """(docs_root, index_file, kind, group, key) pairs for a read set.
 
     `group` is the project's position in the read set (focus projects first,
-    then the monorepo), so callers rank hits project-by-project instead of
+    then the polyrepo), so callers rank hits project-by-project instead of
     comparing corpus-relative BM25 scores across vaults. Projects whose mdctx
     index has not been built yet are skipped.
 
@@ -678,7 +682,7 @@ def search_mdctx(
                 _append(store_results, root, rel, r.get("score", 0), r.get("title", ""))
 
     # Rank project-by-project in read-set order (focus projects, then the
-    # monorepo), each internally by score, then the global store — never
+    # polyrepo), each internally by score, then the global store — never
     # compare corpus-relative BM25 scores across vaults (audit-53).
     ordered: list[dict] = []
     for group in range(len(read_projects)):
@@ -973,7 +977,7 @@ def load_collections_for(project_root: Path) -> list[dict]:
 def session_collections(project_root: Path, read_projects: list[Path]) -> list[dict]:
     """Collections for a search: per-read-project `project` slots + global/custom.
 
-    A monorepo session takes the `project` slot from each project it reads
+    A polyrepo session takes the `project` slot from each project it reads
     (the focus scope), while global and custom collections come from the
     session project's config (plus the global config). A normal session's read
     set is just itself, so this is the full merged set.
@@ -1006,12 +1010,12 @@ def _import_shared(name: str):
         return None
 
 
-def resolve_monorepo(project_root: Path) -> bool:
-    """Whether the project is a monorepo (project-first, global-fallback)."""
-    value = _read_jsonc_scalar(project_root / ".devbot.project.jsonc", "monorepo")
+def resolve_polyrepo(project_root: Path) -> bool:
+    """Whether the project is a polyrepo (project-first, global-fallback)."""
+    value = _read_jsonc_scalar(project_root / ".devbot.project.jsonc", "type", "workspace")
     if not value:
-        value = _read_jsonc_scalar(DEVBOT_ROOT / ".devbot.global.jsonc", "monorepo")
-    return value == "true"
+        value = _read_jsonc_scalar(DEVBOT_ROOT / ".devbot.global.jsonc", "type", "workspace")
+    return value == "polyrepo"
 
 
 def resolve_registered_project(path: Path) -> Path | None:
@@ -1024,10 +1028,10 @@ def resolve_registered_project(path: Path) -> Path | None:
     return Path(match) if match else None
 
 
-def monorepo_read_projects(project_root: Path, focus_paths: list[str]) -> list[Path]:
-    """Project read set for a monorepo session.
+def polyrepo_read_projects(project_root: Path, focus_paths: list[str]) -> list[Path]:
+    """Project read set for a polyrepo session.
 
-    Focus projects (resolved from the touched paths) first, then the monorepo
+    Focus projects (resolved from the touched paths) first, then the polyrepo
     itself. Untouched siblings are never included. The global store is added by
     the engine, not here.
     """
@@ -1071,8 +1075,8 @@ def main() -> None:
         default=[],
         help=(
             "Path the session is touching (file or dir; repeatable). In a "
-            "monorepo session it selects the project(s) whose vault is searched "
-            "alongside the monorepo and the global store; ignored otherwise."
+            "polyrepo session it selects the project(s) whose vault is searched "
+            "alongside the polyrepo and the global store; ignored otherwise."
         ),
     )
     parser.add_argument(
@@ -1092,11 +1096,11 @@ def main() -> None:
     project_root = Path(os.getcwd())
     provider = resolve_provider()
 
-    # A monorepo session scopes memory to the projects the session touches
+    # A polyrepo session scopes memory to the projects the session touches
     # (from --focus) plus itself; a normal project keeps its single vault.
-    monorepo = resolve_monorepo(project_root)
-    if monorepo:
-        read_projects = monorepo_read_projects(project_root, args.focus)
+    polyrepo = resolve_polyrepo(project_root)
+    if polyrepo:
+        read_projects = polyrepo_read_projects(project_root, args.focus)
     else:
         read_projects = [project_root]
 
@@ -1116,7 +1120,7 @@ def main() -> None:
 
     # Resolve the configured collections for this session. A normal project
     # searches its own vault + the global store + configured customs; a
-    # monorepo scopes `project` slots to the read set but always searches
+    # polyrepo scopes `project` slots to the read set but always searches
     # global and custom collections.
     collections = session_collections(project_root, read_projects)
     if args.collection:

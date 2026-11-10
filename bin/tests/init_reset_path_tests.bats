@@ -32,6 +32,9 @@ setup() {
   # Production init.sh under a non-colliding name, `main "$@"` stripped so the
   # test can source it. It resolves DEV_BOT_ROOT to $SANDBOX from its own path.
   sed '/^main "\$@"/d' "${PROJECT_ROOT}/bin/init.sh" > "${SANDBOX}/bin/init-flow.sh"
+  cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" \
+    "${PROJECT_ROOT}/src/_shared/migrate_workspace_config.py" \
+    "${SANDBOX}/src/_shared/"
 
   # The wiring child `_wire_project` spawns: records the project it was handed
   # and whether the module memory folder still existed at that moment.
@@ -83,6 +86,7 @@ STUB
     awk '/^_devbot_is_plain_relative_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_module_memory_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_project_initialized\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_migrate_workspace_config\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
   } >> "${SANDBOX}/src/_shared/functions.sh"
 
   printf '{}\n' > "${SANDBOX}/.devbot.global.jsonc"

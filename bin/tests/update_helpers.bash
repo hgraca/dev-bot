@@ -170,6 +170,7 @@ _install_machinery() {
     "${REPO_ROOT}/src/_shared/read_jsonc.py" \
     "${REPO_ROOT}/src/_shared/reconcile_global_config.py" \
     "${REPO_ROOT}/src/_shared/migrate_workflow_config.py" \
+    "${REPO_ROOT}/src/_shared/migrate_workspace_config.py" \
     "${INSTALL}/src/_shared/"
 
   # external-modules update stub — records that devbot update refreshed the

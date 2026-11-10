@@ -28,7 +28,7 @@ setup() {
   # Hermetic: pin the project config (devbot_dir + workflow) so the machine's
   # real global config is never consulted; excluded so it doesn't dirty the tree.
   printf '.devbot.project.jsonc\nvendor/\nnode_modules/\n' > "$WORK/.git/info/exclude"
-  printf '{ "devbot_dir": ".agents", "workflow": "worktrees" }\n' > "$WORK/.devbot.project.jsonc"
+  printf '{ "devbot_dir": ".agents", "workspace": { "workflow": "worktrees" } }\n' > "$WORK/.devbot.project.jsonc"
   git -C "$WORK" config user.email "test@test.com"
   git -C "$WORK" config user.name "Test"
   # Hermetic: don't inherit the developer's global signing config.
@@ -147,20 +147,20 @@ worktree() {
   refute_output --partial "pass --project"
 }
 
-@test "enabled: refuses a monorepo project and points at --project" {
-  local sup="$SANDBOX/monorepo"
+@test "enabled: refuses a polyrepo project and points at --project" {
+  local sup="$SANDBOX/polyrepo"
   git init -q --initial-branch=main "$sup"
-  printf '{ "monorepo": true, "workflow": "worktrees" }\n' > "$sup/.devbot.project.jsonc"
+  printf '{ "workspace": { "type": "polyrepo", "workflow": "worktrees" } }\n' > "$sup/.devbot.project.jsonc"
 
   run bash -c "cd '$sup' && bash '$SCRIPT' enabled"
 
   assert_failure
-  assert_output --partial "is a monorepo project"
+  assert_output --partial "is a polyrepo project"
   assert_output --partial "--project"
 }
 
-@test "create: refuses a monorepo project even when it has commits" {
-  local sup="$SANDBOX/monorepo"
+@test "create: refuses a polyrepo project even when it has commits" {
+  local sup="$SANDBOX/polyrepo"
   git init -q --initial-branch=main "$sup"
   git -C "$sup" config user.email "test@test.com"
   git -C "$sup" config user.name "Test"
@@ -168,16 +168,16 @@ worktree() {
   printf 'base\n' > "$sup/file.txt"
   git -C "$sup" add -A
   git -C "$sup" commit -qm "base"
-  printf '{ "monorepo": true, "workflow": "worktrees" }\n' > "$sup/.devbot.project.jsonc"
+  printf '{ "workspace": { "type": "polyrepo", "workflow": "worktrees" } }\n' > "$sup/.devbot.project.jsonc"
 
   run bash -c "cd '$sup' && bash '$SCRIPT' create feat/nope --no-link"
   assert_failure
-  assert_output --partial "is a monorepo project"
+  assert_output --partial "is a polyrepo project"
   assert_output --partial "--project"
 
   run bash -c "cd '$WORK' && bash '$SCRIPT' create feat/nope --project '$sup' --no-link"
   assert_failure
-  assert_output --partial "is a monorepo project"
+  assert_output --partial "is a polyrepo project"
 }
 
 @test "create: the new branch has no upstream (--no-track)" {
@@ -412,7 +412,7 @@ worktree() {
 }
 
 @test "enabled: reports an unknown workflow with a distinct status" {
-  printf '{ "devbot_dir": ".agents", "workflow": "banana" }\n' > "$WORK/.devbot.project.jsonc"
+  printf '{ "devbot_dir": ".agents", "workspace": { "workflow": "banana" } }\n' > "$WORK/.devbot.project.jsonc"
 
   worktree enabled
 
@@ -422,17 +422,10 @@ worktree() {
   refute_output --partial "false"
 }
 
-@test "enabled: maps the retired worktrees false key to trunk" {
+@test "enabled: the retired worktrees key is ignored" {
+  # `devbot init` migrates it into workspace.workflow; a reader that honoured
+  # it would let an un-migrated config keep a workflow nobody else reads.
   printf '{ "devbot_dir": ".agents", "worktrees": false }\n' > "$WORK/.devbot.project.jsonc"
-
-  worktree enabled
-
-  assert_failure
-  assert_output "false"
-}
-
-@test "enabled: maps the retired worktrees true key to worktrees" {
-  printf '{ "devbot_dir": ".agents", "worktrees": true }\n' > "$WORK/.devbot.project.jsonc"
 
   worktree enabled
 
@@ -440,9 +433,9 @@ worktree() {
   assert_output "true"
 }
 
-@test "enabled: a project's retired key wins over a migrated global workflow" {
+@test "enabled: a project's retired key is ignored in favour of the global workflow" {
   printf '{ "devbot_dir": ".agents", "worktrees": false }\n' > "$WORK/.devbot.project.jsonc"
-  printf '{ "workflow": "worktrees" }\n' > "$SANDBOX/global.jsonc"
+  printf '{ "workspace": { "workflow": "trunk" } }\n' > "$SANDBOX/global.jsonc"
   export DEV_BOT_GLOBAL_CONFIG="$SANDBOX/global.jsonc"
 
   worktree enabled
@@ -451,15 +444,15 @@ worktree() {
   assert_output "false"
 }
 
-@test "enabled: falls back to the global config's retired key" {
+@test "enabled: a retired key in the global config is ignored too" {
   printf '{ "devbot_dir": ".agents" }\n' > "$WORK/.devbot.project.jsonc"
   printf '{ "worktrees": false }\n' > "$SANDBOX/global.jsonc"
   export DEV_BOT_GLOBAL_CONFIG="$SANDBOX/global.jsonc"
 
   worktree enabled
 
-  assert_failure
-  assert_output "false"
+  assert_success
+  assert_output "true"
 }
 
 @test "enabled --project: reads the named project's setting from outside it" {
@@ -470,7 +463,7 @@ worktree() {
 }
 
 @test "enabled: reports false when the project follows the trunk workflow" {
-  printf '{ "devbot_dir": ".agents", "workflow": "trunk" }\n' > "$WORK/.devbot.project.jsonc"
+  printf '{ "devbot_dir": ".agents", "workspace": { "workflow": "trunk" } }\n' > "$WORK/.devbot.project.jsonc"
 
   worktree enabled
 
@@ -479,7 +472,7 @@ worktree() {
 }
 
 @test "create: refuses when the project follows the trunk workflow" {
-  printf '{ "devbot_dir": ".agents", "workflow": "trunk" }\n' > "$WORK/.devbot.project.jsonc"
+  printf '{ "devbot_dir": ".agents", "workspace": { "workflow": "trunk" } }\n' > "$WORK/.devbot.project.jsonc"
 
   worktree create feat/nope
 
@@ -490,7 +483,7 @@ worktree() {
 }
 
 @test "create: proceeds when the project selects the worktrees workflow" {
-  printf '{ "devbot_dir": ".agents", "workflow": "worktrees" }\n' > "$WORK/.devbot.project.jsonc"
+  printf '{ "devbot_dir": ".agents", "workspace": { "workflow": "worktrees" } }\n' > "$WORK/.devbot.project.jsonc"
 
   worktree create feat/yes
 
@@ -643,7 +636,7 @@ worktree() {
 @test "path: the recovery command stays executable for a root with spaces" {
   local spaced="$SANDBOX/space dir"
   git clone -q "$WORK" "$spaced"
-  printf '{ "devbot_dir": ".agents", "workflow": "worktrees" }\n' > "$spaced/.devbot.project.jsonc"
+  printf '{ "devbot_dir": ".agents", "workspace": { "workflow": "worktrees" } }\n' > "$spaced/.devbot.project.jsonc"
   run bash -c "cd '$spaced' && bash '$SCRIPT' create feat/spaced --no-link"
   assert_success
   mv "$spaced/.agents/worktrees/feat-spaced" "$SANDBOX/moved"
