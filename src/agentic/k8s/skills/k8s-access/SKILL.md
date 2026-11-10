@@ -49,5 +49,6 @@ Consequences worth remembering:
 ## Gotchas
 
 - **After changing `.devbot.project.jsonc` or the global `kubectl` catalogue, run `devbot reinit <path>`.** The kubeconfig is rendered, not read live; a stale file lists the previous selection.
+- **The default context is chosen by project name**, so `k8s-gete-dev` opens on `gete-staging-rw` and `k8s-gete` on `gete-prod-ro`. A kubeconfig rendered before that rule keeps the old default until `devbot reinit <path>` rewrites it — check `devbot kube env <project>` after upgrading devbot.
 - **Production is read-only.** There is no writable production context; manifest changes go through the GitOps repo (`k8s-gete`) and ArgoCD.
 - **Do not apply manifests with `kubectl apply` on staging** unless the task says so — staging is also ArgoCD-managed from `k8s-gete-dev`, and an imperative apply is reverted on the next sync.

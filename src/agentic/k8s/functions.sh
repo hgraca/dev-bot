@@ -6,6 +6,22 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export MODULE_DIR
 source "$MODULE_DIR/../../_shared/functions.sh"
 
+# The name the project goes by: the declared `project_name`, or the directory
+# basename when it declares none. `devbot init` defaults the config to the same
+# basename, so a project that never set the key still gets a stable name. The
+# k8s module also matches it against cluster names to pick a default context, so
+# it is read raw here — quoting and folding belong to the slug below.
+#
+# Reads PROJECT_DIR, PROJECT_CONFIG and READER from the caller.
+_project_name() {
+  local name
+  name="$(python3 "${READER}" "${PROJECT_CONFIG}" project_name 2>/dev/null || true)"
+  if [[ -z "${name}" || "${name}" == "null" ]]; then
+    name="$(basename "${PROJECT_DIR}")"
+  fi
+  printf '%s' "${name}"
+}
+
 # The generated kubeconfig's filename, shared by init.sh (which writes it) and
 # kube.sh (which resolves it). Reads PROJECT_DIR, PROJECT_CONFIG and READER from
 # the caller — both set those before calling.
@@ -21,10 +37,7 @@ source "$MODULE_DIR/../../_shared/functions.sh"
 # for; it stays stable unless the project moves.
 _project_slug() {
   local name hash
-  name="$(python3 "${READER}" "${PROJECT_CONFIG}" project_name 2>/dev/null || true)"
-  if [[ -z "${name}" || "${name}" == "null" ]]; then
-    name="$(basename "${PROJECT_DIR}")"
-  fi
+  name="$(_project_name)"
   # python3 is already a hard dependency (read_jsonc) and is the portable way to
   # hash: macOS has no `sha256sum`, and a silently empty hash would put every
   # same-named project back on one shared file.

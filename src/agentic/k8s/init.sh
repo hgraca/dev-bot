@@ -221,6 +221,29 @@ _migrate_legacy() {
   _ok "kubectl — removed the legacy machine-wide kubeconfig and env"
 }
 
+# Index of the cluster whose catalogue name the project name names, or -1.
+# The name decides, not the position: every project lists the same clusters in
+# the same order, so position says nothing about which one it works on. The
+# longest match wins (`gete-dev` over `gete`); -1 hands the caller its
+# first-rendered fallback.
+#
+# Args: <project-name> <cluster-name>...
+_default_index() {
+  local project="$1" name best=-1 best_len=0 n=0
+  shift
+
+  for name in "$@"; do
+    if [[ "${project}" == "${name}" || "${project}" == *"-${name}" ]] \
+      && [[ "${#name}" -gt "${best_len}" ]]; then
+      best="${n}"
+      best_len="${#name}"
+    fi
+    n=$((n + 1))
+  done
+
+  printf '%s' "${best}"
+}
+
 main() {
   # Upgrade path, run before any return below: the machine-wide files of the
   # pre-selection implementation are shared, and a shell that already sourced
@@ -228,7 +251,7 @@ main() {
   # that bails out early either.
   _migrate_legacy
 
-  local config spec slug selection
+  local config spec slug selection project
   config="$(_devbot_global_config)"
   spec="$(python3 "${READER}" "${config}" kubectl 2>/dev/null || true)"
 
@@ -282,6 +305,10 @@ main() {
   # not the state of this machine, so an unreachable AWS must not drop them.
   _write_memory
 
+  # Read once, here: both the excluded-match warning below and the
+  # current-context choice at the end of the render depend on it.
+  project="$(_project_name)"
+
   # Catalogue membership and the selection's size are decided before anything
   # environment-dependent: a selection that names no catalogue entry has to
   # revoke access even when AWS is unreachable or the credentials are stale,
@@ -311,6 +338,19 @@ main() {
     fi
     return 0
   fi
+
+  # The incident in another shape: the name says staging, the fallback says
+  # production, and without this the only trace is init's `(default)` marker.
+  # The message stops at "cannot be the default": a shorter *selected* match may
+  # still win, so the fallback is not necessarily the first rendered cluster.
+  local excluded
+  while IFS= read -r excluded; do
+    _warn "kubectl — the project name '${project}' names cluster '${excluded}', which this project does not select, so it cannot be the default context"
+  done < <(echo "${spec}" | jq -r --arg p "${project}" --argjson perm "${permitted}" '
+    .clusters[]
+    | .name as $n
+    | select((($p == $n) or ($p | endswith("-" + $n))) and (($perm | index($n)) == null))
+    | $n')
 
   # Revoke anything wider than the permitted set *before* the environment is
   # touched. Every return below this point may leave the file on disk, so it
@@ -382,9 +422,9 @@ main() {
     printf -v block '  - name: %s\n    cluster:\n      server: %s\n      certificate-authority-data: %s\n' \
       "${name}" "${endpoint}" "${ca}"
     clusters_yaml+="${block}"
-  # Selection order becomes cluster order, so the first name the project lists
-  # is the generated current-context. Duplicates are folded; an unknown name
-  # simply matches nothing (reported above).
+  # Selection order only decides which cluster the file lists first; the
+  # current-context is chosen below by project name. Duplicates are folded; an
+  # unknown name matches nothing (reported above).
   done < <(echo "${spec}" | jq -r --argjson perm "${permitted}" \
     '.clusters as $c
      | $perm[] as $n
@@ -396,6 +436,17 @@ main() {
     # above, so what is left is safe to keep through a transient failure.
     _warn "kubectl — no cluster could be described; leaving the existing kubeconfig untouched"
     return 0
+  fi
+
+  # A name match on a cluster that could not be described was dropped above, so
+  # it falls back like any other miss: the current-context never points at a
+  # context the file lacks.
+  local idx default_context
+  idx="$(_default_index "${project}" "${names[@]}")"
+  if [[ "${idx}" -ge 0 ]]; then
+    default_context="${contexts[${idx}]}"
+  else
+    default_context="${contexts[0]}"
   fi
 
   _write_wrapper "${spec}" "${profile}"
@@ -417,7 +468,7 @@ main() {
       printf '  - name: %s\n    context:\n      cluster: %s\n      user: devbot-%s\n      namespace: default\n' \
         "${contexts[$i]}" "${names[$i]}" "${names[$i]}"
     done
-    printf 'current-context: %s\n' "${contexts[0]}"
+    printf 'current-context: %s\n' "${default_context}"
   } > "${tmp}"
 
   mkdir -p "$(dirname "${KUBECONFIG_PATH}")"
@@ -440,7 +491,11 @@ main() {
   local ctx
   _info "  use: KUBECONFIG=${KUBECONFIG_PATH} kubectl --context <name> ..."
   for ctx in "${contexts[@]}"; do
-    _info "  context ${ctx}"
+    if [[ "${ctx}" == "${default_context}" ]]; then
+      _info "  context ${ctx} (default)"
+    else
+      _info "  context ${ctx}"
+    fi
   done
 }
 

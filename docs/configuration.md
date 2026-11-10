@@ -679,12 +679,21 @@ behind.
 "kubectl": ["k8s-prod", "k8s-stg"]
 ```
 
-Selection order is cluster order, so the first selected cluster that renders
-successfully becomes the generated `current-context`. A name the catalogue does
-not declare, or a cluster that cannot be described, is reported as a `WARN` and
-left out — the next selected cluster takes its place, so `current-context` is
-not necessarily the first name listed. A selection that matches no catalogue
-entry at all prunes the project's files.
+The selection's order no longer decides the default: `current-context` is the
+cluster the **project's own name** names, so a project declared as
+`acme-k8s-stg` opens on `k8s-stg` even when its array lists `k8s-prod` first.
+A catalogue name matches when the project name equals it or ends with
+`-<name>`, and the longest match wins — a catalogue holding both `k8s` and
+`k8s-stg` resolves `acme-k8s-stg` to `k8s-stg`. A project whose name names none
+of its clusters opens on the first selected cluster that rendered, which is why
+the order still fixes the order of the entries in the file. A name the
+catalogue does not declare, or a cluster that cannot be described, is reported
+as a `WARN` and left out — the next selected cluster takes its place, so
+`current-context` is not necessarily the first name listed. A matching cluster
+the project did not select, or one that failed to describe, is not a candidate;
+the first case is warned about, because the fallback may then name an
+environment the project did not. A selection that matches no catalogue entry at
+all prunes the project's files.
 
 `context` is the kubeconfig context name and defaults to the cluster name.
 `namespace` is not configurable: contexts open in `default`, which is where the

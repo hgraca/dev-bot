@@ -132,7 +132,7 @@ EOF
   run "${DEVBOT}" kube env "${PROJECT}"
   assert_success
   assert_output --partial "export KUBECONFIG=${kubeconfig}"
-  assert_output --partial "# current-context: gete-staging-rw"
+  assert_output --partial "# current-context: gete-staging-rw (gete-dev)"
   assert_output --partial "AWS_KEY AWS_SECRET"
   refute_output --partial '${AWS_KEY}'
 }
@@ -142,7 +142,7 @@ EOF
 
   run "${DEVBOT}" kube run "${PROJECT}" -- get namespaces
   assert_success
-  assert_output --partial "kubectl context: gete-staging-rw"
+  assert_output --partial "kubectl context: gete-staging-rw (gete-dev)"
   assert_output --partial "ARGS: --kubeconfig"
   assert_output --partial "get namespaces"
 }
@@ -152,7 +152,7 @@ EOF
 
   run "${DEVBOT}" kube run "${PROJECT}" -- --context gete-prod-ro get pods
   assert_success
-  assert_output --partial "kubectl context: gete-prod-ro"
+  assert_output --partial "kubectl context: gete-prod-ro (gete)"
 }
 
 @test "run honours --context=<name> in its banner" {
@@ -160,7 +160,7 @@ EOF
 
   run "${DEVBOT}" kube run "${PROJECT}" -- --context=gete-prod-ro get pods
   assert_success
-  assert_output --partial "kubectl context: gete-prod-ro"
+  assert_output --partial "kubectl context: gete-prod-ro (gete)"
 }
 
 @test "run forwards the arguments after -- unchanged" {

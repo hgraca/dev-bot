@@ -80,14 +80,31 @@ _credential_refs() {
     | sort -u | tr '\n' ' ' | sed 's/ $//'
 }
 
+# The catalogue entry behind a context, as "name<TAB>region". A context name
+# defaults to the cluster name but a catalogue entry may override it, so match
+# on the effective context name rather than assuming the two are equal.
+_catalogue_entry() {
+  jq -r --arg ctx "$1" '
+    .clusters[]
+    | (if ((.context // "") | test("^[A-Za-z0-9._-]+$")) then .context else .name end) as $c
+    | select($c == $ctx)
+    | [.name, .region] | @tsv' <<<"${SPEC}" 2>/dev/null | head -1
+}
+
 cmd_env() {
   _resolve "${1:-.}" || return 1
-  local current refs
+  local current refs cluster
   current="$(awk '/^current-context:/{print $2; exit}' "${KUBECONFIG_PATH}")"
+  IFS=$'\t' read -r cluster _ < <(_catalogue_entry "${current}") || true
   refs="$(_credential_refs)"
   printf 'export KUBECONFIG=%q\n' "${KUBECONFIG_PATH}"
-  # kubectl ignores this; informational only.
-  printf '# current-context: %s\n' "${current}"
+  # kubectl ignores this; informational only — named with its cluster, because
+  # the context alone is what gets skimmed past.
+  if [[ -n "${cluster:-}" ]]; then
+    printf '# current-context: %s (%s)\n' "${current}" "${cluster}"
+  else
+    printf '# current-context: %s\n' "${current}"
+  fi
   printf '# credentials: %s must be set in the environment\n' "${refs:-<none configured>}"
 }
 
@@ -107,13 +124,7 @@ cmd_contexts() {
   printf '%-10s %-18s %s\n' "NAME" "CONTEXT" "REGION"
   while IFS= read -r ctx; do
     [[ -n "${ctx}" ]] || continue
-    IFS=$'\t' read -r name _ region < <(
-      jq -r --arg ctx "${ctx}" '
-        .clusters[]
-        | (if ((.context // "") | test("^[A-Za-z0-9._-]+$")) then .context else .name end) as $c
-        | select($c == $ctx)
-        | [.name, $c, .region] | @tsv' <<<"${SPEC}"
-    ) || true
+    IFS=$'\t' read -r name region < <(_catalogue_entry "${ctx}") || true
     printf '%-10s %-18s %s\n' "${name:--}" "${ctx}" "${region:--}"
   done <<<"${contexts}"
 }
@@ -151,9 +162,10 @@ cmd_run() {
     esac
   done
 
-  # The target context goes to stderr: the generated
-  # current-context is the first selected cluster.
-  local current i
+  # The target goes to stderr, named with its catalogue cluster: the context
+  # alone (`gete-prod-ro`) is easy to skim past, and an answer read from the
+  # wrong cluster is reported as the other environment's until someone notices.
+  local current cluster i
   current="$(awk '/^current-context:/{print $2; exit}' "${KUBECONFIG_PATH}")"
   local -a args=("$@")
   for ((i = 0; i < ${#args[@]}; i++)); do
@@ -162,7 +174,12 @@ cmd_run() {
       --context) current="${args[i + 1]:-${current}}" ;;
     esac
   done
-  printf 'kubectl context: %s\n' "${current}" >&2
+  IFS=$'\t' read -r cluster _ < <(_catalogue_entry "${current}") || true
+  if [[ -n "${cluster:-}" ]]; then
+    printf 'kubectl context: %s (%s)\n' "${current}" "${cluster}" >&2
+  else
+    printf 'kubectl context: %s\n' "${current}" >&2
+  fi
 
   # The exec wrapper runs under `set -eu`: an unset credential
   # variable surfaces as an opaque plugin error, so check first.

@@ -320,7 +320,7 @@ JSONC
   refute_output --partial "name: k8s-prod"
 }
 
-@test "the first selected cluster becomes the current context" {
+@test "a project whose name matches no cluster opens on the first selected one" {
   write_config
   cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
 { "project_name": "demo", "kubectl": ["k8s-stg", "k8s-prod"] }
@@ -332,6 +332,115 @@ JSONC
   assert_success
   run grep current-context "$KUBECONFIG_FILE"
   assert_output --partial "current-context: k8s-stg-rw"
+}
+
+# The project name, not the list position, says which environment the project
+# is about: every project on a machine lists the same clusters in the same
+# order, so position 1 is a copy-paste artefact. `k8s-gete-dev` reading
+# production by default is how a prod answer gets reported as staging.
+@test "the project name decides the default context, not the selection order" {
+  cat > "$DEV_BOT_GLOBAL_CONFIG" <<'JSONC'
+{
+  "kubectl": {
+    "profile": "devbot-agent",
+    "credential_env": {
+      "AWS_ACCESS_KEY_ID": "${AWS_KEY}",
+      "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
+    },
+    "clusters": [
+      { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" },
+      { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
+    ]
+  }
+}
+JSONC
+  cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
+{ "project_name": "k8s-gete-dev", "kubectl": ["gete", "gete-dev"] }
+JSONC
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  resolve_paths
+
+  assert_success
+  # The default is also announced, so a reinit says which cluster it chose.
+  assert_output --partial "context gete-staging-rw (default)"
+  run grep current-context "$KUBECONFIG_FILE"
+  assert_output --partial "current-context: gete-staging-rw"
+}
+
+@test "the longest matching cluster name wins" {
+  cat > "$DEV_BOT_GLOBAL_CONFIG" <<'JSONC'
+{
+  "kubectl": {
+    "profile": "devbot-agent",
+    "credential_env": {
+      "AWS_ACCESS_KEY_ID": "${AWS_KEY}",
+      "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
+    },
+    "clusters": [
+      { "name": "dev", "context": "dev-ro", "region": "eu-central-1" },
+      { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
+    ]
+  }
+}
+JSONC
+  cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
+{ "project_name": "k8s-gete-dev", "kubectl": ["dev", "gete-dev"] }
+JSONC
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  resolve_paths
+
+  assert_success
+  run grep current-context "$KUBECONFIG_FILE"
+  assert_output --partial "current-context: gete-staging-rw"
+}
+
+@test "a name match outside the project's selection is ignored" {
+  write_config
+  cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
+{ "project_name": "k8s-stg", "kubectl": ["k8s-prod"] }
+JSONC
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  resolve_paths
+
+  assert_success
+  # Falling back to production must not happen silently: the name said staging.
+  assert_output --partial "names cluster 'k8s-stg', which this project does not select"
+  run grep current-context "$KUBECONFIG_FILE"
+  assert_output --partial "current-context: k8s-prod-ro"
+}
+
+@test "the project name falls back to the directory basename" {
+  write_config
+  mkdir -p "$BATS_TEST_TMPDIR/k8s-stg"
+  cat > "$BATS_TEST_TMPDIR/k8s-stg/.devbot.project.jsonc" <<'JSONC'
+{ "kubectl": ["k8s-prod", "k8s-stg"] }
+JSONC
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/k8s-stg"
+  resolve_paths
+
+  assert_success
+  run grep current-context "$KUBECONFIG_FILE"
+  assert_output --partial "current-context: k8s-stg-rw"
+}
+
+@test "a name match on a cluster that cannot be described falls back" {
+  write_config
+  cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
+{ "project_name": "k8s-stg", "kubectl": ["k8s-prod", "k8s-stg"] }
+JSONC
+  export STUB_FAIL_CLUSTER="k8s-stg"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  resolve_paths
+
+  assert_success
+  run grep current-context "$KUBECONFIG_FILE"
+  assert_output --partial "current-context: k8s-prod-ro"
+  refute_output --partial "k8s-stg-rw"
 }
 
 @test "an unknown cluster name is reported and skipped" {
