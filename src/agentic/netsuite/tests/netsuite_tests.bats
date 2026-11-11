@@ -72,6 +72,7 @@ URL_BASE="suitetalk.api.netsuite.com/services/mcp/v1/all"
 
 @test "registers the claudecode server disabled in the mcpServers shape" {
   set_global '{"netsuite": {"account_id": "1234567"}}'
+  set_project '{"harness": "claudecode"}'
 
   run bash "${INIT}" "${PROJECT}"
   assert_success
@@ -85,7 +86,7 @@ print(json.dumps(data, sort_keys=True))
   assert_output '{"enabled": false, "type": "http", "url": "https://1234567.'"${URL_BASE}"'"}'
 }
 
-@test "netsuite.enabled true registers both servers enabled" {
+@test "netsuite.enabled true registers the opencode server enabled" {
   set_global '{"netsuite": {"account_id": "1234567", "enabled": true}}'
 
   run bash "${INIT}" "${PROJECT}"
@@ -93,6 +94,16 @@ print(json.dumps(data, sort_keys=True))
 
   run entry "${PROJECT}/.opencode/netsuite-1234567.mcp.json" "netsuite-1234567"
   assert_output --partial '"enabled": true'
+  [ ! -e "${PROJECT}/.claude/netsuite-1234567.mcp.json" ]
+}
+
+@test "netsuite.enabled true registers the claudecode server enabled" {
+  set_global '{"netsuite": {"account_id": "1234567", "enabled": true}}'
+  set_project '{"harness": "claudecode"}'
+
+  run bash "${INIT}" "${PROJECT}"
+  assert_success
+
   run python3 -c '
 import json, sys
 print(json.load(open(sys.argv[1]))["mcpServers"]["netsuite-1234567"]["enabled"])

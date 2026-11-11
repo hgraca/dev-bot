@@ -5,6 +5,10 @@ description: "The Claude Code harness — five-phase hook dispatcher, module int
 
 Claude Code is one of the two agent runtimes DevBot plugs into. Each harness lives in `src/harnesses/<name>/` and is self-contained — it owns its hooks, wiring and config templates, while business logic stays in the agentic modules' `tools/`.
 
+## Selection
+
+`harness: claudecode` (project or global config) selects this harness — and selects it alone: its `init.sh`/`reset.sh`, `.mcp.json` registration and plugin/skill wiring run, while the other harness is treated as disabled. The root `harness` key is the only switch; a `claudecode` entry in the [`modules`](/configuration#modules) map is silently ignored.
+
 ## The adapter
 
 `src/harnesses/claudecode/hooks/on-hooks.py` is a **five-phase dispatcher** — `pre-tool` / `post-file` / `post-bash` / `stop` / `startup` — because Claude Code's hook events are separate registrations with no unified event stream. It reads every `src/agentic/*/hooks.json` manifest and maps the six semantic events onto the phases it registers.

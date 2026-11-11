@@ -145,7 +145,7 @@ assert json.load(open('${SANDBOX_DIR}/.claude/settings.json'))['agent'] == 'buil
 @test "skills-flatten: second init preserves skill-dir inodes (no rewrite churn)" {
   local proj sk ino1 ino2
   proj="$(mktemp -d)"
-  printf '{\n  "modules": { "opencode": false, "claudecode": true }\n}\n' \
+  printf '{\n  "harness": "claudecode"\n}\n' \
     > "${proj}/.devbot.project.jsonc"
 
   run bash "${PROJECT_ROOT}/src/harnesses/claudecode/init.sh" "${proj}"
@@ -166,7 +166,7 @@ assert json.load(open('${SANDBOX_DIR}/.claude/settings.json'))['agent'] == 'buil
 @test "skills-flatten: user real-file skill migrates once and stays at plain name" {
   local proj us
   proj="$(mktemp -d)"
-  printf '{\n  "modules": { "opencode": false, "claudecode": true }\n}\n' \
+  printf '{\n  "harness": "claudecode"\n}\n' \
     > "${proj}/.devbot.project.jsonc"
   mkdir -p "${proj}/.claude/skills/my-custom-skill"
   printf -- '---\nname: my-custom-skill\ndescription: A user skill\n---\n# My Skill\n' \

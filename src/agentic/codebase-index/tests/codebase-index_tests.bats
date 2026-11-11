@@ -57,7 +57,7 @@ setup() {
 @test "init.sh: symlinks the shared EPIPE wrapper into .claude" {
   local tmpdir
   tmpdir="$(mktemp -d)"
-  printf '{\n  "modules": { "claudecode": true, "opencode": false }\n}\n' \
+  printf '{\n  "harness": "claudecode"\n}\n' \
     > "${tmpdir}/.devbot.project.jsonc"
 
   run bash "$MODULE_DIR/init.sh" "${tmpdir}"
@@ -79,7 +79,7 @@ setup() {
   # the same name (OLLAMA_LOCAL_API was drift).
   local tmpdir
   tmpdir="$(mktemp -d)"
-  printf '{\n  "modules": { "opencode": true, "claudecode": false }\n}\n' \
+  printf '{\n  "harness": "opencode"\n}\n' \
     > "${tmpdir}/.devbot.project.jsonc"
 
   run env OLLAMA_API_URL="http://ollama.example:9999" bash "$MODULE_DIR/init.sh" "${tmpdir}"
@@ -150,7 +150,7 @@ _wait_for_file() {
 
 _setup_index_project() {
   local tmpdir="$1" bin_dir="$2" catalog="$3" callgraph="$4" swift="$5" metal="$6" symbol="$7"
-  printf '{\n  "modules": { "opencode": true, "claudecode": false }\n}\n' \
+  printf '{\n  "harness": "opencode"\n}\n' \
     > "${tmpdir}/.devbot.project.jsonc"
   mkdir -p "${tmpdir}/.opencode/index"
   : > "${tmpdir}/.opencode/index/file-hashes.${catalog}.json"
@@ -217,7 +217,7 @@ _setup_index_project() {
   tmpdir="$(mktemp -d)"
   bin_dir="$(mktemp -d)"
   # Index dir present but no file-hashes catalog file → state unknown.
-  printf '{\n  "modules": { "opencode": true, "claudecode": false }\n}\n' \
+  printf '{\n  "harness": "opencode"\n}\n' \
     > "${tmpdir}/.devbot.project.jsonc"
   mkdir -p "${tmpdir}/.opencode/index"
   : > "${tmpdir}/.opencode/index/codebase.db"
@@ -240,7 +240,7 @@ _setup_index_project() {
   local tmpdir bin_dir
   tmpdir="$(mktemp -d)"
   bin_dir="$(mktemp -d)"
-  printf '{\n  "modules": { "opencode": true, "claudecode": false }\n}\n' \
+  printf '{\n  "harness": "opencode"\n}\n' \
     > "${tmpdir}/.devbot.project.jsonc"
   _install_fake_npx "${bin_dir}"
 

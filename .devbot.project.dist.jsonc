@@ -1,6 +1,6 @@
 {
   "project_name": "__PROJECT_NAME__",
-  "harness": "opencode",
+  "harness": "opencode", // opencode | claudecode — the selected harness is the only one wired
   "devbot_dir": ".agents",
   // Workspace behaviour defaults live in .devbot.global.jsonc::workspace.
   // State a key here only when this project differs from those defaults:

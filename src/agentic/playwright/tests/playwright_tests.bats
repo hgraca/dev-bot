@@ -22,12 +22,11 @@ setup() {
 
 # ── init.sh wiring ────────────────────────────────────────────────────────────
 
-# The global devbot config disables claudecode by default (dev-bot runs on
-# opencode), so a bare tmpdir would skip the .claude symlink. Give the fixture
-# a project config enabling both harnesses — project overrides global.
+# Harness selection is the root `harness` key alone: only the selected harness
+# is wired. The fixture names it explicitly so the test is hermetic.
 
 setup_project() {
-  printf '{\n  "modules": { "claudecode": true, "opencode": true }\n}\n' \
+  printf '{\n  "harness": "%s"\n}\n' "${2:-opencode}" \
     > "${1}/.devbot.project.jsonc"
 }
 
@@ -45,7 +44,7 @@ _stub_npm_kit() {
   chmod +x "${1}/stubbin/npm"
 }
 
-@test "init.sh: symlinks the shared wrapper into .claude and .opencode" {
+@test "init.sh: symlinks the shared wrapper into the selected harness" {
   local tmpdir
   tmpdir="$(mktemp -d)"
   setup_project "${tmpdir}"
@@ -54,11 +53,17 @@ _stub_npm_kit() {
   run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
 
   assert_success
-  [[ -L "${tmpdir}/.claude/playwright-mcp-wrapper.js" ]]
   [[ -L "${tmpdir}/.opencode/playwright-mcp-wrapper.js" ]]
+  [[ ! -e "${tmpdir}/.claude/playwright-mcp-wrapper.js" ]]
   # The symlinks resolve to the shared wrapper, not a dangling local copy.
-  run readlink -f "${tmpdir}/.claude/playwright-mcp-wrapper.js"
+  run readlink -f "${tmpdir}/.opencode/playwright-mcp-wrapper.js"
   assert_output "${SHARED_WRAPPER}"
+
+  # The other harness is wired only once it is the selected one.
+  setup_project "${tmpdir}" claudecode
+  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
+  assert_success
+  [[ -L "${tmpdir}/.claude/playwright-mcp-wrapper.js" ]]
 
   rm -rf "${tmpdir}"
 }
@@ -74,7 +79,6 @@ _stub_npm_kit() {
   run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
   assert_success
 
-  [[ -L "${tmpdir}/.claude/playwright-mcp-wrapper.js" ]]
   [[ -L "${tmpdir}/.opencode/playwright-mcp-wrapper.js" ]]
 
   rm -rf "${tmpdir}"

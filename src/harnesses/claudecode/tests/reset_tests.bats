@@ -29,18 +29,17 @@ teardown() {
   rm -rf "${SANDBOX_DIR}" 2>/dev/null || true
 }
 
-# _write_project_config <enabled|disabled>: write .devbot.project.jsonc with
-# the claudecode module explicitly set, overriding the global default.
+# _write_project_config <enabled|disabled>: write .devbot.project.jsonc
+# selecting this harness (enabled) or the other one (disabled). The root
+# `harness` key is the only harness switch — a modules-map entry is ignored.
 _write_project_config() {
   local state="$1"
-  local value=false
-  [[ "${state}" == "enabled" ]] && value=true
+  local value=opencode
+  [[ "${state}" == "enabled" ]] && value=claudecode
 
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
 {
-  "modules": {
-    "claudecode": ${value}
-  }
+  "harness": "${value}"
 }
 JSONC_EOF
 }
@@ -221,8 +220,8 @@ print('hooks cleared')
 _write_dynamic_manifest_fixture() {
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
 {
+  "harness": "claudecode",
   "modules": {
-    "claudecode": true,
     "jetbrains": false
   }
 }

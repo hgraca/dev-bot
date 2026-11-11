@@ -377,13 +377,13 @@ MOCK
 
 # ── Per-project init ────────────────────────────────────────────────────────
 
-@test "init.sh symlinks the launcher into .opencode and .claude" {
+@test "init.sh symlinks the launcher into the selected harness" {
   local sandbox project mockbin
   sandbox="$(mktemp -d)"
   project="${sandbox}/project"
   mockbin="${sandbox}/mockbin"
   mkdir -p "${project}" "${mockbin}"
-  printf '{ "modules": { "opencode": true, "claudecode": true } }\n' > "${project}/.devbot.project.jsonc"
+  printf '{ "harness": "opencode" }\n' > "${project}/.devbot.project.jsonc"
   cat > "${mockbin}/docker" <<'MOCK'
 #!/usr/bin/env bash
 case "$1" in
@@ -397,19 +397,25 @@ MOCK
   run env PATH="${mockbin}:${PATH}" bash "${MODULE_DIR}/init.sh" "${project}"
   assert_success
   [ -L "${project}/.opencode/sonarqube-serve.mcp.sh" ]
-  [ -L "${project}/.claude/sonarqube-serve.mcp.sh" ]
   [ "$(readlink "${project}/.opencode/sonarqube-serve.mcp.sh")" = "${MODULE_DIR}/serve.mcp.sh" ]
+  [ ! -e "${project}/.claude/sonarqube-serve.mcp.sh" ]
+
+  # The other harness is wired only once it is the selected one.
+  printf '{ "harness": "claudecode" }\n' > "${project}/.devbot.project.jsonc"
+  run env PATH="${mockbin}:${PATH}" bash "${MODULE_DIR}/init.sh" "${project}"
+  assert_success
+  [ -L "${project}/.claude/sonarqube-serve.mcp.sh" ]
 
   rm -rf "${sandbox}"
 }
 
-@test "init.sh honours a disabled harness module" {
+@test "init.sh wires only the selected harness" {
   local sandbox project mockbin
   sandbox="$(mktemp -d)"
   project="${sandbox}/project"
   mockbin="${sandbox}/mockbin"
   mkdir -p "${project}" "${mockbin}"
-  printf '{ "modules": { "opencode": false, "claudecode": true } }\n' > "${project}/.devbot.project.jsonc"
+  printf '{ "harness": "claudecode" }\n' > "${project}/.devbot.project.jsonc"
   cat > "${mockbin}/docker" <<'MOCK'
 #!/usr/bin/env bash
 case "$1" in

@@ -47,7 +47,7 @@ teardown() {
 setup_opencode_project() {
   local dir="$1"
   mkdir -p "${dir}/.opencode" "${dir}/.agents/memory/active" "${dir}/graphify-out"
-  printf '{\n  "modules": { "opencode": true, "claudecode": false }\n}\n' \
+  printf '{\n  "harness": "opencode"\n}\n' \
     > "${dir}/.devbot.project.jsonc"
   printf '{"plugin":[".opencode/plugins/graphify.js"]}\n' \
     > "${dir}/.opencode/opencode.json"
@@ -576,13 +576,11 @@ EOF
   mkdir -p "$tmpdir/src"
   mkdir -p "$tmpdir/.git/hooks"
   printf '# test\n' > "$tmpdir/.gitignore"
-  # The claudecode branch only runs when claudecode is enabled — the sandbox
-  # needs a project config to override the (claudecode-disabled) global one.
+  # The claudecode branch only runs when claudecode is the selected harness,
+  # and the project config overrides the global one.
   cat > "$tmpdir/.devbot.project.jsonc" <<'JSON'
 {
-  "modules": {
-    "claudecode": true
-  }
+  "harness": "claudecode"
 }
 JSON
 

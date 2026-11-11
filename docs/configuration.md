@@ -103,6 +103,10 @@ Selects which harness DevBot configures. Project config takes precedence over gl
 
 Used by `_devbot_get_harness` to select the launch script (`src/harnesses/<harness>/start.sh`).
 
+This key is also the **only** switch for harness enablement: exactly one harness module is wired — its `init.sh`/`reset.sh`, `opencode.jsonc` / `.mcp.json` registration, plugin and skill wiring and harness-scoped manifests run, and every other harness is treated as disabled. A harness name in the [`modules`](#modules) map is silently ignored.
+
+Switching harness therefore leaves the previously selected one's tree (`.opencode/` or `.claude/`) in place — its reset is skipped while it is unselected, so dev-bot never deletes a harness setup it is not managing. Select that harness again and run `devbot reinit` to clean it, or remove everything with `devbot uninstall`.
+
 ---
 
 ### `devbot_dir`
@@ -202,7 +206,7 @@ per-module contract.
 ### `modules`
 
 ```jsonc
-{ "modules": { "claudecode": false, "litellm": false } }
+{ "modules": { "signoz": false, "litellm": false } }
 ```
 
 **Type:** `object` (map of module name → `boolean`)
@@ -212,11 +216,13 @@ per-module contract.
 
 Per-module enablement. A module set to `false` is skipped during **init** — its symlink wiring and declared MCP servers are not installed into the project. A module absent from both files is enabled. The global and project maps merge per key, with the project value winning, so a project can re-enable a globally disabled module, or vice versa.
 
+Harness modules are **not** toggled here. Which harness is wired comes from the root [`harness`](#harness) key alone, so `"opencode"` / `"claudecode"` entries in this map are silently ignored — setting `"opencode": false` on the selected harness does not disable it, and setting `"claudecode": true` on the unselected one does not enable it.
+
 `devbot update` merges the dist schema into an existing global config additively: a module key the runtime does not have picks up the dist default (so a newly shipped module arrives disabled or enabled exactly as declared), while a key the runtime already sets keeps the machine's value. Set a module to `true` explicitly to keep it enabled; do not rely on deleting its key, which the merge re-adds from the dist default.
 
 The machine-wide commands ignore this map: `install`, `update`, `uninstall` and prereq checks run **every** module's scripts, disabled ones included — their assets are machine-wide, and a module disabled in one project may be enabled in another (the same rule `down` follows). Enablement is otherwise honoured by the per-project lifecycle (`init`, `up`) and by `devbot list`, which hides disabled modules' artifacts unless `--all` is given.
 
-Disabling a module also removes its MCP servers from every harness config — this is the lever for dropping a heavy server's tool-schema and process cost (see [MCP configuration](/mcp-config#reducing-the-footprint)).
+Disabling a module also removes its MCP servers from the selected harness's config — this is the lever for dropping a heavy server's tool-schema and process cost (see [MCP configuration](/mcp-config#reducing-the-footprint)).
 
 ---
 
@@ -857,12 +863,7 @@ a key a previous run registered.
   "netsuite": { "account_id": "1234567" },
 
   // Per-module enablement — `false` skips a module during init/up
-  "modules": {
-    "claudecode": false,
-    "react": false,
-    "signoz": false,
-    "svelte": false,
-  },
+  "modules": { "react": false, "signoz": false, "svelte": false },
 
   // Guard rules for bash commands
   "guards": [

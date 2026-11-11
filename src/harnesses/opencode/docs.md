@@ -5,6 +5,10 @@ description: "The OpenCode harness — hook adapter, module integrations, stats,
 
 OpenCode is the default agent runtime DevBot plugs into. Each harness lives in `src/harnesses/<name>/` and is self-contained — it owns its hooks, wiring and config templates, while business logic stays in the agentic modules' `tools/` and the harness only adapts events into commands.
 
+## Selection
+
+`harness: opencode` (project or global config) selects this harness — and selects it alone: its `init.sh`/`reset.sh`, `opencode.jsonc` registration and plugin/skill wiring run, while the other harness is treated as disabled. The root `harness` key is the only switch; an `opencode` entry in the [`modules`](/configuration#modules) map is silently ignored.
+
 ## The adapter
 
 `src/harnesses/opencode/hooks/on-hooks.ts` is a single plugin: one `event` handler plus `tool.execute.before` / `tool.execute.after` cover all six semantic events declared by the agentic modules' `hooks.json` manifests.

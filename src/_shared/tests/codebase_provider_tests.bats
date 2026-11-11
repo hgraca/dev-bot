@@ -41,6 +41,14 @@ teardown() {
 
 # ── Fixture helpers ──────────────────────────────────────────────────────────
 
+# The disabled set minus the harness names: harness selection (exactly one is
+# enabled, from the root `harness` key) is covered by config_tests; these tests
+# assert the engine pairs only.
+_engine_disabled_set() {
+  _devbot_get_disabled_modules "${PROJECT_DIR}" |
+    python3 -c 'import json, sys; print(json.dumps([m for m in json.load(sys.stdin) if m not in ("opencode", "claudecode")]))'
+}
+
 # Write a global config into the sandbox (JSON body passed as $1).
 _write_global_cfg() {
   printf '%s\n' "$1" > "${SANDBOX_DIR}/.devbot.global.jsonc"
@@ -96,7 +104,7 @@ _write_project_cfg() {
 @test "disabled set auto-disables codebase-memory when provider is codebase-index" {
   _write_global_cfg '{ "codebase_index_provider": "codebase-index", "memory_search_provider": "qmd" }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-memory", "mdctx"]'
 }
@@ -104,7 +112,7 @@ _write_project_cfg() {
 @test "disabled set auto-disables codebase-index when provider defaults to codebase-memory" {
   _write_global_cfg '{ "modules": {}, "memory_search_provider": "qmd" }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-index", "mdctx"]'
 }
@@ -112,7 +120,7 @@ _write_project_cfg() {
 @test "disabled set keeps explicit modules-map disables alongside the auto-disable" {
   _write_global_cfg '{ "codebase_index_provider": "codebase-memory", "memory_search_provider": "qmd", "modules": { "graphify": false } }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-index", "graphify", "mdctx"]'
 }
@@ -120,7 +128,7 @@ _write_project_cfg() {
 @test "explicit false on the selected engine still disables it (no codebase engine)" {
   _write_global_cfg '{ "codebase_index_provider": "codebase-memory", "memory_search_provider": "qmd", "modules": { "codebase-memory": false } }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-index", "codebase-memory", "mdctx"]'
 }
@@ -134,7 +142,7 @@ _write_project_cfg() {
     "modules": { "codebase-index": false, "codebase-memory": false }
   }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-index", "codebase-memory", "mdctx"]'
 }
@@ -143,7 +151,7 @@ _write_project_cfg() {
   _write_global_cfg '{ "codebase_index_provider": "codebase-index", "memory_search_provider": "qmd" }'
   _write_project_cfg '{ "modules": { "codebase-index": false } }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-index", "codebase-memory", "mdctx"]'
 }

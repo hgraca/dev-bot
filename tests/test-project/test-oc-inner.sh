@@ -82,8 +82,6 @@ try:
 except (FileNotFoundError, json.JSONDecodeError):
     d = {}
 d["harness"] = "opencode"
-d.setdefault("modules", {})["opencode"] = True
-d.setdefault("modules", {})["claudecode"] = False
 with open(path, "w") as f:
     json.dump(d, f, indent=2)
     f.write("\n")

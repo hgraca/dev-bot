@@ -22,10 +22,8 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
-# Only the opencode harness cares. `opencode` is not a key in the modules map,
-# so _run_service_scripts never skips this script: on a claudecode-configured
-# machine that merely has an opencode binary on disk, an unguarded check would
-# fire a FATAL for a harness it does not use.
+# The unselected harness is disabled, so _run_service_scripts skips this here.
+# The guard below only covers a direct invocation.
 if [[ "$(_devbot_get_harness "${1:-.}")" != "opencode" ]]; then
   exit 0
 fi

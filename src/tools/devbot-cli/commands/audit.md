@@ -46,21 +46,21 @@ Record the verdict at the top of the report: **ENVIRONMENT: container** or **ENV
 - Docker-absent behavior (npx fallbacks, "no docker daemon" skips, container round-trips N-A) is **correct inside a container**.
 - GPU verdicts are judged the same in both (the GPU is visible via passthrough), but the ollama container and qmd/opencode installs live on the **host** — inside a container you are auditing the host's services through the network.
 
-## 0b. Detect the harness(es)
+## 0b. Detect the harness
 
-First determine which agent harness(es) are wired and which one you are running under, because the MCP config file and tool-naming convention differ per harness.
+First determine which agent harness is selected and which one you are running under, because the MCP config file and tool-naming convention differ per harness.
 
-- **Which harnesses are enabled** — check the `modules` map in `.devbot.project.jsonc` and `.devbot.global.jsonc`: a harness is enabled unless its key (`opencode` or `claudecode`) is present and `false`; absent = enabled. A project may have **both** enabled, in which case both `.opencode/` and `.claude/` exist and both config files are wired. If neither dir exists, `devbot reinit`'s harness step did not run — record that as a FAIL.
-- **Which harness you are running under** — look at your own tool palette naming: opencode exposes MCP tools as `<server>_<tool>` (e.g. `devbot-tools_*`, `graphify_*`); claudecode exposes them as `mcp__<server>__<tool>` (e.g. `mcp__devbot-tools__*`, `mcp__graphify__*`). Cross-check with the `harness` key (single value, picks the launch binary) if present.
-- **Audit every enabled harness**, not only the one you are running under: each harness has its own MCP config (`opencode.jsonc` vs `.mcp.json`), its own launch command paths, and its own log location. A project with both harnesses enabled must have both configs correct — a broken `.mcp.json` is a defect even if you are currently in opencode.
-- **Record it in the report header** — the report MUST state which harness(es) this audit covered and which one the audit ran under, next to the ENVIRONMENT verdict from §0, with the evidence (the `modules` map values + your own tool-palette naming). Without the harness, findings are ambiguous: the same symptom can be an opencode-only bug, a claudecode-only bug, or a harness-gating defect — and log paths, config files, and tool naming all differ per harness. Every FAIL/NOTE row in the report should be attributable to a specific harness (or "both").
+- **Which harness is enabled** — the root `harness` key in `.devbot.project.jsonc`, falling back to `.devbot.global.jsonc` (absent or invalid = `opencode`). This is the **only** switch: exactly that harness is wired, and a harness name in the `modules` map is ignored. The unselected harness's tree (`.claude/` or `.opencode/`) may still exist from when it was selected — its absence is not a FAIL, and it is out of scope.
+- **Which harness you are running under** — look at your own tool palette naming: opencode exposes MCP tools as `<server>_<tool>` (e.g. `devbot-tools_*`, `graphify_*`); claudecode exposes them as `mcp__<server>__<tool>` (e.g. `mcp__devbot-tools__*`, `mcp__graphify__*`). Cross-check with the `harness` key.
+- **Audit the selected harness** — it owns the MCP config (`opencode.jsonc` vs `.mcp.json`), the launch command paths and the log location; a broken config there is a defect even if you are running under the other harness. The unselected harness is deliberately unmanaged, so do not flag its tree or config.
+- **Record it in the report header** — the report MUST state which harness this audit covered and which one the audit ran under, next to the ENVIRONMENT verdict from §0, with the evidence (the `harness` key + your own tool-palette naming). Without the harness, findings are ambiguous: log paths, config files, and tool naming all differ per harness. Every FAIL/NOTE row in the report should be attributable to that harness.
 
 ## 0c. Identify the running agent (must be DevBot)
 
 The audit is a **DevBot-primary-agent** activity: it must run under the `DevBot` agent profile. Determine which agent you are running as, and cross-check the config:
 
 - **Self-identify** — which agent profile are you operating under? Your own instructions/profile are the primary evidence (DevBot, or TeamLead / a subagent). Do not guess: if you are not certain, check which agent file your instructions came from (e.g. `.agents/agents/devbot/devbot.md` vs `devteam/teamlead.md` vs a subagent file).
-- **Cross-check the config** (per the enabled harness):
+- **Cross-check the config** (the selected harness):
   - opencode: `opencode.jsonc` → `default_agent` must be `"DevBot"`, and the `agent` map must contain a `DevBot` entry.
   - claudecode: `.claude/settings.json` (or `settings.local.json`) → the default/primary agent must be `DevBot`.
 
@@ -83,7 +83,7 @@ If you are **not** running as DevBot (the audit was launched under TeamLead or a
 - Attempt a guarded command (e.g. `rm -rf /tmp/x`) and confirm the guards hook blocks it.
   - **Live enforcement (audit-32 FAIL, fixed audit-33)**: this must be tested LIVE on opencode — the engine CLI alone is not enough. The opencode adapter previously read `process.env.DEVBOT_ROOT` (never exported — the harness exports `DEV_BOT_ROOT`), so `--global-config ""` merged no rules and `rm -rf`/`sudo` ran unblocked even though `guards.ts` alone returned `blocked:true`. The adapter now resolves the global config from its own root (the realpath already used for manifest loading), falling back to the env var.
 - If a K8s manifest is present, edit it and confirm lint-k8s fires.
-- **Shell data access — session id and agent name (repeat per enabled harness).** Per-session artefacts must be able to name the session they belong to: `devbot:grade-tools` stamps every row with `$DEV_BOT_SESSION_ID` and `$DEV_BOT_AGENT_NAME`. Neither is built into either harness — both are injected — so verify the **bash channel** actually receives them: `echo "SESSION=[${DEV_BOT_SESSION_ID:-<unset>}] AGENT=[${DEV_BOT_AGENT_NAME:-<unset>}]"`. Both must be non-empty, and `AGENT` must name the agent you are actually running as (§0c); record the literal echoed values as the evidence. The same finding appears from the consumer side as `WARN: DEV_BOT_AGENT_NAME is not set` (or `DEV_BOT_SESSION_ID`) from `record-grades.py`, and as `unknown` in the `actor` column of `.agents/logs/tools-grades.csv`.
+- **Shell data access — session id and agent name (the selected harness).** Per-session artefacts must be able to name the session they belong to: `devbot:grade-tools` stamps every row with `$DEV_BOT_SESSION_ID` and `$DEV_BOT_AGENT_NAME`. Neither is built into either harness — both are injected — so verify the **bash channel** actually receives them: `echo "SESSION=[${DEV_BOT_SESSION_ID:-<unset>}] AGENT=[${DEV_BOT_AGENT_NAME:-<unset>}]"`. Both must be non-empty, and `AGENT` must name the agent you are actually running as (§0c); record the literal echoed values as the evidence. The same finding appears from the consumer side as `WARN: DEV_BOT_AGENT_NAME is not set` (or `DEV_BOT_SESSION_ID`) from `record-grades.py`, and as `unknown` in the `actor` column of `.agents/logs/tools-grades.csv`.
 
   **Mechanism, so an empty value is diagnosable:**
 
@@ -103,7 +103,7 @@ If you are **not** running as DevBot (the audit was launched under TeamLead or a
 
 - Invoke tools directly (e.g. `search-memories`, `devbot:git-report`, `devbot:tree`, `devbot:format-md`) and confirm each returns output.
 - Confirm the `devbot-tools` MCP tools are discoverable and return `mcp-meta` correctly.
-- **MCP server health** — a registered-but-unconnected MCP server is a FAIL. Repeat this block per enabled harness.
+- **MCP server health** — a registered-but-unconnected MCP server is a FAIL. This block covers the selected harness.
 - **Intentionally-disabled servers are N/A, not FAIL.** An entry carrying `enabled: false` is shipped wired-but-off by design (see [MCP configuration](/mcp-config#per-server-enablement)) — record it as N/A. Only an entry that is absent-`enabled` or `enabled: true` yet has no reachable tools is a FAIL. The default-disabled servers are `chrome-devtools`, `playwright`, `signoz`, `jetbrains` and each `datasources-<name>`.
 - A value in `enabled` may be the user's own switch, not the module default — read the value, never assume it matches the module's declared default.
 
@@ -159,7 +159,7 @@ Then run the checks below; they verify the vault _works_ once warm:
 
 ## 8. Log examination
 
-At the end, examine the runtime logs for issues that no live tool call would surface. First determine which harness(es) are enabled (section 0: the `modules` map in `.devbot.project.jsonc` / `.devbot.global.jsonc` — a harness is enabled unless its key is `false`). To know which harness you are currently running under, look at your own tool palette naming: opencode exposes MCP tools as `<server>_<tool>` (e.g. `devbot-tools_*`, `graphify_*`); claudecode exposes them as `mcp__<server>__<tool>` (e.g. `mcp__devbot-tools__*`, `mcp__graphify__*`) — cross-check with the `harness` key (single value, picks the launch binary) in the configs. Then examine the logs in this order:
+At the end, examine the runtime logs for issues that no live tool call would surface. First determine which harness is selected (section 0: the root `harness` key in `.devbot.project.jsonc` / `.devbot.global.jsonc` — exactly that harness is wired, and a `modules`-map harness name is ignored). To know which harness you are currently running under, look at your own tool palette naming: opencode exposes MCP tools as `<server>_<tool>` (e.g. `devbot-tools_*`, `graphify_*`); claudecode exposes them as `mcp__<server>__<tool>` (e.g. `mcp__devbot-tools__*`, `mcp__graphify__*`) — cross-check with the `harness` key (single value, picks the launch binary) in the configs. Then examine the logs in this order:
 
 ### 8a. Project MCP logs — `.agents/logs/` (shared by all harnesses)
 
@@ -169,9 +169,9 @@ The devbot dir's MCP server logs. Enumerate `*.log` files, then inspect each for
 
 **Report output vs genuine errors**: error-like words in the logs are NOT automatically failures. A linter/formatter/validator writes its _findings summary_ as report output (e.g. kube-linter's `Error: found N lint errors`, prettier reporting a file as "failed") — that is the tool reporting, not a session error. When a log line matches an error pattern, ask: is this a tool REPORTING findings, or a runtime FAILURE (crash, launch failure, unhandled exception, timeout)? Distinguish by context — report logs (`lint-k8s.log`, formatter/linter output) legitimately contain error-like words; runtime logs (`hooks.log`, MCP server logs) should only contain them on genuine failures. Verify the end-of-session alert (`_devbot_check_session_logs` in `src/_shared/functions.sh`) applies the same discrimination (report-style logs excluded, real errors still flagged). FAIL only when a genuine runtime failure is present or when the alert misclassifies a report as an error.
 
-### 8b. Harness log(s) — repeat per enabled harness
+### 8b. Harness log — the selected harness
 
-Each harness keeps its own runtime log; audit the log of every enabled harness, not only the one you are running under:
+Each harness keeps its own runtime log; audit the selected harness's log — it need not be the one you are running under:
 
 | Harness    | Log location                                                                                                                                      | Failure signatures to grep                                           |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
@@ -232,7 +232,7 @@ Write a markdown report to `.agents/memory/thinking/devbot-audit-NN.md` (`.agent
 **Open the report with a header block** stating the audit context — every report MUST begin with these four lines before any findings (they let a reader interpret the whole report without re-deriving the environment):
 
 - **ENVIRONMENT: container** or **ENVIRONMENT: host** — plus the evidence (from §0).
-- **HARNESS(ES) ENABLED** and **HARNESS THIS AUDIT RAN UNDER** — which harness(es) are wired (`modules` map) and which one this session used (tool-palette naming), plus the evidence (from §0b). If both harnesses are enabled, the audit covers both — say so, and attribute every FAIL/NOTE below to a specific harness.
+- **HARNESS SELECTED** and **HARNESS THIS AUDIT RAN UNDER** — which harness is wired (the root `harness` key) and which one this session used (tool-palette naming), plus the evidence (from §0b). The audit covers the selected harness only — attribute every FAIL/NOTE below to it.
 - **RUNNING AGENT** — `DevBot` (or the FAIL if not, per §0c).
 - **DEVBOT REVISION (audited commit)** — the exact dev-bot install revision this audit ran against, plus the audit date. Audits 38–41 omitted it and their FAILs turned out to describe pre-fix code from an older install — without the revision a reader cannot tell whether a finding applies to the code in front of them. Resolve it from the dev-bot **install** (the tree the harness symlinks resolve to), not the project: `git -C <install-root> rev-parse HEAD` (+ `git -C <install-root> log -1 --format=%cd --date=short` for the commit date), where `<install-root>` is the install path from §0 (container: e.g. `/home/ubuntu/.local/share/dev-bot`; host: e.g. `~/.local/share/dev-bot`). If the install is not a git checkout, say so explicitly and give the best version marker available (install path + directory mtime).
 

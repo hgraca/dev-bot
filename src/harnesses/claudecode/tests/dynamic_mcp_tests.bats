@@ -30,13 +30,14 @@ teardown() {
   rm -rf "${SANDBOX_DIR}" 2>/dev/null || true
 }
 
-# _write_project_config <jetbrains-bool>: claudecode must be enabled for the
-# harness init to wire anything, and the project map overrides the global one.
+# _write_project_config <jetbrains-bool>: claudecode must be the selected
+# harness for its init to wire anything, and the project config overrides the
+# global one.
 _write_project_config() {
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
 {
+  "harness": "claudecode",
   "modules": {
-    "claudecode": true,
     "jetbrains": $1
   }
 }
@@ -126,9 +127,9 @@ print('CC-DISABLED-OMITTED:OK')
   # ignores — and an unrecognized key in a strictly validated .mcp.json risks
   # the whole file.
   #
-  # Both dynamic owners are named explicitly so the test cannot inherit a
-  # developer config that has datasources disabled.
-  printf '{\n  "modules": { "opencode": true, "claudecode": true, "jetbrains": true, "datasources": true }\n}\n' \
+  # The harness and both dynamic owners are named explicitly so the test cannot
+  # inherit a developer config that selects another harness or disables them.
+  printf '{\n  "harness": "claudecode", "modules": { "jetbrains": true, "datasources": true }\n}\n' \
     > "${SANDBOX_DIR}/.devbot.project.jsonc"
   _put_dynamic_manifests
 

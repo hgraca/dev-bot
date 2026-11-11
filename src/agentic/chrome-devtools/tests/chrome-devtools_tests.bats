@@ -22,8 +22,10 @@ setup() {
 
 # ── init.sh wiring ────────────────────────────────────────────────────────────
 
+# Harness selection is the root `harness` key alone: only the selected harness
+# is wired. The fixture names it explicitly so the test is hermetic.
 setup_project() {
-  printf '{\n  "modules": { "claudecode": true, "opencode": true }\n}\n' \
+  printf '{\n  "harness": "%s"\n}\n' "${2:-opencode}" \
     > "${1}/.devbot.project.jsonc"
 }
 
@@ -44,7 +46,7 @@ _stub_runtime_kit() {
   chmod +x "${1}/stubbin/npm"
 }
 
-@test "init.sh: symlinks the shared wrapper into .claude and .opencode" {
+@test "init.sh: symlinks the shared wrapper into the selected harness" {
   local tmpdir
   tmpdir="$(mktemp -d)"
   setup_project "${tmpdir}"
@@ -53,15 +55,21 @@ _stub_runtime_kit() {
   run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
 
   assert_success
-  [[ -L "${tmpdir}/.claude/chrome-devtools-mcp-wrapper.js" ]]
   [[ -L "${tmpdir}/.opencode/chrome-devtools-mcp-wrapper.js" ]]
-  run readlink -f "${tmpdir}/.claude/chrome-devtools-mcp-wrapper.js"
+  [[ ! -e "${tmpdir}/.claude/chrome-devtools-mcp-wrapper.js" ]]
+  run readlink -f "${tmpdir}/.opencode/chrome-devtools-mcp-wrapper.js"
   assert_output "${SHARED_WRAPPER}"
+
+  # The other harness is wired only once it is the selected one.
+  setup_project "${tmpdir}" claudecode
+  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
+  assert_success
+  [[ -L "${tmpdir}/.claude/chrome-devtools-mcp-wrapper.js" ]]
 
   rm -rf "${tmpdir}"
 }
 
-@test "init.sh: symlinks the serve launcher into .claude and .opencode" {
+@test "init.sh: symlinks the serve launcher into the selected harness" {
   local tmpdir
   tmpdir="$(mktemp -d)"
   setup_project "${tmpdir}"
@@ -70,8 +78,8 @@ _stub_runtime_kit() {
   run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
 
   assert_success
-  [[ -L "${tmpdir}/.claude/chrome-devtools-serve.mcp.sh" ]]
   [[ -L "${tmpdir}/.opencode/chrome-devtools-serve.mcp.sh" ]]
+  [[ ! -e "${tmpdir}/.claude/chrome-devtools-serve.mcp.sh" ]]
 
   rm -rf "${tmpdir}"
 }

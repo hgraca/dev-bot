@@ -1,7 +1,7 @@
 {
   "version": "", // installed release tag — set by `devbot update`; a change triggers a per-project reinit on next start
   "auto_update": true, // run `devbot update` automatically on a bare `devbot` start
-  "harness": "opencode", // decides what harness is used when launching `devbot`
+  "harness": "opencode", // decides what harness is used when launching `devbot`; also the only harness enablement switch
   "gpu_enabled": false,
   "devbot_dir": ".agents",
   // Workspace behaviour defaults, applied to every project that does not
@@ -15,10 +15,12 @@
   "ollama_local_api": "http://localhost:18434", // Ollama API endpoint for model pulls; read only by the codebase-index engine — inert when another codebase engine is selected
   "codebase_index_provider": "codebase-memory", // codebase-index | codebase-memory (absent => codebase-memory); pin "codebase-index" to keep the Ollama-based engine
   "memory_search_provider": "mdctx", // qmd | mdctx (absent => mdctx); pin "qmd" to keep the semantic/GPU engine
+  // Per-module enablement. Harnesses are not toggled here: the root `harness`
+  // key alone decides which one is wired, and a harness name in this map is
+  // silently ignored.
   "modules": {
     "atlassian": false,
     "aws": false,
-    "claudecode": false,
     "frontend": false,
     "jetbrains": false,
     "litellm": false,

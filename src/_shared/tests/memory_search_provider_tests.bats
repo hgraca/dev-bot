@@ -43,6 +43,14 @@ teardown() {
 
 # ── Fixture helpers ──────────────────────────────────────────────────────────
 
+# The disabled set minus the harness names: harness selection (exactly one is
+# enabled, from the root `harness` key) is covered by config_tests; these tests
+# assert the engine pairs only.
+_engine_disabled_set() {
+  _devbot_get_disabled_modules "${PROJECT_DIR}" |
+    python3 -c 'import json, sys; print(json.dumps([m for m in json.load(sys.stdin) if m not in ("opencode", "claudecode")]))'
+}
+
 # Write a global config into the sandbox (JSON body passed as $1).
 _write_global_cfg() {
   printf '%s\n' "$1" > "${SANDBOX_DIR}/.devbot.global.jsonc"
@@ -114,7 +122,7 @@ _write_project_cfg() {
     "memory_search_provider": "qmd"
   }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-memory", "mdctx"]'
 }
@@ -125,7 +133,7 @@ _write_project_cfg() {
     "memory_search_provider": "mdctx"
   }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-memory", "qmd"]'
 }
@@ -133,7 +141,7 @@ _write_project_cfg() {
 @test "disabled set auto-disables qmd when memory_search_provider absent (default mdctx)" {
   _write_global_cfg '{ "codebase_index_provider": "codebase-index" }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-memory", "qmd"]'
 }
@@ -145,7 +153,7 @@ _write_project_cfg() {
     "modules": { "graphify": false }
   }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-memory", "graphify", "mdctx"]'
 }
@@ -157,7 +165,7 @@ _write_project_cfg() {
     "modules": { "qmd": false }
   }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-memory", "mdctx", "qmd"]'
 }
@@ -169,7 +177,7 @@ _write_project_cfg() {
     "modules": { "qmd": false, "mdctx": false }
   }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-memory", "mdctx", "qmd"]'
 }
@@ -181,7 +189,7 @@ _write_project_cfg() {
   }'
   _write_project_cfg '{ "modules": { "qmd": false } }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-memory", "mdctx", "qmd"]'
 }
@@ -193,7 +201,7 @@ _write_project_cfg() {
   # memory_search_provider qmd => adds mdctx. Both unions apply.
   _write_global_cfg '{ "memory_search_provider": "qmd" }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-index", "mdctx"]'
 }
@@ -203,7 +211,7 @@ _write_project_cfg() {
   # codebase-memory. Both unions apply.
   _write_global_cfg '{ "codebase_index_provider": "codebase-index" }'
 
-  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  run _engine_disabled_set
   assert_success
   assert_output '["codebase-memory", "qmd"]'
 }

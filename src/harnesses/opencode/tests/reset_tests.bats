@@ -29,18 +29,17 @@ teardown() {
   rm -rf "${SANDBOX_DIR}" 2>/dev/null || true
 }
 
-# _write_project_config <enabled|disabled>: write .devbot.project.jsonc with
-# the opencode module explicitly set, overriding the global default.
+# _write_project_config <enabled|disabled>: write .devbot.project.jsonc
+# selecting this harness (enabled) or the other one (disabled). The root
+# `harness` key is the only harness switch — a modules-map entry is ignored.
 _write_project_config() {
   local state="$1"
-  local value=false
-  [[ "${state}" == "enabled" ]] && value=true
+  local value=claudecode
+  [[ "${state}" == "enabled" ]] && value=opencode
 
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
 {
-  "modules": {
-    "opencode": ${value}
-  }
+  "harness": "${value}"
 }
 JSONC_EOF
 }
@@ -184,8 +183,8 @@ _write_d7_fixture() {
   # disables (review F4).
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
 {
+  "harness": "opencode",
   "modules": {
-    "opencode": true,
     "codebase-index": false,
     "react": false,
     "chrome-devtools": true
@@ -299,8 +298,8 @@ _write_playwright_fixture() {
 
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
 {
+  "harness": "opencode",
   "modules": {
-    "opencode": true,
     "playwright": true
   }
 }
@@ -396,8 +395,8 @@ _write_chrome_devtools_fixture() {
 
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
 {
+  "harness": "opencode",
   "modules": {
-    "opencode": true,
     "chrome-devtools": true
   }
 }
@@ -473,8 +472,8 @@ print('CDT-KEPT:OK')
 _write_dynamic_manifest_fixture() {
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
 {
+  "harness": "opencode",
   "modules": {
-    "opencode": true,
     "jetbrains": false
   }
 }
@@ -552,8 +551,8 @@ print('D8-DYNAMIC-PRUNE:OK')
 _write_orphaned_key_fixture() {
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
 {
+  "harness": "opencode",
   "modules": {
-    "opencode": true,
     "jetbrains": false
   }
 }
@@ -615,8 +614,8 @@ print('D9-ORPHAN-PRUNE:OK')
   # not delete a user's servers that happen to share its name.
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
 {
+  "harness": "opencode",
   "modules": {
-    "opencode": true,
     "frontend": false
   }
 }
@@ -654,10 +653,7 @@ print('D9-SKILL-ONLY-KEPT:OK')
   # user's same-named entries.
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
 {
-  "modules": {
-    "opencode": true,
-    "claudecode": false
-  }
+  "harness": "opencode"
 }
 JSONC_EOF
 
@@ -693,8 +689,8 @@ print('D9-HARNESS-KEPT:OK')
   # behind when the manifest disappears out of band.
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
 {
+  "harness": "opencode",
   "modules": {
-    "opencode": true,
     "netsuite": false
   }
 }

@@ -1198,6 +1198,11 @@ _devbot_ensure_global_value() {
 #   The two memory-search engine modules (qmd / mdctx) are mutually exclusive
 #   the same way via memory_search_provider — both pairs are independent and
 #   both non-selected engines are appended.
+#   Harnesses are selected, never module-toggled: the root `harness` key alone
+#   decides which one is enabled. Every other harness directory is appended to
+#   the disabled set, and a harness name in the modules maps is ignored.
+#   With no project_dir the modules maps come from the global config, while the
+#   harness still resolves against the current directory (its own default).
 #   Handles missing fields gracefully (returns "[]").
 
 _devbot_get_disabled_modules() {
@@ -1236,22 +1241,42 @@ _devbot_get_disabled_modules() {
   non_selected_mem="qmd"
   [[ "${mem_provider}" == "qmd" ]] && non_selected_mem="mdctx"
 
+  # Harnesses are resolved from the code tree, beside this library — the same
+  # reason the reader above is not taken from DEV_BOT_ROOT (sandbox overrides).
+  local selected_harness harnesses_dir
+  selected_harness="$(_devbot_get_harness "${project_dir}")"
+  harnesses_dir="$(cd "${shared_dir}/../harnesses" 2>/dev/null && pwd || true)"
+
   # Merge: project overrides global. A module is disabled when its effective
   # value is false (project value if present, else global value). The
   # non-selected codebase engine and non-selected memory-search engine are
-  # always disabled (mutual exclusion per pair).
+  # always disabled (mutual exclusion per pair), and so is every harness the
+  # root `harness` key did not select.
   GLOBAL_STATES="${global_states}" PROJECT_STATES="${project_states}" \
+    HARNESSES_DIR="${harnesses_dir}" SELECTED_HARNESS="${selected_harness}" \
     NON_SELECTED="${non_selected}" NON_SELECTED_MEM="${non_selected_mem}" python3 -c '
 import json, os
+# The canonical pair is always known, so a partial install (src/harnesses
+# missing) still disables the harness that was not selected.
+harness_names = {"opencode", "claudecode"}
+harnesses_dir = os.environ.get("HARNESSES_DIR", "")
+if harnesses_dir and os.path.isdir(harnesses_dir):
+    harness_names |= {n for n in os.listdir(harnesses_dir)
+                      if os.path.isdir(os.path.join(harnesses_dir, n))}
 global_states = json.loads(os.environ["GLOBAL_STATES"])
 project_states = json.loads(os.environ["PROJECT_STATES"])
 disabled = set()
 for m, v in global_states.items():
+    if m in harness_names:
+        continue
     if project_states.get(m, v) is False:
         disabled.add(m)
 for m, v in project_states.items():
+    if m in harness_names:
+        continue
     if m not in global_states and v is False:
         disabled.add(m)
+disabled |= harness_names - {os.environ.get("SELECTED_HARNESS", "")}
 disabled.add(os.environ["NON_SELECTED"])
 disabled.add(os.environ["NON_SELECTED_MEM"])
 print(json.dumps(sorted(disabled)))

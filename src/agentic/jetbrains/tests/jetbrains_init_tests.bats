@@ -22,7 +22,7 @@ setup() {
   INIT_TOOL="${MODULE_DIR}/init.sh"
 
   PROJECT="$(mktemp -d)"
-  printf '{\n  "modules": { "opencode": true }\n}\n' > "${PROJECT}/.devbot.project.jsonc"
+  printf '{\n  "harness": "opencode"\n}\n' > "${PROJECT}/.devbot.project.jsonc"
 
   # Shim pgrep so IDE auto-detection always fails and init.sh probes
   # JETBRAINS_PORT (our fake endpoint) instead of a real IDE.
@@ -141,24 +141,30 @@ with open(sys.argv[1]) as fh:
   assert_failure
 }
 
-@test "jetbrains init: opencode manifest ships disabled, claude manifest enabled" {
+@test "jetbrains init: the opencode manifest ships disabled" {
   # The IDE's MCP server only exists while an IDE is running, so the opencode
-  # manifest opts the server out by default. .mcp.json has no per-server on/off
-  # (and _wire_mcp reads `enabled` as a wire/don't-wire gate), so the claude
-  # manifest keeps true or the server would vanish from that harness.
-  #
-  # Both harnesses are named explicitly: the project map overrides the global
-  # one, so the test cannot inherit a claudecode-disabled developer config.
-  printf '{\n  "modules": { "opencode": true, "claudecode": true }\n}\n' \
-    > "${PROJECT}/.devbot.project.jsonc"
-
+  # manifest opts the server out by default.
   run env PATH="${SHIM_DIR}:${PATH}" JETBRAINS_PORT="${FAKE_PORT}" \
     bash "${INIT_TOOL}" "${PROJECT}"
   assert_success
 
   run grep -qF '"enabled":false' "${PROJECT}/.opencode/jetbrains.mcp.json"
   assert_success
+  [ ! -e "${PROJECT}/.claude/jetbrains.mcp.json" ]
+}
+
+@test "jetbrains init: the claude manifest ships enabled" {
+  # .mcp.json has no per-server on/off (and _wire_mcp reads `enabled` as a
+  # wire/don't-wire gate), so the claude manifest keeps true or the server
+  # would vanish from that harness.
+  printf '{\n  "harness": "claudecode"\n}\n' \
+    > "${PROJECT}/.devbot.project.jsonc"
+
+  run env PATH="${SHIM_DIR}:${PATH}" JETBRAINS_PORT="${FAKE_PORT}" \
+    bash "${INIT_TOOL}" "${PROJECT}"
+  assert_success
 
   run grep -qF '"enabled": true' "${PROJECT}/.claude/jetbrains.mcp.json"
   assert_success
+  [ ! -e "${PROJECT}/.opencode/jetbrains.mcp.json" ]
 }

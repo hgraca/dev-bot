@@ -208,16 +208,20 @@ _run_ensure_sources() {
 
 # Swap the sandbox stub of _devbot_get_disabled_modules for the REAL
 # implementation, extracted verbatim from the shared library together with the
-# two provider helpers it calls and the JSONC reader they resolve beside
-# functions.sh.
+# helpers it calls and the JSONC reader they resolve beside functions.sh.
 #
 # The stub reads only the global modules map, so it accepts a project_dir
 # argument and ignores it — which makes it structurally incapable of observing
 # whether the caller passed one. Appended after the stub, these definitions win.
 _use_real_disabled_modules() {
   cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX_DIR}/src/_shared/read_jsonc.py"
+  # The harness dimension lists src/harnesses beside the library — without it
+  # the real implementation would cover everything except harness selection.
+  mkdir -p "${SANDBOX_DIR}/src/harnesses/opencode" "${SANDBOX_DIR}/src/harnesses/claudecode"
   {
     awk '/^_devbot_global_config\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_devbot_get_config\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_devbot_get_harness\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_get_codebase_provider\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_get_memory_search_provider\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_get_disabled_modules\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"

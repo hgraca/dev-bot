@@ -30,16 +30,15 @@ CLAUDE_DIR="${PROJECT_DIR}/.claude"
 
 _header_3 "Claude Code Reset"
 
-# ── If claudecode is disabled, leave the harness alone ────────────────────────
+# ── If claudecode is not the selected harness, leave it alone ────────────────
 # The user may use Claude Code independently of dev-bot: .claude/, CLAUDE.md
 # and .mcp.json may be entirely theirs. dev-bot never removes artifacts of a
 # harness it is not managing — reinit must not destroy a user's setup.
-# NOTE: this also means dev-bot symlinks left by a previous (enabled) init are
-# kept when the module is disabled; there is no cleanup path for them while
-# disabled. Re-enable the module and reset to clean them.
+# NOTE: dev-bot symlinks left while this harness was selected are kept — there
+# is no cleanup path while it is unselected. Select it and reinit to clean them.
 _disabled_raw="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null || echo '[]')"
 if echo "${_disabled_raw}" | jq -e 'index("claudecode") != null' >/dev/null 2>&1; then
-  _skip "claudecode is disabled — leaving .claude/, .mcp.json and CLAUDE.md untouched"
+  _skip "claudecode is not the selected harness — leaving .claude/, .mcp.json and CLAUDE.md untouched"
   exit 0
 fi
 

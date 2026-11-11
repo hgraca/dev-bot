@@ -121,11 +121,11 @@ EOF
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
   assert_success
 
+  # Only the selected harness is wired — the unselected one is never touched.
   assert [ -L "$TMP/proj/.opencode/aws-mcp-proxy.sh" ]
-  assert [ -L "$TMP/proj/.claude/aws-mcp-proxy.sh" ]
   assert [ -f "$TMP/proj/.opencode/aws-prod.mcp.json" ]
   assert [ -f "$TMP/proj/.opencode/aws-dev.mcp.json" ]
-  assert [ -f "$TMP/proj/.claude/aws-prod.mcp.json" ]
+  assert [ ! -e "$TMP/proj/.claude" ]
 }
 
 @test "init.sh: the manifest invokes the launcher with the connection and no secret" {
@@ -150,8 +150,13 @@ print('OK')
 
 @test "init.sh: the claudecode manifest is stdio with the same command" {
   _aws_seed_project
+  echo '{"aws_connections": ["prod", "dev"], "harness": "claudecode"}' \
+    > "$TMP/proj/.devbot.project.jsonc"
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
   assert_success
+
+  assert [ -L "$TMP/proj/.claude/aws-mcp-proxy.sh" ]
+  assert [ ! -e "$TMP/proj/.opencode" ]
 
   run python3 -c "
 import json
@@ -245,19 +250,9 @@ print('OK')
   assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws.md" ]
 }
 
-@test "init.sh: writes no memory when every harness is disabled" {
+@test "init.sh: writes memory when claudecode is the selected harness" {
   _aws_seed_project
-  echo '{"aws_connections": ["prod"], "modules": {"opencode": false, "claudecode": false}}' \
-    > "$TMP/proj/.devbot.project.jsonc"
-
-  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
-  assert_success
-  assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws.md" ]
-}
-
-@test "init.sh: writes memory when only claudecode is enabled" {
-  _aws_seed_project
-  echo '{"aws_connections": ["prod"], "modules": {"opencode": false}}' \
+  echo '{"aws_connections": ["prod"], "harness": "claudecode"}' \
     > "$TMP/proj/.devbot.project.jsonc"
 
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
@@ -415,9 +410,9 @@ print('OK')
   assert_equal "$before" "$after"
 }
 
-@test "init.sh: skips the claudecode manifest when that harness is disabled" {
+@test "init.sh: skips the claudecode manifest when it is not the selected harness" {
   _aws_seed_project
-  echo '{"aws_connections": ["prod"], "modules": {"claudecode": false}}' \
+  echo '{"aws_connections": ["prod"], "harness": "opencode"}' \
     > "$TMP/proj/.devbot.project.jsonc"
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
   assert_success

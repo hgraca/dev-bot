@@ -33,13 +33,13 @@ teardown() {
   rm -rf "${SANDBOX_DIR}" 2>/dev/null || true
 }
 
-# _write_project_config <jetbrains-bool>: pin the module state at project level
-# (project overrides the global maps, so the test is hermetic).
+# _write_project_config <jetbrains-bool>: pin the harness and the module state
+# at project level (project overrides the global config, so the test is hermetic).
 _write_project_config() {
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<JSONC_EOF
 {
+  "harness": "opencode",
   "modules": {
-    "opencode": true,
     "jetbrains": $1
   }
 }

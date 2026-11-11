@@ -125,8 +125,13 @@ _catalogue_projects() {
 }
 
 _project_config() {
-  local datasources="$1" modules="${2:-}"
+  local datasources="$1" modules="${2:-}" harness="${3:-}"
   [[ -z "${modules}" ]] && modules='{}'
+  if [[ -n "${harness}" ]]; then
+    printf '{"harness": "%s", "modules": %s, "datasources": %s}\n' \
+      "${harness}" "${modules}" "${datasources}" > "${PROJECT_DIR}/.devbot.project.jsonc"
+    return 0
+  fi
   printf '{"modules": %s, "datasources": %s}\n' "${modules}" "${datasources}" \
     > "${PROJECT_DIR}/.devbot.project.jsonc"
 }
@@ -741,12 +746,9 @@ SH
   assert_output --partial '"url": "http://127.0.0.1:18510/mcp/mariadb-dev"'
 }
 
-@test "init: opencode manifest ships disabled, claude manifest enabled" {
+@test "init: the opencode manifest ships disabled" {
   # The datasource gateways are optional per project, so the opencode manifest
   # opts the server out by default — one flag turns it on without a reinit.
-  # .mcp.json has no per-server on/off, and _wire_mcp reads `enabled` as a
-  # wire/don't-wire gate, so the claude manifest must stay true or the server
-  # would silently disappear from that harness.
   _catalogue '{}'
   _project_config '["mariadb-dev"]'
 
@@ -756,10 +758,23 @@ SH
   run cat "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json"
   assert_success
   assert_output --partial '"enabled": false'
+  [ ! -e "${PROJECT_DIR}/.claude/datasources-mariadb-dev.mcp.json" ]
+}
+
+@test "init: the claude manifest ships enabled" {
+  # .mcp.json has no per-server on/off, and _wire_mcp reads `enabled` as a
+  # wire/don't-wire gate, so the claude manifest must stay true or the server
+  # would silently disappear from that harness.
+  _catalogue '{}'
+  _project_config '["mariadb-dev"]' '' 'claudecode'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
 
   run cat "${PROJECT_DIR}/.claude/datasources-mariadb-dev.mcp.json"
   assert_success
   assert_output --partial '"enabled": true'
+  [ ! -e "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json" ]
 }
 
 @test "init: the opencode manifest carries the 60s MCP timeout by default" {
@@ -885,9 +900,9 @@ JSON
   assert_output --partial "not declared"
 }
 
-@test "init: nothing is written for a disabled harness" {
+@test "init: nothing is written for the unselected harness" {
   _catalogue '{}'
-  _project_config '["mariadb-dev"]' '{"opencode": false}'
+  _project_config '["mariadb-dev"]' '' 'claudecode'
 
   run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
   assert_success
@@ -911,6 +926,10 @@ JSON
   run cat "${PROJECT_DIR}/.opencode/datasources-search.mcp.json"
   assert_success
   assert_output --partial '"url": "http://127.0.0.1:18520/mcp"'
+
+  _project_config '["hotels", "search"]' '' 'claudecode'
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
 
   run cat "${PROJECT_DIR}/.claude/datasources-search.mcp.json"
   assert_success
@@ -1740,7 +1759,7 @@ PY
   # claudecode's manifest nests the server under mcpServers; a Claude-only
   # project must not be reported clean while it points at the old endpoint.
   _sqlite_catalogue
-  _project_config '["scratch"]'
+  _project_config '["scratch"]' '' 'claudecode'
   mkdir -p "${PROJECT_DIR}/.claude"
   printf '{"mcpServers": {"datasources-scratch": {"type": "http", "url": "http://127.0.0.1:1/mcp/scratch", "enabled": true}}}\n' \
     > "${PROJECT_DIR}/.claude/datasources-scratch.mcp.json"
@@ -1753,11 +1772,11 @@ PY
   assert_output --partial "harness manifests are stale"
 }
 
-@test "reload: a stale manifest of a disabled harness is not reported" {
-  # init neither writes nor prunes a disabled harness's manifests, so a leftover
-  # from when it was enabled must not fail every reload.
+@test "reload: a stale manifest of the unselected harness is not reported" {
+  # init neither writes nor prunes the unselected harness's manifests, so a
+  # leftover from when it was selected must not fail every reload.
   _sqlite_catalogue
-  _project_config '["scratch"]' '{"claudecode": false}'
+  _project_config '["scratch"]' '{}' 'opencode'
   mkdir -p "${PROJECT_DIR}/.claude"
   printf '{"mcpServers": {"datasources-scratch": {"type": "http", "url": "http://127.0.0.1:1/mcp/scratch", "enabled": true}}}\n' \
     > "${PROJECT_DIR}/.claude/datasources-scratch.mcp.json"

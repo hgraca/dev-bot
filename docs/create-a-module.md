@@ -101,7 +101,7 @@ Agent profiles under `agents/<name>.md`, with `name`, `description`, and `mode` 
 
 ### MCP servers
 
-Declare the MCP server(s) once in a canonical, harness-agnostic `mcp.json` — both harnesses register from it via the shared translator during `devbot init` (see [MCP configuration](/mcp-config) for the schema, tokens, and per-harness shapes):
+Declare the MCP server(s) once in a canonical, harness-agnostic `mcp.json` — the selected harness registers from it via the shared translator during `devbot init` (see [MCP configuration](/mcp-config) for the schema, tokens, and per-harness shapes):
 
 ```json
 {

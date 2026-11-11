@@ -154,3 +154,80 @@ _write_project_cfg() {
   assert_success
   assert_output "claudecode"
 }
+
+# ── _devbot_get_disabled_modules (harness enablement) ───────────────────────
+# Harness enablement is the root `harness` key alone: exactly one harness is
+# enabled, and a harness name in the modules maps is ignored.
+
+@test "_devbot_get_disabled_modules enables only the selected harness" {
+  _write_project_cfg '{ "harness": "opencode" }'
+
+  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  assert_success
+  refute_output --partial '"opencode"'
+  assert_output --partial '"claudecode"'
+}
+
+@test "_devbot_get_disabled_modules ignores an explicit false on the selected harness" {
+  _write_project_cfg '{ "harness": "opencode", "modules": { "opencode": false } }'
+
+  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  assert_success
+  refute_output --partial '"opencode"'
+}
+
+@test "_devbot_get_disabled_modules ignores an explicit true on an unselected harness" {
+  _write_project_cfg '{ "harness": "opencode", "modules": { "claudecode": true } }'
+
+  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  assert_success
+  assert_output --partial '"claudecode"'
+}
+
+@test "_devbot_get_disabled_modules selects the harness from the global config" {
+  _write_project_cfg '{ "project_name": "demo" }'
+  _write_global_cfg '{ "harness": "claudecode" }'
+
+  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  assert_success
+  refute_output --partial '"claudecode"'
+  assert_output --partial '"opencode"'
+}
+
+@test "_devbot_get_disabled_modules ignores a harness entry in the global map" {
+  # The shipped configs carry "claudecode": false in the GLOBAL modules map, so
+  # that is the branch that matters in production.
+  _write_global_cfg '{ "harness": "opencode", "modules": { "opencode": false } }'
+
+  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  assert_success
+  refute_output --partial '"opencode"'
+}
+
+@test "_devbot_get_disabled_modules output is exactly the engine pair plus the harness" {
+  _write_project_cfg '{ "harness": "claudecode", "modules": { "react": false } }'
+
+  run _devbot_get_disabled_modules "${PROJECT_DIR}"
+  assert_success
+  assert_output '["codebase-index", "opencode", "qmd", "react"]'
+}
+
+@test "_devbot_get_disabled_modules disables the unselected harness without src/harnesses" {
+  # A partial install (or a sandbox holding only src/_shared) must not fall back
+  # to enabling both harnesses.
+  local bare
+  bare="$(mktemp -d)"
+  mkdir -p "${bare}/src/_shared"
+  cp "${PROJECT_ROOT}/src/_shared/functions.sh" "${PROJECT_ROOT}/src/_shared/read_jsonc.py" \
+    "${bare}/src/_shared/"
+  printf '%s\n' '{ "harness": "claudecode" }' > "${bare}/.devbot.global.jsonc"
+
+  run env DEV_BOT_ROOT="${bare}" bash -c \
+    'source "$1/src/_shared/functions.sh"; _devbot_get_disabled_modules "$2"' _ "${bare}" "${PROJECT_DIR}"
+
+  assert_success
+  assert_output --partial '"opencode"'
+  refute_output --partial '"claudecode"'
+
+  rm -rf "${bare}"
+}
