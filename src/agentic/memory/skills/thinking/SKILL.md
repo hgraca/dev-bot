@@ -11,7 +11,7 @@ All ephemeral scratch files, notes, drafts, or WIP content produced during sessi
 
 - Creating any temporary file, ephemeral note, draft, or WIP content
 - Saving partial-progress checkpoints before context overflow
-- Deciding whether to promote or delete existing scratch files
+- Deciding whether a draft has lasting value, and where it belongs
 
 ## 1. Naming
 
@@ -22,10 +22,10 @@ All ephemeral scratch files, notes, drafts, or WIP content produced during sessi
 
 ## 2. Lifecycle
 
-After task completes or session ends:
+This skill creates the files; two wrap-up skills end them, one concern each:
 
-1. **Promote**: If file contains lasting value (decision, pattern, gotcha), move content to appropriate latent/ note.
-2. **Delete**: Remove files that add no lasting value.
-3. **Flag**: Any `thinking/` file older than 7 days should be reviewed -- promote or delete.
+- **Promotion is `devbot:remember-session`'s** — it moves a file's lasting value (decision, pattern, gotcha) into the appropriate `latent/` note. Never promote from here.
+- **Deletion is `devbot:reconcile-work`'s** — at session end it removes the `thinking/` files this session wrote. It never deletes a file the session did not write; one it cannot attribute is reported, not removed.
+- **A file older than 7 days that no live session owns** is reported for the user to decide. Promote or delete is their call, never yours.
 
-See `devbot:memory-management` skill (section 7) for full lifecycle rules.
+`devbot:memory-management` section 7 carries the full rules.

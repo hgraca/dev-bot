@@ -91,12 +91,12 @@ For each incomplete file:
 
 ### Step 6 — Thinking/ hygiene
 
-Apply `devbot:memory-management` skill section 7:
+Apply `devbot:memory-management` skill section 7. A prune is user-invoked, so it **is** the maintenance exception that may delete scratch outside the finish flow — but never a file a live session is still writing, and never one you cannot attribute safely.
 
 - Reusable lesson → promote to `latent/`, delete draft
 - Completed work → delete
 - Live WIP → keep; rename if not descriptive
-- Flag files older than 7 days for user review
+- Older than 7 days → list for the user, and delete only with their approval
 
 ### Step 7 — Report
 

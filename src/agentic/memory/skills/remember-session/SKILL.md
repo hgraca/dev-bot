@@ -82,13 +82,11 @@ keywords: ["keyword1", "keyword2"]   <- 1-5 focused terms; bucket name first
 
 **Do NOT use for**: Decisions (route to PDRs/ADRs instead). General lessons without a concrete trap.
 
-## 3. Promote or discard thinking notes
+## 3. Promote thinking notes
 
-Follow thinking/ lifecycle rules in `devbot:memory-management` skill (section 7):
+Promote the lasting value out of this session's `thinking/` files into `latent/`, following `devbot:memory-management` (section 7).
 
-- Contains reusable lesson → promote to latent/, then delete
-- Completed work → delete
-- Still live WIP → keep
+Deletion is not yours: `devbot:reconcile-work` removes every `thinking/` file this session created, so leave the files in place here and let the one owner do the removal.
 
 ## 4. Commit memory files (if tracked)
 

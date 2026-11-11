@@ -1,16 +1,16 @@
 ---
 name: devbot:reconcile-work
-description: "Use when wrapping up to reconcile the work folders and worktrees a session touched — the last of the finish flow's capture, grade and reconcile steps, after devbot:grade-tools."
+description: "Use when wrapping up to reconcile the artifacts a session touched — work folders, worktrees and thinking files — the last of the finish flow's capture, grade and reconcile steps, after devbot:grade-tools. Triggers on 'wrap up', 'wrapping up', 'let's wrap', 'tidy the work folders', 'clean up my scratch notes'."
 ---
 
 # Reconcile Work
 
-Align the session's artifacts with reality at the end of a session. Every work item the session **started** ends up in `work/active/` (unfinished) or `work/archive/YYYY/MM/` (finished), so a skipped `make-plan` / `implement-story` move never leaves a started item stranded in `work/todo/`. And every **landed** worktree under `<devbot_dir>/worktrees/` is taken down with its local branch, so worktrees do not accumulate across sessions.
+Align the session's artifacts with reality at the end of a session. Every work item the session **started** ends up in `work/active/` (unfinished) or `work/archive/YYYY/MM/` (finished), so a skipped `make-plan` / `implement-story` move never leaves a started item stranded in `work/todo/`. And every **landed** worktree under `<devbot_dir>/worktrees/` is taken down with its local branch, so worktrees do not accumulate across sessions. And every `thinking/` file the session wrote is deleted, so scratch notes do not accumulate either.
 
 ## When to Apply
 
 - **Primary trigger**: the primary finish flow (see `devbot:agent-communication`), immediately after `devbot:remember-session` and `devbot:grade-tools`, before `[FINISHED]`.
-- The user says "tidy the work folders", "reconcile the work items", "archive the finished work", or "clean up the worktrees".
+- The user says "wrap up", "wrapping up", "let's wrap", "tidy the work folders", "reconcile the work items", "archive the finished work", "clean up the worktrees", or "clean up my scratch notes". Only the session-ending phrasings ("wrap up", "wrapping up", "let's wrap") trigger step 3's removal of this session's `thinking/` files; the others run mid-session and skip it.
 
 ## Scope
 
@@ -82,9 +82,15 @@ Worktrees follow the same rule but are found differently: each sits under its **
 
    It walks this session's opencode process, kills only servers that are provably not working — no CPU tick between two samples, or a working directory that no longer exists (a worktree step 1 just removed) — and logs its decisions to `.agents/logs/lsp-reap.log`. It is a silent no-op when there is nothing to reap, and a no-op outside opencode. Run it **unconditionally, without asking**: a reaped server respawns on demand the next time that directory is visited.
 
-3. **List the touched work items.** From the session's own activity, collect the top-level `work/todo/` and `work/active/` folders this session created, started, or edited. If there are none, skip to the end — there is nothing left to reconcile.
+3. **Remove the thinking files this session wrote.** Run this step **only on the session-ending trigger** — the finish flow, or a "wrap up". A mid-session "tidy the work folders" skips it, because the session's drafts and WIP notes are still live.
 
-4. **Classify each item** by its state this session:
+   `thinking/` is scratch space, not a second memory vault, and it is shared: a polyrepo session dispatches several scouts that each write their report into it, and other sessions may be working in the same workspace. Delete exactly the files **this session wrote** — the drafts, checkpoints and subagent reports produced during this session, which you know from the work you did. Never pick files by pattern, age, or a guess from the filename: a file you did not write belongs to someone else, and another session may still be writing it. If you can no longer attribute a file — the session was compacted or resumed — leave it and name it in the wrap-up report rather than guess.
+
+   **Promotion is not yours** — `devbot:remember-session` has already promoted the lasting value and is the only writer of memory notes, so this step only deletes. **Leave tool-managed state alone**: the dot-prefixed `thinking/.auto-recover-*` files are runtime locks and attempt counters written by the harness, not scratch — never delete them. `thinking/` is otherwise gitignored local scratch: never stage or commit anything from it.
+
+4. **List the touched work items.** From the session's own activity, collect the top-level `work/todo/` and `work/active/` folders this session created, started, or edited. If there are none, skip to the end — there is nothing else to reconcile.
+
+5. **Classify each item** by its state this session:
 
    | Item state this session           | Action                                               |
    | --------------------------------- | ---------------------------------------------------- |
@@ -93,16 +99,17 @@ Worktrees follow the same rule but are found differently: each sits under its **
    | created or planned, never started | leave in `work/todo/`                                |
    | already in `active/`, unfinished  | leave in `work/active/`                              |
 
-5. **Decide "finished".** An item is finished when every acceptance criterion in its `backlog.md` is met and its work is committed and proven. When the state is genuinely ambiguous, ask the user which way it goes — do not guess.
-6. **Move each item** with `mkdir -p <dest>` then `mv <src> <dest>`, preserving the folder name:
+6. **Decide "finished".** An item is finished when every acceptance criterion in its `backlog.md` is met and its work is committed and proven. When the state is genuinely ambiguous, ask the user which way it goes — do not guess.
+7. **Move each item** with `mkdir -p <dest>` then `mv <src> <dest>`, preserving the folder name:
    - unfinished → `work/active/`
    - finished → `work/archive/YYYY/MM/`, using the **completion** year and month (`date +%Y/%m`).
-7. **Stop** once every touched item sits in its correct state.
+8. **Stop** once every touched item sits in its correct state.
 
 ## MUST
 
-- **Stay silent on the finish flow** — emit no narrative, exactly like `devbot:remember-session` and `devbot:grade-tools`; the only exceptions are a question when a state is genuinely ambiguous, and the report of a worktree kept back.
+- **Stay silent on the finish flow** — emit no narrative, exactly like `devbot:remember-session` and `devbot:grade-tools`; the only exceptions are a question when a state is genuinely ambiguous, and the report of what was kept back — a worktree, or a `thinking/` file this session cannot attribute to itself.
 - **Reap LSP servers on every wrap-up, unattended** — step 2 runs whether or not the session touched a work item or a worktree, and is never put to the user for approval; its only trace is `.agents/logs/lsp-reap.log`.
+- **Remove every `thinking/` file this session wrote**, on the session-ending trigger only — and delete-only: never write `latent/` or any memory note from this step. A file this session did not write is reported, never deleted.
 - **Remove a worktree only when it is clean, fully pushed, and landed** — then delete its local branch, and only then.
 - **Run the sweep once per owning project**, and let one unremovable worktree continue to the next.
 - **Keep every worktree the gate does not clear**, and name it in the wrap-up report so the user knows it is still there and why.
@@ -120,3 +127,4 @@ Worktrees follow the same rule but are found differently: each sits under its **
 - Do not delete a branch that has an open pull request, commits not on `origin`, or a worktree still standing.
 - Do not delete a remote branch, and do not force `git worktree remove` or discard changes to make one removable.
 - Do not remove a worktree outside `<devbot_dir>/worktrees/` — the main checkout is not one to clean up.
+- Do not leave one of this session's `thinking/` files behind — and do not delete one this session did not write, or `thinking/.auto-recover-*`, which is runtime state.

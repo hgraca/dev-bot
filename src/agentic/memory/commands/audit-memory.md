@@ -38,11 +38,12 @@ For each file in `latent/`:
 
 For each file in `thinking/`:
 
-- Partial-progress note now completed? → delete
-- Contains reusable lesson? → promote to latent, delete draft
-- Genuinely live WIP? → keep, verify filename descriptive
+- Partial-progress note now completed? → flag for removal at wrap-up
+- Contains reusable lesson? → flag for promotion by `devbot:remember-session`
+- Genuinely live WIP? → leave it, and verify the filename is descriptive
+- Older than 7 days? → flag for user review
 
-Flag thinking/ file older than 7 days for user review.
+An audit **reports** and never deletes. Session-end removal belongs to `devbot:reconcile-work`; outside the finish flow, `devbot:prune-memories` is the only maintenance workflow that deletes scratch, and only on a prune the user explicitly asked for.
 
 ## 4. Check Issue Folder Consistency
 

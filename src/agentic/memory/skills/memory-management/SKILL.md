@@ -293,13 +293,15 @@ superseded_by: ["learnings/YYYYMMDDHHMMSS-newer-lesson.md"]
 
 For each file in `thinking/`:
 
-- Contains reusable lesson -> promote to latent/, then **delete**
-- Completed work -> **delete**
-- Still live WIP -> keep; rename to `partial-<task>-YYYY-MM-DD.md` if not descriptive
+- Contains reusable lesson -> `devbot:remember-session` promotes it to `latent/`; `devbot:reconcile-work` then removes the file
+- Completed work -> `devbot:reconcile-work` removes the file at wrap-up
+- Still live WIP -> keep while the session runs; rename to `partial-<task>-YYYY-MM-DD.md` if not descriptive
+
+**At wrap-up nothing this session wrote stays.** These bullets govern a session still in progress; at session end both wrap-up skills run, in order — promotion first, removal second. Removal takes the files this session wrote — including subagent reports, which `thinking/` is shared with — and never touches one it did not write: a file the session cannot attribute to itself is reported, never deleted. A partial-progress draft has no destination of its own: its unfinished-work state belongs in the work item's `backlog.md`, so with no work item there is no state to preserve and the file goes. The `partial-<task>-YYYY-MM-DD.md` naming is an in-session convention only — nothing named that way survives a wrap-up. **Maintenance exception:** `devbot:prune-memories` may delete scratch on a prune the user asked for — never a file a live session is writing — while `devbot:audit-memory` only reports.
 
 ### Hygiene
 
-- Flag any `thinking/` file older than 7 days for user review
+- Flag any `thinking/` file older than 7 days that no live session owns for user review — never delete it on your own initiative
 - Partial-progress notes use: `YYYY-MM-DD-HH:MM:SS-<task>-partial.md`
 
 ## 8. Wrap-Up (on "wrap up" / "wrapping up")
