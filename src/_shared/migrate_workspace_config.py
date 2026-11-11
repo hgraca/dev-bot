@@ -2,8 +2,8 @@
 """Migrate flat workspace keys into the `workspace` block.
 
 A dev-bot config used to carry `commit_memory`, `workflow` and the boolean
-`monorepo` at the root (and, before that, `worktrees`). They now live in one
-`workspace` object:
+`monorepo` at the root (and, before that, `supervisor` and `worktrees`). They
+now live in one `workspace` object:
 
     "workspace": {
       "type": "repo",           // repo | polyrepo
@@ -11,8 +11,9 @@ A dev-bot config used to carry `commit_memory`, `workflow` and the boolean
       "workflow": "worktrees"
     }
 
-`monorepo: true` becomes `type: "polyrepo"` and is dropped otherwise, because
-the global config documents `repo` as the default. `worktrees: true` becomes
+`monorepo: true` (and its predecessor `supervisor: true`) becomes
+`type: "polyrepo"` and is dropped otherwise, because the global config
+documents `repo` as the default. `worktrees: true` becomes
 `workflow: "worktrees"`, `false` becomes `"trunk"`. An explicit `commit_memory`
 or `workflow` is carried across byte for byte, as an override.
 
@@ -26,7 +27,10 @@ A file that already carries the nested key it would write is left untouched and
 reported: the migration cannot tell which value the user meant.
 
 Usage:
-  migrate_workspace_config.py <config>...
+  migrate_workspace_config.py [--down] <config>...
+
+`--down` reverses the migration: the `workspace` block is flattened back into
+the root `monorepo` / `commit_memory` / `workflow` keys.
 
 Output (stdout), one line per file that needed attention:
   MIGRATED: <path>
@@ -45,12 +49,13 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from read_jsonc import load_jsonc  # noqa: E402
 
-LEGACY_KEYS = ("commit_memory", "workflow", "worktrees", "monorepo")
+LEGACY_KEYS = ("commit_memory", "workflow", "worktrees", "monorepo", "supervisor")
 NESTED_KEY_FOR = {
     "commit_memory": "commit_memory",
     "workflow": "workflow",
     "worktrees": "workflow",
     "monorepo": "type",
+    "supervisor": "type",
 }
 WORKFLOW_FOR = {"true": "worktrees", "false": "trunk"}
 
@@ -186,9 +191,9 @@ def _pairs(props, text):
         if prop.key not in LEGACY_KEYS:
             continue
         raw = text[prop.value_start : prop.value_end].strip()
-        if prop.key == "monorepo":
+        if prop.key in ("monorepo", "supervisor"):
             if raw not in ("true", "false"):
-                raise NeedsAttention(f'has an unrecognised "monorepo" value {raw}')
+                raise NeedsAttention(f'has an unrecognised "{prop.key}" value {raw}')
             # `false` is an explicit repo choice and must survive even when the
             # global default is a polyrepo, so it is written, never dropped.
             _add(pairs, written, "type", '"polyrepo"' if raw == "true" else '"repo"', prop.key)
@@ -344,17 +349,101 @@ def migrate(path):
     return True, ""
 
 
+def migrate_down(path):
+    """Flatten the `workspace` block back into root keys. Returns (changed, reason)."""
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+
+    open_brace = _first_object(text)
+    if open_brace == -1:
+        return False, "no JSON object"
+
+    props, _ = scan(text, open_brace)
+    workspaces = [index for index, prop in enumerate(props) if prop.key == "workspace"]
+    if not workspaces:
+        return False, ""
+    if len(workspaces) > 1:
+        return False, f"`workspace` appears {len(workspaces)} times"
+
+    prop = props[workspaces[0]]
+    clash = sorted({item.key for item in props if item.key in LEGACY_KEYS})
+    if clash:
+        return False, f'sets both "workspace" and root {", ".join(clash)}'
+
+    try:
+        data = load_jsonc(path)
+    except Exception as error:  # noqa: BLE001
+        return False, f"cannot parse ({error})"
+    nested = data.get("workspace")
+    if not isinstance(nested, dict):
+        return False, "`workspace` is not an object"
+
+    # Never drop a key the down migration does not understand: a later release
+    # or a hand-written extension would be lost on rollback.
+    supported = {"type", "commit_memory", "workflow"}
+    unsupported = sorted(set(nested) - supported)
+    if unsupported:
+        return False, f"has unsupported workspace keys: {', '.join(unsupported)}"
+
+    pairs = []
+    if "type" in nested:
+        kind = nested["type"]
+        if kind not in ("repo", "polyrepo"):
+            return False, f"has an unrecognised workspace.type {kind!r}"
+        pairs.append(("monorepo", "true" if kind == "polyrepo" else "false"))
+    if "commit_memory" in nested:
+        pairs.append(("commit_memory", json.dumps(nested["commit_memory"])))
+    if "workflow" in nested:
+        pairs.append(("workflow", json.dumps(nested["workflow"])))
+
+    indent = _line_indent(text, prop.line_start)
+    trailing = text[prop.end - 1 : prop.end] == ","
+    own_line = text[prop.line_start : prop.key_start].strip() == ""
+    if pairs:
+        lines = []
+        for position, (key, raw) in enumerate(pairs):
+            comma = "," if position < len(pairs) - 1 or trailing else ""
+            # The first line inherits the existing indent when the block starts
+            # a line; on a shared line the prefix is already in the text.
+            prefix = indent if (own_line or position > 0) else ""
+            lines.append(f'{prefix}"{key}": {raw}{comma}')
+        replacement = "\n".join(lines)
+    else:
+        replacement = ""
+
+    start = prop.line_start if own_line else prop.key_start
+    end = prop.end
+    if not pairs and own_line and start > 0 and text[start - 1 : start] == "\n":
+        start -= 1
+
+    text = text[:start] + replacement + text[end:]
+    text = _drop_stray_comma(text)
+
+    temp = f"{os.path.realpath(path)}.migrate"
+    with open(temp, "w", encoding="utf-8") as handle:
+        handle.write(text)
+    load_jsonc(temp)
+    os.chmod(temp, os.stat(os.path.realpath(path)).st_mode)
+    os.replace(temp, os.path.realpath(path))
+    return True, ""
+
+
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: migrate_workspace_config.py <config>...", file=sys.stderr)
+    args = sys.argv[1:]
+    down = False
+    if args and args[0] == "--down":
+        down = True
+        args = args[1:]
+    if not args:
+        print("Usage: migrate_workspace_config.py [--down] <config>...", file=sys.stderr)
         return 1
 
     failures = 0
-    for raw in sys.argv[1:]:
+    for raw in args:
         if not pathlib.Path(raw).is_file():
             continue
         try:
-            changed, reason = migrate(raw)
+            changed, reason = (migrate_down if down else migrate)(raw)
         except (ValueError, OSError) as error:
             print(f"NEEDS_ATTENTION: {raw} cannot parse ({error})")
             failures += 1

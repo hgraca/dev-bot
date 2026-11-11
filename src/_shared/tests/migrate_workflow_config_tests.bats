@@ -202,3 +202,63 @@ JSONC_FIXTURE
   assert_success
   assert_output "0o600"
 }
+
+# ── Down migration: workflow -> worktrees ─────────────────────────────────────
+
+@test "down turns workflow worktrees back into worktrees true" {
+  printf '{\n  "workflow": "worktrees"\n}\n' > "${GLOBAL}"
+
+  run python3 "${TOOL}" --down "${GLOBAL}"
+  assert_success
+  assert_output --partial "MIGRATED"
+
+  run python3 "${MODULE_DIR}/read_jsonc.py" "${GLOBAL}" worktrees
+  assert_output "true"
+  run python3 "${MODULE_DIR}/read_jsonc.py" "${GLOBAL}" workflow
+  assert_output ""
+}
+
+@test "down turns workflow trunk back into worktrees false" {
+  printf '{\n  "workflow": "trunk"\n}\n' > "${GLOBAL}"
+
+  run python3 "${TOOL}" --down "${GLOBAL}"
+  assert_success
+
+  run python3 "${MODULE_DIR}/read_jsonc.py" "${GLOBAL}" worktrees
+  assert_output "false"
+}
+
+@test "down is a no-op without a workflow key and is idempotent" {
+  printf '{\n  "project_name": "x"\n}\n' > "${GLOBAL}"
+
+  run python3 "${TOOL}" --down "${GLOBAL}"
+  assert_success
+  assert_output ""
+
+  printf '{\n  "workflow": "trunk"\n}\n' > "${GLOBAL}"
+  run python3 "${TOOL}" --down "${GLOBAL}"
+  assert_success
+  run python3 "${TOOL}" --down "${GLOBAL}"
+  assert_success
+  assert_output ""
+}
+
+@test "down reports a file that carries both keys" {
+  printf '{\n  "workflow": "trunk",\n  "worktrees": true\n}\n' > "${GLOBAL}"
+
+  run python3 "${TOOL}" --down "${GLOBAL}"
+  assert_failure
+  assert_output --partial "both"
+}
+
+@test "up and down round-trip the worktrees boolean" {
+  printf '{\n  "worktrees": true\n}\n' > "${GLOBAL}"
+
+  run python3 "${TOOL}" "${GLOBAL}"
+  assert_success
+  run python3 "${TOOL}" --down "${GLOBAL}"
+  assert_success
+
+  run python3 "${MODULE_DIR}/read_jsonc.py" "${GLOBAL}" worktrees
+  assert_output "true"
+}

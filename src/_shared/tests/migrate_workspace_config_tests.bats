@@ -275,3 +275,122 @@ JSONC
   assert_output --partial '// example object: { ... }'
   assert_output --partial '"type": "polyrepo"'
 }
+
+@test "supervisor true becomes a polyrepo type" {
+  printf '{\n  "supervisor": true\n}\n' > "${CONF}"
+
+  run python3 "${SCRIPT}" "${CONF}"
+  assert_success
+
+  run python3 "${READER}" "${CONF}" workspace type
+  assert_output "polyrepo"
+}
+
+# ── Down migration: workspace block -> flat keys ──────────────────────────────
+
+@test "down flattens the workspace block back into root keys" {
+  cat > "${CONF}" <<'JSONC'
+{
+  "project_name": "demo",
+  "workspace": {
+    "type": "polyrepo",
+    "commit_memory": true,
+    "workflow": "trunk"
+  },
+  "datasources": []
+}
+JSONC
+
+  run python3 "${SCRIPT}" --down "${CONF}"
+  assert_success
+  assert_output --partial "MIGRATED"
+
+  run cat "${CONF}"
+  assert_output --partial '"monorepo": true'
+  assert_output --partial '"commit_memory": true'
+  assert_output --partial '"workflow": "trunk"'
+  refute_output --partial '"workspace"'
+
+  # The flattened line keeps the root indentation; it must not be double-indented.
+  run grep -c '^  "monorepo": true' "${CONF}"
+  assert_output "1"
+}
+
+@test "down restores the 1.14.0 repo shape" {
+  printf '{\n  "workspace": {\n    "type": "repo"\n  }\n}\n' > "${CONF}"
+
+  run python3 "${SCRIPT}" --down "${CONF}"
+  assert_success
+
+  run cat "${CONF}"
+  assert_output --partial '"monorepo": false'
+  refute_output --partial '"workspace"'
+}
+
+@test "down is a no-op without a workspace block" {
+  printf '{\n  "project_name": "x"\n}\n' > "${CONF}"
+
+  run python3 "${SCRIPT}" --down "${CONF}"
+  assert_success
+  assert_output ""
+}
+
+@test "down reports a file that carries the block and a root legacy key" {
+  printf '{\n  "workspace": { "type": "repo" },\n  "workflow": "trunk"\n}\n' > "${CONF}"
+
+  run python3 "${SCRIPT}" --down "${CONF}"
+  assert_failure
+  assert_output --partial "NEEDS_ATTENTION"
+}
+
+@test "down preserves a preceding property on a one-line object" {
+  printf '{ "project_name": "x", "workspace": { "type": "repo" } }\n' > "${CONF}"
+
+  run python3 "${SCRIPT}" --down "${CONF}"
+  assert_success
+
+  run python3 "${READER}" "${CONF}" project_name
+  assert_output "x"
+  run python3 "${READER}" "${CONF}" monorepo
+  assert_output "false"
+  run python3 "${READER}" "${CONF}" workspace
+  assert_output ""
+}
+
+@test "down removes the only property without breaking the object" {
+  printf '{"workspace": {}}\n' > "${CONF}"
+
+  run python3 "${SCRIPT}" --down "${CONF}"
+  assert_success
+
+  # The file must still parse; an empty object is the expected result.
+  run python3 "${READER}" "${CONF}" workspace
+  assert_output ""
+}
+
+@test "down refuses unsupported workspace keys instead of dropping them" {
+  printf '{\n  "workspace": { "type": "repo", "future_key": true }\n}\n' > "${CONF}"
+
+  run python3 "${SCRIPT}" --down "${CONF}"
+  assert_failure
+  assert_output --partial "unsupported workspace keys"
+
+  run cat "${CONF}"
+  assert_output --partial '"future_key": true'
+}
+
+@test "up and down round-trip the flat workspace keys" {
+  printf '{\n  "monorepo": true,\n  "commit_memory": false,\n  "workflow": "worktrees"\n}\n' > "${CONF}"
+
+  run python3 "${SCRIPT}" "${CONF}"
+  assert_success
+  run python3 "${SCRIPT}" --down "${CONF}"
+  assert_success
+
+  run python3 "${READER}" "${CONF}" monorepo
+  assert_output "true"
+  run python3 "${READER}" "${CONF}" commit_memory
+  assert_output "false"
+  run python3 "${READER}" "${CONF}" workflow
+  assert_output "worktrees"
+}

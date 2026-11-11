@@ -19,7 +19,10 @@ A file that carries both keys is left untouched and reported as an error — the
 migration cannot tell which one the user meant.
 
 Usage:
-  migrate_workflow_config.py <global_config>
+  migrate_workflow_config.py [--down] <global_config>
+
+`--down` reverses the migration: the `workflow` name becomes the boolean
+`worktrees` again (`worktrees` -> true, `trunk` -> false).
 
 Output (stdout), one line per migrated file:
   MIGRATED: <path> worktrees=<true|false> -> workflow=<worktrees|trunk>
@@ -38,6 +41,7 @@ sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from read_jsonc import load_jsonc  # noqa: E402
 
 WORKFLOW_FOR = {"true": "worktrees", "false": "trunk"}
+WORKTREES_FOR = {"worktrees": "true", "trunk": "false"}
 
 _TRIVIA = " \t\r\n"
 
@@ -124,6 +128,14 @@ def _boolean_value(tokens, key):
     return (start, end)
 
 
+def _string_value(tokens, key):
+    """(start, end) of the string value that follows a key, or None."""
+    kind, start, end, depth = tokens[key[2] + 2]
+    if kind != "string" or depth != 1:
+        return None
+    return (start, end)
+
+
 def _migrate_file(path, errors):
     """Migrate one config file. Returns the report line, or None when skipped."""
     try:
@@ -193,12 +205,90 @@ def _migrate_file(path, errors):
     return f"MIGRATED: {path} worktrees={value} -> workflow={expected}"
 
 
+def _migrate_file_down(path, errors):
+    """Reverse one config file: `workflow` becomes the boolean `worktrees`."""
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            original = handle.read()
+    except OSError as exc:
+        errors.append(f"{path}: {exc} — fix its permissions and re-run")
+        return None
+
+    tokens = _tokens(original)
+    retired = _top_level_keys(tokens, original, "worktrees")
+    current = _top_level_keys(tokens, original, "workflow")
+
+    if current and retired:
+        errors.append(f'{path}: both "worktrees" and "workflow" are set — remove "workflow" by hand')
+        return None
+    if retired or not current:
+        return None
+    if len(current) > 1:
+        errors.append(f'{path}: "workflow" appears {len(current)} times — migrate it by hand')
+        return None
+
+    key = current[0]
+    value_span = _string_value(tokens, key)
+    if value_span is None:
+        errors.append(f'{path}: "workflow" is not a string — migrate it by hand')
+        return None
+
+    value_start, value_end = value_span
+    try:
+        name = json.loads(original[value_start:value_end])
+    except ValueError:
+        errors.append(f'{path}: "workflow" is not a valid string — migrate it by hand')
+        return None
+    boolean = WORKTREES_FOR.get(name)
+    if boolean is None:
+        errors.append(f"{path}: unrecognised workflow {name!r} — migrate it by hand")
+        return None
+
+    key_start, key_end, _ = key
+    migrated = (
+        original[:key_start]
+        + '"worktrees"'
+        + original[key_end:value_start]
+        + boolean
+        + original[value_end:]
+    )
+
+    temp = f"{path}.devbot-migrate.tmp"
+    try:
+        with open(temp, "w", encoding="utf-8") as handle:
+            handle.write(migrated)
+        data = load_jsonc(temp)
+        if not isinstance(data, dict):
+            raise ValueError("not a JSON object")
+        if "workflow" in data:
+            raise ValueError("the workflow key survived the rewrite")
+        if data.get("worktrees") is not (boolean == "true"):
+            raise ValueError(f"expected worktrees={boolean}, got {data.get('worktrees')!r}")
+        shutil.copymode(path, temp)
+        os.replace(temp, path)
+    except Exception as exc:  # noqa: BLE001 - reported and rolled back below
+        errors.append(f"{path}: {exc}")
+        try:
+            os.unlink(temp)
+        except OSError:
+            pass
+        return None
+
+    return f"MIGRATED: {path} workflow={name} -> worktrees={boolean}"
+
+
 def main(argv):
-    if len(argv) != 2:
-        print("Usage: migrate_workflow_config.py <global_config>", file=sys.stderr)
+    args = argv[1:]
+    down = False
+    if args and args[0] == "--down":
+        down = True
+        args = args[1:]
+    if len(args) != 1:
+        print("Usage: migrate_workflow_config.py [--down] <global_config>", file=sys.stderr)
         return 2
 
-    global_config = argv[1]
+    migrate_file = _migrate_file_down if down else _migrate_file
+    global_config = args[0]
     try:
         global_data = load_jsonc(global_config)
     except Exception as exc:  # noqa: BLE001
@@ -213,7 +303,7 @@ def main(argv):
 
     # The global config first: the updater's reconciler would otherwise replace
     # its retired key with the dist default and lose a `false` intent.
-    line = _migrate_file(global_config, errors)
+    line = migrate_file(global_config, errors)
     if line:
         reports.append(line)
 
@@ -224,7 +314,7 @@ def main(argv):
         config = os.path.join(project, ".devbot.project.jsonc")
         if not os.path.isfile(config):
             continue
-        line = _migrate_file(config, errors)
+        line = migrate_file(config, errors)
         if line:
             reports.append(line)
 
