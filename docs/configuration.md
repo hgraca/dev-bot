@@ -349,7 +349,10 @@ module unregisters its declared plugin/MCP entries at the next `devbot reinit`.
 ```json
 {
   "memory_collections": {
-    "project": { "path": "{project}/{devbot_dir}/memory/latent", "semantic": false },
+    "project": {
+      "path": "{project}/{devbot_dir}/memory/latent",
+      "semantic": false
+    },
     "notes": { "path": "~/notes", "semantic": true }
   }
 }
@@ -501,6 +504,7 @@ Absolute paths of projects registered with DevBot. Managed by the project-regist
 "datasources": {
   "hotels-dev": {
     "type": "mysql",
+    "mcp_timeout_ms": 300000,
     "env": {
       "MYSQL_HOST": "localhost",
       "MYSQL_USER": "root",
@@ -561,6 +565,11 @@ schema, because an empty value there means "no schema", not "fall back".
 `type` is `mysql` (MariaDB included), `postgres`, `sqlite`, `mongodb` or
 `redis` — or a **sidecar** type (`opensearch`, `s3`), served by its own container
 instead of by the shared gateway (see [Sidecar datasources](#sidecar-datasources)).
+
+`mcp_timeout_ms` raises the MCP client's request timeout for that source —
+connect, tool listing and tool calls — in milliseconds, default `60000`. opencode
+honours it; Claude Code takes its equivalent from `MCP_TIMEOUT` and ignores the
+key. A change takes effect on `devbot reinit`, like the rest of the wiring.
 
 **Redis** fits the same one-free-form-tool shape, by a different route. Its
 toolbox tool runs a _fixed_ command list — but an array argument is flattened
@@ -830,14 +839,16 @@ a key a previous run registered.
   "workspace": {
     "type": "repo", // repo | polyrepo
     "commit_memory": false,
-    "workflow": "worktrees" // worktrees | trunk
+    "workflow": "worktrees", // worktrees | trunk
   },
 
   // Document collections searched by `search-memories`
   "memory_collections": {
-    "project": { "path": "{project}/{devbot_dir}/memory/latent", "semantic": false },
+    "project": {
+      "path": "{project}/{devbot_dir}/memory/latent",
+      "semantic": false,
+    },
   },
-
 
   // Data sources this project may use, by name (see `datasources` above)
   "datasources": ["hotels-dev"],
@@ -846,7 +857,12 @@ a key a previous run registered.
   "netsuite": { "account_id": "1234567" },
 
   // Per-module enablement — `false` skips a module during init/up
-  "modules": { "claudecode": false, "react": false, "signoz": false, "svelte": false },
+  "modules": {
+    "claudecode": false,
+    "react": false,
+    "signoz": false,
+    "svelte": false,
+  },
 
   // Guard rules for bash commands
   "guards": [

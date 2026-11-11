@@ -30,6 +30,7 @@ Each source is declared once in `.devbot.global.jsonc` under `datasources`, with
   },
   "prod-search": {
     "type": "opensearch",
+    "mcp_timeout_ms": 300000,
     "env": {
       "OPENSEARCH_URL": "https://search.example.com",
       "AWS_REGION": "eu-central-1",
@@ -39,6 +40,8 @@ Each source is declared once in `.devbot.global.jsonc` under `datasources`, with
   }
 }
 ```
+
+An optional `mcp_timeout_ms` on a source raises the MCP client's request timeout for that source — connect, tool listing and tool calls — in milliseconds, default `60000`. It is opencode-only: Claude Code takes its equivalent from `MCP_TIMEOUT`. Like the rest of the wiring, a change takes effect on `devbot reinit`.
 
 A project then selects which declared sources it wants in `.devbot.project.jsonc`; a source that is selected but not declared warns, and one no longer selected is unregistered from the harness.
 

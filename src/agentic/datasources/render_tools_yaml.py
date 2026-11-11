@@ -420,8 +420,13 @@ def field_parts(field) -> tuple:
     optional = field[4] if len(field) > 4 else False
     return yaml_field, engine_var, default, where, optional
 
-# Every key a datasource definition may carry.
-KNOWN_KEYS = frozenset({"type", "env"})
+# Every key a datasource definition may carry. `mcp_timeout_ms` is the MCP
+# client's per-datasource request timeout (milliseconds); it shapes the harness
+# manifest init.sh writes, never the gateway's tools.yaml.
+KNOWN_KEYS = frozenset({"type", "env", "mcp_timeout_ms"})
+
+# The MCP client timeout applied when a datasource does not set its own.
+DEFAULT_MCP_TIMEOUT_MS = 60000
 
 # A datasource deliberately has NO read-only affordance. Upstream's
 # protocol-level lock covers only Cloud SQL / AlloyDB / BigQuery, and even where
@@ -480,12 +485,24 @@ def _validate_sidecar_env(name: str, spec: dict) -> None:
         )
 
 
+def _validate_mcp_timeout(name: str, spec: dict) -> None:
+    if "mcp_timeout_ms" not in spec:
+        return
+    value = spec["mcp_timeout_ms"]
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        _fail(
+            f"datasource '{name}': 'mcp_timeout_ms' must be a positive integer "
+            "(milliseconds)"
+        )
+
+
 def validated_items(catalogue: dict):
     """Yield (name, spec, engine) for each datasource, failing loudly on
     anything invalid. The single validation path, shared by every renderer."""
     for name in sorted(catalogue):
         spec = catalogue[name]
         _reject_unknown_keys(name, spec)
+        _validate_mcp_timeout(name, spec)
         if not NAME_RE.match(name):
             _fail(f"datasource name '{name}' must match {NAME_RE.pattern}")
         if name in RESERVED_NAMES:
@@ -741,6 +758,18 @@ def main():
             if not (isinstance(spec, dict) and is_sidecar(spec))
         ]
         sys.stdout.write(" ".join(names) + "\n")
+    # `--mcp-timeouts` prints each datasource's MCP client timeout in
+    # milliseconds, defaulting to DEFAULT_MCP_TIMEOUT_MS, for init.sh's harness
+    # manifests. validated_items runs first so an unusable value fails here —
+    # naming the datasource — instead of reaching a manifest.
+    elif "--mcp-timeouts" in sys.argv[1:]:
+        list(validated_items(catalogue))
+        timeouts = {
+            name: spec.get("mcp_timeout_ms", DEFAULT_MCP_TIMEOUT_MS)
+            for name, spec in catalogue.items()
+            if isinstance(spec, dict)
+        }
+        sys.stdout.write(json.dumps(timeouts) + "\n")
     else:
         sys.stdout.write(render(catalogue))
 

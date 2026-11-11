@@ -6,7 +6,8 @@
 # Datasources are declared once in .devbot.global.jsonc and opted into per
 # project by name in .devbot.project.jsonc. For each selected name this script
 # writes the harness's dynamic MCP manifest, pointing at the gateway's
-# per-datasource toolset URL (http://127.0.0.1:18510/mcp/<name>).
+# per-datasource toolset URL (http://127.0.0.1:18510/mcp/<name>), and carrying
+# its MCP client timeout (`mcp_timeout_ms`, default 60s).
 #
 # Scoping is by URL, not by the gateway: one container holds every source, so a
 # project sees only the toolsets its manifest names. Deselected datasources are
@@ -43,11 +44,21 @@ REMOVE_KEY="${MODULE_DIR}/../../_shared/remove_mcp_key.py"
 # collide with a module-declared MCP server of the same name.
 PREFIX="datasources-"
 
+# The MCP client timeout (milliseconds) a manifest carries when its datasource
+# does not set `mcp_timeout_ms`. opencode applies it to connecting, fetching
+# tools and tool calls alike, so a long analytical query needs headroom here.
+DEFAULT_MCP_TIMEOUT_MS=60000
+
 # Sidecar datasources are served by their own http listener rather than by the
 # shared gateway, so their manifest URL carries the port render_compose.py
 # allocated. Filled in main() from the catalogue; the same allocation the
 # rendered compose uses, so the two cannot drift.
 SIDECAR_PORTS="{}"
+
+# Per-datasource MCP client timeouts (milliseconds), filled in main() from the
+# catalogue. The renderer validates the values, so a bad entry fails the init
+# loudly instead of silently defaulting at call time.
+MCP_TIMEOUTS="{}"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -70,6 +81,29 @@ print(ports.get(sys.argv[2], ""))
   fi
 }
 
+# Each datasource's MCP client timeout (milliseconds) from the catalogue. One
+# validated read for the whole catalogue: render_tools_yaml.py rejects a
+# non-positive or non-integer `mcp_timeout_ms` and names the datasource, so the
+# failure surfaces here rather than as a silent default.
+_datasources_mcp_timeouts() {
+  local global_config="${DEV_BOT_ROOT}/.devbot.global.jsonc" catalogue
+  [[ -f "${global_config}" ]] || { echo "{}"; return 0; }
+  # An omitted `datasources` key is valid — the catalogue is optional. The
+  # reader then prints nothing and exits 0, which must become an empty
+  # catalogue rather than the renderer's "no catalogue on stdin" failure. A
+  # parse error exits non-zero and still aborts through `set -e`.
+  catalogue="$(python3 "${READER}" "${global_config}" datasources)"
+  [[ -n "${catalogue}" ]] || { echo "{}"; return 0; }
+  printf '%s' "${catalogue}" |
+    python3 "${MODULE_DIR}/render_tools_yaml.py" --mcp-timeouts
+}
+
+# This datasource's MCP client timeout in milliseconds.
+_datasources_mcp_timeout() {
+  jq -r --arg name "${1}" --argjson default "${DEFAULT_MCP_TIMEOUT_MS}" \
+    '.[$name] // $default' <<<"${MCP_TIMEOUTS}"
+}
+
 # Write the dynamic MCP manifests for one datasource. opencode's shape is
 # opencode-native (what _register_dynamic_mcps merges verbatim); claudecode's
 # matches the .mcp.json contract. Both mirror the jetbrains module.
@@ -81,15 +115,16 @@ print(ports.get(sys.argv[2], ""))
 # silently drop the server from that harness.
 _datasources_write_manifests() {
   local name="$1"
-  local url server
+  local url server timeout
   url="$(_datasources_url "${name}")"
   server="${PREFIX}${name}"
+  timeout="$(_datasources_mcp_timeout "${name}")"
 
   if ! _datasources_harness_disabled "${PROJECT_DIR}" opencode; then
     local dir="${PROJECT_DIR}/.opencode"
     mkdir -p "${dir}"
-    printf '{"%s": {"type": "remote", "url": "%s", "enabled": false}}\n' \
-      "${server}" "${url}" > "${dir}/${PREFIX}${name}.mcp.json"
+    printf '{"%s": {"type": "remote", "url": "%s", "enabled": false, "timeout": %s}}\n' \
+      "${server}" "${url}" "${timeout}" > "${dir}/${PREFIX}${name}.mcp.json"
   fi
 
   if ! _datasources_harness_disabled "${PROJECT_DIR}" claudecode; then
@@ -168,6 +203,7 @@ main() {
   selected="$(_datasources_selected "${PROJECT_DIR}")"
   declared="$(_datasources_declared)"
   SIDECAR_PORTS="$(_datasources_sidecar_ports "${PROJECT_DIR}")"
+  MCP_TIMEOUTS="$(_datasources_mcp_timeouts)"
 
   for name in ${selected}; do
     if ! _list_has_word "${name}" "${declared}"; then

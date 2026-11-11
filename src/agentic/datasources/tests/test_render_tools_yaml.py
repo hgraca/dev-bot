@@ -15,22 +15,28 @@ RENDERER = os.path.join(
 )
 
 
-def render(catalogue, env=None):
+def render(catalogue, env=None, *args):
     """Run the generator over a catalogue dict. Returns (exit_code, stdout, stderr).
 
     `env` merges over the inherited environment, so a test can control what a
-    ${VAR} reference resolves to. The platform is pinned to Linux so the
-    expectations stay deterministic on the macOS host this module now supports;
-    a test that exercises the Darwin path says so explicitly in `env`.
+    ${VAR} reference resolves to. `args` are extra generator flags (e.g.
+    `--mcp-timeouts`). The platform is pinned to Linux so the expectations stay
+    deterministic on the macOS host this module now supports; a test that
+    exercises the Darwin path says so explicitly in `env`.
     """
     proc = subprocess.run(
-        [sys.executable, RENDERER],
+        [sys.executable, RENDERER, *args],
         input=json.dumps(catalogue),
         capture_output=True,
         text=True,
         env={**os.environ, "DATASOURCES_PLATFORM": "linux", **(env or {})},
     )
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def mcp_timeouts(catalogue, env=None):
+    """Run the generator's `--mcp-timeouts` mode."""
+    return render(catalogue, env, "--mcp-timeouts")
 
 
 def docs_of(stdout):
@@ -53,6 +59,36 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertEqual(code, 0)
         kinds = [d.splitlines()[0] for d in docs_of(out)]
         self.assertEqual(kinds, ["kind: source", "kind: tool", "kind: toolset"])
+
+    def test_mcp_timeouts_defaults_to_one_minute(self):
+        code, out, _ = mcp_timeouts(
+            {
+                "hotels": {"type": "mysql", "env": {}},
+                "scratch": {"type": "s3", "env": {}},
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {"hotels": 60000, "scratch": 60000})
+
+    def test_mcp_timeouts_honours_a_per_datasource_override(self):
+        code, out, _ = mcp_timeouts(
+            {
+                "hotels": {"type": "mysql", "env": {}, "mcp_timeout_ms": 300000},
+                "cache": {"type": "redis", "env": {}},
+            }
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {"hotels": 300000, "cache": 60000})
+
+    def test_mcp_timeout_must_be_a_positive_integer(self):
+        code, _, err = mcp_timeouts(
+            {"hotels": {"type": "mysql", "env": {}, "mcp_timeout_ms": "300000"}}
+        )
+
+        self.assertEqual(code, 1)
+        self.assertIn("mcp_timeout_ms", err)
 
     def test_tool_name_is_namespaced_by_datasource(self):
         code, out, _ = render(

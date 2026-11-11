@@ -762,6 +762,65 @@ SH
   assert_output --partial '"enabled": true'
 }
 
+@test "init: the opencode manifest carries the 60s MCP timeout by default" {
+  _catalogue '{}'
+  _project_config '["mariadb-dev"]'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json"
+  assert_success
+  assert_output --partial '"timeout": 60000'
+}
+
+@test "init: a global config without a datasources key still writes the default timeout" {
+  # The catalogue key is optional, so the reader yields nothing. That must not
+  # reach the renderer as an empty stdin, which it rejects as "no catalogue".
+  printf '{}\n' >"${SANDBOX_DIR}/.devbot.global.jsonc"
+  _project_config '["mariadb-dev"]'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json"
+  assert_success
+  assert_output --partial '"timeout": 60000'
+}
+
+@test "init: a datasource's mcp_timeout_ms overrides the default" {
+  _catalogue '{ "mariadb-dev": { "type": "mysql", "env": {}, "mcp_timeout_ms": 300000 } }'
+  _project_config '["mariadb-dev"]'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json"
+  assert_success
+  assert_output --partial '"timeout": 300000'
+}
+
+@test "init: the claude manifest carries no timeout" {
+  _catalogue '{}'
+  _project_config '["mariadb-dev"]'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
+
+  run cat "${PROJECT_DIR}/.claude/datasources-mariadb-dev.mcp.json"
+  assert_success
+  refute_output --partial '"timeout"'
+}
+
+@test "init: an unusable mcp_timeout_ms fails loudly" {
+  _catalogue '{ "mariadb-dev": { "type": "mysql", "env": {}, "mcp_timeout_ms": "300000" } }'
+  _project_config '["mariadb-dev"]'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_failure
+  assert_output --partial "mcp_timeout_ms"
+}
+
 @test "init: selecting nothing prunes the manifest" {
   _catalogue '{}'
   _project_config '["mariadb-dev"]'
