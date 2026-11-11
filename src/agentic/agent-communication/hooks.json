@@ -1,0 +1,9 @@
+{
+  "hooks": [
+    {
+      "id": "agent-communication-idle",
+      "event": "session.idle",
+      "plugin": "{module}/hooks/opencode/on-session-idle-validate.ts"
+    }
+  ]
+}
