@@ -74,6 +74,13 @@ _netsuite_disabled() {
     jq -e --arg m "$1" 'index($m) != null' >/dev/null 2>&1
 }
 
+# Selection is read straight from the scalar key for the DESTRUCTIVE prune: the
+# disabled set falls back to [] on a malformed config, which would read as "both
+# harnesses selected" and delete manifests in a tree we do not own.
+_netsuite_selected() {
+  [[ "$(_devbot_get_harness "${PROJECT_DIR}")" == "$1" ]]
+}
+
 # NetSuite's account-specific hostname lowercases the ID and turns every
 # underscore into a hyphen — the form Company Information shows keeps both.
 _netsuite_normalize_account() {
@@ -112,7 +119,7 @@ _netsuite_prune() {
     [[ -d "${dir}" ]] || continue
     harness=claudecode
     [[ "$(basename "${dir}")" == ".opencode" ]] && harness=opencode
-    if _netsuite_disabled "${harness}"; then
+    if ! _netsuite_selected "${harness}"; then
       continue
     fi
     for file in "${dir}/${PREFIX}"*.mcp.json; do
@@ -123,7 +130,7 @@ _netsuite_prune() {
     done
   done
 
-  if _netsuite_disabled opencode; then
+  if ! _netsuite_selected opencode; then
     return 0
   fi
   local config="${PROJECT_DIR}/opencode.jsonc"

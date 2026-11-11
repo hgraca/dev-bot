@@ -82,8 +82,10 @@ _codebase_index_is_disabled() {
 # which of them runs is the whole policy.
 # Only the selected harness is dev-bot-managed; the other harness's tree is left
 # alone, so a harness switch never destroys a setup this project does not own.
+# Read the scalar key, not the disabled set: that set falls back to [] on a
+# malformed config, which would read as "both selected" and delete both stores.
 _harness_selected() {
-  ! _devbot_get_disabled_modules "${PROJECT_DIR}" | grep -q "\"$1\""
+  [[ "$(_devbot_get_harness "${PROJECT_DIR}")" == "$1" ]]
 }
 
 _remove_dir() {

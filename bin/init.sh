@@ -385,6 +385,20 @@ for m in json.loads(sys.stdin.read()):
 }
 
 # ── main ───────────────────────────────────────────────────────────────────────
+
+# Print the opencode config this project manages (jsonc preferred over json), or
+# nothing when opencode is not the selected harness: that tree is user-owned, so
+# registering into it would mutate state dev-bot does not manage.
+_resolve_opencode_config() {
+  local project_dir="$1"
+  [[ "$(_devbot_get_harness "${project_dir}")" == "opencode" ]] || return 0
+  if [[ -f "${project_dir}/opencode.jsonc" ]]; then
+    echo "${project_dir}/opencode.jsonc"
+  elif [[ -f "${project_dir}/opencode.json" ]]; then
+    echo "${project_dir}/opencode.json"
+  fi
+}
+
 _format_opencode_config() {
   local config="${PROJECT_DIR}/opencode.jsonc"
   [[ -f "${config}" ]] || return 0
@@ -479,13 +493,8 @@ for m in modules:
   # Detect opencode config (prefer jsonc, fall back to json)
   local config_file=""
   local config_name=""
-  if [[ -f "${PROJECT_DIR}/opencode.jsonc" ]]; then
-    config_file="${PROJECT_DIR}/opencode.jsonc"
-    config_name="opencode.jsonc"
-  elif [[ -f "${PROJECT_DIR}/opencode.json" ]]; then
-    config_file="${PROJECT_DIR}/opencode.json"
-    config_name="opencode.json"
-  fi
+  config_file="$(_resolve_opencode_config "${PROJECT_DIR}")"
+  [[ -n "${config_file}" ]] && config_name="$(basename "${config_file}")"
 
   # ── 1b. Module memory is generated, never committed ──────────────────────
   _ignore_module_memory "${PROJECT_DIR}" "${devbot_dir}"
@@ -508,9 +517,9 @@ for m in modules:
 " 2>/dev/null || true)
 
   # Re-detect config_file — tool-init may have created opencode.jsonc
-  if [[ -z "${config_file}" && -f "${PROJECT_DIR}/opencode.jsonc" ]]; then
-    config_file="${PROJECT_DIR}/opencode.jsonc"
-    config_name="opencode.jsonc"
+  if [[ -z "${config_file}" ]]; then
+    config_file="$(_resolve_opencode_config "${PROJECT_DIR}")"
+    [[ -n "${config_file}" ]] && config_name="$(basename "${config_file}")"
   fi
 
   _header_2 "Agentic Modules"
@@ -520,9 +529,9 @@ for m in modules:
   _init_modules "${DEV_BOT_ROOT}/src/harnesses" "${PROJECT_DIR}"
 
   # Re-detect config_file — harness init creates opencode.jsonc on first run
-  if [[ -z "${config_file}" && -f "${PROJECT_DIR}/opencode.jsonc" ]]; then
-    config_file="${PROJECT_DIR}/opencode.jsonc"
-    config_name="opencode.jsonc"
+  if [[ -z "${config_file}" ]]; then
+    config_file="$(_resolve_opencode_config "${PROJECT_DIR}")"
+    [[ -n "${config_file}" ]] && config_name="$(basename "${config_file}")"
   fi
 
   # ── 3. MCP registration (unified — tools + agentic + harnesses) ────────

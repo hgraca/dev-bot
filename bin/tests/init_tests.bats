@@ -71,6 +71,24 @@ except:
 
 _devbot_get_project_dir() { echo ".agents"; }
 
+# Harness selection: the JSONL config carries `harness`; absent => opencode, so
+# the MCP-registration path (which only manages the selected harness) still runs.
+_devbot_get_harness() {
+  local config="${DEV_BOT_ROOT}/.devbot.jsonc"
+  local value=""
+  [[ -f "${config}" ]] && value="$(python3 -c "
+import json, sys
+try:
+    print(json.load(open(sys.argv[1])).get('harness', ''))
+except Exception:
+    pass
+" "${config}" 2>/dev/null || true)"
+  case "${value}" in
+    claudecode) echo claudecode ;;
+    *) echo opencode ;;
+  esac
+}
+
 _devbot_get_external_modules() {
   local config="${DEV_BOT_ROOT}/.devbot.jsonc"
   [[ ! -f "${config}" ]] && return 0
@@ -631,6 +649,51 @@ print('REGISTERED-DISABLED:OK')
 "
   assert_success
   grep -qF 'REGISTERED-DISABLED:OK' <<< "$output" || fail "chrome-devtools must register disabled"
+}
+
+# ── Selected-harness gate for opencode config ────────────────────────────────
+# Only the selected harness is managed. A leftover opencode.jsonc on a
+# claudecode project is user-owned, so the registration path must not resolve it
+# and write into it.
+
+# Load the sandboxed production init.sh (main stripped) so the detection helper
+# under test is the real one.
+_source_init_flow() {
+  export DEV_BOT_ROOT="${SANDBOX_DIR}"
+  source "${SANDBOX_DIR}/src/_shared/functions.sh"
+  set --
+  source "${SANDBOX_DIR}/bin/init.sh"
+}
+
+@test "_resolve_opencode_config finds opencode.jsonc when opencode is selected" {
+  _setup '{"harness": "opencode"}'
+  printf '{}\n' > "${SANDBOX_DIR}/opencode.jsonc"
+  _source_init_flow
+
+  run _resolve_opencode_config "${SANDBOX_DIR}"
+  assert_success
+  assert_output "${SANDBOX_DIR}/opencode.jsonc"
+}
+
+@test "_resolve_opencode_config ignores a leftover opencode.jsonc when claudecode is selected" {
+  _setup '{"harness": "claudecode"}'
+  printf '{}\n' > "${SANDBOX_DIR}/opencode.jsonc"
+  printf '{}\n' > "${SANDBOX_DIR}/opencode.json"
+  _source_init_flow
+
+  run _resolve_opencode_config "${SANDBOX_DIR}"
+  assert_success
+  assert_output ""
+}
+
+@test "_resolve_opencode_config falls back to opencode.json when no jsonc exists" {
+  _setup '{"harness": "opencode"}'
+  printf '{}\n' > "${SANDBOX_DIR}/opencode.json"
+  _source_init_flow
+
+  run _resolve_opencode_config "${SANDBOX_DIR}"
+  assert_success
+  assert_output "${SANDBOX_DIR}/opencode.json"
 }
 
 # ── Generated-config formatting ──────────────────────────────────────────────
