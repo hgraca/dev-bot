@@ -77,7 +77,6 @@ STUB
     awk '/^_devbot_is_plain_relative_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_module_memory_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_project_initialized\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
-    awk '/^_migrate_workspace_config\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
   } >> "${SANDBOX}/src/_shared/functions.sh"
 
   printf '{}\n' > "${SANDBOX}/.devbot.global.jsonc"

@@ -72,7 +72,6 @@ STUB
     awk '/^_devbot_is_plain_relative_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_module_memory_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_project_initialized\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
-    awk '/^_migrate_workspace_config\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
   } >> "${SANDBOX}/src/_shared/functions.sh"
 
   printf '{"project_name": "inited"}\n' > "${INITED}/.devbot.project.jsonc"
@@ -250,24 +249,22 @@ EOF
   refute_output --partial "DevBot init complete"
 }
 
-# ── Workspace-block migration ────────────────────────────────────────────────
-# The schema rewrite is covered by migrate_workspace_config_tests.bats; these
-# pin that init actually invokes it, per project and for the global config.
+# ── Workspace-block migration is update-only ────────────────────────────────
+# Config migrations run from `devbot update` over the version range; `init` only
+# wires, so a flat project config is left for the next update to migrate.
 
-@test "_init_wiring migrates the project config it wires" {
+@test "init leaves a flat project config for the update migration" {
   printf '{ "monorepo": true, "commit_memory": true }\n' > "${OTHER}/.devbot.project.jsonc"
 
   run _sandbox_bash "_init_wiring '${OTHER}' >/dev/null 2>&1 || true"
 
   run cat "${OTHER}/.devbot.project.jsonc"
-  assert_output --partial '"type": "polyrepo"'
+  assert_output --partial '"monorepo": true'
   assert_output --partial '"commit_memory": true'
-  refute_output --partial '"monorepo"'
+  refute_output --partial '"workspace"'
 }
 
-@test "init wires both migration call sites" {
-  # Removing either line leaves every existing config unmigrated while the
-  # end-to-end test above stayed green.
-  grep -qF '_migrate_workspace_config "${PROJECT_DIR}/.devbot.project.jsonc"' "${PROJECT_ROOT}/bin/init.sh"
-  grep -qF '_migrate_workspace_config "$(_devbot_global_config)"' "${PROJECT_ROOT}/bin/init.sh"
+@test "init no longer wires a migration call site" {
+  run grep -F '_migrate_workspace_config' "${PROJECT_ROOT}/bin/init.sh"
+  assert_failure
 }

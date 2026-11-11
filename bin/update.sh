@@ -22,17 +22,15 @@
 #                                   the tag; on conflict, abort the rebase,
 #                                   restore state, exit 1.
 #   3. Only when the checkout moved onto the new release:
-#        python/flock checks, legacy engine pins, npm update, each tool's
-#        update.sh under src/tools/, agentic pre.sh + update.sh, each harness's
-#        update.sh (machine-wide provisioning only — per-project wiring is never
-#        touched here and still reinits lazily), a refresh of
-#        the external module repos (module.sh install), a migration of the
-#        retired `worktrees` key to `workflow` across the registered projects,
-#        recording the release tag in the global config's `version`, and
-#        printing the release notes of every version crossed.
-#   4. Nothing else: writing `version` changes each project's combined wiring
-#      hash, so every registered project reinit-wires itself on its next
-#      `devbot` start (lazy, per project).
+#        python/flock checks, npm update, each tool's update.sh under
+#        src/tools/, agentic pre.sh + update.sh, each harness's update.sh
+#        (machine-wide provisioning only), the external module repos refresh
+#        (module.sh install), the versioned config migrations for the range
+#        crossed, the global config reconciliation, recording the release tag
+#        in the global config's `version`, a parallel reinit of every
+#        registered project, and the release notes of every version crossed.
+#   4. A downgrade (`devbot update <older-tag>`) runs the matching down
+#      migration for each crossed version in reverse.
 #
 # Safe to re-run at any time.
 #
@@ -52,6 +50,7 @@ export DEV_BOT_ROOT
 # ── Source shared library ──────────────────────────────────────────────────────
 # shellcheck source=../src/_shared/functions.sh
 source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
+source "${DEV_BOT_ROOT}/src/_shared/migrations.sh"
 
 # ── PATH ──────────────────────────────────────────────────────────────────────
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/home/linuxbrew/.linuxbrew/bin:/usr/local/bin:$PATH"
@@ -331,46 +330,6 @@ _update_dependencies() {
   _ok "npm dependencies updated"
 }
 
-# ── Legacy engine pins (upgrade guard) ───────────────────────────────────────
-# Existing installs predate the codebase_index_provider / memory_search_provider
-# keys. On update, pin them to the PRE-SWAP engines (codebase-index, qmd) when
-# absent, so an upgrade never silently flips an install onto the new defaults
-# (codebase-memory / mdctx). A key that is already set — including one an
-# install deliberately chose — is left untouched.
-_ensure_legacy_providers() {
-  _header_2 "Legacy engine pins"
-
-  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
-  local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
-  local pinned=0 current=""
-
-  # codebase_index_provider → codebase-index (the pre-swap engine)
-  current="$(python3 "${reader}" "${config}" codebase_index_provider 2>/dev/null || true)"
-  if [[ -n "${current}" ]]; then
-    _skip "codebase_index_provider already set (${current}) — left untouched"
-  elif _devbot_ensure_global_default codebase_index_provider codebase-index; then
-    _ok "codebase_index_provider pinned to codebase-index (legacy default)"
-    pinned=1
-  else
-    _warn "could not pin codebase_index_provider — no global config at ${config}"
-  fi
-
-  # memory_search_provider → qmd (the pre-swap engine)
-  current="$(python3 "${reader}" "${config}" memory_search_provider 2>/dev/null || true)"
-  if [[ -n "${current}" ]]; then
-    _skip "memory_search_provider already set (${current}) — left untouched"
-  elif _devbot_ensure_global_default memory_search_provider qmd; then
-    _ok "memory_search_provider pinned to qmd (legacy default)"
-    pinned=1
-  else
-    _warn "could not pin memory_search_provider — no global config at ${config}"
-  fi
-
-  if [[ "${pinned}" -eq 0 ]]; then
-    _skip "no provider keys needed pinning"
-  fi
-}
-
 # ── External module repos (vendor) ───────────────────────────────────────────
 # An explicit `devbot update` promises everything is current, external module
 # clones included. A moving release refreshes them through the module update
@@ -395,13 +354,30 @@ _sync_external_modules_on_noop() {
   return 0
 }
 
+# ── Capture the pre-checkout migration tooling ───────────────────────────────
+# A downgrade checks out an older release whose own tools predate the down
+# modes, so the down half must run the tools the running release shipped. Copy
+# them aside before the checkout; an upgrade ignores the copy and uses the
+# target checkout's tools.
+_capture_migration_tools() {
+  local dir="${DEV_BOT_ROOT}/storage/run/migrate-tools"
+  local file
+  rm -rf "${dir}"
+  mkdir -p "${dir}"
+  for file in migrations.sh read_jsonc.py migrate_workflow_config.py migrate_workspace_config.py; do
+    if [[ -f "${DEV_BOT_ROOT}/src/_shared/${file}" ]]; then
+      cp "${DEV_BOT_ROOT}/src/_shared/${file}" "${dir}/${file}"
+    fi
+  done
+  printf '%s' "${dir}"
+}
+
 # ── Record the installed release ──────────────────────────────────────────────
 # Write the release tag into the global config's `version` and seed the
-# `auto_update` key (default true) for installs that predate it. The version
-# change is the per-project reinit trigger: the combined wiring hash changes, so
-# every registered project reinit-wires itself on its next `devbot` start. Also
-# drop the retired global baseline (.devbot.global.sha) if an older install left
-# one behind.
+# `auto_update` key (default true) for installs that predate it. This runs after
+# a clean migrate + reconcile; the updater then reinits every registered
+# project. Also drop the retired global baseline (.devbot.global.sha) if an
+# older install left one behind.
 _record_installed_version() {
   local release="$1"
   _header_2 "Recording installed version"
@@ -410,7 +386,7 @@ _record_installed_version() {
     || _warn "could not seed auto_update in the global config"
 
   if _devbot_set_global_value version "\"${release}\""; then
-    _ok "version → ${release} — projects reinit on their next start"
+    _ok "version → ${release}"
   else
     _warn "could not record version ${release} in the global config"
   fi
@@ -420,46 +396,6 @@ _record_installed_version() {
     rm -f "${stale_sha}"
     _ok "removed retired global config baseline"
   fi
-}
-
-# ── Workflow config migration ─────────────────────────────────────────────────
-# Runs before the reconciler so the global config keeps its intent: `worktrees:
-# false` meant the trunk workflow, while the reconciler would replace the
-# retired key with the dist default. Every project in the global `projects`
-# array is migrated too; a file without the key is skipped (idempotent).
-_migrate_workflow_config() {
-  _header_2 "Workflow config migration"
-
-  local global_config tool report
-  global_config="$(_devbot_global_config)"
-  tool="${DEV_BOT_ROOT}/src/_shared/migrate_workflow_config.py"
-
-  if [[ ! -f "${global_config}" ]]; then
-    _skip "no global config at ${global_config} — nothing to migrate"
-    return 0
-  fi
-  if [[ ! -f "${tool}" ]]; then
-    _warn "migration tool not found — skipping"
-    return 0
-  fi
-
-  if ! report="$(python3 "${tool}" "${global_config}" 2>&1)"; then
-    _warn "workflow config migration needs attention"
-    [[ -n "${report}" ]] && echo "  ${report}" >&2
-    return 1
-  fi
-
-  if [[ -z "${report}" ]]; then
-    _skip "no config carries the retired worktrees key"
-    return 0
-  fi
-
-  local line
-  while IFS= read -r line; do
-    [[ -n "${line}" ]] && _ok "${line}"
-  done <<< "${report}"
-
-  return 0
 }
 
 # ── Global config reconciliation ──────────────────────────────────────────────
@@ -509,6 +445,84 @@ _reconcile_global_config() {
   done <<< "${report}"
 }
 
+# ── Retry a bootstrap that needs attention ───────────────────────────────────
+# The one-release 1.15.0 bootstrap runs from the devbot-cli module, and the
+# pre-1.15 updater records the target even when a module fails. A failed
+# bootstrap leaves a marker; retry it here so a recorded version never hides an
+# unmigrated config. The run is idempotent.
+_retry_pending_bootstrap() {
+  local marker="${DEV_BOT_ROOT}/storage/run/migrate-bootstrap-pending"
+  local source="${DEV_BOT_ROOT}/src/_shared/migrations.sh"
+  local config newest
+  [[ -f "${marker}" && -f "${source}" ]] || return 0
+  newest="$(_devbot_install_version)"
+  [[ -n "${newest}" ]] || return 0
+  config="$(_devbot_global_config)"
+  _warn "retrying the pending config bootstrap from 0.0.0"
+  if _migration_run_phase 0.0.0 "${newest}" "${config}" "${source}"; then
+    rm -f "${marker}"
+    return 0
+  fi
+  return 1
+}
+
+# ── Reinitialise the registered projects ─────────────────────────────────────
+# A migration or a version bump only takes full effect once each project is
+# rewired. `devbot init --all` does that sequentially; a migration can touch
+# every registered checkout, so run one init per project in parallel. Each run
+# writes only its own project, and add_project.py is a no-op for an already
+# registered project, so the runs do not race on the global config. Output is
+# captured per project and surfaced only on failure.
+_reinit_registered_projects() {
+  local global_config="$1"
+  local -a dirs=() pids=() names=()
+  local dir name log log_dir index=0 failed=0
+  REINIT_FAILED=0
+
+  if [[ ! -f "${DEV_BOT_ROOT}/bin/init.sh" ]]; then
+    _warn "bin/init.sh not found — skipping project reinit"
+    return 0
+  fi
+
+  while IFS= read -r dir; do
+    if [[ -n "${dir}" && -d "${dir}" ]]; then dirs+=("${dir}"); fi
+  done < <(_migration_project_dirs "${global_config}")
+
+  if (( ${#dirs[@]} == 0 )); then
+    _skip "no registered projects to reinitialise"
+    return 0
+  fi
+
+  _header_2 "Reinitialising ${#dirs[@]} registered project(s)"
+  log_dir="${DEV_BOT_ROOT}/storage/run/reinit"
+  mkdir -p "${log_dir}"
+
+  # `init --all` defers the env-var dialog; a parallel per-project run must do
+  # the same or every child would block on the same prompt.
+  export DEV_BOT_DEFER_ENV_DIALOG=1
+  for dir in "${dirs[@]}"; do
+    index=$(( index + 1 ))
+    name="$(basename "${dir}")"
+    log="${log_dir}/${index}-${name}.log"
+    bash "${DEV_BOT_ROOT}/bin/init.sh" "${dir}" </dev/null >"${log}" 2>&1 &
+    pids+=("$!")
+    names+=("${name}")
+  done
+
+  local i
+  for i in "${!pids[@]}"; do
+    if wait "${pids[$i]}"; then
+      _ok "reinitialised ${names[$i]}"
+    else
+      _warn "reinit failed for ${names[$i]} — see ${log_dir}"
+      REINIT_FAILED=$(( REINIT_FAILED + 1 ))
+      failed=1
+    fi
+  done
+  unset DEV_BOT_DEFER_ENV_DIALOG
+  return "${failed}"
+}
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 print_summary() {
   _header_2 "✔  DevBot update complete"
@@ -521,6 +535,7 @@ print_summary() {
   [[ "${FAILED:-0}" -gt 0 ]] && echo -e "  ${TEXT_BOLD}Failed :${TEXT_CLEAR} ${FAILED}"
   echo -e "  ${TEXT_BOLD}Module Updated:${TEXT_CLEAR} ${MODULE_UPDATED:-0}"
   [[ "${MODULE_FAILED:-0}" -gt 0 ]] && echo -e "  ${TEXT_BOLD}Failed :${TEXT_CLEAR} ${MODULE_FAILED}"
+  [[ "${REINIT_FAILED:-0}" -gt 0 ]] && echo -e "  ${TEXT_BOLD}Reinit failures:${TEXT_CLEAR} ${REINIT_FAILED}"
   echo -e "  ${TEXT_BOLD}Prereqs:${TEXT_CLEAR} ${MODULE_PREREQ_PASSED:-0} passed, ${MODULE_PREREQ_FAILED:-0} failed, ${MODULE_PREREQ_SKIPPED:-0} without pre-reqs"
   echo
   echo -e "  ${TEXT_BOLD}Verify:${TEXT_CLEAR}"
@@ -657,8 +672,14 @@ main() {
     fi
   fi
 
-  local state
+  local state migration_capture
   state="$(_head_vs_tag "${target}")"
+  # Capture the running release's migration tooling before the checkout: a
+  # downgrade needs the down modes that the older target lacks.
+  migration_capture="$(_capture_migration_tools)"
+  # A bootstrap left pending by the introducing release is retried on every run,
+  # including the already-on-target no-op path.
+  _retry_pending_bootstrap || true
   case "${state}" in
     at)
       if [[ "${explicit}" -eq 1 ]]; then
@@ -720,7 +741,6 @@ main() {
   # Only reached when the checkout moved onto the new release.
   _check_python3
   _check_flock
-  _ensure_legacy_providers
   _update_dependencies
 
   # GPU detection re-runs on update (devbot level, not the ollama module) so
@@ -740,24 +760,43 @@ main() {
   module_failed="${MODULE_SCRIPT_FAILED:-0}"
 
   # Harness update.sh scripts do machine-wide provisioning only (e.g. the
-  # opencode harness's pinned Intelephense); per-project wiring is never touched
-  # here — the release-hash change reinits each project lazily on its next start.
+  # opencode harness's pinned Intelephense); per-project wiring is handled at
+  # the end of this run by _reinit_registered_projects.
   _header_2 "Harnesses"
   _update_modules "${DEV_BOT_ROOT}/src/harnesses"
   module_count=$(( module_count + ${MODULE_SCRIPT_COUNT:-0} ))
   module_failed=$(( module_failed + ${MODULE_SCRIPT_FAILED:-0} ))
 
-  # Record the release so every project reinits on its next start.
-  _record_installed_version "${target}"
-
-  # Migrate every retired config key before the reconciler drops it — it
-  # removes runtime keys the dist no longer carries and copies the defaults,
-  # which would silently replace the machine's intent. Skip the reconciler when
-  # any migration needs attention, so nothing is lost before it is resolved.
-  if _migrate_workflow_config && _migrate_workspace_config "$(_devbot_global_config)"; then
-    _reconcile_global_config
+  # Migrate every retired config key over the range this update crossed,
+  # before the reconciler drops the old keys. The phase runs in a fresh shell
+  # so an upgrade loads the target checkout's migration set; a downgrade uses
+  # the tools captured before the checkout. On failure, keep the old recorded
+  # version so the same range runs again on the next update.
+  local global_config from_version migration_source migration_tools=""
+  global_config="$(_devbot_global_config)"
+  from_version="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${global_config}" version 2>/dev/null || true)"
+  if [[ -z "${from_version}" ]]; then
+    from_version="${UPDATE_OLD:-0.0.0}"
+  fi
+  local bootstrap_marker="${DEV_BOT_ROOT}/storage/run/migrate-bootstrap-pending"
+  if [[ -f "${bootstrap_marker}" ]]; then
+    _warn "config bootstrap still pending — retrying over the full range"
+    from_version="0.0.0"
+  fi
+  if _migration_version_lt "${target}" "${from_version}"; then
+    migration_source="${migration_capture}/migrations.sh"
+    migration_tools="${migration_capture}"
   else
-    _warn "global config reconciliation skipped — resolve the config keys above, then run devbot update again"
+    migration_source="${DEV_BOT_ROOT}/src/_shared/migrations.sh"
+  fi
+
+  if _migration_run_phase "${from_version}" "${target}" "${global_config}" "${migration_source}" "${migration_tools}"; then
+    rm -f "${bootstrap_marker}"
+    _reconcile_global_config
+    _record_installed_version "${target}"
+    _reinit_registered_projects "${global_config}" || true
+  else
+    _warn "config migrations need attention — version not recorded; resolve them and run devbot update again"
   fi
 
   UPDATED="${tool_count}" FAILED="${tool_failed}"

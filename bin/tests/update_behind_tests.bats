@@ -161,21 +161,32 @@ print('RECONCILED')
     "1.2.0"
 }
 
-@test "a real update does not run reinit (the version bump drives it lazily)" {
+@test "a real update reinits every registered project" {
   _new_sandbox "1.0.0:1.1.0"
-  printf '{\n  "gpu_enabled": false,\n  "version": ""\n}\n' > "${INSTALL}/.devbot.global.jsonc"
-  # A reinit stub that would leave a marker if update invoked it.
-  cat > "${INSTALL}/bin/reinit.sh" <<EOF
+  local p1="${SANDBOX}/p1" p2="${SANDBOX}/p2"
+  mkdir -p "${p1}" "${p2}"
+  cat > "${INSTALL}/.devbot.global.jsonc" <<JSONC_EOF
+{
+  "gpu_enabled": false,
+  "version": "",
+  "projects": ["${p1}", "${p2}"]
+}
+JSONC_EOF
+  # The reinit stub records the project it was handed.
+  cat > "${INSTALL}/bin/init.sh" <<EOF
 #!/usr/bin/env bash
-touch "${SANDBOX}/reinit-ran"
+printf '%s\n' "\$1" >> "${SANDBOX}/reinited"
 EOF
-  chmod +x "${INSTALL}/bin/reinit.sh"
   _publish_release "g.txt" "release 1.2.0" "1.2.0"
 
   _run_update
 
   [ "$UPDATE_STATUS" -eq 0 ]
-  [ ! -e "${SANDBOX}/reinit-ran" ]
+  [ "$(wc -l < "${SANDBOX}/reinited")" -eq 2 ]
+  run grep -F "${p1}" "${SANDBOX}/reinited"
+  assert_success
+  run grep -F "${p2}" "${SANDBOX}/reinited"
+  assert_success
 }
 
 # ── Auto mode, behind ────────────────────────────────────────────────────────

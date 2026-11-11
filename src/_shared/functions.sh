@@ -213,32 +213,6 @@ _devbot_get_workspace_config() {
   echo "${value}"
 }
 
-# _migrate_workspace_config <config-file>
-#   Rewrite a flat config (`commit_memory` / `workflow` / the retired `monorepo`
-#   and `worktrees`) into the `workspace` block. Returns non-zero when the file
-#   needs a hand — the caller must not then let a reconciler copy defaults over
-#   the user's intent. Both `init` and `update` run it.
-_migrate_workspace_config() {
-  local config="${1:?Usage: _migrate_workspace_config <config-file>}"
-  local tool="${DEV_BOT_ROOT}/src/_shared/migrate_workspace_config.py"
-  [[ -f "${config}" ]] || return 0
-  if [[ ! -f "${tool}" ]]; then
-    _warn "workspace migration tool not found — cannot migrate ${config}"
-    return 1
-  fi
-
-  local line failed=0
-  while IFS= read -r line; do
-    case "${line}" in
-      "") ;;
-      MIGRATED:*) _ok "Migrated ${line#MIGRATED: }" ;;
-      NEEDS_ATTENTION:*) _warn "migrate: ${line#NEEDS_ATTENTION: }"; failed=1 ;;
-      *) _warn "migrate: ${line}"; failed=1 ;;
-    esac
-  done < <(python3 "${tool}" "${config}" 2>&1)
-  return "${failed}"
-}
-
 # _devbot_get_workflow [project_dir]
 #   The effective workflow: `workspace.workflow` project-first then global, and
 #   `worktrees` when neither states one. The retired `worktrees` key is not

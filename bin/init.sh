@@ -456,8 +456,6 @@ _init_wiring() {
 
   _header_2 "Wiring ${PROJECT_DIR}"
 
-  _migrate_workspace_config "${PROJECT_DIR}/.devbot.project.jsonc"
-
   # Mark the wiring dirty for the duration of this init: a run interrupted
   # before step 8b leaves the baseline missing, so the next `devbot` start
   # re-detects the change and re-runs init to repair the tree.
@@ -477,54 +475,6 @@ for m in modules:
   # ── Shared paths ──────────────────────────────────────────────────────────
   local devbot_dir
   devbot_dir="$(_devbot_get_project_dir "${PROJECT_DIR}")"
-  local memory_dir="${PROJECT_DIR}/${devbot_dir}/memory"
-
-  # ── Migration: move old .ai/devbot to .agents ────────────────────────────
-  _migrate_legacy_state() {
-    local old_devbot="${PROJECT_DIR}/.ai/devbot"
-    local new_devbot="${PROJECT_DIR}/${devbot_dir}"
-
-    if [[ ! -d "${old_devbot}" ]]; then
-      return 0
-    fi
-
-    # Migrate memory
-    local old_memory="${old_devbot}/memory"
-    local new_memory="${new_devbot}/memory"
-    if [[ -d "${old_memory}" && ! -d "${new_memory}" ]]; then
-      _step "Migrating memory from .ai/devbot/memory to ${devbot_dir}/memory..."
-      mkdir -p "$(dirname "${new_memory}")"
-      mv "${old_memory}" "${new_memory}" 2>/dev/null || {
-        _warn "Could not move memory — copying instead"
-        cp -r "${old_memory}" "${new_memory}" 2>/dev/null || true
-      }
-      _ok "Memory migrated to ${devbot_dir}/memory"
-    fi
-
-    # Migrate logs
-    local old_logs="${old_devbot}/logs"
-    local new_logs="${new_devbot}/logs"
-    if [[ -d "${old_logs}" && ! -d "${new_logs}" ]]; then
-      _step "Migrating logs from .ai/devbot/logs to ${devbot_dir}/logs..."
-      mkdir -p "$(dirname "${new_logs}")"
-      mv "${old_logs}" "${new_logs}" 2>/dev/null || {
-        _warn "Could not move logs — copying instead"
-        cp -r "${old_logs}" "${new_logs}" 2>/dev/null || true
-      }
-      _ok "Logs migrated to ${devbot_dir}/logs"
-    fi
-
-    # Remove old devbot dir if empty
-    rmdir "${old_devbot}" 2>/dev/null || true
-  }
-  _migrate_legacy_state
-
-  # ── Migration: rename bootstrap/ → active/ ──────────────────────────────
-  if [[ -d "${memory_dir}/bootstrap" && ! -d "${memory_dir}/active" ]]; then
-    _step "Renaming memory/bootstrap to memory/active..."
-    mv "${memory_dir}/bootstrap" "${memory_dir}/active"
-    _ok "Renamed to memory/active"
-  fi
 
   # Detect opencode config (prefer jsonc, fall back to json)
   local config_file=""
@@ -887,10 +837,6 @@ main() {
   if [[ "${FULL_RESET}" == "true" ]]; then
     _info "Full reset mode: QMD collections and codebase index data will be removed"
   fi
-
-  # The global config is the fallback every workspace reader resolves to, and
-  # it belongs to no project, so it is migrated once here rather than per sweep.
-  _migrate_workspace_config "$(_devbot_global_config)"
 
   # ── 2. Read registered projects ──────────────────────────────────────────
   local projects_json
