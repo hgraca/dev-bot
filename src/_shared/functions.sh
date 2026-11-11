@@ -168,7 +168,11 @@ _devbot_set_bool() {
 _devbot_get_config() {
   local key="${1:?Usage: _devbot_get_config <key> [project_dir]}"
   local project_dir="${2:-$(pwd)}"
-  local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+  # The reader lives beside this file, not under DEV_BOT_ROOT — the latter is
+  # overridden to a bare sandbox root in module tests, which would read nothing.
+  local shared_dir
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local reader="${shared_dir}/read_jsonc.py"
   local value=""
 
   # Check per-project config first
@@ -195,7 +199,10 @@ _devbot_get_config() {
 _devbot_get_workspace_config() {
   local key="${1:?Usage: _devbot_get_workspace_config <key> [project_dir]}"
   local project_dir="${2:-$(pwd)}"
-  local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+  # Reader beside this file, for the same sandbox reason as _devbot_get_config.
+  local shared_dir
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local reader="${shared_dir}/read_jsonc.py"
   local value=""
 
   if [[ -n "${project_dir}" && -f "${project_dir}/.devbot.project.jsonc" ]]; then

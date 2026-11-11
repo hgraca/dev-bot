@@ -14,10 +14,10 @@ A hard refusal (e.g. "this host version is unsupported") must live in the harnes
 
 `MODULE_SCRIPT_FAILED` is not the escape hatch — it is exported by the single-module helper `_run_module_script` and consumed only by `bin/update.sh`; `_run_service_scripts` neither sets nor propagates it.
 
-## Harness-level `up.sh` scripts are never module-gated
+## Harness-level `up.sh` scripts are gated by the selected harness
 
-`_run_service_scripts` scans `src/tools`, `src/agentic` and `src/harnesses`, skipping a directory whose name is a key in the `modules` map set to `false`. `opencode` is **not** a key in that map (only `claudecode` is), so `src/harnesses/opencode/up.sh` runs on every `devbot up` / `make up` regardless of the configured harness. A harness-scoped check inside such a script must gate itself on `_devbot_get_harness "${1:-.}"`, or a machine configured for the other harness that merely has that binary on disk gets a spurious message.
+`_run_service_scripts` scans `src/tools`, `src/agentic` and `src/harnesses`, skipping a directory whose name is in the disabled set. Harness enablement is the root `harness` key alone (`_devbot_get_disabled_modules` appends every harness except the selected one and ignores harness names in the `modules` maps), so only the configured harness's `up.sh` runs. A harness-scoped check inside such a script is still worth keeping for a direct invocation, but it is no longer load-bearing for `devbot up` / `make up`.
 
 ## Testing note
 
-BATS fixtures for a script that resolves config need the sandbox root to carry `src/_shared/read_jsonc.py` — `_devbot_get_config` resolves the reader from `${DEV_BOT_ROOT}`, so a bare sandbox root silently yields an empty value and falls through to the default (a passing test that proves nothing).
+The config getters (`_devbot_get_config`, `_devbot_get_workspace_config`) resolve `read_jsonc.py` beside `functions.sh`, not under `${DEV_BOT_ROOT}`, so a bare sandbox root no longer hides a project or global config from them. A sandbox that exercises `_devbot_get_disabled_modules` still needs its own `src/harnesses` directory to observe harness selection, or it falls back to the canonical `opencode`/`claudecode` pair.
