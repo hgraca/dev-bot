@@ -817,7 +817,7 @@ SH
 
 @test "init: the claude manifest carries no timeout" {
   _catalogue '{}'
-  _project_config '["mariadb-dev"]'
+  _project_config '["mariadb-dev"]' '' 'claudecode'
 
   run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
   assert_success
