@@ -104,10 +104,17 @@ _netsuite_write_manifests() {
 # change, and the harness merges dynamic manifests append-only, so a dropped
 # account must take its manifest and its live key with it.
 _netsuite_prune() {
-  local keep="$1" dir file name key
+  local keep="$1" dir file name key harness
 
+  # Only the selected harness is dev-bot-managed — pruning the other one would
+  # delete a tree this project does not own (same gate as the write path above).
   for dir in "${PROJECT_DIR}/.opencode" "${PROJECT_DIR}/.claude"; do
     [[ -d "${dir}" ]] || continue
+    harness=claudecode
+    [[ "$(basename "${dir}")" == ".opencode" ]] && harness=opencode
+    if _netsuite_disabled "${harness}"; then
+      continue
+    fi
     for file in "${dir}/${PREFIX}"*.mcp.json; do
       [[ -e "${file}" ]] || continue
       name="$(basename "${file}" .mcp.json)"
@@ -116,6 +123,9 @@ _netsuite_prune() {
     done
   done
 
+  if _netsuite_disabled opencode; then
+    return 0
+  fi
   local config="${PROJECT_DIR}/opencode.jsonc"
   [[ -f "${config}" ]] || return 0
   for key in $(python3 "${READER}" "${config}" mcp 2>/dev/null |

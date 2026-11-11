@@ -86,6 +86,22 @@ print(json.dumps(data, sort_keys=True))
   assert_output '{"enabled": false, "type": "http", "url": "https://1234567.'"${URL_BASE}"'"}'
 }
 
+@test "prunes stale manifests only in the selected harness" {
+  # Only the selected harness is dev-bot-managed: a leftover from when the other
+  # harness was selected is not ours to delete.
+  set_global '{"netsuite": {"account_id": "1234567"}}'
+  set_project '{"harness": "opencode"}'
+  mkdir -p "${PROJECT}/.opencode" "${PROJECT}/.claude"
+  printf '{}\n' > "${PROJECT}/.opencode/netsuite-1111111.mcp.json"
+  printf '{}\n' > "${PROJECT}/.claude/netsuite-1111111.mcp.json"
+
+  run bash "${INIT}" "${PROJECT}"
+  assert_success
+
+  [ ! -e "${PROJECT}/.opencode/netsuite-1111111.mcp.json" ]
+  [ -f "${PROJECT}/.claude/netsuite-1111111.mcp.json" ]
+}
+
 @test "netsuite.enabled true registers the opencode server enabled" {
   set_global '{"netsuite": {"account_id": "1234567", "enabled": true}}'
 

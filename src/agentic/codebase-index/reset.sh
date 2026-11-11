@@ -80,39 +80,59 @@ _codebase_index_is_disabled() {
 # Index data is rebuildable, so removing it never loses work — the engine
 # re-indexes at the next session. These are the only two things a reset can do;
 # which of them runs is the whole policy.
-_remove_store() {
-  if [[ -d "${OPENCODE_INDEX}" ]]; then
-    rm -rf "${OPENCODE_INDEX}"
-    _ok "Removed .opencode/index/"
+# Only the selected harness is dev-bot-managed; the other harness's tree is left
+# alone, so a harness switch never destroys a setup this project does not own.
+_harness_selected() {
+  ! _devbot_get_disabled_modules "${PROJECT_DIR}" | grep -q "\"$1\""
+}
+
+_remove_dir() {
+  local dir="$1" label="$2"
+  if [[ -d "${dir}" ]]; then
+    rm -rf "${dir}"
+    _ok "Removed ${label}"
     removed=$((removed + 1))
   else
-    _skip "No .opencode/index/"
+    _skip "No ${label}"
+  fi
+}
+
+_remove_file() {
+  local file="$1" label="$2"
+  if [[ -f "${file}" ]]; then
+    rm -f "${file}"
+    _ok "Removed ${label}"
+    removed=$((removed + 1))
+  else
+    _skip "No ${label}"
+  fi
+}
+
+_remove_store() {
+  if _harness_selected opencode; then
+    _remove_dir "${OPENCODE_INDEX}" ".opencode/index/"
+  else
+    _skip ".opencode/index/ — opencode is not the selected harness; kept"
   fi
 
-  if [[ -d "${CLAUDE_INDEX}" ]]; then
-    rm -rf "${CLAUDE_INDEX}"
-    _ok "Removed .claude/index/"
-    removed=$((removed + 1))
+  if _harness_selected claudecode; then
+    _remove_dir "${CLAUDE_INDEX}" ".claude/index/"
   else
-    _skip "No .claude/index/"
+    _skip ".claude/index/ — claudecode is not the selected harness; kept"
   fi
 }
 
 _remove_configs() {
-  if [[ -f "${OPENCODE_CONFIG}" ]]; then
-    rm -f "${OPENCODE_CONFIG}"
-    _ok "Removed .opencode/codebase-index.json"
-    removed=$((removed + 1))
+  if _harness_selected opencode; then
+    _remove_file "${OPENCODE_CONFIG}" ".opencode/codebase-index.json"
   else
-    _skip "No .opencode/codebase-index.json"
+    _skip ".opencode/codebase-index.json — opencode is not the selected harness; kept"
   fi
 
-  if [[ -f "${CLAUDE_CONFIG}" ]]; then
-    rm -f "${CLAUDE_CONFIG}"
-    _ok "Removed .claude/codebase-index.json"
-    removed=$((removed + 1))
+  if _harness_selected claudecode; then
+    _remove_file "${CLAUDE_CONFIG}" ".claude/codebase-index.json"
   else
-    _skip "No .claude/codebase-index.json"
+    _skip ".claude/codebase-index.json — claudecode is not the selected harness; kept"
   fi
 }
 
