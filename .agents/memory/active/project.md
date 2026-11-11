@@ -184,6 +184,37 @@ Merge to `main` == docs redeploy (no app deploy exists).
 - Conventional Commits are the repo style; commits must be atomic (one logical change each).
 - External module content arrives via `vendor/` clone — treat as read-only reference, not editable source.
 
+### Config migrations (versioned)
+
+`devbot update` runs versioned config migrations over the range it crosses. A
+migration is a pair of functions in `src/_shared/migrations.sh`, named for the
+release that introduced the up half:
+
+```bash
+function migration_up-1.15.0 { ...; }   # $1 = global config path
+function migration_down-1.15.0 { ...; }
+```
+
+- `migrate <from> <to>` runs every up in `(from, to]` ascending; a downgrade
+  (`devbot update <older-tag>`) runs the down halves in `(to, from]` descending.
+- The from-version is the `version` recorded in `.devbot.global.jsonc`, captured
+  before it is rewritten; it falls back to the git tag the install left, then
+  `0.0.0`.
+- Dotted function names are legal only with the `function` keyword (unquoted);
+  `compgen -A function` discovers them. Never use the `name() {}` form.
+- Every up must have a matching down. `_migration_parity` and
+  `src/_shared/tests/migrations_tests.bats` fail when a half is missing.
+- Migrations run from `update` only, before the global config reconciler; a
+  failure keeps the old recorded version and skips the reconciler. `init` does
+  not migrate.
+- After a clean migrate + reconcile the updater reinits every registered project
+  in parallel (`_reinit_registered_projects`).
+
+To add a migration: name both halves for the release being cut, implement the
+up and its reverse, then run the parity test. Versions are compared as
+dot-separated numbers, so `1.9.0` sorts before `1.10.0` and a four-part `0.x`
+version is handled.
+
 ## Rough edges
 
 - `.gitignore` vs `.git/info/exclude` split: rules hiding `.agents/{skills,agents,commands,tools}` live only in the machine-local exclude file — other machines get untracked noise until install regenerates them.
