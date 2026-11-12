@@ -27,6 +27,15 @@ shift || true
 # Open the requested project so the harness resolves its config there.
 cd "${PROJECT_DIR}"
 
+# AutoBot presence lock; the trap removes it on exit.
+session_lock="$(bash "${DEV_BOT_ROOT}/src/_shared/session_lock.sh" create "${PROJECT_DIR}" session "$$" 2>/dev/null || true)"
+_remove_session_lock() {
+  bash "${DEV_BOT_ROOT}/src/_shared/session_lock.sh" remove "${session_lock}"
+}
+if [[ -n "${session_lock}" ]]; then
+  trap _remove_session_lock EXIT INT TERM
+fi
+
 bin="${HOME}/.opencode/bin/opencode"
 if [[ ! -f "${bin}" ]]; then
   _fatal "opencode binary not found at ${bin}"
