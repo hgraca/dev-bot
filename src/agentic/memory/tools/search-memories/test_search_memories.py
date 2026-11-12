@@ -35,6 +35,8 @@ find_devbot_root = _search_memories.find_devbot_root
 strip_yaml_frontmatter = _search_memories.strip_yaml_frontmatter
 format_markdown = _search_memories.format_markdown
 format_json = _search_memories.format_json
+format_snippets = _search_memories.format_snippets
+snippet_from_body = _search_memories.snippet_from_body
 resolve_collection = _search_memories.resolve_collection
 search_qmd = _search_memories.search_qmd
 
@@ -137,6 +139,87 @@ class TestOutputFormatting(unittest.TestCase):
             output = format_markdown(results)
             self.assertIn("_Error reading file", output)
             self.assertIn("body not fetched", output)
+
+    # -- snippets -----------------------------------------------------------
+    # The default response shape: a long note must not arrive whole.
+
+    def test_format_snippets_empty_names_the_absence(self):
+        result = format_snippets([], ["billing"])
+        self.assertIn("_No memory vault matches found._", result)
+
+    def test_format_snippets_empty_carries_the_stale_note(self):
+        result = format_snippets([], ["billing"], note="index may be stale (x)")
+        self.assertIn("index may be stale", result)
+
+    def test_format_snippets_reports_path_title_and_excerpt(self):
+        body = (
+            "# Worktree trap\n\n"
+            "The shared container runs the main checkout.\n"
+            "That is the trap.\n\n"
+            "An unrelated trailing paragraph that must not be included.\n"
+        )
+        results = [
+            {
+                "file": "/vault/latent/20261101-thing.md",
+                "title": "Worktree trap",
+                "score": 2.5,
+                "_body": body,
+            }
+        ]
+        output = format_snippets(results, ["container"])
+        self.assertIn("### Worktree trap", output)
+        self.assertIn("`/vault/latent/20261101-thing.md`", output)
+        self.assertIn("score 2.50", output)
+        self.assertIn("shared container runs the main checkout", output)
+        # One line of context each side of the match — no trailing paragraph.
+        self.assertNotIn("unrelated trailing paragraph", output)
+
+    def test_format_snippets_never_emits_a_whole_long_body(self):
+        long_body = "filler line that should not be repeated\n" * 400
+        results = [{"file": "/v/long.md", "_body": long_body}]
+        output = format_snippets(results, ["nothing-matches"])
+        self.assertLess(len(output), _search_memories._SNIPPET_CHARS + 500)
+
+    def test_format_snippets_stops_at_the_total_budget(self):
+        results = [
+            {"file": f"/v/{i}.md", "_body": "x" * 600, "title": f"n{i}"}
+            for i in range(40)
+        ]
+        output = format_snippets(results, ["x"])
+        # The stated bound covers the whole response, footer included.
+        self.assertLessEqual(len(output), _search_memories._SNIPPET_TOTAL_CHARS)
+        self.assertIn("more match(es) not shown", output)
+
+    def test_format_snippets_marks_them_as_snippets(self):
+        results = [{"file": "/v/a.md", "_body": "body text"}]
+        self.assertIn("--full", format_snippets(results, ["body"]))
+
+    def test_snippet_from_body_prefers_the_matching_line(self):
+        body = "alpha line\nbeta line with needle\ngamma line"
+        self.assertEqual(
+            snippet_from_body(body, ["needle"]), "alpha line beta line with needle gamma line"
+        )
+
+    def test_snippet_from_body_falls_back_to_the_opening_lines(self):
+        body = "# Title\n\nfirst prose\nsecond prose\nthird prose\nfourth"
+        self.assertEqual(snippet_from_body(body, ["absent"]), "# Title first prose second prose")
+
+    def test_snippet_from_body_empty(self):
+        self.assertEqual(snippet_from_body("", ["x"]), "")
+
+    def test_format_json_snippet_mode_omits_the_body(self):
+        results = [
+            {
+                "file": "/v/a.md",
+                "title": "T",
+                "score": 1.5,
+                "_body": "whole body",
+                "_snippet": "the excerpt",
+            }
+        ]
+        payload = format_json(results, full=False)
+        self.assertEqual(payload["memories"][0]["snippet"], "the excerpt")
+        self.assertNotIn("body", payload["memories"][0])
 
     def test_format_json_empty(self):
         result = format_json([])

@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""search-memories — search the memory vault and return full file bodies.
+"""search-memories — search the memory vault and return bounded snippets.
 
-Searches the QMD memory vault for files matching the given queries, then fetches
-each matched file's full content (frontmatter stripped) and assembles all bodies
-into a single output.
+Searches the configured engine (qmd or mdctx) for files matching the given
+queries, then reports each match as a short excerpt: path, title, score and the
+most relevant line. `--full` returns every matched file's complete body
+(frontmatter stripped) instead — deliberately opt-in, because one long note can
+dominate the response and the harness truncates past its output limit.
 
 Usage:
   python3 search-memories.py --query "planning workflow"
   python3 search-memories.py --query "planning" --query "workflow"
   python3 search-memories.py --query "billing" --collection core --max-results 10
   python3 search-memories.py --query "billing" --format json
+  python3 search-memories.py --query "billing" --full
 """
 
 from __future__ import annotations
@@ -864,6 +867,77 @@ def fetch_mdctx_body(file_path: str) -> tuple[str | None, str | None]:
 # Output formatters
 # ---------------------------------------------------------------------------
 
+# A snippet is the note's most relevant line or three, not the note. Long
+# latent notes are the reason whole-body output flooded the caller's context.
+_SNIPPET_CHARS = 700
+# Ceiling for one response: past this the harness truncates mid-file, which is
+# worse than an honest "N more matches".
+_SNIPPET_TOTAL_CHARS = 12000
+# Room for the trailing notice lines, which are appended after the block loop
+# and would otherwise push the response past the stated bound.
+_SNIPPET_RESERVE_CHARS = 400
+
+
+def snippet_from_body(body: str, queries: list[str], limit: int = _SNIPPET_CHARS) -> str:
+    """Return the first line matching a query term, with one line of context.
+
+    Falls back to the first prose lines when nothing matches literally — BM25
+    matched something the exact-substring scan cannot see.
+    """
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    needles = [q.lower() for q in queries if q]
+    for index, line in enumerate(lines):
+        lowered = line.lower()
+        if any(needle in lowered for needle in needles):
+            start = max(0, index - 1)
+            return " ".join(lines[start : index + 2])[:limit]
+    return " ".join(lines[:3])[:limit]
+
+
+def format_snippets(
+    results: list[dict],
+    queries: list[str],
+    note: str | None = None,
+    limit: int = _SNIPPET_CHARS,
+    total: int = _SNIPPET_TOTAL_CHARS,
+) -> str:
+    """Render one bounded block per match: path, title and a short excerpt."""
+    if not results:
+        cleaned = re.sub(r"\s+", " ", note).strip() if note else ""
+        suffix = f" — {cleaned}" if cleaned else ""
+        return f"# Memories\n\n_No memory vault matches found{suffix}._\n"
+    parts = ["# Memories", ""]
+    budget = total - _SNIPPET_RESERVE_CHARS
+    used = 0
+    shown = 0
+    for r in results:
+        file_uri = r.get("file", "")
+        body = r.get("_body") or ""
+        excerpt = r.get("_snippet")
+        if excerpt is None:
+            excerpt = snippet_from_body(body, queries, limit=limit)
+        score = r.get("score")
+        heading = r.get("title") or Path(file_uri).stem or "(untitled)"
+        block = [f"### {heading}", "", f"`{file_uri}`"]
+        if isinstance(score, (int, float)) and score:
+            block[-1] += f" — score {score:.2f}"
+        if excerpt:
+            block += ["", excerpt]
+        block.append("")
+        rendered = "\n".join(block)
+        if used + len(rendered) > budget:
+            break
+        used += len(rendered)
+        shown += 1
+        parts += block
+    hidden = len(results) - shown
+    if hidden > 0:
+        parts += [f"_{hidden} more match(es) not shown — narrow the query or pass `--full`._", ""]
+    parts.append("_Snippets only — pass `--full` for complete note bodies._")
+    return "\n".join(parts).rstrip() + "\n"
+
 
 def format_markdown(results: list[dict], note: str | None = None) -> str:
     if not results:
@@ -890,12 +964,19 @@ def format_markdown(results: list[dict], note: str | None = None) -> str:
     return "\n".join(parts)
 
 
-def format_json(results: list[dict], note: str | None = None) -> dict:
+def format_json(results: list[dict], note: str | None = None, full: bool = True) -> dict:
     # Each memory carries its source file (qmd uri or absolute path) so
     # callers can tell project-vs-global provenance (audit-51/52 NOTE).
     memories = []
     for r in results:
-        memories.append({"file": r.get("file", ""), "body": r.get("_body") or ""})
+        entry = {"file": r.get("file", "")}
+        if full:
+            entry["body"] = r.get("_body") or ""
+        else:
+            entry["title"] = r.get("title", "")
+            entry["score"] = r.get("score", 0)
+            entry["snippet"] = r.get("_snippet", "")
+        memories.append(entry)
     payload: dict[str, object] = {"memories": memories}
     if note and not memories:
         payload["note"] = note
@@ -1053,7 +1134,7 @@ def polyrepo_read_projects(project_root: Path, focus_paths: list[str]) -> list[P
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="search-memories: search memory vault and return full file bodies"
+        description="search-memories: search the memory vault and return bounded snippets"
     )
     parser.add_argument(
         "--query",
@@ -1090,6 +1171,14 @@ def main() -> None:
         choices=["markdown", "json"],
         default="markdown",
         help="Output format (default: markdown)",
+    )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help=(
+            "Return every matched note's complete body instead of a bounded "
+            "snippet. Expensive: a single long note can dominate the response."
+        ),
     )
     args = parser.parse_args()
 
@@ -1245,6 +1334,10 @@ def main() -> None:
             seen_bodies.add(body_key)
         r = dict(r)
         r["_body"] = body
+        if not args.full:
+            # Computed here, not in the formatter: both output formats read the
+            # same excerpt, and the body is already in hand for the dedup.
+            r["_snippet"] = snippet_from_body(body or "", args.query)
         unique_results.append(r)
     results = unique_results
 
@@ -1265,9 +1358,11 @@ def main() -> None:
 
     note = None if index_ok else f"index may be stale ({index_detail})"
     if args.format == "json":
-        print(json.dumps(format_json(results, note), indent=2))
-    else:
+        print(json.dumps(format_json(results, note, full=args.full), indent=2))
+    elif args.full:
         print(format_markdown(results, note))
+    else:
+        print(format_snippets(results, args.query, note))
 
 
 if __name__ == "__main__":

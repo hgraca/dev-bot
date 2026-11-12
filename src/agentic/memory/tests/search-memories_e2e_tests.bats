@@ -153,6 +153,17 @@ MARKDOWN
 
   assert_success
   assert_output --partial "JWT Authentication Setup"
+  # Default response is a bounded snippet, not the whole note.
+  assert_output --partial "Snippets only"
+}
+
+@test "e2e: --full returns the complete note body" {
+  setup_e2e_collection
+
+  run bash "$TOOL" --collection "$E2E_COLLECTION" --max-results 5 --full "JWT authentication"
+
+  assert_success
+  assert_output --partial "JWT Authentication Setup"
   assert_output --partial "RS256"
 }
 
