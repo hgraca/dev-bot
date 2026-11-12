@@ -130,7 +130,12 @@ PROJECT_CONFIG = os.path.join(owner, ".devbot.project.jsonc")
 def _get(config_file, name):
     try:
         data = load_jsonc(config_file)
-    except Exception:
+    except FileNotFoundError:
+        return None
+    except Exception as exc:
+        # A malformed config must not read as "key absent" — report it to the
+        # MCP log so a parse error is distinguishable from a missing key.
+        print(f"WARNING: {config_file}: {exc}", file=sys.stderr)
         return None
     if not isinstance(data, dict) or name not in data:
         return None

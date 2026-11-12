@@ -91,7 +91,12 @@ def project_config(name, default=""):
     for candidate in (os.path.join(owner, ".devbot.project.jsonc"), config_path):
         try:
             data = load_jsonc(candidate)
-        except Exception:
+        except FileNotFoundError:
+            continue
+        except Exception as exc:
+            # A malformed config must not masquerade as "no config": say so on
+            # stderr (the MCP log) and carry on with the next candidate.
+            print(f"WARNING: {candidate}: {exc}", file=sys.stderr)
             continue
         if isinstance(data, dict):
             value = data.get(name)
