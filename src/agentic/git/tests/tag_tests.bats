@@ -907,3 +907,25 @@ setup() {
   assert_success
   assert_output --partial "to \`origin\`, \`second\`"
 }
+
+# ── plan: a taken version never looks clean ──────────────────────────────────
+
+@test "plan: refuses a version whose tag already exists locally" {
+  git -C "$WORK" tag -a 1.5.0 -m "already tagged"
+
+  release plan --version 1.5.0 --notes-file "$NOTES" --tag-only --ref HEAD
+
+  assert_failure
+  assert_output --partial 'already exists locally'
+}
+
+@test "plan: refuses a version whose tag already exists on a remote" {
+  git -C "$WORK" tag -a 1.5.0 -m "already tagged"
+  git -C "$WORK" push -q origin 1.5.0
+  git -C "$WORK" tag -d 1.5.0 >/dev/null
+
+  release plan --version 1.5.0 --notes-file "$NOTES" --tag-only --ref HEAD --remotes origin
+
+  assert_failure
+  assert_output --partial "already exists on 'origin'"
+}

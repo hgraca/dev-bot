@@ -53,8 +53,13 @@ release_test_setup() {
   git -C "$WORK" remote add origin "$ORIGIN"
   git -C "$WORK" remote add second "$SECOND"
   git -C "$WORK" remote add empty "$EMPTY"
-  # A URL-shaped remote: exercises slug derivation and release capability
-  # without ever being pushed to.
+  # A URL-shaped remote: exercises slug derivation and release capability. The
+  # URL is rewritten to a local bare repo, so the remote stays `github.com/acme/ghost`
+  # for slug purposes while a tag can actually be pushed and read back here.
+  mkdir -p "$SANDBOX/mirror"
+  git init --bare -q "$SANDBOX/mirror/ghost.git"
+  # insteadOf replaces only the prefix, so .../acme/ + ghost.git lands at mirror/ghost.git.
+  git -C "$WORK" config url."$SANDBOX/mirror/".insteadOf "https://github.com/acme/"
   git -C "$WORK" remote add ghost "https://github.com/acme/ghost.git"
   git -C "$WORK" push -q --tags origin main
   git -C "$WORK" push -q --tags second main
@@ -103,4 +108,13 @@ teardown() {
 # Run the tool under test ($SCRIPT) inside the sandbox work tree.
 release() {
   run bash -c "cd '$WORK' && bash '$SCRIPT' $*"
+}
+
+# A release is publishable only against a tag that exists and is pushed — the
+# order the skill enforces. Tests that expect a release to happen set this up
+# first; the tests that prove the gate omit it.
+tag_release() { # <version>
+  # --cleanup=whitespace matches tag.sh, which keeps the `#` heading verbatim.
+  git -C "$WORK" tag -a "$1" --cleanup=whitespace -F "$NOTES"
+  git -C "$WORK" push -q ghost "refs/tags/$1"
 }

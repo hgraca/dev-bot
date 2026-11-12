@@ -44,10 +44,17 @@ _last_remote_tag() {
   done <<<"${candidates}"
 }
 
+# The sha of the tag ref on the destination a push would reach. `ls-remote` on
+# the remote name reads the fetch URL, so a remote with a separate pushurl would
+# be validated in one repository and released in another.
+_remote_tag_sha() { # <remote> <version>
+  local remote="$1" version="$2" url
+  url="$(git remote get-url --push "${remote}" 2>/dev/null || printf '%s' "${remote}")"
+  git ls-remote --tags "${url}" "refs/tags/${version}" 2>/dev/null     | awk -v ref="refs/tags/${version}" '$2 == ref { print $1; exit }'
+}
+
 _tag_exists_on_remote() {
-  local remote="$1" version="$2" out
-  out="$(git ls-remote --tags "${remote}" "refs/tags/${version}" 2>/dev/null || true)"
-  [[ -n "${out}" ]]
+  [[ -n "$(_remote_tag_sha "$1" "$2")" ]]
 }
 
 _tag_exists_locally() {
@@ -245,12 +252,10 @@ $(printf '%s\n' "${remaining}" | head -5)"
   printf 'squashed %s fixup commit(s) on %s\n' "${count}" "${source}"
 }
 
-# "host path" for a remote URL, empty when the URL carries no repository (a
-# local path remote has no host and therefore no slug).
-_remote_parts() {
-  local url host path
-  url="$(git remote get-url "$1" 2>/dev/null || true)"
-  [[ -n "${url}" ]] || return 0
+# "host path" for a remote URL, empty when the URL names no repository (a local
+# path remote has no host and therefore no slug).
+_url_parts() {
+  local url="$1" host path
 
   case "${url}" in
     *://*)
@@ -285,6 +290,15 @@ _remote_parts() {
   printf '%s %s\n' "${host}" "${path}"
 }
 
+# "host path" for a configured remote, through its identity URL: `remote get-url`
+# applies insteadOf rewrites, which are transport, not repository identity.
+_remote_parts() {
+  local url
+  url="$(git config --get-all "remote.$1.url" 2>/dev/null | head -n1 || git remote get-url "$1" 2>/dev/null || true)"
+  [[ -n "${url}" ]] || return 0
+  _url_parts "${url}"
+}
+
 _remote_slug() {
   local host slug
   read -r host slug < <(_remote_parts "$1") || true
@@ -313,6 +327,7 @@ _parse_common() {
   DEFAULT_BRANCH=""
   REF=""
   TAG_ONLY=0
+  REUSE_TAG=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -348,6 +363,10 @@ _parse_common() {
         ;;
       --tag-only)
         TAG_ONLY=1
+        shift
+        ;;
+      --reuse-tag)
+        REUSE_TAG=1
         shift
         ;;
       *)

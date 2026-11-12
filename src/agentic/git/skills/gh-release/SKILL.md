@@ -61,7 +61,8 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/tag.sh" plan \
   --version "<version>" --notes-file "release.v<VERSION>.no-vcs.md" \
   --remotes <comma-separated remotes>
 bash "$DEV_BOT_ROOT/src/agentic/git/tools/release.sh" plan \
-  --version "<version>" --remotes <comma-separated remotes>
+  --version "<version>" --notes-file "release.v<VERSION>.no-vcs.md" \
+  --remotes <comma-separated remotes>
 ```
 
 Show both outputs **verbatim**, tag plan first, and ask for a **single**
@@ -104,6 +105,11 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/release.sh" release \
 
 Run them one at a time, in that order, and report each step's outcome.
 
+**A `FATAL:` stops the sequence.** Never run a later step because an earlier one
+failed: the `release` step refuses unless a tag exists that matches the notes
+(see below), and skipping ahead was how a release body once described code its
+tag did not contain.
+
 **Tag-only release** — when the mode above applies, run this sequence instead;
 never `merge`, and never push a branch:
 
@@ -123,9 +129,11 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/release.sh" release \
 - **`tag`** creates the annotated tag from the notes file.
 - **`push`** pushes the default branch and the tag to each remote; a failing
   remote does not stop the others.
-- **`release`** publishes a GitHub release per release-capable remote. It
-  degrades to a `WARN:` when `gh` is absent or unauthenticated — the tag push
-  still stands.
+- **`release`** publishes a GitHub release per release-capable remote. It refuses
+  unless the tag exists locally, is pushed to that remote, and was created from
+  the same notes file — otherwise another run's tag would be published with
+  these notes. `--reuse-tag` publishes anyway, for a deliberate re-release. A
+  missing or unauthenticated `gh` degrades to a `WARN:` — the tag push stands.
 
 The checkout is left on the default branch; do not switch back.
 

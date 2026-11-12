@@ -109,6 +109,21 @@ _format_remotes() {
   printf '%s' "${out}"
 }
 
+# Refuse a version whose tag already exists. The plan is the preview a user
+# approves, so it must not look clean for a version that is taken: the tag step
+# would refuse later, and it did — after a plan that showed nothing wrong.
+_assert_tag_free() { # <version> <remotes>
+  local version="$1" remote
+  if _tag_exists_locally "${version}"; then
+    _fatal "tag ${version} already exists locally — choose another version"
+  fi
+  for remote in $2; do
+    if _tag_exists_on_remote "${remote}" "${version}"; then
+      _fatal "tag ${version} already exists on '${remote}' — choose another version"
+    fi
+  done
+}
+
 cmd_plan() {
   _parse_common plan "$@"
   if [[ "${TAG_ONLY}" -ne 1 && -n "${REF}" ]]; then
@@ -120,6 +135,8 @@ cmd_plan() {
 
   local remotes
   remotes="$(_remotes_to_use)"
+
+  _assert_tag_free "${version}" "${remotes}"
 
   # Tag-only: the release commit is already on the remote (the PR is merged),
   # so there is no source branch to merge and no branch to push. Only the tag
