@@ -49,11 +49,16 @@ since="$(gh api repos/<owner>/<repo>/issues/<pr>/timeline --paginate \
   | sort -n | tail -1)"
 ```
 
-Then request Copilot — a bare `copilot` is not a reviewer, and `--reviewer` must never go on
-`gh pr create`:
+Then request Copilot **through the GraphQL mutation — it is the only path that registers a bot
+reviewer**. `gh pr edit --add-reviewer @copilot` exits 0 while requesting nobody, and `--reviewer`
+must never go on `gh pr create`:
 
 ```bash
-gh pr edit <pr> --add-reviewer @copilot
+bot_id="$(gh api 'users/copilot-pull-request-reviewer%5Bbot%5D' --jq .node_id)"
+pr_id="$(gh pr view <pr> --json id --jq .id)"
+gh api graphql -f query='mutation($pr: ID!, $bot: ID!) { requestReviews(input: {pullRequestId: $pr, botIds: [$bot]}) { clientMutationId } }' \
+  -f pr="$pr_id" -f bot="$bot_id"
+sleep 1
 ```
 
 The request is dropped silently often enough that verification is part of the request, not a
@@ -81,17 +86,9 @@ id="${check%%$'\t'*}"
 [ "${id:-0}" -gt "${since:-0}" ]
 ```
 
-When that test fails, re-record `since` before retrying, then fall back to the GraphQL request.
-Resolve both ids — a new PR has no prior Copilot review to read the bot id from:
-
-```bash
-BOT="$(gh api '/users/copilot-pull-request-reviewer%5Bbot%5D' --jq .node_id)"
-PR="$(gh pr view <pr> --json id --jq .id)"
-gh api graphql -f query='mutation($pr:ID!,$bot:ID!){ requestReviews(input:{pullRequestId:$pr,botIds:[$bot]}) { pullRequest { id } } }' \
-  -f pr="$PR" -f bot="$BOT"
-```
-
-Then check the timeline again. Never report a re-request on a zero exit code alone.
+When that test fails, the request was dropped — not declined. Re-record `since` in the cursor step,
+run the same mutation again, and check the timeline again. Never report a re-request on a zero exit
+code alone.
 
 ### Lite effort
 

@@ -68,27 +68,30 @@ setup() {
   grep -q 'sort -n' "${SKILL}"
   grep -q 'tail -1' "${SKILL}"
   cursor_line="$(grep -n 'since=' "${SKILL}" | cut -d: -f1 | head -1)"
-  request_line="$(grep -n 'gh pr edit <pr> --add-reviewer' "${SKILL}" | cut -d: -f1 | head -1)"
+  request_line="$(grep -n 'requestReviews' "${SKILL}" | cut -d: -f1 | head -1)"
   [ -n "${cursor_line}" ] && [ -n "${request_line}" ]
   [ "${cursor_line}" -lt "${request_line}" ]
 }
 
-@test "review loop falls back to the GraphQL request when nothing registered" {
+@test "review loop requests through GraphQL and retries on a dropped request" {
   grep -q 'requestReviews' "${SKILL}"
   grep -q 'botIds' "${SKILL}"
-  # The fallback must be executable: declared variables, bound by `gh api graphql`.
+  # Executable: declared variables, bound by `gh api graphql`.
   grep -q 'gh api graphql' "${SKILL}"
-  grep -q 'mutation($pr:ID!,$bot:ID!)' "${SKILL}"
+  grep -q 'mutation($pr: ID!, $bot: ID!)' "${SKILL}"
   grep -q -- '-f bot=' "${SKILL}"
-  # The fallback follows the timeline check, it does not replace it.
-  timeline_line="$(grep -n 'issues/<pr>/timeline' "${SKILL}" | cut -d: -f1 | head -1)"
-  fallback_line="$(grep -n 'requestReviews' "${SKILL}" | cut -d: -f1 | head -1)"
-  [ -n "${timeline_line}" ] && [ -n "${fallback_line}" ]
-  [ "${timeline_line}" -lt "${fallback_line}" ]
-  # The baseline is re-captured before the mutation, so its own event still counts.
-  recapture_line="$(grep -n 're-record' "${SKILL}" | cut -d: -f1 | head -1)"
-  [ -n "${recapture_line}" ]
-  [ "${recapture_line}" -lt "${fallback_line}" ]
+  # The alias registers nobody, so it must never be offered as an instruction.
+  # (`! grep` is exempt from `set -e`, so the status is asserted explicitly.)
+  run grep -qF -- 'gh pr edit <pr> --add-reviewer' "${SKILL}"
+  [ "${status}" -ne 0 ]
+  # The request is the only path, and it is made before the timeline check.
+  request_line="$(grep -n 'requestReviews' "${SKILL}" | cut -d: -f1 | head -1)"
+  verify_line="$(grep -n '### Verify' "${SKILL}" | cut -d: -f1 | head -1)"
+  [ -n "${request_line}" ] && [ -n "${verify_line}" ]
+  [ "${request_line}" -lt "${verify_line}" ]
+  # A dropped request is retried against the same mutation after re-recording.
+  grep -q 'Re-record `since`' "${SKILL}"
+  grep -q 'sleep 1' "${SKILL}"
 }
 
 @test "review loop replies succinctly and resolves each thread" {

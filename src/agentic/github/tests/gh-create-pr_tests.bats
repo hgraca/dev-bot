@@ -71,25 +71,32 @@ setup() {
   ! printf '%s\n' "$OPEN_PR" | grep -qF -- '--reviewer @copilot'
 }
 
-@test "skill requests Copilot after creation and verifies it" {
+@test "skill requests Copilot through GraphQL, the only registering path" {
   COPILOT_DEFAULT="$(section_flat "$SKILL" 'Copilot review')"
   printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 'default for every pull request'
-  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF -- 'gh pr edit <url>'
-  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF -- '--add-reviewer @copilot'
+  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF -- 'requestReviews'
+  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF -- 'botIds'
+  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 'That is the only way'
+  # The alias reports success while requesting nobody, so it must not appear
+  # as an instruction anywhere in the section.
+  alias_lines="$(printf '%s\n' "$COPILOT_DEFAULT" | grep -F -- 'gh pr edit <url> --add-reviewer' || true)"
+  [ -z "${alias_lines}" ]
   printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 'review_requested'
 }
 
-@test "skill pages the verification and re-checks after the fallback" {
+@test "skill waits one second before verifying the request" {
   COPILOT_DEFAULT="$(section_flat "$SKILL" 'Copilot review')"
   printf '%s\n' "$COPILOT_DEFAULT" | grep -qF -- '--paginate'
-  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 're-read the timeline'
+  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 'sleep 1'
 }
 
 @test "command creates without a reviewer and requests Copilot afterwards" {
   local cmd="$MODULE_DIR/commands/gh-create-pr.md"
   grep -qF 'Copilot review is requested by default' "$cmd"
   ! grep -qF -- '--reviewer @copilot' "$cmd"
-  grep -qF -- 'gh pr edit <url> --add-reviewer @copilot' "$cmd"
+  grep -qF -- 'requestReviews' "$cmd"
+  grep -qF -- 'sleep 1' "$cmd"
+  ! grep -qF -- '--add-reviewer @copilot' "$cmd"
   grep -qF 'requested by default after the PR exists' "$cmd"
   grep -qF 'only when the user explicitly asked to' "$cmd"
   grep -qF 'Do not pass `--reviewer` to `gh pr create`' "$cmd"

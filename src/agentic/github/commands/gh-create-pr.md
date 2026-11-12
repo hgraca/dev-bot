@@ -40,15 +40,20 @@ If no branch is given, use the current branch.
      [--draft] [--assignee @me]
    ```
 
-   Then request Copilot, unless the user explicitly asked to skip it:
+   Then request Copilot through the GraphQL mutation, unless the user explicitly asked to skip it.
+   It is the only path that registers a bot reviewer — `gh pr edit --add-reviewer @copilot` exits 0
+   while requesting nobody:
 
    ```bash
-   gh pr edit <url> --add-reviewer @copilot
+   bot_id="$(gh api 'users/copilot-pull-request-reviewer%5Bbot%5D' --jq .node_id)"
+   pr_id="$(gh pr view <url> --json id --jq .id)"
+   gh api graphql -f query='mutation($pr: ID!, $bot: ID!) { requestReviews(input: {pullRequestId: $pr, botIds: [$bot]}) { clientMutationId } }' \
+     -f pr="$pr_id" -f bot="$bot_id"
    ```
 
-7. Print the PR URL. When Copilot was requested, confirm it registered — the CLI can exit 0 without
-   queuing it, so check for a `review_requested` event in the PR timeline (see the skill's Copilot
-   review section). A failed request does not invalidate the PR.
+7. Print the PR URL. When Copilot was requested, confirm it registered — the mutation's exit code is
+   not proof, so wait one second (`sleep 1`) and then check for a `review_requested` event in the PR
+   timeline (see the skill's Copilot review section). A failed request does not invalidate the PR.
 
 ## Must not
 
@@ -56,4 +61,5 @@ If no branch is given, use the current branch.
 - Do not force-push — it is blocked, and the pre-merge squash is published by the human
   (`devbot:git-fixup-commits`).
 - Do not pass `--reviewer` to `gh pr create` — a rejected reviewer aborts creation.
+- Do not use `gh pr edit --add-reviewer @copilot` — it registers nobody; use the GraphQL mutation.
 - Do not omit the Copilot reviewer request unless the user explicitly asked to skip it.
