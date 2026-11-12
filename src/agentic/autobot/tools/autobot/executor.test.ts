@@ -63,8 +63,11 @@ function fakeDeps(overrides: Partial<ExecutorDeps> = {}) {
       calls.push(`close:${key}:${requestedBy ?? "-"}`);
       return true;
     },
-    async unassignTicket(key) {
-      calls.push(`unassign:${key}`);
+    async addLabels(key, labels) {
+      calls.push(`labels:${key}:${labels.join(",")}`);
+    },
+    async removeLabel(key, label) {
+      calls.push(`unlabel:${key}:${label}`);
     },
     async recordSession(id) {
       calls.push(`record:${id}`);
@@ -112,7 +115,7 @@ describe("executeAction — start", () => {
     const { deps, calls } = fakeDeps({ resolveProject: () => null });
     const outcome = await executeAction({ kind: "start", ticket: ticket() }, deps);
     expect(outcome).toMatchObject({ performed: false, reason: "no project" });
-    expect(calls).toEqual(["comment:ARC-1", "unassign:ARC-1"]);
+    expect(calls).toEqual(["comment:ARC-1", "labels:ARC-1:auto-bot-blocked", "unlabel:ARC-1:auto-bot"]);
   });
 
   test("does not record a state when the agent fails", async () => {
@@ -229,8 +232,8 @@ describe("executeAction — review", () => {
 });
 
 describe("executeAction — terminal states", () => {
-  test("finish closes the ticket with its original owner and clears the state", async () => {
-    const { deps, calls } = fakeDeps();
+  test("finish closes the ticket with its original owner and marks it done", async () => {
+    const { deps, calls, saved } = fakeDeps();
     await executeAction(
       {
         kind: "finish",
@@ -239,7 +242,8 @@ describe("executeAction — terminal states", () => {
       },
       deps,
     );
-    expect(calls).toEqual(["close:ARC-1:reporter-1", "clear:ARC-1"]);
+    expect(calls).toEqual(["close:ARC-1:reporter-1", "labels:ARC-1:auto-bot-done", "save:ARC-1:-"]);
+    expect(saved[saved.length - 1]?.state.phase).toBe("done");
   });
 
   test("finish leaves the state when the workflow has no Done transition", async () => {
@@ -256,8 +260,8 @@ describe("executeAction — terminal states", () => {
     expect(calls).not.toContain("clear:ARC-1");
   });
 
-  test("abandon comments and clears", async () => {
-    const { deps, calls } = fakeDeps();
+  test("abandon comments and marks it abandoned", async () => {
+    const { deps, calls, saved } = fakeDeps();
     await executeAction(
       {
         kind: "abandon",
@@ -266,7 +270,8 @@ describe("executeAction — terminal states", () => {
       },
       deps,
     );
-    expect(calls).toEqual(["comment:ARC-1", "unassign:ARC-1", "clear:ARC-1"]);
+    expect(calls).toEqual(["comment:ARC-1", "labels:ARC-1:auto-bot-abandoned", "save:ARC-1:-"]);
+    expect(saved[saved.length - 1]?.state.phase).toBe("abandoned");
   });
 
   test("reconcile names the dead instance and clears", async () => {

@@ -12,6 +12,7 @@
 import type { AutobotConfig } from "./config.ts";
 import type { GhPullRequest, GhReview, GithubPollItem } from "./github.ts";
 import type { JiraComment, JiraPollItem } from "./jira.ts";
+import { isTerminalPhase } from "./state.ts";
 
 export type FollowupAction =
   | { kind: "finish"; ticket: JiraPollItem; pullRequest: GhPullRequest }
@@ -72,6 +73,12 @@ export function decideFollowups(input: FollowupInput): FollowupAction[] {
 
   for (const ticket of jira) {
     const state = ticket.state;
+
+    // Finished and abandoned tickets keep their label; the phase is what takes them out of the queue.
+    if (isTerminalPhase(state?.phase)) {
+      actions.push({ kind: "skip", ticket, reason: `terminal phase ${state?.phase}` });
+      continue;
+    }
 
     // A session belongs to one instance. Another live instance means hands off; a dead one means the
     // session is unreachable, so the ticket is handed back rather than silently stuck forever.

@@ -123,8 +123,6 @@ function loadProjects(root: string, onError?: (message: string) => void): Autobo
 export async function runTickCommand(env: CliEnv = process.env): Promise<TickReport> {
   const root = required(env, "DEV_BOT_ROOT");
   const instance = `autobot@${hostname()}`;
-  const accountId = required(env, "AUTOBOT_JIRA_ACCOUNT_ID");
-  const githubLogin = required(env, "AUTOBOT_GITHUB_LOGIN");
 
   const projects = loadProjects(root, (message) => console.warn(`WARN: ${message}`));
   const jira = createJiraClient({
@@ -154,7 +152,8 @@ export async function runTickCommand(env: CliEnv = process.env): Promise<TickRep
     clearState: (ticketKey) => jira.setState(ticketKey, null),
     comment: (ticketKey, body) => jira.addComment(ticketKey, body),
     closeTicket: (ticketKey, requestedBy) => jira.closeIssue(ticketKey, requestedBy),
-    unassignTicket: (ticketKey) => jira.unassignIssue(ticketKey),
+    addLabels: (ticketKey, labels) => jira.addLabels(ticketKey, labels),
+    removeLabel: (ticketKey, label) => jira.removeLabel(ticketKey, label),
     resolveProject: (ticketKey, state) => {
       const usable = (candidate: AutobotProject | null): AutobotProject | null =>
         candidate && projectHasRunningDevbot(stateDirFor(candidate)) ? candidate : null;
@@ -178,7 +177,6 @@ export async function runTickCommand(env: CliEnv = process.env): Promise<TickRep
     tryLock: () => acquireMutex(join(stateRoot(env), "devbot", "autobot", "tick.lock")),
     pollJira: async () => {
       jiraItems = await pollJira({
-        accountId,
         transport: jira,
         onError: (message) => console.warn(`WARN: ${message}`),
       });
@@ -188,7 +186,6 @@ export async function runTickCommand(env: CliEnv = process.env): Promise<TickRep
     pollGithub: (tickets) =>
       pollGithub({
         tickets,
-        botLogin: githubLogin,
         transport: createGithubTransport(pathForTicket),
       }),
     execute: (action) => executeAction(action, executorDeps),
@@ -214,7 +211,6 @@ export async function runTickCommand(env: CliEnv = process.env): Promise<TickRep
  */
 export async function runCleanupCommand(env: CliEnv = process.env): Promise<CleanupReport> {
   const root = required(env, "DEV_BOT_ROOT");
-  const accountId = required(env, "AUTOBOT_JIRA_ACCOUNT_ID");
 
   // A live harness owns the opencode store: deleting sessions or vacuuming under it can block or
   // corrupt the database. Cleanup waits for a quiet machine.
@@ -231,17 +227,13 @@ export async function runCleanupCommand(env: CliEnv = process.env): Promise<Clea
     return { deleted: [], kept: 0 };
   }
   try {
-    return await cleanupLocked(env, root, accountId);
+    return await cleanupLocked(env, root);
   } finally {
     lock.release();
   }
 }
 
-async function cleanupLocked(
-  env: CliEnv,
-  root: string,
-  accountId: string,
-): Promise<CleanupReport> {
+async function cleanupLocked(env: CliEnv, root: string): Promise<CleanupReport> {
   const jira = createJiraClient({
     baseUrl: required(env, "JIRA_BASE_URL"),
     email: required(env, "JIRA_EMAIL"),
@@ -250,7 +242,6 @@ async function cleanupLocked(
 
   let pollFailed = false;
   const items = await pollJira({
-    accountId,
     transport: jira,
     onError: (message) => {
       pollFailed = true;

@@ -11,7 +11,8 @@
  */
 
 import type { FollowupAction } from "./followups.ts";
-import type { AutobotState } from "./state.ts";
+import { PHASE_ABANDONED, PHASE_DONE, type AutobotState } from "./state.ts";
+import { TRIGGER_LABEL } from "./jira.ts";
 
 export interface ProjectRef {
   name: string;
@@ -41,8 +42,8 @@ export interface ExecutionOutcome {
 
 export const MAX_ATTEMPTS = 3;
 
-/** A new session is handed to `auto-dev`, which already accepts a Jira key as its task. */
-export const START_COMMAND = "/devbot:auto-dev";
+/** A new session is handed to the AutoBot command, which wraps `auto-dev` and carries the signature rule. */
+export const START_COMMAND = "/devbot:autobot-work";
 
 export interface ExecutorDeps {
   /** This harness's instance id, written into every state it creates. */
@@ -52,7 +53,8 @@ export interface ExecutorDeps {
   clearState(ticketKey: string): Promise<void>;
   comment(ticketKey: string, body: string): Promise<void>;
   closeTicket(ticketKey: string, requestedBy?: string): Promise<boolean>;
-  unassignTicket(ticketKey: string): Promise<void>;
+  addLabels(ticketKey: string, labels: string[]): Promise<void>;
+  removeLabel(ticketKey: string, label: string): Promise<void>;
   /** Remember a session this module created, so cleanup never deletes someone else's. */
   recordSession(sessionId: string): Promise<void>;
   resolveProject(ticketKey: string, state: AutobotState | null): ProjectRef | null;
@@ -76,8 +78,9 @@ async function start(action: Extract<FollowupAction, { kind: "start" }>, deps: E
       ticket.key,
       "AutoBot could not tell which repository to work in. Name it in the ticket and assign it again.",
     );
-    // Unassign, or the next tick picks the same ticket up and posts the same comment again.
-    await deps.unassignTicket(ticket.key);
+    // Mark it blocked and drop the trigger label, or the next tick repeats the same comment.
+    await deps.addLabels(ticket.key, ["auto-bot-blocked"]);
+    await deps.removeLabel(ticket.key, TRIGGER_LABEL);
     return { kind: "start", performed: false, reason: "no project" };
   }
 
@@ -207,7 +210,11 @@ export async function executeAction(
         // The workflow has no Done transition. Keep the state so the ticket stays visible.
         return { kind: "finish", performed: false, reason: "no Done transition" };
       }
-      await deps.clearState(action.ticket.key);
+      // The label and the phase keep the ticket out of the queue without erasing its history.
+      await deps.addLabels(action.ticket.key, ["auto-bot-done"]);
+      if (action.ticket.state) {
+        await deps.saveState(action.ticket.key, { ...action.ticket.state, phase: PHASE_DONE });
+      }
       return { kind: "finish", performed: true };
     }
 
@@ -216,8 +223,10 @@ export async function executeAction(
         action.ticket.key,
         "The pull request was closed without being merged — AutoBot is stopping here.",
       );
-      await deps.unassignTicket(action.ticket.key);
-      await deps.clearState(action.ticket.key);
+      await deps.addLabels(action.ticket.key, ["auto-bot-abandoned"]);
+      if (action.ticket.state) {
+        await deps.saveState(action.ticket.key, { ...action.ticket.state, phase: PHASE_ABANDONED });
+      }
       return { kind: "abandon", performed: true };
 
     case "reconcile":

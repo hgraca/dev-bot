@@ -6,7 +6,13 @@
  * because a new session must record the newest pre-existing comment as its watermark.
  */
 
+import { isSigned } from "./signature.ts";
 import { parseState, STATE_FIELD_ID, type AutobotState } from "./state.ts";
+
+/** The label that puts a ticket in AutoBot's queue. */
+export const TRIGGER_LABEL = "auto-bot";
+/** Labels that take a ticket back out of the queue, one per terminal outcome. */
+export const TERMINAL_LABELS = ["auto-bot-done", "auto-bot-abandoned", "auto-bot-blocked"];
 
 export interface JiraComment {
   id: string;
@@ -55,14 +61,13 @@ function jqlField(stateFieldId: string): string {
   return `cf[${id}]`;
 }
 
-export function buildJql(
-  accountId: string,
-  stateFieldId: string = STATE_FIELD_ID,
-  mode: JqlMode = "new",
-): string {
-  if (accountId.trim() === "") throw new Error("autobot jira: an assignee account id is required");
+export function buildJql(stateFieldId: string = STATE_FIELD_ID, mode: JqlMode = "new"): string {
   const clause = mode === "new" ? "IS EMPTY" : "IS NOT EMPTY";
-  return `assignee = "${accountId}" AND ${jqlField(stateFieldId)} ${clause} ORDER BY updated ASC`;
+  const terminal = TERMINAL_LABELS.map((label) => `"${label}"`).join(", ");
+  return (
+    `labels = "${TRIGGER_LABEL}" AND labels not in (${terminal}) ` +
+    `AND ${jqlField(stateFieldId)} ${clause} ORDER BY updated ASC`
+  );
 }
 
 export function toTicket(raw: RawJiraIssue, stateFieldId: string = STATE_FIELD_ID): JiraTicket {
@@ -87,41 +92,44 @@ function compareIds(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** Human comments in the order they were written, so a burst is answered one per tick. */
-export function humanComments(comments: JiraComment[], botAccountId: string): JiraComment[] {
+/**
+ * Comments AutoBot has not written, oldest first, so a burst is answered one per tick.
+ *
+ * Author cannot be the test — there is no separate bot identity — so the signature is.
+ */
+export function pendingComments(comments: JiraComment[]): JiraComment[] {
   return comments
-    .filter((comment) => comment.authorId !== botAccountId)
+    .filter((comment) => !isSigned(comment.body))
     .sort((a, b) => compareIds(a.id, b.id));
 }
 
 /** One poll pass: new work plus the assigned tickets that carry a session. */
 export async function pollJira(options: {
-  accountId: string;
   transport: JiraTransport;
   stateFieldId?: string;
   /** Called for each ticket that cannot be read, so one bad field does not stop the poll. */
   onError?: (message: string) => void;
 }): Promise<JiraPollItem[]> {
-  const { accountId, transport, stateFieldId = STATE_FIELD_ID } = options;
+  const { transport, stateFieldId = STATE_FIELD_ID } = options;
   const items: JiraPollItem[] = [];
 
   // Comments are read for both passes: a new session must not answer a comment that predates it, so
   // the caller records the newest one as its watermark when the session starts.
-  for (const raw of await transport.search(buildJql(accountId, stateFieldId, "new"))) {
+  for (const raw of await transport.search(buildJql(stateFieldId, "new"))) {
     try {
       const ticket = toTicket(raw, stateFieldId);
       const comments = await transport.comments(ticket.key);
-      items.push({ ...ticket, pendingComments: humanComments(comments, accountId) });
+      items.push({ ...ticket, pendingComments: pendingComments(comments) });
     } catch (error) {
       options.onError?.(`jira: skipping ${raw.key}: ${(error as Error).message}`);
     }
   }
 
-  for (const raw of await transport.search(buildJql(accountId, stateFieldId, "continuation"))) {
+  for (const raw of await transport.search(buildJql(stateFieldId, "continuation"))) {
     try {
       const ticket = toTicket(raw, stateFieldId);
       const comments = await transport.comments(ticket.key);
-      items.push({ ...ticket, pendingComments: humanComments(comments, accountId) });
+      items.push({ ...ticket, pendingComments: pendingComments(comments) });
     } catch (error) {
       options.onError?.(`jira: skipping ${raw.key}: ${(error as Error).message}`);
     }

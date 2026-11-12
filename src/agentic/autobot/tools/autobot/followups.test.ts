@@ -227,6 +227,21 @@ describe("decideFollowups — reviews", () => {
   });
 });
 
+describe("decideFollowups — terminal phases", () => {
+  test("skips a ticket already marked done", () => {
+    const actions = decide({
+      jira: [ticket("ARC-1", state({ phase: "done" }), comment("5"))],
+      github: [gh("ARC-1", pullRequest({ state: "MERGED" }))],
+    });
+    expect(actions[0]?.kind).toBe("skip");
+  });
+
+  test("skips a ticket already marked abandoned", () => {
+    const actions = decide({ jira: [ticket("ARC-1", state({ phase: "abandoned" }))] });
+    expect(actions[0]?.kind).toBe("skip");
+  });
+});
+
 describe("decideFollowups — ownership", () => {
   test("leaves a ticket owned by another live instance alone", () => {
     const actions = decide({

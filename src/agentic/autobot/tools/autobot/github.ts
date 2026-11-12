@@ -56,26 +56,30 @@ export function selectPullRequest(pullRequests: GhPullRequest[]): GhPullRequest 
  * Human reviews in submission order, so a burst is addressed one per tick. The sort is stable, so
  * reviews submitted in the same second keep the order GitHub returned — a deterministic tie-break.
  */
-export function humanReviews(reviews: GhReview[], botLogin: string): GhReview[] {
-  return reviews
-    .filter((review) => review.authorLogin !== botLogin)
-    .sort((a, b) => (a.submittedAt < b.submittedAt ? -1 : a.submittedAt > b.submittedAt ? 1 : 0));
+/**
+ * Reviews in submission order, so a burst is addressed one per tick. No author filter is needed:
+ * AutoBot pushes commits rather than submitting reviews, and the stable sort keeps GitHub's order for
+ * equal timestamps — a deterministic tie-break.
+ */
+export function orderedReviews(reviews: GhReview[]): GhReview[] {
+  return [...reviews].sort((a, b) =>
+    a.submittedAt < b.submittedAt ? -1 : a.submittedAt > b.submittedAt ? 1 : 0,
+  );
 }
 
 /** One poll pass over the tickets that carry a session. */
 export async function pollGithub(options: {
   tickets: GhTicket[];
   transport: GhTransport;
-  botLogin: string;
 }): Promise<GithubPollItem[]> {
-  const { tickets, transport, botLogin } = options;
+  const { tickets, transport } = options;
   const items: GithubPollItem[] = [];
   for (const ticket of tickets) {
     const pullRequest = selectPullRequest(await transport.findPullRequests(ticket.key));
     items.push({
       key: ticket.key,
       pullRequest,
-      pendingReviews: pullRequest ? humanReviews(pullRequest.reviews, botLogin) : [],
+      pendingReviews: pullRequest ? orderedReviews(pullRequest.reviews) : [],
     });
   }
   return items;

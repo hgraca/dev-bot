@@ -1,6 +1,7 @@
 ---
 title: AutoBot
 description: Scheduled agent prompts plus deterministic follow-up polling for Jira and GitHub.
+commands: ["autobot-work"]
 tools:
   autobot: Runs one tick, or deletes orphaned sessions
 ---
@@ -18,8 +19,9 @@ Two independent halves, in this order:
 2. **Scheduled prompts** — per-project `{schedule, prompt}` entries that are due at this tick,
    serialised, one lock per tick.
 
-A ticket assigned to the AutoBot account is worked to an open pull request, with a human answering
-questions in Jira and merging. Each ticket carries its session in the `Autobot session` field
+A ticket carrying the `auto-bot` label is worked to an open pull request, with a human answering
+questions in Jira and merging. Every comment AutoBot writes ends with `authored by AutoBot` — that
+signature is how it tells its own replies from a human's, so no separate bot identity is needed. Each ticket carries its session in the `Autobot session` field
 (`customfield_10877`), so a continuation resumes the same opencode session rather than starting over.
 
 ## Configuration
@@ -55,17 +57,20 @@ environment. That file provides:
 
 ```bash
 export JIRA_BASE_URL=https://getinfo.atlassian.net
-export JIRA_EMAIL=autobot@example.com
+export JIRA_EMAIL=you@example.com
 export JIRA_API_TOKEN=…
-export AUTOBOT_JIRA_ACCOUNT_ID=…   # the bot's accountId
-export AUTOBOT_GITHUB_LOGIN=…      # its GitHub login
 ```
+
+There is no bot account: the label is the trigger, and the signature on every comment is what keeps
+AutoBot from answering itself.
 
 `DEV_BOT_AUTOBOT=off` skips registration; installing as root is refused, because root's crontab has
 none of the user's opencode store, `gh` login or checkouts.
 
 ## Limits worth knowing
 
+- Labels record the outcome as well as the trigger: `auto-bot` in the queue, then `auto-bot-done`,
+  `auto-bot-abandoned` or `auto-bot-blocked`. The ticket is never re-picked.
 - One tick runs at a time (a `mkdir` mutex), so a slow run delays the next minute rather than stacking.
 - Follow-ups are at-least-once: the item is recorded before the agent runs and promoted only on
   success, with a three-attempt cap that comments on the ticket instead of looping.

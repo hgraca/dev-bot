@@ -10,6 +10,7 @@ import type { SessionSummary } from "./cleanup.ts";
 import type { AgentRunRequest, AgentRunResult } from "./executor.ts";
 import type { GhPullRequest, GhReview, GhTransport } from "./github.ts";
 import type { JiraComment, JiraTransport, RawJiraIssue } from "./jira.ts";
+import { sign } from "./signature.ts";
 import { STATE_FIELD_ID } from "./state.ts";
 
 export interface CommandResult {
@@ -143,6 +144,8 @@ export interface JiraClient extends JiraTransport {
   addComment(issueKey: string, body: string): Promise<void>;
   closeIssue(issueKey: string, assigneeId?: string): Promise<boolean>;
   unassignIssue(issueKey: string): Promise<void>;
+  addLabels(issueKey: string, labels: string[]): Promise<void>;
+  removeLabel(issueKey: string, label: string): Promise<void>;
 }
 
 function normaliseBaseUrl(baseUrl: string): string {
@@ -171,6 +174,20 @@ export function createJiraClient(
     }
     const text = await response.text();
     return text === "" ? null : JSON.parse(text);
+  }
+
+  async function labelsOf(issueKey: string): Promise<string[]> {
+    const payload = (await call(`/rest/api/2/issue/${issueKey}?fields=labels`)) as {
+      fields?: { labels?: string[] };
+    };
+    return payload.fields?.labels ?? [];
+  }
+
+  async function writeLabels(issueKey: string, labels: string[]): Promise<void> {
+    await call(`/rest/api/2/issue/${issueKey}`, {
+      method: "PUT",
+      body: JSON.stringify({ fields: { labels } }),
+    });
   }
 
   async function unassign(issueKey: string): Promise<void> {
@@ -230,10 +247,23 @@ export function createJiraClient(
     },
 
     async addComment(issueKey: string, body: string): Promise<void> {
+      // Signed here so no call site can forget: the signature is what stops AutoBot answering itself.
       await call(`/rest/api/2/issue/${issueKey}/comment`, {
         method: "POST",
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body: sign(body) }),
       });
+    },
+
+    async addLabels(issueKey: string, labels: string[]): Promise<void> {
+      const current = await labelsOf(issueKey);
+      const next = [...new Set([...current, ...labels])];
+      await writeLabels(issueKey, next);
+    },
+
+    async removeLabel(issueKey: string, label: string): Promise<void> {
+      const current = await labelsOf(issueKey);
+      if (!current.includes(label)) return;
+      await writeLabels(issueKey, current.filter((candidate) => candidate !== label));
     },
 
     async closeIssue(issueKey: string, assigneeId?: string): Promise<boolean> {

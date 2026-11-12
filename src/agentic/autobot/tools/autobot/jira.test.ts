@@ -2,40 +2,46 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildJql,
-  humanComments,
+  pendingComments,
   pollJira,
   toTicket,
   type JiraComment,
   type JiraTransport,
   type RawJiraIssue,
 } from "./jira.ts";
+import { sign } from "./signature.ts";
 import { STATE_FIELD_ID } from "./state.ts";
 
 const state = { instance: "autobot@host", project: "dev-bot", session: "ses_abc" };
 
+const comment = (id: string, authorId = "human", body = `body ${id}`): JiraComment => ({
+  id,
+  authorId,
+  body,
+  created: "",
+});
+
 describe("buildJql", () => {
-  test("builds the new-work query", () => {
-    expect(buildJql("bot-1", STATE_FIELD_ID, "new")).toBe(
-      'assignee = "bot-1" AND cf[10877] IS EMPTY ORDER BY updated ASC',
+  const terminal = 'labels not in ("auto-bot-done", "auto-bot-abandoned", "auto-bot-blocked")';
+
+  test("builds the new-work query from the trigger label", () => {
+    expect(buildJql(STATE_FIELD_ID, "new")).toBe(
+      `labels = "auto-bot" AND ${terminal} AND cf[10877] IS EMPTY ORDER BY updated ASC`,
     );
   });
 
   test("builds the continuation query", () => {
-    expect(buildJql("bot-1", STATE_FIELD_ID, "continuation")).toBe(
-      'assignee = "bot-1" AND cf[10877] IS NOT EMPTY ORDER BY updated ASC',
+    expect(buildJql(STATE_FIELD_ID, "continuation")).toBe(
+      `labels = "auto-bot" AND ${terminal} AND cf[10877] IS NOT EMPTY ORDER BY updated ASC`,
     );
   });
 
   test("accepts a different field id", () => {
-    expect(buildJql("bot-1", "customfield_10001")).toContain("cf[10001]");
-  });
-
-  test("rejects an empty account id", () => {
-    expect(() => buildJql("  ")).toThrow(/account id is required/);
+    expect(buildJql("customfield_10001")).toContain("cf[10001]");
   });
 
   test("rejects a field id with no digits", () => {
-    expect(() => buildJql("bot-1", "autobot")).toThrow(/carries no field id/);
+    expect(() => buildJql("autobot")).toThrow(/carries no field id/);
   });
 });
 
@@ -91,37 +97,27 @@ describe("toTicket", () => {
   });
 });
 
-describe("humanComments", () => {
-  const comment = (id: string, authorId: string): JiraComment => ({
-    id,
-    authorId,
-    body: `body ${id}`,
-    created: "2026-11-11T18:00:00Z",
-  });
-
+describe("pendingComments", () => {
   test("is empty when there are no comments", () => {
-    expect(humanComments([], "bot")).toEqual([]);
+    expect(pendingComments([])).toEqual([]);
   });
 
-  test("ignores AutoBot's own comments", () => {
-    expect(humanComments([comment("1", "bot")], "bot")).toEqual([]);
+  test("excludes AutoBot's own signed comments", () => {
+    expect(pendingComments([comment("1", "me", sign("working on it"))])).toEqual([]);
   });
 
   test("returns every human comment, oldest first", () => {
-    const result = humanComments(
-      [comment("100", "human"), comment("9", "human"), comment("10", "human")],
-      "bot",
-    );
+    const result = pendingComments([comment("100", "a"), comment("9", "b"), comment("10", "c")]);
     expect(result.map((entry) => entry.id)).toEqual(["9", "10", "100"]);
   });
 
-  test("ignores AutoBot even when its comment is newest", () => {
-    const result = humanComments([comment("5", "human"), comment("99", "bot")], "bot");
+  test("keeps a human comment that merely mentions the signature", () => {
+    const result = pendingComments([comment("5", "human", "why did you say authored by AutoBot?")]);
     expect(result.map((entry) => entry.id)).toEqual(["5"]);
   });
 
   test("falls back to string ordering for non-numeric ids", () => {
-    const result = humanComments([comment("b", "human"), comment("a", "human")], "bot");
+    const result = pendingComments([comment("b", "x"), comment("a", "y")]);
     expect(result.map((entry) => entry.id)).toEqual(["a", "b"]);
   });
 });
@@ -143,21 +139,22 @@ describe("pollJira", () => {
       async comments(key) {
         calls.push(`comments:${key}`);
         return [
-          { id: "1", authorId: "bot-1", body: "mine", created: "" },
-          { id: "2", authorId: "human", body: "question", created: "" },
+          // Same author for both: only the signature separates AutoBot's reply from the human's.
+          { id: "1", authorId: "me", body: sign("mine"), created: "" },
+          { id: "2", authorId: "me", body: "question", created: "" },
         ];
       },
     };
 
-    const items = await pollJira({ accountId: "bot-1", transport });
+    const items = await pollJira({ transport });
 
     expect(items.map((item) => item.key)).toEqual(["ARC-10", "ARC-11"]);
     expect(items[0]?.pendingComments[0]?.body).toBe("question");
     expect(items[1]?.pendingComments[0]?.body).toBe("question");
     expect(calls).toEqual([
-      buildJql("bot-1", STATE_FIELD_ID, "new"),
+      buildJql(STATE_FIELD_ID, "new"),
       "comments:ARC-10",
-      buildJql("bot-1", STATE_FIELD_ID, "continuation"),
+      buildJql(STATE_FIELD_ID, "continuation"),
       "comments:ARC-11",
     ]);
   });
@@ -171,6 +168,6 @@ describe("pollJira", () => {
         return [];
       },
     };
-    expect(await pollJira({ accountId: "bot-1", transport })).toEqual([]);
+    expect(await pollJira({ transport })).toEqual([]);
   });
 });

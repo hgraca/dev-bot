@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  humanReviews,
+  orderedReviews,
   pollGithub,
   selectPullRequest,
   type GhPullRequest,
@@ -49,25 +49,18 @@ describe("selectPullRequest", () => {
   });
 });
 
-describe("humanReviews", () => {
+describe("orderedReviews", () => {
   test("is empty without reviews", () => {
-    expect(humanReviews([], "autobot")).toEqual([]);
+    expect(orderedReviews([])).toEqual([]);
   });
 
-  test("ignores AutoBot's own reviews", () => {
-    expect(humanReviews([review("1", "autobot", "2026-11-11T10:00:00Z")], "autobot")).toEqual([]);
-  });
-
-  test("returns every human review in submission order", () => {
-    const selected = humanReviews(
-      [
-        review("2", "human", "2026-11-11T10:00:00Z"),
-        review("1", "human", "2026-11-10T10:00:00Z"),
-        review("3", "autobot", "2026-11-12T10:00:00Z"),
-      ],
-      "autobot",
-    );
-    expect(selected.map((entry) => entry.id)).toEqual(["1", "2"]);
+  test("returns every review in submission order", () => {
+    const selected = orderedReviews([
+      review("2", "human", "2026-11-11T10:00:00Z"),
+      review("1", "human", "2026-11-10T10:00:00Z"),
+      review("3", "human", "2026-11-12T10:00:00Z"),
+    ]);
+    expect(selected.map((entry) => entry.id)).toEqual(["1", "2", "3"]);
   });
 });
 

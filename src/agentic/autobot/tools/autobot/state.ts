@@ -13,6 +13,15 @@ export const MAX_STATE_LENGTH = 255;
 
 const FORMAT_VERSION = 1;
 
+/** Terminal phases: the ticket keeps its label and a non-empty field, so it leaves the queue. */
+export const PHASE_DONE = "done";
+export const PHASE_ABANDONED = "abandoned";
+
+/** True when the state says AutoBot is finished with the ticket. */
+export function isTerminalPhase(phase: string | undefined): boolean {
+  return phase === PHASE_DONE || phase === PHASE_ABANDONED;
+}
+
 export interface AutobotState {
   /** Harness instance that owns the session, e.g. `autobot@host`. */
   instance: string;
