@@ -30,4 +30,4 @@ and `rg` patterns that avoid it.
 
 Do not try to bypass the guard (base64, string splitting, `eval`): the rule exists
 to keep engine access behind `search-memories`, and the workaround above is the
-sanctioned path for text that merely *mentions* the engine.
+sanctioned path for text that merely _mentions_ the engine.
