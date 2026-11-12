@@ -334,6 +334,34 @@ export function rememberAgent(
   }
 }
 
+// The MCP server process is shared by every session in one opencode instance,
+// so a tool cannot tell which session called it. The tool's own args carry the
+// answer once this hook names the caller.
+const SESSION_AWARE_TOOLS = new Set(["devbot-tools_session-usage"])
+
+export function injectSessionId(tool: string, sessionID: unknown, args: unknown): boolean {
+  const name = String(tool || "").toLowerCase()
+  if (!SESSION_AWARE_TOOLS.has(name)) return false
+  const id = typeof sessionID === "string" ? sessionID.trim() : ""
+  if (!id) return false
+  const target = args as { args?: unknown } | null
+  if (!target || typeof target !== "object") return false
+  const list = Array.isArray(target.args) ? target.args.map(String) : []
+  // The hook is the identity boundary: a caller-supplied --session is replaced
+  // by the real one, never trusted.
+  const kept: string[] = []
+  for (let i = 0; i < list.length; i++) {
+    if (list[i] === "--session") {
+      i += 1
+      continue
+    }
+    if (list[i].startsWith("--session=")) continue
+    kept.push(list[i])
+  }
+  target.args = [...kept, "--session", id]
+  return true
+}
+
 export function sessionEnvVars(
   sessionID?: string,
   cache: Map<string, string> = agentBySession,

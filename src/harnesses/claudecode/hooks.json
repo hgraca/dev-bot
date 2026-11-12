@@ -8,6 +8,15 @@
           "command": "python3 \"${CLAUDE_PROJECT_DIR}\"/.claude/plugins/on-hooks.py pre-tool"
         }
       ]
+    },
+    {
+      "matcher": "mcp__devbot-tools__session-usage",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "python3 \"${CLAUDE_PROJECT_DIR}\"/.claude/plugins/on-hooks.py session-arg"
+        }
+      ]
     }
   ],
   "PostToolUse": [

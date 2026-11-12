@@ -16,7 +16,7 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, ptySubagentGuard, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
+import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, injectSessionId, ptySubagentGuard, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -228,6 +228,9 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
     "tool.execute.before": async (input: any, output: any) => {
       for (const fn of pluginHandlers["tool.execute.before"] ?? []) await fn(input, output)
       const tool = String(input?.tool ?? "").toLowerCase()
+      // Name the caller for tools that read the session's own state — the MCP
+      // server's process cannot know which session invoked it.
+      injectSessionId(tool, input?.sessionID, output?.args ?? input?.args)
       // PTYs are top-level only: a `task` subagent's child session cannot surface
       // a PTY's exit notification, so a notifyOnExit PTY there hangs the task
       // (see ptySubagentGuard). Fails open on a lookup error.

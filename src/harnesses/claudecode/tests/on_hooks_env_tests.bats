@@ -142,3 +142,87 @@ _run_phase() {
   run _run_phase startup "{\"session_id\":\"abc-123\",\"cwd\":\"${SANDBOX_DIR}\"}"
   assert_success
 }
+
+@test "session start records the session id for tool calls" {
+  _setup_sandbox
+  export CLAUDE_PROJECT_DIR="${SANDBOX_DIR}"
+
+  run _run_phase startup "{\"session_id\":\"abc-123\",\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+
+  run cat "${SANDBOX_DIR}/.agents/logs/session-claudecode"
+  assert_success
+  assert_output "abc-123"
+}
+
+@test "every phase that names a session refreshes the marker" {
+  _setup_sandbox
+  export CLAUDE_PROJECT_DIR="${SANDBOX_DIR}"
+
+  _run_phase startup "{\"session_id\":\"one\",\"cwd\":\"${SANDBOX_DIR}\"}"
+  _run_phase pre-tool \
+    "{\"session_id\":\"two\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"},\"cwd\":\"${SANDBOX_DIR}\"}"
+
+  run cat "${SANDBOX_DIR}/.agents/logs/session-claudecode"
+  assert_output "two"
+}
+
+@test "a payload with no session id writes no marker" {
+  _setup_sandbox
+  export CLAUDE_PROJECT_DIR="${SANDBOX_DIR}"
+
+  run _run_phase startup "{\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+
+  run test -e "${SANDBOX_DIR}/.agents/logs/session-claudecode"
+  assert_failure
+}
+
+@test "a session-usage call is bound to the calling session" {
+  _setup_sandbox
+
+  run _run_phase session-arg \
+    "{\"session_id\":\"abc-123\",\"tool_name\":\"mcp__devbot-tools__session-usage\",\"tool_input\":{\"args\":[]},\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+
+  echo "$output" | python3 -c '
+import json, sys
+updated = json.load(sys.stdin)["hookSpecificOutput"]["updatedInput"]
+assert updated["args"] == ["--session", "abc-123"], updated
+'
+}
+
+@test "a caller-supplied --session is replaced by the hook" {
+  _setup_sandbox
+
+  run _run_phase session-arg \
+    "{\"session_id\":\"abc-123\",\"tool_name\":\"mcp__devbot-tools__session-usage\",\"tool_input\":{\"args\":[\"--json\",\"--session\",\"other\"]},\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+
+  echo "$output" | python3 -c '
+import json, sys
+updated = json.load(sys.stdin)["hookSpecificOutput"]["updatedInput"]
+assert updated["args"] == ["--json", "--session", "abc-123"], updated
+'
+}
+
+@test "another MCP tool is left untouched" {
+  _setup_sandbox
+
+  run _run_phase session-arg \
+    "{\"session_id\":\"abc-123\",\"tool_name\":\"mcp__devbot-tools__git-report\",\"tool_input\":{\"args\":[]},\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+  assert_output ""
+}
+
+@test "an escaping devbot_dir falls back to .agents" {
+  _setup_sandbox
+  export CLAUDE_PROJECT_DIR="${SANDBOX_DIR}"
+  printf '{"devbot_dir":"../outside"}\n' > "${SANDBOX_DIR}/.devbot.project.jsonc"
+
+  run _run_phase startup "{\"session_id\":\"abc-123\",\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+
+  run cat "${SANDBOX_DIR}/.agents/logs/session-claudecode"
+  assert_output "abc-123"
+}

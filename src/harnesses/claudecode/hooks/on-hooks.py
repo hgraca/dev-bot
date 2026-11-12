@@ -38,6 +38,7 @@ DEV_BOT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__f
 ENV_FILE_VAR = "CLAUDE_ENV_FILE"
 SESSION_ID_ENV = "DEV_BOT_SESSION_ID"
 AGENT_NAME_ENV = "DEV_BOT_AGENT_NAME"
+SESSION_USAGE_TOOL = "mcp__devbot-tools__session-usage"
 # Last-resort name when neither the payload nor .claude/settings.json declares
 # one (init.sh writes "DevBot" as the default agent).
 PRIMARY_AGENT_NAME = "DevBot"
@@ -64,6 +65,49 @@ def resolve_primary_agent():
         except Exception:
             pass
     return PRIMARY_AGENT_NAME
+
+
+def is_plain_relative(value):
+    """A config path that cannot escape the project (see functions.sh)."""
+    if os.path.isabs(value) or value.startswith("~"):
+        return False
+    return ".." not in value.replace("\\", "/").split("/")
+
+
+def devbot_dir(project_dir):
+    """The project's agent home, resolved exactly as the tool resolves it."""
+    try:
+        sys.path.insert(0, os.path.join(DEV_BOT_ROOT, "src", "_shared"))
+        from read_jsonc import load_jsonc
+
+        value = load_jsonc(os.path.join(project_dir, ".devbot.project.jsonc")).get(
+            "devbot_dir"
+        )
+        if isinstance(value, str) and is_plain_relative(value):
+            return value
+    except Exception:
+        pass
+    return ".agents"
+
+
+def write_session_marker(data):
+    """Record the session id where a tool call can read it.
+
+    Best-effort fallback only: `session-arg` binds the id per call. The MCP
+    server process never receives the Bash preamble, so a file is the one
+    channel left when the injection hook is disabled.
+    """
+    session_id = (data.get("session_id") or "").strip()
+    project_dir = (os.environ.get("CLAUDE_PROJECT_DIR") or "").strip()
+    if not session_id or not project_dir:
+        return
+    try:
+        logs = os.path.join(project_dir, devbot_dir(project_dir), "logs")
+        os.makedirs(logs, exist_ok=True)
+        with open(os.path.join(logs, "session-claudecode"), "w", encoding="utf-8") as fh:
+            fh.write(session_id + "\n")
+    except OSError:
+        pass
 
 
 def write_session_env(data):
@@ -119,6 +163,47 @@ def inject_agent_env(data, command):
         shlex.quote(agent),
         command,
     )
+    return json.dumps(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "updatedInput": updated,
+            },
+        }
+    )
+
+
+def inject_session_arg(data):
+    """Return PreToolUse JSON naming the calling session for session-usage.
+
+    Claude Code runs one process per session, but the MCP server is long-lived
+    and shared, so the tool cannot infer its caller. updatedInput binds the id
+    per call — the marker file is only a fallback for a disabled hook.
+    """
+    if (data.get("tool_name") or "").lower() != SESSION_USAGE_TOOL:
+        return None
+    session_id = (data.get("session_id") or "").strip()
+    tool_input = data.get("tool_input")
+    if not session_id or not isinstance(tool_input, dict):
+        return None
+    raw = tool_input.get("args")
+    args = [str(arg) for arg in raw] if isinstance(raw, list) else []
+    # The hook is the identity boundary: a caller-supplied --session is replaced
+    # by the real one, never trusted.
+    kept = []
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--session":
+            skip_next = True
+            continue
+        if arg.startswith("--session="):
+            continue
+        kept.append(arg)
+    updated = dict(tool_input)
+    updated["args"] = [*kept, "--session", session_id]
     return json.dumps(
         {
             "hookSpecificOutput": {
@@ -265,9 +350,15 @@ def main():
     phase = sys.argv[1] if len(sys.argv) > 1 else ""
     data = json.load(sys.stdin)
     worktree = resolve_worktree(data)
+    write_session_marker(data)
     write_session_env(data)
 
-    if phase == "pre-tool":
+    if phase == "session-arg":
+        decision = inject_session_arg(data)
+        if decision:
+            print(decision)
+
+    elif phase == "pre-tool":
         command = (data.get("tool_input") or {}).get("command") or ""
         tool_name = (data.get("tool_name") or "")
         for hook in load_manifests():

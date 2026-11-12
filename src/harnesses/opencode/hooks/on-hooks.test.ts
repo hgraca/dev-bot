@@ -18,6 +18,7 @@ import {
   defaultHookLog,
   guardDecision,
   hasCommand,
+  injectSessionId,
   isPtyTool,
   MAX_TRACKED_SESSIONS,
   ptySubagentBlock,
@@ -671,5 +672,44 @@ describe("ptySubagentGuard", () => {
     }
     expect(await ptySubagentGuard(client, "bash", "ses_c")).toBeNull()
     expect(calls).toBe(0)
+  })
+})
+
+// ── injectSessionId (session-usage: name the calling session) ────────────────
+// The MCP server process is shared by every session in one opencode instance,
+// so a tool cannot tell which session called it. The before hook sees the
+// caller's session id and hands it to the tool explicitly.
+
+describe("injectSessionId", () => {
+  test("appends the calling session to the tool args", () => {
+    const args: { args?: string[] } = { args: [] }
+
+    expect(injectSessionId("devbot-tools_session-usage", "ses_1", args)).toBe(true)
+    expect(args.args).toEqual(["--session", "ses_1"])
+  })
+
+  test("leaves another tool untouched", () => {
+    const args: { args?: string[] } = { args: [] }
+
+    expect(injectSessionId("devbot-tools_git-report", "ses_3", args)).toBe(false)
+    expect(args.args).toEqual([])
+  })
+
+  test("replaces a caller-supplied --session in either form", () => {
+    const spaced: { args?: string[] } = { args: ["--json", "--session", "ses_other"] }
+    const inline: { args?: string[] } = { args: ["--json", "--session=ses_other"] }
+
+    expect(injectSessionId("devbot-tools_session-usage", "ses_4", spaced)).toBe(true)
+    expect(injectSessionId("devbot-tools_session-usage", "ses_4", inline)).toBe(true)
+    expect(spaced.args).toEqual(["--json", "--session", "ses_4"])
+    expect(inline.args).toEqual(["--json", "--session", "ses_4"])
+  })
+
+  test("ignores a missing or blank session id", () => {
+    const args: { args?: string[] } = { args: [] }
+
+    expect(injectSessionId("devbot-tools_session-usage", undefined, args)).toBe(false)
+    expect(injectSessionId("devbot-tools_session-usage", "  ", args)).toBe(false)
+    expect(args.args).toEqual([])
   })
 })
