@@ -171,10 +171,76 @@ _URI_CREDENTIALS_RE = re.compile(
 # a rendered config line (`password: x`). toolbox pretty-prints the offending
 # document when it cannot parse a config, so the YAML form is the one that
 # leaks a literal password from the catalogue.
-#
-# A `${VAR}` value is left visible on purpose: it is a reference, not a secret,
-# and seeing it says the render was correct.
-_PASSWORD_PARAM_RE = re.compile(r"(?i)\b(password|passwd|pwd)([=:]\s*)(?!\$\{)\S+")
+_PASSWORD_PARAM_RE = re.compile(r"(?i)\b(password|passwd|pwd)([=:]\s*)(\S+)")
+
+# A reference may render as a block scalar (`password: |2-`), whose body is the
+# value on the FOLLOWING lines. Only a rendered reference is left visible;
+# anything else is a substituted secret and is masked with its lines.
+_PASSWORD_BLOCK_RE = re.compile(
+    r"(?i)^(?P<indent>[ \t]*)(?P<field>password|passwd|pwd)\s*[=:]\s*"
+    r"(?P<marker>\|[0-9]?[-+]?)\s*$"
+)
+
+# toolbox's dump prefixes every line with its number (`  6 | password: x`).
+_DUMP_PREFIX_RE = re.compile(r"^\s*(?:>\s*)?\d+\s*\|\s?")
+
+# What the renderer emits for a reference: the variable, an optional default and
+# the URI suffix it may append. A secret that merely STARTS with "${" is not a
+# reference — matching the whole value is what keeps it out of the log.
+_REFERENCE_RE = re.compile(
+    r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::[^}]*)?\}(?:[?&]\S*)?"
+)
+
+
+def _dump_content(line: str) -> str:
+    """A dumped line without its line-number prefix."""
+    return _DUMP_PREFIX_RE.sub("", line.rstrip("\r\n"), count=1)
+
+
+def _is_reference(value: str) -> bool:
+    """Whether a rendered value is a `${VAR}` reference rather than a secret."""
+    return bool(_REFERENCE_RE.fullmatch(value.strip().strip("'\"")))
+
+
+def _redact_blocks(text: str) -> str:
+    """Mask a password block scalar unless its body is a reference."""
+    lines = text.splitlines(keepends=True)
+    out: List[str] = []
+    index = 0
+    while index < len(lines):
+        marker = _PASSWORD_BLOCK_RE.match(_dump_content(lines[index]))
+        if marker is None:
+            out.append(lines[index])
+            index += 1
+            continue
+        indent = marker.group("indent")
+        end = index + 1
+        while end < len(lines):
+            content = _dump_content(lines[end])
+            if content.strip() and len(content) - len(content.lstrip()) <= len(indent):
+                break
+            end += 1
+        body = [_dump_content(line) for line in lines[index + 1 : end]]
+        if body and all(_is_reference(line) for line in body if line.strip()):
+            out.extend(lines[index:end])
+        else:
+            prefix = _DUMP_PREFIX_RE.match(lines[index].rstrip("\r\n"))
+            out.append(
+                f"{prefix.group(0) if prefix else ''}{indent}"
+                f"{marker.group('field')}: ***\n"
+            )
+            out.extend("  ***\n" for line in body if line.strip())
+        index = end
+    return "".join(out)
+
+
+def _mask_param(match: re.Match) -> str:
+    value = match.group(3)
+    # A block marker reaches here only when _redact_blocks kept it — its body
+    # is a reference. Everything else is a value, and gets masked.
+    if _is_reference(value) or re.fullmatch(r"\|[0-9]?[-+]?", value):
+        return match.group(0)
+    return f"{match.group(1)}{match.group(2)}***"
 
 
 def redact(text: str) -> str:
@@ -182,9 +248,7 @@ def redact(text: str) -> str:
     if not text:
         return ""
     text = _URI_CREDENTIALS_RE.sub(r"\g<scheme>\g<user>:***@", text)
-    return _PASSWORD_PARAM_RE.sub(
-        lambda match: f"{match.group(1)}{match.group(2)}***", text
-    )
+    return _PASSWORD_PARAM_RE.sub(_mask_param, _redact_blocks(text))
 
 
 def validate(

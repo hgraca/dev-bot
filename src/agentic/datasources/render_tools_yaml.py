@@ -290,8 +290,10 @@ RESERVED_NAMES = frozenset({"mcp", "datasources-mcp"})
 #
 # A reference must be the whole value: there is no interpolation inside a
 # longer string, so a password containing "${" can never be mistaken for one.
-# References are resolved by toolbox from the container's environment at load
-# time, so a secret behind one exists in no file at all.
+# Toolbox substitutes a reference into the config text BEFORE parsing it, so
+# the rendered field is a block scalar: a bare secret starting with '*' or '&'
+# would read as a YAML alias and abort the whole gateway. The value itself
+# still never reaches a file.
 ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
 
@@ -399,6 +401,26 @@ def _default_text(yaml_field: str, default) -> str:
 def _yaml_scalar(value) -> str:
     """A single-quoted YAML scalar — a literal may contain ':', '#' or spaces."""
     return "'" + _literal_text(value).replace("'", "''") + "'"
+
+
+# Upstream types these as numbers: a rendered string reaches the driver as a
+# string, so the value is written bare.
+NUMERIC_FIELDS = frozenset({"port"})
+
+# A `${VAR}` reference is rendered as a literal block scalar — `|2-` plus the
+# reference on an indented line — because toolbox substitutes the variable into
+# the config text BEFORE parsing it. A plain or quoted scalar then breaks on
+# whatever the value starts with ('*', '&', '!') or contains ('"', '\'); a
+# block scalar takes any single-line value verbatim, and the `2` indent
+# indicator keeps a leading space from being read as indentation.
+REF_BLOCK = "|2-"
+
+
+def _literal_value(yaml_field: str, literal: str) -> str:
+    """A literal: bare when it is a number, quoted otherwise."""
+    if yaml_field in NUMERIC_FIELDS and literal.isdigit():
+        return literal
+    return _yaml_scalar(literal)
 
 
 def field_parts(field) -> tuple:
@@ -621,6 +643,7 @@ def _render_fields(spec, engine, where) -> list:
         if target != where:
             continue
 
+        block = False
         if engine_var in database:
             ref = env_ref(database[engine_var])
             if ref is not None:
@@ -643,14 +666,16 @@ def _render_fields(spec, engine, where) -> list:
                 value += _uri_timeout_suffix(
                     engine, yaml_field, os.environ.get(ref) or default
                 )
+                block = yaml_field not in NUMERIC_FIELDS
             else:
                 # A literal, written straight in. Non-secret values (host, port,
                 # database, user) read far better inline; a secret belongs
                 # behind a ${VAR} reference.
                 literal = _literal_text(database[engine_var])
                 literal = _macos_loopback_rewrite(yaml_field, literal)
-                value = _yaml_scalar(
-                    literal + _uri_timeout_suffix(engine, yaml_field, literal)
+                value = _literal_value(
+                    yaml_field,
+                    literal + _uri_timeout_suffix(engine, yaml_field, literal),
                 )
         elif default is not None:
             # Undeclared: the engine's own variable, defaulted — exporting
@@ -658,6 +683,7 @@ def _render_fields(spec, engine, where) -> list:
             # a literal toolbox resolves inside the container, so it takes the
             # same macOS loopback rewrite a declared literal gets.
             value = f"${{{engine_var}:{_default_text(yaml_field, default)}}}"
+            block = yaml_field not in NUMERIC_FIELDS
         elif optional:
             # Absent by design. Emitting ${VAR} here would turn an optional
             # field into a hard requirement the image refuses to start without.
@@ -666,11 +692,19 @@ def _render_fields(spec, engine, where) -> list:
             # Undeclared, no default: still emitted, so exporting the engine's
             # own name works. available_catalogue gates it out when unset.
             value = f"${{{engine_var}}}"
+            block = yaml_field not in NUMERIC_FIELDS
 
         if engine_var in list_fields:
             # Upstream expects a sequence here even for one endpoint.
             lines.append(f"{yaml_field}:")
-            lines.append(f"  - {value}")
+            if block:
+                lines.append(f"  - {REF_BLOCK}")
+                lines.append(f"    {value}")
+            else:
+                lines.append(f"  - {value}")
+        elif block:
+            lines.append(f"{yaml_field}: {REF_BLOCK}")
+            lines.append(f"  {value}")
         else:
             lines.append(f"{yaml_field}: {value}")
     return lines

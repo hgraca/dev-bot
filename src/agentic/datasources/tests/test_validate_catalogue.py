@@ -243,9 +243,61 @@ class TestRedact(unittest.TestCase):
         # The rest of the dump is diagnostics, and stays.
         self.assertIn("queryParams: timeout=1s", masked)
 
+    def test_masks_a_substituted_block_scalar(self):
+        # A dump shows the config AFTER substitution, so a block body holds the
+        # secret itself unless it is the reference that was rendered.
+        masked = redact("password: |2-\n  hunter2\nqueryParams:\n  timeout: 1s")
+        self.assertNotIn("hunter2", masked)
+        self.assertIn("password: ***", masked)
+        self.assertIn("  ***", masked)
+        # The rest of the dump is diagnostics, and stays.
+        self.assertIn("queryParams:", masked)
+
+    def test_masks_a_block_scalar_in_a_numbered_dump(self):
+        # toolbox numbers the lines it echoes, so the marker is prefixed.
+        masked = redact("  6 | password: |2-\n  7 |   hunter2\n  8 | port: 1")
+
+        self.assertNotIn("hunter2", masked)
+        self.assertIn("  6 | password: ***", masked)
+        self.assertIn("  8 | port: 1", masked)
+
+    def test_masks_an_indented_block_scalar(self):
+        # A nested config keeps its indentation after the dump prefix is gone.
+        masked = redact("  6 |   password: |2-\n  7 |     hunter2\n  8 |   user: x")
+
+        self.assertNotIn("hunter2", masked)
+        self.assertIn("  6 |   password: ***", masked)
+        self.assertIn("  8 |   user: x", masked)
+
+    def test_leaves_an_indented_reference_visible(self):
+        self.assertEqual(
+            redact("  password: |2-\n    ${MYSQL_PASSWORD}\n  user: x"),
+            "  password: |2-\n    ${MYSQL_PASSWORD}\n  user: x",
+        )
+
+    def test_masks_a_secret_that_merely_starts_with_a_reference(self):
+        # Only a whole-value reference is safe to show; a secret can start with
+        # '${' without being one.
+        for case in ("password: ${hunter2", 'password: "${hunter2"',
+                     "password: |2-\n  ${hunter2"):
+            masked = redact(case)
+            self.assertNotIn("hunter2", masked, case)
+
     def test_leaves_a_reference_visible(self):
         # A ${VAR} is a reference, not a secret — and seeing it says the render
-        # did the right thing.
+        # did the right thing. The rendered form is a block scalar.
+        self.assertEqual(
+            redact("password: |2-\n  ${MYSQL_PASSWORD}\nport: 1"),
+            "password: |2-\n  ${MYSQL_PASSWORD}\nport: 1",
+        )
+        self.assertEqual(
+            redact("  6 | password: |2-\n  7 |   ${MYSQL_PASSWORD}\n  8 | port: 1"),
+            "  6 | password: |2-\n  7 |   ${MYSQL_PASSWORD}\n  8 | port: 1",
+        )
+        self.assertEqual(
+            redact('password: "${MYSQL_PASSWORD}"'),
+            'password: "${MYSQL_PASSWORD}"',
+        )
         self.assertEqual(
             redact("password: ${MYSQL_PASSWORD}"), "password: ${MYSQL_PASSWORD}"
         )

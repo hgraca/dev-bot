@@ -118,7 +118,7 @@ class TestRenderToolsYaml(unittest.TestCase):
         self.assertEqual(code, 0)
         # The reference is kept, so the value never lands in a file — and the
         # engine default rides along beside it.
-        self.assertIn("host: ${HOTELS_DEV_DB_HOST:localhost}", out)
+        self.assertIn('host: |2-\n  ${HOTELS_DEV_DB_HOST:localhost}', out)
         self.assertNotIn("${MYSQL_HOST", out)
 
     def test_a_literal_is_written_in_quoted(self):
@@ -176,7 +176,8 @@ class TestRenderToolsYaml(unittest.TestCase):
         code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
 
         self.assertEqual(code, 0)
-        self.assertIn("host: ${MYSQL_HOST:localhost}", out)
+        self.assertIn('host: |2-\n  ${MYSQL_HOST:localhost}', out)
+        # Numeric fields stay bare: upstream types them as numbers.
         self.assertIn("port: ${MYSQL_PORT:3306}", out)
 
     def test_mysql_database_is_optional_and_empty_by_default(self):
@@ -185,14 +186,40 @@ class TestRenderToolsYaml(unittest.TestCase):
         code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
 
         self.assertEqual(code, 0)
-        self.assertIn("database: ${MYSQL_DATABASE:}\n", out)
+        self.assertIn('database: |2-\n  ${MYSQL_DATABASE:}\n', out)
 
     def test_required_fields_carry_no_default(self):
         code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
 
         self.assertEqual(code, 0)
-        self.assertIn("user: ${MYSQL_USER}\n", out)
-        self.assertIn("password: ${MYSQL_PASSWORD}\n", out)
+        self.assertIn('user: |2-\n  ${MYSQL_USER}\n', out)
+        self.assertIn('password: |2-\n  ${MYSQL_PASSWORD}\n', out)
+
+    def test_every_string_reference_is_a_block_scalar(self):
+        # Regression: toolbox substitutes the variable BEFORE it parses, so a
+        # bare secret starting with '*' reads as a YAML alias and takes the
+        # whole shared gateway — every datasource — down with it. A block
+        # scalar also survives '"' and '\', which no quoted form can.
+        code, out, _ = render({"hotels": {"type": "mysql", "env": {}}})
+
+        self.assertEqual(code, 0)
+        lines = out.splitlines()
+        markers = [i for i, line in enumerate(lines) if line.endswith(": |2-")]
+        refs = [line for line in lines if "${" in line and "port" not in line]
+        self.assertEqual(len(markers), len(refs))
+        for index in markers:
+            # Each reference sits on the line below its `|2-` field marker.
+            self.assertTrue(lines[index + 1].startswith("  ${"))
+
+    def test_a_literal_port_stays_a_number(self):
+        # A quoted port reaches the driver as a string; the field is numeric.
+        code, out, _ = render(
+            {"hotels": {"type": "mysql", "env": {"MYSQL_PORT": "3307"}}}
+        )
+
+        self.assertEqual(code, 0)
+        self.assertIn("port: 3307\n", out)
+        self.assertNotIn("port: '3307'", out)
 
     def test_postgres_uses_its_own_field_names_and_tool(self):
         code, out, _ = render({"reporting": {"type": "postgres", "env": {}}})
@@ -207,7 +234,7 @@ class TestRenderToolsYaml(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertIn("type: sqlite\n", out)
-        self.assertIn("database: ${SQLITE_DATABASE}\n", out)
+        self.assertIn('database: |2-\n  ${SQLITE_DATABASE}\n', out)
         self.assertIn("type: sqlite-execute-sql", out)
 
     def test_no_read_only_field_is_ever_emitted(self):
@@ -418,7 +445,7 @@ class TestRenderToolsYaml(unittest.TestCase):
         )
 
         self.assertEqual(code, 0)
-        self.assertIn("uri: ${EVENTS_MONGO_URI}", doc_with(out, "source"))
+        self.assertIn('uri: |2-\n  ${EVENTS_MONGO_URI}', doc_with(out, "source"))
         self.assertNotIn("database", doc_with(out, "source"))
         self.assertIn("database: 'events'", doc_with(out, "tool"))
 
@@ -521,7 +548,8 @@ class TestRenderToolsYaml(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertIn(
-            "uri: ${EVENTS_MONGO_URI}?connectTimeoutMS=2000&serverSelectionTimeoutMS=2000",
+            "uri: |2-\n"
+            "  ${EVENTS_MONGO_URI}?connectTimeoutMS=2000&serverSelectionTimeoutMS=2000",
             out,
         )
         self.assertNotIn("s3cr3t", out)
@@ -543,7 +571,7 @@ class TestRenderToolsYaml(unittest.TestCase):
         )
 
         self.assertEqual(code, 0)
-        self.assertIn("uri: ${EVENTS_MONGO_URI}", out)
+        self.assertIn('uri: |2-\n  ${EVENTS_MONGO_URI}', out)
 
     def test_mongodb_pipeline_is_the_free_form_surface(self):
         # The agent supplies the whole pipeline, so `collection` is deliberately
@@ -565,7 +593,7 @@ class TestRenderToolsYaml(unittest.TestCase):
         )
 
         self.assertEqual(code, 0)
-        self.assertIn("database: ${EVENTS_DB}", doc_with(out, "tool"))
+        self.assertIn('database: |2-\n  ${EVENTS_DB}', doc_with(out, "tool"))
         self.assertIn("name: events_aggregate", doc_with(out, "tool"))
 
     def test_mongodb_array_parameter_declares_its_items(self):
@@ -629,7 +657,7 @@ class TestRenderToolsYaml(unittest.TestCase):
         )
 
         self.assertEqual(code, 0)
-        self.assertIn("password: ${REDIS_PW}", doc_with(out, "source"))
+        self.assertIn('password: |2-\n  ${REDIS_PW}', doc_with(out, "source"))
 
     # ── macOS loopback rewriting ────────────────────────────────────────────
     #
@@ -732,7 +760,7 @@ class TestRenderToolsYaml(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertIn(
-            "host: ${MYSQL_HOST:host.docker.internal}", doc_with(out, "source")
+            'host: |2-\n  ${MYSQL_HOST:host.docker.internal}', doc_with(out, "source")
         )
 
     def test_linux_keeps_the_default_host(self):
@@ -742,7 +770,7 @@ class TestRenderToolsYaml(unittest.TestCase):
         )
 
         self.assertEqual(code, 0)
-        self.assertIn("host: ${MYSQL_HOST:localhost}", doc_with(out, "source"))
+        self.assertIn('host: |2-\n  ${MYSQL_HOST:localhost}', doc_with(out, "source"))
 
     def test_macos_keeps_a_reference_name_and_rewrites_its_default(self):
         # The reference is resolved by toolbox inside the container, so it is
@@ -755,7 +783,7 @@ class TestRenderToolsYaml(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertIn(
-            "host: ${HOTELS_DB_HOST:host.docker.internal}", doc_with(out, "source")
+            'host: |2-\n  ${HOTELS_DB_HOST:host.docker.internal}', doc_with(out, "source")
         )
 
     def test_linux_keeps_a_reference_default(self):
@@ -765,7 +793,7 @@ class TestRenderToolsYaml(unittest.TestCase):
         )
 
         self.assertEqual(code, 0)
-        self.assertIn("host: ${HOTELS_DB_HOST:localhost}", doc_with(out, "source"))
+        self.assertIn('host: |2-\n  ${HOTELS_DB_HOST:localhost}', doc_with(out, "source"))
 
     def test_malformed_catalogue_is_an_error(self):
         proc = subprocess.run(
