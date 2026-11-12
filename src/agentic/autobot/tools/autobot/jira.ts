@@ -1,0 +1,131 @@
+/**
+ * Reading AutoBot work out of Jira.
+ *
+ * The transport is injected so the polling logic — the JQL it builds and the way it picks the comment
+ * that needs an answer — is testable without a network call. Comments are fetched for both passes,
+ * because a new session must record the newest pre-existing comment as its watermark.
+ */
+
+import { parseState, STATE_FIELD_ID, type AutobotState } from "./state.ts";
+
+export interface JiraComment {
+  id: string;
+  authorId: string;
+  body: string;
+  created: string;
+}
+
+export interface JiraTicket {
+  key: string;
+  summary: string;
+  status: string;
+  assigneeId: string | null;
+  /** The person the ticket is restored to when AutoBot finishes with it. */
+  reporterId: string | null;
+  state: AutobotState | null;
+}
+
+export interface JiraPollItem extends JiraTicket {
+  /** Human comments, oldest first. Every one must be answered, not only the newest. */
+  pendingComments: JiraComment[];
+}
+
+export interface RawJiraIssue {
+  key: string;
+  fields?: {
+    summary?: string;
+    status?: { name?: string };
+    assignee: { accountId?: string } | null;
+    reporter?: { accountId?: string } | null;
+    [field: string]: unknown;
+  };
+}
+
+export interface JiraTransport {
+  search(jql: string): Promise<RawJiraIssue[]>;
+  comments(key: string): Promise<JiraComment[]>;
+}
+
+export type JqlMode = "new" | "continuation";
+
+/** `customfield_10877` → `cf[10877]`, which is the form JQL accepts for a custom field. */
+function jqlField(stateFieldId: string): string {
+  const id = stateFieldId.replace(/[^0-9]/g, "");
+  if (id === "") throw new Error(`autobot jira: "${stateFieldId}" carries no field id`);
+  return `cf[${id}]`;
+}
+
+export function buildJql(
+  accountId: string,
+  stateFieldId: string = STATE_FIELD_ID,
+  mode: JqlMode = "new",
+): string {
+  if (accountId.trim() === "") throw new Error("autobot jira: an assignee account id is required");
+  const clause = mode === "new" ? "IS EMPTY" : "IS NOT EMPTY";
+  return `assignee = "${accountId}" AND ${jqlField(stateFieldId)} ${clause} ORDER BY updated ASC`;
+}
+
+export function toTicket(raw: RawJiraIssue, stateFieldId: string = STATE_FIELD_ID): JiraTicket {
+  if (typeof raw.key !== "string" || raw.key.trim() === "") {
+    throw new Error("autobot jira: an issue without a key");
+  }
+  const fields = raw.fields ?? {};
+  return {
+    key: raw.key,
+    summary: typeof fields.summary === "string" ? fields.summary : "",
+    status: fields.status?.name ?? "",
+    assigneeId: fields.assignee?.accountId ?? null,
+    reporterId: fields.reporter?.accountId ?? null,
+    state: parseState(fields[stateFieldId]),
+  };
+}
+
+function compareIds(a: string, b: string): number {
+  const left = Number(a);
+  const right = Number(b);
+  if (Number.isFinite(left) && Number.isFinite(right)) return left - right;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Human comments in the order they were written, so a burst is answered one per tick. */
+export function humanComments(comments: JiraComment[], botAccountId: string): JiraComment[] {
+  return comments
+    .filter((comment) => comment.authorId !== botAccountId)
+    .sort((a, b) => compareIds(a.id, b.id));
+}
+
+/** One poll pass: new work plus the assigned tickets that carry a session. */
+export async function pollJira(options: {
+  accountId: string;
+  transport: JiraTransport;
+  stateFieldId?: string;
+  /** Called for each ticket that cannot be read, so one bad field does not stop the poll. */
+  onError?: (message: string) => void;
+}): Promise<JiraPollItem[]> {
+  const { accountId, transport, stateFieldId = STATE_FIELD_ID } = options;
+  const items: JiraPollItem[] = [];
+
+  // Comments are read for both passes: a new session must not answer a comment that predates it, so
+  // the caller records the newest one as its watermark when the session starts.
+  for (const raw of await transport.search(buildJql(accountId, stateFieldId, "new"))) {
+    try {
+      const ticket = toTicket(raw, stateFieldId);
+      const comments = await transport.comments(ticket.key);
+      items.push({ ...ticket, pendingComments: humanComments(comments, accountId) });
+    } catch (error) {
+      options.onError?.(`jira: skipping ${raw.key}: ${(error as Error).message}`);
+    }
+  }
+
+  for (const raw of await transport.search(buildJql(accountId, stateFieldId, "continuation"))) {
+    try {
+      const ticket = toTicket(raw, stateFieldId);
+      const comments = await transport.comments(ticket.key);
+      items.push({ ...ticket, pendingComments: humanComments(comments, accountId) });
+    } catch (error) {
+      options.onError?.(`jira: skipping ${raw.key}: ${(error as Error).message}`);
+    }
+  }
+
+  return items;
+}
