@@ -43,6 +43,46 @@ title: DevBot
         </li>
       </ul>
     </div>
+  </div>
+</section>
+
+<section class="section section-alt showcase">
+  <div class="container">
+    <div class="showcase-row">
+      <button type="button" class="showcase-zoom"
+              data-lightbox="{{ '/imgs/DevBot%20structure.png' | relative_url }}"
+              aria-label="Enlarge the DevBot structure diagram">
+        <img src="{{ '/imgs/DevBot%20structure.png' | relative_url }}"
+             width="4416" height="4352"
+             alt="DevBot architecture: one install at ~/.local/share/dev-bot/ acting as the single source of truth, linked from each project's agents directory and adapted to OpenCode and ClaudeCode"
+             loading="lazy" decoding="async">
+      </button>
+      <div class="showcase-copy">
+        <h2>One install, many projects</h2>
+        <p>DevBot installs once at <code>~/.local/share/dev-bot/</code> and is the single source of truth for agentic tooling. <code>devbot init</code> writes a small per-project footprint &mdash; config, checksum, <code>agents/</code> &mdash; and links the rest back to the install; a config-hash mismatch re-inits every project automatically.</p>
+      </div>
+    </div>
+
+    <div class="showcase-row">
+      <div class="showcase-copy">
+        <h2>The assignment lifecycle</h2>
+        <p>Every assignment runs the same eight stages &mdash; gather context, define, plan, build, verify, review, ship, wrap up. Context is gathered before you're asked anything; the plan is signed off before code; a failed check re-enters the review loop; the session closes by recording memories and archiving the backlog.</p>
+      </div>
+      <button type="button" class="showcase-zoom"
+              data-lightbox="{{ '/imgs/DevBot%20workflow.png' | relative_url }}"
+              aria-label="Enlarge the DevBot assignment lifecycle diagram">
+        <img src="{{ '/imgs/DevBot%20workflow.png' | relative_url }}"
+             width="2016" height="5024"
+             alt="The DevBot assignment lifecycle: gather context, define, plan, build, verify, review, ship, then wrap up"
+             loading="lazy" decoding="async">
+      </button>
+    </div>
+
+  </div>
+</section>
+
+<section class="section section-alt install-cta">
+  <div class="container">
     <div class="hero-install">
       <button type="button" class="hero-install-cmd" id="hero-install-cmd"
               data-install-org="{{ site.install_org | default: 'GET-E' }}"
@@ -180,3 +220,8 @@ title: DevBot
     </div>
   </div>
 </section>
+
+<dialog class="lightbox" aria-label="Enlarged diagram">
+  <button type="button" class="lightbox-close" data-lightbox-close aria-label="Close enlarged diagram">&times;</button>
+  <img alt="">
+</dialog>

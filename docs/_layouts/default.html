@@ -133,5 +133,37 @@
       document.querySelectorAll('.gh-link').forEach(function (a) { a.href = ghHref; });
     })();
   </script>
+  <script>
+    // Landing diagrams open the full-size image
+    // in a native dialog.
+    (function () {
+      var dialog = document.querySelector('.lightbox');
+      if (!dialog) return;
+      var image = dialog.querySelector('img');
+
+      document.querySelectorAll('[data-lightbox]').forEach(function (trigger) {
+        trigger.addEventListener('click', function () {
+          var thumb = trigger.querySelector('img');
+          image.src = trigger.getAttribute('data-lightbox');
+          image.alt = thumb ? thumb.alt : '';
+          if (dialog.showModal) dialog.showModal();
+          else dialog.setAttribute('open', '');
+        });
+      });
+
+      function close() {
+        if (dialog.close) dialog.close();
+        else dialog.removeAttribute('open');
+      }
+
+      dialog.addEventListener('click', function (event) {
+        var backdrop = event.target === dialog;
+        if (backdrop || event.target.hasAttribute('data-lightbox-close')) close();
+      });
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && dialog.open) close();
+      });
+    })();
+  </script>
 </body>
 </html>
