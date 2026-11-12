@@ -114,7 +114,9 @@ _sandbox_bash() {
 # ── Argument parsing (moved out of reinit.sh) ────────────────────────────────
 
 @test "init --all processes every registered project" {
-  run _sandbox_bash "_get_projects() { printf '%s\\n' '[\"${FRESH}\",\"${OTHER}\"]'; }; _process_project() { echo PROCESS \"\$1\"; }; main --all"
+  # -j 1 pins the serial path this test is about; the parallel fan-out has its
+  # own suite (init_parallel_tests.bats), and it buffers worker output.
+  run _sandbox_bash "_get_projects() { printf '%s\\n' '[\"${FRESH}\",\"${OTHER}\"]'; }; _process_project() { echo PROCESS \"\$1\"; }; main --all -j 1"
 
   assert_success
   assert_output --partial "PROCESS ${FRESH}"
@@ -267,4 +269,54 @@ EOF
 @test "init no longer wires a migration call site" {
   run grep -F '_migrate_workspace_config' "${PROJECT_ROOT}/bin/init.sh"
   assert_failure
+}
+
+# ── Parallel fan-out: dispatch contract ──────────────────────────────────────
+# The byte-level parity of a parallel run is checked by hand (a real wiring
+# cannot be sandboxed here); these pin the contract that makes it possible:
+# workers see the machine-wide passes deferred, and the parent runs them once.
+
+@test "init --all fans out, deferring the machine-wide passes" {
+  run _sandbox_bash "
+    _get_projects() { printf '%s\\n' '[\"${FRESH}\",\"${OTHER}\"]'; };
+    _process_project() { printf '%s\\n' \"\${DEV_BOT_DEFER_GLOBAL_REGISTRATION:-unset}\" >> \"\${DEV_BOT_ROOT}/flags.log\"; };
+    _run_global_pre_passes() { echo pre >> \"\${DEV_BOT_ROOT}/passes.log\"; };
+    _run_global_post_passes() { echo post >> \"\${DEV_BOT_ROOT}/passes.log\"; };
+    main --all -j 2
+  "
+
+  assert_success
+  assert_output --partial "Wiring 2 project(s), 2 at a time"
+  assert_equal "$(sort -u "${SANDBOX}/flags.log")" "1"
+  assert_equal "$(cat "${SANDBOX}/passes.log")" "pre
+post"
+}
+
+@test "init --all -j 1 keeps the serial path and defers nothing" {
+  run _sandbox_bash "
+    _get_projects() { printf '%s\\n' '[\"${FRESH}\",\"${OTHER}\"]'; };
+    _process_project() { printf '%s\\n' \"\${DEV_BOT_DEFER_GLOBAL_REGISTRATION:-unset}\" >> \"\${DEV_BOT_ROOT}/flags.log\"; };
+    _run_global_pre_passes() { echo pre >> \"\${DEV_BOT_ROOT}/passes.log\"; };
+    _run_global_post_passes() { echo post >> \"\${DEV_BOT_ROOT}/passes.log\"; };
+    main --all -j 1
+  "
+
+  assert_success
+  assert_equal "$(sort -u "${SANDBOX}/flags.log")" "unset"
+  run test -e "${SANDBOX}/passes.log"
+  assert_failure
+}
+
+@test "a failing worker does not stop the machine-wide passes" {
+  run _sandbox_bash "
+    _get_projects() { printf '%s\\n' '[\"${FRESH}\",\"${OTHER}\"]'; };
+    _process_project() { [[ \"\$1\" == \"${FRESH}\" ]] && return 3; return 0; };
+    _run_global_pre_passes() { echo pre >> \"\${DEV_BOT_ROOT}/passes.log\"; };
+    _run_global_post_passes() { echo post >> \"\${DEV_BOT_ROOT}/passes.log\"; };
+    main --all -j 2
+  "
+
+  assert_failure
+  assert_equal "$(cat "${SANDBOX}/passes.log")" "pre
+post"
 }

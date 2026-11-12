@@ -52,6 +52,15 @@ fi
 
 _ok "qmd CLI: $(qmd --version 2>/dev/null || echo 'installed')"
 
+# ── Serialise on the shared qmd store ────────────────────────────────────────
+# Collection registration, context and the index build all write machine-wide
+# state. `init --all -j N` runs this module once per project concurrently, so
+# take the shared memory-index lock (audit-24: two writers crash the index).
+if ! _devbot_lock_memory_index; then
+  _warn "could not take the memory index lock — skipping qmd init for ${PROJECT_NAME}"
+  exit 0
+fi
+
 # ── Check vault exists ────────────────────────────────────────────────────────
 
 DEVBOT_DIR="$(_devbot_get_project_dir "${PROJECT_DIR}")"
@@ -210,6 +219,14 @@ fi
 # ── Build initial index ───────────────────────────────────────────────────────
 
 _header_3 "Building QMD index"
+
+# Under `init --all -j N` the index is built once by the parent, after every
+# worker has registered its collection — one build instead of N racing ones.
+if [[ "${DEV_BOT_DEFER_GLOBAL_MEMORY:-0}" == "1" ]]; then
+  _skip "Index build deferred to the parent (init --all)"
+  _ok "QMD init complete for ${PROJECT_NAME}"
+  exit 0
+fi
 
 # BM25-only: `cleanup` prunes stale chunks, `update` rebuilds the index. No
 # model is loaded, so there is no llama serialization lock and no embed step

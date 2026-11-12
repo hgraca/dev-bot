@@ -52,6 +52,15 @@ if ! command -v qmd >/dev/null 2>&1; then
   exit 0
 fi
 
+# The collection store is machine-wide, and `init --all --full -j N` runs this
+# reset once per project concurrently. Take the shared memory-index lock
+# (audit-24: two writers crash the index); the cap is env-overridable so a test
+# can prove the guard without holding it for minutes.
+if ! _devbot_lock_memory_index; then
+  _warn "could not take the memory index lock — skipping QMD reset for ${PROJECT_NAME}"
+  exit 0
+fi
+
 # Remove project collection
 if qmd collection show "${PROJECT_NAME}" >/dev/null 2>&1; then
   qmd collection remove "${PROJECT_NAME}"

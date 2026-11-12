@@ -455,6 +455,28 @@ _devbot_lock_acquire() {
   return 0
 }
 
+# ── Shared memory index lock ──────────────────────────────────────────────────
+#
+# One lock for every engine that writes the shared memory index: the reindex
+# tool builds it, and init registers collections and rebuilds it. They write the
+# same files (qmd's collection store and index, mdctx's index), so a lock keyed
+# per caller or per module root would protect nothing (audit-24: two writers
+# crash the qmd index).
+#
+# The path matches the reindex tool's. The cap is env-overridable so a test can
+# prove the guard without holding the lock for ten minutes.
+_devbot_memory_index_lock_path() {
+  printf '%s/devbot/reindex-memories.lock' "${XDG_CACHE_HOME:-${HOME}/.cache}"
+}
+
+# Take it in the current process. Held until the process exits (fd 200), so the
+# caller must be a process whose remaining work is the engine write — that is
+# how the reindex tool and the memory/qmd init children already use it.
+_devbot_lock_memory_index() {
+  local cap="${1:-${DEVBOT_INDEX_LOCK_WAIT:-600}}"
+  _devbot_lock_wait "$(_devbot_memory_index_lock_path)" "${cap}"
+}
+
 # ── Devbot session registry (install-level docker lifecycle) ────────────────────
 #
 # Tracks running devbot harness sessions so the LAST one to exit tears the

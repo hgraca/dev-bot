@@ -788,6 +788,8 @@ _usage() {
   echo "Options:"
   echo "  --all, -a    Initialise all registered projects"
   echo "  --full, -f   Full reset: remove QMD collection + codebase index data"
+  echo "  -j, --jobs N Parallel projects for --all (default: half of nproc, 2-16;"
+  echo "               1 keeps the serial run, DEV_BOT_INIT_JOBS overrides)"
   echo "  --help, -h   Show this help"
 }
 
@@ -812,6 +814,219 @@ _process_project() {
   _wire_project "${project_dir}"
 }
 
+# ── Parallel fan-out (--all -j N) ────────────────────────────────────────────
+#
+# Two rules keep this safe:
+#   - workers run with the machine-wide passes deferred (DEV_BOT_DEFER_GLOBAL_*)
+#     and the parent performs them once after the join — those writes are what
+#     made the loop serial in the first place;
+#   - every worker writes to its own log. Interleaving 28 projects' headers and
+#     warnings produces an unreadable stream, so the parent prints one ordered
+#     line per project and points at the log when a project fails.
+#
+# bash 3.2 compatible: per-PID `wait`, no `wait -n`, no associative arrays.
+
+_default_jobs() {
+  local n
+  n="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+  n="${n//[^0-9]/}"
+  [[ -n "${n}" ]] || n=2
+  n=$((n / 2))
+  [[ ${n} -lt 2 ]] && n=2
+  [[ ${n} -gt 16 ]] && n=16
+  printf '%s' "${n}"
+}
+
+_worker_log() {
+  printf '%s/%02d.log' "$1" "$2"
+}
+
+# Arguments: <jobs> <project>... [-- <reset-script>...]
+# The reset scripts travel as arguments because a subshell cannot see main's
+# `local` array; keeping them out of a global removes the "forgot to set it"
+# failure mode, where every reset (including --full) would be skipped silently.
+_run_projects_parallel() {
+  local jobs="$1"
+  shift
+  local -a projects=()
+  while [[ $# -gt 0 ]] && [[ "$1" != "--" ]]; do
+    projects+=("$1")
+    shift
+  done
+  [[ "${1:-}" == "--" ]] && shift
+  local -a reset=("$@")
+  local total="${#projects[@]}"
+  local log_dir="${DEV_BOT_ROOT}/storage/.init-all"
+  local -a pids=()
+  local -a slots=()
+  local -a rc=()
+  local n
+
+  mkdir -p "${log_dir}"
+  rm -f "${log_dir}"/*.log 2>/dev/null || true
+
+  for ((n = 0; n < total; n++)); do rc[n]=1; done
+
+  _header_2 "Wiring ${total} project(s), ${jobs} at a time"
+
+  local next=0
+  while [[ ${next} -lt ${total} || ${#pids[@]} -gt 0 ]]; do
+    while [[ ${next} -lt ${total} && ${#pids[@]} -lt ${jobs} ]]; do
+      local log
+      log="$(_worker_log "${log_dir}" $((next + 1)))"
+      # stdin from /dev/null: the harness inits prompt with `read` when stdin is
+      # a TTY, and a prompt written to the log while `read` blocks on the
+      # terminal hangs the whole run with nothing on screen (bin/update.sh does
+      # the same for its recovery path).
+      (
+        _process_project "${projects[next]}" "${reset[@]+"${reset[@]}"}"
+      ) </dev/null >"${log}" 2>&1 &
+      pids+=("$!")
+      slots+=("${next}")
+      next=$((next + 1))
+    done
+
+    # Reap in launch order, so the reported order and the log numbering match.
+    local pid="${pids[0]}" slot="${slots[0]}"
+    if wait "${pid}"; then
+      rc[slot]=0
+    else
+      rc[slot]=$?
+    fi
+    if [[ ${#pids[@]} -gt 1 ]]; then
+      pids=("${pids[@]:1}")
+      slots=("${slots[@]:1}")
+    else
+      pids=()
+      slots=()
+    fi
+  done
+
+  local failures=0
+  for ((n = 0; n < total; n++)); do
+    if [[ ${rc[n]} -eq 0 ]]; then
+      _ok "Project $((n + 1))/${total}: ${projects[n]}"
+    else
+      failures=$((failures + 1))
+      _error "Project $((n + 1))/${total}: ${projects[n]} failed (exit ${rc[n]})"
+      _error "  log: $(_worker_log "${log_dir}" $((n + 1)))"
+    fi
+  done
+
+  [[ ${failures} -eq 0 ]]
+}
+
+# Machine-wide steps the parallel workers defer, run once before the fan-out:
+# the registry batch (so every worker's wiring hash sees the settled global
+# config) and the shared memory store (so the global collection exists before
+# any worker builds an index).
+_run_global_pre_passes() {
+  local -a projects=("$@")
+  local -a existing=()
+  local p
+
+  for p in "${projects[@]}"; do
+    [[ -d "${p}" ]] && existing+=("${p}")
+  done
+
+  local add_project_py="${DEV_BOT_ROOT}/src/_shared/add_project.py"
+  local global_config="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
+
+  if [[ ${#existing[@]} -gt 0 && -f "${add_project_py}" && -f "${global_config}" ]]; then
+    _header_2 "Global Project Registry"
+    if python3 "${add_project_py}" "${global_config}" "${existing[@]}"; then
+      _ok "${#existing[@]} project(s) registered"
+    else
+      _warn "could not register every project — the next devbot start re-detects the change"
+    fi
+  fi
+
+  local memory_init="${DEV_BOT_ROOT}/src/agentic/memory/init.sh"
+  [[ -f "${memory_init}" && ${#existing[@]} -gt 0 ]] || return 0
+
+  # The shared store is only registered by a project that runs the memory
+  # module; a run where every project disables it must not start writing it.
+  local -a memory_projects=()
+  local disabled
+  for p in "${existing[@]}"; do
+    disabled="$(_devbot_get_disabled_modules "${p}")"
+    if printf '%s' "${disabled}" | python3 -c "
+import json, sys
+sys.exit(0 if 'memory' in json.load(sys.stdin) else 1)
+" 2>/dev/null; then
+      continue
+    fi
+    memory_projects+=("${p}")
+  done
+  [[ ${#memory_projects[@]} -gt 0 ]] || return 0
+
+  _header_2 "Global Memory Store"
+  local -a seen=()
+  local key provider global_path global_index s dup
+  for p in "${memory_projects[@]}"; do
+    provider="$(_devbot_get_memory_search_provider "${p}")"
+    global_path="$(_devbot_memory_collection_field "${p}" global path)"
+    [[ -n "${global_path}" ]] || global_path="${DEV_BOT_ROOT}/storage/global-memories"
+    global_index="$(_devbot_memory_collection_field "${p}" global index)"
+    [[ -n "${global_index}" ]] || global_index="${DEV_BOT_ROOT}/storage/.mdctx/context-index.json"
+
+    # A project may pin a different engine or store, so rebuild once per
+    # distinct target rather than assuming the whole run shares one.
+    key="${provider}|${global_path}|${global_index}"
+    dup=0
+    for s in ${seen[@]+"${seen[@]}"}; do
+      [[ "${s}" == "${key}" ]] && dup=1
+    done
+    [[ ${dup} -eq 1 ]] && continue
+
+    seen+=("${key}")
+    bash "${memory_init}" --global-only "${p}" || true
+  done
+
+  return 0
+}
+
+# Machine-wide steps that must follow the fan-out: one index build covering
+# every collection the workers registered, then the mirror prune.
+_run_global_post_passes() {
+  local -a projects=("$@")
+  local p any_qmd=0
+
+  for p in "${projects[@]}"; do
+    [[ -d "${p}" ]] || continue
+    if [[ "$(_devbot_get_memory_search_provider "${p}")" == "qmd" ]]; then
+      any_qmd=1
+      break
+    fi
+  done
+
+  if [[ ${any_qmd} -eq 1 ]] && command -v qmd >/dev/null 2>&1; then
+    _header_2 "QMD Index"
+    # The same build lock the reindex tool takes: the index is machine-wide, and
+    # two writers crash it (audit-24).
+    local lock_dir="${XDG_CACHE_HOME:-${HOME}/.cache}/devbot"
+    if _devbot_lock_wait "${lock_dir}/reindex-memories.lock" 600; then
+      if qmd cleanup 2>&1 | sed 's/^/  /'; then
+        _ok "Orphaned chunks pruned"
+      else
+        _warn "Cleanup had issues — continuing"
+      fi
+      if qmd update 2>&1 | sed 's/^/  /'; then
+        _ok "Index updated"
+      else
+        _warn "Index update had issues — continuing"
+      fi
+    else
+      _warn "could not take the memory index lock — the next start rebuilds it"
+    fi
+  fi
+
+  _header_2 "External Agentic Modules"
+  _prune_orphaned_external_modules || true
+
+  return 0
+}
+
 main() {
   local total_start=${SECONDS}
   local failed=0
@@ -828,16 +1043,50 @@ main() {
   # ── 1. Parse arguments ───────────────────────────────────────────────────
   local all_projects=false
   local target_project=""
+  local jobs=""
   FULL_RESET=false
 
   local arg
-  for arg in "$@"; do
+  while [[ $# -gt 0 ]]; do
+    arg="$1"
     case "${arg}" in
       --all|-a)
         all_projects=true
         ;;
       --full|-f)
         FULL_RESET=true
+        ;;
+      -j|--jobs)
+        if [[ $# -lt 2 ]]; then
+          _error "${arg} needs a value"
+          exit 1
+        fi
+        case "$2" in
+          ''|*[!0-9]*)
+            _error "--jobs expects a positive integer, got: $2"
+            exit 1
+            ;;
+        esac
+        jobs="$2"
+        shift
+        ;;
+      --jobs=*)
+        jobs="${arg#--jobs=}"
+        case "${jobs}" in
+          ''|*[!0-9]*)
+            _error "--jobs expects a positive integer, got: ${jobs}"
+            exit 1
+            ;;
+        esac
+        ;;
+      -j?*)
+        jobs="${arg#-j}"
+        case "${jobs}" in
+          ''|*[!0-9]*)
+            _error "--jobs expects a positive integer, got: ${jobs}"
+            exit 1
+            ;;
+        esac
         ;;
       --help|-h)
         _usage
@@ -856,7 +1105,20 @@ main() {
         target_project="${arg}"
         ;;
     esac
+    shift
   done
+
+  # Fan-out width for --all: -j wins, then DEV_BOT_INIT_JOBS, then half of nproc.
+  if [[ -z "${jobs}" ]]; then
+    jobs="${DEV_BOT_INIT_JOBS:-}"
+    case "${jobs}" in
+      ''|*[!0-9]*) jobs="$(_default_jobs)" ;;
+    esac
+  fi
+  # A zero-padded value is valid input but octal to $(( )): `-j 08` would be an
+  # arithmetic error and `-j 010` would mean 8.
+  jobs=$((10#${jobs}))
+  [[ ${jobs} -lt 1 ]] && jobs=1
 
   # Mutually exclusive: defaulting to the broader interpretation would turn a
   # typo into a --full reset of every registered project.
@@ -896,46 +1158,79 @@ main() {
       exit 0
     fi
 
-    _info "Found ${project_count} registered project(s):"
-    echo "${projects_json}" | python3 -c "
-import json, sys
-for p in json.loads(sys.stdin.read()):
-    print(f'    {p}')
-" 2>/dev/null
-    echo
-
-    local i=0
-    # Each per-project init emits only a compact env-var notice; the single
-    # end-of-run dialog below shows the union across all projects.
-    export DEV_BOT_DEFER_ENV_DIALOG=1
+    local -a project_list=()
     while IFS= read -r project_dir; do
-      i=$((i + 1))
-      _header_2 "Project ${i}/${project_count}: ${project_dir}"
-      _process_project "${project_dir}" "${reset_scripts[@]+"${reset_scripts[@]}"}" || failed=1
-      echo
+      [[ -n "${project_dir}" ]] && project_list+=("${project_dir}")
     done < <(echo "${projects_json}" | python3 -c "
 import json, sys
 for p in json.loads(sys.stdin.read()):
     print(p)
 " 2>/dev/null)
+
+    # A hand-edited registry can list a path twice; two workers on one tree
+    # would mutate it concurrently where the serial run did it twice in turn.
+    local p
+    if [[ ${#project_list[@]} -gt 1 ]]; then
+      local uniq_paths="" up
+      for up in "${project_list[@]}"; do
+        printf '%s\n' "${uniq_paths}" | grep -Fxq -- "${up}" && continue
+        uniq_paths+="${up}"$'\n'
+      done
+      project_list=()
+      while IFS= read -r up; do
+        [[ -n "${up}" ]] && project_list+=("${up}")
+      done <<< "${uniq_paths}"
+      project_count="${#project_list[@]}"
+    fi
+
+    _info "Found ${project_count} registered project(s):"
+    for p in "${project_list[@]}"; do
+      echo "    ${p}"
+    done
+    echo
+
+    # Each per-project init emits only a compact env-var notice; the single
+    # end-of-run dialog below shows the union across all projects.
+    export DEV_BOT_DEFER_ENV_DIALOG=1
+    if [[ "${jobs}" -le 1 ]]; then
+      local i=0
+      for p in "${project_list[@]}"; do
+        i=$((i + 1))
+        _header_2 "Project ${i}/${project_count}: ${p}"
+        _process_project "${p}" "${reset_scripts[@]+"${reset_scripts[@]}"}" || failed=1
+        echo
+      done
+    else
+      # The machine-wide steps are what made this loop serial. Run the ones the
+      # workers must see settled (registry, shared store) first, defer them for
+      # the workers, then finish the rest once the fan-out is done.
+      _run_global_pre_passes "${project_list[@]}" || failed=1
+
+      export DEV_BOT_DEFER_GLOBAL_REGISTRATION=1
+      export DEV_BOT_DEFER_GLOBAL_MEMORY=1
+      export DEV_BOT_DEFER_GLOBAL_PRUNE=1
+      _run_projects_parallel "${jobs}" "${project_list[@]}" \
+        -- "${reset_scripts[@]+"${reset_scripts[@]}"}" || failed=1
+      unset DEV_BOT_DEFER_GLOBAL_REGISTRATION
+      unset DEV_BOT_DEFER_GLOBAL_MEMORY
+      unset DEV_BOT_DEFER_GLOBAL_PRUNE
+
+      _run_global_post_passes "${project_list[@]}" || failed=1
+    fi
     unset DEV_BOT_DEFER_ENV_DIALOG
 
     # ── 4b. End-of-run env-var dialog (union across every processed project) ──
     # init.sh only warned per project (deferred). Present the union once:
     # collect refs from all projects, dedupe, and run the full notice + ack.
     local union_refs=""
-    while IFS= read -r project_dir; do
-      [[ -d "${project_dir}" ]] || continue
+    for p in "${project_list[@]}"; do
+      [[ -d "${p}" ]] || continue
       local proj_refs
-      proj_refs="$(_devbot_missing_mcp_env_vars "${project_dir}")"
+      proj_refs="$(_devbot_missing_mcp_env_vars "${p}")"
       if [[ -n "${proj_refs}" ]]; then
         union_refs+="${proj_refs}"$'\n'
       fi
-    done < <(echo "${projects_json}" | python3 -c "
-import json, sys
-for p in json.loads(sys.stdin.read()):
-    print(p)
-" 2>/dev/null)
+    done
 
     if [[ -n "${union_refs}" ]]; then
       # Dedupe identical ref lines across projects (same module+server+key+var).
