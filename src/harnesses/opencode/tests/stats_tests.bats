@@ -208,6 +208,25 @@ part(4, {"type": "tool", "tool": "glob", "state": {"input": {"pattern": "**/*.ba
 # PTY is a shell channel too: its invocation is command + args, and must land
 # in the same `program subcommand` shape the bash tool uses.
 part(5, {"type": "tool", "tool": "pty_spawn", "state": {"input": {"command": "make", "args": ["test"]}}})
+# MCP servers each have their own schema: the generic key priority must find
+# the one meaningful argument, collapse its whitespace, and cap its length.
+part(6, {"type": "tool", "tool": "devbot-tools_search-memories", "state": {"input": {"query": "worktree  stale  index"}}})
+part(7, {"type": "tool", "tool": "datasources-mariadb-prod_mariadb-prod_execute_sql", "state": {"input": {"sql": "SELECT 1"}}})
+part(8, {"type": "tool", "tool": "atlassian_searchJiraIssuesUsingJql", "state": {"input": {"jql": "project = ARC"}}})
+# Unknown schema: no priority key, so the first non-empty string is used.
+part(9, {"type": "tool", "tool": "some-server_unknown", "state": {"input": {"payload": "/api/x"}}})
+# A generic API tool carries method + path: `path` must win over `method`.
+part(11, {"type": "tool", "tool": "datasources-opensearch-prod_GenericOpenSearchApiTool", "state": {"input": {"method": "GET", "path": "/_cluster/health"}}})
+# A long query is capped with an ellipsis rather than widening the column.
+part(10, {"type": "tool", "tool": "signoz_signoz_aggregate_traces", "state": {"input": {"query": "x" * 120}}})
+# devbot-tools take a positional list under `args`, not a named key.
+part(12, {"type": "tool", "tool": "devbot-tools_project-for-path", "state": {"input": {"args": ["/home/x", "--key", "modules"]}}})
+# A dependency-adding command carries the credential in its second token.
+part(13, {"type": "tool", "tool": "bash", "state": {"input": {"command": "export TOKEN=abc123secret"}}})
+# A separate-token secret in a positional list must not survive the join.
+part(14, {"type": "tool", "tool": "devbot-tools_login", "state": {"input": {"args": ["--token", "supersecret"]}}})
+# An unknown schema names the field — the only tell that it is a credential.
+part(15, {"type": "tool", "tool": "other-server_secret", "state": {"input": {"password": "hunter2"}}})
 c.commit()
 c.close()
 PY
@@ -216,9 +235,27 @@ PY
   run run_adapter --days=30
   [ "${status}" -eq 0 ]
   # leading `cd … &&` stripped, then first two tokens
-  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['bash']]" | grep -Fqx "[('git status', 1)]"
+  # Two bash calls now, so match each entry rather than the whole list.
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['bash']]" | grep -qF "('git status', 1)"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['bash']]" | grep -qF "('export TOKEN=***', 1)"
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['skill']]" | grep -Fqx "[('devbot:make-plan', 1)]"
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['grep']]" | grep -Fqx "[('foo', 1)]"
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['glob']]" | grep -Fqx "[('**/*.bats', 1)]"
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['pty_spawn']]" | grep -Fqx "[('make test', 1)]"
+  # MCP tools: generic extraction, whitespace collapsed.
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['devbot-tools_search-memories']]" | grep -Fqx "[('worktree stale index', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['datasources-mariadb-prod_mariadb-prod_execute_sql']]" | grep -Fqx "[('SELECT 1', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['atlassian_searchJiraIssuesUsingJql']]" | grep -Fqx "[('project = ARC', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['some-server_unknown']]" | grep -Fqx "[('/api/x', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['datasources-opensearch-prod_GenericOpenSearchApiTool']]" | grep -Fqx "[('/_cluster/health', 1)]"
+  # positional `args` list is joined so CLI-shaped MCP tools are represented.
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['devbot-tools_project-for-path']]" | grep -Fqx "[('/home/x --key modules', 1)]"
+  # No credential may reach the report, whichever shape it arrives in.
+  echo "${output}" | grep -qF "abc123secret" && exit 1
+  echo "${output}" | grep -qF "supersecret" && exit 1
+  echo "${output}" | grep -qF "hunter2" && exit 1
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['devbot-tools_login']]" | grep -Fqx "[('--token ***', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['other-server_secret']]" | grep -Fqx "[('password ***', 1)]"
+  # Capped at 80 chars, ending in the ellipsis.
+  echo "${output}" | json "[(len(e['value']), e['value'].endswith('…')) for e in data['tool_arguments']['signoz_signoz_aggregate_traces']]" | grep -Fqx "[(80, True)]"
 }

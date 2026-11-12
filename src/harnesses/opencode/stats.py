@@ -26,7 +26,12 @@ sys.path.insert(0, _HERE)
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "_shared")))
 from opencode_db import resolve_db_path  # noqa: E402
 from read_jsonc import load_jsonc  # noqa: E402
-from stats_args import bash_value  # noqa: E402
+from stats_args import (  # noqa: E402
+    bash_value,
+    is_sensitive_name,
+    mask_argv,
+    tool_arg_value,
+)
 
 DB_PATH = resolve_db_path()
 
@@ -39,14 +44,30 @@ _CONFIG_NAMES = (
 )
 
 # Tools whose arguments we aggregate, mapped to the input key holding the value.
-# This mapping is the single source for the SQL gate, the counter set, and the
-# value extraction — _ARG_TOOLS is derived from it, so a tool cannot be added to
-# one place and silently missed in another.
+# Overrides only — every other tool falls back to _GENERIC_ARG_KEYS, so an MCP
+# server added tomorrow is aggregated without touching this file.
 _ARG_KEYS = {"bash": "command", "skill": "name", "grep": "pattern", "glob": "pattern"}
 # pty_spawn is a shell channel too, but has no single input key: its executable
 # and argument array are rejoined in _arg_value.
 _PTY_TOOLS = ("pty_spawn",)
-_ARG_TOOLS = (*_ARG_KEYS, *_PTY_TOOLS)
+# First key holding a non-empty string wins. Ordered most-meaningful first: MCP
+# servers each define their own schema (query, sql, jql, searchContext, …), so a
+# fixed per-tool map would rot with every server added.
+_GENERIC_ARG_KEYS = (
+    "query",
+    "sql",
+    "jql",
+    "searchContext",
+    "command",
+    "url",
+    "filePath",
+    "path",
+    "endpoint",
+    "pattern",
+    "metricName",
+    "description",
+    "name",
+)
 _ARG_TOP = 20
 
 
@@ -54,7 +75,9 @@ def _arg_value(tool: str, input_obj) -> str:
     if not isinstance(input_obj, dict):
         return ""
     if tool == "bash":
-        return bash_value(input_obj.get("command"))
+        # `bash_value` keeps only the first two tokens, but the second can be a
+        # credential (`export TOKEN=…`) — run it through the same safe helper.
+        return tool_arg_value(bash_value(input_obj.get("command")))
     if tool == "pty_spawn":
         # A PTY invocation arrives split: the executable in `command`, the rest
         # in `args`. Rejoin them so the value matches the bash shape.
@@ -62,8 +85,32 @@ def _arg_value(tool: str, input_obj) -> str:
         parts = [str(input_obj.get("command") or "")]
         if isinstance(rest, list):
             parts += [str(value) for value in rest]
-        return bash_value(" ".join(parts).strip())
-    return str(input_obj.get(_ARG_KEYS[tool]) or "")
+        return tool_arg_value(bash_value(" ".join(parts).strip()))
+    if tool in _ARG_KEYS:
+        return tool_arg_value(input_obj.get(_ARG_KEYS[tool]))
+    for key in _GENERIC_ARG_KEYS:
+        value = input_obj.get(key)
+        if isinstance(value, str) and value.strip():
+            return tool_arg_value(value)
+    # devbot-tools wrap their CLI shape: a positional list under `args`. Without
+    # this the busiest MCP tool of all (search-memories) aggregates nothing.
+    for key in ("args", "argv"):
+        parts = input_obj.get(key)
+        if isinstance(parts, list):
+            text = mask_argv([p for p in parts if isinstance(p, (str, int, float))])
+            if text.strip():
+                return tool_arg_value(text)
+    # Unknown schema: take the first non-empty string, then give up. This keeps
+    # a brand-new MCP tool represented instead of silently absent.
+    for key, value in input_obj.items():
+        if not (isinstance(value, str) and value.strip()):
+            continue
+        # An unknown schema carries no tell in the value; the field name is the
+        # only signal that `{"password": "…"}` is a credential.
+        if is_sensitive_name(key):
+            return f"{key} ***"
+        return tool_arg_value(value)
+    return ""
 
 
 def known_servers(project_dirs):
@@ -110,13 +157,12 @@ def gather(cutoff_ms, project_dir, db_path):
             "SELECT p.session_id, "
             "json_extract(p.data,'$.type'), json_extract(p.data,'$.tool'), "
             "json_extract(p.data,'$.cost'), json_extract(p.data,'$.tokens'), "
-            f"CASE WHEN json_extract(p.data,'$.tool') IN ({','.join('?' * len(_ARG_TOOLS))}) "
-            "THEN json_extract(p.data,'$.state.input') END "
+            "json_extract(p.data,'$.state.input') "
             "FROM part p JOIN session s ON s.id = p.session_id "
             "WHERE p.time_created >= ? "
             "AND json_extract(p.data,'$.type') IN ('tool','step-finish')"
         )
-        params = [*_ARG_TOOLS, cutoff_ms]
+        params = [cutoff_ms]
         if project_dir is not None:
             sql += " AND s.directory = ?"
             params.append(project_dir)
@@ -125,7 +171,8 @@ def gather(cutoff_ms, project_dir, db_path):
         counts = Counter()
         tokens = defaultdict(float)
         costs = defaultdict(float)
-        arg_counts = {tool: Counter() for tool in _ARG_TOOLS}
+        # Any tool row may contribute, so the set grows as tools appear.
+        arg_counts: dict[str, Counter] = defaultdict(Counter)
 
         current_tools: list[str] = []
         last_session = None
@@ -137,7 +184,7 @@ def gather(cutoff_ms, project_dir, db_path):
                 if tool:
                     counts[tool] += 1
                     current_tools.append(tool)
-                    if tool in _ARG_TOOLS and input_json:
+                    if input_json:
                         try:
                             input_obj = json.loads(input_json)
                         except ValueError:
@@ -206,9 +253,9 @@ def gather(cutoff_ms, project_dir, db_path):
         })
 
     tool_arguments = {
-        tool: [{"value": value, "count": count} for value, count in arg_counts[tool].most_common(_ARG_TOP)]
-        for tool in _ARG_TOOLS
-        if arg_counts[tool]
+        tool: [{"value": value, "count": count} for value, count in counter.most_common(_ARG_TOP)]
+        for tool, counter in sorted(arg_counts.items())
+        if counter
     }
 
     return tools, mcp_servers, tool_arguments

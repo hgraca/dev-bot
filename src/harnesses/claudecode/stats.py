@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "_shared")))
-from stats_args import bash_value  # noqa: E402
+from stats_args import bash_value, tool_arg_value  # noqa: E402
 
 PROJECTS_DIR = os.environ.get(
     "CLAUDE_PROJECTS_DIR", os.path.expanduser("~/.claude/projects")
@@ -49,11 +49,13 @@ def _arg_value(tool: str, input_obj) -> str:
     if not isinstance(input_obj, dict):
         return ""
     if canonical == "bash":
-        return bash_value(input_obj.get("command"))
+        return tool_arg_value(bash_value(input_obj.get("command")))
     value = input_obj.get(_ARG_KEYS[canonical])
     if value is None and canonical == "skill":
         value = input_obj.get("name")
-    return str(value or "")
+    # Same bounded, credential-masked shape the opencode adapter reports, so
+    # `devbot stats` reads the same on either harness.
+    return tool_arg_value(value or "")
 
 
 def parse_ts(raw):
