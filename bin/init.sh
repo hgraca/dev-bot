@@ -301,6 +301,25 @@ for f in glob.glob('${DEV_BOT_ROOT}/src/agentic/*/external-modules.json') + glob
 " 2>/dev/null || true
 }
 
+# _register_in_global_config <project_dir> — append the project to the global
+# registry through add_project.py. Machine-wide: deferred under
+# `init --all -j N`, where the parent registers every project in one batch
+# after the workers exit.
+_register_in_global_config() {
+  local project_dir="$1"
+
+  if [[ "${DEV_BOT_DEFER_GLOBAL_REGISTRATION:-0}" == "1" ]]; then
+    _skip "global config — registration deferred to the parent (init --all)"
+    return 0
+  fi
+
+  local add_project_py="${DEV_BOT_ROOT}/src/_shared/add_project.py"
+  local global_config="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
+  [[ -f "${add_project_py}" && -f "${global_config}" ]] || return 0
+
+  python3 "${add_project_py}" "${global_config}" "${project_dir}" 2>/dev/null || true
+}
+
 # _prune_orphaned_external_modules — removes an external-module storage mirror
 # ONLY when nothing declares it: not any internal module's external-modules.json
 # (enabled or disabled) and not the `external_modules` config. A declared name is
@@ -310,6 +329,13 @@ for f in glob.glob('${DEV_BOT_ROOT}/src/agentic/*/external-modules.json') + glob
 _prune_orphaned_external_modules() {
   local external_base="${DEV_BOT_ROOT}/storage/external-agentic-modules"
   [[ -d "${external_base}" ]] || return 0
+
+  # Machine-wide: another project may need a mirror this one has disabled, and
+  # `init --all -j N` must not have several workers pruning the same tree.
+  if [[ "${DEV_BOT_DEFER_GLOBAL_PRUNE:-0}" == "1" ]]; then
+    _skip "external modules — orphan prune deferred to the parent (init --all)"
+    return 0
+  fi
 
   local declared configured
   declared="$(_all_declared_external_names)"
@@ -587,11 +613,7 @@ for m in modules:
   fi
 
   # ── 7. Register project in global config ────────────────────────────────
-  local add_project_py="${DEV_BOT_ROOT}/src/_shared/add_project.py"
-  local global_config="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
-  if [[ -f "${add_project_py}" && -f "${global_config}" ]]; then
-    python3 "${add_project_py}" "${global_config}" "${PROJECT_DIR}" 2>/dev/null || true
-  fi
+  _register_in_global_config "${PROJECT_DIR}"
 
   # ── 8. Remove broken symlinks (after every init has run) ────────────────
   _header_2 "Broken Symlink Cleanup"

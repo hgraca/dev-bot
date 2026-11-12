@@ -37,6 +37,93 @@ _resolve_root() {
   pwd
 }
 
+# ── Shared global store registration ─────────────────────────────────────────
+# Neither engine follows symlinks, so the latent/global symlink is never
+# indexed — each engine must register the REAL global-memories path:
+#   - qmd:   a "dev-bot-global" collection pointing at the real path (fixed
+#            shared name — all projects share the same global knowledge base)
+#   - mdctx: a flat keyword index at ${DEV_BOT_ROOT}/storage/.mdctx (already
+#            gitignored: .gitignore has storage/* except global-memories/)
+# audit-25 F6: registration failure must surface loudly — a silently
+# swallowed '&& _ok' left the global store unreachable on a fresh install
+# with no visible error (only the absence of the collection/index).
+#
+# Writes machine-wide state. `devbot init --all -j N` defers it per worker
+# (DEV_BOT_DEFER_GLOBAL_MEMORY=1) and runs it once in the parent, so parallel
+# workers never race on the same collection or index. The gate lives at the
+# _scaffold_vault call site, not here: `--global-only` and the parent always
+# need the registration to run.
+_register_global_memories() {
+  local target_path="${1:-.}"
+  [[ "${target_path}" != /* ]] && target_path="$(pwd)/${target_path}"
+
+  local global_memories_dir global_index provider
+  global_memories_dir="$(_devbot_memory_collection_field "${target_path}" global path)"
+  [[ -n "${global_memories_dir}" ]] || global_memories_dir="${GLOBAL_MEMORIES_DIR}"
+  global_index="$(_devbot_memory_collection_field "${target_path}" global index)"
+  [[ -n "${global_index}" ]] || global_index="${DEV_BOT_ROOT}/storage/.mdctx/context-index.json"
+
+  provider="$(_devbot_get_memory_search_provider "${target_path}")"
+
+  # The index and the collection store are machine-wide: a reindex, a bare
+  # `devbot` start and an `init --all` worker can all write them at once. The
+  # lock is held until this process exits, which is what every caller relies on.
+  if ! _devbot_lock_memory_index; then
+    _warn "could not take the memory index lock — skipping global store registration"
+    return 0
+  fi
+
+  if [[ "${provider}" == "mdctx" ]]; then
+    if ! command -v mdctx >/dev/null 2>&1; then
+      _warn "mdctx not installed — skipping global index build (run 'devbot install' first)"
+    else
+      mkdir -p "$(dirname "${global_index}")"
+      if mdctx build "${global_memories_dir}" -o "${global_index}" >/dev/null 2>&1; then
+        _ok "mdctx global index written (${global_index})"
+      else
+        _warn "Could not build mdctx global index for ${global_memories_dir}"
+        _warn "The global memory store will be unreachable via search-memories — check that mdctx is installed."
+      fi
+    fi
+    return 0
+  fi
+
+  local global_collection="dev-bot-global"
+  local released=""
+
+  if qmd collection show "${global_collection}" >/dev/null 2>&1; then
+    local current_global
+    current_global="$(qmd collection show "${global_collection}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
+    if [[ -z "${current_global}" ]]; then
+      _warn "Could not read the root of QMD collection '${global_collection}'"
+    elif [[ "${current_global}" == "${global_memories_dir}" ]]; then
+      _skip "QMD collection '${global_collection}' already exists"
+    else
+      released="$(_devbot_release_custom_at_path "${global_memories_dir}")"
+      if ! qmd collection remove "${global_collection}" >/dev/null 2>&1; then
+        _devbot_restore_custom_at_path "${released}" "${global_memories_dir}"
+        _warn "Could not repoint QMD collection '${global_collection}' to ${global_memories_dir}"
+        _warn "The global memory store will be unreachable via search-memories — check that qmd is installed."
+      elif qmd collection add "${global_memories_dir}" --name "${global_collection}" >/dev/null 2>&1; then
+        _ok "QMD collection '${global_collection}' repointed to ${global_memories_dir}"
+      else
+        qmd collection add "${current_global}" --name "${global_collection}" >/dev/null 2>&1 || true
+        _devbot_restore_custom_at_path "${released}" "${global_memories_dir}"
+        _warn "Could not repoint QMD collection '${global_collection}'; restored ${current_global}"
+      fi
+    fi
+  else
+    released="$(_devbot_release_custom_at_path "${global_memories_dir}")"
+    if qmd collection add "${global_memories_dir}" --name "${global_collection}" >/dev/null 2>&1; then
+      _ok "QMD collection '${global_collection}' created"
+    else
+      _devbot_restore_custom_at_path "${released}" "${global_memories_dir}"
+      _warn "Could not register QMD collection '${global_collection}' for ${global_memories_dir}"
+      _warn "The global memory store will be unreachable via search-memories — check that qmd is installed."
+    fi
+  fi
+}
+
 # ── Step 1: Scaffold vault from template ────────────────────────────────────
 _scaffold_vault() {
   local target_path="${1:-.}"
@@ -48,11 +135,9 @@ _scaffold_vault() {
   local devbot_dir
   devbot_dir="$(_devbot_get_project_dir "${target_path}")"
   local vault="${target_path}/${devbot_dir}/memory"
-  local global_memories_dir global_index
+  local global_memories_dir
   global_memories_dir="$(_devbot_memory_collection_field "${target_path}" global path)"
   [[ -n "${global_memories_dir}" ]] || global_memories_dir="${GLOBAL_MEMORIES_DIR}"
-  global_index="$(_devbot_memory_collection_field "${target_path}" global index)"
-  [[ -n "${global_index}" ]] || global_index="${DEV_BOT_ROOT}/storage/.mdctx/context-index.json"
 
   echo
   _info "memory — vault scaffolding at ${target_path}"
@@ -105,68 +190,13 @@ _scaffold_vault() {
     _warn "Could not create global memories symlink at ${vault}/latent/global"
   fi
 
-  # ── Memory-search engine registration for global memories ─────────────────
-  # The shared global store is registered under whichever engine
-  # memory_search_provider selects. Neither engine follows symlinks, so the
-  # latent/global symlink above is never indexed — each engine must register
-  # the REAL global-memories path:
-  #   - qmd:   a "dev-bot-global" collection pointing at the real path (fixed
-  #            shared name — all projects share the same global knowledge base)
-  #   - mdctx: a flat keyword index at ${DEV_BOT_ROOT}/storage/.mdctx (already
-  #            gitignored: .gitignore has storage/* except global-memories/)
-  # audit-25 F6: registration failure must surface loudly — a silently
-  # swallowed '&& _ok' left the global store unreachable on a fresh install
-  # with no visible error (only the absence of the collection/index).
-  local provider
-  provider="$(_devbot_get_memory_search_provider "${target_path}")"
-
-  if [[ "${provider}" == "mdctx" ]]; then
-    if ! command -v mdctx >/dev/null 2>&1; then
-      _warn "mdctx not installed — skipping global index build (run 'devbot install' first)"
-    else
-      mkdir -p "$(dirname "${global_index}")"
-      if mdctx build "${global_memories_dir}" -o "${global_index}" >/dev/null 2>&1; then
-        _ok "mdctx global index written (${global_index})"
-      else
-        _warn "Could not build mdctx global index for ${global_memories_dir}"
-        _warn "The global memory store will be unreachable via search-memories — check that mdctx is installed."
-      fi
-    fi
+  # The shared store is registered after the vault exists, but it is
+  # machine-wide state: `init --all -j N` defers it here and the parent runs it
+  # once, so parallel workers never race on the same collection or index.
+  if [[ "${DEV_BOT_DEFER_GLOBAL_MEMORY:-0}" == "1" ]]; then
+    _skip "memory — global store registration deferred to the parent (init --all)"
   else
-    local global_collection="dev-bot-global"
-    local released=""
-
-    if qmd collection show "${global_collection}" >/dev/null 2>&1; then
-      local current_global
-      current_global="$(qmd collection show "${global_collection}" 2>/dev/null | awk '/^[[:space:]]*Path:/{sub(/^[[:space:]]*Path:[[:space:]]*/, ""); print; exit}')"
-      if [[ -z "${current_global}" ]]; then
-        _warn "Could not read the root of QMD collection '${global_collection}'"
-      elif [[ "${current_global}" == "${global_memories_dir}" ]]; then
-        _skip "QMD collection '${global_collection}' already exists"
-      else
-        released="$(_devbot_release_custom_at_path "${global_memories_dir}")"
-        if ! qmd collection remove "${global_collection}" >/dev/null 2>&1; then
-          _devbot_restore_custom_at_path "${released}" "${global_memories_dir}"
-          _warn "Could not repoint QMD collection '${global_collection}' to ${global_memories_dir}"
-          _warn "The global memory store will be unreachable via search-memories — check that qmd is installed."
-        elif qmd collection add "${global_memories_dir}" --name "${global_collection}" >/dev/null 2>&1; then
-          _ok "QMD collection '${global_collection}' repointed to ${global_memories_dir}"
-        else
-          qmd collection add "${current_global}" --name "${global_collection}" >/dev/null 2>&1 || true
-          _devbot_restore_custom_at_path "${released}" "${global_memories_dir}"
-          _warn "Could not repoint QMD collection '${global_collection}'; restored ${current_global}"
-        fi
-      fi
-    else
-      released="$(_devbot_release_custom_at_path "${global_memories_dir}")"
-      if qmd collection add "${global_memories_dir}" --name "${global_collection}" >/dev/null 2>&1; then
-        _ok "QMD collection '${global_collection}' created"
-      else
-        _devbot_restore_custom_at_path "${released}" "${global_memories_dir}"
-        _warn "Could not register QMD collection '${global_collection}' for ${global_memories_dir}"
-        _warn "The global memory store will be unreachable via search-memories — check that qmd is installed."
-      fi
-    fi
+    _register_global_memories "${target_path}"
   fi
 
   _ok "Vault scaffolded at ${target_path}"
@@ -227,6 +257,15 @@ _ensure_gitignore() {
 # ── main ──────────────────────────────────────────────────────────────────────
 main() {
   local target="${1:-.}"
+
+  # `--global-only` is the parent's entry point for `init --all -j N`: register
+  # the shared store once, without touching any project's vault.
+  if [[ "${target}" == "--global-only" ]]; then
+    shift
+    _register_global_memories "${1:-.}"
+    return 0
+  fi
+
   [[ "${target}" != /* ]] && target="$(pwd)/${target}"
 
   _ok "Target project: ${target}"
