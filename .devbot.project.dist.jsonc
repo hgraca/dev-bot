@@ -17,6 +17,14 @@
   // The project gets its own ~/.kube/devbot/<project>.yaml; nothing is rendered
   // while this list is absent. Order sets the current-context.
   "kubectl": [],
+  // AutoBot: scheduled agent work for this project. Everything is off by default.
+  // poll_jira / poll_github enable the deterministic follow-up pollers; `prompts`
+  // schedules agent prompts on a 5-field cron. An all-defaults block does nothing.
+  "autobot": {
+    "poll_jira": false,
+    "poll_github": false,
+    "prompts": []
+  },
   "auto_recover": {
     "max_attempts": 5
   },

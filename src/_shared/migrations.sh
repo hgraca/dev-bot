@@ -330,3 +330,33 @@ function migration_down-1.15.0 {
   fi
   python3 "$(_migration_tools_dir)/migrate_workspace_config.py" --down "${paths[@]}"
 }
+
+# 1.16.0 — every project config gains the default `autobot` block, so the options
+# are discoverable without anyone hand-writing them. The block is inert: the
+# follow-up pollers are off and there are no prompts. The down half therefore
+# leaves it alone rather than risk deleting a configuration someone has tuned.
+function migration_up-1.16.0 {
+  local config="${1:?global config path required}"
+  local path added=0 failed=0
+  while IFS= read -r path; do
+    # `_migration_config_paths` also yields the global config; `autobot` is a
+    # project key, so seeding it there would be wrong.
+    [[ "${path}" == */.devbot.project.jsonc ]] || continue
+    case "$(python3 "${DEV_BOT_ROOT}/src/_shared/ensure_autobot_block.py" "${path}" 2>/dev/null || true)" in
+      injected) added=$((added + 1)) ;;
+      present) ;;
+      *)
+        _migration_warn "could not seed the autobot block in ${path}"
+        failed=1
+        ;;
+    esac
+  done < <(_migration_config_paths "${config}")
+  _migration_ok "autobot block added to ${added} project config(s)"
+  return "${failed}"
+}
+
+function migration_down-1.16.0 {
+  local config="${1:?global config path required}"
+  _migration_skip "autobot defaults are inert — leaving ${config} untouched"
+  return 0
+}
