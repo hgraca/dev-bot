@@ -114,7 +114,9 @@ Do **not** preload the other commit-technique or test skills. They fire from the
 - `devbot:git-atomic-commits` — when splitting or ordering commits
 - `devbot:git-fixup-commits` — when correcting a commit unique to the branch
 - `devbot:make-tests` — when writing tests or choosing a test strategy
-- `test-driven-development` — when implementing logic or fixing a bug
+
+The **Testing Discipline** section below is the owned tests-first rule — it is why the vendored
+`test-driven-development` skill is not loaded or needed. Do not reach for it for the red-green loop.
 
 ## External documentation
 
