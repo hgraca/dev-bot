@@ -66,13 +66,15 @@ Install all tools. Idempotent — safe to re-run. Writes `.devbot.global.jsonc` 
 
 Move the install to the newest **release tag** (or an explicit tag: `devbot update <tag>` pins/downgrades). Fetches tags from origin, and is a clean no-op when already on the newest tag. On a real move it refreshes tools, agentic modules, and external modules, then records the release in the global config's `version` so every project reinits on its next start. Each release carries its notes as the annotated tag message, so the run ends by printing the notes of every version it crossed — from the version it left (exclusive) to the one it landed on (inclusive), oldest first; a downgrade shows only the target's notes, and a tag without recorded notes is listed as such. `--auto` is the quiet, non-interactive form used by the bare `devbot` start — a single-line no-op that never prompts; without it the usual update output is printed.
 
-### `devbot init [path] [--all|-a] [--full|-f]`
+### `devbot init [path] [--all|-a] [--full|-f] [-j|--jobs N]`
 
 Initialize dev-bot in a project directory (default: current directory). Writes `.devbot.project.jsonc` and wires modules into `.opencode/` and `.agents/`.
 
 Idempotent: a directory that already carries `.devbot.project.jsonc` is reset first — every module `reset.sh`, the generated module memory and the pre-modules memory files — and then wired, so re-running it rebuilds the wiring from scratch. A directory without that config is wired directly.
 
 `--all` initializes every project registered in the global config (mutually exclusive with a path); `--full` also drops the project's QMD collection and codebase-index data.
+
+`-j`/`--jobs N` sets how many of those projects are wired at once; it defaults to half of `nproc` (2–16) and `DEV_BOT_INIT_JOBS` overrides it. `-j 1` is the serial run. With more than one job the machine-wide steps are hoisted out of the workers and run once at the end — the global registry is written in one batch, the shared memory store is rebuilt once per distinct engine and store, and the external-module mirror is pruned once. Each project's output goes to `storage/.init-all/<NN>.log`; the run prints one line per project and names the log of any that failed. A failing project does not stop the others, and the run exits non-zero.
 
 ### `devbot reinit [args...]`
 

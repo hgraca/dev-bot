@@ -96,7 +96,9 @@ _devbot_complete() {
     # ── init|reinit: flags and directory path ──────────────────────────────
     init|reinit)
       if [[ "${cur}" == -* ]]; then
-        COMPREPLY=($(compgen -W "--all -a --full -f --help -h" -- "${cur}"))
+        COMPREPLY=($(compgen -W "--all -a --full -f --jobs -j --help -h" -- "${cur}"))
+      elif [[ "${COMP_WORDS[COMP_CWORD - 1]}" == "-j" || "${COMP_WORDS[COMP_CWORD - 1]}" == "--jobs" ]]; then
+        COMPREPLY=($(compgen -W "1 2 4 8 16" -- "${cur}"))
       else
         COMPREPLY=($(compgen -A directory -- "${cur}"))
       fi
