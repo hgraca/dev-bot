@@ -110,9 +110,21 @@ for instructions. Use a `sleep` PTY with `notifyOnExit` rather than blocking on 
 ### Read
 
 Fetch all pages (`gh api --paginate`). Select the new review by `submitted_at`, then its bot-authored
-comments by `pull_request_review_id` — `/comments` has `created_at`, not `submitted_at`. Read **both**
-the line comments (`.../pulls/<pr>/comments`) and the review body (`.../pulls/<pr>/reviews`);
-findings live in each.
+comments by `pull_request_review_id` — `/comments` has `created_at`, not `submitted_at`.
+
+A review carries findings in **two** places, and a clean thread list is not a clean review. Read both:
+
+1. **Threads** — `/pulls/<pr>/comments` filtered to this review. Each is one finding, with a place to
+   reply and resolve.
+2. **The review body** — `/pulls/<pr>/reviews`. Beyond the summary prose it enumerates findings in
+   collapsible `<details>` blocks headed `N open issues`, `N previously missed issues` (defects it
+   found later, in code it had already read) and `N resolved since last review`. Extract every
+   `<summary>` title with its file path and description: each is a finding with **no thread**, so it
+   is verified, fixed and answered exactly like one — its resolution goes on the pull request.
+
+Trust the body's own counts over the thread list. A round whose threads are all resolved but whose
+body still reports open issues has not converged; the reviewer will simply raise them again on the
+next push. Only `0 open issues` with no unaddressed `previously missed` entry closes the round.
 
 ### Checkout
 
