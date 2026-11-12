@@ -200,7 +200,7 @@ EOF
   assert_output "ran-3.0.0"
 }
 
-@test "the 1.16.0 up migration seeds project configs only" {
+@test "the 1.17.0 up migration seeds project configs only" {
   export DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../.." && pwd)"
 
   mkdir -p "${SANDBOX}/core" "${SANDBOX}/portal"
@@ -208,7 +208,7 @@ EOF
   printf '{\n  "autobot": {"poll_jira": true}\n}\n' > "${SANDBOX}/portal/.devbot.project.jsonc"
   printf '{"projects": ["core", "portal"]}\n' > "${CONFIG}"
 
-  run migration_up-1.16.0 "${CONFIG}"
+  run migration_up-1.17.0 "${CONFIG}"
   assert_success
 
   run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX}/core/.devbot.project.jsonc" autobot
@@ -223,7 +223,7 @@ EOF
   refute grep -q autobot "${CONFIG}"
 
   # The down half is deliberately inert, so the seeded block survives it.
-  run migration_down-1.16.0 "${CONFIG}"
+  run migration_down-1.17.0 "${CONFIG}"
   assert_success
   run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX}/core/.devbot.project.jsonc" autobot
   assert_success

@@ -331,11 +331,11 @@ function migration_down-1.15.0 {
   python3 "$(_migration_tools_dir)/migrate_workspace_config.py" --down "${paths[@]}"
 }
 
-# 1.16.0 — every project config gains the default `autobot` block, so the options
+# 1.17.0 — every project config gains the default `autobot` block, so the options
 # are discoverable without anyone hand-writing them. The block is inert: the
 # follow-up pollers are off and there are no prompts. The down half therefore
 # leaves it alone rather than risk deleting a configuration someone has tuned.
-function migration_up-1.16.0 {
+function migration_up-1.17.0 {
   local config="${1:?global config path required}"
   local path added=0 failed=0
   while IFS= read -r path; do
@@ -355,7 +355,7 @@ function migration_up-1.16.0 {
   return "${failed}"
 }
 
-function migration_down-1.16.0 {
+function migration_down-1.17.0 {
   local config="${1:?global config path required}"
   _migration_skip "autobot defaults are inert — leaving ${config} untouched"
   return 0
