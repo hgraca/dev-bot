@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -109,6 +110,104 @@ class ReadinessTest(unittest.TestCase):
         write_graph(self.graph, 1)
         self.assertFalse(shim._seed_from_main(self.project, self.graph, main_root=main))
         self.assertEqual(shim._nodes(self.graph), 1)
+
+
+class ProjectResolutionTest(unittest.TestCase):
+    """A polyrepo session must be able to query a child project's graph."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        self.devbot = self.root / "dev-bot"
+        self.devbot.mkdir()
+        self.child = self.root / "core"
+        (self.child / "app").mkdir(parents=True)
+        write_graph(self.child / "graphify-out" / "graph.json", 2)
+        config = self.devbot / ".devbot.global.jsonc"
+        config.write_text(
+            json.dumps({"projects": [str(self.root), str(self.child)]}), encoding="utf-8"
+        )
+        self._old_env = shim.os.environ.get("DEVBOT_ROOT")
+        shim.os.environ["DEVBOT_ROOT"] = str(self.devbot)
+
+    def tearDown(self) -> None:
+        if self._old_env is None:
+            shim.os.environ.pop("DEVBOT_ROOT", None)
+        else:
+            shim.os.environ["DEVBOT_ROOT"] = self._old_env
+        self.tmp.cleanup()
+
+    def test_resolves_a_file_inside_a_child_project(self):
+        resolved = shim._resolve_project_graph(str(self.child / "app" / "Thing.php"))
+        self.assertEqual(resolved, self.child / "graphify-out" / "graph.json")
+
+    def test_resolves_the_child_root_itself(self):
+        resolved = shim._resolve_project_graph(str(self.child))
+        self.assertEqual(resolved, self.child / "graphify-out" / "graph.json")
+
+    def test_unregistered_path_yields_none(self):
+        outside = Path(tempfile.mkdtemp(dir="/tmp")) / "x"
+        self.assertIsNone(shim._resolve_project_graph(str(outside)))
+
+    def test_empty_or_missing_argument_keeps_the_default_graph(self):
+        default = self.root / "graphify-out" / "graph.json"
+        self.assertEqual(shim._graph_for(None, default), default)
+        self.assertEqual(shim._graph_for("", default), default)
+        self.assertEqual(shim._graph_for(str(self.root / "nope"), default), default)
+
+    def test_project_argument_selects_the_child_graph(self):
+        default = self.root / "graphify-out" / "graph.json"
+        selected = shim._graph_for(str(self.child), default)
+        self.assertEqual(selected, self.child / "graphify-out" / "graph.json")
+
+
+class StalenessTest(unittest.TestCase):
+    """An unrecorded or matching HEAD is fresh; a moved HEAD is stale."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.project = Path(self.tmp.name) / "proj"
+        (self.project / "graphify-out").mkdir(parents=True)
+        self.record = self.project / "graphify-out" / ".graphify-head"
+
+    def tearDown(self) -> None:
+        self.tmp.cleanup()
+
+    def test_no_record_and_no_graph_is_not_stale(self):
+        self.assertFalse(shim._stale(self.project))
+
+    def test_a_graph_without_a_marker_needs_one_bootstrap_build(self):
+        """A child graph predating the marker would otherwise stay stale
+        forever: only the session graph gets a launch-time update."""
+        write_graph(self.project / "graphify-out" / "graph.json", 2)
+        shim._stale_cache.clear()
+        self.assertTrue(shim._stale(self.project))
+
+    def test_stale_without_git_repo_degrades_to_false(self):
+        # No .git: HEAD is unknown, so the graph is never condemned as stale.
+        self.record.write_text("deadbeef", encoding="utf-8")
+        self.assertFalse(shim._stale(self.project))
+
+    def test_a_stale_verdict_is_not_cached(self):
+        """A build is running after this answer — caching it would keep
+        reporting stale and start another build once the TTL lapsed."""
+        subprocess.run(["git", "init", "-q", str(self.project)], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.project), "-c", "user.email=t@t", "-c", "user.name=t",
+             "commit", "-q", "--allow-empty", "-m", "x"],
+            check=True,
+        )
+        self.record.write_text("0" * 40, encoding="utf-8")
+        shim._stale_cache.clear()
+        self.assertTrue(shim._stale(self.project))
+        self.assertNotIn(str(self.project), shim._stale_cache)
+
+    def test_matching_head_is_fresh(self):
+        head = shim._head(self.project)
+        if not head:
+            self.skipTest("not inside a git repository")
+        self.record.write_text(head, encoding="utf-8")
+        self.assertFalse(shim._stale(self.project))
 
 
 if __name__ == "__main__":

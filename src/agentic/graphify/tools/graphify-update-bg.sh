@@ -66,9 +66,22 @@ fi
 (
   cd "${PROJECT_PATH}" || exit 0
   echo "${BASHPID}" > "${PID_FILE}"
+  # The graph reflects the tree at LAUNCH, so this is the SHA it will be built
+  # from. Reading HEAD after the build would stamp a commit that landed
+  # mid-build as fresh, and the stale graph would never be rebuilt.
+  start_sha="$(git rev-parse HEAD 2>/dev/null || true)"
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] graphify update started" >> "${LOG_FILE}"
   graphify update . >> "${LOG_FILE}" 2>&1
-  echo "[$(date '+%Y-%m-%d %H:%M:%S')] graphify update finished (exit $?)" >> "${LOG_FILE}"
+  status=$?
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] graphify update finished (exit ${status})" >> "${LOG_FILE}"
+
+  # Record the commit this graph was built from, so the server can tell a
+  # stale graph from a fresh one at query time (nothing else refires builds).
+  # A commit that landed during the build leaves HEAD ahead of this SHA, which
+  # is exactly what makes the next query rebuild.
+  if [[ ${status} -eq 0 ]] && [[ -n "${start_sha}" ]]; then
+    echo "${start_sha}" > "${GRAPHIFY_OUT}/.graphify-head"
+  fi
 
   if [[ -f "${PID_FILE}" ]] && [[ "$(cat "${PID_FILE}" 2>/dev/null || true)" == "${BASHPID}" ]]; then
     rm -f "${PID_FILE}"

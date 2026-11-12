@@ -24,7 +24,9 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
+from typing import Any
 
 PLACEHOLDER = '{"directed": true, "multigraph": false, "graph": {}, "nodes": [], "links": []}\n'
 _note_cache: dict[str, object] = {"key": None, "nodes": 0}
@@ -189,31 +191,198 @@ def _is_broken_pipe(exc: BaseException) -> bool:
     return any(_is_broken_pipe(e) for e in getattr(exc, "exceptions", ()) or ())
 
 
+def _resolve_project_graph(target: str) -> Path | None:
+    """Resolve a path to its owning registered project's graph file.
+
+    A polyrepo session is rooted at the container, where `graphify-out/` holds
+    no code and therefore no nodes; the graph that answers a question about
+    `core/app/...` lives in `core/`. Resolution goes through the same registry
+    `devbot tool project-for-path` uses, so the two cannot disagree.
+    """
+    try:
+        # The registry helper ships beside this file, so import it from the
+        # install tree; only the project list comes from the configured root.
+        sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_shared"))
+        import resolve_project  # noqa: PLC0415
+
+        config = _devbot_root() / ".devbot.global.jsonc"
+        projects = resolve_project.load_projects(str(config))
+        owner = resolve_project.resolve_project(target, projects)
+    except Exception:
+        return None
+    if not owner:
+        return None
+    return Path(owner) / "graphify-out" / "graph.json"
+
+
+def _graph_for(project_arg, default_graph: Path) -> Path:
+    """The requested project's graph, else the session project's own graph."""
+    if isinstance(project_arg, str) and project_arg.strip():
+        resolved = _resolve_project_graph(project_arg.strip())
+        if resolved is not None:
+            return resolved
+    return default_graph
+
+
+def _head(project_root: Path) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "-C", str(project_root), "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return ""
+
+
+# `_stale` runs on every tool call, and its HEAD probe forks git. A short TTL
+# keeps a tool-heavy session from paying that per request while still noticing a
+# commit within half a minute.
+_STALE_TTL_SECONDS = 30
+_stale_cache: dict[str, tuple[float, bool]] = {}
+
+
+def _stale(project_root: Path) -> bool:
+    """True when the graph was built for a different commit than HEAD.
+
+    `graphify-update-bg.sh` records the SHA it built from; a mismatch means
+    commits landed since. Nothing else refires the build — the commit trigger
+    is not wired into any harness — so the query path is where freshness has to
+    be enforced.
+    """
+    key = str(project_root)
+    now = time.monotonic()
+    cached = _stale_cache.get(key)
+    if cached is not None and now - cached[0] < _STALE_TTL_SECONDS:
+        return cached[1]
+    record = project_root / "graphify-out" / ".graphify-head"
+    try:
+        recorded = record.read_text(encoding="utf-8").strip()
+    except OSError:
+        recorded = ""
+    if not recorded:
+        # A graph that predates the marker cannot claim to be current. The
+        # session graph gets an unconditional launch-time update, but a routed
+        # child only reaches the per-call path — without this it would stay
+        # stale forever. One bootstrap build writes the marker.
+        value = _nodes(project_root / "graphify-out" / "graph.json") > 0
+        if not value:
+            _stale_cache[key] = (now, False)
+        else:
+            _stale_cache.pop(key, None)
+        return value
+    head = _head(project_root)
+    value = bool(head and head != recorded)
+    if value:
+        # Never cache a stale verdict: the build it triggers writes a new
+        # record within seconds, and a cached True would keep reporting stale
+        # (and keep a rebuild checked for) until the TTL expired.
+        _stale_cache.pop(key, None)
+    else:
+        _stale_cache[key] = (now, False)
+    return value
+
+
+def _prepare(graph_file: Path) -> None:
+    """Make an empty graph build, and start a build when none is running."""
+    project_root = _project_root(graph_file)
+    _ensure_placeholder(graph_file)
+    if _nodes(graph_file) == 0:
+        _seed_from_main(project_root, graph_file)
+    if _build_in_progress(project_root):
+        return
+    if _nodes(graph_file) == 0 or _stale(project_root):
+        _start_update(project_root)
+
+
+def _not_ready(types, state: str, graph_file: Path, reason: str):
+    """An honest error naming the graph that is not ready."""
+    return types.ServerResult(
+        types.CallToolResult(
+            content=[
+                types.TextContent(
+                    type="text",
+                    text=(
+                        f"graphify: not_ready ({state}) for {_project_root(graph_file)} — {reason}"
+                    ),
+                )
+            ],
+            isError=True,
+        )
+    )
+
+
 async def _run(graph_file: Path, project_root: Path) -> None:
     import graphify.serve as graphify_serve
 
     server = graphify_serve._build_server(str(graph_file))
     from mcp import types
     from mcp.server.stdio import stdio_server
+
+    # graphify.serve binds ONE graph at build time, so a second project needs a
+    # second instance. Kept per resolved graph file, built lazily on first use.
+    instances: dict[Path, Any] = {}
+
+    def instance_for(target: Path):
+        if target not in instances:
+            _prepare(target)
+            other = graphify_serve._build_server(str(target))
+            instances[target] = other.request_handlers[types.CallToolRequest]
+        return instances[target]
+
     original = server.request_handlers[types.CallToolRequest]
 
     async def guarded(request):
-        state, reason = _status(project_root, graph_file)
-        if state != "ready":
-            return types.ServerResult(
-                types.CallToolResult(
-                    content=[
-                        types.TextContent(
-                            type="text",
-                            text=f"graphify: not_ready ({state}) — {reason}",
-                        )
-                    ],
-                    isError=True,
-                )
-            )
-        return await original(request)
+        args = getattr(request.params, "arguments", None) or {}
+        explicit = args.get("project") if isinstance(args, dict) else None
+        target = _graph_for(explicit, graph_file)
+        # Prepare BEFORE the status check: a child whose graph is missing or
+        # empty would otherwise report not_ready forever, because _prepare (the
+        # only thing that starts a build) sits behind the early return.
+        _prepare(target)
+        state, reason = _status(_project_root(target), target)
+        # A rebuild being under way is not a reason to refuse a graph that
+        # already has nodes: the commit that triggered it left the previous
+        # graph perfectly usable, and erroring would take the tool away for
+        # the length of every rebuild.
+        usable_while_building = state == "building" and _nodes(target) > 0
+        if state != "ready" and not usable_while_building:
+            return _not_ready(types, state, target, reason)
+        # `project` is routing only, never a graphify argument — strip it for
+        # the default graph too, or the upstream handler receives an unexpected
+        # keyword and fails.
+        if isinstance(args, dict) and "project" in args:
+            remaining = dict(args)
+            remaining.pop("project", None)
+            request.params.arguments = remaining
+        if target == graph_file:
+            return await original(request)
+        return await instance_for(target)(request)
 
     server.request_handlers[types.CallToolRequest] = guarded
+
+    # Advertise `project` on every tool so the caller knows the graph can be
+    # selected; the schemas come from graphify and are extended, not replaced.
+    upstream_list = server.request_handlers[types.ListToolsRequest]
+
+    async def list_with_project(request):
+        result = await upstream_list(request)
+        tools = getattr(getattr(result, "root", None), "tools", None) or []
+        for tool in tools:
+            schema = getattr(tool, "inputSchema", None)
+            if isinstance(schema, dict):
+                properties = schema.setdefault("properties", {})
+                if isinstance(properties, dict):
+                    properties["project"] = {
+                        "type": "string",
+                        "description": (
+                            "Path of a registered project whose graph to query "
+                            "(file or directory). Defaults to this session's project."
+                        ),
+                    }
+        return result
+
+    server.request_handlers[types.ListToolsRequest] = list_with_project
 
     async with stdio_server() as streams:
         await server.run(streams[0], streams[1], server.create_initialization_options())
