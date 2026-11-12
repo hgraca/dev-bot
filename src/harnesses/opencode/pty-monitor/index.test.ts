@@ -411,6 +411,217 @@ describe("pty-monitor tui factory", () => {
   })
 })
 
+describe("pty-monitor transient failures", () => {
+  const sessions = [
+    { id: "pty_aaaa", title: "running one", status: "running", lineCount: 5 },
+    { id: "pty_bbbb", title: "exited one", status: "exited", exitCode: 0, lineCount: 2 },
+  ]
+
+  /* Fail the list on demand and count lists and
+     failures, so a test waits for the effect. */
+  function failingFetch(realFetch: typeof fetch) {
+    let mode: "ok" | "reject" | "json-500" = "ok"
+    const state = { failed: 0, listed: 0 }
+    const wrapped = ((input: unknown, init?: RequestInit) => {
+      const isList = String(input).endsWith("/api/sessions")
+      if (isList && mode === "reject") {
+        state.failed++
+        reportProgress()
+        return Promise.reject(new Error("stalled"))
+      }
+      if (isList && mode === "json-500") {
+        state.failed++
+        reportProgress()
+        return Promise.resolve(Response.json({ error: "boom" }, { status: 500 }))
+      }
+      return realFetch(input as string, init).then((res) => {
+        if (isList) {
+          state.listed++
+          reportProgress()
+        }
+        return res
+      })
+    }) as typeof fetch
+    return {
+      wrapped,
+      state,
+      fail: (next: "ok" | "reject" | "json-500") => {
+        mode = next
+      },
+    }
+  }
+
+  /** Start expanded with a settled first list, polling off. */
+  async function startExpanded(stub: ReturnType<typeof stubApi>, listed: () => number) {
+    await startWithoutPolling(stub.api)
+    stub.clickHeader() // expand; the panel starts collapsed
+    expect(await waitFor(() => listed() >= 2)).toBe(true)
+    expect(await waitForRows(stub, 2)).toBe(true)
+  }
+
+  /* Let the catch run: one macrotask drains every
+     pending microtask, so the status is painted. */
+  const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+  test("keeps the list and the count through one failed poll", async () => {
+    const { server } = ptyFixture(sessions)
+    const realFetch = globalThis.fetch
+    const harness = failingFetch(realFetch)
+    globalThis.fetch = harness.wrapped
+    const stub = stubApi()
+    try {
+      await startExpanded(stub, () => harness.state.listed)
+
+      harness.fail("reject")
+      stub.runExplicitRequest()
+      expect(await waitFor(() => harness.state.failed === 1)).toBe(true)
+      await settle()
+
+      expect(headerText(stub)).toContain("reconnecting")
+      expect(headerText(stub)).not.toContain("unreachable")
+      expect(rowsOf(stub).filter((r) => r.tag === "box").length).toBe(2)
+    } finally {
+      globalThis.fetch = realFetch
+      server.stop(true)
+      stub.disposeNow()
+    }
+  })
+
+  test("reports the server unreachable only after a run of failures", async () => {
+    const { server } = ptyFixture(sessions)
+    const realFetch = globalThis.fetch
+    const harness = failingFetch(realFetch)
+    globalThis.fetch = harness.wrapped
+    const stub = stubApi()
+    try {
+      await startExpanded(stub, () => harness.state.listed)
+
+      harness.fail("reject")
+      for (let i = 1; i <= 3; i++) {
+        stub.runExplicitRequest()
+        expect(await waitFor(() => harness.state.failed === i)).toBe(true)
+        await settle()
+        if (i < 3) {
+          expect(headerText(stub)).not.toContain("unreachable")
+          expect(rowsOf(stub).filter((r) => r.tag === "box").length).toBe(2)
+        }
+      }
+
+      expect(await waitFor(() => headerText(stub).includes("unreachable"))).toBe(true)
+      expect(rowsOf(stub).filter((r) => r.tag === "box").length).toBe(0)
+    } finally {
+      globalThis.fetch = realFetch
+      server.stop(true)
+      stub.disposeNow()
+    }
+  })
+
+  test("treats a JSON 500 as a failure, not an empty list", async () => {
+    const { server } = ptyFixture(sessions)
+    const realFetch = globalThis.fetch
+    const harness = failingFetch(realFetch)
+    globalThis.fetch = harness.wrapped
+    const stub = stubApi()
+    try {
+      await startExpanded(stub, () => harness.state.listed)
+
+      harness.fail("json-500")
+      stub.runExplicitRequest()
+      expect(await waitFor(() => harness.state.failed === 1)).toBe(true)
+      await settle()
+
+      // A 500 body parses as JSON, so without an `ok` check the panel would
+      // render "0 sessions" and drop the rows it already had.
+      expect(headerText(stub)).toContain("reconnecting")
+      expect(rowsOf(stub).filter((r) => r.tag === "box").length).toBe(2)
+    } finally {
+      globalThis.fetch = realFetch
+      server.stop(true)
+      stub.disposeNow()
+    }
+  })
+  test("a failed background poll does not report the server unreachable", async () => {
+    const { server } = ptyFixture(sessions)
+    const realFetch = globalThis.fetch
+    const harness = failingFetch(realFetch)
+    globalThis.fetch = harness.wrapped
+    const stub = stubApi()
+    try {
+      await plugin.tui(stub.api as never) // polling on
+      stub.clickHeader()
+      expect(await waitForRows(stub, 2)).toBe(true)
+
+      harness.fail("reject")
+      // The next tick is the only trigger: no explicit request here.
+      expect(await waitFor(() => harness.state.failed === 1, 15_000)).toBe(true)
+      await settle()
+      expect(headerText(stub)).toContain("reconnecting")
+      expect(headerText(stub)).not.toContain("unreachable")
+
+      // Disarm before disposal so the poll cannot fail again.
+      harness.fail("ok")
+      expect(await waitFor(() => headerText(stub).includes("2 sessions"), 15_000)).toBe(true)
+    } finally {
+      globalThis.fetch = realFetch
+      server.stop(true)
+      stub.disposeNow()
+    }
+  })
+
+  test("an explicit retry keeps rows until the threshold", async () => {
+    const { server } = ptyFixture(sessions)
+    const realFetch = globalThis.fetch
+    const harness = failingFetch(realFetch)
+    globalThis.fetch = harness.wrapped
+    // A failing create makes bootstrap return null promptly, which is the
+    // explicit-retry path that used to clear the rows at once.
+    const stub = stubApi({ rejectCreate: true })
+    try {
+      await startExpanded(stub, () => harness.state.listed)
+
+      server.stop(true) // rediscovery has nothing left to find
+      for (let i = 1; i <= 3; i++) {
+        const before = stub.calls.serverStarts
+        stub.runExplicitRequest()
+        expect(await waitFor(() => stub.calls.serverStarts > before)).toBe(true)
+        await settle()
+        if (i < 3) {
+          expect(headerText(stub)).toContain("reconnecting")
+          expect(rowsOf(stub).filter((r) => r.tag === "box").length).toBe(2)
+        }
+      }
+
+      expect(await waitFor(() => headerText(stub).includes("not running"))).toBe(true)
+      expect(rowsOf(stub).filter((r) => r.tag === "box").length).toBe(0)
+    } finally {
+      globalThis.fetch = realFetch
+      server.stop(true)
+      stub.disposeNow()
+    }
+  })
+
+  test("keeps rows through a failed rediscovery, then goes idle", async () => {
+    const { server } = ptyFixture(sessions)
+    const stub = stubApi()
+    try {
+      await plugin.tui(stub.api as never)
+      stub.clickHeader()
+      expect(await waitForRows(stub, 2)).toBe(true)
+
+      // Nothing left to find: the next poll loses the origin and cannot
+      // rediscover it, which is the path that used to wipe the rows at once.
+      server.stop(true)
+      expect(await waitFor(() => headerText(stub).includes("reconnecting"), 15_000)).toBe(true)
+      expect(rowsOf(stub).filter((r) => r.tag === "box").length).toBe(2)
+
+      expect(await waitFor(() => headerText(stub).includes("not running"), 20_000)).toBe(true)
+      expect(rowsOf(stub).filter((r) => r.tag === "box").length).toBe(0)
+    } finally {
+      stub.disposeNow()
+    }
+  })
+})
+
 /**
  * A stand-in for opencode-pty's HTTP server: answers the health probe the
  * discovery path uses, serves the session list, and records every cleanup

@@ -62,6 +62,10 @@ const REMOVE_GLYPH = " \u2715"
 /** Consecutive bootstrap failures before the poll stops retrying by itself. */
 const MAX_BOOTSTRAP_FAILURES = 3
 
+/* A single timeout is not proof the server is gone:
+   the TUI and the server share one event loop. */
+const UNREACHABLE_AFTER = 3
+
 /**
  * Collapse state — persisted in kv, deliberately NOT scoped per process: it is a
  * user preference that should hold across every opencode instance. Defaults to
@@ -384,6 +388,7 @@ async function resolveOrigin(api, allowBootstrap) {
 
 async function listSessions(origin) {
   const res = await fetchWithTimeout(origin + "/api/sessions")
+  if (!res.ok) throw new Error("sessions list HTTP " + res.status)
   const body = await res.json()
   const arr = Array.isArray(body) ? body : body && body.sessions
   return Array.isArray(arr) ? arr : []
@@ -391,6 +396,7 @@ async function listSessions(origin) {
 
 async function readBuffer(origin, id) {
   const res = await fetchWithTimeout(origin + "/api/sessions/" + id + "/buffer/plain")
+  if (!res.ok) throw new Error("buffer HTTP " + res.status)
   return decodeBuffer(await res.json())
 }
 
@@ -471,6 +477,22 @@ const tui = async (api) => {
   let rootTimer = null
   let refreshing = false
   let bootstrapFailures = 0
+  let consecutiveFailures = 0
+
+  /* Cleared only by a successful list, so a manual
+     retry is one more attempt, not a fresh run. */
+  const noteFailure = (finalStatus, detail) => {
+    consecutiveFailures++
+    debug("refresh.failed", { consecutiveFailures, error: detail })
+    if (consecutiveFailures >= UNREACHABLE_AFTER) {
+      setStatus(finalStatus)
+      setSessions([])
+    } else if (sessions().length) {
+      // Keep the rows, but stop claiming they are live: their actions
+      // still refuse while no origin is known.
+      setStatus("reconnecting…")
+    }
+  }
   let bootstrapPending = false
   let refreshPending = false
 
@@ -508,11 +530,15 @@ const tui = async (api) => {
         if (allowBootstrap) {
           bootstrapFailures++
           debug("refresh.bootstrap-failed", { bootstrapFailures })
+        }
+        if (sessions().length) {
+          // Rows we had are still worth keeping through a retry blip.
+          noteFailure(IDLE_STATUS, "no origin")
+        } else if (allowBootstrap) {
           setStatus(bootstrapFailureStatus(bootstrapFailures))
         } else {
           setStatus(IDLE_STATUS)
         }
-        setSessions([])
         return
       }
       bootstrapFailures = 0
@@ -531,11 +557,11 @@ const tui = async (api) => {
       }
       setSessions(list)
       setStatus(list.length === 1 ? "1 session" : list.length + " sessions")
-    } catch (_) {
+      consecutiveFailures = 0
+    } catch (error) {
       // Force re-discovery next tick: the server may have restarted on a new port.
       origin = null
-      setStatus("server unreachable")
-      setSessions([])
+      noteFailure("server unreachable", String(error).split("\n")[0].slice(0, 120))
     } finally {
       refreshing = false
       if (bootstrapPending) {
