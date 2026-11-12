@@ -1,0 +1,79 @@
+---
+title: AutoBot
+description: Scheduled agent prompts plus deterministic follow-up polling for Jira and GitHub.
+tools:
+  autobot: Runs one tick, or deletes orphaned sessions
+---
+
+Scheduled agent work for the projects a devbot harness is running in. A single system crontab line
+wakes the module; every project declares its own prompts in `.devbot.project.jsonc` under `autobot`.
+
+## What it does
+
+Two independent halves, in this order:
+
+1. **Follow-ups** — a deterministic poll of Jira and GitHub. It compares what a human did against the
+   stored watermark and produces a list of actions. When there is nothing to do, the list is empty
+   and no model is invoked.
+2. **Scheduled prompts** — per-project `{schedule, prompt}` entries that are due at this tick,
+   serialised, one lock per tick.
+
+A ticket assigned to the AutoBot account is worked to an open pull request, with a human answering
+questions in Jira and merging. Each ticket carries its session in the `Autobot session` field
+(`customfield_10877`), so a continuation resumes the same opencode session rather than starting over.
+
+## Configuration
+
+```jsonc
+// <project>/.devbot.project.jsonc
+{
+  "autobot": {
+    "poll_jira": false, // deterministic Jira follow-up poll
+    "poll_github": false, // deterministic GitHub follow-up poll
+    "prompts": [
+      // { "schedule": "*/5 * * * *", "prompt": "/devbot:autobot-scan" }
+    ],
+  },
+}
+```
+
+Every key defaults to off. A project is active only when at least one of the three is enabled, and it
+is skipped unless a devbot harness is running there — the watch is the one lock file per PID the
+harness start script writes under `<devbot_dir>/state/devbot/`.
+
+## What runs on a schedule
+
+`install.sh` writes one marked block into the user's crontab:
+
+```
+* * * * *   autobot tick      # follow-ups, then any prompts that are due
+17 3 * * *  autobot cleanup   # orphaned sessions and a vacuum
+```
+
+The entry sources `${XDG_CONFIG_HOME:-~/.config}/devbot/autobot.env` first, because cron has no
+environment. That file provides:
+
+```bash
+export JIRA_BASE_URL=https://getinfo.atlassian.net
+export JIRA_EMAIL=autobot@example.com
+export JIRA_API_TOKEN=…
+export AUTOBOT_JIRA_ACCOUNT_ID=…   # the bot's accountId
+export AUTOBOT_GITHUB_LOGIN=…      # its GitHub login
+```
+
+`DEV_BOT_AUTOBOT=off` skips registration; installing as root is refused, because root's crontab has
+none of the user's opencode store, `gh` login or checkouts.
+
+## Limits worth knowing
+
+- One tick runs at a time (a `mkdir` mutex), so a slow run delays the next minute rather than stacking.
+- Follow-ups are at-least-once: the item is recorded before the agent runs and promoted only on
+  success, with a three-attempt cap that comments on the ticket instead of looping.
+- GitHub polling needs the Jira read anyway — the ticket key is the join.
+- Deleting a session does not shrink `opencode.db`, which is why cleanup follows with a vacuum.
+- **One host at a time.** The instance id in the state is this machine; a state written by another
+  instance is treated as dead and handed back. Two hosts must not run the tick against the same bot
+  account until instance liveness is shared.
+- **The comment channel is the trust boundary.** Any account that can comment on the ticket can steer
+  a run, and the agent runs with `--auto`, so its tool calls are not individually approved. Keep the
+  bot out of projects where untrusted users can comment.
