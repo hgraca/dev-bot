@@ -15,6 +15,10 @@ setup() {
   bats_load_library bats-support
   bats_load_library bats-assert
 
+  # Non-GUI tests must not inherit a --gui switch from the environment the
+  # suite runs in (a Claude/OpenCode app opened by `devbot --gui` carries it).
+  unset DEV_BOT_GUI
+
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
 
@@ -326,4 +330,87 @@ sys.exit(0 if list(entries.keys())[0] == '*' else 1)
   assert_success
   [[ -e "${logdir}/opencode.log" ]]
   [[ ! -e "${logdir}/opencode.log.1" ]]
+}
+
+# ── GUI mode (devbot --gui → DEV_BOT_GUI=1) ───────────────────────────────────
+# The desktop app replaces the CLI: no CLI binary is needed, `open` is called
+# with the app's bundle id and the project's deep link, and the launcher then
+# HOLDS (the devbot session and its docker services must outlive `open`).
+
+# Put a stub `open` first on PATH; it records its argv and exits OPEN_RC.
+_make_open_stub() {
+  # This file's setup has no FAKE_BIN; keep the stub inside FAKE_HOME so the
+  # existing teardown removes it.
+  FAKE_BIN="${FAKE_HOME}/bin"
+  mkdir -p "${FAKE_BIN}"
+  OPEN_LOG="${FAKE_BIN}/open.log"
+  cat > "${FAKE_BIN}/open" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$@" > "${OPEN_LOG}"
+exit "\${OPEN_RC:-0}"
+STUB
+  chmod +x "${FAKE_BIN}/open"
+}
+
+# Start start.sh in GUI mode in the background; LAUNCHER_PID is the shell's own
+# pid (exec), so a signal reaches the launcher and not a wrapper subshell.
+_start_gui() {
+  ( exec env HOME="${FAKE_HOME}" DEV_BOT_GUI=1 DEV_BOT_ROOT="${FAKE_ROOT}" PATH="${FAKE_BIN}:/usr/bin:/bin" \
+      "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}" ) >"${FAKE_BIN}/out.log" 2>&1 &
+  LAUNCHER_PID=$!
+}
+
+_wait_for_file() {
+  local i
+  for i in $(seq 1 100); do
+    [[ -s "$1" ]] && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+@test "start.sh --gui opens the OpenCode desktop app on the project and holds until TERM" {
+  _make_minimal_root
+  _make_open_stub
+  rm -f "${FAKE_HOME}/.opencode/bin/opencode"
+  local encoded
+  encoded="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${FAKE_PROJECT}")"
+
+  _start_gui
+  _wait_for_file "${OPEN_LOG}"
+  # Still alive after `open` returned: the session must not be released yet.
+  sleep 3
+  kill -0 "${LAUNCHER_PID}"
+
+  run cat "${OPEN_LOG}"
+  assert_line --index 0 "-b"
+  assert_line --index 1 "ai.opencode.desktop"
+  assert_line --index 2 "opencode://open-project?directory=${encoded}"
+
+  kill -TERM "${LAUNCHER_PID}"
+  local status=0
+  wait "${LAUNCHER_PID}" || status=$?
+  [ "${status}" -eq 0 ]
+}
+
+@test "start.sh --gui does not need the CLI binary" {
+  _make_minimal_root
+  _make_open_stub
+  rm -f "${FAKE_HOME}/.opencode/bin/opencode"
+  _start_gui
+  _wait_for_file "${OPEN_LOG}"
+  kill -TERM "${LAUNCHER_PID}"
+  wait "${LAUNCHER_PID}" || true
+  run cat "${FAKE_BIN}/out.log"
+  refute_output --partial "binary not found"
+}
+
+@test "start.sh --gui fails loudly when the desktop app is not installed" {
+  _make_minimal_root
+  _make_open_stub
+  rm -f "${FAKE_HOME}/.opencode/bin/opencode"
+  DEV_BOT_GUI=1 OPEN_RC=1 DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" PATH="${FAKE_BIN}:/usr/bin:/bin" \
+    run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+  assert_failure
+  assert_output --partial "OpenCode desktop app not found"
 }

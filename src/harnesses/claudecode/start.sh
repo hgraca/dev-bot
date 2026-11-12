@@ -36,10 +36,18 @@ if [[ -n "${session_lock}" ]]; then
   trap _remove_session_lock EXIT INT TERM
 fi
 
-bin="$(command -v claude 2>/dev/null || true)"
-if [[ -z "${bin}" ]]; then
-  _fatal "claude binary not found on PATH (install with: npm install -g @anthropic-ai/claude-code)"
-  exit 1
+# `devbot --gui` (DEV_BOT_GUI=1, set by cmd_harness) opens the Claude desktop
+# app instead of the CLI, so the CLI binary is not required then.
+gui=false
+[[ "${DEV_BOT_GUI:-0}" == "1" ]] && gui=true
+
+bin=""
+if [[ "${gui}" == "false" ]]; then
+  bin="$(command -v claude 2>/dev/null || true)"
+  if [[ -z "${bin}" ]]; then
+    _fatal "claude binary not found on PATH (install with: npm install -g @anthropic-ai/claude-code)"
+    exit 1
+  fi
 fi
 
 # Rotate the previous session's logs (dated + 3-digit suffix, preserved under
@@ -63,9 +71,15 @@ if ! _devbot_check_mcp_env_vars "${PROJECT_DIR}" gate; then
 fi
 
 # Run the harness as a child (not exec) so the session-error check can run
-# after it exits; preserve the harness exit code for the caller.
+# after it exits; preserve the harness exit code for the caller. In GUI mode
+# the "harness" is the desktop app: open it, then hold until Ctrl-C so the
+# devbot session (and its docker services) outlives this launcher.
 harness_exit=0
-"${bin}" "$@" || harness_exit=$?
+if [[ "${gui}" == "true" ]]; then
+  _devbot_launch_gui claudecode "${PROJECT_DIR}" || harness_exit=$?
+else
+  "${bin}" "$@" || harness_exit=$?
+fi
 
 _devbot_check_session_logs "${PROJECT_DIR}"
 

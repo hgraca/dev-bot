@@ -87,6 +87,7 @@ EOF
 #!/usr/bin/env bash
 shift || true
 printf '%s\n' "start-opencode" "\$@" > "${SANDBOX}/start-args.log"
+echo "gui=\${DEV_BOT_GUI:-unset}" > "${SANDBOX}/start-env.log"
 exit 0
 EOF
   chmod +x "${SANDBOX}/src/harnesses/opencode/start.sh"
@@ -94,6 +95,7 @@ EOF
 #!/usr/bin/env bash
 shift || true
 printf '%s\n' "start-claudecode" "\$@" > "${SANDBOX}/start-args.log"
+echo "gui=\${DEV_BOT_GUI:-unset}" > "${SANDBOX}/start-env.log"
 exit 0
 EOF
   chmod +x "${SANDBOX}/src/harnesses/claudecode/start.sh"
@@ -109,6 +111,8 @@ EOF
 }
 
 teardown() {
+  # A --gui devbot that failed to stop must not outlive the test.
+  [[ -n "${GUI_DEVBOT_PID:-}" ]] && kill -KILL "${GUI_DEVBOT_PID}" 2>/dev/null || true
   rm -rf "${SANDBOX}" "${PROJECT}" 2>/dev/null || true
 }
 
@@ -195,6 +199,153 @@ _run_cmd_harness() {
   assert_line --index 0 "start-opencode"
   # No further lines — empty harness argv.
   [ "$(wc -l < "${SANDBOX}/start-args.log")" -eq 1 ]
+}
+
+# ── --gui: open the desktop app instead of the harness CLI ────────────────────
+
+@test "cmd_harness --gui is consumed and signals GUI mode to start.sh" {
+  rm -f "${SANDBOX}/start-args.log" "${SANDBOX}/start-env.log"
+  _run_cmd_harness --gui
+  assert_success
+  assert_output --partial "up-called"
+  run cat "${SANDBOX}/start-args.log"
+  assert_line --index 0 "start-opencode"
+  # --gui is devbot's own flag — the harness never sees it.
+  refute_line "--gui"
+  [ "$(wc -l < "${SANDBOX}/start-args.log")" -eq 1 ]
+  run cat "${SANDBOX}/start-env.log"
+  assert_output "gui=1"
+}
+
+@test "cmd_harness --gui routes to the claudecode harness when configured" {
+  echo '{"harness": "claudecode"}' > "${PROJECT}/.devbot.project.jsonc"
+  _write_baseline
+  rm -f "${SANDBOX}/start-args.log" "${SANDBOX}/start-env.log"
+  _run_cmd_harness --gui
+  assert_success
+  run cat "${SANDBOX}/start-args.log"
+  assert_line --index 0 "start-claudecode"
+  run cat "${SANDBOX}/start-env.log"
+  assert_output "gui=1"
+}
+
+@test "cmd_harness without --gui leaves GUI mode off, even if DEV_BOT_GUI is already set" {
+  rm -f "${SANDBOX}/start-env.log"
+  DEV_BOT_GUI=1 _run_cmd_harness
+  assert_success
+  run cat "${SANDBOX}/start-env.log"
+  assert_output "gui=unset"
+}
+
+@test "cmd_harness --gui with harness args is refused before anything starts" {
+  rm -f "${SANDBOX}/start-args.log" "${SANDBOX}/up.log"
+  _run_cmd_harness --gui -- -c "msg"
+  assert_failure
+  assert_output --partial "harness arguments are not supported"
+  # Refused up front: no docker services started, no harness launched.
+  refute_output --partial "up-called"
+  [ ! -f "${SANDBOX}/start-args.log" ]
+  [ ! -f "${SANDBOX}/up.log" ]
+}
+
+@test "cmd_harness --gui refuses unforwardable flags rather than dropping them" {
+  rm -f "${SANDBOX}/start-args.log"
+  _run_cmd_harness --gui -c
+  assert_failure
+  assert_output --partial "harness arguments are not supported"
+  [ ! -f "${SANDBOX}/start-args.log" ]
+}
+
+@test "cmd_harness --gui with a bare -- is allowed (empty harness tail)" {
+  rm -f "${SANDBOX}/start-env.log"
+  _run_cmd_harness --gui --
+  assert_success
+  run cat "${SANDBOX}/start-env.log"
+  assert_output "gui=1"
+}
+
+@test "cmd_harness treats --gui after the -- separator as a literal harness arg" {
+  rm -f "${SANDBOX}/start-args.log" "${SANDBOX}/start-env.log"
+  _run_cmd_harness -- --gui
+  assert_success
+  run cat "${SANDBOX}/start-args.log"
+  assert_line --index 1 "--gui"
+  run cat "${SANDBOX}/start-env.log"
+  assert_output "gui=unset"
+}
+
+# A --gui start.sh holds after opening the app (see _devbot_launch_gui) and only
+# stops on a signal delivered to ITS OWN process. A bare `kill -TERM <devbot>`
+# is not delivered to a foreground child, so cmd_harness must forward it —
+# these tests signal devbot's PID alone, exactly like `kill <pid>` from another
+# terminal. The stub mirrors the real hold loop.
+
+_start_gui_holding() {
+  rm -f "${SANDBOX}/down.log" "${SANDBOX}/holding"
+  cat > "${SANDBOX}/src/harnesses/opencode/start.sh" <<EOF
+#!/usr/bin/env bash
+touch "${SANDBOX}/holding"
+stop=0
+trap 'stop=1' INT TERM
+while [[ "\${stop}" -eq 0 ]]; do sleep 1; done
+exit 0
+EOF
+  chmod +x "${SANDBOX}/src/harnesses/opencode/start.sh"
+
+  # `exec` so $! is the devbot shell itself, not a wrapper subshell.
+  ( cd "${PROJECT}" && exec env DEV_BOT_ROOT="${SANDBOX}" "${BASH}" -c "
+      source '${SANDBOX}/bin/devbot'
+      cmd_harness --gui
+    " ) >/dev/null 2>&1 &
+  GUI_DEVBOT_PID=$!
+
+  local i
+  for i in $(seq 1 100); do
+    [[ -f "${SANDBOX}/holding" ]] && return 0
+    sleep 0.1
+  done
+  kill -KILL "${GUI_DEVBOT_PID}" 2>/dev/null || true
+  return 1
+}
+
+# Wait up to ~8s for GUI_DEVBOT_PID to exit; kill it and fail when it does not,
+# so a regression cannot hang the suite. Sets GUI_STATUS.
+_wait_gui_exit() {
+  local i
+  for i in $(seq 1 80); do
+    kill -0 "${GUI_DEVBOT_PID}" 2>/dev/null || { GUI_STATUS=0; wait "${GUI_DEVBOT_PID}" || GUI_STATUS=$?; return 0; }
+    sleep 0.1
+  done
+  kill -KILL "${GUI_DEVBOT_PID}" 2>/dev/null || true
+  return 1
+}
+
+@test "cmd_harness --gui: a direct TERM to devbot ends the hold and releases the session" {
+  _start_gui_holding
+  kill -TERM "${GUI_DEVBOT_PID}"
+  _wait_gui_exit
+  # The hold stopped on request, so this is a clean exit — not 143.
+  [ "${GUI_STATUS}" -eq 0 ]
+  [ -f "${SANDBOX}/down.log" ]
+  run cat "${SANDBOX}/down.log"
+  assert_output "down-called"
+}
+
+# There is deliberately no "direct INT" test: a process started in the
+# background of a non-interactive shell (which is what a test must do to signal
+# it) has SIGINT ignored from the start, and bash cannot trap a signal that was
+# ignored on entry. A real Ctrl-C reaches a foreground devbot, and the INT trap
+# is the same one TERM exercises above.
+
+@test "cmd_harness --gui: leaves no hold process behind after TERM" {
+  _start_gui_holding
+  local hold_pid
+  hold_pid="$(pgrep -P "${GUI_DEVBOT_PID}" | head -1)"
+  [ -n "${hold_pid}" ]
+  kill -TERM "${GUI_DEVBOT_PID}"
+  _wait_gui_exit
+  sleep 1.5
+  ! kill -0 "${hold_pid}" 2>/dev/null
 }
 
 # ── cmd_models: routes through _devbot_ollama_exec (boot→operate→down) ─────

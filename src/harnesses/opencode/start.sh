@@ -36,19 +36,26 @@ if [[ -n "${session_lock}" ]]; then
   trap _remove_session_lock EXIT INT TERM
 fi
 
-bin="${HOME}/.opencode/bin/opencode"
-if [[ ! -f "${bin}" ]]; then
-  _fatal "opencode binary not found at ${bin}"
-  exit 1
-fi
+# `devbot --gui` (DEV_BOT_GUI=1, set by cmd_harness) opens the OpenCode desktop
+# app instead of the CLI, so the CLI binary and its version are not checked then.
+gui=false
+[[ "${DEV_BOT_GUI:-0}" == "1" ]] && gui=true
 
-# Refuse an opencode 2.x host before doing any work: the V1 plugin API dev-bot's
-# hooks and TUI plugins are built on does not exist there, so the harness would
-# boot with none of them loaded. Checked here, not only in up.sh, because
-# _run_service_scripts swallows a module up.sh's non-zero exit — this is the
-# call that actually refuses the launch.
-if ! _devbot_require_opencode_1x; then
-  exit 1
+bin="${HOME}/.opencode/bin/opencode"
+if [[ "${gui}" == "false" ]]; then
+  if [[ ! -f "${bin}" ]]; then
+    _fatal "opencode binary not found at ${bin}"
+    exit 1
+  fi
+
+  # Refuse an opencode 2.x host before doing any work: the V1 plugin API dev-bot's
+  # hooks and TUI plugins are built on does not exist there, so the harness would
+  # boot with none of them loaded. Checked here, not only in up.sh, because
+  # _run_service_scripts swallows a module up.sh's non-zero exit — this is the
+  # call that actually refuses the launch.
+  if ! _devbot_require_opencode_1x; then
+    exit 1
+  fi
 fi
 
 # Cap the harness's own log — nothing else rotates it, and it grows without
@@ -79,9 +86,15 @@ if ! _devbot_check_mcp_env_vars "${PROJECT_DIR}" gate; then
 fi
 
 # Run the harness as a child (not exec) so the session-error check can run
-# after it exits; preserve the harness exit code for the caller.
+# after it exits; preserve the harness exit code for the caller. In GUI mode
+# the "harness" is the desktop app: open it, then hold until Ctrl-C so the
+# devbot session (and its docker services) outlives this launcher.
 harness_exit=0
-"${bin}" "$@" || harness_exit=$?
+if [[ "${gui}" == "true" ]]; then
+  _devbot_launch_gui opencode "${PROJECT_DIR}" || harness_exit=$?
+else
+  "${bin}" "$@" || harness_exit=$?
+fi
 
 _devbot_check_session_logs "${PROJECT_DIR}"
 

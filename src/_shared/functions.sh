@@ -695,6 +695,93 @@ _devbot_get_harness() {
   esac
 }
 
+# ── GUI launch (devbot --gui) ─────────────────────────────────────────────────────
+#
+# `devbot --gui` opens the harness's desktop app on the project instead of
+# starting its CLI. Both apps register a URL scheme that opens a folder:
+#   claudecode → Claude desktop,   claude://code/new?folder=<dir>
+#   opencode   → OpenCode desktop, opencode://open-project?directory=<dir>
+# The app is addressed by bundle id (`open -b`), so an unrelated app that merely
+# shares the display name is never launched, and "not installed" is the exit
+# status of `open` itself rather than a path guess.
+#
+# _devbot_gui_spec <harness> <project_dir>
+#   Sets _DEVBOT_GUI_APP (display name), _DEVBOT_GUI_BUNDLE_ID, _DEVBOT_GUI_URL and
+#   _DEVBOT_GUI_NOTE (a known limitation of that app, empty when there is none).
+#   Returns 1 for a harness with no desktop app.
+#
+# _devbot_launch_gui <harness> <project_dir>
+#   Opens the app on the project, then holds until INT/TERM. The hold is the
+#   point: the CLI harness runs as a child, so the session registry knows when
+#   it ends. `open` returns at once, and without the hold the caller would
+#   release the session straight away — the last session out removes the
+#   docker services, pulling the MCP servers out from under the app that just
+#   opened. Returns 1 when `open` is missing or the app is not installed.
+
+_devbot_gui_spec() {
+  local harness="$1" project_dir="$2" encoded
+  _DEVBOT_GUI_NOTE=""
+  encoded="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "${project_dir}")" || return 1
+  case "${harness}" in
+    claudecode)
+      _DEVBOT_GUI_APP="Claude"
+      _DEVBOT_GUI_BUNDLE_ID="com.anthropic.claudefordesktop"
+      _DEVBOT_GUI_URL="claude://code/new?folder=${encoded}"
+      ;;
+    opencode)
+      _DEVBOT_GUI_APP="OpenCode"
+      _DEVBOT_GUI_BUNDLE_ID="ai.opencode.desktop"
+      _DEVBOT_GUI_URL="opencode://open-project?directory=${encoded}"
+      # Observed on OpenCode desktop 1.19: it loads plugins under Node, which
+      # cannot resolve dev-bot's extensionless TypeScript imports, so
+      # on-hooks.ts / mcp-sync.ts (and the opencode-pty plugin) fail to load.
+      _DEVBOT_GUI_NOTE="OpenCode desktop loads plugins with Node, which cannot import dev-bot's TypeScript plugins — hooks (guards, formatters) and MCP sync do not run in the app (observed on 1.19). Use the CLI when you need them."
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+_devbot_launch_gui() {
+  local harness="$1" project_dir="$2"
+
+  if ! command -v open >/dev/null 2>&1; then
+    _error "--gui needs the macOS 'open' command — it is not available on this system."
+    return 1
+  fi
+  if ! _devbot_gui_spec "${harness}" "${project_dir}"; then
+    _error "--gui: the '${harness}' harness has no desktop app."
+    return 1
+  fi
+
+  # `open` hands its environment to an app it cold-starts, and from there to
+  # every process that app spawns (agent shells, hooks, tests). DEV_BOT_GUI is
+  # devbot's own switch for this one launch — if it leaks, any direct start.sh
+  # run under the app mistakes itself for a --gui launch and hangs in the hold.
+  if ! env -u DEV_BOT_GUI open -b "${_DEVBOT_GUI_BUNDLE_ID}" "${_DEVBOT_GUI_URL}" >/dev/null 2>&1; then
+    _error "${_DEVBOT_GUI_APP} desktop app not found (bundle id ${_DEVBOT_GUI_BUNDLE_ID})."
+    _error "  Install it, or run 'devbot' without --gui to use the CLI."
+    return 1
+  fi
+
+  _info "Opened ${_DEVBOT_GUI_APP} on ${project_dir}"
+  [[ -n "${_DEVBOT_GUI_NOTE}" ]] && _warn "${_DEVBOT_GUI_NOTE}"
+  _info "devbot services stay up while this terminal is open — press Ctrl-C to release them."
+
+  # Hold. Short sleeps rather than one long `wait`: a trapped signal is acted on
+  # when the foreground sleep ends (immediately for Ctrl-C, which also reaches
+  # the sleep; within 2s for a bare TERM), with no window between "test the
+  # flag" and "start waiting" in which a signal could be lost.
+  local stop=0
+  trap 'stop=1' INT TERM
+  while [[ "${stop}" -eq 0 ]]; do
+    sleep 2
+  done
+  trap - INT TERM
+  return 0
+}
+
 # ── Post-session error log check ───────────────────────────────────────────────
 
 # _devbot_rotate_session_logs <project_dir>

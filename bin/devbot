@@ -74,6 +74,8 @@ cmd_help() {
   echo -e "${TEXT_BOLD}Running with no command:${TEXT_CLEAR}"
   echo "  Starts the configured harness (opencode or claudecode) after running devbot up."
   echo "  Harness flags (and args after --) are forwarded; an unknown command is refused."
+  echo "  --gui      Open the harness's desktop app (Claude / OpenCode) on this project"
+  echo "             instead of its CLI, when installed. Services stay up until Ctrl-C."
   echo
   # The CLI is global, but a user invoking it inside a project reads "Project
   # root" as scoping to the install. Distinguish the two: print the current
@@ -549,10 +551,49 @@ cmd_stats() {
   }
 
 cmd_harness() {
+  # `--gui` is devbot's own flag: open the harness's desktop app instead of its
+  # CLI. Like every token before the first `--` it is never forwarded to the
+  # harness; unlike the others it is read here (without a `--`, flags otherwise
+  # pass through untouched). Past the first `--` it is a literal harness arg.
+  local gui=false seen_sep=false arg
+  local -a args=()
+  for arg in "$@"; do
+    if [[ "${seen_sep}" == "false" ]]; then
+      if [[ "${arg}" == "--gui" ]]; then
+        gui=true
+        continue
+      fi
+      [[ "${arg}" == "--" ]] && seen_sep=true
+    fi
+    args+=("${arg}")
+  done
+
   if ! _devbot_project_initialized "$(pwd)"; then
     _error "Not a dev-bot project: $(pwd)"
     _error "Run 'devbot init' here first."
     exit 1
+  fi
+
+  # Harness-arg passthrough: `devbot ... -- arg-X` forwards only the tail
+  # after the first `--` to the harness (pre-`--` args are devbot's own and
+  # are consumed). No `--` → all args forward unchanged. Args keep their
+  # boundaries — assembled into an argv array via while-read (bash 3.2-safe).
+  local -a harness_args=()
+  local passthrough_arg
+  while IFS= read -r passthrough_arg; do
+    harness_args+=("${passthrough_arg}")
+  done < <(_devbot_passthrough_args ${args[@]+"${args[@]}"})
+
+  # The desktop app takes a folder, not CLI arguments — silently dropping them
+  # would run something other than what was asked for.
+  if [[ "${gui}" == "true" && ${#harness_args[@]} -gt 0 ]]; then
+    _error "--gui opens the desktop app; harness arguments are not supported with it."
+    exit 1
+  fi
+  if [[ "${gui}" == "true" ]]; then
+    export DEV_BOT_GUI=1
+  else
+    unset DEV_BOT_GUI
   fi
 
   # Bring the install to the newest release before wiring/up. Non-fatal: an
@@ -597,20 +638,34 @@ cmd_harness() {
   local harness
   harness="$(_devbot_get_harness "$(pwd)")"
 
-  # Harness-arg passthrough: `devbot ... -- arg-X` forwards only the tail
-  # after the first `--` to the harness (pre-`--` args are devbot's own and
-  # are consumed). No `--` → all args forward unchanged. Args keep their
-  # boundaries — assembled into an argv array via while-read (bash 3.2-safe).
-  local -a harness_args=()
-  local passthrough_arg
-  while IFS= read -r passthrough_arg; do
-    harness_args+=("${passthrough_arg}")
-  done < <(_devbot_passthrough_args "$@")
-
   # Run the harness as a child (not exec) so the EXIT/INT/TERM trap can
   # release the session after it returns; preserve the harness exit code.
   local harness_exit=0
-  bash "${DEV_BOT_ROOT}/src/harnesses/${harness}/start.sh" "$(pwd)" "${harness_args[@]}" || harness_exit=$?
+  if [[ "${DEV_BOT_GUI:-0}" == "1" ]]; then
+    # GUI mode: start.sh only opens the app and then holds (no TTY needed), so
+    # run it in the background and `wait`. A trap does not fire while bash waits
+    # on a FOREGROUND child, so a bare `kill -TERM <devbot>` would neither run
+    # the release trap nor reach the hold loop, leaving both blocked forever.
+    # With `wait` the trap fires at once and forwards TERM to the child (Ctrl-C
+    # also reaches it directly, but a backgrounded child ignores SIGINT, so
+    # INT is forwarded as TERM too). The CLI path below stays in the foreground
+    # — the harness CLI needs the terminal.
+    local gui_pid gui_signalled=1
+    bash "${DEV_BOT_ROOT}/src/harnesses/${harness}/start.sh" "$(pwd)" ${harness_args[@]+"${harness_args[@]}"} &
+    gui_pid=$!
+    trap 'gui_signalled=1; _devbot_session_release; kill -TERM "${gui_pid}" 2>/dev/null || true' INT TERM
+    # A trapped signal interrupts `wait` with status 128+n while the child is
+    # still winding down, so go round again for its real exit status. The
+    # status is reset each time — `|| x=$?` alone would keep a stale 143.
+    while [[ "${gui_signalled}" -eq 1 ]]; do
+      gui_signalled=0
+      harness_exit=0
+      wait "${gui_pid}" || harness_exit=$?
+    done
+    trap '_devbot_session_release' INT TERM EXIT
+  else
+    bash "${DEV_BOT_ROOT}/src/harnesses/${harness}/start.sh" "$(pwd)" "${harness_args[@]}" || harness_exit=$?
+  fi
 
   _devbot_session_release
   exit "${harness_exit}"

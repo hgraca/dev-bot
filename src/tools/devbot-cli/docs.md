@@ -52,6 +52,19 @@ devbot --stop -- -c "msg"    # --stop is consumed; only -c "msg" reaches the har
 
 Only the first `--` splits — a later `--` is a literal part of the harness argv. Arguments keep their boundaries (quoting survives the split).
 
+**Desktop app instead of the CLI (`--gui`).** `devbot --gui` runs the usual start sequence (auto-update, reinit, `devbot up`), then opens the harness's **desktop app** on the project instead of starting its CLI:
+
+| Harness      | App              | Opened with                                   |
+| ------------ | ---------------- | --------------------------------------------- |
+| `claudecode` | Claude desktop   | `claude://code/new?folder=<project>`          |
+| `opencode`   | OpenCode desktop | `opencode://open-project?directory=<project>` |
+
+The app is addressed by bundle id through macOS `open -b`, so `--gui` is macOS-only, and when the app is not installed the start fails with a clear error (it does not fall back to the CLI). `--gui` is devbot's own flag — it is never forwarded — and it takes no harness arguments: `devbot --gui -- <args>` is refused before anything starts, because the app takes a folder, not CLI arguments.
+
+The terminal stays attached: `devbot --gui` keeps its session registered until you press **Ctrl-C**, because the CLI is what normally marks a session's lifetime and `open` returns immediately. Releasing it earlier would let the last session out remove the docker services (MCP servers, memory index) from under the app. Ctrl-C releases the session with exit code 0 and runs the normal last-session teardown.
+
+OpenCode desktop loads plugins with Node, which cannot resolve dev-bot's extensionless TypeScript imports: as of OpenCode desktop 1.19, `on-hooks.ts` (guards, formatters), `mcp-sync.ts` and the `opencode-pty` plugin fail to load there, so those do not run in the app. `devbot --gui` prints this as a warning. The Claude desktop app runs Claude Code with the project's own `.claude/settings.json`, so the harness hooks and MCP servers apply as they do in the CLI.
+
 **Session teardown on exit.** Each `devbot` start registers a session in an install-level registry (`storage/run/sessions/`, gitignored) and holds a `flock` on its own file for the session's lifetime. When a session exits — normally, via Ctrl-C, or `kill` (the `flock` auto-releases even on `SIGKILL`) — it removes its file and, if **no other devbot session remains live**, runs `devbot down` to remove the devbot containers. If another session is still running (e.g. a second terminal in another project), the containers stay up — an explicit `devbot down` run in that state warns and keeps them, so it can never tear down a live session's containers. Containers are install-level (compose project `devbot`), shared by every session regardless of project, which is why the registry is install-level too. Volumes/mounted data (`storage/ollama`) are never touched. `devbot up`/`make up` alone start services without registering a session, so they are not auto-downed by a later harness exit.
 
 ### `devbot help`
