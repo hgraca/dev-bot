@@ -33,4 +33,15 @@ describe("isSigned", () => {
   test("rejects the signature in the middle", () => {
     expect(isSigned("authored by AutoBot\n\nbut then more text")).toBe(false);
   });
+
+  test("rejects human text that merely ends with the same words", () => {
+    expect(isSigned("why did you say authored by AutoBot")).toBe(false);
+    expect(sign("why did you say authored by AutoBot")).toBe(
+      "why did you say authored by AutoBot\n\nauthored by AutoBot",
+    );
+  });
+
+  test("accepts a signature-only body", () => {
+    expect(isSigned("authored by AutoBot")).toBe(true);
+  });
 });

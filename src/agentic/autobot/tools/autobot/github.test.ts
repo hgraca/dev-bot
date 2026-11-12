@@ -69,7 +69,7 @@ describe("pollGithub", () => {
 
   test("returns a null pull request when there is none", async () => {
     const transport: GhTransport = { async findPullRequests() { return []; } };
-    expect(await pollGithub({ tickets: [ticket], transport, botLogin: "autobot" })).toEqual([
+    expect(await pollGithub({ tickets: [ticket], transport })).toEqual([
       { key: "ARC-1", pullRequest: null, pendingReviews: [] },
     ]);
   });
@@ -85,7 +85,7 @@ describe("pollGithub", () => {
         ];
       },
     };
-    const items = await pollGithub({ tickets: [ticket], transport, botLogin: "autobot" });
+    const items = await pollGithub({ tickets: [ticket], transport });
     expect(items[0]?.pullRequest?.number).toBe(9);
     expect(items[0]?.pendingReviews[0]?.id).toBe("1");
   });
@@ -101,7 +101,6 @@ describe("pollGithub", () => {
     await pollGithub({
       tickets: [ticket, { key: "ARC-2", state: null }],
       transport,
-      botLogin: "autobot",
     });
     expect(asked).toEqual(["ARC-1", "ARC-2"]);
   });

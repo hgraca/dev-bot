@@ -8,13 +8,18 @@
 
 export const SIGNATURE = "authored by AutoBot";
 
-/** Append the signature unless it is already the last line. */
+/** Append the signature unless it is already the final line. */
 export function sign(body: string): string {
   const trimmed = body.replace(/\s+$/, "");
-  return trimmed.endsWith(SIGNATURE) ? trimmed : `${trimmed}\n\n${SIGNATURE}`;
+  return isSigned(trimmed) ? trimmed : `${trimmed}\n\n${SIGNATURE}`;
 }
 
-/** True when AutoBot wrote the body. */
+/**
+ * True when AutoBot wrote the body: the signature is its own final line, not merely text that happens
+ * to end with the same words. Otherwise a human writing "why did you say authored by AutoBot" would
+ * be filtered out and never reach the agent.
+ */
 export function isSigned(body: string): boolean {
-  return body.trimEnd().endsWith(SIGNATURE);
+  const trimmed = body.trimEnd();
+  return trimmed === SIGNATURE || trimmed.endsWith(`\n${SIGNATURE}`);
 }

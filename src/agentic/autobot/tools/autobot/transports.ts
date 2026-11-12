@@ -176,17 +176,14 @@ export function createJiraClient(
     return text === "" ? null : JSON.parse(text);
   }
 
-  async function labelsOf(issueKey: string): Promise<string[]> {
-    const payload = (await call(`/rest/api/2/issue/${issueKey}?fields=labels`)) as {
-      fields?: { labels?: string[] };
-    };
-    return payload.fields?.labels ?? [];
-  }
-
-  async function writeLabels(issueKey: string, labels: string[]): Promise<void> {
+  /**
+   * Labels are changed with Jira's `update` operations, not by reading and rewriting the field: a
+   * read-then-write would drop a concurrent add or remove made between the two calls.
+   */
+  async function editLabels(issueKey: string, operations: Array<Record<string, string>>): Promise<void> {
     await call(`/rest/api/2/issue/${issueKey}`, {
       method: "PUT",
-      body: JSON.stringify({ fields: { labels } }),
+      body: JSON.stringify({ update: { labels: operations } }),
     });
   }
 
@@ -255,15 +252,11 @@ export function createJiraClient(
     },
 
     async addLabels(issueKey: string, labels: string[]): Promise<void> {
-      const current = await labelsOf(issueKey);
-      const next = [...new Set([...current, ...labels])];
-      await writeLabels(issueKey, next);
+      await editLabels(issueKey, labels.map((label) => ({ add: label })));
     },
 
     async removeLabel(issueKey: string, label: string): Promise<void> {
-      const current = await labelsOf(issueKey);
-      if (!current.includes(label)) return;
-      await writeLabels(issueKey, current.filter((candidate) => candidate !== label));
+      await editLabels(issueKey, [{ remove: label }]);
     },
 
     async closeIssue(issueKey: string, assigneeId?: string): Promise<boolean> {
