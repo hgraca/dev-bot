@@ -7,11 +7,12 @@
 // declared `log` file, or to the shared default hook log when none is declared.
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import {
   commandString,
+  disabledModules,
   createFileEditGate,
   createKindResolver,
   createRewriteEchoTracker,
@@ -21,6 +22,9 @@ import {
   injectSessionId,
   isPtyTool,
   MAX_TRACKED_SESSIONS,
+  moduleEnabled,
+  readJsoncFile,
+  stripJsonc,
   ptySubagentBlock,
   ptySubagentGuard,
   rememberAgent,
@@ -711,5 +715,117 @@ describe("injectSessionId", () => {
     expect(injectSessionId("devbot-tools_session-usage", undefined, args)).toBe(false)
     expect(injectSessionId("devbot-tools_session-usage", "  ", args)).toBe(false)
     expect(args.args).toEqual([])
+  })
+})
+
+describe("stripJsonc", () => {
+  test("drops comments and trailing commas", () => {
+    const text = `{
+      // a note
+      "modules": { "graphify": false, /* off */ },
+    }`
+    expect(JSON.parse(stripJsonc(text))).toEqual({ modules: { graphify: false } })
+  })
+
+  test("leaves string contents untouched", () => {
+    const text = '{"url": "http://x//y", "note": "a, }", }'
+    expect(JSON.parse(stripJsonc(text))).toEqual({ url: "http://x//y", note: "a, }" })
+  })
+
+  test("a BOM-prefixed config still yields its modules map", () => {
+    const dir = mkdtempSync(join(tmpdir(), "bom-"))
+    try {
+      const path = join(dir, ".devbot.project.jsonc")
+      writeFileSync(path, "\uFEFF" + '{"modules": {"graphify": false}}')
+      expect(readJsoncFile(path)).toEqual({ modules: { graphify: false } })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("moduleEnabled", () => {
+  let tmp: string
+  let devbot: string
+  let project: string
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), "mods-"))
+    devbot = join(tmp, "devbot")
+    project = join(tmp, "proj")
+    for (const dir of [devbot, project]) {
+      rmSync(dir, { recursive: true, force: true })
+      mkdirSync(dir, { recursive: true })
+    }
+  })
+
+  afterEach(() => rmSync(tmp, { recursive: true, force: true }))
+
+  const writeGlobal = (body: string) => writeFileSync(join(devbot, ".devbot.global.jsonc"), body)
+  const writeProject = (body: string) => writeFileSync(join(project, ".devbot.project.jsonc"), body)
+
+  test("absent everywhere means enabled", () => {
+    expect(moduleEnabled("graphify", project, devbot, {})).toBe(true)
+  })
+
+  test("global false disables a project that does not mention it", () => {
+    writeGlobal('{"modules": {"graphify": false}}')
+    expect(moduleEnabled("graphify", project, devbot, {})).toBe(false)
+  })
+
+  test("the project wins over the global config", () => {
+    writeGlobal('{"modules": {"graphify": false}}')
+    writeProject('{"modules": {"graphify": true}}')
+    expect(moduleEnabled("graphify", project, devbot, {})).toBe(true)
+  })
+
+  test("a malformed config falls through to the next source", () => {
+    writeProject('{"modules": {"graphify": false')
+    writeGlobal('{"modules": {"graphify": false}}')
+    expect(moduleEnabled("graphify", project, devbot, {})).toBe(false)
+  })
+
+  test("an unrelated module stays enabled", () => {
+    writeProject('{"modules": {"graphify": false}}')
+    expect(moduleEnabled("format-md", project, devbot, {})).toBe(true)
+  })
+})
+
+describe("disabledModules", () => {
+  test("a project path with shell syntax is not evaluated", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "inj-"))
+    const marker = join(tmp, "pwned")
+    try {
+      const devbot = join(tmp, "devbot")
+      mkdirSync(join(devbot, "src", "agentic", "graphify"), { recursive: true })
+      writeFileSync(
+        join(devbot, "src", "agentic", "graphify", "hooks.json"),
+        '{"hooks": []}',
+      )
+      // No functions.sh, so this exercises the resolver path's argv handling
+      // and the local fallback — the marker must never be created.
+      const hostile = join(tmp, `x$(touch ${marker})y`)
+      mkdirSync(hostile, { recursive: true })
+      const result = disabledModules(hostile, devbot)
+      expect(existsSync(marker)).toBe(false)
+      expect(result instanceof Set).toBe(true)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
+  })
+
+  test("a disabled module is reported", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "mods-"))
+    try {
+      const devbot = join(tmp, "devbot")
+      const project = join(tmp, "proj")
+      mkdirSync(join(devbot, "src", "agentic", "graphify"), { recursive: true })
+      mkdirSync(project, { recursive: true })
+      writeFileSync(join(devbot, ".devbot.global.jsonc"), '{"modules": {}}')
+      writeFileSync(join(project, ".devbot.project.jsonc"), '{"modules": {"graphify": false}}')
+      expect(disabledModules(project, devbot).has("graphify")).toBe(true)
+    } finally {
+      rmSync(tmp, { recursive: true, force: true })
+    }
   })
 })

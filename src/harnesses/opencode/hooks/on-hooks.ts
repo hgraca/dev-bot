@@ -16,17 +16,22 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, injectSessionId, ptySubagentGuard, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
+import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, ptySubagentGuard, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
-function loadManifests(): { moduleDir: string; hooks: HookDecl[] }[] {
+function loadManifests(projectRoot: string): { moduleDir: string; hooks: HookDecl[] }[] {
   const base = join(DEV_BOT_ROOT, "src", "agentic")
   if (!existsSync(base)) return []
+  const disabled = disabledModules(projectRoot, DEV_BOT_ROOT)
   const out: { moduleDir: string; hooks: HookDecl[] }[] = []
   for (const dir of readdirSync(base)) {
     const manifest = join(base, dir, "hooks.json")
     if (!existsSync(manifest)) continue
+    // A module disabled for this project must not run its hooks. Enablement
+    // gated only the MCP registration, so `graphify` kept firing a no-op
+    // session update in projects where it is switched off.
+    if (disabled.has(dir)) continue
     try {
       const parsed = JSON.parse(readFileSync(manifest, "utf8"))
       if (Array.isArray(parsed?.hooks)) out.push({ moduleDir: join(base, dir), hooks: parsed.hooks })
@@ -64,7 +69,7 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
     // failures are captured even when plugin stderr is not.
     logFile: join(root, defaultHookLog()),
   })
-  const manifests = loadManifests()
+  const manifests = loadManifests(root)
   // Per-file gate for file.edited hooks (audit-32: burst-edit race).
   const fileEditGate = createFileEditGate()
   // Rewrite-echo suppression (audit-37 §2: formatter ping-pong).

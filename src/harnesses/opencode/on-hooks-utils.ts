@@ -7,7 +7,7 @@
 // module (on-hooks.ts) therefore must export only its factory; any helper a
 // test needs lives here instead.
 
-import { appendFileSync, existsSync, mkdirSync } from "fs"
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "fs"
 import { dirname, join } from "path"
 
 export interface HookDecl {
@@ -65,6 +65,176 @@ export function resolveGlobalConfigPath(pluginRoot: string, env: NodeJS.ProcessE
   const envRoot = env.DEV_BOT_ROOT
   if (envRoot) return join(envRoot, ".devbot.global.jsonc")
   return ""
+}
+
+function stripComments(text: string): string {
+  const out: string[] = []
+  let i = 0
+  let inString = false
+  while (i < text.length) {
+    const ch = text[i]
+    if (inString) {
+      out.push(ch)
+      if (ch === "\\") {
+        out.push(text[i + 1] ?? "")
+        i += 2
+        continue
+      }
+      if (ch === '"') inString = false
+      i += 1
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      out.push(ch)
+      i += 1
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "/") {
+      const lineEnd = text.indexOf("\n", i)
+      i = lineEnd === -1 ? text.length : lineEnd
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      const close = text.indexOf("*/", i + 2)
+      i = close === -1 ? text.length : close + 2
+      continue
+    }
+    out.push(ch)
+    i += 1
+  }
+  return out.join("")
+}
+
+function dropTrailingCommas(text: string): string {
+  const out: string[] = []
+  let i = 0
+  let inString = false
+  while (i < text.length) {
+    const ch = text[i]
+    if (inString) {
+      out.push(ch)
+      if (ch === "\\") {
+        out.push(text[i + 1] ?? "")
+        i += 2
+        continue
+      }
+      if (ch === '"') inString = false
+      i += 1
+      continue
+    }
+    if (ch === '"') inString = true
+    if (ch === ",") {
+      let j = i + 1
+      while (j < text.length && /\s/.test(text[j])) j += 1
+      if (text[j] === "}" || text[j] === "]") {
+        i += 1
+        continue
+      }
+    }
+    out.push(ch)
+    i += 1
+  }
+  return out.join("")
+}
+
+/**
+ * Strip `//`, `/* *\/` and trailing commas so a JSONC file parses as JSON.
+ *
+ * Two passes: a comment following the last member (`"a": false, /* off *\/ }`)
+ * leaves a comma the first pass cannot see past, so commas are dropped only
+ * once every comment is gone.
+ */
+export function stripJsonc(text: string): string {
+  return dropTrailingCommas(stripComments(text))
+}
+
+/**
+ * Parse a JSONC file; a missing or malformed file yields `undefined`.
+ *
+ * A leading BOM is stripped first — the canonical Python reader opens with
+ * `utf-8-sig`, and `JSON.parse` rejects a `\uFEFF` prefix, so without this a
+ * BOM-authored config would silently read as absent and leave a disabled
+ * module's hooks registered.
+ */
+export function readJsoncFile(path: string): unknown {
+  if (!path) return undefined
+  try {
+    const raw = readFileSync(path, "utf8").replace(/^\uFEFF/, "")
+    return JSON.parse(stripJsonc(raw))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Effective module state for a project.
+ *
+ * `modules.<name>` in the project config wins over the global one; absent in
+ * both means enabled. This mirrors how the CLI resolves module state, so the
+ * harness registers an MCP server and its hooks on the same rule — a disabled
+ * module used to keep running its hooks, which is why `graphify` still ran a
+ * no-op update in the polyrepo root (whose graph is disabled there).
+ */
+export function moduleEnabled(
+  name: string,
+  projectRoot: string,
+  devbotRoot: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const modulesOf = (path: string): Record<string, unknown> | undefined => {
+    const parsed = readJsoncFile(path)
+    if (typeof parsed !== "object" || parsed === null) return undefined
+    const modules = (parsed as { modules?: unknown }).modules
+    if (typeof modules !== "object" || modules === null) return undefined
+    return modules as Record<string, unknown>
+  }
+  const project = modulesOf(join(projectRoot, ".devbot.project.jsonc"))?.[name]
+  if (typeof project === "boolean") return project
+  const global = modulesOf(resolveGlobalConfigPath(devbotRoot, env))?.[name]
+  if (typeof global === "boolean") return global
+  return true
+}
+
+/**
+ * Modules the CLI considers disabled for this project.
+ *
+ * Asks `_devbot_get_disabled_modules` rather than re-deriving the rule: that
+ * function also excludes the non-selected codebase engine, the non-selected
+ * memory-search engine and every unselected harness, so two implementations
+ * would drift. The paths go in as positional arguments — never interpolated
+ * into the script text, where a project path containing `$(...)` would run.
+ *
+ * Falls back to the plain `modules` map when the resolver cannot run.
+ */
+export function disabledModules(projectRoot: string, devbotRoot: string): Set<string> {
+  const functions = join(devbotRoot, "src", "_shared", "functions.sh")
+  if (existsSync(functions)) {
+    try {
+      const result = Bun.spawnSync([
+        "bash",
+        "-c",
+        'source "$1" >/dev/null 2>&1; _devbot_get_disabled_modules "$2"',
+        "devbot-hooks",
+        functions,
+        projectRoot,
+      ])
+      const parsed = JSON.parse(result.stdout.toString() || "[]")
+      if (Array.isArray(parsed)) return new Set(parsed.map(String))
+    } catch {
+      // Fall through to the local rule.
+    }
+  }
+  const fallback = new Set<string>()
+  const base = join(devbotRoot, "src", "agentic")
+  try {
+    for (const dir of readdirSync(base)) {
+      if (!moduleEnabled(dir, projectRoot, devbotRoot)) fallback.add(dir)
+    }
+  } catch {
+    // No module tree: nothing to disable.
+  }
+  return fallback
 }
 
 // Route a hook's captured output to a persistent log file — its declared
