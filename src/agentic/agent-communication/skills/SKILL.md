@@ -73,7 +73,10 @@ agent-communication mcp-meta
 
 ## Canonical Status Markers
 
-Every assistant message must end with exactly one of these markers on its own line. **This table is the single source of truth for the marker set** — every other file refers to it rather than repeating it.
+Every assistant message must end with exactly one of these markers on its own line. The developer
+profile lists the same five markers so the primary agent can end a message without loading this
+skill; the meanings below are authoritative for subagents and for the validation tool, and a change
+to the set belongs in both places.
 
 The first four are **work-terminal** — they end the assignment. `[WAITING_FOR_PTY]` is a **turn-ender**: the work is paused, not stopped, and the agent resumes automatically.
 

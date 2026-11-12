@@ -130,7 +130,7 @@ the path belongs to no registered project — there is no child memory to load.
 
 These steps are **non-negotiable**. Execute every step, in order, on every session. Do not skip any step. Make no judgment calls about whether a request is "simple enough" to warrant skipping — that is not your call to make. You do not decide which steps to run.
 
-1. **Load the `devbot:agent-communication` context skill** — use its terminal status markers (defined in that skill's canonical marker table) to communicate work status to the user throughout the session.
+1. **Note the terminal status markers** — the set is in [Terminal status markers](#terminal-status-markers), so no skill load is needed at session start; load `devbot:agent-communication` only when you need its validation tool or the subagent finish flow.
 2. **Load the `devbot:software-development` context skill** — the generic craft hub for code-quality principles, tests-first discipline, and the commit protocol. It carries the preemptive context skills for code work.
 3. **Extract keywords from user's opening request** — 1–5 machine-consumable search tokens capturing topic, technology, and area of concern (rules and examples: see [Delegating to @scout](#delegating-to-scout)).
 4. **Check the external context-source gates before delegating** — read both switches with `devbot tool project-for-path <owner> --key modules` (absence means enabled) and `--key mcps`; in a polyrepo session add `--session-root <workspace root>`, the checkout the harness actually runs in. Two sources are gated this way:
@@ -159,7 +159,7 @@ These steps are **non-negotiable**. Execute every step, in order, on every sessi
 
    Silent workarounds hide tooling decay — the human decides whether a failure matters, not you.
 
-4. **Terminal status marker** — end the message with exactly one status marker per the `devbot:agent-communication` protocol. When the work is complete, do not emit `[FINISHED]` directly — follow the finish flow (ask the user whether finished; yes → close the Jira ticket (`devbot:jira-workflow`: DONE once the work has landed, or CANCELED when abandoned) + `devbot:remember-session` + `devbot:grade-tools` + `devbot:reconcile-work` + `[FINISHED]`; no → continue).
+4. **Terminal status marker** — end the message with exactly one marker from [Terminal status markers](#terminal-status-markers). When the work is complete, do not emit `[FINISHED]` directly — follow the finish flow (ask the user whether finished; yes → close the Jira ticket (`devbot:jira-workflow`: DONE once the work has landed, or CANCELED when abandoned) + `devbot:remember-session` + `devbot:grade-tools` + `devbot:reconcile-work` + `[FINISHED]`; no → continue).
 
 ### On every task start
 
@@ -181,13 +181,30 @@ When every task in an assignment is complete (each committed per [On every task 
 3. **Address the findings locally and fold them into the branch** — load the `devbot:address-review` context skill and follow its protocol strictly; the skill is the single source of truth for how review comments are addressed. Record each fix as a fixup against the commit it corrects. Under the Worktrees workflow, squash those fixups into their targets before the branch is pushed, with an interactive rebase (`git rebase -i --autosquash origin/<default>`), showing the plan and getting approval first as `devbot:git-fixup-commits` requires — the agent has no editor, so apply the approved plan with `GIT_SEQUENCE_EDITOR=:`. A branch that is already pushed, or whose pull request is already open, is never rewritten for this: record the fixups there, and the pull request loop squashes them before the merge. Under the Trunk workflow never rewrite — its commits are on the default branch, so a correction is a normal follow-up commit.
 4. **Confirm finish before `[FINISHED]`** — do not emit `[FINISHED]` yet. Ask the user (using the harness `question` tool if available) whether the work is finished. **Yes** → close the Jira ticket with `devbot:jira-workflow` — DONE only once the work has landed (the pull request merged, or the commit on the default branch under the trunk workflow), CANCELED when the work was abandoned, and no ticket means no close — then run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then the `devbot:reconcile-work` skill, then end with `[FINISHED]`. **No** → the user provides new directions and work continues.
 
+## Terminal status markers
+
+End every message with exactly one of these, on its own line. The set lives here so phrasing a message
+never costs a skill load; `devbot:agent-communication` carries the authoritative meanings, the
+validation tool and the subagent finish flow. A change to the set belongs in both places.
+
+| Marker              | Meaning                                                    |
+| ------------------- | ---------------------------------------------------------- |
+| `[FINISHED]`        | Work is genuinely complete                                 |
+| `[BLOCKED]`         | Cannot proceed, external action needed                     |
+| `[NEEDS_INPUT]`     | Needs clarification from human                             |
+| `[PARTIAL]`         | Work is incomplete, must resume                            |
+| `[WAITING_FOR_PTY]` | Paused on a PTY process; its exit notification resumes you |
+
+The first four are work-terminal. `[WAITING_FOR_PTY]` ends the **turn**, not the work — it is not a
+defect and must not be escalated. `[FINISHED]` is only ever reached through the finish flow above.
+
 ## Appendices
 
 ### Skills trigger lists
 
 #### Workflow skills
 
-- Preemptively load the `devbot:agent-communication` context skill at session start — use its terminal status markers (defined in that skill's canonical marker table) to communicate work status to the user throughout the session. Also use when delegating to or receiving signals from subagents.
+- Load `devbot:agent-communication` when you need its validation tool, the subagent finish flow, or the authoritative marker meanings — the marker set itself is in [Terminal status markers](#terminal-status-markers), so do not load the skill merely to phrase a message.
 - When session stalls, delegation fails, or unexpected situation arises, use `devbot:exception-handling`
 - When new session starts, delegate to @scout to gather context as the first step after the context-source gates — MUST instruct scout to use `devbot:gather-context` skill and provide explicit keyword list extracted/inferred from user's opening request (see [Session start](#session-start))
 - When the session has a Jira ticket to resolve, open or close, use `devbot:jira-workflow`
