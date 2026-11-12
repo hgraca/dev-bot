@@ -1,21 +1,32 @@
 #!/usr/bin/env python3
-"""Idempotently add a project path to .devbot.global.jsonc::projects array.
+"""Idempotently add project paths to .devbot.global.jsonc::projects.
 
 Usage:
-  add_project.py <config_file> <project_path>
+  add_project.py <config_file> <project_path> [<project_path>...]
 
 Exit codes:
-  0 — project was already registered (no-op)
-  0 — project was added successfully
-  1 — error (file missing, parse error, etc.)
+  0 — every project was already registered (no-op)
+  0 — at least one project was added
+  1 — error (file missing, parse error, lock failure, etc.)
 
-The script reads via read_jsonc.py (strips // and /* */ comments),
-adds the path if missing, and writes back as JSON.
+The script reads via read_jsonc (strips // and /* */ comments), adds the paths
+that are missing, and writes back as JSON.
+
+Two hardening rules, both required by `devbot init --all -j N`:
+  - the read-modify-write runs under an exclusive flock on a sibling lock file,
+    so concurrent invocations cannot lose each other's entry;
+  - the write lands in a temp file beside the config and is moved into place
+    with os.replace(), so no reader ever observes partially written JSON.
+
+The lock file is never unlinked — removing it would let a later process lock a
+fresh inode while an earlier one still holds the old inode.
 """
 
+import fcntl
 import json
-import sys
 import os
+import sys
+import tempfile
 
 
 def load_jsonc(path):
@@ -60,42 +71,103 @@ def load_jsonc(path):
     return json.loads("".join(out))
 
 
+def lock_path(config_file):
+    """A companion path for the lock, derived from the config it protects.
+
+    Never the config itself: the config is replaced by os.replace(), which
+    swaps the inode, so a lock held on the old inode would stop protecting the
+    new one.
+
+    Keyed by the canonical config path, not by DEV_BOT_ROOT: the registry can
+    be redirected with DEV_BOT_GLOBAL_CONFIG, and two invocations carrying
+    different roots would otherwise lock different files while writing the
+    same config — exactly the lost update this lock exists to prevent.
+    """
+    return os.path.realpath(config_file) + ".lock"
+
+
+def register(data, paths):
+    """Add the missing paths in place; return those actually added."""
+    known = {os.path.normpath(p) for p in data.setdefault("projects", [])}
+
+    added = []
+    for raw in paths:
+        norm = os.path.normpath(os.path.abspath(raw))
+        if norm in known:
+            continue
+        known.add(norm)
+        added.append(norm)
+
+    if added:
+        data["projects"] = sorted(known, key=str.lower)
+
+    return added
+
+
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: add_project.py <config_file> <project_path>", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print(
+            "Usage: add_project.py <config_file> <project_path> [<project_path>...]",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     config_file = sys.argv[1]
-    project_path = os.path.abspath(sys.argv[2])
 
     if not os.path.isfile(config_file):
         print(f"Config file not found: {config_file}", file=sys.stderr)
         sys.exit(1)
 
+    lock_file = lock_path(config_file)
+    lock_dir = os.path.dirname(lock_file) or "."
     try:
-        data = load_jsonc(config_file)
-    except Exception as e:
-        print(f"Failed to parse {config_file}: {e}", file=sys.stderr)
+        os.makedirs(lock_dir, exist_ok=True)
+        lock = open(lock_file, "a")
+    except OSError as e:
+        print(f"Failed to open lock {lock_file}: {e}", file=sys.stderr)
         sys.exit(1)
 
-    projects = data.setdefault("projects", [])
+    with lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
 
-    # Normalise paths for comparison
-    norm = os.path.normpath(project_path)
+        try:
+            data = load_jsonc(config_file)
+        except Exception as e:
+            print(f"Failed to parse {config_file}: {e}", file=sys.stderr)
+            sys.exit(1)
 
-    for existing in projects:
-        if os.path.normpath(existing) == norm:
-            # Already registered — no-op
+        added = register(data, sys.argv[2:])
+        if not added:
             sys.exit(0)
 
-    projects.append(norm)
-    data["projects"] = sorted(set(projects), key=lambda p: p.lower())
+        config_dir = os.path.dirname(os.path.abspath(config_file))
+        # Keep the config's mode: mkstemp creates 0600, and replacing a 0644
+        # registry with it would silently change who can read it.
+        try:
+            mode = os.stat(config_file).st_mode & 0o777
+        except OSError:
+            mode = 0o644
+        try:
+            fd, tmp = tempfile.mkstemp(
+                dir=config_dir, prefix=".devbot.global.", suffix=".tmp"
+            )
+        except OSError as e:
+            print(f"Failed to write {config_file}: {e}", file=sys.stderr)
+            sys.exit(1)
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.chmod(tmp, mode)
+            os.replace(tmp, config_file)
+        except BaseException:
+            os.unlink(tmp)
+            raise
 
-    with open(config_file, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
-
-    print(f"Registered project: {norm}", file=sys.stderr)
+    for norm in added:
+        print(f"Registered project: {norm}", file=sys.stderr)
 
 
 if __name__ == "__main__":

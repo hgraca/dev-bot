@@ -30,6 +30,8 @@ package-lock.json
 **/*.bkp
 /.devbot.global.jsonc
 /.devbot.global.jsonc.reconcile.tmp
+/.devbot.global.jsonc.lock
+/.devbot.global.*.tmp
 **/__pycache__/
 *.pyc
 ###< project ###
