@@ -240,23 +240,41 @@ export function createSlackClient(token: string): SlackTransport {
                     "slack conversations.history: more than 20 pages — refusing a partial read",
                 );
             }
-            return collected;
+            // Slack pages backwards in time, so only the concatenation is chronological.
+            return collected.sort((a, b) =>
+                a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0,
+            );
         },
 
         async replies(
             channel: string,
             threadTs: string,
         ): Promise<SlackMessage[]> {
-            const parsed = readPage(
-                await call("conversations.replies", {
-                    channel,
-                    ts: threadTs,
-                    limit: 200,
-                }),
-                "conversations.replies",
-            );
+            const collected: SlackMessage[] = [];
+            let cursor: string | undefined;
+            for (let page = 0; page < 20; page += 1) {
+                const parsed = readPage(
+                    await call("conversations.replies", {
+                        channel,
+                        ts: threadTs,
+                        limit: 200,
+                        ...(cursor === undefined ? {} : { cursor }),
+                    }),
+                    "conversations.replies",
+                );
+                collected.push(...parsed.messages);
+                cursor = parsed.cursor;
+                if (cursor === undefined) break;
+            }
+            if (cursor !== undefined) {
+                throw new Error(
+                    "slack conversations.replies: more than 20 pages — refusing a partial read",
+                );
+            }
             // The thread's first message is the question itself, not a reply to it.
-            return parsed.messages.filter((message) => message.ts !== threadTs);
+            return collected
+                .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0))
+                .filter((message) => message.ts !== threadTs);
         },
     };
 }

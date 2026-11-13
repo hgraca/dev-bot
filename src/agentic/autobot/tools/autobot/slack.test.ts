@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
+    createSlackClient,
     readChannelId,
     readMessages,
     readTs,
@@ -88,5 +89,71 @@ describe("repliesFrom", () => {
         expect(
             repliesFrom([message("2.0", "U1")], "U1", "not-a-ts"),
         ).toHaveLength(1);
+    });
+});
+
+describe("paging", () => {
+    const realFetch = globalThis.fetch;
+    const calls: string[] = [];
+    let pages: unknown[] = [];
+
+    beforeEach(() => {
+        calls.length = 0;
+        globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+            calls.push(
+                String(
+                    (
+                        JSON.parse(String(init?.body ?? "{}")) as {
+                            cursor?: string;
+                        }
+                    ).cursor ?? "",
+                ),
+            );
+            return {
+                ok: true,
+                status: 200,
+                json: async () => pages.shift(),
+            } as unknown as Response;
+        }) as unknown as typeof fetch;
+    });
+
+    afterEach(() => {
+        globalThis.fetch = realFetch;
+    });
+
+    test("follows the cursor through every history page", async () => {
+        pages = [
+            {
+                ok: true,
+                messages: [{ ts: "2.0", user: "U1", text: "b" }],
+                response_metadata: { next_cursor: "c1" },
+            },
+            {
+                ok: true,
+                messages: [{ ts: "1.0", user: "U1", text: "a" }],
+                response_metadata: { next_cursor: "" },
+            },
+        ];
+        const messages = await createSlackClient("x").history("D1");
+        expect(messages.map((message) => message.text)).toEqual(["a", "b"]);
+        expect(calls).toEqual(["", "c1"]);
+    });
+
+    test("follows the cursor through every thread page", async () => {
+        pages = [
+            {
+                ok: true,
+                messages: [{ ts: "1.0", user: "U1", text: "question" }],
+                response_metadata: { next_cursor: "c1" },
+            },
+            {
+                ok: true,
+                messages: [{ ts: "2.0", user: "U1", text: "answer" }],
+                response_metadata: { next_cursor: "" },
+            },
+        ];
+        const replies = await createSlackClient("x").replies("D1", "1.0");
+        expect(replies.map((message) => message.text)).toEqual(["answer"]);
+        expect(calls).toEqual(["", "c1"]);
     });
 });
