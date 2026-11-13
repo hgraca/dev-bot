@@ -11,7 +11,7 @@ const project = (name: string, over: Partial<AutobotProject["config"]> = {}): Au
   name,
   path: `/gete/${name}`,
   devbotDir: ".agents",
-  config: { pollJira: false, pollGithub: false, prompts: [], ...over, jiraAssignees: [] },
+  config: { pollJira: false, pollGithub: false, pollSlack: false, prompts: [], ...over, jiraAssignees: [] },
 });
 
 const ticket = (key: string): JiraPollItem => ({

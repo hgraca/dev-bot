@@ -8,6 +8,7 @@ import type { AutobotState } from "./state.ts";
 
 const config = (over: Partial<AutobotConfig> = {}): AutobotConfig => ({ pollJira: true,
   pollGithub: true,
+  pollSlack: false,
   prompts: [],
   ...over, jiraAssignees: [] });
 
