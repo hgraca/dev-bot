@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { repoReference, runSayCommand } from "./cli.ts";
+import { readEnvFile, repoReference, runSayCommand } from "./cli.ts";
 import type { ManagedProject } from "./config.ts";
 
 const projects: ManagedProject[] = [
@@ -120,6 +120,68 @@ describe("say", () => {
         await expect(
             runSayCommand(["hi"], { DEV_BOT_ROOT: "/nope" }, "/nope"),
         ).rejects.toThrow("no ticket");
+    });
+});
+
+describe("say resolves its own credentials", () => {
+    test("reads an exported pair out of the env file", () => {
+        const values = readEnvFile(
+            '# comment\nexport SLACK_BOT_TOKEN=xoxb-1\nJIRA_API_TOKEN="jira"\nnot a pair\n',
+        );
+        expect(values.SLACK_BOT_TOKEN).toBe("xoxb-1");
+        expect(values.JIRA_API_TOKEN).toBe("jira");
+    });
+
+    test("resolves ${SLACK_BOT_TOKEN} from the env file when the child env has none", async () => {
+        const home = mkdtempSync(join(tmpdir(), "autobot-say-env-"));
+        const root = join(home, "repo");
+        mkdirSync(join(root, ".agents"), { recursive: true });
+        writeFileSync(
+            join(root, ".devbot.global.jsonc"),
+            JSON.stringify({ projects: [root] }),
+            "utf8",
+        );
+        writeFileSync(
+            join(root, ".devbot.project.jsonc"),
+            JSON.stringify({
+                autobot: {
+                    poll_slack: true,
+                    slack_user_email: "you@example.com",
+                    slack_bot_token: "${SLACK_BOT_TOKEN}",
+                    jira_assignees: [],
+                },
+            }),
+            "utf8",
+        );
+        const envFile = join(home, "autobot.env");
+        writeFileSync(
+            envFile,
+            "export SLACK_BOT_TOKEN=xoxb-from-file\n",
+            "utf8",
+        );
+        const tokens: string[] = [];
+        const transport = (token: string) => {
+            tokens.push(token);
+            return {
+                resolveUser: async () => "U123",
+                openDm: async () => "D456",
+                post: async () => "1767261600.000100",
+                history: async () => [],
+                replies: async () => [],
+            };
+        };
+        await runSayCommand(
+            ["hello"],
+            {
+                DEV_BOT_ROOT: root,
+                XDG_STATE_HOME: join(home, "state"),
+                DEV_BOT_AUTOBOT_TICKET: "ARC-1",
+                DEV_BOT_AUTOBOT_ENV: envFile,
+            },
+            root,
+            transport as never,
+        );
+        expect(tokens).toEqual(["xoxb-from-file"]);
     });
 });
 

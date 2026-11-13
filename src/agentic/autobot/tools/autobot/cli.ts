@@ -126,6 +126,45 @@ function forgetSession(env: CliEnv, sessionId: string): void {
     }
 }
 
+/**
+ * The `KEY=value` pairs of an `autobot.env` file, read without a shell.
+ *
+ * The file is how the cron entry supplies the credentials, and it is also how `say` resolves them when
+ * running inside an agent: the child environment deliberately carries no `SLACK_*` variable, so the
+ * token is looked up here at the moment it is needed and never becomes something the agent could echo.
+ */
+export function readEnvFile(contents: string): Record<string, string> {
+    const values: Record<string, string> = {};
+    for (const line of contents.split("\n")) {
+        const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(
+            line,
+        );
+        if (!match) continue;
+        const key = match[1] ?? "";
+        let value = (match[2] ?? "").trim();
+        if (
+            (value.startsWith('"') && value.endsWith('"')) ||
+            (value.startsWith("'") && value.endsWith("'"))
+        ) {
+            value = value.slice(1, -1);
+        }
+        if (key !== "") values[key] = value;
+    }
+    return values;
+}
+
+/** The environment plus the pairs from the configured env file; a real variable always wins. */
+function envWithFile(env: CliEnv): CliEnv {
+    const file =
+        env.DEV_BOT_AUTOBOT_ENV ??
+        join(env.HOME ?? "", ".config", "devbot", "autobot.env");
+    try {
+        return { ...readEnvFile(readFileSync(file, "utf8")), ...env };
+    } catch {
+        return env;
+    }
+}
+
 function stateRoot(env: CliEnv): string {
     if (env.XDG_STATE_HOME && env.XDG_STATE_HOME.trim() !== "")
         return env.XDG_STATE_HOME;
@@ -662,9 +701,12 @@ export async function runSayCommand(
     if (!project)
         throw new Error(`autobot say: ${cwd} is not a managed project`);
 
+    // The token is resolved here, at the moment it is needed: the agent's environment carries no
+    // `SLACK_*` variable, so the value comes from the env file instead.
+    const resolved = envWithFile(env);
     const group = slackConnections(
         [project],
-        (value) => resolveEnvReference(value, env),
+        (value) => resolveEnvReference(value, resolved),
         "all",
     )[0];
     if (!group) {
