@@ -25,10 +25,13 @@ export interface GhPullRequest {
 
 export interface GhTicket {
   key: string;
+  /** The configured connection that found the ticket; two sites can share an issue key. */
+  connection?: string;
 }
 
 export interface GithubPollItem {
   key: string;
+  connection?: string;
   pullRequest: GhPullRequest | null;
   /** Human reviews, oldest first. Every one must be addressed, not only the newest. */
   pendingReviews: GhReview[];
@@ -36,7 +39,7 @@ export interface GithubPollItem {
 
 export interface GhTransport {
   /** Pull requests whose title carries the ticket key. */
-  findPullRequests(ticketKey: string): Promise<GhPullRequest[]>;
+  findPullRequests(ticketKey: string, connection?: string): Promise<GhPullRequest[]>;
 }
 
 const STATE_PRIORITY: Record<PullRequestState, number> = { MERGED: 3, OPEN: 2, CLOSED: 1 };
@@ -75,9 +78,12 @@ export async function pollGithub(options: {
   const { tickets, transport } = options;
   const items: GithubPollItem[] = [];
   for (const ticket of tickets) {
-    const pullRequest = selectPullRequest(await transport.findPullRequests(ticket.key));
+    const pullRequest = selectPullRequest(
+      await transport.findPullRequests(ticket.key, ticket.connection),
+    );
     items.push({
       key: ticket.key,
+      connection: ticket.connection,
       pullRequest,
       pendingReviews: pullRequest ? orderedReviews(pullRequest.reviews) : [],
     });

@@ -296,11 +296,11 @@ export function createJiraClient(
  * directory. The caller maps a ticket to a path; an unknown ticket falls back to whatever it chooses.
  */
 export function createGithubTransport(
-  pathForTicket: (ticketKey: string) => string | null,
+  pathForTicket: (ticketKey: string, connection?: string) => string | null,
 ): GhTransport {
   return {
-    async findPullRequests(ticketKey: string): Promise<GhPullRequest[]> {
-      const repositoryPath = pathForTicket(ticketKey);
+    async findPullRequests(ticketKey: string, connection?: string): Promise<GhPullRequest[]> {
+      const repositoryPath = pathForTicket(ticketKey, connection);
       // No checkout means no repository to ask about; the ticket's project was never resolved.
       if (repositoryPath === null) return [];
       const listed = await runCommand(

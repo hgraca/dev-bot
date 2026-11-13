@@ -68,7 +68,10 @@ function isNewerCommentId(candidate: string, previous?: string): boolean {
 export function decideFollowups(input: FollowupInput): FollowupAction[] {
   const { jira, github, config, instance } = input;
   const live = new Set(input.liveInstances ?? [instance]);
-  const githubByKey = new Map(github.map((item) => [item.key, item]));
+  // Two Jira sites can return the same issue key, so the identity is the pair.
+  const ticketId = (item: { key: string; connection?: string }) =>
+    `${item.connection ?? ""}\u0000${item.key}`;
+  const githubByKey = new Map(github.map((item) => [ticketId(item), item]));
   const actions: FollowupAction[] = [];
 
   for (const ticket of jira) {
@@ -93,7 +96,7 @@ export function decideFollowups(input: FollowupInput): FollowupAction[] {
       continue;
     }
 
-    const githubItem = githubByKey.get(ticket.key);
+    const githubItem = githubByKey.get(ticketId(ticket));
     const pullRequest = githubItem?.pullRequest ?? null;
 
     // Terminal states belong to a session AutoBot started; a fresh ticket that happens to match an

@@ -20,7 +20,8 @@ Two independent halves, in this order:
    serialised, one lock per tick.
 
 A ticket carrying the `auto-bot` label is worked to an open pull request, with a human answering
-questions in Jira and merging. Every comment AutoBot writes ends with `authored by AutoBot` — that
+questions in Jira and merging. The `[repo]` prefix pins the checkout; without one, the session starts
+at the workspace root and resolves the owning project itself. Every comment AutoBot writes ends with `authored by AutoBot` — that
 signature is how it tells its own replies from a human's, so no separate bot identity is needed. Each ticket carries its session in the `Autobot session` field
 (`customfield_10877`), so a continuation resumes the same opencode session rather than starting over.
 
@@ -32,16 +33,27 @@ signature is how it tells its own replies from a human's, so no separate bot ide
   "autobot": {
     "poll_jira": false, // deterministic Jira follow-up poll
     "poll_github": false, // deterministic GitHub follow-up poll
+    "jira_base_url": "https://getinfo.atlassian.net",
+    "jira_email": "you@example.com",
+    // this is needed in the cron job: set JIRA_API_TOKEN in ~/.config/devbot/autobot.env
+    // (export JIRA_API_TOKEN=paste-the-token-here) or put the token directly here
+    "jira_api_token": "${JIRA_API_TOKEN}",
     "prompts": [
-      // { "schedule": "*/5 * * * *", "prompt": "/devbot:autobot-scan" }
-    ],
-  },
+      // { "schedule": "*/5 * * * *", "prompt": "/devbot:autobot-work ARC-1017" }
+    ]
+  }
 }
 ```
 
-Every key defaults to off. A project is active only when at least one of the three is enabled, and it
-is skipped unless a devbot harness is running there — the watch is the one lock file per PID the
-harness start script writes under `<devbot_dir>/state/devbot/`.
+Every switch defaults to off, and the block is inert until one is enabled. A project is skipped unless
+a devbot harness is running there — the watch is the one lock file per PID the harness start script
+writes under `<devbot_dir>/state/devbot/`.
+
+Each instance is independent: projects are grouped by the connection they configure, each group is
+polled with its own connection, and a ticket is answered with the connection of the project that owns
+it. Two projects pointing at different Jira sites is a normal setup, not an error. The token may be a
+literal, in which case it lives in this file — or `${VAR}` (devbot's canonical form is `{env:VAR}`),
+resolved at tick time from the environment the cron entry sources.
 
 ## What runs on a schedule
 
@@ -56,13 +68,12 @@ The entry sources `${XDG_CONFIG_HOME:-~/.config}/devbot/autobot.env` first, beca
 environment. That file provides:
 
 ```bash
-export JIRA_BASE_URL=https://getinfo.atlassian.net
-export JIRA_EMAIL=you@example.com
 export JIRA_API_TOKEN=…
 ```
 
-There is no bot account: the label is the trigger, and the signature on every comment is what keeps
-AutoBot from answering itself.
+That file holds the secret only. `jira_base_url` and `jira_email` live in the project config, and there
+is no bot account: the label is the trigger, and the signature on every comment is what keeps AutoBot
+from answering itself.
 
 `DEV_BOT_AUTOBOT=off` skips registration; installing as root is refused, because root's crontab has
 none of the user's opencode store, `gh` login or checkouts.

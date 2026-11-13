@@ -34,6 +34,8 @@ export interface JiraTicket {
 export interface JiraPollItem extends JiraTicket {
   /** Human comments, oldest first. Every one must be answered, not only the newest. */
   pendingComments: JiraComment[];
+  /** Which configured connection found this ticket; two sites can share an issue key. */
+  connection?: string;
 }
 
 export interface RawJiraIssue {

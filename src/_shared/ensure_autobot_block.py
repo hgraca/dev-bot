@@ -25,6 +25,13 @@ BLOCK = """  // AutoBot: scheduled agent work for this project. Everything is of
   "autobot": {
     "poll_jira": false,
     "poll_github": false,
+    // The Jira connection is per project, and ${VAR} is resolved at tick time from the
+    // environment the cron entry sources (~/.config/devbot/autobot.env).
+    // "jira_base_url": "https://getinfo.atlassian.net",
+    // "jira_email": "you@example.com",
+    // this is needed in the cron job: set JIRA_API_TOKEN in ~/.config/devbot/autobot.env
+    // (export JIRA_API_TOKEN=paste-the-token-here) or put the token directly here
+    // "jira_api_token": "${JIRA_API_TOKEN}",
     "prompts": []
   }"""
 

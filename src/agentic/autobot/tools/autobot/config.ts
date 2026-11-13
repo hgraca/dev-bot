@@ -18,6 +18,10 @@ export interface AutobotConfig {
   pollJira: boolean;
   pollGithub: boolean;
   prompts: AutobotPrompt[];
+  /** Jira connection for the projects AutoBot works. Values may be environment references. */
+  jiraBaseUrl?: string;
+  jiraEmail?: string;
+  jiraApiToken?: string;
 }
 
 export interface ManagedProject {
@@ -142,6 +146,14 @@ function readFlag(value: unknown, key: string, where: string): boolean {
   return value;
 }
 
+function optionalConnection(value: unknown, key: string, where: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${where}: "autobot.${key}" must be a non-empty string`);
+  }
+  return value.trim();
+}
+
 function readPrompts(value: unknown, where: string): AutobotPrompt[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
@@ -176,11 +188,85 @@ export function parseAutobotConfig(config: unknown, source: string): AutobotConf
     throw new Error(`${source}: "autobot" must be an object`);
   }
   const block = raw as Record<string, unknown>;
-  return {
+  const connection = {
+    baseUrl: optionalConnection(block.jira_base_url, "jira_base_url", source),
+    email: optionalConnection(block.jira_email, "jira_email", source),
+    token: optionalConnection(block.jira_api_token, "jira_api_token", source),
+  };
+  const set = Object.values(connection).filter((value) => value !== undefined).length;
+  if (set !== 0 && set !== 3) {
+    throw new Error(
+      `${source}: "autobot" sets ${set} of jira_base_url, jira_email and jira_api_token — all three or none`,
+    );
+  }
+  const parsed: AutobotConfig = {
     pollJira: readFlag(block.poll_jira, "poll_jira", source),
     pollGithub: readFlag(block.poll_github, "poll_github", source),
     prompts: readPrompts(block.prompts, source),
   };
+  // Only carry the connection when it is configured: an absent one must not appear as a property.
+  if (connection.baseUrl !== undefined) {
+    parsed.jiraBaseUrl = connection.baseUrl;
+    parsed.jiraEmail = connection.email;
+    parsed.jiraApiToken = connection.token;
+  }
+  if ((parsed.pollJira || parsed.pollGithub) && parsed.jiraBaseUrl === undefined) {
+    throw new Error(
+      `${source}: polling needs jira_base_url, jira_email and jira_api_token in this project`,
+    );
+  }
+  return parsed;
+}
+
+export interface JiraConnection {
+  baseUrl: string;
+  email: string;
+  token: string;
+}
+
+export interface JiraGroup {
+  connection: JiraConnection;
+  /** The projects that use this connection. */
+  projects: AutobotProject[];
+}
+
+/**
+ * The Jira connections the active projects configure, one group per distinct connection.
+ *
+ * Instances are independent and may legitimately point at different Jira sites, so projects are
+ * grouped rather than forced to agree: each poll uses its own connection, and a ticket is answered
+ * with the connection of the project that owns it.
+ */
+export function jiraConnections(
+  projects: AutobotProject[],
+  resolve: (value: string) => string = (value) => value,
+  /** `polling` is the tick's view; `all` is cleanup's, which must cover every site it scans. */
+  mode: "polling" | "all" = "polling",
+): JiraGroup[] {
+  const groups = new Map<string, JiraGroup>();
+  for (const project of projects) {
+    // A project that only runs prompts has no business being polled by the tick; its site would
+    // otherwise be queried, and a bad variable there could abort the tick before its prompts ran.
+    if (mode === "polling" && !project.config.pollJira && !project.config.pollGithub) continue;
+    const { jiraBaseUrl, jiraEmail, jiraApiToken } = project.config;
+    if (!jiraBaseUrl || !jiraEmail || !jiraApiToken) continue;
+    // Group by the resolved values: `${VAR}` and `{env:VAR}` name the same instance, and two
+    // variables holding the same value do too.
+    const connection = {
+      // Normalised the same way the client does it, so a trailing slash cannot split one site in two.
+      baseUrl: resolve(jiraBaseUrl).replace(/\/+$/, ""),
+      email: resolve(jiraEmail),
+      token: resolve(jiraApiToken),
+    };
+    const key = `${connection.baseUrl}\u0000${connection.email}\u0000${connection.token}`;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.projects.push(project);
+      continue;
+    }
+    groups.set(key, { connection, projects: [project] });
+  }
+  return [...groups.values()];
 }
 
 /** True when the block does any work. An all-defaults block is inert. */

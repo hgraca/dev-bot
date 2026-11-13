@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveProjectFromSummary } from "./cli.ts";
+import { repoReference } from "./cli.ts";
 import type { ManagedProject } from "./config.ts";
 
 const projects: ManagedProject[] = [
@@ -8,28 +8,36 @@ const projects: ManagedProject[] = [
   { name: "dev-bot", path: "/gete/dev-bot", devbotDir: ".agents" },
 ];
 
-describe("resolveProjectFromSummary", () => {
-  test("reads the bracketed repo prefix", () => {
-    expect(resolveProjectFromSummary("[dev-bot] add a thing", projects)?.name).toBe("dev-bot");
+describe("repoReference", () => {
+  test("finds the bracketed repo prefix", () => {
+    const reference = repoReference("[dev-bot] add a thing", projects);
+    expect(reference.kind).toBe("found");
+    expect(reference.kind === "found" && reference.project.name).toBe("dev-bot");
   });
 
   test("maps the transfers alias onto core", () => {
-    expect(resolveProjectFromSummary("[transfers] bump dev-tools", projects)?.name).toBe("core");
+    const reference = repoReference("[transfers] bump dev-tools", projects);
+    expect(reference.kind === "found" && reference.project.name).toBe("core");
   });
 
   test("ignores case", () => {
-    expect(resolveProjectFromSummary("[Dev-Bot] x", projects)?.name).toBe("dev-bot");
+    const reference = repoReference("[Dev-Bot] x", projects);
+    expect(reference.kind === "found" && reference.project.name).toBe("dev-bot");
   });
 
-  test("is null without a prefix", () => {
-    expect(resolveProjectFromSummary("no repo named here", projects)).toBeNull();
+  test("reports no prefix as none", () => {
+    expect(repoReference("no repo named here", projects)).toEqual({ kind: "none" });
   });
 
-  test("is null for a repo that is not a managed project", () => {
-    expect(resolveProjectFromSummary("[unknown] x", projects)).toBeNull();
+  test("reports an unknown prefix as unknown, not none", () => {
+    expect(repoReference("[not-a-managed-repo] x", projects)).toEqual({
+      kind: "unknown",
+      name: "not-a-managed-repo",
+    });
   });
 
   test("copes with leading whitespace", () => {
-    expect(resolveProjectFromSummary("   [core] x", projects)?.name).toBe("core");
+    const reference = repoReference("   [core] x", projects);
+    expect(reference.kind === "found" && reference.project.name).toBe("core");
   });
 });
