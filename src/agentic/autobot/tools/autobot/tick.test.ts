@@ -40,6 +40,7 @@ function fakeDeps(overrides: Partial<TickDeps> = {}) {
     now: new Date(2026, 10, 11, 18, 30, 0, 0),
     runningDevbot: () => true,
     tryLock: () => lock,
+    handleSlack: async () => ({ answered: [], reminded: [] }),
     pollJira: async () => {
       calls.push("pollJira");
       return [];
@@ -82,6 +83,28 @@ describe("mergeConfigs", () => {
 });
 
 describe("runTick", () => {
+  test("answers slack before it polls", async () => {
+    const calls: string[] = [];
+    const { deps } = (() => {
+      const built = fakeDeps();
+      return built;
+    })();
+    const result = await runTick({
+      ...deps,
+      handleSlack: async () => {
+        calls.push("slack");
+        return { answered: ["ARC-1"], reminded: [] };
+      },
+      pollJira: async () => {
+        calls.push("pollJira");
+        return [];
+      },
+      projects: [project("a", { pollJira: true })],
+    });
+    expect(calls).toEqual(["slack", "pollJira"]);
+    expect(result.slack.answered).toEqual(["ARC-1"]);
+  });
+
   test("skips when another tick holds the lock", async () => {
     const { deps, calls } = fakeDeps({ tryLock: () => null, projects: [project("a")] });
     const report = await runTick(deps);

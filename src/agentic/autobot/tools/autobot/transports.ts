@@ -24,12 +24,14 @@ export async function runCommand(
   command: string,
   args: string[],
   cwd: string,
+  env?: Record<string, string>,
 ): Promise<CommandResult> {
   const proc = Bun.spawn([command, ...args], {
     cwd,
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
+    ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
   });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -338,7 +340,7 @@ export async function runAgent(
   if (request.session) args.push("--session", request.session);
   args.push(request.prompt);
 
-  const result = await runCommand(command, args, request.project.path);
+  const result = await runCommand(command, args, request.project.path, request.env);
   if (result.code !== 0) {
     return { ok: false, summary: result.stderr.trim() || `opencode exited ${result.code}` };
   }

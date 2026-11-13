@@ -5,6 +5,7 @@
  * environment and process boundaries.
  */
 
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ import {
   collectOptedInProjects,
   effectiveAssignees,
   jiraConnections,
+  slackConnections,
   parseJsonc,
   type AutobotProject,
   type ManagedProject,
@@ -22,10 +24,13 @@ import type { ExecutorDeps } from "./executor.ts";
 import { executeAction } from "./executor.ts";
 import { pollGithub } from "./github.ts";
 import { resolveEnvReference } from "./envref.ts";
+import { PARK_PHASES, parsePark, serialisePark, type Park, type ParkPhase } from "./park.ts";
 import { pollJira } from "./jira.ts";
 import { projectHasRunningDevbot, sweepDeadLocks } from "./lock.ts";
 import { acquireMutex } from "./mutex.ts";
 import { serialiseState } from "./state.ts";
+import { createSlackClient, type SlackTransport } from "./slack.ts";
+import { answerPrompt, runSlackPass } from "./slackrun.ts";
 import { runTick, type TickReport } from "./tick.ts";
 import {
   createGithubTransport,
@@ -113,6 +118,103 @@ function jiraClients(
   }));
 }
 
+/** Per-connection conversation state: who the bot talks to, in which channel, and how far it read. */
+interface ConversationState {
+  userId: string;
+  channelId: string;
+  /** Newest message already handled. */
+  watermark?: string;
+  /** Thread per ticket, so a ticket's conversation stays contiguous. */
+  threads?: Record<string, string>;
+}
+
+function slackRoot(env: CliEnv): string {
+  return join(stateRoot(env), "devbot", "autobot", "slack");
+}
+
+/**
+ * The on-disk name of a connection. The email and token are hashed rather than used: a token is a
+ * credential and has no business in a path.
+ */
+function connectionKey(email: string, token: string): string {
+  return createHash("sha256").update(`${email}\u0000${token}`).digest("hex").slice(0, 16);
+}
+
+function readConversation(env: CliEnv, key: string): ConversationState | null {
+  try {
+    const raw = JSON.parse(readFileSync(join(slackRoot(env), `${key}.json`), "utf8")) as unknown;
+    if (raw === null || typeof raw !== "object") return null;
+    const record = raw as Record<string, unknown>;
+    if (typeof record.userId !== "string" || typeof record.channelId !== "string") return null;
+    return {
+      userId: record.userId,
+      channelId: record.channelId,
+      ...(typeof record.watermark === "string" ? { watermark: record.watermark } : {}),
+      ...(record.threads !== null && typeof record.threads === "object"
+        ? { threads: record.threads as Record<string, string> }
+        : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeConversation(env: CliEnv, key: string, state: ConversationState): void {
+  mkdirSync(slackRoot(env), { recursive: true });
+  writeFileSync(join(slackRoot(env), `${key}.json`), JSON.stringify(state), "utf8");
+}
+
+function parksDir(env: CliEnv, key: string): string {
+  return join(slackRoot(env), "parks", key);
+}
+
+function readParks(env: CliEnv, key: string): Park[] {
+  const dir = parksDir(env, key);
+  let names: string[] = [];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const parks: Park[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    try {
+      parks.push(parsePark(JSON.parse(readFileSync(join(dir, name), "utf8"))));
+    } catch {
+      // A park that cannot be read is left alone: deleting it would lose a question the user saw.
+      console.warn(`WARN: unreadable park ${join(dir, name)}`);
+    }
+  }
+  return parks;
+}
+
+function writePark(env: CliEnv, key: string, park: Park): void {
+  const dir = parksDir(env, key);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, `${park.ticket}.json`), serialisePark(park), "utf8");
+}
+
+function clearPark(env: CliEnv, key: string, ticket: string): void {
+  rmSync(join(parksDir(env, key), `${ticket}.json`), { force: true });
+}
+
+/** Resolve the conversation once and keep it: the user id and channel never change. */
+async function conversation(
+  client: SlackTransport,
+  email: string,
+  env: CliEnv,
+  key: string,
+): Promise<ConversationState> {
+  const cached = readConversation(env, key);
+  if (cached) return cached;
+  const userId = await client.resolveUser(email);
+  const channelId = await client.openDm(userId);
+  const state: ConversationState = { userId, channelId };
+  writeConversation(env, key, state);
+  return state;
+}
+
 function stateDirFor(project: AutobotProject): string {
   return join(project.path, project.devbotDir, "state", "devbot");
 }
@@ -154,6 +256,13 @@ export async function runTickCommand(env: CliEnv = process.env): Promise<TickRep
   // Poll only the projects whose harness is running: a stopped project's site must not produce work.
   const live = projects.filter((project) => projectHasRunningDevbot(stateDirFor(project)));
   const jiraGroups = jiraClients(live, env);
+  const slackGroups = slackConnections(live, (value) => resolveEnvReference(value, env)).map(
+    (group) => ({
+      ...group,
+      key: connectionKey(group.connection.email, group.connection.token),
+      client: createSlackClient(group.connection.token),
+    }),
+  );
 
   // With no repository named, the session starts at the workspace root: every sibling checkout is
   // under it, and the agent resolves the owning project from the files it touches.
@@ -215,11 +324,59 @@ export async function runTickCommand(env: CliEnv = process.env): Promise<TickRep
       recordSessionIndex(env, sessionId);
       return Promise.resolve();
     },
+    attachSession: async (ticketKey, session) => {
+      // A question asked during the run that created the session cannot name it; this is where the
+      // id becomes known.
+      for (const group of slackGroups) {
+        const park = readParks(env, group.key).find((entry) => entry.ticket === ticketKey);
+        if (park) writePark(env, group.key, { ...park, session });
+      }
+    },
   });
 
   const depsByConnection = new Map(
     jiraGroups.map((group) => [group.id, depsFor(group.client, group.id)]),
   );
+
+  const handleSlack = async (): Promise<{ answered: string[]; reminded: string[] }> => {
+    const answered: string[] = [];
+    const reminded: string[] = [];
+    for (const group of slackGroups) {
+      const store = await conversation(group.client, group.connection.email, env, group.key);
+      const report = await runSlackPass({
+        now: new Date(),
+        channel: store.channelId,
+        connection: store.userId,
+        watermark: store.watermark,
+        parks: () => readParks(env, group.key),
+        history: (oldest) => group.client.history(store.channelId, oldest),
+        answer: async (park, text) => {
+          // The park names its project, so a reply resumes in the checkout the work belongs to.
+          const project = live.find((candidate) => candidate.name === park.project);
+          if (!project) return { ok: false, reason: `project ${park.project} is not running` };
+          const result = await runAgent({
+            project: { name: project.name, path: project.path },
+            session: park.session ?? null,
+            ticketKey: park.ticket,
+            prompt: answerPrompt(park, text),
+            env: {
+              DEV_BOT_AUTOBOT_TICKET: park.ticket,
+              ...(park.session === undefined ? {} : { DEV_BOT_AUTOBOT_SESSION: park.session }),
+            },
+          });
+          return { ok: result.ok, reason: result.summary, session: result.session };
+        },
+        post: (text, threadTs) => group.client.post(store.channelId, text, threadTs),
+        savePark: (park) => writePark(env, group.key, park),
+        clearPark: (ticket) => clearPark(env, group.key, ticket),
+        log: (message) => console.log(message),
+      });
+      answered.push(...report.answered);
+      reminded.push(...report.reminded);
+      writeConversation(env, group.key, { ...store, watermark: report.watermark });
+    }
+    return { answered, reminded };
+  };
 
   return runTick({
     instance,
@@ -227,6 +384,7 @@ export async function runTickCommand(env: CliEnv = process.env): Promise<TickRep
     now: new Date(),
     runningDevbot: (project) => projectHasRunningDevbot(stateDirFor(project)),
     tryLock: () => acquireMutex(join(stateRoot(env), "devbot", "autobot", "tick.lock")),
+    handleSlack,
     pollJira: async () => {
       if (jiraGroups.length === 0) {
         throw new Error(
@@ -270,6 +428,95 @@ export async function runTickCommand(env: CliEnv = process.env): Promise<TickRep
     },
     log: (message) => console.log(message),
   });
+}
+
+export interface SayOptions {
+  text: string;
+  ticket: string;
+  phase?: ParkPhase;
+}
+
+/**
+ * `autobot say` — post one message to the user's direct message, and optionally park the run.
+ *
+ * The agent calls this instead of holding a Slack token: the token is resolved here from the project
+ * configuration and never enters the prompt. The ticket comes from the environment the executor set,
+ * so the agent does not have to name it on every line.
+ *
+ * `--ask` writes the park record. That record is what turns "I asked" into "the next tick knows a
+ * reply is expected" — without it the question would be a message nobody is waiting for.
+ */
+export async function runSayCommand(
+  argv: string[],
+  env: CliEnv = process.env,
+  cwd: string = process.cwd(),
+  transport: (token: string) => SlackTransport = createSlackClient,
+): Promise<{ posted: boolean; ticket: string; threadTs: string }> {
+  let phase: ParkPhase | undefined;
+  let ticket = env.DEV_BOT_AUTOBOT_TICKET ?? "";
+  const words: string[] = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i] ?? "";
+    if (arg === "--ask") continue;
+    if (arg === "--phase") {
+      phase = argv[++i] as ParkPhase;
+      continue;
+    }
+    if (arg === "--ticket") {
+      ticket = argv[++i] ?? "";
+      continue;
+    }
+    words.push(arg);
+  }
+  const text = words.join(" ").trim();
+  if (text === "") throw new Error("autobot say: no message given");
+  if (ticket === "") {
+    throw new Error("autobot say: no ticket — pass --ticket KEY or run from an AutoBot session");
+  }
+
+  const root = required(env, "DEV_BOT_ROOT");
+  const projects = loadProjects(root);
+  const project =
+    projects.find((candidate) => candidate.path === cwd) ??
+    projects.find((candidate) => cwd.startsWith(`${candidate.path}/`));
+  if (!project) throw new Error(`autobot say: ${cwd} is not a managed project`);
+
+  const group = slackConnections([project], (value) => resolveEnvReference(value, env), "all")[0];
+  if (!group) {
+    throw new Error(
+      `autobot say: ${project.name} has no slack_user_email and slack_bot_token configured`,
+    );
+  }
+
+  const client = transport(group.connection.token);
+  const key = connectionKey(group.connection.email, group.connection.token);
+  const store = await conversation(client, group.connection.email, env, key);
+  const threadTs = store.threads?.[ticket];
+  const posted = await client.post(store.channelId, text, threadTs);
+  // The first message of a ticket opens its thread; every later one joins it.
+  const thread = threadTs ?? posted;
+  writeConversation(env, key, { ...store, threads: { ...(store.threads ?? {}), [ticket]: thread } });
+
+  if (phase !== undefined) {
+    if (!(PARK_PHASES as readonly string[]).includes(phase)) {
+      throw new Error(`autobot say: --phase must be one of ${PARK_PHASES.join(", ")}`);
+    }
+    writePark(env, key, {
+      ticket,
+      project: project.name,
+      connection: store.userId,
+      channel: store.channelId,
+      threadTs: thread,
+      phase,
+      question: text,
+      askedAt: posted,
+      ...(env.DEV_BOT_AUTOBOT_SESSION === undefined || env.DEV_BOT_AUTOBOT_SESSION === ""
+        ? {}
+        : { session: env.DEV_BOT_AUTOBOT_SESSION }),
+    });
+  }
+
+  return { posted: true, ticket, threadTs: thread };
 }
 
 /**

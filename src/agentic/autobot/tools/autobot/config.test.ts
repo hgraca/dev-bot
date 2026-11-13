@@ -725,7 +725,7 @@ describe("collectOptedInProjects", () => {
 
 describe("slack", () => {
     const PAIR = {
-        slack_user_id: "U123",
+        slack_user_email: "you@example.com",
         slack_bot_token: "${SLACK_BOT_TOKEN}",
     };
 
@@ -736,15 +736,18 @@ describe("slack", () => {
         );
         expect(config).toMatchObject({
             pollSlack: true,
-            slackUserId: "U123",
+            slackUserEmail: "you@example.com",
             slackBotToken: "${SLACK_BOT_TOKEN}",
         });
     });
 
     test("rejects half a pair", () => {
         expect(() =>
-            parseAutobotConfig({ autobot: { slack_user_id: "U123" } }, "p"),
-        ).toThrow("sets 1 of slack_user_id and slack_bot_token");
+            parseAutobotConfig(
+        { autobot: { slack_user_email: "you@example.com", jira_assignees: [] } },
+        "p",
+      ),
+        ).toThrow("sets 1 of slack_user_email and slack_bot_token");
     });
 
     test("rejects polling without the pair", () => {
@@ -753,7 +756,7 @@ describe("slack", () => {
                 { autobot: { poll_slack: true, jira_assignees: [] } },
                 "p",
             ),
-        ).toThrow("polling slack needs slack_user_id and slack_bot_token");
+        ).toThrow("polling slack needs slack_user_email and slack_bot_token");
     });
 
     test("counts as active on its own", () => {
@@ -779,7 +782,7 @@ describe("slack", () => {
                 pollSlack: true,
                 prompts: [],
                 jiraAssignees: [],
-                slackUserId: "U123",
+                slackUserEmail: "you@example.com",
                 slackBotToken: "${SLACK_BOT_TOKEN}",
             },
         });
@@ -789,12 +792,34 @@ describe("slack", () => {
         );
         expect(groups).toHaveLength(1);
         expect(groups[0]?.connection).toEqual({
-            userId: "U123",
+            email: "you@example.com",
             token: "xoxb-1",
         });
         expect(groups[0]?.projects.map((entry) => entry.name)).toEqual([
             "a",
             "b",
+        ]);
+    });
+
+    test("keeps two people apart", () => {
+        const project = (name: string, email: string): AutobotProject => ({
+            name,
+            path: `/gete/${name}`,
+            devbotDir: ".agents",
+            config: {
+                pollJira: false,
+                pollGithub: false,
+                pollSlack: true,
+                prompts: [],
+                jiraAssignees: [],
+                slackUserEmail: email,
+                slackBotToken: "xoxb-1",
+            },
+        });
+        const groups = slackConnections([project("a", "one@example.com"), project("b", "two@example.com")]);
+        expect(groups.map((group) => group.connection.email)).toEqual([
+            "one@example.com",
+            "two@example.com",
         ]);
     });
 });

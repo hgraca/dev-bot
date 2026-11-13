@@ -2,11 +2,11 @@
 /**
  * devbot autobot — scheduled agent work for the projects a devbot harness is running in.
  *
- * The only command today is `tick`: one pass of follow-ups and due prompts, locked so two cron
- * invocations cannot overlap.
+ * `tick` is one locked pass of Slack replies, follow-ups and due prompts; `cleanup` reclaims sessions;
+ * `say` is the agent's own way to talk to the user from inside a run.
  */
 
-import { runCleanupCommand, runTickCommand } from "./cli.ts";
+import { runCleanupCommand, runSayCommand, runTickCommand } from "./cli.ts";
 
 async function main(argv: string[]): Promise<number> {
   const [command] = argv;
@@ -20,7 +20,12 @@ async function main(argv: string[]): Promise<number> {
     console.log(JSON.stringify(report, null, 2));
     return 0;
   }
-  console.error("usage: autobot <tick|cleanup>");
+  if (command === "say") {
+    const result = await runSayCommand(argv.slice(1));
+    console.log(JSON.stringify(result, null, 2));
+    return 0;
+  }
+  console.error("usage: autobot <tick|cleanup|say>");
   return 2;
 }
 

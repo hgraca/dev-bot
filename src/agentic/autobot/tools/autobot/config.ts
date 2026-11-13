@@ -25,7 +25,7 @@ export interface AutobotConfig {
     jiraEmail?: string;
     jiraApiToken?: string;
     /** The one person an unattended run may talk to. Values may be environment references. */
-    slackUserId?: string;
+    slackUserEmail?: string;
     slackBotToken?: string;
     /**
      * Only pick up tickets assigned to one of these people.
@@ -310,9 +310,9 @@ export function parseAutobotConfig(
         );
     }
     const slack = {
-        userId: optionalConnection(
-            block.slack_user_id,
-            "slack_user_id",
+        email: optionalConnection(
+            block.slack_user_email,
+            "slack_user_email",
             source,
         ),
         token: optionalConnection(
@@ -326,7 +326,7 @@ export function parseAutobotConfig(
     ).length;
     if (slackSet !== 0 && slackSet !== 2) {
         throw new Error(
-            `${source}: "autobot" sets ${slackSet} of slack_user_id and slack_bot_token — both or none`,
+            `${source}: "autobot" sets ${slackSet} of slack_user_email and slack_bot_token — both or none`,
         );
     }
     const parsed: AutobotConfig = {
@@ -342,8 +342,8 @@ export function parseAutobotConfig(
         parsed.jiraEmail = connection.email;
         parsed.jiraApiToken = connection.token;
     }
-    if (slack.userId !== undefined) {
-        parsed.slackUserId = slack.userId;
+    if (slack.email !== undefined) {
+        parsed.slackUserEmail = slack.email;
         parsed.slackBotToken = slack.token;
     }
     if (
@@ -356,7 +356,7 @@ export function parseAutobotConfig(
     }
     if (parsed.pollSlack && parsed.slackBotToken === undefined) {
         throw new Error(
-            `${source}: polling slack needs slack_user_id and slack_bot_token in this project`,
+            `${source}: polling slack needs slack_user_email and slack_bot_token in this project`,
         );
     }
     return parsed;
@@ -369,8 +369,8 @@ export interface JiraConnection {
 }
 
 export interface SlackConnection {
-    /** The one person the bot talks to. */
-    userId: string;
+    /** The one person the bot talks to, by email: the id is resolved from it at run time. */
+    email: string;
     token: string;
 }
 
@@ -395,13 +395,13 @@ export function slackConnections(
     const groups = new Map<string, SlackGroup>();
     for (const project of projects) {
         if (mode === "polling" && !project.config.pollSlack) continue;
-        const { slackUserId, slackBotToken } = project.config;
-        if (!slackUserId || !slackBotToken) continue;
+        const { slackUserEmail, slackBotToken } = project.config;
+        if (!slackUserEmail || !slackBotToken) continue;
         const connection = {
-            userId: resolve(slackUserId),
+            email: resolve(slackUserEmail),
             token: resolve(slackBotToken),
         };
-        const key = `${connection.userId}\u0000${connection.token}`;
+        const key = `${connection.email}\u0000${connection.token}`;
         const existing = groups.get(key);
         if (existing) {
             existing.projects.push(project);

@@ -24,6 +24,13 @@ export interface TickDeps {
   runningDevbot(project: AutobotProject): boolean;
   /** The tick-wide mutex; `null` means an earlier tick is still working. */
   tryLock(): MutexHandle | null;
+  /**
+   * Answer the user's Slack replies and remind what is still waiting.
+   *
+   * It runs before the pollers: a reply is a human blocked on progress, while a follow-up comment is
+   * new work that can wait a minute.
+   */
+  handleSlack(): Promise<{ answered: string[]; reminded: string[] }>;
   pollJira(): Promise<JiraPollItem[]>;
   pollGithub(tickets: JiraPollItem[]): Promise<GithubPollItem[]>;
   execute(action: FollowupAction): Promise<ExecutionOutcome>;
@@ -36,6 +43,7 @@ export interface TickReport {
   projects: string[];
   actions: ExecutionOutcome[];
   prompts: string[];
+  slack: { answered: string[]; reminded: string[] };
 }
 
 /** The poll switches of every running project, OR-ed together. Prompts stay per project. */
@@ -49,7 +57,7 @@ export function mergeConfigs(
 }
 
 function emptyReport(skipped: string): TickReport {
-  return { skipped, projects: [], actions: [], prompts: [] };
+  return { skipped, projects: [], actions: [], prompts: [], slack: { answered: [], reminded: [] } };
 }
 
 export async function runTick(deps: TickDeps): Promise<TickReport> {
@@ -71,8 +79,11 @@ export async function runTick(deps: TickDeps): Promise<TickReport> {
       projects: active.map((project) => project.name),
       actions: [],
       prompts: [],
+      slack: { answered: [], reminded: [] },
     };
     const config = mergeConfigs(active);
+
+    report.slack = await deps.handleSlack();
 
     if (config.pollJira || config.pollGithub) {
       const jira = await deps.pollJira();

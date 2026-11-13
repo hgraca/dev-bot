@@ -25,6 +25,8 @@ export interface AgentRunRequest {
   session: string | null;
   ticketKey: string;
   prompt: string;
+  /** Extra environment for the run, so the agent can address its own ticket from `autobot say`. */
+  env?: Record<string, string>;
 }
 
 export interface AgentRunResult {
@@ -57,6 +59,13 @@ export interface ExecutorDeps {
   removeLabel(ticketKey: string, label: string): Promise<void>;
   /** Remember a session this module created, so cleanup never deletes someone else's. */
   recordSession(sessionId: string): Promise<void>;
+  /**
+   * Give a park written during this run the session that owns it.
+   *
+   * The first run of a ticket creates the session, so a question it asks cannot name it: the park is
+   * written mid-run by the agent, and only here is the id known.
+   */
+  attachSession?(ticketKey: string, session: string): Promise<void>;
   resolveProject(ticketKey: string, state: AutobotState | null): ProjectRef | null;
 }
 
@@ -89,12 +98,14 @@ async function start(action: Extract<FollowupAction, { kind: "start" }>, deps: E
     session: null,
     ticketKey: ticket.key,
     prompt: `${START_COMMAND} ${ticket.key}`,
+    env: { DEV_BOT_AUTOBOT_TICKET: ticket.key },
   });
   if (!result.ok || !result.session) {
     return { kind: "start", performed: false, reason: result.summary ?? "agent failed" };
   }
 
   await deps.recordSession(result.session);
+  await deps.attachSession?.(ticket.key, result.session);
   await deps.saveState(ticket.key, {
     instance: deps.instance,
     project: project.name,
@@ -154,6 +165,7 @@ async function resume(
     session: current.session,
     ticketKey: ticket.key,
     prompt,
+    env: { DEV_BOT_AUTOBOT_TICKET: ticket.key, DEV_BOT_AUTOBOT_SESSION: current.session },
   });
   if (!result.ok) {
     return { kind, performed: false, reason: result.summary ?? "agent failed" };

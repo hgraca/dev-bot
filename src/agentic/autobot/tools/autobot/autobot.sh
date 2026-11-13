@@ -7,7 +7,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"autobot","description":"Run one AutoBot tick: Jira/GitHub follow-ups, then due prompts","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: tick"}},"required":["args"]}}
+{"name":"autobot","description":"Run one AutoBot tick, clean up sessions, or message the user","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: tick | cleanup | say [--ask --phase <phase>] <message>"}},"required":["args"]}}
 JSON
     exit 0
     ;;
