@@ -383,6 +383,7 @@ describe("isAutobotActive", () => {
             isAutobotActive({
                 pollJira: false,
                 pollGithub: false,
+                pollSlack: false,
                 prompts: [{ schedule: "* * * * *", prompt: "x" }],
                 jiraAssignees: [],
             }),
@@ -469,6 +470,7 @@ describe("effectiveAssignees", () => {
         config: {
             pollJira: true,
             pollGithub: false,
+            pollSlack: false,
             prompts: [],
             jiraAssignees: [],
             ...over,
@@ -744,9 +746,14 @@ describe("slack", () => {
     test("rejects half a pair", () => {
         expect(() =>
             parseAutobotConfig(
-        { autobot: { slack_user_email: "you@example.com", jira_assignees: [] } },
-        "p",
-      ),
+                {
+                    autobot: {
+                        slack_user_email: "you@example.com",
+                        jira_assignees: [],
+                    },
+                },
+                "p",
+            ),
         ).toThrow("sets 1 of slack_user_email and slack_bot_token");
     });
 
@@ -816,7 +823,10 @@ describe("slack", () => {
                 slackBotToken: "xoxb-1",
             },
         });
-        const groups = slackConnections([project("a", "one@example.com"), project("b", "two@example.com")]);
+        const groups = slackConnections([
+            project("a", "one@example.com"),
+            project("b", "two@example.com"),
+        ]);
         expect(groups.map((group) => group.connection.email)).toEqual([
             "one@example.com",
             "two@example.com",

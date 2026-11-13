@@ -15,17 +15,22 @@ const DOLLAR = /^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
 
 /** The variable name when the value is an environment reference, otherwise null. */
 export function envReference(value: string): string | null {
-  const match = BRACED.exec(value) ?? DOLLAR.exec(value);
-  return match ? match[1]! : null;
+    const match = BRACED.exec(value) ?? DOLLAR.exec(value);
+    return match ? match[1]! : null;
 }
 
 /** Resolve a value that may be an environment reference. Throws when the variable is unset. */
-export function resolveEnvReference(value: string, env: EnvLike = process.env): string {
-  const name = envReference(value);
-  if (name === null) return value;
-  const resolved = env[name];
-  if (resolved === undefined || resolved === "") {
-    throw new Error(`autobot: environment variable ${name} is referenced but not set`);
-  }
-  return resolved;
+export function resolveEnvReference(
+    value: string,
+    env: EnvLike = process.env,
+): string {
+    const name = envReference(value);
+    if (name === null) return value;
+    const resolved = env[name];
+    if (resolved === undefined || resolved === "") {
+        throw new Error(
+            `autobot: environment variable ${name} is referenced but not set`,
+        );
+    }
+    return resolved;
 }

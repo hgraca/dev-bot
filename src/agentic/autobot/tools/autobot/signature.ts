@@ -10,8 +10,8 @@ export const SIGNATURE = "authored by AutoBot";
 
 /** Append the signature unless it is already the final line. */
 export function sign(body: string): string {
-  const trimmed = body.replace(/\s+$/, "");
-  return isSigned(trimmed) ? trimmed : `${trimmed}\n\n${SIGNATURE}`;
+    const trimmed = body.replace(/\s+$/, "");
+    return isSigned(trimmed) ? trimmed : `${trimmed}\n\n${SIGNATURE}`;
 }
 
 /**
@@ -20,6 +20,6 @@ export function sign(body: string): string {
  * be filtered out and never reach the agent.
  */
 export function isSigned(body: string): boolean {
-  const trimmed = body.trimEnd();
-  return trimmed === SIGNATURE || trimmed.endsWith(`\n${SIGNATURE}`);
+    const trimmed = body.trimEnd();
+    return trimmed === SIGNATURE || trimmed.endsWith(`\n${SIGNATURE}`);
 }

@@ -10,49 +10,58 @@
 export type PullRequestState = "OPEN" | "MERGED" | "CLOSED";
 
 export interface GhReview {
-  id: string;
-  authorLogin: string;
-  body: string;
-  submittedAt: string;
+    id: string;
+    authorLogin: string;
+    body: string;
+    submittedAt: string;
 }
 
 export interface GhPullRequest {
-  number: number;
-  url: string;
-  state: PullRequestState;
-  reviews: GhReview[];
+    number: number;
+    url: string;
+    state: PullRequestState;
+    reviews: GhReview[];
 }
 
 export interface GhTicket {
-  key: string;
-  /** The configured connection that found the ticket; two sites can share an issue key. */
-  connection?: string;
+    key: string;
+    /** The configured connection that found the ticket; two sites can share an issue key. */
+    connection?: string;
 }
 
 export interface GithubPollItem {
-  key: string;
-  connection?: string;
-  pullRequest: GhPullRequest | null;
-  /** Human reviews, oldest first. Every one must be addressed, not only the newest. */
-  pendingReviews: GhReview[];
+    key: string;
+    connection?: string;
+    pullRequest: GhPullRequest | null;
+    /** Human reviews, oldest first. Every one must be addressed, not only the newest. */
+    pendingReviews: GhReview[];
 }
 
 export interface GhTransport {
-  /** Pull requests whose title carries the ticket key. */
-  findPullRequests(ticketKey: string, connection?: string): Promise<GhPullRequest[]>;
+    /** Pull requests whose title carries the ticket key. */
+    findPullRequests(
+        ticketKey: string,
+        connection?: string,
+    ): Promise<GhPullRequest[]>;
 }
 
-const STATE_PRIORITY: Record<PullRequestState, number> = { MERGED: 3, OPEN: 2, CLOSED: 1 };
+const STATE_PRIORITY: Record<PullRequestState, number> = {
+    MERGED: 3,
+    OPEN: 2,
+    CLOSED: 1,
+};
 
 /**
  * The pull request that belongs to this ticket: the most advanced state wins, then the highest number.
  */
-export function selectPullRequest(pullRequests: GhPullRequest[]): GhPullRequest | null {
-  if (pullRequests.length === 0) return null;
-  return [...pullRequests].sort((a, b) => {
-    const byState = STATE_PRIORITY[b.state] - STATE_PRIORITY[a.state];
-    return byState !== 0 ? byState : b.number - a.number;
-  })[0];
+export function selectPullRequest(
+    pullRequests: GhPullRequest[],
+): GhPullRequest | null {
+    if (pullRequests.length === 0) return null;
+    return [...pullRequests].sort((a, b) => {
+        const byState = STATE_PRIORITY[b.state] - STATE_PRIORITY[a.state];
+        return byState !== 0 ? byState : b.number - a.number;
+    })[0];
 }
 
 /**
@@ -65,28 +74,34 @@ export function selectPullRequest(pullRequests: GhPullRequest[]): GhPullRequest 
  * equal timestamps — a deterministic tie-break.
  */
 export function orderedReviews(reviews: GhReview[]): GhReview[] {
-  return [...reviews].sort((a, b) =>
-    a.submittedAt < b.submittedAt ? -1 : a.submittedAt > b.submittedAt ? 1 : 0,
-  );
+    return [...reviews].sort((a, b) =>
+        a.submittedAt < b.submittedAt
+            ? -1
+            : a.submittedAt > b.submittedAt
+              ? 1
+              : 0,
+    );
 }
 
 /** One poll pass over the tickets that carry a session. */
 export async function pollGithub(options: {
-  tickets: GhTicket[];
-  transport: GhTransport;
+    tickets: GhTicket[];
+    transport: GhTransport;
 }): Promise<GithubPollItem[]> {
-  const { tickets, transport } = options;
-  const items: GithubPollItem[] = [];
-  for (const ticket of tickets) {
-    const pullRequest = selectPullRequest(
-      await transport.findPullRequests(ticket.key, ticket.connection),
-    );
-    items.push({
-      key: ticket.key,
-      connection: ticket.connection,
-      pullRequest,
-      pendingReviews: pullRequest ? orderedReviews(pullRequest.reviews) : [],
-    });
-  }
-  return items;
+    const { tickets, transport } = options;
+    const items: GithubPollItem[] = [];
+    for (const ticket of tickets) {
+        const pullRequest = selectPullRequest(
+            await transport.findPullRequests(ticket.key, ticket.connection),
+        );
+        items.push({
+            key: ticket.key,
+            connection: ticket.connection,
+            pullRequest,
+            pendingReviews: pullRequest
+                ? orderedReviews(pullRequest.reviews)
+                : [],
+        });
+    }
+    return items;
 }
