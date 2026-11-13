@@ -41,6 +41,9 @@ project is one or the other — there are no profile-plus-overrides.
       "jira_email": "you@example.com",
       "jira_api_token": "${JIRA_API_TOKEN}",
       "jira_assignees": ["you@example.com"],
+      "poll_slack": true,
+      "slack_user_email": "you@example.com",
+      "slack_bot_token": "${SLACK_BOT_TOKEN}",
       "prompts": []
     }
   }
@@ -63,6 +66,10 @@ project is one or the other — there are no profile-plus-overrides.
     "jira_api_token": "${JIRA_API_TOKEN}",
     // Required. Only pick up tickets assigned to these people; [] picks up nothing.
     "jira_assignees": ["you@example.com"],
+    // Talk to one person over Slack. Both or neither; both when poll_slack is on.
+    "poll_slack": false,
+    "slack_user_email": "you@example.com",
+    "slack_bot_token": "${SLACK_BOT_TOKEN}",
     "prompts": [
       // { "schedule": "*/5 * * * *", "prompt": "/devbot:autobot-work ARC-1017" }
     ]
@@ -84,6 +91,35 @@ polled with its own connection, and a ticket is answered with the connection of 
 it. Two projects pointing at different Jira sites is a normal setup, not an error. The token may be a
 literal, in which case it lives in this file — or `${VAR}` (devbot's canonical form is `{env:VAR}`),
 resolved at tick time from the environment the cron entry sources.
+
+## Talking to the user (Slack)
+
+A cron run has nobody at the terminal. Anything the user must know goes to a Slack direct message,
+and anything the agent needs comes back the same way one tick later.
+
+- `slack_user_email` names the one person the bot talks to, and `users.lookupByEmail` turns it into an
+  id — so the configuration carries an address, not a Slack id. The app needs `chat:write`,
+  `im:history`, `im:read` and `users:read.email`.
+- Only that person's replies count. Anyone else in the workspace is ignored, and the bot's own
+  messages carry no author, so it cannot answer itself.
+- Each ticket gets one thread, so its conversation stays contiguous.
+
+### Asking, and parking
+
+A run cannot wait for an answer, so `devbot autobot say --ask --phase <phase> "<question>"` posts the
+question and writes a park record. The run then ends. The next tick reads the reply, starts a fresh
+run with the question and the answer attached, and clears the park.
+
+A parked ticket is reminded hourly, forever: nothing expires and nothing blocks automatically. It is
+reminded only while parked, so a ticket in the middle of a long build is not nagged.
+
+Phases: `refining`, `awaiting_restate`, `awaiting_plan`. A bare reply in the direct message addresses
+the only parked ticket; with several parked, reply in the ticket's thread, because guessing which
+ticket a bare "yes" belongs to is how the wrong pull request gets built.
+
+`devbot autobot say "<message>"` without `--ask` is a plain progress report. The token is resolved by
+the command, so it never enters the agent's context — set `SLACK_BOT_TOKEN` in
+`~/.config/devbot/autobot.env` beside `JIRA_API_TOKEN`.
 
 ## What runs on a schedule
 

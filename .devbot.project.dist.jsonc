@@ -34,6 +34,10 @@
     // "jira_api_token": "${JIRA_API_TOKEN}",
     // Required. Only pick up tickets assigned to these people; [] picks up nothing.
     "jira_assignees": [],
+    // Talk to one person over Slack: the bot resolves the id from this address at tick time.
+    // "poll_slack": false,
+    // "slack_user_email": "you@example.com",
+    // "slack_bot_token": "${SLACK_BOT_TOKEN}",
     "prompts": []
   },
   "auto_recover": {
