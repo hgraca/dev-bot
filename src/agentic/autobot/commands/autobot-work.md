@@ -3,7 +3,10 @@ name: devbot:autobot-work
 description: Work an AutoBot ticket to a pull request, signing every comment.
 ---
 
-Work the ticket below to an open pull request, following `devbot:auto-dev` as you would for any task.
+Work the ticket below to an open pull request, following `devbot:auto-dev` as you would for any task,
+with `devbot:autobot-mode` for everything the unattended run changes.
+
+Load `devbot:autobot-mode` before anything else.
 
 Ticket: $ARGUMENTS
 
