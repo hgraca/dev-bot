@@ -152,14 +152,18 @@ export function matchPark(
  * sites can hand back the same key. Encoding both keeps one park per (project, ticket) and inside the
  * parks directory.
  */
-export function parkFileName(park: {
-    project: string;
-    ticket: string;
-}): string {
+export function threadKey(project: string, ticket: string): string {
     const encode = (value: string): string =>
         value.replace(
             /[^A-Za-z0-9_-]/g,
             (ch) => `%${ch.charCodeAt(0).toString(16)}`,
         );
-    return `${encode(park.project)}--${encode(park.ticket)}.json`;
+    return `${encode(project)}--${encode(ticket)}`;
+}
+
+export function parkFileName(park: {
+    project: string;
+    ticket: string;
+}): string {
+    return `${threadKey(park.project, park.ticket)}.json`;
 }

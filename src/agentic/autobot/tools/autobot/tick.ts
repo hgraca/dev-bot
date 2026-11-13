@@ -77,12 +77,17 @@ export async function runTick(deps: TickDeps): Promise<TickReport> {
     }
 
     try {
+        // Slack runs before the harness gate. A parked ticket was promised a reminder, and that
+        // promise does not lapse because the user closed their harness: reminders keep coming while
+        // the ticket waits, even though no new work is picked up.
+        const slack = await deps.handleSlack();
+
         const active = deps.projects.filter((project) =>
             deps.runningDevbot(project),
         );
         if (active.length === 0) {
             deps.log("skipped: no project has a running devbot harness");
-            return emptyReport("no running devbot");
+            return { ...emptyReport("no running devbot"), slack };
         }
 
         const report: TickReport = {
@@ -90,11 +95,9 @@ export async function runTick(deps: TickDeps): Promise<TickReport> {
             projects: active.map((project) => project.name),
             actions: [],
             prompts: [],
-            slack: { answered: [], reminded: [] },
+            slack,
         };
         const config = mergeConfigs(active);
-
-        report.slack = await deps.handleSlack();
 
         if (config.pollJira || config.pollGithub) {
             const jira = await deps.pollJira();

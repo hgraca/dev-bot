@@ -233,3 +233,17 @@ describe("runTick", () => {
         expect(wasReleased()).toBe(true);
     });
 });
+
+describe("slack without a harness", () => {
+    test("reminds even when no project has a running harness", async () => {
+        const { deps } = fakeDeps();
+        const result = await runTick({
+            ...deps,
+            projects: [project("a", { pollJira: true })],
+            runningDevbot: () => false,
+            handleSlack: async () => ({ answered: [], reminded: ["ARC-1"] }),
+        });
+        expect(result.skipped).toBe("no running devbot");
+        expect(result.slack.reminded).toEqual(["ARC-1"]);
+    });
+});

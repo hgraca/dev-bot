@@ -40,6 +40,7 @@ import {
     parkFileName,
     parsePark,
     serialisePark,
+    threadKey,
     type Park,
     type ParkPhase,
 } from "./park.ts";
@@ -671,13 +672,15 @@ export async function runSayCommand(
     const client = transport(group.connection.token);
     const key = connectionKey(group.connection.email, group.connection.token);
     const store = await conversation(client, group.connection.email, env, key);
-    const threadTs = store.threads?.[ticket];
+    // Keyed by project as well as ticket: two sites can share a key on one connection.
+    const keyed = threadKey(project.name, ticket);
+    const threadTs = store.threads?.[keyed];
     const posted = await client.post(store.channelId, text, threadTs);
     // The first message of a ticket opens its thread; every later one joins it.
     const thread = threadTs ?? posted;
     writeConversation(env, key, {
         ...store,
-        threads: { ...(store.threads ?? {}), [ticket]: thread },
+        threads: { ...(store.threads ?? {}), [keyed]: thread },
     });
 
     if (ask && phase !== undefined) {

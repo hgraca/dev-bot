@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
     isReminderDue,
     parkFileName,
+    threadKey,
     matchPark,
     parsePark,
     REMIND_AFTER_MS,
@@ -124,6 +125,10 @@ describe("parkFileName", () => {
         });
         expect(name).not.toContain("/");
         expect(name.endsWith(".json")).toBe(true);
+    });
+
+    test("threads are keyed by project too", () => {
+        expect(threadKey("a", "ARC-1")).not.toBe(threadKey("b", "ARC-1"));
     });
 
     test("separates two sites that share a key", () => {
