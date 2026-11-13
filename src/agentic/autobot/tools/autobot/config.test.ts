@@ -6,6 +6,7 @@ import {
   defaultAutobotConfig,
   isAutobotActive,
   parseAutobotConfig,
+  parseAutobotProfiles,
   parseJsonc,
   parseManagedProjects,
   stripJsonc,
@@ -184,8 +185,49 @@ describe("parseAutobotConfig", () => {
     ).toThrow(/unsupported characters/);
   });
 
-  test("rejects an autobot block that is not an object", () => {
-    expect(() => parseAutobotConfig({ autobot: [] }, "p")).toThrow(/"autobot" must be an object/);
+  test("rejects an autobot block that is neither a name nor an object", () => {
+    expect(() => parseAutobotConfig({ autobot: [] }, "p")).toThrow(
+      /must be a profile name or an object/,
+    );
+  });
+
+  test("resolves a profile reference", () => {
+    const profiles = { "gete-jira": { poll_jira: true, ...CONN } };
+    const config = parseAutobotConfig({ autobot: "gete-jira" }, "p", profiles);
+    expect(config?.pollJira).toBe(true);
+    expect(config?.jiraBaseUrl).toBe(CONN.jira_base_url);
+  });
+
+  test("rejects an unknown profile", () => {
+    expect(() => parseAutobotConfig({ autobot: "nope" }, "p", {})).toThrow(
+      /names unknown profile "nope"/,
+    );
+  });
+
+  test("does not resolve an inherited property as a profile", () => {
+    expect(() => parseAutobotConfig({ autobot: "__proto__" }, "p", {})).toThrow(
+      /names unknown profile "__proto__"/,
+    );
+  });
+
+  test("rejects a profile whose value is null", () => {
+    expect(() => parseAutobotConfig({ autobot: "broken" }, "p", { broken: null })).toThrow(
+      /autobot profile "broken" must be an object/,
+    );
+  });
+
+  test("rejects an empty profile name", () => {
+    expect(() => parseAutobotConfig({ autobot: "  " }, "p", {})).toThrow(/names an empty profile/);
+  });
+
+  test("prefers the inline block over any profile", () => {
+    const profiles = { "gete-jira": { poll_jira: true, ...CONN } };
+    const config = parseAutobotConfig(
+      { autobot: { poll_jira: false, prompts: [] } },
+      "p",
+      profiles,
+    );
+    expect(config?.pollJira).toBe(false);
   });
 
   test("rejects a project config that is not an object", () => {
@@ -320,6 +362,18 @@ describe("jiraConnections", () => {
   });
 });
 
+describe("parseAutobotProfiles", () => {
+  test("is empty when the global config declares none", () => {
+    expect(parseAutobotProfiles({})).toEqual({});
+  });
+
+  test("rejects a profiles map that is not an object", () => {
+    expect(() => parseAutobotProfiles({ autobot: [] })).toThrow(
+      /must be an object of named profiles/,
+    );
+  });
+});
+
 describe("collectOptedInProjects", () => {
   const global = { projects: ["/gete/core", "/gete/dev-bot", "/gete/portal"] };
 
@@ -352,6 +406,30 @@ describe("collectOptedInProjects", () => {
         () => ({ autobot: { poll_jira: true, ...CONN } }),
       ),
     ).toThrow(/duplicate project name "api"/);
+  });
+
+  test("resolves a profile declared in the global config", () => {
+    const result = collectOptedInProjects(
+      {
+        projects: ["/gete/dev-bot"],
+        autobot: { "gete-jira": { poll_jira: true, ...CONN } },
+      },
+      () => ({ autobot: "gete-jira" }),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]?.config.pollJira).toBe(true);
+  });
+
+  test("reports an unknown profile instead of failing the whole list", () => {
+    const errors: string[] = [];
+    const result = collectOptedInProjects(
+      { projects: ["/gete/dev-bot"], autobot: {} },
+      () => ({ autobot: "missing" }),
+      "global config",
+      (message) => errors.push(message),
+    );
+    expect(result).toEqual([]);
+    expect(errors[0]).toContain('names unknown profile "missing"');
   });
 
   test("skips a project with no config file", () => {

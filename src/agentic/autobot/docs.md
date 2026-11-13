@@ -27,8 +27,30 @@ signature is how it tells its own replies from a human's, so no separate bot ide
 
 ## Configuration
 
+A project either names a profile declared once in the global config, or configures itself inline. A
+project is one or the other — there are no profile-plus-overrides.
+
 ```jsonc
-// <project>/.devbot.project.jsonc
+// .devbot.global.jsonc — declare the configuration once
+{
+  "autobot": {
+    "gete-jira": {
+      "poll_jira": true,
+      "poll_github": true,
+      "jira_base_url": "https://getinfo.atlassian.net",
+      "jira_email": "you@example.com",
+      "jira_api_token": "${JIRA_API_TOKEN}",
+      "prompts": []
+    }
+  }
+}
+
+// <project>/.devbot.project.jsonc — name it…
+{
+  "autobot": "gete-jira"
+}
+
+// …or configure this project inline
 {
   "autobot": {
     "poll_jira": false, // deterministic Jira follow-up poll

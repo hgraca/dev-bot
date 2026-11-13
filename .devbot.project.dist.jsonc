@@ -18,6 +18,8 @@
   // while this list is absent. Order sets the current-context.
   "kubectl": [],
   // AutoBot: scheduled agent work for this project. Everything is off by default.
+  // Instead of the block below, you can name a profile declared in .devbot.global.jsonc:
+  //   "autobot": "gete-jira"
   // poll_jira / poll_github enable the deterministic follow-up pollers; `prompts`
   // schedules agent prompts on a 5-field cron. An all-defaults block does nothing.
   "autobot": {

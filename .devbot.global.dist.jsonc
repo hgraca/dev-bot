@@ -93,6 +93,19 @@
   //   }
   // },
   "aws_connections": {},
+  // AutoBot profiles: declare a configuration once here, then name it from a project's
+  // .devbot.project.jsonc (`"autobot": "gete-jira"`) — or configure that project inline instead.
+  // "autobot": {
+  //   "gete-jira": {
+  //     "poll_jira": true,
+  //     "poll_github": true,
+  //     "jira_base_url": "https://getinfo.atlassian.net",
+  //     "jira_email": "you@example.com",
+  //     "jira_api_token": "${JIRA_API_TOKEN}",
+  //     "prompts": []
+  //   }
+  // },
+  "autobot": {},
   // NetSuite MCP connection. `account_id` is the NetSuite account the project
   // connects as; the module ships enabled and registers a `netsuite-<account>`
   // server disabled by default (set `enabled: true` to wire it on). A project

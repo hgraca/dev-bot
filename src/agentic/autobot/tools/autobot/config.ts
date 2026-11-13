@@ -178,14 +178,51 @@ function readPrompts(value: unknown, where: string): AutobotPrompt[] {
  * Returns `null` only when the block is absent — an absent block is the opt-out, not an error. A
  * block that is present has every key defaulted, so callers never handle partial shapes.
  */
-export function parseAutobotConfig(config: unknown, source: string): AutobotConfig | null {
+/** Named profiles declared once in the global config and referenced by name from a project. */
+export type AutobotProfiles = Record<string, unknown>;
+
+/** The `autobot` profiles map from the global config; an absent map means there are none. */
+export function parseAutobotProfiles(globalConfig: unknown, source = "global config"): AutobotProfiles {
+  if (globalConfig === null || typeof globalConfig !== "object" || Array.isArray(globalConfig)) {
+    return {};
+  }
+  const raw = (globalConfig as Record<string, unknown>).autobot;
+  if (raw === undefined || raw === null) return {};
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(`${source}: "autobot" must be an object of named profiles`);
+  }
+  return raw as AutobotProfiles;
+}
+
+export function parseAutobotConfig(
+  config: unknown,
+  source: string,
+  profiles: AutobotProfiles = {},
+): AutobotConfig | null {
   if (config === null || typeof config !== "object" || Array.isArray(config)) {
     throw new Error(`${source}: project config must be a JSON object`);
   }
-  const raw = (config as Record<string, unknown>).autobot;
+  let raw = (config as Record<string, unknown>).autobot;
   if (raw === undefined || raw === null) return null;
-  if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error(`${source}: "autobot" must be an object`);
+  // A string names a profile; an object is the configuration itself. A project is one or the other,
+  // never a profile plus overrides.
+  let profileName: string | null = null;
+  if (typeof raw === "string") {
+    const name = raw.trim();
+    if (name === "") throw new Error(`${source}: "autobot" names an empty profile`);
+    // Own properties only: `in` would accept `__proto__` and hand back Object.prototype.
+    if (!Object.hasOwn(profiles, name)) {
+      throw new Error(`${source}: "autobot" names unknown profile "${name}"`);
+    }
+    profileName = name;
+    raw = profiles[name];
+  }
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(
+      profileName === null
+        ? `${source}: "autobot" must be a profile name or an object`
+        : `${source}: autobot profile "${profileName}" must be an object`,
+    );
   }
   const block = raw as Record<string, unknown>;
   const connection = {
@@ -336,12 +373,13 @@ export function collectOptedInProjects(
   source = "global config",
   onError?: (message: string) => void,
 ): AutobotProject[] {
+  const profiles = parseAutobotProfiles(globalConfig, source);
   const projects: AutobotProject[] = [];
   for (const project of parseManagedProjects(globalConfig, source)) {
     try {
       const raw = readProjectConfig(project.path);
       if (raw === null) continue;
-      const config = parseAutobotConfig(raw, `${project.path}/.devbot.project.jsonc`);
+      const config = parseAutobotConfig(raw, `${project.path}/.devbot.project.jsonc`, profiles);
       if (config === null || !isAutobotActive(config)) continue;
       projects.push({ ...project, devbotDir: readDevbotDir(raw, project.devbotDir), config });
     } catch (error) {
