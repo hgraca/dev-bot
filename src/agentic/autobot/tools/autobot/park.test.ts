@@ -113,8 +113,9 @@ describe("matchPark", () => {
 
 describe("parkFileName", () => {
     test("keeps the project and ticket apart", () => {
+        // The separator is `--`, so hyphens inside either half are encoded.
         expect(parkFileName({ project: "dev-bot", ticket: "ARC-1" })).toBe(
-            "dev-bot--ARC-1.json",
+            "dev%2dbot--ARC%2d1.json",
         );
     });
 
@@ -125,6 +126,10 @@ describe("parkFileName", () => {
         });
         expect(name).not.toContain("/");
         expect(name.endsWith(".json")).toBe(true);
+    });
+
+    test("the halves cannot forge the separator", () => {
+        expect(threadKey("a--b", "c")).not.toBe(threadKey("a", "b--c"));
     });
 
     test("threads are keyed by project too", () => {

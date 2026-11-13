@@ -233,6 +233,13 @@ export function createSlackClient(token: string): SlackTransport {
                 cursor = parsed.cursor;
                 if (cursor === undefined) break;
             }
+            // Returning a partial page would advance the watermark past replies never read, and they
+            // would be lost for good. Failing keeps the watermark where it is.
+            if (cursor !== undefined) {
+                throw new Error(
+                    "slack conversations.history: more than 20 pages — refusing a partial read",
+                );
+            }
             return collected;
         },
 

@@ -332,7 +332,9 @@ export async function runTickCommand(
         projectHasRunningDevbot(stateDirFor(project)),
     );
     const jiraGroups = jiraClients(live, env);
-    const slackGroups = slackConnections(live, (value) =>
+    // Not `live`: a parked ticket keeps its reminders after the harness exits, and a reply still
+    // resumes the work the user is answering. Only *new* work is gated on a running harness.
+    const slackGroups = slackConnections(projects, (value) =>
         resolveEnvReference(value, env),
     ).map((group) => ({
         ...group,
@@ -475,14 +477,16 @@ export async function runTickCommand(
                 replies: (threadTs) =>
                     group.client.replies(store.channelId, threadTs),
                 answer: async (park, text) => {
-                    // The park names its project, so a reply resumes in the checkout the work belongs to.
-                    const project = live.find(
+                    // The park names its project, so a reply resumes in the checkout the work belongs
+                    // to — even after the human harness has stopped: the user is answering a question
+                    // AutoBot asked, and that answer must not be stranded.
+                    const project = projects.find(
                         (candidate) => candidate.name === park.project,
                     );
                     if (!project)
                         return {
                             ok: false,
-                            reason: `project ${park.project} is not running`,
+                            reason: `unknown project ${park.project}`,
                         };
                     const result = await runAgent({
                         project: { name: project.name, path: project.path },

@@ -153,9 +153,11 @@ export function matchPark(
  * parks directory.
  */
 export function threadKey(project: string, ticket: string): string {
+    // `-` is encoded as well, so the `--` separator cannot be forged: ("a--b", "c") and ("a", "b--c")
+    // must not name the same park.
     const encode = (value: string): string =>
         value.replace(
-            /[^A-Za-z0-9_-]/g,
+            /[^A-Za-z0-9_]/g,
             (ch) => `%${ch.charCodeAt(0).toString(16)}`,
         );
     return `${encode(project)}--${encode(ticket)}`;

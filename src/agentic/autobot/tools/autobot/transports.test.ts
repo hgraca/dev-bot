@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+    childEnv,
     extractSessionId,
     parsePullRequests,
     parseReviews,
@@ -143,5 +144,32 @@ describe("parseSessionList", () => {
     test("returns nothing for a malformed payload", () => {
         expect(parseSessionList("{broken")).toEqual([]);
         expect(parseSessionList("{}")).toEqual([]);
+    });
+});
+
+describe("childEnv", () => {
+    test("strips the credentials AutoBot keeps to itself", () => {
+        const env = childEnv({
+            PATH: "/usr/bin",
+            HOME: "/home/me",
+            SLACK_BOT_TOKEN: "xoxb-secret",
+            JIRA_API_TOKEN: "jira-secret",
+            GH_TOKEN: "gh-secret",
+            GITHUB_TOKEN: "gh-secret-2",
+        });
+        expect(env.PATH).toBe("/usr/bin");
+        expect(env.HOME).toBe("/home/me");
+        expect(env.SLACK_BOT_TOKEN).toBeUndefined();
+        expect(env.JIRA_API_TOKEN).toBeUndefined();
+        expect(env.GH_TOKEN).toBeUndefined();
+    });
+
+    test("keeps the variables the run needs", () => {
+        const env = childEnv(
+            { ANTHROPIC_API_KEY: "key", PATH: "/bin" },
+            { DEV_BOT_AUTOBOT_TICKET: "ARC-1" },
+        );
+        expect(env.ANTHROPIC_API_KEY).toBe("key");
+        expect(env.DEV_BOT_AUTOBOT_TICKET).toBe("ARC-1");
     });
 });

@@ -20,6 +20,28 @@ export interface CommandResult {
 }
 
 /** Run a child process in `cwd` and collect its output. */
+/**
+ * Variables stripped from a child's environment.
+ *
+ * The cron entry sources `~/.config/devbot/autobot.env`, so the Jira and Slack credentials live in
+ * the tick's environment. The agent is told it never holds the Slack token — an inherited variable
+ * would make that untrue, and any tool it runs could print it.
+ */
+const SECRET_ENV = /^(JIRA_|SLACK_|GH_TOKEN$|GITHUB_TOKEN$)/;
+
+/** The environment a child may see: the parent's, minus the credentials AutoBot keeps to itself. */
+export function childEnv(
+    parent: Record<string, string | undefined>,
+    extra?: Record<string, string>,
+): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parent)) {
+        if (value === undefined || SECRET_ENV.test(key)) continue;
+        env[key] = value;
+    }
+    return { ...env, ...(extra ?? {}) };
+}
+
 export async function runCommand(
     command: string,
     args: string[],
@@ -31,7 +53,7 @@ export async function runCommand(
         stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
-        ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
+        env: childEnv(process.env, env),
     });
     const [stdout, stderr] = await Promise.all([
         new Response(proc.stdout).text(),
