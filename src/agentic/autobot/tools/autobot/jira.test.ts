@@ -36,6 +36,35 @@ describe("buildJql", () => {
     );
   });
 
+  test("adds the assignee filter", () => {
+    expect(buildJql(STATE_FIELD_ID, "new", ["one@example.com", "two@example.com"])).toContain(
+      'AND assignee in ("one@example.com", "two@example.com")',
+    );
+  });
+
+  test("escapes backslashes before quotes in an assignee", () => {
+    expect(buildJql(STATE_FIELD_ID, "new", ['a\\b"c'])).toContain('"a\\\\b\\"c"');
+  });
+
+  test("omits the assignee filter when none is configured", () => {
+    expect(buildJql(STATE_FIELD_ID, "new")).not.toContain("assignee in");
+  });
+
+  test("polls nothing when the assignee list is empty", async () => {
+    const calls: string[] = [];
+    const transport: JiraTransport = {
+      async search(jql) {
+        calls.push(jql);
+        return [];
+      },
+      async comments() {
+        return [];
+      },
+    };
+    expect(await pollJira({ transport, assignees: [] })).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
   test("accepts a different field id", () => {
     expect(buildJql("customfield_10001")).toContain("cf[10001]");
   });

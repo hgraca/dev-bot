@@ -38,7 +38,8 @@ class TestInject(unittest.TestCase):
         result = load_jsonc_text(inject('{\n  "harness": "opencode"\n}'))
         self.assertEqual(result["harness"], "opencode")
         self.assertEqual(
-            result["autobot"], {"poll_jira": False, "poll_github": False, "prompts": []}
+            result["autobot"],
+            {"poll_jira": False, "poll_github": False, "jira_assignees": [], "prompts": []},
         )
 
     def test_adds_the_block_to_an_empty_object(self):

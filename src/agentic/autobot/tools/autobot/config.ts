@@ -22,6 +22,13 @@ export interface AutobotConfig {
   jiraBaseUrl?: string;
   jiraEmail?: string;
   jiraApiToken?: string;
+  /**
+   * Only pick up tickets assigned to one of these people.
+   *
+   * Required whenever the block is present: an empty array means pick up nothing, so a project must
+   * say which it wants rather than inherit a default by omission.
+   */
+  jiraAssignees: string[];
 }
 
 export interface ManagedProject {
@@ -37,7 +44,7 @@ export interface AutobotProject extends ManagedProject {
 
 /** A block with every switch off. A project carrying only these defaults is inert. */
 export function defaultAutobotConfig(): AutobotConfig {
-  return { pollJira: false, pollGithub: false, prompts: [] };
+  return { pollJira: false, pollGithub: false, prompts: [], jiraAssignees: [] };
 }
 
 /** Skip whitespace and both comment forms, returning the index of the next meaningful character. */
@@ -154,6 +161,23 @@ function optionalConnection(value: unknown, key: string, where: string): string 
   return value.trim();
 }
 
+function readAssignees(value: unknown, where: string): string[] {
+  if (value === undefined || value === null) {
+    throw new Error(
+      `${where}: "autobot.jira_assignees" is required — use [] to pick up nothing, or the assignees to pick up`,
+    );
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`${where}: "autobot.jira_assignees" must be an array of names or emails`);
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== "string" || entry.trim() === "") {
+      throw new Error(`${where}: autobot.jira_assignees[${index}] must be a non-empty string`);
+    }
+    return entry.trim();
+  });
+}
+
 function readPrompts(value: unknown, where: string): AutobotPrompt[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
@@ -240,6 +264,7 @@ export function parseAutobotConfig(
     pollJira: readFlag(block.poll_jira, "poll_jira", source),
     pollGithub: readFlag(block.poll_github, "poll_github", source),
     prompts: readPrompts(block.prompts, source),
+    jiraAssignees: readAssignees(block.jira_assignees, source),
   };
   // Only carry the connection when it is configured: an absent one must not appear as a property.
   if (connection.baseUrl !== undefined) {
@@ -304,6 +329,15 @@ export function jiraConnections(
     groups.set(key, { connection, projects: [project] });
   }
   return [...groups.values()];
+}
+
+/**
+ * The assignee filter a connection's projects agree on: the union of their lists.
+ *
+ * Every project declares one, so an empty result can only mean they all asked for nothing.
+ */
+export function effectiveAssignees(projects: AutobotProject[]): string[] {
+  return [...new Set(projects.flatMap((project) => project.config.jiraAssignees))];
 }
 
 /** True when the block does any work. An all-defaults block is inert. */

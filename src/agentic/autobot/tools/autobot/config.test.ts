@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   collectOptedInProjects,
+  effectiveAssignees,
   jiraConnections,
   defaultAutobotConfig,
   isAutobotActive,
@@ -17,6 +18,7 @@ const CONN = {
   jira_base_url: "https://getinfo.atlassian.net",
   jira_email: "you@example.com",
   jira_api_token: "t",
+  jira_assignees: [] as string[],
 };
 
 describe("stripJsonc", () => {
@@ -64,7 +66,12 @@ describe("stripJsonc", () => {
 
 describe("defaultAutobotConfig", () => {
   test("is off in every respect", () => {
-    expect(defaultAutobotConfig()).toEqual({ pollJira: false, pollGithub: false, prompts: [] });
+    expect(defaultAutobotConfig()).toEqual({
+      pollJira: false,
+      pollGithub: false,
+      prompts: [],
+      jiraAssignees: [],
+    });
   });
 
   test("returns a fresh prompts array each call", () => {
@@ -83,26 +90,32 @@ describe("parseAutobotConfig", () => {
     expect(parseAutobotConfig({ autobot: null }, "p")).toBeNull();
   });
 
-  test("defaults every key when the block is empty", () => {
-    expect(parseAutobotConfig({ autobot: {} }, "p")).toEqual(defaultAutobotConfig());
+  test("rejects a block that omits the assignee list", () => {
+    expect(() => parseAutobotConfig({ autobot: {} }, "p")).toThrow(
+      /"autobot.jira_assignees" is required/,
+    );
+  });
+
+  test("defaults the rest when only the assignee list is given", () => {
+    expect(parseAutobotConfig({ autobot: { jira_assignees: [] } }, "p")).toEqual(
+      defaultAutobotConfig(),
+    );
   });
 
   test("reads the poll flags", () => {
-    const config = parseAutobotConfig({ autobot: { poll_jira: true, poll_github: true, ...CONN } }, "p");
-    expect(config).toMatchObject({ pollJira: true, pollGithub: true, prompts: [] });
+    const config = parseAutobotConfig({ autobot: { poll_jira: true, poll_github: true, ...CONN, jira_assignees: [] } }, "p");
+    expect(config).toMatchObject({ pollJira: true, pollGithub: true, prompts: [], jiraAssignees: [] });
   });
 
   test("leaves an absent flag off", () => {
-    expect(parseAutobotConfig({ autobot: { poll_jira: true, ...CONN } }, "p")).toMatchObject({
-      pollJira: true,
+    expect(parseAutobotConfig({ autobot: { poll_jira: true, ...CONN, jira_assignees: [] } }, "p")).toMatchObject({ pollJira: true,
       pollGithub: false,
-      prompts: [],
-    });
+      prompts: [], jiraAssignees: [] });
   });
 
   test("parses prompted entries", () => {
     const config = parseAutobotConfig(
-      { autobot: { prompts: [{ schedule: "*/5 * * * *", prompt: "/devbot:autobot-scan" }] } },
+      { autobot: { prompts: [{ schedule: "*/5 * * * *", prompt: "/devbot:autobot-scan" }], jira_assignees: [] } },
       "p",
     );
     expect(config?.prompts).toEqual([{ schedule: "*/5 * * * *", prompt: "/devbot:autobot-scan" }]);
@@ -110,7 +123,7 @@ describe("parseAutobotConfig", () => {
 
   test("accepts a schedule with ranges and lists", () => {
     const config = parseAutobotConfig(
-      { autobot: { prompts: [{ schedule: "0,15,30 9-17 * * 1-5", prompt: "x" }] } },
+      { autobot: { prompts: [{ schedule: "0,15,30 9-17 * * 1-5", prompt: "x" }], jira_assignees: [] } },
       "p",
     );
     expect(config?.prompts[0]?.schedule).toBe("0,15,30 9-17 * * 1-5");
@@ -123,6 +136,7 @@ describe("parseAutobotConfig", () => {
           jira_base_url: "https://getinfo.atlassian.net",
           jira_email: "you@example.com",
           jira_api_token: "${JIRA_API_TOKEN}",
+          jira_assignees: [],
         },
       },
       "p",
@@ -132,19 +146,19 @@ describe("parseAutobotConfig", () => {
   });
 
   test("rejects a partially configured connection", () => {
-    expect(() => parseAutobotConfig({ autobot: { jira_email: "you@example.com" } }, "p")).toThrow(
+    expect(() => parseAutobotConfig({ autobot: { jira_email: "you@example.com", jira_assignees: [] } }, "p")).toThrow(
       /sets 1 of jira_base_url, jira_email and jira_api_token — all three or none/,
     );
   });
 
   test("rejects an empty connection value", () => {
-    expect(() => parseAutobotConfig({ autobot: { jira_email: " " } }, "p")).toThrow(
+    expect(() => parseAutobotConfig({ autobot: { jira_email: " ", jira_assignees: [] } }, "p")).toThrow(
       /"autobot.jira_email" must be a non-empty string/,
     );
   });
 
   test("rejects a non-boolean poll flag", () => {
-    expect(() => parseAutobotConfig({ autobot: { poll_jira: "yes" } }, "p")).toThrow(
+    expect(() => parseAutobotConfig({ autobot: { poll_jira: "yes", jira_assignees: [] } }, "p")).toThrow(
       /"autobot.poll_jira" must be a boolean/,
     );
   });
@@ -156,7 +170,7 @@ describe("parseAutobotConfig", () => {
   });
 
   test("rejects a prompt entry that is not an object", () => {
-    expect(() => parseAutobotConfig({ autobot: { prompts: ["nope"] } }, "p")).toThrow(
+    expect(() => parseAutobotConfig({ autobot: { prompts: ["nope"], jira_assignees: [] } }, "p")).toThrow(
       /prompts\[0\] must be an object/,
     );
   });
@@ -223,7 +237,7 @@ describe("parseAutobotConfig", () => {
   test("prefers the inline block over any profile", () => {
     const profiles = { "gete-jira": { poll_jira: true, ...CONN } };
     const config = parseAutobotConfig(
-      { autobot: { poll_jira: false, prompts: [] } },
+      { autobot: { poll_jira: false, prompts: [], jira_assignees: [], jiraAssignees: [] } },
       "p",
       profiles,
     );
@@ -241,13 +255,18 @@ describe("isAutobotActive", () => {
   });
 
   test("either poll flag activates it", () => {
-    expect(isAutobotActive({ pollJira: true, pollGithub: false, prompts: [] })).toBe(true);
-    expect(isAutobotActive({ pollJira: false, pollGithub: true, prompts: [] })).toBe(true);
+    expect(isAutobotActive({ pollJira: true, pollGithub: false, prompts: [], jiraAssignees: [] })).toBe(true);
+    expect(isAutobotActive({ pollJira: false, pollGithub: true, prompts: [], jiraAssignees: [] })).toBe(true);
   });
 
   test("a prompt activates it", () => {
     expect(
-      isAutobotActive({ pollJira: false, pollGithub: false, prompts: [{ schedule: "* * * * *", prompt: "x" }] }),
+      isAutobotActive({
+        pollJira: false,
+        pollGithub: false,
+        prompts: [{ schedule: "* * * * *", prompt: "x" }],
+        jiraAssignees: [],
+      }),
     ).toBe(true);
   });
 });
@@ -300,12 +319,39 @@ describe("parseManagedProjects", () => {
   });
 });
 
+describe("effectiveAssignees", () => {
+  const project = (name: string, over: Partial<AutobotConfig> = {}): AutobotProject => ({
+    name,
+    path: `/gete/${name}`,
+    devbotDir: ".agents",
+    config: { pollJira: true, pollGithub: false, prompts: [], jiraAssignees: [], ...over },
+  });
+
+  test("is empty when a project deliberately names nobody", () => {
+    expect(effectiveAssignees([project("a", { jiraAssignees: [] })])).toEqual([]);
+  });
+
+  test("keeps an empty list even beside a project with no opinion", () => {
+    expect(effectiveAssignees([project("a", { jiraAssignees: [] }), project("b")])).toEqual([]);
+  });
+
+  test("unions the lists that are declared", () => {
+    expect(
+      effectiveAssignees([
+        project("a", { jiraAssignees: ["one@example.com"] }),
+        project("b", { jiraAssignees: ["two@example.com", "one@example.com"] }),
+        project("c"),
+      ]),
+    ).toEqual(["one@example.com", "two@example.com"]);
+  });
+});
+
 describe("jiraConnections", () => {
   const project = (name: string, over: Partial<AutobotConfig> = {}): AutobotProject => ({
     name,
     path: `/gete/${name}`,
     devbotDir: ".agents",
-    config: { pollJira: true, pollGithub: false, prompts: [], ...over },
+    config: { pollJira: true, pollGithub: false, prompts: [], jiraAssignees: [], ...over },
   });
 
   const connection = {
@@ -379,8 +425,8 @@ describe("collectOptedInProjects", () => {
 
   const configs: Record<string, unknown> = {
     "/gete/core": { harness: "opencode" },
-    "/gete/dev-bot": { autobot: { poll_jira: true, ...CONN } },
-    "/gete/portal": { autobot: { poll_jira: false, poll_github: false, prompts: [] } },
+    "/gete/dev-bot": { autobot: { poll_jira: true, ...CONN, jira_assignees: [] } },
+    "/gete/portal": { autobot: { poll_jira: false, poll_github: false, prompts: [], jira_assignees: [], jiraAssignees: [] } },
   };
 
   test("keeps only active projects", () => {
@@ -388,7 +434,7 @@ describe("collectOptedInProjects", () => {
     expect(result).toHaveLength(1);
     expect(result[0]?.name).toBe("dev-bot");
     expect(result[0]?.devbotDir).toBe(".agents");
-    expect(result[0]?.config).toMatchObject({ pollJira: true, pollGithub: false, prompts: [] });
+    expect(result[0]?.config).toMatchObject({ pollJira: true, pollGithub: false, prompts: [], jiraAssignees: [] });
   });
 
   test("a project devbot_dir overrides the global one", () => {
@@ -403,7 +449,7 @@ describe("collectOptedInProjects", () => {
     expect(() =>
       collectOptedInProjects(
         { projects: ["/one/api", "/two/api"] },
-        () => ({ autobot: { poll_jira: true, ...CONN } }),
+        () => ({ autobot: { poll_jira: true, ...CONN, jira_assignees: [] } }),
       ),
     ).toThrow(/duplicate project name "api"/);
   });

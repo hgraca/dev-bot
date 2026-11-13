@@ -32,6 +32,8 @@
     // this is needed in the cron job: set JIRA_API_TOKEN in ~/.config/devbot/autobot.env
     // (export JIRA_API_TOKEN=paste-the-token-here) or put the token directly here
     // "jira_api_token": "${JIRA_API_TOKEN}",
+    // Required. Only pick up tickets assigned to these people; [] picks up nothing.
+    "jira_assignees": [],
     "prompts": []
   },
   "auto_recover": {

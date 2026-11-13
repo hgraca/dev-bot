@@ -209,7 +209,7 @@ describe("executeAction — review", () => {
     const actions = decideFollowups({
       jira: [ticket({ state: next })],
       github: [{ key: "ARC-1", pullRequest: pr, pendingReviews: [feedback] }],
-      config: { pollJira: true, pollGithub: true, prompts: [] },
+      config: { pollJira: true, pollGithub: true, prompts: [], jiraAssignees: [] },
       instance: "me",
     });
     expect(actions[0]?.kind).not.toBe("review");

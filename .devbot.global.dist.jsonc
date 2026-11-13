@@ -102,6 +102,7 @@
   //     "jira_base_url": "https://getinfo.atlassian.net",
   //     "jira_email": "you@example.com",
   //     "jira_api_token": "${JIRA_API_TOKEN}",
+  //     "jira_assignees": ["you@example.com"], // or [] to pick up nothing
   //     "prompts": []
   //   }
   // },

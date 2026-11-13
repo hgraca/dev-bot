@@ -6,12 +6,10 @@ import type { GhPullRequest, GhReview, GithubPollItem } from "./github.ts";
 import type { JiraComment, JiraPollItem } from "./jira.ts";
 import type { AutobotState } from "./state.ts";
 
-const config = (over: Partial<AutobotConfig> = {}): AutobotConfig => ({
-  pollJira: true,
+const config = (over: Partial<AutobotConfig> = {}): AutobotConfig => ({ pollJira: true,
   pollGithub: true,
   prompts: [],
-  ...over,
-});
+  ...over, jiraAssignees: [] });
 
 const state = (over: Partial<AutobotState> = {}): AutobotState => ({
   instance: "me",

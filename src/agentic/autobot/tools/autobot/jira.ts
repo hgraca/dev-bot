@@ -63,12 +63,21 @@ function jqlField(stateFieldId: string): string {
   return `cf[${id}]`;
 }
 
-export function buildJql(stateFieldId: string = STATE_FIELD_ID, mode: JqlMode = "new"): string {
+export function buildJql(
+  stateFieldId: string = STATE_FIELD_ID,
+  mode: JqlMode = "new",
+  assignees?: string[],
+): string {
   const clause = mode === "new" ? "IS EMPTY" : "IS NOT EMPTY";
   const terminal = TERMINAL_LABELS.map((label) => `"${label}"`).join(", ");
+  // An empty list is the caller's signal to poll nothing at all; there is no JQL that says "nobody".
+  const assigneeClause =
+    assignees === undefined
+      ? ""
+      : ` AND assignee in (${assignees.map((name) => `"${name.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join(", ")})`;
   return (
-    `labels = "${TRIGGER_LABEL}" AND labels not in (${terminal}) ` +
-    `AND ${jqlField(stateFieldId)} ${clause} ORDER BY updated ASC`
+    `labels = "${TRIGGER_LABEL}" AND labels not in (${terminal})` +
+    `${assigneeClause} AND ${jqlField(stateFieldId)} ${clause} ORDER BY updated ASC`
   );
 }
 
@@ -109,15 +118,18 @@ export function pendingComments(comments: JiraComment[]): JiraComment[] {
 export async function pollJira(options: {
   transport: JiraTransport;
   stateFieldId?: string;
+  /** Restrict the query to these assignees; an empty list polls nothing. */
+  assignees?: string[];
   /** Called for each ticket that cannot be read, so one bad field does not stop the poll. */
   onError?: (message: string) => void;
 }): Promise<JiraPollItem[]> {
-  const { transport, stateFieldId = STATE_FIELD_ID } = options;
+  const { transport, stateFieldId = STATE_FIELD_ID, assignees } = options;
   const items: JiraPollItem[] = [];
+  if (assignees !== undefined && assignees.length === 0) return items;
 
   // Comments are read for both passes: a new session must not answer a comment that predates it, so
   // the caller records the newest one as its watermark when the session starts.
-  for (const raw of await transport.search(buildJql(stateFieldId, "new"))) {
+  for (const raw of await transport.search(buildJql(stateFieldId, "new", assignees))) {
     try {
       const ticket = toTicket(raw, stateFieldId);
       const comments = await transport.comments(ticket.key);
@@ -127,7 +139,7 @@ export async function pollJira(options: {
     }
   }
 
-  for (const raw of await transport.search(buildJql(stateFieldId, "continuation"))) {
+  for (const raw of await transport.search(buildJql(stateFieldId, "continuation", assignees))) {
     try {
       const ticket = toTicket(raw, stateFieldId);
       const comments = await transport.comments(ticket.key);

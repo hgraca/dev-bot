@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import {
   collectOptedInProjects,
+  effectiveAssignees,
   jiraConnections,
   parseJsonc,
   type AutobotProject,
@@ -236,6 +237,7 @@ export async function runTickCommand(env: CliEnv = process.env): Promise<TickRep
       for (const group of jiraGroups) {
         const items = await pollJira({
           transport: group.client,
+          assignees: effectiveAssignees(group.projects),
           onError: (message) => console.warn(`WARN: ${message}`),
         });
         for (const item of items) polled.push({ ...item, connection: group.id });

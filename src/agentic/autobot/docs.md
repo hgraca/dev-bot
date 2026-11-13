@@ -40,6 +40,7 @@ project is one or the other — there are no profile-plus-overrides.
       "jira_base_url": "https://getinfo.atlassian.net",
       "jira_email": "you@example.com",
       "jira_api_token": "${JIRA_API_TOKEN}",
+      "jira_assignees": ["you@example.com"],
       "prompts": []
     }
   }
@@ -60,6 +61,8 @@ project is one or the other — there are no profile-plus-overrides.
     // this is needed in the cron job: set JIRA_API_TOKEN in ~/.config/devbot/autobot.env
     // (export JIRA_API_TOKEN=paste-the-token-here) or put the token directly here
     "jira_api_token": "${JIRA_API_TOKEN}",
+    // Required. Only pick up tickets assigned to these people; [] picks up nothing.
+    "jira_assignees": ["you@example.com"],
     "prompts": [
       // { "schedule": "*/5 * * * *", "prompt": "/devbot:autobot-work ARC-1017" }
     ]
@@ -70,6 +73,11 @@ project is one or the other — there are no profile-plus-overrides.
 Every switch defaults to off, and the block is inert until one is enabled. A project is skipped unless
 a devbot harness is running there — the watch is the one lock file per PID the harness start script
 writes under `<devbot_dir>/state/devbot/`.
+
+`jira_assignees` is required and narrows the pickup to tickets assigned to those people. `[]` means
+pick up nothing — a deliberate pause that keeps the labels in place — so a project always says which
+it wants rather than inheriting a default by omission. Projects sharing a connection union their lists,
+and the filter never applies to cleanup, which reads state rather than selecting work.
 
 Each instance is independent: projects are grouped by the connection they configure, each group is
 polled with its own connection, and a ticket is answered with the connection of the project that owns
