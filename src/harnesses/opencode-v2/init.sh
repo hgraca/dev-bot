@@ -186,24 +186,25 @@ _write_opencode_config() {
 _install_plugin_deps() {
   [[ -f "${OPENCODE_DIR}/package.json" ]] || return 0
   if [[ -d "${OPENCODE_DIR}/node_modules/bun-pty" ]]; then
-    _skip ".opencode plugin dependencies already installed"
+    _skip "plugin dependencies already installed"
     return 0
   fi
-  # Not automatic: a registry resolution that stalls would hang every fresh
-  # init, and init never blocks on the network. Opt in explicitly.
-  if [[ "${DEV_BOT_INSTALL_PLUGIN_DEPS:-0}" != "1" ]]; then
-    _skip "plugin dependencies not installed — run 'cd ${OPENCODE_DIR} && bun install' to enable the PTY tools"
+  if [[ "${DEV_BOT_SKIP_PLUGIN_DEPS:-0}" == "1" ]]; then
+    _skip "plugin dependency install skipped (DEV_BOT_SKIP_PLUGIN_DEPS=1)"
     return 0
   fi
-  if ! command -v bun >/dev/null 2>&1; then
-    _warn "bun not found — .opencode dependencies not installed; the PTY tools stay unavailable"
+  # npm, not bun: `bun install` stalls resolving this manifest on some machines,
+  # while npm resolves the single runtime dependency in under a second. Only
+  # bun-pty is installed — @opencode/plugin is resolved by the host at runtime.
+  if ! command -v npm >/dev/null 2>&1; then
+    _warn "npm not found — the PTY tools stay unavailable"
     return 0
   fi
-  _info "Installing .opencode plugin dependencies (bun install, 120s cap)..."
-  if (cd "${OPENCODE_DIR}" && timeout 120 bun install >/dev/null 2>&1); then
-    _ok ".opencode plugin dependencies installed"
+  _info "Installing bun-pty into .opencode/ ..."
+  if (cd "${OPENCODE_DIR}" && timeout 120 npm install --no-audit --no-fund --silent bun-pty >/dev/null 2>&1); then
+    _ok "bun-pty installed — the PTY tools are available"
   else
-    _warn "bun install failed or timed out in ${OPENCODE_DIR} — the PTY tools stay unavailable"
+    _warn "npm install of bun-pty failed or timed out — the PTY tools stay unavailable"
   fi
 }
 

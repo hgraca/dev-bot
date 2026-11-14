@@ -56,12 +56,27 @@ export default Plugin.define({
 
     let spawnPty: ((cmd: string, args: string[], opts: any) => any) | null = null
     let loadError = ""
-    try {
-      const mod: any = await import("bun-pty")
-      spawnPty = mod?.spawn ?? mod?.default?.spawn ?? null
-      if (!spawnPty) loadError = "bun-pty exports no spawn()"
-    } catch (e) {
-      loadError = e instanceof Error ? e.message : String(e)
+    // The shim re-exports this module from its own location, so a bare specifier
+    // resolves against the dev-bot checkout, not the project's .opencode. Try the
+    // bare specifier first (a global install), then the project-local one.
+    const projectDir = ctx.location?.project?.canonical || ctx.location?.directory || process.cwd()
+    const candidates = [
+      "bun-pty",
+      join(projectDir, ".opencode", "node_modules", "bun-pty"),
+    ]
+    for (const spec of candidates) {
+      try {
+        const mod: any = await import(spec)
+        const candidate = mod?.spawn ?? mod?.default?.spawn ?? null
+        if (candidate) {
+          spawnPty = candidate
+          loadError = ""
+          break
+        }
+        loadError = `bun-pty at ${spec} exports no spawn()`
+      } catch (e) {
+        loadError = e instanceof Error ? e.message : String(e)
+      }
     }
     if (loadError) log(`WARN: PTY tools unavailable — ${loadError}`)
 
@@ -80,7 +95,7 @@ export default Plugin.define({
       editor.add({
         name: "spawn",
         description:
-          "Start a command in a pseudo-terminal. Returns an id for pty_write / pty_read / pty_kill. Prefer the bash tool for short deterministic commands.",
+          "Start a command in a pseudo-terminal. Returns an id for pty_write / pty_read / pty_kill. Output arrives asynchronously — poll pty_read until it appears. Prefer the bash tool for short deterministic commands.",
         input: {
           type: "object",
           properties: {
@@ -130,6 +145,8 @@ export default Plugin.define({
           })
           sessions.set(id, session)
           log(`spawned ${id} pid=${session.pid}: ${command}`)
+          // Content only: a tool that returns `output` must declare an output
+          // schema, and without one the whole result fails to serialise.
           return { content: `spawned ${id} (pid ${session.pid})` }
         },
       })
