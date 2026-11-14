@@ -172,23 +172,33 @@ _write_opencode_config() {
     _write_jsonc_from_dist "${DIST_CONFIG}" "${CONFIG}"
 }
 
-# ── Refuse a v1-shaped config rather than half-wiring it ──────────────────────
+# ── Migrate a v1-shaped config ────────────────────────────────────────────────
 # Both harnesses read the SAME filename, so a project that once ran the v1
 # adapter already has opencode.jsonc. The seed above skips it, and registering
-# v2 keys into a v1 document would produce a config that is neither. Refuse
-# loudly: the user decides whether to delete the file (losing their edits) or
-# keep the v1 harness.
-_refuse_legacy_config() {
+# v2 keys into a v1 document would produce a config that is neither. Convert it
+# once — with a backup beside it — rather than refusing.
+_migrate_legacy_config() {
   [[ -f "${CONFIG}" ]] || return 0
   local legacy
   legacy="$(_v2 has-legacy "${CONFIG}" 2>/dev/null || true)"
   [[ -n "${legacy}" ]] || return 0
 
-  _fatal "${CONFIG} uses the OpenCode 1.x key names (${legacy})."
-  _fatal "  This harness writes the 2.x shape and will not convert a 1.x config."
-  _fatal "  Either keep harness 'opencode', or move opencode.jsonc aside and re-run"
-  _fatal "  'devbot reinit' to seed a fresh 2.x config."
-  return 1
+  _info "Migrating OpenCode 1.x config keys (${legacy})..."
+  local out rc=0
+  out="$(V2_SHARED_DIR="${DEV_BOT_ROOT}/src/_shared" \
+    python3 "${MODULE_DIR}/lib/migrate_v1.py" "${CONFIG}" \
+    --backup "${CONFIG}.pre-v2.bak" 2>&1)" || rc=$?
+  if (( rc != 0 )); then
+    _fatal "config migration failed — the original is untouched:"
+    printf '%s\n' "${out}" >&2
+    return 1
+  fi
+
+  local line
+  while IFS= read -r line; do
+    [[ -n "${line}" ]] && _ok "  ${line}"
+  done <<<"${out}"
+  _ok "opencode.jsonc migrated to the v2 shapes"
 }
 
 # ── Hand over from a previously selected harness ──────────────────────────────
@@ -557,7 +567,7 @@ _delegate_harness_dirs() {
 # ── main ───────────────────────────────────────────────────────────────────────
 _copy_opencode_dir
 _write_opencode_config
-_refuse_legacy_config
+_migrate_legacy_config
 _sweep_foreign_artifacts
 _ensure_required_plugins
 _ensure_agents_md
