@@ -421,7 +421,7 @@ The `ToolContext` type exposes:
 
 - `sessionID` — current session identifier
 - `messageID` — current message identifier
-- `agent` — current agent identifier (e.g. `"DevBot"`, `"Developer"`)
+- `agent` — current agent identifier (e.g. `"devbot"`, `"developer"`)
 - `abort` — an `AbortSignal` for cancellation
 
 ## Definitions
@@ -433,7 +433,7 @@ The `ToolContext` type exposes:
 | `context.worktree`  | Git worktree root. Use for resolving relative paths.                |
 | `context.sessionID` | Current OpenCode session identifier.                                |
 | `context.messageID` | Current message identifier.                                         |
-| `context.agent`     | Current agent name (e.g. `"DevBot"`).                               |
+| `context.agent`     | Current agent name (e.g. `"devbot"`).                               |
 | `context.abort`     | AbortSignal for cancellation awareness.                             |
 | `Bun.$`             | Bun shell utility for subprocesses. Available in OpenCode runtime.  |
 | `require-approval`  | Permission level prompting user before tool executes.               |

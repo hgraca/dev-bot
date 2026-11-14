@@ -54,7 +54,7 @@ request; nothing is merged.
    (`devbot:git-atomic-commits`).
 5. **Self-review and fold the fixes in** — when the task is done, delegate a review of the whole
    changeset against the default branch to the session's code reviewer, following the session's
-   review gate (DevBot asks the user first and delegates to `@reviewer`; an autonomous run delegates
+   review gate (devbot asks the user first and delegates to `@reviewer`; an autonomous run delegates
    straight away to `@code-reviewer` as `devbot:auto-dev` directs), and address every finding as your
    own recommendation (`devbot:address-review`). Record each fix as a fixup against the commit it
    corrects. Before the branch is pushed, squash the fixups into their targets with an interactive
