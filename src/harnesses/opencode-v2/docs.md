@@ -138,11 +138,19 @@ against `@opencode/plugin/tui`, not a file move.
   implementations. The adapter logs their ids at startup and does not wire them.
 - The `shell` hook carries no session id, so the session env attach follows the
   most recent session that ran a model request.
-- `devbot prune` still targets the v1 host only: it drives
-  `opencode session list --format json`, and the 2.x CLI's equivalent is not
-  confirmed. The SQLite `session_v2` pruning helper itself is harness-agnostic.
-- Stats: `devbot stats` looks for `src/harnesses/<harness>/stats.sh`, which this
-  module does not ship yet, so it reports the harness as unsupported.
+- TUI parts are not ported (see above); the harness is server-side only.
+
+## Stats and prune
+
+Both work on a 2.x host:
+
+- **Stats** (`stats.sh` / `stats.py`) reads `session_v2` + `session_message`.
+  2.x records assistant steps there and tool calls as `content` entries of
+  `type == "tool"`. `session_v2` also holds 1.x rows, so the adapter filters on
+  `version like '2.%'` — without it the report counts v1 sessions.
+- **Prune** (`devbot prune`) resolves `opencode2` for this harness. The
+  `session list --format json` payload is identical on 1.x and 2.x
+  (`id`, `title`, `updated` in ms), so the shared deletion path works unchanged.
 
 ## V2 plugin API, as verified
 

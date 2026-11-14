@@ -78,19 +78,32 @@ _prune_project() {
 
   _header_2 "Pruning: ${project_dir}"
 
-  # Check harness — only prune for opencode
+  # Check harness — only the opencode family has sessions to prune.
   local harness
   harness=$(_devbot_get_harness "${project_dir}")
 
-  if [[ "${harness}" != "opencode" ]]; then
-    _info "Harness is '${harness}' — skipping (only opencode sessions are pruned)"
-    return
+  case "${harness}" in
+    opencode|opencode-v2) ;;
+    *)
+      _info "Harness is '${harness}' — skipping (only opencode sessions are pruned)"
+      return
+      ;;
+  esac
+
+  # Resolve the host binary for the selected harness. `session list --format
+  # json` and `session delete` share the same shape on 1.x and 2.x, so the rest
+  # of this function is harness-agnostic.
+  local opencode_bin
+  if [[ "${harness}" == "opencode-v2" ]]; then
+    # shellcheck source=../src/harnesses/opencode-v2/functions.sh
+    source "${DEV_BOT_ROOT}/src/harnesses/opencode-v2/functions.sh"
+    opencode_bin="$(_devbot_opencode2_bin)"
+  else
+    opencode_bin="${HOME}/.opencode/bin/opencode"
   fi
 
-  # Check if opencode binary exists
-  local opencode_bin="${HOME}/.opencode/bin/opencode"
-  if [[ ! -f "${opencode_bin}" ]]; then
-    _warn "opencode binary not found at ${opencode_bin} — skipping"
+  if [[ -z "${opencode_bin}" || ! -x "${opencode_bin}" ]]; then
+    _warn "opencode binary not found for harness '${harness}' — skipping"
     return
   fi
 
