@@ -71,6 +71,6 @@ Answer questions using: `Question:` / `Answer:` / `Rationale:` format.
 
 > ### Escalation <n>: <Title>
 >
-> - **Target role**: Orchestrator (TeamLead)
+> - **Target role**: Orchestrator (teamlead)
 > - **Reason**: Why outside scout's scope.
 > - **Context**: What observed and why matters.

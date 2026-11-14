@@ -39,7 +39,7 @@ Place all artifacts in a single `<work-folder>` under `.agents/memory/work/todo/
 ```
 .agents/memory/work/todo/YYYYMMDD-HHMMSS-NN-<story_slug>/
   backlog.md                          # Combined: story → tasks + per-task/story-level technical actions; carries Status
-  PLAN-REVIEW-YYYY-MM-DD-NNN.md       # Critic review of backlog.md
+  PLAN-REVIEW-YYYY-MM-DD-NNN.md       # critic review of backlog.md
   summary.md
   planning-complete.md
   ...
@@ -236,7 +236,7 @@ When a technical action introduces system-level dependencies (CLI tools, interpr
 - **`verify-only`**: script checks availability and exits with a clear error + installation instructions. Preferred for tools with multiple install paths (npm, pip, brew, apt).
 - **`auto-install`**: script attempts automated installation via a single canonical method. Only acceptable when the tool has exactly one reliable install path across all supported platforms (Ubuntu, Fedora, macOS).
 
-Rationale: omitting this strategy produces install scripts that either silently skip tools or attempt aggressive installs that fail in restricted environments. Critic MUST flag a missing strategy as WARNING (BLOCKER if an unverified dependency would cause runtime failure with no graceful fallback).
+Rationale: omitting this strategy produces install scripts that either silently skip tools or attempt aggressive installs that fail in restricted environments. critic MUST flag a missing strategy as WARNING (BLOCKER if an unverified dependency would cause runtime failure with no graceful fallback).
 
 ### Third-party library integration — MUST
 
@@ -263,7 +263,7 @@ From <importing-file-path>:
  N up → <resolved-parent>  ← then <remaining-path>
 ```
 
-Rationale: import-path arithmetic errors are silent — wrong paths resolve to different files or to the project root, and dynamic imports (TypeScript `await import(...)`) fail silently in try/catch, leaving a hook disabled with no error. Critic MUST flag a missing trace as WARNING (BLOCKER if the import is the only path connecting two components and ambiguity would cause silent runtime failure).
+Rationale: import-path arithmetic errors are silent — wrong paths resolve to different files or to the project root, and dynamic imports (TypeScript `await import(...)`) fail silently in try/catch, leaving a hook disabled with no error. critic MUST flag a missing trace as WARNING (BLOCKER if the import is the only path connecting two components and ambiguity would cause silent runtime failure).
 
 ### Verification-gate cross-referencing — MUST
 
@@ -300,17 +300,17 @@ The orchestrator judges the prompt. NEVER delegate this. Use the table:
 
 1. Skip backlog, technical plan, and critic review entirely.
 2. Hand the brief + obvious context (file paths, patterns) directly to `devbot:implement-story`. Use `<work-folder>` as `<issue-folder>`; trivial work has no planning phase, so its work folder is created **directly in `.agents/memory/work/active/`** (the documented exemption from "born in todo").
-3. The `devbot:implement-story` cycle (Tester → Developer → Reviewer per task) provides rigor. No planning artifacts produced.
+3. The `devbot:implement-story` cycle (tester → developer → reviewer per task) provides rigor. No planning artifacts produced.
 4. Skip Steps 3–8.
 
 ### Step 3: Story path — Create the backlog skeleton
 
 Delegate @po. The first sentence MUST be: `Write <work-folder>/backlog.md containing a prioritized task list with acceptance criteria for: <story brief>.`
 
-- The PO produces the **product layer** of the combined backlog: the story header, tasks, per-task acceptance criteria, and priorities, in the **Backlog template** shape. The PO leaves the `#### Technical actions`, `### Story-level technical actions`, and `## Test Plan` sections present but empty (placeholder `_(architect to complete)_`) — these are filled in Step 4.
-- The PO applies backlog rules from `src/instructions/agents/po.md`.
-- The PO saves to `<work-folder>/backlog.md` with `**Status**: DRAFT`, signals [FINISHED] with the path.
-- PO signals [NEEDS_INPUT] → relay to the stakeholder, re-delegate with the answer.
+- The po produces the **product layer** of the combined backlog: the story header, tasks, per-task acceptance criteria, and priorities, in the **Backlog template** shape. The po leaves the `#### Technical actions`, `### Story-level technical actions`, and `## Test Plan` sections present but empty (placeholder `_(architect to complete)_`) — these are filled in Step 4.
+- The po applies backlog rules from `src/instructions/agents/po.md`.
+- The po saves to `<work-folder>/backlog.md` with `**Status**: DRAFT`, signals [FINISHED] with the path.
+- The po signals [NEEDS_INPUT] → relay to the stakeholder, re-delegate with the answer.
 
 ### Step 4: Story path — Technical implementation plan (folded into the backlog)
 
@@ -327,7 +327,7 @@ When the plan depends on a third-party API capability (plugin hooks, SDK feature
 
 #### UI/UX review (if applicable)
 
-Design work needed → delegate @designer. First sentence MUST be: `Write <work-folder>/DESIGN-YYYY-MM-DD-NNN.md …`. Designer saves the file and signals [FINISHED]. Skip if no design component.
+Design work needed → delegate @designer. First sentence MUST be: `Write <work-folder>/DESIGN-YYYY-MM-DD-NNN.md …`. designer saves the file and signals [FINISHED]. Skip if no design component.
 
 ### Step 5: Epic path — Write the epic backlog and plan each story
 
@@ -336,7 +336,7 @@ Prompt contains a list, cross-cutting concern, or multi-step workflow → epic p
 1. Delegate @po. First sentence MUST be: `Write <work-folder>/backlog.md containing an epic-level story breakdown for: <stakeholder list>.`
    - Epic backlog: **one entry per story from the user list** in the `## Stories` table. NEVER regroup, split, or merge — preserve the user structure.
    - Each entry: title, one-paragraph description, priority, dependencies on other stories in the list, sub-folder slug to create.
-   - The PO saves to `<work-folder>/backlog.md`, signals [FINISHED] with the path.
+   - The po saves to `<work-folder>/backlog.md`, signals [FINISHED] with the path.
 
 2. For each story in the epic backlog, in priority order:
    1. Create the story sub-folder: `<work-folder>/YYYYMMDD-HHMMSS-NN-<story_slug>/`.
@@ -373,7 +373,7 @@ After all stories are planned:
 
 Skip Steps 3–4 and 6 at the epic level (they execute inside each story recursion). Continue to Step 7.
 
-### Step 6: Critic review loop
+### Step 6: critic review loop
 
 Delegate @critic. First sentence MUST be: `Write <work-folder>/PLAN-REVIEW-YYYY-MM-DD-NNN.md reviewing <work-folder>/backlog.md (product decomposition AND technical actions).`
 
@@ -388,7 +388,7 @@ Delegate @critic. First sentence MUST be: `Write <work-folder>/PLAN-REVIEW-YYYY-
 
 The planning state machine has exactly four legal transitions out of any critic verdict. The orchestrator MUST consult the table after every critic round and select the unique matching row.
 
-| Critic verdict         | Has unresolved findings? | Next state | Next delegation                                                     |
+| critic verdict         | Has unresolved findings? | Next state | Next delegation                                                     |
 | ---------------------- | ------------------------ | ---------- | ------------------------------------------------------------------- |
 | APPROVED               | No                       | FINAL      | (none — orchestrator promotes per `devbot.md` FINAL-promotion gate) |
 | APPROVED               | Yes (any severity)       | IN REVIEW  | architect (revision cycle for new findings)                         |
@@ -460,7 +460,7 @@ The closing checklist + summary are sound-side AND complete-side. Sound-side (es
 **Audit-log enumeration (MUST)**: `interactions.md` MUST contain one Delegation entry per producing subagent invocation:
 
 - Each `PLAN-REVIEW-*.md` file → `interactions.md` MUST have ≥1 critic Delegation entry whose deliverable matches the file path.
-- Each `backlog.md` → `interactions.md` MUST have ≥1 PO Delegation entry (created the product decomposition) AND, where the backlog contains technical actions, ≥1 architect Delegation entry (folded in the technical plan) plus one architect entry per recorded revision in the Review Response section.
+- Each `backlog.md` → `interactions.md` MUST have ≥1 po Delegation entry (created the product decomposition) AND, where the backlog contains technical actions, ≥1 architect Delegation entry (folded in the technical plan) plus one architect entry per recorded revision in the Review Response section.
 
 A produced deliverable with no corresponding Delegation entry → the orchestrator MUST add the missing entry (citing the deliverable path as evidence, tagged `RECONSTRUCTED FROM ARTEFACT`) before the closing-checklist gate passes.
 
@@ -470,14 +470,14 @@ Every agent-count claim in ANY closing artefact (`summary.md`, `retrospective/pl
 
 **Procedure**:
 
-1. Compute `delegation_count[agent]` from `interactions.md` (one count per role: PO, architect, critic, tester, developer, reviewer, designer).
+1. Compute `delegation_count[agent]` from `interactions.md` (one count per role: po, architect, critic, tester, developer, reviewer, designer).
 2. Compute `deliverable_count[agent]` from `glob` per the agent's expected deliverable pattern:
    - critic: `glob` for `PLAN-REVIEW-*.md` in `<work-folder>`.
-   - PO: `glob` for `backlog.md` (+ any `backlog-delta-*.md`) in `<work-folder>`.
+   - po: `glob` for `backlog.md` (+ any `backlog-delta-*.md`) in `<work-folder>`.
    - architect: count of `backlog.md` files containing a Technical actions / technical-plan section, PLUS the count of architect-revision entries in any `Review Response` section. (The architect no longer produces `PLAN-ARCH-*.md`; the technical plan lives in the backlog.)
    - Other agents: `glob` for the agent's expected deliverable pattern.
 3. Confirm `delegation_count[agent] >= deliverable_count[agent]` for each subagent. Any agent with `delegation_count < deliverable_count` → the orchestrator MUST add the missing Delegation entries (citing the produced deliverable) before the gate passes.
-4. For each closing artefact, `grep` for any agent-count claim (patterns: `\d+ (PO|architect|critic|tester|developer|reviewer|designer)`, `Total subagent invocations: \d+`, any Per-Agent Totals cell).
+4. For each closing artefact, `grep` for any agent-count claim (patterns: `\d+ (po|architect|critic|tester|developer|reviewer|designer)`, `Total subagent invocations: \d+`, any Per-Agent Totals cell).
 5. For every match, verify the cited number equals `delegation_count[agent]` (or the sum for a "Total"). Mismatches FAIL the gate.
 6. The orchestrator MUST update mismatched artefacts with reconciled counts, annotate reconstructed entries `RECONSTRUCTED FROM ARTEFACT`, and cite the source-of-truth (delegation count from `interactions.md`).
 7. Update the Per-Agent Totals table in `interactions.md` to reflect reconciled counts.

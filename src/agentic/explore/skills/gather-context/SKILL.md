@@ -48,7 +48,7 @@ If neither section was provided, ask for both before proceeding.
 When the session runs in a `polyrepo` project (`.devbot.project.jsonc` has
 `workspace.type: "polyrepo"`), the primary agent predicts which managed projects the
 request will touch and dispatches **one @scout assignment per predicted
-project, in parallel**. Scout never delegates, so the fan-out is the primary
+project, in parallel**. scout never delegates, so the fan-out is the primary
 agent's job — this skill describes what each per-project scout does.
 
 A scout scoped to a project passes that project as the memory focus, so its

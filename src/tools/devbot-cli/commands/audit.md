@@ -11,7 +11,7 @@ You are auditing the dev-bot agentic toolkit in this project. The project's own 
 
 **Exception — clean up your OWN test artifacts.** "Do not modify" refers to the audited system, not the probe files you create to test it. After writing the report, **delete every probe/scratch file you created** (hook probes, `devbot-audit-probe-<NN>-*` files, synthetic manifests) from both `thinking/` and `latent/learnings/` — the same promote-or-delete hygiene `devbot:remember-session` mandates for scratch files. **Prefix every probe with this audit's report number `<NN>`** (the same value used for `devbot-audit-<NN>.md`) so parallel cc/oc runs sharing the bind-mounted `thinking/` dir cannot delete each other's in-flight probes (audit-82 N5). Leaving them behind pollutes the memory vault and degrades `search-memories` (15 prior audits accumulated ~98 stale files + 16 probe notes this way — a FAIL in audit-16). Report files and the environment (`.agents/logs`, `graphify-out`, the index) are left as they are.
 
-**Test with LIVE invocations whenever possible — not just filesystem reachability.** A symlink that resolves on disk, a file that exists, or a config that parses is **not proof the capability works** (audit-14's two FAILs — the default agent never being DevBot and 49/59 skills unreachable via the Skill tool — were exactly this: everything looked correct on the filesystem). For each capability, actually USE it: call the MCP tool, fire the hook with a probe, load the skill by name, invoke the command, run the function against real input. Report both the live result and, when they differ, the filesystem-vs-behavior gap.
+**Test with LIVE invocations whenever possible — not just filesystem reachability.** A symlink that resolves on disk, a file that exists, or a config that parses is **not proof the capability works** (audit-14's two FAILs — the default agent never being devbot and 49/59 skills unreachable via the Skill tool — were exactly this: everything looked correct on the filesystem). For each capability, actually USE it: call the MCP tool, fire the hook with a probe, load the skill by name, invoke the command, run the function against real input. Report both the live result and, when they differ, the filesystem-vs-behavior gap.
 
 ## 0. Determine the environment: container or host
 
@@ -55,16 +55,16 @@ First determine which agent harness is selected and which one you are running un
 - **Audit the selected harness** — it owns the MCP config (`opencode.jsonc` vs `.mcp.json`), the launch command paths and the log location; a broken config there is a defect even if you are running under the other harness. The unselected harness is deliberately unmanaged, so do not flag its tree or config.
 - **Record it in the report header** — the report MUST state which harness this audit covered and which one the audit ran under, next to the ENVIRONMENT verdict from §0, with the evidence (the `harness` key + your own tool-palette naming). Without the harness, findings are ambiguous: log paths, config files, and tool naming all differ per harness. Every FAIL/NOTE row in the report should be attributable to that harness.
 
-## 0c. Identify the running agent (must be DevBot)
+## 0c. Identify the running agent (must be devbot)
 
-The audit is a **DevBot-primary-agent** activity: it must run under the `DevBot` agent profile. Determine which agent you are running as, and cross-check the config:
+The audit is a **devbot-primary-agent** activity: it must run under the `devbot` agent profile. Determine which agent you are running as, and cross-check the config:
 
-- **Self-identify** — which agent profile are you operating under? Your own instructions/profile are the primary evidence (DevBot, or TeamLead / a subagent). Do not guess: if you are not certain, check which agent file your instructions came from (e.g. `.agents/agents/devbot/devbot.md` vs `devteam/teamlead.md` vs a subagent file).
+- **Self-identify** — which agent profile are you operating under? Your own instructions/profile are the primary evidence (devbot, or teamlead / a subagent). Do not guess: if you are not certain, check which agent file your instructions came from (e.g. `.agents/agents/devbot/devbot.md` vs `devteam/teamlead.md` vs a subagent file).
 - **Cross-check the config** (the selected harness):
-  - opencode: `opencode.jsonc` → `default_agent` must be `"DevBot"`, and the `agent` map must contain a `DevBot` entry.
-  - claudecode: `.claude/settings.json` (or `settings.local.json`) → the default/primary agent must be `DevBot`.
+  - opencode: `opencode.jsonc` → `default_agent` must be `"devbot"`, and the `agent` map must contain a `devbot` entry.
+  - claudecode: `.claude/settings.json` (or `settings.local.json`) → the default/primary agent must be `devbot`.
 
-If you are **not** running as DevBot (the audit was launched under TeamLead or a subagent), or the config's default agent is not DevBot, record a **FAIL**: the audit was invoked under the wrong agent. The fix is to **set DevBot as the default agent in the harness configuration** (opencode: `default_agent: "DevBot"` in `opencode.jsonc`; claudecode: the default/primary agent in `.claude/settings.json`) — the harness then launches DevBot by default, so every session (including the audit) runs under the right agent. Findings remain valid, but the "audit runs under DevBot" invariant is broken. Also note it in the report header next to the environment verdict.
+If you are **not** running as devbot (the audit was launched under teamlead or a subagent), or the config's default agent is not devbot, record a **FAIL**: the audit was invoked under the wrong agent. The fix is to **set devbot as the default agent in the harness configuration** (opencode: `default_agent: "devbot"` in `opencode.jsonc`; claudecode: the default/primary agent in `.claude/settings.json`) — the harness then launches devbot by default, so every session (including the audit) runs under the right agent. Findings remain valid, but the "audit runs under devbot" invariant is broken. Also note it in the report header next to the environment verdict.
 
 ## 1. Lifecycle & environment
 
@@ -153,8 +153,8 @@ Then run the checks below; they verify the vault _works_ once warm:
 
 ## 7. Agents & orchestration
 
-- Confirm agent profiles load (DevBot / TeamLead plus subagents).
-- If TeamLead is exercised, confirm context gathering (@scout) and the TODO-list discipline fire.
+- Confirm agent profiles load (devbot / teamlead plus subagents).
+- If teamlead is exercised, confirm context gathering (@scout) and the TODO-list discipline fire.
 - **Subagents must not use the PTY (opencode only).** The harness blocks the whole `pty_*` family in a child session: a `task` subagent runs in one, and `task` returns the moment its turn ends, so a `notifyOnExit` PTY there never surfaces its continuation to the parent (the child resumes on `<pty_exited>`, but its later turns are not delivered to the `task` caller). **Prove it live** — delegate a one-line task to any subagent: ask it to call `pty_spawn` for a trivial command (e.g. `sleep 1`) and report whether it was allowed or blocked. Do NOT disclose the expected outcome. PASS when the subagent reports the `[pty-subagent]` block; FAIL when `pty_spawn` succeeds; N-A on claudecode (no PTY tools).
 
 ## 8. Log examination
@@ -233,7 +233,7 @@ Write a markdown report to `.agents/memory/thinking/devbot-audit-NN.md` (`.agent
 
 - **ENVIRONMENT: container** or **ENVIRONMENT: host** — plus the evidence (from §0).
 - **HARNESS SELECTED** and **HARNESS THIS AUDIT RAN UNDER** — which harness is wired (the root `harness` key) and which one this session used (tool-palette naming), plus the evidence (from §0b). The audit covers the selected harness only — attribute every FAIL/NOTE below to it.
-- **RUNNING AGENT** — `DevBot` (or the FAIL if not, per §0c).
+- **RUNNING AGENT** — `devbot` (or the FAIL if not, per §0c).
 - **DEVBOT REVISION (audited commit)** — the exact dev-bot install revision this audit ran against, plus the audit date. Audits 38–41 omitted it and their FAILs turned out to describe pre-fix code from an older install — without the revision a reader cannot tell whether a finding applies to the code in front of them. Resolve it from the dev-bot **install** (the tree the harness symlinks resolve to), not the project: `git -C <install-root> rev-parse HEAD` (+ `git -C <install-root> log -1 --format=%cd --date=short` for the commit date), where `<install-root>` is the install path from §0 (container: e.g. `/home/ubuntu/.local/share/dev-bot`; host: e.g. `~/.local/share/dev-bot`). If the install is not a git checkout, say so explicitly and give the best version marker available (install path + directory mtime).
 
 For each subsystem, record:

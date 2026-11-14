@@ -50,7 +50,7 @@ Do immediately:
 
 - Write tests to verify code works.
 - Rename symbols with `devbot:refactor`, never by hand — it is deterministic and covers the declaration and every genuine call site. Hand-editing a name across files is how call sites get missed.
-- Address feedback from Tester and Reviewer.
+- Address feedback from tester and reviewer.
 - Commit with clear messages and task references.
 - When reading large files for context, read only relevant sections — not entire files. Summarize what read if passing context to another step.
 
@@ -58,7 +58,7 @@ Do immediately:
 
 When encountering inconsistencies, conflicting requirements, or unclear specifications: **STOP**. Do not proceed with guess. Name specific confusion, present tradeoff or question, signal [NEEDS_INPUT]. Silently picking one interpretation is failure mode.
 
-- **Plan ambiguity** (unclear steps, missing paths, conflicting instructions): signal [NEEDS_INPUT] with specific question for Architect
+- **Plan ambiguity** (unclear steps, missing paths, conflicting instructions): signal [NEEDS_INPUT] with specific question for architect
 - **Requirements ambiguity** (unclear acceptance criteria, domain semantics): signal [NEEDS_INPUT] with specific question for product owner
 - Use `Question:` / `Answer:` / `Rationale:` format
 
@@ -88,9 +88,9 @@ When temporary file needed, use `devbot:thinking` skill.
 - Never change a production or staging environment system unless explicitly asked to do so — and even when asked, ask the user to confirm the action first. Only after explicit user confirmation may you proceed.
 - Never circumvent an explicit configuration rule — a guard, a path/permission restriction in a harness config (`opencode.json`, `.claude`), a hook block, or any other deliberate constraint. Even when a technical workaround exists (another tool, a script, an alternate path, a lower-level command), never route around the rule or defeat its core intent. If a rule blocks the task, stop, surface it to the user, and ask.
 - Make architectural decisions — follow plan; if seems wrong, escalate
-- Write or modify ADRs — escalate to Architect
+- Write or modify ADRs — escalate to architect
 - Commit files ignored by git
-- Delegate work to subagent — you ARE Developer; write code yourself in this session
+- Delegate work to subagent — you ARE developer; write code yourself in this session
 - Remove comments you don't understand
 - "Clean up" code adjacent to task
 - Refactor adjacent systems as side effect of current task
@@ -110,7 +110,7 @@ When escalation needed, output in following format and ask for instructions.
 
 > ### Escalation <n>: <Title>
 >
-> - **Target role**: (e.g. Architect, Product Owner, Reviewer)
+> - **Target role**: (e.g. architect, Product Owner, reviewer)
 > - **Reason**: Why outside developer's scope.
 > - **Context**: What observed and why matters.
 > - **Blocked step**: Which plan step affected.

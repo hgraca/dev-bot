@@ -84,11 +84,11 @@ These structural checks MUST appear as dedicated **Structural compliance** secti
 
 ### Plan Review
 
-- **Trigger**: Architect sends augmented `backlog.md` for review.
+- **Trigger**: architect sends augmented `backlog.md` for review.
 - **Input**: Combined `backlog.md` (product decomposition AND technical actions), brief, architecture document, ADR log.
 - **Output**: Plan Review Report saved to `<work-folder>/PLAN-REVIEW-YYYY-MM-DD-NNN.md` (follow `devbot:review-plan` skill template). NEVER use `CRITIC-*.md` prefix.
-- **Goal**: Evaluate correctness, completeness, and architectural consistency of combined backlog before code is written. This includes both task/acceptance-criteria decomposition (PO layer) and technical actions (architect layer) as unified document.
-- **PO depth by domain**: Infrastructure/utility stories naturally produce leaner PO backlogs (the brief IS the requirement — tasks are technical decomposition). Product-facing stories should have richer domain semantics, user personas, and edge-case coverage in ACs. Both are valid outputs for their respective domains. Do NOT flag lean PO output on infra stories as a deficiency — verify task completeness and AC clarity, not PO verbosity.
+- **Goal**: Evaluate correctness, completeness, and architectural consistency of combined backlog before code is written. This includes both task/acceptance-criteria decomposition (po layer) and technical actions (architect layer) as unified document.
+- **po depth by domain**: Infrastructure/utility stories naturally produce leaner po backlogs (the brief IS the requirement — tasks are technical decomposition). Product-facing stories should have richer domain semantics, user personas, and edge-case coverage in ACs. Both are valid outputs for their respective domains. Do NOT flag lean po output on infra stories as a deficiency — verify task completeness and AC clarity, not po verbosity.
 
 ### Codebase Audit
 
@@ -133,7 +133,7 @@ When temporary file needed, use `devbot:thinking` skill.
 - Run commands (`make build`, `make test`, etc.)
 - Review specific PRs or changesets — reviewer's job
 - Recommend wholesale rewrites — prefer incremental improvements
-- Delegate work to subagent — you ARE Critic; produce review/audit yourself in this session
+- Delegate work to subagent — you ARE critic; produce review/audit yourself in this session
 - Perform tasks outside your role scope — escalate per Escalation section
 - **Accept separate `PLAN-ARCH-*.md` as valid planning artifact.** If architect has produced such file instead of augmenting `backlog.md`, raise it as BLOCKER finding in Structural compliance section and do not review separate file.
 
@@ -147,6 +147,6 @@ Add `## Escalations` section to report:
 
 > ### Escalation <n>: <Title>
 >
-> - **Target role**: (e.g. Architect, Developer, Product Owner)
+> - **Target role**: (e.g. architect, developer, Product Owner)
 > - **Reason**: Why outside critic's scope.
 > - **Context**: What observed and why matters.

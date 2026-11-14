@@ -62,8 +62,8 @@ Structured approach to identifying, classifying, and recovering from failures du
 1. Stop modifying code.
 2. Re-read failing test(s) and code under test from scratch.
 3. Identify whether issue in test, code, or plan.
-4. If plan seems wrong, escalate to Architect.
-5. If test seems wrong, escalate to Tester (or orchestrator).
+4. If plan seems wrong, escalate to architect.
+5. If test seems wrong, escalate to tester (or orchestrator).
 6. Never apply fourth fix attempt without fresh analysis.
 
 ### E5: Context Overflow
@@ -96,7 +96,7 @@ Structured approach to identifying, classifying, and recovering from failures du
 
 1. Search sibling directories and files for closest analog.
 2. If no analog exists, signal `[NEEDS_INPUT] No existing precedent for <what>. How should this be structured?`
-3. Wait for guidance from Architect or orchestrator before proceeding.
+3. Wait for guidance from architect or orchestrator before proceeding.
 
 ## Recovery Decision Tree
 

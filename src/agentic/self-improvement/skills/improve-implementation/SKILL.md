@@ -128,7 +128,7 @@ Use markdown table. Left column = dimension name, subsequent columns = implement
 | Infrastructure | Infrastructure test strategy, Input validation, URL safety, Defensive infrastructure |
 | Testing        | Test coverage, Test directory split, Named test doubles, End-to-end smoke test       |
 | Code style     | FQN usage, `assert()` usage, Classes `final`, Dead production code                   |
-| Process        | Commits, Developer session stalls, Reviewer invocations                              |
+| Process        | Commits, developer session stalls, reviewer invocations                              |
 | Metadata       | Composer metadata, Output formatting, LLM used                                       |
 
 Include only dimensions where at least one implementation differs from another.
@@ -320,7 +320,7 @@ Score implementation against these criteria. Each maps to potential deduction:
 **Process (max ~10 points at risk)**
 
 - [ ] Per-task commits (not bundled)
-- [ ] Reviewer invoked per task
+- [ ] reviewer invoked per task
 - [ ] Static analysis passes at max level with 0 errors
 - [ ] Session stalls handled gracefully
 

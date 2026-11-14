@@ -20,17 +20,17 @@ Every claim in retrospective about deliverable, agent action, or workflow event 
 1. **Artefact's path AND verifying observation** (line number, content excerpt) author obtained via `read`, OR
 2. **Absence of expected artefact**, confirmed via `glob` or `ls` (cite empty-result tool call).
 
-Retrospective MUST NOT make causal claims about subagent behaviour ("critic hallucinated", "architect skipped X", "PO over-scoped Y") without citing artefact demonstrating behaviour. If behaviour asserted missing, assertion MUST cite tool call (`grep`, `glob`, `read`) whose result consistent with absence claim.
+Retrospective MUST NOT make causal claims about subagent behaviour ("critic hallucinated", "architect skipped X", "po over-scoped Y") without citing artefact demonstrating behaviour. If behaviour asserted missing, assertion MUST cite tool call (`grep`, `glob`, `read`) whose result consistent with absence claim.
 
 **Format requirement**: each "what went wrong" claim in retrospective MUST include parenthetical citation in form `(per <path>:<line> | per <tool-call-result>)`. Example:
 
-> "Architect skipped Pre-[FINISHED] Hygiene Gate (per `interactions.md:42` showing [FINISHED] signal without prior hygiene-report file; per `glob 'storage/.../iteration-N/.ai/.../hygiene-*.md'` returning no matches)."
+> "The architect skipped Pre-[FINISHED] Hygiene Gate (per `interactions.md:42` showing [FINISHED] signal without prior hygiene-report file; per `glob 'storage/.../iteration-N/.ai/.../hygiene-*.md'` returning no matches)."
 
 **Validation**: retrospective entry without supporting citation is invalid. Retrospective author (orchestrator) MUST either support claim with citation or remove before filing. Orchestrator MUST NOT defer this check to later iteration's quality-report — gate fires at retrospective-write time.
 
 ### Per-Agent count claims (MUST)
 
-Every "total invocations" or per-agent count claim in retrospective MUST cite source of count: either `(per interactions.md Per-Agent Totals table)` or `(per delegation_count: X PO + Y architect + ...)` with underlying counts from `interactions.md`. Counts not citing source-of-truth are invalid. Retrospective author MUST run Per-Agent reconciliation procedure (per `plan` SKILL Step 8 `Per-Agent Totals reconciliation across all closing artefacts`) before writing any agent-count claim.
+Every "total invocations" or per-agent count claim in retrospective MUST cite source of count: either `(per interactions.md Per-Agent Totals table)` or `(per delegation_count: X po + Y architect + ...)` with underlying counts from `interactions.md`. Counts not citing source-of-truth are invalid. Retrospective author MUST run Per-Agent reconciliation procedure (per `plan` SKILL Step 8 `Per-Agent Totals reconciliation across all closing artefacts`) before writing any agent-count claim.
 
 **Prose-vs-table cross-check (MUST)**: Every numeric claim in retrospective free-prose (paragraphs, bullets, "What Went Well" / "What Needs Improvement" / "Process Observations") about agent count, invocation count, stall count, critic-round count, re-delegation count, or task count MUST match corresponding cell in reconciliation table or be flagged with inline `[reconciliation-note: <one-line rationale>]` tag explaining discrepancy (e.g. `[reconciliation-note: prose excludes rejected critic R1 first attempt; table includes it per Per-Agent Totals procedure]`).
 
@@ -44,7 +44,7 @@ After each task is implemented, reviewed, and committed, the orchestrator evalua
 
 | Dimension               | Question                                                           | Rating                                    |
 | ----------------------- | ------------------------------------------------------------------ | ----------------------------------------- |
-| **Plan Adherence**      | Does the implementation match what the Architect's plan specified? | FULL / [PARTIAL] / DEVIATED               |
+| **Plan Adherence**      | Does the implementation match what the architect's plan specified? | FULL / [PARTIAL] / DEVIATED               |
 | **Acceptance Criteria** | Are all acceptance criteria met and tested?                        | ALL / SOME / NONE                         |
 | **Test Coverage**       | Are happy paths, failure paths, and edge cases covered?            | COMPLETE / ADEQUATE / GAPS                |
 | **Code Quality**        | Does the code follow project conventions and pass static analysis? | CLEAN / MINOR_ISSUES / SIGNIFICANT_ISSUES |
@@ -97,7 +97,7 @@ Save to `<issue-folder>/retrospective/planning.md` or `<issue-folder>/retrospect
 > ## Process Observations
 >
 > - **Re-delegations**: How many times was work re-delegated due to stalled sessions?
-> - **Review iterations**: Average number of Reviewer -> Developer round-trips per task.
+> - **Review iterations**: Average number of reviewer -> developer round-trips per task.
 > - **Escalations**: How many escalations occurred and to whom?
 > - **Blockers**: What blocked progress and how was it resolved?
 >

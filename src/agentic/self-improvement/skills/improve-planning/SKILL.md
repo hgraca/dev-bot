@@ -149,7 +149,7 @@ In addition to rubric scores, extract following objective metrics from `interact
 | Agent invocations (total) | Count of all subagent calls during planning                                                            |
 | Stall count               | Times workflow had to be unblocked or restarted                                                        |
 | [NEEDS_INPUT] signals     | Times solver agent asked human stakeholder question (should be 0 in this kata since approvals skipped) |
-| Critic rounds             | Number of architect↔critic exchanges before plan went FINAL                                            |
+| critic rounds             | Number of architect↔critic exchanges before plan went FINAL                                            |
 | Required-artifact gaps    | Missing files from required-artifacts list (Step 1.5)                                                  |
 
 These metrics feed "Solver execution" rubric dimension (see below).
@@ -217,7 +217,7 @@ Tracker file `storage/self-improvement/improve-planning/iterations_quality.md` h
 Use this exact header (initialise file with this header if it doesn't exist). Table records each rubric dimension's raw score (0–100) so per-dimension trends visible without opening every quality report. Immediately under header row, file MUST keep `Weights` reference row showing current rubric weights (this row is data, not comment, so per-dim columns meaningful at glance):
 
 ```markdown
-| Iter | Status  | Model | Rubric | Spec | Plan | Arch | Clar | Proc | Def | Solv | Grade | Δ Grade | Issues addressed | Issues remaining | Regressions | Effective fixes | Stalls | Critic rounds |
+| Iter | Status  | Model | Rubric | Spec | Plan | Arch | Clar | Proc | Def | Solv | Grade | Δ Grade | Issues addressed | Issues remaining | Regressions | Effective fixes | Stalls | critic rounds |
 | ---- | ------- | ----- | ------ | ---- | ---- | ---- | ---- | ---- | --- | ---- | ----- | ------- | ---------------- | ---------------- | ----------- | --------------- | ------ | ------------- |
 | —    | weights | —     | v3     | 35%  | 21%  | 21%  | 10%  | 5%   | 5%  | 3%   | 100%  | —       | —                | —                | —           | —               | —      | —             |
 ```
@@ -447,9 +447,9 @@ Point deductions relative to dimension they affect:
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | Specificity & completeness             | Every class, method, field, behavior, file path named. Zero ambiguity. Edge cases enumerated.          |
 | `plan` / `devbot:make-plan` compliance | Every rule in both skills satisfied with traceable evidence.                                           |
-| Architecture correctness               | Architect review confirms compliance. Directory tree matches architecture exactly.                     |
+| Architecture correctness               | architect review confirms compliance. Directory tree matches architecture exactly.                     |
 | Clarity for lower-reasoning LLM        | All rules centralized. Each task's AC self-contained. No implicit knowledge required.                  |
-| Process guidance                       | Reviewer mandate, commit strategy, stall recovery, delegation limits, error escalation — all explicit. |
+| Process guidance                       | reviewer mandate, commit strategy, stall recovery, delegation limits, error escalation — all explicit. |
 | Defensive completeness                 | Every coding-standard rule reflected. Known pitfalls addressed. All edge cases have test criteria.     |
 | Solver execution                       | Zero stalls, zero [NEEDS_INPUT], ≤3 critic rounds, all required artifacts present.                     |
 

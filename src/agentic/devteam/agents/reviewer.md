@@ -26,12 +26,12 @@ You are reviewer. Review changes against architect's plan and project convention
 
 ## Activation
 
-Review begins when Developer marks task ready for review. Input: task folder with architect's plan, developer's changes, and relevant context documents.
+Review begins when developer marks task ready for review. Input: task folder with architect's plan, developer's changes, and relevant context documents.
 
 Before starting, confirm:
 
-1. Developer signalled readiness for review.
-2. Architect's plan accessible.
+1. The developer signalled readiness for review.
+2. The architect's plan accessible.
 3. Changeset scoped to single task or feature.
 
 If changeset exceeds 30 files or 1500 lines, request developer break into smaller units.
@@ -70,7 +70,7 @@ When temporary file needed, use `devbot:thinking` skill.
 - Redesign — escalate architecture issues to architect
 - Approve work with any BLOCKER findings
 - Review domain semantics — critic's job
-- Delegate work to subagent — you ARE Reviewer; execute review inline in this session
+- Delegate work to subagent — you ARE reviewer; execute review inline in this session
 - Perform tasks outside your role scope — escalate per Escalation section
 
 ## Collaboration
@@ -83,6 +83,6 @@ Add `## Escalations` section to review report:
 
 > ### Escalation <n>: <Title>
 >
-> - **Target role**: (e.g. Architect, Product Owner, Developer)
+> - **Target role**: (e.g. architect, Product Owner, developer)
 > - **Reason**: Why outside reviewer's scope.
 > - **Context**: What observed and why matters.

@@ -5,7 +5,7 @@ description: "Use after a plan is approved, to run the Tester/Developer/Reviewer
 
 # Skill: Implement Plan
 
-Implement approved plan by orchestrating Tester, Developer, and Reviewer for each task in backlog.
+Implement approved plan by orchestrating tester, developer, and reviewer for each task in backlog.
 
 ## When to Apply
 
@@ -48,7 +48,7 @@ If developer needs:
 
 3. **Surface-keyword memory search — MUST**: Before delegating any task to @developer, extract from the task's technical actions the **implementation surface**: file types modified (e.g. `Dockerfile`, `php-fpm`, `www.conf`, `compose.yml`), technologies touched (e.g. `env[]`, `printf`, `sed`), and patterns applied. Run a second `search-memories` with those surface terms — NOT story-domain terms. If latent notes with matching `trigger-on` or `keywords` fields are found, include them in the developer delegation prompt under a `## Relevant latent notes` section. This catches gotchas that are invisible to story-scoped queries (e.g. a PHP-FPM env[] note won't surface when searching "opentelemetry" but will surface when searching "php-fpm www.conf env").
 
-4. Include applicable lessons from both searches in delegations to Developer, Tester, and Reviewer.
+4. Include applicable lessons from both searches in delegations to developer, tester, and reviewer.
 
 ### Step 1: Provide plan
 
@@ -59,7 +59,7 @@ Provide plan (`backlog.md` and any architecture/UI specifications) to @developer
 For each task in backlog:
 
 1. **Test** — Delegate to @tester:
-   - Before delegating, check whether the expected test file already exists (e.g. `tests/<name>/test-<task>.sh`). If it does, skip Tester delegation and proceed to Developer.
+   - Before delegating, check whether the expected test file already exists (e.g. `tests/<name>/test-<task>.sh`). If it does, skip tester delegation and proceed to developer.
    - Create test for each acceptance criterion
    - Create additional automated tests deemed necessary
    - When tests involve parsing structured text (frontmatter, markdown, YAML, config files), always include edge cases: valid input, missing/absent structure, and malformed structure (e.g. test with frontmatter, without frontmatter, and with malformed frontmatter).
@@ -67,7 +67,7 @@ For each task in backlog:
    - **Config-test ordering** — for tasks where tests are grep-based config validation (checking YAML keys, Makefile targets, file existence), consider delegating tester AFTER developer so grep patterns match actual implementation rather than speculative predicted output. Speculative patterns cause false negatives and tester stalls that waste debugging cycles. If a test script already exists as a stub with `# TODO:` markers, extend it post-implementation.
    - Save session report to task folder, signal [FINISHED] with report
 
-2. **Implement** — When Tester finished, delegate to @developer:
+2. **Implement** — When tester finished, delegate to @developer:
    - Implement task following plan
    - **Rename symbols with `devbot:refactor`** rather than editing names by hand — deterministic, and it covers the declaration and every call site
    - Ensure tests pass before considering task complete
@@ -76,11 +76,11 @@ For each task in backlog:
    - If task introduces new user-facing feature (plugin, tool, command, skill), create documentation page even if task description does not explicitly require it. Follow existing doc structure in `docs/`.
    - Signal [FINISHED] with a one-line summary of what was committed (e.g. "Committed: feat(litellm): add install.sh — 3 files, 20 assertions pass")
 
-3. **Review** — When Developer finished, delegate to @reviewer:
+3. **Review** — When developer finished, delegate to @reviewer:
    - **Gate**: If task modifies 2+ files (excluding test fixtures, config files, and markdown docs), reviewer delegation is REQUIRED — MUST NOT skip. Single-file changes that are purely wiring, config, or documentation may skip reviewer delegation at orchestrator's discretion.
    - Save Review Report to task folder, signal [FINISHED]
 
-4. **Address findings** — When Reviewer finished, delegate to @developer to address issues. Developer MUST commit fixes before signalling [FINISHED]. After fixes committed, create architecture spec addendum file referring differences from architecture spec plan to actual final implementation. Iterate from step 2.3 until no remaining issues.
+4. **Address findings** — When reviewer finished, delegate to @developer to address issues. developer MUST commit fixes before signalling [FINISHED]. After fixes committed, create architecture spec addendum file referring differences from architecture spec plan to actual final implementation. Iterate from step 2.3 until no remaining issues.
 
 5. **Mark done** — Set task title in _strikethrough_ in `backlog.md`.
 
@@ -107,13 +107,13 @@ When all tasks done:
 
 ## Delegation Rules
 
-- Invoke Tester, Developer, and Reviewer as separate subagents — never merge into single delegation.
+- Invoke tester, developer, and reviewer as separate subagents — never merge into single delegation.
 - Limit each developer delegation to at most 3 tasks.
 - When delegating multiple backlog tasks to developer, include any story-level technical actions (from the backlog's `### Story-level technical actions` section) as additional items in the prompt. Story-level actions sit outside individual tasks — developer won't see them otherwise.
 - Include concrete class signatures, constructor parameters, file paths, and dependency details from existing codebase.
 - Include only context relevant to specific task — not entire project context. Summarize large files. Load one context skill per delegation.
-- All code changes — including trivial review fixes — MUST be delegated to Developer. Orchestrator MUST NEVER apply code changes directly.
-- **Documentation-only tasks** (markdown-only, no code changes, combined output ≤200 lines) may be handled directly by orchestrator without developer delegation. Orchestrator MUST still follow `devbot:documentation-rules` skill. This exception does not apply if the doc task requires reading analysis output from a code task — delegate to Developer in that case.
+- All code changes — including trivial review fixes — MUST be delegated to developer. Orchestrator MUST NEVER apply code changes directly.
+- **Documentation-only tasks** (markdown-only, no code changes, combined output ≤200 lines) may be handled directly by orchestrator without developer delegation. Orchestrator MUST still follow `devbot:documentation-rules` skill. This exception does not apply if the doc task requires reading analysis output from a code task — delegate to developer in that case.
 - When delegating plugins or JS/TS code, state project's import conventions explicitly (e.g. "Use bare `fs`/`path` imports, not `node:fs`/`node:path`"). Reference existing plugin files as style examples.
 - When delegating code that loops over filesystem operations (readFileSync, writeFileSync, readdirSync), explicitly require: "Wrap filesystem operations in try/catch — single failure MUST NOT abort entire loop." Point to reference implementations that demonstrate this pattern.
 
@@ -128,7 +128,7 @@ When all tasks done:
 
 ## Parallelization
 
-By default, tasks execute sequentially (Tester -> Developer -> Reviewer per task). Run independent tasks in parallel only when **all** criteria met:
+By default, tasks execute sequentially (tester -> developer -> reviewer per task). Run independent tasks in parallel only when **all** criteria met:
 
 ### Eligibility
 
@@ -140,7 +140,7 @@ By default, tasks execute sequentially (Tester -> Developer -> Reviewer per task
 ### How to Parallelize
 
 1. Identify eligible parallel tasks from backlog.
-2. Delegate each task to separate Developer session simultaneously, each with its own Tester and Reviewer cycle.
+2. Delegate each task to separate developer session simultaneously, each with its own tester and reviewer cycle.
 3. Each parallel track follows full task cycle (step 2.1–2.4) independently.
 4. After all parallel tracks complete, run full test suite to verify no integration conflicts.
 5. If conflicts arise, create follow-up task to resolve them sequentially.
@@ -150,7 +150,7 @@ By default, tasks execute sequentially (Tester -> Developer -> Reviewer per task
 - Tasks that modify same bounded context domain layer
 - Tasks where one introduces new abstraction that other consumes
 - Database migrations (always sequential to avoid ordering issues)
-- Tasks where Architect plan specifies explicit ordering
+- Tasks where architect plan specifies explicit ordering
 
 ## MUST
 

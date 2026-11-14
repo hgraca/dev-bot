@@ -9,14 +9,14 @@ Analyze external review comments addressed in current session, identify gaps in 
 
 | Improvement kind                                                                                                                     | Target file                                                 |
 | ------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| Reviewer **behaviour** — unique workflow, tone of voice, behavioural MUST/MUST NOT rules, skill references                           | `src/agentic/devteam/agents/reviewer.md`                    |
+| reviewer **behaviour** — unique workflow, tone of voice, behavioural MUST/MUST NOT rules, skill references                           | `src/agentic/devteam/agents/reviewer.md`                    |
 | What the reviewer **inspects and flags** — review checks, issue types (generic or per-technology), finding patterns, report template | `src/agentic/devteam/skills/review-implementation/SKILL.md` |
 
 Anything that is not about reviewing stays out of both files.
 
 ## When to Apply
 
-- When TeamLead completes a PR review resolution session and wants to improve the reviewer
+- When teamlead completes a PR review resolution session and wants to improve the reviewer
 - When external PR review comments reveal issues our reviewer should have caught
 
 ## Goal

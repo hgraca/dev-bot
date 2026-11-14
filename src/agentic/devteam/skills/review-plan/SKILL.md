@@ -9,12 +9,12 @@ Evaluate architect's implementation plan for correctness, completeness, and arch
 
 ## When to Apply
 
-- Architect sends draft plan for review
+- The architect sends the draft plan for review
 - Evaluating whether plan is ready for implementation
 
 ## Inputs
 
-- Architect's plan (path or inline content)
+- The architect's plan (path or inline content)
 - Brief
 - Architecture document
 - ADR log

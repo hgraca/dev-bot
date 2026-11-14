@@ -186,7 +186,7 @@ Unlike the universal safety rules above, **adapt the wording to the agent's own 
 
 ## Verification checklist
 
-- [ ] Scout report answered wiring + clash questions
+- [ ] scout report answered wiring + clash questions
 - [ ] Structure, fidelity, mode, naming explicitly confirmed
 - [ ] New file (not edited live agent); frontmatter complete (`name`, `description`, `mode`)
 - [ ] Every referenced skill name exists on disk (`glob src/**/skills/<name>/SKILL.md`)
