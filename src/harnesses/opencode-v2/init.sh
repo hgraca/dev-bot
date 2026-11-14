@@ -200,7 +200,9 @@ _install_plugin_deps() {
   # Only bun-pty: @opencode/plugin is resolved by the host at runtime, and
   # installing it drags in its full dependency graph for no benefit.
   _info "Installing bun-pty into .opencode/ ..."
-  if (cd "${OPENCODE_DIR}" && timeout 120 bun install >/dev/null 2>&1); then
+  # `bun add`, not `bun install`: an existing .opencode/package.json was seeded
+  # by the v1 adapter and does not declare bun-pty.
+  if (cd "${OPENCODE_DIR}" && timeout 120 bun add bun-pty >/dev/null 2>&1); then
     _ok "bun-pty installed — the PTY tools are available"
   else
     _warn "bun install failed or timed out — the PTY tools stay unavailable"
@@ -499,7 +501,7 @@ _register_module_mcps() {
         [[ -n "${key}" ]] || continue
         def="$(jq -c --arg k "${key}" '.[$k]' <<<"${out}" 2>/dev/null || true)"
         [[ -n "${def}" ]] || continue
-        def_v2="$(jq -c 'if has("enabled") then (if .enabled then .disabled = false else .disabled = true end) | del(.enabled) else . end' <<<"${def}" 2>/dev/null || printf '%s' "${def}")"
+        def_v2="$(jq -c --arg cwd "${PROJECT_DIR}" '(if has("enabled") then (if .enabled then .disabled = false else .disabled = true end) | del(.enabled) else . end) | (if .type == "local" and (has("cwd") | not) then .cwd = $cwd else . end)' <<<"${def}" 2>/dev/null || printf '%s' "${def}")"
         if _v2 merge-mcp "${CONFIG}" "${key}" "${def_v2}" >/dev/null 2>&1; then
           _ok "registered MCP '${key}' from ${mod_name}"
         fi
@@ -528,7 +530,7 @@ _register_dynamic_mcps() {
     [[ -z "${key}" || "${key}" == "null" ]] && continue
     def=$(jq -c --arg k "${key}" '.[$k]' "${manifest}" 2>/dev/null || true)
     [[ -z "${def}" || "${def}" == "null" ]] && continue
-    def_v2="$(jq -c 'if has("enabled") then (if .enabled then .disabled = false else .disabled = true end) | del(.enabled) else . end' <<<"${def}" 2>/dev/null || printf '%s' "${def}")"
+    def_v2="$(jq -c --arg cwd "${PROJECT_DIR}" '(if has("enabled") then (if .enabled then .disabled = false else .disabled = true end) | del(.enabled) else . end) | (if .type == "local" and (has("cwd") | not) then .cwd = $cwd else . end)' <<<"${def}" 2>/dev/null || printf '%s' "${def}")"
 
     # A dynamic entry is machine-generated, not user-owned: replace it when the
     # emitted definition changed, else the change would be fresh-install-only.
