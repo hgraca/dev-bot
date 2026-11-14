@@ -4,7 +4,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, rmSync, utimesSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { acquireLock, releaseLock } from "../mcp-sync-lock"
+import { acquireLock, releaseLock } from "./mcp-sync-lock.ts"
 
 let dir = ""
 

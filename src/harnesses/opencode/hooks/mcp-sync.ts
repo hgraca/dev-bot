@@ -15,7 +15,7 @@ import {
 } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import { acquireLock, releaseLock } from "../mcp-sync-lock"
+import { acquireLock, releaseLock } from "../../../_shared/mcp-sync-lock.ts"
 import {
   configTarget,
   globalConfigCandidates,

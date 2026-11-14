@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "@opencode/plugin": "2.3.0"
+    "@opencode/plugin": "2.3.0",
+    "bun-pty": "^0.4.10"
   }
 }

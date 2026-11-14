@@ -385,6 +385,41 @@ def cmd_ensure_external_directory(path):
     return 0
 
 
+def cmd_set_mcp_disabled(path, key, value):
+    """Set mcp.servers.<key>.disabled, preserving the rest of the file."""
+    want = value == "true"
+    cfg = load(path)
+    servers = ((cfg.get("mcp") or {}).get("servers")) or {}
+    if key not in servers:
+        return 1
+    if bool(servers[key].get("disabled", False)) == want:
+        return 1
+    text = read(path)
+    open_i, close_i = _root(text)
+    mcp_span = _member_container(text, open_i, close_i, "mcp", "{")
+    if not mcp_span:
+        return 1
+    servers_span = _member_container(text, mcp_span[0], mcp_span[1], "servers", "{")
+    if not servers_span:
+        return 1
+    entry = _member(text, servers_span[0], servers_span[1], key)
+    if not entry or text[entry[0]] != "{":
+        return 1
+    value_close = _container_end(text, entry[0])
+    if value_close == -1:
+        return 1
+    existing = _member(text, entry[0], value_close, "disabled")
+    literal = "true" if want else "false"
+    if existing:
+        key_at = text.rfind('"disabled"', entry[0], existing[0] + 1)
+        if key_at == -1:
+            return 1
+        write(path, text[:key_at] + '"disabled": ' + literal + text[existing[1]:])
+    else:
+        write(path, _insert(text, (entry[0], value_close), '"disabled": ' + literal))
+    return 0
+
+
 def cmd_set_default_agent(path, agent):
     text = read(path)
     open_i, close_i = _root(text)
@@ -419,6 +454,8 @@ def main(argv):
         return cmd_remove_mcp(path, rest[0])
     if cmd == "ensure-external-directory":
         return cmd_ensure_external_directory(path)
+    if cmd == "set-mcp-disabled":
+        return cmd_set_mcp_disabled(path, rest[0], rest[1])
     if cmd == "set-default-agent":
         return cmd_set_default_agent(path, rest[0])
     print("ERROR: unknown command %s" % cmd, file=sys.stderr)

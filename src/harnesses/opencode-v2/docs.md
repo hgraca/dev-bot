@@ -74,6 +74,41 @@ does not manage.
 line. It fails open on a missing binary and on an unparseable version, and
 allows a source build reporting `0.0.0--<timestamp>`.
 
+## Config migration
+
+Both harnesses read the **same** `opencode.jsonc`, so a project that once ran
+the v1 adapter already has a v1 document. `init.sh` converts it once, through
+`lib/migrate_v1.py`, and leaves `opencode.jsonc.pre-v2.bak` beside it:
+
+| v1 | v2 |
+| --- | --- |
+| `plugin` (strings and `[name, options]` tuples) | `plugins` (strings, or `{package, options}`) |
+| `permission` (object per tool) | `permissions` (ordered rules, last match wins) |
+| `agent` (`prompt`, `disable`, `variant`) | `agents` (`system`, `disabled`, `model#variant`) |
+| `provider` (`npm`, `options`) | `providers` (`package`, `settings`) |
+| `mcp.<name>` with `enabled` | `mcp.servers.<name>` with `disabled` (inverted) |
+| `lsp` | dropped — v2 runs no language servers |
+
+Permission keys with no v2 action are dropped rather than mistranslated:
+`list`, `todowrite`, `todoread`, `codesearch`, `doom_loop`, `lsp`.
+
+## Agent PTY
+
+v1 pinned `opencode-pty@0.3.6`. Its published builds still depend on
+`@opencode-ai/plugin ^1.3.13`, and V1 plugin implementations do not run on a V2
+host, so there is no upstream build to pin. `hooks/pty.ts` provides the five
+tools (`pty_spawn`, `pty_write`, `pty_read`, `pty_list`, `pty_kill`) directly via
+`ctx.tool.transform`, backed by `bun-pty` (declared in the scaffold's
+`package.json`). If `bun-pty` cannot be resolved the tools still register and
+return an actionable message rather than vanishing from the toolset.
+
+## Known gaps
+
+- Module hooks declared with a `plugin:` factory in `hooks.json` are V1 plugin
+  implementations. The adapter logs their ids at startup and does not wire them.
+- The `shell` hook carries no session id, so the session env attach follows the
+  most recent session that ran a model request.
+
 ## V2 plugin API, as verified
 
 Taken from `@opencode/plugin@2.3.0`'s own type definitions and

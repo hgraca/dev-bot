@@ -13,6 +13,7 @@
   // not separately registered paths.
   "server": [
     "./.opencode/v2/plugins/on-hooks",
-    "./.opencode/v2/plugins/mcp-sync"
+    "./.opencode/v2/plugins/mcp-sync",
+    "./.opencode/v2/plugins/pty"
   ]
 }
