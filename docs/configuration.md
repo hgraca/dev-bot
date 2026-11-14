@@ -721,6 +721,34 @@ workloads live in this workspace. Both cluster and context names must match
 `[A-Za-z0-9._-]+` — the context is emitted as a YAML plain scalar, so a value
 like `"team: prod"` would be parsed as a mapping and corrupt the file.
 
+#### Static clusters
+
+An entry without `type` is an EKS cluster: it is resolved with
+`aws eks describe-cluster` and its user is an `aws eks get-token` exec wrapper.
+Add `"type": "static"` to name a kubeconfig instead — a k3d, kind or other local
+cluster authenticates with a client certificate, which an EKS describe call
+cannot produce.
+
+```jsonc
+{
+  "name": "kosmos",
+  "type": "static",
+  "kubeconfig": "/abs/path/to/k3d-kubeconfig.yaml",
+  "context": "k3d-kosmos",
+}
+```
+
+`kubeconfig` is an absolute path; `context` names the context **inside** that
+file and defaults to the cluster name. The file's `clusters`, `users` and
+`contexts` are merged into the generated kubeconfig with
+`kubectl config view --flatten`, so whatever auth it uses survives intact. A
+missing or unreadable file, or a context the file does not hold, is a `WARN` and
+the entry is left out — the same contract as a cluster that cannot be described.
+
+A static entry needs no AWS. `profile`, `credential_env` and the shared exec
+wrapper are only used when at least one EKS cluster is selected, so a
+static-only selection renders even on a machine with no AWS CLI.
+
 The config lives in its own file, not in `~/.kube/config`. kubectl only reads
 `~/.kube/config` unless `KUBECONFIG` says otherwise, so init also writes the
 project's env file:
@@ -765,9 +793,10 @@ Anything wider than the selection is revoked before the environment is touched:
 if the existing kubeconfig lists a cluster outside the permitted set — the
 selection intersected with the catalogue — it is deleted first, so a missing AWS
 CLI, an expired credential or a non-role profile cannot preserve access the
-project has since dropped. A selection that names no catalogue entry at all is
-pruned regardless of whether AWS is reachable. A render that fails part-way keeps
-the file only when every cluster in it is still permitted.
+project has since dropped. A static entry is recognised by its context name,
+since it carries no exec block. A selection that names no catalogue entry at all
+is pruned regardless of whether AWS is reachable. A render that fails part-way
+keeps the file only when every cluster in it is still permitted.
 
 The pre-selection machine-wide `~/.kube/devbot.yaml` and `~/.kube/devbot.env` are
 removed by the first init after upgrading — but only when the kubeconfig

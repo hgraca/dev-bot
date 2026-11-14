@@ -181,6 +181,57 @@ _existing_clusters() {
     | sed 's/.*", "\([^"]*\)"\]$/\1/' || true
 }
 
+# Static entries carry no exec block, so the AWS-shaped grep above cannot see
+# them. What was rendered is recorded in a sidecar manifest next to the
+# kubeconfig — deriving it from the catalogue cannot see an entry that has since
+# been removed, and that is exactly the case revocation must catch.
+_static_manifest_path() {
+  printf '%s' "${KUBECONFIG_PATH%.yaml}.static"
+}
+
+# The catalogue's current kind for a cluster name: "static", "eks", or empty
+# when the name is no longer declared.
+_catalogue_kind() {
+  local spec="$1" target="$2"
+  echo "${spec}" | jq -r --arg n "${target}" \
+    '.clusters[] | select(.name == $n) | (.type // "eks")' 2>/dev/null | head -1
+}
+
+_existing_static_clusters() {
+  local spec="$1" name context manifest
+  [[ -f "${KUBECONFIG_PATH}" ]] || return 0
+  manifest="$(_static_manifest_path)"
+
+  if [[ -f "${manifest}" ]]; then
+    local present=""
+    present="$(kubectl --kubeconfig "${KUBECONFIG_PATH}" config get-contexts -o name 2>/dev/null || true)"
+    while IFS=$'\t' read -r name context kind; do
+      [[ -n "${name}" ]] || continue
+      # Fail closed: an unreadable generated file is not evidence that the entry
+      # is gone, and the manifest is the only durable record of what was
+      # rendered. Reporting it keeps revocation working when kubectl cannot read.
+      if [[ -z "${present}" ]] || grep -Fxq "${context}" <<<"${present}"; then
+        printf '%s\n' "${name}"
+      fi
+    done < "${manifest}"
+    return 0
+  fi
+
+  # No manifest: a file rendered before it existed. Fall back to the catalogue,
+  # applying the same valid-name fallback the render applies.
+  while IFS=$'\t' read -r name context; do
+    [[ -n "${name}" ]] || continue
+    if ! [[ "${context}" =~ ${NAME_RE} ]]; then
+      context="${name}"
+    fi
+    if kubectl --kubeconfig "${KUBECONFIG_PATH}" config get-contexts -o name 2>/dev/null \
+      | grep -Fxq "${context}"; then
+      printf '%s\n' "${name}"
+    fi
+  done < <(echo "${spec}" | jq -r \
+    '.clusters[] | select((.type // "eks") == "static") | "\(.name)\t\(.context // .name)"')
+}
+
 # Only this project's own files are pruned. The wrapper is shared by every
 # project on the machine, so deleting it here would break the others; it holds
 # references, never values, and is harmless while unused.
@@ -191,6 +242,9 @@ _prune_generated() {
   fi
   if [[ -e "${ENV_PATH}" ]]; then
     rm -f "${ENV_PATH}" && removed=1
+  fi
+  if [[ -e "$(_static_manifest_path)" ]]; then
+    rm -f "$(_static_manifest_path)" && removed=1
   fi
   [[ "${removed}" -eq 1 ]]
 }
@@ -366,7 +420,7 @@ main() {
       stale=1
       break
     fi
-  done < <(_existing_clusters)
+  done < <( { _existing_clusters; _existing_static_clusters "${spec}"; } )
 
   if [[ "${stale}" -eq 1 ]]; then
     if _prune_generated; then
@@ -374,27 +428,63 @@ main() {
     fi
   fi
 
+  # A manifest entry whose catalogue kind is no longer "static" describes a
+  # render that cannot be reproduced: swapping an entry for an EKS one under the
+  # same name must not leave the old static credentials usable. This runs before
+  # the AWS gate, because an unavailable AWS would otherwise preserve them.
+  if [[ -f "$(_static_manifest_path)" ]]; then
+    local mname
+    while IFS=$'\t' read -r mname _ _; do
+      [[ -n "${mname}" ]] || continue
+      if [[ "$(_catalogue_kind "${spec}" "${mname}")" != "static" ]]; then
+        if _prune_generated; then
+          _warn "kubectl — static cluster ${mname} is no longer a static entry; removed the generated kubeconfig"
+        fi
+        break
+      fi
+    done < "$(_static_manifest_path)"
+  fi
+
   local profile
   profile="$(echo "${spec}" | jq -r '.profile // "devbot-agent"')"
 
-  if ! command -v aws >/dev/null 2>&1; then
-    _warn "kubectl — aws CLI not found; cannot resolve cluster endpoints"
-    return 0
+  # A catalogue entry is EKS unless it declares `type: "static"`: that one names a
+  # kubeconfig this module reduces to the selected context, so it needs no AWS.
+  local has_eks has_static
+  has_eks="$(echo "${spec}" | jq -r --argjson perm "${permitted}" \
+    '[.clusters as $c | $perm[] as $n | ($c[] | select(.name == $n)) | select((.type // "eks") != "static")] | length')"
+  has_static="$(echo "${spec}" | jq -r --argjson perm "${permitted}" \
+    '[.clusters as $c | $perm[] as $n | ($c[] | select(.name == $n)) | select((.type // "eks") == "static")] | length')"
+
+  # An unusable AWS environment aborts the render only when EKS clusters are all
+  # the project has; a mixed selection still gets its static clusters.
+  local aws_ready=1
+  if [[ "${has_eks}" -gt 0 ]]; then
+    if ! command -v aws >/dev/null 2>&1; then
+      _warn "kubectl — aws CLI not found; cannot resolve cluster endpoints"
+      aws_ready=0
+    elif ! aws configure list-profiles 2>/dev/null | grep -Fxq "${profile}"; then
+      _warn "kubectl — AWS profile '${profile}' is not configured; skipping"
+      aws_ready=0
+    elif ! _validate "${spec}" "${profile}"; then
+      aws_ready=0
+    elif ! _verify_identity "${spec}" "${profile}"; then
+      aws_ready=0
+    fi
+    if [[ "${aws_ready}" -eq 0 && "${has_static}" -eq 0 ]]; then
+      return 0
+    fi
   fi
-  if ! aws configure list-profiles 2>/dev/null | grep -Fxq "${profile}"; then
-    _warn "kubectl — AWS profile '${profile}' is not configured; skipping"
-    return 0
-  fi
-  _validate "${spec}" "${profile}" || return 0
-  _verify_identity "${spec}" "${profile}" || return 0
 
   # Only clusters that answered get a user and a context. Emitting the rest
   # would produce a context whose cluster entry does not exist, and the
   # current-context could land on it.
-  local -a names=() regions=() contexts=()
-  local name region context endpoint ca block clusters_yaml=""
+  local -a names=() regions=() contexts=() kinds=() files=()
+  local dropped_static=0
 
-  while IFS=$'\t' read -r name region context; do
+  local name kind region context endpoint ca file block clusters_yaml=""
+
+  while IFS=$'\t' read -r name kind region context; do
     [[ -n "${name}" ]] || continue
     if ! [[ "${name}" =~ ${NAME_RE} ]]; then
       _warn "kubectl — cluster name '${name}' is not valid; leaving it out"
@@ -405,6 +495,38 @@ main() {
     if ! [[ "${context}" =~ ${NAME_RE} ]]; then
       _warn "kubectl — context '${context}' is not a valid kubeconfig name; using '${name}'"
       context="${name}"
+    fi
+    if [[ "${kind}" == "static" ]]; then
+      file="$(echo "${spec}" | jq -r --arg n "${name}" \
+        '.clusters[] | select(.name == $n) | .kubeconfig // ""')"
+      if [[ -z "${file}" || ! -r "${file}" ]]; then
+        _warn "kubectl — static cluster ${name}: kubeconfig '${file}' is not readable; leaving it out"
+        dropped_static=1
+        continue
+      fi
+      # The context is the key the generated file will expose; it has to exist
+      # in the file being merged or the resulting kubeconfig is unusable.
+      if ! kubectl --kubeconfig "${file}" config get-contexts -o name 2>/dev/null \
+        | grep -Fxq "${context}"; then
+        _warn "kubectl — static cluster ${name}: context '${context}' is not in ${file}; leaving it out"
+        dropped_static=1
+        continue
+      fi
+      names+=("${name}")
+      regions+=("-")
+      contexts+=("${context}")
+      kinds+=("static")
+      files+=("${file}")
+      continue
+    fi
+    if [[ "${aws_ready}" -eq 0 ]]; then
+      _warn "kubectl — cannot describe cluster ${name}: AWS is not usable; leaving it out"
+      continue
+    fi
+    # The payload uses "-" for a missing field so an empty column cannot shift
+    # the later ones (IFS collapsing).
+    if [[ "${region}" == "-" ]]; then
+      region=""
     fi
     if ! endpoint=$(_with_credentials "${spec}" "${profile}" --region "${region}" \
       eks describe-cluster --name "${name}" --query 'cluster.endpoint' --output text 2>/dev/null); then
@@ -419,6 +541,8 @@ main() {
     names+=("${name}")
     regions+=("${region}")
     contexts+=("${context}")
+    kinds+=("eks")
+    files+=("")
     printf -v block '  - name: %s\n    cluster:\n      server: %s\n      certificate-authority-data: %s\n' \
       "${name}" "${endpoint}" "${ca}"
     clusters_yaml+="${block}"
@@ -429,11 +553,89 @@ main() {
     '.clusters as $c
      | $perm[] as $n
      | ($c[] | select(.name == $n))
-     | "\(.name)\t\(.region)\t\(.context // .name)"')
+     | "\(.name)\t\(.type // "eks")\t\(if (.region // "") == "" then "-" else .region end)\t\(.context // .name)"')
+
+  # A static kubeconfig may hold more than the context this project selected:
+  # another cluster, another user, an admin context. Reduce each one to its
+  # selected context, and drop any whose object names the generated file already
+  # uses — kubectl resolves duplicate names in favour of the first file, so a
+  # collision would silently point the context at another cluster.
+  local -A taken=()
+  local ki
+  for ki in "${!names[@]}"; do
+    if [[ "${kinds[$ki]}" == "eks" ]]; then
+      taken["${names[$ki]}"]=1
+      taken["${contexts[$ki]}"]=1
+      taken["devbot-${names[$ki]}"]=1
+    fi
+  done
+
+  local -a keep_names=() keep_regions=() keep_contexts=() keep_kinds=() keep_files=()
+  local mini object collide
+  for ki in "${!names[@]}"; do
+    if [[ "${kinds[$ki]}" != "static" ]]; then
+      keep_names+=("${names[$ki]}")
+      keep_regions+=("${regions[$ki]}")
+      keep_contexts+=("${contexts[$ki]}")
+      keep_kinds+=("eks")
+      keep_files+=("${files[$ki]}")
+      continue
+    fi
+
+    mini="$(mktemp "${TMPDIR:-/tmp}/devbot-kubeconfig-mini.XXXXXX")"
+    if ! kubectl --kubeconfig "${files[$ki]}" config view --minify --flatten --raw \
+      --context "${contexts[$ki]}" >"${mini}" 2>/dev/null; then
+      rm -f "${mini}"
+      _warn "kubectl — static cluster ${names[$ki]}: could not reduce it to context ${contexts[$ki]}; leaving it out"
+      dropped_static=1
+      continue
+    fi
+
+    collide=0
+    while IFS= read -r object; do
+      [[ -n "${object}" ]] || continue
+      if [[ -n "${taken["${object}"]:-}" ]]; then
+        collide=1
+        break
+      fi
+    done < <(kubectl --kubeconfig "${mini}" config view --raw -o json 2>/dev/null \
+      | jq -r '(.clusters[]?.name), (.contexts[]?.name), (.users[]?.name)')
+    if [[ "${collide}" -eq 1 ]]; then
+      rm -f "${mini}"
+      _warn "kubectl — static cluster ${names[$ki]}: a cluster, context or user name collides with another selected cluster; leaving it out"
+      dropped_static=1
+      continue
+    fi
+
+    while IFS= read -r object; do
+      [[ -n "${object}" ]] || continue
+      taken["${object}"]=1
+    done < <(kubectl --kubeconfig "${mini}" config view --raw -o json 2>/dev/null \
+      | jq -r '(.clusters[]?.name), (.contexts[]?.name), (.users[]?.name)')
+
+    keep_names+=("${names[$ki]}")
+    keep_regions+=("-")
+    keep_contexts+=("${contexts[$ki]}")
+    keep_kinds+=("static")
+    keep_files+=("${mini}")
+  done
+
+  names=("${keep_names[@]}")
+  regions=("${keep_regions[@]}")
+  contexts=("${keep_contexts[@]}")
+  kinds=("${keep_kinds[@]}")
+  files=("${keep_files[@]}")
 
   if [[ ${#names[@]} -eq 0 ]]; then
-    # Nothing rendered. Anything wider than the selection was already revoked
-    # above, so what is left is safe to keep through a transient failure.
+    # A static entry that cannot be rendered any more is not a transient
+    # failure: the previous render is stale, and keeping it would keep its
+    # credentials usable. Anything wider than the selection was revoked above.
+    if [[ "${dropped_static}" -eq 1 ]]; then
+      if _prune_generated; then
+        _warn "kubectl — a selected static cluster could not be rendered; removed the generated kubeconfig"
+      fi
+      return 0
+    fi
     _warn "kubectl — no cluster could be described; leaving the existing kubeconfig untouched"
     return 0
   fi
@@ -449,31 +651,96 @@ main() {
     default_context="${contexts[0]}"
   fi
 
-  _write_wrapper "${spec}" "${profile}"
-  _ok "kubectl — credential wrapper ${WRAPPER_PATH}"
+  local i eks_count=0
+  for i in "${!names[@]}"; do
+    if [[ "${kinds[$i]}" == "eks" ]]; then
+      eks_count=$((eks_count + 1))
+    fi
+  done
+  if [[ "${eks_count}" -gt 0 && "${aws_ready}" -eq 1 ]]; then
+    _write_wrapper "${spec}" "${profile}"
+    _ok "kubectl — credential wrapper ${WRAPPER_PATH}"
+  fi
 
   local tmp
   tmp="$(mktemp "${TMPDIR:-/tmp}/devbot-kubeconfig.XXXXXX")"
   {
     printf 'apiVersion: v1\nkind: Config\nclusters:\n'
     printf '%s' "${clusters_yaml}"
-    printf 'users:\n'
-    local i
-    for i in "${!names[@]}"; do
-      printf '  - name: devbot-%s\n    user:\n      exec:\n        apiVersion: client.authentication.k8s.io/v1beta1\n        command: %s\n        args: ["%s", "%s"]\n        interactiveMode: Never\n' \
-        "${names[$i]}" "${WRAPPER_PATH}" "${regions[$i]}" "${names[$i]}"
-    done
-    printf 'contexts:\n'
-    for i in "${!names[@]}"; do
-      printf '  - name: %s\n    context:\n      cluster: %s\n      user: devbot-%s\n      namespace: default\n' \
-        "${contexts[$i]}" "${names[$i]}" "${names[$i]}"
-    done
+    if [[ "${eks_count}" -eq 0 ]]; then
+      printf 'users: []\n'
+    else
+      printf 'users:\n'
+      for i in "${!names[@]}"; do
+        if [[ "${kinds[$i]}" == "eks" ]]; then
+          printf '  - name: devbot-%s\n    user:\n      exec:\n        apiVersion: client.authentication.k8s.io/v1beta1\n        command: %s\n        args: ["%s", "%s"]\n        interactiveMode: Never\n' \
+            "${names[$i]}" "${WRAPPER_PATH}" "${regions[$i]}" "${names[$i]}"
+        fi
+      done
+    fi
+    if [[ "${eks_count}" -eq 0 ]]; then
+      printf 'contexts: []\n'
+    else
+      printf 'contexts:\n'
+      for i in "${!names[@]}"; do
+        if [[ "${kinds[$i]}" == "eks" ]]; then
+          printf '  - name: %s\n    context:\n      cluster: %s\n      user: devbot-%s\n      namespace: default\n' \
+            "${contexts[$i]}" "${names[$i]}" "${names[$i]}"
+        fi
+      done
+    fi
     printf 'current-context: %s\n' "${default_context}"
   } > "${tmp}"
+
+  # Static entries already hold their own cluster, user and context — and their
+  # auth may be a client certificate, a token or anything else. Merge those
+  # files in rather than reconstructing them.
+  local -a static_files=()
+  for i in "${!names[@]}"; do
+    if [[ "${kinds[$i]}" == "static" ]]; then
+      static_files+=("${files[$i]}")
+    fi
+  done
+  if [[ ${#static_files[@]} -gt 0 ]]; then
+    local merged joined="${tmp}" f
+    for f in "${static_files[@]}"; do joined="${joined}:${f}"; done
+    merged="$(mktemp "${TMPDIR:-/tmp}/devbot-kubeconfig-merged.XXXXXX")"
+    if ! KUBECONFIG="${joined}" kubectl config view --flatten --raw > "${merged}" 2>/dev/null; then
+      rm -f "${merged}" "${tmp}"
+      # The accepted static entries are copies of their authentication data.
+      for f in "${static_files[@]}"; do rm -f "${f}"; done
+      _warn "kubectl — could not merge the static kubeconfigs; leaving the existing kubeconfig untouched"
+      return 0
+    fi
+    rm -f "${tmp}"
+    tmp="${merged}"
+    # --flatten keeps the first file's current-context; the default is decided
+    # by project name, so set it explicitly on the merged result.
+    kubectl --kubeconfig "${tmp}" config use-context "${default_context}" >/dev/null 2>&1 || true
+  fi
 
   mkdir -p "$(dirname "${KUBECONFIG_PATH}")"
   mv "${tmp}" "${KUBECONFIG_PATH}"
   chmod 600 "${KUBECONFIG_PATH}"
+
+  local static_count=0 mi
+  for mi in "${!names[@]}"; do
+    if [[ "${kinds[$mi]}" == "static" ]]; then
+      static_count=$((static_count + 1))
+    fi
+  done
+  if [[ "${static_count}" -gt 0 ]]; then
+    for mi in "${!names[@]}"; do
+      if [[ "${kinds[$mi]}" == "static" ]]; then
+        printf '%s\t%s\n' "${names[$mi]}" "${contexts[$mi]}"
+        rm -f "${files[$mi]}"
+      fi
+    done >"$(_static_manifest_path)"
+    chmod 600 "$(_static_manifest_path)"
+  else
+    rm -f "$(_static_manifest_path)"
+  fi
+
   _ok "kubectl — ${KUBECONFIG_PATH}"
 
   # kubectl reads ~/.kube/config unless KUBECONFIG says otherwise, so a

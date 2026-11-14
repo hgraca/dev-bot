@@ -69,6 +69,16 @@ _generated_contexts() {
   kubectl --kubeconfig "${KUBECONFIG_PATH}" config get-contexts -o name
 }
 
+# The catalogue entry type behind a context: "eks" unless it says otherwise.
+# A static cluster has no exec wrapper, so its credentials are never checked.
+_catalogue_type() {
+  jq -r --arg ctx "$1" '
+    .clusters[]
+    | (if ((.context // "") | test("^[A-Za-z0-9._-]+$")) then .context else .name end) as $c
+    | select($c == $ctx)
+    | (.type // "eks")' <<<"${SPEC}" 2>/dev/null | head -1
+}
+
 # The ${VAR} references in credential_env: the variables the
 # wrapper reads, and therefore what the environment must set.
 _credential_refs() {
@@ -105,7 +115,11 @@ cmd_env() {
   else
     printf '# current-context: %s\n' "${current}"
   fi
-  printf '# credentials: %s must be set in the environment\n' "${refs:-<none configured>}"
+  if [[ "$(_catalogue_type "${current}")" == "static" ]]; then
+    printf '# credentials: none (static context)\n'
+  else
+    printf '# credentials: %s must be set in the environment\n' "${refs:-<none configured>}"
+  fi
 }
 
 cmd_contexts() {
@@ -183,17 +197,21 @@ cmd_run() {
 
   # The exec wrapper runs under `set -eu`: an unset credential
   # variable surfaces as an opaque plugin error, so check first.
-  local key ref var
-  while IFS=$'\t' read -r key ref; do
-    [[ -n "${key}" ]] || continue
-    [[ "${ref}" == '${'*'}' ]] || continue
-    var="${ref#\$\{}"
-    var="${var%\}}"
-    if [[ -z "${!var:-}" ]]; then
-      _error "${var} is not set; it backs ${key} in the global credential_env"
-      return 1
-    fi
-  done < <(jq -r '.credential_env // {} | to_entries[] | "\(.key)\t\(.value)"' <<<"${SPEC}")
+  # A static context has no exec wrapper, so it must not require the AWS
+  # variables at all — a static-only project renders and runs without them.
+  if [[ "$(_catalogue_type "${current}")" != "static" ]]; then
+    local key ref var
+    while IFS=$'\t' read -r key ref; do
+      [[ -n "${key}" ]] || continue
+      [[ "${ref}" == '${'*'}' ]] || continue
+      var="${ref#\$\{}"
+      var="${var%\}}"
+      if [[ -z "${!var:-}" ]]; then
+        _error "${var} is not set; it backs ${key} in the global credential_env"
+        return 1
+      fi
+    done < <(jq -r '.credential_env // {} | to_entries[] | "\(.key)\t\(.value)"' <<<"${SPEC}")
+  fi
 
   # Credentials come from credential_env at exec time.
   # The .env carries only KUBECONFIG.
