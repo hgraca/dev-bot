@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@opencode/plugin": "2.3.0"
+  }
+}

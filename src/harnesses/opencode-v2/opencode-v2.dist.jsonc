@@ -1,0 +1,101 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // Seeded once by init.sh; after that the file is user-owned.
+  //
+  // This is the OpenCode 2.x shape of src/harnesses/opencode/opencode.dist.jsonc.
+  // The v2 config renames every wire-visible key, so the two dists cannot be
+  // shared: `permission`→`permissions` (ordered, last match wins),
+  // `agent`→`agents` (`prompt`→`system`, `disable`→`disabled`, `variant` joins
+  // the model as `provider/model#variant`), `provider`→`providers` with
+  // `settings` replacing `options`, `plugin`→`plugins` (`{package, options}`),
+  // and `mcp`→`mcp.servers` with `enabled` inverted to `disabled`.
+  //
+  // No `lsp` block: v2 accepts the key but runs no language servers and emits no
+  // diagnostics, so the Intelephense override v1 ships would be inert config.
+  "model": "opencode/nemotron-3.5-lightning-free", // or "litellm/default"
+  "small_model": "opencode/big-pickle", // deprecated in v2, still honoured
+  // Snapshot tracking diffs the whole workspace on every step; disabled because
+  // undo/revert is not used in this workspace.
+  "snapshots": false,
+  "instructions": ["AGENTS.md", ".agents/memory/active/**/*.md"],
+  // Local plugin packages live under the v2-only namespace so a deselected v1
+  // adapter's symlinks in .opencode/plugins/ can never be auto-loaded by this
+  // host. Configured local paths must name a directory, not a file.
+  //
+  // opencode-pty is deliberately absent: its published builds still depend on
+  // the V1 SDK (@opencode-ai/plugin ^1.3.13), and V1 plugin implementations do
+  // not run on a v2 host. Agent PTY capability is a known gap until an upstream
+  // v2 build ships.
+  "plugins": [
+    "./.opencode/v2/plugins/on-hooks",
+    "./.opencode/v2/plugins/mcp-sync"
+  ],
+  "default_agent": "devbot",
+  // Provider-level timeouts: aborts requests that hang without emitting.
+  // chunkTimeout aborts a stream with no SSE chunk for 90s, surfacing the
+  // failure to auto-recover instead of hanging forever.
+  "providers": {
+    "cortecs": {
+      "settings": {
+        "timeout": 300000,
+        "headerTimeout": 60000,
+        "chunkTimeout": 90000
+      }
+    }
+  },
+  "agents": {
+    "plan": { "disabled": true },
+    "build": { "disabled": true },
+    // `variant` is not a v2 agent key: it is appended to the model reference.
+    "devbot": { "model": "deepseek/deepseek-flash#high" },
+    "expert": { "model": "cortecs/kimi-k3#high" },
+    "designer": { "model": "cortecs/kimi-k3#high" },
+    "teamlead": { "model": "deepseek/deepseek-flash#high" },
+    "architect": { "model": "cortecs/kimi-k3#high" },
+    "po": { "model": "deepseek/deepseek-flash#high" },
+    "critic": { "model": "deepseek/deepseek-flash#high" },
+    "developer": { "model": "deepseek/deepseek-flash#high" },
+    "tester": { "model": "deepseek/deepseek-flash#high" },
+    "reviewer": { "model": "deepseek/deepseek-flash#high" },
+    "security": { "model": "deepseek/deepseek-flash#high" },
+    "scout": { "model": "deepseek/deepseek-flash#high" }
+  },
+  // Ordered rules; the LAST match wins, and an unmatched action resolves to
+  // `ask`. `external_directory` is allowed by default in v2, so the explicit
+  // deny below is what restores v1's behaviour.
+  //
+  // v1 permission keys with no v2 action are dropped rather than mistranslated:
+  // `list`, `todowrite`, `todoread`, `codesearch`, `doom_loop`, `lsp`.
+  "permissions": [
+    { "action": "external_directory", "resource": "*", "effect": "deny" },
+    { "action": "external_directory", "resource": "/tmp/**", "effect": "allow" },
+    { "action": "read", "resource": "*", "effect": "allow" },
+    { "action": "edit", "resource": "*", "effect": "allow" },
+    { "action": "glob", "resource": "*", "effect": "allow" },
+    { "action": "grep", "resource": "*", "effect": "allow" },
+    { "action": "shell", "resource": "*", "effect": "allow" },
+    { "action": "shell", "resource": "sudo *", "effect": "ask" },
+    { "action": "subagent", "resource": "*", "effect": "allow" },
+    { "action": "skill", "resource": "*", "effect": "allow" },
+    { "action": "question", "resource": "*", "effect": "allow" },
+    { "action": "webfetch", "resource": "*", "effect": "allow" },
+    { "action": "websearch", "resource": "*", "effect": "allow" },
+    { "action": "execute", "resource": "*", "effect": "allow" }
+  ],
+  "watcher": {
+    "ignore": [
+      "node_modules/**",
+      "vendor/**",
+      "dist/**",
+      "build/**",
+      ".git/**",
+      ".cache/**",
+      "*no-vcs*",
+      "*no-vcs*/**",
+      "storage/**",
+      ".idea/**",
+      ".vscode/**",
+      ".env*"
+    ]
+  }
+}

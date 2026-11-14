@@ -1,0 +1,18 @@
+{
+  // The plugins an existing project's v2 config is reconciled up to, so a
+  // project seeded before a plugin existed does not silently diverge from the
+  // dist.
+  //
+  // Scope is every plugin the dist ships: the dist's `plugins` array is the
+  // source of truth for what this harness runs with, and a project seeded
+  // earlier should converge on it rather than keep a subset. Additions only — a
+  // removal cannot propagate, because "remove anything the dist does not list"
+  // would delete plugins a project added itself.
+  //
+  // No `tui` list: v2 TUI parts are exports of the plugin packages themselves,
+  // not separately registered paths.
+  "server": [
+    "./.opencode/v2/plugins/on-hooks",
+    "./.opencode/v2/plugins/mcp-sync"
+  ]
+}
