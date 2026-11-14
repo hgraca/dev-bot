@@ -102,12 +102,38 @@ tools (`pty_spawn`, `pty_write`, `pty_read`, `pty_list`, `pty_kill`) directly vi
 `package.json`). If `bun-pty` cannot be resolved the tools still register and
 return an actionable message rather than vanishing from the toolset.
 
+## TUI parts (not yet ported)
+
+V2 keeps TUI plugins, but as a **part of a plugin package**, not a separate
+project-local `tui.json`:
+
+- A package declares `exports["./tui"]`; its default export is
+  `{ id?, tui }` where `tui = async (api, options, meta) => …` — a different
+  shape from the server part's `Plugin.define`.
+- **Plugins listed in `opencode.jsonc` that expose a `./tui` part are loaded
+  automatically by the CLI.** The global `~/.config/opencode/cli.json` is only
+  for CLI-only plugins, so this harness never needs to write outside the
+  project.
+- A local plugin directory resolves parts through its `package.json` `exports`,
+  or bare `server`/`tui` files at its root.
+
+The three v1 TUI plugins (`pty-monitor`, `tui-defaults`, `provider-ttft`) are
+not ported yet. Their sources use the V1 TUI primitives
+(`api.tuiConfig`, per-project `tui.json` slots), so this is a component rewrite
+against `@opencode/plugin/tui`, not a file move.
+
 ## Known gaps
 
+- TUI parts are not ported (see above); the harness is server-side only.
 - Module hooks declared with a `plugin:` factory in `hooks.json` are V1 plugin
   implementations. The adapter logs their ids at startup and does not wire them.
 - The `shell` hook carries no session id, so the session env attach follows the
   most recent session that ran a model request.
+- `devbot prune` still targets the v1 host only: it drives
+  `opencode session list --format json`, and the 2.x CLI's equivalent is not
+  confirmed. The SQLite `session_v2` pruning helper itself is harness-agnostic.
+- Stats: `devbot stats` looks for `src/harnesses/<harness>/stats.sh`, which this
+  module does not ship yet, so it reports the harness as unsupported.
 
 ## V2 plugin API, as verified
 
