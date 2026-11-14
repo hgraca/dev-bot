@@ -1,5 +1,5 @@
 ---
-name: Expert
+name: expert
 description: "Expert — consultant subagent for deep technical problem analysis, uses a higher grade LLM"
 mode: subagent
 temperature: 0.3

@@ -1,5 +1,5 @@
 ---
-name: Security
+name: security
 description: "Security Engineer — performs security audits, threat modelling, vulnerability assessment, and secure code review without modifying code"
 mode: subagent
 temperature: 0.1

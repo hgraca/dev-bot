@@ -1,5 +1,5 @@
 ---
-name: Tester
+name: tester
 description: "Tester — validates implementations against requirements, writes and executes automated tests"
 mode: subagent
 temperature: 0.4

@@ -1,5 +1,5 @@
 ---
-name: Reviewer
+name: reviewer
 description: "Reviewer — reviews changes against the combined backlog (product decomposition and technical implementation plan) and project conventions, reports issues without modifying code"
 mode: subagent
 temperature: 0.2

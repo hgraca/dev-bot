@@ -1,5 +1,5 @@
 ---
-name: TeamLead
+name: teamlead
 description: "TeamLead — orchestrates all work, classifies requests, routes to specialists, leads planning and implementation workflows, makes product decisions"
 mode: primary
 temperature: 0.2

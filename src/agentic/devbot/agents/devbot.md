@@ -1,5 +1,5 @@
 ---
-name: DevBot
+name: devbot
 description: "devbot — pair programming partner, works alongside you incrementally, never autonomously (Profile/Session-lifecycle layout)"
 mode: primary
 temperature: 0.3

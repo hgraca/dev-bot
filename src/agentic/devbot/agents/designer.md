@@ -1,5 +1,5 @@
 ---
-name: Designer
+name: designer
 description: "Designer — designs user experience and visual interfaces; produces interaction specs, screen designs, and visual acceptance criteria"
 mode: subagent
 temperature: 0.7

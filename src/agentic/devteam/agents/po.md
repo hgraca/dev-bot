@@ -1,5 +1,5 @@
 ---
-name: PO
+name: po
 description: "Product Owner — product domain expert, owns backlog grooming, answers business and requirements questions"
 mode: subagent
 temperature: 0.2

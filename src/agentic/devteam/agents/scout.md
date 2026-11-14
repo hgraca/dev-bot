@@ -1,5 +1,5 @@
 ---
-name: Scout
+name: scout
 description: "Scout — collects context for the orchestrator; does not delegate tasks"
 mode: subagent
 temperature: 0.2

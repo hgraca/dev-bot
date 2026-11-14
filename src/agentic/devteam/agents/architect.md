@@ -1,5 +1,5 @@
 ---
-name: Architect
+name: architect
 description: "Software Architect — designs technical plans and ADRs, does not write production code"
 mode: subagent
 temperature: 0.2

@@ -1,5 +1,5 @@
 ---
-name: Critic
+name: critic
 description: "Critic — evaluates plans and audits the codebase for inconsistencies, architectural erosion, and pattern drift"
 mode: subagent
 temperature: 0.1
