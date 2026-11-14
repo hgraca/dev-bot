@@ -193,18 +193,17 @@ _install_plugin_deps() {
     _skip "plugin dependency install skipped (DEV_BOT_SKIP_PLUGIN_DEPS=1)"
     return 0
   fi
-  # npm, not bun: `bun install` stalls resolving this manifest on some machines,
-  # while npm resolves the single runtime dependency in under a second. Only
-  # bun-pty is installed — @opencode/plugin is resolved by the host at runtime.
-  if ! command -v npm >/dev/null 2>&1; then
-    _warn "npm not found — the PTY tools stay unavailable"
+  if ! command -v bun >/dev/null 2>&1; then
+    _warn "bun not found — the PTY tools stay unavailable"
     return 0
   fi
+  # Only bun-pty: @opencode/plugin is resolved by the host at runtime, and
+  # installing it drags in its full dependency graph for no benefit.
   _info "Installing bun-pty into .opencode/ ..."
-  if (cd "${OPENCODE_DIR}" && timeout 120 npm install --no-audit --no-fund --silent bun-pty >/dev/null 2>&1); then
+  if (cd "${OPENCODE_DIR}" && timeout 120 bun install >/dev/null 2>&1); then
     _ok "bun-pty installed — the PTY tools are available"
   else
-    _warn "npm install of bun-pty failed or timed out — the PTY tools stay unavailable"
+    _warn "bun install failed or timed out — the PTY tools stay unavailable"
   fi
 }
 

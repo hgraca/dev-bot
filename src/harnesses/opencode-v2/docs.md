@@ -107,12 +107,14 @@ v1 pinned `opencode-pty@0.3.6`. Its published builds still depend on
 `@opencode-ai/plugin ^1.3.13`, and V1 plugin implementations do not run on a V2
 host, so there is no upstream build to pin. `hooks/pty.ts` provides the five
 tools (`pty_spawn`, `pty_write`, `pty_read`, `pty_list`, `pty_kill`) directly via
-`ctx.tool.transform`, backed by `bun-pty`. `init.sh` installs it with **npm** (`bun install` stalls
-resolving this manifest on some machines) and the plugin resolves it from the
-project's `.opencode/node_modules` as a fallback, because the re-export shim
-makes a bare specifier resolve against the dev-bot checkout instead. If it
-cannot be resolved the tools still register and return an actionable message
-rather than vanishing from the toolset.
+`ctx.tool.transform`, backed by `bun-pty`, which `init.sh` installs with `bun install` (~2s). The
+scaffold declares **only** bun-pty: `@opencode/plugin` is resolved by the host at
+runtime, and listing it pulls its full dependency graph on every install for no
+benefit. The plugin also resolves bun-pty from the project's
+`.opencode/node_modules` as a fallback, because the re-export shim makes a bare
+specifier resolve against the dev-bot checkout instead. If it cannot be
+resolved the tools still register and return an actionable message rather than
+vanishing from the toolset.
 
 Verified end to end on a 2.3.0 host: spawn → read (`hello-from-pty`, exit 0) →
 kill. A tool result carrying `output` must declare an output schema — without
