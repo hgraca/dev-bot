@@ -31,6 +31,11 @@
     "./.opencode/v2/plugins/mcp-sync"
   ],
   "default_agent": "devbot",
+  // v2 nests every server under `mcp.servers`, and per-server enablement is
+  // inverted: a server carries `disabled: true` to stay wired but not started.
+  "mcp": {
+    "servers": {}
+  },
   // Provider-level timeouts: aborts requests that hang without emitting.
   // chunkTimeout aborts a stream with no SSE chunk for 90s, surfacing the
   // failure to auto-recover instead of hanging forever.
@@ -68,7 +73,11 @@
   // `list`, `todowrite`, `todoread`, `codesearch`, `doom_loop`, `lsp`.
   "permissions": [
     { "action": "external_directory", "resource": "*", "effect": "deny" },
-    { "action": "external_directory", "resource": "/tmp/**", "effect": "allow" },
+    {
+      "action": "external_directory",
+      "resource": "/tmp/**",
+      "effect": "allow"
+    },
     { "action": "read", "resource": "*", "effect": "allow" },
     { "action": "edit", "resource": "*", "effect": "allow" },
     { "action": "glob", "resource": "*", "effect": "allow" },

@@ -1,0 +1,574 @@
+#!/usr/bin/env bash
+# =============================================================================
+# src/harnesses/opencode-v2/init.sh
+# Sets up OpenCode 2.x in a project: copies the .opencode/ template directory,
+# writes opencode.jsonc from the dist template, links plugin directories under
+# .opencode/v2/plugins/, registers MCP servers under mcp.servers, and delegates
+# the agents/commands/tools/skills farms to the devbot dir.
+#
+# Usage:
+#   init.sh                    # init in current directory
+#   init.sh /path/to/project   # init in specified project
+# =============================================================================
+
+set -euo pipefail
+
+MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=./functions.sh
+source "${MODULE_DIR}/functions.sh"
+
+PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
+
+if [[ -z "${PROJECT_DIR}" || ! -d "${PROJECT_DIR}" ]]; then
+  _fatal "directory '${1:-.}' does not exist or cannot be resolved."
+  exit 1
+fi
+
+# shellcheck source=../_shared/functions.sh
+source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
+
+# ── Paths ──────────────────────────────────────────────────────────────────────
+
+MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
+OPENCODE_TPL="${MODULE_DIR}/_opencode-v2.tpl"
+DIST_CONFIG="${MODULE_DIR}/opencode-v2.dist.jsonc"
+V2HELPER="${MODULE_DIR}/lib/v2config.py"
+OPENCODE_DIR="${PROJECT_DIR}/.opencode"
+# The v2-only plugin namespace. Nothing else scans it, so a deselected v1
+# adapter's symlinks in .opencode/plugins/ can never be auto-loaded by this host.
+V2_PLUGIN_DIR="${OPENCODE_DIR}/v2/plugins"
+CONFIG="${PROJECT_DIR}/opencode.jsonc"
+
+# Config edits for the v2 shapes. The shared helpers under src/_shared write the
+# v1 keys, so this module owns its own.
+_v2() {
+  V2_SHARED_DIR="${DEV_BOT_ROOT}/src/_shared" python3 "${V2HELPER}" "$@"
+}
+
+# ── Merge .opencode/ template directory ───────────────────────────────────────
+_copy_opencode_dir() {
+  if [[ ! -d "${OPENCODE_TPL}" ]]; then
+    _warn "Template directory not found at ${OPENCODE_TPL}"
+    return 1
+  fi
+
+  local copied=0
+  mkdir -p "${OPENCODE_DIR}"
+
+  while IFS= read -r -d '' src_file; do
+    local rel="${src_file#${OPENCODE_TPL}/}"
+    local tgt="${OPENCODE_DIR}/${rel}"
+
+    # `continue`, never `return`: find emits directories before their contents,
+    # so returning on the first .gitkeep aborts the copy of every later dir.
+    [[ "$(basename "${rel}")" == ".gitkeep" ]] && continue
+
+    if [[ -e "${tgt}" ]]; then
+      _skip "${rel} already exists"
+    else
+      mkdir -p "$(dirname "${tgt}")"
+      cp -r "${src_file}" "${tgt}"
+      _ok "${rel} copied"
+      copied=$((copied + 1))
+    fi
+  done < <(find "${OPENCODE_TPL}" -mindepth 1 -print0 2>/dev/null)
+
+  if [[ ${copied} -eq 0 ]]; then
+    _skip "no new files from template"
+  fi
+}
+
+# ── Remove .gitkeep files ──────────────────────────────────────────────────────
+_remove_gitkeep_files() {
+  local count=0
+  while IFS= read -r -d '' f; do
+    rm -f "$f"
+    count=$((count + 1))
+  done < <(find "${OPENCODE_DIR}" -name '.gitkeep' -type f -print0 2>/dev/null)
+  if [[ ${count} -gt 0 ]]; then _ok "Removed ${count} .gitkeep file(s) from .opencode/"; fi
+}
+
+# ── Write a runtime JSONC config from a dist template ──────────────────────────
+# One-shot seed: an existing target is user-owned and left alone. Comments are
+# stripped string-aware (so URLs survive) and __GPU_ENABLED__ /
+# __DEV_BOT_ROOT__ substituted.
+_write_jsonc_from_dist() {
+  local dist="$1"
+  local config="$2"
+  local name
+  name="$(basename "${config}")"
+
+  if [[ -f "${config}" ]]; then
+    _skip "${name} already exists"
+    return 0
+  fi
+
+  if [[ ! -f "${dist}" ]]; then
+    _warn "Template not found at ${dist}"
+    return 1
+  fi
+
+  _info "Writing ${name}..."
+
+  GPU_ENABLED="${GPU_ENABLED:-false}" DEV_BOT_ROOT="${DEV_BOT_ROOT:-}" \
+    DIST_CONFIG="${dist}" CONFIG="${config}" python3 - <<'PY'
+import os
+import tempfile
+raw = open(os.environ["DIST_CONFIG"]).read()
+
+out = []
+i, n = 0, len(raw)
+while i < n:
+    if raw[i] == '"':                      # string literal — copy verbatim
+        j = i + 1
+        while j < n:
+            if raw[j] == "\\":
+                j += 2
+            elif raw[j] == '"':
+                j += 1
+                break
+            else:
+                j += 1
+        out.append(raw[i:j])
+        i = j
+        continue
+    if raw[i : i + 2] == "//":             # line comment
+        j = raw.find("\n", i)
+        if j == -1:
+            break
+        i = j
+        continue
+    if raw[i : i + 2] == "/*":             # block comment
+        j = raw.find("*/", i + 2)
+        if j == -1:
+            break
+        i = j + 2
+        continue
+    out.append(raw[i])
+    i += 1
+
+stripped = "".join(out).replace("__GPU_ENABLED__", os.environ["GPU_ENABLED"]).replace(
+    "__DEV_BOT_ROOT__", os.environ.get("DEV_BOT_ROOT", "")
+)
+lines = [line.rstrip() for line in stripped.splitlines() if line.strip()]
+data = "\n".join(lines) + "\n"
+fd, tmp = tempfile.mkstemp(
+    dir=os.path.dirname(os.environ["CONFIG"]),
+    prefix="." + os.path.basename(os.environ["CONFIG"]) + ".",
+)
+with os.fdopen(fd, "w") as f:
+    f.write(data)
+umask = os.umask(0)
+os.umask(umask)
+os.chmod(tmp, 0o644 & ~umask)
+os.replace(tmp, os.environ["CONFIG"])
+PY
+  _ok "${name} written"
+}
+
+_write_opencode_config() {
+  GPU_ENABLED="$(_qmd_gpu_value)" \
+    _write_jsonc_from_dist "${DIST_CONFIG}" "${CONFIG}"
+}
+
+# ── Refuse a v1-shaped config rather than half-wiring it ──────────────────────
+# Both harnesses read the SAME filename, so a project that once ran the v1
+# adapter already has opencode.jsonc. The seed above skips it, and registering
+# v2 keys into a v1 document would produce a config that is neither. Refuse
+# loudly: the user decides whether to delete the file (losing their edits) or
+# keep the v1 harness.
+_refuse_legacy_config() {
+  [[ -f "${CONFIG}" ]] || return 0
+  local legacy
+  legacy="$(_v2 has-legacy "${CONFIG}" 2>/dev/null || true)"
+  [[ -n "${legacy}" ]] || return 0
+
+  _fatal "${CONFIG} uses the OpenCode 1.x key names (${legacy})."
+  _fatal "  This harness writes the 2.x shape and will not convert a 1.x config."
+  _fatal "  Either keep harness 'opencode', or move opencode.jsonc aside and re-run"
+  _fatal "  'devbot reinit' to seed a fresh 2.x config."
+  return 1
+}
+
+# ── Hand over from a previously selected harness ──────────────────────────────
+# The unselected harness's reset is skipped by design, so its symlinks survive in
+# .opencode/ and this host would auto-load them from .opencode/plugins/. Remove
+# ONLY links resolving under DEV_BOT_ROOT: user files, opencode's own
+# .opencode/opencode.json and anything else are never touched.
+_sweep_foreign_artifacts() {
+  [[ -d "${OPENCODE_DIR}" ]] || return 0
+
+  local removed=0 link target resolved candidate
+  while IFS= read -r -d '' link; do
+    target="$(readlink "${link}" 2>/dev/null || true)"
+    [[ -n "${target}" ]] || continue
+    resolved="$(readlink -f "${link}" 2>/dev/null || true)"
+    if [[ -z "${resolved}" ]]; then
+      # A dev-bot link whose source moved or was removed still has to go, and
+      # readlink -f reports nothing for a missing target — normalise it by hand.
+      if [[ "${target}" == /* ]]; then
+        candidate="${target}"
+      else
+        candidate="$(dirname "${link}")/${target}"
+      fi
+      resolved="$(realpath -m "${candidate}" 2>/dev/null || printf '%s' "${candidate}")"
+    fi
+    [[ -n "${resolved}" && "${resolved}" == "${DEV_BOT_ROOT}"/* ]] || continue
+    rm -f "${link}"
+    removed=$((removed + 1))
+  done < <(find "${OPENCODE_DIR}" -type l -print0 2>/dev/null)
+
+  # Drop the v1-only plugin farms once they are empty; a user's own files keep
+  # the directory alive.
+  local dir
+  for dir in "${OPENCODE_DIR}/plugins" "${OPENCODE_DIR}/tui-plugins"; do
+    [[ -d "${dir}" ]] && rmdir "${dir}" 2>/dev/null || true
+  done
+
+  if [[ ${removed} -gt 0 ]]; then
+    _ok "Removed ${removed} symlink(s) left by a previously selected harness"
+  fi
+  return 0
+}
+
+# ── Link one plugin as a directory package ────────────────────────────────────
+# V2 configured local paths must name a DIRECTORY, and a directory without a
+# package.json is read through its file names — `index` is the server entry. So
+# one source file becomes <dir>/index.ts.
+_link_plugin_dir() {
+  local name="$1"
+  local src="$2"
+  local dir="${V2_PLUGIN_DIR}/${name}"
+  local link="${dir}/index.ts"
+
+  mkdir -p "${dir}"
+  if [[ -L "${link}" ]]; then
+    if [[ "$(readlink "${link}")" == "${src}" ]]; then
+      _skip "v2/plugins/${name} already linked"
+    else
+      rm -f "${link}"
+      ln -sf "${src}" "${link}"
+      _ok "v2/plugins/${name} relinked"
+    fi
+  elif [[ -e "${link}" ]]; then
+    _warn "v2/plugins/${name}/index.ts exists but is not a symlink — leaving it alone"
+  else
+    ln -sf "${src}" "${link}"
+    _ok "v2/plugins/${name} linked"
+  fi
+
+  _v2 upsert-plugin "${CONFIG}" "./.opencode/v2/plugins/${name}" >/dev/null 2>&1 || true
+}
+
+# ── Link module hooks declared under hooks/opencode/ ──────────────────────────
+_link_plugins() {
+  local mod_dir="$1"
+  local hook_dir="${mod_dir}hooks/opencode"
+  [[ ! -d "${hook_dir}" ]] && return 0
+
+  while IFS= read -r -d '' plugin_file; do
+    local plugin_name
+    plugin_name="$(basename "${plugin_file}" .ts)"
+
+    # Test files are not plugins.
+    [[ "${plugin_name}" == *.test ]] && continue
+
+    # A hook declared with a `plugin` entry in the module's hooks.json is loaded
+    # by the on-hooks adapter — registering it standalone would double-register.
+    if [[ -f "${mod_dir}hooks.json" ]] && python3 -c "
+import json, os, sys
+try:
+    manifest = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+name = sys.argv[2]
+for h in manifest.get('hooks', []):
+    p = h.get('plugin', '')
+    if p and os.path.basename(p).startswith(name):
+        sys.exit(0)
+sys.exit(1)
+" "${mod_dir}hooks.json" "${plugin_name}" 2>/dev/null; then
+      _skip "v2/plugins/${plugin_name} manifest-driven — skipping standalone registration"
+      continue
+    fi
+
+    _link_plugin_dir "${plugin_name}" "${plugin_file}"
+  done < <(find "${hook_dir}" -maxdepth 1 -type f -name '*.ts' -print0 2>/dev/null)
+}
+
+_link_plugins_modules() {
+  local disabled_raw
+  disabled_raw=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
+  local disabled_modules
+  disabled_modules=$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
+
+  local mod_dir mod_name
+  for mod_dir in "${DEV_BOT_ROOT}/src/agentic/"*/; do
+    mod_name="$(basename "${mod_dir}")"
+    if echo "${disabled_modules}" | grep -Fxq "${mod_name}" 2>/dev/null; then
+      _skip "${mod_name}: disabled per config — skipping"
+      continue
+    fi
+    _link_plugins "${mod_dir}"
+  done
+}
+
+# ── Register module-declared V2 plugins ───────────────────────────────────────
+# Modules declare plugins in plugin.opencode-v2.json (a JSON array of package or
+# path specs). plugin.opencode.json is deliberately NOT read: those are V1
+# plugins, and V1 plugin implementations do not run on V2 — registering one would
+# only add a plugin that never loads.
+_link_module_plugins() {
+  local disabled_raw
+  disabled_raw=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
+  local disabled_modules
+  disabled_modules=$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
+
+  local mod_dir mod_name plugin_file
+  for mod_dir in "${DEV_BOT_ROOT}/src/agentic/"*/; do
+    mod_name="$(basename "${mod_dir}")"
+    if echo "${disabled_modules}" | grep -Fxq "${mod_name}" 2>/dev/null; then
+      continue
+    fi
+
+    if [[ -f "${mod_dir}plugin.opencode.json" && ! -f "${mod_dir}plugin.opencode-v2.json" ]]; then
+      _skip "${mod_name}: declares a V1 plugin only — not registered on a v2 host"
+      continue
+    fi
+
+    plugin_file="${mod_dir}plugin.opencode-v2.json"
+    [[ -f "${plugin_file}" ]] || continue
+    local plugin
+    while IFS= read -r plugin; do
+      [[ -z "${plugin}" ]] && continue
+      _v2 upsert-plugin "${CONFIG}" "${plugin}" >/dev/null 2>&1 || true
+    done < <(jq -r '.[]' "${plugin_file}" 2>/dev/null)
+  done
+}
+
+# ── Link this module's own server plugins ─────────────────────────────────────
+_link_harness_hooks() {
+  local hook_dir="${MODULE_DIR}/hooks"
+  [[ -d "${hook_dir}" ]] || return 0
+
+  while IFS= read -r -d '' hook_file; do
+    local hook_name
+    hook_name="$(basename "${hook_file}" .ts)"
+    [[ "${hook_name}" == *.test ]] && continue
+    _link_plugin_dir "${hook_name}" "${hook_file}"
+  done < <(find "${hook_dir}" -maxdepth 1 -type f -name '*.ts' -print0 2>/dev/null)
+}
+
+# ── Reconcile dev-bot's REQUIRED plugins into an already-seeded config ───────
+_ensure_required_plugins() {
+  local manifest="${MODULE_DIR}/required-plugins.jsonc"
+  local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+  [[ -f "${manifest}" && -f "${CONFIG}" && -f "${reader}" ]] || return 0
+
+  local spec
+  while IFS= read -r spec; do
+    [[ -n "${spec}" ]] || continue
+    if _v2 get "${CONFIG}" plugins 2>/dev/null | grep -qF "\"${spec}\""; then
+      continue
+    fi
+    _v2 upsert-plugin "${CONFIG}" "${spec}" >/dev/null 2>&1 || true
+    _ok "opencode.jsonc: added '${spec}' (required by dev-bot, absent from an existing config)"
+  done < <(
+    python3 "${reader}" "${manifest}" server 2>/dev/null |
+      jq -r '.[]? | select(type=="string")' 2>/dev/null
+  )
+}
+
+# ── Register every enabled module's canonical MCP manifest ────────────────────
+# bin/init.sh registers MCPs only when the selected harness is `opencode`
+# (_resolve_opencode_config returns nothing for this harness), so this module
+# does its own pass. The translator produces the v1 opencode shape; the only v2
+# delta is per-server enablement, which is inverted: `enabled` → `disabled`.
+_register_module_mcps() {
+  local translate="${DEV_BOT_ROOT}/src/_shared/mcp_translate.py"
+  [[ -f "${translate}" ]] || return 0
+
+  local disabled_names gpu
+  disabled_names="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null | jq -r '.[]' 2>/dev/null || true)"
+  gpu="$(_qmd_gpu_value)"
+
+  local base mod_dir mod_name manifest out key def def_v2
+  for base in "${DEV_BOT_ROOT}/src/tools" "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/harnesses"; do
+    [[ -d "${base}" ]] || continue
+    for mod_dir in "${base}"/*/; do
+      mod_name="$(basename "${mod_dir}")"
+      if echo "${disabled_names}" | grep -Fxq "${mod_name}" 2>/dev/null; then
+        continue
+      fi
+
+      manifest="${mod_dir%/}/mcp.json"
+      [[ -f "${manifest}" ]] || continue
+
+      # A plugin-provided server must not also be merged as an MCP entry.
+      [[ -f "${mod_dir%/}/plugin.opencode.json" ]] && continue
+      [[ -f "${mod_dir%/}/plugin.opencode-v2.json" ]] && continue
+
+      out="$(python3 "${translate}" "${manifest}" opencode --gpu "${gpu}" --root "${DEV_BOT_ROOT}" 2>/dev/null || true)"
+      [[ -n "${out}" ]] || continue
+
+      while IFS= read -r key; do
+        [[ -n "${key}" ]] || continue
+        def="$(jq -c --arg k "${key}" '.[$k]' <<<"${out}" 2>/dev/null || true)"
+        [[ -n "${def}" ]] || continue
+        def_v2="$(jq -c 'if has("enabled") then (if .enabled then .disabled = false else .disabled = true end) | del(.enabled) else . end' <<<"${def}" 2>/dev/null || printf '%s' "${def}")"
+        if _v2 merge-mcp "${CONFIG}" "${key}" "${def_v2}" >/dev/null 2>&1; then
+          _ok "registered MCP '${key}' from ${mod_name}"
+        fi
+      done < <(jq -r 'keys[]' <<<"${out}" 2>/dev/null || true)
+    done
+  done
+}
+
+# ── Register dynamic MCP manifests written by module inits ────────────────────
+_register_dynamic_mcps() {
+  [[ -d "${OPENCODE_DIR}" ]] || return 0
+
+  local disabled_names
+  disabled_names="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null | jq -r '.[]' 2>/dev/null || true)"
+
+  local manifest key def def_v2 existing
+  for manifest in "${OPENCODE_DIR}/"*.mcp.json; do
+    [[ -f "${manifest}" ]] || continue
+
+    if _devbot_manifest_owner_disabled "$(basename "${manifest}")" "${disabled_names}"; then
+      _skip "$(basename "${manifest}"): owning module disabled — not registering"
+      continue
+    fi
+
+    key=$(jq -r 'keys[0]' "${manifest}" 2>/dev/null || true)
+    [[ -z "${key}" || "${key}" == "null" ]] && continue
+    def=$(jq -c --arg k "${key}" '.[$k]' "${manifest}" 2>/dev/null || true)
+    [[ -z "${def}" || "${def}" == "null" ]] && continue
+    def_v2="$(jq -c 'if has("enabled") then (if .enabled then .disabled = false else .disabled = true end) | del(.enabled) else . end' <<<"${def}" 2>/dev/null || printf '%s' "${def}")"
+
+    # A dynamic entry is machine-generated, not user-owned: replace it when the
+    # emitted definition changed, else the change would be fresh-install-only.
+    existing="$(_v2 get "${CONFIG}" "mcp.servers.${key}" 2>/dev/null || true)"
+    if [[ -n "${existing}" ]]; then
+      if [[ "$(jq -Sc . <<<"${existing}" 2>/dev/null)" != "$(jq -Sc . <<<"${def_v2}" 2>/dev/null)" ]]; then
+        _v2 remove-mcp "${CONFIG}" "${key}" >/dev/null 2>&1 || true
+      fi
+    fi
+
+    if _v2 merge-mcp "${CONFIG}" "${key}" "${def_v2}" >/dev/null 2>&1; then
+      _ok "Registered dynamic MCP '${key}' from $(basename "${manifest}")"
+    fi
+  done
+}
+
+# ── Drop plugin entries whose local package no longer exists ──────────────────
+_reconcile_plugins() {
+  [[ -f "${CONFIG}" ]] || return 0
+  local spec target removed=0
+  while IFS= read -r spec; do
+    [[ -n "${spec}" ]] || continue
+    [[ "${spec}" == ./* ]] || continue
+    target="${PROJECT_DIR}/${spec#./}"
+    if [[ ! -d "${target}" ]]; then
+      if _v2 remove-plugin "${CONFIG}" "${spec}" >/dev/null 2>&1; then
+        removed=$((removed + 1))
+      fi
+    fi
+  done < <(_v2 get "${CONFIG}" plugins 2>/dev/null | jq -r '.[]? | select(type=="string")' 2>/dev/null || true)
+
+  if [[ ${removed} -gt 0 ]]; then
+    _ok "Removed ${removed} stale plugin entrie(s) pointing at missing packages"
+  fi
+}
+
+# ── Reconcile external_directory: deny-first with /tmp/** allowed ─────────────
+_reconcile_external_directory() {
+  [[ -f "${CONFIG}" ]] || return 0
+  local added rc=0
+  added="$(_v2 ensure-external-directory "${CONFIG}" 2>/dev/null)" || rc=$?
+  if [[ "${added}" == "1" ]]; then
+    _ok "external_directory reconciled: deny-first, /tmp/** allowed"
+  elif (( rc != 0 )); then
+    _warn "external_directory reconcile failed (${CONFIG})"
+  fi
+}
+
+# ── Default agent ─────────────────────────────────────────────────────────────
+_ensure_default_agent() {
+  [[ -f "${CONFIG}" ]] || return 0
+
+  local current
+  current="$(_v2 get "${CONFIG}" default_agent 2>/dev/null | tr -d '"' || true)"
+
+  if [[ -n "${current}" && "${current}" == "devbot" ]]; then
+    _skip "default agent is devbot"
+    return 0
+  fi
+
+  if [[ "${SKIP_CONFIRM:-0}" == "1" || ! -t 0 ]]; then
+    _skip "default agent is '${current:-unset}' — leaving as-is (non-interactive)"
+    return 0
+  fi
+
+  echo -n "  Default agent is '${current:-unset}'. Set devbot as the default agent? [y/N] "
+  local answer
+  read -r answer
+  if [[ ! "${answer}" =~ ^[yY](es)?$ ]]; then
+    _info "Leaving default agent as '${current:-unset}'."
+    return 0
+  fi
+
+  _v2 set-default-agent "${CONFIG}" devbot >/dev/null 2>&1 || true
+  _ok "default agent set to devbot"
+}
+
+# ── Ensure a non-empty AGENTS.md (referenced in dist instructions) ────────────
+_ensure_agents_md() {
+  local project_dir="${1:-${PROJECT_DIR:-$(pwd)}}"
+  local agents_md="${project_dir}/AGENTS.md"
+  local devbot_dir
+  devbot_dir="$(_devbot_get_project_dir "${project_dir}")"
+
+  if [[ -f "${agents_md}" && -s "${agents_md}" ]]; then
+    _skip "AGENTS.md already populated"
+    return 0
+  fi
+
+  cat > "${agents_md}" <<EOF
+# Agent Instructions
+
+Always-on context lives in the memory vault:
+${devbot_dir}/memory/active/**/*.md
+EOF
+  _ok "Wrote AGENTS.md pointer to ${devbot_dir}/memory/active/"
+}
+
+# ── Delegate .opencode/* artifact dirs to devbot_dir/ ─────────────────────────
+_delegate_harness_dirs() {
+  local delegate_types="agents commands skills tools"
+  if [[ "$(_devbot_get_project_dir "${PROJECT_DIR}")" == ".agents" ]]; then
+    delegate_types="agents commands tools"
+    _harness_delegate_type "${OPENCODE_DIR}" "${PROJECT_DIR}" "skills" "true"
+  fi
+  _harness_delegate_to_agents "${OPENCODE_DIR}" "${PROJECT_DIR}" "${delegate_types}"
+}
+
+# ── main ───────────────────────────────────────────────────────────────────────
+_copy_opencode_dir
+_write_opencode_config
+_refuse_legacy_config
+_sweep_foreign_artifacts
+_ensure_required_plugins
+_ensure_agents_md
+_delegate_harness_dirs
+_prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
+_link_harness_hooks
+_link_plugins_modules
+_link_module_plugins
+_register_module_mcps
+_register_dynamic_mcps
+_reconcile_plugins
+_reconcile_external_directory
+_remove_gitkeep_files
+_ensure_default_agent
