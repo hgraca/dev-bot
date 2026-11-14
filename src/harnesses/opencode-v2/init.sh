@@ -35,9 +35,11 @@ OPENCODE_TPL="${MODULE_DIR}/_opencode-v2.tpl"
 DIST_CONFIG="${MODULE_DIR}/opencode-v2.dist.jsonc"
 V2HELPER="${MODULE_DIR}/lib/v2config.py"
 OPENCODE_DIR="${PROJECT_DIR}/.opencode"
-# The v2-only plugin namespace. Nothing else scans it, so a deselected v1
-# adapter's symlinks in .opencode/plugins/ can never be auto-loaded by this host.
-V2_PLUGIN_DIR="${OPENCODE_DIR}/v2/plugins"
+# V2 resolves configured local plugin paths ONLY under .opencode/plugins/ — a
+# path in any other directory is skipped silently, with no log line. Both
+# harnesses therefore share this directory, and isolation comes from the sweep
+# below: whichever harness initialises removes the other's dev-bot-owned links.
+V2_PLUGIN_DIR="${OPENCODE_DIR}/plugins"
 CONFIG="${PROJECT_DIR}/opencode.jsonc"
 
 # Config edits for the v2 shapes. The shared helpers under src/_shared write the
@@ -45,6 +47,10 @@ CONFIG="${PROJECT_DIR}/opencode.jsonc"
 _v2() {
   V2_SHARED_DIR="${DEV_BOT_ROOT}/src/_shared" python3 "${V2HELPER}" "$@"
 }
+
+# Marks the generated shim files so a later sweep can tell dev-bot's own plugin
+# directories from a user's.
+_PLUGIN_SHIM_MARKER="// dev-bot: generated opencode-v2 plugin shim (do not edit)"
 
 # ── Merge .opencode/ template directory ───────────────────────────────────────
 _copy_opencode_dir() {
@@ -172,6 +178,35 @@ _write_opencode_config() {
     _write_jsonc_from_dist "${DIST_CONFIG}" "${CONFIG}"
 }
 
+# ── Install the scaffold's plugin dependencies ────────────────────────────────
+# v1's plugins import @opencode-ai/plugin as a TYPE only, so the scaffold's
+# package.json never needed installing. The v2 plugins import @opencode/plugin
+# (resolved by the host at runtime) and bun-pty (a real runtime dependency), so
+# .opencode/ needs node_modules or the PTY tools report themselves unavailable.
+_install_plugin_deps() {
+  [[ -f "${OPENCODE_DIR}/package.json" ]] || return 0
+  if [[ -d "${OPENCODE_DIR}/node_modules/bun-pty" ]]; then
+    _skip ".opencode plugin dependencies already installed"
+    return 0
+  fi
+  # Not automatic: a registry resolution that stalls would hang every fresh
+  # init, and init never blocks on the network. Opt in explicitly.
+  if [[ "${DEV_BOT_INSTALL_PLUGIN_DEPS:-0}" != "1" ]]; then
+    _skip "plugin dependencies not installed — run 'cd ${OPENCODE_DIR} && bun install' to enable the PTY tools"
+    return 0
+  fi
+  if ! command -v bun >/dev/null 2>&1; then
+    _warn "bun not found — .opencode dependencies not installed; the PTY tools stay unavailable"
+    return 0
+  fi
+  _info "Installing .opencode plugin dependencies (bun install, 120s cap)..."
+  if (cd "${OPENCODE_DIR}" && timeout 120 bun install >/dev/null 2>&1); then
+    _ok ".opencode plugin dependencies installed"
+  else
+    _warn "bun install failed or timed out in ${OPENCODE_DIR} — the PTY tools stay unavailable"
+  fi
+}
+
 # ── Migrate a v1-shaped config ────────────────────────────────────────────────
 # Both harnesses read the SAME filename, so a project that once ran the v1
 # adapter already has opencode.jsonc. The seed above skips it, and registering
@@ -231,8 +266,9 @@ _sweep_foreign_artifacts() {
 
   # Drop the v1-only plugin farms once they are empty; a user's own files keep
   # the directory alive.
+  # v1's TUI farm is gone for good; plugins/ is rebuilt by this harness below.
   local dir
-  for dir in "${OPENCODE_DIR}/plugins" "${OPENCODE_DIR}/tui-plugins"; do
+  for dir in "${OPENCODE_DIR}/tui-plugins" "${OPENCODE_DIR}/v2"; do
     [[ -d "${dir}" ]] && rmdir "${dir}" 2>/dev/null || true
   done
 
@@ -250,25 +286,23 @@ _link_plugin_dir() {
   local name="$1"
   local src="$2"
   local dir="${V2_PLUGIN_DIR}/${name}"
-  local link="${dir}/index.ts"
+  local entry="${dir}/index.ts"
+  # A symlinked entry is skipped silently by the v2 loader, so the shim is a
+  # real file re-exporting the single source in this module. import.meta.dir in
+  # the real module still resolves to the module, so nothing is duplicated.
+  local want
+  want="$(printf '%s\n%s\n' "${_PLUGIN_SHIM_MARKER}" "export { default } from \"${src}\"")"
 
   mkdir -p "${dir}"
-  if [[ -L "${link}" ]]; then
-    if [[ "$(readlink "${link}")" == "${src}" ]]; then
-      _skip "v2/plugins/${name} already linked"
-    else
-      rm -f "${link}"
-      ln -sf "${src}" "${link}"
-      _ok "v2/plugins/${name} relinked"
-    fi
-  elif [[ -e "${link}" ]]; then
-    _warn "v2/plugins/${name}/index.ts exists but is not a symlink — leaving it alone"
+  if [[ -f "${entry}" && ! -L "${entry}" ]] && [[ "$(cat "${entry}")" == "${want}" ]]; then
+    _skip "plugins/${name} already linked"
   else
-    ln -sf "${src}" "${link}"
-    _ok "v2/plugins/${name} linked"
+    rm -f "${entry}"
+    printf '%s' "${want}" > "${entry}"
+    _ok "plugins/${name} linked"
   fi
 
-  _v2 upsert-plugin "${CONFIG}" "./.opencode/v2/plugins/${name}" >/dev/null 2>&1 || true
+  _v2 upsert-plugin "${CONFIG}" ".opencode/plugins/${name}" >/dev/null 2>&1 || true
 }
 
 # ── Link module hooks declared under hooks/opencode/ ──────────────────────────
@@ -478,8 +512,8 @@ _reconcile_plugins() {
   local spec target removed=0
   while IFS= read -r spec; do
     [[ -n "${spec}" ]] || continue
-    [[ "${spec}" == ./* ]] || continue
-    target="${PROJECT_DIR}/${spec#./}"
+    [[ "${spec}" == ".opencode/"* ]] || continue
+    target="${PROJECT_DIR}/${spec}"
     if [[ ! -d "${target}" ]]; then
       if _v2 remove-plugin "${CONFIG}" "${spec}" >/dev/null 2>&1; then
         removed=$((removed + 1))
@@ -569,6 +603,7 @@ _copy_opencode_dir
 _write_opencode_config
 _migrate_legacy_config
 _sweep_foreign_artifacts
+_install_plugin_deps
 _ensure_required_plugins
 _ensure_agents_md
 _delegate_harness_dirs

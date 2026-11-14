@@ -55,18 +55,27 @@ shipped as dead weight:
 
 ## Directory ownership
 
-The two harnesses never share a plugin directory, because v1's `reset.sh` exits
-when it is not the selected harness and a deselected harness's symlinks would
-otherwise survive:
+Verified on a 2.3.0 host:
 
-- v1 owns `.opencode/plugins/` and `.opencode/tui-plugins/`.
-- v2 owns `.opencode/v2/plugins/`, registered explicitly in `plugins` so nothing
-  depends on auto-discovery.
+- **A configured local plugin path only resolves under `.opencode/plugins/`.**
+  Entries pointing anywhere else — `./.opencode/v2/plugins/x`,
+  `.opencode/v2/plugins/x` — are skipped **silently**, with no log line.
+- **A symlinked plugin entry is skipped too.** The entry must be a real file, so
+  `init.sh` writes a small shim that re-exports the module's own source:
+  `export { default } from "<DEV_BOT_ROOT>/src/harnesses/opencode-v2/hooks/x.ts"`.
+  `import.meta.dir` inside the real module still resolves to the module, so
+  there is one source of truth.
 
-On handover, `init.sh` prunes only symlinks resolving under `DEV_BOT_ROOT` and
-removes `plugins/`/`tui-plugins/` once empty. User-created files and
-`.opencode/opencode.json` are left alone — reinit must never destroy a setup it
-does not manage.
+Both harnesses therefore share `.opencode/plugins/`, and isolation comes from a
+handover sweep rather than from separate directories:
+
+- v1 writes `*.ts` files there; v2 writes `<name>/index.ts` directories.
+- On init, v2 removes every symlink under `.opencode/` that resolves under
+  `DEV_BOT_ROOT`, so a deselected v1 adapter's plugins cannot be auto-loaded.
+- User files and `.opencode/opencode.json` are never touched.
+
+V1's `reset.sh` exits when it is not the selected harness by design, so the
+incoming harness does the cleaning.
 
 ## Version support
 

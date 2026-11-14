@@ -96,6 +96,7 @@ export default Plugin.define({
       }
     }
 
+    log(`loaded for ${root}`)
     const timer = setInterval(() => void tick(), POLL_MS)
     void tick()
     return () => clearInterval(timer)

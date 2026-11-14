@@ -41,7 +41,7 @@ load_jsonc('${CONFIG}')"
 @test "get reads a top-level key printed as JSON" {
   run v2 get "${CONFIG}" plugins
   assert_success
-  assert_output --partial './.opencode/v2/plugins/on-hooks'
+  assert_output --partial '.opencode/plugins/on-hooks'
 }
 
 @test "has-legacy is quiet on a v2 config" {
