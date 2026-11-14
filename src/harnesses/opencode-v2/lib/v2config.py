@@ -420,6 +420,48 @@ def cmd_set_mcp_disabled(path, key, value):
     return 0
 
 
+def cmd_ensure_mcp_cwd(path, directory):
+    """Pin `cwd` on every local MCP server.
+
+    V2 spawns a local server outside the project directory, so a command that
+    references a relative path (`.opencode/tools-mcp-serve.sh`) exits 127.
+    Entries carried over from a v1 config never went through the registration
+    path that sets this, so reconcile them explicitly.
+    """
+    changed = 0
+    while True:
+        cfg = load(path)
+        servers = ((cfg.get("mcp") or {}).get("servers")) or {}
+        target = next(
+            (
+                name
+                for name, entry in servers.items()
+                if isinstance(entry, dict) and entry.get("type") == "local" and not entry.get("cwd")
+            ),
+            None,
+        )
+        if target is None:
+            break
+        text = read(path)
+        open_i, close_i = _root(text)
+        mcp_span = _member_container(text, open_i, close_i, "mcp", "{")
+        if not mcp_span:
+            break
+        servers_span = _member_container(text, mcp_span[0], mcp_span[1], "servers", "{")
+        if not servers_span:
+            break
+        entry = _member(text, servers_span[0], servers_span[1], target)
+        if not entry or text[entry[0]] != "{":
+            break
+        close = _container_end(text, entry[0])
+        if close == -1:
+            break
+        write(path, _insert(text, (entry[0], close), '"cwd": %s' % json.dumps(directory)))
+        changed += 1
+    print(changed)
+    return 0
+
+
 def cmd_set_default_agent(path, agent):
     text = read(path)
     open_i, close_i = _root(text)
@@ -456,6 +498,8 @@ def main(argv):
         return cmd_ensure_external_directory(path)
     if cmd == "set-mcp-disabled":
         return cmd_set_mcp_disabled(path, rest[0], rest[1])
+    if cmd == "ensure-mcp-cwd":
+        return cmd_ensure_mcp_cwd(path, rest[0])
     if cmd == "set-default-agent":
         return cmd_set_default_agent(path, rest[0])
     print("ERROR: unknown command %s" % cmd, file=sys.stderr)

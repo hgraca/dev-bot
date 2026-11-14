@@ -246,7 +246,13 @@ _migrate_legacy_config() {
 _sweep_foreign_artifacts() {
   [[ -d "${OPENCODE_DIR}" ]] || return 0
 
-  local removed=0 link target resolved candidate
+  # Scope: the harness-owned farms only. `.opencode/` at the root also holds
+  # module-authored assets (`tools-mcp-serve.sh`, `*-serve.mcp.sh`, wrapper .js)
+  # that are symlinks into dev-bot too — sweeping those breaks their MCP servers
+  # with exit 127.
+  local removed=0 link target resolved candidate farm
+  for farm in plugins plugin tui-plugins agents commands tools skills; do
+    [[ -d "${OPENCODE_DIR}/${farm}" ]] || continue
   while IFS= read -r -d '' link; do
     target="$(readlink "${link}" 2>/dev/null || true)"
     [[ -n "${target}" ]] || continue
@@ -264,7 +270,8 @@ _sweep_foreign_artifacts() {
     [[ -n "${resolved}" && "${resolved}" == "${DEV_BOT_ROOT}"/* ]] || continue
     rm -f "${link}"
     removed=$((removed + 1))
-  done < <(find "${OPENCODE_DIR}" -type l -print0 2>/dev/null)
+  done < <(find "${OPENCODE_DIR}/${farm}" -type l -print0 2>/dev/null)
+  done
 
   # Drop the v1-only plugin farms once they are empty; a user's own files keep
   # the directory alive.
@@ -294,6 +301,7 @@ _link_plugin_dir() {
   # A symlinked entry is skipped silently by the v2 loader, so each shim is a
   # real file re-exporting the single source in this module. import.meta.dir in
   # the real module still resolves to the module, so nothing is duplicated.
+  _write_plugin_manifest "${dir}" "${name}" "${tui_src}"
   _write_shim "${dir}" "index.ts" "${src}" "plugins/${name}"
 
   # A TUI part is the sibling `tui.ts` of a plugin directory with no
@@ -303,6 +311,27 @@ _link_plugin_dir() {
   fi
 
   _v2 upsert-plugin "${CONFIG}" ".opencode/plugins/${name}" >/dev/null 2>&1 || true
+}
+
+# _write_plugin_manifest <dir> <name> [tui-source]
+# V2 loads a configured plugin directory as a package: without a package.json it
+# tries to npm-install it and fails ("Could not read package.json").
+_write_plugin_manifest() {
+  local dir="$1" name="$2" tui_src="${3:-}"
+  mkdir -p "${dir}"
+  local exports
+  if [[ -n "${tui_src}" && -f "${tui_src}" ]]; then
+    exports='{".": "./index.ts", "./tui": "./tui.ts"}'
+  else
+    exports='{".": "./index.ts"}'
+  fi
+  local want
+  want="$(printf '{\n  "name": "devbot-%s",\n  "version": "0.0.0",\n  "type": "module",\n  "main": "./index.ts",\n  "exports": %s\n}\n' "${name}" "${exports}")"
+  local entry="${dir}/package.json"
+  if [[ -f "${entry}" ]] && [[ "$(cat "${entry}")" == "${want}" ]]; then
+    return 0
+  fi
+  printf '%s' "${want}" > "${entry}"
 }
 
 # _write_shim <dir> <file> <source> <label>
@@ -547,6 +576,18 @@ _register_dynamic_mcps() {
   done
 }
 
+# ── Pin every local MCP server to the project directory ──────────────────────
+# Slotted after registration so entries carried over from a migrated v1 config
+# are covered too — without it their relative wrapper paths exit 127.
+_ensure_mcp_cwd() {
+  [[ -f "${CONFIG}" ]] || return 0
+  local changed
+  changed="$(_v2 ensure-mcp-cwd "${CONFIG}" "${PROJECT_DIR}" 2>/dev/null || true)"
+  if [[ -n "${changed}" && "${changed}" -gt 0 ]]; then
+    _ok "pinned ${changed} local MCP server(s) to ${PROJECT_DIR}"
+  fi
+}
+
 # ── Drop plugin entries whose local package no longer exists ──────────────────
 _reconcile_plugins() {
   [[ -f "${CONFIG}" ]] || return 0
@@ -655,6 +696,7 @@ _link_plugins_modules
 _link_module_plugins
 _register_module_mcps
 _register_dynamic_mcps
+_ensure_mcp_cwd
 _reconcile_plugins
 _reconcile_external_directory
 _remove_gitkeep_files
