@@ -61,7 +61,8 @@ Resolve the session id, your own actor, and the last row belonging to both:
    ```
 
    It prints the highest row id whose session and actor both match yours, or `none`. Actor matching
-   is case-insensitive; rows written before that column existed count as `DevBot`.
+   is case-insensitive; rows written before that column existed count as `devbot`, and legacy
+   `DevBot` rows still match.
 
 If no such row exists (`none`), the slice is the whole session so far. Otherwise the slice is the
 work done after that row. Grade that slice only.

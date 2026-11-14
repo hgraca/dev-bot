@@ -52,7 +52,7 @@ UNKNOWN_SESSION = "unknown"
 UNKNOWN_ACTOR = "unknown"
 # Rows written before the actor column existed all came from the primary agent,
 # so a blank actor is backfilled with that rather than left to read as unknown.
-DEFAULT_ACTOR = "DevBot"
+DEFAULT_ACTOR = "devbot"
 CSV_PARTS = (".agents", "logs", "tools-grades.csv")
 # A directory holding this marker is a devbot install root. Used only for the
 # walk-up fallback, when DEV_BOT_ROOT was not exported into the agent's shell.
@@ -305,7 +305,7 @@ def find_last_row(
             row_actor = DEFAULT_ACTOR.lower()
         else:
             # A blank cell on a matrix that has the actor column means "not
-            # known", not the legacy DevBot default.
+            # known", not the legacy CamelCase default.
             row_actor = str(row.get("actor") or "").strip().lower()
         if row_actor != wanted_actor:
             continue

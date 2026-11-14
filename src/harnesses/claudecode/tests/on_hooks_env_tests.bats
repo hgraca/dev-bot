@@ -28,7 +28,7 @@ setup() {
   PREAMBLE="${SANDBOX_DIR}/env-preamble.sh"
   export CLAUDE_ENV_FILE="${PREAMBLE}"
   # A live Claude Code session exports this; its project could name another
-  # agent, which would make the DevBot assertion below environment-dependent.
+  # agent, which would make the devbot assertion below environment-dependent.
   unset CLAUDE_PROJECT_DIR
 
   command -v python3 &>/dev/null || skip "python3 not installed"
@@ -63,20 +63,20 @@ _run_phase() {
   run cat "${PREAMBLE}"
   assert_success
   assert_output --partial "export DEV_BOT_SESSION_ID=abc-123"
-  assert_output --partial "export DEV_BOT_AGENT_NAME=DevBot"
+  assert_output --partial "export DEV_BOT_AGENT_NAME=devbot"
 }
 
 @test "the primary agent is read from .claude/settings.json when present" {
   _setup_sandbox
   mkdir -p "${SANDBOX_DIR}/.claude"
-  printf '{"agent":"TeamLead"}\n' > "${SANDBOX_DIR}/.claude/settings.json"
+  printf '{"agent":"teamlead"}\n' > "${SANDBOX_DIR}/.claude/settings.json"
   export CLAUDE_PROJECT_DIR="${SANDBOX_DIR}"
 
   run _run_phase startup "{\"session_id\":\"abc-123\",\"cwd\":\"${SANDBOX_DIR}\"}"
   assert_success
 
   run cat "${PREAMBLE}"
-  assert_output --partial "export DEV_BOT_AGENT_NAME=TeamLead"
+  assert_output --partial "export DEV_BOT_AGENT_NAME=teamlead"
 }
 
 @test "a subagent tool call publishes its own agent name" {
@@ -113,7 +113,7 @@ _run_phase() {
     "{\"session_id\":\"one\",\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"},\"cwd\":\"${SANDBOX_DIR}\"}"
 
   run cat "${PREAMBLE}"
-  assert_output --partial "export DEV_BOT_AGENT_NAME=DevBot"
+  assert_output --partial "export DEV_BOT_AGENT_NAME=devbot"
 }
 
 @test "a payload with no session id leaves the preamble untouched" {

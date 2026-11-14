@@ -53,7 +53,7 @@ class RecordGradesTest(unittest.TestCase):
         self._tmp.cleanup()
 
     def run_main(
-        self, *args: str, session: str = "ses_test", now: str = NOW, actor: str | None = "DevBot"
+        self, *args: str, session: str = "ses_test", now: str = NOW, actor: str | None = "devbot"
     ) -> int:
         argv = [
             "--devbot-root", self.root,
@@ -107,7 +107,7 @@ class RecordGradesTest(unittest.TestCase):
         )
         self.assertEqual(
             first,
-            ["ses_test-01", NOW, PROJECT, "graphify: marginal, grep covered it", "DevBot", "2", "4"],
+            ["ses_test-01", NOW, PROJECT, "graphify: marginal, grep covered it", "devbot", "2", "4"],
         )
 
     def test_second_run_in_same_session_increments_the_suffix(self) -> None:
@@ -140,27 +140,28 @@ class RecordGradesTest(unittest.TestCase):
 
     # ── last-row helper ──────────────────────────────────────────────────────
 
-    def last_row(self, *, session: str = "ses_test", actor: str = "DevBot") -> str:
+    def last_row(self, *, session: str = "ses_test", actor: str = "devbot") -> str:
         stdout = io.StringIO()
         with contextlib.redirect_stdout(stdout):
             self.run_main("--last-row", session=session, actor=actor)
         return stdout.getvalue().strip()
 
     def test_last_row_prints_the_highest_matching_row(self) -> None:
-        self.run_main("--notes", "", session="ses_test", actor="DevBot")
-        self.run_main("--notes", "", session="ses_test", actor="DevBot")
+        self.run_main("--notes", "", session="ses_test", actor="devbot")
+        self.run_main("--notes", "", session="ses_test", actor="devbot")
 
         self.assertEqual(self.last_row(), "ses_test-02")
 
     def test_last_row_ignores_other_sessions_and_actors(self) -> None:
-        self.run_main("--notes", "", session="ses_other", actor="DevBot")
+        self.run_main("--notes", "", session="ses_other", actor="devbot")
         self.run_main("--notes", "", session="ses_test", actor="reviewer")
-        self.run_main("--notes", "", session="ses_test", actor="DevBot")
+        self.run_main("--notes", "", session="ses_test", actor="devbot")
 
         self.assertEqual(self.last_row(), "ses_test-02")
         self.assertEqual(self.last_row(actor="reviewer"), "ses_test-01")
 
     def test_last_row_matches_the_actor_case_insensitively(self) -> None:
+        # Written the way a pre-rename row was: the comparison must still find it.
         self.run_main("--notes", "", actor="DevBot")
 
         self.assertEqual(self.last_row(actor="devbot"), "ses_test-01")
@@ -172,10 +173,10 @@ class RecordGradesTest(unittest.TestCase):
         os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
         with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
             fh.write("session_id,datetime,project,notes,actor,skill:git-report\n")
-            fh.write(f"ses_test-01,{NOW},{PROJECT},DevBot row,DevBot,4\n")
+            fh.write(f"ses_test-01,{NOW},{PROJECT},devbot row,devbot,4\n")
             fh.write(f"ses_test-02,{NOW},{PROJECT},unnamed row,,4\n")
 
-        self.assertEqual(self.last_row(actor="DevBot"), "ses_test-01")
+        self.assertEqual(self.last_row(actor="devbot"), "ses_test-01")
 
     def test_last_row_treats_a_pre_actor_row_as_devbot(self) -> None:
         os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
@@ -183,7 +184,7 @@ class RecordGradesTest(unittest.TestCase):
             fh.write("session_id,datetime,project,notes,skill:git-report\n")
             fh.write(f"ses_test-01,{NOW},{PROJECT},legacy row,4\n")
 
-        self.assertEqual(self.last_row(actor="DevBot"), "ses_test-01")
+        self.assertEqual(self.last_row(actor="devbot"), "ses_test-01")
 
     # ── the actor column ─────────────────────────────────────────────────────
 
@@ -239,7 +240,7 @@ class RecordGradesTest(unittest.TestCase):
 
         rows = self.read_rows()
         self.assertEqual(rows[0][4], "actor")
-        self.assertEqual(rows[1][4], "DevBot")
+        self.assertEqual(rows[1][4], "devbot")
         self.assertEqual(rows[2][4], "scout")
 
     def test_a_named_actor_is_never_rewritten(self) -> None:
@@ -255,7 +256,7 @@ class RecordGradesTest(unittest.TestCase):
     def test_a_blank_actor_on_a_matrix_that_has_the_column_is_left_blank(self) -> None:
         # The backfill is a one-time migration keyed on the header, not a rule
         # about empty cells. Once the column exists, a blank actor means "not
-        # known" — stamping it DevBot would mislabel whoever actually wrote it.
+        # known" — stamping it devbot would mislabel whoever actually wrote it.
         os.makedirs(os.path.dirname(self.csv_path), exist_ok=True)
         with open(self.csv_path, "w", newline="", encoding="utf-8") as fh:
             fh.write("session_id,datetime,project,notes,actor,skill:git-report\n")
@@ -280,7 +281,7 @@ class RecordGradesTest(unittest.TestCase):
         with patch("os.getcwd", return_value=self.project_root):
             record_grades.main(
                 ["--devbot-root", self.root, "--now", NOW, "--session-id", "ses_cwd",
-                 "--actor", "DevBot", "--skill", "git-report=5"]
+                 "--actor", "devbot", "--skill", "git-report=5"]
             )
 
         self.assertEqual(self.read_rows()[1][2], PROJECT)

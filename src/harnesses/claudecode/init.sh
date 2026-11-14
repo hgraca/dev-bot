@@ -445,7 +445,7 @@ print(len(servers))
 # ── Default agent ─────────────────────────────────────────────────────────────
 # Claude Code's "agent" key starts every session as the named agent. The agent
 # is no longer forced at launch (start.sh). If .claude/settings.json does not
-# exist yet, create it with DevBot as the default agent — a missing file is no
+# exist yet, create it with devbot as the default agent — a missing file is no
 # choice, so we never ask for it. Only when the file already exists and chose a
 # different agent do we ask — never change an existing choice silently.
 # Non-interactive runs (SKIP_CONFIRM=1 or no TTY) leave an existing choice
@@ -471,7 +471,16 @@ PY
 
 _ensure_default_agent() {
   local config="${CLAUDE_DIR}/settings.json"
-  local agent="DevBot"
+  local agent="devbot"
+
+  # The default is written once and the file is user-owned, so a settings.json
+  # seeded before the rename keeps an agent name no agent answers to.
+  local reconciled
+  reconciled="$(python3 "${DEV_BOT_ROOT}/src/_shared/reconcile_agent_names.py" \
+    "${config}" claudecode || true)"
+  if [[ -n "${reconciled}" ]]; then
+    _ok ".claude/settings.json: reconciled legacy agent name (${reconciled//$'\n'/, })"
+  fi
 
   local current=""
   if [[ -f "${config}" ]]; then
@@ -493,7 +502,7 @@ except Exception:
 
   # No agent key set (config missing OR exists WITHOUT an "agent" key — e.g. a
   # project's own settings.json wiring unrelated hooks) — there is no existing
-  # choice to protect: write DevBot unconditionally, also in non-interactive
+  # choice to protect: write devbot unconditionally, also in non-interactive
   # runs. _write_default_agent merges, so any existing settings (hooks, etc.)
   # are preserved. An absent key is NOT a protected prior choice.
   if [[ -z "${current}" ]]; then
@@ -508,7 +517,7 @@ except Exception:
     return 0
   fi
 
-  echo -n "  Default agent is '${current:-unset}'. Set DevBot as the default agent? [y/N] "
+  echo -n "  Default agent is '${current:-unset}'. Set devbot as the default agent? [y/N] "
   local answer
   read -r answer
   if [[ ! "${answer}" =~ ^[yY](es)?$ ]]; then

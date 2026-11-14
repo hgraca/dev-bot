@@ -40,8 +40,8 @@ SESSION_ID_ENV = "DEV_BOT_SESSION_ID"
 AGENT_NAME_ENV = "DEV_BOT_AGENT_NAME"
 SESSION_USAGE_TOOL = "mcp__devbot-tools__session-usage"
 # Last-resort name when neither the payload nor .claude/settings.json declares
-# one (init.sh writes "DevBot" as the default agent).
-PRIMARY_AGENT_NAME = "DevBot"
+# one (init.sh writes "devbot" as the default agent).
+PRIMARY_AGENT_NAME = "devbot"
 
 
 def resolve_primary_agent():
@@ -49,7 +49,7 @@ def resolve_primary_agent():
 
     Claude Code exports CLAUDE_PROJECT_DIR to the hook process, and init.sh
     writes the default agent there. Hard-coding the name would mislabel any
-    session whose agent is not DevBot (a TeamLead-primary install, an --agent
+    session whose agent is not devbot (a teamlead-primary install, an --agent
     run).
     """
     project_dir = (os.environ.get("CLAUDE_PROJECT_DIR") or "").strip()

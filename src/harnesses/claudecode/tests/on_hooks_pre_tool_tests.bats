@@ -182,10 +182,10 @@ JSON
   _setup_sandbox
   _write_guard 'echo "{\"blocked\": false}"'
 
-  run _run_pre_tool_agent "ls /tmp" "Scout"
+  run _run_pre_tool_agent "ls /tmp" "scout"
   assert_success
   assert_output --partial '"updatedInput"'
-  assert_output --partial 'export DEV_BOT_AGENT_NAME=Scout;'
+  assert_output --partial 'export DEV_BOT_AGENT_NAME=scout;'
   # updatedInput must not smuggle in a permission decision — the normal
   # permission flow has to keep running.
   refute_output --partial '"permissionDecision"'
@@ -195,11 +195,11 @@ JSON
   _setup_sandbox
   _write_guard 'echo "{\"blocked\": false}"'
 
-  run bash -c "printf '%s\n' '{\"tool_name\":\"Bash\",\"agent_type\":\"Scout\",\"tool_input\":{\"command\":\"ls\",\"description\":\"list files\"},\"cwd\":\"${SANDBOX_DIR}\"}' | python3 '${SANDBOX_DIR}/src/harnesses/claudecode/hooks/on-hooks.py' pre-tool"
+  run bash -c "printf '%s\n' '{\"tool_name\":\"Bash\",\"agent_type\":\"scout\",\"tool_input\":{\"command\":\"ls\",\"description\":\"list files\"},\"cwd\":\"${SANDBOX_DIR}\"}' | python3 '${SANDBOX_DIR}/src/harnesses/claudecode/hooks/on-hooks.py' pre-tool"
 
   assert_success
   assert_output --partial '"description": "list files"'
-  assert_output --partial 'export DEV_BOT_AGENT_NAME=Scout; ls'
+  assert_output --partial 'export DEV_BOT_AGENT_NAME=scout; ls'
 }
 
 @test "a Bash call without an agent_type is not rewritten" {
@@ -216,7 +216,7 @@ JSON
   _setup_sandbox
   _write_guard 'echo "{\"blocked\": false}"'
 
-  run bash -c "printf '%s\n' '{\"tool_name\":\"Read\",\"agent_type\":\"Scout\",\"tool_input\":{\"file_path\":\"/tmp/x\"},\"cwd\":\"${SANDBOX_DIR}\"}' | python3 '${SANDBOX_DIR}/src/harnesses/claudecode/hooks/on-hooks.py' pre-tool"
+  run bash -c "printf '%s\n' '{\"tool_name\":\"Read\",\"agent_type\":\"scout\",\"tool_input\":{\"file_path\":\"/tmp/x\"},\"cwd\":\"${SANDBOX_DIR}\"}' | python3 '${SANDBOX_DIR}/src/harnesses/claudecode/hooks/on-hooks.py' pre-tool"
 
   assert_success
   refute_output --partial '"updatedInput"'

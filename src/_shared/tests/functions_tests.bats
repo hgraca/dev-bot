@@ -354,7 +354,7 @@ EOF
   cat > "$f" <<'EOF'
 {
   "plugin": [],
-  "default_agent": "DevBot",
+  "default_agent": "devbot",
   "permission": {
     "allow": ["a", "b"]
   }

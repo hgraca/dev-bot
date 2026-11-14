@@ -567,19 +567,28 @@ _reconcile_external_directory() {
 
 # ── Default agent ─────────────────────────────────────────────────────────────
 # The agent is no longer forced at launch (start.sh). If the project's
-# opencode.jsonc does not have DevBot as `default_agent`, ask the user whether
+# opencode.jsonc does not have devbot as `default_agent`, ask the user whether
 # to set it — never change an existing choice silently. Non-interactive runs
 # (SKIP_CONFIRM=1 or no TTY) leave the config untouched.
 _ensure_default_agent() {
   local config="${PROJECT_DIR}/opencode.jsonc"
   [[ -f "${config}" ]] || return 0
 
+  # The dist template is seed-once, so an install seeded before the agents were
+  # renamed keeps CamelCase keys that no agent answers to.
+  local reconciled
+  reconciled="$(python3 "${DEV_BOT_ROOT}/src/_shared/reconcile_agent_names.py" \
+    "${config}" opencode || true)"
+  if [[ -n "${reconciled}" ]]; then
+    _ok "reconciled legacy agent names: ${reconciled//$'\n'/, }"
+  fi
+
   local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
   local current
   current="$(python3 "${reader}" "${config}" default_agent 2>/dev/null || true)"
 
-  if [[ -n "${current}" && "${current}" == "DevBot" ]]; then
-    _skip "default agent is DevBot"
+  if [[ -n "${current}" && "${current}" == "devbot" ]]; then
+    _skip "default agent is devbot"
     return 0
   fi
 
@@ -588,7 +597,7 @@ _ensure_default_agent() {
     return 0
   fi
 
-  echo -n "  Default agent is '${current:-unset}'. Set DevBot as the default agent? [y/N] "
+  echo -n "  Default agent is '${current:-unset}'. Set devbot as the default agent? [y/N] "
   local answer
   read -r answer
   if [[ ! "${answer}" =~ ^[yY](es)?$ ]]; then
@@ -602,13 +611,13 @@ config = os.environ["CONFIG_PATH"]
 with open(config) as f:
     text = f.read()
 if re.search(r'"default_agent"\s*:', text):
-    text = re.sub(r'("default_agent"\s*:\s*)"[^"]*"', r'\1"DevBot"', text, count=1)
+    text = re.sub(r'("default_agent"\s*:\s*)"[^"]*"', r'\1"devbot"', text, count=1)
 else:
-    text = text.replace("{", '{\n    "default_agent": "DevBot",', 1)
+    text = text.replace("{", '{\n    "default_agent": "devbot",', 1)
 with open(config, "w") as f:
     f.write(text)
 PY
-  _ok "default agent set to DevBot"
+  _ok "default agent set to devbot"
 }
 
 # ── Ensure a non-empty AGENTS.md (referenced in dist instructions) ────────────

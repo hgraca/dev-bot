@@ -5,7 +5,7 @@
 #
 # This is what `devbot` (cmd_harness in bin/devbot) uses to launch Claude Code.
 # The session agent is NOT forced here — it comes from .claude/settings.json
-# `agent`, which init.sh offers to set to DevBot.
+# `agent`, which init.sh offers to set to devbot.
 #
 # Usage:
 #   start.sh [project_dir] [claude args...]

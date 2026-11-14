@@ -76,8 +76,8 @@ assert len(positions) == 1, f'misaligned pipes: {positions}'
   assert_output --partial "| Agent"
   assert_output --partial "| Type"
   assert_output --partial "| Description"
-  assert_output --partial "| TeamLead"
-  assert_output --partial "| Architect"
+  assert_output --partial "| teamlead"
+  assert_output --partial "| architect"
   assert_output --partial "| primary"
   assert_output --partial "| subagent"
 

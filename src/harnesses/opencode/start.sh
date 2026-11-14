@@ -5,7 +5,7 @@
 #
 # This is what `devbot` (cmd_harness in bin/devbot) uses to launch OpenCode.
 # The session agent is NOT forced here — it comes from the project's
-# opencode.jsonc `default_agent`, which init.sh offers to set to DevBot.
+# opencode.jsonc `default_agent`, which init.sh offers to set to devbot.
 #
 # Usage:
 #   start.sh [project_dir] [opencode args...]

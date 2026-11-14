@@ -2,8 +2,8 @@
 # =============================================================================
 # src/harnesses/claudecode/tests/init_tests.bats
 # Tests for the claudecode harness init's _ensure_default_agent():
-#   - missing .claude/settings.json -> created with DevBot, no prompt
-#   - existing config with DevBot  -> skipped, untouched
+#   - missing .claude/settings.json -> created with devbot, no prompt
+#   - existing config with devbot  -> skipped, untouched
 #   - existing config with another agent -> non-interactive -> left as-is
 #
 # The interactive prompt branch is not tested (requires a TTY).
@@ -46,6 +46,8 @@ FUNCTIONS_EOF
   # init.sh also sources DEV_BOT_ROOT/src/_shared/functions.sh — stub it too.
   mkdir -p "${SANDBOX_DIR}/src/_shared"
   cp "${SANDBOX_DIR}/functions.sh" "${SANDBOX_DIR}/src/_shared/functions.sh"
+  # The real reconciler: the stripped init.sh calls it by DEV_BOT_ROOT path.
+  cp "${PROJECT_ROOT}/src/_shared/reconcile_agent_names.py" "${SANDBOX_DIR}/src/_shared/"
 
   mkdir -p "${SANDBOX_DIR}/.claude"
 }
@@ -65,18 +67,18 @@ _run() {
 
 # ── Tests: missing config ───────────────────────────────────────────────────
 
-@test "default agent: missing settings.json is created with DevBot, no prompt" {
+@test "default agent: missing settings.json is created with devbot, no prompt" {
   _setup_sandbox
 
   run _run _ensure_default_agent
   assert_success
-  assert_output --partial "default agent set to DevBot"
-  refute_output --partial "Set DevBot as the default agent?"
+  assert_output --partial "default agent set to devbot"
+  refute_output --partial "Set devbot as the default agent?"
 
   run python3 -c "
 import json
 d = json.load(open('${SANDBOX_DIR}/.claude/settings.json'))
-assert d == {'agent': 'DevBot'}, d
+assert d == {'agent': 'devbot'}, d
 "
   assert_success
 }
@@ -87,35 +89,52 @@ assert d == {'agent': 'DevBot'}, d
 
   run _run _ensure_default_agent
   assert_success
-  assert_output --partial "default agent set to DevBot"
+  assert_output --partial "default agent set to devbot"
 
   run python3 -c "
 import json
-assert json.load(open('${SANDBOX_DIR}/.claude/settings.json'))['agent'] == 'DevBot'
+assert json.load(open('${SANDBOX_DIR}/.claude/settings.json'))['agent'] == 'devbot'
 "
   assert_success
 }
 
 # ── Tests: existing config ──────────────────────────────────────────────────
 
-@test "default agent: existing DevBot config is skipped untouched" {
+@test "default agent: existing devbot config is skipped untouched" {
+  _setup_sandbox
+  printf '{\n  "agent": "devbot",\n  "hooks": {}\n}\n' > "${SANDBOX_DIR}/.claude/settings.json"
+
+  run _run _ensure_default_agent
+  assert_success
+  assert_output --partial "already devbot"
+  refute_output --partial "default agent set to devbot"
+
+  run python3 -c "
+import json
+d = json.load(open('${SANDBOX_DIR}/.claude/settings.json'))
+assert d == {'agent': 'devbot', 'hooks': {}}, d
+"
+  assert_success
+}
+
+@test "default agent: legacy DevBot config is reconciled to devbot" {
   _setup_sandbox
   printf '{\n  "agent": "DevBot",\n  "hooks": {}\n}\n' > "${SANDBOX_DIR}/.claude/settings.json"
 
   run _run _ensure_default_agent
   assert_success
-  assert_output --partial "already DevBot"
-  refute_output --partial "default agent set to DevBot"
+  assert_output --partial "reconciled legacy agent name"
+  assert_output --partial "default agent already devbot"
 
   run python3 -c "
 import json
 d = json.load(open('${SANDBOX_DIR}/.claude/settings.json'))
-assert d == {'agent': 'DevBot', 'hooks': {}}, d
+assert d == {'agent': 'devbot', 'hooks': {}}, d
 "
   assert_success
 }
 
-@test "default agent: existing non-DevBot config left as-is when non-interactive" {
+@test "default agent: existing non-devbot config left as-is when non-interactive" {
   _setup_sandbox
   printf '{\n  "agent": "build"\n}\n' > "${SANDBOX_DIR}/.claude/settings.json"
 
@@ -126,7 +145,7 @@ assert d == {'agent': 'DevBot', 'hooks': {}}, d
   run _run _ensure_default_agent </dev/null
   assert_success
   assert_output --partial "leaving as-is (non-interactive)"
-  refute_output --partial "default agent set to DevBot"
+  refute_output --partial "default agent set to devbot"
 
   run python3 -c "
 import json
