@@ -12,6 +12,7 @@
 #   migrate-sessions.sh --purge         # wipe the whole 2.x store, re-copy 1.x
 #   migrate-sessions.sh --backup        # copy the database aside first
 #   migrate-sessions.sh --dry-run       # report, change nothing
+#   migrate-sessions.sh --only-pinned   # just the pinned/favourite sessions
 #   migrate-sessions.sh --directory DIR # one project only
 #
 # --reset (the default) only clears rows whose version is 1.x — the ones this
@@ -48,7 +49,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --purge) PURGE=1; shift ;;
     --backup) BACKUP=1; shift ;;
-    --dry-run) PASSTHRU+=("$1"); shift ;;
+    --dry-run|--only-pinned) PASSTHRU+=("$1"); shift ;;
     --directory)
       [[ $# -ge 2 ]] || { _fatal "--directory needs a value"; exit 1; }
       PASSTHRU+=("$1" "$2"); shift 2 ;;

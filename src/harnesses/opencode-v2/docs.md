@@ -152,6 +152,43 @@ including both TUI packages' server halves, and a headless `run` session loads
 them without error. The TUI parts themselves only mount in the interactive TUI,
 which cannot be exercised from here — their rendering is unverified.
 
+## Session store refresh
+
+`migrate-sessions.sh` mirrors the 1.x session store into 2.x. The two stores are
+parallel — 1.x writes `session`/`message`/`part`, 2.x reads
+`session_v2`/`session_message` — so a host switch otherwise shows an empty list.
+
+| Flag | Effect |
+| --- | --- |
+| (none) | drop migrated 1.x rows, re-copy them |
+| `--only-pinned` | touch only the pinned sessions |
+| `--purge` | wipe the whole 2.x store first (always total) |
+| `--backup` | copy `opencode.db` **and `-wal`/`-shm`** aside |
+
+Pinned sessions live outside the database, in
+`~/.local/state/opencode/session.json` (`{"pinned": [...]}`) — that is the file
+`--only-pinned` reads.
+
+TUI **tabs** live in `~/.local/state/opencode/kv.json` under
+`opencode-tabs:tabs:v1:<projectID>::`. They are not session data and are not
+migrated: a switch shows no tabs because the 2.x project id differs, not because
+the state was lost — the old entries are still in `kv.json`.
+
+### What a 2.x message needs
+
+The migration was rebuilt against a live host. A single message that fails to
+decode makes the whole session unopenable, so every field matters:
+
+- `model` is **required** on an assistant message; most 1.x messages carry none,
+  so the session's model is the fallback.
+- `variant` is omitted unless chosen — `null` fails.
+- `finish` is a required enum; a 1.x message with no step-finish part has none.
+- `reasoning` needs `native` and `time`; `tool` entries vary by status and are
+  replayed as text instead.
+
+Verify on a **copy** with `XDG_DATA_HOME` pointed at it, then
+`opencode2 session export <id> --standalone` per session.
+
 ## Stats and prune
 
 Both work on a 2.x host:
