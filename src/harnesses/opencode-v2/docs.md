@@ -121,34 +121,36 @@ kill. A tool result carrying `output` must declare an output schema — without
 one the whole result fails to serialise and the model retries, so these tools
 return content only.
 
-## TUI parts (not yet ported)
+## TUI parts
 
-V2 keeps TUI plugins, but as a **part of a plugin package**, not a separate
-project-local `tui.json`:
+V2 keeps TUI plugins, but as a **part of a plugin package**:
 
-- A package declares `exports["./tui"]`; its default export is
-  `{ id?, tui }` where `tui = async (api, options, meta) => …` — a different
-  shape from the server part's `Plugin.define`.
+- The default export of the `./tui` part is `{ id?, tui }`, where
+  `tui = async (api, options, meta) => …` — a different shape from the server
+  part's `Plugin.define`.
+- A local plugin directory with **no** `package.json` is read through bare file
+  names at its root: `index.ts` is the server part and `tui.ts` the TUI part.
 - **Plugins listed in `opencode.jsonc` that expose a `./tui` part are loaded
   automatically by the CLI.** The global `~/.config/opencode/cli.json` is only
-  for CLI-only plugins, so this harness never needs to write outside the
-  project.
-- A local plugin directory resolves parts through its `package.json` `exports`,
-  or bare `server`/`tui` files at its root.
+  for CLI-only plugins, so this harness never writes outside the project.
 
-The three v1 TUI plugins (`pty-monitor`, `tui-defaults`, `provider-ttft`) are
-not ported yet. Their sources use the V1 TUI primitives
-(`api.tuiConfig`, per-project `tui.json` slots), so this is a component rewrite
-against `@opencode/plugin/tui`, not a file move.
+Ported, as `tui/<name>/{server.ts,tui.ts}` linked into `.opencode/plugins/<name>/`:
 
-## Known gaps
+| Plugin | Behaviour |
+| --- | --- |
+| `tui-defaults` | seeds the tool-details kv default at TUI startup |
+| `provider-ttft` | shows time-to-first-token in the sidebar |
 
-- TUI parts are not ported (see above); the harness is server-side only.
-- Module hooks declared with a `plugin:` factory in `hooks.json` are V1 plugin
-  implementations. The adapter logs their ids at startup and does not wire them.
-- The `shell` hook carries no session id, so the session env attach follows the
-  most recent session that ran a model request.
-- TUI parts are not ported (see above); the harness is server-side only.
+Both carry a trivial server part, because a TUI-only package would have to be
+registered globally in `cli.json`.
+
+**Not ported:** `pty-monitor` (~1,300 lines of UI). It needs a component
+rewrite against `@opencode/plugin/tui`, not a file move.
+
+**Verification boundary:** `opencode2 plugin list` resolves all five packages,
+including both TUI packages' server halves, and a headless `run` session loads
+them without error. The TUI parts themselves only mount in the interactive TUI,
+which cannot be exercised from here — their rendering is unverified.
 
 ## Stats and prune
 
