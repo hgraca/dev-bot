@@ -95,11 +95,13 @@ The project name. Used by **search-memories** and **qmd** to auto-detect the QMD
 { "harness": "opencode" }
 ```
 
-**Type:** `string` (`"opencode"` \| `"claudecode"`)
+**Type:** `string` (`"opencode"` \| `"opencode-v2"` \| `"claudecode"`)
 **Required:** no
 **Default:** `"opencode"`
 
 Selects which harness DevBot configures. Project config takes precedence over global; invalid values fall back to `"opencode"`.
+
+`"opencode"` and `"opencode-v2"` are the same product on two incompatible plugin APIs: `"opencode"` targets the 1.x line and `"opencode-v2"` targets 2.x. Each refuses to launch against the other's host.
 
 Used by `_devbot_get_harness` to select the launch script (`src/harnesses/<harness>/start.sh`).
 

@@ -679,7 +679,7 @@ _devbot_session_teardown() {
 # ── Harness selection (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_harness [project_dir]
-#   Prints the harness name to use: "opencode" or "claudecode".
+#   Prints the harness name to use: "opencode", "opencode-v2" or "claudecode".
 #   Per-project config (.devbot.project.jsonc) takes precedence over global.
 #   Defaults to "opencode" if not set or config is missing.
 
@@ -690,7 +690,7 @@ _devbot_get_harness() {
 
   # Validate and default
   case "${harness}" in
-    opencode|claudecode) echo "${harness}" ;;
+    opencode|opencode-v2|claudecode) echo "${harness}" ;;
     *) echo "opencode" ;;
   esac
 }
@@ -1280,7 +1280,7 @@ _devbot_get_disabled_modules() {
 import json, os
 # The canonical pair is always known, so a partial install (src/harnesses
 # missing) still disables the harness that was not selected.
-harness_names = {"opencode", "claudecode"}
+harness_names = {"opencode", "opencode-v2", "claudecode"}
 harnesses_dir = os.environ.get("HARNESSES_DIR", "")
 if harnesses_dir and os.path.isdir(harnesses_dir):
     harness_names |= {n for n in os.listdir(harnesses_dir)
