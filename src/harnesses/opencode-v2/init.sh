@@ -697,6 +697,7 @@ _ensure_required_plugins
 _ensure_agents_md
 _delegate_harness_dirs
 _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
+_devbot_apply_runtime_mcps "${PROJECT_DIR}"
 _link_mcp_assets
 _link_harness_hooks
 _link_tui_plugins

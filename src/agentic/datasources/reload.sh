@@ -247,45 +247,17 @@ _stale_manifests() {
     else
       expected="${gateway_url}/${name}"
     fi
-    # Only the harnesses this project actually consumes: init does not write or
-    # prune a disabled harness's manifests, so a leftover from one it used to
-    # have must not fail every reload. Shapes differ — opencode keeps the server
-    # at the top level, claudecode nests it under mcpServers.
-    local -a manifests=()
-    if ! _datasources_harness_disabled "${project_dir}" opencode; then
-      manifests+=("${project_dir}/.opencode/datasources-${name}.mcp.json")
+    # The published canonical manifest is what the harness was told — no
+    # harness dir, no shape.
+    file="$(_devbot_runtime_mcp_dir "${project_dir}")/${PREFIX}${name}.json"
+    [[ -f "${file}" ]] || continue
+    actual="$(jq -r --arg k "${PREFIX}${name}" '.mcp[$k].url // ""' "${file}" 2>/dev/null)"
+    if [[ -n "${actual}" && "${actual}" != "${expected}" ]]; then
+      echo "$(basename "${project_dir}"):${name}"
     fi
-    if ! _datasources_harness_disabled "${project_dir}" claudecode; then
-      manifests+=("${project_dir}/.claude/datasources-${name}.mcp.json")
-    fi
-    for file in ${manifests[@]+"${manifests[@]}"}; do
-      [[ -f "${file}" ]] || continue
-      actual="$(_manifest_url "${file}" "datasources-${name}")"
-      if [[ -n "${actual}" && "${actual}" != "${expected}" ]]; then
-        echo "$(basename "${project_dir}"):${name}"
-        break
-      fi
-    done
   done
 }
 
-# The URL a generated manifest points at, whichever shape it has.
-_manifest_url() {
-  python3 -c '
-import json, sys
-try:
-    with open(sys.argv[1]) as fh:
-        doc = json.load(fh)
-except Exception:
-    sys.exit(0)
-key = sys.argv[2]
-entry = doc.get(key)
-if not isinstance(entry, dict):
-    servers = doc.get("mcpServers")
-    entry = servers.get(key) if isinstance(servers, dict) else None
-print(entry.get("url", "") if isinstance(entry, dict) else "")
-' "$1" "$2" 2>/dev/null || true
-}
 
 # Every project the shared gateway serves right now: this one plus any live
 # session's. A source dropped from the catalogue is dropped for all of them.

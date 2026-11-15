@@ -27,9 +27,6 @@ setup() {
     "src/agentic/codebase-index/reset.sh"
     "src/agentic/codebase-index/up.sh"
     "src/agentic/jetbrains/init.sh"
-    "src/agentic/netsuite/init.sh"
-    "src/agentic/aws/init.sh"
-    "src/agentic/datasources/reload.sh"
     "src/tools/external-modules/tools/module.sh"
   )
 }

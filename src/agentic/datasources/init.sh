@@ -104,88 +104,18 @@ _datasources_mcp_timeout() {
     '.[$name] // $default' <<<"${MCP_TIMEOUTS}"
 }
 
-# Write the dynamic MCP manifests for one datasource. opencode's shape is
-# opencode-native (what _register_dynamic_mcps merges verbatim); claudecode's
-# matches the .mcp.json contract. Both mirror the jetbrains module.
-#
-# The gateways are optional per project, so the opencode manifest ships the
-# server disabled by default — one flag turns it on without a reinit. The
-# claudecode entry keeps `true`: .mcp.json has no per-server on/off, and
-# _wire_mcp reads `enabled` as a wire/don't-wire gate, so `false` there would
-# silently drop the server from that harness.
+# Publish the datasource canonically; the selected harness applies it. The
+# gateways are optional per project, so the server ships disabled — one flag
+# turns it on without a reinit.
 _datasources_write_manifests() {
   local name="$1"
   local url server timeout
   url="$(_datasources_url "${name}")"
   server="${PREFIX}${name}"
   timeout="$(_datasources_mcp_timeout "${name}")"
-
-  if ! _datasources_harness_disabled "${PROJECT_DIR}" opencode; then
-    local dir="${PROJECT_DIR}/.opencode"
-    mkdir -p "${dir}"
-    printf '{"%s": {"type": "remote", "url": "%s", "enabled": false, "timeout": %s}}\n' \
-      "${server}" "${url}" "${timeout}" > "${dir}/${PREFIX}${name}.mcp.json"
-  fi
-
-  if ! _datasources_harness_disabled "${PROJECT_DIR}" claudecode; then
-    local dir="${PROJECT_DIR}/.claude"
-    mkdir -p "${dir}"
-    printf '{"mcpServers": {"%s": {"type": "http", "url": "%s", "enabled": true}}}\n' \
-      "${server}" "${url}" > "${dir}/${PREFIX}${name}.mcp.json"
-  fi
-}
-
-# Reconcile the opencode config with the selection. The harness merges dynamic
-# manifests APPEND-ONLY into opencode.jsonc (merge_mcp_jsonc.py is
-# insert/skip-exists) and nothing removes them, so deleting a manifest is not
-# enough: the key stays live and the project keeps a server for a datasource it
-# has removed. Scanning the CONFIG rather than the manifests also cleans up a
-# key left behind by an earlier init. claudecode needs nothing — its .mcp.json
-# is regenerated from scratch.
-_datasources_reconcile_opencode() {
-  local selected="$1" config="${PROJECT_DIR}/opencode.jsonc"
-  [[ -f "${config}" ]] || return 0
-
-  local key name
-  for key in $(
-    python3 "${READER}" "${config}" mcp 2>/dev/null |
-      python3 -c '
-import json, sys
-try:
-    print(" ".join(json.load(sys.stdin)))
-except Exception:
-    pass
-' 2>/dev/null
-  ); do
-    case "${key}" in
-      "${PREFIX}"*) ;;
-      *) continue ;; # a server this module does not own
-    esac
-    name="${key#"${PREFIX}"}"
-    if ! _list_has_word "${name}" "${selected}"; then
-      python3 "${REMOVE_KEY}" "${config}" "${key}" \
-        >/dev/null 2>&1 || true
-      _skip "datasources — unregistered ${key} (no longer selected)"
-    fi
-  done
-}
-
-# Remove manifests for datasources no longer selected. Without this, dropping a
-# datasource from the project config would leave its server registered forever.
-_datasources_prune() {
-  local dir="$1" selected="$2" file name
-  [[ -d "${dir}" ]] || return 0
-
-  for file in "${dir}/${PREFIX}"*.mcp.json; do
-    [[ -e "${file}" ]] || continue
-    name="$(basename "${file}")"
-    name="${name#"${PREFIX}"}"
-    name="${name%.mcp.json}"
-    if ! _list_has_word "${name}" "${selected}"; then
-      rm -f "${file}"
-      _skip "datasources — pruned ${name} (no longer selected)"
-    fi
-  done
+  _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${server}" \
+    "$(jq -nc --arg u "${url}" --argjson t "${timeout}" \
+      "{($server): {type: \"http\", url: \$u, enabled: false, timeout: \$t}}")"
 }
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -223,13 +153,10 @@ main() {
   fi
 
   # An `if`, not `&&`: under `set -e` a short-circuited `&&` would abort here.
-  if ! _datasources_harness_disabled "${PROJECT_DIR}" opencode; then
-    _datasources_reconcile_opencode "${selected}"
-    _datasources_prune "${PROJECT_DIR}/.opencode" "${selected}"
-  fi
-  if ! _datasources_harness_disabled "${PROJECT_DIR}" claudecode; then
-    _datasources_prune "${PROJECT_DIR}/.claude" "${selected}"
-  fi
+  local -a keep=()
+  for name in ${selected}; do keep+=("${PREFIX}${name}"); done
+  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}" ${keep[@]+"${keep[@]}"}
+  _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 
   return 0
 }

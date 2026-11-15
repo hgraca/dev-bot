@@ -680,6 +680,7 @@ _link_plugins_modules
 _link_module_plugins
 _link_harness_hooks
 _link_tui_plugins
+_devbot_apply_runtime_mcps "${PROJECT_DIR}"
 _register_dynamic_mcps
 _reconcile_watcher_ignore
 _reconcile_external_directory

@@ -73,12 +73,6 @@ print(" ".join(data) if isinstance(data, dict) else "")
 ' 2>/dev/null || true
 }
 
-# Is a harness module turned off? Mirrors the datasources/jetbrains gate.
-_aws_harness_disabled() {
-  _devbot_get_disabled_modules "${PROJECT_DIR}" |
-    jq -e --arg m "$1" 'index($m) != null' >/dev/null 2>&1
-}
-
 # Is the aws MODULE itself turned off for this project? Enablement is a user
 # decision, and the file this module drops into the vault is machine-local
 # bootstrap content — so a project that disabled the module must not receive it.
@@ -94,94 +88,17 @@ _aws_valid_name() {
   [[ "$1" =~ ^[A-Za-z0-9._-]+$ ]]
 }
 
-# The command both manifests run. It is SECRET-FREE: it only names the
-# connection — the launcher resolves credentials at launch, from the environment.
-# Dynamic manifests are harness-native (never translated), so the harness dir is
-# written literally rather than as a {harness-dir} token.
-_aws_command() {
-  local harness_dir="$1" name="$2"
-  printf 'mkdir -p .agents/logs && exec bash %s/%s %s 2>>.agents/logs/%s%s-mcp.log' \
-    "${harness_dir}" "${LAUNCHER_NAME}" "${name}" "${PREFIX}" "${name}"
-}
-
-# Write the dynamic MCP manifests for one connection. opencode's shape is
-# opencode-native (what _register_dynamic_mcps merges verbatim); claudecode's
-# matches the .mcp.json contract. Both mirror the datasources module.
-#
-# The connections are optional per project, so the opencode manifest ships the
-# server disabled by default — one flag turns it on without a reinit. The
-# claudecode entry keeps `true`: .mcp.json has no per-server on/off, and
-# _wire_mcp reads `enabled` as a wire/don't-wire gate, so `false` there would
-# silently drop the server from that harness.
+# Publish the connection canonically; the selected harness applies it. The
+# launcher path is a {harness-dir} token, so no harness is named here. The
+# command is SECRET-FREE: it only names the connection — the launcher resolves
+# credentials at launch. Shipped disabled: a connection is opt-in per project.
 _aws_write_manifests() {
   local name="$1"
   local server="${PREFIX}${name}"
-
-  if ! _aws_harness_disabled opencode; then
-    local dir="${PROJECT_DIR}/.opencode"
-    mkdir -p "${dir}"
-    printf '{"%s": {"type": "local", "command": ["bash", "-c", "%s"], "enabled": false}}\n' \
-      "${server}" "$(_aws_command ".opencode" "${name}")" > "${dir}/${server}.mcp.json"
-  fi
-
-  if ! _aws_harness_disabled claudecode; then
-    local dir="${PROJECT_DIR}/.claude"
-    mkdir -p "${dir}"
-    printf '{"mcpServers": {"%s": {"type": "stdio", "command": "bash", "args": ["-c", "%s"], "enabled": true}}}\n' \
-      "${server}" "$(_aws_command ".claude" "${name}")" > "${dir}/${server}.mcp.json"
-  fi
-}
-
-# Reconcile the opencode config with the selection. The harness merges dynamic
-# manifests APPEND-ONLY into opencode.jsonc and nothing removes them, so deleting
-# a manifest is not enough: the key stays live and the project keeps a server for
-# a connection it has removed. Scanning the CONFIG also cleans up a key left
-# behind by an earlier init. claudecode needs nothing — its .mcp.json is
-# regenerated from scratch.
-_aws_reconcile_opencode() {
-  local selected="$1" config="${PROJECT_DIR}/opencode.jsonc"
-  [[ -f "${config}" ]] || return 0
-
-  local key name
-  for key in $(
-    python3 "${READER}" "${config}" mcp 2>/dev/null |
-      python3 -c '
-import json, sys
-try:
-    print(" ".join(json.load(sys.stdin)))
-except Exception:
-    pass
-' 2>/dev/null
-  ); do
-    case "${key}" in
-      "${PREFIX}"*) ;;
-      *) continue ;; # a server this module does not own
-    esac
-    name="${key#"${PREFIX}"}"
-    if ! printf ' %s ' "${selected}" | grep -Fq " ${name} "; then
-      python3 "${REMOVE_KEY}" "${config}" "${key}" \
-        >/dev/null 2>&1 || true
-      _skip "aws — unregistered ${key} (no longer selected)"
-    fi
-  done
-}
-
-# Remove manifests for connections no longer selected. Without this, dropping a
-# connection from the project config would leave its server registered forever.
-_aws_prune() {
-  local dir="$1" selected="$2" file name
-  [[ -d "${dir}" ]] || return 0
-
-  for file in "${dir}/${PREFIX}"*.mcp.json; do
-    [[ -e "${file}" ]] || continue
-    name="$(basename "${file}")"
-    name="${name#"${PREFIX}"}"
-    name="${name%.mcp.json}"
-    if ! printf ' %s ' "${selected}" | grep -Fq " ${name} "; then
-      rm -f "${file}"
-      _skip "aws — pruned ${name} (no longer selected)"
-    fi
-  done
+  local cmd="mkdir -p .agents/logs && exec bash {harness-dir}/${LAUNCHER_NAME} ${name} 2>>.agents/logs/${PREFIX}${name}-mcp.log"
+  _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${server}" \
+    "$(jq -nc --arg c "${cmd}" \
+      "{($server): {type: \"stdio\", command: [\"bash\", \"-c\", \$c], enabled: false}}")"
 }
 
 # ── module memory ─────────────────────────────────────────────────────────────
@@ -228,10 +145,9 @@ main() {
   declared="$(_aws_declared)"
 
   # The memory file says the MCP servers are the way in, so it may only be
-  # written when at least one harness can start them.
-  if ! _aws_harness_disabled opencode || ! _aws_harness_disabled claudecode; then
-    mcp_available=1
-  fi
+  # written when a harness can start them. Which harness that is belongs to the
+  # harness — retracting the manifest is a module-level decision only.
+  mcp_available=1
 
   for name in ${selected}; do
     if ! _aws_valid_name "${name}"; then
@@ -263,14 +179,10 @@ main() {
     done
   fi
 
-  # An `if`, not `&&`: under `set -e` a short-circuited `&&` would abort here.
-  if ! _aws_harness_disabled opencode; then
-    _aws_reconcile_opencode "${selected}"
-    _aws_prune "${PROJECT_DIR}/.opencode" "${selected}"
-  fi
-  if ! _aws_harness_disabled claudecode; then
-    _aws_prune "${PROJECT_DIR}/.claude" "${selected}"
-  fi
+  local -a keep=()
+  for name in ${selected}; do keep+=("${PREFIX}${name}"); done
+  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}" ${keep[@]+"${keep[@]}"}
+  _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 
   # ── AWS agent memory ─────────────────────────────────────────────────────────
   # One memory file, only when a server is wired:

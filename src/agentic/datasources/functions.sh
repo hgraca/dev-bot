@@ -126,12 +126,6 @@ print(" ".join(data) if isinstance(data, list) else "")
 
 # Is a harness module turned off for this project? A manifest that init would not
 # write belongs to a harness this project does not consume, and must not be held
-# against a reload. Mirrors how the jetbrains module gates its manifests.
-_datasources_harness_disabled() {
-  local project_dir="$1" module="$2"
-  _devbot_get_disabled_modules "${project_dir}" |
-    jq -e --arg m "${module}" 'index($m) != null' >/dev/null 2>&1
-}
 
 # The datasource names the machine declares (keys of the global catalogue). A
 # selected name absent from here is a typo: init warns about it, and no render

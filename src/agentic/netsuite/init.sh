@@ -68,17 +68,10 @@ elif isinstance(value, str) and value:
   return 0
 }
 
-# Is a module (or harness) turned off for this project?
-_netsuite_disabled() {
+# Is the netsuite module itself turned off for this project?
+_netsuite_module_disabled() {
   _devbot_get_disabled_modules "${PROJECT_DIR}" |
-    jq -e --arg m "$1" 'index($m) != null' >/dev/null 2>&1
-}
-
-# Selection is read straight from the scalar key for the DESTRUCTIVE prune: the
-# disabled set falls back to [] on a malformed config, which would read as "both
-# harnesses selected" and delete manifests in a tree we do not own.
-_netsuite_selected() {
-  [[ "$(_devbot_get_harness "${PROJECT_DIR}")" == "$1" ]]
+    jq -e --arg m "netsuite" 'index($m) != null' >/dev/null 2>&1
 }
 
 # NetSuite's account-specific hostname lowercases the ID and turns every
@@ -87,85 +80,33 @@ _netsuite_normalize_account() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr '_' '-'
 }
 
-# Write both harness manifests. Dynamic manifests are harness-native (never
-# translated), so each carries the shape its harness merges verbatim.
+# Publish the server canonically; the selected harness applies it. The account
+# URL is the only per-project input and the harness owns the shape.
 _netsuite_write_manifests() {
-  local server="$1" enabled="$2" url="$3" dir
-
-  if ! _netsuite_disabled opencode; then
-    dir="${PROJECT_DIR}/.opencode"
-    mkdir -p "${dir}"
-    printf '{"%s": {"type": "remote", "url": "%s", "enabled": %s}}\n' \
-      "${server}" "${url}" "${enabled}" > "${dir}/${server}.mcp.json"
-  fi
-
-  if ! _netsuite_disabled claudecode; then
-    dir="${PROJECT_DIR}/.claude"
-    mkdir -p "${dir}"
-    printf '{"mcpServers": {"%s": {"type": "http", "url": "%s", "enabled": %s}}}\n' \
-      "${server}" "${url}" "${enabled}" > "${dir}/${server}.mcp.json"
-  fi
-}
-
-# Remove every netsuite artifact that is not the current server. The account can
-# change, and the harness merges dynamic manifests append-only, so a dropped
-# account must take its manifest and its live key with it.
-_netsuite_prune() {
-  local keep="$1" dir file name key harness
-
-  # Only the selected harness is dev-bot-managed — pruning the other one would
-  # delete a tree this project does not own (same gate as the write path above).
-  for dir in "${PROJECT_DIR}/.opencode" "${PROJECT_DIR}/.claude"; do
-    [[ -d "${dir}" ]] || continue
-    harness=claudecode
-    [[ "$(basename "${dir}")" == ".opencode" ]] && harness=opencode
-    if ! _netsuite_selected "${harness}"; then
-      continue
-    fi
-    for file in "${dir}/${PREFIX}"*.mcp.json; do
-      [[ -e "${file}" ]] || continue
-      name="$(basename "${file}" .mcp.json)"
-      [[ "${name}" == "${keep}" ]] && continue
-      rm -f "${file}"
-    done
-  done
-
-  if ! _netsuite_selected opencode; then
-    return 0
-  fi
-  local config="${PROJECT_DIR}/opencode.jsonc"
-  [[ -f "${config}" ]] || return 0
-  for key in $(python3 "${READER}" "${config}" mcp 2>/dev/null |
-    python3 -c '
-import json, sys
-try:
-    print(" ".join(json.load(sys.stdin)))
-except Exception:
-    pass
-' 2>/dev/null); do
-    [[ "${key}" == "${PREFIX}" || "${key}" == "${PREFIX}-"* ]] || continue
-    [[ "${key}" == "${keep}" ]] && continue
-    python3 "${REMOVE_KEY}" "${config}" "${key}" >/dev/null 2>&1 || true
-  done
+  local server="$1" enabled="$2" url="$3"
+  _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${server}" \
+    "$(jq -nc --arg u "${url}" --argjson e "${enabled}" \
+      "{($server): {type: \"http\", url: \$u, enabled: \$e}}")" \
+    && _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 }
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
-if _netsuite_disabled "${PREFIX}"; then
-  _netsuite_prune ""
+if _netsuite_module_disabled; then
+  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}"
   exit 0
 fi
 
 raw_account="$(_netsuite_config account_id)"
 
 if [[ -z "${raw_account}" ]]; then
-  _netsuite_prune ""
+  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}"
   _skip "netsuite — set netsuite.account_id in .devbot.global.jsonc (or .devbot.project.jsonc) to register the MCP server"
   exit 0
 fi
 
 if [[ ! "${raw_account}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
-  _netsuite_prune ""
+  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}"
   _warn "netsuite — '${raw_account}' is not a valid NetSuite account ID (letters, digits, '-' and '_' only)"
   exit 0
 fi
@@ -175,7 +116,7 @@ server="${PREFIX}-${account}"
 enabled="$(_netsuite_config enabled)"
 [[ "${enabled}" == "true" ]] || enabled="false"
 
-_netsuite_prune "${server}"
+_devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}" "${server}"
 _netsuite_write_manifests "${server}" "${enabled}" "https://${account}.${URL_SUFFIX}"
 
 if [[ "${enabled}" == "true" ]]; then
