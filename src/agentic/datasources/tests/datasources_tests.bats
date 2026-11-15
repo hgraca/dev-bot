@@ -163,7 +163,9 @@ _live_session() {
   local sessions="${DEV_BOT_ROOT}/storage/run/sessions"
   mkdir -p "${sessions}"
   printf '%s\n' "$1" >"${sessions}/session-4242"
-  ( exec 218<>"${sessions}/session-4242"; flock -x 218; sleep 5 ) &
+  # The lock must outlive the reload, not just the usual case: a loaded suite
+  # stretches that render past the 5 s a tight window allowed.
+  ( exec 218<>"${sessions}/session-4242"; flock -x 218; sleep 60 ) &
   sleep 0.3
 }
 
