@@ -80,11 +80,8 @@ URL_BASE="suitetalk.api.netsuite.com/services/mcp/v1/all"
   run bash "${INIT}" "${PROJECT}"
   assert_success
 
-  run python3 -c '
-import json, sys
-print(sorted(json.load(open(sys.argv[1]))["mcpServers"]))
-' "${PROJECT}/.claude/netsuite-1234567.mcp.json"
-  assert_output "[]"
+  # Nothing is wired, so no manifest is written at all.
+  [ ! -e "${PROJECT}/.claude/netsuite-1234567.mcp.json" ]
 }
 
 @test "prunes stale manifests only in the selected harness" {
