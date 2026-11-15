@@ -171,7 +171,13 @@ STUB
 
 @test "a zero-padded --jobs is read as decimal, not octal" {
   # `-j 08` used to reach arithmetic as invalid octal and abort before wiring.
-  run bash "${PROJECT_ROOT}/bin/init.sh" --all -j 08
+  # An empty project list keeps this to the parser: a real `--all` would wire
+  # every project the developer has registered, including this checkout.
+  local cfg
+  cfg="$(mktemp)"
+  printf '{"projects": {}}\n' > "${cfg}"
+  run env DEV_BOT_GLOBAL_CONFIG="${cfg}" bash "${PROJECT_ROOT}/bin/init.sh" --all -j 08
+  rm -f "${cfg}"
 
   # It must fail only because there is nothing to wire, never on the number.
   refute_output --partial "value too great for base"
