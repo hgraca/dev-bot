@@ -149,45 +149,18 @@ _detect_mcp_port() {
   return 1
 }
 
-# The IDE's MCP server only exists while an IDE is running, so opencode ships
-# it disabled by default. The claude shape below keeps `enabled: true`: .mcp.json
-# has no per-server on/off, and _wire_mcp treats `false` as "do not wire".
-_build_opencode_sse() {
+# The IDE's MCP server only exists while an IDE is running, so it ships wired
+# but not started (`wire_disabled`): opencode registers it disabled and
+# claudecode wires it, which is what each harness did before this manifest was
+# canonical. The project-path header stays a {env:VAR} token — the harness
+# resolves it, so the value is chosen when the client launches, not at init.
+_build_sse_def() {
   local port="$1"
-  cat <<EOF
-{"type":"remote","url":"http://127.0.0.1:${port}/stream","headers":{"IJ_MCP_SERVER_PROJECT_PATH":"$(_project_path_ref)"},"enabled":false}
-EOF
-}
-
-_build_claude_sse() {
-  local port="$1"
-  cat <<EOF
-{
-  "type": "http",
-  "url": "http://127.0.0.1:${port}/stream",
-  "headers": {
-    "IJ_MCP_SERVER_PROJECT_PATH": "$(_project_path)"
-  },
-  "enabled": true
-}
-EOF
-}
-
-# Write the opencode MCP def to a runtime manifest the opencode harness reads.
-# Modules stay harness-agnostic: they emit a manifest, the harness registers it.
-_write_opencode_manifest() {
-  local mcp_def="$1"
-  local manifest="${PROJECT_DIR}/.opencode/jetbrains.mcp.json"
-  mkdir -p "$(dirname "${manifest}")"
-  printf '{"jetbrains": %s}\n' "${mcp_def}" > "${manifest}"
-}
-
-# Write the claude MCP def to a runtime manifest the claudecode harness reads.
-_write_claude_manifest() {
-  local mcp_def="$1"
-  local manifest="${PROJECT_DIR}/.claude/jetbrains.mcp.json"
-  mkdir -p "$(dirname "${manifest}")"
-  printf '{"mcpServers": {"jetbrains": %s}}\n' "${mcp_def}" > "${manifest}"
+  jq -nc --arg u "http://127.0.0.1:${port}/stream" \
+    --arg p "$(_project_path_ref)" \
+    '{jetbrains: {type: "http", url: $u,
+                  headers: {"IJ_MCP_SERVER_PROJECT_PATH": $p},
+                  wire_disabled: true}}'
 }
 
 # ── main ───────────────────────────────────────────────────────────────────────
@@ -236,30 +209,10 @@ main() {
   local method="SSE"
 
   # SSE is the simplest and most reliable — connects to the IDE's HTTP endpoint
-  local oc_def
-  oc_def=$(_build_opencode_sse "${mcp_port}")
-  _info "Using SSE (port ${mcp_port})"
-
-  local disabled_raw
-  disabled_raw=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
-
-  # ── 2a. OpenCode: emit a runtime manifest (only if opencode is enabled) ────
-  if echo "${disabled_raw}" | jq -e 'index("opencode") != null' >/dev/null 2>&1; then
-    _skip "JetBrains MCP: opencode tool disabled — skipping OpenCode manifest"
-  else
-    _write_opencode_manifest "${oc_def}"
-    _ok "JetBrains MCP manifest written for OpenCode (${method})"
-  fi
-
-  # ── 2b. Claude Code: emit manifest (only if claudecode tool is enabled) ────
-  if echo "${disabled_raw}" | jq -e 'index("claudecode") != null' >/dev/null 2>&1; then
-    _skip "JetBrains MCP: claudecode tool disabled — skipping Claude manifest"
-  else
-    local cc_entry
-    cc_entry=$(_build_claude_sse "${mcp_port}")
-    _write_claude_manifest "${cc_entry}"
-    _ok "JetBrains MCP manifest written for Claude Code (${method})"
-  fi
+  _devbot_publish_runtime_mcp "${PROJECT_DIR}" "jetbrains" \
+    "$(_build_sse_def "${mcp_port}")" \
+    && _devbot_apply_runtime_mcps "${PROJECT_DIR}"
+  _ok "JetBrains MCP manifest published (${method})"
 
   echo ""
   _info "JetBrains MCP server configured. Restart your AI client for changes to take effect."

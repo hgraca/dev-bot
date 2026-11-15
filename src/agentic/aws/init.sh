@@ -98,7 +98,7 @@ _aws_write_manifests() {
   local cmd="mkdir -p .agents/logs && exec bash {harness-dir}/${LAUNCHER_NAME} ${name} 2>>.agents/logs/${PREFIX}${name}-mcp.log"
   _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${server}" \
     "$(jq -nc --arg c "${cmd}" \
-      "{($server): {type: \"stdio\", command: [\"bash\", \"-c\", \$c], enabled: false}}")"
+      "{($server): {type: \"stdio\", command: [\"bash\", \"-c\", \$c], wire_disabled: true}}")"
 }
 
 # ── module memory ─────────────────────────────────────────────────────────────

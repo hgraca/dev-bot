@@ -395,3 +395,29 @@ _reset_fixture() {
   run head -1 "$MODULE_DIR/skills/SKILL.md"
   assert_output --partial "---"
 }
+
+@test "up removes only its own index lock, not a same-named file elsewhere" {
+  # The EISDIR recovery used to find every indexing.lock by name up to depth 3.
+  local proj
+  proj="$(mktemp -d)"
+  mkdir -p "${proj}/.opencode/index" "${proj}/docs"
+  : > "${proj}/.opencode/index/indexing.lock"
+  : > "${proj}/docs/indexing.lock"
+
+  # A copied module tree, so sourcing resolves its own functions.sh and the
+  # shared library beside it; main is stripped so nothing but the sweep runs.
+  local tree
+  tree="$(mktemp -d)"
+  mkdir -p "${tree}/src/agentic"
+  cp -r "${MODULE_DIR}/../../_shared" "${tree}/src/_shared"
+  cp -r "${MODULE_DIR}" "${tree}/src/agentic/codebase-index"
+  sed '/^main "\$@"/d' "${MODULE_DIR}/up.sh" > "${tree}/src/agentic/codebase-index/up.sh"
+
+  run bash -c 'source "$1"; PROJECT_DIR="$2"; _remove_stale_indexing_locks' \
+    _ "${tree}/src/agentic/codebase-index/up.sh" "${proj}"
+
+  assert_success
+  [ ! -e "${proj}/.opencode/index/indexing.lock" ]
+  [ -f "${proj}/docs/indexing.lock" ]
+  rm -r -f "${proj}" "${tree}"
+}

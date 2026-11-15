@@ -61,6 +61,7 @@ Exit codes: 0 ok (prints {"<server>": {...}, ...}); 1 invalid manifest/harness.
 
 import argparse
 import json
+import os
 import re
 import sys
 from typing import Any, Optional
@@ -73,7 +74,10 @@ TRANSPORTS = ("stdio", "http")
 # annotations at any level and are ignored (hooks.json convention). Anything
 # else is a migration mistake — a leftover harness-specific field such as
 # "environment" — and fails loudly rather than being silently dropped.
-ENTRY_KEYS = ("type", "command", "url", "oauth", "enabled", "timeout", "headers", "env")
+ENTRY_KEYS = (
+    "type", "command", "url", "oauth", "enabled", "timeout", "headers",
+    "env", "wire_disabled",
+)
 
 # A well-formed {env:VAR} reference. An env VALUE must be exactly one of these
 # (whole-value-only); a header VALUE may embed one alongside text, because an
@@ -96,6 +100,14 @@ def _substitute(
 ) -> Any:
     """Deep-replace tokens/placeholders in strings within the entry."""
     if isinstance(value, str):
+        if harness == "claudecode":
+            # Claude Code has no {env:VAR} token; this harness has always
+            # written the literal value, so resolve it here.
+            value = re.sub(
+                r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}",
+                lambda m: os.environ.get(m.group(1), m.group(0)),
+                value,
+            )
         value = value.replace("{harness-dir}", HARNESS_DIRS[harness])
         value = value.replace("{host}", HOST_NAMES[harness])
         if gpu is not None:
@@ -126,6 +138,8 @@ def _validate_entry(server: str, entry: Any) -> None:
         )
     if "enabled" in entry and not isinstance(entry["enabled"], bool):
         raise ValueError(f"server '{server}': enabled must be a boolean")
+    if "wire_disabled" in entry and not isinstance(entry["wire_disabled"], bool):
+        raise ValueError(f"server '{server}': wire_disabled must be a boolean")
     if "timeout" in entry:
         timeout = entry["timeout"]
         if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
@@ -284,7 +298,11 @@ def translate(
                 out["oauth"] = entry["oauth"]
             if "headers" in entry:
                 out["headers"] = _substitute(entry["headers"], harness, gpu, root)
-        if "enabled" in entry:
+        # wire_disabled asks for "registered but not started", which opencode
+        # spells `enabled: false`.
+        if entry.get("wire_disabled"):
+            out["enabled"] = False
+        elif "enabled" in entry:
             out["enabled"] = entry["enabled"]
         if "timeout" in entry:
             out["timeout"] = entry["timeout"]

@@ -24,14 +24,15 @@ PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 _remove_stale_indexing_locks() {
   [[ -n "${PROJECT_DIR}" ]] || return 0
 
-  local lock
-  for lock in \
-    "${PROJECT_DIR}/.opencode/index/indexing.lock" \
-    "${PROJECT_DIR}/.claude/index/indexing.lock"; do
-    if [[ -e "${lock}" || -L "${lock}" ]]; then
-      rm -rf "${lock}"
-      _ok "Removed stale lock '${lock}'"
-    fi
+  # A previous harness may have left the lock behind, so check every harness
+  # index dir — but only the paths this module owns, never a same-named file
+  # elsewhere in the project.
+  local harness_dir lock
+  for harness_dir in $(_devbot_harness_dirs); do
+    lock="${PROJECT_DIR}/${harness_dir}/index/indexing.lock"
+    [[ -e "${lock}" ]] || continue
+    rm -r -f "${lock}"
+    _ok "Removed stale lock '${lock}'"
   done
 }
 

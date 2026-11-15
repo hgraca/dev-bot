@@ -115,7 +115,7 @@ _datasources_write_manifests() {
   timeout="$(_datasources_mcp_timeout "${name}")"
   _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${server}" \
     "$(jq -nc --arg u "${url}" --argjson t "${timeout}" \
-      "{($server): {type: \"http\", url: \$u, enabled: false, timeout: \$t}}")"
+      "{($server): {type: \"http\", url: \$u, wire_disabled: true, timeout: \$t}}")"
 }
 
 # ── main ──────────────────────────────────────────────────────────────────────

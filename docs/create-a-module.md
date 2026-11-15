@@ -307,3 +307,24 @@ Registration writes an entry under the `external_modules` key of `.devbot.global
 
 - [Module Reference](/module-reference) — full anatomy and the `devbot module` CLI
 - [Skills](/skills) / [Hooks](/hooks) / [MCPs](/mcps) — the shipped artifacts these follow
+
+## Harness-independent modules
+
+A module must never ask which harness is selected. If a server's details are only
+known at init, publish a canonical runtime manifest and let the harness apply it —
+see **Runtime manifests** in `mcp-config.md`. If the module needs to write a file
+where the client will look, ask for the directory:
+
+```bash
+harness_dir="$(_devbot_harness_dir "${PROJECT_DIR}")"
+ln -sf "${some_file}" "${PROJECT_DIR}/${harness_dir}/some-file"
+```
+
+`_devbot_harness_dir` and `_devbot_harness_dirs` are the only harness→directory
+mapping, so adding a harness is a change in `src/_shared/functions.sh` plus
+`src/harnesses/<name>/`, never in a module.
+
+`src/_shared/tests/harness-agnostic-modules_tests.bats` enforces this: it fails
+when a module init names a harness, reads `_devbot_get_harness`, or takes a path
+into `.opencode/` or `.claude/`.
+

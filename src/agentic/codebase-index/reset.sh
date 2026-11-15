@@ -45,10 +45,10 @@ fi
 
 _header_3 "Codebase Index Reset"
 
-OPENCODE_CONFIG="${PROJECT_DIR}/.opencode/codebase-index.json"
-CLAUDE_CONFIG="${PROJECT_DIR}/.claude/codebase-index.json"
-OPENCODE_INDEX="${PROJECT_DIR}/.opencode/index"
-CLAUDE_INDEX="${PROJECT_DIR}/.claude/index"
+# Only the selected harness is dev-bot-managed; the other tree is left alone.
+HARNESS_DIR="$(_devbot_harness_dir "${PROJECT_DIR}")"
+HARNESS_CONFIG="${PROJECT_DIR}/${HARNESS_DIR}/codebase-index.json"
+HARNESS_INDEX="${PROJECT_DIR}/${HARNESS_DIR}/index"
 
 removed=0
 
@@ -82,12 +82,6 @@ _codebase_index_is_disabled() {
 # which of them runs is the whole policy.
 # Only the selected harness is dev-bot-managed; the other harness's tree is left
 # alone, so a harness switch never destroys a setup this project does not own.
-# Read the scalar key, not the disabled set: that set falls back to [] on a
-# malformed config, which would read as "both selected" and delete both stores.
-_harness_selected() {
-  [[ "$(_devbot_get_harness "${PROJECT_DIR}")" == "$1" ]]
-}
-
 _remove_dir() {
   local dir="$1" label="$2"
   if [[ -d "${dir}" ]]; then
@@ -111,31 +105,11 @@ _remove_file() {
 }
 
 _remove_store() {
-  if _harness_selected opencode; then
-    _remove_dir "${OPENCODE_INDEX}" ".opencode/index/"
-  else
-    _skip ".opencode/index/ — opencode is not the selected harness; kept"
-  fi
-
-  if _harness_selected claudecode; then
-    _remove_dir "${CLAUDE_INDEX}" ".claude/index/"
-  else
-    _skip ".claude/index/ — claudecode is not the selected harness; kept"
-  fi
+  _remove_dir "${HARNESS_INDEX}" "${HARNESS_DIR}/index/"
 }
 
 _remove_configs() {
-  if _harness_selected opencode; then
-    _remove_file "${OPENCODE_CONFIG}" ".opencode/codebase-index.json"
-  else
-    _skip ".opencode/codebase-index.json — opencode is not the selected harness; kept"
-  fi
-
-  if _harness_selected claudecode; then
-    _remove_file "${CLAUDE_CONFIG}" ".claude/codebase-index.json"
-  else
-    _skip ".claude/codebase-index.json — claudecode is not the selected harness; kept"
-  fi
+  _remove_file "${HARNESS_CONFIG}" "${HARNESS_DIR}/codebase-index.json"
 }
 
 if [[ "${FULL_RESET}" == "true" ]]; then

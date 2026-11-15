@@ -128,24 +128,24 @@ print(paths.get(sys.argv[2], ""))
         [[ -d "${type_src}" ]] || continue
 
         for proj in "${project_dirs[@]}"; do
-            local target_dir="${proj}/.opencode/${type}"
+            local target_dir="${proj}/$(_devbot_harness_dir "${proj}")/${type}"
             local link_path="${target_dir}/${name}"
             mkdir -p "${target_dir}"
             if [[ -L "${link_path}" ]]; then
                 local current
                 current="$(readlink "${link_path}")"
                 if [[ "${current}" == "${type_src}" ]]; then
-                    _skip "${name} → .opencode/${type}/${name} (already correct)"
+                    _skip "${name} → ${type}/${name} (already correct)"
                 else
                     rm "${link_path}"
                     ln -s "${type_src}" "${link_path}"
-                    _log "${name} → .opencode/${type}/${name} repaired"
+                    _log "${name} → ${type}/${name} repaired"
                 fi
             elif [[ -e "${link_path}" ]]; then
                 _warn "${link_path} exists but is not a symlink — skipping"
             else
                 ln -s "${type_src}" "${link_path}"
-                _log "${name} → .opencode/${type}/${name} linked"
+                _log "${name} → ${type}/${name} linked"
             fi
         done
     done
@@ -158,12 +158,15 @@ _unwire_module() {
     local devbot_dir
     devbot_dir="$(_devbot_get_project_dir "${proj}")"
     for type in skills agents commands plugins; do
-      # Legacy .opencode links
-      local link_path="${proj}/.opencode/${type}/${name}"
-      if [[ -L "${link_path}" ]]; then
-        rm "${link_path}"
-        _log "Removed .opencode/${type}/${name}"
-      fi
+      # Any harness dir a previous selection left a link in.
+      local hd
+      for hd in $(_devbot_harness_dirs); do
+        local link_path="${proj}/${hd}/${type}/${name}"
+        if [[ -L "${link_path}" ]]; then
+          rm "${link_path}"
+          _log "Removed ${hd}/${type}/${name}"
+        fi
+      done
       # Modern .agents links (devbot dir) — wired by external-modules/init.sh
       local alink="${proj}/${devbot_dir}/${type}/${name}"
       if [[ -L "${alink}" ]]; then
@@ -179,7 +182,7 @@ _unwire_module() {
     # this symlink dangling (audit-31 §9) — remove it here while the mirror
     # still exists so we can identify entries by their symlink target.
     local mirror="${DEV_BOT_ROOT}/storage/external-agentic-modules/${name}"
-    if [[ -d "${proj}/.claude/skills" && -d "${mirror}" ]]; then
+    if [[ -d "${proj}/$(_devbot_harness_dir "${proj}")/skills" && -d "${mirror}" ]]; then
       local skill_dir
       while IFS= read -r -d '' skill_dir; do
         local link="${skill_dir}/SKILL.md"
@@ -194,10 +197,10 @@ _unwire_module() {
           fi
           if [[ "${abs_target}" == "${mirror}/"* ]]; then
             rm -rf "${skill_dir}"
-            _log "Removed .claude/skills/$(basename "${skill_dir}") (flattened entry for ${name})"
+            _log "Removed $(basename "$(_devbot_harness_dir "${proj}")")/skills/$(basename "${skill_dir}") (flattened entry for ${name})"
           fi
         fi
-      done < <(find "${proj}/.claude/skills" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+      done < <(find "${proj}/$(_devbot_harness_dir "${proj}")/skills" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
     fi
   done
 }
@@ -319,7 +322,7 @@ for k, v in paths.items():
 
             local type_src="${src_dir}/${rel_path}"
             for proj in "${projects[@]}"; do
-                local target_dir="${proj}/.opencode/${type}"
+                local target_dir="${proj}/$(_devbot_harness_dir "${proj}")/${type}"
                 local link_path="${target_dir}/${name}"
 
                 mkdir -p "${target_dir}"
@@ -328,17 +331,17 @@ for k, v in paths.items():
                     local current
                     current="$(readlink "${link_path}")"
                     if [[ "${current}" == "${type_src}" ]]; then
-                        _skip "${name} → .opencode/${type}/${name} (already correct)"
+                        _skip "${name} → ${type}/${name} (already correct)"
                     else
                         rm "${link_path}"
                         ln -s "${type_src}" "${link_path}"
-                        _log "${name} → .opencode/${type}/${name} repaired"
+                        _log "${name} → ${type}/${name} repaired"
                     fi
                 elif [[ -e "${link_path}" ]]; then
                     _warn "${link_path} exists but is not a symlink — skipping"
                 else
                     ln -s "${type_src}" "${link_path}"
-                    _log "${name} → .opencode/${type}/${name} linked"
+                    _log "${name} → ${type}/${name} linked"
                 fi
             done
         done <<< "${paths_map}"
@@ -650,7 +653,7 @@ case "${_cmd}" in
         echo ""
         echo "Subcommands:"
         echo "  install    Clone/pull configured external modules"
-        echo "  init [path] Wire modules into .opencode/ directories"
+        echo "  init [path] Wire modules into the harness directories"
         echo "  add <url|path>   Register a module (git URL or local path)"
         echo "  remove <name>    Unregister a module"
         echo "  list              List registered modules"
@@ -658,7 +661,7 @@ case "${_cmd}" in
         echo ""
         echo "Notes:"
         echo "  - 'install' reads .devbot.global.jsonc and clones/pulls the configured modules."
-        echo "  - 'init' wires the installed modules into .opencode/ directories of projects."
+        echo "  - 'init' wires the installed modules into the harness directories of projects."
         echo "  - 'sync' is an alias for 'init' (provided for backward compatibility)."
         ;;
     *) _fatal "Unknown subcommand '${_cmd}'"; echo "  Run: module.sh help"; exit 1 ;;

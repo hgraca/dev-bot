@@ -289,3 +289,42 @@ A module that starts its server through a wrapper script (`.opencode/my-serve.sh
 
 The `name` must match the path the server's `command` references. See
 [Create a module](/create-a-module#harness-assets-mcp-wrappers-skill-directories).
+
+## Runtime manifests (server discovered at init)
+
+A server whose existence is only known at init — a JetBrains port, a NetSuite
+account, the AWS connections, the selected datasources — is not declared in the
+module's `mcp.json`. The module **publishes** it instead:
+
+```bash
+_devbot_publish_runtime_mcp "${PROJECT_DIR}" "aws-prod" "$defs"
+_devbot_apply_runtime_mcps "${PROJECT_DIR}"
+```
+
+`$defs` is the canonical inner map (`{"aws-prod": {type: ...}}`) written to
+`<devbot_dir>/mcp-runtime/<group>.json`. The module never names a harness.
+
+`_devbot_apply_runtime_mcps` resolves the selected harness and translates every
+published group into that harness's own per-server manifest
+(`.opencode/<group>.mcp.json`, `.claude/<group>.mcp.json`), which the harness's
+normal registration step then merges. It also retires what it generated before:
+a group whose canonical file is gone takes its manifest with it, and on opencode
+its `opencode.jsonc` key — that merge is insert-only, so a deleted manifest
+alone would leave the server live. Ownership is tracked in
+`<devbot_dir>/mcp-runtime/.owned.<harness>`, so manifests dev-bot did not write
+are never touched.
+
+### `wire_disabled`
+
+Canonical `wire_disabled: true` means *register it, do not start it* — an
+optional server the user turns on without a reinit (aws connections,
+datasources, the JetBrains server). Each harness gets the meaning it can express:
+
+| Harness    | Result                                              |
+| ---------- | --------------------------------------------------- |
+| opencode   | `enabled: false` — registered, not started          |
+| claudecode | wired; `.mcp.json` has no per-server on/off          |
+
+Do not use `enabled: false` for this: `_wire_mcp` reads canonical `enabled` and
+**omits** a disabled server from `.mcp.json` entirely.
+

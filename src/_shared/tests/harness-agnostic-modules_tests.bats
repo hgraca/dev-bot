@@ -23,11 +23,6 @@ setup() {
   # Remaining harness-aware module code (see the backlog: move-harness-logic).
   ALLOWED=(
     "src/agentic/graphify/init.sh"
-    "src/agentic/codebase-index/init.sh"
-    "src/agentic/codebase-index/reset.sh"
-    "src/agentic/codebase-index/up.sh"
-    "src/agentic/jetbrains/init.sh"
-    "src/tools/external-modules/tools/module.sh"
   )
 }
 
