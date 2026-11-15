@@ -1,0 +1,10 @@
+---
+date: 2026-11-15
+keywords: ["mcp", "runtime-manifest", "harness", "wire_disabled", "opencode"]
+aliases: ["mcp-runtime", "apply_runtime_mcps", "canonical manifest ownership"]
+see: ["ADRs/20260922144031-mcp-per-server-enabled.md", "ADRs/20260926120000-aws-module-connections-model.md"]
+---
+
+## Modules publish canonical runtime MCP manifests; the harness applies them
+
+A module whose MCP server is only known at init (JetBrains port, NetSuite account, AWS connections, selected datasources) no longer writes harness-native manifests. It calls `_devbot_publish_runtime_mcp <project> <group> <defs>`, which writes the canonical `{"mcp": {...}}` shape to `<devbot_dir>/mcp-runtime/<group>.json`, then `_devbot_apply_runtime_mcps <project>`, which resolves the selected harness, translates every published group through `src/_shared/mcp_translate.py` into that harness's own per-server manifest, and retires groups whose canonical file is gone — including their `opencode.jsonc` key, since that merge is insert-only. Ownership is tracked in `mcp-runtime/.owned.<harness>` so a manifest dev-bot did not write is never removed, and the apply step omits a canonical `enabled: false` server from the claudecode manifest, mirroring `_wire_mcp`. The reason is the opencode-v2 incident: every module that asked "is opencode selected?" skipped under the new harness, and its servers pointed at scripts that did not exist (exit 127). Canonical `wire_disabled: true` expresses "register it, do not start it" — opencode gets `enabled: false` — while claudecode stays wired, because `_wire_mcp` reads canonical `enabled` and **omits** a disabled server from `.mcp.json` entirely, so `enabled: false` must never be used for that intent. `_devbot_harness_dir`/`_devbot_harness_dirs` are now the only harness→directory mapping, and `_devbot_harness_platform` names the selected client for a third-party installer that takes a `--platform` (graphify), so adding a harness touches `_shared` and the harness module only. `src/_shared/tests/harness-agnostic-modules_tests.bats` fails when a module init names a harness or takes a path into a harness directory — its allowlist is empty.
