@@ -39,22 +39,8 @@ SERVE="${MODULE_DIR}/serve.mcp.sh"
 
 _disabled_raw="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null || echo '[]')"
 
-if echo "${_disabled_raw}" | jq -e 'index("opencode") != null' >/dev/null 2>&1; then
-  _skip "OpenCode disabled — skipping .opencode/ launcher symlink"
-else
-  mkdir -p "${PROJECT_DIR}/.opencode"
-  ln -sf "${SERVE}" "${PROJECT_DIR}/.opencode/sonarqube-serve.mcp.sh"
-  _ok "Symlinked .opencode/sonarqube-serve.mcp.sh"
-fi
-
-if echo "${_disabled_raw}" | jq -e 'index("claudecode") != null' >/dev/null 2>&1; then
-  _skip "Claude Code disabled — skipping .claude/ launcher symlink"
-else
-  mkdir -p "${PROJECT_DIR}/.claude"
-  ln -sf "${SERVE}" "${PROJECT_DIR}/.claude/sonarqube-serve.mcp.sh"
-  _ok "Symlinked .claude/sonarqube-serve.mcp.sh"
-fi
-
+  # The harness links this module's declared MCP assets (mcp.json "assets").
+  # The harness links this module's declared MCP assets (mcp.json "assets").
 if [[ -z "${SONARQUBE_TOKEN:-}" ]]; then
   _notice "SONARQUBE_TOKEN is unset — the MCP server will fail to authenticate when enabled"
 fi

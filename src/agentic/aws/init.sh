@@ -222,17 +222,8 @@ main() {
   # The manifests reference the launcher inside each harness dir, so wire it
   # first (agentic init runs before the harness inits, so the dirs are created
   # here rather than assumed to exist).
-  if ! _aws_harness_disabled opencode; then
-    mkdir -p "${PROJECT_DIR}/.opencode"
-    ln -sf "${LAUNCHER}" "${PROJECT_DIR}/.opencode/${LAUNCHER_NAME}"
-    _log "Linked .opencode/${LAUNCHER_NAME}"
-  fi
-  if ! _aws_harness_disabled claudecode; then
-    mkdir -p "${PROJECT_DIR}/.claude"
-    ln -sf "${LAUNCHER}" "${PROJECT_DIR}/.claude/${LAUNCHER_NAME}"
-    _log "Linked .claude/${LAUNCHER_NAME}"
-  fi
-
+  # The harness links this module's declared MCP assets (mcp.json "assets").
+  # The harness links this module's declared MCP assets (mcp.json "assets").
   local selected declared name wired=0 mcp_available=0
   selected="$(_aws_selected)"
   declared="$(_aws_declared)"

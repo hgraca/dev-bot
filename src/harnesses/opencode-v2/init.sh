@@ -576,6 +576,13 @@ _register_dynamic_mcps() {
   done
 }
 
+# ── Link the MCP wrapper scripts modules declare ─────────────────────────────
+# Modules declare (`mcp.json` `assets`); the harness creates them, so the
+# selected harness gets them regardless of which one it is.
+_link_mcp_assets() {
+  _devbot_link_mcp_assets "${PROJECT_DIR}" ".opencode"
+}
+
 # ── Pin every local MCP server to the project directory ──────────────────────
 # Slotted after registration so entries carried over from a migrated v1 config
 # are covered too — without it their relative wrapper paths exit 127.
@@ -690,6 +697,7 @@ _ensure_required_plugins
 _ensure_agents_md
 _delegate_harness_dirs
 _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
+_link_mcp_assets
 _link_harness_hooks
 _link_tui_plugins
 _link_plugins_modules

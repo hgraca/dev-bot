@@ -829,6 +829,8 @@ _link_plugins_modules
 _wire_plugin_hooks
 _link_harness_hooks
 _wire_harness_hooks
+# Modules declare their MCP wrapper scripts; the harness links them.
+_devbot_link_mcp_assets "${PROJECT_DIR}" ".claude"
 _wire_mcp
 _prune_orphan_mcp_wrappers
 _remove_gitkeep_files

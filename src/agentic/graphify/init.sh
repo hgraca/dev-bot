@@ -71,22 +71,8 @@ if echo "${_disabled_modules_raw}" | jq -e 'index("opencode") != null' >/dev/nul
 fi
 
 # ── Symlink MCP wrapper ──────────────────────────────────────────────────────
-if [[ "${_IS_OPENCODE_DISABLED}" != "true" ]]; then
-  mkdir -p "${PROJECT_DIR}/.opencode"
-  ln -sf "${MODULE_DIR}/tools/start-graphify-mcp.sh" "${PROJECT_DIR}/.opencode/graphify-serve.sh"
-  _log "Symlinked .opencode/graphify-serve.sh"
-else
-  _skip "OpenCode disabled — skipping .opencode/ MCP wrapper symlink"
-fi
-
-if [[ "${_IS_CLAUDE_DISABLED}" != "true" ]]; then
-  mkdir -p "${PROJECT_DIR}/.claude"
-  ln -sf "${MODULE_DIR}/tools/start-graphify-mcp.sh" "${PROJECT_DIR}/.claude/graphify-serve.sh"
-  _log "Symlinked .claude/graphify-serve.sh"
-else
-  _skip "Claude Code disabled — skipping .claude/ MCP wrapper symlink"
-fi
-
+  # The harness links this module's declared MCP assets (mcp.json "assets").
+  # The harness links this module's declared MCP assets (mcp.json "assets").
 # ── Version-matched skill ─────────────────────────────────────────────────────
 # Ensure the skill matches the installed graphify version before wiring. This
 # covers a graphify upgrade done OUTSIDE the dev-bot lifecycle (a bare

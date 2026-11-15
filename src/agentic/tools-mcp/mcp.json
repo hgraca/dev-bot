@@ -8,5 +8,11 @@
         "mkdir -p .agents/logs && exec bash {harness-dir}/tools-mcp-serve.sh 2>>.agents/logs/devbot-tools-mcp.log"
       ]
     }
-  }
+  },
+  "assets": [
+    {
+      "name": "tools-mcp-serve.sh",
+      "path": "server/start-tools-mcp.sh"
+    }
+  ]
 }

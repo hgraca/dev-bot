@@ -53,17 +53,19 @@ _stub_npm_kit() {
   run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
 
   assert_success
-  [[ -L "${tmpdir}/.opencode/playwright-mcp-wrapper.js" ]]
+  # Declared by the module; the harness creates the link (mcp_assets_tests).
+  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('assets',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/mcp.json" "playwright-mcp-wrapper.js"
+  assert_success
   [[ ! -e "${tmpdir}/.claude/playwright-mcp-wrapper.js" ]]
   # The symlinks resolve to the shared wrapper, not a dangling local copy.
-  run readlink -f "${tmpdir}/.opencode/playwright-mcp-wrapper.js"
-  assert_output "${SHARED_WRAPPER}"
 
   # The other harness is wired only once it is the selected one.
   setup_project "${tmpdir}" claudecode
   run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
   assert_success
-  [[ -L "${tmpdir}/.claude/playwright-mcp-wrapper.js" ]]
+  # Declared by the module; the harness creates the link (mcp_assets_tests).
+  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('assets',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/mcp.json" "playwright-mcp-wrapper.js"
+  assert_success
 
   rm -rf "${tmpdir}"
 }
@@ -79,7 +81,9 @@ _stub_npm_kit() {
   run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
   assert_success
 
-  [[ -L "${tmpdir}/.opencode/playwright-mcp-wrapper.js" ]]
+  # Declared by the module; the harness creates the link (mcp_assets_tests).
+  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('assets',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/mcp.json" "playwright-mcp-wrapper.js"
+  assert_success
 
   rm -rf "${tmpdir}"
 }
