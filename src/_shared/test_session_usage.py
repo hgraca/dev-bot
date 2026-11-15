@@ -48,6 +48,12 @@ def build_db(path, total=277304):
     conn.close()
 
 
+class SupportedHarnessesTest(unittest.TestCase):
+    def test_opencode_v2_is_supported(self):
+        """2.x ships its own adapter; the name must not be rejected."""
+        self.assertIn("opencode-v2", session_usage.SUPPORTED_HARNESSES)
+
+
 class MainTest(unittest.TestCase):
     def setUp(self):
         self._dir = tempfile.TemporaryDirectory()

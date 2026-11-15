@@ -65,7 +65,9 @@ import re
 import sys
 from typing import Any, Optional
 
-HARNESSES = ("opencode", "claudecode")
+HARNESSES = ("opencode", "opencode-v2", "claudecode")
+# 2.x shares the 1.x config shape and directory; only the plugin API differs.
+HARNESS_ALIASES = {"opencode-v2": "opencode"}
 TRANSPORTS = ("stdio", "http")
 # Canonical entry keys the translator understands. Underscore-prefixed keys are
 # annotations at any level and are ignored (hooks.json convention). Anything
@@ -257,11 +259,17 @@ def translate(
         raise ValueError(
             f"unsupported harness '{harness}' — valid: {', '.join(HARNESSES)}"
         )
+    # 2.x accepts the 1.x shapes, so translate onto the opencode branch — but
+    # keep the caller's name for the tokens, which resolve to .opencode either way.
+    shape_harness = HARNESS_ALIASES.get(harness, harness)
     _validate_entry("<server>", entry)
+    # Tokens ({harness-dir}, {host}) resolve to the same place, so use the shape
+    # name from here on.
+    harness = shape_harness
 
     transport = entry["type"]
 
-    if harness == "opencode":
+    if shape_harness == "opencode":
         if transport == "stdio":
             out: dict[str, Any] = {
                 "type": "local",

@@ -542,3 +542,14 @@ assert_json_eq() {
   assert_failure
   assert_output --partial "env:VAR"
 }
+
+@test "opencode-v2 translates to the opencode shape" {
+  # 2.x shares the 1.x config shape and directory; only the plugin API differs.
+  run python3 "${TOOL}" "${PROJECT_ROOT}/src/agentic/tools-mcp/mcp.json" opencode
+  assert_success
+  local v1="${output}"
+  run python3 "${TOOL}" "${PROJECT_ROOT}/src/agentic/tools-mcp/mcp.json" opencode-v2
+  assert_success
+  assert_equal "${output}" "${v1}"
+  assert_output --partial '.opencode/tools-mcp-serve.sh'
+}

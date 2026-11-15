@@ -18,7 +18,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 DEV_BOT_ROOT = os.path.normpath(os.path.join(_HERE, "..", ".."))
 HARNESS_ENV = "DEV_BOT_SESSION_USAGE_HARNESS"
 SESSION_ENV = "DEV_BOT_SESSION_ID"
-SUPPORTED_HARNESSES = ("opencode", "claudecode")
+SUPPORTED_HARNESSES = ("opencode", "opencode-v2", "claudecode")
 
 sys.path.insert(0, _HERE)
 import model_limit  # noqa: E402
