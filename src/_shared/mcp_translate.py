@@ -61,7 +61,6 @@ Exit codes: 0 ok (prints {"<server>": {...}, ...}); 1 invalid manifest/harness.
 
 import argparse
 import json
-import os
 import re
 import sys
 from typing import Any, Optional
@@ -100,14 +99,6 @@ def _substitute(
 ) -> Any:
     """Deep-replace tokens/placeholders in strings within the entry."""
     if isinstance(value, str):
-        if harness == "claudecode":
-            # Claude Code has no {env:VAR} token; this harness has always
-            # written the literal value, so resolve it here.
-            value = re.sub(
-                r"\{env:([A-Za-z_][A-Za-z0-9_]*)\}",
-                lambda m: os.environ.get(m.group(1), m.group(0)),
-                value,
-            )
         value = value.replace("{harness-dir}", HARNESS_DIRS[harness])
         value = value.replace("{host}", HOST_NAMES[harness])
         if gpu is not None:

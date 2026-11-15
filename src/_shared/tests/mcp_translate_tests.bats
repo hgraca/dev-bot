@@ -422,9 +422,13 @@ assert_json_eq() {
   assert_success
   assert_output --partial '"SIGNOZ_API_KEY": "{env:SIGNOZ_AUTH_TOKEN}"'
 
+  # Set the variable: a translator that resolves the reference would emit this
+  # value instead of the token, and the assertion must catch it.
+  export SIGNOZ_AUTH_TOKEN="devbot-test-secret-env"
   run python3 "$TOOL" "$WORK/env-indirect.json" claudecode
   assert_success
   assert_output --partial '"SIGNOZ_API_KEY": "${SIGNOZ_AUTH_TOKEN}"'
+  refute_output --partial "devbot-test-secret-env"
 }
 
 @test "enabled: false is emitted for opencode (wired, not started)" {
@@ -504,10 +508,12 @@ assert_json_eq() {
 
 @test "http headers map to claudecode with embedded \${VAR} (oauth/enabled dropped)" {
   # Claude Code expands ${VAR} inside headers — the token is never resolved to
-  # plaintext at registration.
+  # plaintext at registration. The variable is set so a resolver would leak it.
+  export SENTRY_ACCESS_TOKEN="devbot-test-secret-header"
   run python3 "$TOOL" "$WORK/http-headers.json" claudecode
   assert_success
   assert_json_eq "$output" '{"sentry": {"type": "http", "url": "https://mcp.sentry.dev/mcp", "headers": {"Authorization": "Sentry-Bearer ${SENTRY_ACCESS_TOKEN}"}}}'
+  refute_output --partial "devbot-test-secret-header"
 }
 
 @test "stdio entry with headers fails loudly (http-only)" {
