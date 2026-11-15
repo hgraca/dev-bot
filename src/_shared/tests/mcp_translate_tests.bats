@@ -408,6 +408,21 @@ assert_json_eq() {
   assert_output --partial "whole value"
 }
 
+@test "a ${VAR} in an env value fails loudly (canonical spelling is {env:VAR})" {
+  # Opencode keeps ${VAR} literal while Claude Code expands it, so the two
+  # harnesses would disagree about the same canonical manifest.
+  cat > "$WORK/env-shell-var.json" <<'JSON_EOF'
+{
+  "mcp": {
+    "bad": { "type": "stdio", "command": ["qmd", "mcp"], "env": { "KEY": "${API_KEY}" } }
+  }
+}
+JSON_EOF
+  run python3 "$TOOL" "$WORK/env-shell-var.json" opencode
+  assert_failure
+  assert_output --partial "spells env indirection"
+}
+
 @test "malformed {env:VAR} token fails loudly" {
   run python3 "$TOOL" "$WORK/env-malformed.json" opencode
   assert_failure

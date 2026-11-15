@@ -186,6 +186,15 @@ def _validate_entry(server: str, entry: Any) -> None:
                         f"server '{server}': env key '{key}' value '{value}' — "
                         f"{{env:VAR}} must be a well-formed whole value"
                     )
+            # Same rule as a header: ${VAR} is not the canonical spelling, so
+            # opencode would keep it literal while Claude Code expanded it.
+            if isinstance(value, str) and re.search(
+                r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", value
+            ):
+                raise ValueError(
+                    f"server '{server}': env key '{key}' uses ${{VAR}} — the "
+                    f"canonical manifest spells env indirection {{env:VAR}}"
+                )
     headers = entry.get("headers")
     # Presence, not non-null, is the contract: both emitters key off presence, so
     # a `null` would otherwise reach the harness config as `headers: null`.
