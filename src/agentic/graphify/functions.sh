@@ -331,3 +331,31 @@ _graphify_relink_skill() {
   _log "skills/devbot/graphify relinked"
   return 0
 }
+
+# _graphify_strip_section <file> [heading] — remove a "## <heading>" section
+# and the blank separator a removal leaves at EOF, so a reinit is byte-identical
+# (audit-32: AGENTS.md drifted between consecutive reinits). A no-op when the
+# file or the section is absent.
+_graphify_strip_section() {
+  local file="$1" heading="${2:-graphify}"
+  [[ -f "${file}" ]] || return 0
+  grep -q "^## ${heading}[[:space:]]*$" "${file}" || return 0
+  awk -v h="^## ${heading}[[:space:]]*$" '
+    $0 ~ h         { skip = 1; next }
+    skip && /^## / { skip = 0 }
+    !skip          { lines[++n] = $0 }
+    END {
+      while (n > 0 && lines[n] ~ /^[[:space:]]*$/) n--
+      for (i = 1; i <= n; i++) print lines[i]
+    }
+  ' "${file}" > "${file}.tmp" && mv "${file}.tmp" "${file}"
+}
+
+# _graphify_cli_skill_copy <dir> — true only for the unnamespaced copy the
+# graphify CLI installs (frontmatter `name: graphify`), never for a user's own
+# skill or for dev-bot's namespaced `devbot:graphify`.
+_graphify_cli_skill_copy() {
+  local dir="$1"
+  [[ -d "${dir}" && -f "${dir}/SKILL.md" ]] || return 1
+  grep -qE '^name:[[:space:]]*"?graphify"?[[:space:]]*$' "${dir}/SKILL.md"
+}

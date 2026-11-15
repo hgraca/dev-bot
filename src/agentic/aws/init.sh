@@ -38,7 +38,6 @@ PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd)"
 GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 PROJECT_CONFIG="${PROJECT_DIR}/.devbot.project.jsonc"
 READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
-REMOVE_KEY="${MODULE_DIR}/../../_shared/remove_mcp_key.py"
 
 PREFIX="aws-"
 LAUNCHER_NAME="aws-mcp-proxy.sh"
@@ -97,8 +96,8 @@ _aws_write_manifests() {
   local server="${PREFIX}${name}"
   local cmd="mkdir -p .agents/logs && exec bash {harness-dir}/${LAUNCHER_NAME} ${name} 2>>.agents/logs/${PREFIX}${name}-mcp.log"
   _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${server}" \
-    "$(jq -nc --arg c "${cmd}" \
-      "{($server): {type: \"stdio\", command: [\"bash\", \"-c\", \$c], wire_disabled: true}}")"
+    "$(jq -nc --arg s "${server}" --arg c "${cmd}" \
+      '{($s): {type: "stdio", command: ["bash", "-c", $c], wire_disabled: true}}')"
 }
 
 # ── module memory ─────────────────────────────────────────────────────────────
@@ -135,19 +134,10 @@ _write_memory() {
 main() {
   _header_3 "AWS init — $(basename "${PROJECT_DIR}")"
 
-  # The manifests reference the launcher inside each harness dir, so wire it
-  # first (agentic init runs before the harness inits, so the dirs are created
-  # here rather than assumed to exist).
   # The harness links this module's declared MCP assets (mcp.json "assets").
-  # The harness links this module's declared MCP assets (mcp.json "assets").
-  local selected declared name wired=0 mcp_available=0
+  local selected declared name wired=0
   selected="$(_aws_selected)"
   declared="$(_aws_declared)"
-
-  # The memory file says the MCP servers are the way in, so it may only be
-  # written when a harness can start them. Which harness that is belongs to the
-  # harness — retracting the manifest is a module-level decision only.
-  mcp_available=1
 
   for name in ${selected}; do
     if ! _aws_valid_name "${name}"; then
@@ -194,7 +184,7 @@ main() {
   if _aws_module_disabled; then
     _devbot_remove_module_memory "${PROJECT_DIR}" "aws.md"
     _skip "aws — module disabled for this project; aws.md not written"
-  elif [[ "${wired}" -eq 1 && "${mcp_available}" -eq 1 ]]; then
+  elif [[ "${wired}" -eq 1 ]]; then
     if _write_memory; then
       _log "Wrote aws.md → $(_devbot_get_project_dir "${PROJECT_DIR}")/memory/active/modules/aws.md"
     fi

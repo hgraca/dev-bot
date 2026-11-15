@@ -10,8 +10,8 @@
 # Declarations are fine and expected: plugin.opencode.json, the {harness-dir}
 # and {host} tokens in mcp.json, harness-assets.json, mcp.dynamic.json.
 #
-# The allowlist below is the remaining debt, emptied as each phase lands. An
-# entry must shrink the list, never grow it — a new violation fails CI.
+# There is no allowlist: the debt that used to live here is gone, and a new
+# violation fails CI.
 # =============================================================================
 
 setup() {
@@ -19,19 +19,6 @@ setup() {
   bats_load_library bats-assert
 
   REPO="$(cd "$(dirname "${BATS_TEST_FILENAME}")/../../.." && pwd)"
-
-  # Remaining harness-aware module code (see the backlog: move-harness-logic).
-  ALLOWED=(
-    "src/agentic/graphify/init.sh"
-  )
-}
-
-_is_allowed() {
-  local rel="$1" entry
-  for entry in "${ALLOWED[@]}"; do
-    [[ "${rel}" == "${entry}" ]] && return 0
-  done
-  return 1
 }
 
 _reports() {
@@ -44,11 +31,10 @@ _reports() {
   return 1
 }
 
-@test "no module init names a harness, outside the known debt" {
+@test "no module init names a harness" {
   local offenders="" file rel
   while IFS= read -r file; do
     rel="${file#"${REPO}/"}"
-    _is_allowed "${rel}" && continue
     _reports "${file}" && offenders+="${rel}"$'\n'
   done < <(find "${REPO}/src/agentic" "${REPO}/src/tools" -name 'init.sh' 2>/dev/null)
 
@@ -56,18 +42,6 @@ _reports() {
     printf 'harness-aware logic in module init:\n%s' "${offenders}" >&2
   fi
   assert [ -z "${offenders}" ]
-}
-
-@test "every allowlisted entry still exists and still reports" {
-  local entry stale=""
-  for entry in "${ALLOWED[@]}"; do
-    [[ -f "${REPO}/${entry}" ]] || { stale+="${entry} (missing)"$'\n'; continue; }
-    _reports "${REPO}/${entry}" || stale+="${entry} (clean now — remove it from the allowlist)"$'\n'
-  done
-  if [[ -n "${stale}" ]]; then
-    printf 'allowlist needs updating:\n%s' "${stale}" >&2
-  fi
-  assert [ -z "${stale}" ]
 }
 
 @test "declarative harness manifests are allowed" {

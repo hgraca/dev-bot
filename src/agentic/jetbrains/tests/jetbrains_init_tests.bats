@@ -24,6 +24,12 @@ setup() {
   PROJECT="$(mktemp -d)"
   printf '{\n  "harness": "opencode"\n}\n' > "${PROJECT}/.devbot.project.jsonc"
 
+  # The apply step honours the disabled set, so the machine's own global config
+  # must not leak in (it may disable this module).
+  DEV_BOT_ROOT="$(mktemp -d)"
+  printf '{}\n' > "${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  export DEV_BOT_ROOT
+
   # Shim pgrep so IDE auto-detection always fails and init.sh probes
   # JETBRAINS_PORT (our fake endpoint) instead of a real IDE.
   SHIM_DIR="$(mktemp -d)"
@@ -72,7 +78,7 @@ PY
 teardown() {
   kill "${SERVER_PID}" 2>/dev/null || true
   wait "${SERVER_PID}" 2>/dev/null || true
-  rm -rf "${PROJECT}" "${SHIM_DIR}"
+  rm -rf "${PROJECT}" "${SHIM_DIR}" "${DEV_BOT_ROOT}"
 }
 
 _await_endpoint() {
@@ -148,15 +154,14 @@ with open(sys.argv[1]) as fh:
     bash "${INIT_TOOL}" "${PROJECT}"
   assert_success
 
-  run grep -qF '"enabled":false' "${PROJECT}/.opencode/jetbrains.mcp.json"
-  assert_success
+  run jq -r '."jetbrains".enabled' "${PROJECT}/.opencode/jetbrains.mcp.json"
+  assert_output "false"
   [ ! -e "${PROJECT}/.claude/jetbrains.mcp.json" ]
 }
 
-@test "jetbrains init: the claude manifest ships enabled" {
-  # .mcp.json has no per-server on/off (and _wire_mcp reads `enabled` as a
-  # wire/don't-wire gate), so the claude manifest keeps true or the server
-  # would vanish from that harness.
+@test "jetbrains init: the claude manifest stays wired" {
+  # .mcp.json has no per-server on/off, so `wire_disabled` is not translated:
+  # the server is wired, and carries no key the client would reject.
   printf '{\n  "harness": "claudecode"\n}\n' \
     > "${PROJECT}/.devbot.project.jsonc"
 
@@ -164,7 +169,9 @@ with open(sys.argv[1]) as fh:
     bash "${INIT_TOOL}" "${PROJECT}"
   assert_success
 
-  run grep -qF '"enabled": true' "${PROJECT}/.claude/jetbrains.mcp.json"
-  assert_success
+  run jq -r '.mcpServers.jetbrains | has("enabled")' "${PROJECT}/.claude/jetbrains.mcp.json"
+  assert_output "false"
+  run jq -r '.mcpServers.jetbrains.type' "${PROJECT}/.claude/jetbrains.mcp.json"
+  assert_output "http"
   [ ! -e "${PROJECT}/.opencode/jetbrains.mcp.json" ]
 }

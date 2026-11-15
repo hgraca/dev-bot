@@ -129,9 +129,7 @@ the selected harness should expose, and the harness links them during `devbot in
 // src/agentic/<name>/harness-assets.json
 {
   "mcp": [{ "name": "my-mcp-serve.sh", "path": "server/start-mcp.sh" }],
-  "skills": [
-    { "name": "my-module", "path": "{devbot-root}/storage/my-module/skills" },
-  ],
+  "skills": [{ "name": "my-module", "path": "{devbot-root}/storage/my-module/skills" }],
 }
 ```
 
@@ -327,4 +325,3 @@ mapping, so adding a harness is a change in `src/_shared/functions.sh` plus
 `src/_shared/tests/harness-agnostic-modules_tests.bats` enforces this: it fails
 when a module init names a harness, reads `_devbot_get_harness`, or takes a path
 into `.opencode/` or `.claude/`.
-

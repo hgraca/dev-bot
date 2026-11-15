@@ -761,19 +761,21 @@ SH
   [ ! -e "${PROJECT_DIR}/.claude/datasources-mariadb-dev.mcp.json" ]
 }
 
-@test "init: the claude manifest ships enabled" {
-  # .mcp.json has no per-server on/off, and _wire_mcp reads `enabled` as a
-  # wire/don't-wire gate, so the claude manifest must stay true or the server
-  # would silently disappear from that harness.
+@test "init: the claude manifest stays wired" {
+  # .mcp.json has no per-server on/off, so `wire_disabled` is not translated:
+  # the server is wired, without a key the client would reject.
   _catalogue '{}'
   _project_config '["mariadb-dev"]' '' 'claudecode'
 
   run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
   assert_success
 
-  run cat "${PROJECT_DIR}/.claude/datasources-mariadb-dev.mcp.json"
-  assert_success
-  assert_output --partial '"enabled": true'
+  run jq -r '.mcpServers."datasources-mariadb-dev" | has("enabled")' \
+    "${PROJECT_DIR}/.claude/datasources-mariadb-dev.mcp.json"
+  assert_output "false"
+  run jq -r '.mcpServers."datasources-mariadb-dev".url' \
+    "${PROJECT_DIR}/.claude/datasources-mariadb-dev.mcp.json"
+  assert_output "http://127.0.0.1:18510/mcp/mariadb-dev"
   [ ! -e "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json" ]
 }
 
@@ -846,7 +848,7 @@ SH
   run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
   assert_success
   assert_output --partial "none selected"
-  assert_output --partial "pruned mariadb-dev"
+  assert_output --partial "retired datasources-mariadb-dev"
 
   [ ! -e "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json" ]
 }
@@ -856,6 +858,10 @@ SH
   # left a live server for a datasource the project had dropped.
   _catalogue '{}'
   _project_config '["mariadb-dev"]'
+  # An earlier init is what records the group as dev-bot-owned; only then may
+  # the key be removed on the way out.
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
+  assert_success
 
   cat > "${PROJECT_DIR}/opencode.jsonc" <<'JSON'
 {
@@ -1736,15 +1742,15 @@ PY
   kill "${sleeper}" 2>/dev/null || true
 }
 
-@test "reload: reports a harness manifest that points at a stale endpoint" {
-  # A re-render can move a sidecar port, and the harness caches the URL it read
-  # at init. Saying "complete" while the toggle would still hit the old port is
-  # the same silent failure this command exists to remove.
+@test "reload: reports a published manifest that points at a stale endpoint" {
+  # A re-render can move a sidecar port, and init published the old URL for the
+  # harness to copy. A reload cannot rewrite what was already published, so it
+  # must not claim success while the toggle would still hit the old port.
   _sqlite_catalogue
   _project_config '["scratch"]'
-  mkdir -p "${PROJECT_DIR}/.opencode"
-  printf '{"datasources-scratch": {"type": "remote", "url": "http://127.0.0.1:1/mcp/scratch", "enabled": false}}\n' \
-    > "${PROJECT_DIR}/.opencode/datasources-scratch.mcp.json"
+  mkdir -p "${PROJECT_DIR}/.agents/mcp-runtime"
+  printf '{"mcp": {"datasources-scratch": {"type": "http", "url": "http://127.0.0.1:1/mcp/scratch", "wire_disabled": true}}}\n' \
+    > "${PROJECT_DIR}/.agents/mcp-runtime/datasources-scratch.json"
   _docker_with_running_gateway
   _record_curl
 
@@ -1755,46 +1761,12 @@ PY
   assert_output --partial "devbot reinit"
 }
 
-@test "reload: reports a stale Claude manifest too" {
-  # claudecode's manifest nests the server under mcpServers; a Claude-only
-  # project must not be reported clean while it points at the old endpoint.
-  _sqlite_catalogue
-  _project_config '["scratch"]' '' 'claudecode'
-  mkdir -p "${PROJECT_DIR}/.claude"
-  printf '{"mcpServers": {"datasources-scratch": {"type": "http", "url": "http://127.0.0.1:1/mcp/scratch", "enabled": true}}}\n' \
-    > "${PROJECT_DIR}/.claude/datasources-scratch.mcp.json"
-  _docker_with_running_gateway
-  _record_curl
-
-  run env DATASOURCES_PORT=18510 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
-    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
-  assert_failure
-  assert_output --partial "harness manifests are stale"
-}
-
-@test "reload: a stale manifest of the unselected harness is not reported" {
-  # init neither writes nor prunes the unselected harness's manifests, so a
-  # leftover from when it was selected must not fail every reload.
-  _sqlite_catalogue
-  _project_config '["scratch"]' '{}' 'opencode'
-  mkdir -p "${PROJECT_DIR}/.claude"
-  printf '{"mcpServers": {"datasources-scratch": {"type": "http", "url": "http://127.0.0.1:1/mcp/scratch", "enabled": true}}}\n' \
-    > "${PROJECT_DIR}/.claude/datasources-scratch.mcp.json"
-  _docker_with_running_gateway
-  _record_curl
-
-  run env DATASOURCES_PORT=18510 DATASOURCES_RELOAD_WAIT=0 DATASOURCES_RELOAD_PROBE_TRIES=1 \
-    bash "${MODULE_DIR}/reload.sh" "${PROJECT_DIR}"
-  assert_success
-  refute_output --partial "manifests are stale"
-}
-
-@test "reload: a manifest that matches the rendered endpoint is not stale" {
+@test "reload: a published manifest that matches the rendered endpoint is not stale" {
   _sqlite_catalogue
   _project_config '["scratch"]'
-  mkdir -p "${PROJECT_DIR}/.opencode"
-  printf '{"datasources-scratch": {"type": "remote", "url": "http://127.0.0.1:18510/mcp/scratch", "enabled": false}}\n' \
-    > "${PROJECT_DIR}/.opencode/datasources-scratch.mcp.json"
+  mkdir -p "${PROJECT_DIR}/.agents/mcp-runtime"
+  printf '{"mcp": {"datasources-scratch": {"type": "http", "url": "http://127.0.0.1:18510/mcp/scratch", "wire_disabled": true}}}\n' \
+    > "${PROJECT_DIR}/.agents/mcp-runtime/datasources-scratch.json"
   _docker_with_running_gateway
   _record_curl
 

@@ -128,7 +128,8 @@ print(paths.get(sys.argv[2], ""))
         [[ -d "${type_src}" ]] || continue
 
         for proj in "${project_dirs[@]}"; do
-            local target_dir="${proj}/$(_devbot_harness_dir "${proj}")/${type}"
+            local target_dir
+            target_dir="${proj}/$(_devbot_harness_dir "${proj}")/${type}"
             local link_path="${target_dir}/${name}"
             mkdir -p "${target_dir}"
             if [[ -L "${link_path}" ]]; then
@@ -175,33 +176,34 @@ _unwire_module() {
       fi
     done
 
-    # Flattened .claude/skills entries (claudecode harness): the harness
-    # flatten links an external module's SKILL.md into
-    # .claude/skills/<frontmatter-name>/ as a symlink into the module's
-    # storage mirror. The mirror is removed by cmd_remove, which would leave
-    # this symlink dangling (audit-31 §9) — remove it here while the mirror
-    # still exists so we can identify entries by their symlink target.
+    # Flattened skills entries: a harness flatten links an external module's
+    # SKILL.md into <harness-dir>/skills/<name>/ as a symlink into the module's
+    # storage mirror. cmd_remove deletes the mirror, which would leave this
+    # symlink dangling (audit-31 §9) — remove it here while the mirror still
+    # exists so entries can be identified by their symlink target. Every
+    # harness tree, since a previous selection may have left one behind.
     local mirror="${DEV_BOT_ROOT}/storage/external-agentic-modules/${name}"
-    if [[ -d "${proj}/$(_devbot_harness_dir "${proj}")/skills" && -d "${mirror}" ]]; then
-      local skill_dir
+    [[ -d "${mirror}" ]] || continue
+    local hd skills_root skill_dir link target abs_target
+    for hd in $(_devbot_harness_dirs); do
+      skills_root="${proj}/${hd}/skills"
+      [[ -d "${skills_root}" ]] || continue
       while IFS= read -r -d '' skill_dir; do
-        local link="${skill_dir}/SKILL.md"
-        if [[ -L "${link}" ]]; then
-          local target
-          target="$(readlink "${link}" 2>/dev/null || true)"
-          local abs_target="${target}"
-          if [[ -n "${target}" && "${target}" != /* ]]; then
-            abs_target="$(cd "$(dirname "${link}")" 2>/dev/null \
-              && cd "$(dirname "${target}")" 2>/dev/null \
-              && pwd 2>/dev/null || true)/$(basename "${target}")"
-          fi
-          if [[ "${abs_target}" == "${mirror}/"* ]]; then
-            rm -rf "${skill_dir}"
-            _log "Removed $(basename "$(_devbot_harness_dir "${proj}")")/skills/$(basename "${skill_dir}") (flattened entry for ${name})"
-          fi
+        link="${skill_dir}/SKILL.md"
+        [[ -L "${link}" ]] || continue
+        target="$(readlink "${link}" 2>/dev/null || true)"
+        abs_target="${target}"
+        if [[ -n "${target}" && "${target}" != /* ]]; then
+          abs_target="$(cd "$(dirname "${link}")" 2>/dev/null \
+            && cd "$(dirname "${target}")" 2>/dev/null \
+            && pwd 2>/dev/null || true)/$(basename "${target}")"
         fi
-      done < <(find "${proj}/$(_devbot_harness_dir "${proj}")/skills" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
-    fi
+        if [[ "${abs_target}" == "${mirror}/"* ]]; then
+          rm -r -f "${skill_dir}"
+          _log "Removed ${hd}/skills/$(basename "${skill_dir}") (flattened entry for ${name})"
+        fi
+      done < <(find "${skills_root}" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null)
+    done
   done
 }
 
@@ -322,7 +324,8 @@ for k, v in paths.items():
 
             local type_src="${src_dir}/${rel_path}"
             for proj in "${projects[@]}"; do
-                local target_dir="${proj}/$(_devbot_harness_dir "${proj}")/${type}"
+                local target_dir
+                target_dir="${proj}/$(_devbot_harness_dir "${proj}")/${type}"
                 local link_path="${target_dir}/${name}"
 
                 mkdir -p "${target_dir}"

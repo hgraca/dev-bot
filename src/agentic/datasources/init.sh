@@ -38,11 +38,6 @@ PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd)"
 # Shared helpers live beside this module, never under DEV_BOT_ROOT — which is
 # overridden to a sandbox root in tests (see _devbot_get_disabled_modules).
 READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
-REMOVE_KEY="${MODULE_DIR}/../../_shared/remove_mcp_key.py"
-
-# Server names and manifest files are prefixed, so a datasource can never
-# collide with a module-declared MCP server of the same name.
-PREFIX="datasources-"
 
 # The MCP client timeout (milliseconds) a manifest carries when its datasource
 # does not set `mcp_timeout_ms`. opencode applies it to connecting, fetching
@@ -114,8 +109,8 @@ _datasources_write_manifests() {
   server="${PREFIX}${name}"
   timeout="$(_datasources_mcp_timeout "${name}")"
   _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${server}" \
-    "$(jq -nc --arg u "${url}" --argjson t "${timeout}" \
-      "{($server): {type: \"http\", url: \$u, wire_disabled: true, timeout: \$t}}")"
+    "$(jq -nc --arg s "${server}" --arg u "${url}" --argjson t "${timeout}" \
+      '{($s): {type: "http", url: $u, wire_disabled: true, timeout: $t}}')"
 }
 
 # ── main ──────────────────────────────────────────────────────────────────────

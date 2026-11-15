@@ -204,12 +204,12 @@ _write_project_cfg() {
   refute_output --partial '"opencode"'
 }
 
-@test "_devbot_get_disabled_modules output is exactly the engine pair plus the harness" {
+@test "_devbot_get_disabled_modules output is exactly the engine pair plus every other harness" {
   _write_project_cfg '{ "harness": "claudecode", "modules": { "react": false } }'
 
   run _devbot_get_disabled_modules "${PROJECT_DIR}"
   assert_success
-  assert_output '["codebase-index", "opencode", "qmd", "react"]'
+  assert_output '["codebase-index", "opencode", "opencode-v2", "qmd", "react"]'
 }
 
 @test "_devbot_get_disabled_modules disables the unselected harness without src/harnesses" {

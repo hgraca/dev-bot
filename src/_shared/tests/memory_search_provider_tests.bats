@@ -48,7 +48,7 @@ teardown() {
 # assert the engine pairs only.
 _engine_disabled_set() {
   _devbot_get_disabled_modules "${PROJECT_DIR}" |
-    python3 -c 'import json, sys; print(json.dumps([m for m in json.load(sys.stdin) if m not in ("opencode", "claudecode")]))'
+    python3 -c 'import json, sys; print(json.dumps([m for m in json.load(sys.stdin) if m not in ("opencode", "opencode-v2", "claudecode")]))'
 }
 
 # Write a global config into the sandbox (JSON body passed as $1).

@@ -377,7 +377,11 @@ print('OK')
 }
 
 @test "init.sh: removes a deselected connection's key from opencode.jsonc" {
+  # The harness merges dynamic manifests into opencode.jsonc append-only, so a
+  # retired group has to take its key with it. Retirement belongs to the apply
+  # helper and only touches groups an earlier init recorded as dev-bot-owned.
   _aws_seed_project
+  env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj" >/dev/null
   cat > "$TMP/proj/opencode.jsonc" <<'EOF'
 {
   "mcp": {

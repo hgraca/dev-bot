@@ -59,20 +59,6 @@ fi
 
 PROJECT_NAME="$(basename "${PROJECT_DIR}")"
 
-# ── Check if harnesses are disabled ──────────────────────────────────────────
-_IS_CLAUDE_DISABLED="false"
-_IS_OPENCODE_DISABLED="false"
-_disabled_modules_raw="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null || echo '[]')"
-if echo "${_disabled_modules_raw}" | jq -e 'index("claudecode") != null' >/dev/null 2>&1; then
-  _IS_CLAUDE_DISABLED="true"
-fi
-if echo "${_disabled_modules_raw}" | jq -e 'index("opencode") != null' >/dev/null 2>&1; then
-  _IS_OPENCODE_DISABLED="true"
-fi
-
-# ── Symlink MCP wrapper ──────────────────────────────────────────────────────
-  # The harness links this module's declared MCP assets (mcp.json "assets").
-  # The harness links this module's declared MCP assets (mcp.json "assets").
 # ── Version-matched skill ─────────────────────────────────────────────────────
 # Ensure the skill matches the installed graphify version before wiring. This
 # covers a graphify upgrade done OUTSIDE the dev-bot lifecycle (a bare
@@ -87,93 +73,75 @@ _graphify_relink_skill "${PROJECT_DIR}"
 # ── Install tools ────────────────────────────────────────────────────────────
 cd "${PROJECT_DIR}"
 
-if command -v graphify >/dev/null 2>&1; then
-  if [[ "${_IS_OPENCODE_DISABLED}" != "true" ]]; then
-    _step "Installing graphify OpenCode tools..."
-    if graphify install --platform opencode --project 2>&1; then
-      _log "graphify OpenCode tools installed"
-      # The module's SKILL.md is already delegated to .agents/skills/devbot/graphify
-      # (opencode auto-discovers .agents/skills); the CLI's own copy under
-      # .opencode/skills/graphify is a duplicate that opencode logs a WARN for.
-      rm -rf "${PROJECT_DIR}/.opencode/skills/graphify" 2>/dev/null || true
-    else
-      _warn "graphify install failed — continuing without OpenCode tools"
-    fi
-  else
-    _skip "OpenCode disabled — skipping graphify OpenCode tools"
-  fi
+# The client-side installer is the module's one harness-shaped dependency, so
+# it runs for the selected client only — asked for by role, never by name.
+_harness_dir="$(_devbot_harness_dir "${PROJECT_DIR}")"
+_harness_platform="$(_devbot_harness_platform "${PROJECT_DIR}")"
 
-  if [[ "${_IS_CLAUDE_DISABLED}" != "true" ]]; then
-    _step "Installing graphify Claude Code tools..."
-    if graphify install --platform claude --project 2>&1; then
-      _log "graphify Claude Code tools installed"
-      # The CLI installs its own skill copy under .claude/skills/graphify with
-      # an UNNAMESPACED frontmatter name ("name: graphify") — the same skill
-      # dev-bot ships namespaced as devbot:graphify (audit-31 §3). The
-      # claudecode harness flatten flattens dev-bot's copy to
-      # .claude/skills/devbot:graphify; leaving the CLI's stale unnamespaced
-      # copy behind makes BOTH register, and every reinit re-migrates the old
-      # one as a "user skill" (graphify.bkp churn). Mirror the opencode branch:
-      # remove the CLI's project-scope skill copy — dev-bot's own namespaced
-      # skill is the canonical one.
-      rm -rf "${PROJECT_DIR}/.claude/skills/graphify" 2>/dev/null || true
-      # audit-55 FAIL: graphify install --platform claude --project also writes
-      # a "## graphify" fragment into .claude/CLAUDE.md pointing at the
-      # project-relative .claude/skills/graphify/SKILL.md we just removed —
-      # leaving a dangling reference (mirror of the AGENTS.md handling below).
-      # Also drop the settings.json.graphify-bak the CLI's hook-guard installer
-      # leaves behind (byte-identical backup of .claude/settings.json).
-      CLAUDE_MD="${PROJECT_DIR}/.claude/CLAUDE.md"
-      if [[ -f "${CLAUDE_MD}" ]] && grep -q '^## graphify[[:space:]]*$' "${CLAUDE_MD}"; then
-        awk '
-          /^## graphify[[:space:]]*$/   { skip = 1; next }
-          skip && /^## /                { skip = 0 }
-          !skip
-        ' "${CLAUDE_MD}" > "${CLAUDE_MD}.tmp" && mv "${CLAUDE_MD}.tmp" "${CLAUDE_MD}"
-        _log "Removed graphify section from .claude/CLAUDE.md"
-      fi
-      rm -f "${PROJECT_DIR}/.claude/settings.json.graphify-bak" 2>/dev/null || true
-    else
-      _warn "graphify install (claude) failed — continuing without Claude Code tools"
-    fi
-  else
-    _skip "Claude Code disabled — skipping graphify Claude Code tools"
-  fi
+_step "Installing graphify ${_harness_platform} tools..."
+if graphify install --platform "${_harness_platform}" --project 2>&1; then
+  _log "graphify ${_harness_platform} tools installed"
+else
+  _warn "graphify install (${_harness_platform}) failed — continuing without its tools"
 fi
+
+# ── Drop what the CLI leaves behind ─────────────────────────────────────────
+# Every harness tree, not only the selected one: a selection change must not
+# leave a dangling skill reference or a duplicate registration behind. Each
+# step is a no-op when the file is absent.
+read -r -a _harness_dirs <<< "$(_devbot_harness_dirs)"
+for harness_dir in "${_harness_dirs[@]}"; do
+  case "${harness_dir}" in
+    "${_harness_dir}") ;;
+    *) [[ -d "${PROJECT_DIR}/${harness_dir}" ]] || continue ;;
+  esac
+
+  # The module's SKILL.md is already delegated into the skills farm, so the
+  # CLI's own copy is a duplicate: one client logs a WARN per duplicate, the
+  # other registers the unnamespaced copy beside devbot:graphify. Only that
+  # copy goes — a skill a user put at the same path is not ours to delete.
+  skill_copy="${PROJECT_DIR}/${harness_dir}/skills/graphify"
+  if _graphify_cli_skill_copy "${skill_copy}"; then
+    rm -r -f "${skill_copy}"
+  fi
+  # The CLI writes a "## graphify" fragment pointing at the copy removed above.
+  _graphify_strip_section "${PROJECT_DIR}/${harness_dir}/CLAUDE.md"
+  # Byte-identical settings backup left by the CLI's hook-guard installer.
+  rm -f "${PROJECT_DIR}/${harness_dir}/settings.json.graphify-bak" 2>/dev/null || true
+done
 
 # ── Remove graphify plugin (auto-discovered, avoids double-load) ────────────
-if [[ "${_IS_OPENCODE_DISABLED}" != "true" ]]; then
-  PLUGIN_FILE="${PROJECT_DIR}/.opencode/plugins/graphify.js"
+# A plugin file left in a client directory loads twice: once from the file and
+# once from auto-discovery. Both trees are swept, as above.
+for harness_dir in "${_harness_dirs[@]}"; do
+  PLUGIN_FILE="${PROJECT_DIR}/${harness_dir}/plugins/graphify.js"
   if [[ -f "${PLUGIN_FILE}" ]]; then
     rm -f "${PLUGIN_FILE}"
-    _log "Removed graphify.js plugin (auto-discovered by opencode, explicit file not needed)"
+    _log "Removed ${harness_dir}/plugins/graphify.js (auto-discovered, explicit file not needed)"
   fi
 
-  OPCODE_CONFIG="${PROJECT_DIR}/.opencode/opencode.json"
-  if [[ -f "${OPCODE_CONFIG}" ]]; then
-    if command -v jq >/dev/null 2>&1; then
-      if jq --arg plugin ".opencode/plugins/graphify.js" \
-        'if .plugin then .plugin |= map(select(. != $plugin)) else . end' \
-        "${OPCODE_CONFIG}" > "${OPCODE_CONFIG}.tmp" 2>/dev/null; then
-        if cmp -s "${OPCODE_CONFIG}" "${OPCODE_CONFIG}.tmp"; then
-          # Already clean (no graphify plugin entry) — skip the mv so reinit
-          # does not churn the file's mtime on byte-identical content
-          # (audit-37 §4 NOTE: .opencode/opencode.json stub rewritten every
-          # reinit with identical bytes).
-          rm -f "${OPCODE_CONFIG}.tmp"
-        else
-          mv "${OPCODE_CONFIG}.tmp" "${OPCODE_CONFIG}"
-          _log "Removed graphify plugin from .opencode/opencode.json, to prevent double loading (its automatically discovered and registered)"
-        fi
-      else
-        rm -f "${OPCODE_CONFIG}.tmp"
-        _warn "Failed to process .opencode/opencode.json — skipping cleanup"
-      fi
-    else
-      _warn "jq not found — skipping legacy plugin cleanup in .opencode/opencode.json"
-    fi
+  CLIENT_CONFIG="${PROJECT_DIR}/${harness_dir}/opencode.json"
+  [[ -f "${CLIENT_CONFIG}" ]] || continue
+  if ! command -v jq >/dev/null 2>&1; then
+    _warn "jq not found — skipping legacy plugin cleanup in ${harness_dir}/opencode.json"
+    continue
   fi
-fi
+  if jq --arg plugin "${harness_dir}/plugins/graphify.js" \
+    'if .plugin then .plugin |= map(select(. != $plugin)) else . end' \
+    "${CLIENT_CONFIG}" > "${CLIENT_CONFIG}.tmp" 2>/dev/null; then
+    if cmp -s "${CLIENT_CONFIG}" "${CLIENT_CONFIG}.tmp"; then
+      # Already clean — skip the mv so reinit does not churn the mtime on
+      # byte-identical content (audit-37 §4).
+      rm -f "${CLIENT_CONFIG}.tmp"
+    else
+      mv "${CLIENT_CONFIG}.tmp" "${CLIENT_CONFIG}"
+      _log "Removed graphify plugin from ${harness_dir}/opencode.json (avoids double loading)"
+    fi
+  else
+    rm -f "${CLIENT_CONFIG}.tmp"
+    _warn "Failed to process ${harness_dir}/opencode.json — skipping cleanup"
+  fi
+done
 
 # Remove the graphify section from AGENTS.md if present (graphify install writes
 # it, but the always-on context now lives in the memory vault). Also drop
@@ -182,15 +150,8 @@ fi
 # making reinit not byte-idempotent (audit-32 NOTE: AGENTS.md drifted between
 # consecutive reinits).
 AGENTS_MD="${PROJECT_DIR}/AGENTS.md"
-if [[ -f "${AGENTS_MD}" ]] && grep -q '^## graphify[[:space:]]*$' "${AGENTS_MD}"; then
-  awk '
-    /^## graphify[[:space:]]*$/   { skip = 1; next }
-    skip && /^## /                { skip = 0 }
-    !skip
-  ' "${AGENTS_MD}" > "${AGENTS_MD}.tmp" && mv "${AGENTS_MD}.tmp" "${AGENTS_MD}"
-  # Strip trailing blank lines (the separator left where the section was).
-  awk 'NF { seen = NR } { lines[NR] = $0 } END { for (i = 1; i <= seen; i++) print lines[i] }' \
-    "${AGENTS_MD}" > "${AGENTS_MD}.tmp" && mv "${AGENTS_MD}.tmp" "${AGENTS_MD}"
+if grep -q '^## graphify[[:space:]]*$' "${AGENTS_MD}" 2>/dev/null; then
+  _graphify_strip_section "${AGENTS_MD}"
   _log "Removed graphify section from AGENTS.md"
 fi
 

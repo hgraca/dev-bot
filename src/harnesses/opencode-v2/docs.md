@@ -1,3 +1,8 @@
+---
+title: "OpenCode v2"
+description: "The OpenCode 2.x harness — plugin and config shapes, the v1 session-store migration, and the TUI surfaces ported alongside them."
+---
+
 # opencode-v2
 
 Harness adapter for the **OpenCode 2.x** line. Selected with the root scalar:
@@ -89,14 +94,14 @@ Both harnesses read the **same** `opencode.jsonc`, so a project that once ran
 the v1 adapter already has a v1 document. `init.sh` converts it once, through
 `lib/migrate_v1.py`, and leaves `opencode.jsonc.pre-v2.bak` beside it:
 
-| v1 | v2 |
-| --- | --- |
-| `plugin` (strings and `[name, options]` tuples) | `plugins` (strings, or `{package, options}`) |
-| `permission` (object per tool) | `permissions` (ordered rules, last match wins) |
-| `agent` (`prompt`, `disable`, `variant`) | `agents` (`system`, `disabled`, `model#variant`) |
-| `provider` (`npm`, `options`) | `providers` (`package`, `settings`) |
-| `mcp.<name>` with `enabled` | `mcp.servers.<name>` with `disabled` (inverted) |
-| `lsp` | dropped — v2 runs no language servers |
+| v1                                              | v2                                               |
+| ----------------------------------------------- | ------------------------------------------------ |
+| `plugin` (strings and `[name, options]` tuples) | `plugins` (strings, or `{package, options}`)     |
+| `permission` (object per tool)                  | `permissions` (ordered rules, last match wins)   |
+| `agent` (`prompt`, `disable`, `variant`)        | `agents` (`system`, `disabled`, `model#variant`) |
+| `provider` (`npm`, `options`)                   | `providers` (`package`, `settings`)              |
+| `mcp.<name>` with `enabled`                     | `mcp.servers.<name>` with `disabled` (inverted)  |
+| `lsp`                                           | dropped — v2 runs no language servers            |
 
 Permission keys with no v2 action are dropped rather than mistranslated:
 `list`, `todowrite`, `todoread`, `codesearch`, `doom_loop`, `lsp`.
@@ -136,10 +141,10 @@ V2 keeps TUI plugins, but as a **part of a plugin package**:
 
 Ported, as `tui/<name>/{server.ts,tui.ts}` linked into `.opencode/plugins/<name>/`:
 
-| Plugin | Behaviour |
-| --- | --- |
-| `tui-defaults` | seeds the tool-details kv default at TUI startup |
-| `provider-ttft` | shows time-to-first-token in the sidebar |
+| Plugin          | Behaviour                                        |
+| --------------- | ------------------------------------------------ |
+| `tui-defaults`  | seeds the tool-details kv default at TUI startup |
+| `provider-ttft` | shows time-to-first-token in the sidebar         |
 
 Both carry a trivial server part, because a TUI-only package would have to be
 registered globally in `cli.json`.
@@ -158,12 +163,12 @@ which cannot be exercised from here — their rendering is unverified.
 parallel — 1.x writes `session`/`message`/`part`, 2.x reads
 `session_v2`/`session_message` — so a host switch otherwise shows an empty list.
 
-| Flag | Effect |
-| --- | --- |
-| (none) | drop migrated 1.x rows, re-copy them |
-| `--only-pinned` | touch only the pinned sessions |
-| `--purge` | wipe the whole 2.x store first (always total) |
-| `--backup` | copy `opencode.db` **and `-wal`/`-shm`** aside |
+| Flag            | Effect                                         |
+| --------------- | ---------------------------------------------- |
+| (none)          | drop migrated 1.x rows, re-copy them           |
+| `--only-pinned` | touch only the pinned sessions                 |
+| `--purge`       | wipe the whole 2.x store first (always total)  |
+| `--backup`      | copy `opencode.db` **and `-wal`/`-shm`** aside |
 
 Pinned sessions live outside the database, in
 `~/.local/state/opencode/session.json` (`{"pinned": [...]}`) — that is the file

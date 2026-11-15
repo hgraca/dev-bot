@@ -172,11 +172,7 @@ If the container is not running the server is simply unavailable; there is no st
   "mcp": {
     "qmd": {
       "type": "stdio",
-      "command": [
-        "bash",
-        "-c",
-        "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"
-      ],
+      "command": ["bash", "-c", "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"],
       "env": {
         "QMD_LLAMA_GPU": "__GPU_ENABLED__",
         "QMD_EXPAND_CONTEXT_SIZE": "512"
@@ -266,8 +262,7 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 ## Special cases
 
 - **codebase-index — plugin-provided on opencode.** opencode integrates it via `plugin.opencode.json` (the plugin spawns the server), so the opencode registration adapter skips modules that declare a plugin manifest — registering the server as an MCP too would double-load it. Its canonical `mcp.json` (using `{harness-dir}` + `--host {host}`) serves claudecode.
-- **Dynamic runtime manifests** (`.opencode/*.mcp.json`, `.claude/*.mcp.json` written by module inits for values only known at runtime, e.g. jetbrains' IDE port) stay harness-native. A dynamic emitter declares the server-key prefixes it owns in **`mcp.dynamic.json`** (`{"prefixes": ["aws"]}`); opencode reset prunes `<prefix>` / `<prefix>-<detail>` keys for a disabled module that ships that declaration, so a manifest deleted out of band does not leave its server live. A module without the declaration is never swept by name — absence of a manifest does not establish ownership, and a user's own `mcp.<module>` entry (e.g. `mcp.git`) must survive disabling a module that ships no MCP server. opencode registration **upserts**: a def that differs from the registered entry replaces it, so a release can change what a module emits (e.g. flipping `enabled`) and existing configs pick it up on reinit — while a def that already matches is left untouched, keeping reinit byte-idempotent.
-- **Dynamic manifests on claudecode** — `_wire_mcp` reads `enabled` on a dynamic entry as a wire/don't-wire gate. A module that wants a server on claudecode while shipping its opencode manifest disabled must emit `enabled: true` in the claude one: `.mcp.json` cannot carry the state, and `false` there silently drops the server.
+- **Dynamic runtime manifests** (a server known only at runtime, e.g. jetbrains' IDE port) are published canonically to `<devbot_dir>/mcp-runtime/<group>.json` and applied to the selected harness — modules never write a harness manifest. A dynamic emitter declares the server-key prefixes it owns in **`mcp.dynamic.json`** (`{"prefixes": ["aws"]}`); opencode reset prunes `<prefix>` / `<prefix>-<detail>` keys for a disabled module that ships that declaration, so a key left behind by an older install does not keep its server live. A module without the declaration is never swept by name — absence of a manifest does not establish ownership, and a user's own `mcp.<module>` entry (e.g. `mcp.git`) must survive disabling a module that ships no MCP server. opencode registration **upserts**: a def that differs from the registered entry replaces it, so a release can change what a module emits (e.g. flipping `enabled`) and existing configs pick it up on reinit — while a def that already matches is left untouched, keeping reinit byte-idempotent.
 - **Docker-only servers** — skipped when no docker daemon is available. A hybrid definition (docker plus a non-docker fallback its own launcher picks — playwright) is kept: it declares `"_hybrid": true` in its canonical manifest, which is what the guard reads, never the fallback's command text.
 
 ## Harness differences
@@ -316,15 +311,15 @@ are never touched.
 
 ### `wire_disabled`
 
-Canonical `wire_disabled: true` means *register it, do not start it* — an
+Canonical `wire_disabled: true` means _register it, do not start it_ — an
 optional server the user turns on without a reinit (aws connections,
 datasources, the JetBrains server). Each harness gets the meaning it can express:
 
-| Harness    | Result                                              |
-| ---------- | --------------------------------------------------- |
-| opencode   | `enabled: false` — registered, not started          |
-| claudecode | wired; `.mcp.json` has no per-server on/off          |
+| Harness    | Result                                      |
+| ---------- | ------------------------------------------- |
+| opencode   | `enabled: false` — registered, not started  |
+| claudecode | wired; `.mcp.json` has no per-server on/off |
 
 Do not use `enabled: false` for this: `_wire_mcp` reads canonical `enabled` and
-**omits** a disabled server from `.mcp.json` entirely.
-
+**omits** a disabled server from `.mcp.json` entirely, and
+`_devbot_apply_runtime_mcps` applies the same rule to the runtime manifests.

@@ -34,7 +34,6 @@ PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd)"
 GLOBAL_CONFIG="${DEV_BOT_ROOT}/.devbot.global.jsonc"
 PROJECT_CONFIG="${PROJECT_DIR}/.devbot.project.jsonc"
 READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
-REMOVE_KEY="${MODULE_DIR}/../../_shared/remove_mcp_key.py"
 
 PREFIX="netsuite"
 URL_SUFFIX="suitetalk.api.netsuite.com/services/mcp/v1/all"
@@ -85,28 +84,35 @@ _netsuite_normalize_account() {
 _netsuite_write_manifests() {
   local server="$1" enabled="$2" url="$3"
   _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${server}" \
-    "$(jq -nc --arg u "${url}" --argjson e "${enabled}" \
-      "{($server): {type: \"http\", url: \$u, enabled: \$e}}")" \
+    "$(jq -nc --arg s "${server}" --arg u "${url}" --argjson e "${enabled}" \
+      '{($s): {type: "http", url: $u, enabled: $e}}')" \
     && _devbot_apply_runtime_mcps "${PROJECT_DIR}"
+}
+
+# Nothing to register: drop every group this module published, then let the
+# harness retire the manifests it generated from them.
+_netsuite_retire() {
+  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}"
+  _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 }
 
 # ── main ──────────────────────────────────────────────────────────────────────
 
 if _netsuite_module_disabled; then
-  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}"
+  _netsuite_retire
   exit 0
 fi
 
 raw_account="$(_netsuite_config account_id)"
 
 if [[ -z "${raw_account}" ]]; then
-  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}"
+  _netsuite_retire
   _skip "netsuite — set netsuite.account_id in .devbot.global.jsonc (or .devbot.project.jsonc) to register the MCP server"
   exit 0
 fi
 
 if [[ ! "${raw_account}" =~ ^[A-Za-z0-9][A-Za-z0-9_-]*$ ]]; then
-  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}"
+  _netsuite_retire
   _warn "netsuite — '${raw_account}' is not a valid NetSuite account ID (letters, digits, '-' and '_' only)"
   exit 0
 fi

@@ -70,36 +70,41 @@ URL_BASE="suitetalk.api.netsuite.com/services/mcp/v1/all"
   assert_output '{"enabled": false, "type": "remote", "url": "https://1234567-sb1.'"${URL_BASE}"'"}'
 }
 
-@test "registers the claudecode server disabled in the mcpServers shape" {
+@test "the claudecode manifest omits a server the config disables" {
+  # .mcp.json has no per-server on/off, so a disabled server is left out rather
+  # than translated into a key the client ignores — what _wire_mcp does for the
+  # static manifests.
   set_global '{"netsuite": {"account_id": "1234567"}}'
   set_project '{"harness": "claudecode"}'
 
   run bash "${INIT}" "${PROJECT}"
   assert_success
 
-  [ -f "${PROJECT}/.claude/netsuite-1234567.mcp.json" ]
   run python3 -c '
 import json, sys
-data = json.load(open(sys.argv[1]))["mcpServers"]["netsuite-1234567"]
-print(json.dumps(data, sort_keys=True))
+print(sorted(json.load(open(sys.argv[1]))["mcpServers"]))
 ' "${PROJECT}/.claude/netsuite-1234567.mcp.json"
-  assert_output '{"enabled": false, "type": "http", "url": "https://1234567.'"${URL_BASE}"'"}'
+  assert_output "[]"
 }
 
 @test "prunes stale manifests only in the selected harness" {
-  # Only the selected harness is dev-bot-managed: a leftover from when the other
-  # harness was selected is not ours to delete.
-  set_global '{"netsuite": {"account_id": "1234567"}}'
+  # Only the selected harness's generated manifests are dev-bot-owned: a
+  # leftover under the other harness directory is not ours to delete.
+  set_global '{"netsuite": {"account_id": "1111111"}}'
   set_project '{"harness": "opencode"}'
-  mkdir -p "${PROJECT}/.opencode" "${PROJECT}/.claude"
-  printf '{}\n' > "${PROJECT}/.opencode/netsuite-1111111.mcp.json"
-  printf '{}\n' > "${PROJECT}/.claude/netsuite-1111111.mcp.json"
+  run bash "${INIT}" "${PROJECT}"
+  assert_success
 
+  mkdir -p "${PROJECT}/.claude"
+  printf '{"mcpServers": {}}\n' > "${PROJECT}/.claude/netsuite-9999999.mcp.json"
+
+  set_global '{"netsuite": {"account_id": "2222222"}}'
   run bash "${INIT}" "${PROJECT}"
   assert_success
 
   [ ! -e "${PROJECT}/.opencode/netsuite-1111111.mcp.json" ]
-  [ -f "${PROJECT}/.claude/netsuite-1111111.mcp.json" ]
+  [ -f "${PROJECT}/.opencode/netsuite-2222222.mcp.json" ]
+  [ -f "${PROJECT}/.claude/netsuite-9999999.mcp.json" ]
 }
 
 @test "netsuite.enabled true registers the opencode server enabled" {
@@ -113,7 +118,9 @@ print(json.dumps(data, sort_keys=True))
   [ ! -e "${PROJECT}/.claude/netsuite-1234567.mcp.json" ]
 }
 
-@test "netsuite.enabled true registers the claudecode server enabled" {
+@test "netsuite.enabled true wires the claudecode server" {
+  # `enabled` is dev-bot's wire/don't-wire gate, not a Claude Code field, so an
+  # enabled server is wired without carrying a key the client would reject.
   set_global '{"netsuite": {"account_id": "1234567", "enabled": true}}'
   set_project '{"harness": "claudecode"}'
 
@@ -122,9 +129,10 @@ print(json.dumps(data, sort_keys=True))
 
   run python3 -c '
 import json, sys
-print(json.load(open(sys.argv[1]))["mcpServers"]["netsuite-1234567"]["enabled"])
+data = json.load(open(sys.argv[1]))["mcpServers"]["netsuite-1234567"]
+print(sorted(data), data["type"])
 ' "${PROJECT}/.claude/netsuite-1234567.mcp.json"
-  assert_output "True"
+  assert_output "['type', 'url'] http"
 }
 
 # ── precedence ───────────────────────────────────────────────────────────────

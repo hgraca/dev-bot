@@ -343,3 +343,9 @@ _reconcile_sidecars() {
     fi
   done
 }
+
+# Server names and manifest files are prefixed, so a datasource can never
+# collide with a module-declared MCP server of the same name. Module-wide:
+# init publishes these groups and reload reads them back.
+# shellcheck disable=SC2034  # consumed by the scripts that source this file
+PREFIX="datasources-"
