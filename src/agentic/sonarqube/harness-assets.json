@@ -1,0 +1,8 @@
+{
+  "mcp": [
+    {
+      "name": "sonarqube-serve.mcp.sh",
+      "path": "serve.mcp.sh"
+    }
+  ]
+}

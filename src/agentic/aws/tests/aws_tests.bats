@@ -122,8 +122,8 @@ EOF
   assert_success
 
   # Only the selected harness is wired — the unselected one is never touched.
-  # Declared by the module; the harness creates the link (mcp_assets_tests).
-  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('assets',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/mcp-assets.json" "aws-mcp-proxy.sh"
+  # Declared by the module; the harness creates the link (harness_assets_tests).
+  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('mcp',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/harness-assets.json" "aws-mcp-proxy.sh"
   assert_success
   assert [ -f "$TMP/proj/.opencode/aws-prod.mcp.json" ]
   assert [ -f "$TMP/proj/.opencode/aws-dev.mcp.json" ]
@@ -157,8 +157,8 @@ print('OK')
   run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
   assert_success
 
-  # Declared by the module; the harness creates the link (mcp_assets_tests).
-  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('assets',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/mcp-assets.json" "aws-mcp-proxy.sh"
+  # Declared by the module; the harness creates the link (harness_assets_tests).
+  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('mcp',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/harness-assets.json" "aws-mcp-proxy.sh"
   assert_success
   assert [ ! -e "$TMP/proj/.opencode" ]
 

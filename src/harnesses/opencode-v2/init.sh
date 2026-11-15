@@ -580,7 +580,7 @@ _register_dynamic_mcps() {
 # Modules declare (`mcp.json` `assets`); the harness creates them, so the
 # selected harness gets them regardless of which one it is.
 _link_mcp_assets() {
-  _devbot_link_mcp_assets "${PROJECT_DIR}" ".opencode"
+  _devbot_link_harness_assets "${PROJECT_DIR}" ".opencode"
 }
 
 # ── Pin every local MCP server to the project directory ──────────────────────

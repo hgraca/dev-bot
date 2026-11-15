@@ -26,8 +26,6 @@ PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
-STORAGE_DIR="$(_signoz_storage_dir)"
-SKILLS_DIR="${STORAGE_DIR}/skills"
 
 _header_3 "SigNoz Init"
 
@@ -43,28 +41,7 @@ _disabled_raw="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null || ec
 
 # ── Agent skills (opencode-only) ───────────────────────────────────────────────
 
-if echo "${_disabled_raw}" | jq -e 'index("opencode") != null' >/dev/null 2>&1; then
-  _skip "opencode disabled — skipping .opencode wiring"
-else
-  SKILLS_SYMLINK="${PROJECT_DIR}/.opencode/skills/signoz"
-
-  if [[ -L "${SKILLS_SYMLINK}" ]]; then
-    _skip "SigNoz skills already symlinked: .opencode/skills/signoz"
-  elif [[ -d "${SKILLS_SYMLINK}" ]]; then
-    _warn ".opencode/skills/signoz exists but is not a symlink — replacing."
-    rm -rf "${SKILLS_SYMLINK}"
-    ln -sf "${SKILLS_DIR}" "${SKILLS_SYMLINK}"
-    _ok "SigNoz skills symlinked: .opencode/skills/signoz"
-  elif [[ -d "${SKILLS_DIR}" ]] && [[ -n "$(ls -A "${SKILLS_DIR}" 2>/dev/null)" ]]; then
-    mkdir -p "$(dirname "${SKILLS_SYMLINK}")"
-    ln -sf "${SKILLS_DIR}" "${SKILLS_SYMLINK}"
-    _ok "SigNoz skills symlinked: .opencode/skills/signoz → storage/signoz/skills"
-  else
-    _warn "SigNoz skills not found at ${SKILLS_DIR} — skipping skills wiring."
-    _warn "  Run 'devbot install' first to download the skills."
-  fi
-fi
-
+  # The harness links this module's declared assets (harness-assets.json).
 _log "SigNoz init complete for ${PROJECT_NAME}"
 
 cat <<'EOF'

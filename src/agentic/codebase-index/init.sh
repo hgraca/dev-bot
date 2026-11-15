@@ -72,18 +72,6 @@ for harness in opencode claudecode; do
   _codebase_index_reindex_if_stale "${PROJECT_DIR}" "${harness_dir}" "${host}"
 done
 
-# ── Symlink the EPIPE-swallowing MCP wrapper (claudecode only) ───────────────
-# The npx-launched server crashes with an unhandled EPIPE when the client
-# closes stdio at session teardown (audit-19 FAIL). The shared wrapper
-# (src/_shared/mcp-stdio-wrapper.js) swallows it. opencode integrates the
-# package as a plugin (plugin.opencode.json) with its own launch path, so only
-# the claudecode MCP launch needs the wrapper.
-if echo "${_disabled_raw}" | jq -e 'index("claudecode") != null' >/dev/null 2>&1; then
-  _skip "claudecode disabled — skipping codebase-index MCP wrapper symlink"
-else
-  DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../../.." && pwd)"
-  mkdir -p "${PROJECT_DIR}/.claude"
-  ln -sf "${DEV_BOT_ROOT}/src/_shared/mcp-stdio-wrapper.js" \
-    "${PROJECT_DIR}/.claude/codebase-index-mcp-wrapper.js"
-  _log "Symlinked .claude/codebase-index-mcp-wrapper.js"
-fi
+# The EPIPE-swallowing MCP wrapper is declared in harness-assets.json, not
+# linked here: the harness owns the link (and its ownership checks), and its
+# stale-link sweep only spares links a module declares.

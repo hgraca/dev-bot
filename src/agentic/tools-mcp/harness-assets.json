@@ -1,0 +1,8 @@
+{
+  "mcp": [
+    {
+      "name": "tools-mcp-serve.sh",
+      "path": "server/start-tools-mcp.sh"
+    }
+  ]
+}

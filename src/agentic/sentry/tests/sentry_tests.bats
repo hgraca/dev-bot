@@ -181,7 +181,7 @@ MOCK
 
 # ── Per-project init ─────────────────────────────────────────────────────────
 
-@test "init.sh symlinks the fetched skills into .opencode/skills/sentry" {
+@test "init.sh declares the fetched skills for the harness to link" {
   sandbox="$(mktemp -d)"
   project="${sandbox}/project"
   mkdir -p "${sandbox}/storage/sentry/skills/sentry-instrument" \
@@ -191,11 +191,21 @@ MOCK
   echo '{}' > "${project}/.devbot.project.jsonc"
 
   run env DEV_BOT_ROOT="${sandbox}" bash "${MODULE_DIR}/init.sh" "${project}"
-
   assert_success
-  [ -L "${project}/.opencode/skills/sentry" ]
-  [ "$(readlink "${project}/.opencode/skills/sentry")" = "${sandbox}/storage/sentry/skills" ]
-  rm -rf "${sandbox}"
+
+  # The module declares; the harness links (harness_assets_tests.bats).
+  run python3 - "${MODULE_DIR}/harness-assets.json" <<'PYJSON'
+import json, sys
+data = json.load(open(sys.argv[1]))
+skills = data.get("skills") or []
+assert any(s["name"] == "sentry" for s in skills), skills
+assert skills[0]["path"].endswith("storage/sentry/skills"), skills
+print("ok")
+PYJSON
+  assert_success
+  assert_output "ok"
+  [ ! -e "${project}/.opencode/skills/sentry" ]
+  rm -r "${sandbox}"
 }
 
 @test "init.sh warns instead of failing when the skills are not installed yet" {

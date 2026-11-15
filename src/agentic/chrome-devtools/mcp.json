@@ -9,15 +9,5 @@
         "mkdir -p .agents/logs && exec bash {harness-dir}/chrome-devtools-serve.mcp.sh 2>>.agents/logs/chrome-devtools-mcp.log"
       ]
     }
-  },
-  "assets": [
-    {
-      "name": "chrome-devtools-mcp-wrapper.js",
-      "path": "{devbot-root}/src/_shared/mcp-stdio-wrapper.js"
-    },
-    {
-      "name": "chrome-devtools-serve.mcp.sh",
-      "path": "serve.mcp.sh"
-    }
-  ]
+  }
 }

@@ -41,7 +41,6 @@ READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
 REMOVE_KEY="${MODULE_DIR}/../../_shared/remove_mcp_key.py"
 
 PREFIX="aws-"
-LAUNCHER="${MODULE_DIR}/tools/aws-mcp-proxy.sh"
 LAUNCHER_NAME="aws-mcp-proxy.sh"
 
 # ── helpers ───────────────────────────────────────────────────────────────────

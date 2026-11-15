@@ -1,0 +1,8 @@
+{
+  "skills": [
+    {
+      "name": "sentry",
+      "path": "{devbot-root}/storage/sentry/skills"
+    }
+  ]
+}

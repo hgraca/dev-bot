@@ -54,23 +54,17 @@ setup() {
   refute_output --partial 'claudecode'
 }
 
-@test "init.sh: symlinks the shared EPIPE wrapper into .claude" {
-  local tmpdir
-  tmpdir="$(mktemp -d)"
-  printf '{\n  "harness": "claudecode"\n}\n' \
-    > "${tmpdir}/.devbot.project.jsonc"
-
-  run bash "$MODULE_DIR/init.sh" "${tmpdir}"
-
+@test "init.sh: declares the shared EPIPE wrapper for the harness to link" {
+  # The harness owns the link (harness_assets_tests creates it): a link made
+  # here would be a stale sweep's target, since only declarations are spared.
+  run python3 - "$MODULE_DIR/harness-assets.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+entry = next(e for e in data["mcp"] if e["name"] == "codebase-index-mcp-wrapper.js")
+print(entry["path"])
+PY
   assert_success
-  [[ -L "${tmpdir}/.claude/codebase-index-mcp-wrapper.js" ]]
-  local shared_wrapper
-  shared_wrapper="$(cd "$MODULE_DIR/../../.." && pwd)/src/_shared/mcp-stdio-wrapper.js"
-  # `readlink` (single level) — `readlink -f` is GNU-only and absent on macOS.
-  run readlink "${tmpdir}/.claude/codebase-index-mcp-wrapper.js"
-  assert_output "${shared_wrapper}"
-
-  rm -rf "${tmpdir}"
+  assert_output "{devbot-root}/src/_shared/mcp-stdio-wrapper.js"
 }
 
 @test "init.sh: the config endpoint comes from OLLAMA_API_URL" {

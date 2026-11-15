@@ -46,8 +46,6 @@ if echo "${_disabled_modules_raw}" | jq -e 'index("opencode") != null' >/dev/nul
   _IS_OPENCODE_DISABLED="true"
 fi
 
-WRAPPER="${DEV_BOT_ROOT}/src/_shared/mcp-stdio-wrapper.js"
-SERVE="${MODULE_DIR}/serve.mcp.sh"
 
   # The harness links this module's declared MCP assets (mcp.json "assets").
   # The harness links this module's declared MCP assets (mcp.json "assets").

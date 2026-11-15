@@ -1,0 +1,8 @@
+{
+  "skills": [
+    {
+      "name": "signoz",
+      "path": "{devbot-root}/storage/signoz/skills"
+    }
+  ]
+}

@@ -172,7 +172,11 @@ If the container is not running the server is simply unavailable; there is no st
   "mcp": {
     "qmd": {
       "type": "stdio",
-      "command": ["bash", "-c", "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"],
+      "command": [
+        "bash",
+        "-c",
+        "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"
+      ],
       "env": {
         "QMD_LLAMA_GPU": "__GPU_ENABLED__",
         "QMD_EXPAND_CONTEXT_SIZE": "512"
@@ -272,3 +276,16 @@ The canonical `env` block is renamed per harness (`environment` for opencode, `e
 - **claudecode** — `.mcp.json` is regenerated from scratch on every init (also gitignored, so nothing dev-bot-managed is ever committed); edit the module's canonical `mcp.json` to change defaults, since per-project `.mcp.json` edits are overwritten on reinit.
 
 > **Consumer projects**: gitignore the dotfile — a bare `mcp.json` rule (common in `###> ai ###` blocks) does **not** match `.mcp.json`. Update it to `.mcp.json` so a regenerated claudecode config is never committed.
+
+## Wrapper scripts are linked by the harness
+
+A module that starts its server through a wrapper script (`.opencode/my-serve.sh`,
+`.claude/my-wrapper.js`) does **not** create that link itself. It declares it in
+`harness-assets.json` and the selected harness links it:
+
+```jsonc
+{ "mcp": [{ "name": "my-mcp-serve.sh", "path": "server/start-mcp.sh" }] }
+```
+
+The `name` must match the path the server's `command` references. See
+[Create a module](/create-a-module#harness-assets-mcp-wrappers-skill-directories).

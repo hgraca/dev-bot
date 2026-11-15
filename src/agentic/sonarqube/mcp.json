@@ -13,11 +13,5 @@
         "SONARQUBE_TOKEN": "{env:SONARQUBE_TOKEN}"
       }
     }
-  },
-  "assets": [
-    {
-      "name": "sonarqube-serve.mcp.sh",
-      "path": "serve.mcp.sh"
-    }
-  ]
+  }
 }

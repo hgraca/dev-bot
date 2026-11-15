@@ -46,7 +46,6 @@ fi
 
 # The EPIPE-swallowing wrapper is shared (src/_shared/mcp-stdio-wrapper.js) —
 # chrome-devtools and codebase-index symlink the same file under their own names.
-WRAPPER="${DEV_BOT_ROOT}/src/_shared/mcp-stdio-wrapper.js"
 
   # The harness links this module's declared MCP assets (mcp.json "assets").
   # The harness links this module's declared MCP assets (mcp.json "assets").

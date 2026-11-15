@@ -1,7 +1,8 @@
 #!/usr/bin/env bats
 # =============================================================================
-# src/harnesses/opencode-v2/tests/mcp_assets_tests.bats
-# Modules DECLARE their MCP wrapper scripts; the harness creates them.
+# src/harnesses/opencode-v2/tests/harness_assets_tests.bats
+# Modules DECLARE their harness assets (MCP wrappers, skill dirs); the
+# harness creates them.
 #
 # Before this, each module wrote its own `.opencode/` symlink behind an
 # `index("opencode")` gate, so every module skipped whenever another harness was
@@ -84,8 +85,6 @@ PYEOF
   assert_success
   assert_output "ok"
 }
-<<<<<<< HEAD:src/harnesses/opencode-v2/tests/mcp_assets_tests.bats
-=======
 
 @test "a declared skill directory is linked into .opencode/skills" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
@@ -124,9 +123,6 @@ PYEOF
   run head -1 "${PROJECT}/.opencode/tools-mcp-serve.sh"
   assert_output "#!/bin/sh"
 }
-<<<<<<< HEAD:src/harnesses/opencode-v2/tests/mcp_assets_tests.bats
->>>>>>> 6cbba02 (fixup! refactor(mcp): modules declare MCP assets, the harness links them):src/harnesses/opencode-v2/tests/harness_assets_tests.bats
-=======
 
 @test "the codebase-index EPIPE wrapper is linked and survives the sweep" {
   # Declared by the module, created by the harness, and spared by the
@@ -157,4 +153,3 @@ PYEOF
   run readlink "${PROJECT}/.opencode/tools-mcp-serve.sh"
   assert_output "/tmp/elsewhere-script.sh"
 }
->>>>>>> 200b5b7 (fixup! refactor(mcp): modules declare MCP assets, the harness links them):src/harnesses/opencode-v2/tests/harness_assets_tests.bats

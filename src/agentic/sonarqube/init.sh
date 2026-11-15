@@ -35,7 +35,6 @@ source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 _header_3 "SonarQube MCP Init"
 
 PROJECT_NAME="$(basename "${PROJECT_DIR}")"
-SERVE="${MODULE_DIR}/serve.mcp.sh"
 
 _disabled_raw="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null || echo '[]')"
 

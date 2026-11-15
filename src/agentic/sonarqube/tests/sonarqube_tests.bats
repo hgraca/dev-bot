@@ -396,8 +396,8 @@ MOCK
 
   run env PATH="${mockbin}:${PATH}" bash "${MODULE_DIR}/init.sh" "${project}"
   assert_success
-  # Declared by the module; the harness creates the link (mcp_assets_tests).
-  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('assets',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/mcp.json" "sonarqube-serve.mcp.sh"
+  # Declared by the module; the harness creates the link (harness_assets_tests).
+  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('mcp',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/harness-assets.json" "sonarqube-serve.mcp.sh"
   assert_success
   [ ! -e "${project}/.claude/sonarqube-serve.mcp.sh" ]
 
@@ -405,8 +405,8 @@ MOCK
   printf '{ "harness": "claudecode" }\n' > "${project}/.devbot.project.jsonc"
   run env PATH="${mockbin}:${PATH}" bash "${MODULE_DIR}/init.sh" "${project}"
   assert_success
-  # Declared by the module; the harness creates the link (mcp_assets_tests).
-  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('assets',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/mcp.json" "sonarqube-serve.mcp.sh"
+  # Declared by the module; the harness creates the link (harness_assets_tests).
+  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('mcp',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/harness-assets.json" "sonarqube-serve.mcp.sh"
   assert_success
 
   rm -rf "${sandbox}"
@@ -432,8 +432,8 @@ MOCK
   run env PATH="${mockbin}:${PATH}" bash "${MODULE_DIR}/init.sh" "${project}"
   assert_success
   [ ! -e "${project}/.opencode/sonarqube-serve.mcp.sh" ]
-  # Declared by the module; the harness creates the link (mcp_assets_tests).
-  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('assets',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/mcp.json" "sonarqube-serve.mcp.sh"
+  # Declared by the module; the harness creates the link (harness_assets_tests).
+  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('mcp',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/harness-assets.json" "sonarqube-serve.mcp.sh"
   assert_success
 
   rm -rf "${sandbox}"

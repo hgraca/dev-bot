@@ -1,0 +1,8 @@
+{
+  "mcp": [
+    {
+      "name": "codebase-index-mcp-wrapper.js",
+      "path": "{devbot-root}/src/_shared/mcp-stdio-wrapper.js"
+    }
+  ]
+}

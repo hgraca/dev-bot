@@ -1,0 +1,12 @@
+{
+  "mcp": [
+    {
+      "name": "chrome-devtools-mcp-wrapper.js",
+      "path": "{devbot-root}/src/_shared/mcp-stdio-wrapper.js"
+    },
+    {
+      "name": "chrome-devtools-serve.mcp.sh",
+      "path": "serve.mcp.sh"
+    }
+  ]
+}

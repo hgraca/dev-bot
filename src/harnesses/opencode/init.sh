@@ -674,7 +674,7 @@ _ensure_required_plugins tui "${OPENCODE_DIR}/tui.json"
 _ensure_agents_md
 _delegate_harness_dirs
 # Modules declare their MCP wrapper scripts; the harness links them.
-_devbot_link_mcp_assets "${PROJECT_DIR}" ".opencode"
+_devbot_link_harness_assets "${PROJECT_DIR}" ".opencode"
 _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
 _link_plugins_modules
 _link_module_plugins

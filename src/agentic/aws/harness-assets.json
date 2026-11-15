@@ -1,5 +1,5 @@
 {
-  "assets": [
+  "mcp": [
     {
       "name": "aws-mcp-proxy.sh",
       "path": "tools/aws-mcp-proxy.sh"

@@ -33,6 +33,7 @@ Every module follows the same structure; **all entries are optional** — includ
   pre.sh                Prerequisites check
   functions.sh          Thin wrapper sourcing `src/_shared/functions.sh`
   mcp.json              Canonical MCP server manifest (harness-agnostic — see [MCP configuration](/mcp-config))
+  harness-assets.json   Files the harness links into .opencode/ or .claude/ (see [Harness assets](#harness-assets-mcp-wrappers-skill-directories))
   mcp.dynamic.json      Server-key prefixes this module writes at runtime (dynamic MCP emitters only)
   plugin.opencode.json  OpenCode plugin names declared by this module (optional)
   external-modules.json External module dependencies declared by this module
@@ -117,6 +118,37 @@ Declare the MCP server(s) once in a canonical, harness-agnostic `mcp.json` — t
 Enabling/disabling the module is the main gate. A server can also declare `"enabled": false` to ship **wired but not started** (the manifest entry below would become `"enabled": false,` right after `type`) — opencode registers it but does not start it; claudecode omits the server entirely, since `.mcp.json` has no per-server on/off. If the module's integration with a harness is plugin-based (like codebase-index on opencode), declare it in `plugin.opencode.json` instead — the opencode registration adapter skips plugin-provided servers to avoid double-loading.
 
 A server whose definition is only known at init time (a detected port, a per-connection name) is written as a **runtime manifest** instead — `.opencode/<name>.mcp.json` / `.opencode/<name>-<detail>.mcp.json`, applied by the harness. Ship an `mcp.dynamic.json` next to `init.sh` declaring the key prefixes it writes (`{"prefixes": ["my-module"]}`): reset prunes a disabled emitter's `<prefix>` / `<prefix>-<detail>` keys by that declaration, never by module name alone — so a user's own `mcp.<some-module>` entry is not destroyed when a module that ships no MCP server is disabled. The prefix is the module directory name, written without the trailing hyphen an emitter may use internally (`aws`, not `aws-`).
+
+### Harness assets (MCP wrappers, skill directories)
+
+A module **never writes into the harness directory itself**. It declares the files
+the selected harness should expose, and the harness links them during `devbot init`
+(`_devbot_link_harness_assets` in `src/_shared/functions.sh`):
+
+```jsonc
+// src/agentic/<name>/harness-assets.json
+{
+  "mcp": [{ "name": "my-mcp-serve.sh", "path": "server/start-mcp.sh" }],
+  "skills": [
+    { "name": "my-module", "path": "{devbot-root}/storage/my-module/skills" },
+  ],
+}
+```
+
+- `mcp` entries become `<harness-dir>/<name>` (`.opencode/` or `.claude/`). The
+  `name` must match the path the server's `command` references.
+- `skills` entries become `<harness-dir>/skills/<name>`, opencode-family only —
+  Claude Code flattens skills through its own delegation instead.
+- `path` is relative to the module directory; `{devbot-root}` and `{module}` are
+  substituted, so a shared wrapper (`src/_shared/mcp-stdio-wrapper.js`) or fetched
+  storage can live outside the module.
+- A disabled module's links are pruned on the next init, and a user's own files in
+  the harness directory are never touched.
+
+**Why the split.** Harness-specific wiring inside a module forces every module to
+know which harness is selected. That gate was `index("opencode")` on the disabled
+set, so selecting any other harness made every module skip silently — and the MCP
+servers were left pointing at wrapper scripts that did not exist (exit 127).
 
 ### Documentation (`docs.md`)
 

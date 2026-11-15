@@ -1,0 +1,8 @@
+{
+  "mcp": [
+    {
+      "name": "graphify-serve.sh",
+      "path": "tools/start-graphify-mcp.sh"
+    }
+  ]
+}

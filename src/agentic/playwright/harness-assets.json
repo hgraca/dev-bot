@@ -1,0 +1,8 @@
+{
+  "mcp": [
+    {
+      "name": "playwright-mcp-wrapper.js",
+      "path": "{devbot-root}/src/_shared/mcp-stdio-wrapper.js"
+    }
+  ]
+}
