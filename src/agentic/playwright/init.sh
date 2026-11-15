@@ -34,20 +34,10 @@ _header_3 "Playwright MCP Init"
 PROJECT_NAME="$(basename "${PROJECT_DIR}")"
 
 # ── Check if harnesses are disabled ──────────────────────────────────────────
-_IS_CLAUDE_DISABLED="false"
-_IS_OPENCODE_DISABLED="false"
-_disabled_modules_raw="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null || echo '[]')"
-if echo "${_disabled_modules_raw}" | jq -e 'index("claudecode") != null' >/dev/null 2>&1; then
-  _IS_CLAUDE_DISABLED="true"
-fi
-if echo "${_disabled_modules_raw}" | jq -e 'index("opencode") != null' >/dev/null 2>&1; then
-  _IS_OPENCODE_DISABLED="true"
-fi
 
 # The EPIPE-swallowing wrapper is shared (src/_shared/mcp-stdio-wrapper.js) —
 # chrome-devtools and codebase-index symlink the same file under their own names.
 
-  # The harness links this module's declared MCP assets (mcp.json "assets").
   # The harness links this module's declared MCP assets (mcp.json "assets").
 # Dependency self-heal (codebase-memory pattern, T1.2): the mcp.json fallback
 # resolves a globally installed binary by explicit prefix — reinit WITHOUT a

@@ -36,18 +36,7 @@ _header_3 "Chrome DevTools MCP Init"
 PROJECT_NAME="$(basename "${PROJECT_DIR}")"
 
 # ── Check if harnesses are disabled ──────────────────────────────────────────
-_IS_CLAUDE_DISABLED="false"
-_IS_OPENCODE_DISABLED="false"
-_disabled_modules_raw="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null || echo '[]')"
-if echo "${_disabled_modules_raw}" | jq -e 'index("claudecode") != null' >/dev/null 2>&1; then
-  _IS_CLAUDE_DISABLED="true"
-fi
-if echo "${_disabled_modules_raw}" | jq -e 'index("opencode") != null' >/dev/null 2>&1; then
-  _IS_OPENCODE_DISABLED="true"
-fi
 
-
-  # The harness links this module's declared MCP assets (mcp.json "assets").
   # The harness links this module's declared MCP assets (mcp.json "assets").
 # Dependency self-heal (codebase-memory pattern, T1.2): the serve launcher
 # resolves a globally installed binary by explicit prefix — reinit WITHOUT a
