@@ -10,8 +10,9 @@
 # Declarations are fine and expected: plugin.opencode.json, the {harness-dir}
 # and {host} tokens in mcp.json, harness-assets.json, mcp.dynamic.json.
 #
-# There is no allowlist: the debt that used to live here is gone, and a new
-# violation fails CI.
+# The scan covers every module- and tool-owned .sh, not only init.sh. Two
+# files are allowed to name a harness, and only for the reasons given: both
+# inspect the runtime rather than decide what to emit.
 # =============================================================================
 
 setup() {
@@ -19,6 +20,19 @@ setup() {
   bats_load_library bats-assert
 
   REPO="$(cd "$(dirname "${BATS_TEST_FILENAME}")/../../.." && pwd)"
+
+  ALLOWED=(
+    "src/agentic/autobot/install.sh"            # cron PATH: binary discovery
+    "src/agentic/devbot/tools/session-usage.mcp.sh" # reports the live harness
+  )
+}
+
+_is_allowed() {
+  local rel="$1" entry
+  for entry in "${ALLOWED[@]}"; do
+    [[ "${rel}" == "${entry}" ]] && return 0
+  done
+  return 1
 }
 
 _reports() {
@@ -31,17 +45,30 @@ _reports() {
   return 1
 }
 
-@test "no module init names a harness" {
+@test "no module or tool script names a harness" {
   local offenders="" file rel
   while IFS= read -r file; do
     rel="${file#"${REPO}/"}"
+    _is_allowed "${rel}" && continue
     _reports "${file}" && offenders+="${rel}"$'\n'
-  done < <(find "${REPO}/src/agentic" "${REPO}/src/tools" -name 'init.sh' 2>/dev/null)
+  done < <(find "${REPO}/src/agentic" "${REPO}/src/tools" -name '*.sh' 2>/dev/null)
 
   if [[ -n "${offenders}" ]]; then
-    printf 'harness-aware logic in module init:\n%s' "${offenders}" >&2
+    printf 'harness-aware logic outside the documented exceptions:\n%s' "${offenders}" >&2
   fi
   assert [ -z "${offenders}" ]
+}
+
+@test "every allowed entry still exists and still reports" {
+  local entry stale=""
+  for entry in "${ALLOWED[@]}"; do
+    [[ -f "${REPO}/${entry}" ]] || { stale+="${entry} (missing)"$'\n'; continue; }
+    _reports "${REPO}/${entry}" || stale+="${entry} (clean now — remove it)"$'\n'
+  done
+  if [[ -n "${stale}" ]]; then
+    printf 'allowlist needs updating:\n%s' "${stale}" >&2
+  fi
+  assert [ -z "${stale}" ]
 }
 
 @test "declarative harness manifests are allowed" {
