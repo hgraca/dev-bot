@@ -6,7 +6,7 @@ aliases: ["write through a symlink", "symlinked manifest", "shim marker bypass"]
 
 # Every dev-bot-generated path needs a symlink guard — on read and on write
 
-A cascade of review findings all had one root: dev-bot wrote or deleted generated files by *name*, and each operation followed a symlink a user could have planted. Four distinct instances in one PR:
+A cascade of review findings all had one root: dev-bot wrote or deleted generated files by _name_, and each operation followed a symlink a user could have planted. Four distinct instances in one PR:
 
 - `printf … > "$target"` for a runtime MCP manifest wrote **through** a link to a file outside the project (as did `cksum`/`cat` in the ownership and byte-identical checks, which silently compared the referent).
 - `rm -f "$target"` retired a user's link — and the fingerprint compare read through it.
