@@ -277,15 +277,33 @@ EOF
 }
 
 @test "init does not link the retired TUI parts" {
-  # opencode 2.3 rejects their module shape, so shipping them only produced
-  # "Invalid V2 TUI plugin module" on every start.
+  # tui-defaults is still on the pre-2.3 API (its kv surface has no 2.3
+  # equivalent); provider-ttft was ported and is linked by its own test below.
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
 
   [ ! -e "${PROJECT}/.opencode/plugins/tui-defaults" ]
-  [ ! -e "${PROJECT}/.opencode/plugins/provider-ttft" ]
   run v2 get "${CONFIG}" plugins
   refute_output --partial "tui-defaults"
-  refute_output --partial "provider-ttft"
+}
+
+@test "init links the TTFT TUI part as a plugin package" {
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  local dir="${PROJECT}/.opencode/plugins/provider-ttft"
+
+  assert [ -f "${dir}/index.ts" ]
+  assert [ -f "${dir}/tui.ts" ]
+  # Both entries must be real files: v2 skips a symlinked entry silently.
+  refute [ -L "${dir}/index.ts" ]
+  refute [ -L "${dir}/tui.ts" ]
+  grep -q "dev-bot: generated opencode-v2 plugin shim" "${dir}/tui.ts"
+
+  run python3 -c "
+import json
+d = json.load(open('${dir}/package.json'))
+assert d['exports']['.'] == './index.ts', d
+assert d['exports']['./tui'] == './tui.ts', d
+"
+  assert_success
 }
 
 @test "init retires a plugin package this build no longer ships" {

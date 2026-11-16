@@ -466,6 +466,30 @@ _link_harness_hooks() {
   done < <(find "${hook_dir}" -maxdepth 1 -type f -name '*.ts' -print0 2>/dev/null)
 }
 
+# ── Link this harness's own TUI parts ────────────────────────────────────────
+# A TUI part rides inside the plugin package: <dir>/index.ts is the server part
+# and <dir>/tui.ts the terminal one, both discovered from .opencode/plugins/.
+#
+# Listed explicitly rather than globbed: tui/tui-defaults is still on the
+# pre-2.3 `{ id, tui }` API (its kv surface has no 2.3 equivalent), so linking it
+# would only produce "Invalid V2 TUI plugin module" again.
+_V2_TUI_PLUGINS=(provider-ttft)
+
+_link_tui_plugins() {
+  local tui_root="${MODULE_DIR}/tui"
+  [[ -d "${tui_root}" ]] || return 0
+
+  local name dir
+  for name in "${_V2_TUI_PLUGINS[@]}"; do
+    dir="${tui_root}/${name}"
+    [[ -f "${dir}/server.ts" && -f "${dir}/tui.ts" ]] || {
+      _warn "tui/${name}: server.ts or tui.ts missing — not linked"
+      continue
+    }
+    _link_plugin_dir "${name}" "${dir}/server.ts" "${dir}/tui.ts"
+  done
+}
+
 # ── Reconcile dev-bot's REQUIRED plugins into an already-seeded config ───────
 # Only a spec that lives outside .opencode/plugins/ needs a config entry. Every
 # plugin this build ships is auto-loaded from that directory, so adding one there
@@ -781,6 +805,7 @@ _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_D
 _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 _link_mcp_assets
 _link_harness_hooks
+_link_tui_plugins
 _link_plugins_modules
 _link_module_plugins
 _register_module_mcps

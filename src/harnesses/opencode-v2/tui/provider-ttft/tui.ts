@@ -1,61 +1,63 @@
 // src/harnesses/opencode-v2/tui/provider-ttft/tui.ts
-// TUI part: shows time-to-first-token for the current session in the sidebar.
+// Time-to-first-token row for the session sidebar.
 //
-// V2 shape: the default export is `{ id, tui }`, and the TUI part is loaded
-// because the package's server part is listed in opencode.jsonc. The API used
-// here — `api.event.on`, `api.slots.register`, `api.theme.current` — is
-// unchanged from the 1.x TUI surface.
+// Ported from the v1 part (src/harnesses/opencode/provider-ttft) to the 2.3 TUI
+// API: `Plugin.define({ id, setup })`, `ctx.ui.slot` for the mount point, and
+// `ctx.data.on` for events. The Context block this replaces is the built-in
+// plugin `opencode.sidebar.context`; disabling that one is a CLI setting.
 
+import { Plugin } from "@opencode/plugin/tui"
 import { createElement, createTextNode, insert, insertNode, setProp } from "@opentui/solid"
 import { createSignal } from "solid-js"
-import { formatTtft, recordAssistantMessage, takeFirstDelta, withTtft } from "./lib"
+import { firstTokenMs, formatTtft, withTtft } from "./lib"
 
-// The order-100 row the context block used.
-const SLOT_ORDER = 100
+// The order-100 row the Context block used.
+const SLOT = "sidebar.content"
 
-const tui = async (api: any) => {
-  const [bySession, setBySession] = createSignal(new Map())
-  const pending = new Map()
+// v2 wraps an event payload in `data`; older shapes are tolerated so a renamed
+// field degrades to "no value" instead of an exception in the render path.
+function payloadOf(event: any): any {
+  return event?.data ?? event?.properties ?? event ?? {}
+}
 
-  api.event.on("message.updated", (event: any) => {
-    recordAssistantMessage(pending, event.properties?.info)
-  })
+export default Plugin.define({
+  id: "devbot.provider-ttft",
+  setup(ctx) {
+    const [bySession, setBySession] = createSignal(new Map<string, number>())
 
-  api.event.on("message.part.delta", (event: any) => {
-    const messageID = event.properties?.messageID
-    const sessionID = event.properties?.sessionID
-    if (!messageID || !sessionID) return
-    // Deltas have no timestamp — stamp arrival.
-    const elapsed = takeFirstDelta(pending, messageID, Date.now())
-    if (elapsed !== undefined) setBySession((prev) => withTtft(prev, sessionID, elapsed))
-  })
+    const stopMessages = ctx.data.on("message.updated", (event: any) => {
+      const payload = payloadOf(event)
+      const info = payload.info
+      const sessionID = payload.sessionID ?? info?.sessionID
+      const ms = firstTokenMs(info)
+      if (!sessionID || ms === undefined) return
+      setBySession((prev) => withTtft(prev, sessionID, ms))
+    })
 
-  api.slots.register({
-    order: SLOT_ORDER,
-    slots: {
-      sidebar_content(_ctx: any, props: any) {
-        const palette = (api.theme && api.theme.current) || {}
+    const unregister = ctx.ui.slot({
+      append: SLOT,
+      render: ({ sessionID }: { sessionID: string }) => {
         const row = createElement("box")
         setProp(row, "flexDirection", "row")
         setProp(row, "gap", 1)
 
         const label = createElement("text")
         insertNode(label, createTextNode("TTFT"))
-        if (palette.text) setProp(label, "fg", palette.text)
+        setProp(label, "fg", ctx.theme.text.base)
 
         const value = createElement("text")
-        insert(value, () => {
-          const ms = bySession().get(props.session_id)
-          return ms === undefined ? "-" : formatTtft(ms)
-        })
-        if (palette.textMuted) setProp(value, "fg", palette.textMuted)
+        insert(value, () => formatTtft(bySession().get(sessionID)))
+        setProp(value, "fg", ctx.theme.text.muted)
 
         insertNode(row, label)
         insertNode(row, value)
         return row
       },
-    },
-  })
-}
+    })
 
-export default { id: "provider-ttft", tui }
+    return () => {
+      stopMessages?.()
+      unregister?.()
+    }
+  },
+})

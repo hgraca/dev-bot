@@ -147,11 +147,35 @@ terminal UI. opencode 2.3 validates the `./tui` default export as
   `opencode-tabs@0.3.0` and three `./tui-plugins/*` paths, so `init.sh` retires
   exactly those entries and leaves the project's own additions alone.
 
-**Not ported:** `pty-monitor`, `tui-defaults`, and `provider-ttft`. They were
-written against the pre-2.3 API (`kv`/`slots`/`events`), which 2.3 no longer
-exposes, so linking them only produced `Invalid V2 TUI plugin module` on every
-start. Porting them needs a component rewrite against `@opencode/plugin/tui`,
-not a file move.
+**Shipped:** `provider-ttft` (`tui/provider-ttft/`), linked as
+`.opencode/plugins/provider-ttft/` with a server part and the TUI row. It reads
+`time.firstToken` / `time.created` from `message.updated` — 2.3 stamps both on
+the assistant message — and renders `TTFT 1.2s` into `sidebar.content`.
+
+**Not ported:** `pty-monitor` and `tui-defaults`. Both were written against the
+pre-2.3 API (`kv`/`slots`/`events`), which 2.3 no longer exposes, so linking them
+only produced `Invalid V2 TUI plugin module` on every start. `tui-defaults` is
+the harder one: its only job is seeding the tool-details kv default, and 2.3 has
+no plugin-facing kv surface to seed.
+
+### Sidebar blocks are plugins
+
+Every built-in sidebar section is a bundled TUI plugin, so the lever is its id,
+not a slot name:
+
+| Built-in                   | Slot              | What it renders         |
+| -------------------------- | ----------------- | ----------------------- |
+| `opencode.sidebar.context` | `sidebar.content` | context percent + spend |
+| `opencode.sidebar.todo`    | `sidebar.content` | the session's todo list |
+| `opencode.sidebar.mcp`     | `sidebar.content` | MCP server state        |
+| `opencode.sidebar.limit`   | `sidebar.content` | rate-limit windows      |
+| `opencode.sidebar.footer`  | `sidebar.footer`  | location / branch       |
+
+v2 takes terminal settings from the global `cli.json`, so disabling one is
+`"plugin_enabled": { "opencode.sidebar.context": false }` (or a
+`-opencode.sidebar.todo` entry in `plugins`) there. The v1 ids
+(`internal:sidebar-context`) and the v1 `plugin_enabled` block in a project
+`tui.json` no longer match anything.
 
 Third-party TUI plugins have the same requirement: `opencode-tabs@0.3.0`
 exports `{ id, tui }` and registers through `api.slots`, so it cannot load on

@@ -1,51 +1,37 @@
-// Type-only TS: bun strips the annotations.
-
-/** An in-flight assistant request. */
-export interface PendingRequest {
-  created: number
-  reported?: boolean
-}
+// src/harnesses/opencode-v2/tui/provider-ttft/lib.ts
+// Time-to-first-token bookkeeping for the sidebar row.
+//
+// v2 records both stamps on the assistant message itself (`time.created` and
+// `time.firstToken`), so the plugin reads them instead of timing raw deltas as
+// the v1 part had to.
 
 /** The assistant-message fields read here. */
-export interface AssistantMessageLike {
+export interface AssistantLike {
   id?: string
+  type?: string
   role?: string
-  time?: { created?: number; completed?: number }
+  time?: { created?: number; firstToken?: number }
 }
 
-/** Track an in-flight request; a completed
- *  message without a delta leaves no entry. */
-export function recordAssistantMessage(
-  pending: Map<string, PendingRequest>,
-  info: AssistantMessageLike | undefined,
-): void {
-  if (!info || info.role !== "assistant") return
-  if (typeof info.id !== "string") return
-  // A re-emitted update must not re-arm a
-  // request that already reported its first token.
-  if (!pending.has(info.id) && typeof info.time?.created === "number") {
-    pending.set(info.id, { created: info.time.created })
-  }
-  if (info.time?.completed) pending.delete(info.id)
-}
-
-/** Time to first token for the first delta;
- *  `undefined` otherwise. The first is final. */
-export function takeFirstDelta(
-  pending: Map<string, PendingRequest>,
-  messageID: string,
-  now: number,
-): number | undefined {
-  const entry = pending.get(messageID)
-  if (!entry || entry.reported) return undefined
-  const elapsed = now - entry.created
+/**
+ * Milliseconds from request start to the first streamed token, or `undefined`
+ * when the host has not recorded both stamps yet.
+ */
+export function firstTokenMs(info: AssistantLike | undefined): number | undefined {
+  if (!info) return undefined
+  // One field is `type` in v2 and `role` in v1; the plugin runs on v2 only, and
+  // accepting either keeps the helper honest about what it reads.
+  if (info.type !== undefined && info.type !== "assistant") return undefined
+  if (info.type === undefined && info.role !== "assistant") return undefined
+  const created = info.time?.created
+  const firstToken = info.time?.firstToken
+  if (typeof created !== "number" || typeof firstToken !== "number") return undefined
+  const elapsed = firstToken - created
   if (elapsed < 0) return undefined
-  entry.reported = true
   return elapsed
 }
 
-/** Per-session copy with this value, capped at
- *  `limit`; the oldest session is evicted. */
+/** Per-session copy with this value, capped at `limit`; the oldest is evicted. */
 export function withTtft(
   bySession: Map<string, number>,
   sessionID: string,
@@ -63,6 +49,7 @@ export function withTtft(
 }
 
 /** One compact value: `0.8s`, `1.2s`. */
-export function formatTtft(ms: number): string {
+export function formatTtft(ms: number | undefined): string {
+  if (ms === undefined) return "-"
   return (ms / 1000).toFixed(1) + "s"
 }
