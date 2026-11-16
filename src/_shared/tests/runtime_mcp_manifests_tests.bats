@@ -184,3 +184,104 @@ publish_demo() {
   run jq -r '."aws-demo".command[0]' "$PROJECT/.opencode/aws-demo.mcp.json"
   assert_output "mine"
 }
+
+@test "ownership survives a v1 to v2 selection change" {
+  # Both generations write .opencode, so the record must belong to the
+  # directory: keyed by harness name, the v1 reinit saw every manifest as
+  # foreign and refused to touch any of them.
+  set_harness opencode
+  publish_demo
+  _devbot_apply_runtime_mcps "$PROJECT"
+
+  set_harness opencode-v2
+  run _devbot_apply_runtime_mcps "$PROJECT"
+  refute_output --partial "not dev-bot's"
+
+  set_harness opencode
+  run _devbot_apply_runtime_mcps "$PROJECT"
+  refute_output --partial "not dev-bot's"
+  refute_output --partial "changed since dev-bot wrote it"
+  assert [ ! -e "$PROJECT/.agents/mcp-runtime/.owned.opencode-v2" ]
+}
+
+@test "a manifest identical to ours is adopted when the record is lost" {
+  set_harness opencode
+  publish_demo
+  _devbot_apply_runtime_mcps "$PROJECT"
+  rm -f "$PROJECT/.agents/mcp-runtime/.owned.opencode"
+
+  run _devbot_apply_runtime_mcps "$PROJECT"
+  refute_output --partial "not dev-bot's"
+  run grep -c "aws-demo" "$PROJECT/.agents/mcp-runtime/.owned.opencode"
+  assert_output "1"
+}
+
+@test "a symlinked manifest is neither adopted nor written through" {
+  set_harness opencode
+  local outside
+  outside="$(mktemp)"
+  printf '{"aws-demo": {"type": "local", "command": ["outside"]}}\n' > "${outside}"
+  mkdir -p "$PROJECT/.opencode"
+  ln -sfn "${outside}" "$PROJECT/.opencode/aws-demo.mcp.json"
+
+  publish_demo
+  run _devbot_apply_runtime_mcps "$PROJECT"
+  assert_output --partial "is a symlink"
+
+  # The link survives and its referent is untouched.
+  assert [ -L "$PROJECT/.opencode/aws-demo.mcp.json" ]
+  run cat "${outside}"
+  assert_output --partial "outside"
+}
+
+@test "a symlinked manifest is not retired" {
+  set_harness opencode
+  local outside
+  outside="$(mktemp)"
+  printf '{"aws-demo": {"type": "local", "command": ["outside"]}}\n' > "${outside}"
+  mkdir -p "$PROJECT/.opencode"
+  ln -sfn "${outside}" "$PROJECT/.opencode/aws-demo.mcp.json"
+  mkdir -p "$PROJECT/.agents/mcp-runtime"
+  printf 'aws-demo\t%s\n' "$(_devbot_file_fingerprint "${outside}")" \
+    > "$PROJECT/.agents/mcp-runtime/.owned.opencode"
+
+  _devbot_prune_runtime_mcp "$PROJECT" "aws-"
+  run _devbot_apply_runtime_mcps "$PROJECT"
+
+  assert [ -L "$PROJECT/.opencode/aws-demo.mcp.json" ]
+  run cat "${outside}"
+  assert_output --partial "outside"
+}
+
+@test "a group recorded only by the legacy harness is still retired" {
+  # The v1 handoff can leave the destination record populated while the
+  # name-keyed v2 record holds a group of its own. Dropping that file instead
+  # of merging it would leave the stale manifest unretirable.
+  set_harness opencode-v2
+  mkdir -p "$PROJECT/.agents/mcp-runtime" "$PROJECT/.opencode"
+  printf '{"sentry": {"type": "remote", "url": "https://x"}}\n' \
+    > "$PROJECT/.opencode/sentry.mcp.json"
+  printf 'aws-demo\t111-1\n' > "$PROJECT/.agents/mcp-runtime/.owned.opencode"
+  printf 'sentry\t%s\n' "$(cksum "$PROJECT/.opencode/sentry.mcp.json" | awk '{print $1"-"$2}')" \
+    > "$PROJECT/.agents/mcp-runtime/.owned.opencode-v2"
+
+  _devbot_apply_runtime_mcps "$PROJECT"
+
+  assert [ ! -e "$PROJECT/.opencode/sentry.mcp.json" ]
+  assert [ ! -e "$PROJECT/.agents/mcp-runtime/.owned.opencode-v2" ]
+}
+
+@test "the legacy migration never writes through a symlinked record" {
+  set_harness opencode-v2
+  local outside
+  outside="$(mktemp)"
+  mkdir -p "$PROJECT/.agents/mcp-runtime"
+  ln -sfn "${outside}" "$PROJECT/.agents/mcp-runtime/.owned.opencode"
+  printf 'sentry\t222-2\n' > "$PROJECT/.agents/mcp-runtime/.owned.opencode-v2"
+
+  _devbot_apply_runtime_mcps "$PROJECT"
+
+  run cat "${outside}"
+  assert_output ""
+  assert [ ! -L "$PROJECT/.agents/mcp-runtime/.owned.opencode" ]
+}

@@ -3323,7 +3323,27 @@ _devbot_apply_runtime_mcps() {
 
   harness="$(_devbot_get_harness "${project_dir}")"
   harness_dir="$(_devbot_harness_dir "${project_dir}")"
-  owned="${dir}/.owned.${harness}"
+  # Keyed by the directory the manifests live in, not the harness name: v1 and
+  # v2 both write .opencode, so a selection change must not orphan the record —
+  # every existing manifest would then look like a user file and be skipped.
+  owned="${dir}/.owned.${harness_dir#.}"
+  local name_owned="${dir}/.owned.${harness}"
+  if [[ "${name_owned}" != "${owned}" && -s "${name_owned}" ]]; then
+    if [[ -s "${owned}" ]]; then
+      # Merge, destination first so its fingerprint wins for a duplicate group:
+      # the legacy record can still hold groups only it knows, and dropping
+      # those would leave their manifests permanently unretirable.
+      { cat "${owned}"; cat "${name_owned}"; } |
+        awk -F'\t' '!seen[$1]++' | sort -k1,1 > "${owned}.merge"
+      mv "${owned}.merge" "${owned}"
+    else
+      # temp + rename, like every other record write: rename replaces the
+      # destination link itself instead of writing through it.
+      cp "${name_owned}" "${owned}.merge"
+      mv "${owned}.merge" "${owned}"
+    fi
+    rm -f "${name_owned}"
+  fi
 
   # A group the disabled set covers is not wired: its module stopped emitting
   # it, and leaving it in `current` would re-create what reset just removed.
@@ -3362,30 +3382,47 @@ _devbot_apply_runtime_mcps() {
     fi
     target="${project_dir}/${harness_dir}/${group}.mcp.json"
     mkdir -p "${project_dir}/${harness_dir}"
-    # The ownership record — and the fingerprint in it — is the only proof this
-    # file is still ours; a same-named user manifest must survive both paths.
+
+    # What this pass would write. An empty value means nothing is wired.
+    local want=""
+    if [[ "$(jq 'length' <<<"${translated}")" -gt 0 ]]; then
+      if [[ "${harness_dir}" == ".claude" ]]; then
+        want="$(jq -n --argjson m "${translated}" '{mcpServers: $m}')"
+      else
+        want="$(jq -n --argjson m "${translated}" '$m')"
+      fi
+    fi
+
+    # A symlink here is not a manifest dev-bot wrote: `>` and the checks below
+    # would follow it, and the write could land outside the project.
+    if [[ -L "${target}" ]]; then
+      _warn "${group}: ${harness_dir}/${group}.mcp.json is a symlink — leaving it alone"
+      continue
+    fi
+
     if [[ -e "${target}" ]]; then
-      if ! _devbot_runtime_group_owned "${owned}" "${group}"; then
+      if _devbot_runtime_group_owned "${owned}" "${group}"; then
+        # The fingerprint answers "is it still the file we wrote?".
+        recorded_fp="$(_devbot_runtime_group_fingerprint "${owned}" "${group}" || true)"
+        if [[ -n "${recorded_fp}" && "${recorded_fp}" != "$(_devbot_file_fingerprint "${target}")" ]]; then
+          _warn "${group}: ${harness_dir}/${group}.mcp.json changed since dev-bot wrote it — leaving it alone"
+          continue
+        fi
+      elif [[ -z "${want}" || "$(cat "${target}")" != "${want}" ]]; then
+        # No record and not what we would write: someone else's file.
         _warn "${group}: ${harness_dir}/${group}.mcp.json is not dev-bot's — leaving it alone"
         continue
       fi
-      recorded_fp="$(_devbot_runtime_group_fingerprint "${owned}" "${group}" || true)"
-      if [[ -n "${recorded_fp}" && "${recorded_fp}" != "$(_devbot_file_fingerprint "${target}")" ]]; then
-        _warn "${group}: ${harness_dir}/${group}.mcp.json changed since dev-bot wrote it — leaving it alone"
-        continue
-      fi
+      # Byte-identical to our output: adopt it. This is how a record lost to an
+      # older dev-bot (or another harness) is reclaimed without a warning.
     fi
-    if [[ "$(jq 'length' <<<"${translated}")" -eq 0 ]]; then
-      # Every server in the group is disabled: an empty manifest is noise.
+
+    if [[ -z "${want}" ]]; then
       rm -f "${target}"
       current+=("${group}")
       continue
     fi
-    if [[ "${harness_dir}" == ".claude" ]]; then
-      jq -n --argjson m "${translated}" '{mcpServers: $m}' > "${target}"
-    else
-      jq -n --argjson m "${translated}" '$m' > "${target}"
-    fi
+    printf '%s\n' "${want}" > "${target}"
     current+=("${group}")
   done
 
@@ -3400,6 +3437,10 @@ _devbot_apply_runtime_mcps() {
       done
       [[ "${keep}" -eq 1 ]] && continue
       target="${project_dir}/${harness_dir}/${previous}.mcp.json"
+      if [[ -L "${target}" ]]; then
+        _warn "${previous}: ${harness_dir}/${previous}.mcp.json is a symlink — leaving it alone"
+        continue
+      fi
       if [[ -e "${target}" ]]; then
         # The record names the content dev-bot wrote: anything else is someone
         # else's file now, and this pass drops the claim to it either way.
