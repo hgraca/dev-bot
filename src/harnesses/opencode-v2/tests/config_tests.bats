@@ -122,9 +122,18 @@ PY
   v2 set-mcp-disabled "${CONFIG}" demo true
   run v2 get "${CONFIG}" mcp.servers
   assert_output --partial '"disabled": true'
-  # Second call is a no-op.
+  # Already correct is success: mcp-sync.ts treats a 0 as "the file holds the
+  # wanted value" and only retries a real failure.
   run v2 set-mcp-disabled "${CONFIG}" demo true
-  assert_failure
+  assert_success
+  _valid_jsonc
+}
+
+@test "set-mcp-disabled reports a server this config does not declare" {
+  # Exit 2: a global server. The project file must not invent an entry for it,
+  # and the sync must not treat it as a failed write.
+  run v2 set-mcp-disabled "${CONFIG}" absent true
+  assert_equal "$status" 2
   _valid_jsonc
 }
 

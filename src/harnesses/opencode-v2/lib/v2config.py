@@ -399,14 +399,20 @@ def cmd_ensure_external_directory(path):
 
 
 def cmd_set_mcp_disabled(path, key, value):
-    """Set mcp.servers.<key>.disabled, preserving the rest of the file."""
+    """Set mcp.servers.<key>.disabled, preserving the rest of the file.
+
+    Exit codes are what mcp-sync.ts acts on: 0 means the file now holds the
+    wanted value (written, or already correct), 2 means this config does not
+    declare the server (a global server the project file must not own), and 1
+    means the file could not be understood.
+    """
     want = value == "true"
     cfg = load(path)
     servers = ((cfg.get("mcp") or {}).get("servers")) or {}
     if key not in servers:
-        return 1
+        return 2
     if bool(servers[key].get("disabled", False)) == want:
-        return 1
+        return 0
     text = read(path)
     open_i, close_i = _root(text)
     mcp_span = _member_container(text, open_i, close_i, "mcp", "{")
