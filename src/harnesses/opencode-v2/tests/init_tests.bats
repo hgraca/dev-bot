@@ -50,7 +50,7 @@ v2() {
   assert_equal "$(md5sum "${CONFIG}" | cut -d' ' -f1)" "${first}"
 }
 
-@test "init links each plugin as a directory and registers it" {
+@test "init links each plugin as a directory package" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
   local name entry
   for name in on-hooks mcp-sync pty; do
@@ -62,9 +62,32 @@ v2() {
     grep -q "dev-bot: generated opencode-v2 plugin shim" "${entry}"
     grep -q 'export { default } from ' "${entry}"
   done
+}
+
+@test "init leaves auto-loaded plugins out of the config" {
+  # v2 auto-loads every directory under .opencode/plugins/. A config entry for
+  # one registers the plugin twice and the host fails the second copy with
+  # "Duplicate plugin ID", which the TUI reports as a failed plugin.
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
   run v2 get "${CONFIG}" plugins
-  assert_output --partial 'plugins/on-hooks'
-  assert_output --partial 'plugins/pty'
+  assert_success
+  refute_output --partial 'plugins/on-hooks'
+  refute_output --partial 'plugins/mcp-sync'
+  refute_output --partial 'plugins/pty'
+}
+
+@test "init drops config entries for auto-loaded plugins" {
+  # A config seeded before the rule changed carries them; init must converge.
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  v2 upsert-plugin "${CONFIG}" ".opencode/plugins/on-hooks" >/dev/null
+  v2 upsert-plugin "${CONFIG}" ".opencode/plugins/mine" >/dev/null
+  v2 upsert-plugin "${CONFIG}" "opencode-some-package@1.2.3" >/dev/null
+
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  run v2 get "${CONFIG}" plugins
+  refute_output --partial '.opencode/plugins/'
+  assert_output --partial 'opencode-some-package@1.2.3'
 }
 
 
@@ -126,6 +149,35 @@ assert 'exports' in d, d
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
 
   refute [ -d "${PROJECT}/.opencode/tui-plugins" ]
+}
+
+@test "init retires the v1 TUI plugin list and keeps the rest" {
+  # opencode 2.3 still applies a project tui.json. Its v1 seed re-declared
+  # opencode-tabs@0.3.0 (rejected by 2.3's TUI module validator) and three
+  # ./tui-plugins/* paths this harness no longer links.
+  mkdir -p "${PROJECT}/.opencode"
+  cat > "${PROJECT}/.opencode/tui.json" <<'EOF'
+{
+  "$schema": "https://opencode.ai/tui.json",
+  "plugin_enabled": { "internal:sidebar-context": false },
+  "plugin": [
+    "opencode-tabs@0.3.0",
+    "./tui-plugins/pty-monitor/index.ts",
+    "./tui-plugins/tui-defaults/index.ts",
+    "./tui-plugins/provider-ttft/index.ts",
+    "opencode-mine@1.0.0"
+  ]
+}
+EOF
+
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${PROJECT}/.opencode/tui.json" plugin
+  refute_output --partial 'opencode-tabs'
+  refute_output --partial 'tui-plugins'
+  assert_output --partial 'opencode-mine@1.0.0'
+  run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${PROJECT}/.opencode/tui.json" plugin_enabled
+  assert_output --partial 'internal:sidebar-context'
 }
 
 @test "init migrates a v1 config and leaves a backup" {

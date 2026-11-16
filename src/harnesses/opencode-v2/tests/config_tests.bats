@@ -39,9 +39,9 @@ load_jsonc('${CONFIG}')"
 }
 
 @test "get reads a top-level key printed as JSON" {
-  run v2 get "${CONFIG}" plugins
+  run v2 get "${CONFIG}" instructions
   assert_success
-  assert_output --partial '.opencode/plugins/on-hooks'
+  assert_output --partial '.agents/memory/active/**/*.md'
 }
 
 @test "has-legacy is quiet on a v2 config" {
@@ -156,4 +156,28 @@ PY
   run v2 get "${CONFIG}" default_agent
   assert_output '"devbot"'
   _valid_jsonc
+}
+
+@test "remove-tui-plugin removes one entry and keeps the rest" {
+  # tui.json's array is singular `plugin`; a v1 seed's entries are retired one by
+  # one so a project's own plugin stays.
+  local tui="${WORK}/tui.json"
+  cat > "${tui}" <<'EOF'
+{
+  "plugin_enabled": { "internal:sidebar-context": false },
+  "plugin": ["opencode-tabs@0.3.0", "opencode-mine@1.0.0"]
+}
+EOF
+  run v2 remove-tui-plugin "${tui}" "opencode-tabs@0.3.0"
+  assert_success
+  run python3 "${V2_ROOT}/src/_shared/read_jsonc.py" "${tui}" plugin
+  refute_output --partial 'opencode-tabs'
+  assert_output --partial 'opencode-mine@1.0.0'
+}
+
+@test "remove-tui-plugin is a no-op on a missing entry" {
+  local tui="${WORK}/tui.json"
+  printf '{ "plugin": ["a@1.0.0"] }\n' > "${tui}"
+  run v2 remove-tui-plugin "${tui}" "b@2.0.0"
+  assert_failure
 }

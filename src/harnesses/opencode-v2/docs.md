@@ -62,16 +62,19 @@ shipped as dead weight:
 
 Verified on a 2.3.0 host:
 
-- **A configured local plugin path only resolves under `.opencode/plugins/`.**
-  Entries pointing anywhere else — `./.opencode/v2/plugins/x`,
-  `.opencode/v2/plugins/x` — are skipped **silently**, with no log line.
-- **A symlinked plugin entry is skipped too.** The entry must be a real file, so
+- **v2 auto-loads every directory under `.opencode/plugins/`.** Adding a
+  `plugins` entry that names one registers the same plugin twice; the host keeps
+  the first and fails the second with `Duplicate plugin ID`, which the TUI
+  reports as a **failed** plugin. This harness therefore writes the shim
+  directories and leaves `plugins` empty — `init.sh` also drops such entries
+  from a config seeded before the rule held.
+- **A symlinked plugin entry is skipped.** The entry must be a real file, so
   `init.sh` writes a small shim that re-exports the module's own source:
   `export { default } from "<DEV_BOT_ROOT>/src/harnesses/opencode-v2/hooks/x.ts"`.
   `import.meta.dir` inside the real module still resolves to the module, so
   there is one source of truth.
 
-Both harnesses therefore share `.opencode/plugins/`, and isolation comes from a
+Both harnesses share `.opencode/plugins/`, and isolation comes from a
 handover sweep rather than from separate directories:
 
 - v1 writes `*.ts` files there; v2 writes `<name>/index.ts` directories.
@@ -128,34 +131,29 @@ return content only.
 
 ## TUI parts
 
-V2 keeps TUI plugins, but as a **part of a plugin package**:
+V2 keeps TUI plugins, but as a **part of a plugin package** mounted by the
+terminal UI. opencode 2.3 validates the `./tui` default export as
+`{ id: string, setup(ctx) }`; a module shaped any other way is rejected with
+`Invalid V2 TUI plugin module` and shows up as a failed TUI plugin.
 
-- The default export of the `./tui` part is `{ id?, tui }`, where
-  `tui = async (api, options, meta) => …` — a different shape from the server
-  part's `Plugin.define`.
 - A local plugin directory with **no** `package.json` is read through bare file
   names at its root: `index.ts` is the server part and `tui.ts` the TUI part.
-- **Plugins listed in `opencode.jsonc` that expose a `./tui` part are loaded
-  automatically by the CLI.** The global `~/.config/opencode/cli.json` is only
-  for CLI-only plugins, so this harness never writes outside the project.
+- A package with only a TUI part belongs in the global
+  `~/.config/opencode/cli.json`, not in a project config.
+- opencode 2.3 still **applies** a project `.opencode/tui.json` if one exists,
+  but v2 declares no project-local client config. The v1 seed re-declared
+  `opencode-tabs@0.3.0` and three `./tui-plugins/*` paths, so `init.sh` retires
+  exactly those entries and leaves the project's own additions alone.
 
-Ported, as `tui/<name>/{server.ts,tui.ts}` linked into `.opencode/plugins/<name>/`:
+**Not ported:** `pty-monitor`, `tui-defaults`, and `provider-ttft`. They were
+written against the pre-2.3 API (`kv`/`slots`/`events`), which 2.3 no longer
+exposes, so linking them only produced `Invalid V2 TUI plugin module` on every
+start. Porting them needs a component rewrite against `@opencode/plugin/tui`,
+not a file move.
 
-| Plugin          | Behaviour                                        |
-| --------------- | ------------------------------------------------ |
-| `tui-defaults`  | seeds the tool-details kv default at TUI startup |
-| `provider-ttft` | shows time-to-first-token in the sidebar         |
-
-Both carry a trivial server part, because a TUI-only package would have to be
-registered globally in `cli.json`.
-
-**Not ported:** `pty-monitor` (~1,300 lines of UI). It needs a component
-rewrite against `@opencode/plugin/tui`, not a file move.
-
-**Verification boundary:** `opencode2 plugin list` resolves all five packages,
-including both TUI packages' server halves, and a headless `run` session loads
-them without error. The TUI parts themselves only mount in the interactive TUI,
-which cannot be exercised from here — their rendering is unverified.
+Third-party TUI plugins have the same requirement: `opencode-tabs@0.3.0`
+exports `{ id, tui }` and registers through `api.slots`, so it cannot load on
+2.3, and 2.3 ships session tabs natively (`tabs.*` in `cli.json`).
 
 ## Session store refresh
 

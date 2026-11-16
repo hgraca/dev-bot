@@ -310,7 +310,9 @@ _link_plugin_dir() {
     _write_shim "${dir}" "tui.ts" "${tui_src}" "plugins/${name} tui"
   fi
 
-  _v2 upsert-plugin "${CONFIG}" ".opencode/plugins/${name}" >/dev/null 2>&1 || true
+  # Deliberately no `plugins` config entry: v2 auto-loads every directory under
+  # .opencode/plugins/, so listing one registers the same plugin twice and the
+  # host fails the second copy with "Duplicate plugin ID".
 }
 
 # _write_plugin_manifest <dir> <name> [tui-source]
@@ -439,10 +441,13 @@ _link_module_plugins() {
     fi
 
     plugin_file="${mod_dir}plugin.opencode-v2.json"
-    [[ -f "${plugin_file}" ]] || continue
+      [[ -f "${plugin_file}" ]] || continue
     local plugin
     while IFS= read -r plugin; do
       [[ -z "${plugin}" ]] && continue
+      # .opencode/plugins/ is auto-loaded: a config entry there duplicates the
+      # plugin, and v2 fails the second registration.
+      [[ "${plugin}" == ".opencode/plugins/"* ]] && continue
       _v2 upsert-plugin "${CONFIG}" "${plugin}" >/dev/null 2>&1 || true
     done < <(jq -r '.[]' "${plugin_file}" 2>/dev/null)
   done
@@ -462,6 +467,10 @@ _link_harness_hooks() {
 }
 
 # ── Reconcile dev-bot's REQUIRED plugins into an already-seeded config ───────
+# Only a spec that lives outside .opencode/plugins/ needs a config entry. Every
+# plugin this build ships is auto-loaded from that directory, so adding one there
+# would register it twice; _reconcile_plugins below removes such entries from a
+# config seeded before this rule existed.
 _ensure_required_plugins() {
   local manifest="${MODULE_DIR}/required-plugins.jsonc"
   local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
@@ -470,6 +479,7 @@ _ensure_required_plugins() {
   local spec
   while IFS= read -r spec; do
     [[ -n "${spec}" ]] || continue
+    [[ "${spec}" == ".opencode/plugins/"* ]] && continue
     if _v2 get "${CONFIG}" plugins 2>/dev/null | grep -qF "\"${spec}\""; then
       continue
     fi
@@ -628,11 +638,20 @@ _retire_stale_plugin_dirs() {
 
 _reconcile_plugins() {
   [[ -f "${CONFIG}" ]] || return 0
-  local spec target removed=0
+  local spec target redundant=0 removed=0
   while IFS= read -r spec; do
     [[ -n "${spec}" ]] || continue
     [[ "${spec}" == ".opencode/"* ]] || continue
     target="${PROJECT_DIR}/${spec}"
+    # An entry under .opencode/plugins/ is always redundant: v2 auto-loads that
+    # directory, so listing it registers the plugin twice and the host fails the
+    # second copy with "Duplicate plugin ID".
+    if [[ "${spec}" == ".opencode/plugins/"* ]]; then
+      if _v2 remove-plugin "${CONFIG}" "${spec}" >/dev/null 2>&1; then
+        redundant=$((redundant + 1))
+      fi
+      continue
+    fi
     if [[ ! -d "${target}" ]]; then
       if _v2 remove-plugin "${CONFIG}" "${spec}" >/dev/null 2>&1; then
         removed=$((removed + 1))
@@ -640,8 +659,40 @@ _reconcile_plugins() {
     fi
   done < <(_v2 get "${CONFIG}" plugins 2>/dev/null | jq -r '.[]? | select(type=="string")' 2>/dev/null || true)
 
+  if [[ ${redundant} -gt 0 ]]; then
+    _ok "Dropped ${redundant} redundant plugin entrie(s) — .opencode/plugins/ is auto-loaded"
+  fi
   if [[ ${removed} -gt 0 ]]; then
     _ok "Removed ${removed} stale plugin entrie(s) pointing at missing packages"
+  fi
+}
+
+# ── Retire the v1 project TUI config's plugin list ────────────────────────────
+# This harness seeds no project tui.json: v2 takes terminal plugins from the
+# global cli.json and carries TUI parts as plugin-package exports. opencode 2.3
+# still APPLIES a project tui.json it finds, and the v1 seed re-declared
+# opencode-tabs@0.3.0 — which 2.3's module validator rejects — plus three
+# ./tui-plugins/* paths this harness no longer links. Strip exactly the v1 dist's
+# entries; a project's own additions and the plugin_enabled block stay.
+_retire_legacy_tui_config() {
+  local tui="${OPENCODE_DIR}/tui.json"
+  local v1_dist="${DEV_BOT_ROOT}/src/harnesses/opencode/tui.dist.jsonc"
+  local reader="${DEV_BOT_ROOT}/src/_shared/read_jsonc.py"
+  [[ -f "${tui}" && -f "${v1_dist}" && -f "${reader}" ]] || return 0
+
+  local spec retired=0
+  while IFS= read -r spec; do
+    [[ -n "${spec}" ]] || continue
+    if _v2 remove-tui-plugin "${tui}" "${spec}" >/dev/null 2>&1; then
+      retired=$((retired + 1))
+    fi
+  done < <(
+    python3 "${reader}" "${v1_dist}" plugin 2>/dev/null |
+      jq -r '.[]? | select(type=="string")' 2>/dev/null
+  )
+
+  if [[ ${retired} -gt 0 ]]; then
+    _ok "Retired ${retired} v1 TUI plugin entrie(s) from .opencode/tui.json"
   fi
 }
 
@@ -737,6 +788,7 @@ _register_dynamic_mcps
 _ensure_mcp_cwd
 _retire_stale_plugin_dirs
 _reconcile_plugins
+_retire_legacy_tui_config
 _reconcile_external_directory
 _remove_gitkeep_files
 _ensure_default_agent

@@ -1,13 +1,14 @@
 {
-  // The plugins an existing project's v2 config is reconciled up to, so a
-  // project seeded before a plugin existed does not silently diverge from the
-  // dist.
+  // The plugins this build SHIPS, so an existing project's stale dev-bot plugin
+  // packages can be retired. They are NOT config entries: every one lives under
+  // .opencode/plugins/, which v2 auto-loads, and listing one there registers the
+  // plugin twice — the host then fails the second copy ("Duplicate plugin ID").
+  // _ensure_required_plugins skips this prefix for that reason.
   //
-  // Scope is every plugin the dist ships: the dist's `plugins` array is the
-  // source of truth for what this harness runs with, and a project seeded
-  // earlier should converge on it rather than keep a subset. Additions only — a
-  // removal cannot propagate, because "remove anything the dist does not list"
-  // would delete plugins a project added itself.
+  // Scope is every plugin the dist ships — a project seeded earlier should
+  // converge on it rather than keep a subset. Additions only: a removal cannot
+  // propagate, because "remove anything the dist does not list" would delete
+  // plugins a project added itself.
   //
   // No `tui` list: v2 TUI parts are exports of the plugin packages themselves,
   // not separately registered paths.

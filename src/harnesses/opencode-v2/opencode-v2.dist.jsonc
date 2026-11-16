@@ -18,20 +18,17 @@
   // undo/revert is not used in this workspace.
   "snapshots": false,
   "instructions": ["AGENTS.md", ".agents/memory/active/**/*.md"],
-  // Configured local paths only resolve under .opencode/plugins/ in v2 — any
-  // other directory is skipped silently. Both harnesses share it, and init.sh
-  // sweeps the other harness's dev-bot-owned links on handover. Each entry must
-  // name a directory, not a file.
+  // Empty on purpose: v2 auto-loads every directory under .opencode/plugins/,
+  // so an entry naming one registers the same plugin a second time and the host
+  // rejects that copy with "Duplicate plugin ID" (the TUI then shows the plugin
+  // as failed). This array is for packages and plugin directories from other
+  // locations only.
   //
   // opencode-pty is deliberately absent: its published builds still depend on
   // the V1 SDK (@opencode-ai/plugin ^1.3.13), and V1 plugin implementations do
   // not run on a v2 host. Agent PTY capability comes from the module's own
   // hooks/pty.ts instead.
-  "plugins": [
-    ".opencode/plugins/on-hooks",
-    ".opencode/plugins/mcp-sync",
-    ".opencode/plugins/pty"
-  ],
+  "plugins": [],
   "default_agent": "devbot",
   // v2 nests every server under `mcp.servers`, and per-server enablement is
   // inverted: a server carries `disabled: true` to stay wired but not started.

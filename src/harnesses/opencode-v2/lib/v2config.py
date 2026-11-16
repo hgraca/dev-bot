@@ -15,6 +15,7 @@ Usage:
   v2config.py has-legacy <config>
   v2config.py upsert-plugin <config> <spec>
   v2config.py remove-plugin <config> <spec>
+  v2config.py remove-tui-plugin <tui.json> <spec>
   v2config.py merge-mcp <config> <key> <def-json>
   v2config.py remove-mcp <config> <key>
   v2config.py ensure-external-directory <config>
@@ -288,10 +289,10 @@ def cmd_upsert_plugin(path, spec):
     return 0
 
 
-def cmd_remove_plugin(path, spec):
+def _remove_string_from_array(path, key, spec):
     text = read(path)
     open_i, close_i = _root(text)
-    span = _member_container(text, open_i, close_i, "plugins", "[")
+    span = _member_container(text, open_i, close_i, key, "[")
     if not span:
         return 1
     for start, end in _array_items(text, span[0], span[1]):
@@ -302,6 +303,18 @@ def cmd_remove_plugin(path, spec):
         except Exception:
             continue
     return 1
+
+
+def cmd_remove_plugin(path, spec):
+    return _remove_string_from_array(path, "plugins", spec)
+
+
+# The v1 harness seeded project TUI plugins into tui.json's singular `plugin`
+# array. v2 reads no project-local client config, but 2.3 still applies the file,
+# so the v1 entries have to be retired rather than left to re-declare plugins
+# this host rejects.
+def cmd_remove_tui_plugin(path, spec):
+    return _remove_string_from_array(path, "plugin", spec)
 
 
 def cmd_merge_mcp(path, key, definition):
@@ -490,6 +503,8 @@ def main(argv):
         return cmd_upsert_plugin(path, rest[0])
     if cmd == "remove-plugin":
         return cmd_remove_plugin(path, rest[0])
+    if cmd == "remove-tui-plugin":
+        return cmd_remove_tui_plugin(path, rest[0])
     if cmd == "merge-mcp":
         return cmd_merge_mcp(path, rest[0], rest[1])
     if cmd == "remove-mcp":
