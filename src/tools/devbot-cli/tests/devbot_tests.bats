@@ -119,6 +119,10 @@ PY
   # ── Verify .git/info/exclude was updated with .ai/ entry ───────────────
   [ -f "$test_project/.git/info/exclude" ]
   grep -qF "# >>> DEVBOT - memory" "$test_project/.git/info/exclude"
+  # Generated runtime MCP manifests land in <devbot_dir>/mcp-runtime on every
+  # init, so the project ignore block must cover them.
+  grep -qF "# >>> DEVBOT" "$test_project/.git/info/exclude"
+  grep -qF "mcp-runtime" "$test_project/.git/info/exclude"
 
   # ── Verify .opencode directory created by opencode init ────────────────
   [ -d "$test_project/.opencode" ]

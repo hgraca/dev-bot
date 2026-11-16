@@ -200,6 +200,9 @@ _ensure_gitignore() {
     "${devbot_dir}/commands"
     "${devbot_dir}/skills"
     "${devbot_dir}/tools"
+    # Canonical runtime MCP manifests (and their ownership record): generated on
+    # every init from what the modules report, so never project state to commit.
+    "${devbot_dir}/mcp-runtime"
   )
 
   if _upsert_gitignore_section "${exclude}" \
