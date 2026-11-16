@@ -39,7 +39,7 @@ fi
 
 bin="$(_devbot_opencode2_bin)"
 if [[ -z "${bin}" ]]; then
-  _fatal "opencode 2.x binary not found — looked at OPENCODE2_BIN, ${HOME}/.opencode/bin/opencode2 and ${HOME}/.opencode/v2/opencode"
+  _fatal "opencode 2.x binary not found — looked at OPENCODE2_BIN, an opencode that reports 2.x, ${HOME}/.opencode/bin/opencode2 and ${HOME}/.opencode/v2/opencode"
   exit 1
 fi
 

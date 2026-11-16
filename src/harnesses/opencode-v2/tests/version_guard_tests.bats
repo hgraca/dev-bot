@@ -236,3 +236,66 @@ EOF
   [[ "${combined}" == *"3.1.0"* ]]
   [[ "${combined}" == *"unverified"* ]]
 }
+
+# ── binary resolution: a plain `opencode` may be the 2.x install ─────────────
+# Some machines ship 2.x as `opencode`; others keep it beside a 1.x install as
+# `opencode2`. The plain name is used only when it reports 2.x, and is recorded
+# with its own marker so a test can prove which binary launched.
+
+_fake_opencode_on_path() {
+  local version="$1"
+  mkdir -p "${FAKE_HOME}/bin"
+  cat > "${FAKE_HOME}/bin/opencode" <<SCRIPT
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "--version" ]]; then
+  printf '%s\n' "${version}"
+  exit 0
+fi
+printf 'opencode-launch:%s\n' "\$*" >> "${LAUNCH_LOG}"
+SCRIPT
+  chmod +x "${FAKE_HOME}/bin/opencode"
+}
+
+@test "start.sh launches a plain opencode that reports 2.x" {
+  _fake_opencode_on_path "opencode v2.3.0"
+  # Also installed, and the fallback — the 2.x `opencode` must win.
+  _fake_opencode2 "2.3.0"
+
+  DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" PATH="${FAKE_HOME}/bin:${FAKE_PATH}" \
+    run bash "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+
+  assert_success
+  run cat "${LAUNCH_LOG}"
+  assert_output --partial "opencode-launch:"
+  # The fallback must not have run: line-anchored, since the marker above
+  # contains the substring "launch:".
+  run grep -q '^launch:' "${LAUNCH_LOG}"
+  assert_failure
+}
+
+@test "a 1.x opencode on PATH is skipped in favour of opencode2" {
+  _fake_opencode_on_path "1.18.35"
+  _fake_opencode2 "2.3.0"
+
+  DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" PATH="${FAKE_HOME}/bin:${FAKE_PATH}" \
+    run bash "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+
+  assert_success
+  run cat "${LAUNCH_LOG}"
+  assert_output --partial "launch:"
+  refute_output --partial "opencode-launch:"
+}
+
+@test "a 1.x opencode alone is never launched and is reported missing" {
+  # The v1 harness owns that binary; launching it from here would boot a host
+  # with none of this module's plugins.
+  _fake_opencode_on_path "1.18.35"
+
+  DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" PATH="${FAKE_HOME}/bin:${FAKE_PATH}" \
+    run bash "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+
+  local combined="${output}${stderr:-}"
+  assert_failure
+  [[ "${combined}" == *"opencode 2.x binary not found"* ]]
+  [ ! -s "${LAUNCH_LOG}" ]
+}

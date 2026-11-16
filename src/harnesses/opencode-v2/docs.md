@@ -25,9 +25,11 @@ V1 plugin implementations **do not run** on a V2 host, so `src/harnesses/opencod
 cannot be reused by renaming files or config keys.
 
 The v1 adapter therefore refuses a 2.x host (`_devbot_require_opencode_1x`), and
-this one refuses a 1.x host (`_devbot_require_opencode_2x`). The two lines run
-side by side: `opencode` launches 1.x from `~/.opencode/bin/opencode`, `opencode2`
-launches 2.x from `~/.opencode/v2/opencode`.
+this one refuses a 1.x host (`_devbot_require_opencode_2x`). `_devbot_opencode2_bin`
+resolves the 2.x binary: `OPENCODE2_BIN` if set, then a plain `opencode` on
+`PATH` **when its `--version` reports 2.x**, then `~/.opencode/bin/opencode2`,
+`~/.opencode/v2/opencode`, and `opencode2` on `PATH`. A 1.x `opencode` is never a
+candidate — it belongs to the other harness.
 
 ## What differs from v1
 
@@ -87,9 +89,9 @@ incoming harness does the cleaning.
 
 ## Version support
 
-`_devbot_require_opencode_2x` reads `opencode2 --version` and refuses the 1.x
-line. It fails open on a missing binary and on an unparseable version, and
-allows a source build reporting `0.0.0--<timestamp>`.
+`_devbot_require_opencode_2x` reads the resolved binary's `--version` and refuses
+the 1.x line. It fails open on a missing binary and on an unparseable version,
+and allows a source build reporting `0.0.0--<timestamp>`.
 
 ## Config migration
 
