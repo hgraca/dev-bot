@@ -67,19 +67,6 @@ v2() {
   assert_output --partial 'plugins/pty'
 }
 
-@test "init links a TUI part beside the server part" {
-  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
-  local name
-  for name in tui-defaults provider-ttft; do
-    assert [ -f "${PROJECT}/.opencode/plugins/${name}/index.ts" ]
-    assert [ -f "${PROJECT}/.opencode/plugins/${name}/tui.ts" ]
-    refute [ -L "${PROJECT}/.opencode/plugins/${name}/tui.ts" ]
-    grep -q 'export { default } from ' "${PROJECT}/.opencode/plugins/${name}/tui.ts"
-  done
-  run v2 get "${CONFIG}" plugins
-  assert_output --partial 'plugins/tui-defaults'
-  assert_output --partial 'plugins/provider-ttft'
-}
 
 @test "init leaves root-level module assets alone" {
   # The sweep must only touch the harness-owned farms: .opencode/ root also
@@ -96,7 +83,7 @@ v2() {
 @test "every plugin directory carries a package.json" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
   local name
-  for name in on-hooks mcp-sync pty tui-defaults provider-ttft; do
+  for name in on-hooks mcp-sync pty; do
     assert [ -f "${PROJECT}/.opencode/plugins/${name}/package.json" ]
     python3 -c "
 import json,sys
@@ -105,12 +92,6 @@ assert d['name'].startswith('devbot-'), d
 assert 'exports' in d, d
 "
   done
-  # The TUI parts declare their exports entry.
-  python3 -c "
-import json
-d=json.load(open('${PROJECT}/.opencode/plugins/tui-defaults/package.json'))
-assert d['exports'].get('./tui') == './tui.ts', d
-"
 }
 
 @test "init pins local MCP servers to the project directory" {
@@ -241,4 +222,83 @@ EOF
   assert_success
   assert_output --partial '"codebase-index"'
   rm -f "${cfg}"
+}
+
+@test "init does not link the retired TUI parts" {
+  # opencode 2.3 rejects their module shape, so shipping them only produced
+  # "Invalid V2 TUI plugin module" on every start.
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  [ ! -e "${PROJECT}/.opencode/plugins/tui-defaults" ]
+  [ ! -e "${PROJECT}/.opencode/plugins/provider-ttft" ]
+  run v2 get "${CONFIG}" plugins
+  refute_output --partial "tui-defaults"
+  refute_output --partial "provider-ttft"
+}
+
+@test "init retires a plugin package this build no longer ships" {
+  # An earlier init generated it (marker present) and listed it in the config.
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  mkdir -p "${PROJECT}/.opencode/plugins/old-plugin"
+  printf '%s\n' "// dev-bot: generated opencode-v2 plugin shim (do not edit)" \
+    "export { default } from \"/nope\"" > "${PROJECT}/.opencode/plugins/old-plugin/index.ts"
+  v2 upsert-plugin "${CONFIG}" ".opencode/plugins/old-plugin" >/dev/null
+
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  [ ! -e "${PROJECT}/.opencode/plugins/old-plugin" ]
+  run v2 get "${CONFIG}" plugins
+  refute_output --partial "old-plugin"
+}
+
+@test "init keeps a user's own plugin package" {
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  mkdir -p "${PROJECT}/.opencode/plugins/mine"
+  printf 'export default { id: "mine", setup() {} }\n' \
+    > "${PROJECT}/.opencode/plugins/mine/index.ts"
+
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  assert [ -f "${PROJECT}/.opencode/plugins/mine/index.ts" ]
+}
+
+@test "init removes the v1 harness's plugin links" {
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  ln -sfn "${DEV_BOT_ROOT}/src/harnesses/opencode/hooks/on-hooks.ts" \
+    "${PROJECT}/.opencode/plugins/on-hooks.ts"
+  printf 'export default {}\n' > "${PROJECT}/.opencode/plugins/mine.ts"
+
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  assert [ ! -e "${PROJECT}/.opencode/plugins/on-hooks.ts" ]
+  assert [ -f "${PROJECT}/.opencode/plugins/mine.ts" ]
+}
+
+@test "init never removes through a symlinked plugin directory" {
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  local outside
+  outside="$(mktemp -d)"
+  printf '%s\n' "// dev-bot: generated opencode-v2 plugin shim (do not edit)" \
+    > "${outside}/index.ts"
+  ln -sfn "${outside}" "${PROJECT}/.opencode/plugins/elsewhere"
+
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  assert [ -f "${outside}/index.ts" ]
+  rm -r -f "${outside}"
+}
+
+@test "init never treats a symlinked entry file as a generated package" {
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  local outside
+  outside="$(mktemp)"
+  printf '%s\n' "// dev-bot: generated opencode-v2 plugin shim (do not edit)" > "${outside}"
+  mkdir -p "${PROJECT}/.opencode/plugins/mine"
+  ln -sfn "${outside}" "${PROJECT}/.opencode/plugins/mine/index.ts"
+
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  assert [ -d "${PROJECT}/.opencode/plugins/mine" ]
+  assert [ -f "${outside}" ]
+  rm -f "${outside}"
 }

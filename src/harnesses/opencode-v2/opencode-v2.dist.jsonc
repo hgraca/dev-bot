@@ -30,9 +30,7 @@
   "plugins": [
     ".opencode/plugins/on-hooks",
     ".opencode/plugins/mcp-sync",
-    ".opencode/plugins/pty",
-    ".opencode/plugins/tui-defaults",
-    ".opencode/plugins/provider-ttft"
+    ".opencode/plugins/pty"
   ],
   "default_agent": "devbot",
   // v2 nests every server under `mcp.servers`, and per-server enablement is

@@ -357,20 +357,10 @@ _write_shim() {
   _ok "${label} linked"
 }
 
-# ── Link the module's TUI parts ───────────────────────────────────────────────
-# Each directory under tui/ is a plugin package with a server part (index.ts)
-# and a TUI part (tui.ts). V2 loads the TUI part from the plugins its server
-# loads, so listing the package in opencode.jsonc is enough — nothing is written
-# to the global cli.json.
-_link_tui_plugins() {
-  [[ -d "${MODULE_DIR}/tui" ]] || return 0
-  local dir name
-  for dir in "${MODULE_DIR}/tui/"*/; do
-    [[ -f "${dir}server.ts" ]] || continue
-    name="$(basename "${dir}")"
-    _link_plugin_dir "${name}" "${dir}server.ts" "${dir}tui.ts"
-  done
-}
+# The module's TUI parts are not linked: opencode 2.3 validates a TUI module as
+# an object with `id` and `setup`, and no longer exposes the kv/slots/events
+# surface they were written against (see tui/*/tui.ts). Linking them only
+# produced "Invalid V2 TUI plugin module" on every start.
 
 # ── Link module hooks declared under hooks/opencode/ ──────────────────────────
 _link_plugins() {
@@ -596,6 +586,46 @@ _ensure_mcp_cwd() {
 }
 
 # ── Drop plugin entries whose local package no longer exists ──────────────────
+# Retire plugin packages dev-bot generated that this build no longer ships, and
+# the v1 harness's plugin links. Only a shim carrying the marker is ours; a
+# user's own package or file at the same path is left alone.
+_retire_stale_plugin_dirs() {
+  local plugins_dir="${OPENCODE_DIR}/plugins"
+  [[ -d "${plugins_dir}" ]] || return 0
+
+  local declared
+  declared="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" \
+    "${MODULE_DIR}/required-plugins.jsonc" server 2>/dev/null |
+    jq -r '.[]?' 2>/dev/null || true)"
+
+  local dir name link target
+  for dir in "${plugins_dir}"/*/; do
+    [[ -d "${dir}" ]] || continue
+    # A symlink here is a pointer, not a package: removing through it would
+    # delete whatever it names.
+    [[ -L "${dir%/}" ]] && continue
+    # The marker must come from a file we wrote, not through a link a user
+    # pointed at something that happens to contain it.
+    [[ -L "${dir}index.ts" ]] && continue
+    [[ -f "${dir}index.ts" ]] && grep -qF "${_PLUGIN_SHIM_MARKER}" "${dir}index.ts" 2>/dev/null || continue
+    name="$(basename "${dir}")"
+    printf '%s\n' "${declared}" | grep -Fxq ".opencode/plugins/${name}" && continue
+    rm -r -f "${dir}"
+    _ok "Removed retired plugin package ${name}"
+  done
+
+  for link in "${plugins_dir}"/*.ts; do
+    [[ -L "${link}" ]] || continue
+    target="$(readlink "${link}" 2>/dev/null || true)"
+    case "${target}" in
+      "${DEV_BOT_ROOT}"/*)
+        rm -f "${link}"
+        _ok "Removed v1 plugin link $(basename "${link}")"
+        ;;
+    esac
+  done
+}
+
 _reconcile_plugins() {
   [[ -f "${CONFIG}" ]] || return 0
   local spec target removed=0
@@ -700,12 +730,12 @@ _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_D
 _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 _link_mcp_assets
 _link_harness_hooks
-_link_tui_plugins
 _link_plugins_modules
 _link_module_plugins
 _register_module_mcps
 _register_dynamic_mcps
 _ensure_mcp_cwd
+_retire_stale_plugin_dirs
 _reconcile_plugins
 _reconcile_external_directory
 _remove_gitkeep_files
