@@ -82,10 +82,22 @@ handover sweep rather than from separate directories:
 - v1 writes `*.ts` files there; v2 writes `<name>/index.ts` directories.
 - On init, v2 removes every symlink under `.opencode/` that resolves under
   `DEV_BOT_ROOT`, so a deselected v1 adapter's plugins cannot be auto-loaded.
-- User files and `.opencode/opencode.json` are never touched.
+- On init, v1 retires the `<name>/` directories whose `index.ts` carries the
+  v2 shim marker (`_sweep_v2_plugin_dirs`). Retiring the `pty` package also drops
+  `bun-pty` from `.opencode/package.json`, but only when it is named in
+  `.opencode/.devbot-managed-deps` — the record this harness writes when it seeds
+  that manifest, so a dependency the project declared itself is never touched.
+- User files and `.opencode/opencode.json` are never touched; the manifest edit
+  above is the single exception, and it is keyed on the v2 package being gone.
 
 V1's `reset.sh` exits when it is not the selected harness by design, so the
 incoming harness does the cleaning.
+
+A package carries its parts as siblings: `index.ts` is the server entry, and
+`tui.ts` / `rpc.ts` are linked only when they exist, because the host rejects a
+package whose `exports` names a file that is not there. `hooks/pty/` is the only
+such package today, and its manifest is the only one with `./tui` and `./rpc`
+exports.
 
 ## Version support
 
@@ -115,21 +127,56 @@ Permission keys with no v2 action are dropped rather than mistranslated:
 
 v1 pinned `opencode-pty@0.3.6`. Its published builds still depend on
 `@opencode-ai/plugin ^1.3.13`, and V1 plugin implementations do not run on a V2
-host, so there is no upstream build to pin. `hooks/pty.ts` provides the five
-tools (`pty_spawn`, `pty_write`, `pty_read`, `pty_list`, `pty_kill`) directly via
-`ctx.tool.transform`, backed by `bun-pty`, which `init.sh` installs with `bun install` (~2s). The
-scaffold declares **only** bun-pty: `@opencode/plugin` is resolved by the host at
-runtime, and listing it pulls its full dependency graph on every install for no
-benefit. The plugin also resolves bun-pty from the project's
-`.opencode/node_modules` as a fallback, because the re-export shim makes a bare
-specifier resolve against the dev-bot checkout instead. If it cannot be
-resolved the tools still register and return an actionable message rather than
-vanishing from the toolset.
+host, so there is no upstream build to pin. `hooks/pty/` provides the five tools
+(`pty_spawn`, `pty_write`, `pty_read`, `pty_list`, `pty_kill`) directly via
+`ctx.tool.transform`, backed by `bun-pty`, which `init.sh` installs with
+`bun install` (~2s). The scaffold declares **only** bun-pty: `@opencode/plugin`
+is resolved by the host at runtime, and listing it pulls its full dependency
+graph on every install for no benefit. The plugin also resolves bun-pty from the
+project's `.opencode/node_modules` as a fallback, because the re-export shim
+makes a bare specifier resolve against the dev-bot checkout instead. If it
+cannot be resolved the tools still register and return an actionable message
+rather than vanishing from the toolset.
 
 Verified end to end on a 2.3.0 host: spawn → read (`hello-from-pty`, exit 0) →
 kill. A tool result carrying `output` must declare an output schema — without
 one the whole result fails to serialise and the model retries, so these tools
 return content only.
+
+### The PTY extension owns three parts
+
+`hooks/pty/` is a plugin package, not a hook file:
+
+| File          | Part   | What it does                                                      |
+| ------------- | ------ | ----------------------------------------------------------------- |
+| `index.ts`    | server | The five tools, the session registry, registers `PtyRpc`          |
+| `tui.ts`      | TUI    | The sidebar block and the session panel                           |
+| `rpc.ts`      | RPC    | The contract both halves import: session info shape, method list  |
+| `lib.ts`      | —      | Pure helpers (info shape, row text, tail, pagination) + its tests |
+| `sessions.ts` | —      | The registry: spawn, buffer, read, write, kill + its tests        |
+
+**The session info carries `parentSessionId`.** `execute(input, context)` gives
+the spawning agent session in `context.sessionID`, so `pty_list` and the RPC can
+attribute a session and filter by it — the field proposed upstream in
+[shekohex/opencode-pty#91](https://github.com/shekohex/opencode-pty/pull/91).
+The published shape otherwise mirrors the v1 monitor's (`title`, `command`,
+`workdir`, `status`, `pid`, `exitCode`, `createdAt`, `exitAt`, `lineCount`), with
+`status` derived rather than stored: `running` until the exit callback stamps a
+time, then `killed` if we stopped it and `exited` otherwise. There is no `args`:
+the tools take one command line, and splitting it back into argv would invent a
+shape the session never had.
+
+**The RPC is the only channel between the parts.** They run in different
+processes and share no memory; v1's monitor scraped an HTTP port the plugin
+posted into the transcript, and v2 has no such surface. `index.ts` registers
+`PtyRpc` with `ctx.rpc.register`, `tui.ts` calls it through `ctx.client.rpc`.
+The contract is three methods: `list` (sessions, optionally filtered by the
+spawning session), `read` (a tail of a session's output) and `kill` (stop a
+session and optionally drop its record — what the dismissal controls call).
+`rpc.ts` deliberately imports nothing: the TUI process provides
+`@opencode/plugin/tui` to a plugin module and no other `@opencode/*` specifier,
+so a schema helper imported there would fail to resolve. A plain JSON Schema
+object is a valid RPC definition, so the contract needs no import at all.
 
 ## TUI parts
 
@@ -147,19 +194,61 @@ terminal UI. opencode 2.3 validates the `./tui` default export as
   `opencode-tabs@0.3.0` and three `./tui-plugins/*` paths, so `init.sh` retires
   exactly those entries and leaves the project's own additions alone.
 
-**Shipped:** nothing. This harness links server plugins only; a TUI part would
-have to ride inside one of their packages.
+**Shipped:** the PTY monitor, as the `./tui` part of the `hooks/pty/` package.
+
+It is the v1 `pty-monitor` experience re-earned on 2.3:
+
+- **Sidebar.** A `sidebar.content` block lists the PTY sessions the agent
+  session in view spawned, one row each: a bullet tinted green while running, red
+  on a non-zero exit, muted otherwise; the title or command; and the live line
+  count, exit code or status. "Spawned by" means the whole family, not just that
+  session id: a subagent's PTY carries the subagent's `parentSessionId`, and
+  `ctx.data.session.family()` is what keeps those rows visible. A header counts
+  them and reads `PTY unavailable` when the RPC call fails. No sessions means no
+  block at all, so an idle session pays no line for it.
+- **Panel.** Clicking a row opens the output in the `session.panel` slot, not a
+  dialog or a route: the session view stays put, and the host owns the panel's
+  layout, focus and fullscreen toggle. The panel header carries id, status, pid,
+  line count and elapsed time, then the command and its workdir; the body is a
+  bottom-pinned scrollbox over the last 300 lines the RPC returns, refreshed once
+  a second.
+
+Both halves poll: the list every 2s, the open panel's output every 1s.
+
+**Dismissal works from the sidebar**, as it did in v1 — the agent's `pty_kill`
+tool is not something the user at the keyboard can reach:
+
+- a `✕` on each row removes that session; a **running** one is confirmed first,
+  because removing it kills a live process, while a finished one is only a record
+  and goes at once;
+- `(clear finished)` in the block header drops every stopped session the block
+  shows. It is rendered only when something can be cleared, so it never offers to
+  delete nothing, and it never touches a live session;
+- a removal is a **cleanup**: the record and its buffer go, which is exactly what
+  `pty_kill cleanup=true` does. Removing the row the panel is showing closes the
+  panel rather than leaving it on an empty id.
+
+Underneath, the registry still bounds itself: the twenty finished sessions that
+stopped most recently are kept and the rest are dropped automatically, so a
+session nobody dismisses cannot grow the process the way `opencode-pty`'s list
+did.
+
+**Verified on a 2.3.0 host:** the package's three parts load (the host logs no
+failed plugin), the block renders in `sidebar.content` after the built-in MCP
+block, and its header reads `PTY` rather than `PTY unavailable` — which is the
+RPC round-trip from the TUI process succeeding. Clicking a row and the panel's
+scroll behaviour need a live session and a human at the keyboard; they are the
+one part of this module no test covers.
 
 **Retired:** `provider-ttft` — ported once, then dropped: 2.3's built-in
 `opencode.prompt.footer` already renders `· 1.2 ttft` (and `tok/s`), both gated
 by the `session.tps` CLI setting, so a second copy in the sidebar was noise.
 `init.sh` retires the package an earlier build linked.
 
-**Not ported:** `pty-monitor` and `tui-defaults`. Both were written against the
-pre-2.3 API (`kv`/`slots`/`events`), which 2.3 no longer exposes, so linking them
-only produced `Invalid V2 TUI plugin module` on every start. `tui-defaults` is
-the harder one: its only job is seeding the tool-details kv default, and 2.3 has
-no plugin-facing kv surface to seed.
+**Not ported:** `tui-defaults`. It was written against the pre-2.3 API
+(`kv`/`slots`/`events`), which 2.3 no longer exposes, so linking it only produced
+`Invalid V2 TUI plugin module` on every start. Its only job is seeding the
+tool-details kv default, and 2.3 has no plugin-facing kv surface to seed.
 
 ### Sidebar blocks are plugins
 

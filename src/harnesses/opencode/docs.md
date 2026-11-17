@@ -90,6 +90,16 @@ A dist-backed config is **seed-once**: `init.sh` writes it only when the file is
 
 `opencode-pty` is a **hard dependency** — its HTTP API is the only window onto PTY sessions. Its server binds a random port and publishes it only by posting a message into the session; dev-bot reads the port from `/proc` instead (its own listening sockets). Starting the server is **never a side effect of load**: opencode awaits every TUI plugin factory before the TUI is usable, and a start goes through one of opencode-pty's commands, which runs server initialisation and needs a throwaway session. So loading resolves an already-running server by discovery alone, and a start happens only when asked — expanding the panel (collapsed by default) or running `/pty-monitor` starts it inside a throwaway session that is then deleted, so the URL message never litters your transcript. Off Linux there is no `/proc`, so that bootstrap is what resolves the origin.
 
+#### Handing over from the v2 adapter
+
+The v2 harness links its own plugins as directory packages under `.opencode/plugins/`
+(`<name>/index.ts`), which this one never registers. `init.sh` retires them on the
+way in (`_sweep_v2_plugin_dirs`, keyed on the shim marker) and drops `bun-pty`
+from `.opencode/package.json` (`_retire_v2_pty_dependency`) — the v2 PTY
+extension is the only thing that declared it, and a host that installs the config
+directory's dependencies on start would otherwise fetch it for a plugin nothing
+loads.
+
 #### Tool-details default
 
 `src/harnesses/opencode/tui-defaults/` seeds dev-bot's opinion that **tool details start hidden**. "Hide tool details" is TUI runtime state — the `tool_details_visibility` boolean in opencode's kv store — not a config key, so no dist template can set it and a fresh install opens with details shown. The plugin writes the value at startup through the same reactive kv store opencode's own toggle uses.
