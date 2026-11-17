@@ -147,11 +147,13 @@ terminal UI. opencode 2.3 validates the `./tui` default export as
   `opencode-tabs@0.3.0` and three `./tui-plugins/*` paths, so `init.sh` retires
   exactly those entries and leaves the project's own additions alone.
 
-**Shipped:** `provider-ttft` (`tui/provider-ttft/`), linked as
-`.opencode/plugins/provider-ttft/` with a server part and the TUI row. It reads
-`time.firstToken` / `time.created` from `message.updated` — 2.3 stamps both on
-the assistant message — and renders `TTFT 1.2s` at the top of `sidebar.content`
-(`prepend`; every built-in block appends).
+**Shipped:** nothing. This harness links server plugins only; a TUI part would
+have to ride inside one of their packages.
+
+**Retired:** `provider-ttft` — ported once, then dropped: 2.3's built-in
+`opencode.prompt.footer` already renders `· 1.2 ttft` (and `tok/s`), both gated
+by the `session.tps` CLI setting, so a second copy in the sidebar was noise.
+`init.sh` retires the package an earlier build linked.
 
 **Not ported:** `pty-monitor` and `tui-defaults`. Both were written against the
 pre-2.3 API (`kv`/`slots`/`events`), which 2.3 no longer exposes, so linking them

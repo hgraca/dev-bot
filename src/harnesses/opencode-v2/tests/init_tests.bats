@@ -276,34 +276,30 @@ EOF
   rm -f "${cfg}"
 }
 
-@test "init does not link the retired TUI parts" {
+@test "init links no TUI part at all" {
   # tui-defaults is still on the pre-2.3 API (its kv surface has no 2.3
-  # equivalent); provider-ttft was ported and is linked by its own test below.
+  # equivalent), and provider-ttft was retired once 2.3's built-in prompt footer
+  # started reporting ttft. This harness ships server plugins only.
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
 
   [ ! -e "${PROJECT}/.opencode/plugins/tui-defaults" ]
+  [ ! -e "${PROJECT}/.opencode/plugins/provider-ttft" ]
   run v2 get "${CONFIG}" plugins
   refute_output --partial "tui-defaults"
+  refute_output --partial "provider-ttft"
 }
 
-@test "init links the TTFT TUI part as a plugin package" {
+@test "init retires the TTFT package an earlier build shipped" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
-  local dir="${PROJECT}/.opencode/plugins/provider-ttft"
+  mkdir -p "${PROJECT}/.opencode/plugins/provider-ttft"
+  printf '%s\n' "// dev-bot: generated opencode-v2 plugin shim (do not edit)" \
+    "export { default } from \"/nope\"" > "${PROJECT}/.opencode/plugins/provider-ttft/index.ts"
 
-  assert [ -f "${dir}/index.ts" ]
-  assert [ -f "${dir}/tui.ts" ]
-  # Both entries must be real files: v2 skips a symlinked entry silently.
-  refute [ -L "${dir}/index.ts" ]
-  refute [ -L "${dir}/tui.ts" ]
-  grep -q "dev-bot: generated opencode-v2 plugin shim" "${dir}/tui.ts"
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
 
-  run python3 -c "
-import json
-d = json.load(open('${dir}/package.json'))
-assert d['exports']['.'] == './index.ts', d
-assert d['exports']['./tui'] == './tui.ts', d
-"
-  assert_success
+  [ ! -e "${PROJECT}/.opencode/plugins/provider-ttft" ]
+  run v2 get "${CONFIG}" plugins
+  refute_output --partial "provider-ttft"
 }
 
 @test "init retires a plugin package this build no longer ships" {

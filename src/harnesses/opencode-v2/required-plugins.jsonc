@@ -15,7 +15,6 @@
   "server": [
     ".opencode/plugins/on-hooks",
     ".opencode/plugins/mcp-sync",
-    ".opencode/plugins/pty",
-    ".opencode/plugins/provider-ttft"
+    ".opencode/plugins/pty"
   ]
 }
