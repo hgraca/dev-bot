@@ -278,12 +278,22 @@ _sweep_foreign_artifacts() {
   # module-authored assets (`tools-mcp-serve.sh`, `*-serve.mcp.sh`, wrapper .js)
   # that are symlinks into dev-bot too — sweeping those breaks their MCP servers
   # with exit 127.
+  #
+  # A link into the project's own skill farm is never foreign, even though its
+  # target resolves on into dev-bot's vendored sources: `_link_skill_farm` owns
+  # those (audit-01 FAIL-4). Without this the sweep deleted every farm entry at
+  # the start of each init and the farm had to be rebuilt from scratch.
   local removed=0 link target resolved candidate farm
+  local farm_dir
+  farm_dir="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
   for farm in plugins plugin tui-plugins agents commands tools skills; do
     [[ -d "${OPENCODE_DIR}/${farm}" ]] || continue
   while IFS= read -r -d '' link; do
     target="$(readlink "${link}" 2>/dev/null || true)"
     [[ -n "${target}" ]] || continue
+    local direct
+    direct="$(_devbot_link_direct_target "${link}")"
+    [[ -n "${direct}" && "${direct}" == "${farm_dir}"/* ]] && continue
     resolved="$(readlink -f "${link}" 2>/dev/null || true)"
     if [[ -z "${resolved}" ]]; then
       # A dev-bot link whose source moved or was removed still has to go, and

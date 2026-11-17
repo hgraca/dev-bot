@@ -485,3 +485,21 @@ EOF
   assert [ ! -e "${PROJECT}/.opencode/skills/gone" ]
 }
 
+
+@test "init keeps a farm entry whose target lives under dev-bot (external modules)" {
+  # External-module skills enter the farm as links into the vendored source
+  # (vendor/<vendor>/<repo>/skills), so their .opencode/skills link RESOLVES under
+  # DEV_BOT_ROOT. The handover sweep and the declared-asset pruner both treat a
+  # link resolving under dev-bot as a stale asset, which deleted every external
+  # module skill on each reinit.
+  mkdir -p "${PROJECT}/.agents/skills"
+  ln -sfn "${DEV_BOT_ROOT}/src/agentic/git/skills" "${PROJECT}/.agents/skills/probe-external"
+
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  assert [ -L "${PROJECT}/.opencode/skills/probe-external" ]
+  # And the skill behind it is reachable: the id is the SKILL.md parent directory.
+  assert [ -f "${PROJECT}/.opencode/skills/probe-external/git-commits/SKILL.md" ]
+}
+

@@ -3011,6 +3011,19 @@ _harness_delegate_type() {
 
       local dest="${agents_path}/${name}"
 
+      # A link that already points INTO this vault is the harness's own farm
+      # entry, put there on a previous run (opencode-v2 links every farm entry
+      # back into .opencode/skills). Migrating it would collide with its own
+      # source and litter a <name>.bkp duplicate — which the host then registers
+      # as a second copy of every skill behind it.
+      if [[ -L "${item}" ]]; then
+        local item_direct
+        item_direct="$(_devbot_link_direct_target "${item}")"
+        if [[ -n "${item_direct}" && "${item_direct}" == "${agents_path}/"* ]]; then
+          continue
+        fi
+      fi
+
       # Collision policy: an existing dest keeps its name (devbot artifact
       # wins); the user's artifact is preserved as <name>.bkp so nothing is
       # clobbered or lost. A symlink pointing at the same target is the same
@@ -3661,21 +3674,45 @@ _devbot_link_harness_assets() {
 
   # Prune: a dev-bot-owned link nothing declares is stale (module disabled, or
   # the asset was renamed). A user's own file is never a symlink into dev-bot.
+  local farm_dir
+  farm_dir="${project_dir}/$(_devbot_get_project_dir "${project_dir}")/skills"
   _prune_declared_links "${target_dir}" "${declared_mcp}" ""
-  _prune_declared_links "${target_dir}/skills" "${declared_skills}" "skills/"
+  _prune_declared_links "${target_dir}/skills" "${declared_skills}" "skills/" "${farm_dir}"
 }
 
-# _prune_declared_links <dir> <space-delimited declared names> [label-prefix]
+# _devbot_link_direct_target <link>
+#   What a symlink points at, WITHOUT expanding any symlink in the chain.
+#   `readlink -f`/plain `realpath` follow the whole chain, so a link into the
+#   skill farm resolves on through to the vendored source and stops looking like
+#   what it is (`<devbot_dir>/skills/<entry>`). Ownership tests need the direct
+#   target: a link the harness created into the farm must not be mistaken for a
+#   stale module asset.
+_devbot_link_direct_target() {
+  local link="$1" target
+  target="$(readlink "${link}" 2>/dev/null || true)"
+  [[ -n "${target}" ]] || return 0
+  [[ "${target}" == /* ]] || target="$(dirname "${link}")/${target}"
+  realpath -m -s "${target}" 2>/dev/null || printf '%s' "${target}"
+}
+
+# _prune_declared_links <dir> <space-delimited declared names> [label-prefix] [owned-prefix]
+#   <owned-prefix> names a tree this harness owns and links into (the skill farm).
+#   A link whose DIRECT target is inside it is never pruned as a stale asset,
+#   even when that target resolves on into dev-bot's vendored sources.
 _prune_declared_links() {
-  local dir="$1" declared="$2" prefix="${3:-}"
+  local dir="$1" declared="$2" prefix="${3:-}" owned_prefix="${4:-}"
   [[ -d "${dir}" ]] || return 0
   local root="${DEV_BOT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
-  local link base_name target resolved
+  local link base_name target resolved direct
   while IFS= read -r -d '' link; do
     base_name="$(basename "${link}")"
     case "${declared}" in *" ${base_name} "*) continue ;; esac
     target="$(readlink "${link}" 2>/dev/null || true)"
     [[ -n "${target}" ]] || continue
+    if [[ -n "${owned_prefix}" ]]; then
+      direct="$(_devbot_link_direct_target "${link}")"
+      [[ -n "${direct}" && "${direct}" == "${owned_prefix}"/* ]] && continue
+    fi
     resolved="$(realpath -m "${target}" 2>/dev/null || printf '%s' "${target}")"
     [[ "${resolved}" == "${root}"/* ]] || continue
     rm -f "${link}"

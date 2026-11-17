@@ -273,3 +273,23 @@ _delegate() {
   assert [ -L "${SANDBOX_DIR}/.agents/skills/my-skills" ]
   assert [ "$(readlink "${SANDBOX_DIR}/.agents/skills/my-skills")" == "${SANDBOX_DIR}/my-skills" ]
 }
+
+@test "migrate-only: a link already inside the vault is not migrated again" {
+  # The opencode-v2 harness links every skill-farm entry back into
+  # .opencode/skills. On the next init that link is inside the source dir being
+  # migrated — treating it as user content produced <name>.bkp, which the host
+  # then registered as a second copy of every skill behind it.
+  mkdir -p "${SANDBOX_DIR}/.agents/skills/devbot/git"
+  mkdir -p "${SANDBOX_DIR}/.claude/skills"
+  ln -sfn "${SANDBOX_DIR}/.agents/skills/devbot" "${SANDBOX_DIR}/.claude/skills/devbot"
+
+  _source_lib
+  run _harness_delegate_type "${SANDBOX_DIR}/.claude" "${SANDBOX_DIR}" "skills" "true"
+
+  assert_success
+  assert [ ! -e "${SANDBOX_DIR}/.agents/skills/devbot.bkp" ]
+  assert [ -d "${SANDBOX_DIR}/.agents/skills/devbot" ]
+  # The vault entry itself is untouched and still the only copy.
+  assert [ -d "${SANDBOX_DIR}/.agents/skills/devbot/git" ]
+}
+
