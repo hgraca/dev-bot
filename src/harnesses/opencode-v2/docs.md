@@ -84,9 +84,9 @@ Verified on a 2.3.0 host:
   as well; `init.sh` therefore leaves its own copy out when an ancestor supplies
   the same package (matched by the generated `devbot-<name>` manifest and the shim
   marker, never by directory name alone) and removes a copy an earlier run wrote.
-  Trade-offs, all of them warned about during init: the nested project runs the
-  ancestor's toolkit build (the host would load it first anyway), follows it even
-  when a part the newer build links is missing, and a parallel `devbot update`
+  Trade-offs (the first two are warned about during init): the nested project runs
+  the ancestor's toolkit build (the host would load it first anyway), follows it
+  even when a part the newer build links is missing, and a parallel `devbot update`
   reinit can need a second pass before the ancestor's packages exist.
 
 Both harnesses share `.opencode/plugins/`, and isolation comes from a

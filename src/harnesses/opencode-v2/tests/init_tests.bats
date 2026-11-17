@@ -571,6 +571,9 @@ _ancestor_package() {
   _nested_projects
   local target="${DEV_BOT_ROOT}/src/harnesses/opencode-v2/hooks/on-hooks.ts"
   _ancestor_package on-hooks "${target}" 0
+  # Pin the fixture: the marker is the only guard failing here.
+  grep -qE '"name"[[:space:]]*:[[:space:]]*"devbot-on-hooks"' "${PARENT}/.opencode/plugins/on-hooks/package.json"
+  refute grep -q "generated opencode-v2 plugin shim" "${PARENT}/.opencode/plugins/on-hooks/index.ts"
 
   bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
 
@@ -582,6 +585,9 @@ _ancestor_package() {
   _nested_projects
   local target="${DEV_BOT_ROOT}/src/harnesses/opencode-v2/hooks/on-hooks.ts"
   _ancestor_package on-hooks "${target}" 1 someone-elses-plugin
+  # Pin the fixture: the manifest name is the only guard failing here.
+  grep -q "generated opencode-v2 plugin shim" "${PARENT}/.opencode/plugins/on-hooks/index.ts"
+  grep -qE '"name":"someone-elses-plugin"' "${PARENT}/.opencode/plugins/on-hooks/package.json"
 
   bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
 
@@ -618,6 +624,20 @@ _ancestor_package() {
   run bash "${MODULE_DIR}/init.sh" "${CHILD}"
   assert_success
   assert_output --partial "runs a different dev-bot build"
+  refute [ -e "${CHILD}/.opencode/plugins/on-hooks" ]
+}
+
+@test "a symlinked spelling of the same build is not reported as different" {
+  # The same checkout reached through a symlinked directory must not warn: a
+  # string compare would, because the shim records the spelling used at its init.
+  _nested_projects
+  local link="${PROJECT}/dev-bot-shortcut"
+  ln -s "${DEV_BOT_ROOT}" "${link}"
+  _ancestor_package on-hooks "${link}/src/harnesses/opencode-v2/hooks/on-hooks.ts"
+
+  run bash "${MODULE_DIR}/init.sh" "${CHILD}"
+  assert_success
+  refute_output --partial "runs a different dev-bot build"
   refute [ -e "${CHILD}/.opencode/plugins/on-hooks" ]
 }
 
@@ -661,6 +681,25 @@ _ancestor_package() {
 
   assert [ -L "${CHILD}/.opencode/plugins/on-hooks" ]
   assert [ -f "${PROJECT}/outside/on-hooks/index.ts" ]
+}
+
+@test "a huge ancestor shim does not abort init on a broken pipe" {
+  # `sed | head` stops reading at the first match; a long shim then makes sed
+  # take SIGPIPE, and pipefail would surface 141 as a failed init.
+  _nested_projects
+  local dir="${PARENT}/.opencode/plugins/on-hooks"
+  local target="${DEV_BOT_ROOT}/src/harnesses/opencode-v2/hooks/on-hooks.ts"
+  mkdir -p "${dir}"
+  printf '%s\n' "// dev-bot: generated opencode-v2 plugin shim (do not edit)" > "${dir}/index.ts"
+  local i
+  for ((i = 0; i < 2000; i++)); do
+    printf 'export { default } from "%s"\n' "${target}" >> "${dir}/index.ts"
+  done
+  printf '{"name":"devbot-on-hooks","version":"0.0.0","type":"module","exports":{".":"./index.ts"}}\n' > "${dir}/package.json"
+
+  run bash "${MODULE_DIR}/init.sh" "${CHILD}"
+  assert_success
+  refute [ -e "${CHILD}/.opencode/plugins/on-hooks" ]
 }
 
 @test "a project with no ancestor dev-bot plugins still gets every plugin" {

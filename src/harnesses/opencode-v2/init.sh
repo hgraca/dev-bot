@@ -373,8 +373,19 @@ _retire_shadowed_plugin_dir() {
 }
 
 # The source file an ancestor's server shim re-exports, or an empty string.
+# `|| true`: a long shim can make head quit early, and pipefail would surface
+# sed's SIGPIPE as a failed init.
 _shim_target() {
-  sed -n 's/^export { default } from "\(.*\)"$/\1/p' "$1" 2>/dev/null | head -n 1
+  sed -n 's/^export { default } from "\(.*\)"$/\1/p' "$1" 2>/dev/null | head -n 1 || true
+}
+
+# Resolve a path through any symlinked directory components, so the same build
+# reached through two spellings is not reported as a different one. POSIX: no
+# readlink -f / realpath (absent on stock macOS).
+_physical_path() {
+  local path="$1" dir
+  dir="$(cd "$(dirname "${path}")" 2>/dev/null && pwd -P)" || return 1
+  printf '%s/%s\n' "${dir}" "$(basename "${path}")"
 }
 
 # ── Link one plugin as a directory package ───────────────────────────
@@ -410,7 +421,10 @@ _link_plugin_dir() {
       # The ancestor's package cannot import, so it holds no id and load our own.
       _warn "plugins/${name}: ${ancestor}/index.ts points at ${ancestor_target}, which is gone — writing this project's copy"
     else
-      if [[ -n "${ancestor_target}" && "${ancestor_target}" != "${server}" ]]; then
+      local ancestor_physical server_physical
+      ancestor_physical="$(_physical_path "${ancestor_target}")" || ancestor_physical="${ancestor_target}"
+      server_physical="$(_physical_path "${server}")" || server_physical="${server}"
+      if [[ -n "${ancestor_target}" && "${ancestor_physical}" != "${server_physical}" ]]; then
         _warn "plugins/${name}: ${ancestor} runs a different dev-bot build — the host loads that copy first, so its version wins"
       fi
       local missing=""
