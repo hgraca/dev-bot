@@ -34,6 +34,7 @@ export default Plugin.define({
 
     let previous: Map<string, McpStatus> | null = null
     let busy = false
+    const warned = new Set<string>()
 
     const log = (line: string) => {
       try {
@@ -44,23 +45,30 @@ export default Plugin.define({
       }
     }
 
-    // Returns the helper's exit code: 0 written (or already correct), 2 the
-    // server belongs to another config, anything else a real failure.
-    async function apply(name: string, disabled: boolean): Promise<number> {
+    // Returns the helper's exit code and, for a real failure, its stderr: 0
+    // written (or already correct), 2 the server belongs to another config.
+    async function apply(name: string, disabled: boolean): Promise<{ code: number; error: string }> {
       // Two sessions (or a reinit) rewrite the same file; without the lock one
       // update is lost, so re-check on the next tick instead.
       const locked = `${config}.mcp-sync.lock`
       const token = acquireLock(locked)
       if (!token) {
         log(`${name}: locked by another session — retrying`)
-        return 1
+        return { code: 1, error: "locked by another session" }
       }
       try {
         const proc = Bun.spawn(
           ["python3", helper, "set-mcp-disabled", config, name, String(disabled)],
           { cwd: root, stdout: "pipe", stderr: "pipe" },
         )
-        return await proc.exited
+        const code = await proc.exited
+        // Keep the helper's stderr: a silent non-zero exit is what made a broken
+        // write look like "nothing to do" for hours.
+        let error = ""
+        if (code !== 0 && code !== NOT_IN_PROJECT) {
+          error = (await new Response(proc.stderr).text()).trim().split("\n").filter(Boolean).pop() ?? ""
+        }
+        return { code, error }
       } finally {
         releaseLock(locked, token)
       }
@@ -81,13 +89,20 @@ export default Plugin.define({
 
         const next = statusMap(servers)
         for (const write of planWrites(previous, servers)) {
-          const code = await apply(write.name, write.disabled)
+          const { code, error } = await apply(write.name, write.disabled)
           if (code === WRITTEN) {
+            warned.delete(write.name)
             log(`${write.name}: disabled=${write.disabled} → ${config}`)
           } else if (code === NOT_IN_PROJECT) {
             // Declared globally: this file has nothing to own.
             log(`${write.name}: not in ${config} — skipped`)
           } else {
+            // Once per distinct failure, not once per 2s poll.
+            const detail = `${write.name}: ${error || `helper exited ${code}`}`
+            if (!warned.has(detail)) {
+              warned.add(detail)
+              log(`WARN: could not write ${detail}`)
+            }
             // Keep the old status so the next tick retries the write.
             const before = previous.get(write.name)
             if (before !== undefined) next.set(write.name, before)

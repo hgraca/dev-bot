@@ -26,7 +26,15 @@ import json
 import os
 import sys
 
+# init.sh exports this (`_v2`), but the mcp-sync plugin spawns this helper from
+# the running host with an inherited, unrelated environment — there the import
+# used to fail and every write died silently. Fall back to the checkout's own
+# src/_shared (this file lives at src/harnesses/opencode-v2/lib/).
 _SHARED = os.environ.get("V2_SHARED_DIR", "")
+if not _SHARED:
+    _SHARED = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "_shared")
+    )
 if _SHARED:
     sys.path.insert(0, _SHARED)
 

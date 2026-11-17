@@ -137,6 +137,20 @@ PY
   _valid_jsonc
 }
 
+@test "the helper locates src/_shared without V2_SHARED_DIR" {
+  # mcp-sync.ts spawns this helper from the running host, which does not carry
+  # the environment init.sh sets. Without the fallback the read_jsonc import
+  # failed, every MCP toggle wrote nothing, and the hook retried every 2s.
+  v2 merge-mcp "${CONFIG}" demo '{"type":"local","command":["echo"]}'
+
+  run env -u V2_SHARED_DIR python3 "${HELPER}" set-mcp-disabled "${CONFIG}" demo true
+  assert_success
+
+  run v2 get "${CONFIG}" mcp.servers
+  assert_output --partial '"disabled": true'
+  _valid_jsonc
+}
+
 @test "ensure-external-directory reports no work on the shipped dist" {
   run v2 ensure-external-directory "${CONFIG}"
   assert_success
