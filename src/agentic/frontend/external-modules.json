@@ -4,5 +4,41 @@
     "paths": {
       "skills": "skills/modern-web-guidance"
     }
+  },
+  "anthropic-frontend-design": {
+    "url": "https://github.com/anthropics/skills.git",
+    "paths": {
+      "skills": "skills/frontend-design"
+    }
+  },
+  "impeccable": {
+    "url": "https://github.com/pbakaus/impeccable.git",
+    "paths": {
+      "skills": ".agent/skills/impeccable"
+    }
+  },
+  "emil-design-eng": {
+    "url": "https://github.com/emilkowalski/skills.git",
+    "paths": {
+      "skills": "skills/emil-design-eng"
+    }
+  },
+  "emil-animate": {
+    "url": "https://github.com/emilkowalski/skills.git",
+    "paths": {
+      "skills": "skills/animate"
+    }
+  },
+  "emil-review-animations": {
+    "url": "https://github.com/emilkowalski/skills.git",
+    "paths": {
+      "skills": "skills/review-animations"
+    }
+  },
+  "emil-improve-animations": {
+    "url": "https://github.com/emilkowalski/skills.git",
+    "paths": {
+      "skills": "skills/improve-animations"
+    }
   }
 }

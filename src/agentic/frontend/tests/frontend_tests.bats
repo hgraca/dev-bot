@@ -131,6 +131,52 @@ PY
   assert_success
 }
 
+@test "external-modules.json declares the design skill packs" {
+  run python3 - "${MODULE}/external-modules.json" <<'PY'
+import json, sys
+
+declared = json.load(open(sys.argv[1]))
+
+expected = {
+    "anthropic-frontend-design": ("https://github.com/anthropics/skills.git", "skills/frontend-design"),
+    "impeccable": ("https://github.com/pbakaus/impeccable.git", ".agent/skills/impeccable"),
+}
+for name, (url, path) in expected.items():
+    entry = declared[name]
+    assert entry["url"] == url, entry
+    assert entry["paths"] == {"skills": path}, entry
+
+emil_skills = {
+    "emil-design-eng": "emil-design-eng",
+    "emil-animate": "animate",
+    "emil-review-animations": "review-animations",
+    "emil-improve-animations": "improve-animations",
+}
+emil = {name: entry for name, entry in declared.items() if name.startswith("emil-")}
+assert sorted(emil) == sorted(emil_skills), sorted(emil)
+for name, entry in emil.items():
+    assert entry["url"] == "https://github.com/emilkowalski/skills.git", entry
+    assert entry["paths"] == {"skills": "skills/" + emil_skills[name]}, entry
+
+# Every declaration wires whole skill directories — one skill, or a pack of them.
+for name, entry in declared.items():
+    assert set(entry["paths"]) == {"skills"}, (name, entry)
+
+print("OK")
+PY
+  assert_success
+  assert_output "OK"
+}
+
+@test "docs.md documents the vendored design skill packs" {
+  run grep -qF 'github.com/anthropics/skills' "${MODULE}/docs.md"
+  assert_success
+  run grep -qF 'github.com/pbakaus/impeccable' "${MODULE}/docs.md"
+  assert_success
+  run grep -qF 'github.com/emilkowalski/skills' "${MODULE}/docs.md"
+  assert_success
+}
+
 @test "the skill documents the unconfigured fallbacks" {
   run grep -q 'http://localhost:3000' "${MODULE}/skills/design-qa/SKILL.md"
   assert_success

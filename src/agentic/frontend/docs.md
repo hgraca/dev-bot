@@ -1,6 +1,6 @@
 ---
 title: "Frontend"
-description: "Framework-agnostic frontend conventions — atomic design, design tokens, Storybook, and a Figma-to-app Design QA check — shared by every UI framework module."
+description: "Framework-agnostic frontend conventions — atomic design, design tokens, Storybook, a Figma-to-app Design QA check, and the vendored design skills (aesthetic direction, critique, motion) — shared by every UI framework module."
 commands: ["design-qa", "design-qa-all"]
 skills: ["atomic-design", "storybook", "design-qa", "design-qa-all", "show-ui-in-browser"]
 mcps:
@@ -33,6 +33,39 @@ plus an automated Design QA check that compares a running page against its Figma
   [modern-web-guidance](https://github.com/GoogleChrome/modern-web-guidance) skill pack, wired in
   when the module is enabled; it adds modern web-platform guidance (HTML, CSS, accessibility,
   performance) through its own CLI.
+
+## Design skills (vendored)
+
+Three external skill packs cover the design loop — aesthetic direction, review, and motion — and are
+wired in by `devbot init` when the module is enabled. They are declared in `external-modules.json`
+and cloned into `vendor/`; nothing is copied into this repository.
+
+- **Baseline — `anthropic-frontend-design`**, from
+  [anthropics/skills](https://github.com/anthropics/skills): aesthetic direction, typography and
+  palette choices that do not read as templated defaults, when building new UI or reshaping an
+  existing one.
+- **Review/QA — `impeccable`**, from [pbakaus/impeccable](https://github.com/pbakaus/impeccable):
+  `critique` (a scored UX review) and `audit` (accessibility, performance, theming, responsive
+  behaviour), plus `polish`, `harden`, `typeset`, `layout` and a rule-based slop detector. Ask for
+  `critique` on a section that already exists; it is strongest on interfaces you can point it at.
+- **Motion/polish — `emil-*`**, from
+  [emilkowalski/skills](https://github.com/emilkowalski/skills), wired as four skills:
+  `emil-design-eng` (the philosophy), `animate` (build one), `review-animations` (hold it to the
+  bar) and `improve-animations` (audit a codebase and plan the fixes).
+
+Only these four are wired on purpose. Every vendored skill description is always-on session context,
+and the rest of that repository — `choreograph`, `gestures`, `apple-design`,
+`find-animation-opportunities`, `remove-animations`, `animation-performance`,
+`animation-vocabulary`, plus the Expo/Swift/native packs — either overlaps these four or does not
+apply to a web project. The files are all present in the clone, so a skill's own references (e.g.
+`review-animations` → `../choreograph/SKILL.md`) still resolve; wire one permanently with
+`devbot module add` when a project leans on it.
+
+Every entry maps a whole skill directory, so the skill keeps its own `SKILL.md`, references and
+helper scripts; the config key becomes the link name under `.agents/skills/`. Impeccable ships its
+launcher inside the skill, so there is no global install: its `Setup` step runs
+`<skill-base-dir>/scripts/impeccable context` from wherever the skill is linked, and the binary is
+fetched once on first use.
 
 ## Design QA
 
