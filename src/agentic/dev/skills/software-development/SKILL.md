@@ -5,7 +5,7 @@ description: "Load at session start in every project where code is written, chan
 
 # Software Development
 
-Generic craft rules that apply to writing, changing, and committing code — independent of language, framework, or role. This is the hub skill; PHP-specific craft lives in plain reference files under `annexes/php/` (`php-rules.md`, `laravel.md`, `message-bus.md`, `phpunit.md`), read only when working with those technologies.
+Generic craft rules that apply to writing, changing, and committing code — independent of language, framework, or role. This is the hub skill; stack-specific craft lives in plain reference files under `annexes/`: technology-neutral design rules in `annexes/system-design/` (`message-bus.md`), PHP-specific ones in `annexes/php/` (`php-rules.md`, `laravel.md`, `message-bus.md`, `phpunit.md`), read only when working with those technologies.
 
 ## When to Apply
 
@@ -93,22 +93,23 @@ Worktrees workflow; this one commits on the default branch.
 
 Before writing or reviewing code, identify the stack, then **read** the matching annex file(s):
 
-| Stack detected | Read                                                      |
-| -------------- | --------------------------------------------------------- |
-| PHP (any)      | `annexes/php/php-rules.md`                                |
-| Laravel        | `annexes/php/php-rules.md` + `annexes/php/laravel.md`     |
-| Message bus    | `annexes/php/php-rules.md` + `annexes/php/message-bus.md` |
-| PHPUnit tests  | `annexes/php/php-rules.md` + `annexes/php/phpunit.md`     |
+| Stack detected             | Read                                                                                               |
+| -------------------------- | -------------------------------------------------------------------------------------------------- |
+| PHP (any)                  | `annexes/php/php-rules.md`                                                                         |
+| Laravel                    | `annexes/php/php-rules.md` + `annexes/php/laravel.md`                                              |
+| Message bus (any language) | `annexes/system-design/message-bus.md`                                                             |
+| `get-e/message-bus` (PHP)  | `annexes/php/php-rules.md` + `annexes/system-design/message-bus.md` + `annexes/php/message-bus.md` |
+| PHPUnit tests              | `annexes/php/php-rules.md` + `annexes/php/phpunit.md`                                              |
 
 Read the annex _before_ implementing or reviewing — not after. Stack detection is per task, so re-check when the task changes stack.
 
 ### Message bus transactions (MUST verify)
 
 When the task touches a message bus, never assume command and event handlers run inside a DB
-transaction: read the bus configuration — the project's own file **and** the package default it
-falls back to — and know which way it is before writing or reviewing a handler.
-`annexes/php/message-bus.md` carries the keys, the nesting rule, and the consequences for each
-answer.
+transaction: read the bus configuration — the project's own file **and** the framework or package
+default it falls back to — and know which way it is before writing or reviewing a handler.
+`annexes/system-design/message-bus.md` carries the rule, the pipeline facts that break it, and the
+consequences for each answer; `annexes/php/message-bus.md` carries the `get-e/message-bus` keys.
 
 ## Preemptive Context Skill Loading
 
@@ -241,11 +242,17 @@ Commit style:
 
 ## See Also — Annexes
 
-The four PHP annexes are plain reference files under `annexes/php/` — **not loadable skills**. Which one to read is decided by the [Stack-Specific Instructions](#stack-specific-instructions-must) table at the top of this skill; do not infer from this list alone.
+The annexes are plain reference files under `annexes/` — **not loadable skills**. Which one to read is decided by the [Stack-Specific Instructions](#stack-specific-instructions-must) table at the top of this skill; do not infer from this list alone.
+
+Technology-neutral design rules:
+
+- `annexes/system-design/message-bus.md` — message bus and CQRS design, transaction boundaries
+
+PHP:
 
 - `annexes/php/php-rules.md` — PHP coding rules
 - `annexes/php/laravel.md` — Laravel application conventions
-- `annexes/php/message-bus.md` — PHP message bus integration
+- `annexes/php/message-bus.md` — `get-e/message-bus` integration, keys and templates
 - `annexes/php/phpunit.md` — PHPUnit test conventions
 
 Foundational context skills loaded preemptively (see [Preemptive Context Skill Loading](#preemptive-context-skill-loading)).

@@ -161,18 +161,18 @@ setup() {
   assert_failure
 }
 
-@test "message bus handlers are never assumed to be wrapped in a transaction" {
-  # A project that overrides its middleware stack replaces the default list, so
-  # the answer must be read from the configuration, never inferred.
+@test "the transaction rule lives in the stack-independent message bus annex" {
+  # A project that assigns a middleware list replaces the default, so the
+  # answer must be read from configuration — never inferred.
   local annex
-  annex="$(cd "$(dirname "$SKILL")" && pwd)/annexes/php/message-bus.md"
+  annex="$(cd "$(dirname "$SKILL")" && pwd)/annexes/system-design/message-bus.md"
 
   run grep -qF 'never assume command and event handlers run inside a DB' "$FLAT"
   assert_success
-  run grep -qF 'the package default it falls back to' "$FLAT"
+  run grep -qF 'the framework or package default' "$FLAT"
   assert_success
-  # The hub must point at the annex: the pointer is the only route to the keys.
-  run grep -qF '`annexes/php/message-bus.md` carries the keys, the nesting rule' "$FLAT"
+  # The hub must point at the annex: the pointer is the only route to the rule.
+  run grep -qF '`annexes/system-design/message-bus.md` carries the rule' "$FLAT"
   assert_success
 
   [ -f "$annex" ] || { echo "missing annex: $annex" >&2; return 1; }
@@ -180,11 +180,34 @@ setup() {
   local needle
   for needle in \
     'MUST verify' \
+    'A configured list may replace the default, or merge with it' \
+    'Configured is not the same as wrapping' \
+    'Dispatch-time and execution-time pipelines are different' \
+    'already-open transaction may suppress the wrapper'; do
+    run grep -qF "$needle" "$annex"
+    assert_success
+  done
+
+  # It is technology-neutral: the package's keys and classes belong elsewhere.
+  run grep -qF 'command_bus.' "$annex"
+  assert_failure
+  run grep -qF 'GetE\MessageBus' "$annex"
+  assert_failure
+}
+
+@test "the PHP message bus annex keeps the get-e/message-bus keys and defers the rule" {
+  local annex
+  annex="$(cd "$(dirname "$SKILL")" && pwd)/annexes/php/message-bus.md"
+  [ -f "$annex" ] || { echo "missing annex: $annex" >&2; return 1; }
+
+  local needle
+  for needle in \
     'vendor/get-e/message-bus/config/message_bus.php' \
     'command_bus.async_middlewares.execution_middlewares' \
     'event_bus.execution_middlewares' \
     'transaction.max_nested_transactions' \
-    'RequiresNestedDbTransaction'; do
+    'RequiresNestedDbTransaction' \
+    '../system-design/message-bus.md'; do
     run grep -qF "$needle" "$annex"
     assert_success
   done
