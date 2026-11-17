@@ -46,6 +46,20 @@ main() {
   # path above) the server binary matches the pin.
   bash "${MODULE_DIR}/install.sh"
 
+  # install.sh skips when ANY Playwright Chromium exists, so a cache holding only
+  # an old revision (Chrome 133) keeps resize_page broken. Refresh on update only:
+  # `playwright install chromium` is a no-op once the current build is present.
+  if command -v npx >/dev/null 2>&1; then
+    if PLAYWRIGHT_BROWSERS_PATH="${HOME}/.cache/ms-playwright" \
+      npx -y playwright install chromium >/dev/null 2>&1; then
+      _ok "Playwright Chromium refreshed"
+    else
+      _warn "playwright install chromium failed — an old browser may stay in use"
+    fi
+  else
+    _warn "npx not found — cannot refresh the Playwright Chromium"
+  fi
+
   _ok "chrome-devtools update complete"
 }
 

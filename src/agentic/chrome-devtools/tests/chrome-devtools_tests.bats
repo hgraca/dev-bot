@@ -277,20 +277,29 @@ print('DISABLED-BY-DEFAULT:OK')
   # match is the OLDEST revision. Chrome 133 (chromium-1155) lacks the CDP
   # command resize_page needs (Browser.setContentsSize), so discovery must pick
   # the highest revision number, not the first path.
-  local tmpdir old new pin
+  local tmpdir old new small pin
   tmpdir="$(mktemp -d)"
   pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "${MODULE_DIR}/versions.env" | head -1)"
   old="${tmpdir}/.cache/ms-playwright/chromium-1155/chrome-linux/chrome"
   new="${tmpdir}/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome"
-  mkdir -p "$(dirname "${old}")" "$(dirname "${new}")" "${tmpdir}/.npm-global/bin" "${tmpdir}/stubbin"
+  # A three-digit revision sorts LAST lexicographically but is numerically older:
+  # it catches a "sort | tail -1" regression that the two same-width dirs miss.
+  small="${tmpdir}/.cache/ms-playwright/chromium-999/chrome-linux/chrome"
+  mkdir -p "$(dirname "${old}")" "$(dirname "${new}")" "$(dirname "${small}")" \
+    "${tmpdir}/.npm-global/bin" "${tmpdir}/stubbin"
   printf '#!/bin/bash\nexit 0\n' > "${old}"
   printf '#!/bin/bash\nexit 0\n' > "${new}"
-  chmod +x "${old}" "${new}"
+  printf '#!/bin/bash\nexit 0\n' > "${small}"
+  chmod +x "${old}" "${new}" "${small}"
   printf '#!/bin/bash\necho "%s"\n' "${pin}" > "${tmpdir}/.npm-global/bin/chrome-devtools-mcp"
   chmod +x "${tmpdir}/.npm-global/bin/chrome-devtools-mcp"
   printf '#!/bin/bash\nif [ "$1 $2 $3" = "config get prefix" ]; then echo "/nonexistent"; exit 0; fi\nexit 0\n' \
     > "${tmpdir}/stubbin/npm"
   chmod +x "${tmpdir}/stubbin/npm"
+  # Force the Linux layout: CI and macOS both run this suite, and only the
+  # sibling test stubs Darwin. Without this the fixture is invisible on a Mac.
+  printf '#!/bin/bash\necho Linux\n' > "${tmpdir}/stubbin/uname"
+  chmod +x "${tmpdir}/stubbin/uname"
   mkdir -p "${tmpdir}/.opencode"
   ln -s "${SHARED_WRAPPER}" "${tmpdir}/.opencode/chrome-devtools-mcp-wrapper.js"
   ln -s "${MODULE_DIR}/serve.mcp.sh" "${tmpdir}/.opencode/chrome-devtools-serve.mcp.sh"
@@ -302,6 +311,7 @@ print('DISABLED-BY-DEFAULT:OK')
   run cat "${tmpdir}/.cache/ms-playwright/chrome-nosandbox"
   assert_output --partial "chromium-1248/chrome-linux64/chrome"
   refute_output --partial "chromium-1155"
+  refute_output --partial "chromium-999"
 
   rm -r -f "${tmpdir}"
 }
@@ -321,6 +331,10 @@ print('DISABLED-BY-DEFAULT:OK')
 @test "audit-25: update.sh exists, is executable, and re-runs the install flow" {
   [[ -x "${MODULE_DIR}/update.sh" ]]
   run grep -q 'install\.sh' "${MODULE_DIR}/update.sh"
+  assert_success
+  # install.sh skips while ANY Chromium exists, so update must refresh the
+  # browser itself or a stale-only cache keeps resize_page broken.
+  run grep -q 'playwright install chromium' "${MODULE_DIR}/update.sh"
   assert_success
 }
 

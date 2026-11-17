@@ -13,7 +13,7 @@ Wires the Chrome DevTools MCP server into the harness. It is launched through th
 
 ## Configuration
 
-`install.sh` installs the MCP server and pins its version in `versions.env`, so a session start never re-resolves `latest`; `devbot update` resolves the newest version and rewrites the pin in place.
+`install.sh` installs the MCP server and pins its version in `versions.env`, so a session start never re-resolves `latest`; `devbot update` resolves the newest version, rewrites the pin in place, and refreshes the Playwright Chromium, so a cache that only held an old revision cannot keep `resize_page` broken.
 
 ## See also
 

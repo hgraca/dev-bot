@@ -77,11 +77,10 @@ if [[ -n "${CHROME_DEVTOOLS_MCP_VERSION}" ]]; then
 fi
 
 # ── Discover a sandboxable Chromium (audit-25: macOS + Linux layouts) ────────
-# Pick the NEWEST Playwright Chromium, not the lexicographically first: the cache
-# keeps one directory per Playwright upgrade, and an old revision lacks CDP
-# commands the MCP calls (Browser.setContentsSize, used by resize_page).
+# Newest first, not earliest: old revisions lack Browser.setContentsSize.
 _chromium_bin() {
-  local dir rev cand best="" best_rev=-1
+  local os dir rev cand best="" best_rev=-1
+  os="$(uname -s)"
   for dir in "${HOME}"/.cache/ms-playwright/chromium-*/; do
     [[ -d "${dir}" ]] || continue
     rev="${dir%/}"
@@ -89,7 +88,7 @@ _chromium_bin() {
     case "${rev}" in
       '' | *[!0-9]*) continue ;;
     esac
-    if [ "$(uname -s)" = "Darwin" ]; then
+    if [ "${os}" = "Darwin" ]; then
       # Playwright renamed the mac bundle: chrome-mac/Chromium.app
       # became chrome-mac-<arch>/Google Chrome for Testing.app.
       cand="$(ls "${dir}"chrome-mac*/*.app/Contents/MacOS/* 2>/dev/null | head -1 || true)"
