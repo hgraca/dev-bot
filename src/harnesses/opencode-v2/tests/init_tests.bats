@@ -519,6 +519,23 @@ _nested_projects() {
   printf '{ "harness": "opencode-v2" }\n' > "${CHILD}/.devbot.project.jsonc"
 }
 
+# _ancestor_package <name> <target> [marker 0|1] [manifest name]
+# Hand-writes a plugin package so a test can vary one detection guard at a time.
+# The manifest is compact on purpose: init must not depend on its formatting.
+_ancestor_package() {
+  local name="$1" target="$2" marker="${3:-1}" manifest="${4:-devbot-${name}}"
+  local dir="${PARENT}/.opencode/plugins/${name}"
+  mkdir -p "${dir}"
+  if [[ "${marker}" == "1" ]]; then
+    printf '%s\n' "// dev-bot: generated opencode-v2 plugin shim (do not edit)" > "${dir}/index.ts"
+  else
+    printf '%s\n' "// hand-written by the project" > "${dir}/index.ts"
+  fi
+  printf 'export { default } from "%s"\n' "${target}" >> "${dir}/index.ts"
+  printf '{"name":"%s","version":"0.0.0","type":"module","exports":{".":"./index.ts"}}\n' \
+    "${manifest}" > "${dir}/package.json"
+}
+
 @test "init does not duplicate a plugin an ancestor project already supplies" {
   _nested_projects
   bash "${MODULE_DIR}/init.sh" "${PARENT}" >/dev/null
@@ -549,19 +566,66 @@ _nested_projects() {
   done
 }
 
-@test "an ancestor plugin directory dev-bot did not generate is not treated as supplied" {
-  # Another package can share the directory name; only the generated manifest and
-  # shim marker identify a dev-bot plugin. A user's own package must neither
-  # suppress this project's copy nor be deleted.
+@test "an ancestor shim without the dev-bot marker does not count as supplying" {
   _nested_projects
-  mkdir -p "${PARENT}/.opencode/plugins/on-hooks"
-  printf 'export default { id: "someone-elses-plugin" }\n' > "${PARENT}/.opencode/plugins/on-hooks/index.ts"
-  printf '{ "name": "someone-elses-plugin" }\n' > "${PARENT}/.opencode/plugins/on-hooks/package.json"
+  local target="${DEV_BOT_ROOT}/src/harnesses/opencode-v2/hooks/on-hooks.ts"
+  _ancestor_package on-hooks "${target}" 0
 
   bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
 
   assert [ -f "${CHILD}/.opencode/plugins/on-hooks/index.ts" ]
+  grep -q "dev-bot: generated opencode-v2 plugin shim" "${CHILD}/.opencode/plugins/on-hooks/index.ts"
+}
+
+@test "an ancestor package with another manifest name does not count as supplying" {
+  _nested_projects
+  local target="${DEV_BOT_ROOT}/src/harnesses/opencode-v2/hooks/on-hooks.ts"
+  _ancestor_package on-hooks "${target}" 1 someone-elses-plugin
+
+  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+
+  assert [ -f "${CHILD}/.opencode/plugins/on-hooks/index.ts" ]
+  grep -q "dev-bot: generated opencode-v2 plugin shim" "${CHILD}/.opencode/plugins/on-hooks/index.ts"
+}
+
+@test "an ancestor shim whose target is gone does not suppress this project's copy" {
+  # A moved or deleted toolkit checkout leaves a package that cannot import, so it
+  # holds no plugin id and the nested project must still write its own copy.
+  _nested_projects
+  _ancestor_package on-hooks "${PROJECT}/gone/on-hooks.ts"
+
+  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+
+  assert [ -f "${CHILD}/.opencode/plugins/on-hooks/index.ts" ]
+  grep -q "dev-bot: generated opencode-v2 plugin shim" "${CHILD}/.opencode/plugins/on-hooks/index.ts"
+}
+
+@test "init leaves a user's package alone when an ancestor supplies the plugin" {
+  _nested_projects
+  bash "${MODULE_DIR}/init.sh" "${PARENT}" >/dev/null
+  mkdir -p "${CHILD}/.opencode/plugins/on-hooks"
+  printf 'export default { id: "my-own-on-hooks" }\n' > "${CHILD}/.opencode/plugins/on-hooks/index.ts"
+
+  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+
+  assert [ -f "${CHILD}/.opencode/plugins/on-hooks/index.ts" ]
+  grep -q "my-own-on-hooks" "${CHILD}/.opencode/plugins/on-hooks/index.ts"
+  # The ancestor keeps its own copy untouched too.
   assert [ -f "${PARENT}/.opencode/plugins/on-hooks/index.ts" ]
+}
+
+@test "init never removes a symlinked plugin directory shadowing an ancestor's copy" {
+  _nested_projects
+  bash "${MODULE_DIR}/init.sh" "${PARENT}" >/dev/null
+  mkdir -p "${PROJECT}/outside/on-hooks"
+  printf 'export default { id: "outside-on-hooks" }\n' > "${PROJECT}/outside/on-hooks/index.ts"
+  mkdir -p "${CHILD}/.opencode/plugins"
+  ln -sfn "${PROJECT}/outside/on-hooks" "${CHILD}/.opencode/plugins/on-hooks"
+
+  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+
+  assert [ -L "${CHILD}/.opencode/plugins/on-hooks" ]
+  assert [ -f "${PROJECT}/outside/on-hooks/index.ts" ]
 }
 
 @test "a project with no ancestor dev-bot plugins still gets every plugin" {
@@ -574,4 +638,3 @@ _nested_projects() {
     assert [ -d "${PROJECT}/.opencode/plugins/${name}" ]
   done
 }
-
