@@ -123,6 +123,8 @@ PY
   # init, so the project ignore block must cover them.
   grep -qF "# >>> DEVBOT" "$test_project/.git/info/exclude"
   grep -qF "mcp-runtime" "$test_project/.git/info/exclude"
+  # Session locks the plugins create on demand.
+  grep -qF "locks" "$test_project/.git/info/exclude"
 
   # ── Verify .opencode directory created by opencode init ────────────────
   [ -d "$test_project/.opencode" ]

@@ -15,7 +15,15 @@ import { Plugin } from "@opencode/plugin"
 import { appendFileSync, mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { acquireLock, releaseLock } from "../../../_shared/mcp-sync-lock.ts"
-import { planWrites, serversFrom, statusMap, summary, type McpStatus } from "../mcp-sync-utils"
+import { readJsoncFile } from "../on-hooks-utils"
+import {
+  devbotDirFromConfig,
+  planWrites,
+  serversFrom,
+  statusMap,
+  summary,
+  type McpStatus,
+} from "../mcp-sync-utils"
 
 const POLL_MS = 2000
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..")
@@ -30,7 +38,17 @@ export default Plugin.define({
     const root: string = ctx.location?.project?.canonical || ctx.location?.directory || process.cwd()
     const config = join(root, "opencode.jsonc")
     const helper = join(DEV_BOT_ROOT, "src", "harnesses", "opencode-v2", "lib", "v2config.py")
-    const logFile = join(root, ".agents", "logs", "mcp-sync.log")
+    const devbotDir = join(root, devbotDirFromConfig(readJsoncFile(join(root, ".devbot.project.jsonc"))))
+    const logFile = join(devbotDir, "logs", "mcp-sync.log")
+    // The lock lives beside the other generated state, not next to the config:
+    // a lock directory appearing and vanishing in the project root every poll
+    // was noise in `git status` and in the editor's file tree.
+    const lockPath = join(devbotDir, "locks", "mcp-sync.lock")
+    try {
+      mkdirSync(dirname(lockPath), { recursive: true })
+    } catch {
+      // A read-only vault surfaces on the first write, which logs it.
+    }
 
     let previous: Map<string, McpStatus> | null = null
     let busy = false
@@ -50,8 +68,7 @@ export default Plugin.define({
     async function apply(name: string, disabled: boolean): Promise<{ code: number; error: string }> {
       // Two sessions (or a reinit) rewrite the same file; without the lock one
       // update is lost, so re-check on the next tick instead.
-      const locked = `${config}.mcp-sync.lock`
-      const token = acquireLock(locked)
+      const token = acquireLock(lockPath)
       if (!token) {
         log(`${name}: locked by another session — retrying`)
         return { code: 1, error: "locked by another session" }
@@ -70,7 +87,7 @@ export default Plugin.define({
         }
         return { code, error }
       } finally {
-        releaseLock(locked, token)
+        releaseLock(lockPath, token)
       }
     }
 

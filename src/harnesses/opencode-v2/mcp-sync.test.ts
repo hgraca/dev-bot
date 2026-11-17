@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   desiredDisabled,
+  devbotDirFromConfig,
   planWrites,
   serversFrom,
   statusMap,
@@ -113,5 +114,18 @@ describe("statusMap / summary", () => {
     const map = statusMap([server("b", "disabled"), server("a", "connected")])
     expect([...map.keys()]).toEqual(["b", "a"])
     expect(summary(map)).toBe("a=connected, b=disabled")
+  })
+})
+
+describe("devbotDirFromConfig", () => {
+  test("reads the configured devbot dir", () => {
+    expect(devbotDirFromConfig({ devbot_dir: ".vault" })).toBe(".vault")
+  })
+
+  test("defaults to .agents when the key is absent", () => {
+    expect(devbotDirFromConfig({})).toBe(".agents")
+    expect(devbotDirFromConfig(undefined)).toBe(".agents")
+    expect(devbotDirFromConfig({ devbot_dir: "" })).toBe(".agents")
+    expect(devbotDirFromConfig({ devbot_dir: 7 })).toBe(".agents")
   })
 })

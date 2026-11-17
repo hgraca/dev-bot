@@ -92,6 +92,18 @@ export function planWrites(
   return writes
 }
 
+/**
+ * The project's devbot dir, from `.devbot.project.jsonc`'s `devbot_dir`.
+ *
+ * Generated state (log, locks) lives there rather than in a hardcoded
+ * `.agents`, so a project that renamed the vault keeps its runtime files in the
+ * directory the CLI actually uses.
+ */
+export function devbotDirFromConfig(parsed: unknown, fallback = ".agents"): string {
+  const value = (parsed as { devbot_dir?: unknown } | undefined)?.devbot_dir
+  return typeof value === "string" && value.length > 0 ? value : fallback
+}
+
 /** One line for the log: `a=connected, b=disabled`. */
 export function summary(map: Map<string, McpStatus>): string {
   return [...map.entries()]

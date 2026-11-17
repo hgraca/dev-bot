@@ -203,6 +203,8 @@ _ensure_gitignore() {
     # Canonical runtime MCP manifests (and their ownership record): generated on
     # every init from what the modules report, so never project state to commit.
     "${devbot_dir}/mcp-runtime"
+    # Session locks (mcp-sync). Created on demand by the plugins, never removed.
+    "${devbot_dir}/locks"
   )
 
   if _upsert_gitignore_section "${exclude}" \
