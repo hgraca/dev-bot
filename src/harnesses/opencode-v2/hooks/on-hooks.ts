@@ -14,7 +14,7 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, ptySubagentGuard, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
+import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, ptySubagentGuard, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, canonicalToolName, eventPayload, toolFileTargets, type HookDecl, type FileChangeKind } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -99,6 +99,69 @@ export default Plugin.define({
       }
     }
 
+    // Project-relative tool paths (`edit`/`write`/`patch` take `path`) become
+    // absolute so every downstream consumer — matchers, hooks, the gate — keys
+    // on one identity.
+    function absolute(file: string): string {
+      return file.startsWith("/") ? file : join(root, file)
+    }
+
+    // add-vs-change for TOOL-mediated writes. A V2 host publishes no
+    // file.edited for a tool write (audit-01 FAIL-1), so the adapter derives
+    // the edit from the tool hooks that do fire, and records the file's
+    // existence just before the write to classify it exactly like a watcher
+    // "add". Keyed per session so two sessions editing one file cannot
+    // mis-attribute the kind.
+    const pendingCreates = new Map<string, boolean>()
+    const MAX_PENDING_CREATES = 1024
+    function createKey(sessionID: unknown, file: string): string {
+      return `${String(sessionID ?? "")}\u0000${file}`
+    }
+    function rememberPendingCreate(key: string, value: boolean) {
+      pendingCreates.delete(key)
+      pendingCreates.set(key, value)
+      // A long-lived server never drops a session; bound the map so an
+      // after-hook that never fires cannot accumulate one entry per write.
+      if (pendingCreates.size > MAX_PENDING_CREATES) {
+        const oldest = pendingCreates.keys().next()
+        if (!oldest.done) pendingCreates.delete(oldest.value)
+      }
+    }
+
+    // Dispatch one file edit after the burst settles. Shared by the event
+    // stream and the tool hooks so the debounce, the per-file gate and the
+    // rewrite-echo suppression cannot diverge between the two.
+    function scheduleFileEdit(file: string, kind: FileChangeKind) {
+      const sig = contentSig(file)
+      if (rewriteEcho.isEcho(file, sig)) {
+        // The echo of a rewrite our own hooks just performed — content is
+        // unchanged since the hook wrote it, so re-dispatching would run every
+        // matching hook again.
+        return
+      }
+      // Debounce: a burst of rapid edits resets the timer so one run happens
+      // after the burst has quiesced, never between two edits.
+      const existing = debounceTimers.get(file)
+      if (existing !== undefined) clearTimeout(existing)
+      debounceTimers.set(
+        file,
+        setTimeout(() => {
+          debounceTimers.delete(file)
+          // Serialize + coalesce per file: two concurrent format hooks
+          // interleaving read-modify-write corrupts the file.
+          fileEditGate(file, async () => {
+            const before = contentSig(file)
+            await dispatch("file.edited", file, { file }, { create: kind === "add" })
+            const after = contentSig(file)
+            if (before && after && before !== after && kind !== "add") {
+              logger.info(`file.edited hooks rewrote ${file} (format normalization?) — re-read the file before your next edit`)
+            }
+            rewriteEcho.record(file, after)
+          })
+        }, EDIT_DEBOUNCE_MS),
+      )
+    }
+
     // Module hooks declared with a `plugin:` factory are V1 plugin
     // implementations, which do not run on a V2 host. Report them once rather
     // than silently dropping their behaviour.
@@ -140,62 +203,61 @@ export default Plugin.define({
       }
     }
 
+    // Only the first event of each type is logged, so a dead stream is visible
+    // in hooks.log without one line per delta.
+    const seenEventTypes = new Set<string>()
+
     async function handleEvent(event: any) {
-      // V2 events carry their payload under `properties`, like v1.
       const type = event?.type
-      const props = event?.properties ?? {}
+      // V2 payloads live under `data`; V1 used `properties` (audit-01 FAIL-1 —
+      // reading only `properties` made every V2 event look empty).
+      const props = eventPayload(event)
+
+      if (type && !seenEventTypes.has(type)) {
+        seenEventTypes.add(type)
+        logger.info(`event stream: first ${type}`)
+      }
 
       if (type === "file.edited") {
-        const file: string = props.file ?? ""
-        if (!file) return
-        const sig = contentSig(file)
-        if (rewriteEcho.isEcho(file, sig)) {
-          // The watcher echo of a rewrite our own hooks just performed —
-          // content is unchanged since the hook wrote it, so re-dispatching
-          // would run every matching hook again.
+        const file: string = props.file ? absolute(String(props.file)) : ""
+        if (!file) {
+          // A payload without a file means the event shape changed under us —
+          // silently returning is what hid this failure for a whole audit.
+          logger.warn("file.edited event carried no file path — ignoring")
           return
         }
-        // file.edited carries no create-vs-edit flag; the companion
-        // file.watcher.updated does. Buffer until it arrives so skipOnCreate
-        // hooks can avoid normalizing a freshly-written file.
-        kindResolver.onEdited(file, (kind) => {
-          // Debounce: a burst of rapid edits resets the timer so one run
-          // happens after the burst has quiesced, never between two edits.
-          const existing = debounceTimers.get(file)
-          if (existing !== undefined) clearTimeout(existing)
-          debounceTimers.set(
-            file,
-            setTimeout(() => {
-              debounceTimers.delete(file)
-              // Serialize + coalesce per file: two concurrent format hooks
-              // interleaving read-modify-write corrupts the file.
-              fileEditGate(file, async () => {
-                const before = contentSig(file)
-                await dispatch("file.edited", file, { file }, { create: kind === "add" })
-                const after = contentSig(file)
-                if (before && after && before !== after && kind !== "add") {
-                  logger.info(`file.edited hooks rewrote ${file} (format normalization?) — re-read the file before your next edit`)
-                }
-                rewriteEcho.record(file, after)
-              })
-            }, EDIT_DEBOUNCE_MS),
-          )
-        })
-      } else if (type === "file.watcher.updated") {
-        const file: string = props.file ?? ""
-        const kind: string = props.event ?? ""
-        if (file && (kind === "add" || kind === "change" || kind === "unlink")) {
-          kindResolver.onWatcher(file, kind)
+        // file.edited carries no create-vs-edit flag; the companion watcher
+        // event does. Buffer until it arrives so skipOnCreate hooks can avoid
+        // normalizing a freshly-written file.
+        kindResolver.onEdited(file, (kind) => scheduleFileEdit(file, kind))
+      } else if (type === "filesystem.changed" || type === "file.watcher.updated") {
+        // V2 publishes `filesystem.changed` (add|change|unlink); V1 published
+        // `file.watcher.updated`. On a V2 host this is the only file event that
+        // exists, so it dispatches on its own instead of only pairing.
+        const file: string = props.file ? absolute(String(props.file)) : ""
+        const kind: string = String(props.event ?? "")
+        if (!file) {
+          logger.warn(`${type} event carried no file path — ignoring`)
+          return
         }
+        if (kind === "unlink") {
+          // A deleted file has nothing to format or index.
+          kindResolver.onWatcher(file, "unlink")
+          return
+        }
+        if (kind !== "add" && kind !== "change") return
+        kindResolver.onWatcher(file, kind)
+        scheduleFileEdit(file, kind)
       } else if (type === "session.created") {
         await dispatch("session.created", undefined, {})
       } else if (type === "session.idle") {
         const id = props.sessionID || props.info?.id || props.id || ""
         await dispatch("session.idle", undefined, { "session-id": id })
-      } else if (type === "session.error") {
+      } else if (type === "session.error" || type === "session.execution.failed") {
+        // V2 names this `session.execution.failed`; V1 named it `session.error`.
         const id = props.sessionID || props.info?.id || props.id || ""
         const err = props.error?.message || props.error?.data?.message || props.message || ""
-        await dispatch("session.error", undefined, { "session-id": id, error: err })
+        await dispatch("session.error", undefined, { "session-id": id, error: String(err) })
       }
     }
 
@@ -206,25 +268,41 @@ export default Plugin.define({
           try {
             await handleEvent(event)
           } catch (e) {
-            logger.debug(`event ${(event as any)?.type} failed: ${e instanceof Error ? e.message : String(e)}`)
+            logger.error(`event ${(event as any)?.type} failed: ${e instanceof Error ? e.message : String(e)}`)
           }
         }
-      } catch {
-        // Aborted on unload.
+      } catch (e) {
+        // An abort is the normal unload path; anything else means the adapter is
+        // now blind, which must be visible rather than looking like an idle
+        // session (audit-01 FAIL-1).
+        if (!controller.signal.aborted) {
+          logger.error(`event subscription ended: ${e instanceof Error ? e.message : String(e)}`)
+        }
       }
     })()
 
     await ctx.tool.hook("execute.before", async (event: any) => {
-      const tool = String(event?.tool ?? "").toLowerCase()
+      const rawTool = String(event?.tool ?? "").toLowerCase()
       const args = event?.input
+      // One canonical name for every downstream matcher: the host reports the
+      // bare name a V2 plugin registered (`spawn`), the guards manifest names
+      // the tool it actually is (`pty_spawn`). Also keeps a bare `write`/`read`
+      // with a `path` from being mistaken for a PTY call (audit-01 FAIL-2).
+      const tool = canonicalToolName(rawTool, args)
       // Name the caller for tools that read the session's own state — the MCP
       // server's process cannot know which session invoked it.
       injectSessionId(tool, event?.sessionID, args)
       // PTYs are top-level only: a `task` subagent's child session cannot
       // surface a PTY's exit notification, so a notifyOnExit PTY there hangs
       // the task. Fails open on a lookup error.
-      const ptyReason = await ptySubagentGuard(ctx, tool, event?.sessionID)
+      const ptyReason = await ptySubagentGuard(ctx, tool, event?.sessionID, args)
       if (ptyReason) throw new Error(`[pty-subagent] ${ptyReason}`)
+      // Remember whether each write target exists, so the after-hook can tell a
+      // create from an edit without a watcher event.
+      for (const target of toolFileTargets(tool, args)) {
+        const file = absolute(target)
+        rememberPendingCreate(createKey(event?.sessionID, file), !existsSync(file))
+      }
       // Every shell channel must reach the guards.
       const command = commandString(tool, args)
       // Nothing to evaluate — the guards tool would exit non-zero on an empty
@@ -265,7 +343,30 @@ export default Plugin.define({
     })
 
     await ctx.tool.hook("execute.after", async (event: any) => {
-      const tool = String(event?.tool ?? "").toLowerCase()
+      const rawTool = String(event?.tool ?? "").toLowerCase()
+      const tool = canonicalToolName(rawTool, event?.input)
+      const args = event?.input
+
+      // File writes: the V2 host publishes no file event for a tool-mediated
+      // edit, so the edit event is derived here from the tool call itself
+      // (audit-01 FAIL-1). Dispatching only on a completed call keeps a failed
+      // or rejected write from reformatting a file the agent never changed.
+      const targets = toolFileTargets(tool, args)
+      if (targets.length > 0) {
+        if (event?.status !== "error") {
+          for (const target of targets) {
+            const file = absolute(target)
+            const key = createKey(event?.sessionID, file)
+            const wasNew = pendingCreates.get(key) ?? false
+            pendingCreates.delete(key)
+            scheduleFileEdit(file, wasNew ? "add" : "change")
+          }
+        } else {
+          for (const target of targets) pendingCreates.delete(createKey(event?.sessionID, absolute(target)))
+        }
+        return
+      }
+
       if (tool !== "bash" && tool !== "shell") return
       // Fire only on successful commands.
       if (event?.status === "error") return

@@ -143,6 +143,10 @@ kill. A tool result carrying `output` must declare an output schema — without
 one the whole result fails to serialise and the model retries, so these tools
 return content only.
 
+The `pty_` prefix is load-bearing, not cosmetic: it is what the guards match and
+what keeps `write`/`read` from shadowing the host's own file tools. See
+[PTY tool names are `pty_*`](#pty-tool-names-are-pty_) below.
+
 ### The PTY extension owns three parts
 
 `hooks/pty/` is a plugin package, not a hook file:
@@ -392,10 +396,63 @@ Tool hook event shapes (`dist/promise/tool.d.ts`):
 `ctx.location.directory` replaces v1's `directory`; `ctx.location.project`
 replaces `project`; `ctx.options` replaces the plugin-options argument.
 
+### What the event stream actually publishes
+
+The adapter's manifest vocabulary is the semantic one (`file.edited`,
+`session.idle`, `session.error`, …), but a 2.x host names and shapes its events
+differently. These are the mappings `hooks/on-hooks.ts` performs, each verified
+against `@opencode/client`'s `V2Event` union and the 2.3.0 binary:
+
+| Manifest event    | V2 source                                        | payload          |
+| ----------------- | ------------------------------------------------ | ---------------- |
+| `file.edited`     | **derived** from the `edit`/`write`/`patch` tool | `{ file }`       |
+| `file.edited`     | `file.edited` event, when a host emits one       | `data.file`      |
+| `session.created` | `session.created`                                | `data.sessionID` |
+| `session.idle`    | `session.idle`                                   | `data.sessionID` |
+| `session.error`   | `session.execution.failed` (v1: `session.error`) | `data.error`     |
+
+Two things had to change for file hooks to run at all (audit-01 FAIL-1):
+
+1. **Payloads live under `data`, not `properties`.** Reading `properties` alone
+   yields `{}` for every V2 event, which is indistinguishable from a host that
+   publishes nothing.
+2. **The file event is derived from the tool call.** A 2.x host does not publish
+   `file.edited` for a tool-mediated write, and `filesystem.changed` only exists
+   for paths registered with the experimental `/api/fs/watch` endpoint — so
+   there is no general file event to wait for. `execute.before` records whether
+   each target of `edit`/`write`/`patch` already exists (which classifies the
+   write as `add` or `change`, replacing the old `file.watcher.updated` pairing)
+   and `execute.after` schedules the dispatch on a completed call.
+
+The adapter still accepts `file.edited`, `file.watcher.updated` and
+`filesystem.changed` when a host does publish them; the per-file debounce and
+the rewrite-echo tracker collapse the duplicates into one run.
+
+`ctx.event.subscribe` now logs the first event of each type at `info`, warns on
+a file event with no path, and logs a subscription that ends for any reason
+other than the abort — an adapter that has gone blind must not look idle.
+
+### PTY tool names are `pty_*`
+
+The five tools are registered with their prefixed names, and must stay that way.
+The host reports the **effective** name to `execute.before` and to the model, so
+registering `spawn`/`write`/`read`/`list`/`kill` under the `pty` namespace meant:
+
+- `write` and `read` shadowed V2's built-in file tools (the model lost them);
+- `src/agentic/guards/hooks.json`, which matches `pty_spawn`/`pty_write`, never
+  matched — so a PTY command bypassed every guard (audit-01 FAIL-2);
+- `PTY_TOOLS` never matched, so the PTY-subagent guard never fired (FAIL-3).
+
+`on-hooks-utils.canonicalToolName()` normalises both generations (including a
+namespace-qualified `pty.spawn`) and is the single place a tool name maps to
+behaviour; a bare `write`/`read` carrying a `path`/`filePath` stays the file
+tool.
+
 ### Still to establish before porting the hooks
 
-- The `session.hook("context")` event's agent field — v1's `chat.params` read
-  `input.agent`, and the port needs the v2 equivalent before it can call
-  `rememberAgent`.
-- `Tool.Result`'s shape, for the `command.after` hook's exit-code and output
-  checks (v1 read `output.metadata.exitCode` and `output.output`).
+Nothing outstanding for the event domains above: the `session.hook("context")`
+event carries `agent`, and `Tool.Result` is read through `resultText()` /
+`result.metadata.exitCode`. The three manifest-declared V1 **plugin** hooks
+(`agent-communication-idle`, `auto-recover`, `watchdog-silent-stall`) are still
+ported as V1 declarations only, so the adapter skips them and says so once in
+`hooks.log`.

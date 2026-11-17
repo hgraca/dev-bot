@@ -544,14 +544,54 @@ export function sessionEnvVars(
   return env
 }
 
-// The guard hook needs one command string per shell channel. The bash tool
-// supplies `command`; a PTY splits the invocation across two tools — `pty_spawn`
-// carries the executable plus an args array, `pty_write` carries raw input typed
-// into a running session. Normalise all of them so a command cannot slip past
-// the guards merely by being launched through a PTY.
+// ── Tool-name canonicalisation (audit-01 FAIL-2 / FAIL-3) ────────────────────
+// V1 exposed the PTY capability as `pty_spawn`/`pty_write`/…; V2 registers the
+// same five tools inside a `pty` namespace, and the host hands them to the
+// model (and to `execute.before`) as bare `spawn`/`write`/`read`/`list`/`kill`
+// — two of which are also the names of V2's built-in FILE tools. That aliasing
+// is what killed both guards: the guards manifest matches the V1 names, so
+// every PTY command bypassed them, and `PTY_TOOLS` never saw a PTY tool, so the
+// subagent guard never fired. It also shadowed the built-in `read`/`write`.
+//
+// Two layers fix it. The plugin now registers unambiguous `pty_*` names (the
+// shadowing is gone), and this canonicaliser is the single place a name maps to
+// behaviour — so a host that strips the namespace, or a manifest written for
+// either generation, still resolves the same tool. Calls whose arguments show
+// they are the file tools keep their own identity: a bare `write`/`read` with a
+// `path`/`filePath` is NOT a PTY call.
+const PTY_TOOLS = new Set(["pty_spawn", "pty_write", "pty_read", "pty_list", "pty_kill"])
+
+export function canonicalToolName(tool: string, args?: unknown): string {
+  const raw = String(tool || "").toLowerCase()
+  // `pty.spawn` (namespace-qualified) and `pty_spawn` are the same tool.
+  if (raw.startsWith("pty.")) return `pty_${raw.slice(4)}`
+  if (PTY_TOOLS.has(raw)) return raw
+  const a = (args ?? {}) as Record<string, unknown>
+  const fileTarget = a.path !== undefined || a.filePath !== undefined
+  switch (raw) {
+    case "spawn":
+      return "pty_spawn"
+    case "write":
+      return fileTarget ? "write" : "pty_write"
+    case "read":
+      return a.id !== undefined && !fileTarget ? "pty_read" : "read"
+    case "list":
+      return fileTarget ? "list" : "pty_list"
+    case "kill":
+      return a.id !== undefined ? "pty_kill" : "kill"
+    default:
+      return raw
+  }
+}
+
+// The guard hook needs one command string per shell channel. The shell tool
+// supplies `command`; a PTY splits the invocation across two tools — `spawn`
+// carries the command line, `write` carries raw input typed into a running
+// session. Normalise all of them so a command cannot slip past the guards
+// merely by being launched through a PTY.
 export function commandString(tool: string, args: unknown): string {
   const a = (args ?? {}) as { command?: unknown; args?: unknown; data?: unknown }
-  switch (String(tool || "").toLowerCase()) {
+  switch (canonicalToolName(tool, args)) {
     case "pty_spawn": {
       const rest = Array.isArray(a.args) ? a.args.map((value) => String(value)) : []
       return [String(a.command ?? ""), ...rest].filter(Boolean).join(" ")
@@ -561,6 +601,40 @@ export function commandString(tool: string, args: unknown): string {
     default:
       return String(a.command ?? "")
   }
+}
+
+// ── V2 event payloads and file-writing tools (audit-01 FAIL-1) ───────────────
+// A V2 event is `{ id, type, data, location }`; V1 carried the same payload
+// under `properties`. Reading only `properties` on a V2 host yielded `{}` for
+// every event, which is why the adapter looked like it had no events at all.
+export function eventPayload(event: any): Record<string, any> {
+  const data = event?.data
+  if (data && typeof data === "object") return data as Record<string, any>
+  const props = event?.properties
+  if (props && typeof props === "object") return props as Record<string, any>
+  return {}
+}
+
+// Files a tool call will write, from its input. V2 names the field `path`
+// (`edit`, `write`), V1 named it `filePath`, and `patch` carries a lark patch
+// text whose `*** Update File:` headers name every target.
+const FILE_WRITE_TOOLS = new Set(["edit", "write", "patch", "apply_patch"])
+
+export function toolFileTargets(tool: string, input: unknown): string[] {
+  const name = canonicalToolName(tool, input)
+  if (!FILE_WRITE_TOOLS.has(name)) return []
+  const a = (input ?? {}) as { path?: unknown; filePath?: unknown; patchText?: unknown }
+  if (name === "patch") {
+    const text = String(a.patchText ?? "")
+    const out: string[] = []
+    for (const line of text.split("\n")) {
+      const match = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/.exec(line.trim())
+      if (match) out.push(match[1].trim())
+    }
+    return out
+  }
+  const path = a.path ?? a.filePath
+  return typeof path === "string" && path ? [path] : []
 }
 
 // An empty command has nothing for the guards to evaluate. The guards tool
@@ -578,17 +652,16 @@ export function hasCommand(command: string): boolean {
 // family in child sessions (parentID set; the top-level session has none); the
 // agent falls back to `bash` with an explicit timeout, which the parent is already
 // waiting on through the task either way.
-const PTY_TOOLS = new Set(["pty_spawn", "pty_write", "pty_read", "pty_list", "pty_kill"])
-
-export function isPtyTool(tool: string): boolean {
-  return PTY_TOOLS.has(String(tool || "").toLowerCase())
+export function isPtyTool(tool: string, args?: unknown): boolean {
+  return PTY_TOOLS.has(canonicalToolName(tool, args))
 }
 
 export function ptySubagentBlock(
   tool: string,
   session: { parentID?: string | null } | null | undefined,
+  args?: unknown,
 ): string | null {
-  if (!isPtyTool(tool) || !session?.parentID) return null
+  if (!isPtyTool(tool, args) || !session?.parentID) return null
   return (
     "PTY tools are available only to the top-level agent: a subagent's child " +
     "session cannot surface a PTY's exit notification, so the task would hang. " +
@@ -608,13 +681,14 @@ export async function ptySubagentGuard(
   ctx: any,
   tool: string,
   sessionID: unknown,
+  args?: unknown,
 ): Promise<string | null> {
-  if (!isPtyTool(tool)) return null
+  if (!isPtyTool(tool, args)) return null
   let session: { parentID?: string | null } | null = null
   try {
     session = (await ctx?.session?.get?.({ sessionID: String(sessionID ?? "") })) ?? null
   } catch {
     return null
   }
-  return ptySubagentBlock(tool, session)
+  return ptySubagentBlock(tool, session, args)
 }

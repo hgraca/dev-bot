@@ -81,8 +81,22 @@ export default Plugin.define({
         description: "Interactive pseudo-terminals (non-blocking, process survives between calls)",
       })
 
+      // The tools are registered as `pty_*`, NOT as bare `spawn`/`write`/…, for
+      // two reasons the audit proved live (audit-01 FAIL-2, FAIL-3):
+      //
+      // 1. The host hands the effective name — the bare one — to `execute.before`
+      //    and to the model. `write` and `read` are also V2's built-in FILE tools,
+      //    so the short names shadowed them: the model lost `write`/`read` while
+      //    this plugin was loaded.
+      // 2. Every guard is matched by tool name. `src/agentic/guards/hooks.json`
+      //    (and the PTY-subagent guard) name the v1 tools `pty_spawn`/`pty_write`,
+      //    so a bare `spawn` slipped past the command guards entirely and a
+      //    subagent could hang its parent with a notifyOnExit PTY.
+      //
+      // The namespace below keeps the sidebar grouping; it does not prefix names.
+
       editor.add({
-        name: "spawn",
+        name: "pty_spawn",
         description:
           "Start a command in a pseudo-terminal. Returns an id for pty_write / pty_read / pty_kill. Output arrives asynchronously — poll pty_read until it appears. Prefer the bash tool for short deterministic commands.",
         input: {
@@ -118,7 +132,7 @@ export default Plugin.define({
       })
 
       editor.add({
-        name: "write",
+        name: "pty_write",
         description: "Send input to a PTY session. Include \\n to submit a line.",
         input: {
           type: "object",
@@ -136,7 +150,7 @@ export default Plugin.define({
       })
 
       editor.add({
-        name: "read",
+        name: "pty_read",
         description: "Read buffered output from a PTY session, optionally filtered by a regular expression.",
         input: {
           type: "object",
@@ -167,7 +181,7 @@ export default Plugin.define({
       })
 
       editor.add({
-        name: "list",
+        name: "pty_list",
         description: "List active PTY sessions with their exit state.",
         input: { type: "object", properties: {}, additionalProperties: false },
         execute: async () => {
@@ -183,7 +197,7 @@ export default Plugin.define({
       })
 
       editor.add({
-        name: "kill",
+        name: "pty_kill",
         description: "Terminate a PTY session and drop it from the registry.",
         input: {
           type: "object",
