@@ -188,10 +188,30 @@ _stub_npm_kit() {
 }
 
 @test "mcp.json: docker path launches the pinned image, labelled for reaping" {
-  run grep -qF 'docker run --rm -i --label dev-bot.mcp=playwright mcp/playwright' "${MODULE_DIR}/mcp.json"
+  run grep -qF 'docker run --rm -i' "${MODULE_DIR}/mcp.json"
+  assert_success
+  run grep -qF -- '--label dev-bot.mcp=playwright mcp/playwright' "${MODULE_DIR}/mcp.json"
   assert_success
   run grep -q 'docker info' "${MODULE_DIR}/mcp.json"
   assert_success
+}
+
+@test "mcp.json: docker path mounts the project at the same path" {
+  # Without a bind mount the container runs with its own /home/node cwd, so
+  # browser_file_upload rejects host paths and a screenshot filename fails with
+  # ENOENT on the project directory. Mirrored paths keep both working.
+  run grep -qF '\"$PWD:$PWD:z\"' "${MODULE_DIR}/mcp.json"
+  assert_success
+  run grep -qF '\"$PWD\"' "${MODULE_DIR}/mcp.json"
+  assert_success
+}
+
+@test "mcp.json: keeps generated artifacts under the gitignored logs dir" {
+  # With the project mounted, the default output dir (./.playwright-mcp) lands in
+  # the repo and shows up in git status on every session. Both launch paths must
+  # send snapshots/screenshots to .agents/logs instead.
+  run bash -c "grep -o -- '--output-dir .agents/logs/playwright-mcp' '${MODULE_DIR}/mcp.json' | wc -l"
+  assert_equal "$output" "2"
 }
 
 # ── down.sh: orphan reaping ───────────────────────────────────────────────────

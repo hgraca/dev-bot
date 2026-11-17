@@ -11,7 +11,7 @@ Drive a real browser: navigate, interact, and assert — for end-to-end tests, o
 
 Wires the Playwright MCP server (`mcp/playwright`) into the harness.
 
-Launch is **hybrid**: where Docker is available it runs the server in a container (`docker run --rm -i --label dev-bot.mcp=playwright`), and otherwise it falls back to a locally installed `@playwright/mcp`. The local binary is resolved by explicit npm-prefix paths rather than the bare name on `PATH`, so a stale system binary can never win.
+Launch is **hybrid**: where Docker is available it runs the server in a container (`docker run --rm -i -v "$PWD:$PWD:z" -w "$PWD" --label dev-bot.mcp=playwright mcp/playwright`), and otherwise it falls back to a locally installed `@playwright/mcp`. The local binary is resolved by explicit npm-prefix paths rather than the bare name on `PATH`, so a stale system binary can never win. The container gets the project bind-mounted at the same absolute path, because the server validates upload/screenshot paths against the host project root and resolves filenames against its own working directory: without the mount, `browser_file_upload` rejects every host file and a screenshot `filename` fails with `ENOENT`. The `:z` suffix relabels the mount for SELinux hosts (ignored elsewhere). Both launch paths pass `--output-dir .agents/logs/playwright-mcp` so generated snapshots, screenshots and console logs land in the gitignored logs directory instead of the default `./.playwright-mcp` in the repo root.
 
 ## Configuration
 
