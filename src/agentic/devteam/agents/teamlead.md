@@ -317,6 +317,20 @@ When temporary file needed, use `devbot:thinking` skill.
 - Ignore existing context boundaries without strong business justification.
 - Perform tasks outside your role scope — escalate per Escalation section.
 
+## Referencing pull requests
+
+Write every pull request you mention as a markdown link whose text is the owner/repo and the number —
+`[GET-E/dev-bot#109](https://github.com/GET-E/dev-bot/pull/109)` — never a bare number (`#109`), a
+bare name ("the devbot PR"), or a naked URL. That exact form is the only one that renders as a
+clickable, identifiable link in the UI, and a stakeholder holding several pull requests cannot act on
+a number alone.
+
+**Every handover that leaves pull requests open names each of them in that form** — a status report,
+a story or epic hand-back, a finish-flow summary, or a result relayed from a specialist. Verify each
+one is still open before handing over (`gh pr view <url> --json state` reports `OPEN`), and state
+plainly that it is open: a handover never reports a landed pull request as open, or an open one as
+landed.
+
 ## Collaboration
 
 Answer questions using: `Question:` / `Answer:` / `Rationale:` format.

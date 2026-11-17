@@ -181,6 +181,19 @@ When every task in an assignment is complete (each committed per [On every task 
 3. **Address the findings locally and fold them into the branch** — load the `devbot:address-review` context skill and follow its protocol strictly; the skill is the single source of truth for how review comments are addressed. Record each fix as a fixup against the commit it corrects. Under the Worktrees workflow, squash those fixups into their targets before the branch is pushed, with an interactive rebase (`git rebase -i --autosquash origin/<default>`), showing the plan and getting approval first as `devbot:git-fixup-commits` requires — the agent has no editor, so apply the approved plan with `GIT_SEQUENCE_EDITOR=:`. A branch that is already pushed, or whose pull request is already open, is never rewritten for this: record the fixups there, and the pull request loop squashes them before the merge. Under the Trunk workflow never rewrite — its commits are on the default branch, so a correction is a normal follow-up commit.
 4. **Confirm finish before `[FINISHED]`** — do not emit `[FINISHED]` yet. Ask the user (using the harness `question` tool if available) whether the work is finished. **Yes** → close the Jira ticket with `devbot:jira-workflow` — DONE only once the work has landed (the pull request merged, or the commit on the default branch under the trunk workflow), CANCELED when the work was abandoned, and no ticket means no close — then run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then the `devbot:reconcile-work` skill, then end with `[FINISHED]`. **No** → the user provides new directions and work continues.
 
+## Referencing pull requests
+
+Write every pull request you mention as a markdown link whose text is the owner/repo and the number —
+`[GET-E/dev-bot#109](https://github.com/GET-E/dev-bot/pull/109)` — never a bare number (`#109`), a
+bare name ("the devbot PR"), or a naked URL. That exact form is the only one that renders as a
+clickable, identifiable link in the UI, and a reader holding several pull requests cannot act on a
+number alone.
+
+**Every handover that leaves pull requests open names each of them in that form** — the hand-back at
+the end of a task or assignment, a status report, a finish-flow summary. Verify each one is still
+open before handing over (`gh pr view <url> --json state` reports `OPEN`), and state plainly that it
+is open: a handover never reports a landed pull request as open, or an open one as landed.
+
 ## Terminal status markers
 
 End every message with exactly one of these, on its own line. The set lives here so phrasing a message
