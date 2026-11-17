@@ -77,13 +77,35 @@ if [[ -n "${CHROME_DEVTOOLS_MCP_VERSION}" ]]; then
 fi
 
 # ── Discover a sandboxable Chromium (audit-25: macOS + Linux layouts) ────────
-if [ "$(uname -s)" = "Darwin" ]; then
-  # Playwright renamed the mac bundle: chrome-mac/Chromium.app
-  # became chrome-mac-<arch>/Google Chrome for Testing.app.
-  CHROME_REAL="$(ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-mac*/*.app/Contents/MacOS/* 2>/dev/null | head -1)"
-else
-  CHROME_REAL="$(ls "$HOME"/.cache/ms-playwright/chromium-*/chrome-linux*/chrome 2>/dev/null | head -1)"
-fi
+# Pick the NEWEST Playwright Chromium, not the lexicographically first: the cache
+# keeps one directory per Playwright upgrade, and an old revision lacks CDP
+# commands the MCP calls (Browser.setContentsSize, used by resize_page).
+_chromium_bin() {
+  local dir rev cand best="" best_rev=-1
+  for dir in "${HOME}"/.cache/ms-playwright/chromium-*/; do
+    [[ -d "${dir}" ]] || continue
+    rev="${dir%/}"
+    rev="${rev##*-}"
+    case "${rev}" in
+      '' | *[!0-9]*) continue ;;
+    esac
+    if [ "$(uname -s)" = "Darwin" ]; then
+      # Playwright renamed the mac bundle: chrome-mac/Chromium.app
+      # became chrome-mac-<arch>/Google Chrome for Testing.app.
+      cand="$(ls "${dir}"chrome-mac*/*.app/Contents/MacOS/* 2>/dev/null | head -1 || true)"
+    else
+      cand="$(ls "${dir}"chrome-linux*/chrome 2>/dev/null | head -1 || true)"
+    fi
+    [[ -n "${cand}" && -x "${cand}" ]] || continue
+    if [ "${rev}" -gt "${best_rev}" ]; then
+      best="${cand}"
+      best_rev="${rev}"
+    fi
+  done
+  printf '%s' "${best}"
+}
+
+CHROME_REAL="$(_chromium_bin)"
 
 # --isolated: give each instance its own temporary user-data-dir, removed when
 # the browser closes. Without it every instance targets the server's default

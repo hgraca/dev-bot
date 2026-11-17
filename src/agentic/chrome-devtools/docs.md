@@ -9,7 +9,7 @@ Inspect a page the way the browser's own DevTools does: read the DOM, catch cons
 
 ## What it does
 
-Wires the Chrome DevTools MCP server into the harness. It is launched through the harness's `chrome-devtools-serve.mcp.sh`, and its logs land in `.agents/logs/chrome-devtools-mcp.log`.
+Wires the Chrome DevTools MCP server into the harness. It is launched through the harness's `chrome-devtools-serve.mcp.sh`, and its logs land in `.agents/logs/chrome-devtools-mcp.log`. The launcher drives the **newest** Playwright Chromium found in `~/.cache/ms-playwright` (not the first, lexicographic match): old revisions lack CDP commands the server calls — Chrome 133 has no `Browser.setContentsSize`, so `resize_page` fails there.
 
 ## Configuration
 

@@ -272,6 +272,40 @@ print('DISABLED-BY-DEFAULT:OK')
   rm -rf "${tmpdir}"
 }
 
+@test "serve.mcp.sh: picks the newest Playwright Chromium revision" {
+  # The cache keeps one directory per Playwright upgrade, and a glob's first
+  # match is the OLDEST revision. Chrome 133 (chromium-1155) lacks the CDP
+  # command resize_page needs (Browser.setContentsSize), so discovery must pick
+  # the highest revision number, not the first path.
+  local tmpdir old new pin
+  tmpdir="$(mktemp -d)"
+  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "${MODULE_DIR}/versions.env" | head -1)"
+  old="${tmpdir}/.cache/ms-playwright/chromium-1155/chrome-linux/chrome"
+  new="${tmpdir}/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome"
+  mkdir -p "$(dirname "${old}")" "$(dirname "${new}")" "${tmpdir}/.npm-global/bin" "${tmpdir}/stubbin"
+  printf '#!/bin/bash\nexit 0\n' > "${old}"
+  printf '#!/bin/bash\nexit 0\n' > "${new}"
+  chmod +x "${old}" "${new}"
+  printf '#!/bin/bash\necho "%s"\n' "${pin}" > "${tmpdir}/.npm-global/bin/chrome-devtools-mcp"
+  chmod +x "${tmpdir}/.npm-global/bin/chrome-devtools-mcp"
+  printf '#!/bin/bash\nif [ "$1 $2 $3" = "config get prefix" ]; then echo "/nonexistent"; exit 0; fi\nexit 0\n' \
+    > "${tmpdir}/stubbin/npm"
+  chmod +x "${tmpdir}/stubbin/npm"
+  mkdir -p "${tmpdir}/.opencode"
+  ln -s "${SHARED_WRAPPER}" "${tmpdir}/.opencode/chrome-devtools-mcp-wrapper.js"
+  ln -s "${MODULE_DIR}/serve.mcp.sh" "${tmpdir}/.opencode/chrome-devtools-serve.mcp.sh"
+
+  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" \
+    bash "${tmpdir}/.opencode/chrome-devtools-serve.mcp.sh"
+  assert_success
+
+  run cat "${tmpdir}/.cache/ms-playwright/chrome-nosandbox"
+  assert_output --partial "chromium-1248/chrome-linux64/chrome"
+  refute_output --partial "chromium-1155"
+
+  rm -r -f "${tmpdir}"
+}
+
 # ── audit-25 F4: install/update must provision a sandboxable Chromium ────────
 # The discovery glob only matches Playwright-downloaded Chromium; on machines
 # without system Chrome that directory never exists, so chrome-devtools could
