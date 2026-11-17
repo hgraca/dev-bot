@@ -202,8 +202,9 @@ def resolve_devbot_root(
     Precedence: an explicit override, then $DEV_BOT_ROOT, then a walk up from
     this script's *real* location. Resolving the location matters because a
     project reaches the skill through a symlink
-    (`.agents/skills/devbot/<area>` -> `<root>/src/agentic/<area>/skills`), so
-    the unresolved path would point back into the project.
+    (`.agents/skills/devbot/<area>/<skill>` -> `<root>/src/agentic/<area>/skills`,
+    the link named after the skill's frontmatter name), so the unresolved path
+    would point back into the project.
     """
     if explicit:
         return explicit

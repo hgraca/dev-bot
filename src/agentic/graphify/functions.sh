@@ -305,6 +305,11 @@ _graphify_ensure_placeholder_graph() {
 # fallback. Mirrors _link_skills' preference and restores the fallback when
 # regeneration failed. Needed because the linking pass runs BEFORE this module's
 # init. Idempotent.
+#
+# The farm entry is `.agents/skills/devbot/graphify/<frontmatter name>` — one
+# link per skill, named after the SKILL.md's own `name:` (audit-01 FAIL-4: the
+# OpenCode 2 host derives a skill's id from its directory name, so the link must
+# be named `devbot:graphify`, not `graphify`).
 _graphify_relink_skill() {
   local project_dir="$1"
   local root="${DEV_BOT_ROOT:-}"
@@ -314,21 +319,34 @@ _graphify_relink_skill() {
   local want="${committed}"
   [[ -f "${generated}/.devbot-generated" ]] && want="${generated}"
 
-  local devbot_dir link
+  # The skill's name is its identity in the farm; without frontmatter fall back
+  # to the module name.
+  local skill_name
+  skill_name="$(sed -n 's/^name:[[:space:]]*//p' "${want}/SKILL.md" 2>/dev/null \
+    | head -1 | tr -d '\r"' | sed 's/[[:space:]]*$//')"
+  [[ -n "${skill_name}" ]] || skill_name="devbot:graphify"
+
+  local devbot_dir farm link
   devbot_dir="$(_devbot_get_project_dir "${project_dir}")"
-  link="${project_dir}/${devbot_dir}/skills/devbot/graphify"
+  farm="${project_dir}/${devbot_dir}/skills/devbot/graphify"
+
+  # Previous farm shape: one module-level symlink. Replaced by the per-skill dir.
+  if [[ -L "${farm}" ]]; then
+    rm -f "${farm}"
+  fi
+  mkdir -p "${farm}"
+  link="${farm}/${skill_name}"
   if [[ -L "${link}" && "$(readlink "${link}")" == "${want}" ]]; then
     return 0
   fi
 
-  mkdir -p "$(dirname "${link}")"
   if [[ -e "${link}" && ! -L "${link}" ]]; then
-    _warn "skills/devbot/graphify exists but is not a symlink — leaving it"
+    _warn "skills/devbot/graphify/${skill_name} exists but is not a symlink — leaving it"
     return 0
   fi
   rm -f "${link}"
-  ln -sf "${want}" "${link}"
-  _log "skills/devbot/graphify relinked"
+  ln -sfn "${want}" "${link}"
+  _log "skills/devbot/graphify/${skill_name} relinked"
   return 0
 }
 

@@ -77,6 +77,21 @@ _link_commands() {
 }
 
 # ── Link skills into .agents/ ───────────────────────────────────────────────────
+# One link per SKILL, named after the skill's FRONTMATTER NAME:
+#   .agents/skills/devbot/<module>/<name>  →  <skill dir>
+#
+# The directory name is the skill's ID on an OpenCode 2 host (SkillScan derives
+# it from the SKILL.md's parent directory) while the frontmatter `name` is the
+# display name. A `devbot:`-prefixed display name sitting in a plain directory
+# (`git-commits`) therefore advertised an id that no caller used and that the
+# Skill tool could not resolve — the whole module farm, 82 of 84 skills, was
+# unreachable (audit-01 FAIL-4: `skill("devbot:tree")` → "Unable to load
+# skill"). Linking AT the frontmatter name makes id == name on both hosts, and
+# keeps every `devbot:<skill>` reference in the docs, commands and agent
+# instructions valid.
+#
+# A project links the farm into `.opencode/skills` or reads `.agents/skills`
+# directly, so this shape is host-agnostic: one level per skill either way.
 _link_skills() {
   local mod_dir="$1"
   local mod_name
@@ -92,36 +107,81 @@ _link_skills() {
   local generated="${DEV_BOT_ROOT}/storage/${mod_name}/skills"
   [[ -f "${generated}/.devbot-generated" ]] && skill_dir="${generated}"
 
-  local link_name="${AGENTS_DIR}/skills/devbot/${mod_name}"
+  local farm="${AGENTS_DIR}/skills/devbot/${mod_name}"
 
-  # A module that ships no skills must not leave a dangling farm link behind.
-  # Only a link this function created — one pointing at the expected dir — is ours
-  # to remove; links from a previous install root are left alone.
+  # A module that ships no skills must not leave a dangling farm entry behind.
+  # Only a link this function created — one pointing at the expected dir, or the
+  # per-skill links of the current shape — is ours to remove; links from a
+  # previous install root are left alone.
   if [[ ! -d "${skill_dir}" ]]; then
-    if [[ -L "${link_name}" && "$(readlink "${link_name}")" == "${skill_dir}" ]]; then
-      rm -f "${link_name}"
+    if [[ -L "${farm}" && "$(readlink "${farm}")" == "${skill_dir}" ]]; then
+      rm -f "${farm}"
       _ok "skills/devbot/${mod_name} pruned (module ships no skills)"
+    elif [[ -d "${farm}" && ! -L "${farm}" ]]; then
+      # Current shape: drop only links that resolve into this module's skills.
+      local stale
+      while IFS= read -r -d '' stale; do
+        local resolved
+        resolved="$(readlink -f "${stale}" 2>/dev/null || true)"
+        [[ -n "${resolved}" && "${resolved}" == "${skill_dir}"* ]] || continue
+        rm -f "${stale}"
+        _ok "skills/devbot/${mod_name}/$(basename "${stale}") pruned (module ships no skills)"
+      done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
+      rmdir "${farm}" 2>/dev/null || true
     fi
     return
   fi
 
-  if [[ -L "${link_name}" ]]; then
-    local current
-    current="$(readlink "${link_name}")"
-    if [[ "${current}" == "${skill_dir}" ]]; then
-      _skip "skills/devbot/${mod_name} already linked"
-    else
-      rm -f "${link_name}"
-      ln -sf "${skill_dir}" "${link_name}"
-      _ok "skills/devbot/${mod_name} relinked"
-    fi
-  elif [[ -e "${link_name}" ]]; then
-    _warn "skills/devbot/${mod_name} exists but is not a symlink"
-  else
-    mkdir -p "$(dirname "${link_name}")"
-    ln -sf "${skill_dir}" "${link_name}"
-    _ok "skills/devbot/${mod_name} linked"
+  # The module-level symlink of the previous farm shape becomes a real directory
+  # of per-skill links.
+  if [[ -L "${farm}" ]]; then
+    rm -f "${farm}"
+  elif [[ -e "${farm}" && ! -d "${farm}" ]]; then
+    _warn "skills/devbot/${mod_name} exists but is not a directory — leaving it"
+    return
   fi
+  mkdir -p "${farm}"
+
+  local wanted=""
+  local f name target link
+  while IFS= read -r -d '' f; do
+    target="$(dirname "${f}")"
+    name="$(sed -n 's/^name:[[:space:]]*//p' "${f}" | head -1 | tr -d '\r"' | sed 's/[[:space:]]*$//')"
+    [[ -n "${name}" ]] || name="$(basename "${target}")"
+    # A name with a path separator would escape the farm.
+    [[ "${name}" == */* || "${name}" == "." || "${name}" == ".." ]] && continue
+    link="${farm}/${name}"
+    wanted+="${name}"$'\n'
+
+    if [[ -L "${link}" ]]; then
+      if [[ "$(readlink "${link}")" == "${target}" ]]; then
+        _skip "skills/devbot/${mod_name}/${name} already linked"
+      else
+        rm -f "${link}"
+        ln -sf "${target}" "${link}"
+        _ok "skills/devbot/${mod_name}/${name} relinked"
+      fi
+    elif [[ -e "${link}" ]]; then
+      _warn "skills/devbot/${mod_name}/${name} exists but is not a symlink"
+    else
+      ln -sf "${target}" "${link}"
+      _ok "skills/devbot/${mod_name}/${name} linked"
+    fi
+  done < <(find "${skill_dir}" -name SKILL.md -print0 2>/dev/null | sort -z)
+
+  # Reconcile: a skill renamed or removed from the module must not keep a link
+  # in the farm (the host would advertise a skill that no longer exists).
+  local stale resolved
+  while IFS= read -r -d '' stale; do
+    local bare
+    bare="$(basename "${stale}")"
+    grep -Fxq -- "${bare}" <<< "${wanted}" && continue
+    # Only links into THIS module's skill dir are ours to prune.
+    resolved="$(readlink -f "${stale}" 2>/dev/null || true)"
+    [[ -n "${resolved}" && "${resolved}" == "${skill_dir}"* ]] || continue
+    rm -f "${stale}"
+    _ok "skills/devbot/${mod_name}/${bare} pruned (skill no longer shipped)"
+  done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
 }
 
 # ── Link MCP tools into .agents/ ────────────────────────────────────────────────

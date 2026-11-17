@@ -194,17 +194,32 @@ PY
     fi
     expected_skills="$expected_skills$mod_name\n"
   done
-  # Compare against what's actually linked
+  # Compare against what's actually linked. The farm is one DIRECTORY per
+  # module holding one link per skill, each named after the skill's frontmatter
+  # name (the id an OpenCode 2 host resolves from the SKILL.md parent directory,
+  # which is why `devbot:<skill>` and not the bare directory name is the link
+  # name — audit-01 FAIL-4). A module counts as linked when it has at least one
+  # such link.
   local actual_skills=""
-  for link in "$linked_skills/"*; do
-    [[ -L "$link" ]] || continue
-    actual_skills="$actual_skills$(basename "$link")\n"
+  local module_dir
+  for module_dir in "$linked_skills/"*/; do
+    [[ -d "$module_dir" ]] || continue
+    local has_skill=false
+    local entry
+    for entry in "$module_dir"*; do
+      if [[ -L "$entry" && -f "$entry/SKILL.md" ]]; then
+        has_skill=true
+        break
+      fi
+    done
+    [[ "$has_skill" == true ]] || continue
+    actual_skills="$actual_skills$(basename "$module_dir")\n"
   done
   # The lists are printed on failure: this assertion has been seen to fail
   # intermittently in a full-suite run (never in isolation) with `actual`
   # empty, and the cause was not reproducible from the diff alone.
   if ! diff <(printf "$expected_skills" | sort) <(printf "$actual_skills" | sort); then
-    fail "skills mismatch between source and symlink
+    fail "skills mismatch between source and per-skill links
       disabled: [$(printf '%s' "${disabled_names}" | tr '\n' ' ')]
       expected: [$(printf "$expected_skills" | tr '\n' ' ')]
       actual:   [$(printf "$actual_skills" | tr '\n' ' ')]"

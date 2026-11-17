@@ -755,27 +755,40 @@ EOF
   assert [ ! -e "${out}/.devbot-generated" ]
 }
 
+# The farm entry is per-skill and named after the SKILL.md `name:` (the skill id
+# the host resolves) — `.agents/skills/devbot/graphify/<name>`, never the
+# module-level `.../graphify` symlink of the previous shape (audit-01 FAIL-4).
 @test "_graphify_relink_skill: points the farm entry at the generated skill" {
   setup_ensure_skill
   _graphify_ensure_skill
   local project="${SKILL_ROOT}/project"
   mkdir -p "${project}/.agents/skills/devbot"
-  ln -sf "${SKILL_ROOT}/src/agentic/graphify/skills" "${project}/.agents/skills/devbot/graphify"
 
   run _graphify_relink_skill "${project}"
   assert_success
-  [ "$(readlink "${project}/.agents/skills/devbot/graphify")" = "${SKILL_ROOT}/storage/graphify/skills" ]
+  [ "$(readlink "${project}/.agents/skills/devbot/graphify/devbot:graphify")" = "${SKILL_ROOT}/storage/graphify/skills" ]
 }
 
 @test "_graphify_relink_skill: no-op when no generated skill exists" {
   setup_ensure_skill
   local project="${SKILL_ROOT}/project"
   mkdir -p "${project}/.agents/skills/devbot"
+
+  run _graphify_relink_skill "${project}"
+  assert_success
+  [ "$(readlink "${project}/.agents/skills/devbot/graphify/devbot:graphify")" = "${SKILL_ROOT}/src/agentic/graphify/skills" ]
+}
+
+@test "_graphify_relink_skill: migrates the previous module-level symlink" {
+  setup_ensure_skill
+  local project="${SKILL_ROOT}/project"
+  mkdir -p "${project}/.agents/skills/devbot"
   ln -sf "${SKILL_ROOT}/src/agentic/graphify/skills" "${project}/.agents/skills/devbot/graphify"
 
   run _graphify_relink_skill "${project}"
   assert_success
-  [ "$(readlink "${project}/.agents/skills/devbot/graphify")" = "${SKILL_ROOT}/src/agentic/graphify/skills" ]
+  [ ! -L "${project}/.agents/skills/devbot/graphify" ]
+  [ "$(readlink "${project}/.agents/skills/devbot/graphify/devbot:graphify")" = "${SKILL_ROOT}/src/agentic/graphify/skills" ]
 }
 
 @test "_graphify_relink_skill: falls back to the committed skill when the store is unsentineled" {
@@ -784,11 +797,10 @@ EOF
   rm -f "${SKILL_ROOT}/storage/graphify/skills/.devbot-generated"
   local project="${SKILL_ROOT}/project"
   mkdir -p "${project}/.agents/skills/devbot"
-  ln -sf "${SKILL_ROOT}/storage/graphify/skills" "${project}/.agents/skills/devbot/graphify"
 
   run _graphify_relink_skill "${project}"
   assert_success
-  [ "$(readlink "${project}/.agents/skills/devbot/graphify")" = "${SKILL_ROOT}/src/agentic/graphify/skills" ]
+  [ "$(readlink "${project}/.agents/skills/devbot/graphify/devbot:graphify")" = "${SKILL_ROOT}/src/agentic/graphify/skills" ]
 }
 
 # ── Source scope helpers ──────────────────────────────────────────────────────
