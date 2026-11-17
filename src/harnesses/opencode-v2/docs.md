@@ -216,8 +216,8 @@ It is the v1 `pty-monitor` experience re-earned on 2.3:
 
 Both halves poll: the list every 2s, the open panel's output every 1s.
 
-**The panel can answer a session.** A process that stops at `Password: `, at
-`[y/N]`, or at a REPL prompt is not stuck:
+**The panel can answer a session.** A process that stops at `[y/N]`, at
+`Continue?`, or at a REPL prompt is not stuck:
 
 - `[send]` in the panel footer (or `ctrl+s`) opens the host's prompt dialog; the
   line is sent with a carriage return, which is what a terminal's Enter is;
@@ -229,8 +229,16 @@ Both halves poll: the list every 2s, the open panel's output every 1s.
   with a newline, and hiding it would leave an empty view of a session that is
   waiting for you;
 - nothing is echoed locally: the child's own echo arrives through the output
-  stream. A prompt with echo turned off (a password) shows the answer as blank
-  spaces, exactly as a terminal does.
+  stream, so the panel never invents characters. When the child turns echo off,
+  the answer is not echoed at all — the panel shows the prompt, then whatever the
+  child prints next.
+
+**A secret does not belong in the send dialog.** The host's prompt renders what
+you type and has no masked mode, so a password would be visible on screen while
+you type it. Feed secrets to the child through its environment or a credentials
+helper (`GIT_ASKPASS` is the usual one) and keep the send dialog for answers that
+are safe to see. That prompt is also what makes `Password: ` answerable at all;
+it simply cannot hide the answer too.
 
 This is **line mode, not a terminal emulator**. Answering a prompt, sending
 `y`, interrupting a run and typing into a REPL all work; driving a full-screen
