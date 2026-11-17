@@ -170,9 +170,10 @@ shape the session never had.
 processes and share no memory; v1's monitor scraped an HTTP port the plugin
 posted into the transcript, and v2 has no such surface. `index.ts` registers
 `PtyRpc` with `ctx.rpc.register`, `tui.ts` calls it through `ctx.client.rpc`.
-The contract is three methods: `list` (sessions, optionally filtered by the
-spawning session), `read` (a tail of a session's output) and `kill` (stop a
-session and optionally drop its record — what the dismissal controls call).
+The contract is four methods: `list` (sessions, optionally filtered by the
+spawning session), `read` (a tail of a session's output), `write` (raw input for
+a session — what the panel's send controls use) and `kill` (stop a session and
+optionally drop its record — what the dismissal controls call).
 `rpc.ts` deliberately imports nothing: the TUI process provides
 `@opencode/plugin/tui` to a plugin module and no other `@opencode/*` specifier,
 so a schema helper imported there would fail to resolve. A plain JSON Schema
