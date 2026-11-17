@@ -39,6 +39,48 @@ PROJECT_NAME="$(basename "${PROJECT_DIR}")"
 # chrome-devtools and codebase-index symlink the same file under their own names.
 
   # The harness links this module's declared MCP assets (mcp.json "assets").
+# ── Migrate a pre-mount launch command in an existing config ─────────────────
+# MCP registration is insert-only (merge_mcp_jsonc.py SKIP_EXISTS), so a project
+# initialised before the container bind mount would keep the broken command
+# forever: file upload and filename screenshots fail without it. Rewrite the two
+# known fragments in place; both harness shapes carry the same command text.
+_migrate_launch_commands() {
+  local config out changed=0
+  for config in "${PROJECT_DIR}/opencode.jsonc" "${PROJECT_DIR}/.mcp.json"; do
+    [[ -f "${config}" ]] || continue
+    grep -qF 'docker run --rm -i --label dev-bot.mcp=playwright mcp/playwright' "${config}" 2>/dev/null \
+      || grep -qF -- '--browser chromium 2>>.agents/logs/playwright-mcp.log' "${config}" 2>/dev/null \
+      || continue
+    out="$(CONFIG="${config}" python3 - <<'PY'
+import os
+
+p = os.environ["CONFIG"]
+with open(p) as fh:
+    before = fh.read()
+
+after = before.replace(
+    "docker run --rm -i --label dev-bot.mcp=playwright mcp/playwright",
+    'docker run --rm -i -v \\"$PWD:$PWD:z\\" -w \\"$PWD\\" --label dev-bot.mcp=playwright mcp/playwright --output-dir .agents/logs/playwright-mcp',
+).replace(
+    "--browser chromium 2>>.agents/logs/playwright-mcp.log",
+    "--browser chromium --output-dir .agents/logs/playwright-mcp 2>>.agents/logs/playwright-mcp.log",
+)
+if after != before:
+    with open(p, "w") as fh:
+        fh.write(after)
+    print("CHANGED")
+PY
+)" || out=""
+    if [[ "${out}" == *CHANGED* ]]; then
+      _ok "migrated the playwright launch command in $(basename "${config}")"
+      changed=$((changed + 1))
+    fi
+  done
+  [[ ${changed} -gt 0 ]] || _skip "playwright launch command already current"
+}
+
+_migrate_launch_commands
+
 # Dependency self-heal (codebase-memory pattern, T1.2): the mcp.json fallback
 # resolves a globally installed binary by explicit prefix — reinit WITHOUT a
 # preceding install would register the server with no npm fallback and launch

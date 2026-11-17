@@ -70,6 +70,41 @@ _stub_npm_kit() {
   rm -rf "${tmpdir}"
 }
 
+@test "init.sh: migrates a pre-mount launch command in an existing config" {
+  # MCP registration is insert-only, so a project initialised before the project
+  # bind mount keeps the broken command forever: uploads are rejected and a
+  # screenshot filename fails ENOENT. The module init rewrites the known
+  # fragments; a second run must be a no-op.
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  setup_project "${tmpdir}"
+  _stub_npm_kit "${tmpdir}"
+  cat > "${tmpdir}/opencode.jsonc" <<'JSON'
+{"mcp":{"playwright":{"type":"local","command":["bash","-c","docker run --rm -i --label dev-bot.mcp=playwright mcp/playwright 2>>.agents/logs/playwright-mcp.log; node \"$PW_BIN\" --browser chromium 2>>.agents/logs/playwright-mcp.log"]}}}
+JSON
+
+  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
+  assert_success
+  assert_output --partial "migrated the playwright launch command"
+
+  # JSON stays valid, the mount and working dir are in, and both launch paths
+  # carry the output dir.
+  run python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${tmpdir}/opencode.jsonc"
+  assert_success
+  run grep -qF -- '-v \"$PWD:$PWD:z\"' "${tmpdir}/opencode.jsonc"
+  assert_success
+  run grep -qF -- '-w \"$PWD\"' "${tmpdir}/opencode.jsonc"
+  assert_success
+  run bash -c "grep -o -- '--output-dir .agents/logs/playwright-mcp' '${tmpdir}/opencode.jsonc' | wc -l"
+  assert_equal "$output" "2"
+
+  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
+  assert_success
+  assert_output --partial "already current"
+
+  rm -r -f "${tmpdir}"
+}
+
 @test "init.sh: idempotent — re-run leaves the symlinks intact" {
   local tmpdir
   tmpdir="$(mktemp -d)"
@@ -210,8 +245,12 @@ _stub_npm_kit() {
   # With the project mounted, the default output dir (./.playwright-mcp) lands in
   # the repo and shows up in git status on every session. Both launch paths must
   # send snapshots/screenshots to .agents/logs instead.
-  run bash -c "grep -o -- '--output-dir .agents/logs/playwright-mcp' '${MODULE_DIR}/mcp.json' | wc -l"
-  assert_equal "$output" "2"
+  # Position matters: a flag before the image name is a docker flag, and one
+  # before the binary is a playwright-mcp flag. Pin both tails, not a count.
+  run grep -qF -- '--label dev-bot.mcp=playwright mcp/playwright --output-dir .agents/logs/playwright-mcp' "${MODULE_DIR}/mcp.json"
+  assert_success
+  run grep -qF -- '--browser chromium --output-dir .agents/logs/playwright-mcp' "${MODULE_DIR}/mcp.json"
+  assert_success
 }
 
 # ── down.sh: orphan reaping ───────────────────────────────────────────────────
