@@ -9,6 +9,7 @@ description: "PHP message bus integration: dispatching commands/events/queries, 
 
 - Working with message bus (dispatching commands, events, or queries)
 - Writing or modifying command handlers, event listeners, or query handlers
+- Reading or changing a project's message bus configuration, including its middleware stacks
 - Writing integration tests for handlers
 - Creating a new use case (Command + CommandHandler + Validator + tests)
 
@@ -20,6 +21,54 @@ This file is an annex of the `devbot:software-development` hub. Read it only whe
 
 - Before any work involving message bus (dispatching commands/events/queries, writing handlers/listeners, writing bus-related tests),
   read `vendor/get-e/message-bus/README.ai.md` in full
+
+## Transactions (MUST verify)
+
+Command and event handlers are usually expected to execute inside a DB transaction, opened by a
+middleware that wraps the handler. That is the default setup, not a guarantee — never assume it
+either way. Read the bus configuration and know the answer before writing, changing, or reviewing
+any handler.
+
+Why it cannot be assumed: a project that **assigns** a middleware key replaces the package default
+list entirely — even with `[]`; spreading it (`...DEFAULT_*`) or referencing the constant keeps it,
+and omitting the key inherits it (`MessageBusServiceProvider::mergeConfigs()` gives the host's
+numeric list the win).
+
+Verify all four sources before concluding:
+
+1. The project's own `config/message_bus.php`, where the wrapper lives in
+   `command_bus.sync_middlewares` (sync commands),
+   `command_bus.async_middlewares.execution_middlewares` (async commands) and
+   `event_bus.execution_middlewares` (events). The dispatch-time lists
+   (`command_bus.async_middlewares.dispatch_middlewares`, `event_bus.dispatch_middlewares`) carry
+   logging and context only — never the wrapper.
+2. The package default, which applies wherever the key is omitted —
+   `vendor/get-e/message-bus/config/message_bus.php`, and the `DEFAULT_SYNC_MIDDLEWARES` /
+   `DEFAULT_ASYNC_EXECUTION_TIME_MIDDLEWARES` / `DEFAULT_EXECUTION_TIME_MIDDLEWARES` constants.
+3. The middleware class itself — configured is not the same as wrapping. A project may substitute or
+   decorate it: in this workspace `agent-service` replaces it with
+   `LongRunningCommandTransactionMiddleware`, which delegates to the real middleware for every
+   command except `ExecuteAgentRun`, deliberately run without a transaction. Read the project's own
+   middleware class — do not assume a substituted wrapper opens one for every message.
+4. `transaction.max_nested_transactions` (package default `0`, commonly `1` under PHPUnit, which
+   wraps each test in a transaction). With a transaction already open — an HTTP controller's
+   `DB::transaction()`, a sync listener inside the dispatching handler —
+   `TransactionMiddleware` **skips** and runs the handler in the caller's transaction, unless the
+   message implements `RequiresNestedDbTransaction`, which forces an inner transaction regardless.
+   A wrapped handler therefore does not necessarily own the transaction.
+
+Queries are **not** wrapped: the query bus has no `TransactionMiddleware`. Only commands and events
+are expected to be.
+
+Consequences once the answer is known:
+
+- **Wrapped** — do not open a transaction in the handler, and expect a failure to roll back
+  everything the caller did in that transaction, not just the handler's writes. Implement
+  `GetE\MessageBus\Port\MessageBus\RequiresNestedDbTransaction` **on the message class** when it must
+  have a savepoint of its own.
+- **Not wrapped** — surface it as a pre-existing issue, naming the handler that relies on atomicity,
+  and ask before changing the stack: the middleware alters every handler's behaviour, which is a
+  decision, not a fix.
 
 ## Handler Integration Tests
 

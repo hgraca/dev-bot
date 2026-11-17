@@ -102,6 +102,14 @@ Before writing or reviewing code, identify the stack, then **read** the matching
 
 Read the annex _before_ implementing or reviewing — not after. Stack detection is per task, so re-check when the task changes stack.
 
+### Message bus transactions (MUST verify)
+
+When the task touches a message bus, never assume command and event handlers run inside a DB
+transaction: read the bus configuration — the project's own file **and** the package default it
+falls back to — and know which way it is before writing or reviewing a handler.
+`annexes/php/message-bus.md` carries the keys, the nesting rule, and the consequences for each
+answer.
+
 ## Preemptive Context Skill Loading
 
 On first load, load `devbot:git-commits` preemptively if it is not already loaded — every commit

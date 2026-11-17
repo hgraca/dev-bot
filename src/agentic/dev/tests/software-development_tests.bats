@@ -160,3 +160,32 @@ setup() {
   run grep -qF 'fix(api): retry idempotent requests on 503' "$SKILL"
   assert_failure
 }
+
+@test "message bus handlers are never assumed to be wrapped in a transaction" {
+  # A project that overrides its middleware stack replaces the default list, so
+  # the answer must be read from the configuration, never inferred.
+  local annex
+  annex="$(cd "$(dirname "$SKILL")" && pwd)/annexes/php/message-bus.md"
+
+  run grep -qF 'never assume command and event handlers run inside a DB' "$FLAT"
+  assert_success
+  run grep -qF 'the package default it falls back to' "$FLAT"
+  assert_success
+  # The hub must point at the annex: the pointer is the only route to the keys.
+  run grep -qF '`annexes/php/message-bus.md` carries the keys, the nesting rule' "$FLAT"
+  assert_success
+
+  [ -f "$annex" ] || { echo "missing annex: $annex" >&2; return 1; }
+
+  local needle
+  for needle in \
+    'MUST verify' \
+    'vendor/get-e/message-bus/config/message_bus.php' \
+    'command_bus.async_middlewares.execution_middlewares' \
+    'event_bus.execution_middlewares' \
+    'transaction.max_nested_transactions' \
+    'RequiresNestedDbTransaction'; do
+    run grep -qF "$needle" "$annex"
+    assert_success
+  done
+}
