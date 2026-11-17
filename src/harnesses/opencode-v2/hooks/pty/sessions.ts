@@ -77,6 +77,12 @@ export function createPtySessions(input: {
   const now = input.now ?? (() => Date.now())
   const newId = input.newId ?? (() => `pty_${Math.random().toString(36).slice(2, 10)}`)
 
+  /** Keep the published count in step with what a reader can actually see: a
+   *  prompt with no newline is still a line on screen. */
+  const refreshCount = (session: Session) => {
+    session.record.lineCount = session.lines.length + (session.partial ? 1 : 0)
+  }
+
   const appendChunk = (session: Session, chunk: string) => {
     // A PTY translates every newline to CRLF, so the carriage return has to go
     // or it rides along in every line, the panel renders it, and a `$`-anchored
@@ -88,13 +94,14 @@ export function createPtySessions(input: {
     }
     session.lines.push(...parts)
     trim(session)
+    refreshCount(session)
   }
 
   const trim = (session: Session) => {
     if (session.lines.length > MAX_BUFFER_LINES) {
       session.lines.splice(0, session.lines.length - MAX_BUFFER_LINES)
     }
-    session.record.lineCount = session.lines.length
+    refreshCount(session)
   }
 
   /** Drop the finished sessions that stopped longest ago once the kept set
@@ -148,6 +155,7 @@ export function createPtySessions(input: {
           session.lines.push(session.partial)
           session.partial = ""
           trim(session)
+          refreshCount(session)
         }
         session.record.exitAt = now()
         session.record.exitCode = exitCode
@@ -173,11 +181,15 @@ export function createPtySessions(input: {
       const session = sessions.get(id)
       if (!session) return { ok: false, error: `no PTY session '${id}'` }
       const info = sessionInfo(session.record)
+      // The unterminated tail is included: a prompt such as `Password: ` never
+      // ends with a newline, and hiding it would leave the reader with an empty
+      // view of a session that is waiting for them.
+      const lines = session.partial ? [...session.lines, session.partial] : [...session.lines]
       // A copy: each caller windows the buffer its own way, and neither may
       // mutate what the other reads.
       return {
         ok: true,
-        value: { status: info.status, exitCode: info.exitCode, lines: [...session.lines] },
+        value: { status: info.status, exitCode: info.exitCode, lines },
       }
     },
 

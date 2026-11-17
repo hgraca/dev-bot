@@ -53,6 +53,29 @@ export function sessionInfo(record: PtyRecord): PtySessionInfo {
   }
 }
 
+/** A submitted line, as a terminal expects it: the text and a carriage
+ *  return. A PTY in canonical mode reads CR as Enter, and sending LF alone
+ *  leaves some prompts waiting. */
+export function lineInput(text: string): string {
+  return `${text}\r`
+}
+
+/** The control keys the panel can send, and the bytes each one carries.
+ *
+ *  These cannot be typed into a prompt, so they are offered as choices; a
+ *  terminal is the only thing that can turn a keystroke into an escape
+ *  sequence, and this panel is not one. */
+export const CONTROL_KEYS: ReadonlyArray<{ label: string; data: string }> = [
+  { label: "Escape", data: "\u001b" },
+  { label: "Tab", data: "\t" },
+  { label: "Ctrl+C (interrupt)", data: "\u0003" },
+  { label: "Ctrl+D (EOF)", data: "\u0004" },
+  { label: "Arrow up", data: "\u001b[A" },
+  { label: "Arrow down", data: "\u001b[B" },
+  { label: "Arrow right", data: "\u001b[C" },
+  { label: "Arrow left", data: "\u001b[D" },
+]
+
 /** The sessions a given agent session spawned, in list order. */
 export function filterByParent<T extends { parentSessionId: string }>(
   list: readonly T[],

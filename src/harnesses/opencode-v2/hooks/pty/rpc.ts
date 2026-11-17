@@ -125,6 +125,25 @@ export const PtyRpc = {
       },
       output: readResultSchema,
     },
+    /** Send input to a session's terminal, exactly as `pty_write` does. */
+    write: {
+      input: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          /** Raw bytes: text, a newline, or an escape sequence. */
+          data: { type: "string" },
+        },
+        required: ["id", "data"],
+        additionalProperties: false,
+      },
+      output: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+        additionalProperties: false,
+      },
+    },
     /** Stop a session, and drop its record when `cleanup` is set.
      *
      *  The sidebar's dismissal controls act through this: a user cannot reach

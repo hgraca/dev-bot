@@ -227,6 +227,12 @@ export default Plugin.define({
               lines: tailLines(buffer.value.lines, wanted),
             }
           },
+          write: async (rpcInput: any) => {
+            const id = String(rpcInput?.id ?? "")
+            const result = sessions.write(id, String(rpcInput?.data ?? ""))
+            if (!result.ok) throw new Error(result.error)
+            return { id }
+          },
           kill: async (rpcInput: any) => {
             const id = String(rpcInput?.id ?? "")
             const result = sessions.kill(id, rpcInput?.cleanup === true)

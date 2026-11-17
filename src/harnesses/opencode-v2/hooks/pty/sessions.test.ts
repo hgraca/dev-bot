@@ -127,6 +127,34 @@ describe("buffering", () => {
     expect(buffer.value.lines).toEqual(["hello", "world"])
   })
 
+  test("an unterminated prompt is visible before it is answered", () => {
+    // `Password: ` never ends with a newline; hiding it would show an empty
+    // view of a session that is waiting for input.
+    const { sessions, handles } = harness()
+    const id = sessions.spawn({ command: "x" })
+    if (!id.ok) throw new Error(id.error)
+
+    handles[0].emit("Password: ")
+
+    const buffer = sessions.buffer(id.value.id)
+    if (!buffer.ok) throw new Error(buffer.error)
+    expect(buffer.value.lines).toEqual(["Password: "])
+    expect(sessions.list()[0].lineCount).toBe(1)
+  })
+
+  test("answering it appends to the same line rather than starting a new one", () => {
+    const { sessions, handles } = harness()
+    const id = sessions.spawn({ command: "x" })
+    if (!id.ok) throw new Error(id.error)
+
+    handles[0].emit("Password: ")
+    handles[0].emit("secret\r\n")
+
+    const buffer = sessions.buffer(id.value.id)
+    if (!buffer.ok) throw new Error(buffer.error)
+    expect(buffer.value.lines).toEqual(["Password: secret"])
+  })
+
   test("an unterminated last line is kept when the child exits", () => {
     const { sessions, handles } = harness()
     const id = sessions.spawn({ command: "x" })

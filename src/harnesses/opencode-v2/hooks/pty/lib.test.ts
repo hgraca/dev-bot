@@ -7,6 +7,7 @@
 
 import { describe, expect, test } from "bun:test"
 import {
+  CONTROL_KEYS,
   clearActionLabel,
   dropSelection,
   filterByFamily,
@@ -16,6 +17,7 @@ import {
   formatDuration,
   headerLabel,
   isFinished,
+  lineInput,
   needsConfirm,
   pageLines,
   parentSessionIdOf,
@@ -199,6 +201,35 @@ describe("rowTone", () => {
     expect(rowTone(sessionInfo(record()))).toBe("success")
     expect(rowTone(sessionInfo(record({ exitAt: CREATED, exitCode: 1 })))).toBe("error")
     expect(rowTone(sessionInfo(record({ exitAt: CREATED, exitCode: 0 })))).toBe("muted")
+  })
+})
+
+describe("sending input", () => {
+  test("a submitted line ends with a carriage return, which is Enter", () => {
+    // A PTY in canonical mode reads CR as Enter; a bare LF leaves some
+    // prompts waiting for the rest of the line.
+    expect(lineInput("hunter2")).toBe("hunter2\r")
+  })
+
+  test("an empty submit still sends Enter, not nothing", () => {
+    expect(lineInput("")).toBe("\r")
+  })
+
+  test("the control keys carry the bytes a terminal would send", () => {
+    const byLabel = (label: string) => CONTROL_KEYS.find((key) => key.label.startsWith(label))?.data
+    expect(byLabel("Escape")).toBe("\u001b")
+    expect(byLabel("Tab")).toBe("\t")
+    expect(byLabel("Ctrl+C")).toBe("\u0003")
+    expect(byLabel("Ctrl+D")).toBe("\u0004")
+    expect(byLabel("Arrow up")).toBe("\u001b[A")
+  })
+
+  test("every offered key is sendable", () => {
+    expect(CONTROL_KEYS.length).toBeGreaterThan(0)
+    for (const key of CONTROL_KEYS) {
+      expect(key.label.length).toBeGreaterThan(0)
+      expect(key.data.length).toBeGreaterThan(0)
+    }
   })
 })
 
