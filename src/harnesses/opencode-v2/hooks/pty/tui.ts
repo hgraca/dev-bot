@@ -24,6 +24,7 @@ import { Plugin } from "@opencode/plugin/tui"
 import { createElement, createTextNode, insert, insertNode, setProp } from "@opentui/solid"
 import { createSignal } from "solid-js"
 import {
+  CONTROL_KEYS,
   clearActionLabel,
   dropSelection,
   filterByFamily,
@@ -31,6 +32,7 @@ import {
   formatDetail,
   formatDuration,
   headerLabel,
+  lineInput,
   needsConfirm,
   rowLabel,
   rowTone,
@@ -129,6 +131,13 @@ export default Plugin.define({
       }
     }
 
+    /** The id the panel is showing for the session it belongs to, or "". */
+    const panelSession = (): string => {
+      const panel = ctx.ui.panel.current()
+      if (!panel || panel.name !== PANEL) return ""
+      return selectedSession(selected(), panel.sessionID)
+    }
+
     const refreshOutput = async () => {
       const panel = ctx.ui.panel.current()
       if (!panel) return
@@ -150,6 +159,45 @@ export default Plugin.define({
       setSelected(selectSession(selected(), parentSessionID, id))
       setBuffer({ id, lines: [], total: 0 })
       ctx.ui.panel.open(PANEL)
+    }
+
+    /** Send raw bytes to a session; the child echoes them back through the
+     *  output stream, so nothing is rendered locally. */
+    const sendInput = async (id: string, data: string) => {
+      if (!id) return
+      try {
+        await ctx.client.rpc(PtyRpc).write({ id, data }, callOptions())
+      } catch (error) {
+        ctx.ui.toast.show({
+          variant: "error",
+          title: "PTY",
+          message: `Could not send to ${id}: ${errorText(error)}`,
+        })
+      }
+    }
+
+    /** One line of input, through the host's own prompt: it owns a real text
+     *  field, which the panel does not. */
+    const sendLine = async (id: string) => {
+      if (!id) return
+      const text = await ctx.ui.dialog.prompt({
+        title: `Send to ${id}`,
+        description: "Enter sends the line to the session",
+        placeholder: "input",
+      })
+      if (text === undefined) return
+      await sendInput(id, lineInput(text))
+    }
+
+    /** A key a text field cannot produce: Escape, Ctrl+C, arrows. */
+    const sendKey = async (id: string) => {
+      if (!id) return
+      const data = await ctx.ui.dialog.select<string>({
+        title: "Send a key",
+        options: CONTROL_KEYS.map((key) => ({ title: key.label, value: key.data })),
+      })
+      if (data === undefined) return
+      await sendInput(id, data)
     }
 
     const forget = (viewerSessionID: string, removedId: string) => {
@@ -358,11 +406,47 @@ export default Plugin.define({
         insert(body, () => (buffer().id === currentId() ? buffer().lines : []).join("\n"))
         insertNode(scroller, body)
 
+        // Clickable, because the panel is not a terminal: typing goes to the
+        // prompt unless the host has given this panel the keyboard.
+        const actions = createElement("box")
+        setProp(actions, "flexDirection", "row")
+        setProp(actions, "gap", 2)
+        const muted = toneColor("muted")
+        const chip = (label: string, run: () => void) => {
+          const el = createElement("text")
+          if (muted) setProp(el, "fg", muted)
+          insertNode(el, createTextNode(label))
+          setProp(el, "onMouseUp", () => run())
+          insertNode(actions, el)
+        }
+        chip("[send]", () => void sendLine(currentId()))
+        chip("[keys]", () => void sendKey(currentId()))
+        const hint = createElement("text")
+        if (muted) setProp(hint, "fg", muted)
+        insertNode(hint, createTextNode("\u00b7 ctrl+s sends"))
+        insertNode(actions, hint)
+
         insertNode(frame, header)
         insertNode(frame, scroller)
+        insertNode(frame, actions)
         return frame
       },
     })
+
+    // Created once: the panel's own layers would be re-registered on every
+    // render, and `enabled` already scopes this one to an open panel.
+    ctx.keymap.layer(() => ({
+      commands: [
+        {
+          id: "devbot.pty.send",
+          title: "Send input to the PTY panel's session",
+          group: "PTY",
+          bind: "ctrl+s",
+          enabled: () => panelSession() !== "",
+          run: () => void sendLine(panelSession()),
+        },
+      ],
+    }))
 
     const listTimer = setInterval(() => void refreshList(), LIST_POLL_MS)
     const readTimer = setInterval(() => void refreshOutput(), READ_POLL_MS)
