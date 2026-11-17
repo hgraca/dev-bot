@@ -11,7 +11,10 @@ import { createElement, createTextNode, insert, insertNode, setProp } from "@ope
 import { createSignal } from "solid-js"
 import { firstTokenMs, formatTtft, withTtft } from "./lib"
 
-// The order-100 row the Context block used.
+// The Context block this replaces is the built-in plugin
+// `opencode.sidebar.context`; disabling that one is a CLI setting. The built-in
+// blocks all append to `sidebar.content`, so prepending keeps this row first —
+// where the Context block used to sit.
 const SLOT = "sidebar.content"
 
 // v2 wraps an event payload in `data`; older shapes are tolerated so a renamed
@@ -35,7 +38,7 @@ export default Plugin.define({
     })
 
     const unregister = ctx.ui.slot({
-      append: SLOT,
+      prepend: SLOT,
       render: ({ sessionID }: { sessionID: string }) => {
         const row = createElement("box")
         setProp(row, "flexDirection", "row")

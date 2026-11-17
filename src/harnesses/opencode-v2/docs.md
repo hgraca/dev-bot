@@ -150,7 +150,8 @@ terminal UI. opencode 2.3 validates the `./tui` default export as
 **Shipped:** `provider-ttft` (`tui/provider-ttft/`), linked as
 `.opencode/plugins/provider-ttft/` with a server part and the TUI row. It reads
 `time.firstToken` / `time.created` from `message.updated` — 2.3 stamps both on
-the assistant message — and renders `TTFT 1.2s` into `sidebar.content`.
+the assistant message — and renders `TTFT 1.2s` at the top of `sidebar.content`
+(`prepend`; every built-in block appends).
 
 **Not ported:** `pty-monitor` and `tui-defaults`. Both were written against the
 pre-2.3 API (`kv`/`slots`/`events`), which 2.3 no longer exposes, so linking them
@@ -171,11 +172,17 @@ not a slot name:
 | `opencode.sidebar.limit`   | `sidebar.content` | rate-limit windows      |
 | `opencode.sidebar.footer`  | `sidebar.footer`  | location / branch       |
 
-v2 takes terminal settings from the global `cli.json`, so disabling one is
-`"plugin_enabled": { "opencode.sidebar.context": false }` (or a
-`-opencode.sidebar.todo` entry in `plugins`) there. The v1 ids
-(`internal:sidebar-context`) and the v1 `plugin_enabled` block in a project
-`tui.json` no longer match anything.
+v2 takes terminal settings from the global `cli.json`. Disable one with a
+`-<id>` directive in `plugins`; entries are processed in order, so the directive
+has to come after anything that would re-enable it:
+
+```json title="cli.json"
+{ "plugins": ["-opencode.sidebar.context"] }
+```
+
+`plugin_enabled` is the **legacy `tui.json`** key: it no longer reaches the
+plugin list from `cli.json`, which is why dropping the block needs the directive
+form. The v1 ids (`internal:sidebar-context`) match nothing on 2.3.
 
 Third-party TUI plugins have the same requirement: `opencode-tabs@0.3.0`
 exports `{ id, tui }` and registers through `api.slots`, so it cannot load on
