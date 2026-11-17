@@ -364,6 +364,11 @@ export default Plugin.define({
         } else {
           for (const target of targets) pendingCreates.delete(createKey(event?.sessionID, absolute(target)))
         }
+        // A file tool never reaches the command.after loop below: the manifest
+        // vocabulary treats file hooks as `file.edited`, and `commandString`
+        // returns nothing for edit/write/patch. Keep that explicit — a future
+        // command.after hook expecting file tools would otherwise look wired and
+        // silently never fire.
         return
       }
 
