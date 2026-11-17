@@ -523,7 +523,8 @@ _nested_projects() {
 # Hand-writes a plugin package so a test can vary one detection guard at a time.
 # The manifest is compact on purpose: init must not depend on its formatting.
 _ancestor_package() {
-  local name="$1" target="$2" marker="${3:-1}" manifest="${4:-devbot-${name}}"
+  local name="$1" target="$2" marker="${3:-1}"
+  local manifest="${4:-devbot-${name}}"
   local dir="${PARENT}/.opencode/plugins/${name}"
   mkdir -p "${dir}"
   if [[ "${marker}" == "1" ]]; then
@@ -594,10 +595,42 @@ _ancestor_package() {
   _nested_projects
   _ancestor_package on-hooks "${PROJECT}/gone/on-hooks.ts"
 
-  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+  run bash "${MODULE_DIR}/init.sh" "${CHILD}"
+  assert_success
+  assert_output --partial "which is gone"
 
   assert [ -f "${CHILD}/.opencode/plugins/on-hooks/index.ts" ]
   grep -q "dev-bot: generated opencode-v2 plugin shim" "${CHILD}/.opencode/plugins/on-hooks/index.ts"
+}
+
+@test "init warns when an ancestor supplies a different dev-bot build" {
+  # The host loads the ancestor's copy first, so the nested project follows that
+  # build; init still has to say so instead of silently changing version.
+  _nested_projects
+  local other="${PROJECT}/other-dev-bot/src/hooks"
+  mkdir -p "${other}"
+  printf 'export default { id: "devbot-hooks", setup() {} }\n' > "${other}/on-hooks.ts"
+  _ancestor_package on-hooks "${other}/on-hooks.ts"
+  assert [ -f "${PARENT}/.opencode/plugins/on-hooks/index.ts" ]
+  grep -q "generated opencode-v2 plugin shim" "${PARENT}/.opencode/plugins/on-hooks/index.ts"
+  grep -qE '"name"[[:space:]]*:[[:space:]]*"devbot-on-hooks"' "${PARENT}/.opencode/plugins/on-hooks/package.json"
+
+  run bash "${MODULE_DIR}/init.sh" "${CHILD}"
+  assert_success
+  assert_output --partial "runs a different dev-bot build"
+  refute [ -e "${CHILD}/.opencode/plugins/on-hooks" ]
+}
+
+@test "init warns when the ancestor's package lacks a part this build links" {
+  # An older pty package with only a server part: the nested copy is skipped, so
+  # the missing tui/rpc part cannot be recovered by a restart.
+  _nested_projects
+  _ancestor_package pty "${DEV_BOT_ROOT}/src/harnesses/opencode-v2/hooks/pty/index.ts" 1 devbot-pty
+
+  run bash "${MODULE_DIR}/init.sh" "${CHILD}"
+  assert_success
+  assert_output --partial "lacks tui and rpc"
+  refute [ -e "${CHILD}/.opencode/plugins/pty" ]
 }
 
 @test "init leaves a user's package alone when an ancestor supplies the plugin" {
@@ -606,7 +639,9 @@ _ancestor_package() {
   mkdir -p "${CHILD}/.opencode/plugins/on-hooks"
   printf 'export default { id: "my-own-on-hooks" }\n' > "${CHILD}/.opencode/plugins/on-hooks/index.ts"
 
-  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+  run bash "${MODULE_DIR}/init.sh" "${CHILD}"
+  assert_success
+  assert_output --partial "duplicate registration may persist"
 
   assert [ -f "${CHILD}/.opencode/plugins/on-hooks/index.ts" ]
   grep -q "my-own-on-hooks" "${CHILD}/.opencode/plugins/on-hooks/index.ts"
