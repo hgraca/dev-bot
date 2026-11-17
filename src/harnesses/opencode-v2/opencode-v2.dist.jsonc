@@ -26,8 +26,8 @@
   //
   // opencode-pty is deliberately absent: its published builds still depend on
   // the V1 SDK (@opencode-ai/plugin ^1.3.13), and V1 plugin implementations do
-  // not run on a v2 host. Agent PTY capability comes from the module's own
-  // hooks/pty.ts instead.
+  // not run on a v2 host. Agent PTY capability — tools, RPC and sidebar — comes
+  // from the module's own hooks/pty/ package instead.
   "plugins": [],
   "default_agent": "devbot",
   // v2 nests every server under `mcp.servers`, and per-server enablement is

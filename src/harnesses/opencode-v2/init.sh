@@ -52,6 +52,23 @@ _v2() {
 # directories from a user's.
 _PLUGIN_SHIM_MARKER="// dev-bot: generated opencode-v2 plugin shim (do not edit)"
 
+# ── Record a dependency dev-bot added to .opencode/ ───────────────────────────
+# .opencode/package.json is seeded once and then the project's own, so deleting an
+# entry by name alone could remove a dependency the project needs. This file is
+# the ownership record: a name in it was put there by dev-bot, and the harness
+# that takes the project back may retire exactly those.
+_MANAGED_DEPS_FILE=".devbot-managed-deps"
+
+_record_managed_dependency() {
+  local name="$1"
+  local manifest="${OPENCODE_DIR}/${_MANAGED_DEPS_FILE}"
+  mkdir -p "${OPENCODE_DIR}"
+  if [[ -f "${manifest}" ]] && grep -qxF "${name}" "${manifest}" 2>/dev/null; then
+    return 0
+  fi
+  printf '%s\n' "${name}" >> "${manifest}"
+}
+
 # ── Merge .opencode/ template directory ───────────────────────────────────────
 _copy_opencode_dir() {
   if [[ ! -d "${OPENCODE_TPL}" ]]; then
@@ -59,7 +76,7 @@ _copy_opencode_dir() {
     return 1
   fi
 
-  local copied=0
+  local copied=0 seeded_manifest=0
   mkdir -p "${OPENCODE_DIR}"
 
   while IFS= read -r -d '' src_file; do
@@ -77,8 +94,16 @@ _copy_opencode_dir() {
       cp -r "${src_file}" "${tgt}"
       _ok "${rel} copied"
       copied=$((copied + 1))
+      if [[ "${rel}" == "package.json" ]]; then seeded_manifest=1; fi
     fi
   done < <(find "${OPENCODE_TPL}" -mindepth 1 -print0 2>/dev/null)
+
+  # A manifest this harness seeded carries dev-bot's dependency list, so the
+  # handover can retire what it declares. A pre-existing one belongs to the
+  # project and is never rewritten on the way out.
+  if [[ ${seeded_manifest} -eq 1 ]] && grep -q '"bun-pty"' "${OPENCODE_DIR}/package.json" 2>/dev/null; then
+    _record_managed_dependency "bun-pty"
+  fi
 
   if [[ ${copied} -eq 0 ]]; then
     _skip "no new files from template"
@@ -200,9 +225,12 @@ _install_plugin_deps() {
   # Only bun-pty: @opencode/plugin is resolved by the host at runtime, and
   # installing it drags in its full dependency graph for no benefit.
   _info "Installing bun-pty into .opencode/ ..."
-  # `bun add`, not `bun install`: an existing .opencode/package.json was seeded
-  # by the v1 adapter and does not declare bun-pty.
+  # `bun add`, not `bun install`: an existing .opencode/package.json may come
+  # from the v1 adapter and not declare bun-pty at all — that entry is dev-bot's.
+  local declared=0
+  if grep -q '"bun-pty"' "${OPENCODE_DIR}/package.json" 2>/dev/null; then declared=1; fi
   if (cd "${OPENCODE_DIR}" && timeout 120 bun add bun-pty >/dev/null 2>&1); then
+    if [[ ${declared} -eq 0 ]]; then _record_managed_dependency "bun-pty"; fi
     _ok "bun-pty installed — the PTY tools are available"
   else
     _warn "bun install failed or timed out — the PTY tools stay unavailable"
@@ -287,35 +315,60 @@ _sweep_foreign_artifacts() {
   return 0
 }
 
-# ── Link one plugin as a directory package ────────────────────────────────────
+# ── Link one plugin as a directory package ───────────────────────────
 # V2 configured local paths must name a DIRECTORY, and a directory without a
 # package.json is read through its file names — `index` is the server entry. So
 # one source file becomes <dir>/index.ts.
+#
+# A directory source is a plugin package with several parts: `index.ts` is the
+# server part, and `tui.ts` / `rpc.ts` are linked when they exist. A part is only
+# linked when it exists — a `tui` export pointing at nothing makes the host
+# reject the whole package.
 _link_plugin_dir() {
   local name="$1"
   local src="$2"
   local dir="${V2_PLUGIN_DIR}/${name}"
+  local server="${src}"
+  local tui=""
+  local rpc=""
+
+  if [[ -d "${src}" ]]; then
+    server="${src}/index.ts"
+    if [[ -f "${src}/tui.ts" ]]; then tui="${src}/tui.ts"; fi
+    if [[ -f "${src}/rpc.ts" ]]; then rpc="${src}/rpc.ts"; fi
+  fi
 
   # A symlinked entry is skipped silently by the v2 loader, so each shim is a
   # real file re-exporting the single source in this module. import.meta.dir in
   # the real module still resolves to the module, so nothing is duplicated.
-  _write_plugin_manifest "${dir}" "${name}"
-  _write_shim "${dir}" "index.ts" "${src}" "plugins/${name}"
+  _write_plugin_manifest "${dir}" "${name}" "${tui}" "${rpc}"
+  _write_shim "${dir}" "index.ts" "${server}" "plugins/${name}"
+  if [[ -n "${tui}" ]]; then
+    _write_shim "${dir}" "tui.ts" "${tui}" "plugins/${name} tui"
+  fi
+  if [[ -n "${rpc}" ]]; then
+    _write_shim "${dir}" "rpc.ts" "${rpc}" "plugins/${name} rpc" "all"
+  fi
 
   # Deliberately no `plugins` config entry: v2 auto-loads every directory under
   # .opencode/plugins/, so listing one registers the same plugin twice and the
   # host fails the second copy with "Duplicate plugin ID".
 }
 
-# _write_plugin_manifest <dir> <name>
+# _write_plugin_manifest <dir> <name> [tui-source] [rpc-source]
 # V2 loads a configured plugin directory as a package: without a package.json it
 # tries to npm-install it and fails ("Could not read package.json").
+#
+# The host resolves each part through `exports`, and reports a package with a
+# server part plus an `./rpc` export as RPC-capable — the PTY sidebar needs that
+# flag, so its manifest carries `./tui` and `./rpc` beside the server entry.
 _write_plugin_manifest() {
-  local dir="$1" name="$2"
+  local dir="$1" name="$2" tui_src="${3:-}" rpc_src="${4:-}"
   mkdir -p "${dir}"
-  # No `./tui` export: this harness ships no TUI parts (see "TUI parts" in
-  # docs.md — the built-in footer already reports time-to-first-token).
-  local exports='{".": "./index.ts"}'
+  local exports='{".": "./index.ts"'
+  if [[ -n "${tui_src}" ]]; then exports="${exports}"', "./tui": "./tui.ts"'; fi
+  if [[ -n "${rpc_src}" ]]; then exports="${exports}"', "./rpc": "./rpc.ts"'; fi
+  exports="${exports}}"
   local want
   want="$(printf '{\n  "name": "devbot-%s",\n  "version": "0.0.0",\n  "type": "module",\n  "main": "./index.ts",\n  "exports": %s\n}\n' "${name}" "${exports}")"
   local entry="${dir}/package.json"
@@ -325,12 +378,18 @@ _write_plugin_manifest() {
   printf '%s' "${want}" > "${entry}"
 }
 
-# _write_shim <dir> <file> <source> <label>
+# _write_shim <dir> <file> <source> <label> [default|all]
+#
+# `default` re-exports a part's default export (the plugin definition); `all`
+# re-exports every named export, which is what the RPC contract needs — it has
+# no default export.
 _write_shim() {
-  local dir="$1" file="$2" src="$3" label="$4"
+  local dir="$1" file="$2" src="$3" label="$4" clause="${5:-default}"
   local entry="${dir}/${file}"
+  local statement="export { default } from \"${src}\""
+  if [[ "${clause}" == "all" ]]; then statement="export * from \"${src}\""; fi
   local want
-  want="$(printf '%s\n%s\n' "${_PLUGIN_SHIM_MARKER}" "export { default } from \"${src}\"")"
+  want="$(printf '%s\n%s\n' "${_PLUGIN_SHIM_MARKER}" "${statement}")"
 
   mkdir -p "${dir}"
   if [[ -f "${entry}" && ! -L "${entry}" ]] && [[ "$(cat "${entry}")" == "${want}" ]]; then
@@ -347,11 +406,6 @@ _write_shim() {
   printf '%s' "${want}" > "${entry}"
   _ok "${label} linked"
 }
-
-# The module's TUI parts are not linked: opencode 2.3 validates a TUI module as
-# an object with `id` and `setup`, and no longer exposes the kv/slots/events
-# surface they were written against (see tui/*/tui.ts). Linking them only
-# produced "Invalid V2 TUI plugin module" on every start.
 
 # ── Link module hooks declared under hooks/opencode/ ──────────────────────────
 _link_plugins() {
@@ -442,17 +496,27 @@ _link_module_plugins() {
   done
 }
 
-# ── Link this module's own server plugins ─────────────────────────────────────
+# ── Link this module's own plugins ─────────────────────────────────────
+# A bare `.ts` here is a server part; a directory is a package carrying its
+# parts (the PTY extension: server, TUI and RPC). _link_plugin_dir links both.
 _link_harness_hooks() {
   local hook_dir="${MODULE_DIR}/hooks"
   [[ -d "${hook_dir}" ]] || return 0
 
-  while IFS= read -r -d '' hook_file; do
-    local hook_name
-    hook_name="$(basename "${hook_file}" .ts)"
-    [[ "${hook_name}" == *.test ]] && continue
-    _link_plugin_dir "${hook_name}" "${hook_file}"
-  done < <(find "${hook_dir}" -maxdepth 1 -type f -name '*.ts' -print0 2>/dev/null)
+  local hook_path hook_name
+  while IFS= read -r -d '' hook_path; do
+    hook_name="$(basename "${hook_path}")"
+    if [[ -d "${hook_path}" ]]; then
+      # Test files live beside the module they test; a directory without a
+      # server entry is not a plugin package.
+      if [[ -f "${hook_path}/index.ts" ]]; then
+        _link_plugin_dir "${hook_name}" "${hook_path}"
+      fi
+      continue
+    fi
+    [[ "${hook_name}" == *.test.ts ]] && continue
+    _link_plugin_dir "${hook_name%.ts}" "${hook_path}"
+  done < <(find "${hook_dir}" -maxdepth 1 \( -type f -name '*.ts' -o -type d \) -print0 2>/dev/null)
 }
 
 # ── Reconcile dev-bot's REQUIRED plugins into an already-seeded config ───────

@@ -117,6 +117,67 @@ assert 'exports' in d, d
   done
 }
 
+@test "the pty plugin links its TUI and RPC parts" {
+  # The PTY extension is one package with three parts. The host resolves each
+  # through `exports`, so a missing part file means a rejected package.
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  local dir="${PROJECT}/.opencode/plugins/pty" part
+  for part in index tui rpc; do
+    assert [ -f "${dir}/${part}.ts" ]
+    # MUST be a real file: v2 skips a symlinked plugin entry silently.
+    refute [ -L "${dir}/${part}.ts" ]
+    grep -q "dev-bot: generated opencode-v2 plugin shim" "${dir}/${part}.ts"
+  done
+  grep -q 'export { default } from ' "${dir}/tui.ts"
+  # The RPC contract has no default export; it is re-exported by name.
+  grep -q 'export \* from ' "${dir}/rpc.ts"
+}
+
+@test "only the pty package exports a TUI and an RPC part" {
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  run python3 -c "
+import json
+pty = json.load(open('${PROJECT}/.opencode/plugins/pty/package.json'))['exports']
+assert pty['.'] == './index.ts', pty
+assert pty['./tui'] == './tui.ts', pty
+assert pty['./rpc'] == './rpc.ts', pty
+for name in ('on-hooks', 'mcp-sync'):
+    other = json.load(open('${PROJECT}/.opencode/plugins/%s/package.json' % name))['exports']
+    assert list(other) == ['.'], (name, other)
+print('parts declared for pty only')
+"
+  assert_success
+  assert_output --partial "parts declared for pty only"
+}
+
+@test "a seeded package.json records bun-pty as dev-bot's own" {
+  # The handover retires only dependencies this file names, so a project's own
+  # bun-pty survives a v2 round trip.
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  run cat "${PROJECT}/.opencode/.devbot-managed-deps"
+  assert_success
+  assert_output --partial "bun-pty"
+}
+
+@test "a package.json the project already had is not claimed" {
+  mkdir -p "${PROJECT}/.opencode"
+  printf '{ "dependencies": { "bun-pty": "^0.4.10" } }\n' > "${PROJECT}/.opencode/package.json"
+
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  [ ! -e "${PROJECT}/.opencode/.devbot-managed-deps" ]
+}
+
+@test "the linked pty parts point at the module's own sources" {
+  # One source of truth: the shim re-exports the file the tests drive, so a
+  # sidebar change cannot land in a copy the suite never sees.
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  local dir="${PROJECT}/.opencode/plugins/pty"
+  grep -q "hooks/pty/index.ts" "${dir}/index.ts"
+  grep -q "hooks/pty/tui.ts" "${dir}/tui.ts"
+  grep -q "hooks/pty/rpc.ts" "${dir}/rpc.ts"
+}
+
 @test "init pins local MCP servers to the project directory" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
   # A local server carried over from a migrated v1 config has no cwd, and v2
