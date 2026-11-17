@@ -43,6 +43,21 @@ When implementing story or epic, follow `devbot:implement-story` skill, invoking
 
 **The Jira close, memory capture, tool grading, and reconciliation of work folders and landed worktrees run at the finish flow** — when the human stakeholder confirms the work is finished, close the ticket with `devbot:jira-workflow` (DONE only once the work has landed — the pull request merged, or the commit on the default branch under trunk), then run `devbot:remember-session`, then `devbot:grade-tools`, then `devbot:reconcile-work`. Do not trigger any during work; all run once, at the end.
 
+## Session budget (MUST)
+
+Before deciding you are at the end of your session — and before ever claiming you have too little
+session left to finish the task — call the `session-usage` MCP tool (`devbot-tools_session-usage` in
+opencode, `mcp__devbot-tools__session-usage` in Claude Code) and read the percentage it reports for
+this session. That number is the only evidence of remaining context: the length of the transcript, an
+earlier reading, or the size of the remaining task list are not. Treat it as a cutoff, not a mood:
+
+- **Below 90%** — there is room; keep working, and never stop on an assumed limit.
+- **90% or above** — the context is near its limit: stop at the next clean step, state the exact
+  figure, name the step you stopped at, and hand off with `devbot:agent-communication`.
+- **`limit unknown`** — the model is absent from the tool's catalogue, so it prints no percentage.
+  That answer is inconclusive and never justifies an early stop: keep working, and if you stop for
+  another reason, say the limit is unknown rather than claiming exhaustion.
+
 ## Polyrepo Sessions
 
 When the project has `workspace.type: "polyrepo"` it is a container for the managed projects in the global

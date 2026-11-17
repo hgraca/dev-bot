@@ -43,6 +43,21 @@ Do not infer deliverable path. Do not begin work. Orchestrator re-delegates with
 - When evaluating code quality and consistency holistically, use `code-review-and-quality`
 - When evaluating security aspects of plan or codebase, use `security-and-hardening`
 
+## Session budget (MUST)
+
+Before deciding you are at the end of your session — and before ever claiming you have too little
+session left to finish the task — call the `session-usage` MCP tool (`devbot-tools_session-usage` in
+opencode, `mcp__devbot-tools__session-usage` in Claude Code) and read the percentage it reports for
+this session. That number is the only evidence of remaining context: the length of the transcript, an
+earlier reading, or the size of the remaining task list are not. Treat it as a cutoff, not a mood:
+
+- **Below 90%** — there is room; keep working, and never stop on an assumed limit.
+- **90% or above** — the context is near its limit: stop at the next clean step, state the exact
+  figure, name the step you stopped at, and hand off with `devbot:agent-communication`.
+- **`limit unknown`** — the model is absent from the tool's catalogue, so it prints no percentage.
+  That answer is inconclusive and never justifies an early stop: keep working, and if you stop for
+  another reason, say the limit is unknown rather than claiming exhaustion.
+
 ## Per-block-type discriminating-bar checklist (MUST)
 
 When reviewing combined backlog, critic MUST enumerate every verbatim block (any block ≥5 lines reproducing source-file content, configuration excerpt, namespace listing, directory tree, or call sequence) and verify each carries discriminating justification per block-type exclusion list in `devbot:make-plan` SKILL Pre-[FINISHED] Hygiene Gate.
