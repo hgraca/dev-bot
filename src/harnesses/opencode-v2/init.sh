@@ -813,12 +813,73 @@ EOF
 
 # ── Delegate .opencode/* artifact dirs to devbot_dir/ ─────────────────────────
 _delegate_harness_dirs() {
-  local delegate_types="agents commands skills tools"
-  if [[ "$(_devbot_get_project_dir "${PROJECT_DIR}")" == ".agents" ]]; then
-    delegate_types="agents commands tools"
-    _harness_delegate_type "${OPENCODE_DIR}" "${PROJECT_DIR}" "skills" "true"
-  fi
-  _harness_delegate_to_agents "${OPENCODE_DIR}" "${PROJECT_DIR}" "${delegate_types}"
+  # `skills` is NOT delegated as a directory (see _link_skill_farm): .opencode/
+  # skills also holds module-authored links, and a directory symlink would move
+  # those writes into the project vault. User content already there is migrated
+  # into the vault first, so nothing is lost.
+  _harness_delegate_type "${OPENCODE_DIR}" "${PROJECT_DIR}" "skills" "true"
+  _harness_delegate_to_agents "${OPENCODE_DIR}" "${PROJECT_DIR}" "agents commands tools"
+}
+
+# ── Wire the skill farm into .opencode/skills ────────────────────────────────
+# A 2.x host scans ONLY <project>/.opencode/skill(s) — plus the global
+# ~/.opencode and ~/.config/opencode equivalents. It does NOT discover
+# <devbot_dir>/skills the way v1 does, and its own log says so:
+#
+#   message="skills rescanned" sources="[…/.opencode/skill,…/.opencode/skills]"
+#
+# Delegating `skills` migrate-only therefore left the whole farm on disk and
+# unregistered: every devbot skill was unloadable (audit-01 FAIL-4 — the farm
+# existed, nothing scanned it).
+#
+# One link per FARM ENTRY, not one link for the farm: `.opencode/skills` also
+# holds module-authored links (sentry, signoz → storage/<module>/skills), and
+# making `.opencode/skills` itself a symlink to the vault would relocate their
+# writes into the project and let the handover sweep descend into the farm.
+#
+# The link name is the farm entry — `devbot` for the module tree, plus each
+# external module — and the skill id a 2.x host derives is the SKILL.md parent
+# directory below it, i.e. `devbot:<skill>` for module skills.
+_link_skill_farm() {
+  local project_dir="${1:-${PROJECT_DIR}}"
+  local devbot_dir farm target
+  devbot_dir="$(_devbot_get_project_dir "${project_dir}")"
+  farm="${project_dir}/${devbot_dir}/skills"
+  target="${OPENCODE_DIR}/skills"
+
+  [[ -d "${farm}" ]] || return 0
+  mkdir -p "${target}"
+
+  local desired="" entry name link
+  while IFS= read -r -d '' entry; do
+    name="$(basename "${entry}")"
+    [[ "${name}" == ".gitkeep" ]] && continue
+    desired+="${name}"$'\n'
+    link="${target}/${name}"
+    if [[ -L "${link}" && "$(readlink "${link}")" == "${entry}" ]]; then
+      continue
+    fi
+    if [[ -e "${link}" && ! -L "${link}" ]]; then
+      _warn "skills/${name} exists and is not a symlink — leaving it"
+      continue
+    fi
+    ln -sfn "${entry}" "${link}"
+  done < <(find "${farm}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | sort -z)
+
+  # Prune the links this function owns (they point into the farm) once the farm
+  # stops providing them. A module's own link (sentry, signoz) points elsewhere
+  # and is never touched.
+  local stale resolved
+  while IFS= read -r -d '' stale; do
+    name="$(basename "${stale}")"
+    grep -Fxq -- "${name}" <<< "${desired}" && continue
+    resolved="$(readlink -f "${stale}" 2>/dev/null || true)"
+    [[ -n "${resolved}" && "${resolved}" == "${farm}"/* ]] || continue
+    rm -f "${stale}"
+    _ok "skills/${name} unlinked (no longer in ${devbot_dir}/skills)"
+  done < <(find "${target}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
+
+  _ok "skills wired into .opencode/skills (one link per farm entry)"
 }
 
 # ── main ───────────────────────────────────────────────────────────────────────
@@ -830,6 +891,7 @@ _install_plugin_deps
 _ensure_required_plugins
 _ensure_agents_md
 _delegate_harness_dirs
+_link_skill_farm "${PROJECT_DIR}"
 _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
 _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 _link_mcp_assets

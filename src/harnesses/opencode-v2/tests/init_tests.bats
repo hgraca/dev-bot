@@ -429,3 +429,59 @@ EOF
   assert [ -f "${outside}" ]
   rm -f "${outside}"
 }
+
+# ── Skill farm wiring (audit-01 FAIL-4) ───────────────────────────────────────
+# A 2.x host scans ONLY <.opencode/skill(s)>; it never discovers <devbot_dir>/
+# skills. The farm therefore has to be linked into .opencode/skills, one link per
+# farm entry, or every devbot skill is unloadable.
+
+@test "init wires the skill farm into .opencode/skills, one link per entry" {
+  mkdir -p "${PROJECT}/.agents/skills/devbot/git/devbot:git-commits"
+  printf -- '---\nname: devbot:git-commits\n---\n' \
+    > "${PROJECT}/.agents/skills/devbot/git/devbot:git-commits/SKILL.md"
+  mkdir -p "${PROJECT}/.agents/skills/mattpocock-grilling"
+  printf -- '---\nname: grilling\n---\n' > "${PROJECT}/.agents/skills/mattpocock-grilling/SKILL.md"
+
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  # Each farm entry is reachable through the directory the host scans.
+  assert [ -L "${PROJECT}/.opencode/skills/devbot" ]
+  [ "$(readlink "${PROJECT}/.opencode/skills/devbot")" = "${PROJECT}/.agents/skills/devbot" ]
+  assert [ -L "${PROJECT}/.opencode/skills/mattpocock-grilling" ]
+  # The id a 2.x host derives is the SKILL.md parent directory: devbot:<skill>.
+  assert [ -f "${PROJECT}/.opencode/skills/devbot/git/devbot:git-commits/SKILL.md" ]
+}
+
+@test "_link_skill_farm leaves a module-authored link that points outside the farm" {
+  # `.opencode/skills/signoz` is wired by the signoz module itself, to its
+  # generated skills under storage/. The farm reconcile owns only links into
+  # <devbot_dir>/skills, so it must not remove this one.
+  mkdir -p "${PROJECT}/.agents/skills/devbot"
+  mkdir -p "${PROJECT}/.opencode/skills"
+  ln -sfn "${DEV_BOT_ROOT}/storage/signoz/skills" "${PROJECT}/.opencode/skills/signoz"
+
+  run bash -c '
+    set -euo pipefail
+    _ok() { :; }; _warn() { :; }; _skip() { :; }
+    _devbot_get_project_dir() { printf ".agents"; }
+    OPENCODE_DIR="${1}/.opencode"
+    eval "$(sed -n "\|^_link_skill_farm() {\$|,\|^}\$|p" "${2}")"
+    _link_skill_farm "${1}"
+  ' _ "${PROJECT}" "${MODULE_DIR}/init.sh"
+  assert_success
+
+  assert [ -L "${PROJECT}/.opencode/skills/signoz" ]
+}
+
+@test "init prunes a farm link whose entry disappeared" {
+  mkdir -p "${PROJECT}/.agents/skills/devbot"
+  mkdir -p "${PROJECT}/.agents/skills/gone"
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  assert [ -L "${PROJECT}/.opencode/skills/gone" ]
+
+  rm -r -f "${PROJECT}/.agents/skills/gone"
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+
+  assert [ ! -e "${PROJECT}/.opencode/skills/gone" ]
+}
+
