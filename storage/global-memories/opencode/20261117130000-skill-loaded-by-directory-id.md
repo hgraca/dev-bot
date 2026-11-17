@@ -5,19 +5,20 @@ aliases: ["Unable to load skill", "devbot: prefix fails", "skill advertised id"]
 supersedes: ["devbot/20261117115500-skill-tool-fails-to-load-existing-skills.md"]
 ---
 
-## A skill loads by its directory id, not by its advertised name
+## A skill loads by its directory id, not by its frontmatter name
 
 The `skill` tool resolves the **path-derived id** — the skill's directory name, `reconcile-work` —
-while frontmatter `name:` is display-only. In this build the available-skills block advertises the
-namespaced name (`devbot:reconcile-work`), so calling with the advertised id fails with
-`Unable to load skill <id>`, and the bare directory name then loads the same file. Confirmed against
-the running server: `GET /api/skill?location[directory]=<project>` returns
-`{id: "reconcile-work", name: "devbot:reconcile-work", path: ".../reconcile-work/SKILL.md"}` — the
-documented contract is that the path sets the id and `name` is a label. Any skill whose frontmatter
-name is namespaced (90 of them in this workspace) is therefore unreachable by the id the model is
-told to use; vendor skills hide it because their name matches their directory.
+and frontmatter `name:` is display-only; the tool does not accept the name. Our instruction docs
+write skills as `devbot:<skill>` (867 references), following the display name, so an agent that
+obeys them calls an id that cannot resolve and gets `Unable to load skill devbot:<skill>`.
 
-Retry once with the bare directory name before concluding a skill is missing, and only then fall
-back to reading `SKILL.md` from `.agents/skills/...` or `src/agentic/...`. The registry is
-in-process, not persisted: the DB holds no skill rows, so no reindex fixes this. Upstream report:
-anomalyco/opencode#64427.
+Verified against the running server: `GET /api/skill?location[directory]=<project>` returns
+`{id: "reconcile-work", name: "devbot:reconcile-work", path: ".../reconcile-work/SKILL.md"}`, and the
+advertised block renders `<id>${skill.id}</id>` (`packages/core/src/skill/instructions.ts`), i.e. the
+bare id. An earlier version of this note blamed the advertisement for printing the display name as the
+id — that was wrong, and an upstream report built on it (anomalyco/opencode#64427) was closed as
+not-a-bug. Nothing in discovery or loading is mismatched.
+
+Invoke skills by the bare directory name. A name fallback in the skill tool is proposed upstream
+(anomalyco/opencode#64434) as a convenience; it is not in the released build, and it deliberately
+leaves `Skill.get` alone so `skill://` URIs and `files()` keep working.
