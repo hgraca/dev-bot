@@ -1,0 +1,10 @@
+---
+date: 2026-11-16
+keywords: ["aws", "cloudshell", "vpc", "msk", "aws-msk-iam-auth"]
+aliases: ["CloudShell VPC environment", "Timed out waiting for a node assignment", "IAMClientCallbackHandler not found"]
+trigger-on: ["cloudshell-private-resource-access", "msk-client-setup-in-cloudshell"]
+---
+
+## AWS CloudShell cannot reach private VPC endpoints unless it is a VPC environment
+
+A default CloudShell tab runs outside your VPC and reaches the world over a link-local tunnel (`eth0` holding `169.254.255.x`, gateway `169.254.255.193`). Internet works, RFC1918 resources do not — and the failure is misleading: an MSK broker hostname still **resolves** (public DNS answers with the broker's private IP) but TCP simply hangs, so Kafka reports `TimeoutException: Timed out waiting for a node assignment` rather than a network error, and piping the command through `2>&1 | grep` can hide the real lines entirely. Do not diagnose from the interface list: a real VPC environment can present the same link-local tunnel while routing VPC traffic transparently, so the only trustworthy test is against the target — `timeout 5 bash -c 'echo > /dev/tcp/<private-ip>/<port>'`. Create the environment via CloudShell **+ → Create VPC environment** (VPC, subnet, up to five SGs; inbound rules on those SGs are irrelevant since nothing should connect *to* the shell, but the subnet needs egress — a NAT route — for the shell to provision and download). It restarts and logs in as a **separate tab with its own home directory**: the Kafka tarball, the IAM jar, `client.properties` and every exported variable must be recreated there, so put the exports in `~/.bashrc`. `hostname` may be missing from the image while `ip` is present. For MSK IAM auth the `aws-msk-iam-auth` uber jar must sit in `$KAFKA_HOME/libs` (not just somewhere on disk) or the CLI fails with `ConfigException: ... IAMClientCallbackHandler could not be found`; 2.3.8+ requires Java 17. Note `curl -s` suppresses the progress meter, so a 110 MB download from a slow mirror looks like a hang — use `--progress-bar` and `-C -` to resume.

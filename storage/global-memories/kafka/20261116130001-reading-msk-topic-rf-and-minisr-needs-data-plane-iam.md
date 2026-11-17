@@ -1,0 +1,10 @@
+---
+date: 2026-11-16
+keywords: ["kafka", "msk", "min.insync.replicas", "kafka-cluster", "AWS-Kafka"]
+aliases: ["RF==MinISR", "UnderMinIsrPartitionCount", "DescribeTopic Configs base64"]
+trigger-on: ["msk-topic-inventory", "msk-minisr-audit"]
+---
+
+## Reading MSK topic RF and effective MinISR needs data-plane IAM, base64 decoding and broker-level metrics
+
+MSK's topic APIs authorise on the `kafka-cluster:*` data-plane namespace, never `kafka:*`: `ListTopics` needs `kafka-cluster:Connect` plus `DescribeTopic`, and `DescribeTopic`/`DescribeTopicPartitions` additionally need `kafka-cluster:DescribeTopicDynamicConfiguration`. `Connect` is evaluated against the **cluster** ARN (`cluster/name/uuid`) while the rest evaluate against the **topic** ARN (`topic/name/uuid/topic-name`) — a policy holding only `kafka:ListClusters`/`DescribeCluster` fails with `AccessDenied ... kafka-cluster:Connect`, which reads as a broken API rather than a missing grant. `DescribeTopic.Configs` is a **base64-encoded JSON blob** of the *effective* topic config (subject overrides merged over broker defaults), so `min.insync.replicas` must be decoded, not read as text. `ListTopics` also omits `__amazon_msk_canary` and `__amazon_msk_canary_state` that the Kafka CLI shows, so API and CLI topic counts legitimately differ (42 vs 44) — neither is wrong. For state, `AWS/Kafka` `UnderMinIsrPartitionCount` and `UnderReplicatedPartitions` are **broker-level** and must be queried with both `Cluster Name` and `Broker ID` dimensions or they return zero data points (not zeros), while `OfflinePartitionsCount` is cluster-level. That asymmetry is diagnostic: `OfflinePartitionsCount = 0` together with `UnderMinIsrPartitionCount > 0` proves partitions stayed online, therefore `RF >= 2` and `MinISR == RF` — an RF=1 topic would have driven OfflinePartitionsCount up instead. Finally, AWS Health's `AWS_KAFKA_HIGH_RISK_CONFIG_RF_EQUALS_MINISR` fires only on `RF == MinISR`; the more severe `MinISR > RF` (unsatisfiable — every `acks=all` produce fails permanently) is never reported, so an inventory check has to test it explicitly.
