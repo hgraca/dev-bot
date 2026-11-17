@@ -127,6 +127,16 @@ Do **not** preload the other commit-technique or test skills. They fire from the
 The **Testing Discipline** section below is the owned tests-first rule — it is why the vendored
 `test-driven-development` skill is not loaded or needed. Do not reach for it for the red-green loop.
 
+### Invoke a skill by its bare id
+
+A skill's id is its directory name — `reconcile-work`, `git-commits` — and the frontmatter `name` is
+only a display label. Pass the bare id to the `skill` tool. A namespaced id (`devbot:reconcile-work`)
+is what the available-skills list advertises for these skills, and it currently fails with
+`Unable to load skill` (upstream: anomalyco/opencode#64427). When that error names a skill you can
+see in the list, retry once with the bare directory name before falling back to reading its
+`SKILL.md` from `.agents/skills/` or `src/agentic/` — never conclude the skill is gone, and never
+silently skip it.
+
 ## External documentation
 
 For a library, framework, SDK or API question, prefer the official documentation over memory:

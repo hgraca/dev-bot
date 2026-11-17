@@ -195,6 +195,20 @@ setup() {
   assert_failure
 }
 
+@test "skills are invoked by their bare directory id, not the advertised namespace" {
+  # The available-skills list advertises `devbot:<dir>`; the tool resolves the
+  # directory name (anomalyco/opencode#64427). The hub must say which to call.
+  local needle
+  for needle in \
+    'Invoke a skill by its bare id' \
+    'A skill'"'"'s id is its directory name' \
+    'retry once with the bare directory name' \
+    'anomalyco/opencode#64427'; do
+    run grep -qF "$needle" "$FLAT"
+    assert_success
+  done
+}
+
 @test "the PHP message bus annex keeps the get-e/message-bus keys and defers the rule" {
   local annex
   annex="$(cd "$(dirname "$SKILL")" && pwd)/annexes/php/message-bus.md"
