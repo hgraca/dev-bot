@@ -215,6 +215,28 @@ It is the v1 `pty-monitor` experience re-earned on 2.3:
 
 Both halves poll: the list every 2s, the open panel's output every 1s.
 
+**The panel can answer a session.** A process that stops at `Password: `, at
+`[y/N]`, or at a REPL prompt is not stuck:
+
+- `[send]` in the panel footer (or `ctrl+s`) opens the host's prompt dialog; the
+  line is sent with a carriage return, which is what a terminal's Enter is;
+- `[keys]` sends what a text field cannot: Escape, Tab, `Ctrl+C`, `Ctrl+D`, and
+  the four arrows. `Ctrl+C` here interrupts the **child**, not the agent — that
+  is the point of sending it as a key rather than binding it;
+- the prompt itself is visible before it is answered, because the buffer's
+  unterminated tail is part of what the panel reads. A `Password: ` never ends
+  with a newline, and hiding it would leave an empty view of a session that is
+  waiting for you;
+- nothing is echoed locally: the child's own echo arrives through the output
+  stream. A prompt with echo turned off (a password) shows the answer as blank
+  spaces, exactly as a terminal does.
+
+This is **line mode, not a terminal emulator**. Answering a prompt, sending
+`y`, interrupting a run and typing into a REPL all work; driving a full-screen
+program (`vim`, `less`, `htop`) does not — those need raw keystrokes and screen
+state, which this panel cannot emulate. Use the host's own terminal pane for
+that.
+
 **Dismissal works from the sidebar**, as it did in v1 — the agent's `pty_kill`
 tool is not something the user at the keyboard can reach:
 
