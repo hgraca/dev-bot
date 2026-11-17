@@ -503,3 +503,75 @@ EOF
   assert [ -f "${PROJECT}/.opencode/skills/probe-external/git-commits/SKILL.md" ]
 }
 
+
+# ── Nested projects: one copy per plugin id ───────────────────────────────────
+# A v2 host discovers every ancestor's `.opencode/plugins/` package, so a dev-bot
+# project nested inside another dev-bot project loads two copies of each plugin.
+# The host keeps the first and fails the second with "Duplicate plugin ID", which
+# the TUI shows as a failed plugin. The ancestor's copy is location-scoped, so it
+# serves the nested project too; the nested init must not write a duplicate.
+
+_nested_projects() {
+  PARENT="${PROJECT}/parent"
+  CHILD="${PARENT}/child"
+  mkdir -p "${CHILD}"
+  printf '{ "harness": "opencode-v2" }\n' > "${PARENT}/.devbot.project.jsonc"
+  printf '{ "harness": "opencode-v2" }\n' > "${CHILD}/.devbot.project.jsonc"
+}
+
+@test "init does not duplicate a plugin an ancestor project already supplies" {
+  _nested_projects
+  bash "${MODULE_DIR}/init.sh" "${PARENT}" >/dev/null
+  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+
+  local name
+  for name in on-hooks mcp-sync pty; do
+    assert [ -d "${PARENT}/.opencode/plugins/${name}" ]
+    refute [ -e "${CHILD}/.opencode/plugins/${name}" ]
+  done
+}
+
+@test "init removes its own plugin copies once an ancestor supplies them" {
+  # The historical shape: the nested project was initialised first, so it owns a
+  # copy of every plugin before the ancestor is initialised.
+  _nested_projects
+  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+  assert [ -d "${CHILD}/.opencode/plugins/on-hooks" ]
+
+  bash "${MODULE_DIR}/init.sh" "${PARENT}" >/dev/null
+  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+
+  local name
+  for name in on-hooks mcp-sync pty; do
+    refute [ -e "${CHILD}/.opencode/plugins/${name}" ]
+    # The ancestor keeps the only copy.
+    assert [ -d "${PARENT}/.opencode/plugins/${name}" ]
+  done
+}
+
+@test "an ancestor plugin directory dev-bot did not generate is not treated as supplied" {
+  # Another package can share the directory name; only the generated manifest and
+  # shim marker identify a dev-bot plugin. A user's own package must neither
+  # suppress this project's copy nor be deleted.
+  _nested_projects
+  mkdir -p "${PARENT}/.opencode/plugins/on-hooks"
+  printf 'export default { id: "someone-elses-plugin" }\n' > "${PARENT}/.opencode/plugins/on-hooks/index.ts"
+  printf '{ "name": "someone-elses-plugin" }\n' > "${PARENT}/.opencode/plugins/on-hooks/package.json"
+
+  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+
+  assert [ -f "${CHILD}/.opencode/plugins/on-hooks/index.ts" ]
+  assert [ -f "${PARENT}/.opencode/plugins/on-hooks/index.ts" ]
+}
+
+@test "a project with no ancestor dev-bot plugins still gets every plugin" {
+  # The nesting guard must not suppress the normal, non-nested install.
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+  assert_success
+
+  local name
+  for name in on-hooks mcp-sync pty; do
+    assert [ -d "${PROJECT}/.opencode/plugins/${name}" ]
+  done
+}
+

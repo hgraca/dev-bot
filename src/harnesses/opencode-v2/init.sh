@@ -325,6 +325,48 @@ _sweep_foreign_artifacts() {
   return 0
 }
 
+# ── A plugin package an ancestor project already supplies ─────────────────────
+# A v2 host discovers configuration from the current directory and EVERY ancestor
+# through the filesystem root, and auto-loads each discovered
+# `.opencode/plugins/` package. A dev-bot project nested inside another dev-bot
+# project therefore sees the ancestor's copies of these plugins beside its own;
+# the host keeps the first and fails the second with "Duplicate plugin ID",
+# which the TUI reports as a failed plugin.
+#
+# The ancestor's instance is location-scoped — its `setup(ctx)` runs for the
+# session's location — so it serves this project too. Writing our own copy buys
+# nothing and costs a failed plugin. Identify a dev-bot package by the generated
+# manifest's name plus the shim marker: a user's own package of the same
+# directory name is never mistaken for one.
+_ancestor_plugin_dir() {
+  local name="$1"
+  local dir parent candidate
+  dir="${PROJECT_DIR}"
+  while :; do
+    parent="$(dirname "${dir}")"
+    [[ "${parent}" == "${dir}" ]] && return 1
+    dir="${parent}"
+    candidate="${dir}/.opencode/plugins/${name}"
+    [[ -d "${candidate}" && ! -L "${candidate}" ]] || continue
+    [[ -f "${candidate}/index.ts" && ! -L "${candidate}/index.ts" ]] || continue
+    grep -qF "${_PLUGIN_SHIM_MARKER}" "${candidate}/index.ts" 2>/dev/null || continue
+    grep -qF "\"name\": \"devbot-${name}\"" "${candidate}/package.json" 2>/dev/null || continue
+    printf '%s\n' "${candidate}"
+    return 0
+  done
+}
+
+# Remove this project's generated copy of a plugin an ancestor supplies. A user's
+# own package at the same path is never touched.
+_retire_shadowed_plugin_dir() {
+  local dir="$1" name="$2"
+  [[ -d "${dir}" && ! -L "${dir}" ]] || return 0
+  [[ -f "${dir}/index.ts" && ! -L "${dir}/index.ts" ]] || return 0
+  grep -qF "${_PLUGIN_SHIM_MARKER}" "${dir}/index.ts" 2>/dev/null || return 0
+  rm -r -f "${dir}"
+  _ok "Removed plugins/${name} — an ancestor project supplies it"
+}
+
 # ── Link one plugin as a directory package ───────────────────────────
 # V2 configured local paths must name a DIRECTORY, and a directory without a
 # package.json is read through its file names — `index` is the server entry. So
@@ -341,6 +383,16 @@ _link_plugin_dir() {
   local server="${src}"
   local tui=""
   local rpc=""
+
+  # One plugin id, one loaded copy. A nested project must not shadow the copy its
+  # ancestor already loads: the host fails the duplicate with "Duplicate plugin
+  # ID" instead of running it.
+  local ancestor
+  if ancestor="$(_ancestor_plugin_dir "${name}")"; then
+    _retire_shadowed_plugin_dir "${dir}" "${name}"
+    _skip "plugins/${name} already loaded from ${ancestor} — not duplicated"
+    return 0
+  fi
 
   if [[ -d "${src}" ]]; then
     server="${src}/index.ts"

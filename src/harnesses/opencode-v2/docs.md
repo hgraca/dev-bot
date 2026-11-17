@@ -75,6 +75,15 @@ Verified on a 2.3.0 host:
   `export { default } from "<DEV_BOT_ROOT>/src/harnesses/opencode-v2/hooks/x.ts"`.
   `import.meta.dir` inside the real module still resolves to the module, so
   there is one source of truth.
+- **A nested project does not duplicate an ancestor's plugins.** Discovery walks
+  every ancestor through the filesystem root, so a dev-bot project inside another
+  dev-bot project sees the ancestor's `.opencode/plugins/` packages too. The host
+  keeps the first registration and fails the second with `Duplicate plugin ID`,
+  which the TUI reports as a **failed** plugin. Because a plugin's `setup(ctx)` is
+  scoped to the session's location, the ancestor's copy serves the nested project
+  as well; `init.sh` therefore leaves its own copy out when an ancestor supplies
+  the same package (matched by the generated `devbot-<name>` manifest and the shim
+  marker, never by directory name alone) and removes a copy an earlier run wrote.
 
 Both harnesses share `.opencode/plugins/`, and isolation comes from a
 handover sweep rather than from separate directories:
