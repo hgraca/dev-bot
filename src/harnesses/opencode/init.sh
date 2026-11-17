@@ -476,6 +476,85 @@ _register_dynamic_mcps() {
   done
 }
 
+# ── Retire the opencode-v2 harness's plugin packages ────────────────────
+# The v2 adapter links its plugins as directory packages under .opencode/plugins/
+# (`<name>/index.ts` shims that re-export dev-bot modules), which this harness
+# never registers — it links `.ts` files instead. Leaving them behind would keep
+# the v2 PTY extension — the one thing that needs `bun-pty` — installed on a v1
+# host, so the incoming harness cleans up: the outgoing one's reset is skipped by
+# design (see "Directory ownership" in the v2 docs).
+_V2_SHIM_MARKER="// dev-bot: generated opencode-v2 plugin shim (do not edit)"
+
+_sweep_v2_plugin_dirs() {
+  local plugins_dir="${OPENCODE_DIR}/plugins"
+  [[ -d "${plugins_dir}" ]] || return 0
+
+  local removed=0 dir name
+  for dir in "${plugins_dir}"/*/; do
+    [[ -d "${dir}" ]] || continue
+    # A symlink is a pointer, not a package: removing through it would delete
+    # whatever it names.
+    [[ -L "${dir%/}" ]] && continue
+    [[ -L "${dir}index.ts" ]] && continue
+    grep -qF "${_V2_SHIM_MARKER}" "${dir}index.ts" 2>/dev/null || continue
+    name="$(basename "${dir}")"
+    rm -r -f "${dir}"
+    removed=$((removed + 1))
+    # Only the PTY extension declared bun-pty, and it is gone now: retire the
+    # dependency here, where the evidence is, rather than from a flag that only
+    # survives when these two run in the same shell.
+    if [[ "${name}" == "pty" ]]; then _retire_v2_pty_dependency; fi
+  done
+
+  if [[ ${removed} -gt 0 ]]; then
+    _ok "Retired ${removed} opencode-v2 plugin package(s)"
+  fi
+}
+
+# The v2 PTY extension is what declares `bun-pty` in .opencode/package.json. Once
+# its package is gone the dependency is dead weight, and a host that installs the
+# config directory's dependencies on start would fetch it again.
+#
+# Called only from _sweep_v2_plugin_dirs, once the v2 PTY package it describes is
+# gone. .opencode/package.json is seeded once and then the project's own, so the
+# entry is dropped only when the harness's own ownership record names it — a
+# dependency the project declared is never touched.
+_retire_v2_pty_dependency() {
+  local manifest="${OPENCODE_DIR}/package.json"
+  [[ -f "${manifest}" ]] || return 0
+
+  local owned="${OPENCODE_DIR}/.devbot-managed-deps"
+  grep -qxF "bun-pty" "${owned}" 2>/dev/null || return 0
+
+  local dropped
+  dropped="$(python3 - "${manifest}" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(0)
+deps = data.get("dependencies")
+if not isinstance(deps, dict) or "bun-pty" not in deps:
+    sys.exit(0)
+del deps["bun-pty"]
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+print("bun-pty")
+PYEOF
+)"
+
+  if [[ -n "${dropped}" ]]; then
+    # The record shrinks with the dependency; an empty file would only invite a
+    # later run to re-read it.
+    if grep -vxF "bun-pty" "${owned}" > "${owned}.tmp" 2>/dev/null; then :; fi
+    if [[ -s "${owned}.tmp" ]]; then mv "${owned}.tmp" "${owned}"; else rm -f "${owned}" "${owned}.tmp"; fi
+    _ok "Dropped ${dropped} from .opencode/package.json — only the v2 PTY extension used it"
+  fi
+}
+
 # ── Link the harness module's own hooks (generic adapter + any hand-written) ──
 _link_harness_hooks() {
   local hook_dir="${MODULE_DIR}/hooks"
@@ -676,6 +755,7 @@ _delegate_harness_dirs
 # Modules declare their MCP wrapper scripts; the harness links them.
 _devbot_link_harness_assets "${PROJECT_DIR}" ".opencode"
 _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
+_sweep_v2_plugin_dirs
 _link_plugins_modules
 _link_module_plugins
 _link_harness_hooks
