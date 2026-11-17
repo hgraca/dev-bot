@@ -442,7 +442,7 @@ EOF
 
 # ── _devbot_rotate_session_logs / _devbot_check_session_logs ───────────────────
 
-@test "_devbot_rotate_session_logs moves logs to rotated/ with date prefix and 3-digit suffix" {
+@test "_devbot_rotate_session_logs copies logs to rotated/ and keeps the live file writable" {
   local proj="${TEST_TEMP}/proj"
   mkdir -p "${proj}/.agents/logs"
   printf 'ERROR: old boom\n' > "${proj}/.agents/logs/hooks.log"
@@ -451,16 +451,39 @@ EOF
   run _devbot_rotate_session_logs "${proj}"
   assert_success
 
-  # Original names gone from the active dir; rotated files carry date + -001.
-  refute [ -f "${proj}/.agents/logs/hooks.log" ]
-  refute [ -f "${proj}/.agents/logs/codebase-index-mcp.log" ]
   local date_stamp
   date_stamp="$(date +%Y%m%d)"
   assert [ -f "${proj}/.agents/logs/rotated/${date_stamp}-hooks-001.log" ]
   assert [ -f "${proj}/.agents/logs/rotated/${date_stamp}-codebase-index-mcp-001.log" ]
-  # Content preserved.
+  # Content preserved in the rotated copy.
   run grep -q 'ERROR: old boom' "${proj}/.agents/logs/rotated/${date_stamp}-hooks-001.log"
   assert_success
+
+  # The live file MUST still exist and be empty: the MCP servers are children of
+  # the long-lived opencode service and keep appending to the descriptor they
+  # opened at start-up. A rename stranded their output in rotated/ and the
+  # session's own log never materialised (audit-01 FAIL-5).
+  assert [ -f "${proj}/.agents/logs/hooks.log" ]
+  assert [ ! -s "${proj}/.agents/logs/hooks.log" ]
+  # A late append by the still-running writer lands in the live file.
+  printf 'still writing\n' >> "${proj}/.agents/logs/hooks.log"
+  run grep -q 'still writing' "${proj}/.agents/logs/hooks.log"
+  assert_success
+}
+
+@test "_devbot_rotate_session_logs leaves an empty live log alone" {
+  local proj="${TEST_TEMP}/proj-empty"
+  mkdir -p "${proj}/.agents/logs"
+  : > "${proj}/.agents/logs/hooks.log"
+
+  run _devbot_rotate_session_logs "${proj}"
+  assert_success
+
+  local date_stamp
+  date_stamp="$(date +%Y%m%d)"
+  # No idle session should litter rotated/ with empty copies.
+  refute [ -f "${proj}/.agents/logs/rotated/${date_stamp}-hooks-001.log" ]
+  assert [ -f "${proj}/.agents/logs/hooks.log" ]
 }
 
 @test "_devbot_rotate_session_logs increments the suffix on collision" {

@@ -789,6 +789,14 @@ _devbot_launch_gui() {
 #   each becomes .agents/logs/rotated/<YYYYMMDD>-<name>-<NNN>.log (date prefix,
 #   zero-padded 3-digit sequence to avoid collisions). Old logs are preserved;
 #   writers start fresh files, so the post-exit check only sees this session.
+#
+# COPY-and-truncate, never rename: the MCP servers are children of the
+# long-lived `opencode` service and keep appending to the log they opened at
+# start-up. A rename moves the inode out from under them, so they keep writing
+# into rotated/ and the CURRENT session's log never appears — invisible to
+# _devbot_check_session_logs, which never scans rotated/ (audit-01 FAIL-5). With
+# O_APPEND writers (bash `>>`) the truncation is safe: their next append lands at
+# the start of the now-empty file.
 _devbot_rotate_session_logs() {
   local project_dir="${1:-$(pwd)}"
   local logs_dir="${project_dir}/.agents/logs"
@@ -803,6 +811,9 @@ _devbot_rotate_session_logs() {
   local file base nnn target
   for file in "${logs_dir}"/*.log; do
     [[ -f "${file}" ]] || continue
+    # Nothing was written since the last rotation — leave it, so an idle log
+    # does not accumulate one empty copy per session.
+    [[ -s "${file}" ]] || continue
     base="$(basename "${file}")"
     nnn=1
     while [[ ${nnn} -le 999 ]]; do
@@ -810,7 +821,12 @@ _devbot_rotate_session_logs() {
       [[ ! -e "${target}" ]] && break
       nnn=$((nnn + 1))
     done
-    mv -f "${file}" "${target}" 2>/dev/null || true
+    # `cp` then truncate: a writer that appends between the two loses nothing it
+    # had already written (its bytes are in the copy), and one that appends
+    # afterwards continues in the live file.
+    if cp -p "${file}" "${target}" 2>/dev/null; then
+      : > "${file}" 2>/dev/null || true
+    fi
   done
 
   return 0
