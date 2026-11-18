@@ -469,3 +469,28 @@ event carries `agent`, and `Tool.Result` is read through `resultText()` /
 (`agent-communication-idle`, `auto-recover`, `watchdog-silent-stall`) are still
 ported as V1 declarations only, so the adapter skips them and says so once in
 `hooks.log`.
+
+## Operational notes
+
+### `@opencode/plugin` is host-provided, not installed
+
+The hooks import `@opencode/plugin` at runtime, but the module is deliberately
+**not** installed into `.opencode/node_modules`. The 2.x host ships its own copy
+and resolves the import itself; installing the package would drag in its full
+dependency graph for no runtime benefit (`_install_plugin_deps` in `init.sh`
+documents the decision and installs only `bun-pty`). The consequence is that an
+out-of-host consumer — `tsc`, an editor, a standalone test that imports
+`hooks/on-hooks.ts` — cannot resolve the module. If that ever becomes necessary,
+add it as a dev dependency of the harness module rather than to
+`.opencode/package.json`.
+
+### Restart the service after updating dev-bot
+
+`devbot` launches `opencode serve --service`, a long-lived daemon that outlives
+individual sessions. Plugins are (re)loaded per session, so hook changes take
+effect on the next launch — but **host** code does not: a daemon started before
+a `devbot update` keeps running the older binary until it is restarted. When
+hook behaviour does not match the source, check the daemon's age first
+(`ps -o lstart= -p <pid>`) against the install's newest commit, then restart the
+service.
+
