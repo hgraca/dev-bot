@@ -150,6 +150,19 @@ PY
   assert_success
 }
 
+@test "the extraction reports zero and default computed values" {
+  # Dropping them made "no padding" indistinguishable from "padding not
+  # measured", so a real mismatch could pass as a match.
+  run grep -qF 'if (v && v !== "normal"' "${MODULE}/skills/design-qa/SKILL.md"
+  assert_failure
+  run grep -qF 'if (v) o[p] = v;' "${MODULE}/skills/design-qa/SKILL.md"
+  assert_success
+  run grep -qF '`0px`, `none`, `normal` and' "${MODULE}/skills/design-qa/SKILL.md"
+  assert_success
+  run grep -qF 'Compare every reported value.' "${MODULE}/skills/design-qa/SKILL.md"
+  assert_success
+}
+
 @test "the single-page workflow never handles credentials or forces flags" {
   run grep -qF 'Never log in yourself and never handle credentials' \
     "${MODULE}/skills/design-qa/SKILL.md"

@@ -352,7 +352,7 @@ Run a single `browser_evaluate` with the targets embedded:
       o = {};
     P.forEach((p) => {
       const v = cs[p];
-      if (v && v !== "normal" && v !== "none" && v !== "0px" && v !== "rgba(0, 0, 0, 0)") o[p] = v;
+      if (v) o[p] = v;
     });
     return {
       key: t.key,
@@ -376,7 +376,15 @@ back to a full snapshot unless that also fails; if it does, use `browser_find` f
 Icons: component libraries usually expose `data-testid="<Name>Icon"`. Compare that with the Figma
 icon/component name.
 
+Every computed value is reported, including the zero and default ones — `0px`, `none`, `normal` and
+fully transparent colours. They are values to compare, not noise: dropping them would make "no
+padding" indistinguishable from "padding not measured".
+
 ## 5. Compare
+
+Compare every reported value. `0px`, `none`, `normal` and transparent colours are values, not
+absences: a `0px` padding where Figma has 8px, a `normal` line height where Figma has 24px, or a
+transparent fill where Figma has a colour is an issue like any other.
 
 Tolerance is `tolerancePx` (default ±4px) for:
 
