@@ -210,3 +210,17 @@ JSONC_EOF
   local agents="${SANDBOX_PROJECT_DIR}/AGENTS.md"
   [[ -s "$agents" ]] || fail "AGENTS.md still empty after ensure"
 }
+
+# ── the install root is established, not inherited ───────────────────────────
+# The script sources _shared through $DEV_BOT_ROOT. Reading it before defaulting
+# made the ordering load-bearing by accident: every real caller happens to export
+# it, so only a clean shell noticed. Pin the property at the source, not through
+# the ambient environment.
+
+@test "init: sources in a shell that has not exported DEV_BOT_ROOT" {
+  _setup_sandbox
+
+  run env -u DEV_BOT_ROOT bash -c "set -u; source '${SANDBOX_DIR}/init.sh'; echo SOURCED"
+  assert_success
+  assert_output --partial "SOURCED"
+}

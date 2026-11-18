@@ -169,3 +169,15 @@ PY
   assert_success
   assert_output --partial "WS-WIRED:OK"
 }
+
+# ── the install root is established, not inherited ───────────────────────────
+# init.sh sources _shared through $DEV_BOT_ROOT; reading it before defaulting
+# meant only a shell that happens to export it survived `set -u`.
+
+@test "init runs without DEV_BOT_ROOT in the environment" {
+  _write_project_config true
+
+  run env -u DEV_BOT_ROOT bash "${INIT_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+  [ -f "${SANDBOX_DIR}/.mcp.json" ]
+}

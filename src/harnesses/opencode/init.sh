@@ -16,6 +16,27 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./functions.sh
 source "${MODULE_DIR}/functions.sh"
 
+# Defaulted BEFORE anything sources _shared through it — a caller that has not
+# exported DEV_BOT_ROOT (a clean shell, a test that sources this file) must not
+# die on `set -u`.
+#
+# Located by walking up until src/_shared is found rather than assuming three
+# levels: the checkout puts it at src/harnesses/<name>, while a test harness
+# plants this script at the root of a fake install. The wrapper above only sets
+# DEV_BOT_ROOT as a side effect, which is what made the ordering load-bearing.
+if [[ -z "${DEV_BOT_ROOT:-}" ]]; then
+  _devbot_root_candidate="${MODULE_DIR}"
+  for _devbot_root_hop in 0 1 2 3 4 5; do
+    if [[ -f "${_devbot_root_candidate}/src/_shared/functions.sh" ]]; then
+      DEV_BOT_ROOT="${_devbot_root_candidate}"
+      break
+    fi
+    _devbot_root_candidate="$(cd "${_devbot_root_candidate}/.." && pwd)"
+  done
+  unset _devbot_root_candidate _devbot_root_hop
+fi
+export DEV_BOT_ROOT
+
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 
 if [[ -z "${PROJECT_DIR}" || ! -d "${PROJECT_DIR}" ]]; then
@@ -28,8 +49,6 @@ source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
-MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
 OPENCODE_TPL="${MODULE_DIR}/_opencode.tpl"
 DIST_CONFIG="${MODULE_DIR}/opencode.dist.jsonc"
 DIST_TUI_CONFIG="${MODULE_DIR}/tui.dist.jsonc"

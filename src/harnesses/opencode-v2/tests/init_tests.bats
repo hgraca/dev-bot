@@ -772,3 +772,13 @@ _ancestor_package() {
   assert_output --partial "devbot-tools"
   refute_output --partial "websearch"
 }
+
+# ── the install root is established, not inherited ───────────────────────────
+# init.sh sources _shared through $DEV_BOT_ROOT; reading it before defaulting
+# meant only a shell that happens to export it survived `set -u`.
+
+@test "init runs without DEV_BOT_ROOT in the environment" {
+  run env -u DEV_BOT_ROOT bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+  assert_success
+  [ -f "${CONFIG}" ]
+}
