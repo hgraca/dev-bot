@@ -580,7 +580,7 @@ export function toolFileTargets(tool: string, input: unknown): string[] {
   const name = canonicalToolName(tool, input)
   if (!FILE_WRITE_TOOLS.has(name)) return []
   const a = (input ?? {}) as { path?: unknown; filePath?: unknown; patchText?: unknown }
-  if (name === "patch") {
+  if (name === "patch" || name === "apply_patch") {
     const text = String(a.patchText ?? "")
     const out: string[] = []
     for (const line of text.split("\n")) {

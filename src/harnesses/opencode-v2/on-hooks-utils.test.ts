@@ -65,6 +65,9 @@ describe("toolFileTargets", () => {
       "*** End Patch",
     ].join("\n")
     expect(toolFileTargets("patch", { patchText })).toEqual(["src/a.ts", "src/b.ts", "src/c.ts"])
+    // The adapter advertises `apply_patch` too: the same payload must parse, or
+    // its edits are never scheduled for the file hooks.
+    expect(toolFileTargets("apply_patch", { patchText })).toEqual(["src/a.ts", "src/b.ts", "src/c.ts"])
   })
 
   test("is empty for a tool that writes no file", () => {
