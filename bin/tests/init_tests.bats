@@ -69,6 +69,16 @@ except:
 " "${config}" 2>/dev/null || echo "[]"
 }
 
+# The name list bin/init.sh filters with — the shared library resolves it in one
+# process; here it is the same answer, one name per line.
+_devbot_disabled_module_names() {
+  _devbot_get_disabled_modules | python3 -c "
+import json, sys
+for m in json.loads(sys.stdin.read()):
+    print(m)
+" 2>/dev/null || true
+}
+
 _devbot_get_project_dir() { echo ".agents"; }
 
 # Harness selection: the JSONL config carries `harness`; absent => opencode, so
@@ -549,12 +559,14 @@ EOF
   export PATH="${SANDBOX_DIR}/stub-bin:${PATH}"
 }
 
-# _register_mcp <module-name> — run the real registration for a sandbox module.
+# _register_mcp <module-name> [preserve-config] — run the real registration for
+# a sandbox module. Without the second argument the config starts empty; pass
+# anything to seed it first and keep what the caller wrote.
 _register_mcp() {
-  local name="$1"
+  local name="$1" preserve="${2:-}"
 
   # merge_mcp_jsonc.py requires the config to exist (it does not create it).
-  printf '{}\n' > "${SANDBOX_DIR}/opencode.jsonc"
+  [[ -n "${preserve}" ]] || printf '{}\n' > "${SANDBOX_DIR}/opencode.jsonc"
 
   export DEV_BOT_ROOT="${SANDBOX_DIR}"
   source "${SANDBOX_DIR}/src/_shared/functions.sh"
@@ -709,5 +721,66 @@ _source_init_flow() {
   run grep -qF -- '_devbot_rebuild_external_module_config' "${PROJECT_ROOT}/bin/up.sh"
   assert_success
   run grep -qF -- '--force "${config_file}"' "${PROJECT_ROOT}/src/_shared/functions.sh"
+  assert_success
+}
+
+# ── registration in one pass ──────────────────────────────────────────────────
+# `_register_module_mcp` used to launch a translator per module and three
+# interpreters per server. It now translates once per module and writes the set
+# in one call, so these pin the two behaviours the batching could lose.
+
+# _add_multi_mcp_module <name> <key>... — a module declaring several servers.
+_add_multi_mcp_module() {
+  local name="$1"
+  shift
+  local dir="${SANDBOX_DIR}/src/agentic/${name}"
+  mkdir -p "${dir}"
+
+  local body="" key sep=""
+  for key in "$@"; do
+    body+="${sep}\"${key}\": {\"type\": \"stdio\", \"command\": [\"bash\", \"-c\", \"exec ${key} --serve\"]}"
+    sep=", "
+  done
+  printf '{ "mcp": { %s } }\n' "${body}" >"${dir}/mcp.json"
+}
+
+@test "one call registers every server a module declares" {
+  _setup '{}'
+  _add_multi_mcp_module "multi-mod" alpha beta
+
+  run _register_mcp "multi-mod"
+  assert_success
+  assert_output --partial "MCP 'alpha' registered"
+  assert_output --partial "MCP 'beta' registered"
+
+  _assert_registered "alpha" ok
+  _assert_registered "beta" ok
+}
+
+@test "the already-registered guard only looks at the mcp section" {
+  # A key outside the mcp block (a permission, say) used to be treated as
+  # "already registered", silently skipping the server on every reinit.
+  _setup '{}'
+  _add_multi_mcp_module "guard-mod" alpha
+  printf '{ "permission": { "alpha": "allow" } }\n' >"${SANDBOX_DIR}/opencode.jsonc"
+
+  run _register_mcp "guard-mod" preserve
+  assert_success
+
+  _assert_registered "alpha" ok
+}
+
+@test "a server already in the mcp section is skipped, not merged again" {
+  _setup '{}'
+  _add_multi_mcp_module "twice-mod" alpha
+  printf '{ "mcp": { "alpha": { "type": "local", "command": ["bash", "-c", "user"] } } }\n' \
+    >"${SANDBOX_DIR}/opencode.jsonc"
+
+  run _register_mcp "twice-mod" preserve
+  assert_success
+  assert_output --partial "MCP 'alpha' already registered"
+
+  # The project's own definition survives: merge-mcp is insert-only.
+  run grep -c "user" "${SANDBOX_DIR}/opencode.jsonc"
   assert_success
 }

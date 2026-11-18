@@ -234,3 +234,21 @@ _write_project_cfg() {
 
   rm -rf "${bare}"
 }
+
+@test "_devbot_get_disabled_modules reads the harness from the cwd when given no project" {
+  # `devbot list` calls it without a path. The module maps stay global-only, but
+  # the harness follows the caller's directory — the behaviour the old
+  # `_devbot_get_harness ""` had, because an empty path defaulted to $(pwd).
+  _write_project_cfg '{ "harness": "claudecode" }'
+  _write_global_cfg '{ "harness": "opencode" }'
+
+  run bash -c '
+    cd "${1}" || exit 1
+    export DEV_BOT_ROOT="${2}"
+    source "${3}"
+    _devbot_get_disabled_modules
+  ' _ "${PROJECT_DIR}" "${DEV_BOT_ROOT}" "${PROJECT_ROOT}/src/_shared/functions.sh"
+  assert_success
+  refute_output --partial '"claudecode"'
+  assert_output --partial '"opencode"'
+}

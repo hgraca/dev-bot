@@ -153,3 +153,53 @@ PYEOF
   run readlink "${PROJECT}/.opencode/tools-mcp-serve.sh"
   assert_output "/tmp/elsewhere-script.sh"
 }
+
+@test "one malformed manifest does not stop the others being linked" {
+  # The declarations are read in one launch now, so a manifest that is not an
+  # object must not take the batch down: an empty declaration list would make
+  # the caller prune every link it had previously declared.
+  local root="${BATS_TEST_TMPDIR}/root"
+  mkdir -p "${root}/src/agentic/good" "${root}/src/agentic/bad" "${root}/src/_shared"
+  cp "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${root}/src/_shared/"
+  printf '{"mcp":[{"name":"good-serve.sh","path":"serve.sh"}]}\n' \
+    >"${root}/src/agentic/good/harness-assets.json"
+  printf '["not","an","object"]\n' >"${root}/src/agentic/bad/harness-assets.json"
+  printf '#!/bin/sh\n' >"${root}/src/agentic/good/serve.sh"
+
+  run bash -c '
+    set -uo pipefail
+    DEV_BOT_ROOT="${1}"
+    export DEV_BOT_ROOT
+    source "${2}"
+    _devbot_link_harness_assets "${3}" ".opencode" >/dev/null 2>&1
+  ' _ "${root}" "${DEV_BOT_ROOT}/src/_shared/functions.sh" "${PROJECT}"
+
+  # The good module still linked; the bad one simply contributed nothing.
+  assert [ -L "${PROJECT}/.opencode/good-serve.sh" ]
+}
+
+@test "a manifest entry whose name is not a string is skipped, not fatal" {
+  # The declarations are joined with a tab, so a non-string name raises in the
+  # batch reader; it must cost only that entry, not every module's links.
+  local root="${BATS_TEST_TMPDIR}/root"
+  mkdir -p "${root}/src/agentic/good" "${root}/src/agentic/mixed" "${root}/src/_shared"
+  cp "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${root}/src/_shared/"
+  printf '{"mcp":[{"name":"good-serve.sh","path":"serve.sh"}]}\n' \
+    >"${root}/src/agentic/good/harness-assets.json"
+  printf '{"mcp":[{"name":1,"path":"serve.sh"},{"name":"mixed-serve.sh","path":"serve.sh"}]}\n' \
+    >"${root}/src/agentic/mixed/harness-assets.json"
+  printf '#!/bin/sh\n' >"${root}/src/agentic/good/serve.sh"
+  printf '#!/bin/sh\n' >"${root}/src/agentic/mixed/serve.sh"
+
+  run bash -c '
+    set -uo pipefail
+    DEV_BOT_ROOT="${1}"
+    export DEV_BOT_ROOT
+    source "${2}"
+    _devbot_link_harness_assets "${3}" ".opencode" >/dev/null 2>&1
+  ' _ "${root}" "${DEV_BOT_ROOT}/src/_shared/functions.sh" "${PROJECT}"
+
+  # The well-formed entry beside the malformed one still links.
+  assert [ -L "${PROJECT}/.opencode/good-serve.sh" ]
+  assert [ -L "${PROJECT}/.opencode/mixed-serve.sh" ]
+}

@@ -234,6 +234,8 @@ def load_canonical(path: str) -> Any:
 
 def server_map(data: Any) -> dict[str, Any]:
     """Return {server: entry} for the manifest, dropping underscore keys."""
+    if not isinstance(data, dict):
+        raise ValueError("manifest must be a JSON object")
     mcp = data.get("mcp")
     if not isinstance(mcp, dict):
         raise ValueError("manifest must carry an 'mcp' object")
@@ -381,7 +383,10 @@ def main(argv=None):
             module = os.path.basename(os.path.dirname(os.path.abspath(path)))
             try:
                 record = {"module": module, "servers": translate_manifest(path, args.harness)}
-            except (OSError, ValueError, json.JSONDecodeError) as e:
+            except Exception as e:
+                # Any failure belongs to this manifest alone: the contract is one
+                # record per manifest, so a shape this translator did not expect
+                # must not discard the records for the ones after it.
                 record = {"module": module, "error": str(e)}
             print(json.dumps(record))
         return 0

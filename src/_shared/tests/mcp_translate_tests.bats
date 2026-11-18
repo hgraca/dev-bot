@@ -574,3 +574,76 @@ JSON_EOF
   assert_equal "${output}" "${v1}"
   assert_output --partial '.opencode/tools-mcp-serve.sh'
 }
+
+# ── --batch: one launch for a set of manifests ────────────────────────────────
+# The v2 harness wires every enabled module's manifest at init. One process per
+# manifest dominated that step, so the batch mode replaced it; these pin the
+# contract the harness parses.
+
+@test "--batch emits one record per manifest, keyed by module" {
+  run python3 "${TOOL}" --batch --harness opencode \
+    "${PROJECT_ROOT}/src/agentic/tools-mcp/mcp.json" \
+    "${PROJECT_ROOT}/src/agentic/mdctx/mcp.json"
+  assert_success
+
+  local records="${output}"
+  run python3 - "${records}" <<'PY'
+import json, sys
+lines = [l for l in sys.argv[1].splitlines() if l.strip()]
+assert len(lines) == 2, lines
+records = [json.loads(l) for l in lines]
+assert {r["module"] for r in records} == {"tools-mcp", "mdctx"}, records
+assert all(r.get("servers") for r in records), records
+PY
+  assert_success
+}
+
+@test "--batch keeps translating the rest when one manifest is unusable" {
+  local broken="${BATS_TEST_TMPDIR}/broken/mcp.json"
+  mkdir -p "$(dirname "${broken}")"
+  printf '{ "mcp": { "x": { "type": "nonsense" } } }\n' >"${broken}"
+
+  run python3 "${TOOL}" --batch --harness opencode "${broken}" \
+    "${PROJECT_ROOT}/src/agentic/tools-mcp/mcp.json"
+  assert_success
+
+  local records="${output}"
+  run python3 - "${records}" <<'PY'
+import json, sys
+lines = [l for l in sys.argv[1].splitlines() if l.strip()]
+records = [json.loads(l) for l in lines]
+assert len(records) == 2, records
+# The unusable one is an error record; the good one still carries its servers.
+assert any("error" in r for r in records), records
+assert any(r.get("servers") for r in records), records
+PY
+  assert_success
+}
+
+@test "single-manifest mode still takes the harness as its last argument" {
+  run python3 "${TOOL}" "${PROJECT_ROOT}/src/agentic/tools-mcp/mcp.json" opencode
+  assert_success
+  assert_output --partial '"devbot-tools"'
+}
+
+@test "--batch survives a manifest that is not an object at all" {
+  # A list, string or null at the top level used to raise before the per-manifest
+  # error handling, which discarded every later manifest's record too.
+  local list="${BATS_TEST_TMPDIR}/listy/mcp.json"
+  mkdir -p "$(dirname "${list}")"
+  printf '["not", "a", "manifest"]\n' >"${list}"
+
+  run python3 "${TOOL}" --batch --harness opencode "${list}" \
+    "${PROJECT_ROOT}/src/agentic/tools-mcp/mcp.json"
+  assert_success
+
+  local records="${output}"
+  run python3 - "${records}" <<'PY2'
+import json, sys
+records = [json.loads(l) for l in sys.argv[1].splitlines() if l.strip()]
+assert len(records) == 2, records
+assert any("error" in r for r in records), records
+assert any(r.get("servers") for r in records), records
+PY2
+  assert_success
+}

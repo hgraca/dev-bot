@@ -1393,7 +1393,13 @@ def load(path):
 
 
 global_cfg = load(global_config) if global_config else {}
-project_cfg = load(os.path.join(project_dir, ".devbot.project.jsonc")) if project_dir else {}
+# Module maps are global-only without a project path, but the harness follows the
+# old helper's contract: an empty path means "the current directory", so
+# `devbot list` still honours a project-level `harness` in the cwd.
+project_cfg = {}
+if project_dir:
+    project_cfg = load(os.path.join(project_dir, ".devbot.project.jsonc"))
+harness_cfg = project_cfg if project_dir else load(os.path.join(os.getcwd(), ".devbot.project.jsonc"))
 
 
 def effective(key):
@@ -1401,6 +1407,13 @@ def effective(key):
     value = project_cfg.get(key)
     if value in (None, "", {}, []):
         value = global_cfg.get(key)
+    return value
+
+
+def harness_setting():
+    value = harness_cfg.get("harness")
+    if value in (None, "", {}, []):
+        value = global_cfg.get("harness")
     return value
 
 
@@ -1419,7 +1432,7 @@ non_selected = "codebase-memory" if provider == "codebase-index" else "codebase-
 mem_provider = mem_override or global_cfg.get("memory_search_provider")
 non_selected_mem = "mdctx" if mem_provider == "qmd" else "qmd"
 
-selected_harness = effective("harness")
+selected_harness = harness_setting()
 if selected_harness not in harness_names:
     selected_harness = "opencode"
 
@@ -3693,7 +3706,10 @@ for path in paths:
         continue
     for kind, entry in entries:
         name, target = entry.get("name"), entry.get("path")
-        if name and target:
+        # Both fields are joined with a tab: accept only strings, so a
+        # malformed entry is skipped rather than raising and taking the whole
+        # batch (and every later module's declaration) with it.
+        if isinstance(name, str) and isinstance(target, str) and name and target:
             print("\t".join((kind, module_dir, name, target)))
 PY
 )"

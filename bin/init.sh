@@ -65,32 +65,36 @@ _register_module_mcp() {
     return
   fi
 
-  local inserted=0
-  local mcp_key
-  while IFS= read -r mcp_key; do
-    [[ -n "${mcp_key}" ]] || continue
-
-    # Check if already registered in config — scoped to the mcp section. A
-    # whole-file grep matched the key ANYWHERE (e.g. the permission block's
-    # `"websearch": "allow"`), so an unregistered MCP was silently skipped on
-    # every reinit. read_jsonc gives the mcp map; the merge script's own
-    # SKIP_EXISTS remains the authoritative idempotency check.
-    if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${config_file}" "mcp" 2>/dev/null \
-      | grep -q "\"${mcp_key}\""; then
-      _skip "${mod_name}: MCP '${mcp_key}' already registered in ${config_name}" >&2
-      continue
-    fi
-
-    # Extract this server's translated definition.
-    local mcp_def
-    mcp_def="$(python3 -c "
+  # One pass gives every server and its definition, and one read says which the
+  # config already carries. Per-server interpreter launches were the bulk of a
+  # full init's registration cost — eight servers cost ~35 processes.
+  # The python start is already required above, so this stays on python3 rather
+  # than adding a jq dependency to a script that had none.
+  local entries registered
+  entries="$(python3 -c '
 import json, sys
-d = json.loads(sys.stdin.read())
-print(json.dumps(d['${mcp_key}']))
-" <<<"${translated}" 2>/dev/null || true)"
+data = json.loads(sys.stdin.read())
+for key, value in data.items():
+    print("%s\t%s" % (key, json.dumps(value)))
+' <<<"${translated}" 2>/dev/null || true)"
+  if [[ -z "${entries}" ]]; then
+    _warn "${mod_name}: could not translate ${mcp_file} — skipping MCP registration" >&2
+    echo 0
+    return
+  fi
+  # Scoped to the mcp section: a whole-file grep would match the key ANYWHERE
+  # (e.g. the permission block's `"websearch": "allow"`), silently skipping an
+  # unregistered MCP on every reinit. The merge script's own SKIP_EXISTS stays
+  # the authoritative idempotency check.
+  registered="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${config_file}" "mcp" 2>/dev/null || true)"
 
-    if [[ -z "${mcp_def}" ]]; then
-      _warn "${mod_name}: could not read MCP definition for '${mcp_key}' — skipping" >&2
+  local inserted=0
+  local mcp_key mcp_def
+  while IFS=$'\t' read -r mcp_key mcp_def; do
+    [[ -n "${mcp_key}" && -n "${mcp_def}" ]] || continue
+
+    if grep -q "\"${mcp_key}\"" <<<"${registered}"; then
+      _skip "${mod_name}: MCP '${mcp_key}' already registered in ${config_name}" >&2
       continue
     fi
 
@@ -125,11 +129,7 @@ print(json.dumps(d['${mcp_key}']))
         _error "${mod_name}: merge_mcp_jsonc returned unexpected result '${merge_result}' — skipping" >&2
         ;;
     esac
-  done < <(python3 -c "
-import json, sys
-d = json.loads(sys.stdin.read())
-print('\n'.join(d.keys()))
-" <<<"${translated}" 2>/dev/null)
+  done <<<"${entries}"
 
   echo "${inserted}"
 }
@@ -239,11 +239,7 @@ _run_inits() {
   local external_base="${DEV_BOT_ROOT}/storage/external-agentic-modules"
 
   local disabled_list
-  disabled_list=$(echo "$(_devbot_get_disabled_modules "${PROJECT_DIR}")" | python3 -c "
-import json, sys
-for m in json.loads(sys.stdin.read()):
-    print(m)
-" 2>/dev/null || true)
+  disabled_list="$(_devbot_disabled_module_names "${PROJECT_DIR}")"
 
   # External names whose every declaring umbrella is disabled for this project:
   # the global config/mirror keeps them, but per-project wiring must skip them.
@@ -373,11 +369,7 @@ _link_memory_folders() {
   memory_dir="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/memory"
 
   local disabled_list
-  disabled_list=$(echo "$(_devbot_get_disabled_modules "${PROJECT_DIR}")" | python3 -c "
-import json, sys
-for m in json.loads(sys.stdin.read()):
-    print(m)
-" 2>/dev/null || true)
+  disabled_list="$(_devbot_disabled_module_names "${PROJECT_DIR}")"
 
   # External names declared only by a disabled umbrella: skip their memory links.
   local disabled_external_list
@@ -528,15 +520,8 @@ _init_wiring() {
   _devbot_clear_config_sha "${PROJECT_DIR}"
 
   # ── Parse disabled modules ONCE ────────────────────────────────────────────
-  local disabled_modules_raw
-  disabled_modules_raw=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
   local disabled_modules
-  disabled_modules=$(echo "${disabled_modules_raw}" | python3 -c "
-import json, sys
-modules = json.loads(sys.stdin.read())
-for m in modules:
-    print(m)
-" 2>/dev/null || true)
+  disabled_modules="$(_devbot_disabled_module_names "${PROJECT_DIR}")"
 
   # ── Shared paths ──────────────────────────────────────────────────────────
   local devbot_dir
@@ -561,13 +546,7 @@ for m in modules:
   _init_modules "${DEV_BOT_ROOT}/src/tools" "${PROJECT_DIR}"
 
   # Re-parse disabled_modules — tool init may have created/modified project config
-  disabled_modules_raw=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
-  disabled_modules=$(echo "${disabled_modules_raw}" | python3 -c "
-import json, sys
-modules = json.loads(sys.stdin.read())
-for m in modules:
-    print(m)
-" 2>/dev/null || true)
+  disabled_modules="$(_devbot_disabled_module_names "${PROJECT_DIR}")"
 
   # Re-detect config_file — tool-init may have created opencode.jsonc
   if [[ -z "${config_file}" ]]; then

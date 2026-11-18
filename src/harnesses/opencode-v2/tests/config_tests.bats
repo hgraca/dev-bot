@@ -204,3 +204,45 @@ EOF
   run v2 remove-tui-plugin "${tui}" "b@2.0.0"
   assert_failure
 }
+
+# ── merge-mcps: a server set in one process ───────────────────────────────────
+# The harness registers every enabled module's servers through this call instead
+# of one `merge-mcp` per server.
+
+@test "merge-mcps inserts a whole set and reports the keys it added" {
+  run v2 merge-mcps "${CONFIG}" '{"alpha":{"type":"local","command":["a"]},"beta":{"type":"remote","url":"http://b.test/mcp"}}'
+  assert_success
+  assert_equal "${output}" "$(printf 'alpha\nbeta')"
+
+  run v2 get "${CONFIG}" mcp.servers.alpha
+  assert_output --partial '"command": ["a"]'
+  run v2 get "${CONFIG}" mcp.servers.beta
+  assert_output --partial 'http://b.test/mcp'
+}
+
+@test "merge-mcps leaves an existing server alone and does not report it" {
+  v2 merge-mcp "${CONFIG}" alpha '{"type":"local","command":["original"]}' >/dev/null
+
+  run v2 merge-mcps "${CONFIG}" '{"alpha":{"type":"local","command":["replacement"]},"beta":{"type":"remote","url":"http://b.test/mcp"}}'
+  assert_success
+  assert_equal "${output}" "beta"
+
+  run v2 get "${CONFIG}" mcp.servers.alpha
+  assert_output --partial '"original"'
+}
+
+@test "merge-mcps keeps going when one entry cannot be written" {
+  # `write` renames a temp file over the config, so the directory is what has to
+  # be unwritable. The call must still exit 0 and leave the file alone rather
+  # than aborting the caller's whole registration pass.
+  local before
+  before="$(cat "${CONFIG}")"
+  chmod 555 "${WORK}"
+
+  run v2 merge-mcps "${CONFIG}" '{"alpha":{"type":"local","command":["a"]},"beta":{"type":"remote","url":"http://b.test/mcp"}}'
+  chmod 755 "${WORK}"
+
+  assert_success
+  assert_equal "${output}" ""
+  assert_equal "$(cat "${CONFIG}")" "${before}"
+}

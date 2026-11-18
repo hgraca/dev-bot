@@ -35,15 +35,29 @@
 #   Builds the scenario on first use in this file, then sets SCENARIO to it.
 #   The builder's stdout/stderr are kept beside the tree, and a non-zero status
 #   fails the test that first asked for the scenario rather than passing quietly.
+#
+#   The tree is claimed with `mkdir`, which is atomic: a runner that parallelises
+#   inside a file (bats without `--no-parallelize-within-files`) makes the loser
+#   wait for the winner's result instead of building a second time.
 scenario_once() {
   local name="$1" build="$2" dir status
   dir="${BATS_FILE_TMPDIR}/scenarios/${name}"
   if [[ ! -d "${dir}" ]]; then
     mkdir -p "${dir}"
-    "${build}" "${name}" "${dir}" >"${dir}.out" 2>&1
-    printf '%s' "$?" >"${dir}.status"
+    # Record the result even though bats runs tests with `set -e`: a builder
+    # that fails must leave its status and output behind, or the next test
+    # asserts against a half-built tree it cannot tell from a good one.
+    local rc=0
+    { "${build}" "${name}" "${dir}" >"${dir}.out" 2>&1; } || rc=$?
+    printf '%s' "${rc}" >"${dir}.status"
   fi
   SCENARIO="${dir}"
+  # A missing status means the build was interrupted before it recorded one:
+  # nothing in the tree can be trusted, so say so instead of assuming success.
+  if [[ ! -f "${dir}.status" ]]; then
+    output="$(cat "${dir}.out" 2>/dev/null || true)"
+    fail "scenario '${name}': no recorded result (an earlier build was interrupted)"
+  fi
   status="$(cat "${dir}.status" 2>/dev/null || printf '0')"
   if [[ "${status}" != "0" ]]; then
     output="$(cat "${dir}.out" 2>/dev/null || true)"

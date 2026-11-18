@@ -150,7 +150,8 @@ test-bats-slice: ## Run one CI slice of the BATS suite (set SLICE to 1, 2 or 3)
 #
 # Without BATS_FILES_FILE the list comes from bin/test-slices.sh with one slice,
 # which prints every file ranked heaviest-first by the same weight the CI matrix
-# uses. Order matters for the wall clock: bats starts a file whenever a job
+# uses, followed by any untracked test file so a test written before `git add`
+# still runs. Order matters for the wall clock: bats starts a file whenever a job
 # frees, so with discovery order the heaviest files start last and the run ends
 # on an idle machine. Same suite, same 8 jobs, measured: 24m06s discovery order
 # vs 17m02s ranked.
@@ -194,7 +195,7 @@ test-bats: ## Run the BATS suite (BATS_FILES_FILE points at a list to narrow it)
 	if [ -n "$${BATS_FILES_FILE:-}" ]; then \
 		mapfile -t targets < "$$BATS_FILES_FILE"; \
 	else \
-		mapfile -t targets < <(bin/test-slices.sh 1 1); \
+		mapfile -t targets < <({ bin/test-slices.sh 1 1; git ls-files --others --exclude-standard 'bin/*.bats' 'src/*.bats'; }); \
 	fi; \
 	jobs="$${DEV_BOT_TEST_JOBS:-}"; \
 	if [ -z "$$jobs" ]; then \

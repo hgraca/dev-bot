@@ -810,9 +810,18 @@ _register_module_mcps() {
 
   local added
   added="$(_v2 merge-mcps "${CONFIG}" "{${batch}}" 2>/dev/null || true)"
+  local owner_key owner_module
   while IFS= read -r key; do
     [[ -n "${key}" ]] || continue
-    owner="$(awk -F'\t' -v k="${key}" '$1 == k {print $2; exit}' <<<"${owners}")"
+    # Owner from the shell data, not a per-server awk: this loop runs once per
+    # registered server and a launch here would undo the batching it reports.
+    owner=""
+    while IFS=$'\t' read -r owner_key owner_module; do
+      if [[ "${owner_key}" == "${key}" ]]; then
+        owner="${owner_module}"
+        break
+      fi
+    done <<<"${owners}"
     _ok "registered MCP '${key}' from ${owner}"
   done <<<"${added}"
 }

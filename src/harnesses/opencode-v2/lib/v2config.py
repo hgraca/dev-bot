@@ -352,18 +352,25 @@ def cmd_merge_mcps(path, entries_json):
     Prints the keys it added, one per line; a server already present is left
     alone (merge-mcp is insert-only) and not printed. The compact separators
     keep the written text identical to a `jq -c` definition passed on argv.
+
+    Each entry is applied on its own: one unreadable config or unwritable file
+    must not stop the rest of the set from being registered, and the caller only
+    learns about the failure through the keys that are missing from the output.
     """
     entries = json.loads(entries_json)
     added = []
     for key, definition in entries.items():
-        cfg = load(path)
-        if key in ((cfg.get("mcp") or {}).get("servers") or {}):
+        try:
+            cfg = load(path)
+            if key in ((cfg.get("mcp") or {}).get("servers") or {}):
+                continue
+            cmd_merge_mcp(
+                path,
+                key,
+                json.dumps(definition, separators=(",", ":"), ensure_ascii=False),
+            )
+        except Exception:
             continue
-        cmd_merge_mcp(
-            path,
-            key,
-            json.dumps(definition, separators=(",", ":"), ensure_ascii=False),
-        )
         added.append(key)
     return added
 

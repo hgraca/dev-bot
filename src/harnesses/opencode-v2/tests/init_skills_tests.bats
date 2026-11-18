@@ -43,12 +43,23 @@ load 'init_test_helper'
     _ok() { :; }; _warn() { :; }; _skip() { :; }
     _devbot_get_project_dir() { printf ".agents"; }
     OPENCODE_DIR="${1}/.opencode"
+    # The function under test calls _devbot_list_has; eval the real one so its
+    # membership branch runs instead of dying on an undefined command (which,
+    # under `set -e` with an `if`, silently takes the other branch).
+    eval "$(sed -n "\|^_devbot_list_has() {\$|,\|^}\$|p" "${3}/src/_shared/functions.sh")"
     eval "$(sed -n "\|^_link_skill_farm() {\$|,\|^}\$|p" "${2}")"
     _link_skill_farm "${1}"
-  ' _ "${PROJECT}" "${MODULE_DIR}/init.sh"
+  ' _ "${PROJECT}" "${MODULE_DIR}/init.sh" "${DEV_BOT_ROOT}"
   assert_success
 
   assert [ -L "${PROJECT}/.opencode/skills/signoz" ]
+  # Prove the membership helper really was sourced above: without it the prune
+  # branch is dead and this test would pass for the wrong reason.
+  run bash -c '
+    eval "$(sed -n "\|^_devbot_list_has() {\$|,\|^}\$|p" "${1}/src/_shared/functions.sh")"
+    type _devbot_list_has >/dev/null
+  ' _ "${DEV_BOT_ROOT}"
+  assert_success
 }
 
 @test "init prunes a farm link whose entry disappeared" {

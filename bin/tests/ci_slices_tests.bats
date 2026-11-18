@@ -153,3 +153,25 @@ printf '%s\n' "$@" > "${BATS_ARGV_FILE}"
 SHIM
   chmod +x "$1/bats"
 }
+
+@test "the one-slice list is ranked, not alphabetical" {
+  # `make test` hands bats this list; the ranking is what keeps the slow files
+  # off the end of the run. Pin it: same set as git knows, in weight order.
+  run bash "${PROJECT_ROOT}/bin/test-slices.sh" 1 1
+  assert_success
+
+  local listed ranked
+  listed="$(sort <<<"${output}")"
+  ranked="$(sort <<<"$(cd "${PROJECT_ROOT}" && git ls-files 'bin/*.bats' 'src/*.bats')")"
+  assert_equal "${listed}" "${ranked}"
+
+  # Heaviest first: the weight is cases + size, so the head of the list cannot
+  # be the file with the fewest cases while a much bigger one sits behind it.
+  local first last
+  first="$(head -1 <<<"${output}")"
+  last="$(tail -1 <<<"${output}")"
+  local first_weight last_weight
+  first_weight=$(( $(grep -c '^[[:blank:]]*@test' "${PROJECT_ROOT}/${first}") + $(wc -c <"${PROJECT_ROOT}/${first}") / 4096 ))
+  last_weight=$(( $(grep -c '^[[:blank:]]*@test' "${PROJECT_ROOT}/${last}") + $(wc -c <"${PROJECT_ROOT}/${last}") / 4096 ))
+  [ "${first_weight}" -ge "${last_weight}" ]
+}
