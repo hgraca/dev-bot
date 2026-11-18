@@ -34,7 +34,7 @@ load 'init_test_helper'
 @test "init links each plugin as a directory package" {
   scenario default
   local name entry
-  for name in on-hooks mcp-sync; do
+  for name in on-hooks mcp-sync skill-name-resolver; do
     assert [ -d "${PROJECT}/.opencode/plugins/${name}" ]
     entry="${PROJECT}/.opencode/plugins/${name}/index.ts"
     # MUST be a real file: v2 skips a symlinked plugin entry silently.
@@ -54,6 +54,7 @@ load 'init_test_helper'
   assert_success
   refute_output --partial 'plugins/on-hooks'
   refute_output --partial 'plugins/mcp-sync'
+  refute_output --partial 'plugins/skill-name-resolver'
 }
 
 @test "init drops config entries for auto-loaded plugins" {
@@ -89,7 +90,7 @@ load 'init_test_helper'
 @test "every plugin directory carries a package.json" {
   scenario default
   local name
-  for name in on-hooks mcp-sync; do
+  for name in on-hooks mcp-sync skill-name-resolver; do
     assert [ -f "${PROJECT}/.opencode/plugins/${name}/package.json" ]
     python3 -c "
 import json,sys

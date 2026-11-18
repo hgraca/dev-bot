@@ -70,6 +70,42 @@ shipped as dead weight:
 - `tui.dist.jsonc` — V2 reads one global `~/.config/opencode/cli.json`; there is
   no project-local client config to seed.
 
+## Skill names resolve to the id the host registered
+
+A 2.x host resolves a skill by its **path-derived id** — the skill's directory
+name, `reconcile-work` — and frontmatter `name:` is display-only. The native
+`skill` tool looks the requested value up by id, so a display name
+(`devbot:<skill>`) loads only where the host also happened to register it as an
+id, and otherwise answers `Unable to load skill devbot:<skill>`. Dev-bot's
+instructions write the display name, so the request has to be mapped.
+
+`hooks/skill-name-resolver.ts` wraps the native tool at the call boundary: its
+`execute.before` hook reads the mutable `input` and, when the requested value is
+not an id the host knows, looks the skill up in the live list and rewrites
+`input.id` to the id that resolves. The native tool then loads it unchanged —
+permission assert, `files()`, content and metadata all still run inside the
+host's own implementation.
+
+`ctx.skill.list()` reports the skills registered for this location (`{ location,
+data: Skill.Info[] }`, the shape `@opencode/client` types for `Client["skill"]`),
+which is what makes an id already in the list safe to pass through untouched.
+
+The decisions live in `skill-name-resolver-utils.ts` so they are testable without
+a host:
+
+- a request that is already a registered id is left untouched;
+- an exact display-name match wins, and the bare id is preferred when a skill is
+  registered twice (bare and namespaced);
+- case differences and surrounding whitespace are tolerated, on names, ids and
+  bare id segments alike;
+- two registrations the wrapper cannot tell apart — the same display name, or the
+  same bare segment under two namespaces, with no bare id between them — are left
+  for the host to report rather than guessed between.
+
+The hook fails open: a failure to list the skills (or any other unexpected error)
+is logged to `hooks.log` and the request is left untouched, so the native tool's
+own error still names the skill rather than the call being blocked.
+
 ## Directory ownership
 
 Verified on a 2.3.0 host:

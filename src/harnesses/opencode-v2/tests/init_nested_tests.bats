@@ -52,7 +52,7 @@ _ancestor_package() {
   bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
 
   local name
-  for name in on-hooks mcp-sync; do
+  for name in on-hooks mcp-sync skill-name-resolver; do
     assert [ -d "${PARENT}/.opencode/plugins/${name}" ]
     refute [ -e "${CHILD}/.opencode/plugins/${name}" ]
   done
@@ -69,7 +69,7 @@ _ancestor_package() {
   bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
 
   local name
-  for name in on-hooks mcp-sync; do
+  for name in on-hooks mcp-sync skill-name-resolver; do
     refute [ -e "${CHILD}/.opencode/plugins/${name}" ]
     # The ancestor keeps the only copy.
     assert [ -d "${PARENT}/.opencode/plugins/${name}" ]
@@ -204,7 +204,7 @@ _ancestor_package() {
   scenario default
 
   local name
-  for name in on-hooks mcp-sync; do
+  for name in on-hooks mcp-sync skill-name-resolver; do
     assert [ -d "${PROJECT}/.opencode/plugins/${name}" ]
   done
 }
