@@ -32,11 +32,11 @@ The generated stylesheet is a build artifact: it belongs in `.gitignore` or in t
 Never jump from a hex value to a component. A component asks for a purpose, the purpose maps to a
 palette entry, the palette entry is a hex value — and only the middle layer changes per theme.
 
-| Layer         | Example                                     | Changes per theme? |
-| ------------- | ------------------------------------------- | ------------------ |
-| **Primitive** | `palette.neutral.50`, `palette.brand.600`   | No                 |
-| **Semantic**  | `--surface`, `--text-primary`, `--border-subtle`, `--focus-ring`, `--danger-text` | Yes |
-| **Component** | `--button-primary-bg`                       | Rarely — add one only when a component genuinely needs its own knob |
+| Layer         | Example                                                                           | Changes per theme?                                                  |
+| ------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| **Primitive** | `palette.neutral.50`, `palette.brand.600`                                         | No                                                                  |
+| **Semantic**  | `--surface`, `--text-primary`, `--border-subtle`, `--focus-ring`, `--danger-text` | Yes                                                                 |
+| **Component** | `--button-primary-bg`                                                             | Rarely — add one only when a component genuinely needs its own knob |
 
 Components consume **semantic** tokens only. A component that names a palette entry
 (`bg-brand-600`) is a theme that cannot be re-pointed; one that names a purpose (`bg-brand`) is.

@@ -46,11 +46,11 @@ plus an automated Design QA check that compares a running page against its Figma
 Three capabilities touch "design system", and the split is deliberate — a request must route to
 exactly one of them:
 
-| Request                                                                                                                    | Owner                     |
-| -------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
-| Create or extend the token system: contract, semantic CSS variables, light/dark, theme variants, contrast floors, scales   | `devbot:design-system`    |
-| Where a component lives and what it may import (atoms → pages)                                                              | `devbot:atomic-design`    |
-| Harvest tokens out of an interface that already exists, or write `DESIGN.md`                                                 | impeccable `extract` / `document` |
+| Request                                                                                                                  | Owner                             |
+| ------------------------------------------------------------------------------------------------------------------------ | --------------------------------- |
+| Create or extend the token system: contract, semantic CSS variables, light/dark, theme variants, contrast floors, scales | `devbot:design-system`            |
+| Where a component lives and what it may import (atoms → pages)                                                           | `devbot:atomic-design`            |
+| Harvest tokens out of an interface that already exists, or write `DESIGN.md`                                             | impeccable `extract` / `document` |
 
 Each dev-bot skill's description opens with its trigger rather than burying it in a trailing list —
 that is what failed before: `atomic-design` ended with "design tokens" behind an atoms-and-molecules
