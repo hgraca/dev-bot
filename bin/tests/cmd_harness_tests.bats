@@ -24,6 +24,9 @@ setup() {
   # _devbot_auto_reinit_if_config_changed / _devbot_passthrough_args.
   cp "${PROJECT_ROOT}/src/_shared/functions.sh" "${SANDBOX}/src/_shared/functions.sh"
   cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX}/src/_shared/read_jsonc.py"
+  # resolve_project.py is the single implementation of the project-first
+  # config precedence, and _devbot_get_config delegates to it.
+  cp "${PROJECT_ROOT}/src/_shared/resolve_project.py" "${SANDBOX}/src/_shared/resolve_project.py"
 
   # bin/devbot without the `main "$@"` tail — sourced so cmd_harness is
   # callable directly (same pattern as init_tests.bats).

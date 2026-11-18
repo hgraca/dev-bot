@@ -26,6 +26,9 @@ setup() {
   # the thing under test. Its preamble sources these two.
   cp "${PROJECT_ROOT}/src/_shared/functions.sh" "${SANDBOX}/src/_shared/functions.sh"
   cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX}/src/_shared/read_jsonc.py"
+  # resolve_project.py is the single implementation of the project-first
+  # config precedence, and _devbot_get_config delegates to it.
+  cp "${PROJECT_ROOT}/src/_shared/resolve_project.py" "${SANDBOX}/src/_shared/resolve_project.py"
   cp "${PROJECT_ROOT}/bin/devbot" "${SANDBOX}/bin/devbot"
 
   # Stub the delegated script — records the argv it was handed. The arg count

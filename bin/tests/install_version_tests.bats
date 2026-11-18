@@ -19,6 +19,9 @@ setup() {
   mkdir -p "${SANDBOX}/bin" "${SANDBOX}/src/_shared"
   cp "${PROJECT_ROOT}/src/_shared/functions.sh" "${SANDBOX}/src/_shared/functions.sh"
   cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX}/src/_shared/read_jsonc.py"
+  # resolve_project.py is the single implementation of the project-first
+  # config precedence, and _devbot_get_config delegates to it.
+  cp "${PROJECT_ROOT}/src/_shared/resolve_project.py" "${SANDBOX}/src/_shared/resolve_project.py"
   sed '/^main "\$@"/d' "${PROJECT_ROOT}/bin/install.sh" > "${SANDBOX}/bin/install.sh"
   printf '{\n  "version": "",\n  "gpu_enabled": false\n}\n' > "${SANDBOX}/.devbot.global.dist.jsonc"
 

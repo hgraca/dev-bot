@@ -15,6 +15,7 @@ setup() {
   cp "${REPO_ROOT}/src/_shared/migrations.sh" \
     "${REPO_ROOT}/src/_shared/read_jsonc.py" \
     "${REPO_ROOT}/src/_shared/functions.sh" \
+    "${REPO_ROOT}/src/_shared/resolve_project.py" \
     "${REPO_ROOT}/src/_shared/migrate_workflow_config.py" \
     "${REPO_ROOT}/src/_shared/migrate_workspace_config.py" \
     "${SANDBOX}/src/_shared/"

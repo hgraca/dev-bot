@@ -27,6 +27,7 @@ setup() {
   mkdir -p "${INSTALL_ROOT}/src/_shared"
   cp "${REPO_ROOT}/src/_shared/functions.sh" \
     "${REPO_ROOT}/src/_shared/read_jsonc.py" \
+    "${REPO_ROOT}/src/_shared/resolve_project.py" \
     "${INSTALL_ROOT}/src/_shared/"
 
   # Mock curl so the gate is deterministic regardless of whether the test host

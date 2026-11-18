@@ -215,6 +215,11 @@ _run_ensure_sources() {
 # whether the caller passed one. Appended after the stub, these definitions win.
 _use_real_disabled_modules() {
   cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX_DIR}/src/_shared/read_jsonc.py"
+  # _devbot_get_config delegates to resolve_project.py --setting (one
+  # implementation of the project → global → default rule), so the extracted
+  # getter needs the resolver beside it or it silently resolves nothing and the
+  # project-override assertions below stop meaning anything.
+  cp "${PROJECT_ROOT}/src/_shared/resolve_project.py" "${SANDBOX_DIR}/src/_shared/resolve_project.py"
   # The harness dimension lists src/harnesses beside the library — without it
   # the real implementation would cover everything except harness selection.
   mkdir -p "${SANDBOX_DIR}/src/harnesses/opencode" "${SANDBOX_DIR}/src/harnesses/claudecode"
