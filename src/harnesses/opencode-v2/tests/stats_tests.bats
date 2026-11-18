@@ -196,3 +196,43 @@ assert servers["devbot-tools"]["tokens"] == 16, servers["devbot-tools"]
 PY
 }
 
+
+@test "MCP names are classified against the session's own project" {
+  local a="${BATS_TEST_TMPDIR}/proj-a"
+  local b="${BATS_TEST_TMPDIR}/proj-b"
+  local db="${BATS_TEST_TMPDIR}/two.db"
+  mkdir -p "$a" "$b"
+  printf '{ "mcp": { "servers": { "alpha": { "type": "local", "command": ["bash"] } } } }\n' > "$a/opencode.jsonc"
+  printf '{ "mcp": { "servers": { "beta": { "type": "local", "command": ["bash"] } } } }\n' > "$b/opencode.jsonc"
+  python3 - "$db" "$a" "$b" <<'PY'
+import json, sqlite3, sys, time
+db, a, b = sys.argv[1], sys.argv[2], sys.argv[3]
+now = int(time.time() * 1000)
+con = sqlite3.connect(db)
+con.execute("create table session_v2 (id text primary key, directory text, version text, time_updated integer)")
+con.execute("create table session_message (session_id text, type text, seq integer, data text)")
+con.execute("insert into session_v2 values (?,?,?,?)", ("ses_a", a, "2.3.0", now))
+con.execute("insert into session_v2 values (?,?,?,?)", ("ses_b", b, "2.3.0", now))
+def row(sid, name):
+    data = {"content": [{"type": "tool", "name": name, "state": {"status": "completed"}}],
+            "cost": 0, "tokens": {"input": 0, "output": 0, "reasoning": 0}}
+    con.execute("insert into session_message values (?,?,?,?)", (sid, "assistant", 0, json.dumps(data)))
+# A session in project A must not claim project B's server name.
+row("ses_a", "alpha_search")
+row("ses_a", "beta_search")
+row("ses_b", "beta_search")
+con.commit()
+con.close()
+PY
+
+  run env OPENCODE_DB_PATH="$db" python3 "${MODULE_DIR}/stats.py" --days 30 --all
+  assert_success
+  python3 - "$output" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+servers = {s["server"]: s for s in data["mcp_servers"]}
+assert set(servers) == {"alpha", "beta"}, servers
+assert servers["alpha"]["count"] == 1, servers["alpha"]
+assert servers["beta"]["count"] == 1, servers["beta"]
+PY
+}

@@ -148,14 +148,19 @@ def collect(db_path: str, days: int, project_dir: str | None) -> dict:
             ).fetchall()
         session_ids = [r[0] for r in rows]
         directories = sorted({r[1] for r in rows if r[1]})
-        servers = known_servers(directories)
+        # A session's directory decides which server names its MCP calls may
+        # carry. Classifying merged totals against the union of every selected
+        # project let one project's server name claim another project's tool.
+        dir_by_session = {r[0]: r[1] for r in rows if r[1]}
+        servers_by_dir = {d: known_servers([d]) for d in directories}
+        servers_by_name: dict[str, dict] = {}
 
         tools: dict[str, dict] = defaultdict(
             lambda: {"name": "", "count": 0, "tokens": 0.0, "cost": 0.0, "durations": []}
         )
         messages = 0
 
-        for _session_id, kind, data in _iter_messages(con, session_ids):
+        for session_id, kind, data in _iter_messages(con, session_ids):
             if kind != "assistant":
                 continue
             messages += 1
@@ -176,6 +181,7 @@ def collect(db_path: str, days: int, project_dir: str | None) -> dict:
             share_tokens = total_tokens / len(calls)
             share_cost = cost / len(calls)
 
+            session_servers = servers_by_dir.get(dir_by_session.get(session_id, ""), [])
             for call in calls:
                 name = call.get("name") or "unknown"
                 entry = tools[name]
@@ -183,6 +189,21 @@ def collect(db_path: str, days: int, project_dir: str | None) -> dict:
                 entry["count"] += 1
                 entry["tokens"] += share_tokens
                 entry["cost"] += share_cost
+                server, short = classify(name, session_servers)
+                if server:
+                    bucket = servers_by_name.setdefault(
+                        server,
+                        {"server": server, "count": 0, "tokens": 0.0, "cost": 0.0, "tools": {}},
+                    )
+                    bucket["count"] += 1
+                    bucket["tokens"] += share_tokens
+                    bucket["cost"] += share_cost
+                    tool_bucket = bucket["tools"].setdefault(
+                        short, {"name": short, "count": 0, "tokens": 0.0, "cost": 0.0}
+                    )
+                    tool_bucket["count"] += 1
+                    tool_bucket["tokens"] += share_tokens
+                    tool_bucket["cost"] += share_cost
                 state = call.get("state") or {}
                 timing = (call.get("time") or {})
                 started = timing.get("start")
@@ -205,31 +226,8 @@ def collect(db_path: str, days: int, project_dir: str | None) -> dict:
             )
         rendered.sort(key=lambda t: t["count"], reverse=True)
 
-        # MCP aggregation: a v2 host names an MCP call `<server>_<tool>`, and
-        # `known_servers` supplies the names to split on. Calls made through the
-        # code-mode `execute` tool are recorded only as `execute`, so they carry
-        # no server name and stay in the native tool table — the adapter reports
-        # what the database recorded instead of the hardcoded empty list that
-        # made MCP usage unprobeable (audit-02 F-2).
-        servers_by_name: dict[str, dict] = {}
-        for entry in tools.values():
-            server, short = classify(entry["name"], servers)
-            if not server:
-                continue
-            bucket = servers_by_name.setdefault(
-                server,
-                {"server": server, "count": 0, "tokens": 0.0, "cost": 0.0, "tools": {}},
-            )
-            bucket["count"] += entry["count"]
-            bucket["tokens"] += entry["tokens"]
-            bucket["cost"] += entry["cost"]
-            tool_bucket = bucket["tools"].setdefault(
-                short, {"name": short, "count": 0, "tokens": 0.0, "cost": 0.0}
-            )
-            tool_bucket["count"] += entry["count"]
-            tool_bucket["tokens"] += entry["tokens"]
-            tool_bucket["cost"] += entry["cost"]
-
+        # MCP aggregation happened per call above, so the totals were split
+        # against the session's own project config rather than a global union.
         mcp_servers = []
         for bucket in sorted(
             servers_by_name.values(), key=lambda b: b["count"], reverse=True
