@@ -25,19 +25,45 @@ setup() {
   mkdir -p "$QMD_CONFIG_DIR" "$XDG_CACHE_HOME"
 }
 
+# ── Scenarios: one init run per distinct input ────────────────────────────────
+# init.sh scaffolds the vault, so its result is a tree — and most of the tests
+# below only read that tree to assert one property. A scenario is one init run
+# per input, shared by the tests that read it; the input is what the seed writes
+# before init, and the env pins above are identical for every test here, so one
+# run produces the same tree each of them would have produced.
+load "${BATS_TEST_DIRNAME}/../../../_shared/tests/lib/scenario"
+
+_build_memory_scenario() {
+  local name="$1" dir="$2"
+  case "${name}" in
+    default) ;;
+    retired-manifests)
+      mkdir -p "${dir}/.agents/memory/active"
+      echo "# stale" >"${dir}/.agents/memory/active/preemptive-skill-loading-list.md"
+      echo "# stale" >"${dir}/.agents/memory/active/preemptive-skill-loading.md"
+      ;;
+    existing-exclude)
+      mkdir -p "${dir}/.git/info"
+      echo "vendor/" >"${dir}/.git/info/exclude"
+      echo "node_modules/" >>"${dir}/.git/info/exclude"
+      ;;
+    *) fail "unknown scenario '${name}'" ;;
+  esac
+  bash "${MODULE_DIR}/init.sh" "${dir}"
+}
+
+scenario() { scenario_once "$1" _build_memory_scenario; }
+scenario_copy() { scenario_copy_once "$1" _build_memory_scenario; }
+
 # ── init.sh scaffold ──────────────────────────────────────────────────────────
 
 @test "init.sh: scaffolds full vault directory structure" {
-  local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
-
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
-
-  assert_success
+  scenario default
+  scenario_output default
   assert_output --partial "Vault scaffolded"
 
   # Verify core directories exist
-  local vault="$tmpdir/.agents/memory"
+  local vault="${SCENARIO}/.agents/memory"
   [[ -d "$vault/latent/PDRs"       ]] || fail "latent/PDRs/ missing"
   [[ -d "$vault/latent/ADRs"       ]] || fail "latent/ADRs/ missing"
   [[ -d "$vault/latent/learnings"    ]] || fail "latent/learnings/ missing"
@@ -57,39 +83,26 @@ setup() {
   [[ -f "$vault/thinking/.gitkeep"     ]] || fail "thinking/.gitkeep missing"
 
   # Verify .git/info/exclude was created
-  local exclude="$tmpdir/.git/info/exclude"
+  local exclude="${SCENARIO}/.git/info/exclude"
   [[ -f "$exclude" ]] || fail ".git/info/exclude not created"
   grep -qF "# >>> DEVBOT - memory" "$exclude" || fail "Missing DEVBOT section in .git/info/exclude"
-
-  rm -rf "$tmpdir"
 }
 
 @test "init.sh: idempotent — re-running does not error" {
-  local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  # The shared tree is what the first run produced; this asserts the second.
+  scenario_copy default
 
-  # First run
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  run bash "$MODULE_DIR/init.sh" "$SCENARIO"
   assert_success
-
-  # Second run — should not error
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
-  assert_success
-
-  rm -rf "$tmpdir"
 }
 
 @test "init.sh: re-run preserves curated content without a cp -n portability warning" {
-  local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  scenario_copy default
 
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
-  assert_success
+  local vault="${SCENARIO}/.agents/memory"
+  printf 'curated per-project content\n' >"$vault/active/memory.md"
 
-  local vault="$tmpdir/.agents/memory"
-  printf 'curated per-project content\n' > "$vault/active/memory.md"
-
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  run bash "$MODULE_DIR/init.sh" "$SCENARIO"
   assert_success
 
   # audit-80 N6: `cp -n` is non-portable and warns on some coreutils.
@@ -99,8 +112,6 @@ setup() {
   assert_output "curated per-project content"
   # A nested template file inside an existing dir is still seeded.
   [[ -f "$vault/work/todo/.gitkeep" ]] || fail "nested .gitkeep missing after re-run"
-
-  rm -rf "$tmpdir"
 }
 
 # ── audit-25 F6: global memory store wiring ───────────────────────────────────
@@ -111,13 +122,9 @@ setup() {
 # when the target is wrong or missing.
 
 @test "init.sh: latent/global symlink points at the dev-bot central store" {
-  local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  scenario default
 
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
-  assert_success
-
-  local link="$tmpdir/.agents/memory/latent/global"
+  local link="${SCENARIO}/.agents/memory/latent/global"
   [[ -L "$link" ]] || fail "latent/global is not a symlink"
   local expected
   expected="$(cd "$MODULE_DIR/../../../storage/global-memories" && pwd)"
@@ -129,28 +136,21 @@ setup() {
   # The target must actually exist — a dangling symlink is a silent failure.
   [[ -d "$expected" ]] || fail "global store target missing: $expected"
   [[ -d "$link" ]] || fail "latent/global does not resolve to a directory"
-
-  rm -rf "$tmpdir"
 }
 
 @test "init.sh: re-run preserves the global symlink (idempotent)" {
-  local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  scenario_copy default
 
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
-  assert_success
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  run bash "$MODULE_DIR/init.sh" "$SCENARIO"
   assert_success
 
-  local link="$tmpdir/.agents/memory/latent/global"
+  local link="${SCENARIO}/.agents/memory/latent/global"
   [[ -L "$link" ]] || fail "latent/global is not a symlink after re-run"
   local expected
   expected="$(cd "$MODULE_DIR/../../../storage/global-memories" && pwd)"
   local actual
   actual="$(readlink "$link")"
   [[ "$actual" == "$expected" ]] || fail "symlink target changed on re-run"
-
-  rm -rf "$tmpdir"
 }
 
 @test "init.sh: registers the dev-bot-global QMD collection when qmd is available" {
@@ -309,15 +309,8 @@ SCRIPT
 }
 
 @test "init.sh: removes retired preemptive skill loading manifests" {
-  local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
-  local active="$tmpdir/.agents/memory/active"
-  mkdir -p "$active"
-  echo "# stale" > "$active/preemptive-skill-loading-list.md"
-  echo "# stale" > "$active/preemptive-skill-loading.md"
-
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
-  assert_success
+  scenario_copy retired-manifests
+  local active="${SCENARIO}/.agents/memory/active"
 
   [ ! -e "$active/preemptive-skill-loading-list.md" ] || fail "list manifest was not removed"
   [ ! -e "$active/preemptive-skill-loading.md" ] || fail "legacy manifest was not removed"
@@ -325,80 +318,58 @@ SCRIPT
   [ -f "$active/ignore.md" ] || fail "unrelated active file was not scaffolded"
 
   # A dangling symlink at a retired name is swept too, and a second run is a no-op.
-  ln -s "$tmpdir/missing-target" "$active/preemptive-skill-loading-list.md"
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  ln -s "$SCENARIO/missing-target" "$active/preemptive-skill-loading-list.md"
+  run bash "$MODULE_DIR/init.sh" "$SCENARIO"
   assert_success
   [ ! -L "$active/preemptive-skill-loading-list.md" ] || fail "dangling symlink was not removed"
-
-  rm -rf "$tmpdir"
 }
 
 @test "init.sh: creates .git/info/exclude with DEVBOT memory section" {
-  local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
+  scenario default
+  scenario_output default
 
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
-
-  assert_success
   assert_output --partial ".git/info/exclude"
 
-  local exclude="$tmpdir/.git/info/exclude"
+  local exclude="${SCENARIO}/.git/info/exclude"
   [[ -f "$exclude" ]] || fail ".git/info/exclude not created"
 
   grep -qF "# >>> DEVBOT - memory" "$exclude" || fail "Missing DEVBOT start marker"
   grep -qF ".agents/memory/thinking" "$exclude" || fail "Missing thinking/ entry"
   grep -qF ".agents/memory/work" "$exclude" || fail "Missing work/ entry"
   grep -qF "# <<< DEVBOT - memory" "$exclude" || fail "Missing DEVBOT end marker"
-
-  rm -rf "$tmpdir"
 }
 
 @test "init.sh: .git/info/exclude is idempotent — re-running replaces section cleanly" {
-  local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
-
-  # First run creates .git/info/exclude with one DEVBOT section
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
-  assert_success
+  # The shared tree is the result of the first run; this runs the second.
+  scenario_copy default
+  local exclude="${SCENARIO}/.git/info/exclude"
 
   # Verify exactly one section after first run
   local count1
-  count1="$(grep -c "# >>> DEVBOT - memory" "$tmpdir/.git/info/exclude" 2>/dev/null || echo 0)"
+  count1="$(grep -c "# >>> DEVBOT - memory" "$exclude" 2>/dev/null || echo 0)"
   [[ "$count1" -eq 1 ]] || fail "Expected 1 DEVBOT section after first run, got $count1"
 
   # Second run — should replace (not duplicate)
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
+  run bash "$MODULE_DIR/init.sh" "$SCENARIO"
   assert_success
   assert_output --partial ".git/info/exclude updated"
 
   # Count DEVBOT markers after second run — should still be exactly 1
   local count2
-  count2="$(grep -c "# >>> DEVBOT - memory" "$tmpdir/.git/info/exclude" 2>/dev/null || echo 0)"
+  count2="$(grep -c "# >>> DEVBOT - memory" "$exclude" 2>/dev/null || echo 0)"
   [[ "$count2" -eq 1 ]] || fail "DEVBOT section was duplicated (expected 1, got $count2)"
-
-  rm -rf "$tmpdir"
 }
 
 @test "init.sh: appends to existing .git/info/exclude without removing existing content" {
-  local tmpdir
-  tmpdir="$(mktemp -d "$FIXTURES/tmp.XXXXXX")"
-
-  # Pre-populate .git/info/exclude with existing content
-  mkdir -p "$tmpdir/.git/info"
-  echo "vendor/" > "$tmpdir/.git/info/exclude"
-  echo "node_modules/" >> "$tmpdir/.git/info/exclude"
-
-  run bash "$MODULE_DIR/init.sh" "$tmpdir"
-  assert_success
+  scenario existing-exclude
+  local exclude="${SCENARIO}/.git/info/exclude"
 
   # Original entries preserved
-  grep -q "^vendor/$" "$tmpdir/.git/info/exclude" || fail "Original vendor/ entry lost"
-  grep -q "^node_modules/$" "$tmpdir/.git/info/exclude" || fail "Original node_modules/ entry lost"
+  grep -q "^vendor/$" "$exclude" || fail "Original vendor/ entry lost"
+  grep -q "^node_modules/$" "$exclude" || fail "Original node_modules/ entry lost"
 
   # New DEVBOT section added
-  grep -qF "# >>> DEVBOT - memory" "$tmpdir/.git/info/exclude" || fail "DEVBOT section not appended"
-
-  rm -rf "$tmpdir"
+  grep -qF "# >>> DEVBOT - memory" "$exclude" || fail "DEVBOT section not appended"
 }
 
 # ── Skill file validation ─────────────────────────────────────────────────────
