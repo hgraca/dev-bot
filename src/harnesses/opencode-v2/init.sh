@@ -1128,6 +1128,53 @@ _link_skill_farm() {
   _ok "skills wired into .opencode/skills (one link per farm entry)"
 }
 
+# ── An ancestor project's skill farm is registered too ───────────────────────
+# V2 discovers configuration from the project AND every ancestor, and rescans
+# each discovered `.opencode/skills`. A dev-bot project nested inside another
+# dev-bot project therefore registers the ancestor's whole skill catalogue
+# beside its own, and init cannot remove the duplicates because they live in the
+# ancestor's tree (audit-01 FAIL-1: 101 of 104 skills registered twice, plus 63
+# belonging to modules this project disables). The host reports nothing, so init
+# names the ancestor and the count instead of leaving the cost invisible.
+#
+# Looked for under `.opencode/skills` (what the host scans) and, when that is
+# absent, under the ancestor's own configured `devbot_dir` — an ancestor that
+# renamed its vault (`"devbot_dir": ".vault"`) keeps its farm at
+# `<ancestor>/.vault/skills`, which a hard-coded `.agents` would skip (review
+# finding on PR #122). Ancestors only — the project's own farm is handled by
+# _link_skill_farm.
+#
+# Prints `<ancestor>\t<farm>` per ancestor, so the caller does not resolve the
+# directory twice.
+_ancestor_skill_farms() {
+  local project_dir="$1" dir parent farm
+  dir="${project_dir}"
+  while :; do
+    parent="$(dirname "${dir}")"
+    [[ "${parent}" == "${dir}" ]] && return 0
+    dir="${parent}"
+    farm="${dir}/.opencode/skills"
+    if [[ ! -d "${farm}" ]]; then
+      farm="${dir}/$(_devbot_get_project_dir "${dir}")/skills"
+    fi
+    [[ -d "${farm}" ]] || continue
+    printf '%s\t%s\n' "${dir}" "${farm}"
+  done
+}
+
+_warn_ancestor_skill_farms() {
+  local project_dir="${1:-${PROJECT_DIR}}" ancestor farm count total=0 found=""
+  while IFS=$'\t' read -r ancestor farm; do
+    [[ -n "${ancestor}" && -n "${farm}" ]] || continue
+    count="$(find -L "${farm}" -name SKILL.md -print 2>/dev/null | wc -l | tr -d ' ')"
+    [[ "${count}" -gt 0 ]] || continue
+    total=$((total + count))
+    found+=" ${ancestor}"
+  done < <(_ancestor_skill_farms "${project_dir}")
+  [[ "${total}" -gt 0 ]] || return 0
+  _warn "skills: an ancestor project supplies its own skill farm — ${total} skill(s) from${found} are registered in this session beside this project's own. Duplicates and disabled-module skills come from there; run 'devbot reinit' in the ancestor so both farms share one layout."
+}
+
 # ── main ───────────────────────────────────────────────────────────────────────
 _copy_opencode_dir
 _write_opencode_config
@@ -1137,6 +1184,7 @@ _ensure_required_plugins
 _ensure_agents_md
 _delegate_harness_dirs
 _link_skill_farm "${PROJECT_DIR}"
+_warn_ancestor_skill_farms "${PROJECT_DIR}"
 _prune_stale_skill_copies "${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
 _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 _link_mcp_assets

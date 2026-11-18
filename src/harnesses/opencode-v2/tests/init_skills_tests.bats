@@ -91,3 +91,49 @@ load 'init_test_helper'
   assert [ -f "${PROJECT}/.opencode/skills/probe-external/git-commits/SKILL.md" ]
 }
 
+
+# ── An ancestor project's skill farm is registered too (audit-01 FAIL-1) ──────
+# V2 rescans every ancestor's `.opencode/skills`, so a dev-bot project nested
+# inside another registers the ancestor's catalogue beside its own. init cannot
+# remove those entries — they live in the ancestor's tree — but it must say so:
+# the 101 duplicated skills and the 63 from disabled modules were invisible.
+
+@test "init warns when an ancestor project supplies its own skill farm" {
+  local parent="${BATS_TEST_TMPDIR}/ancestor" child="${BATS_TEST_TMPDIR}/ancestor/nested"
+  mkdir -p "${parent}/.opencode/skills/devbot/probe-skill" "${child}"
+  printf -- '---\nname: probe-skill\n---\n' \
+    >"${parent}/.opencode/skills/devbot/probe-skill/SKILL.md"
+  printf '{ "harness": "opencode-v2" }\n' >"${child}/.devbot.project.jsonc"
+
+  run bash "${MODULE_DIR}/init.sh" "${child}"
+
+  assert_success
+  assert_output --partial "an ancestor project supplies its own skill farm"
+  assert_output --partial "${parent}"
+  # The count is the point: one skill on each side is not a problem, a whole
+  # catalogue is.
+  assert_output --partial "1 skill(s)"
+}
+
+@test "init does not warn about an ancestor skill farm when there is none" {
+  # The warm scenario's ancestors (mktemp dirs up to /) seed no farm.
+  init_said default
+  refute_output --partial "an ancestor project supplies its own skill farm"
+}
+
+@test "init finds an ancestor farm under that project's own devbot_dir" {
+  # An ancestor that renamed its vault keeps its farm at <devbot_dir>/skills.
+  # A hard-coded .agents missed it, so this warning never fired for it.
+  local parent="${BATS_TEST_TMPDIR}/vault-ancestor" child="${BATS_TEST_TMPDIR}/vault-ancestor/nested"
+  mkdir -p "${parent}/.vault/skills/devbot/probe-skill" "${child}"
+  printf -- '---\nname: probe-skill\n---\n' \
+    >"${parent}/.vault/skills/devbot/probe-skill/SKILL.md"
+  printf '{ "harness": "opencode-v2", "devbot_dir": ".vault" }\n' >"${parent}/.devbot.project.jsonc"
+  printf '{ "harness": "opencode-v2" }\n' >"${child}/.devbot.project.jsonc"
+
+  run bash "${MODULE_DIR}/init.sh" "${child}"
+
+  assert_success
+  assert_output --partial "${parent}"
+  assert_output --partial "1 skill(s)"
+}
