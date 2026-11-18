@@ -36,6 +36,35 @@ teardown() {
   assert_output "session"
 }
 
+@test "records the harness the launcher exports" {
+  lock="$(DEV_BOT_HARNESS=opencode-v2 bash "${LOCK_SH}" create "${PROJECT}" session)"
+  run python3 "${MODULE_DIR}/read_jsonc.py" "${lock}" harness
+  assert_output "opencode-v2"
+}
+
+@test "falls back to the project config harness when nothing is exported" {
+  printf '{"harness": "claudecode"}\n' > "${PROJECT}/.devbot.project.jsonc"
+  lock="$(env -u DEV_BOT_HARNESS -u DEV_BOT_ROOT bash "${LOCK_SH}" create "${PROJECT}" session)"
+  run python3 "${MODULE_DIR}/read_jsonc.py" "${lock}" harness
+  assert_output "claudecode"
+}
+
+@test "records unknown only when neither the env nor a config names a harness" {
+  lock="$(env -u DEV_BOT_HARNESS -u DEV_BOT_ROOT bash "${LOCK_SH}" create "${PROJECT}" session)"
+  run python3 "${MODULE_DIR}/read_jsonc.py" "${lock}" harness
+  assert_output "unknown"
+}
+
+@test "every harness launcher exports its own name for the lock" {
+  local root="${MODULE_DIR}/.."
+  run grep -q 'export DEV_BOT_HARNESS="opencode"' "${root}/harnesses/opencode/start.sh"
+  assert_success
+  run grep -q 'export DEV_BOT_HARNESS="opencode-v2"' "${root}/harnesses/opencode-v2/start.sh"
+  assert_success
+  run grep -q 'export DEV_BOT_HARNESS="claudecode"' "${root}/harnesses/claudecode/start.sh"
+  assert_success
+}
+
 @test "records the pid the caller passes, in the payload and the filename" {
   lock="$(bash "${LOCK_SH}" create "${PROJECT}" session 4242)"
   run python3 "${MODULE_DIR}/read_jsonc.py" "${lock}" pid

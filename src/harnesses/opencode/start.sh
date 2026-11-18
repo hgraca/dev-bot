@@ -27,7 +27,9 @@ shift || true
 # Open the requested project so the harness resolves its config there.
 cd "${PROJECT_DIR}"
 
-# AutoBot presence lock; the trap removes it on exit.
+# AutoBot presence lock; the trap removes it on exit. The registry records which
+# harness is running, so the launcher declares its own identity here.
+export DEV_BOT_HARNESS="opencode"
 session_lock="$(bash "${DEV_BOT_ROOT}/src/_shared/session_lock.sh" create "${PROJECT_DIR}" session "$$" 2>/dev/null || true)"
 _remove_session_lock() {
   bash "${DEV_BOT_ROOT}/src/_shared/session_lock.sh" remove "${session_lock}"

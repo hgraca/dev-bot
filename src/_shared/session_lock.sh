@@ -24,6 +24,28 @@ _json_escape() {
   printf '%s' "${value}"
 }
 
+# The harness name recorded in the lock. The launcher exports DEV_BOT_HARNESS
+# (its own identity); a caller that does not — a module script, a test, an older
+# start.sh — falls back to the project's `harness` key, then the global one, so
+# the field never degrades to a blanket "unknown" while a config answers it.
+_harness_name() {
+  local project_dir="$1"
+  if [[ -n "${DEV_BOT_HARNESS:-}" ]]; then
+    printf '%s' "${DEV_BOT_HARNESS}"
+    return 0
+  fi
+  local name=""
+  name="$(python3 "${MODULE_DIR}/read_jsonc.py" "${project_dir}/.devbot.project.jsonc" harness 2>/dev/null || true)"
+  if [[ -z "${name}" && -n "${DEV_BOT_ROOT:-}" ]]; then
+    name="$(python3 "${MODULE_DIR}/read_jsonc.py" "${DEV_BOT_ROOT}/.devbot.global.jsonc" harness 2>/dev/null || true)"
+  fi
+  # Same fallback the launcher applies when the key is absent or invalid.
+  case "${name}" in
+    opencode | opencode-v2 | claudecode) printf '%s' "${name}" ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
 _create() {
   local project_dir="${1:?project directory required}"
   local kind="${2:-session}"
@@ -45,7 +67,7 @@ _create() {
     "${pid}" \
     "$(_json_escape "${kind}")" \
     "$(_json_escape "${project_dir}")" \
-    "$(_json_escape "${DEV_BOT_HARNESS:-unknown}")" \
+    "$(_json_escape "$(_harness_name "${project_dir}")")" \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     >"${lock}" 2>/dev/null || return 0
   printf '%s\n' "${lock}"
