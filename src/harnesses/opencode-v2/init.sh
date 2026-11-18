@@ -973,7 +973,7 @@ _link_skill_farm() {
       continue
     fi
     ln -sfn "${entry}" "${link}"
-  done < <(find "${farm}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null | sort -z)
+  done < <(find "${farm}" -mindepth 1 -maxdepth 1 -print0 2>/dev/null)
 
   # Prune the links this function owns (they point into the farm) once the farm
   # stops providing them. A module's own link (sentry, signoz) points elsewhere
@@ -982,8 +982,12 @@ _link_skill_farm() {
   while IFS= read -r -d '' stale; do
     name="$(basename "${stale}")"
     grep -Fxq -- "${name}" <<< "${desired}" && continue
-    resolved="$(readlink -f "${stale}" 2>/dev/null || true)"
-    [[ -n "${resolved}" && "${resolved}" == "${farm}"/* ]] || continue
+    resolved="$(readlink "${stale}" 2>/dev/null || true)"
+    [[ -n "${resolved}" ]] || continue
+    # `readlink -f` is absent on stock macOS; resolve the target's directory.
+    [[ "${resolved}" == /* ]] || resolved="$(dirname "${stale}")/${resolved}"
+    resolved="$(_physical_path "${resolved}")"
+    [[ "${resolved}" == "${farm}"/* ]] || continue
     rm -f "${stale}"
     _ok "skills/${name} unlinked (no longer in ${devbot_dir}/skills)"
   done < <(find "${target}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)

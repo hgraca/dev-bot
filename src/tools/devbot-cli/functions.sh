@@ -92,6 +92,19 @@ _link_commands() {
 #
 # A project links the farm into `.opencode/skills` or reads `.agents/skills`
 # directly, so this shape is host-agnostic: one level per skill either way.
+
+# Absolute target of a symlink, without the GNU-only `readlink -f`/`realpath`
+# (absent on stock macOS). Resolves the parent directory physically so two
+# spellings of the same install compare equal; a dangling link yields nothing.
+_link_target_path() {
+  local link="$1" target dir
+  target="$(readlink "${link}" 2>/dev/null || true)"
+  [[ -n "${target}" ]] || return 0
+  [[ "${target}" == /* ]] || target="$(dirname "${link}")/${target}"
+  dir="$(cd "$(dirname "${target}")" 2>/dev/null && pwd -P)" || return 0
+  printf '%s/%s\n' "${dir}" "$(basename "${target}")"
+}
+
 _link_skills() {
   local mod_dir="$1"
   local mod_name
@@ -122,7 +135,7 @@ _link_skills() {
       local stale
       while IFS= read -r -d '' stale; do
         local resolved
-        resolved="$(readlink -f "${stale}" 2>/dev/null || true)"
+        resolved="$(_link_target_path "${stale}")"
         [[ -n "${resolved}" && "${resolved}" == "${skill_dir}"* ]] || continue
         rm -f "${stale}"
         _ok "skills/devbot/${mod_name}/$(basename "${stale}") pruned (module ships no skills)"
@@ -167,7 +180,7 @@ _link_skills() {
       ln -sf "${target}" "${link}"
       _ok "skills/devbot/${mod_name}/${name} linked"
     fi
-  done < <(find "${skill_dir}" -name SKILL.md -print0 2>/dev/null | sort -z)
+  done < <(find "${skill_dir}" -name SKILL.md -print0 2>/dev/null)
 
   # Reconcile: a skill renamed or removed from the module must not keep a link
   # in the farm (the host would advertise a skill that no longer exists).
@@ -177,7 +190,7 @@ _link_skills() {
     bare="$(basename "${stale}")"
     grep -Fxq -- "${bare}" <<< "${wanted}" && continue
     # Only links into THIS module's skill dir are ours to prune.
-    resolved="$(readlink -f "${stale}" 2>/dev/null || true)"
+    resolved="$(_link_target_path "${stale}")"
     [[ -n "${resolved}" && "${resolved}" == "${skill_dir}"* ]] || continue
     rm -f "${stale}"
     _ok "skills/devbot/${mod_name}/${bare} pruned (skill no longer shipped)"
