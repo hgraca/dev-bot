@@ -984,10 +984,15 @@ _link_skill_farm() {
     grep -Fxq -- "${name}" <<< "${desired}" && continue
     resolved="$(readlink "${stale}" 2>/dev/null || true)"
     [[ -n "${resolved}" ]] || continue
-    # `readlink -f` is absent on stock macOS; resolve the target's directory.
+    # `readlink -f` is absent on stock macOS; resolve the target's directory by
+    # hand. Kept self-contained so the test can eval this function in isolation.
     [[ "${resolved}" == /* ]] || resolved="$(dirname "${stale}")/${resolved}"
-    resolved="$(_physical_path "${resolved}")"
-    [[ "${resolved}" == "${farm}"/* ]] || continue
+    local rd
+    rd="$(cd "$(dirname "${resolved}")" 2>/dev/null && pwd -P)" || continue
+    resolved="${rd}/$(basename "${resolved}")"
+    # Own it only when the target IS the farm or lives under it: a prefix test
+    # would also claim a sibling such as `<farm>-backup`.
+    [[ "${resolved}" == "${farm}" || "${resolved}" == "${farm}"/* ]] || continue
     rm -f "${stale}"
     _ok "skills/${name} unlinked (no longer in ${devbot_dir}/skills)"
   done < <(find "${target}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)

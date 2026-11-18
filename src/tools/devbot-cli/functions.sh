@@ -136,7 +136,7 @@ _link_skills() {
       while IFS= read -r -d '' stale; do
         local resolved
         resolved="$(_link_target_path "${stale}")"
-        [[ -n "${resolved}" && "${resolved}" == "${skill_dir}"* ]] || continue
+        [[ "${resolved}" == "${skill_dir}" || "${resolved}" == "${skill_dir}"/* ]] || continue
         rm -f "${stale}"
         _ok "skills/devbot/${mod_name}/$(basename "${stale}") pruned (module ships no skills)"
       done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
@@ -191,7 +191,7 @@ _link_skills() {
     grep -Fxq -- "${bare}" <<< "${wanted}" && continue
     # Only links into THIS module's skill dir are ours to prune.
     resolved="$(_link_target_path "${stale}")"
-    [[ -n "${resolved}" && "${resolved}" == "${skill_dir}"* ]] || continue
+    [[ "${resolved}" == "${skill_dir}" || "${resolved}" == "${skill_dir}"/* ]] || continue
     rm -f "${stale}"
     _ok "skills/devbot/${mod_name}/${bare} pruned (skill no longer shipped)"
   done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
