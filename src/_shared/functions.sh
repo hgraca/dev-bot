@@ -821,12 +821,25 @@ _devbot_rotate_session_logs() {
       [[ ! -e "${target}" ]] && break
       nnn=$((nnn + 1))
     done
-    # `cp` then truncate: a writer that appends between the two loses nothing it
-    # had already written (its bytes are in the copy), and one that appends
-    # afterwards continues in the live file.
-    if cp -p "${file}" "${target}" 2>/dev/null; then
-      : > "${file}" 2>/dev/null || true
-    fi
+    # `cp` then truncate keeps the inode the long-lived writers hold, but the
+    # copy can miss a write that lands between its last read and the truncate.
+    # So the copy is retried until it has caught up with the live size, and if
+    # the writer never pauses the rotation is abandoned (the stale copy is
+    # dropped) rather than truncating bytes that were never copied — the next
+    # session tries again.
+    local attempt copied size rotated=0
+    for attempt in 1 2 3; do
+      cp -p "${file}" "${target}" 2>/dev/null || break
+      copied="$(wc -c < "${target}" 2>/dev/null | tr -d '[:space:]')"
+      size="$(wc -c < "${file}" 2>/dev/null | tr -d '[:space:]')"
+      [[ -n "${copied}" && -n "${size}" ]] || break
+      if [[ "${size}" -le "${copied}" ]]; then
+        : > "${file}" 2>/dev/null || true
+        rotated=1
+        break
+      fi
+    done
+    [[ ${rotated} -eq 1 ]] || rm -f "${target}" 2>/dev/null || true
   done
 
   # tools-grades.csv is the one session artefact outside the *.log glob and it
