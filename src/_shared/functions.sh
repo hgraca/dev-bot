@@ -827,16 +827,23 @@ _devbot_rotate_session_logs() {
     # the writer never pauses the rotation is abandoned (the stale copy is
     # dropped) rather than truncating bytes that were never copied — the next
     # session tries again.
-    local attempt copied size rotated=0
+    local attempt copied size again rotated=0
     for attempt in 1 2 3; do
       cp -p "${file}" "${target}" 2>/dev/null || break
       copied="$(wc -c < "${target}" 2>/dev/null | tr -d '[:space:]')"
       size="$(wc -c < "${file}" 2>/dev/null | tr -d '[:space:]')"
       [[ -n "${copied}" && -n "${size}" ]] || break
       if [[ "${size}" -le "${copied}" ]]; then
-        : > "${file}" 2>/dev/null || true
-        rotated=1
-        break
+        # Confirm the writer is idle before truncating: sample the size once
+        # more after a short pause. A writer that appends during the copy or the
+        # confirmation simply fails the test and retries.
+        sleep 0.2 2>/dev/null || sleep 1
+        again="$(wc -c < "${file}" 2>/dev/null | tr -d '[:space:]')"
+        if [[ "${again}" == "${size}" ]]; then
+          : > "${file}" 2>/dev/null || true
+          rotated=1
+          break
+        fi
       fi
     done
     [[ ${rotated} -eq 1 ]] || rm -f "${target}" 2>/dev/null || true
