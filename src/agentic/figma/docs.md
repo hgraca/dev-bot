@@ -63,9 +63,11 @@ Prerequisites:
   (names, amounts, statuses), and the Playwright directory holds screenshots and console logs.
 
 ```text
-/devbot:design-qa <figma-link> <route-or-url> [viewport] [--as <userType>] [--scope "<component>"] [--fix]
-/devbot:design-qa-all [--changed-only [--base <branch>]] [--only <id>]
+/devbot/design-qa <figma-link> <route-or-url> [viewport] [--as <userType>] [--scope "<component>"] [--fix]
+/devbot/design-qa-all [--changed-only [--base <branch>]] [--only <id>]
 ```
+
+On v1 the ids are `/devbot:design-qa` and `/devbot:design-qa-all`.
 
 The frame link must carry `node-id=`. With `--fix`, the check uses the project's tokens, asks before
 changing the theme file or a shared component, re-verifies with a screenshot, runs the project's lint
@@ -80,7 +82,11 @@ commands, shared roots — live in its `project` block; none are baked into the 
 ```json
 {
   "baseUrl": "https://app.example.test",
-  "defaults": { "viewports": [1440], "tolerancePx": 4, "userType": "backoffice" },
+  "defaults": {
+    "viewports": [1440],
+    "tolerancePx": 4,
+    "userType": "backoffice"
+  },
   "project": {
     "userTypes": ["backoffice", "customer", "hotel", "public"],
     "session": {

@@ -9,7 +9,7 @@ Reduce vault noise: delete stale entries, merge complementary notes, rewrite inc
 
 ## When to Apply
 
-- User says "prune memories", "clean up memories", or invokes `/devbot:prune-memories`
+- User says "prune memories", "clean up memories", or invokes `/devbot/prune-memories` (v1: `/devbot:prune-memories`)
 - Vault noisy after many sessions
 - Major project milestone — old decisions superseded
 

@@ -92,8 +92,10 @@ Run this once per project, from inside the agent session. It writes
 at session start:
 
 ```shell
-/create-project-report
+/devbot/create-project-report
 ```
+
+On v1 and claudecode the id is `/devbot:create-project-report`.
 
 ### Manage services and updates
 

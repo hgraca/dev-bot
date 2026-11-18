@@ -78,6 +78,12 @@ project is one or the other — there are no profile-plus-overrides.
 }
 ```
 
+A run starts with a slash command, and the spelling has to be the one the host AutoBot drives
+resolves. AutoBot runs the v1 `opencode` CLI (`opencode run`), whose ids are the command's frontmatter
+name — `/devbot:autobot-work`. A project configured for `opencode-v2` still has its AutoBot runs
+executed by v1, so keep the v1 form there even though the v2 host exposes the same command as
+`/devbot/autobot-work`.
+
 Every switch defaults to off, and the block is inert until one is enabled. A project is skipped unless
 a devbot harness is running there — the watch is the one lock file per PID the harness start script
 writes under `<devbot_dir>/state/devbot/`.

@@ -44,7 +44,14 @@ export interface ExecutionOutcome {
 
 export const MAX_ATTEMPTS = 3;
 
-/** A new session is handed to the AutoBot command, which wraps `auto-dev` and carries the signature rule. */
+/**
+ * A new session is handed to the AutoBot command, which wraps `auto-dev` and carries the signature rule.
+ *
+ * This is the v1 host's id (the command file's frontmatter `name:`) because
+ * `runAgent` drives the v1 `opencode` CLI; a 2.x host would expose the same command as
+ * `/devbot/autobot-work`. Keep it in step with `commands/autobot-work.md` — the test
+ * in `command_references_tests.bats` enforces that.
+ */
 export const START_COMMAND = "/devbot:autobot-work";
 
 export interface ExecutorDeps {

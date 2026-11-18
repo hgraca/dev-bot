@@ -149,7 +149,7 @@ Then run the checks below; they verify the vault _works_ once warm:
 
 ## 6. Commands
 
-- Invoke another slash command (e.g. `/devbot:commit`) and confirm it runs.
+- Invoke another slash command (e.g. `/devbot/commit`; `/devbot:commit` on v1) and confirm it runs.
 
 ## 7. Agents & orchestration
 
