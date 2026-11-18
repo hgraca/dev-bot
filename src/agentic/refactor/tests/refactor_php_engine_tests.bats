@@ -504,12 +504,17 @@ _fake_scratch() {
   local scratch recorded
   scratch="$(mktemp -d)"
   run env REFACTOR_STORAGE_DIR="${scratch}" bash "${PHP_PLUGIN}" provision
-  recorded="$(cat "${scratch}/rector/.version" 2>/dev/null || true)"
+  recorded="$(python3 -c "
+import json, sys
+doc = json.load(open(sys.argv[1]))
+print(next(p['version'] for p in doc.get('packages-dev', []) + doc.get('packages', [])
+           if p['name'] == 'rector/rector'))
+" "${scratch}/rector/composer.lock" 2>/dev/null || true)"
   rm -rf "${scratch}"
 
   assert_success
   # Both the asked-for version and the installed one, because they differ.
   assert_output --partial '"requested"'
   assert_output --partial '"version"'
-  [[ -n "${recorded}" ]] || fail "provision did not record the installed version"
+  [[ -n "${recorded}" ]] || fail "provision left no installed version in the lock"
 }

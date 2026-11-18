@@ -35,6 +35,10 @@ if [[ -z "${DEV_BOT_ROOT:-}" ]]; then
   done
   unset _devbot_root_candidate _devbot_root_hop
 fi
+if [[ -z "${DEV_BOT_ROOT:-}" ]]; then
+  echo "FATAL: cannot locate the dev-bot root (no src/_shared beside this script); set DEV_BOT_ROOT" >&2
+  exit 1
+fi
 export DEV_BOT_ROOT
 
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
