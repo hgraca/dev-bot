@@ -624,3 +624,16 @@ STUB
   run cat "$target"
   assert_output --partial '{ "d": 4 }'
 }
+
+@test "refuses a non-JSON file instead of reformatting it" {
+  local target="$BATS_TEST_TMPDIR/probe.md"
+  printf '   {"a":   1}\n' > "$target"
+
+  run bash "$TOOL" "$target"
+
+  assert_failure
+  assert_output --partial "is not a JSON/JSONC file"
+  run cat "$target"
+  assert_output --partial '   {"a":   1}'
+}
+
