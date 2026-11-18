@@ -544,63 +544,19 @@ export function sessionEnvVars(
   return env
 }
 
-// ── Tool-name canonicalisation (audit-01 FAIL-2 / FAIL-3) ────────────────────
-// V1 exposed the PTY capability as `pty_spawn`/`pty_write`/…; V2 registers the
-// same five tools inside a `pty` namespace, and the host hands them to the
-// model (and to `execute.before`) as bare `spawn`/`write`/`read`/`list`/`kill`
-// — two of which are also the names of V2's built-in FILE tools. That aliasing
-// is what killed both guards: the guards manifest matches the V1 names, so
-// every PTY command bypassed them, and `PTY_TOOLS` never saw a PTY tool, so the
-// subagent guard never fired. It also shadowed the built-in `read`/`write`.
-//
-// Two layers fix it. The plugin now registers unambiguous `pty_*` names (the
-// shadowing is gone), and this canonicaliser is the single place a name maps to
-// behaviour — so a host that strips the namespace, or a manifest written for
-// either generation, still resolves the same tool. Calls whose arguments show
-// they are the file tools keep their own identity: a bare `write`/`read` with a
-// `path`/`filePath` is NOT a PTY call.
-const PTY_TOOLS = new Set(["pty_spawn", "pty_write", "pty_read", "pty_list", "pty_kill"])
-
-export function canonicalToolName(tool: string, args?: unknown): string {
-  const raw = String(tool || "").toLowerCase()
-  // `pty.spawn` (namespace-qualified) and `pty_spawn` are the same tool.
-  if (raw.startsWith("pty.")) return `pty_${raw.slice(4)}`
-  if (PTY_TOOLS.has(raw)) return raw
-  const a = (args ?? {}) as Record<string, unknown>
-  const fileTarget = a.path !== undefined || a.filePath !== undefined
-  switch (raw) {
-    case "spawn":
-      return "pty_spawn"
-    case "write":
-      return fileTarget ? "write" : "pty_write"
-    case "read":
-      return a.id !== undefined && !fileTarget ? "pty_read" : "read"
-    case "list":
-      return fileTarget ? "list" : "pty_list"
-    case "kill":
-      return a.id !== undefined ? "pty_kill" : "kill"
-    default:
-      return raw
-  }
+// ── Tool-name canonicalisation (audit-01 FAIL-2) ─────────────────────────────
+// The PTY extension is retired, so no tool carries a second name: the live set is
+// the shell tool plus V2's built-in file tools. The helper stays as the single
+// place a host-supplied name is normalised before it reaches a matcher.
+export function canonicalToolName(tool: string, _args?: unknown): string {
+  return String(tool || "").toLowerCase()
 }
 
-// The guard hook needs one command string per shell channel. The shell tool
-// supplies `command`; a PTY splits the invocation across two tools — `spawn`
-// carries the command line, `write` carries raw input typed into a running
-// session. Normalise all of them so a command cannot slip past the guards
-// merely by being launched through a PTY.
-export function commandString(tool: string, args: unknown): string {
-  const a = (args ?? {}) as { command?: unknown; args?: unknown; data?: unknown }
-  switch (canonicalToolName(tool, args)) {
-    case "pty_spawn": {
-      const rest = Array.isArray(a.args) ? a.args.map((value) => String(value)) : []
-      return [String(a.command ?? ""), ...rest].filter(Boolean).join(" ")
-    }
-    case "pty_write":
-      return String(a.data ?? "")
-    default:
-      return String(a.command ?? "")
-  }
+// The guard hook needs one command string per tool. V2 has a single shell tool,
+// whose input carries `command`; every other tool has no command to evaluate.
+export function commandString(_tool: string, args: unknown): string {
+  const a = (args ?? {}) as { command?: unknown }
+  return String(a.command ?? "")
 }
 
 // ── V2 event payloads and file-writing tools (audit-01 FAIL-1) ───────────────
@@ -639,56 +595,8 @@ export function toolFileTargets(tool: string, input: unknown): string[] {
 
 // An empty command has nothing for the guards to evaluate. The guards tool
 // exits non-zero on an empty --command, and a blocking guard maps a non-zero
-// exit to "blocked" — so an empty pty_write (a no-op) would surface as
-// "guard temporarily unavailable" instead of passing through.
+// exit to "blocked" — so a tool call with no command would surface as "guard
+// temporarily unavailable" instead of passing through.
 export function hasCommand(command: string): boolean {
   return command.trim().length > 0
-}
-
-// The pty_* family is top-level only. A `task` subagent runs in a child session,
-// and `task` returns the moment that subagent's turn ends — a notifyOnExit PTY
-// later resumes the child, but its continuation is never surfaced to the parent,
-// so the orchestrator waits forever on a task that already "completed". Block the
-// family in child sessions (parentID set; the top-level session has none); the
-// agent falls back to `bash` with an explicit timeout, which the parent is already
-// waiting on through the task either way.
-export function isPtyTool(tool: string, args?: unknown): boolean {
-  return PTY_TOOLS.has(canonicalToolName(tool, args))
-}
-
-export function ptySubagentBlock(
-  tool: string,
-  session: { parentID?: string | null } | null | undefined,
-  args?: unknown,
-): string | null {
-  if (!isPtyTool(tool, args) || !session?.parentID) return null
-  return (
-    "PTY tools are available only to the top-level agent: a subagent's child " +
-    "session cannot surface a PTY's exit notification, so the task would hang. " +
-    "Run long commands with `bash` and an explicit timeout instead."
-  )
-}
-
-// Resolve the calling session for a PTY tool and return the block reason, or null
-// to allow. Fails OPEN on any lookup error so a transient session.get failure can
-// never break the top-level agent's own PTYs (worst case a subagent slips
-// through). Non-PTY tools never touch the client.
-//
-// V2 difference: the plugin context IS the client, and session.get takes
-// `{ sessionID }` returning the info directly — v1 passed `{path:{id}}` through
-// an SDK client and unwrapped `.data`.
-export async function ptySubagentGuard(
-  ctx: any,
-  tool: string,
-  sessionID: unknown,
-  args?: unknown,
-): Promise<string | null> {
-  if (!isPtyTool(tool, args)) return null
-  let session: { parentID?: string | null } | null = null
-  try {
-    session = (await ctx?.session?.get?.({ sessionID: String(sessionID ?? "") })) ?? null
-  } catch {
-    return null
-  }
-  return ptySubagentBlock(tool, session, args)
 }

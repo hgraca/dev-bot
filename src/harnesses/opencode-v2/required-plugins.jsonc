@@ -12,9 +12,5 @@
   //
   // No `tui` list: v2 TUI parts are exports of the plugin packages themselves,
   // not separately registered paths.
-  "server": [
-    ".opencode/plugins/on-hooks",
-    ".opencode/plugins/mcp-sync",
-    ".opencode/plugins/pty"
-  ]
+  "server": [".opencode/plugins/on-hooks", ".opencode/plugins/mcp-sync"]
 }

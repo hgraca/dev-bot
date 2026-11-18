@@ -55,19 +55,10 @@ _PLUGIN_SHIM_MARKER="// dev-bot: generated opencode-v2 plugin shim (do not edit)
 # ── Record a dependency dev-bot added to .opencode/ ───────────────────────────
 # .opencode/package.json is seeded once and then the project's own, so deleting an
 # entry by name alone could remove a dependency the project needs. This file is
-# the ownership record: a name in it was put there by dev-bot, and the harness
-# that takes the project back may retire exactly those.
+# the ownership record: a name in it was put there by dev-bot, and this harness
+# may retire exactly those. Earlier builds wrote it for `bun-pty`; no dependency
+# is installed today, but the record is still read when a retired one is dropped.
 _MANAGED_DEPS_FILE=".devbot-managed-deps"
-
-_record_managed_dependency() {
-  local name="$1"
-  local manifest="${OPENCODE_DIR}/${_MANAGED_DEPS_FILE}"
-  mkdir -p "${OPENCODE_DIR}"
-  if [[ -f "${manifest}" ]] && grep -qxF "${name}" "${manifest}" 2>/dev/null; then
-    return 0
-  fi
-  printf '%s\n' "${name}" >> "${manifest}"
-}
 
 # ── Merge .opencode/ template directory ───────────────────────────────────────
 _copy_opencode_dir() {
@@ -76,7 +67,7 @@ _copy_opencode_dir() {
     return 1
   fi
 
-  local copied=0 seeded_manifest=0
+  local copied=0
   mkdir -p "${OPENCODE_DIR}"
 
   while IFS= read -r -d '' src_file; do
@@ -94,16 +85,8 @@ _copy_opencode_dir() {
       cp -r "${src_file}" "${tgt}"
       _ok "${rel} copied"
       copied=$((copied + 1))
-      if [[ "${rel}" == "package.json" ]]; then seeded_manifest=1; fi
     fi
   done < <(find "${OPENCODE_TPL}" -mindepth 1 -print0 2>/dev/null)
-
-  # A manifest this harness seeded carries dev-bot's dependency list, so the
-  # handover can retire what it declares. A pre-existing one belongs to the
-  # project and is never rewritten on the way out.
-  if [[ ${seeded_manifest} -eq 1 ]] && grep -q '"bun-pty"' "${OPENCODE_DIR}/package.json" 2>/dev/null; then
-    _record_managed_dependency "bun-pty"
-  fi
 
   if [[ ${copied} -eq 0 ]]; then
     _skip "no new files from template"
@@ -203,38 +186,43 @@ _write_opencode_config() {
     _write_jsonc_from_dist "${DIST_CONFIG}" "${CONFIG}"
 }
 
-# ── Install the scaffold's plugin dependencies ────────────────────────────────
-# v1's plugins import @opencode-ai/plugin as a TYPE only, so the scaffold's
-# package.json never needed installing. The v2 plugins import @opencode/plugin
-# (resolved by the host at runtime) and bun-pty (a real runtime dependency), so
-# .opencode/ needs node_modules or the PTY tools report themselves unavailable.
-_install_plugin_deps() {
-  [[ -f "${OPENCODE_DIR}/package.json" ]] || return 0
-  if [[ -d "${OPENCODE_DIR}/node_modules/bun-pty" ]]; then
-    _skip "plugin dependencies already installed"
-    return 0
-  fi
-  if [[ "${DEV_BOT_SKIP_PLUGIN_DEPS:-0}" == "1" ]]; then
-    _skip "plugin dependency install skipped (DEV_BOT_SKIP_PLUGIN_DEPS=1)"
-    return 0
-  fi
-  if ! command -v bun >/dev/null 2>&1; then
-    _warn "bun not found — the PTY tools stay unavailable"
-    return 0
-  fi
-  # Only bun-pty: @opencode/plugin is resolved by the host at runtime, and
-  # installing it drags in its full dependency graph for no benefit.
-  _info "Installing bun-pty into .opencode/ ..."
-  # `bun add`, not `bun install`: an existing .opencode/package.json may come
-  # from the v1 adapter and not declare bun-pty at all — that entry is dev-bot's.
-  local declared=0
-  if grep -q '"bun-pty"' "${OPENCODE_DIR}/package.json" 2>/dev/null; then declared=1; fi
-  if (cd "${OPENCODE_DIR}" && timeout 120 bun add bun-pty >/dev/null 2>&1); then
-    if [[ ${declared} -eq 0 ]]; then _record_managed_dependency "bun-pty"; fi
-    _ok "bun-pty installed — the PTY tools are available"
-  else
-    _warn "bun install failed or timed out — the PTY tools stay unavailable"
-  fi
+# ── Retire the bun-pty dependency an earlier build declared ──────────────────
+# The v2 PTY extension was this adapter's only consumer of `bun-pty`; the plugin
+# is gone, so the dependency is dead weight (and a host that installs the config
+# directory's dependencies would fetch it again). `.opencode/package.json` is
+# seeded once and then the project's own, so the entry is dropped only when the
+# harness's ownership record names it — a dependency the project declared is
+# never touched.
+_retire_pty_dependency() {
+  local manifest="${OPENCODE_DIR}/package.json"
+  local owned="${OPENCODE_DIR}/${_MANAGED_DEPS_FILE}"
+  [[ -f "${manifest}" && -f "${owned}" ]] || return 0
+  grep -qxF "bun-pty" "${owned}" 2>/dev/null || return 0
+
+  local dropped
+  dropped="$(python3 - "${manifest}" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(0)
+deps = data.get("dependencies")
+if not isinstance(deps, dict) or "bun-pty" not in deps:
+    sys.exit(0)
+del deps["bun-pty"]
+with open(path, "w") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+print("bun-pty")
+PYEOF
+)"
+
+  [[ -n "${dropped}" ]] || return 0
+  if grep -vxF "bun-pty" "${owned}" > "${owned}.tmp" 2>/dev/null; then :; fi
+  if [[ -s "${owned}.tmp" ]]; then mv "${owned}.tmp" "${owned}"; else rm -f "${owned}" "${owned}.tmp"; fi
+  _ok "Dropped bun-pty from .opencode/package.json — no shipped plugin uses it"
 }
 
 # ── Migrate a v1-shaped config ────────────────────────────────────────────────
@@ -478,9 +466,11 @@ _link_plugin_dir() {
 # V2 loads a configured plugin directory as a package: without a package.json it
 # tries to npm-install it and fails ("Could not read package.json").
 #
-# The host resolves each part through `exports`, and reports a package with a
-# server part plus an `./rpc` export as RPC-capable — the PTY sidebar needs that
-# flag, so its manifest carries `./tui` and `./rpc` beside the server entry.
+# The host resolves each part through `exports`; a package that ships a TUI or
+# RPC part declares it beside the server entry (the host treats a package with an
+# `./rpc` export as RPC-capable). No shipped package has one today — the PTY
+# extension that did is gone — but the linker keeps the capability for module
+# hook packages that grow one.
 _write_plugin_manifest() {
   local dir="$1" name="$2" tui_src="${3:-}" rpc_src="${4:-}"
   mkdir -p "${dir}"
@@ -616,8 +606,8 @@ _link_module_plugins() {
 }
 
 # ── Link this module's own plugins ─────────────────────────────────────
-# A bare `.ts` here is a server part; a directory is a package carrying its
-# parts (the PTY extension: server, TUI and RPC). _link_plugin_dir links both.
+# A bare `.ts` here is a server part; a directory is a package carrying its parts
+# (`index.ts` plus any `tui.ts` / `rpc.ts`). _link_plugin_dir links both.
 _link_harness_hooks() {
   local hook_dir="${MODULE_DIR}/hooks"
   [[ -d "${hook_dir}" ]] || return 0
@@ -1006,7 +996,6 @@ _copy_opencode_dir
 _write_opencode_config
 _migrate_legacy_config
 _sweep_foreign_artifacts
-_install_plugin_deps
 _ensure_required_plugins
 _ensure_agents_md
 _delegate_harness_dirs
@@ -1021,6 +1010,7 @@ _register_module_mcps
 _register_dynamic_mcps
 _ensure_mcp_cwd
 _retire_stale_plugin_dirs
+_retire_pty_dependency
 _reconcile_plugins
 _retire_legacy_tui_config
 _reconcile_external_directory

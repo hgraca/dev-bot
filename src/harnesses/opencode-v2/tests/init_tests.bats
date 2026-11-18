@@ -14,8 +14,6 @@ setup() {
   export DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../../.." && pwd)"
   export V2_SHARED_DIR="${DEV_BOT_ROOT}/src/_shared"
   export SKIP_CONFIRM=1
-  # Keep the suite offline and fast; the install path is exercised by hand.
-  export DEV_BOT_SKIP_PLUGIN_DEPS=1
 
   PROJECT="$(mktemp -d)"
   printf '{ "harness": "opencode-v2" }\n' > "${PROJECT}/.devbot.project.jsonc"
@@ -53,7 +51,7 @@ v2() {
 @test "init links each plugin as a directory package" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
   local name entry
-  for name in on-hooks mcp-sync pty; do
+  for name in on-hooks mcp-sync; do
     assert [ -d "${PROJECT}/.opencode/plugins/${name}" ]
     entry="${PROJECT}/.opencode/plugins/${name}/index.ts"
     # MUST be a real file: v2 skips a symlinked plugin entry silently.
@@ -73,7 +71,6 @@ v2() {
   assert_success
   refute_output --partial 'plugins/on-hooks'
   refute_output --partial 'plugins/mcp-sync'
-  refute_output --partial 'plugins/pty'
 }
 
 @test "init drops config entries for auto-loaded plugins" {
@@ -114,7 +111,7 @@ v2() {
 @test "every plugin directory carries a package.json" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
   local name
-  for name in on-hooks mcp-sync pty; do
+  for name in on-hooks mcp-sync; do
     assert [ -f "${PROJECT}/.opencode/plugins/${name}/package.json" ]
     python3 -c "
 import json,sys
@@ -125,46 +122,33 @@ assert 'exports' in d, d
   done
 }
 
-@test "the pty plugin links its TUI and RPC parts" {
-  # The PTY extension is one package with three parts. The host resolves each
-  # through `exports`, so a missing part file means a rejected package.
+@test "init retires the pty package an earlier build linked" {
+  # The PTY extension is no longer shipped: required-plugins.jsonc dropped it, so
+  # a stale shim package has to be removed or the host keeps auto-loading it.
+  local dir="${PROJECT}/.opencode/plugins/pty"
+  mkdir -p "${dir}"
+  printf '%s\n' "// dev-bot: generated opencode-v2 plugin shim (do not edit)" > "${dir}/index.ts"
+  printf '{"name":"devbot-pty","version":"0.0.0","type":"module","main":"./index.ts","exports":{".":"./index.ts"}}\n' > "${dir}/package.json"
+
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
-  local dir="${PROJECT}/.opencode/plugins/pty" part
-  for part in index tui rpc; do
-    assert [ -f "${dir}/${part}.ts" ]
-    # MUST be a real file: v2 skips a symlinked plugin entry silently.
-    refute [ -L "${dir}/${part}.ts" ]
-    grep -q "dev-bot: generated opencode-v2 plugin shim" "${dir}/${part}.ts"
-  done
-  grep -q 'export { default } from ' "${dir}/tui.ts"
-  # The RPC contract has no default export; it is re-exported by name.
-  grep -q 'export \* from ' "${dir}/rpc.ts"
+
+  refute [ -e "${dir}" ]
 }
 
-@test "only the pty package exports a TUI and an RPC part" {
-  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
-  run python3 -c "
-import json
-pty = json.load(open('${PROJECT}/.opencode/plugins/pty/package.json'))['exports']
-assert pty['.'] == './index.ts', pty
-assert pty['./tui'] == './tui.ts', pty
-assert pty['./rpc'] == './rpc.ts', pty
-for name in ('on-hooks', 'mcp-sync'):
-    other = json.load(open('${PROJECT}/.opencode/plugins/%s/package.json' % name))['exports']
-    assert list(other) == ['.'], (name, other)
-print('parts declared for pty only')
-"
-  assert_success
-  assert_output --partial "parts declared for pty only"
-}
+@test "init drops a bun-pty dependency it recorded as its own" {
+  # The retired PTY extension was its only consumer. The ownership record is what
+  # keeps the edit from touching a dependency the project declared.
+  mkdir -p "${PROJECT}/.opencode"
+  printf '{ "dependencies": { "bun-pty": "^0.4.10" } }\n' > "${PROJECT}/.opencode/package.json"
+  printf 'bun-pty\n' > "${PROJECT}/.opencode/.devbot-managed-deps"
 
-@test "a seeded package.json records bun-pty as dev-bot's own" {
-  # The handover retires only dependencies this file names, so a project's own
-  # bun-pty survives a v2 round trip.
-  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
-  run cat "${PROJECT}/.opencode/.devbot-managed-deps"
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
   assert_success
-  assert_output --partial "bun-pty"
+  assert_output --partial "Dropped bun-pty"
+
+  run python3 -c "import json; print(json.load(open('${PROJECT}/.opencode/package.json')).get('dependencies', {}))"
+  refute_output --partial "bun-pty"
+  [ ! -e "${PROJECT}/.opencode/.devbot-managed-deps" ]
 }
 
 @test "a package.json the project already had is not claimed" {
@@ -174,16 +158,8 @@ print('parts declared for pty only')
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
 
   [ ! -e "${PROJECT}/.opencode/.devbot-managed-deps" ]
-}
-
-@test "the linked pty parts point at the module's own sources" {
-  # One source of truth: the shim re-exports the file the tests drive, so a
-  # sidebar change cannot land in a copy the suite never sees.
-  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
-  local dir="${PROJECT}/.opencode/plugins/pty"
-  grep -q "hooks/pty/index.ts" "${dir}/index.ts"
-  grep -q "hooks/pty/tui.ts" "${dir}/tui.ts"
-  grep -q "hooks/pty/rpc.ts" "${dir}/rpc.ts"
+  run python3 -c "import json; print(json.load(open('${PROJECT}/.opencode/package.json')).get('dependencies', {}))"
+  assert_output --partial "bun-pty"
 }
 
 @test "init pins local MCP servers to the project directory" {
@@ -558,7 +534,7 @@ _ancestor_package() {
   bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
 
   local name
-  for name in on-hooks mcp-sync pty; do
+  for name in on-hooks mcp-sync; do
     assert [ -d "${PARENT}/.opencode/plugins/${name}" ]
     refute [ -e "${CHILD}/.opencode/plugins/${name}" ]
   done
@@ -575,7 +551,7 @@ _ancestor_package() {
   bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
 
   local name
-  for name in on-hooks mcp-sync pty; do
+  for name in on-hooks mcp-sync; do
     refute [ -e "${CHILD}/.opencode/plugins/${name}" ]
     # The ancestor keeps the only copy.
     assert [ -d "${PARENT}/.opencode/plugins/${name}" ]
@@ -656,18 +632,6 @@ _ancestor_package() {
   refute [ -e "${CHILD}/.opencode/plugins/on-hooks" ]
 }
 
-@test "init warns when the ancestor's package lacks a part this build links" {
-  # An older pty package with only a server part: the nested copy is skipped, so
-  # the missing tui/rpc part cannot be recovered by a restart.
-  _nested_projects
-  _ancestor_package pty "${DEV_BOT_ROOT}/src/harnesses/opencode-v2/hooks/pty/index.ts" 1 devbot-pty
-
-  run bash "${MODULE_DIR}/init.sh" "${CHILD}"
-  assert_success
-  assert_output --partial "lacks tui and rpc"
-  refute [ -e "${CHILD}/.opencode/plugins/pty" ]
-}
-
 @test "init leaves a user's package alone when an ancestor supplies the plugin" {
   _nested_projects
   bash "${MODULE_DIR}/init.sh" "${PARENT}" >/dev/null
@@ -723,7 +687,7 @@ _ancestor_package() {
   assert_success
 
   local name
-  for name in on-hooks mcp-sync pty; do
+  for name in on-hooks mcp-sync; do
     assert [ -d "${PROJECT}/.opencode/plugins/${name}" ]
   done
 }

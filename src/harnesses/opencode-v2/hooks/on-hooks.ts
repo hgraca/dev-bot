@@ -14,7 +14,7 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, ptySubagentGuard, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, canonicalToolName, eventPayload, toolFileTargets, type HookDecl, type FileChangeKind } from "../on-hooks-utils"
+import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, canonicalToolName, eventPayload, toolFileTargets, type HookDecl, type FileChangeKind } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -284,19 +284,13 @@ export default Plugin.define({
     await ctx.tool.hook("execute.before", async (event: any) => {
       const rawTool = String(event?.tool ?? "").toLowerCase()
       const args = event?.input
-      // One canonical name for every downstream matcher: the host reports the
-      // bare name a V2 plugin registered (`spawn`), the guards manifest names
-      // the tool it actually is (`pty_spawn`). Also keeps a bare `write`/`read`
-      // with a `path` from being mistaken for a PTY call (audit-01 FAIL-2).
+      // One normalised name for every downstream matcher: the host supplies the
+      // tool name as the model sees it, and a manifest match must not depend on
+      // its casing. canonicalToolName() is the single place that normalises it.
       const tool = canonicalToolName(rawTool, args)
       // Name the caller for tools that read the session's own state — the MCP
       // server's process cannot know which session invoked it.
       injectSessionId(tool, event?.sessionID, args)
-      // PTYs are top-level only: a `task` subagent's child session cannot
-      // surface a PTY's exit notification, so a notifyOnExit PTY there hangs
-      // the task. Fails open on a lookup error.
-      const ptyReason = await ptySubagentGuard(ctx, tool, event?.sessionID, args)
-      if (ptyReason) throw new Error(`[pty-subagent] ${ptyReason}`)
       // Remember whether each write target exists, so the after-hook can tell a
       // create from an edit without a watcher event.
       for (const target of toolFileTargets(tool, args)) {
