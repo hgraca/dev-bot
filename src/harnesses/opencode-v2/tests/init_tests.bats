@@ -691,3 +691,84 @@ _ancestor_package() {
     assert [ -d "${PROJECT}/.opencode/plugins/${name}" ]
   done
 }
+
+# ── Modules this harness provides natively ───────────────────────────────────
+# OpenCode 2.x ships its own websearch tool, so the devbot module would only add
+# a duplicate MCP server (one tool, plus its schema and instruction block in
+# every session). The exclusion is unconditional — the module's enabled flag
+# cannot bring it back — and reinit says why, once.
+
+@test "websearch: not registered when the module is enabled" {
+  printf '{ "harness": "opencode-v2", "modules": { "websearch": true } }\n' > "${PROJECT}/.devbot.project.jsonc"
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+  assert_success
+  assert_output --partial "built-in websearch tool"
+
+  run v2 get "${CONFIG}" "mcp.servers.websearch"
+  assert_output ""
+}
+
+@test "websearch: not registered when the module is disabled either" {
+  # The ignore is unconditional, not a consequence of enablement: no config
+  # flip may re-enable it on this harness.
+  printf '{ "harness": "opencode-v2", "modules": { "websearch": false } }\n' > "${PROJECT}/.devbot.project.jsonc"
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+  assert_success
+  assert_output --partial "built-in websearch tool"
+
+  run v2 get "${CONFIG}" "mcp.servers.websearch"
+  assert_output ""
+}
+
+@test "websearch: an entry an earlier init wrote is removed" {
+  # merge-mcp is add-only, so an existing entry survives registration; the
+  # exclusion has to retire it or the duplicate server stays live. Seed it the
+  # way an earlier devbot would have: config first, then the entry.
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  # The module's own URL is what makes the entry dev-bot's rather than the
+  # project's, so seed exactly that (the ownership test below covers the other
+  # case).
+  local canonical_url
+  canonical_url="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" \
+    "${DEV_BOT_ROOT}/src/agentic/websearch/mcp.json" mcp websearch url)"
+  v2 merge-mcp "${CONFIG}" websearch "{\"type\":\"remote\",\"url\":\"${canonical_url}\"}"
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+  assert_success
+  assert_output --partial "removed the MCP entry this harness provides natively"
+
+  run v2 get "${CONFIG}" "mcp.servers.websearch"
+  assert_output ""
+}
+
+@test "websearch: a server the project configured itself survives" {
+  # Ownership is decided on the module's own URL: a project may run its own MCP
+  # service under that name, and deleting it on every reinit would be worse than
+  # the duplicate this exclusion removes.
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  v2 merge-mcp "${CONFIG}" websearch '{"type":"remote","url":"https://search.example.test/mcp"}'
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+  assert_success
+  assert_output --partial "left your own 'websearch' MCP server in place"
+
+  run v2 get "${CONFIG}" "mcp.servers.websearch.url"
+  assert_output --partial "search.example.test"
+}
+
+@test "websearch: the notice is printed once per run" {
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+  assert_success
+  [ "$(printf '%s\n' "${output}" | grep -c 'built-in websearch tool')" -eq 1 ]
+}
+
+@test "websearch: the exclusion is a list, not a blanket MCP skip" {
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+  assert_success
+  # A module this harness does not provide natively is still registered.
+  run v2 get "${CONFIG}" "mcp.servers"
+  assert_output --partial "devbot-tools"
+  refute_output --partial "websearch"
+}

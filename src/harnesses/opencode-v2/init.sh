@@ -653,6 +653,66 @@ _ensure_required_plugins() {
   )
 }
 
+# ── Modules this harness already provides natively ───────────────────────────
+# OpenCode 2.x ships a first-class `websearch` tool. The devbot `websearch`
+# module adds one MCP server pinned to one tool (`web_search_exa`) plus its
+# schema and instruction block in every session — a duplicate search surface and
+# nothing else. The exclusion is UNCONDITIONAL: not a consequence of the
+# module's enabled flag, so no configuration can re-enable it on this harness.
+# Harnesses without a built-in search (claudecode) keep the module.
+_v2_native_redundant_modules() { printf '%s\n' websearch; }
+
+_v2_is_native_redundant() {
+  local name="$1" candidate
+  while IFS= read -r candidate; do
+    [[ -n "${candidate}" && "${candidate}" == "${name}" ]] && return 0
+  done < <(_v2_native_redundant_modules)
+  return 1
+}
+
+# The URL the module itself declares for the server it would have registered.
+# Ownership is decided on it: a server under the module's name that points
+# somewhere else is the user's, not dev-bot's, and must survive.
+_native_module_url() {
+  local name="$1" manifest
+  manifest="${DEV_BOT_ROOT}/src/agentic/${name}/mcp.json"
+  [[ -f "${manifest}" ]] || return 0
+  python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${manifest}" mcp "${name}" url 2>/dev/null || true
+}
+
+# Say why, and retire an entry an earlier init (or a merge) already wrote —
+# merge-mcp is add-only, so silence here would leave the duplicate server live in
+# every session while the code claimed to exclude it.
+#
+# Ownership first: a project may have configured its own MCP service under the
+# module's name, and silently deleting it on every reinit would be worse than the
+# duplicate this exclusion removes. Only the entry matching the module's own URL
+# is ours to delete; anything else is reported and left alone.
+_reconcile_native_module_mcps() {
+  local name canonical existing existing_url
+  while IFS= read -r name; do
+    [[ -n "${name}" ]] || continue
+    _notice "${name}: opencode-v2 has a built-in ${name} tool, so this module's MCP is not registered here — it would only duplicate it. Other harnesses still get it."
+
+    existing="$(_v2 get "${CONFIG}" "mcp.servers.${name}" 2>/dev/null || true)"
+    [[ -n "${existing}" ]] || continue
+
+    canonical="$(_native_module_url "${name}")"
+    # `_v2 get` prints JSON, so unwrap the string before comparing.
+    existing_url="$(_v2 get "${CONFIG}" "mcp.servers.${name}.url" 2>/dev/null | jq -r '.' 2>/dev/null || true)"
+    if [[ -z "${canonical}" || "${existing_url}" != "${canonical}" ]]; then
+      _notice "${name}: left your own '${name}' MCP server in place — it is not the one this module declares"
+      continue
+    fi
+
+    if _v2 remove-mcp "${CONFIG}" "${name}" >/dev/null 2>&1; then
+      _ok "${name}: removed the MCP entry this harness provides natively"
+    else
+      _warn "${name}: could not remove its MCP entry from ${CONFIG}"
+    fi
+  done < <(_v2_native_redundant_modules)
+}
+
 # ── Register every enabled module's canonical MCP manifest ────────────────────
 # bin/init.sh registers MCPs only when the selected harness is `opencode`
 # (_resolve_opencode_config returns nothing for this harness), so this module
@@ -672,6 +732,11 @@ _register_module_mcps() {
     for mod_dir in "${base}"/*/; do
       mod_name="$(basename "${mod_dir}")"
       if echo "${disabled_names}" | grep -Fxq "${mod_name}" 2>/dev/null; then
+        continue
+      fi
+      # A module whose capability this harness provides natively is never
+      # registered, whatever its enabled flag says.
+      if _v2_is_native_redundant "${mod_name}"; then
         continue
       fi
 
@@ -1017,6 +1082,7 @@ _link_plugins_modules
 _link_module_plugins
 _register_module_mcps
 _register_dynamic_mcps
+_reconcile_native_module_mcps
 _ensure_mcp_cwd
 _retire_stale_plugin_dirs
 _retire_pty_dependency

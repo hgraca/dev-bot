@@ -50,6 +50,16 @@ Two behavioural traps carried from the V1→V2 migration: `external_directory` i
 V1 behaviour; and `lsp` is accepted but **inert** — V2 runs no language servers
 and emits no diagnostics.
 
+## Modules this harness provides natively
+
+OpenCode 2.x ships a first-class `websearch` tool, so the devbot `websearch` module is **never
+registered on this harness** — enabled or not. The module adds one MCP server pinned to one tool
+(`web_search_exa`); a second search surface would only duplicate the built-in one while keeping its
+schema and instruction block in every session. `init.sh` skips it in the MCP pass, retires an entry an
+earlier init already wrote, and prints a `notice` saying why (`src/agentic/websearch/docs.md` carries
+the same note from the module's side). Harnesses without a built-in search, Claude Code included, keep
+the module.
+
 ## Deliberately not ported
 
 These v1 files have no working v2 counterpart and are omitted rather than

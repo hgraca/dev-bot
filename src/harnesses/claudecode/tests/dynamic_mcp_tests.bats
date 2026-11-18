@@ -148,3 +148,24 @@ print('CC-DYN-GATE-DROPPED:OK')
   assert_success
   grep -qF 'CC-DYN-GATE-DROPPED:OK' <<< "$output" || fail ".mcp.json carries the dev-bot enabled gate"
 }
+
+@test "the websearch module is still wired where the harness has no built-in search" {
+  # opencode-v2 excludes this module because it ships an equivalent tool.
+  # Claudecode has no such tool, so the module must keep working here — a future
+  # harness must not inherit the exclusion by accident.
+  _write_project_config true
+
+  run bash "${INIT_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 - "${SANDBOX_DIR}/.mcp.json" <<'PY'
+import json, sys
+
+servers = json.load(open(sys.argv[1]))["mcpServers"]
+assert "websearch" in servers, sorted(servers)
+assert servers["websearch"]["url"].startswith("https://mcp.exa.ai/"), servers["websearch"]
+print("WS-WIRED:OK")
+PY
+  assert_success
+  assert_output --partial "WS-WIRED:OK"
+}
