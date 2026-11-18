@@ -256,6 +256,39 @@ PY
 
 # Install a pinned PDepend into the shared scratch dir. Composer is the official
 # distribution channel.
+# Reclaim a scratch dir an older dev-bot provisioned as root.
+#
+# Provision used to run its installer as root, so an existing vendor/ or
+# node_modules the host user cannot write makes the next provision fail with a
+# permission error instead of upgrading the engine. Docker can chown what the
+# host user cannot, so repair ownership from a throwaway container instead of
+# making the user hand it to sudo. Cheap when there is nothing to repair: one
+# stat on the sentinel.
+_claim_scratch_dir() {
+  local dir="$1" stray
+  [[ -d "${dir}" ]] || return 0
+  # Reclaim only the documented legacy state, and only in place. STORAGE_DIR is
+  # env-controlled, so a recursive ownership change is a hazard: refuse a
+  # symlinked scratch (the recursion would leave the engine dir) and require the
+  # entries to be root-owned, which is exactly what the old provision left behind
+  # — a directory owned by another ordinary user is not ours to take.
+  if [[ -L "${dir}" ]]; then
+    echo "WARN: ${dir} is a symlink; not reclaiming it — point the engine at a real directory" >&2
+    return 0
+  fi
+  stray="$(find "${dir}" -maxdepth 1 -user 0 -print -quit 2>/dev/null || true)"
+  [[ -n "${stray}" ]] || return 0
+  # -h: follow no symlinks inside the tree while recursing.
+  if docker run --rm --network none -v "${dir}:/claim" alpine \
+    chown -Rh "$(id -u):$(id -g)" /claim >/dev/null 2>&1; then
+    return 0
+  fi
+  # Say it instead of skipping: without the reclaim the install below fails with
+  # a permission error that names neither the cause nor the fix.
+  echo "WARN: ${dir} still holds files owned by another user, and they could not be reclaimed" >&2
+  echo "WARN: fix it with: docker run --rm --network none -v '${dir}:/claim' alpine chown -R $(id -u):$(id -g) /claim" >&2
+}
+
 cmd_provision() {
   local version="${1:-^2.16}"
   local dir="${STORAGE_DIR}/php"
@@ -266,10 +299,14 @@ cmd_provision() {
   fi
 
   mkdir -p "${dir}"
+  _claim_scratch_dir "${dir}"
   # Composer needs the network; host networking keeps the container off a bridge,
   # so it creates no veth pair and no host interface event (see cmd_units).
-  if ! docker run --rm --network host -v "${dir}:/app" -w /app composer:2 \
-    require "pdepend/pdepend:${version}" --no-interaction --no-progress -q >&2; then
+  # As the invoking user: a root-owned vendor tree in storage/ is uneditable and
+  # undeletable from the host. HOME/COMPOSER_HOME stay writable in the container.
+  if ! docker run --rm --network host -v "${dir}:/app" -w /app \
+    --user "$(id -u):$(id -g)" -e HOME=/tmp -e COMPOSER_HOME=/tmp/composer \
+    composer:2 require "pdepend/pdepend:${version}" --no-interaction --no-progress -q >&2; then
     echo "ERROR: composer could not install pdepend/pdepend:${version}" >&2
     exit 1
   fi

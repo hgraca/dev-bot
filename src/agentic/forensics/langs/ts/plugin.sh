@@ -118,9 +118,43 @@ print(json.dumps({"ok": True, "lang": "ts", "project": project, "image": image,
 PY
 }
 
+# Reclaim a scratch dir an older dev-bot provisioned as root.
+#
+# Provision used to run its installer as root, so an existing vendor/ or
+# node_modules the host user cannot write makes the next provision fail with a
+# permission error instead of upgrading the engine. Docker can chown what the
+# host user cannot, so repair ownership from a throwaway container instead of
+# making the user hand it to sudo. Cheap when there is nothing to repair: one
+# stat on the sentinel.
+_claim_scratch_dir() {
+  local dir="$1" stray
+  [[ -d "${dir}" ]] || return 0
+  # Reclaim only the documented legacy state, and only in place. STORAGE_DIR is
+  # env-controlled, so a recursive ownership change is a hazard: refuse a
+  # symlinked scratch (the recursion would leave the engine dir) and require the
+  # entries to be root-owned, which is exactly what the old provision left behind
+  # — a directory owned by another ordinary user is not ours to take.
+  if [[ -L "${dir}" ]]; then
+    echo "WARN: ${dir} is a symlink; not reclaiming it — point the engine at a real directory" >&2
+    return 0
+  fi
+  stray="$(find "${dir}" -maxdepth 1 -user 0 -print -quit 2>/dev/null || true)"
+  [[ -n "${stray}" ]] || return 0
+  # -h: follow no symlinks inside the tree while recursing.
+  if docker run --rm --network none -v "${dir}:/claim" alpine \
+    chown -Rh "$(id -u):$(id -g)" /claim >/dev/null 2>&1; then
+    return 0
+  fi
+  # Say it instead of skipping: without the reclaim the install below fails with
+  # a permission error that names neither the cause nor the fix.
+  echo "WARN: ${dir} still holds files owned by another user, and they could not be reclaimed" >&2
+  echo "WARN: fix it with: docker run --rm --network none -v '${dir}:/claim' alpine chown -R $(id -u):$(id -g) /claim" >&2
+}
+
 cmd_provision() {
   local dir="${STORAGE_DIR}/ts"
   mkdir -p "${dir}"
+  _claim_scratch_dir "${dir}"
   if command -v npm >/dev/null 2>&1; then
     if ! npm --prefix "${dir}" install --silent "typescript@5" >&2; then
       echo "ERROR: npm could not install typescript" >&2
@@ -129,7 +163,11 @@ cmd_provision() {
   elif command -v docker >/dev/null 2>&1; then
     # npm needs the network; host networking keeps the container off a bridge, so
     # it creates no veth pair and no host interface event (see cmd_units).
-    if ! docker run --rm --network host -v "${dir}:/app" -w /app node:22-slim npm install --silent "typescript@5" >&2; then
+    # As the invoking user for the same reason: npm as root writes node_modules
+    # the host cannot remove.
+    if ! docker run --rm --network host -v "${dir}:/app" -w /app \
+      --user "$(id -u):$(id -g)" -e HOME=/tmp -e npm_config_cache=/tmp/npm \
+      node:22-slim npm install --silent "typescript@5" >&2; then
       echo "ERROR: could not install typescript via the node image" >&2
       exit 1
     fi

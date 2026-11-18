@@ -500,3 +500,29 @@ JSON
   [ "${local_var}" = "1" ]
 }
 
+
+@test "end-to-end (py): an apply that changes nothing reports changed=false" {
+  # The field exists so a caller cannot report a fix that never happened; the
+  # Python engine has to answer it the same way the PHP one does.
+  _py_e2e_ready || skip "docker + rope engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PY_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"greet","apply":true}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PY_PLUGIN}' apply < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  run python3 -c "
+import json, sys
+doc = json.loads(sys.argv[1])
+assert doc['ok'] is True, doc
+assert doc['applied'] is True, doc
+assert doc['changed'] is False, doc
+print('PY-NOOP:OK')
+" "${output}"
+  assert_success
+  assert_output --partial "PY-NOOP:OK"
+}
