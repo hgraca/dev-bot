@@ -576,15 +576,14 @@ sys.exit(1)
 }
 
 _link_plugins_modules() {
-  local disabled_raw
-  disabled_raw=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
   local disabled_modules
-  disabled_modules=$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
+  disabled_modules="$(_devbot_disabled_module_names "${PROJECT_DIR}")"
 
   local mod_dir mod_name
   for mod_dir in "${DEV_BOT_ROOT}/src/agentic/"*/; do
-    mod_name="$(basename "${mod_dir}")"
-    if echo "${disabled_modules}" | grep -Fxq "${mod_name}" 2>/dev/null; then
+    mod_name="${mod_dir%/}"
+    mod_name="${mod_name##*/}"
+    if _devbot_list_has "${mod_name}" "${disabled_modules}"; then
       _skip "${mod_name}: disabled per config — skipping"
       continue
     fi
@@ -598,15 +597,14 @@ _link_plugins_modules() {
 # plugins, and V1 plugin implementations do not run on V2 — registering one would
 # only add a plugin that never loads.
 _link_module_plugins() {
-  local disabled_raw
-  disabled_raw=$(_devbot_get_disabled_modules "${PROJECT_DIR}")
   local disabled_modules
-  disabled_modules=$(echo "${disabled_raw}" | jq -r '.[]' 2>/dev/null || true)
+  disabled_modules="$(_devbot_disabled_module_names "${PROJECT_DIR}")"
 
   local mod_dir mod_name plugin_file
   for mod_dir in "${DEV_BOT_ROOT}/src/agentic/"*/; do
-    mod_name="$(basename "${mod_dir}")"
-    if echo "${disabled_modules}" | grep -Fxq "${mod_name}" 2>/dev/null; then
+    mod_name="${mod_dir%/}"
+    mod_name="${mod_name##*/}"
+    if _devbot_list_has "${mod_name}" "${disabled_modules}"; then
       continue
     fi
 
@@ -746,15 +744,19 @@ _register_module_mcps() {
   [[ -f "${translate}" ]] || return 0
 
   local disabled_names gpu
-  disabled_names="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null | jq -r '.[]' 2>/dev/null || true)"
+  disabled_names="$(_devbot_disabled_module_names "${PROJECT_DIR}")"
   gpu="$(_qmd_gpu_value)"
 
-  local base mod_dir mod_name manifest out key def def_v2
+  # Collect every manifest first, then translate and write them in one pass.
+  # Each _v2 or translator call is an interpreter launch, and one launch per
+  # module (or per server) cost more than the rest of init together.
+  local manifests=() base mod_dir mod_name manifest
   for base in "${DEV_BOT_ROOT}/src/tools" "${DEV_BOT_ROOT}/src/agentic" "${DEV_BOT_ROOT}/src/harnesses"; do
     [[ -d "${base}" ]] || continue
     for mod_dir in "${base}"/*/; do
-      mod_name="$(basename "${mod_dir}")"
-      if echo "${disabled_names}" | grep -Fxq "${mod_name}" 2>/dev/null; then
+      mod_name="${mod_dir%/}"
+      mod_name="${mod_name##*/}"
+      if _devbot_list_has "${mod_name}" "${disabled_names}"; then
         continue
       fi
       # A module whose capability this harness provides natively is never
@@ -773,20 +775,46 @@ _register_module_mcps() {
         _notice "${mod_name}: v1 plugin does not load under 2.x — registering its MCP instead"
       fi
 
-      out="$(python3 "${translate}" "${manifest}" opencode --gpu "${gpu}" --root "${DEV_BOT_ROOT}" 2>/dev/null || true)"
-      [[ -n "${out}" ]] || continue
-
-      while IFS= read -r key; do
-        [[ -n "${key}" ]] || continue
-        def="$(jq -c --arg k "${key}" '.[$k]' <<<"${out}" 2>/dev/null || true)"
-        [[ -n "${def}" ]] || continue
-        def_v2="$(jq -c --arg cwd "${PROJECT_DIR}" '(if has("enabled") then (if .enabled then .disabled = false else .disabled = true end) | del(.enabled) else . end) | (if .type == "local" and (has("cwd") | not) then .cwd = $cwd else . end)' <<<"${def}" 2>/dev/null || printf '%s' "${def}")"
-        if _v2 merge-mcp "${CONFIG}" "${key}" "${def_v2}" >/dev/null 2>&1; then
-          _ok "registered MCP '${key}' from ${mod_name}"
-        fi
-      done < <(jq -r 'keys[]' <<<"${out}" 2>/dev/null || true)
+      manifests+=("${manifest}")
     done
   done
+
+  [[ ${#manifests[@]} -gt 0 ]] || return 0
+
+  local batch="" sep="" owners="" owner_mod key def_v2 owner
+  local seen=$'\n'
+  while IFS=$'\t' read -r owner_mod key def_v2; do
+    [[ -n "${owner_mod}" && -n "${key}" && -n "${def_v2}" ]] || continue
+    # Two modules can declare the same server name. merge-mcp is insert-only,
+    # so the first declaration won; a JSON object would let the later one
+    # overwrite it, so drop the duplicate here and keep that behaviour.
+    if _devbot_list_has "${key}" "${seen}"; then
+      continue
+    fi
+    seen+="${key}"$'\n'
+    batch+="${sep}\"${key}\":${def_v2}"
+    sep=","
+    owners+="${key}"$'\t'"${owner_mod}"$'\n'
+  done < <(python3 "${translate}" --batch --harness opencode --gpu "${gpu}" \
+    --root "${DEV_BOT_ROOT}" "${manifests[@]}" 2>/dev/null |
+    jq -r --arg cwd "${PROJECT_DIR}" '
+      select(.servers) | .module as $m | .servers | to_entries[]
+      | .key as $k
+      | (.value
+          | (if has("enabled") then (if .enabled then .disabled = false else .disabled = true end) | del(.enabled) else . end)
+          | (if .type == "local" and (has("cwd") | not) then .cwd = $cwd else . end)
+        ) as $d
+      | "\($m)\t\($k)\t\($d | tojson)"' 2>/dev/null || true)
+
+  [[ -n "${batch}" ]] || return 0
+
+  local added
+  added="$(_v2 merge-mcps "${CONFIG}" "{${batch}}" 2>/dev/null || true)"
+  while IFS= read -r key; do
+    [[ -n "${key}" ]] || continue
+    owner="$(awk -F'\t' -v k="${key}" '$1 == k {print $2; exit}' <<<"${owners}")"
+    _ok "registered MCP '${key}' from ${owner}"
+  done <<<"${added}"
 }
 
 # ── Register dynamic MCP manifests written by module inits ────────────────────
@@ -794,14 +822,16 @@ _register_dynamic_mcps() {
   [[ -d "${OPENCODE_DIR}" ]] || return 0
 
   local disabled_names
-  disabled_names="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null | jq -r '.[]' 2>/dev/null || true)"
+  disabled_names="$(_devbot_disabled_module_names "${PROJECT_DIR}")"
 
   local manifest key def def_v2 existing
+  local manifest_name
   for manifest in "${OPENCODE_DIR}/"*.mcp.json; do
     [[ -f "${manifest}" ]] || continue
+    manifest_name="${manifest##*/}"
 
-    if _devbot_manifest_owner_disabled "$(basename "${manifest}")" "${disabled_names}"; then
-      _skip "$(basename "${manifest}"): owning module disabled — not registering"
+    if _devbot_manifest_owner_disabled "${manifest_name}" "${disabled_names}"; then
+      _skip "${manifest_name}: owning module disabled — not registering"
       continue
     fi
 
@@ -821,7 +851,7 @@ _register_dynamic_mcps() {
     fi
 
     if _v2 merge-mcp "${CONFIG}" "${key}" "${def_v2}" >/dev/null 2>&1; then
-      _ok "Registered dynamic MCP '${key}' from $(basename "${manifest}")"
+      _ok "Registered dynamic MCP '${key}' from ${manifest_name}"
     fi
   done
 }
@@ -868,8 +898,9 @@ _retire_stale_plugin_dirs() {
     # pointed at something that happens to contain it.
     [[ -L "${dir}index.ts" ]] && continue
     [[ -f "${dir}index.ts" ]] && grep -qF "${_PLUGIN_SHIM_MARKER}" "${dir}index.ts" 2>/dev/null || continue
-    name="$(basename "${dir}")"
-    printf '%s\n' "${declared}" | grep -Fxq ".opencode/plugins/${name}" && continue
+    name="${dir%/}"
+    name="${name##*/}"
+    _devbot_list_has ".opencode/plugins/${name}" "${declared}" && continue
     rm -r -f "${dir}"
     _ok "Removed retired plugin package ${name}"
   done
@@ -1069,7 +1100,7 @@ _link_skill_farm() {
   local stale resolved
   while IFS= read -r -d '' stale; do
     name="$(basename "${stale}")"
-    grep -Fxq -- "${name}" <<< "${desired}" && continue
+    _devbot_list_has "${name}" "${desired}" && continue
     resolved="$(readlink "${stale}" 2>/dev/null || true)"
     [[ -n "${resolved}" ]] || continue
     # `readlink -f` is absent on stock macOS; resolve the target's directory by

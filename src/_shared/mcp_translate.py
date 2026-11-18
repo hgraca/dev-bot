@@ -61,6 +61,7 @@ Exit codes: 0 ok (prints {"<server>": {...}, ...}); 1 invalid manifest/harness.
 
 import argparse
 import json
+import os
 import re
 import sys
 from typing import Any, Optional
@@ -344,18 +345,55 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Translate a canonical mcp.json manifest to a harness shape."
     )
-    parser.add_argument("manifest", help="canonical src/agentic/<module>/mcp.json")
-    parser.add_argument("harness", choices=HARNESSES, help="target harness")
+    parser.add_argument(
+        "paths",
+        nargs="+",
+        help="<manifest> <harness> — with --batch, one or more manifests and "
+        "--harness instead of a trailing positional",
+    )
+    parser.add_argument(
+        "--harness", choices=HARNESSES, help="target harness (single mode may also pass it last)"
+    )
     parser.add_argument("--gpu", help="resolve __GPU_ENABLED__ to this value")
     parser.add_argument("--root", help="resolve __DEV_BOT_ROOT__ to this path")
+    parser.add_argument(
+        "--batch",
+        action="store_true",
+        help="translate every given manifest, one JSON line per manifest "
+        '({"module": <dir name>, "servers": {...}} or {"module": ..., "error": ...}). '
+        "An init wires every enabled module's manifest and a process per module "
+        "dominated its runtime.",
+    )
     args = parser.parse_args(argv)
 
-    try:
-        servers = server_map(load_canonical(args.manifest))
+    def translate_manifest(path, harness):
+        servers = server_map(load_canonical(path))
         translated = {}
         for name, entry in servers.items():
             _validate_entry(name, entry)
-            translated[name] = translate(entry, args.harness, args.gpu, args.root)
+            translated[name] = translate(entry, harness, args.gpu, args.root)
+        return translated
+
+    if args.batch:
+        if not args.harness:
+            parser.error("--batch needs --harness")
+        for path in args.paths:
+            module = os.path.basename(os.path.dirname(os.path.abspath(path)))
+            try:
+                record = {"module": module, "servers": translate_manifest(path, args.harness)}
+            except (OSError, ValueError, json.JSONDecodeError) as e:
+                record = {"module": module, "error": str(e)}
+            print(json.dumps(record))
+        return 0
+
+    # Single mode keeps the documented shape: <manifest> <harness>.
+    manifest = args.paths[0]
+    harness = args.paths[1] if len(args.paths) > 1 else args.harness
+    if len(args.paths) > 2 or harness not in HARNESSES:
+        parser.error("usage: mcp_translate.py <manifest> <harness> [--gpu G] [--root R]")
+
+    try:
+        translated = translate_manifest(manifest, harness)
     except (OSError, ValueError, json.JSONDecodeError) as e:
         print(f"FATAL: mcp_translate: {e}", file=sys.stderr)
         return 1

@@ -346,6 +346,28 @@ def cmd_merge_mcp(path, key, definition):
     return 0
 
 
+def cmd_merge_mcps(path, entries_json):
+    """merge-mcp for a whole set, in one process.
+
+    Prints the keys it added, one per line; a server already present is left
+    alone (merge-mcp is insert-only) and not printed. The compact separators
+    keep the written text identical to a `jq -c` definition passed on argv.
+    """
+    entries = json.loads(entries_json)
+    added = []
+    for key, definition in entries.items():
+        cfg = load(path)
+        if key in ((cfg.get("mcp") or {}).get("servers") or {}):
+            continue
+        cmd_merge_mcp(
+            path,
+            key,
+            json.dumps(definition, separators=(",", ":"), ensure_ascii=False),
+        )
+        added.append(key)
+    return added
+
+
 def cmd_remove_mcp(path, key):
     text = read(path)
     open_i, close_i = _root(text)
@@ -521,6 +543,11 @@ def main(argv):
         return cmd_remove_tui_plugin(path, rest[0])
     if cmd == "merge-mcp":
         return cmd_merge_mcp(path, rest[0], rest[1])
+    if cmd == "merge-mcps":
+        added = cmd_merge_mcps(path, rest[0])
+        for key in added:
+            print(key)
+        return 0
     if cmd == "remove-mcp":
         return cmd_remove_mcp(path, rest[0])
     if cmd == "ensure-external-directory":
