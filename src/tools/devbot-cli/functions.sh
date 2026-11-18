@@ -8,31 +8,137 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${MODULE_DIR}/../../_shared/functions.sh"
 
 # ── Link module agents into .agents/ ────────────────────────────────────────────
+# One link per AGENT, named after the agent's FRONTMATTER NAME:
+#   .agents/agents/<name>.md  →  <module>/agents/<file>.md
+#
+# The link name IS the agent id on an OpenCode 2 host, which derives it from the
+# path below `.opencode/agents` (verified: `agents/nested/deep.md` registers as
+# `nested/deep`). A module-directory link therefore registered every agent as
+# `<module>/<name>`, so the `agents.<name>` entries in opencode.jsonc and
+# `default_agent` matched nothing — the host built a prompt-less agent of that
+# bare name instead and the session ran with no persona at all (`devbot`,
+# `teamlead`, `scout` … all empty; every `@handle` and every "load this skill at
+# session start" rule dead). Flat links at the frontmatter name make id == name
+# on both harnesses, so the existing config overrides merge into the real agent.
+# ── Take a module's agents back out of the farm ────────────────────────────────
+# A module disabled after it was linked is skipped by `_link_modules`, so nothing
+# would ever reconcile its flat links away and the host would keep serving agents
+# the project configuration disabled. Only what this harness created is removed:
+# a link into this module's agents dir, and the legacy module-directory link when
+# it targets that dir.
+_unlink_agents() {
+  local mod_dir="$1"
+  local reason="${2:-disabled}"
+  local agent_dir="${mod_dir}agents"
+  local mod_name
+  mod_name="$(basename "${mod_dir}")"
+  local farm="${AGENTS_DIR}/agents"
+  local legacy="${farm}/${mod_name}"
+
+  [[ -d "${farm}" ]] || return 0
+  if [[ -L "${legacy}" && "$(readlink "${legacy}")" == "${agent_dir}" ]]; then
+    rm -f "${legacy}"
+    _ok "agents/${mod_name} pruned (module ${reason})"
+  fi
+  _prune_agent_links "${farm}" "${agent_dir}" ""
+}
+
+# ── Reconcile the flat agent links against what a module ships ─────────────────
+# `wanted` is the newline-separated set of names the module links now; an empty
+# set prunes every link into the module's agents dir, including dangling ones
+# whose directory is gone.
+_prune_agent_links() {
+  local farm="$1"
+  local agent_dir="$2"
+  local wanted="$3"
+
+  local stale resolved bare raw
+  while IFS= read -r -d '' stale; do
+    bare="$(basename "${stale}" .md)"
+    if [[ -n "${wanted}" ]] && grep -Fxq -- "${bare}" <<< "${wanted}"; then
+      continue
+    fi
+    resolved="$(_link_target_path "${stale}")"
+    if [[ -z "${resolved}" ]]; then
+      # A link into a now-missing directory resolves to nothing; normalise the
+      # recorded target by hand so it can still be recognised as ours.
+      raw="$(readlink "${stale}" 2>/dev/null || true)"
+      [[ -n "${raw}" ]] || continue
+      [[ "${raw}" == /* ]] || raw="$(dirname "${stale}")/${raw}"
+      resolved="${raw}"
+    fi
+    [[ "${resolved}" == "${agent_dir}"/* ]] || continue
+    rm -f "${stale}"
+    _ok "agents/${bare} pruned (agent no longer shipped)"
+  done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
+}
+
 _link_agents() {
   local mod_dir="$1"
   local agent_dir="${mod_dir}agents"
-  [[ ! -d "${agent_dir}" ]] && return
   local mod_name
   mod_name="$(basename "${mod_dir}")"
-  local link_name="${AGENTS_DIR}/agents/${mod_name}"
+  local farm="${AGENTS_DIR}/agents"
+  local legacy="${farm}/${mod_name}"
+  local wanted=""
 
-  if [[ -L "${link_name}" ]]; then
-    local current
-    current="$(readlink "${link_name}")"
-    if [[ "${current}" == "${agent_dir}" ]]; then
-      _skip "agents/${mod_name} already linked"
-    else
-      rm -f "${link_name}"
-      ln -sf "${agent_dir}" "${link_name}"
-      _ok "agents/${mod_name} relinked"
+  if [[ -d "${agent_dir}" ]]; then
+    # The module-directory link of the previous shape becomes a flat farm. Only
+    # a link this harness created (one targeting this module's agents dir) is
+    # ours to remove — a user's own link named after the module stays.
+    if [[ -L "${legacy}" ]]; then
+      if [[ "$(readlink "${legacy}")" == "${agent_dir}" ]]; then
+        rm -f "${legacy}"
+      else
+        _warn "agents/${mod_name} links outside this module — leaving it"
+      fi
+    elif [[ -e "${legacy}" ]]; then
+      # A real directory or file of this name is not ours to remove, and it does
+      # not occupy the flat `<name>.md` entries — so link those anyway.
+      _warn "agents/${mod_name} exists but is not our link — leaving it"
     fi
-  elif [[ -e "${link_name}" ]]; then
-    _warn "agents/${mod_name} exists but is not a symlink"
+    mkdir -p "${farm}"
+
+    local f name link current resolved
+    while IFS= read -r -d '' f; do
+      name="$(sed -n 's/^name:[[:space:]]*//p' "${f}" | head -1 | tr -d '\r"' | sed 's/[[:space:]]*$//')"
+      [[ -n "${name}" ]] || name="$(basename "${f}" .md)"
+      # A name with a path separator would escape the farm.
+      [[ "${name}" == */* || "${name}" == "." || "${name}" == ".." ]] && continue
+      link="${farm}/${name}.md"
+      wanted+="${name}"$'\n'
+
+      if [[ -L "${link}" ]]; then
+        current="$(readlink "${link}")"
+        if [[ "${current}" == "${f}" ]]; then
+          _skip "agents/${name} already linked"
+        else
+          # Only a link this harness created is ours to re-point — a foreign
+          # one (a user's own agent) is left in place, as above.
+          resolved="$(_link_target_path "${link}")"
+          [[ -n "${resolved}" ]] || resolved="${current}"
+          if [[ "${resolved}" == "${agent_dir}"/* ]]; then
+            rm -f "${link}"
+            ln -sf "${f}" "${link}"
+            _ok "agents/${name} relinked"
+          else
+            _warn "agents/${name}.md links outside this module — leaving it"
+          fi
+        fi
+      elif [[ -e "${link}" ]]; then
+        _warn "agents/${name}.md exists but is not a symlink — leaving it"
+      else
+        ln -sf "${f}" "${link}"
+        _ok "agents/${name} linked"
+      fi
+    done < <(find "${agent_dir}" -mindepth 1 -maxdepth 1 -name '*.md' -type f -print0 2>/dev/null)
   else
-    mkdir -p "$(dirname "${link_name}")"
-    ln -sf "${agent_dir}" "${link_name}"
-    _ok "agents/${mod_name} linked"
+    _unlink_agents "${mod_dir}" "ships no agents"
   fi
+
+  # Reconcile: an agent renamed or removed must not keep a link in the farm (the
+  # host would advertise an agent that no longer exists).
+  _prune_agent_links "${farm}" "${agent_dir}" "${wanted}"
 }
 
 # ── Link module commands into .agents/ ──────────────────────────────────────────
@@ -255,9 +361,11 @@ _link_modules() {
     local mod_name
     mod_name="$(basename "${mod_dir}")"
 
-    # Skip ENTIRE module if disabled — no symlinks created
+    # Skip ENTIRE module if disabled — no symlinks created, and any link an
+    # earlier run created is taken back out.
     if echo "${disabled_modules}" | grep -Fxq "${mod_name}" 2>/dev/null; then
       _skip "${mod_name}: disabled per config — skipping"
+      _unlink_agents "${mod_dir}"
       continue
     fi
 

@@ -60,7 +60,7 @@ Verifiable output: formatted draft file.
 
 - **Skill names** — every `` `skill-name` `` referenced must exist on disk: `glob src/**/skills/<name>/SKILL.md`. Verify against `src/`, NOT `.opencode/` (glob does not follow the symlinks there — see Gotchas).
 - **Anchors** — every `[text](#anchor)` resolves to a heading in the same file (GitHub slug: lowercase, spaces→hyphens, symbols stripped).
-- **Wiring** — the file appears at `.opencode/agents/<module>/<name>.md` through the link chain; `name:` frontmatter present.
+- **Wiring** — the file appears at `.opencode/agents/<name>.md` through the link chain (one link per agent, named at its frontmatter `name:`); `name:` frontmatter present.
 - **Name-sensitive surfaces** (see Runtime wiring reference) updated if this is a real new agent, not a draft.
 
 Verifiable output: all checks pass, or findings reported.
@@ -72,7 +72,7 @@ Run `devbot:optimize-instructions` on the draft. Classify as **Role** file. Pay 
 ### Step 7: Roll out
 
 - A/B variant validated → replace the live file (user-driven swap preserves history).
-- Real new agent → add `agent.<name>` model entry in `opencode.jsonc` if it should not fall back to the default model, and add it to `docs/agents.md` (the human-readable enumeration — the runtime needs neither).
+- Real new agent → add the model entry in `opencode.jsonc` — `agent.<name>` (v1) and `agents.<name>` (v2) — if it should not fall back to the default model, and add it to `docs/agents.md` (the human-readable enumeration — the runtime needs neither).
 
 ## Agent structure
 
@@ -108,7 +108,7 @@ Canonical for **all** agents — primary and subagent. Legacy agents still on th
 | `mode`        | `primary` or `subagent`; multiple primaries may coexist — `default_agent` selects the one |
 | `temperature` | Optional (e.g. `0.3` for instruction-following roles)                                     |
 | `permission`  | e.g. `bash: allow`, `task: allow` — least privilege                                       |
-| `model`       | Optional; overrides `agent.<name>` in `opencode.jsonc`                                    |
+| `model`       | Optional; overrides `agent.<name>` (v1) / `agents.<name>` (v2) in `opencode.jsonc`        |
 
 ## Behavioral rule library
 
@@ -167,14 +167,14 @@ Unlike the universal safety rules above, **adapt the wording to the agent's own 
 
 ## Runtime wiring reference
 
-| Surface                  | Location                                                                  | Effect when adding an agent                                                      |
-| ------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Agent discovery          | `src/agentic/<mod>/agents/` → `.agents/agents/<mod>` → `.opencode/agents` | Automatic — every `.md` with `name:` becomes a selectable agent; no registration |
-| Default agent            | `opencode.jsonc` `default_agent`                                          | Unchanged until you edit it — new agent never hijacks sessions                   |
-| Model assignment         | `opencode.jsonc` `agent.<name>` section                                   | Missing → default-model fallback; frontmatter `model:` overrides                 |
-| Docs enumeration         | `docs/agents.md`                                                          | Manual — update for real new agents                                              |
-| BATS agent-symlink tests | `src/tools/devbot-cli/tests/devbot_tests.bats`                            | Enumerates only `devteam` — other modules' agent files don't trip it             |
-| Claude Code harness      | `.claude/agents` mirror                                                   | Same symlink mechanics; only when the claudecode module is enabled               |
+| Surface                  | Location                                                                      | Effect when adding an agent                                                                                                                                                                   |
+| ------------------------ | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Agent discovery          | `src/agentic/<mod>/agents/` → `.agents/agents/<name>.md` → `.opencode/agents` | Automatic — every `.md` with `name:` becomes a selectable agent; no registration. The link is named at the frontmatter `name:`, because an OpenCode 2 host derives the agent id from the path |
+| Default agent            | `opencode.jsonc` `default_agent`                                              | Unchanged until you edit it — new agent never hijacks sessions                                                                                                                                |
+| Model assignment         | `opencode.jsonc` `agent.<name>` (v1) / `agents.<name>` (v2)                   | Missing → default-model fallback; frontmatter `model:` overrides                                                                                                                              |
+| Docs enumeration         | `docs/agents.md`                                                              | Manual — update for real new agents                                                                                                                                                           |
+| BATS agent-symlink tests | `src/tools/devbot-cli/tests/devbot_tests.bats`                                | Asserts the flat `<name>.md` links for `devbot` + `devteam`                                                                                                                                   |
+| Claude Code harness      | `.claude/agents` mirror                                                       | Same symlink mechanics; only when the claudecode module is enabled                                                                                                                            |
 
 ## Gotchas
 

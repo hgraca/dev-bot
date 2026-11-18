@@ -74,7 +74,7 @@ The script will:
 4. Run `devbot init` against iteration folder with project-side memory ownership (`DEVBOT_MEMORY_OWNER=project`).
 5. Materialise `iteration-<n>/opencode.jsonc` (replace symlink with real file).
 6. Apply model passed as `$1` to four planning agents (`devbot`, `po`, `architect`, `critic`) in iteration's `opencode.jsonc`. (If no argument AND stdin is TTY, script falls back to prompting user; if no argument AND no TTY, script fails loudly.)
-7. **Materialise symlinked `.opencode/agents/devbot/` directory into real directory of copies, then rewrite `model:` frontmatter on four planning agents to chosen model.** Required because agent-file frontmatter `model:` overrides `agent.<name>.model` setting in `opencode.jsonc`, and symlink target lives in shared `src/instructions/agents/` tree (must not edit globally).
+7. **Materialise the symlinked agent files under `.opencode/agents/` into real copies, then rewrite `model:` frontmatter on four planning agents to chosen model.** Required because agent-file frontmatter `model:` overrides the `agent.<name>` (v1) / `agents.<name>` (v2) setting in `opencode.jsonc`, and symlink target lives in the shared `src/agentic/{devbot,devteam}/agents/` tree (must not edit globally).
 8. Print instructions for user to start new opencode session inside iteration folder.
 
 #### Setup script failure recovery

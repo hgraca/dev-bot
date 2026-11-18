@@ -78,3 +78,37 @@ setup() {
   run grep -l "^name: ${default_agent}$" "${AGENT_FILES[@]}"
   assert_success
 }
+
+# ── OpenCode 2: an agent id is the FLAT path below .opencode/agents ──────────
+# A 2.x host derives the id from the path (`.opencode/agents/devbot/devbot.md`
+# registers as `devbot/devbot`), and an `agents` config entry becomes an agent
+# of its own when no file agent carries that id — with no `system` prompt at
+# all. A bare-name entry pointing at a namespaced file agent therefore boots a
+# prompt-less session: no persona, no session-start rules, no skill loading.
+# These two assert the dist's names are the flat ones the farm links.
+
+@test "every opencode-v2 agent override targets a declared agent" {
+  local keys key unknown=""
+  keys="$(python3 "${ROOT}/src/_shared/read_jsonc.py" \
+    "${ROOT}/src/harnesses/opencode-v2/opencode-v2.dist.jsonc" agents 2>/dev/null \
+    | python3 -c 'import json,sys; print(" ".join(json.load(sys.stdin).keys()))')"
+  [ -n "${keys}" ]
+
+  for key in ${keys}; do
+    # `plan` and `build` are opencode built-ins the dist disables.
+    [[ "${key}" == "plan" || "${key}" == "build" ]] && continue
+    grep -q "^name: ${key}$" "${AGENT_FILES[@]}" || unknown="${unknown} ${key}"
+  done
+
+  [ -z "${unknown}" ] || { echo "overrides for undeclared agents:${unknown}"; return 1; }
+}
+
+@test "the opencode-v2 default agent names a declared agent" {
+  local default_agent
+  default_agent="$(sed -n 's/^ *"default_agent": *"\([^"]*\)".*/\1/p' \
+    "${ROOT}/src/harnesses/opencode-v2/opencode-v2.dist.jsonc")"
+  [ -n "${default_agent}" ]
+
+  run grep -l "^name: ${default_agent}$" "${AGENT_FILES[@]}"
+  assert_success
+}

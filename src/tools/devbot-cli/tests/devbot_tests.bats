@@ -134,15 +134,28 @@ PY
   [ -d "$test_project/.opencode/tools" ]
 
   # ── Verify agents match source ─────────────────────────────────────────
+  # One link per agent, NAMED after its frontmatter name. An OpenCode 2 host
+  # derives an agent id from the path below .opencode/agents, so a
+  # module-directory link registers `devbot/devbot` and leaves the configured
+  # bare `devbot` as a prompt-less agent with no persona.
   MODULES_WITH_AGENTS=(devbot devteam)
   for MODULE in "${MODULES_WITH_AGENTS[@]}"; do
     local source_agents="$PROJECT_ROOT/src/agentic/${MODULE}/agents"
-    local linked_agents="$test_project/.opencode/agents/${MODULE}"
-    [ -L "$linked_agents" ] || fail "agents/${MODULE} is not a symlink"
-    [ "$(readlink "$linked_agents")" = "$source_agents" ] || fail "agents/${MODULE} points wrong target"
-    # Compare file listings
-    diff <(ls "$source_agents" | sort) <(ls "$linked_agents" | sort) \
-      || fail "agents mismatch between source and symlink"
+    [ -d "$source_agents" ] || continue
+    [ -e "$test_project/.agents/agents/${MODULE}" ] \
+      && fail "agents/${MODULE} module-directory link should not exist"
+    for agent_file in "$source_agents"/*.md; do
+      [ -f "$agent_file" ] || continue
+      local agent_name="$(
+        sed -n 's/^name:[[:space:]]*//p' "$agent_file" | head -1 | tr -d '"'
+      )"
+      local linked_agent="$test_project/.agents/agents/${agent_name}.md"
+      [ -L "$linked_agent" ] || fail "agents/${agent_name}.md is not a symlink"
+      [ "$(readlink "$linked_agent")" = "$agent_file" ] \
+        || fail "agents/${agent_name}.md points wrong target"
+      [ -L "$test_project/.opencode/agents/${agent_name}.md" ] \
+        || fail ".opencode/agents/${agent_name}.md is not visible through the delegation"
+    done
   done
 
   # ── Verify commands match source ───────────────────────────────────────

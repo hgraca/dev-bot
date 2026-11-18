@@ -59,9 +59,9 @@ First determine which agent harness is selected and which one you are running un
 
 The audit is a **devbot-primary-agent** activity: it must run under the `devbot` agent profile. Determine which agent you are running as, and cross-check the config:
 
-- **Self-identify** — which agent profile are you operating under? Your own instructions/profile are the primary evidence (devbot, or teamlead / a subagent). Do not guess: if you are not certain, check which agent file your instructions came from (e.g. `.agents/agents/devbot/devbot.md` vs `devteam/teamlead.md` vs a subagent file).
+- **Self-identify** — which agent profile are you operating under? Your own instructions/profile are the primary evidence (devbot, or teamlead / a subagent). Do not guess: if you are not certain, check which agent file your instructions came from (e.g. `.agents/agents/devbot.md` vs `teamlead.md` vs a subagent file).
 - **Cross-check the config** (the selected harness):
-  - opencode: `opencode.jsonc` → `default_agent` must be `"devbot"`, and the `agent` map must contain a `devbot` entry.
+  - opencode: `opencode.jsonc` → `default_agent` must be `"devbot"`, and the agent map must contain a `devbot` entry — v1 names it `agent`, v2 `agents`.
   - claudecode: `.claude/settings.json` (or `settings.local.json`) → the default/primary agent must be `devbot`.
 
 If you are **not** running as devbot (the audit was launched under teamlead or a subagent), or the config's default agent is not devbot, record a **FAIL**: the audit was invoked under the wrong agent. The fix is to **set devbot as the default agent in the harness configuration** (opencode: `default_agent: "devbot"` in `opencode.jsonc`; claudecode: the default/primary agent in `.claude/settings.json`) — the harness then launches devbot by default, so every session (including the audit) runs under the right agent. Findings remain valid, but the "audit runs under devbot" invariant is broken. Also note it in the report header next to the environment verdict.
