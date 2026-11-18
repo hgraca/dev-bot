@@ -127,7 +127,9 @@ cmd_provision() {
       exit 1
     fi
   elif command -v docker >/dev/null 2>&1; then
-    if ! docker run --rm -v "${dir}:/app" -w /app node:22-slim npm install --silent "typescript@5" >&2; then
+    # npm needs the network; host networking keeps the container off a bridge, so
+    # it creates no veth pair and no host interface event (see cmd_units).
+    if ! docker run --rm --network host -v "${dir}:/app" -w /app node:22-slim npm install --silent "typescript@5" >&2; then
       echo "ERROR: could not install typescript via the node image" >&2
       exit 1
     fi

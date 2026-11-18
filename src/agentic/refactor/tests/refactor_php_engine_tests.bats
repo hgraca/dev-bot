@@ -132,7 +132,7 @@ assert "promote-readonly" not in m["ops"], m
   image="$(bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/with-rector" |
     python3 -c 'import json,sys; print(json.load(sys.stdin)["image"])')"
 
-  run docker run --rm -v "${PHP_FIXTURES}/with-rector:/app" -w /app "${image}" \
+  run docker run --rm --network none -v "${PHP_FIXTURES}/with-rector:/app" -w /app "${image}" \
     php -r 'echo file_exists("composer.json") ? "mounted" : "missing";'
 
   assert_success

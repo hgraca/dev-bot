@@ -82,7 +82,9 @@ return RectorConfig::configure()
     ]);
 CFG
 
-  run docker run --rm \
+  # --network none: Rector needs no network, and a bridge-attached container
+  # churns the host's interfaces (see langs/php/plugin.sh).
+  run docker run --rm --network none \
     -v "${work}:/app" \
     -v "${cfg}:/refactor/rector.php:ro" \
     -v "${rules}:/refactor/rules:ro" \
@@ -148,7 +150,7 @@ CFG
     printf '%s' "{\"op\":\"rename-function\",\"from\":\"demoHelper\",\"to\":\"assistHelper\",\"scope\":[\"/app/src\"],\"project\":\"${PHP_FIXTURES}/rename-demo\"}" |
       python3 "${MODULE_DIR}/langs/php/ops.py" render "${step}" > "${cfg}"
 
-    run docker run --rm -v "${cfg}:/r/rector.php:ro" php:8.4-cli php -l /r/rector.php
+    run docker run --rm --network none -v "${cfg}:/r/rector.php:ro" php:8.4-cli php -l /r/rector.php
     rm -rf "${cfg}"
 
     assert_success

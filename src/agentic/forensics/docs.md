@@ -79,6 +79,8 @@ Four languages ship: `php` (PDepend), `ts` (TypeScript compiler API), `java` (JD
 
 Engines are provisioned on demand with `forensics provision --lang <lang>`: TypeScript and PDepend install into `storage/forensics/` (npm / Composer), Go pulls `golang:1.22-alpine`, and Java uses the host JDK or a pulled `eclipse-temurin` image. A missing engine degrades a `mine` to file-level with a `WARN`, never a failure.
 
+**Container networking.** The per-file analysis runs are `--network none --read-only --tmpfs /tmp`; only an engine install (`composer:2 require`, `npm install`) takes `--network host`. Keep it that way: a container on the default bridge creates a `veth` pair, and every pair coming up is a netlink link event that Chromium reads as a network change, aborting in-flight requests with `ERR_NETWORK_CHANGED`. These runs are per file, so the churn scales with the repository and breaks the developer's browser during a full test run. `src/agentic/refactor/tests/container_network_tests.bats` guards the property for both modules' plugins.
+
 ## Activity metrics
 
 `prs` and `commits` read delivery activity over a date window — `--since`/

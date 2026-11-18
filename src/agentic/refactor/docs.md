@@ -75,6 +75,25 @@ Python and TypeScript use engines provisioned into the shared scratch dir
 overrides the PHP engine's container image; the Python and TypeScript engines
 take `REFACTOR_PYTHON_IMAGE` / `REFACTOR_NODE_IMAGE`.
 
+### Container networking
+
+Every run is `--network none`; only the one-off engine install (`composer:2
+require`, `npm install`) takes `--network host`. This is deliberate and a plugin
+must keep it.
+
+A container on the default bridge creates a `veth` pair, and each half coming up
+or going down is a netlink link event. Chromium subscribes to `RTMGRP_LINK`,
+treats a fully-up link as a network change and aborts in-flight requests with
+`ERR_NETWORK_CHANGED` — so a suite that spawns a container per operation breaks
+the developer's browser on pages that take more than a second to load. Measured
+on the machine that surfaced this: one bridge-attached one-shot container = 2
+`renamed from` events in the kernel log, the same container with `--network none`
+= 0. Host networking also creates no `veth` pair, which is why the install uses
+it instead of a bridge.
+
+`tests/container_network_tests.bats` fails when a plugin leaves a `docker run`
+on the implicit bridge, or when an analysis run is given the network.
+
 ## Adding a language
 
 The core is language-agnostic. It discovers `langs/*/plugin.sh`, reads each

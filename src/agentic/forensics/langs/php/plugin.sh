@@ -266,7 +266,9 @@ cmd_provision() {
   fi
 
   mkdir -p "${dir}"
-  if ! docker run --rm -v "${dir}:/app" -w /app composer:2 \
+  # Composer needs the network; host networking keeps the container off a bridge,
+  # so it creates no veth pair and no host interface event (see cmd_units).
+  if ! docker run --rm --network host -v "${dir}:/app" -w /app composer:2 \
     require "pdepend/pdepend:${version}" --no-interaction --no-progress -q >&2; then
     echo "ERROR: composer could not install pdepend/pdepend:${version}" >&2
     exit 1
@@ -274,7 +276,9 @@ cmd_provision() {
 
   # Record the PHP the engine was built for, so it is always run on a compatible
   # image regardless of the analysed project's own PHP version.
-  docker run --rm composer:2 php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;' \
+  # A version probe needs no network at all — isolate it fully rather than
+  # attaching a bridge just to read a constant.
+  docker run --rm --network none composer:2 php -r 'echo PHP_MAJOR_VERSION, ".", PHP_MINOR_VERSION;' \
     >"${dir}/.php-version" 2>/dev/null || true
 
   python3 - "${dir}" "${version}" "$(tr -d '[:space:]' <"${dir}/.php-version" 2>/dev/null || echo "")" <<'PY'
@@ -335,6 +339,10 @@ print(json.dumps(r))')"
 
   # The analysed repository's own autoloader runs inside this container, so it
   # gets no network, no root and a read-only rootfs: the analysis needs none.
+  # --network none is also what keeps this container off a bridge, so it creates
+  # no veth pair and no netlink link event — Chromium reads every one of those as
+  # a network change and aborts in-flight requests (ERR_NETWORK_CHANGED). These
+  # runs happen per file, so the churn is proportional to the repo.
   printf '%s' "${payload}" | docker run --rm -i \
     --network none --read-only --tmpfs /tmp -e HOME=/tmp \
     --user "$(id -u):$(id -g)" \

@@ -183,7 +183,12 @@ project, image, engine_host, engine_in_container, config, dry, rule, rules_dir =
 # A dry run must not be able to write, so the project is mounted read-only then;
 # Rector's cache lives in the container, not the project.
 mount_suffix = "" if dry == "false" else ":ro"
-argv = ["docker", "run", "--rm",
+# --network none: no veth pair, hence no netlink link event on the host. The
+# engine needs no network, and a bridge-attached container per call churns the
+# host interfaces — Chromium subscribes to RTMGRP_LINK and aborts in-flight
+# requests with ERR_NETWORK_CHANGED on every one, so a full test run breaks the
+# developer's browser.
+argv = ["docker", "run", "--rm", "--network", "none",
         "-v", f"{project}:/app{mount_suffix}",
         "-v", f"{config}:/refactor/rector.php:ro",
         "-v", f"{rules_dir}:/refactor/rules:ro"]
@@ -281,7 +286,10 @@ cmd_provision() {
   fi
 
   mkdir -p "${dir}"
-  if ! docker run --rm -v "${dir}:/app" -w /app composer:2 \
+  # Composer needs the network, so this one attaches to the host's namespace
+  # instead of a bridge: host networking creates no veth pair, and a bridge here
+  # would churn the host's interfaces on every provision (see _build_argv).
+  if ! docker run --rm --network host -v "${dir}:/app" -w /app composer:2 \
     require "rector/rector:${version}" --no-interaction --no-progress -q >&2; then
     echo "ERROR: composer could not install rector/rector:${version}" >&2
     exit 1

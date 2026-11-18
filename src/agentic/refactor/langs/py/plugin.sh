@@ -128,7 +128,10 @@ r["apply"] = os.environ["APPLY"] == "true"
 print(json.dumps(r))')"
 
   local output
-  output="$(printf '%s' "${payload}" | docker run --rm -i \
+  # --network none: rope needs no network, and a bridge-attached container per
+  # call creates and drops a veth pair — a netlink link event Chromium reads as a
+  # network change (ERR_NETWORK_CHANGED) and aborts in-flight requests over.
+  output="$(printf '%s' "${payload}" | docker run --rm --network none -i \
     -v "${project}:/app${mount_suffix}" \
     -v "${root}:/refactor" \
     -v "${PLUGIN_DIR}:/plugin:ro" \

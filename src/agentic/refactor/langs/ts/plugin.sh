@@ -127,7 +127,10 @@ print(json.dumps(r))')"
 
   # Run as the invoking user: the engine writes new paths (a move creates its
   # destination), and a root-owned file in the caller's tree is uneditable.
-  printf '%s' "${payload}" | docker run --rm -i \
+  # --network none: ts-morph and the pre-installed engine need no network, and a
+  # bridge-attached container per call churns the host's interfaces — a netlink
+  # link event Chromium treats as a network change and aborts requests over.
+  printf '%s' "${payload}" | docker run --rm --network none -i \
     --user "$(id -u):$(id -g)" \
     -v "${project}:/app${mount_suffix}" \
     -v "${root}:/refactor" \
