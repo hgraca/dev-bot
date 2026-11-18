@@ -23,7 +23,7 @@ devbot kube run      [path] -- logs -n core deploy/transfers --tail=100
 devbot kube run      [path] -- get applications -n argocd
 ```
 
-`path` defaults to the current directory. The command resolves the project's generated kubeconfig and execs `kubectl` against the right context — so the hashed filename and the context name never have to be reconstructed. Credentials come from the catalogue's `credential_env`: each entry exports its key (`AWS_ACCESS_KEY_ID`) from the `${VAR}` it references (`AWS_KEY`), read from your environment at call time — so the **referenced** variables must be set, not the keys. `devbot kube env` prints them; the generated `.env` holds only `KUBECONFIG`.
+`path` defaults to the current directory. The command resolves the project's generated kubeconfig and execs `kubectl` against the right context — so the hashed filename and the context name never have to be reconstructed. The arguments after `--` are kubectl's own: never repeat the binary (`-- kubectl get ns` is refused; use `-- get ns`). Credentials come from the catalogue's `credential_env`: each entry exports its key (`AWS_ACCESS_KEY_ID`) from the `${VAR}` it references (`AWS_KEY`), read from your environment at call time — so the **referenced** variables must be set, not the keys. `devbot kube env` prints them; the generated `.env` holds only `KUBECONFIG`.
 
 ## Why not plain `kubectl`
 

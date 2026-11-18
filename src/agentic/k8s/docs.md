@@ -42,7 +42,9 @@ devbot kube contexts [path]   # cluster name, context, region
 devbot kube run      [path] -- get pods -n core
 ```
 
-`devbot kube run` execs `kubectl --kubeconfig <file>`. Credentials come from the
+`devbot kube run` execs `kubectl --kubeconfig <file>`. The arguments after `--` are **kubectl's
+own** — do not repeat the binary: `-- kubectl get ns` fails, `-- get ns` is what you want, and the
+wrapper refuses the repeated form rather than letting kubectl report a plugin error. Credentials come from the
 `credential_env` map in the global catalogue: each entry is exported as its key
 (`AWS_ACCESS_KEY_ID`) with the value of the `${VAR}` it references (`AWS_KEY`),
 and the kubeconfig's exec wrapper reads those at call time. So the **referenced**

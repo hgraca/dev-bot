@@ -224,3 +224,45 @@ EOF
   assert_success
   assert_output --partial "kube"
 }
+
+@test "run refuses a leading 'kubectl' and names the correct form" {
+  write_kubeconfig
+
+  # The mistake: the arguments are kubectl's own, so the binary must not be
+  # repeated. Without the guard kubectl reads it as a plugin name and fails with
+  # "flags cannot be placed before plugin name: --kubeconfig".
+  run "${DEVBOT}" kube run "${PROJECT}" -- kubectl get ns default
+  assert_failure
+  assert_output --partial "drop the leading 'kubectl'"
+  assert_output --partial "get ns default"
+  refute_output --partial "ARGS:"
+}
+
+@test "run refuses a leading 'kubectl' before resolving the kubeconfig" {
+  # No generated kubeconfig in this test: the guard must fire first, so the
+  # message names the real mistake instead of the missing file.
+  run "${DEVBOT}" kube run "${PROJECT}" -- kubectl get ns default
+  assert_failure
+  assert_output --partial "drop the leading 'kubectl'"
+  refute_output --partial "no generated kubeconfig"
+}
+
+@test "run still forwards a command whose first argument is not kubectl" {
+  write_kubeconfig
+
+  # The guard is exact-match on the first argument only: `k` inside other
+  # words, and subcommands that merely mention kubectl, are untouched.
+  run "${DEVBOT}" kube run "${PROJECT}" -- get ns default
+  assert_success
+  assert_output --partial "ARGS: --kubeconfig $(kubeconfig_for) get ns default"
+
+  run "${DEVBOT}" kube run "${PROJECT}" -- get pods -l app=kubectl-operator
+  assert_success
+  assert_output --partial "get pods -l app=kubectl-operator"
+}
+
+@test "help explains that the arguments are kubectl's own" {
+  run "${DEVBOT}" kube --help
+  assert_success
+  assert_output --partial "drop the leading"
+}
