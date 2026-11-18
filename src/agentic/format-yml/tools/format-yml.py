@@ -273,6 +273,17 @@ def main() -> int:
                         pass
                 checked += len(yaml_files)
         elif os.path.isfile(path):
+            # File mode is YAML-only. The hook already matches the extension,
+            # but a direct tool call (or `--check` gate) can name any path;
+            # refuse it rather than run the YAML parser over a non-YAML file and
+            # rewrite it (audit-02 F-3).
+            if not is_yaml_file(path):
+                print(
+                    f"Error: {path} is not a YAML file (.yml, .yaml) — refusing to format it",
+                    file=sys.stderr,
+                )
+                errors += 1
+                continue
             checked += 1
             try:
                 if format_file(path, check=check):

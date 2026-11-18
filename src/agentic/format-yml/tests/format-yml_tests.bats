@@ -540,3 +540,16 @@ STUB
   run cat "$target"
   assert_output --partial "name: w"
 }
+
+@test "refuses a non-YAML file instead of reformatting it" {
+  local target="$BATS_TEST_TMPDIR/probe.md"
+  printf 'name:    w\n' > "$target"
+
+  run bash "$TOOL" "$target"
+
+  assert_failure
+  assert_output --partial "is not a YAML file"
+  run cat "$target"
+  assert_output --partial 'name:    w'
+}
+
