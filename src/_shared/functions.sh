@@ -1320,6 +1320,24 @@ _devbot_ensure_global_value() {
   _devbot_set_global_value "${key}" "${raw}"
 }
 
+# ── List membership without a subprocess ─────────────────────────────────────
+#
+# _devbot_list_has <needle> <newline-separated list>
+#   Exit 0 when <needle> is exactly one of the list's lines. The module loops
+#   below test the disabled set once per module; `echo | grep -Fxq` forked a
+#   process per iteration and dominated `devbot init`'s runtime.
+#   Names are module and file identifiers (`[a-z0-9._-]`), so the pattern
+#   expansion in the comparison cannot meet a glob character.
+_devbot_list_has() {
+  local needle="${1:-}"
+  local list="${2:-}"
+  [[ -n "${needle}" && -n "${list}" ]] || return 1
+  case $'\n'"${list}"$'\n' in
+    *$'\n'"${needle}"$'\n'*) return 0 ;;
+  esac
+  return 1
+}
+
 # ── Disabled modules (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_disabled_modules [project_dir]
@@ -1345,60 +1363,73 @@ _devbot_get_disabled_modules() {
   # may be overridden to a sandbox root in tests.
   local shared_dir
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  local reader="${shared_dir}/read_jsonc.py"
   local global_config
   global_config="$(_devbot_global_config)"
 
-  # Read global modules map
-  local global_states="{}"
-  if [[ -f "${global_config}" ]]; then
-    global_states=$(python3 "${reader}" "${global_config}" "modules" 2>/dev/null || true)
-    [[ -z "${global_states}" || "${global_states}" == "null" ]] && global_states="{}"
-  fi
+  # One interpreter answers the whole question. Every input is a key in the two
+  # config documents (plus the memory-search override), and resolving them one
+  # spawn at a time cost ~0.6s per call — paid by every module init, and more
+  # than once by `devbot init`.
+  python3 - "${shared_dir}" "${global_config}" "${project_dir}" "${DEVBOT_MEMORY_SEARCH_PROVIDER:-}" <<'PY' 2>/dev/null || echo "[]"
+import json, os, sys
 
-  # Read per-project modules map
-  local project_states="{}"
-  if [[ -n "${project_dir}" && -f "${project_dir}/.devbot.project.jsonc" ]]; then
-    project_states=$(python3 "${reader}" "${project_dir}/.devbot.project.jsonc" "modules" 2>/dev/null || true)
-    [[ -z "${project_states}" || "${project_states}" == "null" ]] && project_states="{}"
-  fi
+shared_dir, global_config, project_dir, mem_override = sys.argv[1:5]
+sys.path.insert(0, shared_dir)
+try:
+    from read_jsonc import load_jsonc
+except Exception:  # pragma: no cover - a broken install still wires something
+    print("[]")
+    raise SystemExit(0)
 
-  # Non-selected codebase engine: codebase-index <-> codebase-memory
-  local provider
-  provider="$(_devbot_get_codebase_provider "${project_dir}")"
-  local non_selected="codebase-index"
-  [[ "${provider}" == "codebase-index" ]] && non_selected="codebase-memory"
 
-  # Non-selected memory-search engine: qmd <-> mdctx
-  local mem_provider non_selected_mem
-  mem_provider="$(_devbot_get_memory_search_provider "${project_dir}")"
-  non_selected_mem="qmd"
-  [[ "${mem_provider}" == "qmd" ]] && non_selected_mem="mdctx"
+def load(path):
+    try:
+        data = load_jsonc(path)
+    except OSError:
+        return {}
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
 
-  # Harnesses are resolved from the code tree, beside this library — the same
-  # reason the reader above is not taken from DEV_BOT_ROOT (sandbox overrides).
-  local selected_harness harnesses_dir
-  selected_harness="$(_devbot_get_harness "${project_dir}")"
-  harnesses_dir="$(cd "${shared_dir}/../harnesses" 2>/dev/null && pwd || true)"
 
-  # Merge: project overrides global. A module is disabled when its effective
-  # value is false (project value if present, else global value). The
-  # non-selected codebase engine and non-selected memory-search engine are
-  # always disabled (mutual exclusion per pair), and so is every harness the
-  # root `harness` key did not select.
-  GLOBAL_STATES="${global_states}" PROJECT_STATES="${project_states}" \
-    HARNESSES_DIR="${harnesses_dir}" SELECTED_HARNESS="${selected_harness}" \
-    NON_SELECTED="${non_selected}" NON_SELECTED_MEM="${non_selected_mem}" python3 -c '
-import json, os
-# The canonical pair is always known, so a partial install (src/harnesses
-# missing) still disables the harness that was not selected.
+global_cfg = load(global_config) if global_config else {}
+project_cfg = load(os.path.join(project_dir, ".devbot.project.jsonc")) if project_dir else {}
+
+
+def effective(key):
+    """Project value when non-empty, else the global one — _devbot_get_config."""
+    value = project_cfg.get(key)
+    if value in (None, "", {}, []):
+        value = global_cfg.get(key)
+    return value
+
+
 harness_names = {"opencode", "opencode-v2", "claudecode"}
-harnesses_dir = os.environ.get("HARNESSES_DIR", "")
-if harnesses_dir and os.path.isdir(harnesses_dir):
-    harness_names |= {n for n in os.listdir(harnesses_dir)
-                      if os.path.isdir(os.path.join(harnesses_dir, n))}
-global_states = json.loads(os.environ["GLOBAL_STATES"])
-project_states = json.loads(os.environ["PROJECT_STATES"])
+# Beside this library, not under DEV_BOT_ROOT — tests override that to a sandbox.
+harnesses_dir = os.path.join(shared_dir, "..", "harnesses")
+if os.path.isdir(harnesses_dir):
+    harness_names |= {
+        n for n in os.listdir(harnesses_dir)
+        if os.path.isdir(os.path.join(harnesses_dir, n))
+    }
+
+provider = global_cfg.get("codebase_index_provider")
+non_selected = "codebase-memory" if provider == "codebase-index" else "codebase-index"
+
+mem_provider = mem_override or global_cfg.get("memory_search_provider")
+non_selected_mem = "mdctx" if mem_provider == "qmd" else "qmd"
+
+selected_harness = effective("harness")
+if selected_harness not in harness_names:
+    selected_harness = "opencode"
+
+global_states = global_cfg.get("modules") or {}
+project_states = project_cfg.get("modules") or {}
+if not isinstance(global_states, dict):
+    global_states = {}
+if not isinstance(project_states, dict):
+    project_states = {}
+
 disabled = set()
 for m, v in global_states.items():
     if m in harness_names:
@@ -1410,11 +1441,19 @@ for m, v in project_states.items():
         continue
     if m not in global_states and v is False:
         disabled.add(m)
-disabled |= harness_names - {os.environ.get("SELECTED_HARNESS", "")}
-disabled.add(os.environ["NON_SELECTED"])
-disabled.add(os.environ["NON_SELECTED_MEM"])
+disabled |= harness_names - {selected_harness}
+disabled.add(non_selected)
+disabled.add(non_selected_mem)
 print(json.dumps(sorted(disabled)))
-' 2>/dev/null || echo "[]"
+PY
+}
+
+# _devbot_disabled_module_names [project_dir]
+#   The disabled set as one name per line — the form the module loops compare
+#   against. Resolving the split here, in the same process, is what keeps a
+#   caller from paying a second interpreter launch for the same answer.
+_devbot_disabled_module_names() {
+  _devbot_get_disabled_modules "${1:-}" | jq -r '.[]' 2>/dev/null || true
 }
 
 # ── Dynamic MCP manifest ownership ────────────────────────────────────────────
@@ -3609,77 +3648,111 @@ _devbot_link_harness_assets() {
   disabled="$(_devbot_get_disabled_modules "${project_dir}" 2>/dev/null | jq -r '.[]' 2>/dev/null || true)"
 
   local declared_mcp=" " declared_skills=" "
-  local base mod_dir mod_name manifest name path dest existing
+  local base mod_dir mod_name manifest name path dest existing kind
+  local manifests=()
   for base in "${root}/src/tools" "${root}/src/agentic" "${root}/src/harnesses"; do
     [[ -d "${base}" ]] || continue
     for mod_dir in "${base}"/*/; do
       mod_dir="${mod_dir%/}"
-      mod_name="$(basename "${mod_dir}")"
-      if echo "${disabled}" | grep -Fxq "${mod_name}" 2>/dev/null; then
+      mod_name="${mod_dir##*/}"
+      if _devbot_list_has "${mod_name}" "${disabled}"; then
         continue
       fi
       manifest="${mod_dir}/harness-assets.json"
       [[ -f "${manifest}" ]] || continue
-
-      while IFS=$'\t' read -r name path; do
-        [[ -n "${name}" && -n "${path}" ]] || continue
-        path="${path//\{devbot-root\}/${root}}"
-        path="${path//\{module\}/${mod_dir}}"
-        [[ "${path}" == /* ]] || path="${mod_dir}/${path}"
-        mkdir -p "${target_dir}"
-        dest="${target_dir}/${name}"
-        if [[ -L "${dest}" ]]; then
-          existing="$(readlink "${dest}" 2>/dev/null || true)"
-          case "${existing}" in
-            "${root}"/*) ;;  # dev-bot's own link — safe to repair
-            *)
-              _warn "${harness_dir}/${name} is a symlink outside dev-bot — leaving it alone"
-              continue
-              ;;
-          esac
-        elif [[ -e "${dest}" ]]; then
-          _warn "${harness_dir}/${name} exists and is not a dev-bot link — leaving it alone"
-          continue
-        fi
-        ln -sfn "${path}" "${dest}"
-        declared_mcp+="${name} "
-        _log "Linked ${harness_dir}/${name} (${mod_name})"
-      done < <(python3 "${reader}" "${manifest}" mcp 2>/dev/null \
-        | jq -r '.[]? | select(.name and .path) | "\(.name)\t\(.path)"' 2>/dev/null || true)
-
-      if [[ "${harness_dir}" == ".opencode" ]]; then
-        while IFS=$'\t' read -r name path; do
-          [[ -n "${name}" && -n "${path}" ]] || continue
-          path="${path//\{devbot-root\}/${root}}"
-          path="${path//\{module\}/${mod_dir}}"
-          [[ "${path}" == /* ]] || path="${mod_dir}/${path}"
-          if [[ ! -d "${path}" || -z "$(ls -A "${path}" 2>/dev/null)" ]]; then
-            _warn "${mod_name}: skills not found at ${path} — skipping"
-            continue
-          fi
-          mkdir -p "${target_dir}/skills"
-          dest="${target_dir}/skills/${name}"
-          if [[ -L "${dest}" ]]; then
-            existing="$(readlink "${dest}" 2>/dev/null || true)"
-            case "${existing}" in
-              "${root}"/*) ;;
-              *)
-                _warn "${harness_dir}/skills/${name} is a symlink outside dev-bot — leaving it alone"
-                continue
-                ;;
-            esac
-          elif [[ -e "${dest}" ]]; then
-            _warn "${harness_dir}/skills/${name} exists and is not a dev-bot link — leaving it alone"
-            continue
-          fi
-          ln -sfn "${path}" "${dest}"
-          declared_skills+="${name} "
-          _log "Linked ${harness_dir}/skills/${name} (${mod_name})"
-        done < <(python3 "${reader}" "${manifest}" skills 2>/dev/null \
-          | jq -r '.[]? | select(.name and .path) | "\(.name)\t\(.path)"' 2>/dev/null || true)
-      fi
+      manifests+=("${manifest}")
     done
   done
+
+  # One interpreter reads every manifest: a launch per module dominated this
+  # step, and the declarations are what an init links on every project.
+  local assets=""
+  if [[ ${#manifests[@]} -gt 0 ]]; then
+    assets="$(python3 - "${reader%/*}" "${manifests[@]}" <<'PY' 2>/dev/null || true
+import json, os, sys
+
+reader_dir, paths = sys.argv[1], sys.argv[2:]
+sys.path.insert(0, reader_dir)
+from read_jsonc import load_jsonc
+
+for path in paths:
+    module_dir = os.path.dirname(os.path.abspath(path))
+    # One malformed manifest must not take the batch down with it: an empty
+    # declaration list makes the caller prune every link it had declared.
+    try:
+        data = load_jsonc(path)
+        if not isinstance(data, dict):
+            continue
+        entries = [
+            (kind, entry)
+            for kind in ("mcp", "skills")
+            for entry in (data.get(kind) or [])
+            if isinstance(entry, dict)
+        ]
+    except Exception:
+        continue
+    for kind, entry in entries:
+        name, target = entry.get("name"), entry.get("path")
+        if name and target:
+            print("\t".join((kind, module_dir, name, target)))
+PY
+)"
+  fi
+
+  while IFS=$'\t' read -r kind mod_dir name path; do
+    [[ -n "${kind}" && -n "${mod_dir}" && -n "${name}" && -n "${path}" ]] || continue
+    mod_name="${mod_dir##*/}"
+    path="${path//\{devbot-root\}/${root}}"
+    path="${path//\{module\}/${mod_dir}}"
+    [[ "${path}" == /* ]] || path="${mod_dir}/${path}"
+
+    if [[ "${kind}" == "skills" ]]; then
+      # Only the opencode family scans .opencode/skills.
+      [[ "${harness_dir}" == ".opencode" ]] || continue
+      if [[ ! -d "${path}" || -z "$(ls -A "${path}" 2>/dev/null)" ]]; then
+        _warn "${mod_name}: skills not found at ${path} — skipping"
+        continue
+      fi
+      mkdir -p "${target_dir}/skills"
+      dest="${target_dir}/skills/${name}"
+      if [[ -L "${dest}" ]]; then
+        existing="$(readlink "${dest}" 2>/dev/null || true)"
+        case "${existing}" in
+          "${root}"/*) ;;
+          *)
+            _warn "${harness_dir}/skills/${name} is a symlink outside dev-bot — leaving it alone"
+            continue
+            ;;
+        esac
+      elif [[ -e "${dest}" ]]; then
+        _warn "${harness_dir}/skills/${name} exists and is not a dev-bot link — leaving it alone"
+        continue
+      fi
+      ln -sfn "${path}" "${dest}"
+      declared_skills+="${name} "
+      _log "Linked ${harness_dir}/skills/${name} (${mod_name})"
+      continue
+    fi
+
+    mkdir -p "${target_dir}"
+    dest="${target_dir}/${name}"
+    if [[ -L "${dest}" ]]; then
+      existing="$(readlink "${dest}" 2>/dev/null || true)"
+      case "${existing}" in
+        "${root}"/*) ;;  # dev-bot's own link — safe to repair
+        *)
+          _warn "${harness_dir}/${name} is a symlink outside dev-bot — leaving it alone"
+          continue
+          ;;
+      esac
+    elif [[ -e "${dest}" ]]; then
+      _warn "${harness_dir}/${name} exists and is not a dev-bot link — leaving it alone"
+      continue
+    fi
+    ln -sfn "${path}" "${dest}"
+    declared_mcp+="${name} "
+    _log "Linked ${harness_dir}/${name} (${mod_name})"
+  done <<< "${assets}"
 
   # Prune: a dev-bot-owned link nothing declares is stale (module disabled, or
   # the asset was renamed). A user's own file is never a symlink into dev-bot.
