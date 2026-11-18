@@ -344,9 +344,23 @@ for k in data.get('mcp', {}):
         python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${orphan_key}" 2>/dev/null || true
         _ok "${disabled_name}: removed orphaned MCP '${orphan_key}' (module disabled)"
       done < <(
+        # The keys this module owns: its own name (a manifest key left by an
+        # older naming scheme must still be pruned) plus every server-key prefix
+        # it declares in mcp.dynamic.json — datasources wires its sources under
+        # `ds-<source>`, not under the module name.
+        owned_names="${disabled_name}"
+        if [[ -f "${mod_dir}/mcp.dynamic.json" ]]; then
+          while IFS= read -r declared_prefix; do
+            [[ -n "${declared_prefix}" ]] && owned_names+=$'\n'"${declared_prefix}"
+          done < <(jq -r '.prefixes[]?' "${mod_dir}/mcp.dynamic.json" 2>/dev/null || true)
+        fi
         python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
-          | jq -r --arg name "${disabled_name}" \
-            'keys[] | select(. == $name or startswith($name + "-"))' 2>/dev/null || true
+          | jq -r --arg names "${owned_names}" '
+              ($names | split("\n") | map(select(. != ""))) as $ns
+              | keys[] as $k
+              | select(any($ns[]; . as $p | $k == $p or ($k | startswith($p + "-"))))
+              | $k
+            ' 2>/dev/null || true
       )
     fi
   done < <(echo "${_disabled_raw}" | jq -r '.[]' 2>/dev/null || true)

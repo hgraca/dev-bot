@@ -16,7 +16,7 @@ A datasource appears to you as an MCP server named after it, exposing exactly
 one tool. For a SQL datasource the tool takes a single argument, `sql`:
 
 ```
-datasources-mariadb-dev_mariadb-dev_execute_sql  { "sql": "SELECT 1" }
+ds-mariadb-dev_mariadb-dev_execute_sql  { "sql": "SELECT 1" }
 ```
 
 One statement per call. For MongoDB the tool takes a whole aggregation
@@ -40,7 +40,7 @@ silently.
 
 Not every source is a database. A datasource whose `type` is `opensearch` or `s3`
 is a **sidecar**: its own MCP server, so its toolbox of tools is its own — there
-is no `sql` argument and no `datasources-<name>_<name>_execute_sql` tool.
+is no `sql` argument and no `ds-<name>_<name>_execute_sql` tool.
 
 | Type         | Tools it exposes                                                                   |
 | ------------ | ---------------------------------------------------------------------------------- |

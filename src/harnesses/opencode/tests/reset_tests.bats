@@ -723,3 +723,47 @@ print('D9-NETSUITE-ORPHAN:OK')
   assert_success
   grep -qF 'D9-NETSUITE-ORPHAN:OK' <<< "$output" || fail "disabled netsuite's orphan key survived"
 }
+
+@test "D9: reset prunes a disabled datasources key whose manifest is already gone" {
+  # datasources wires each source under the short `ds-<source>` prefix its
+  # mcp.dynamic.json declares, while the manifest keeps the module's name
+  # (datasources-<source>.mcp.json) so the harness can still attribute it. With
+  # the manifest gone, only that declaration identifies the orphan key.
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "harness": "opencode",
+  "modules": {
+    "datasources": false
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "ds-mariadb-dev": {"type": "remote", "url": "http://127.0.0.1:18510/mcp/mariadb-dev", "enabled": false},
+    "datasources-legacy": {"type": "remote", "url": "http://127.0.0.1:18510/mcp/legacy"},
+    "other": {"type": "local", "command": ["other-mcp"]}
+  }
+}
+JSONC_EOF
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'ds-mariadb-dev' not in mcp, mcp
+assert 'datasources-legacy' not in mcp, mcp
+assert 'other' in mcp, mcp
+print('D9-DATASOURCES-ORPHAN:OK')
+"
+  assert_success
+  grep -qF 'D9-DATASOURCES-ORPHAN:OK' <<< "$output" || fail "disabled datasources' orphan key survived"
+}

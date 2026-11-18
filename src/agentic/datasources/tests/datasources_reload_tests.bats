@@ -378,7 +378,7 @@ PY
   _sqlite_catalogue
   _project_config '["scratch"]'
   mkdir -p "${PROJECT_DIR}/.agents/mcp-runtime"
-  printf '{"mcp": {"datasources-scratch": {"type": "http", "url": "http://127.0.0.1:1/mcp/scratch", "wire_disabled": true}}}\n' \
+  printf '{"mcp": {"ds-scratch": {"type": "http", "url": "http://127.0.0.1:1/mcp/scratch", "wire_disabled": true}}}\n' \
     > "${PROJECT_DIR}/.agents/mcp-runtime/datasources-scratch.json"
   _docker_with_running_gateway
   _record_curl
@@ -394,7 +394,7 @@ PY
   _sqlite_catalogue
   _project_config '["scratch"]'
   mkdir -p "${PROJECT_DIR}/.agents/mcp-runtime"
-  printf '{"mcp": {"datasources-scratch": {"type": "http", "url": "http://127.0.0.1:18510/mcp/scratch", "wire_disabled": true}}}\n' \
+  printf '{"mcp": {"ds-scratch": {"type": "http", "url": "http://127.0.0.1:18510/mcp/scratch", "wire_disabled": true}}}\n' \
     > "${PROJECT_DIR}/.agents/mcp-runtime/datasources-scratch.json"
   _docker_with_running_gateway
   _record_curl

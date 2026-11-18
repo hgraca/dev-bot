@@ -108,7 +108,10 @@ _datasources_write_manifests() {
   url="$(_datasources_url "${name}")"
   server="${PREFIX}${name}"
   timeout="$(_datasources_mcp_timeout "${name}")"
-  _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${server}" \
+  # The group keeps the module's name so the harness still attributes the
+  # manifest to `datasources` when the module is disabled; the server key
+  # inside is the short `ds-` prefix the agent sees.
+  _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${MANIFEST_PREFIX}${name}" \
     "$(jq -nc --arg s "${server}" --arg u "${url}" --argjson t "${timeout}" \
       '{($s): {type: "http", url: $u, wire_disabled: true, timeout: $t}}')"
 }
@@ -149,8 +152,8 @@ main() {
 
   # An `if`, not `&&`: under `set -e` a short-circuited `&&` would abort here.
   local -a keep=()
-  for name in ${selected}; do keep+=("${PREFIX}${name}"); done
-  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}" ${keep[@]+"${keep[@]}"}
+  for name in ${selected}; do keep+=("${MANIFEST_PREFIX}${name}"); done
+  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${MANIFEST_PREFIX}" ${keep[@]+"${keep[@]}"}
   _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 
   return 0

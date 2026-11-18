@@ -61,7 +61,7 @@ _put_dynamic_manifests() {
 {"mcpServers": {"jetbrains": {"type": "http", "url": "http://127.0.0.1:64442/stream", "enabled": true}}}
 JSON_EOF
   cat > "${SANDBOX_DIR}/.claude/datasources-mariadb-dev.mcp.json" <<'JSON_EOF'
-{"mcpServers": {"datasources-mariadb-dev": {"type": "http", "url": "http://127.0.0.1:18510/mcp/mariadb-dev", "enabled": true}}}
+{"mcpServers": {"ds-mariadb-dev": {"type": "http", "url": "http://127.0.0.1:18510/mcp/mariadb-dev", "enabled": true}}}
 JSON_EOF
 }
 
@@ -139,7 +139,7 @@ print('CC-DISABLED-OMITTED:OK')
   run python3 -c "
 import json
 servers = json.load(open('${SANDBOX_DIR}/.mcp.json'))['mcpServers']
-for name in ('jetbrains', 'datasources-mariadb-dev'):
+for name in ('jetbrains', 'ds-mariadb-dev'):
     entry = servers.get(name)
     assert entry is not None, (name, sorted(servers))
     assert 'enabled' not in entry, (name, entry)

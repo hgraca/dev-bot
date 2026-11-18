@@ -249,7 +249,7 @@ _stale_manifests() {
     fi
     # The published canonical manifest is what the harness was told — no
     # harness dir, no shape.
-    file="$(_devbot_runtime_mcp_dir "${project_dir}")/${PREFIX}${name}.json"
+    file="$(_devbot_runtime_mcp_dir "${project_dir}")/${MANIFEST_PREFIX}${name}.json"
     [[ -f "${file}" ]] || continue
     actual="$(jq -r --arg k "${PREFIX}${name}" '.mcp[$k].url // ""' "${file}" 2>/dev/null)"
     if [[ -n "${actual}" && "${actual}" != "${expected}" ]]; then

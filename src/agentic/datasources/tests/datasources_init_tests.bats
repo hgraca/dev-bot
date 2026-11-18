@@ -23,7 +23,7 @@ load 'datasources_test_helper'
 
   run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
   assert_success
-  assert_output --partial "datasources-mariadb-dev"
+  assert_output --partial "ds-mariadb-dev"
 
   run cat "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json"
   assert_success
@@ -54,10 +54,10 @@ load 'datasources_test_helper'
   run bash "${MODULE_DIR}/init.sh" "${PROJECT_DIR}"
   assert_success
 
-  run jq -r '.mcpServers."datasources-mariadb-dev" | has("enabled")' \
+  run jq -r '.mcpServers."ds-mariadb-dev" | has("enabled")' \
     "${PROJECT_DIR}/.claude/datasources-mariadb-dev.mcp.json"
   assert_output "false"
-  run jq -r '.mcpServers."datasources-mariadb-dev".url' \
+  run jq -r '.mcpServers."ds-mariadb-dev".url' \
     "${PROJECT_DIR}/.claude/datasources-mariadb-dev.mcp.json"
   assert_output "http://127.0.0.1:18510/mcp/mariadb-dev"
   [ ! -e "${PROJECT_DIR}/.opencode/datasources-mariadb-dev.mcp.json" ]
@@ -150,7 +150,7 @@ load 'datasources_test_helper'
   cat > "${PROJECT_DIR}/opencode.jsonc" <<'JSON'
 {
   "mcp": {
-    "datasources-mariadb-dev": { "type": "remote", "url": "http://127.0.0.1:18510/mcp/mariadb-dev" },
+    "ds-mariadb-dev": { "type": "remote", "url": "http://127.0.0.1:18510/mcp/mariadb-dev" },
     "mdctx": { "type": "remote", "url": "http://127.0.0.1:18501/mcp" }
   }
 }
@@ -161,7 +161,7 @@ JSON
   assert_success
 
   run cat "${PROJECT_DIR}/opencode.jsonc"
-  refute_output --partial "datasources-mariadb-dev"
+  refute_output --partial "ds-mariadb-dev"
   # A server this module does not own must be left alone.
   assert_output --partial "mdctx"
 }

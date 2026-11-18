@@ -3605,7 +3605,7 @@ _devbot_apply_runtime_mcps() {
 
   # Retire what an earlier apply generated and this one did not.
   if [[ -f "${owned}" ]]; then
-    local recorded target now
+    local recorded target now manifest_keys retired_keys retired_key
     while IFS=$'\t' read -r previous recorded; do
       [[ -n "${previous}" ]] || continue
       keep=0
@@ -3627,11 +3627,23 @@ _devbot_apply_runtime_mcps() {
           continue
         fi
       fi
+      # Read the registered key(s) before the manifest goes: a group may publish
+      # a server under a different key (datasources publishes `ds-<source>` from
+      # `datasources-<source>.mcp.json`). The group name stays the fallback when
+      # the manifest is already gone.
+      retired_keys="${previous}"
+      if [[ -f "${target}" ]]; then
+        manifest_keys="$(jq -r 'keys[]' "${target}" 2>/dev/null || true)"
+        [[ -n "${manifest_keys}" ]] && retired_keys="${manifest_keys}"
+      fi
       rm -f "${target}"
       # opencode merges manifests into opencode.jsonc insert-only.
       if [[ "${harness_dir}" == ".opencode" && -f "${remove_key}" ]]; then
-        python3 "${remove_key}" "${project_dir}/opencode.jsonc" "${previous}" \
-          >/dev/null 2>&1 || true
+        while IFS= read -r retired_key; do
+          [[ -n "${retired_key}" ]] || continue
+          python3 "${remove_key}" "${project_dir}/opencode.jsonc" "${retired_key}" \
+            >/dev/null 2>&1 || true
+        done <<< "${retired_keys}"
       fi
     done < "${owned}"
   fi

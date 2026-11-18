@@ -211,12 +211,12 @@ part(5, {"type": "tool", "tool": "pty_spawn", "state": {"input": {"command": "ma
 # MCP servers each have their own schema: the generic key priority must find
 # the one meaningful argument, collapse its whitespace, and cap its length.
 part(6, {"type": "tool", "tool": "devbot-tools_search-memories", "state": {"input": {"query": "worktree  stale  index"}}})
-part(7, {"type": "tool", "tool": "datasources-mariadb-prod_mariadb-prod_execute_sql", "state": {"input": {"sql": "SELECT 1"}}})
+part(7, {"type": "tool", "tool": "ds-mariadb-prod_mariadb-prod_execute_sql", "state": {"input": {"sql": "SELECT 1"}}})
 part(8, {"type": "tool", "tool": "atlassian_searchJiraIssuesUsingJql", "state": {"input": {"jql": "project = ARC"}}})
 # Unknown schema: no priority key, so the first non-empty string is used.
 part(9, {"type": "tool", "tool": "some-server_unknown", "state": {"input": {"payload": "/api/x"}}})
 # A generic API tool carries method + path: `path` must win over `method`.
-part(11, {"type": "tool", "tool": "datasources-opensearch-prod_GenericOpenSearchApiTool", "state": {"input": {"method": "GET", "path": "/_cluster/health"}}})
+part(11, {"type": "tool", "tool": "ds-opensearch-prod_GenericOpenSearchApiTool", "state": {"input": {"method": "GET", "path": "/_cluster/health"}}})
 # A long query is capped with an ellipsis rather than widening the column.
 part(10, {"type": "tool", "tool": "signoz_signoz_aggregate_traces", "state": {"input": {"query": "x" * 120}}})
 # devbot-tools take a positional list under `args`, not a named key.
@@ -244,10 +244,10 @@ PY
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['pty_spawn']]" | grep -Fqx "[('make test', 1)]"
   # MCP tools: generic extraction, whitespace collapsed.
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['devbot-tools_search-memories']]" | grep -Fqx "[('worktree stale index', 1)]"
-  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['datasources-mariadb-prod_mariadb-prod_execute_sql']]" | grep -Fqx "[('SELECT 1', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['ds-mariadb-prod_mariadb-prod_execute_sql']]" | grep -Fqx "[('SELECT 1', 1)]"
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['atlassian_searchJiraIssuesUsingJql']]" | grep -Fqx "[('project = ARC', 1)]"
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['some-server_unknown']]" | grep -Fqx "[('/api/x', 1)]"
-  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['datasources-opensearch-prod_GenericOpenSearchApiTool']]" | grep -Fqx "[('/_cluster/health', 1)]"
+  echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['ds-opensearch-prod_GenericOpenSearchApiTool']]" | grep -Fqx "[('/_cluster/health', 1)]"
   # positional `args` list is joined so CLI-shaped MCP tools are represented.
   echo "${output}" | json "[(e['value'], e['count']) for e in data['tool_arguments']['devbot-tools_project-for-path']]" | grep -Fqx "[('/home/x --key modules', 1)]"
   # No credential may reach the report, whichever shape it arrives in.

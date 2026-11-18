@@ -344,8 +344,16 @@ _reconcile_sidecars() {
   done
 }
 
-# Server names and manifest files are prefixed, so a datasource can never
-# collide with a module-declared MCP server of the same name. Module-wide:
-# init publishes these groups and reload reads them back.
+# The MCP server key a datasource is wired under — and therefore the prefix of
+# every tool name an agent sees (`ds-<source>_…`). Short on purpose: the prefix
+# is repeated in every tool name, and the tool already names its source.
+#
+# The runtime MANIFEST keeps the module's own name (`datasources-<source>.json`),
+# not this prefix: a harness attributes a dynamic manifest to a module solely by
+# its filename (`<module>.mcp.json` / `<module>-<detail>.mcp.json`), so a
+# differently-named manifest would be invisible to the disabled-module prune.
+# Module-wide: init publishes these groups and reload reads them back.
 # shellcheck disable=SC2034  # consumed by the scripts that source this file
-PREFIX="datasources-"
+PREFIX="ds-"
+# shellcheck disable=SC2034  # consumed by the scripts that source this file
+MANIFEST_PREFIX="datasources-"
