@@ -364,7 +364,8 @@ _capture_migration_tools() {
   local file
   rm -rf "${dir}"
   mkdir -p "${dir}"
-  for file in migrations.sh read_jsonc.py migrate_workflow_config.py migrate_workspace_config.py; do
+  for file in migrations.sh read_jsonc.py migrate_workflow_config.py migrate_workspace_config.py \
+    ensure_autobot_block.py ensure_autobot_slack_keys.py ensure_guard_rules.py; do
     if [[ -f "${DEV_BOT_ROOT}/src/_shared/${file}" ]]; then
       cp "${DEV_BOT_ROOT}/src/_shared/${file}" "${dir}/${file}"
     fi

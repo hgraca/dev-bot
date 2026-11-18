@@ -686,3 +686,28 @@ print('GUARDS:CONSISTENT')
   assert_success
   grep -qF 'GUARDS:CONSISTENT' <<< "$output" || fail "dist guard messages diverge"
 }
+
+@test "shipped guards block kubectl through an absolute path" {
+  # The engine anchors at the segment start, so a bare `kubectl` pattern is
+  # bypassed by the binary's path; the shipped rule matches a path prefix.
+  run bun run "$TOOL" --command "/usr/local/bin/kubectl get pods" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+
+  run bun run "$TOOL" --command "KUBECONFIG=/tmp/x /usr/local/bin/kubectl get pods" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards block devbot kctl run/exec through an absolute path" {
+  run bun run "$TOOL" --command "/usr/local/bin/devbot kctl exec prod . -- get pods" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+
+  run bun run "$TOOL" --command "MODE=x devbot kctl run . -- get pods" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+  assert_output --partial '"blocked":true'
+}
+
+@test "shipped guards still allow diagnostics and prose" {
+  for command in "devbot kctl env ." "devbot kctl contexts ." "which kubectl" "echo kubectl"; do
+    run bun run "$TOOL" --command "$command" --global-config "$TEST_DIR/../../../../.devbot.global.dist.jsonc" --project-config "$TEST_DIR/../../../../.devbot.project.dist.jsonc"
+    assert_output --partial '"blocked":false'
+  done
+}

@@ -161,3 +161,63 @@ load 'init_test_helper'
   assert [ -f "${outside}" ]
   rm -f "${outside}"
 }
+
+@test "reset prunes a disabled module's servers whose keys differ from its name" {
+  scenario_copy default
+
+  # The k8s module's manifests are `k8s-<cluster>.mcp.json` (the filename keeps
+  # the module's name, which is how a disabled module's manifests are found)
+  # while the server keys inside them are `kctl-<cluster>`. Disabling the module
+  # must take both, or a live server outlives the access it points at.
+  printf '{ "harness": "opencode-v2", "modules": { "k8s": false } }\n' \
+    > "${PROJECT}/.devbot.project.jsonc"
+  printf '%s\n' '{"kctl-demo": {"type": "local", "command": ["bash", "-c", "true"]}}' \
+    > "${PROJECT}/.opencode/k8s-demo.mcp.json"
+  v2 merge-mcp "${CONFIG}" kctl-demo '{"type":"local","command":["bash","-c","true"]}'
+  # An unrelated server is not swept.
+  v2 merge-mcp "${CONFIG}" other '{"type":"local","command":["bash","-c","true"]}'
+
+  bash "${MODULE_DIR}/reset.sh" "${PROJECT}" >/dev/null
+
+  refute [ -e "${PROJECT}/.opencode/k8s-demo.mcp.json" ]
+  run v2 get "${CONFIG}" mcp.servers
+  assert_success
+  refute_output --partial '"kctl-demo"'
+  assert_output --partial '"other"'
+}
+
+@test "reset of a disabled module's prefixed servers is byte-idempotent" {
+  scenario_copy default
+
+  printf '{ "harness": "opencode-v2", "modules": { "k8s": false } }\n' \
+    > "${PROJECT}/.devbot.project.jsonc"
+  printf '%s\n' '{"kctl-demo": {"type": "local", "command": ["bash", "-c", "true"]}}' \
+    > "${PROJECT}/.opencode/k8s-demo.mcp.json"
+  v2 merge-mcp "${CONFIG}" kctl-demo '{"type":"local","command":["bash","-c","true"]}'
+
+  bash "${MODULE_DIR}/reset.sh" "${PROJECT}" >/dev/null
+  local after_first
+  after_first="$(cat "${CONFIG}")"
+
+  bash "${MODULE_DIR}/reset.sh" "${PROJECT}" >/dev/null
+
+  assert_equal "$(cat "${CONFIG}")" "${after_first}"
+}
+
+@test "reset prunes a kctl key whose manifest is already gone" {
+  scenario_copy default
+
+  # A removed manifest leaves the merged key behind. It is not named after the
+  # module, so only the prefix declared in mcp.dynamic.json finds it.
+  printf '{ "harness": "opencode-v2", "modules": { "k8s": false } }\n' \
+    > "${PROJECT}/.devbot.project.jsonc"
+  v2 merge-mcp "${CONFIG}" kctl-demo '{"type":"local","command":["bash","-c","true"]}'
+  v2 merge-mcp "${CONFIG}" other '{"type":"local","command":["bash","-c","true"]}'
+
+  bash "${MODULE_DIR}/reset.sh" "${PROJECT}" >/dev/null
+
+  run v2 get "${CONFIG}" mcp.servers
+  assert_success
+  refute_output --partial '"kctl-demo"'
+  assert_output --partial '"other"'
+}

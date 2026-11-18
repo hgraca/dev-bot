@@ -80,3 +80,16 @@ JSONC_EOF
   grep -q 'migration_up-1.9.0' "${REPO_ROOT}/src/_shared/migrations.sh"
   grep -q 'migration_down-1.9.0' "${REPO_ROOT}/src/_shared/migrations.sh"
 }
+
+@test "every helper a migration calls is captured for a downgrade" {
+  # `devbot update <older-tag>` runs the migration set captured BEFORE the
+  # checkout, so a helper that only exists in the new tree makes the down half
+  # fail after the files are gone.
+  local helper
+  while IFS= read -r helper; do
+    [[ -n "${helper}" ]] || continue
+    grep -q "${helper}" "${BATS_TEST_DIRNAME}/../update.sh" \
+      || fail "src/_shared/${helper} is used by a migration but not captured"
+  done < <(grep -o 'src/_shared/[a-z_]*\.py' "${BATS_TEST_DIRNAME}/../../src/_shared/migrations.sh" \
+    | sed 's#.*/##' | sort -u)
+}

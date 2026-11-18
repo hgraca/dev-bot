@@ -51,6 +51,19 @@
     {
       "regex": "sudo .*",
       "message": "sudo is blocked"
+    },
+    {
+      // Cluster access is MCP-only: each cluster is a `kctl-<cluster>` server
+      // whose `kubectl` tool applies the project's kubeconfig and that
+      // cluster's context. The leading group catches `VAR=x kubectl ...`.
+      "regex": "(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:\\S*/)?kubectl(?:\\s|$)",
+      "message": "kubectl is blocked — use the kctl-<cluster> MCP server (its single `kubectl` tool takes kubectl's own args) instead of running kubectl in a shell. The module's memory has the rules."
+    },
+    {
+      // The CLI runs kubectl too, so a shell call to it is the same bypass —
+      // `env` and `contexts` stay available, they only print paths.
+      "regex": "(?:[A-Za-z_][A-Za-z0-9_]*=\\S*\\s+)*(?:\\S*/)?devbot\\s+kctl\\s+(?:run|exec)\\b",
+      "message": "devbot kctl run/exec is blocked for agents — use the kctl-<cluster> MCP server. `devbot kctl env|contexts` still prints the kubeconfig and the cluster list."
     }
   ]
 }

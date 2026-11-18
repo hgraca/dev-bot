@@ -794,3 +794,15 @@ EOF
   refute [ -f "${proj}/.agents/logs/tools-grades.csv.1" ]
 }
 
+
+# ── Shared tool-runtime helper ────────────────────────────────────────────────
+# Two modules' install scripts call _devbot_ensure_bun through their own thin
+# functions.sh. The helper was once dropped from _shared in a rebase and both
+# callers kept failing with 127 — the modules installed nothing, silently.
+@test "_devbot_ensure_bun is reachable from the modules that call it" {
+  local module
+  for module in tools-mcp k8s; do
+    run bash -c "source '${PROJECT_ROOT}/src/agentic/${module}/functions.sh'; declare -F _devbot_ensure_bun"
+    assert_success
+  done
+}

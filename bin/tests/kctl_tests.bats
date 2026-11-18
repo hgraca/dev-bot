@@ -219,6 +219,16 @@ EOF
   assert_output --partial "refusing '--token'"
 }
 
+@test "run refuses an attached -s endpoint override" {
+  write_kubeconfig
+
+  # pflag accepts a shorthand's value attached as well as after `=`.
+  run "${DEVBOT}" kctl run "${PROJECT}" -- -shttps://other.example get pods
+  assert_failure
+  assert_output --partial "refusing '-shttps://other.example'"
+  refute_output --partial "ARGS:"
+}
+
 @test "help advertises the kctl command" {
   run "${DEVBOT}" help
   assert_success

@@ -46,6 +46,16 @@ WORK_DIR="${HOME}/.kube/devbot"
 WRAPPER_PATH="${WORK_DIR}/exec-credential.sh"
 KUBECONFIG_PATH=""
 ENV_PATH=""
+# The MCP server name per rendered cluster: `kctl-<cluster>`. One server per
+# cluster is the scoping — the agent's tool list names the target, and the
+# server can only run kubectl against that cluster's context.
+#
+# The runtime-manifest GROUP keeps the module's name (`k8s-<cluster>`): a
+# disabled module's manifests are recognised by their filename, so the key may
+# be shorter than the module but the file may not (docs/create-a-module.md).
+MCP_PREFIX="kctl-"
+MCP_GROUP_PREFIX="k8s-"
+MCP_LAUNCHER="kctl-mcp.sh"
 # Written by the pre-selection implementation, when every project shared one
 # kubeconfig. Removed after a scoped render succeeds — see _migrate_legacy.
 LEGACY_KUBECONFIG="${HOME}/.kube/devbot.yaml"
@@ -235,6 +245,11 @@ _existing_static_clusters() {
 # Only this project's own files are pruned. The wrapper is shared by every
 # project on the machine, so deleting it here would break the others; it holds
 # references, never values, and is harmless while unused.
+#
+# Retiring the MCP servers here keeps them and the kubeconfig in step: every
+# path that removes the project's kubeconfig also means no cluster of this
+# project is reachable, and a `kctl-<cluster>` server left registered would fail
+# one tool call at a time instead of being absent.
 _prune_generated() {
   local removed=0
   if [[ -e "${KUBECONFIG_PATH}" ]]; then
@@ -246,18 +261,68 @@ _prune_generated() {
   if [[ -e "$(_static_manifest_path)" ]]; then
     rm -f "$(_static_manifest_path)" && removed=1
   fi
+  _retire_mcps
   [[ "${removed}" -eq 1 ]]
+}
+
+# ── MCP exposure ─────────────────────────────────────────────────────────────
+#
+# One stdio server per rendered cluster, published through the harness-agnostic
+# runtime manifest (the aws/datasources contract): init declares, the harness
+# applies. The command is secret-free — it names the cluster, and kctl.sh
+# resolves the kubeconfig, the context and the credential references at call
+# time. `{harness-dir}` is a translator token, so no harness is named here.
+_wire_mcps() {
+  local name group
+  local -a keep=()
+
+  for name in "$@"; do
+    group="${MCP_GROUP_PREFIX}${name}"
+    if ! _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${group}" \
+      "$(jq -nc --arg s "${MCP_PREFIX}${name}" --arg c \
+        "mkdir -p .agents/logs && exec bash {harness-dir}/${MCP_LAUNCHER} ${name} 2>>.agents/logs/${MCP_PREFIX}${name}-mcp.log" \
+        '{($s): {type: "stdio", command: ["bash", "-c", $c]}}')"; then
+      # Not in `keep`: the previous manifest for this cluster is pruned below,
+      # so a failed publish leaves the server absent rather than stale.
+      _warn "kubectl — could not publish the ${MCP_PREFIX}${name} MCP manifest"
+      continue
+    fi
+    keep+=("${group}")
+    _ok "kubectl — MCP ${MCP_PREFIX}${name}"
+  done
+
+  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${MCP_GROUP_PREFIX}" ${keep[@]+"${keep[@]}"}
+  _devbot_apply_runtime_mcps "${PROJECT_DIR}"
+}
+
+# Drop every `kctl-*` server for this project — no cluster is reachable.
+_retire_mcps() {
+  _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${MCP_GROUP_PREFIX}"
+  _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 }
 
 # The module's always-on instructions belong to the module, not to the project's
 # project.md: reinit clears active/modules/ and every enabled module rewrites its
 # own file, so the text has one source and no per-project copy to drift.
+#
+# The rule it carries is absolute — no kubectl in any shell — so it is written
+# whenever the module is enabled, not only when a cluster renders. A project
+# whose credentials are stale would otherwise lose the prohibition exactly when
+# plain kubectl looks most tempting.
 _write_memory() {
   if ! _devbot_write_module_memory "${PROJECT_DIR}" "k8s.md" "${MODULE_DIR}/k8s.md"; then
     _skip "kubectl — module memory not written"
     return 0
   fi
   _ok "kubectl — active/modules/k8s.md"
+}
+
+# Is the k8s module itself turned off for this project? `_run_module_script`
+# already skips a disabled module's init.sh; this guard keeps a direct run
+# (`bash init.sh`) from writing instructions a disabled module does not own.
+_k8s_module_disabled() {
+  _devbot_get_disabled_modules "${PROJECT_DIR}" |
+    jq -e 'index("k8s") != null' >/dev/null 2>&1
 }
 
 # The machine-wide files of the previous implementation are the one artefact that
@@ -304,6 +369,31 @@ main() {
   # the old env file keeps pointing at them — so they must not survive an init
   # that bails out early either.
   _migrate_legacy
+
+  # The prohibition on plain kubectl is the module's, not the render's: write it
+  # before every return below, so a project with no cluster (or with a broken
+  # AWS environment) still learns that the shell is off limits.
+  if _k8s_module_disabled; then
+    _devbot_remove_module_memory "${PROJECT_DIR}" "k8s.md"
+    _skip "kubectl — module disabled for this project; k8s.md not written"
+    # Disabling the module revokes what an earlier, enabled run generated. This
+    # only matters when the script is run directly (init skips a disabled
+    # module), and then leaving a kubeconfig and live servers behind would be
+    # the one thing the module exists to prevent.
+    #
+    # Manifests are removed here; the aggregate a harness keeps (claudecode's
+    # `.mcp.json`) is regenerated from scratch by that harness, because a module
+    # never writes a harness manifest. `devbot reinit` therefore finishes the
+    # revocation, which is the documented way to change the module set.
+    KUBECONFIG_PATH="${WORK_DIR}/$(_project_slug).yaml"
+    ENV_PATH="${KUBECONFIG_PATH%.yaml}.env"
+    if _prune_generated; then
+      _ok "kubectl — module disabled; removed the generated kubeconfig and MCP manifests"
+    fi
+    return 0
+  fi
+
+  _write_memory
 
   local config spec slug selection project
   config="$(_devbot_global_config)"
@@ -354,10 +444,6 @@ main() {
     fi
     return 0
   fi
-
-  # Before the environment checks below: the instructions describe the module,
-  # not the state of this machine, so an unreachable AWS must not drop them.
-  _write_memory
 
   # Read once, here: both the excluded-match warning below and the
   # current-context choice at the end of the render depend on it.
@@ -742,6 +828,11 @@ main() {
   fi
 
   _ok "kubectl — ${KUBECONFIG_PATH}"
+
+  # One MCP server per rendered cluster. Published from the rendered set, not
+  # the selection: a cluster the render dropped has no context in the file, so
+  # its server could only ever fail.
+  _wire_mcps "${names[@]}"
 
   # kubectl reads ~/.kube/config unless KUBECONFIG says otherwise, so a
   # generated file nobody points at is inert. A separate file rather than a

@@ -767,3 +767,113 @@ print('D9-DATASOURCES-ORPHAN:OK')
   assert_success
   grep -qF 'D9-DATASOURCES-ORPHAN:OK' <<< "$output" || fail "disabled datasources' orphan key survived"
 }
+
+# D10: a module's server keys are not always its name. The k8s module writes
+# `k8s-<cluster>.mcp.json` (the filename keeps the module's name, which is how a
+# disabled module's manifests are found) while the server key inside is
+# `kctl-<cluster>`. Disabling the module must take both — the generated
+# kubeconfig outlives the module, so a leftover key is a live server.
+_write_prefixed_key_fixture() {
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "harness": "opencode",
+  "modules": {
+    "k8s": false
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  cat > "${SANDBOX_DIR}/.opencode/k8s-demo.mcp.json" <<'JSON_EOF'
+{"kctl-demo": {"type": "local", "command": ["bash", "-c", "true"]}}
+JSON_EOF
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "kctl-demo": {"type": "local", "command": ["bash", "-c", "true"]},
+    "other": {"type": "local", "command": ["other-mcp"]}
+  }
+}
+JSONC_EOF
+}
+
+@test "D10: reset prunes a disabled module's servers whose keys differ from its name" {
+  _write_prefixed_key_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  refute [ -e "${SANDBOX_DIR}/.opencode/k8s-demo.mcp.json" ]
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'kctl-demo' not in mcp, mcp
+assert 'other' in mcp, mcp
+print('D10-PREFIXED-PRUNE:OK')
+"
+  assert_success
+  grep -qF 'D10-PREFIXED-PRUNE:OK' <<< "$output" || fail "prefixed server key not pruned"
+}
+
+@test "D10: second reset is byte-idempotent (prefixed key prune)" {
+  _write_prefixed_key_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  local after_first
+  after_first="$(cat "${SANDBOX_DIR}/opencode.jsonc")"
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
+}
+
+@test "D10: reset prunes a kctl key whose manifest is already gone" {
+  # The manifest is a regular file, so it can be removed before reset runs
+  # (a rebuilt .opencode/, a user tidying up) while the merged key stays. The
+  # key is not named after the module, so only the declared prefix finds it.
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "harness": "opencode",
+  "modules": {
+    "k8s": false
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "kctl-demo": {"type": "local", "command": ["bash", "-c", "true"]},
+    "kctl-other": {"type": "local", "command": ["bash", "-c", "true"]},
+    "other": {"type": "local", "command": ["other-mcp"]}
+  }
+}
+JSONC_EOF
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'kctl-demo' not in mcp, mcp
+assert 'kctl-other' not in mcp, mcp
+assert 'other' in mcp, mcp
+print('D10-ORPHAN-PRUNE:OK')
+"
+  assert_success
+  grep -qF 'D10-ORPHAN-PRUNE:OK' <<< "$output" || fail "orphaned kctl key not pruned"
+}

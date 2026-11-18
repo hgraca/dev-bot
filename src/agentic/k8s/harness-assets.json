@@ -1,0 +1,8 @@
+{
+  "mcp": [
+    {
+      "name": "kctl-mcp.sh",
+      "path": "tools/kctl-mcp.sh"
+    }
+  ]
+}

@@ -130,11 +130,13 @@ _prune_mcp_key() {
 }
 
 # Only modules that WRITE <name>.mcp.json under .opencode/ own these keys.
+# A module that ships mcp.dynamic.json is a producer too, whatever its name:
+# its servers' keys need not be named after it (k8s writes kctl-<cluster>).
 _is_dynamic_manifest_producer() {
   case "$1" in
     aws|datasources|jetbrains|netsuite) return 0 ;;
   esac
-  return 1
+  [[ -f "$2/mcp.dynamic.json" ]]
 }
 
 if [[ -f "${CONFIG}" ]]; then
@@ -187,7 +189,7 @@ for k in data.get('mcp', {}):
 
     # A dynamic module's server stays registered after its manifest is gone, so
     # prune the keys it owns by name (<name>, <name>-<detail>).
-    if [[ ! -f "${mod_dir}/mcp.json" ]] && _is_dynamic_manifest_producer "${disabled_name}"; then
+    if [[ ! -f "${mod_dir}/mcp.json" ]] && _is_dynamic_manifest_producer "${disabled_name}" "${mod_dir}"; then
       while IFS= read -r orphan_key; do
         [[ -n "${orphan_key}" ]] || continue
         _prune_mcp_key "${orphan_key}" "${disabled_name}"

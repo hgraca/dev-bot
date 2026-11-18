@@ -2882,6 +2882,53 @@ _ensure_ollama_models_detached() {
 
 # ── Shared helpers ─────────────────────────────────────────────────────────────
 
+# _devbot_ensure_bun
+#   Make bun available to the dev-bot tool servers, installing it when missing.
+#   Returns 0 with bun on PATH (linked into ~/.local/bin, which dev-bot adds to
+#   the harness PATH), 1 otherwise — the caller reports the module as degraded.
+#
+#   Two modules ship a bun-hosted MCP server (tools-mcp and k8s), and both used
+#   to install it themselves: the second copy would have drifted on the first
+#   dependency change. Kept here so there is one installer and one PATH fix.
+_devbot_ensure_bun() {
+  if command -v bun >/dev/null 2>&1; then
+    return 0
+  fi
+
+  _info "Installing bun (tool server runtime)..."
+
+  if ! command -v curl >/dev/null 2>&1; then
+    _warn "curl is required to install bun — install curl first"
+    return 1
+  fi
+
+  # The bun installer needs unzip to extract the binary.
+  if ! command -v unzip >/dev/null 2>&1; then
+    _info "Installing unzip (bun installer dependency)..."
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get install -y unzip >/dev/null 2>&1 || { _warn "could not install unzip"; return 1; }
+    elif command -v brew >/dev/null 2>&1; then
+      brew install unzip >/dev/null 2>&1 || { _warn "could not install unzip"; return 1; }
+    fi
+  fi
+
+  if ! curl -fsSL https://bun.sh/install | bash >/dev/null 2>&1; then
+    _warn "bun install failed — bun-hosted MCP servers are unavailable"
+    return 1
+  fi
+
+  # The installer drops bun at ~/.bun/bin — link it onto the devbot PATH
+  # (~/.local/bin) so the servers and this check can find it.
+  if [[ -x "${HOME}/.bun/bin/bun" ]]; then
+    mkdir -p "${HOME}/.local/bin"
+    ln -sf "${HOME}/.bun/bin/bun" "${HOME}/.local/bin/bun"
+    PATH="${HOME}/.local/bin:${PATH}"
+    export PATH
+  fi
+
+  command -v bun >/dev/null 2>&1
+}
+
 _upsert_section_impl() {
   local file="$1"
   local marker_start="$2"
@@ -3686,7 +3733,7 @@ _devbot_apply_runtime_mcps() {
   # Retire what an earlier apply generated and this one did not.
   if [[ -f "${owned}" ]]; then
     local recorded target now manifest_keys retired_keys retired_key
-    while IFS=$'\t' read -r previous recorded; do
+    while IFS=$'\t' read -r previous recorded recorded_keys; do
       [[ -n "${previous}" ]] || continue
       keep=0
       for a in ${current[@]+"${current[@]}"}; do
@@ -3707,12 +3754,15 @@ _devbot_apply_runtime_mcps() {
           continue
         fi
       fi
-      # Read the registered key(s) before the manifest goes: a group may publish
-      # a server under a different key (datasources publishes `ds-<source>` from
-      # `datasources-<source>.mcp.json`). The group name stays the fallback when
-      # the manifest is already gone.
+      # The registered key(s): recorded at write time, because a group may
+      # publish a server under a different key (k8s publishes `kctl-<cluster>`
+      # from `k8s-<cluster>.mcp.json`) and the manifest can already be gone
+      # when the group is retired. Older records carry no keys; the manifest,
+      # then the group name, stay the fallbacks.
       retired_keys="${previous}"
-      if [[ -f "${target}" ]]; then
+      if [[ -n "${recorded_keys:-}" ]]; then
+        retired_keys="$(printf '%s' "${recorded_keys}" | tr ',' '\n')"
+      elif [[ -f "${target}" ]]; then
         manifest_keys="$(jq -r 'keys[]' "${target}" 2>/dev/null || true)"
         [[ -n "${manifest_keys}" ]] && retired_keys="${manifest_keys}"
       fi
@@ -3728,12 +3778,18 @@ _devbot_apply_runtime_mcps() {
     done < "${owned}"
   fi
 
-  # Record exactly what this pass generated, each with its content fingerprint,
-  # so a later retirement can tell our file from one written after it.
+  # Record exactly what this pass generated: its content fingerprint (so a
+  # later retirement can tell our file from one written after it) and the
+  # server keys inside it (so retiring works even when the manifest is gone).
   {
+    local record_keys
     for a in ${current[@]+"${current[@]}"}; do
-      printf '%s\t%s\n' "${a}" \
-        "$(_devbot_file_fingerprint "${project_dir}/${harness_dir}/${a}.mcp.json")"
+      record_keys="$(jq -r '
+        (if has("mcpServers") then .mcpServers else . end) | keys | join(",")
+      ' "${project_dir}/${harness_dir}/${a}.mcp.json" 2>/dev/null || true)"
+      printf '%s\t%s\t%s\n' "${a}" \
+        "$(_devbot_file_fingerprint "${project_dir}/${harness_dir}/${a}.mcp.json")" \
+        "${record_keys}"
     done
   } | sort -k1,1 > "${owned}.tmp"
   mv "${owned}.tmp" "${owned}"

@@ -191,7 +191,7 @@ _refuse_overrides() {
           return 1
         fi
         ;;
-      --kubeconfig | --kubeconfig=* | -s | -s=* | --server | --server=* | \
+      --kubeconfig | --kubeconfig=* | -s* | --server | --server=* | \
         --cluster | --cluster=* | --user | --user=* | \
         --token | --token=* | --as | --as=* | \
         --as-group | --as-group=* | --as-uid | --as-uid=* | \

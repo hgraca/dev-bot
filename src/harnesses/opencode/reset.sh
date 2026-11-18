@@ -237,11 +237,13 @@ for k in data.get('mcp', {}):
   # Only modules that WRITE <name>.mcp.json under .opencode/ own these keys.
   # A harness that merely CONSUMES .mcp.json (claudecode rewrites the aggregate
   # one) must not be listed: disabling it would delete a user's same-named entry.
+  # A module that ships mcp.dynamic.json is a producer too, whatever its name:
+  # its servers' keys need not be named after it (k8s writes kctl-<cluster>).
   _is_dynamic_manifest_producer() {
     case "$1" in
       aws|datasources|jetbrains|netsuite) return 0 ;;
     esac
-    return 1
+    [[ -f "$2/mcp.dynamic.json" ]]
   }
 
   # Parse the disabled set once (module names the registration loops skip).
@@ -338,7 +340,7 @@ for k in data.get('mcp', {}):
     # skill-only modules (react, svelte, frontend) and manifest consumers
     # (claudecode) also lack one. Only a known producer owns keys named after it.
     if [[ ! -f "${mod_dir}/mcp.json" && -f "${REMOVE_MCP_PY}" ]] \
-      && _is_dynamic_manifest_producer "${disabled_name}"; then
+      && _is_dynamic_manifest_producer "${disabled_name}" "${mod_dir}"; then
       while IFS= read -r orphan_key; do
         [[ -n "${orphan_key}" ]] || continue
         python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${orphan_key}" 2>/dev/null || true

@@ -697,6 +697,11 @@ JSONC
 # The module's always-on instructions live in the project's vault, written by
 # this module rather than hand-copied into project.md. reinit clears the folder
 # and every enabled module rewrites its own file, so the text has one source.
+#
+# The rule is the module's, not the render's: the file is written whenever the
+# module is enabled — including a project with no selection and a machine whose
+# AWS is unusable — because that is exactly when a fallback to plain kubectl
+# looks tempting.
 
 memory_file() {
   printf '%s\n' "$BATS_TEST_TMPDIR/project/.agents/memory/active/modules/k8s.md"
@@ -710,37 +715,59 @@ memory_file() {
   assert_success
   assert [ -f "$(memory_file)" ]
   run cat "$(memory_file)"
-  assert_output --partial "devbot kube run"
+  assert_output --partial "NEVER run \`kubectl\` in any shell"
+  assert_output --partial "kctl-<cluster>"
   assert_output --partial "pods/exec"
 }
 
-@test "a project that does not opt in gets no module memory file" {
+@test "a project that does not opt in still gets the prohibition" {
   write_config
   printf '{ "project_name": "demo" }\n' > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
 
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
 
   assert_success
-  refute [ -e "$(memory_file)" ]
+  assert [ -f "$(memory_file)" ]
+  run cat "$(memory_file)"
+  assert_output --partial "NEVER run \`kubectl\` in any shell"
 }
 
-@test "an empty selection gets no module memory file" {
+@test "an empty selection still gets the prohibition" {
   write_config
   printf '{ "project_name": "demo", "kubectl": [] }\n' > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
 
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
 
   assert_success
-  refute [ -e "$(memory_file)" ]
+  assert [ -f "$(memory_file)" ]
 }
 
-@test "no kubectl node in the global config gets no module memory file" {
+@test "no kubectl node in the global config still gets the prohibition" {
   printf '{ "version": "test" }\n' > "$DEV_BOT_GLOBAL_CONFIG"
 
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
 
   assert_success
+  assert [ -f "$(memory_file)" ]
+}
+
+@test "a disabled k8s module gets no memory file and loses its access" {
+  write_config
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  assert [ -f "$(runtime_manifest k8s-prod)" ]
+
+  # A direct run with the module off must revoke what the enabled run created:
+  # the prohibition would otherwise outlive the access it describes, and the
+  # servers would outlive the kubeconfig they point at.
+  printf '{\n  "project_name": "demo",\n  "kubectl": ["k8s-prod"],\n  "modules": { "k8s": false }\n}\n' \
+    > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  assert_output --partial "module disabled"
   refute [ -e "$(memory_file)" ]
+  refute [ -e "$(runtime_manifest k8s-prod)" ]
+  assert_equal "$(generated_files)" ""
 }
 
 @test "the module memory file survives a failed identity check" {
@@ -780,8 +807,86 @@ memory_file() {
   assert_output "untouched"
   refute [ -L "$(memory_file)" ]
   run cat "$(memory_file)"
-  assert_output --partial "devbot kube run"
+  assert_output --partial "NEVER run \`kubectl\` in any shell"
   rm -r "${outside}"
+}
+
+# ── MCP servers ───────────────────────────────────────────────────────────────
+# One server per RENDERED cluster, named kctl-<cluster>, published through the
+# harness-agnostic runtime manifest. The server name is the scoping: the agent's
+# tool list names the target, so a dropped cluster must lose its server too.
+
+# The runtime-manifest GROUP keeps the module's name (`k8s-<cluster>`) — that
+# filename is how a disabled module's manifests are recognised — while the
+# server KEY is `kctl-<cluster>`, which is what the agent's tool list shows.
+runtime_manifest() {
+  printf '%s\n' "$BATS_TEST_TMPDIR/project/.agents/mcp-runtime/k8s-$1.json"
+}
+
+harness_manifest() {
+  printf '%s\n' "$BATS_TEST_TMPDIR/project/.opencode/k8s-$1.mcp.json"
+}
+
+@test "publishes one MCP server per rendered cluster" {
+  write_config
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  assert [ -f "$(runtime_manifest k8s-prod)" ]
+  assert [ -f "$(runtime_manifest k8s-stg)" ]
+  assert [ -f "$(harness_manifest k8s-prod)" ]
+
+  run cat "$(runtime_manifest k8s-prod)"
+  assert_output --partial '"kctl-k8s-prod"'
+  assert_output --partial "kctl-mcp.sh k8s-prod"
+
+  # Applied through the harness: the server is live in opencode's own shape,
+  # carrying the resolved harness dir rather than the translator token.
+  run cat "$(harness_manifest k8s-prod)"
+  assert_output --partial '"kctl-k8s-prod"'
+  assert_output --partial ".opencode/kctl-mcp.sh k8s-prod"
+  refute_output --partial "{harness-dir}"
+  refute_output --partial "AKIA_TEST_ACCESS"
+}
+
+@test "a cluster the render dropped gets no MCP server" {
+  write_config
+  export STUB_FAIL_CLUSTER="k8s-prod"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  refute [ -e "$(runtime_manifest k8s-prod)" ]
+  assert [ -f "$(runtime_manifest k8s-stg)" ]
+}
+
+@test "an emptied selection retires the published servers" {
+  write_config
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  assert [ -f "$(runtime_manifest k8s-prod)" ]
+
+  printf '{ "project_name": "demo", "kubectl": [] }\n' > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  refute [ -e "$(runtime_manifest k8s-prod)" ]
+  refute [ -e "$(harness_manifest k8s-prod)" ]
+}
+
+@test "a selection revision republishes instead of doubling the servers" {
+  write_config
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  assert [ -f "$(runtime_manifest k8s-stg)" ]
+
+  printf '{ "project_name": "demo", "kubectl": ["k8s-prod"] }\n' \
+    > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  assert [ -f "$(runtime_manifest k8s-prod)" ]
+  refute [ -e "$(runtime_manifest k8s-stg)" ]
+  refute [ -e "$(harness_manifest k8s-stg)" ]
 }
 
 # ── static clusters ───────────────────────────────────────────────────────────
@@ -1132,7 +1237,7 @@ STUB
   chmod +x "$BATS_TEST_TMPDIR/bin/kubectl"
 
   unset AWS_KEY AWS_SECRET
-  run bash "$MODULE_DIR/kube.sh" run "$BATS_TEST_TMPDIR/project" -- get nodes
+  run bash "$MODULE_DIR/kctl.sh" run "$BATS_TEST_TMPDIR/project" -- get nodes
 
   assert_success
   run cat "$BATS_TEST_TMPDIR/kubectl-called"
@@ -1190,7 +1295,7 @@ JSONC
   assert_equal "$(generated_files)" ""
 }
 
-@test "kube env does not label an unknown context static" {
+@test "kctl env does not label an unknown context static" {
   write_static_kubeconfig "$BATS_TEST_TMPDIR/static.yaml"
   write_static_config
   cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
@@ -1204,7 +1309,7 @@ JSONC
 { "kubectl": { "clusters": [] } }
 JSONC
 
-  run bash "$MODULE_DIR/kube.sh" env "$BATS_TEST_TMPDIR/project"
+  run bash "$MODULE_DIR/kctl.sh" env "$BATS_TEST_TMPDIR/project"
 
   assert_success
   refute_output --partial "static context"
@@ -1244,4 +1349,49 @@ JSONC
   assert_success
   assert_output --partial "reached outside the selection"
   assert_equal "$(generated_files)" ""
+}
+
+@test "a dropped cluster's server key is retired even when its manifest is gone" {
+  write_config
+  # The key is registered by the harness; stand in for it here, since this
+  # suite runs init.sh without a harness.
+  cat > "$BATS_TEST_TMPDIR/project/opencode.jsonc" <<'JSON'
+{
+  "mcp": {
+    "kctl-k8s-prod": {"type": "local", "command": ["bash", "-c", "true"]},
+    "kctl-k8s-stg": {"type": "local", "command": ["bash", "-c", "true"]}
+  }
+}
+JSON
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  resolve_paths
+  assert [ -f "$(harness_manifest k8s-prod)" ]
+
+  # Keep the generated file in step with the new selection: this exercises the
+  # retirement path alone, not the wider-than-selection prune (which revokes
+  # everything and lets the harness re-register the survivors).
+  cat > "$KUBECONFIG_FILE" <<'EOF'
+apiVersion: v1
+kind: Config
+current-context: k8s-stg-rw
+contexts:
+- context: {cluster: k8s-stg, user: devbot-k8s-stg}
+  name: k8s-stg-rw
+clusters: []
+users: []
+EOF
+  # A rebuilt or tidied .opencode/ can lose the manifest while the merged key
+  # stays. Retirement must not fall back to the group name (k8s-<cluster>) and
+  # leave the live key (kctl-<cluster>) behind.
+  rm -f "$(harness_manifest k8s-prod)"
+  printf '{ "project_name": "demo", "kubectl": ["k8s-stg"] }\n' \
+    > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  refute [ -e "$(runtime_manifest k8s-prod)" ]
+  run grep -q '"kctl-k8s-prod"' "$BATS_TEST_TMPDIR/project/opencode.jsonc"
+  assert_failure
+  run grep -q '"kctl-k8s-stg"' "$BATS_TEST_TMPDIR/project/opencode.jsonc"
+  assert_success
 }

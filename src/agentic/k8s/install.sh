@@ -142,6 +142,14 @@ main() {
     _ensure_install_dir
     install_kubeconform
     install_kubelinter
+    # The per-cluster MCP servers are bun-hosted (server/kctl-mcp.ts). Failure
+    # is reported, not fatal: linting and the `devbot kctl` CLI still work, and
+    # the module's init reports the missing runtime in the per-cluster log.
+    if _devbot_ensure_bun; then
+        _ok "bun $(bun --version) — kctl MCP server runtime"
+    else
+        _warn "bun unavailable — the kctl MCP servers will not start ('devbot kctl' still works)"
+    fi
     _header_1 "k8s install complete"
 }
 

@@ -36,6 +36,16 @@ teardown() {
   assert_output --partial "src/agentic/tools-mcp/server/start-tools-mcp.sh"
 }
 
+@test "the k8s module's per-cluster launcher is linked" {
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  # Every kctl-<cluster> runtime manifest runs {harness-dir}/kctl-mcp.sh: a
+  # missing link turns every kctl server into exit 127, and nothing else
+  # asserts that name.
+  assert [ -L "${PROJECT}/.opencode/kctl-mcp.sh" ]
+  run readlink "${PROJECT}/.opencode/kctl-mcp.sh"
+  assert_output --partial "src/agentic/k8s/tools/kctl-mcp.sh"
+}
+
 @test "a declared shared asset resolves {devbot-root}" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
   # playwright and chrome-devtools share src/_shared/mcp-stdio-wrapper.js

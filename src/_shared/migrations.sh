@@ -392,3 +392,64 @@ function migration_down-1.18.0 {
   _migration_skip "the slack keys are comments — leaving ${config} and its projects untouched"
   return 0
 }
+
+# 1.19.0 — the shipped guard rules gain the kubectl prohibition (cluster access
+# is MCP-only from this release). A rule only reaches an install through its
+# dist config, and a runtime config is never overwritten: both the global
+# `.devbot.global.jsonc` (installed once) and every project config keep
+# whatever they had. Without this half an upgraded machine reads a memory file
+# that says a guard blocks kubectl while no rule exists.
+#
+# The rule TEXT is read from the shipped dist, so the message is not restated
+# here; only the regexes this release introduces are considered, so a dist that
+# gains an unrelated rule later is not retro-applied by this migration. The
+# down half removes exactly those two regexes and leaves anything else alone.
+function migration_up-1.19.0 {
+  local config="${1:?global config path required}"
+  local dist="${DEV_BOT_ROOT}/.devbot.global.dist.jsonc"
+  local helper="${DEV_BOT_ROOT}/src/_shared/ensure_guard_rules.py"
+  local path added=0 present=0 failed=0
+
+  if [[ ! -f "${dist}" ]]; then
+    _migration_warn "no shipped dist at ${dist} — guard rules not seeded"
+    return 1
+  fi
+
+  while IFS= read -r path; do
+    case "$(python3 "${helper}" --from "${dist}" \
+      --only-regex '(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*/)?kubectl(?:\s|$)' \
+      --only-regex '(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*/)?devbot\s+kctl\s+(?:run|exec)\b' \
+      "${path}" 2>/dev/null || true)" in
+      added\ *) added=$((added + 1)) ;;
+      present) present=$((present + 1)) ;;
+      *)
+        _migration_warn "could not seed the kubectl guard rule in ${path}"
+        failed=1
+        ;;
+    esac
+  done < <(_migration_config_paths "${config}")
+  _migration_ok "kubectl guard rule added to ${added} config(s), ${present} already had it"
+  return "${failed}"
+}
+
+function migration_down-1.19.0 {
+  local config="${1:?global config path required}"
+  local helper="${DEV_BOT_ROOT}/src/_shared/ensure_guard_rules.py"
+  local path removed=0 failed=0
+
+  while IFS= read -r path; do
+    case "$(python3 "${helper}" \
+      --remove-regex '(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*/)?kubectl(?:\s|$)' \
+      --remove-regex '(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*/)?devbot\s+kctl\s+(?:run|exec)\b' \
+      "${path}" 2>/dev/null || true)" in
+      removed\ *) removed=$((removed + 1)) ;;
+      absent) ;;
+      *)
+        _migration_warn "could not remove the kubectl guard rule from ${path}"
+        failed=1
+        ;;
+    esac
+  done < <(_migration_config_paths "${config}")
+  _migration_ok "kubectl guard rule removed from ${removed} config(s)"
+  return "${failed}"
+}
