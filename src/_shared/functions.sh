@@ -810,7 +810,9 @@ _devbot_rotate_session_logs() {
 
   local file base nnn target
   for file in "${logs_dir}"/*.log; do
-    [[ -f "${file}" ]] || continue
+    # Only a regular file: rotating through a symlink would truncate whatever it
+    # points at, and the log directory is not ours alone to police.
+    [[ -f "${file}" && ! -L "${file}" ]] || continue
     # Nothing was written since the last rotation — leave it, so an idle log
     # does not accumulate one empty copy per session.
     [[ -s "${file}" ]] || continue
