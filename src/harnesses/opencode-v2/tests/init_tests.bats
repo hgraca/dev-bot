@@ -250,6 +250,7 @@ EOF
 }
 
 @test "init migrates a v1 config and leaves a backup" {
+  git -C "${PROJECT}" init -q
   cat > "${CONFIG}" <<'EOF'
 {
   "model": "p/m",
@@ -265,6 +266,12 @@ EOF
   assert_success
 
   assert [ -f "${CONFIG}.pre-v2.bak" ]
+  # The backup must not linger as an untracked file in the consumer's repo.
+  run git -C "${PROJECT}" check-ignore -v opencode.jsonc.pre-v2.bak
+  assert_success
+  assert_output --partial "opencode.jsonc.pre-v2.bak"
+  run grep -c "DEVBOT - config backup" "${PROJECT}/.gitignore"
+  assert_output "2"
   run v2 has-legacy "${CONFIG}"
   assert_failure
 

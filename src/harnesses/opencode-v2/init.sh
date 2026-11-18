@@ -264,6 +264,19 @@ _migrate_legacy_config() {
     [[ -n "${line}" ]] && _ok "  ${line}"
   done <<<"${out}"
   _ok "opencode.jsonc migrated to the v2 shapes"
+
+  # The backup is a one-time recovery artifact, not project source. Ignore it so
+  # the migration does not leave a permanent untracked file in every consumer
+  # repo (audit-03 N2); the file itself stays on disk for the user.
+  local backup
+  backup="$(basename "${CONFIG}").pre-v2.bak"
+  if [[ -f "${PROJECT_DIR}/${backup}" ]] &&
+    git -C "${PROJECT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    _upsert_gitignore_section "${PROJECT_DIR}/.gitignore" \
+      "# >>> DEVBOT - config backup" \
+      "# <<< DEVBOT - config backup" \
+      "${backup}" >/dev/null 2>&1 || true
+  fi
 }
 
 # ── Hand over from a previously selected harness ──────────────────────────────
