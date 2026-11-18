@@ -1,6 +1,6 @@
 ---
 name: devbot:atomic-design
-description: "Use when structuring frontend components by atomic design — atoms, molecules, organisms, templates, pages — in React, Svelte, or any UI framework. Triggers on 'atomic design', 'component structure', 'atoms molecules organisms', 'component folder layout', 'design tokens', 'shadcn components'."
+description: "Use when structuring frontend components by atomic design — atoms, molecules, organisms, templates, pages. Triggers on 'atomic design', 'component structure', 'atoms molecules organisms', 'component folder layout', 'component tiers', 'shadcn components'. Not for tokens or themes — use devbot:design-system."
 ---
 
 # Skill: Atomic Design
@@ -226,5 +226,7 @@ export const BaseLayout = ({ title, footer, children }: BaseLayoutProps) => (
 
 ## See also
 
+- `devbot:design-system` — creating the token contract, the light/dark mappings and the theme
+  variants this structure consumes.
 - `devbot:storybook` — building the component workshop, wiring it into a static documentation site,
   and publishing it.

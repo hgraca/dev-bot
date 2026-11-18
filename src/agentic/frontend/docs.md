@@ -2,7 +2,7 @@
 title: "Frontend"
 description: "Framework-agnostic frontend conventions — atomic design, design tokens, Storybook, a Figma-to-app Design QA check, and the vendored design skills (aesthetic direction, critique, motion) — shared by every UI framework module."
 commands: ["design-qa", "design-qa-all"]
-skills: ["atomic-design", "storybook", "design-qa", "design-qa-all", "show-ui-in-browser"]
+skills: ["atomic-design", "design-system", "storybook", "design-qa", "design-qa-all", "show-ui-in-browser"]
 hooks: ["impeccable-detector"]
 mcps:
   figma: "Read Figma frames, variables and screenshots"
@@ -14,6 +14,10 @@ plus an automated Design QA check that compares a running page against its Figma
 
 ## What it does
 
+- **`design-system`** — creating or extending the system: the token contract as data, three layers of
+  token (primitive → semantic → component), light and dark as mappings rather than two designs, theme
+  variants, and a WCAG AA contrast gate that fails a build. See
+  [Design system ownership](#design-system-ownership).
 - **`atomic-design`** — the five-tier component structure (atoms → molecules → organisms →
   templates → pages), the component folder layout with colocated test/story/barrel, where the
   generated primitives and the design-token stylesheet live, and worked examples in both React and
@@ -36,6 +40,29 @@ plus an automated Design QA check that compares a running page against its Figma
   [modern-web-guidance](https://github.com/GoogleChrome/modern-web-guidance) skill pack, wired in
   when the module is enabled; it adds modern web-platform guidance (HTML, CSS, accessibility,
   performance) through its own CLI.
+
+## Design system ownership
+
+Three capabilities touch "design system", and the split is deliberate — a request must route to
+exactly one of them:
+
+| Request                                                                                                                    | Owner                     |
+| -------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| Create or extend the token system: contract, semantic CSS variables, light/dark, theme variants, contrast floors, scales   | `devbot:design-system`    |
+| Where a component lives and what it may import (atoms → pages)                                                              | `devbot:atomic-design`    |
+| Harvest tokens out of an interface that already exists, or write `DESIGN.md`                                                 | impeccable `extract` / `document` |
+
+Each dev-bot skill's description opens with its trigger rather than burying it in a trailing list —
+that is what failed before: `atomic-design` ended with "design tokens" behind an atoms-and-molecules
+opening, `impeccable` mentioned "capturing or documenting design systems" late in a long verb list,
+and **no** skill owned the from-scratch contract, so a session that asked for one loaded nothing and
+hand-built the pipeline. `skills/*/evals/evals.json` now pins the routing: each eval names the skill
+that must fire plus the literal trigger phrases, and `frontend_tests.bats` fails when a phrase is
+claimed by two descriptions or by none.
+
+The vendored descriptions are upstream-owned (the clone is read-only), so the boundary is held on
+our side: `design-system` names the harvest/extract case as impeccable's, and `atomic-design` hands
+token work to `design-system`.
 
 ## Design skills (vendored)
 

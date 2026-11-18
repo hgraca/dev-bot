@@ -1,0 +1,140 @@
+{
+  "skill_name": "design-system",
+  "evals": [
+    {
+      "id": 0,
+      "name": "create-a-design-system-from-scratch",
+      "prompt": "implement three production-quality theme variants; build a single source of truth for design tokens; use CSS custom properties with shadcn's semantic theming model; light by default with a polished dark mode; it has to meet WCAG AA",
+      "expected_skill": "devbot:design-system",
+      "trigger_phrases": ["design tokens", "CSS custom properties", "theme variants"],
+      "expected_output": "Loads devbot:design-system before writing any code: a tokens.json contract (palette + semantic mapping + scales), a generator that resolves light, dark and the variants from it, a contrast gate that fails on a failing pair, and a generated CSS layer wiring the tokens to the shadcn semantic names. Atomic-design tiers are not the subject; no component is written before the contract exists.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The design-system skill is loaded before any file is written",
+          "description": "The whole point of the fix: routing happens at the start, not after the work"
+        },
+        {
+          "text": "A token contract is created as data (JSON or equivalent), not as hand-written CSS",
+          "description": "The gate needs a computable source of truth"
+        },
+        {
+          "text": "The contract carries semantic names mapped to palette values, and every theme resolves the same names",
+          "description": "Light/dark/variants are mappings, not separate designs"
+        },
+        {
+          "text": "A contrast check runs over the generated themes and fails on a pair below its threshold",
+          "description": "WCAG AA is a gate, not a claim"
+        },
+        {
+          "text": "shadcn's semantic variables are mapped from the tokens rather than the tokens being renamed to match the library",
+          "description": "The library adapts to the system, not the other way round"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "add-a-dark-mode-to-an-existing-light-ui",
+      "prompt": "the app only has a light theme today and the users keep asking — add a dark mode that doesn't just invert the palette, text must stay readable on the cards",
+      "expected_skill": "devbot:design-system",
+      "trigger_phrases": ["dark mode"],
+      "expected_output": "Loads devbot:design-system and extends the contract: a dark mapping for every existing semantic token (including the on-* status pairs and the muted text), raised dark surfaces instead of inverted ones, borders carrying separation rather than shadows, the switch applied before first paint, and the contrast gate re-run for the dark theme.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The design-system skill is loaded",
+          "description": "Dark mode is a design-system concern, not a component change"
+        },
+        {
+          "text": "Every semantic token gains a dark value, not a subset",
+          "description": "A token with only a light value is the invisible-text bug"
+        },
+        {
+          "text": "Dark surfaces are raised relative to the canvas rather than the light palette inverted",
+          "description": "Inversion is the failure mode the user named"
+        },
+        {
+          "text": "The contrast gate is re-run for the dark theme and its result is reported",
+          "description": "Readable text on cards is exactly the pair set the gate asserts"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "add-a-theme-variant",
+      "prompt": "add a theme variant for the campaign pages — call it mint, keep every semantic name and reuse all the components, nothing forked",
+      "expected_skill": "devbot:design-system",
+      "trigger_phrases": ["theme variant"],
+      "expected_output": "Loads devbot:design-system and adds the variant as a palette plus a semantic mapping under one scoped selector, reusing every component; the contrast gate runs for the new variant and any raw colour or palette class that surfaces is replaced with a token.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The design-system skill is loaded",
+          "description": "Variant work is token-layer work"
+        },
+        {
+          "text": "The variant is a mapping of the existing semantic names, not a forked component tree",
+          "description": "The user asked for nothing forked"
+        },
+        {
+          "text": "The variant is scoped by a selector or data attribute, not by per-component overrides",
+          "description": "One switch mechanism"
+        },
+        {
+          "text": "The contrast gate covers the new variant",
+          "description": "A new palette is unchecked until the gate runs on it"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "organise-a-drifted-token-setup",
+      "prompt": "we have tokens.json but the css is hand-maintained and has drifted from it — organise the thing so the json is the only source, and add a proper type scale while you're in there",
+      "expected_skill": "devbot:design-system",
+      "trigger_phrases": ["type scale"],
+      "expected_output": "Loads devbot:design-system, makes the generated CSS a build artifact of tokens.json (generator + drift check in the build), adds the type scale as tokens mapped through the same layer, and reconciles the drifted values against the contract rather than patching the stylesheet.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The design-system skill is loaded",
+          "description": "Reorganisation is contract work"
+        },
+        {
+          "text": "The CSS is regenerated from tokens.json, with a check that fails when it drifts",
+          "description": "Hand-maintained CSS is the defect the user reported"
+        },
+        {
+          "text": "The type scale is added as tokens consumed through the semantic/utility layer",
+          "description": "New scales join the contract, not the components"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "audit-the-themes-for-contrast",
+      "prompt": "before we ship, check every theme for contrast problems — the muted text on the raised cards looks too light to me",
+      "expected_skill": "devbot:design-system",
+      "trigger_phrases": ["contrast"],
+      "expected_output": "Loads devbot:design-system and runs the pair-based gate over every theme: reports each foreground/background pair with its measured ratio and AA threshold, fixes failures at the palette, and shows the measured ratios afterwards. It does not merely eyeball the CSS.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The design-system skill is loaded",
+          "description": "Contrast auditing is the design-system skill's gate"
+        },
+        {
+          "text": "Pairs are enumerated explicitly (including muted text on each surface) and measured, not judged by eye",
+          "description": "The pair the user suspects must be in the set"
+        },
+        {
+          "text": "Every theme and variant is covered, with each pair's measured ratio and threshold reported",
+          "description": "Evidence per pair, not a verdict"
+        },
+        {
+          "text": "A failing pair is fixed at the palette, and the gate is kept so it cannot regress",
+          "description": "Loosening the threshold is not a fix"
+        }
+      ]
+    }
+  ]
+}

@@ -473,3 +473,149 @@ PY
   assert_success
   assert_output --partial "no launcher found"
 }
+
+# ── Skill routing (design system vs component tiers) ─────────────────────────
+# A design-system request used to load nothing: atomic-design buried "design
+# tokens" in a trailing list and no skill owned creating a token system at all.
+# The eval sets are the contract now — devbot:design-system owns the contract,
+# the themes, the scales and the contrast gate; atomic-design owns the tiers.
+# The check is deterministic rather than an LLM run: every eval names the skill
+# that must fire and the literal trigger phrases that must route to it, and no
+# two skills in this module may claim the same phrase.
+
+# Run a python snippet over every skills/<name>/evals/evals.json in the module.
+# Prints "OK" and a summary, or raises with the failing detail.
+_route_evals() {
+  python3 - "${MODULE}" "$1" <<'PY'
+import json, glob, os, re, sys
+
+module, mode = sys.argv[1], sys.argv[2]
+skills_dir = os.path.join(module, "skills")
+
+
+def description(path):
+    """The front-matter description of a SKILL.md, or None."""
+    text = open(path, encoding="utf-8").read()
+    m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    if not m:
+        return None
+    d = re.search(r'^description:\s*"?(.*?)"?\s*$', m.group(1), re.M)
+    return d.group(1) if d else None
+
+
+descriptions = {}
+for path in glob.glob(os.path.join(skills_dir, "*", "SKILL.md")):
+    name = os.path.basename(os.path.dirname(path))
+    raw = open(path, encoding="utf-8").read()
+    m = re.search(r"^name:\s*(.+)$", raw, re.M)
+    descriptions[name] = {
+        "declared": m.group(1).strip() if m else "",
+        "description": description(path) or "",
+    }
+
+files = sorted(glob.glob(os.path.join(skills_dir, "*", "evals", "evals.json")))
+assert files, "no evals/evals.json found in " + skills_dir
+
+problems = []
+prompts = 0
+owners = set()
+
+for path in files:
+    data = json.load(open(path, encoding="utf-8"))
+    skill_name = data["skill_name"]
+    assert skill_name in descriptions, f"{path}: unknown skill_name {skill_name!r}"
+    assert data["evals"], f"{path}: no evals"
+
+    for ev in data["evals"]:
+        prompts += 1
+        where = f"{path} eval {ev['id']} ({ev['name']})"
+        for key in ("id", "name", "prompt", "expected_skill", "trigger_phrases", "assertions"):
+            assert key in ev, f"{where}: missing {key!r}"
+        assert ev["assertions"], f"{where}: no assertions"
+
+        owner = ev["expected_skill"].split(":", 1)[1]
+        owners.add(owner)
+        assert owner in descriptions, f"{where}: unknown expected_skill {ev['expected_skill']!r}"
+        assert descriptions[owner]["declared"] == ev["expected_skill"], (
+            f"{where}: SKILL.md declares {descriptions[owner]['declared']!r}"
+        )
+
+        for phrase in ev["trigger_phrases"]:
+            low = phrase.lower()
+            if low not in ev["prompt"].lower():
+                problems.append(f"{where}: trigger phrase {phrase!r} is not in the prompt")
+            claiming = [
+                name
+                for name, meta in descriptions.items()
+                if low in meta["description"].lower()
+            ]
+            if owner not in claiming:
+                problems.append(
+                    f"{where}: {owner}'s description does not carry {phrase!r}"
+                )
+            if len(claiming) > 1:
+                problems.append(
+                    f"{where}: {phrase!r} is claimed by {sorted(claiming)} — ownership overlaps"
+                )
+
+    if mode == "list":
+        print(f"{skill_name}: {len(data['evals'])} eval(s)")
+
+if problems:
+    sys.exit("\n".join(problems))
+
+# The design-system boundary needs a real set, not one happy path: create,
+# dark mode, variant, reorganise, audit.
+ds = json.load(open(os.path.join(skills_dir, "design-system", "evals", "evals.json")))
+assert len(ds["evals"]) >= 5, f"design-system needs at least 5 evals, has {len(ds['evals'])}"
+
+# Both sides of the boundary are exercised.
+assert {"design-system", "atomic-design"} <= owners, sorted(owners)
+
+# The owning descriptions lead with their trigger (create-skill convention: a
+# 'Use when …' clause), so routing is not buried in a trailing list.
+for name in ("design-system", "atomic-design"):
+    desc = descriptions[name]["description"]
+    assert desc.startswith("Use when "), f"{name}: description must open with 'Use when …': {desc[:40]!r}"
+
+print(f"OK: {prompts} prompt(s) routed across {len(owners)} skill(s)")
+PY
+}
+
+@test "evals/evals.json exist for the design skills and route to their owner" {
+  run _route_evals check
+  assert_success
+  assert_output --partial "OK:"
+}
+
+@test "the design-system eval set covers create, dark mode, variant, reorganise and audit" {
+  run _route_evals list
+  assert_success
+  assert_output --partial "design-system: 5 eval(s)"
+  assert_output --partial "atomic-design: 2 eval(s)"
+}
+
+@test "a design-system request has one owner and no other module skill claims it" {
+  # The failure this fixes: the phrase set was split (atomic-design listed
+  # 'design tokens', nothing owned creating the system) so no skill fired.
+  run grep -q "'design tokens'" "${MODULE}/skills/design-system/SKILL.md"
+  assert_success
+  run grep -q "'design tokens'" "${MODULE}/skills/atomic-design/SKILL.md"
+  assert_failure
+  # And the tier skill still leads with its own trigger, pointing at the owner.
+  run grep -q 'Use when structuring frontend components by atomic design' \
+    "${MODULE}/skills/atomic-design/SKILL.md"
+  assert_success
+  run grep -q 'devbot:design-system' "${MODULE}/skills/atomic-design/SKILL.md"
+  assert_success
+}
+
+@test "docs.md lists the design-system skill and states the ownership boundary" {
+  run diff -u <(printf 'atomic-design\ndesign-qa\ndesign-qa-all\ndesign-system\nshow-ui-in-browser\nstorybook\n') \
+    <(manifest_flow_list skills)
+  assert_success
+  run grep -qF 'devbot:design-system' "${MODULE}/docs.md"
+  assert_success
+  run grep -qiF 'harvest' "${MODULE}/docs.md"
+  assert_success
+}

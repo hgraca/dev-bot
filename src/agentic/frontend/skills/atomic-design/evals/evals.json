@@ -1,0 +1,47 @@
+{
+  "skill_name": "atomic-design",
+  "evals": [
+    {
+      "id": 0,
+      "name": "structure-components-into-tiers",
+      "prompt": "our components folder is a flat pile of 60 files — organise it by atomic design, and tell me where the page templates belong",
+      "expected_skill": "devbot:atomic-design",
+      "trigger_phrases": ["atomic design"],
+      "expected_output": "Loads devbot:atomic-design and places each component at the lowest tier that describes it, records the compose-downward rule, colocated test/story/barrel per folder, and maps templates/pages onto the framework's routing directory. It does not touch the token layer.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The atomic-design skill is loaded, not the design-system one",
+          "description": "Tier structure is the boundary this eval pins"
+        },
+        {
+          "text": "Each component is assigned a tier with a reason, and the import direction stays downward",
+          "description": "The rule that makes the tiers mean something"
+        },
+        {
+          "text": "Token or theme changes are explicitly out of scope for this task",
+          "description": "Ownership does not leak"
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "shadcn-primitive-wrapping",
+      "prompt": "where do the shadcn components go in this structure — do they sit in atoms or outside the tiers?",
+      "expected_skill": "devbot:atomic-design",
+      "trigger_phrases": ["shadcn components"],
+      "expected_output": "Loads devbot:atomic-design and keeps generated primitives outside the tiers (lib/shadcn), with an atom wrapping each primitive so there is one place to restyle or swap it.",
+      "files": [],
+      "assertions": [
+        {
+          "text": "The atomic-design skill is loaded",
+          "description": "Primitive placement is a tier question"
+        },
+        {
+          "text": "Primitives stay outside the tiers and are wrapped by the lowest tier",
+          "description": "The documented layout rule"
+        }
+      ]
+    }
+  ]
+}
