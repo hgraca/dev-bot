@@ -111,3 +111,63 @@ export function summary(map: Map<string, McpStatus>): string {
     .map(([name, status]) => `${name}=${status}`)
     .join(", ")
 }
+
+/**
+ * The location shape the host hands `setup(ctx)`.
+ *
+ * `directory` is the session's own directory; `project.canonical` is the
+ * project the plugin set was loaded FOR. In a shared-server install — a dev-bot
+ * project nested inside another, or several projects served by one
+ * `opencode serve` — those differ: `project.canonical` answered the ancestor
+ * while the session ran in the nested project, so the sync rewrote the
+ * ancestor's `opencode.jsonc` and never touched this project's (audit-01
+ * FAIL-2: `loaded for /…/Get-e` in the ancestor's log, a 0-byte log here).
+ */
+export interface LocationLike {
+  directory?: string
+  project?: { canonical?: string }
+}
+
+/**
+ * Root candidates, most authoritative first.
+ *
+ * The session directory comes first because it is the project the running
+ * session actually belongs to; the load-time project (or cwd, on a host that
+ * truncates the envelope) is only a signal for a host that omits the directory.
+ * Empty values are dropped so an absent key cannot win over a present one.
+ */
+export function projectRootCandidates(location: LocationLike | undefined, cwd: string): string[] {
+  const candidates = [location?.directory, location?.project?.canonical, cwd]
+  const seen = new Set<string>()
+  const ordered: string[] = []
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue
+    const root = candidate.trim()
+    if (!root || seen.has(root)) continue
+    seen.add(root)
+    ordered.push(root)
+  }
+  return ordered
+}
+
+/**
+ * The project the sync may write to, or `""` when there is nothing to sync.
+ *
+ * Only ONE root is ever considered: the session's own. `project.canonical` is a
+ * signal only for a host that omits `directory` — it is never a fallback from a
+ * directory that failed validation. Accepting it there is the original bug: in a
+ * nested/shared-server install `project.canonical` is the ancestor, so the sync
+ * rewrites the ancestor's `opencode.jsonc` while this project goes unsynced
+ * (audit-01 FAIL-2, review r4620826453). A session that is not a dev-bot project
+ * has nothing to sync, which is not a reason to write somewhere else.
+ */
+export function resolveProjectRoot(
+  location: LocationLike | undefined,
+  cwd: string,
+  isValid: (dir: string) => boolean,
+): string {
+  const root = projectRootCandidates(location, cwd)[0] ?? ""
+  return root && isValid(root) ? root : ""
+}
+
+

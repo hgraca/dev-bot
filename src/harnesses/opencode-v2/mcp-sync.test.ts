@@ -7,6 +7,8 @@ import {
   desiredDisabled,
   devbotDirFromConfig,
   planWrites,
+  projectRootCandidates,
+  resolveProjectRoot,
   serversFrom,
   statusMap,
   statusOf,
@@ -127,5 +129,65 @@ describe("devbotDirFromConfig", () => {
     expect(devbotDirFromConfig(undefined)).toBe(".agents")
     expect(devbotDirFromConfig({ devbot_dir: "" })).toBe(".agents")
     expect(devbotDirFromConfig({ devbot_dir: 7 })).toBe(".agents")
+  })
+})
+
+// ── Project root resolution (audit-01 FAIL-2) ────────────────────────────────
+// A plugin set loaded for an ancestor project resolved `project.canonical` to
+// that ancestor, so the sync rewrote the ancestor's opencode.jsonc and never
+// touched the session's own project. The session location is the only target;
+// a load-time project is a signal, never a fallback (review r4620826453).
+
+describe("projectRootCandidates", () => {
+  test("orders session directory, then load-time project, then cwd", () => {
+    const location = { directory: "/work/nested", project: { canonical: "/work" } }
+    expect(projectRootCandidates(location, "/work/nested")).toEqual(["/work/nested", "/work"])
+  })
+
+  test("drops empty values so an absent key cannot outrank a present one", () => {
+    expect(projectRootCandidates({ directory: "  ", project: { canonical: "/work" } }, "/x")).toEqual([
+      "/work",
+      "/x",
+    ])
+  })
+
+  test("tolerates a missing location envelope", () => {
+    expect(projectRootCandidates(undefined, "/x")).toEqual(["/x"])
+  })
+
+  test("de-duplicates a cwd that is already the session directory", () => {
+    expect(projectRootCandidates({ directory: "/work/nested" }, "/work/nested")).toEqual(["/work/nested"])
+  })
+})
+
+describe("resolveProjectRoot", () => {
+  const devbot = (dir: string) => dir === "/work/nested" || dir === "/work"
+
+  test("uses the session directory", () => {
+    expect(resolveProjectRoot({ directory: "/work/nested", project: { canonical: "/work" } }, "/x", devbot)).toBe(
+      "/work/nested",
+    )
+  })
+
+  test("never falls back to a valid ancestor when the directory is invalid", () => {
+    // The nested/shared-server case: writing to /work is the bug.
+    const location = { directory: "/work/nested", project: { canonical: "/work" } }
+    expect(resolveProjectRoot(location, "/x", (dir) => dir === "/work")).toBe("")
+  })
+
+  test("uses the load-time project only when the host omits the directory", () => {
+    expect(resolveProjectRoot({ project: { canonical: "/work" } }, "/x", devbot)).toBe("/work")
+  })
+
+  test("falls back to cwd when the envelope carries no project at all", () => {
+    expect(resolveProjectRoot(undefined, "/work/nested", devbot)).toBe("/work/nested")
+  })
+
+  test("answers an empty string when nothing is a dev-bot project", () => {
+    expect(resolveProjectRoot({ directory: "/work/nested" }, "/x", () => false)).toBe("")
+  })
+
+  test("trims a padded directory", () => {
+    expect(resolveProjectRoot({ directory: " /work/nested " }, "/x", devbot)).toBe("/work/nested")
   })
 })

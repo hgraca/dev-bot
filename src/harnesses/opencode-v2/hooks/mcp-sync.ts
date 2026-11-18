@@ -12,13 +12,14 @@
 // The decisions (list shape, transition-only intent) live in ../mcp-sync-utils.ts.
 
 import { Plugin } from "@opencode/plugin"
-import { appendFileSync, mkdirSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { acquireLock, releaseLock } from "../../../_shared/mcp-sync-lock.ts"
 import { readJsoncFile } from "../on-hooks-utils"
 import {
   devbotDirFromConfig,
   planWrites,
+  resolveProjectRoot,
   serversFrom,
   statusMap,
   summary,
@@ -35,7 +36,14 @@ const NOT_IN_PROJECT = 2
 export default Plugin.define({
   id: "devbot-mcp-sync",
   async setup(ctx: any) {
-    const root: string = ctx.location?.project?.canonical || ctx.location?.directory || process.cwd()
+    // Only the session's own project is ever a target: a plugin set loaded for
+    // an ancestor would otherwise rewrite THAT project's config while this one
+    // goes unsynced (audit-01 FAIL-2, review r4620826453). A session that is not
+    // a dev-bot project has nothing to sync — and no vault to log the skip in.
+    const root = resolveProjectRoot(ctx.location, process.cwd(), (dir) =>
+      existsSync(join(dir, "opencode.jsonc")) && existsSync(join(dir, ".devbot.project.jsonc")),
+    )
+    if (!root) return () => {}
     const config = join(root, "opencode.jsonc")
     const helper = join(DEV_BOT_ROOT, "src", "harnesses", "opencode-v2", "lib", "v2config.py")
     const devbotDir = join(root, devbotDirFromConfig(readJsoncFile(join(root, ".devbot.project.jsonc"))))
@@ -134,6 +142,12 @@ export default Plugin.define({
     }
 
     log(`loaded for ${root}`)
+    // Record both inputs: a mismatch between them is the signature of a plugin
+    // set loaded for an ancestor project, which used to send every write there
+    // (audit-01 FAIL-2). One line makes the next occurrence self-diagnosing.
+    log(
+      `location: directory=${ctx.location?.directory ?? "-"} project=${ctx.location?.project?.canonical ?? "-"}`,
+    )
     const timer = setInterval(() => void tick(), POLL_MS)
     void tick()
     return () => clearInterval(timer)
