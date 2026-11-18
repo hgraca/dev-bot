@@ -21,6 +21,7 @@
   "modules": {
     "atlassian": false,
     "aws": false,
+    "figma": false,
     "frontend": false,
     "jetbrains": false,
     "litellm": false,
