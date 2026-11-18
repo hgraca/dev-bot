@@ -765,3 +765,32 @@ EOF
   run grep -qFx "existing-final" "${f}"
   assert_success
 }
+
+@test "_devbot_rotate_session_logs caps an oversized tools-grades.csv" {
+  local proj="${TEST_TEMP}/proj-grades"
+  mkdir -p "${proj}/.agents/logs"
+  printf 'session_id,actor\nses_1,devbot\n' > "${proj}/.agents/logs/tools-grades.csv"
+
+  DEV_BOT_GRADES_MAX_BYTES=10 run _devbot_rotate_session_logs "${proj}"
+  assert_success
+
+  # The history is preserved as the .1 generation; the live path is free for the
+  # next grade row (record-grades rewrites it whole, so nothing is corrupted).
+  assert [ -f "${proj}/.agents/logs/tools-grades.csv.1" ]
+  run grep -q 'ses_1,devbot' "${proj}/.agents/logs/tools-grades.csv.1"
+  assert_success
+  refute [ -f "${proj}/.agents/logs/tools-grades.csv" ]
+}
+
+@test "_devbot_rotate_session_logs leaves a small tools-grades.csv alone" {
+  local proj="${TEST_TEMP}/proj-grades-small"
+  mkdir -p "${proj}/.agents/logs"
+  printf 'session_id,actor\nses_1,devbot\n' > "${proj}/.agents/logs/tools-grades.csv"
+
+  run _devbot_rotate_session_logs "${proj}"
+  assert_success
+
+  assert [ -f "${proj}/.agents/logs/tools-grades.csv" ]
+  refute [ -f "${proj}/.agents/logs/tools-grades.csv.1" ]
+}
+

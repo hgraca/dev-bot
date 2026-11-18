@@ -829,6 +829,15 @@ _devbot_rotate_session_logs() {
     fi
   done
 
+  # tools-grades.csv is the one session artefact outside the *.log glob and it
+  # grew unbounded (9k rows, 1.2 MB) — but it is a history, not a stream, so it
+  # is capped by size rather than split every session. record-grades rewrites
+  # the file whole from the rows it reads, so a moved file costs one row's
+  # history, never a parse failure; the .1 generation keeps the previous cap's
+  # worth. DEV_BOT_GRADES_MAX_BYTES overrides the 5 MB default.
+  _devbot_cap_file "${logs_dir}/tools-grades.csv" \
+    "${DEV_BOT_GRADES_MAX_BYTES:-$((5 * 1024 * 1024))}"
+
   return 0
 }
 
