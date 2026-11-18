@@ -256,6 +256,17 @@ def main() -> int:
                         pass
                 checked += len(md_files)
         elif os.path.isfile(path):
+            # File mode is markdown-only. The `file.edited` hook already matches
+            # `\.md$`, but a direct tool call (or `--check` gate) can name any
+            # path, and running the markdown parser over, say, a `.bats` test
+            # rewrites it (audit-02 F-3) — refuse instead of corrupting it.
+            if not path.lower().endswith(".md"):
+                print(
+                    f"Error: {path} is not a markdown file (.md) — refusing to format it",
+                    file=sys.stderr,
+                )
+                errors += 1
+                continue
             checked += 1
             try:
                 if format_file(path, check=check):

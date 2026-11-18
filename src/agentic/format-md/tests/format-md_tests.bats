@@ -587,3 +587,16 @@ STUB
   run cat "$target"
   assert_output --partial "# Git"
 }
+
+@test "refuses a non-markdown file instead of reformatting it" {
+  local target="$BATS_TEST_TMPDIR/probe.bats"
+  printf '@test "x" {\n   run true\n}\n' > "$target"
+
+  run bash "$TOOL" "$target"
+
+  assert_failure
+  assert_output --partial "is not a markdown file"
+  run cat "$target"
+  assert_output --partial '   run true'
+}
+
