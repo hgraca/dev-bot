@@ -236,3 +236,35 @@ assert servers["alpha"]["count"] == 1, servers["alpha"]
 assert servers["beta"]["count"] == 1, servers["beta"]
 PY
 }
+
+@test "a nested session inherits its ancestors' MCP servers" {
+  local parent="${BATS_TEST_TMPDIR}/nested-parent"
+  local child="${parent}/child"
+  local db="${BATS_TEST_TMPDIR}/nested.db"
+  mkdir -p "$child"
+  printf '{ "mcp": { "servers": { "alpha": { "type": "local", "command": ["bash"] } } } }\n' > "$parent/opencode.jsonc"
+  python3 - "$db" "$child" <<'PY'
+import json, sqlite3, sys, time
+db, project = sys.argv[1], sys.argv[2]
+now = int(time.time() * 1000)
+con = sqlite3.connect(db)
+con.execute("create table session_v2 (id text primary key, directory text, version text, time_updated integer)")
+con.execute("create table session_message (session_id text, type text, seq integer, data text)")
+con.execute("insert into session_v2 values (?,?,?,?)", ("ses_nested", project, "2.3.0", now))
+data = {"content": [{"type": "tool", "name": "alpha_search", "state": {"status": "completed"}}],
+        "cost": 0, "tokens": {"input": 0, "output": 0, "reasoning": 0}}
+con.execute("insert into session_message values (?,?,?,?)", ("ses_nested", "assistant", 0, json.dumps(data)))
+con.commit()
+con.close()
+PY
+
+  run env OPENCODE_DB_PATH="$db" python3 "${MODULE_DIR}/stats.py" --days 30 --project "$child"
+  assert_success
+  python3 - "$output" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+servers = {s["server"]: s for s in data["mcp_servers"]}
+assert set(servers) == {"alpha"}, servers
+assert servers["alpha"]["count"] == 1, servers["alpha"]
+PY
+}

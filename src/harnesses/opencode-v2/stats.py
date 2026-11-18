@@ -66,31 +66,43 @@ def known_servers(project_dirs: list[str]) -> list[str]:
     """
     servers: set[str] = set()
     for directory in project_dirs:
-        for name in _CONFIG_NAMES:
-            path = os.path.join(directory, name)
-            if not os.path.isfile(path):
-                continue
-            try:
-                data = load_jsonc(path)
-            except Exception:
-                continue
-            mcp = data.get("mcp") or {}
-            block = mcp.get("servers") if isinstance(mcp.get("servers"), dict) else mcp
-            if isinstance(block, dict):
-                servers |= {
-                    key for key, value in block.items() if isinstance(value, dict)
-                }
-        for path in glob.glob(os.path.join(directory, ".opencode", "*.mcp.json")):
-            try:
-                data = load_jsonc(path)
-            except Exception:
-                continue
-            if isinstance(data, dict):
-                servers |= {
-                    key for key, value in data.items() if isinstance(value, dict)
-                }
+        # A 2.x host merges the config of every ancestor directory, so a nested
+        # session inherits its parent project's servers. Reading only the
+        # session's own directory would leave those calls in the native table.
+        current = os.path.abspath(directory)
+        while True:
+            servers |= _servers_in(current)
+            parent = os.path.dirname(current)
+            if parent == current:
+                break
+            current = parent
     # Longest first so a server whose name prefixes another still wins.
     return sorted(servers, key=len, reverse=True)
+
+
+def _servers_in(directory: str) -> set[str]:
+    """Server names a single directory's own config files declare."""
+    servers: set[str] = set()
+    for name in _CONFIG_NAMES:
+        path = os.path.join(directory, name)
+        if not os.path.isfile(path):
+            continue
+        try:
+            data = load_jsonc(path)
+        except Exception:
+            continue
+        mcp = data.get("mcp") or {}
+        block = mcp.get("servers") if isinstance(mcp.get("servers"), dict) else mcp
+        if isinstance(block, dict):
+            servers |= {key for key, value in block.items() if isinstance(value, dict)}
+    for path in glob.glob(os.path.join(directory, ".opencode", "*.mcp.json")):
+        try:
+            data = load_jsonc(path)
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            servers |= {key for key, value in data.items() if isinstance(value, dict)}
+    return servers
 
 
 def classify(tool: str, servers: list[str]) -> tuple[str | None, str]:
