@@ -14,7 +14,7 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, canonicalToolName, eventPayload, toolFileTargets, type HookDecl, type FileChangeKind } from "../on-hooks-utils"
+import { appendToToolResult, commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, canonicalToolName, eventPayload, toolFileTargets, type HookDecl, type FileChangeKind } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -172,11 +172,49 @@ export default Plugin.define({
       )
     }
 
+    // Run the `surface` file hooks inline, while the tool result is still in
+    // hand, and fold their findings into it. Inline is the point: the debounced
+    // file.edited dispatch fires after the tool has already returned, so a hook
+    // that wants the agent to read its output in this turn cannot wait for it.
+    async function surfaceFindings(targets: string[], event: any): Promise<void> {
+      const files = targets.map((target) => absolute(target))
+      for (const { moduleDir, hooks } of manifests) {
+        for (const hook of hooks) {
+          if (!hook.surface || hook.event !== "file.edited" || !hook.run) continue
+          const re = hook.match?.file
+          // Every matching target, not the first: one patch can edit two UI
+          // files, and both are scheduled as edited — running the hook for one
+          // would silently skip the other.
+          const matched = re ? files.filter((candidate) => new RegExp(re).test(candidate)) : files
+          for (const file of matched) {
+            const cmd = resolve(hook.run, { module: moduleDir, worktree: root, file })
+            let out: { stdout: string; stderr: string; exitCode?: number }
+            try {
+              out = await runCommand(cmd, root)
+            } catch (e) {
+              logger.debug(`${hook.id} surface hook failed: ${e instanceof Error ? e.message : String(e)}`)
+              continue
+            }
+            routeHookOutput(out, hook, root)
+            if (hook.surface === "tool-result" && out.stdout.trim()) {
+              if (!appendToToolResult(event?.result, out.stdout)) {
+                logger.debug(`${hook.id}: tool result shape carried no text field — findings are in the log only`)
+              }
+            }
+          }
+        }
+      }
+    }
+
     // Non-blocking event dispatch (file.edited, session.*).
     async function dispatch(eventName: string, matchFile: string | undefined, vars: Record<string, string>, opts: { create?: boolean } = {}) {
       for (const { moduleDir, hooks } of manifests) {
         for (const hook of hooks) {
           if (hook.event !== eventName || !hook.run) continue
+          // A surface hook is driven from the tool hook, where the result is
+          // still mutable; running it here as well would run the command twice
+          // per edit and log it twice.
+          if (hook.surface) continue
           // A rewrite hook (formatter) must not run on the file.edited of a
           // file *create* — normalizing before the agent's next edit makes the
           // fuzzy edit tool splice stale-indentation hunks into it.
@@ -348,6 +386,7 @@ export default Plugin.define({
       const targets = toolFileTargets(tool, args)
       if (targets.length > 0) {
         if (event?.status !== "error") {
+          await surfaceFindings(targets, event)
           for (const target of targets) {
             const file = absolute(target)
             const key = createKey(event?.sessionID, file)

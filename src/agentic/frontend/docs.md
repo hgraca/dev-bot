@@ -117,6 +117,14 @@ palette grep does not: an off-ramp radius (`rounded-[2px]` against a documented 
 arbitrary font sizes in product mocks (`text-[13px]` where nothing else on the page leaves the type
 ramp). Findings land in `.agents/logs/impeccable.log`, capped by the `limits` above.
 
+**Where the findings go.** The hook declares `surface: "tool-result"`, so on OpenCode — v1 and v2
+alike — its stdout is appended to the **tool result of the edit that triggered it**. The agent reads
+the finding in the same turn, which is what Claude Code and Codex get from their post-tool-use hook;
+dev-bot reaches it by running the hook from the tool hook, where the result is still mutable. Claude
+Code has no such seam in this toolkit (its dispatcher writes hooks to a log and drops stdout), so
+there the detector keeps running and its findings reach `.agents/logs/impeccable.log` only. Every run
+keeps the log either way: it is the audit trail, the appended text is what changes behaviour.
+
 **Why dev-bot dispatches it instead of `impeccable hooks on`.** That command installs a harness
 manifest for Claude Code, Codex, Cursor, Copilot, Grok or Gemini — not opencode, this toolkit's
 primary harness — and it looks for the project skill under `.claude/skills`, `.cursor/skills` and

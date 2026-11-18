@@ -14,7 +14,7 @@
 // =============================================================================
 
 import { describe, expect, test } from "bun:test"
-import { commandString, eventPayload, toolFileTargets } from "./on-hooks-utils"
+import { appendToToolResult, commandString, eventPayload, toolFileTargets } from "./on-hooks-utils"
 
 describe("commandString", () => {
   test("returns the shell tool's command", () => {
@@ -77,3 +77,42 @@ describe("toolFileTargets", () => {
   })
 })
 
+// ── surface: "tool-result" ───────────────────────────────────────────────────
+// A hook that declares `surface` has its stdout folded into the tool result of
+// the edit that triggered it, so the finding reaches the model in the same turn
+// instead of only reaching a log file. v2's result is Tool.Result: `content` is
+// a string or content parts, never v1's flat `output` string.
+
+describe("appendToToolResult", () => {
+  test("appends a text part to a Tool.Result with content parts", () => {
+    const result: any = { content: [{ type: "text", text: "edited" }], metadata: {} }
+    expect(appendToToolResult(result, "line 4: [gradient-text]")).toBe(true)
+    expect(result.content).toEqual([
+      { type: "text", text: "edited" },
+      { type: "text", text: "line 4: [gradient-text]" },
+    ])
+  })
+
+  test("appends to a string content body", () => {
+    const result: any = { content: "edited" }
+    expect(appendToToolResult(result, "finding")).toBe(true)
+    expect(result.content).toBe("edited\n\nfinding")
+  })
+
+  test("still handles a v1-shaped result (flat output string)", () => {
+    const result: any = { output: "edited" }
+    expect(appendToToolResult(result, "finding")).toBe(true)
+    expect(result.output).toBe("edited\n\nfinding")
+  })
+
+  test("returns false on a shape with no text field", () => {
+    expect(appendToToolResult({ metadata: {} }, "finding")).toBe(false)
+    expect(appendToToolResult(undefined, "finding")).toBe(false)
+  })
+
+  test("empty or whitespace findings are a no-op", () => {
+    const result: any = { content: "edited" }
+    expect(appendToToolResult(result, "\n  ")).toBe(false)
+    expect(result.content).toBe("edited")
+  })
+})

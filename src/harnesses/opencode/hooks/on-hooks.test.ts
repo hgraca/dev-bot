@@ -11,6 +11,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "os"
 import { join } from "path"
 import {
+  appendToToolResult,
   commandString,
   disabledModules,
   createFileEditGate,
@@ -827,5 +828,43 @@ describe("disabledModules", () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true })
     }
+  })
+})
+
+// ── surface: "tool-result" ───────────────────────────────────────────────────
+// A hook that declares `surface` has its stdout folded into the tool result of
+// the edit that triggered it, so the finding reaches the model in the same turn
+// instead of only reaching a log file. The append must tolerate every result
+// shape the two hosts use, and must never throw inside a tool hook.
+
+describe("appendToToolResult", () => {
+  test("appends to a string result body", () => {
+    const out: any = { output: "edited 3 lines" }
+    expect(appendToToolResult(out, "line 4: [gradient-text] bg-clip-text")).toBe(true)
+    expect(out.output).toBe("edited 3 lines\n\nline 4: [gradient-text] bg-clip-text")
+  })
+
+  test("appends a text part to an array-content result", () => {
+    const out: any = { content: [{ type: "text", text: "edited" }] }
+    expect(appendToToolResult(out, "finding")).toBe(true)
+    expect(out.content).toHaveLength(2)
+    expect(out.content[1]).toEqual({ type: "text", text: "finding" })
+  })
+
+  test("appends to a string-content result", () => {
+    const out: any = { content: "edited" }
+    expect(appendToToolResult(out, "finding")).toBe(true)
+    expect(out.content).toBe("edited\n\nfinding")
+  })
+
+  test("returns false on a shape with no text field", () => {
+    expect(appendToToolResult({}, "finding")).toBe(false)
+    expect(appendToToolResult(undefined, "finding")).toBe(false)
+  })
+
+  test("empty or whitespace findings are a no-op", () => {
+    const out: any = { output: "edited" }
+    expect(appendToToolResult(out, "   \n ")).toBe(false)
+    expect(out.output).toBe("edited")
   })
 })

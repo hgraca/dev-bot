@@ -278,6 +278,10 @@ assert hook["event"] == "file.edited", hook
 assert hook["run"][:2] == ["bash", "{module}/tools/impeccable-hook.sh"], hook
 assert "{worktree}" in hook["run"] and "{file}" in hook["run"], hook
 assert hook["log"].endswith("impeccable.log"), hook
+# The findings must reach the agent, not only a log an agent has to remember to
+# read: adapters with a mutable tool result (opencode v1 and v2) fold the
+# stdout into it.
+assert hook["surface"] == "tool-result", hook
 
 pattern = re.compile(hook["match"]["file"])
 for ext in (".tsx", ".jsx", ".html", ".vue", ".svelte", ".astro", ".css", ".scss", ".sass", ".less"):
@@ -617,5 +621,26 @@ PY
   run grep -qF 'devbot:design-system' "${MODULE}/docs.md"
   assert_success
   run grep -qiF 'harvest' "${MODULE}/docs.md"
+  assert_success
+}
+
+@test "both opencode adapters fold a surface hook into the tool result" {
+  # The manifest asks for surfacing; an adapter that ignores the field would
+  # leave the detector log-only and nobody would notice from the manifest alone.
+  run grep -q "surfaceFindings" "${PROJECT_ROOT}/src/harnesses/opencode/hooks/on-hooks.ts"
+  assert_success
+  run grep -q "surfaceFindings" "${PROJECT_ROOT}/src/harnesses/opencode-v2/hooks/on-hooks.ts"
+  assert_success
+  # …and both skip the debounced file.edited dispatch, or every edit would run
+  # the detector twice.
+  run grep -q "if (hook.surface) continue" "${PROJECT_ROOT}/src/harnesses/opencode/hooks/on-hooks.ts"
+  assert_success
+  run grep -q "if (hook.surface) continue" "${PROJECT_ROOT}/src/harnesses/opencode-v2/hooks/on-hooks.ts"
+  assert_success
+  # The shared append helper lives in each adapter's utils, because the two
+  # harnesses carry separate copies (decision 3 of the v2 adapter backlog).
+  run grep -q "export function appendToToolResult" "${PROJECT_ROOT}/src/harnesses/opencode/on-hooks-utils.ts"
+  assert_success
+  run grep -q "export function appendToToolResult" "${PROJECT_ROOT}/src/harnesses/opencode-v2/on-hooks-utils.ts"
   assert_success
 }

@@ -30,6 +30,14 @@ export interface HookDecl {
    * hunks into the file (audit-48 FAIL-1). Read-only hooks (lint, indexers)
    * leave this unset so they keep firing on creates. */
   skipOnCreate?: boolean
+  /** Fold this hook's stdout into the tool result of the edit that triggered it
+   * ("tool-result"), so the agent reads the findings in the same turn instead
+   * of only finding them in the log later. A host that cannot mutate a tool
+   * result (claudecode's python dispatcher) ignores the field and falls back to
+   * logging — which is why the hook always keeps its `log`. Surface hooks are
+   * driven ONLY from the tool hook: the debounced file.edited dispatch skips
+   * them, or every edit would run the command twice. */
+  surface?: string
 }
 
 // Append a hook's output to a persistent log file (for hooks whose effect is
@@ -241,6 +249,37 @@ export function disabledModules(projectRoot: string, devbotRoot: string): Set<st
 // `log` file, or the shared default. Stderr is appended after stdout, labeled
 // [stderr]. Hook output must never reach the plugin process stderr — opencode
 // surfaces plugin stderr in the TUI.
+// ── Surfacing a hook's output in the tool result (surface: "tool-result") ────
+//
+// A file.edited hook normally only writes its declared `log`: the agent sees the
+// findings when it reads that file, which is a turn later at best. A hook that
+// declares `surface` instead has its stdout folded into the tool result of the
+// edit that triggered it, so the finding lands in front of the model in the same
+// turn — the behaviour Claude Code and Codex get from a post-tool-use hook.
+//
+// `result` is v1's `output.output` (a string) or v2's `Tool.Result.content`
+// (string or content parts); both are mutated in place so the host reads the
+// appended text back. Returns false when the shape is unknown, so a host change
+// degrades to logging instead of throwing inside the tool hook.
+export function appendToToolResult(result: any, text: string): boolean {
+  const body = String(text ?? "").trim()
+  if (!body) return false
+  const content = result?.content
+  if (typeof content === "string") {
+    result.content = `${content}\n\n${body}`
+    return true
+  }
+  if (Array.isArray(content)) {
+    content.push({ type: "text", text: body })
+    return true
+  }
+  if (typeof result?.output === "string") {
+    result.output = `${result.output}\n\n${body}`
+    return true
+  }
+  return false
+}
+
 export function routeHookOutput(out: { stdout: string; stderr: string; exitCode?: number }, hook: HookDecl, root: string): void {
   const stdout = out.stdout.trim()
   const stderr = out.stderr.trim()

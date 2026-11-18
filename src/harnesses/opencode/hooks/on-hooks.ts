@@ -16,7 +16,7 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, ptySubagentGuard, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
+import { appendToToolResult, commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, ptySubagentGuard, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, type HookDecl } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -123,11 +123,71 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
     }
   }
 
+  // The paths a v1 write call targets. `edit`/`write` carry one path scalar;
+  // `patch`/`apply_patch` carry their targets inside the patch body, so a
+  // scalar-only read would return nothing and the surface hook would never run
+  // for the very tools that can touch several files (the v2 adapter parses the
+  // same headers).
+  function toolFileTargets(tool: string, args: any): string[] {
+    if (!["edit", "write", "apply_patch", "patch"].includes(tool)) return []
+    const absolute = (file: string) => (file.startsWith("/") ? file : join(root, file))
+    if (tool === "patch" || tool === "apply_patch") {
+      const text = String(args?.patchText ?? "")
+      const files: string[] = []
+      for (const line of text.split("\n")) {
+        const match = /^\*\*\* (?:Update|Add|Delete) File: (.+)$/.exec(line.trim())
+        if (match) files.push(absolute(match[1].trim()))
+      }
+      return files
+    }
+    const raw = args?.filePath ?? args?.file_path ?? args?.path ?? args?.file
+    if (typeof raw !== "string" || !raw) return []
+    return [absolute(raw)]
+  }
+
+  // Run the `surface` file hooks inline and fold their findings into the tool
+  // result, so the agent reads them in the same turn instead of finding them in
+  // a log later. Both the log entry and the append are kept: the log is the
+  // audit trail, the append is what changes behaviour.
+  async function surfaceFindings(tool: string, args: any, output: any): Promise<void> {
+    const files = toolFileTargets(tool, args)
+    if (files.length === 0) return
+    for (const { moduleDir, hooks } of manifests) {
+      for (const hook of hooks) {
+        if (!hook.surface || hook.event !== "file.edited" || !hook.run) continue
+        const re = hook.match?.file
+        // Every matching target: a patch can edit several files, and each is an
+        // edit the agent made.
+        const matched = re ? files.filter((candidate) => new RegExp(re).test(candidate)) : files
+        for (const file of matched) {
+          const cmd = resolve(hook.run, { module: moduleDir, worktree: root, file })
+          let out: { stdout: string; stderr: string; exitCode?: number }
+          try {
+            out = await runCommand(cmd, root)
+          } catch (e) {
+            logger.debug(`${hook.id} surface hook failed: ${e instanceof Error ? e.message : String(e)}`)
+            continue
+          }
+          routeHookOutput(out, hook, root)
+          if (hook.surface === "tool-result" && out.stdout.trim()) {
+            if (!appendToToolResult(output, out.stdout)) {
+              logger.debug(`${hook.id}: tool result shape carried no text field — findings are in the log only`)
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Non-blocking event dispatch (file.edited, session.*).
   async function dispatch(eventName: string, matchFile: string | undefined, ctx: Record<string, string>, opts: { create?: boolean } = {}) {
     for (const { moduleDir, hooks } of manifests) {
       for (const hook of hooks) {
         if (hook.event !== eventName || !hook.run) continue
+        // A surface hook is driven from tool.execute.after, where the tool
+        // result is still mutable; running it here as well would run the
+        // command twice per edit and log it twice.
+        if (hook.surface) continue
         // audit-48 FAIL-1: a rewrite hook (formatter) must not run on the
         // file.edited of a file *create* — normalizing the file before the
         // agent's next edit makes opencode's fuzzy edit tool splice
@@ -288,6 +348,14 @@ export const OnHooks: Plugin = async ({ directory, worktree, project, client }) 
     "tool.execute.after": async (input: any, output: any) => {
       for (const fn of pluginHandlers["tool.execute.after"] ?? []) await fn(input, output)
       const tool = String(input?.tool ?? "").toLowerCase()
+      // Surface hooks run here, on the tool call itself, because this is the
+      // only point where the result the agent is about to read can still be
+      // changed (the debounced file.edited dispatch fires after the return).
+      // A failed write must not trigger them: the file on disk is unchanged, so
+      // the detector would report on content the agent never wrote (the v2
+      // adapter skips the same case on event.status === "error").
+      const failed = Boolean(output?.error ?? output?.metadata?.error)
+      if (!failed) await surfaceFindings(tool, input?.args, output)
       if (tool !== "bash" && tool !== "shell") return
       const command = String(input?.args?.command ?? "")
 

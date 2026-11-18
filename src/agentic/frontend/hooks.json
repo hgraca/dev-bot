@@ -13,7 +13,9 @@
         "{file}"
       ],
       "log": ".agents/logs/impeccable.log",
-      "_extensionsNote": "The markup and style extensions only. Plain .ts/.js are scanned by impeccable's own hook when the project carries a PRODUCT.md, DESIGN.md or .impeccable/ folder, but that rule would run the engine on every TypeScript edit in a frontend project; the on-demand pass (impeccable detect --changed) covers those."
+      "_extensionsNote": "The markup and style extensions only. Plain .ts/.js are scanned by impeccable's own hook when the project carries a PRODUCT.md, DESIGN.md or .impeccable/ folder, but that rule would run the engine on every TypeScript edit in a frontend project; the on-demand pass (impeccable detect --changed) covers those.",
+      "surface": "tool-result",
+      "_surfaceNote": "Findings are folded into the tool result of the edit on opencode (v1 and v2 adapters), so the agent reads them in the same turn; claudecode's python dispatcher cannot mutate a tool result and falls back to the log, which every run keeps."
     }
   ]
 }
