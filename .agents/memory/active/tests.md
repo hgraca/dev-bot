@@ -54,7 +54,7 @@ input, make that input a scenario.
   subject is init's effect on a pre-state (a stale link, a legacy config, a
   disabled module), it seeds that state and runs for real. Sharing those would
   assert on a jpeg of a previous run and stay green after the code broke.
-- Tests whose *only* difference is the assertion share happily; tests whose
+- Tests whose _only_ difference is the assertion share happily; tests whose
   input differs do not. Check before refactoring: `datasources` is 84/93 tests
   configuring distinct inputs — nothing to share, its cost is real coverage.
 
@@ -81,7 +81,7 @@ input, make that input a scenario.
   property. Use `scenario_copy` so the second run starts from a real first run.
 - **Stay hermetic:** `mktemp -d`, `BATS_TEST_TMPDIR` for per-test state,
   `BATS_FILE_TMPDIR` for per-file state, and stub `docker`/`qmd`/network. A test
-  that reaches a real service is slow *and* flaky.
+  that reaches a real service is slow _and_ flaky.
 - **Never mutate a tracked file.** `docs_tests.bats` swaps a checked-in script
   for a mock and restores it in `teardown_mock`; an interrupted run leaves the
   mock in the repo. Copy instead, or restore from a `trap`.
