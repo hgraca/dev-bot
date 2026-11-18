@@ -103,6 +103,14 @@ v2() {
   assert [ -L "${PROJECT}/.opencode/tools-mcp-serve.sh" ]
 }
 
+@test "init retires the v1 v2/ plugin farm including its nested dir" {
+  # A leftover `.opencode/v2/plugins/` (from an earlier layout) must not survive:
+  # rmdir is non-recursive, so the parent only goes once the child is gone.
+  mkdir -p "${PROJECT}/.opencode/v2/plugins"
+  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
+  refute [ -d "${PROJECT}/.opencode/v2" ]
+}
+
 @test "every plugin directory carries a package.json" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
   local name

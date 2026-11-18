@@ -314,8 +314,11 @@ _sweep_foreign_artifacts() {
   # Drop the v1-only plugin farms once they are empty; a user's own files keep
   # the directory alive.
   # v1's TUI farm is gone for good; plugins/ is rebuilt by this harness below.
+  # `rmdir` is non-recursive, so the retired `v2/plugins/` must be removed before
+  # its parent — otherwise the parent silently survives every reinit and the
+  # tree keeps advertising a farm this harness no longer uses (audit-03 N3).
   local dir
-  for dir in "${OPENCODE_DIR}/tui-plugins" "${OPENCODE_DIR}/v2"; do
+  for dir in "${OPENCODE_DIR}/v2/plugins" "${OPENCODE_DIR}/tui-plugins" "${OPENCODE_DIR}/v2"; do
     [[ -d "${dir}" ]] && rmdir "${dir}" 2>/dev/null || true
   done
 
