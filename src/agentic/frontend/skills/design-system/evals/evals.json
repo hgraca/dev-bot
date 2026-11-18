@@ -6,7 +6,11 @@
       "name": "create-a-design-system-from-scratch",
       "prompt": "implement three production-quality theme variants; build a single source of truth for design tokens; use CSS custom properties with shadcn's semantic theming model; light by default with a polished dark mode; it has to meet WCAG AA",
       "expected_skill": "devbot:design-system",
-      "trigger_phrases": ["design tokens", "CSS custom properties", "theme variants"],
+      "trigger_phrases": [
+        "design tokens",
+        "CSS custom properties",
+        "theme variants"
+      ],
       "expected_output": "Loads devbot:design-system before writing any code: a tokens.json contract (palette + semantic mapping + scales), a generator that resolves light, dark and the variants from it, a contrast gate that fails on a failing pair, and a generated CSS layer wiring the tokens to the shadcn semantic names. Atomic-design tiers are not the subject; no component is written before the contract exists.",
       "files": [],
       "assertions": [
