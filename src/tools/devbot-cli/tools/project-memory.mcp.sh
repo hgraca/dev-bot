@@ -71,7 +71,6 @@ import sys
 shared, target, config_path = sys.argv[1:4]
 sys.path.insert(0, shared)
 
-from read_jsonc import load_jsonc  # noqa: E402
 import resolve_project  # noqa: E402
 
 projects = resolve_project.load_projects(config_path)
@@ -86,26 +85,13 @@ if not owner:
 
 owner = os.path.realpath(owner)
 
-
-def project_config(name, default=""):
-    for candidate in (os.path.join(owner, ".devbot.project.jsonc"), config_path):
-        try:
-            data = load_jsonc(candidate)
-        except FileNotFoundError:
-            continue
-        except Exception as exc:
-            # A malformed config must not masquerade as "no config": say so on
-            # stderr (the MCP log) and carry on with the next candidate.
-            print(f"WARNING: {candidate}: {exc}", file=sys.stderr)
-            continue
-        if isinstance(data, dict):
-            value = data.get(name)
-            if isinstance(value, str) and value:
-                return value
-    return default
-
-
-devbot_dir = project_config("devbot_dir", ".agents")
+devbot_dir = resolve_project.resolve_setting(
+    config_path, owner, "devbot_dir", resolve_project.DEFAULT_DEVBOT_DIR
+)
+# devbot_dir is a path scalar: a non-string (a stray `false`) falls back to the
+# default rather than being stringified into a directory name.
+if not isinstance(devbot_dir, str) or not devbot_dir:
+    devbot_dir = resolve_project.DEFAULT_DEVBOT_DIR
 devbot_dir = devbot_dir if os.path.isabs(devbot_dir) else os.path.join(owner, devbot_dir)
 active_dir = os.path.join(devbot_dir, "memory", "active")
 

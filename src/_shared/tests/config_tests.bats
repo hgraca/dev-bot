@@ -218,8 +218,11 @@ _write_project_cfg() {
   local bare
   bare="$(mktemp -d)"
   mkdir -p "${bare}/src/_shared"
+  # The config getters delegate to resolve_project.py --setting (one
+  # implementation of project → global → default), so it is part of the minimal
+  # shared set this sandbox needs alongside read_jsonc.py.
   cp "${PROJECT_ROOT}/src/_shared/functions.sh" "${PROJECT_ROOT}/src/_shared/read_jsonc.py" \
-    "${bare}/src/_shared/"
+    "${PROJECT_ROOT}/src/_shared/resolve_project.py" "${bare}/src/_shared/"
   printf '%s\n' '{ "harness": "claudecode" }' > "${bare}/.devbot.global.jsonc"
 
   run env DEV_BOT_ROOT="${bare}" bash -c \

@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+import contextlib  # noqa: E402
 from contextlib import redirect_stdout
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -91,6 +92,131 @@ class ResolveProjectTest(unittest.TestCase):
         self.assertEqual(
             self._run_main([self.a, "--config", missing, "--default", self.a]), self.a
         )
+
+
+class ResolveSettingTest(unittest.TestCase):
+    """The one implementation of project-first → global → default.
+
+    The rule used to be copied into several readers (the bash getters,
+    project-for-path, project-memory, search-memories). These pin the
+    behaviours those callers depend on, so a change here cannot silently
+    change what the shell reads.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base = os.path.realpath(self.tmp.name)
+        self.project = os.path.join(self.base, "project")
+        os.makedirs(self.project, exist_ok=True)
+        self.project_config = os.path.join(self.project, ".devbot.project.jsonc")
+        self.global_config = os.path.join(self.base, "global.jsonc")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, path, body):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(body)
+
+    def test_project_value_wins_over_global(self):
+        self._write(self.project_config, '{"devbot_dir": ".state"}')
+        self._write(self.global_config, '{"devbot_dir": ".agents"}')
+        self.assertEqual(
+            resolve_project.resolve_setting(
+                self.global_config, self.project, "devbot_dir"
+            ),
+            ".state",
+        )
+
+    def test_empty_project_value_falls_through_to_global(self):
+        # Matches the `-z` test the bash getter has always used: an empty string
+        # is "not stated", not "stated as empty".
+        self._write(self.project_config, '{"devbot_dir": ""}')
+        self._write(self.global_config, '{"devbot_dir": ".state"}')
+        self.assertEqual(
+            resolve_project.resolve_setting(
+                self.global_config, self.project, "devbot_dir"
+            ),
+            ".state",
+        )
+
+    def test_explicit_project_false_does_not_fall_through(self):
+        # The commit_memory bug: an explicit project `false` must beat a global
+        # `true`, so the value comes back as a bool, not as text and not as the
+        # global value.
+        self._write(self.project_config, '{"commit_memory": false}')
+        self._write(self.global_config, '{"commit_memory": true}')
+        self.assertIs(
+            resolve_project.resolve_setting(
+                self.global_config, self.project, "commit_memory"
+            ),
+            False,
+        )
+
+    def test_missing_key_returns_the_default(self):
+        self._write(self.project_config, '{"devbot_dir": ".state"}')
+        self._write(self.global_config, '{"devbot_dir": ".agents"}')
+        self.assertEqual(
+            resolve_project.resolve_setting(
+                self.global_config, self.project, "harness", "opencode"
+            ),
+            "opencode",
+        )
+
+    def test_missing_configs_return_the_default(self):
+        self.assertEqual(
+            resolve_project.resolve_setting(
+                os.path.join(self.base, "nope.jsonc"), self.project, "x", "d"
+            ),
+            "d",
+        )
+
+    def test_workspace_section_is_read(self):
+        self._write(self.project_config, '{"workspace": {"workflow": "trunk"}}')
+        self._write(self.global_config, '{"workspace": {"workflow": "worktrees"}}')
+        self.assertEqual(
+            resolve_project.resolve_setting(
+                self.global_config, self.project, "workflow", "", "workspace"
+            ),
+            "trunk",
+        )
+
+    def test_malformed_config_is_reported_and_skipped(self):
+        # A parse error must not read as "no value": it goes to stderr (the MCP
+        # log) and the global config still answers.
+        self._write(self.project_config, "{ not json")
+        self._write(self.global_config, '{"devbot_dir": ".state"}')
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            value = resolve_project.resolve_setting(
+                self.global_config, self.project, "devbot_dir"
+            )
+        self.assertEqual(value, ".state")
+        self.assertIn("WARNING", stderr.getvalue())
+
+    def test_as_text_matches_the_read_jsonc_encoding(self):
+        # _devbot_get_config compares this text in bash (`== "false"`).
+        self.assertEqual(resolve_project.as_text("x"), "x")
+        self.assertEqual(resolve_project.as_text(False), "false")
+        self.assertEqual(resolve_project.as_text(True), "true")
+        self.assertEqual(resolve_project.as_text(["a"]), '["a"]')
+        self.assertEqual(resolve_project.as_text(None), "")
+
+    def test_cli_setting_mode_prints_the_value(self):
+        self._write(self.project_config, '{"devbot_dir": ".state"}')
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            resolve_project.main(
+                [
+                    "--setting",
+                    "devbot_dir",
+                    "--project-root",
+                    self.project,
+                    "--config",
+                    self.global_config,
+                ]
+            )
+        self.assertEqual(buf.getvalue().strip(), ".state")
 
 
 if __name__ == "__main__":

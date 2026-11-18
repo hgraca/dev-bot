@@ -412,18 +412,26 @@ def search_qmd_scoped(
 def resolve_devbot_dir(project_root: Path) -> str:
     """Resolve the devbot state dir for a project (bash: _devbot_get_project_dir).
 
-    Project .devbot.project.jsonc wins, then global .devbot.global.jsonc,
-    then ".agents" (the bash default). Used to locate the project latent vault
-    for the mdctx engine (which resolves roots on disk, not qmd collections).
+    Project .devbot.project.jsonc wins, then global .devbot.global.jsonc, then
+    ".agents". The precedence lives in one place — resolve_project.resolve_setting
+    also serves _devbot_get_config and the devbot-cli tools — so this is a thin
+    call, not another copy of the rule. Used to locate the project latent vault
+    for the mdctx engine (which resolves roots on disk, not collections).
     """
-    for cfg_path in (
-        project_root / ".devbot.project.jsonc",
-        DEVBOT_ROOT / ".devbot.global.jsonc",
-    ):
-        devbot_dir = _read_jsonc_scalar(cfg_path, "devbot_dir")
-        if devbot_dir:
-            return devbot_dir
-    return ".agents"
+    resolver = _import_shared("resolve_project")
+    if resolver is None:  # pragma: no cover — a partial install keeps the default
+        return ".agents"
+    value = resolver.resolve_setting(
+        str(DEVBOT_ROOT / ".devbot.global.jsonc"),
+        str(project_root),
+        "devbot_dir",
+        resolver.DEFAULT_DEVBOT_DIR,
+    )
+    # A path scalar: a non-string (a stray `false`) must not become a directory
+    # name.
+    if not isinstance(value, str) or not value:
+        return resolver.DEFAULT_DEVBOT_DIR
+    return value
 
 
 def resolve_mdctx_indexes(
@@ -1102,11 +1110,23 @@ def _import_shared(name: str):
 
 
 def resolve_polyrepo(project_root: Path) -> bool:
-    """Whether the project is a polyrepo (project-first, global-fallback)."""
-    value = _read_jsonc_scalar(project_root / ".devbot.project.jsonc", "type", "workspace")
-    if not value:
-        value = _read_jsonc_scalar(DEVBOT_ROOT / ".devbot.global.jsonc", "type", "workspace")
-    return value == "polyrepo"
+    """Whether the project is a polyrepo (project-first, global-fallback).
+
+    Same precedence as every other setting read — resolve_project.resolve_setting
+    is the only implementation; the bash getter and the devbot-cli tools call it
+    too.
+    """
+    resolver = _import_shared("resolve_project")
+    if resolver is None:  # pragma: no cover — a partial install reads no config
+        return False
+    value = resolver.resolve_setting(
+        str(DEVBOT_ROOT / ".devbot.global.jsonc"),
+        str(project_root),
+        "type",
+        "repo",
+        section="workspace",
+    )
+    return resolver.as_text(value) == "polyrepo"
 
 
 def resolve_registered_project(path: Path) -> Path | None:

@@ -172,24 +172,14 @@ _devbot_get_config() {
   # overridden to a bare sandbox root in module tests, which would read nothing.
   local shared_dir
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  local reader="${shared_dir}/read_jsonc.py"
-  local value=""
 
-  # Check per-project config first
-  if [[ -n "${project_dir}" && -f "${project_dir}/.devbot.project.jsonc" ]]; then
-    value=$(python3 "${reader}" "${project_dir}/.devbot.project.jsonc" "${key}" 2>/dev/null || true)
-  fi
-
-  # Fall back to global config
-  if [[ -z "${value}" ]]; then
-    local global_config
-    global_config="$(_devbot_global_config)"
-    if [[ -f "${global_config}" ]]; then
-      value=$(python3 "${reader}" "${global_config}" "${key}" 2>/dev/null || true)
-    fi
-  fi
-
-  echo "${value}"
+  # One implementation of the precedence (project → global → default) serves
+  # the shell and the Python readers alike: resolve_project.py's --setting mode.
+  # It prints the value the way read_jsonc.py does, so `false` and `[]` survive
+  # the trip and an unset key prints nothing.
+  python3 "${shared_dir}/resolve_project.py" --setting "${key}" \
+    --project-root "${project_dir}" \
+    --config "$(_devbot_global_config)" 2>/dev/null || true
 }
 
 # _devbot_get_workspace_config <key> [project_dir]
@@ -202,22 +192,10 @@ _devbot_get_workspace_config() {
   # Reader beside this file, for the same sandbox reason as _devbot_get_config.
   local shared_dir
   shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  local reader="${shared_dir}/read_jsonc.py"
-  local value=""
 
-  if [[ -n "${project_dir}" && -f "${project_dir}/.devbot.project.jsonc" ]]; then
-    value=$(python3 "${reader}" "${project_dir}/.devbot.project.jsonc" workspace "${key}" 2>/dev/null || true)
-  fi
-
-  if [[ -z "${value}" ]]; then
-    local global_config
-    global_config="$(_devbot_global_config)"
-    if [[ -f "${global_config}" ]]; then
-      value=$(python3 "${reader}" "${global_config}" workspace "${key}" 2>/dev/null || true)
-    fi
-  fi
-
-  echo "${value}"
+  python3 "${shared_dir}/resolve_project.py" --setting "${key}" --section workspace \
+    --project-root "${project_dir}" \
+    --config "$(_devbot_global_config)" 2>/dev/null || true
 }
 
 # _devbot_get_workflow [project_dir]

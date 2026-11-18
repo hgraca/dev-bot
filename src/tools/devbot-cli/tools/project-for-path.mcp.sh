@@ -143,28 +143,26 @@ def _get(config_file, name):
 
 
 def resolve_scalar(name):
-    """Scalar: project value, then global value, then the built-in default."""
-    for candidate in (PROJECT_CONFIG, config_path):
-        value = _get(candidate, name)
-        if value is not None and value != "":
-            return value
-    return DEFAULTS.get(name, "")
+    """Scalar: project value, then global value, then the built-in default.
 
-
-def _get_workspace(config_file, name):
-    workspace = _get(config_file, "workspace")
-    if not isinstance(workspace, dict) or name not in workspace:
-        return None
-    return workspace[name]
+    One precedence for every reader — resolve_project.resolve_setting also
+    serves _devbot_get_config and the devbot-cli / memory Python tools.
+    """
+    return resolve_project.resolve_setting(
+        config_path, owner, name, DEFAULTS.get(name, "")
+    )
 
 
 def resolve_workspace(name):
     """`workspace.<name>`: project value, then global value, then the default."""
-    for candidate in (PROJECT_CONFIG, config_path):
-        value = _get_workspace(candidate, name)
-        if value is not None and value != "":
-            return as_text(value)
-    return as_text(WORKSPACE_DEFAULTS.get(name, ""))
+    value = resolve_project.resolve_setting(
+        config_path,
+        owner,
+        name,
+        WORKSPACE_DEFAULTS.get(name, ""),
+        section="workspace",
+    )
+    return as_text(value)
 
 
 def resolve_datasources():
