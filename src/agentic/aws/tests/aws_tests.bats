@@ -633,6 +633,21 @@ EOF
   assert_output --partial "KEY:FROMDOTENV"
 }
 
+@test "launcher: a blank .env placeholder does not blank an exported key" {
+  # The repo .env ships `AWS_KEY=` and a connection references ${AWS_KEY}. The
+  # plain source used to empty the exported value, and the launcher then failed
+  # with "resolves to nothing" on a credential that was set all along.
+  _fake_proxy
+  _aws_global <<'EOF'
+{ "aws_connections": { "prod": { "region": "eu-central-1", "env": { "AWS_ACCESS_KEY_ID": "${AWS_KEY}" } } } }
+EOF
+  printf 'AWS_KEY=\n' > "$TMP/root/.env"
+  cd "$TMP/proj"
+  run env AWS_KEY=FROMSHELL DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$LAUNCHER" prod
+  assert_success
+  assert_output --partial "KEY:FROMSHELL"
+}
+
 @test "launcher: the profile form passes --profile through to sts" {
   _fake_proxy
   _fake_aws_account "123456789012"

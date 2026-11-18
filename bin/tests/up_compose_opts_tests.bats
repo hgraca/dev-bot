@@ -64,6 +64,19 @@ TEXT_YELLOW=''
 TEXT_ORANGE=''
 TEXT_RED=''
 
+# The real loader's contract (set -a + source): up.sh delegates to it, so the
+# stub must define it or `_load_env_file` hits "command not found". Its blank-
+# placeholder precedence is covered by src/_shared/tests/env_load_tests.bats and
+# the datasources render tests; here only "up.sh loads .env before compose" is
+# under test.
+_devbot_load_env_file() {
+  local file="${1:-}"
+  [[ -n "${file}" && -f "${file}" ]] || return 0
+  set -a
+  . "${file}"
+  set +a
+}
+
 _devbot_is_true() {
   local key="$1"
   local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"

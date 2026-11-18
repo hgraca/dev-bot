@@ -126,6 +126,24 @@ SH
   refute_output --partial "kind: source"
 }
 
+@test "render: a blank .env placeholder does not make an exported value look unset" {
+  # The shipped .env.dist lists every credential as `NAME=`. Sourcing that
+  # unfilled copy used to blank the value the operator exported in their shell,
+  # so a configured datasource was judged env-incomplete, dropped from the
+  # gateway, and reported as unset — five such warnings on one real boot where
+  # every variable was in .bashrc.
+  printf 'MYSQL_PASSWORD=\n' >"${DEV_BOT_ROOT}/.env"
+  _catalogue '{ "db": { "type": "mysql", "env": { "MYSQL_HOST": "127.0.0.1", "MYSQL_USER": "root", "MYSQL_PASSWORD": "${MYSQL_PASSWORD}" } } }'
+
+  run env MYSQL_PASSWORD=p bash "${MODULE_DIR}/render.sh"
+  assert_success
+  assert_output --partial "1/1 toolbox source(s) usable"
+  refute_output --partial "not usable"
+
+  run cat "${CONF_DIR}/tools.yaml"
+  assert_output --partial "name: db"
+}
+
 @test "render: a source the oracle rejects is dropped" {
   # The oracle decides what toolbox can initialize. Stub it to drop "db" and
   # report a reason, exactly as validate_catalogue.py does.

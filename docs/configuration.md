@@ -551,6 +551,15 @@ containing `${` is never mistaken for one. Non-secret values read best inline,
 and anything secret belongs behind a reference. The environment is the repo
 `.env` (which `devbot up` loads) or your shell.
 
+Precedence, because the shipped `.env.dist` lists every optional credential as
+`NAME=` (empty): a **blank** entry in `.env` means "not configured here" and
+never erases a value exported in your shell, while a **filled-in** entry wins
+over the shell. So exporting `MYSQL_PASSWORD` in `.bashrc` works even if `.env`
+still carries the template's empty `MYSQL_PASSWORD=` line. A filled entry
+winning is deliberate: it is the precedence a plain `source` always had, so an
+existing `.env` keeps meaning exactly what it meant before — to change a value
+the file sets, edit the file.
+
 Fields left out fall back to the engine's defaults, so declare only what
 differs: `MYSQL_PORT` defaults to 3306, and an omitted `MYSQL_DATABASE` leaves
 the source with **no default schema** — one datasource then covers every database

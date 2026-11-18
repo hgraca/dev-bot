@@ -113,12 +113,11 @@ PROXY_ARGS=()
 # Load the repo .env ONCE, before either form is resolved — the same load
 # datasources/render.sh and up.sh perform — so a ${VAR} reference and a
 # .env-supplied AWS_REGION resolve identically for env and profile connections.
-if [[ -f "${ENV_FILE}" ]]; then
-  set -a
-  # shellcheck disable=SC1090
-  source "${ENV_FILE}"
-  set +a
-fi
+# The shared loader keeps a template's blank `NAME=` from erasing a value
+# exported in the shell (which would otherwise read as "resolves to nothing").
+# shellcheck source=../../../_shared/functions.sh
+source "${SCRIPT_DIR}/../../../_shared/functions.sh"
+_devbot_load_env_file "${ENV_FILE}"
 
 if [[ -n "${ENV_JSON}" ]]; then
   # Resolve this connection's values and export them into the proxy's environment.

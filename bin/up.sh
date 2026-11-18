@@ -505,13 +505,11 @@ _reconcile_ollama_gpu() {
 # ${SIGNOZ_AUTH_TOKEN} silently interpolates to empty. Loading it here makes
 # interpolation resolve for every module, and the exported vars also reach the
 # module up.sh scripts (which run in this same process).
+#
+# The loader is shared so every consumer agrees on precedence: a blank
+# placeholder in the template never erases a value exported in the shell.
 _load_env_file() {
-  local env_file="${DEV_BOT_ROOT}/.env"
-  [[ -f "${env_file}" ]] || return 0
-  set -a
-  # shellcheck disable=SC1090
-  . "${env_file}"
-  set +a
+  _devbot_load_env_file "${DEV_BOT_ROOT}/.env"
 }
 
 # ── Resolve and persist the codebase-memory gateway root ─────────────────────

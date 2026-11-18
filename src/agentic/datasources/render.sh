@@ -155,13 +155,10 @@ main() {
   # The availability filter must see the SAME environment the container gets.
   # Compose takes its values from the environment up.sh builds (which includes
   # the repo .env), so the filter has to read it too — otherwise a datasource
-  # whose values live there is judged env-incomplete and never activates.
-  if [[ -f "${DEV_BOT_ROOT}/.env" ]]; then
-    set -a
-    # shellcheck disable=SC1091
-    source "${DEV_BOT_ROOT}/.env"
-    set +a
-  fi
+  # whose values live there is judged env-incomplete and never activates. The
+  # loader ignores blank placeholders, so a template's `NAME=` cannot blank a
+  # credential the operator exported.
+  _devbot_load_env
   # Where file-backed engines (sqlite) keep their databases — the compose
   # template mounts this at /data. Created as the host user, which is also the
   # uid/gid the container runs as, so it can write there.

@@ -48,13 +48,10 @@ _datasources_gateway_url() {
 # Compose interpolates ${VAR} from THIS process's environment, and it only
 # auto-reads a .env beside the compose file — which is storage/, not the repo
 # root. The availability filter must see the same values, so every entry point
-# loads it explicitly.
+# loads it explicitly, through the shared loader that keeps a blank placeholder
+# from erasing a value exported in the shell.
 _devbot_load_env() {
-  [[ -f "${DEV_BOT_ROOT}/.env" ]] || return 0
-  set -a
-  # shellcheck disable=SC1091
-  source "${DEV_BOT_ROOT}/.env"
-  set +a
+  _devbot_load_env_file "${DEV_BOT_ROOT}/.env"
 }
 
 # Run a command with a hard cap. A wedged docker socket must not block the boot,

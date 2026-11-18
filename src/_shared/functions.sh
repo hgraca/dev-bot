@@ -87,6 +87,86 @@ _log_file() {
   printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "${log_file}" 2>/dev/null || true
 }
 
+# ── Environment files (.env) ───────────────────────────────────────────────────
+#
+# _devbot_load_env_file <file>
+#   Sources <file> into the current shell with `set -a` (the caller's process
+#   environment is what compose interpolates and what the python renderers read)
+#   WITHOUT letting its blank placeholders erase values that are already set.
+#
+#   A template ships every optional credential as `NAME=` (empty). Sourcing that
+#   verbatim reassigns NAME to "", silently discarding a value the operator
+#   exported in their shell or profile — the symptom is a credential that is set
+#   everywhere except in the one process that needs it. (Observed: a boot warned
+#   that five variables were unset while every one of them was exported in
+#   .bashrc, because the untouched .env.dist copy listed them blank.)
+#
+#   A blank assignment therefore means "not configured here": when the inherited
+#   environment already holds a non-empty value, the blank is rewritten to a
+#   self-reference (`NAME="${NAME}"`). That keeps the inherited value AND leaves
+#   NAME non-empty for the `${NAME}` expansions later in the same file — which a
+#   restore AFTER sourcing would miss, because those expand while the file is
+#   read (`AWS_PROD_RO_ACCESS_KEY_ID=${AWS_KEY}` would already be empty).
+#
+#   A name the file assigns non-blank first is left alone in both directions: an
+#   explicit value wins over the environment, and a deliberate later blank is the
+#   file's business, not a placeholder. A FILLED entry therefore still beats the
+#   shell — the precedence every `source` always had, so nothing that worked
+#   before changes meaning; only the blank case is new.
+#
+#   Known limits: line-oriented, so a `NAME=` line INSIDE a multi-line quoted
+#   value is rewritten too (no .env is written that way); non-blank CRLF lines
+#   keep their `\r`, as they always did.
+_devbot_load_env_file() {
+  local file="${1:-}" rendered="" rendered_ok=1 allexport=0
+  [[ -n "${file}" && -f "${file}" ]] || return 0
+  [[ -o allexport ]] && allexport=1
+
+  # A broken or missing awk must degrade to the previous behaviour — a plain
+  # source — never to an empty environment: aws-mcp-proxy.sh (spawned by the
+  # harness) resolves its credentials through here.
+  rendered="$(awk '
+    {
+      line = $0
+      # An assignment line: [export ]NAME=  (the prefix is kept verbatim)
+      if (!match(line, /^[[:space:]]*(export[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=/)) {
+        print
+        next
+      }
+      prefix = substr(line, 1, RLENGTH)
+      name = prefix
+      sub(/=.*/, "", name)
+      sub(/^[[:space:]]*(export[[:space:]]+)?/, "", name)
+
+      value = substr(line, RLENGTH + 1)
+      sub(/[[:space:]]+#.*$/, "", value)          # trailing comment
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)  # trims CRLF \r too
+
+      blank = (value == "" || value == "\"\"" || value == "\047\047")
+      if (!blank) {
+        assigned[name] = 1                       # the file speaks for this name
+        print
+        next
+      }
+      if (!(name in assigned) && (name in ENVIRON) && ENVIRON[name] != "") {
+        print prefix "\"${" name "}\""
+        next
+      }
+      print
+    }
+  ' "${file}")" || rendered_ok=0
+
+  set -a
+  if [[ ${rendered_ok} -eq 1 ]]; then
+    # shellcheck disable=SC1090  # generated stream, not a path
+    source <(printf '%s\n' "${rendered}")
+  else
+    # shellcheck disable=SC1090  # path is a runtime value
+    source "${file}"
+  fi
+  [[ ${allexport} -eq 1 ]] || set +a
+}
+
 # ── Shared utilities ──────────────────────────────────────────────────────────────
 
 _fmt_duration() {
