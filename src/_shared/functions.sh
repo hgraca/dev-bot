@@ -3717,11 +3717,19 @@ _devbot_link_harness_assets() {
 #   target: a link the harness created into the farm must not be mistaken for a
 #   stale module asset.
 _devbot_link_direct_target() {
-  local link="$1" target
+  local link="$1" target dir
   target="$(readlink "${link}" 2>/dev/null || true)"
   [[ -n "${target}" ]] || return 0
   [[ "${target}" == /* ]] || target="$(dirname "${link}")/${target}"
-  realpath -m -s "${target}" 2>/dev/null || printf '%s' "${target}"
+  # Normalise `..` without GNU `realpath -m -s` (absent on stock macOS): resolve
+  # the target's PARENT physically and append the basename, so a relative target
+  # still compares equal to the absolute farm prefix. A missing parent yields the
+  # unnormalised target, exactly as before.
+  if dir="$(cd "$(dirname "${target}")" 2>/dev/null && pwd -P)"; then
+    printf '%s/%s\n' "${dir}" "$(basename "${target}")"
+  else
+    printf '%s' "${target}"
+  fi
 }
 
 # _prune_declared_links <dir> <space-delimited declared names> [label-prefix] [owned-prefix]
