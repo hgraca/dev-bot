@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # =============================================================================
-# bin/tests/kube_tests.bats
-# `devbot kube` resolves the kubeconfig the k8s module generated for a project.
+# bin/tests/kctl_tests.bats
+# `devbot kctl` resolves the kubeconfig the k8s module generated for a project.
 # The point of the command is that neither the hashed filename nor the context
 # name has to be reconstructed, so the tests pin: the usage/error surface, that
 # `contexts` reflects the generated file (not the catalogue — init.sh skips a
@@ -91,21 +91,21 @@ users: []
 EOF
 }
 
-@test "bare 'kube' prints usage and fails" {
-  run "${DEVBOT}" kube
+@test "bare 'kctl' prints usage and fails" {
+  run "${DEVBOT}" kctl
   assert_failure
   assert_output --partial "Usage:"
-  assert_output --partial "devbot kube run"
+  assert_output --partial "devbot kctl run"
 }
 
-@test "unknown kube subcommand is refused, not guessed" {
-  run "${DEVBOT}" kube nonsense
+@test "unknown kctl subcommand is refused, not guessed" {
+  run "${DEVBOT}" kctl nonsense
   assert_failure
-  assert_output --partial "unknown 'kube' subcommand: nonsense"
+  assert_output --partial "unknown 'kctl' subcommand: nonsense"
 }
 
 @test "a missing generated kubeconfig names the reinit fix" {
-  run "${DEVBOT}" kube env "${PROJECT}"
+  run "${DEVBOT}" kctl env "${PROJECT}"
   assert_failure
   assert_output --partial "no generated kubeconfig"
   assert_output --partial "devbot reinit"
@@ -114,7 +114,7 @@ EOF
 @test "contexts reports the generated file, not the whole catalogue" {
   write_kubeconfig
 
-  run "${DEVBOT}" kube contexts "${PROJECT}"
+  run "${DEVBOT}" kctl contexts "${PROJECT}"
   assert_success
   assert_output --partial "gete-staging-rw"
   refute_output --partial "gete-prod-ro"
@@ -129,7 +129,7 @@ EOF
   local kubeconfig
   kubeconfig="$(kubeconfig_for)"
 
-  run "${DEVBOT}" kube env "${PROJECT}"
+  run "${DEVBOT}" kctl env "${PROJECT}"
   assert_success
   assert_output --partial "export KUBECONFIG=${kubeconfig}"
   assert_output --partial "# current-context: gete-staging-rw (gete-dev)"
@@ -140,7 +140,7 @@ EOF
 @test "run announces the default current-context" {
   write_kubeconfig
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- get namespaces
+  run "${DEVBOT}" kctl run "${PROJECT}" -- get namespaces
   assert_success
   assert_output --partial "kubectl context: gete-staging-rw (gete-dev)"
   assert_output --partial "ARGS: --kubeconfig"
@@ -150,7 +150,7 @@ EOF
 @test "run honours --context <name> in its banner" {
   write_kubeconfig
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- --context gete-prod-ro get pods
+  run "${DEVBOT}" kctl run "${PROJECT}" -- --context gete-prod-ro get pods
   assert_success
   assert_output --partial "kubectl context: gete-prod-ro (gete)"
 }
@@ -158,7 +158,7 @@ EOF
 @test "run honours --context=<name> in its banner" {
   write_kubeconfig
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- --context=gete-prod-ro get pods
+  run "${DEVBOT}" kctl run "${PROJECT}" -- --context=gete-prod-ro get pods
   assert_success
   assert_output --partial "kubectl context: gete-prod-ro (gete)"
 }
@@ -166,7 +166,7 @@ EOF
 @test "run forwards the arguments after -- unchanged" {
   write_kubeconfig
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- logs -n core deploy/api --tail=5
+  run "${DEVBOT}" kctl run "${PROJECT}" -- logs -n core deploy/api --tail=5
   assert_success
   assert_output --partial "ARGS: --kubeconfig $(kubeconfig_for) logs -n core deploy/api --tail=5"
 }
@@ -180,7 +180,7 @@ exit 1
 EOF
   chmod +x "${SANDBOX}/bin/kubectl"
 
-  run "${DEVBOT}" kube contexts "${PROJECT}"
+  run "${DEVBOT}" kctl contexts "${PROJECT}"
   assert_failure
   assert_output --partial "could not read contexts"
   assert_output --partial "$(kubeconfig_for)"
@@ -190,7 +190,7 @@ EOF
   write_kubeconfig
   unset AWS_KEY
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- get namespaces
+  run "${DEVBOT}" kctl run "${PROJECT}" -- get namespaces
   assert_failure
   assert_output --partial "AWS_KEY is not set"
 }
@@ -198,31 +198,31 @@ EOF
 @test "run refuses arguments that would override the kubeconfig" {
   write_kubeconfig
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- --server https://example.com get pods
+  run "${DEVBOT}" kctl run "${PROJECT}" -- --server https://example.com get pods
   assert_failure
   assert_output --partial "refusing '--server'"
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- --cluster other get pods
+  run "${DEVBOT}" kctl run "${PROJECT}" -- --cluster other get pods
   assert_failure
   assert_output --partial "refusing '--cluster'"
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- --user other get pods
+  run "${DEVBOT}" kctl run "${PROJECT}" -- --user other get pods
   assert_failure
   assert_output --partial "refusing '--user'"
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- -s https://example.com get pods
+  run "${DEVBOT}" kctl run "${PROJECT}" -- -s https://example.com get pods
   assert_failure
   assert_output --partial "refusing '-s'"
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- --token secret get pods
+  run "${DEVBOT}" kctl run "${PROJECT}" -- --token secret get pods
   assert_failure
   assert_output --partial "refusing '--token'"
 }
 
-@test "help advertises the kube command" {
+@test "help advertises the kctl command" {
   run "${DEVBOT}" help
   assert_success
-  assert_output --partial "kube"
+  assert_output --partial "kctl"
 }
 
 @test "run refuses a leading 'kubectl' and names the correct form" {
@@ -231,7 +231,7 @@ EOF
   # The mistake: the arguments are kubectl's own, so the binary must not be
   # repeated. Without the guard kubectl reads it as a plugin name and fails with
   # "flags cannot be placed before plugin name: --kubeconfig".
-  run "${DEVBOT}" kube run "${PROJECT}" -- kubectl get ns default
+  run "${DEVBOT}" kctl run "${PROJECT}" -- kubectl get ns default
   assert_failure
   assert_output --partial "drop the leading 'kubectl'"
   assert_output --partial "get ns default"
@@ -241,7 +241,7 @@ EOF
 @test "run refuses a leading 'kubectl' before resolving the kubeconfig" {
   # No generated kubeconfig in this test: the guard must fire first, so the
   # message names the real mistake instead of the missing file.
-  run "${DEVBOT}" kube run "${PROJECT}" -- kubectl get ns default
+  run "${DEVBOT}" kctl run "${PROJECT}" -- kubectl get ns default
   assert_failure
   assert_output --partial "drop the leading 'kubectl'"
   refute_output --partial "no generated kubeconfig"
@@ -252,17 +252,108 @@ EOF
 
   # The guard is exact-match on the first argument only: `k` inside other
   # words, and subcommands that merely mention kubectl, are untouched.
-  run "${DEVBOT}" kube run "${PROJECT}" -- get ns default
+  run "${DEVBOT}" kctl run "${PROJECT}" -- get ns default
   assert_success
   assert_output --partial "ARGS: --kubeconfig $(kubeconfig_for) get ns default"
 
-  run "${DEVBOT}" kube run "${PROJECT}" -- get pods -l app=kubectl-operator
+  run "${DEVBOT}" kctl run "${PROJECT}" -- get pods -l app=kubectl-operator
   assert_success
   assert_output --partial "get pods -l app=kubectl-operator"
 }
 
 @test "help explains that the arguments are kubectl's own" {
-  run "${DEVBOT}" kube --help
+  run "${DEVBOT}" kctl --help
   assert_success
   assert_output --partial "drop the leading"
+}
+
+# ── exec — the cluster-scoped form the kctl MCP servers call ─────────────────
+# `exec` takes the cluster, resolves its context from the catalogue and applies
+# it. The property that matters: a caller cannot retarget the call, and a
+# cluster the render dropped is refused instead of falling back to another
+# context — so one cluster's MCP server can never answer for another's.
+
+@test "exec applies the named cluster's context" {
+  write_kubeconfig
+
+  run "${DEVBOT}" kctl exec gete-dev "${PROJECT}" -- get pods
+  assert_success
+  assert_output --partial "kubectl context: gete-staging-rw (gete-dev)"
+  assert_output --partial "ARGS: --kubeconfig $(kubeconfig_for) --context gete-staging-rw get pods"
+}
+
+@test "exec takes the cluster from the catalogue, not from the current-context" {
+  write_kubeconfig
+  # The generated file's current-context is staging; a second context here
+  # proves exec follows the cluster argument rather than the file default.
+  cat > "$(kubeconfig_for)" <<'EOF'
+apiVersion: v1
+kind: Config
+current-context: gete-staging-rw
+contexts:
+- context: { cluster: gete-dev, user: devbot-gete-dev }
+  name: gete-staging-rw
+- context: { cluster: gete, user: devbot-gete }
+  name: gete-prod-ro
+clusters: []
+users: []
+EOF
+  # The shared stub answers `config get-contexts` with one fixed name; this
+  # call needs both contexts read back from the file.
+  cat > "${SANDBOX}/bin/kubectl" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"config get-contexts -o name"*) printf 'gete-staging-rw\ngete-prod-ro\n' ;;
+  *) printf 'ARGS: %s\n' "$*" ;;
+esac
+EOF
+  chmod +x "${SANDBOX}/bin/kubectl"
+
+  run "${DEVBOT}" kctl exec gete "${PROJECT}" -- get namespaces
+  assert_success
+  assert_output --partial "kubectl context: gete-prod-ro (gete)"
+  assert_output --partial "--context gete-prod-ro get namespaces"
+}
+
+@test "exec refuses a caller --context" {
+  write_kubeconfig
+
+  run "${DEVBOT}" kctl exec gete-dev "${PROJECT}" -- --context gete-prod-ro get pods
+  assert_failure
+  assert_output --partial "bound to one cluster"
+  refute_output --partial "ARGS:"
+
+  run "${DEVBOT}" kctl exec gete-dev "${PROJECT}" -- --context=gete-prod-ro get pods
+  assert_failure
+  assert_output --partial "bound to one cluster"
+}
+
+@test "exec refuses a cluster the catalogue does not declare" {
+  write_kubeconfig
+
+  run "${DEVBOT}" kctl exec nope "${PROJECT}" -- get pods
+  assert_failure
+  assert_output --partial "cluster 'nope' is not in the global kubectl catalogue"
+}
+
+@test "exec refuses a declared cluster the render left out" {
+  write_kubeconfig
+
+  # gete is in the catalogue, but only staging rendered into the file.
+  run "${DEVBOT}" kctl exec gete "${PROJECT}" -- get pods
+  assert_failure
+  assert_output --partial "is not in $(kubeconfig_for)"
+  assert_output --partial "devbot reinit"
+}
+
+@test "exec keeps run's override refusals" {
+  write_kubeconfig
+
+  run "${DEVBOT}" kctl exec gete-dev "${PROJECT}" -- --kubeconfig /tmp/other get pods
+  assert_failure
+  assert_output --partial "refusing '--kubeconfig'"
+
+  run "${DEVBOT}" kctl exec gete-dev "${PROJECT}" -- kubectl get pods
+  assert_failure
+  assert_output --partial "drop the leading 'kubectl'"
 }

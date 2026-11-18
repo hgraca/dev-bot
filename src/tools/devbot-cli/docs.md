@@ -121,24 +121,26 @@ devbot tool project-for-path src/index.ts --key workflow
 devbot tool project-memory platform/src/index.php
 ```
 
-### `devbot kube env|contexts|run [path]`
+### `devbot kctl env|contexts|run|exec [path]`
 
 Reach a project's Kubernetes clusters through the kubeconfig the `k8s` module generated for it (`~/.kube/devbot/<project_name>-<hash>.yaml`). The filename and the context names are derived, so this command resolves them instead of making the caller reconstruct them.
 
-| Form                           | Does                                                              |
-| ------------------------------ | ----------------------------------------------------------------- |
-| `env [path]`                   | Prints `KUBECONFIG` and the context name — never credentials      |
-| `contexts [path]`              | Lists the cluster name, context and region the project opted into |
-| `run [path] -- <kubectl args>` | Runs kubectl against the project's kubeconfig                     |
+| Form                                      | Does                                                              |
+| ----------------------------------------- | ----------------------------------------------------------------- |
+| `env [path]`                              | Prints `KUBECONFIG` and the context name — never credentials      |
+| `contexts [path]`                         | Lists the cluster name, context and region the project opted into |
+| `run [path] -- <kubectl args>`            | Runs kubectl against the project's kubeconfig                     |
+| `exec <cluster> [path] -- <kubectl args>` | Runs kubectl against one cluster, applying its context            |
 
-`path` defaults to the current directory. `run` prints the target context to stderr first, so a mutating command always shows which cluster it is about to change; pass `--context <name>` to override.
+`path` defaults to the current directory. `run` prints the target context to stderr first, so a mutating command always shows which cluster it is about to change; pass `--context <name>` to override. `exec` takes the cluster name from the catalogue, applies that cluster's context itself and refuses a caller `--context` — it is the cluster-scoped form the `kctl-<cluster>` MCP servers call, so one cluster's server cannot reach another.
 
 ```bash
-devbot kube contexts observability
-devbot kube run observability -- get pods -n core
+devbot kctl contexts observability
+devbot kctl run observability -- get pods -n core
+devbot kctl exec obs-prod observability -- get pods -n core
 ```
 
-Never use `~/.kube/config` for these clusters: its contexts are SSO exec contexts that expire, while the generated ones use the devbot profile. The files are rendered, not read live — run `devbot reinit <path>` after changing the project's `kubectl` selection or the global catalogue. See the `k8s-access` skill for the RBAC boundaries.
+Never use `~/.kube/config` for these clusters: its contexts are SSO exec contexts that expire, while the generated ones use the devbot profile. The files are rendered, not read live — run `devbot reinit <path>` after changing the project's `kubectl` selection or the global catalogue. Agents do not call this from a shell at all: the module's memory and the shipped guards block `kubectl`, and the `kctl-<cluster>` MCP servers are the permitted path. See the `k8s-access` skill for the RBAC boundaries.
 
 ### `devbot list <type> [-a|--all]`
 

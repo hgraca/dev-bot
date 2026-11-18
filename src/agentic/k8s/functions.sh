@@ -23,7 +23,7 @@ _project_name() {
 }
 
 # The generated kubeconfig's filename, shared by init.sh (which writes it) and
-# kube.sh (which resolves it). Reads PROJECT_DIR, PROJECT_CONFIG and READER from
+# kctl.sh (which resolves it). Reads PROJECT_DIR, PROJECT_CONFIG and READER from
 # the caller — both set those before calling.
 #
 # The project name becomes a filename, so anything outside the kubeconfig-safe
