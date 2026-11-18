@@ -13,7 +13,9 @@ load 'refactor_test_helper'
 }
 
 @test "end-to-end: rename-annotation rewrites the docblock annotations" {
-  _e2e_ready || skip "docker + scratch Rector not available"
+  # The strict guard: this is the rule 2.8.x silently stopped honouring, so an
+  # engine outside the verified series must fail here, never skip.
+  _e2e_engine_ready
 
   local work
   work="$(mktemp -d)"
@@ -182,3 +184,32 @@ CFG
   [ "${call}" = "1" ]
 }
 
+
+@test "end-to-end: an apply that writes nothing says so in the payload" {
+  # The failure that started this: 2.8.5 reported ok with zero files changed, and
+  # a caller reading only `ok` saw a fix that never happened. `changed` answers
+  # "did anything get written", next to the notice that explains why.
+  _e2e_engine_ready
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${PHP_FIXTURES}/rename-demo/." "${work}/"
+  _req rename-annotation 'Demo\AnnotatedCase' test scenario > "${work}/request.json"
+
+  # First apply changes the file; the second has nothing left to do.
+  bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'" >/dev/null 2>&1
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${PHP_PLUGIN}' apply < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  run python3 -c "
+import json, sys
+doc = json.loads(sys.argv[1])
+assert doc['ok'] is True, doc
+assert doc['changed'] is False, doc
+assert doc.get('notice'), doc
+print('NOOP-REPORTED:OK')
+" "${output}"
+  assert_success
+  assert_output --partial "NOOP-REPORTED:OK"
+}

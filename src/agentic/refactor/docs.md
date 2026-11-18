@@ -138,7 +138,13 @@ any kind and forwards it (TypeScript reads `kind` as a declaration kind).
 | `apply`     | read a request on stdin, perform the change, write the result |
 
 Request: `{"op", "class", "from", "to", "apply", "image", "namespace", "file", "kind", "start", "end", "index", "default"}`.
-Response: `{"ok", "engine", "applied", "summary", "files", "warnings", "error", "notice", "string_references", "unrewritten_references", "remaining_changes", "file_move"}`.
+Response: `{"ok", "engine", "applied", "changed", "summary", "files", "warnings", "error", "notice", "string_references", "unrewritten_references", "remaining_changes", "file_move"}`.
+
+`ok` answers whether the run worked; it does **not** mean something was written. An
+`apply` that matched nothing answers `ok: true` with `changed: false` and a
+`notice` naming the reason (a wrong name, or one already renamed) — a caller that
+reports only `ok` will claim a fix that never happened. `changed` is present on
+an `apply` only: a plan writes nothing by definition.
 
 `REFACTOR_LANGS_DIR` relocates the plugin directory (used by the test suite to
 prove additivity).

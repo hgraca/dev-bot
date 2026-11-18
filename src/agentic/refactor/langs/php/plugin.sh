@@ -25,6 +25,15 @@ REFACTOR_DIR="$(cd "${PLUGIN_DIR}/../.." && pwd)"
 # Overridable for tests, and to relocate the scratch install.
 STORAGE_DIR="${REFACTOR_STORAGE_DIR:-${REFACTOR_DIR}/../../../storage/refactor}"
 
+# The Rector the shipped rules are verified against.
+#
+# This was `^2.6`, which floats: a fresh provision installed 2.8.5, and from 2.8
+# on the annotation rule stopped rewriting docblock annotations — `apply` reported
+# ok with zero files changed. The version is pinned so a provision is
+# reproducible, and REFACTOR_RECTOR_VERSION exists for a deliberate experiment
+# (the e2e then fails, which is the point).
+RECTOR_VERSION="${REFACTOR_RECTOR_VERSION:-2.6.7}"
+
 # The op table — including each op's rule class (`meta` and the `--only` value) —
 # lives in ops.py, the single source of truth shared with the config renderer.
 # Adding an op is one entry there, not edits across this file and the renderer.
@@ -257,27 +266,68 @@ PY
   fi
 
   python3 - "${project}" "${via}" "${path}" "${version}" \
-    "$(_project_php_version "${project}")" "${resolved_image}" "${command}" <<'PY'
+    "$(_project_php_version "${project}")" "${resolved_image}" "${command}" \
+    "${RECTOR_VERSION}" <<'PY'
 import json, sys
-project, via, path, version, php_version, image, command = sys.argv[1:8]
+project, via, path, version, php_version, image, command, verified = sys.argv[1:9]
 out = {
     "ok": True,
     "lang": "php",
     "project": project,
     "php_version": php_version or None,
     "image": image,
-    "engine": {"via": via, "path": path, "version": version},
+    "engine": {"via": via, "path": path, "version": version, "verified": verified},
 }
 if command:
     out["command"] = json.loads(command)
+# The scratch engine is ours, so a drift from the pinned version is a dev-bot
+# problem worth naming: the shipped rules are only known to work there.
+if via == "scratch" and version != verified:
+    out.setdefault("warnings", []).append(
+        "scratch Rector %s is not the verified %s — run: langs/php/plugin.sh provision"
+        % (version, verified)
+    )
 print(json.dumps(out))
 PY
 }
 
 # Provision a pinned, scoped Rector into the scratch dir. Composer is the official
 # distribution channel — there is no official phar.
+# Reclaim a scratch dir an older dev-bot provisioned as root.
+#
+# Provision used to run its installer as root, so an existing vendor/ or
+# node_modules the host user cannot write makes the next provision fail with a
+# permission error instead of upgrading the engine. Docker can chown what the
+# host user cannot, so repair ownership from a throwaway container instead of
+# making the user hand it to sudo. Cheap when there is nothing to repair: one
+# stat on the sentinel.
+_claim_scratch_dir() {
+  local dir="$1" stray
+  [[ -d "${dir}" ]] || return 0
+  # Reclaim only the documented legacy state, and only in place. STORAGE_DIR is
+  # env-controlled, so a recursive ownership change is a hazard: refuse a
+  # symlinked scratch (the recursion would leave the engine dir) and require the
+  # entries to be root-owned, which is exactly what the old provision left behind
+  # — a directory owned by another ordinary user is not ours to take.
+  if [[ -L "${dir}" ]]; then
+    echo "WARN: ${dir} is a symlink; not reclaiming it — point the engine at a real directory" >&2
+    return 0
+  fi
+  stray="$(find "${dir}" -maxdepth 1 -user 0 -print -quit 2>/dev/null || true)"
+  [[ -n "${stray}" ]] || return 0
+  # -h: follow no symlinks inside the tree while recursing.
+  if docker run --rm --network none -v "${dir}:/claim" alpine \
+    chown -Rh "$(id -u):$(id -g)" /claim >/dev/null 2>&1; then
+    return 0
+  fi
+  # Say it instead of skipping: without the reclaim the install below fails with
+  # a permission error that names neither the cause nor the fix.
+  echo "WARN: ${dir} still holds files owned by another user, and they could not be reclaimed" >&2
+  echo "WARN: fix it with: docker run --rm --network none -v '${dir}:/claim' alpine chown -R $(id -u):$(id -g) /claim" >&2
+}
+
 cmd_provision() {
-  local version="${1:-^2.6}"
+  local version="${1:-${RECTOR_VERSION}}"
   local dir="${STORAGE_DIR}/rector"
 
   if ! command -v docker >/dev/null 2>&1; then
@@ -286,16 +336,27 @@ cmd_provision() {
   fi
 
   mkdir -p "${dir}"
+  _claim_scratch_dir "${dir}"
   # Composer needs the network, so this one attaches to the host's namespace
   # instead of a bridge: host networking creates no veth pair, and a bridge here
   # would churn the host's interfaces on every provision (see _build_argv).
-  if ! docker run --rm --network host -v "${dir}:/app" -w /app composer:2 \
-    require "rector/rector:${version}" --no-interaction --no-progress -q >&2; then
+  # As the invoking user, like the analysis run: composer would otherwise leave
+  # root-owned files in the user's storage that nothing on the host can clean up.
+  # HOME/COMPOSER_HOME point somewhere writable inside the container.
+  if ! docker run --rm --network host -v "${dir}:/app" -w /app \
+    --user "$(id -u):$(id -g)" -e HOME=/tmp -e COMPOSER_HOME=/tmp/composer \
+    composer:2 require "rector/rector:${version}" --no-interaction --no-progress -q >&2; then
     echo "ERROR: composer could not install rector/rector:${version}" >&2
     exit 1
   fi
 
-  printf '{"ok":true,"scratch":"%s","version":"%s"}\n' "${dir}" "${version}"
+  # Report what was installed, not the constraint that was asked for: the two
+  # differ, and only the installed one tells a caller which engine the rules ran
+  # against. The lock remains the single record of it — no second copy to drift.
+  local installed
+  installed="$(_rector_version_from_lock "${dir}/composer.lock")"
+  printf '{"ok":true,"scratch":"%s","requested":"%s","version":"%s"}\n' \
+    "${dir}" "${version}" "${installed}"
 }
 
 # Run a refactor: render the single-rule config, execute Rector, map its JSON
@@ -843,6 +904,14 @@ if not changed:
             old, " or ".join(roots) or "the source roots")
 if notice:
     result["notice"] = notice
+# `ok` answers "did the run work", not "did anything change". A mutation that
+# wrote no file is a success with nothing to show for it, and saying so in the
+# payload is what keeps a caller from reporting a fix that never happened. A plan
+# writes nothing by definition, so it carries no `changed` at all.
+if mode == "apply":
+    # A failed apply was rolled back, so nothing it touched survives: `changed`
+    # describes the tree the caller is left with, not what the run attempted.
+    result["changed"] = changed and result.get("ok") is not False
 
 print(json.dumps(result))
 sys.exit(0 if result.get("ok") else 1)

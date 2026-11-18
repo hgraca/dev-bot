@@ -434,3 +434,82 @@ PY
   [ "${access}" = "1" ]
 }
 
+
+# ── the scratch engine is pinned, and drift is visible ──────────────────────
+# The requirement used to float (a caret range): a fresh provision installed
+# 2.8.5, and from 2.8 on the annotation rule stopped rewriting docblock
+# annotations, so an apply reported ok with zero files changed. A pinned version
+# makes a provision reproducible; these pin the pin.
+
+_fake_scratch() {
+  local version="$1" scratch
+  scratch="$(mktemp -d)"
+  mkdir -p "${scratch}/rector/vendor/bin"
+  printf '#!/usr/bin/env bash\necho stub\n' > "${scratch}/rector/vendor/bin/rector"
+  chmod +x "${scratch}/rector/vendor/bin/rector"
+  printf '{"packages-dev":[{"name":"rector/rector","version":"%s"}]}' "${version}" \
+    > "${scratch}/rector/composer.lock"
+  printf '%s' "${scratch}"
+}
+
+@test "php plugin: the provisioned Rector version is pinned, not a floating range" {
+  # A caret/range requirement is what let 2.8.5 in. Assert the literal default so
+  # a future edit to the constraint cannot quietly reintroduce it.
+  run grep -E '^RECTOR_VERSION="\$\{REFACTOR_RECTOR_VERSION:-[0-9]+\.[0-9]+\.[0-9]+\}"' "${PHP_PLUGIN}"
+  assert_success
+}
+
+@test "php plugin: doctor names the verified version next to the installed one" {
+  local scratch
+  scratch="$(_fake_scratch 2.6.7)"
+
+  run env REFACTOR_STORAGE_DIR="${scratch}" bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/bare"
+  rm -rf "${scratch}"
+
+  assert_success
+  assert_output --partial '"version": "2.6.7"'
+  assert_output --partial '"verified": "2.6.7"'
+  refute_output --partial "warnings"
+}
+
+@test "php plugin: doctor warns when the scratch engine drifted from the pin" {
+  local scratch
+  scratch="$(_fake_scratch 2.8.5)"
+
+  run env REFACTOR_STORAGE_DIR="${scratch}" bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/bare"
+  rm -rf "${scratch}"
+
+  assert_success
+  assert_output --partial "is not the verified 2.6.7"
+  assert_output --partial "provision"
+}
+
+@test "php plugin: doctor treats a patch drift as drift" {
+  # The pin is exact, so the check is exact: 2.6.1 is not the engine the rules
+  # were verified against, however close the version looks.
+  local scratch
+  scratch="$(_fake_scratch 2.6.1)"
+
+  run env REFACTOR_STORAGE_DIR="${scratch}" bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/bare"
+  rm -r "${scratch}"
+
+  assert_success
+  assert_output --partial "is not the verified 2.6.7"
+}
+
+@test "php plugin: provision reports the installed version and records it" {
+  command -v docker >/dev/null 2>&1 || skip "docker not installed"
+  docker info >/dev/null 2>&1 || skip "docker daemon not reachable"
+
+  local scratch recorded
+  scratch="$(mktemp -d)"
+  run env REFACTOR_STORAGE_DIR="${scratch}" bash "${PHP_PLUGIN}" provision
+  recorded="$(cat "${scratch}/rector/.version" 2>/dev/null || true)"
+  rm -rf "${scratch}"
+
+  assert_success
+  # Both the asked-for version and the installed one, because they differ.
+  assert_output --partial '"requested"'
+  assert_output --partial '"version"'
+  [[ -n "${recorded}" ]] || fail "provision did not record the installed version"
+}

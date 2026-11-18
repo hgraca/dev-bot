@@ -240,6 +240,9 @@ def render_markdown(response, op, risk=""):
     if response.get("summary"):
         lines.append(response["summary"])
         lines.append("")
+    if response.get("applied") and response.get("changed") is False:
+        lines.append("**Changed:** no — the run wrote no file")
+        lines.append("")
     if response.get("notice"):
         lines.append("**Notice:** %s" % response["notice"])
         lines.append("")

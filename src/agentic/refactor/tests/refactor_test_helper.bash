@@ -56,6 +56,29 @@ PY
 }
 
 # True when a real end-to-end run is possible.
+# The Rector series the shipped rules are verified against. The requirement used
+# to float (a caret range), and 2.8.x silently stopped rewriting docblock
+# annotations. No backticks in this file: it is sourced, so they would execute.
+REFACTOR_VERIFIED_RECTOR="${REFACTOR_VERIFIED_RECTOR:-2.6.7}"
+
+# The scratch engine's actual version, or empty when there is no engine.
+_scratch_engine_version() {
+  bash "${PHP_PLUGIN}" doctor --project "${PHP_FIXTURES}/bare" 2>/dev/null |
+    python3 -c 'import json,sys; print(json.load(sys.stdin).get("engine", {}).get("version") or "")' \
+      2>/dev/null || true
+}
+
+# Ready means "an engine exists AND it is the verified series". A version drift
+# must FAIL the test rather than skip it: a skip is exactly what hid the 2.8
+# regression until a scratch engine happened to be provisioned.
+_e2e_engine_ready() {
+  _e2e_ready || skip "docker + scratch Rector not available"
+  local version
+  version="$(_scratch_engine_version)"
+  [[ "${version}" == "${REFACTOR_VERIFIED_RECTOR}" ]] ||
+    fail "scratch Rector '${version:-unknown}' is not the verified ${REFACTOR_VERIFIED_RECTOR} — run: langs/php/plugin.sh provision"
+}
+
 _e2e_ready() {
   command -v docker >/dev/null 2>&1 || return 1
   docker info >/dev/null 2>&1 || return 1

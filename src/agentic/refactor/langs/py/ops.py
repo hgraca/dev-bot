@@ -464,6 +464,10 @@ def main():
     try:
         changes = build_changes(project, request)
         files = changed_paths(changes, PROJECT_DIR)
+        # `changed` is decided here, before the reporting fallback below adds a
+        # path the engine never wrote: a rename that matched nothing still names
+        # its target in `files`, but it changed nothing.
+        changed = bool(files)
         # A rename that changed nothing still names its target; a cleanup that
         # found nothing must not claim a file.
         if not files and op == "rename-symbol" and request.get("file"):
@@ -485,6 +489,11 @@ def main():
             "files": files,
             "warnings": [],
         }
+        # What a caller needs that `ok` cannot say: an apply that matched nothing
+        # is a success with nothing written. Present on an apply only — a plan
+        # writes nothing by definition. Mirrors the PHP plugin.
+        if apply:
+            result["changed"] = changed
         sys.stdout.write(json.dumps(result) + "\n")
         return 0
     finally:

@@ -4,7 +4,7 @@
  *
  * Reads a refactor request as JSON on stdin and writes a response as JSON on
  * stdout, in the same shape the PHP plugin uses:
- *   {ok, engine, applied, summary, files, warnings}
+ *   {ok, engine, applied, changed, summary, files, warnings}
  * plus optional extras: `references`, `string_references` (literal occurrences
  * the rename cannot reach) and `remaining_changes` (files still holding the old
  * name — where PHP counts the files that would still change).
@@ -230,6 +230,7 @@ async function moveFile(project, file, to, apply) {
       ok: true,
       engine: ENGINE,
       applied: apply,
+      changed: apply ? [relative(target), ...importers].length > 0 : undefined,
       summary: `${apply ? "Moved" : "Would move"} ${file} -> ${relative(target)} (${importers.length} importer(s) updated)`,
       files: [relative(target), ...importers].sort(),
       warnings: unrewritten,
@@ -434,6 +435,7 @@ async function moveMember(project, klass, from, to, file, apply) {
       ok: true,
       engine: ENGINE,
       applied: apply,
+      changed: apply ? files.size > 0 : undefined,
       summary: `${apply ? "Moved" : "Would move"} static ${klass}.${from} -> ${to}.${from} (${rewritable.length} call site(s) rewritten)`,
       files: [...files].sort(),
       warnings,
@@ -711,6 +713,7 @@ async function privatizeMembers(project, klass, file, apply) {
       ok: true,
       engine: ENGINE,
       applied: apply,
+      changed: apply ? files.size > 0 : undefined,
       summary: `${apply ? "Made" : "Would make"} ${narrowed} member(s) private in ${files.size} class file(s)`,
       files: [...files].sort(),
       warnings,
@@ -882,6 +885,7 @@ async function removeUnusedLocals(project, file, apply) {
       ok: true,
       engine: ENGINE,
       applied: apply,
+      changed: apply ? removable.length > 0 : undefined,
       summary: `${apply ? "Removed" : "Would remove"} ${removable.length} unused local(s) from ${relativeFile}`,
       files: removable.length > 0 ? [relativeFile] : [],
       warnings,
@@ -1052,6 +1056,7 @@ async function removeUnusedParams(project, file, apply) {
       ok: true,
       engine: ENGINE,
       applied: apply,
+      changed: apply ? removable.length > 0 : undefined,
       summary: `${apply ? "Removed" : "Would remove"} ${removable.length} unused parameter(s) from ${relativeFile}`,
       files: removable.length > 0 ? [relativeFile] : [],
       warnings: [...warnings],
@@ -1250,6 +1255,7 @@ async function promoteReadonly(project, klass, file, apply) {
       ok: true,
       engine: ENGINE,
       applied: apply,
+      changed: apply ? files.size > 0 : undefined,
       summary: `${apply ? "Made" : "Would make"} ${promoted} member(s) readonly in ${files.size} class file(s)`,
       files: [...files].sort(),
       warnings: [...warnings],
@@ -1342,7 +1348,10 @@ async function main() {
     const result = {
       ok: true,
       engine: ENGINE,
-      applied: false,
+      // Follow the request: this branch answers an apply too (a re-run after the
+      // rename landed), and `applied` is how the renderer knows to show the
+      // no-op indicator at all.
+      applied: apply,
       summary: residual.length
         ? `'${from}' is renamed to '${to}', but ${residual.length} file(s) still reference '${from}'`
         : `'${from}' is already renamed to '${to}' — nothing left to do`,
@@ -1351,6 +1360,9 @@ async function main() {
     };
     if (residual.length) {
       result.remaining_changes = residual.length;
+    }
+    if (apply) {
+      result.changed = false;
     }
     process.stdout.write(JSON.stringify(result) + "\n");
     return 0;
@@ -1372,6 +1384,9 @@ async function main() {
     ok: true,
     engine: ENGINE,
     applied: apply,
+    // The target file is visited either way, so `files` being non-empty says
+    // nothing about a change: renaming to the same name rewrites identical text.
+    changed: apply ? from !== to && files.size > 0 : undefined,
     summary: `${apply ? "Renamed" : "Would rename"} ${from} -> ${to} in ${files.size} file(s)`,
     files: [...files].sort(),
     warnings: [],

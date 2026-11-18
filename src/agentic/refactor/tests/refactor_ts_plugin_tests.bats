@@ -838,3 +838,82 @@ assert m["risks"]["promote-readonly"] == "signature", m
   [ "${reached}" = "1" ]
   [ "${overridden}" = "1" ]
 }
+
+@test "end-to-end (ts): renaming a symbol to its own name changes nothing" {
+  # The no-op contract: the declaring file is visited either way, so a
+  # same-name rename must not claim a change. Copilot found this one after the
+  # field was added, which is why it has its own case.
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"greet","apply":true}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  run python3 -c "
+import json, sys
+doc = json.loads(sys.argv[1])
+assert doc['ok'] is True, doc
+assert doc['changed'] is False, doc
+print('SAME-NAME-NOOP:OK')
+" "${output}"
+  assert_success
+  assert_output --partial "SAME-NAME-NOOP:OK"
+}
+
+@test "end-to-end (ts): a repeated apply reports applied, so the no-op shows" {
+  # The retry branch answers an apply; saying applied:false there made the
+  # renderer print it like a plan and hide the "Changed: no" line.
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute","apply":true}' > "${work}/request.json"
+
+  bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'" >/dev/null 2>&1
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' apply < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  run python3 -c "
+import json, sys
+doc = json.loads(sys.argv[1])
+assert doc['ok'] is True, doc
+assert doc['applied'] is True, doc
+assert doc['changed'] is False, doc
+print('RETRY-APPLIED:OK')
+" "${output}"
+  assert_success
+  assert_output --partial "RETRY-APPLIED:OK"
+}
+
+@test "end-to-end (ts): a plan carries no changed field" {
+  # The contract says `changed` is an apply's field: a plan writes nothing by
+  # definition, so the key is absent rather than false. All three engines answer
+  # the same way.
+  _ts_e2e_ready || skip "docker + ts-morph engine not available"
+
+  local work
+  work="$(mktemp -d)"
+  cp -r "${TS_FIXTURES}/rename-demo/." "${work}/"
+  printf '%s' '{"op":"rename-symbol","from":"greet","to":"salute"}' > "${work}/request.json"
+
+  run bash -c "REFACTOR_PROJECT='${work}' bash '${TS_PLUGIN}' plan < '${work}/request.json'"
+  rm -rf "${work}"
+
+  assert_success
+  run python3 -c "
+import json, sys
+doc = json.loads(sys.argv[1])
+assert doc['applied'] is False, doc
+assert 'changed' not in doc, doc
+print('PLAN-NO-CHANGED:OK')
+" "${output}"
+  assert_success
+  assert_output --partial "PLAN-NO-CHANGED:OK"
+}
