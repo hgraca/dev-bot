@@ -360,3 +360,35 @@ function migration_down-1.17.0 {
   _migration_skip "autobot defaults are inert — leaving ${config} untouched"
   return 0
 }
+
+# 1.18.0 — the `autobot` block gains the Slack conversation keys. 1.17.0 seeded
+# the block before they existed, and `ensure_autobot_block.py` answers `present`
+# for a block it finds, so a project that ran it keeps a block that never
+# mentions `poll_slack`. They go in commented out, like the rest: the migration
+# is discoverability, not configuration. A project on a global profile, or one
+# that opted out with `null`, is left alone. The down half is inert for the same
+# reason 1.17.0's is: nothing functional was added to remove.
+function migration_up-1.18.0 {
+  local config="${1:?global config path required}"
+  local path added=0 present=0 failed=0
+  while IFS= read -r path; do
+    # Project configs only, for the same reason as 1.17.0.
+    [[ "${path}" == */.devbot.project.jsonc ]] || continue
+    case "$(python3 "${DEV_BOT_ROOT}/src/_shared/ensure_autobot_slack_keys.py" "${path}" 2>/dev/null || true)" in
+      injected) added=$((added + 1)) ;;
+      present) present=$((present + 1)) ;;
+      *)
+        _migration_warn "could not add the slack keys to ${path}"
+        failed=1
+        ;;
+    esac
+  done < <(_migration_config_paths "${config}")
+  _migration_ok "slack keys added to ${added} project config(s), ${present} already had them"
+  return "${failed}"
+}
+
+function migration_down-1.18.0 {
+  local config="${1:?global config path required}"
+  _migration_skip "the slack keys are comments — leaving ${config} and its projects untouched"
+  return 0
+}

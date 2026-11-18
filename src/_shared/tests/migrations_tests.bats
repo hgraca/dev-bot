@@ -228,3 +228,80 @@ EOF
   run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX}/core/.devbot.project.jsonc" autobot
   assert_success
 }
+
+@test "the 1.18.0 up migration adds the slack keys to seeded blocks only" {
+  export DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../.." && pwd)"
+
+  mkdir -p "${SANDBOX}/core" "${SANDBOX}/portal" "${SANDBOX}/profiled" "${SANDBOX}/arrayed"
+  # A project that never got the block: the whole thing is seeded.
+  printf '{\n  "harness": "opencode"\n}\n' > "${SANDBOX}/core/.devbot.project.jsonc"
+  # A project seeded by 1.17.0, before the slack keys existed.
+  printf '{\n  "autobot": {"poll_jira": true}\n}\n' > "${SANDBOX}/portal/.devbot.project.jsonc"
+  # A project whose values spell the key names: still nothing is mentioned.
+  printf '{\n  "autobot": {"jira_assignees": ["poll_slack", "slack_user_email"]}\n}\n' \
+    > "${SANDBOX}/arrayed/.devbot.project.jsonc"
+  # A project on a global profile: its keys belong in the profile, not here.
+  printf '{\n  "autobot": "gete-jira"\n}\n' > "${SANDBOX}/profiled/.devbot.project.jsonc"
+  printf '{"projects": ["core", "portal", "profiled", "arrayed"]}\n' > "${CONFIG}"
+
+  run migration_up-1.18.0 "${CONFIG}"
+  assert_success
+  assert_output --partial "slack keys added to 3 project config(s), 1 already had them"
+
+  run grep -F '"poll_slack": false' "${SANDBOX}/core/.devbot.project.jsonc"
+  assert_success
+  run grep -F '"slack_bot_token": "${SLACK_BOT_TOKEN}"' "${SANDBOX}/core/.devbot.project.jsonc"
+  assert_success
+
+  # The seeded block keeps its value and gains the commented keys beside it.
+  run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX}/portal/.devbot.project.jsonc" autobot
+  assert_success
+  assert_output --partial '"poll_jira": true'
+  refute_output --partial '"poll_slack"' # commented out, so not part of the parsed object
+  run grep -F '"slack_user_email": "you@example.com"' "${SANDBOX}/portal/.devbot.project.jsonc"
+  assert_success
+
+  # A value that spells a key name does not suppress its discoverability line.
+  run grep -F '"poll_slack": false' "${SANDBOX}/arrayed/.devbot.project.jsonc"
+  assert_success
+
+  # A profile reference is left exactly as it was.
+  run cat "${SANDBOX}/profiled/.devbot.project.jsonc"
+  assert_output '{
+  "autobot": "gete-jira"
+}'
+
+  # The global config is not a project config.
+  refute grep -q autobot "${CONFIG}"
+
+  # Idempotent: a second run changes nothing.
+  local once
+  once="$(cat "${SANDBOX}/portal/.devbot.project.jsonc")"
+  run migration_up-1.18.0 "${CONFIG}"
+  assert_success
+  assert_output --partial "slack keys added to 0 project config(s), 4 already had them"
+  [ "$(cat "${SANDBOX}/portal/.devbot.project.jsonc")" = "${once}" ]
+
+  # The down half is deliberately inert, so the keys survive it.
+  run migration_down-1.18.0 "${CONFIG}"
+  assert_success
+  run grep -F '"poll_slack": false' "${SANDBOX}/portal/.devbot.project.jsonc"
+  assert_success
+}
+
+@test "the 1.18.0 up migration fails on a read-only project config" {
+  export DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../.." && pwd)"
+
+  mkdir -p "${SANDBOX}/locked"
+  printf '{\n  "autobot": {"poll_jira": true}\n}\n' > "${SANDBOX}/locked/.devbot.project.jsonc"
+  chmod 444 "${SANDBOX}/locked/.devbot.project.jsonc"
+  printf '{"projects": ["locked"]}\n' > "${CONFIG}"
+
+  run migration_up-1.18.0 "${CONFIG}"
+  assert_failure
+  assert_output --partial "could not add the slack keys"
+
+  # The read-only config is left exactly as it was.
+  refute grep -q 'poll_slack' "${SANDBOX}/locked/.devbot.project.jsonc"
+  chmod 644 "${SANDBOX}/locked/.devbot.project.jsonc"
+}
