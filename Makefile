@@ -147,6 +147,17 @@ test-bats-slice: ## Run one CI slice of the BATS suite (set SLICE to 1, 2 or 3)
 # FILES_ONLY above prints the slice instead of running it — the guard test reads
 # the partition that way. BATS_FILES_FILE is the same seam for `test-bats`: a
 # newline-separated list of files to run instead of the whole bin/ and src/ tree.
+#
+# Without BATS_FILES_FILE the list comes from bin/test-slices.sh with one slice,
+# which prints every file ranked heaviest-first by the same weight the CI matrix
+# uses. Order matters for the wall clock: bats starts a file whenever a job
+# frees, so with discovery order the heaviest files start last and the run ends
+# on an idle machine. Same suite, same 8 jobs, measured: 24m06s discovery order
+# vs 17m02s ranked.
+# The job count stays capped at 8. Measured on this 22-thread box: at 16 the
+# run saturates (load ~33, no file finished in 21 minutes) because the heavy
+# tests are themselves multi-core (qmd indexing, python workers), so a dozen
+# concurrent ones do not fit. Packing, not depth, is what the ordering fixes.
 test-bats: ## Run the BATS suite (BATS_FILES_FILE points at a list to narrow it)
 	@echo -e "\n\033[1m\033[34m━━━ Running tests... ━━━\033[0m"
 	# bats is installed as three separate npm packages. A machine can have bats
@@ -173,16 +184,17 @@ test-bats: ## Run the BATS suite (BATS_FILES_FILE points at a list to narrow it)
 	# TTY (claudecode asks before changing an existing default agent), so a
 	# suite run from a terminal would block on that read instead of asserting.
 	# Parallel BATS: GNU parallel is preferred, rush is the fallback — see
-	# README, Development. Without BATS_FILES_FILE, bin/ runs first on purpose:
-	# the update suites (bin/tests/update_*_tests.bats) are the heaviest cluster,
-	# so starting them early keeps them off the critical path. A slice arrives
-	# already ordered heaviest-first.
+	# README, Development. Without BATS_FILES_FILE the list is produced by
+	# bin/test-slices.sh with one slice, which ranks every file heaviest-first
+	# by the same weight the CI matrix uses — so the update suites and the other
+	# long files start immediately instead of waiting for a job. A slice arrives
+	# already ordered the same way.
 	# DEV_BOT_TEST_JOBS overrides the derived job count (1 forces a serial run).
 	@targets=(); \
 	if [ -n "$${BATS_FILES_FILE:-}" ]; then \
 		mapfile -t targets < "$$BATS_FILES_FILE"; \
 	else \
-		targets=(-r bin/ src/); \
+		mapfile -t targets < <(bin/test-slices.sh 1 1); \
 	fi; \
 	jobs="$${DEV_BOT_TEST_JOBS:-}"; \
 	if [ -z "$$jobs" ]; then \

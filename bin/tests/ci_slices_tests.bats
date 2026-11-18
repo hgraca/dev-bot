@@ -133,9 +133,14 @@ _test_count() {
 
   run cat "${argv}"
   assert_success
-  assert_line "-r"
-  assert_line "bin/"
-  assert_line "src/"
+  # The fallback is the full file list, ranked heaviest-first — not a `-r`
+  # recursion, which would hand bats discovery order and cost ~50% more wall
+  # clock. Every test file must still be in it.
+  refute_line "-r"
+  local expected
+  expected="$(cd "${PROJECT_ROOT}" && git ls-files 'bin/*.bats' 'src/*.bats' | wc -l)"
+  assert_equal "$(grep -c '\.bats$' <<<"${output}")" "${expected}"
+  assert_line "bin/tests/ci_slices_tests.bats"
 }
 
 # A fake `bats` that records its arguments to $BATS_ARGV_FILE and succeeds, so a
