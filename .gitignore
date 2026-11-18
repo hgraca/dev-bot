@@ -52,6 +52,7 @@ CLAUDE.md
 .devbot.project.jsonc
 .devbot.project.sha
 .agents/logs
+.agents/state
 # <<< DEVBOT
 
 # >>> DEVBOT - graphify

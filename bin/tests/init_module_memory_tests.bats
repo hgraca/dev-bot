@@ -178,3 +178,36 @@ load_init() {
   run git -C "${PROJECT}" status --porcelain -- .agents
   assert_output ""
 }
+
+@test "adds the runtime state folder to .gitignore" {
+  load_init
+
+  _ignore_runtime_state "${PROJECT}" ".agents"
+
+  run cat "${PROJECT}/.gitignore"
+  assert_output --partial "# >>> DEVBOT - runtime state"
+  assert_output --partial ".agents/state/"
+}
+
+@test "the runtime state rule is idempotent and honours devbot_dir" {
+  load_init
+
+  _ignore_runtime_state "${PROJECT}" ".runtime"
+  _ignore_runtime_state "${PROJECT}" ".runtime"
+
+  run grep -c "DEVBOT - runtime state" "${PROJECT}/.gitignore"
+  assert_output "2"
+  run grep -cF ".runtime/state/" "${PROJECT}/.gitignore"
+  assert_output "1"
+}
+
+@test "the state directory a session writes is actually ignored" {
+  load_init
+  _ignore_runtime_state "${PROJECT}" ".agents"
+
+  mkdir -p "${PROJECT}/.agents/state/devbot"
+  printf '{"pid":1}\n' > "${PROJECT}/.agents/state/devbot/1.json"
+
+  run git -C "${PROJECT}" status --porcelain -- .agents
+  assert_output ""
+}

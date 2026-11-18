@@ -490,6 +490,32 @@ _ignore_module_memory() {
   fi
 }
 
+# ── Keep per-session runtime state out of the project's history ───────────────
+# The harness writes <devbot_dir>/state/devbot/<pid>.json presence locks while a
+# session runs; they are machine-local, change on every launch, and must never be
+# committed (audit-03 N1). The rule is unconditional, like the module-memory one:
+# it has to be in place before the first launch writes the file.
+_ignore_runtime_state() {
+  local project_dir="$1"
+  local devbot_dir="$2"
+
+  if ! _devbot_is_plain_relative_path "${devbot_dir}"; then
+    _warn "not ignoring runtime state: devbot_dir '${devbot_dir}' is not a plain relative path"
+    return 0
+  fi
+
+  git -C "${project_dir}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+
+  if _upsert_gitignore_section "${project_dir}/.gitignore" \
+    "# >>> DEVBOT - runtime state" \
+    "# <<< DEVBOT - runtime state" \
+    "${devbot_dir}/state/"; then
+    _ok ".gitignore ignores ${devbot_dir}/state/"
+  else
+    _warn "could not add ${devbot_dir}/state/ to .gitignore"
+  fi
+}
+
 _init_wiring() {
   PROJECT_DIR="$1"
   local total_start=${SECONDS}
@@ -522,8 +548,9 @@ for m in modules:
   config_file="$(_resolve_opencode_config "${PROJECT_DIR}")"
   [[ -n "${config_file}" ]] && config_name="$(basename "${config_file}")"
 
-  # ── 1b. Module memory is generated, never committed ──────────────────────
+  # ── 1b. Generated paths are never committed ──────────────────────────────
   _ignore_module_memory "${PROJECT_DIR}" "${devbot_dir}"
+  _ignore_runtime_state "${PROJECT_DIR}" "${devbot_dir}"
 
   # ── 2. Init scripts (tools → agentic → harnesses) ────────────────────────
   # Modules are harness-agnostic: they only emit declarations (plugin.opencode.json,
