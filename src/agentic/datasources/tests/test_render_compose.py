@@ -356,3 +356,35 @@ class TestRenderCompose(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTemplateDefaults(unittest.TestCase):
+    """The template's image defaults must track versions.env (audit-03 N6)."""
+
+    def _versions(self):
+        values = {}
+        with open(os.path.join(MODULE_DIR, "versions.env"), encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                values[key.strip()] = value.strip()
+        return values
+
+    def test_toolbox_image_default_matches_the_pin(self):
+        versions = self._versions()
+        with open(TEMPLATE, encoding="utf-8") as fh:
+            template = fh.read()
+        self.assertIn(
+            "${TOOLBOX_IMAGE:-" + versions["TOOLBOX_IMAGE"] + "}", template
+        )
+        self.assertIn(
+            "${TOOLBOX_VERSION:-" + versions["TOOLBOX_VERSION"] + "}", template
+        )
+
+    def test_rendered_compose_needs_no_environment(self):
+        rc, out, err = render({}, env={k: "" for k in ("TOOLBOX_IMAGE", "TOOLBOX_VERSION")})
+        self.assertEqual(rc, 0, err)
+        self.assertIn("image: ${TOOLBOX_IMAGE:-", out)
+

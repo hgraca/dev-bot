@@ -144,12 +144,17 @@ main() {
     _skip "datasources — no toolbox sources; gateway not started"
   fi
 
-  # Only a RENDERED service that is also demanded runs: a live project absent
-  # from the configured project list can demand a sidecar the render gate never
-  # emitted, and `up --build` on that would fail every boot.
+  # Only a RENDERED service that is also demanded runs: the render gate works
+  # from the machine's configured projects (session-independent), this loop from
+  # the live sessions — so the compose can list a sidecar no running project
+  # wants. Say so instead of leaving the compose and `docker ps` disagreeing with
+  # no explanation (audit-03 N6).
   local service
   for service in ${sidecars}; do
-    _list_has_word "${service}" "${wanted}" || continue
+    if ! _list_has_word "${service}" "${wanted}"; then
+      _skip "datasources — sidecar '${service}' rendered but no live project demands it; not started"
+      continue
+    fi
     if _start_sidecar "${service}"; then
       _ok "datasources — sidecar '${service}' started"
     else
