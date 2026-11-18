@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # =============================================================================
 # src/_shared/tests/shell-strategy_tests.bats
-# The bash-vs-PTY channel rule is a single shared skill, not a paragraph copied
+# The shell-channel rule is a single shared skill, not a paragraph copied
 # into each agent. This suite guards the wiring: every agent that can run a
 # shell command must load `devbot:shell-strategy`, and the rule's detail must
 # not leak back into agent files.
@@ -126,6 +126,16 @@ _DUPLICATED_PHRASES=(
   grep -q "pty_spawn" "$SKILL" || fail "skill must name the PTY tools"
   grep -q "bash" "$SKILL" || fail "skill must name the bash channel"
   grep -q "/dev/null" "$SKILL" || fail "skill must carry the stdin rule"
+}
+
+@test "the shell-strategy skill keeps long-command output visible" {
+  # The v2 shell tool has a 120s foreground timeout and auto-truncates; piping a
+  # long command to `tail` buffers it and the result comes back empty. The rule
+  # and its escape hatches live here, not in each agent.
+  grep -q '| tail' "$SKILL" || fail "skill must forbid piping long commands to tail"
+  grep -q "timeout" "$SKILL" || fail "skill must carry the explicit-timeout rule"
+  grep -q "background: true" "$SKILL" || fail "skill must name the background option"
+  grep -q "120000" "$SKILL" || fail "skill must state the v2 foreground timeout"
 }
 
 @test "the scan finds at least one agent that cannot shell" {

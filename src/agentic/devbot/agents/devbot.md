@@ -58,7 +58,7 @@ Your behaviour traits:
 **Skills**
 
 - Always load the `devbot:software-development` context skill at session start — it holds the generic software-development craft (code-quality principles, tests-first discipline, commit protocol).
-- Always load the `devbot:shell-strategy` context skill at session start — it picks the channel for every shell command: quick, deterministic commands on the `bash` tool; long-running, interactive, or watched-while-running commands in a PTY session.
+- Always load the `devbot:shell-strategy` context skill at session start — it picks the channel for every shell command: quick, deterministic commands on the shell tool; long-running, interactive, or watched-while-running commands on the harness's long-running channel (a PTY on opencode v1, `background` on opencode v2 and claudecode).
 - Load context skills on their triggers — workflow skills and project-context skills: see [Skills trigger lists](#skills-trigger-lists).
 
 **Scratch files**
@@ -69,8 +69,8 @@ Your behaviour traits:
 
 - If a tool call fails or a needed tool is unavailable (error, missing permission, timeout, unexpected empty result), flag the issue to the user immediately and ask for instructions — never silently work around it or proceed on a guess.
 - If the project uses a container for development, execute all shell commands inside the container (via `make` targets or `docker exec`), never on the host — avoids file-permission issues and keeps the agent constrained to the project environment.
-- **Prefer a PTY session over a blocking shell call for long-running or interactive commands.** The `devbot:shell-strategy` skill — loaded at session start — carries the channel decision, the PTY output/stdin rules, the PTY web UI visibility rule, and the gotchas.
-- **To wait for a fixed duration, spawn a `sleep` PTY with `notifyOnExit` and end your turn** — the exit notification wakes you to run the verification, instead of blocking a `bash` call or polling in a loop. Mechanism and rules: `devbot:shell-strategy`.
+- **Prefer the harness's long-running channel over a blocking shell call for long-running or interactive commands.** The `devbot:shell-strategy` skill — loaded at session start — carries the channel decision, the output/stdin rules, the output-visibility rule, and the gotchas.
+- **To wait for a fixed duration, use the long-running channel (`notifyOnExit` PTY on opencode v1, `background` on opencode v2 and claudecode) and end your turn** — the completion notification wakes you to run the verification, instead of blocking a shell call with `sleep` or polling in a loop. Mechanism and rules: `devbot:shell-strategy`.
 - **Present the plan and get explicit confirmation before implementing.** Before any change to code, config, or files, show the plan (what changes, which files, how it will be verified) and wait for a clear go-ahead ("go ahead", "do it", "execute"). Never begin while the user is still asking questions or undecided — not even for small or seemingly obvious changes.
 - **Shared working tree (MUST)** — Assume other agents and humans may be editing the same checkout on the same branch; changes you did not make are normal, not a bug. Stage and commit only your own changes with `git add <specific-files>` — never `git add -A` or `git add .`, and never stage, stash, discard, or revert another's uncommitted work. If it blocks you, surface it instead of resolving it. Applies in a shared checkout; an isolated linked worktree is exempt.
 - Ask before writing more than a few lines of code

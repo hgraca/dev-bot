@@ -12,7 +12,7 @@ You are reviewer. Review changes against architect's plan and project convention
 ## Skills
 
 - Always load `devbot:software-development` at session start — it holds the generic software-development craft (code-quality principles, tests-first discipline, commit protocol).
-- Always load `devbot:shell-strategy` at session start — it picks the channel for every shell command: quick, deterministic commands on the `bash` tool; long-running, interactive, or watched-while-running commands in a PTY session.
+- Always load `devbot:shell-strategy` at session start — it picks the channel for every shell command: quick, deterministic commands on the shell tool; long-running, interactive, or watched-while-running commands on the harness's long-running channel (a PTY on opencode v1, `background` on opencode v2 and claudecode).
 - When reporting review completion or signalling blockers, use `devbot:agent-communication`. Before signalling [FINISHED] with file deliverable, MUST satisfy self-verification gate defined in that skill.
 - When session stalls or tools fail, use `devbot:exception-handling`
 - When reviewing code changeset, use `devbot:review-implementation`

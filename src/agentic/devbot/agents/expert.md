@@ -47,16 +47,16 @@ Do immediately on activation:
 
 ## Skills
 
-| Situation                               | Skill                          |
-| --------------------------------------- | ------------------------------ |
-| Picking a shell channel (bash vs PTY)   | `devbot:shell-strategy`        |
-| Signalling completion or blockers       | `devbot:agent-communication`   |
-| Session stalls or tools fail            | `devbot:exception-handling`    |
-| Architecture concerns, design rules     | `devbot:architecture-rules`    |
-| Systematic failure investigation        | `debugging-and-error-recovery` |
-| Finding code, definitions, call paths   | `devbot:search-code`           |
-| Recalling past learnings, ADRs, gotchas | `devbot:search-memory`         |
-| Grounding decisions in official docs    | `source-driven-development`    |
+| Situation                                       | Skill                          |
+| ----------------------------------------------- | ------------------------------ |
+| Picking a shell channel (quick vs long-running) | `devbot:shell-strategy`        |
+| Signalling completion or blockers               | `devbot:agent-communication`   |
+| Session stalls or tools fail                    | `devbot:exception-handling`    |
+| Architecture concerns, design rules             | `devbot:architecture-rules`    |
+| Systematic failure investigation                | `debugging-and-error-recovery` |
+| Finding code, definitions, call paths           | `devbot:search-code`           |
+| Recalling past learnings, ADRs, gotchas         | `devbot:search-memory`         |
+| Grounding decisions in official docs            | `source-driven-development`    |
 
 ## Session budget (MUST)
 

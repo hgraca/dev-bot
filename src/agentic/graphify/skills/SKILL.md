@@ -38,7 +38,7 @@ Turn any folder of files into a navigable knowledge graph with community detecti
 
 - The MCP server starts a build on launch. If a tool returns
   `graphify: not_ready (building) — ...`, the graph is still being built: do **not** treat that as
-  "no results". Wait briefly (for example a 10–30s `sleep` PTY) and retry once.
+  "no results". Wait briefly (for example 10–30s) and retry once.
 - `not_ready (disabled)` means `.graphifyignore` deliberately disables indexing; skip graph queries.
 - `not_ready (failed)` points at `graphify-out/.graphify-update.log`; retry after fixing the build or
   fall back to grep/read.

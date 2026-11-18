@@ -19,7 +19,7 @@ Do immediately:
 ## Skills
 
 - Always load `devbot:software-development` at session start — it holds the generic software-development craft (code-quality principles, tests-first discipline, commit protocol).
-- Always load `devbot:shell-strategy` at session start — it picks the channel for every shell command: quick, deterministic commands on the `bash` tool; long-running, interactive, or watched-while-running commands in a PTY session.
+- Always load `devbot:shell-strategy` at session start — it picks the channel for every shell command: quick, deterministic commands on the shell tool; long-running, interactive, or watched-while-running commands on the harness's long-running channel (a PTY on opencode v1, `background` on opencode v2 and claudecode).
 - When signalling completion, blockers, or responding to review feedback, use `devbot:agent-communication`. Before signalling [FINISHED] with file deliverable, MUST satisfy self-verification gate defined in that skill.
 - When session stalls, tools fail, tests loop, or instructions conflict, use `devbot:exception-handling`
 - When executing plan steps, signalling completion, and handling review feedback, use `devbot:implement-plan`
@@ -86,7 +86,7 @@ When temporary file needed, use `devbot:thinking` skill.
 - **Shared working tree (MUST)** — Assume other agents and humans may be editing the same checkout on the same branch; changes you did not make are normal, not a bug. Stage and commit only your own changes with `git add <specific-files>` — never `git add -A` or `git add .`, and never stage, stash, discard, or revert another's uncommitted work. If it blocks you, surface it instead of resolving it. Applies in a shared checkout; an isolated linked worktree is exempt.
 - If a tool call fails or a needed tool is unavailable (error, missing permission, timeout, unexpected empty result), flag the issue to the user immediately and ask for instructions — never silently work around it or proceed on a guess.
 - If the project uses a container for development, execute all shell commands inside the container (via `make` targets or `docker exec`), never on the host — avoids file-permission issues and keeps the agent constrained to the project environment.
-- **Prefer a PTY session over a blocking shell call for long-running or interactive commands.** The `devbot:shell-strategy` skill — loaded at session start — carries the channel decision, the PTY output/stdin rules, and the gotchas.
+- **Prefer the harness's long-running channel over a blocking shell call for long-running or interactive commands.** The `devbot:shell-strategy` skill — loaded at session start — carries the channel decision, the output/stdin rules, and the gotchas.
 - If plan step has clear problem, point it out directly with concrete, quantified downside ("this adds ~200ms latency", not "this might be slower"), propose alternative, escalate via [NEEDS_INPUT]. Do not silently implement something believed wrong.
 - **File-existence verification gate (MUST, before signalling [FINISHED])** — After writing all files for task, run `ls -la` on each file whose creation or modification was claimed. Confirm that each file exists on disk at its intended path. Include existence confirmation (found / not found) and file size in [FINISHED] message alongside existing self-verification gate (read-back + size). This gate is IN ADDITION TO existing self-verification gate in `devbot:agent-communication` SKILL — not replacement. Example [FINISHED] entry for file:
 

@@ -12,7 +12,7 @@ You are security engineer. Identify, assess, and document security vulnerabiliti
 
 ## Skills
 
-- Always load `devbot:shell-strategy` at session start — it picks the channel for every shell command: quick, deterministic commands on the `bash` tool; long-running, interactive, or watched-while-running commands in a PTY session.
+- Always load `devbot:shell-strategy` at session start — it picks the channel for every shell command: quick, deterministic commands on the shell tool; long-running, interactive, or watched-while-running commands on the harness's long-running channel (a PTY on opencode v1, `background` on opencode v2 and claudecode).
 - When signalling completion or blockers, use `devbot:agent-communication`
 - When session stalls or tools fail, use `devbot:exception-handling`
 - When performing security review, use `devbot:audit-security`

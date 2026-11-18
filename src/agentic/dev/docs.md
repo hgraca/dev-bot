@@ -13,7 +13,7 @@ The generic craft rules every dev-bot task leans on — independent of language 
 - **`make-tests`** (skill and command) — test strategy and conventions.
 - **`address-review`** — resolving code-review comments.
 - **`makefile`** — running project commands through `make`.
-- **`shell-strategy`** — choosing between the bash tool and a PTY session.
+- **`shell-strategy`** — choosing between a quick shell call and a long-running channel.
 
 ## Configuration
 
