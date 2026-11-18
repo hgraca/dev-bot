@@ -38,7 +38,10 @@ recorded. Read only the sections that appear — a missing one means no data, no
 
 Then judge:
 
-- an enabled server absent from MCP Server Usage had no calls in the window;
+- an enabled server absent from MCP Server Usage had no calls in the window — except on an
+  opencode-v2 **code-mode** session, where MCP tools are invoked through the `execute` tool and the
+  database records only `execute`; there, an empty MCP table means unattributed calls, not proof of
+  disuse (check the session's own tool palette before calling a server unused);
 - an enabled server with no reachable tools in your palette is not working;
 - `Never used` is a grade-matrix bucket for a tool with no grades in the window — not proof of zero
   calls, since a used but ungraded tool can land there.

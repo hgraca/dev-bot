@@ -15,10 +15,19 @@ writes ``session_v2`` plus one ``session_message`` row per entry. Tool calls are
 Cost and tokens are recorded per assistant message, not per tool call, so a
 message's cost is split evenly across the tools it invoked — an estimate, hence
 ``cost_kind: estimated``.
+
+MCP calls are attributed by tool name: a 2.x host names them
+``<server>_<tool>``, and the servers are the ones each session directory's
+opencode config declares (``mcp.servers``, a v1-shaped ``mcp`` map, or
+``.opencode/*.mcp.json``). Calls made through the code-mode ``execute`` tool are
+recorded only as ``execute``, so they carry no server name and cannot be
+attributed — the adapter reports what the database actually recorded rather than
+a hardcoded empty list (audit-02 F-2).
 """
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import sqlite3
@@ -30,10 +39,77 @@ from datetime import datetime, timezone
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.normpath(os.path.join(_HERE, "..", "..", "_shared")))
 from opencode_db import resolve_db_path  # noqa: E402
+from read_jsonc import load_jsonc  # noqa: E402
+
+# Config files that may declare MCP servers, relative to a project directory.
+_CONFIG_NAMES = (
+    "opencode.jsonc",
+    "opencode.json",
+    ".opencode/opencode.json",
+    ".opencode/opencode.jsonc",
+)
 
 
 def _cutoff_ms(days: int) -> int:
     return int((time.time() - days * 86400) * 1000)
+
+
+def known_servers(project_dirs: list[str]) -> list[str]:
+    """MCP server names declared by each project's opencode config.
+
+    V2 nests them under ``mcp.servers`` (with ``disabled`` inverted); a v1-shaped
+    ``mcp`` map is accepted too, so one adapter reads either. Dynamic manifests
+    under ``.opencode/*.mcp.json`` contribute server names as well — entries
+    whose value is not an object (e.g. ``mcp.dynamic.json``'s ``prefixes``) are
+    ignored. Every declared server counts, enabled or not: this is name
+    attribution for calls the database recorded, not an enablement report.
+    """
+    servers: set[str] = set()
+    for directory in project_dirs:
+        for name in _CONFIG_NAMES:
+            path = os.path.join(directory, name)
+            if not os.path.isfile(path):
+                continue
+            try:
+                data = load_jsonc(path)
+            except Exception:
+                continue
+            mcp = data.get("mcp") or {}
+            block = mcp.get("servers") if isinstance(mcp.get("servers"), dict) else mcp
+            if isinstance(block, dict):
+                servers |= {
+                    key for key, value in block.items() if isinstance(value, dict)
+                }
+        for path in glob.glob(os.path.join(directory, ".opencode", "*.mcp.json")):
+            try:
+                data = load_jsonc(path)
+            except Exception:
+                continue
+            if isinstance(data, dict):
+                servers |= {
+                    key for key, value in data.items() if isinstance(value, dict)
+                }
+    # Longest first so a server whose name prefixes another still wins.
+    return sorted(servers, key=len, reverse=True)
+
+
+def classify(tool: str, servers: list[str]) -> tuple[str | None, str]:
+    """``<server>_<tool>`` (v2) → (server, short tool); native tools → (None, "").
+
+    A v2 host exposes MCP tools as ``<server>_<tool>``. ``.`` and ``/`` are
+    accepted too: the separator is a host detail, while the server names come
+    from the project's own config, so matching is anchored on a known name and
+    never guesses a split.
+
+    An exact name match is deliberately **not** an MCP call: v2 has native tools
+    whose name equals a server's (``websearch`` is both the built-in search tool
+    and a configured MCP server), and counting it would invent MCP usage.
+    """
+    for server in servers:
+        for sep in ("_", ".", "/"):
+            if tool.startswith(server + sep):
+                return server, tool[len(server) + 1 :]
+    return None, ""
 
 
 def _iter_messages(con: sqlite3.Connection, session_ids: list[str]):
@@ -59,18 +135,20 @@ def collect(db_path: str, days: int, project_dir: str | None) -> dict:
         # version prefix is what keeps this adapter reporting 2.x usage only.
         if project_dir:
             rows = con.execute(
-                "select id from session_v2 "
+                "select id, directory from session_v2 "
                 "where time_updated >= ? and directory = ?"
                 " and (version like '2.%' or version like '0.0.0--%')",
                 (cutoff, project_dir),
             ).fetchall()
         else:
             rows = con.execute(
-                "select id from session_v2 where time_updated >= ?"
+                "select id, directory from session_v2 where time_updated >= ?"
                 " and (version like '2.%' or version like '0.0.0--%')",
                 (cutoff,),
             ).fetchall()
         session_ids = [r[0] for r in rows]
+        directories = sorted({r[1] for r in rows if r[1]})
+        servers = known_servers(directories)
 
         tools: dict[str, dict] = defaultdict(
             lambda: {"name": "", "count": 0, "tokens": 0.0, "cost": 0.0, "durations": []}
@@ -127,6 +205,57 @@ def collect(db_path: str, days: int, project_dir: str | None) -> dict:
             )
         rendered.sort(key=lambda t: t["count"], reverse=True)
 
+        # MCP aggregation: a v2 host names an MCP call `<server>_<tool>`, and
+        # `known_servers` supplies the names to split on. Calls made through the
+        # code-mode `execute` tool are recorded only as `execute`, so they carry
+        # no server name and stay in the native tool table — the adapter reports
+        # what the database recorded instead of the hardcoded empty list that
+        # made MCP usage unprobeable (audit-02 F-2).
+        servers_by_name: dict[str, dict] = {}
+        for entry in tools.values():
+            server, short = classify(entry["name"], servers)
+            if not server:
+                continue
+            bucket = servers_by_name.setdefault(
+                server,
+                {"server": server, "count": 0, "tokens": 0.0, "cost": 0.0, "tools": {}},
+            )
+            bucket["count"] += entry["count"]
+            bucket["tokens"] += entry["tokens"]
+            bucket["cost"] += entry["cost"]
+            tool_bucket = bucket["tools"].setdefault(
+                short, {"name": short, "count": 0, "tokens": 0.0, "cost": 0.0}
+            )
+            tool_bucket["count"] += entry["count"]
+            tool_bucket["tokens"] += entry["tokens"]
+            tool_bucket["cost"] += entry["cost"]
+
+        mcp_servers = []
+        for bucket in sorted(
+            servers_by_name.values(), key=lambda b: b["count"], reverse=True
+        ):
+            mcp_servers.append(
+                {
+                    "server": bucket["server"],
+                    "count": bucket["count"],
+                    "tokens": round(bucket["tokens"]),
+                    "cost": round(bucket["cost"], 6),
+                    "tools": [
+                        {
+                            "name": tool["name"],
+                            "count": tool["count"],
+                            "tokens": round(tool["tokens"]),
+                            "cost": round(tool["cost"], 6),
+                        }
+                        for tool in sorted(
+                            bucket["tools"].values(),
+                            key=lambda t: t["count"],
+                            reverse=True,
+                        )
+                    ],
+                }
+            )
+
         return {
             "schema": 1,
             "harness": "opencode-v2",
@@ -138,7 +267,7 @@ def collect(db_path: str, days: int, project_dir: str | None) -> dict:
             "sessions": len(session_ids),
             "messages": messages,
             "tools": rendered,
-            "mcp_servers": [],
+            "mcp_servers": mcp_servers,
         }
     finally:
         con.close()

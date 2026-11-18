@@ -137,3 +137,62 @@ data = json.loads(sys.argv[1])
 assert data["sessions"] == 2, data["sessions"]
 PY
 }
+
+@test "aggregates MCP servers from recorded tool names" {
+  local mcpdir="${BATS_TEST_TMPDIR}/mcpproj"
+  local mcpdb="${BATS_TEST_TMPDIR}/mcp.db"
+  mkdir -p "$mcpdir"
+  cat > "$mcpdir/opencode.jsonc" <<'JSON'
+{
+  "mcp": {
+    "servers": {
+      "devbot-tools": { "type": "local", "command": ["bash"] },
+      "mdctx": { "type": "remote", "url": "http://127.0.0.1:18501/mcp" },
+      "websearch": { "type": "remote", "url": "https://mcp.exa.ai/mcp" }
+    }
+  }
+}
+JSON
+  python3 - "$mcpdb" "$mcpdir" <<'PY'
+import json, sqlite3, sys, time
+db, project = sys.argv[1], sys.argv[2]
+now = int(time.time() * 1000)
+con = sqlite3.connect(db)
+con.execute("create table session_v2 (id text primary key, directory text, version text, time_updated integer)")
+con.execute("create table session_message (session_id text, type text, seq integer, data text)")
+con.execute("insert into session_v2 values (?,?,?,?)", ("ses_mcp", project, "2.3.0", now))
+assistant = {
+    "content": [
+        {"type": "tool", "name": "devbot-tools_search-memories", "state": {"status": "completed"}},
+        {"type": "tool", "name": "devbot-tools_tree", "state": {"status": "completed"}},
+        {"type": "tool", "name": "mdctx_search_context", "state": {"status": "completed"}},
+        {"type": "tool", "name": "shell", "state": {"status": "completed"}},
+        # Native tool whose name equals a configured server (websearch is both).
+        {"type": "tool", "name": "websearch", "state": {"status": "completed"}},
+    ],
+    "cost": 0.04,
+    "tokens": {"input": 40, "output": 0, "reasoning": 0},
+}
+con.execute("insert into session_message values (?,?,?,?)", ("ses_mcp", "assistant", 0, json.dumps(assistant)))
+con.commit()
+con.close()
+PY
+
+  run env OPENCODE_DB_PATH="$mcpdb" python3 "${MODULE_DIR}/stats.py" --days 30 --project "$mcpdir"
+  assert_success
+  python3 - "$output" <<'PY'
+import json, sys
+data = json.loads(sys.argv[1])
+servers = {s["server"]: s for s in data["mcp_servers"]}
+assert set(servers) == {"devbot-tools", "mdctx"}, servers
+assert servers["devbot-tools"]["count"] == 2, servers["devbot-tools"]
+assert servers["mdctx"]["count"] == 1, servers["mdctx"]
+assert {t["name"] for t in servers["devbot-tools"]["tools"]} == {"search-memories", "tree"}
+assert "shell" not in servers
+# A native tool sharing a server name is not an MCP call (audit-02 F-2).
+assert "websearch" not in servers
+# 40 tokens split across 5 calls: 8 each, 16 for the two devbot-tools calls.
+assert servers["devbot-tools"]["tokens"] == 16, servers["devbot-tools"]
+PY
+}
+
