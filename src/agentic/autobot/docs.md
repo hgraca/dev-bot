@@ -1,6 +1,7 @@
 ---
 title: AutoBot
-description: Scheduled agent prompts plus deterministic follow-up polling for Jira and GitHub.
+description: Scheduled agent prompts, deterministic follow-up polling for Jira and GitHub, and a Slack conversation for the unattended runs.
+skills: ["autobot-mode"]
 commands: ["autobot-work"]
 tools:
   autobot: Runs one tick, or deletes orphaned sessions
@@ -104,6 +105,46 @@ and anything the agent needs comes back the same way one tick later.
   messages carry no author, so it cannot answer itself.
 - Each ticket gets one thread, so its conversation stays contiguous.
 
+### Setting up the app
+
+The app is created once per workspace, by hand — nothing here is scripted.
+
+1. At <https://api.slack.com/apps>, choose _Create New App → From scratch_, name it, and pick the
+   workspace.
+2. Under _OAuth & Permissions_, add exactly four bot token scopes: `chat:write`, `im:history`,
+   `im:read` and `users:read.email`. No event subscriptions, no Socket Mode, no redirect URL — the
+   tick polls, it never listens.
+3. _Install to Workspace_, approve, and copy the _Bot User OAuth Token_ (`xoxb-…`).
+4. Leave it unpublished: never submit it to the workspace directory. Slack has no per-member app
+   visibility, so that is the whole restriction — nobody finds the app in the directory, the bot DMs
+   only `slack_user_email`, and every other sender is ignored. True per-member visibility needs
+   Enterprise Grid controls.
+5. Store the token in the credentials file, beside the Jira token, and keep that file `0600`:
+
+   ```bash
+   chmod 600 ~/.config/devbot/autobot.env
+   # ~/.config/devbot/autobot.env
+   export SLACK_BOT_TOKEN=xoxb-…
+   ```
+
+   `install.sh` refuses to register the cron entry against a file that is not `0600`: cron sources it
+   as shell code and it holds the tokens.
+
+6. Enable it in the project: `"poll_slack": true`, `"slack_user_email": "<the one person>"`, and
+   `"slack_bot_token": "${SLACK_BOT_TOKEN}"`. Enabling `poll_slack` without the pair is a hard
+   configuration error; `${VAR}` (the canonical form is `{env:VAR}`) resolves at tick time from the
+   file above.
+
+7. Check the wiring from the project directory before trusting a ticket to it:
+
+   ```bash
+   devbot autobot say --ticket ARC-1019 "hello"
+   ```
+
+   It posts into the direct message and fails loudly when either key is missing. The pair is what
+   `say` needs; `poll_slack` is what makes the tick read the reply. The first message a ticket sends
+   opens its thread, so `say` works before any tick has run.
+
 ### Asking, and parking
 
 A run cannot wait for an answer, so `devbot autobot say --ask --phase <phase> "<question>"` posts the
@@ -135,6 +176,7 @@ environment. That file provides:
 
 ```bash
 export JIRA_API_TOKEN=…
+export SLACK_BOT_TOKEN=xoxb-… # only when poll_slack is on
 ```
 
 That file holds the secret only. `jira_base_url` and `jira_email` live in the project config, and there
