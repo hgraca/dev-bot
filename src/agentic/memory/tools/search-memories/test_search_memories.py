@@ -1550,6 +1550,61 @@ class TestSearchMdctxScoped(_SandboxTest):
         )
         self.assertTrue(files[2].startswith(str(self.devbot / "storage")))
 
+    def test_reserves_a_slot_for_the_global_store_at_a_tight_window(self):
+        # A full project window must not bury the shipped knowledge base: one
+        # slot goes to the non-project stores (audit-03 N4).
+        a = self._scaffold(self._project("tight-a"), "# A\n\nfile aaa")
+        b = self._scaffold(self._project("tight-b"), "# B\n\nfile bbb")
+        (self.devbot / "storage" / ".mdctx").mkdir(parents=True)
+        (self.devbot / "storage" / "global-memories").mkdir(parents=True)
+        (self.devbot / "storage" / "global-memories" / "g.md").write_text("# G\n\nfile ggg")
+        (self.devbot / "storage" / ".mdctx" / "context-index.json").write_text("{}")
+
+        def hit(rel, score):
+            return json.dumps([{"path": rel, "score": score, "title": ""}])
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            with patch.object(
+                _search_memories,
+                "run_mdctx_cli",
+                side_effect=[
+                    (hit("latent/n.md", 9.0), None),
+                    (hit("latent/n.md", 8.0), None),
+                    (hit("g.md", 0.1), None),
+                ],
+            ):
+                results, err = _search_memories.search_mdctx(
+                    ["q"], a, 2, projects=[a, b]
+                )
+        self.assertIsNone(err)
+        files = [r["file"] for r in results]
+        self.assertEqual(len(files), 2)
+        self.assertTrue(files[0].startswith(str(a / ".agents")), files)
+        self.assertTrue(files[1].startswith(str(self.devbot / "storage")), files)
+
+    def test_the_project_vault_keeps_a_single_slot_window(self):
+        project = self._scaffold(self._project("single"), "# A\n\nfile aaa")
+        (self.devbot / "storage" / ".mdctx").mkdir(parents=True)
+        (self.devbot / "storage" / "global-memories").mkdir(parents=True)
+        (self.devbot / "storage" / "global-memories" / "g.md").write_text("# G")
+        (self.devbot / "storage" / ".mdctx" / "context-index.json").write_text("{}")
+
+        def hit(rel, score):
+            return json.dumps([{"path": rel, "score": score, "title": ""}])
+
+        with patch.object(_search_memories, "DEVBOT_ROOT", self.devbot):
+            with patch.object(
+                _search_memories,
+                "run_mdctx_cli",
+                side_effect=[(hit("latent/n.md", 1.0), None), (hit("g.md", 9.0), None)],
+            ):
+                results, err = _search_memories.search_mdctx(["q"], project, 1)
+        self.assertIsNone(err)
+        self.assertEqual(
+            results[0]["file"],
+            str((project / ".agents" / "memory" / "latent" / "n.md").resolve()),
+        )
+
 
 class TestConfiguredCollections(_SandboxTest):
     def _project(self, name):

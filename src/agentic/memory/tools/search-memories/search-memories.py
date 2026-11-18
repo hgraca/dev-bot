@@ -711,7 +711,17 @@ def search_mdctx(
     if not ordered and not global_results and not custom_results:
         return _literal_fallback(queries, [(r, i) for r, i, *_ in pairs], max_results), None
 
-    merged = (ordered + global_results + custom_results)[:max_results]
+    # The non-project stores rank last and the window fills project-first, so a
+    # project vault with at least `max_results` matches buries the shared global
+    # store completely — at the default 5 the shipped knowledge base was
+    # unreachable (audit-03 N4). Reserve one slot for them whenever they have a
+    # hit to show; the project vault keeps the first slot and every slot when
+    # there is nothing else to show.
+    deferred = global_results + custom_results
+    if deferred and max_results > 1:
+        merged = (ordered[: max_results - 1] + deferred)[:max_results]
+    else:
+        merged = (ordered + deferred)[:max_results]
     return merged, None
 
 
