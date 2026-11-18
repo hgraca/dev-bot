@@ -1,0 +1,14 @@
+{
+  "hooks": [
+    {
+      "id": "impeccable-detector",
+      "event": "file.edited",
+      "match": {
+        "file": "\\.(tsx|jsx|html|vue|svelte|astro|css|scss|sass|less)$"
+      },
+      "run": ["bash", "{module}/tools/impeccable-hook.sh", "{worktree}", "{file}"],
+      "log": ".agents/logs/impeccable.log",
+      "_extensionsNote": "The markup and style extensions only. Plain .ts/.js are scanned by impeccable's own hook when the project carries a PRODUCT.md, DESIGN.md or .impeccable/ folder, but that rule would run the engine on every TypeScript edit in a frontend project; the on-demand pass (impeccable detect --changed) covers those."
+    }
+  ]
+}

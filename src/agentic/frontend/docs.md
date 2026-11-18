@@ -3,6 +3,7 @@ title: "Frontend"
 description: "Framework-agnostic frontend conventions — atomic design, design tokens, Storybook, a Figma-to-app Design QA check, and the vendored design skills (aesthetic direction, critique, motion) — shared by every UI framework module."
 commands: ["design-qa", "design-qa-all"]
 skills: ["atomic-design", "storybook", "design-qa", "design-qa-all", "show-ui-in-browser"]
+hooks: ["impeccable-detector"]
 mcps:
   figma: "Read Figma frames, variables and screenshots"
 ---
@@ -29,6 +30,8 @@ plus an automated Design QA check that compares a running page against its Figma
   never edits source.
 - **`show-ui-in-browser`** — get the app answering at a URL and leave a visible browser window on the
   page the user asked for, including the login step and the check that it actually rendered.
+- **`impeccable-detector`** (hook) — run Impeccable's design detector over each UI file the agent
+  edits, and log the findings. See [Design detector hook](#design-detector-hook).
 - **`modern-web-guidance`** (vendored) — Google's
   [modern-web-guidance](https://github.com/GoogleChrome/modern-web-guidance) skill pack, wired in
   when the module is enabled; it adds modern web-platform guidance (HTML, CSS, accessibility,
@@ -66,6 +69,55 @@ helper scripts; the config key becomes the link name under `.agents/skills/`. Im
 launcher inside the skill, so there is no global install: its `Setup` step runs
 `<skill-base-dir>/scripts/impeccable context` from wherever the skill is linked, and the binary is
 fetched once on first use.
+
+## Design detector hook
+
+Enabling this module also wires Impeccable's rule-based design detector to every UI edit. `devbot
+init` seeds `.impeccable/config.json`:
+
+```json
+{
+  "hook": {
+    "enabled": true,
+    "limits": { "maxFindings": 5, "maxChars": 8000 }
+  }
+}
+```
+
+and the module's own `file.edited` hook (`impeccable-detector` → `tools/impeccable-hook.sh`) runs
+`impeccable detect` on the file the agent just wrote, on both harnesses. Two things it catches that a
+palette grep does not: an off-ramp radius (`rounded-[2px]` against a documented radius scale) and
+arbitrary font sizes in product mocks (`text-[13px]` where nothing else on the page leaves the type
+ramp). Findings land in `.agents/logs/impeccable.log`, capped by the `limits` above.
+
+**Why dev-bot dispatches it instead of `impeccable hooks on`.** That command installs a harness
+manifest for Claude Code, Codex, Cursor, Copilot, Grok or Gemini — not opencode, this toolkit's
+primary harness — and it looks for the project skill under `.claude/skills`, `.cursor/skills` and
+friends, while dev-bot links skills into `<devbot_dir>/skills` and flattens only `SKILL.md` into
+`.claude/skills`. In a dev-bot project it therefore reports "No design harness is wired", and its
+`.agents` provider is Codex's repo-skills folder: running it here would write a `.codex/hooks.json`
+for a harness the project does not use. The module owns the dispatch instead, so the same config file
+is the one switch both the CLI and the hook read.
+
+**Scope.** Markup and style files only: `.tsx`, `.jsx`, `.html`, `.vue`, `.svelte`, `.astro`, `.css`,
+`.scss`, `.sass`, `.less`. Plain `.ts`/`.js` are deliberately excluded — impeccable scans those only in
+a project carrying `PRODUCT.md`, `DESIGN.md` or `.impeccable/`, which is every project with this
+module, and running the engine on every TypeScript edit is not worth it. `impeccable detect --changed`
+covers them on demand. File scans are regex-based; element rules (contrast, tiny text) run only on a
+rendered page, so this is an undercount, not a clean bill of health.
+
+**Cost.** The engine downloads once (~25 MB, into `~/.impeccable/bin/`) on the first UI edit, then
+runs per edit. It works with the agent's network access and is not sandboxed. A clean file is silent;
+only findings are logged.
+
+**Off, and consent.** `impeccable hooks off` writes `hook.enabled: false` and the hook stops;
+`IMPECCABLE_HOOK_DISABLED=1` covers one shell. `devbot init` never rewrites an existing
+`.impeccable/config.json`, so an off project stays off across reinits. The detector is a review
+convenience, not a quality gate — the same checks run on demand with
+`impeccable detect --json --changed`. The machine-local `.impeccable/config.local.json` (what the
+upstream installer records per machine) is never written by dev-bot and is added to `.gitignore`, so
+it cannot be committed; a project opts in through the module and this committed config, and opts out
+by turning the hook off.
 
 ## Design QA
 

@@ -213,3 +213,263 @@ PY
   # 1 = no match; 2 means grep failed (missing path, bad pattern) — not evidence.
   [[ "$status" -eq 1 ]] || fail "grep exited ${status}: ${output}"
 }
+
+# ── Design detector hook ─────────────────────────────────────────────────────
+# The hook is the module's own file.edited dispatch (hooks.json →
+# tools/impeccable-hook.sh), not the upstream provider install: that install
+# knows Claude Code/Codex/Cursor/Copilot/Grok/Gemini but not opencode, and it
+# looks for the skill outside <devbot_dir>/skills. These tests pin the wiring,
+# the project-config seed, and the gates that keep the engine from running where
+# the project has not opted in.
+
+HOOK_TOOL() { echo "${MODULE}/tools/impeccable-hook.sh"; }
+INIT() { echo "${MODULE}/init.sh"; }
+
+# A project directory with a .git dir (so init writes .gitignore) and no config.
+hook_project() {
+  local dir="$1"
+  mkdir -p "${dir}/.git"
+  printf '%s' "${dir}"
+}
+
+# A stub launcher at the path the hook resolves first: the linked skill.
+# It reports findings in the engine's format and exits 2, so the tests never
+# touch the real engine (no download, no network).
+stub_launcher() {
+  local project="$1" findings="${2:-2}" chars="${3:-40}"
+  local dir="${project}/.agents/skills/impeccable/scripts"
+  mkdir -p "${dir}"
+  cat > "${dir}/impeccable" <<EOF
+#!/usr/bin/env bash
+# argv: detect <file>
+i=0
+while [[ \${i} -lt ${findings} ]]; do
+  printf '  line %d: [gradient-text] bg-clip-text + bg-gradient\n' "\$((i + 2))"
+  printf '    → %s\n' "\$(printf 'x%.0s' \$(seq 1 ${chars}))"
+  i=\$((i + 1))
+done
+echo "${findings} anti-patterns found."
+exit 2
+EOF
+  chmod +x "${dir}/impeccable"
+}
+
+# Seed the project config the way init.sh does, optionally overriding the hook.
+seed_config() {
+  local project="$1" body="${2:-}"
+  mkdir -p "${project}/.impeccable"
+  if [[ -n "${body}" ]]; then
+    printf '%s\n' "${body}" >"${project}/.impeccable/config.json"
+  else
+    printf '{\n  "hook": {\n    "enabled": true,\n    "limits": { "maxFindings": 5, "maxChars": 8000 }\n  }\n}\n' \
+      >"${project}/.impeccable/config.json"
+  fi
+}
+
+@test "hooks.json declares the design detector on file.edited" {
+  run python3 - "${MODULE}/hooks.json" <<'PY'
+import json, re, sys
+
+hooks = json.load(open(sys.argv[1]))["hooks"]
+assert len(hooks) == 1, hooks
+hook = hooks[0]
+assert hook["id"] == "impeccable-detector", hook
+assert hook["event"] == "file.edited", hook
+assert hook["run"][:2] == ["bash", "{module}/tools/impeccable-hook.sh"], hook
+assert "{worktree}" in hook["run"] and "{file}" in hook["run"], hook
+assert hook["log"].endswith("impeccable.log"), hook
+
+pattern = re.compile(hook["match"]["file"])
+for ext in (".tsx", ".jsx", ".html", ".vue", ".svelte", ".astro", ".css", ".scss", ".sass", ".less"):
+    assert pattern.search("src/a" + ext), ext
+# Plain scripts stay out: the engine would then run on every TS edit.
+for name in ("src/a.ts", "src/a.js", "src/a.md", "src/a.json"):
+    assert not pattern.search(name), name
+print("OK")
+PY
+  assert_success
+  assert_output "OK"
+}
+
+@test "docs.md declares the hook in its capability manifest" {
+  run diff -u <(printf 'impeccable-detector\n') <(manifest_flow_list hooks)
+  assert_success
+}
+
+@test "init writes .impeccable/config.json with the hook enabled" {
+  local project
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+
+  run bash "$(INIT)" "${project}"
+  assert_success
+
+  run python3 - "${project}/.impeccable/config.json" <<'PY'
+import json, sys
+
+cfg = json.load(open(sys.argv[1]))
+assert cfg["hook"]["enabled"] is True, cfg
+assert cfg["hook"]["limits"]["maxFindings"] == 5, cfg
+assert cfg["hook"]["limits"]["maxChars"] == 8000, cfg
+print("OK")
+PY
+  assert_success
+  assert_output "OK"
+}
+
+@test "init never rewrites an existing config (hooks off stays off)" {
+  local project
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+  seed_config "${project}" '{
+  "hook": { "enabled": false },
+  "detector": { "ignoreRules": ["overused-font"] }
+}'
+  before="$(cat "${project}/.impeccable/config.json")"
+
+  run bash "$(INIT)" "${project}"
+  assert_success
+
+  # Same bytes: a project that turned the hook off, and its ignore rules, survive
+  # a reinit.
+  [[ "$(cat "${project}/.impeccable/config.json")" == "${before}" ]]
+}
+
+@test "init keeps the machine-local consent file out of git" {
+  local project
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+
+  run bash "$(INIT)" "${project}"
+  assert_success
+
+  grep -qx '.impeccable/config.local.json' "${project}/.gitignore"
+  # dev-bot does not write the consent file itself — that is the developer's.
+  [[ ! -e "${project}/.impeccable/config.local.json" ]]
+}
+
+@test "init does not write the consent file even on a second run" {
+  local project
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+
+  run bash "$(INIT)" "${project}"
+  assert_success
+  run bash "$(INIT)" "${project}"
+  assert_success
+
+  [[ ! -e "${project}/.impeccable/config.local.json" ]]
+  [[ "$(grep -c 'DEVBOT - frontend' "${project}/.gitignore")" -eq 2 ]]
+}
+
+@test "the hook stays silent when the project has no config" {
+  local project file
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+  file="${project}/Card.tsx"
+  echo 'export const Card = () => <div />' >"${file}"
+  stub_launcher "${project}"
+
+  run bash "$(HOOK_TOOL)" "${project}" "${file}"
+  assert_success
+  assert_output ""
+}
+
+@test "the hook stays silent when the config disables it" {
+  local project file
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+  file="${project}/Card.tsx"
+  echo 'export const Card = () => <div />' >"${file}"
+  stub_launcher "${project}"
+  seed_config "${project}" '{ "hook": { "enabled": false } }'
+
+  run bash "$(HOOK_TOOL)" "${project}" "${file}"
+  assert_success
+  assert_output ""
+}
+
+@test "IMPECCABLE_HOOK_DISABLED turns the hook off for one shell" {
+  local project file
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+  file="${project}/Card.tsx"
+  echo 'export const Card = () => <div />' >"${file}"
+  stub_launcher "${project}"
+  seed_config "${project}"
+
+  IMPECCABLE_HOOK_DISABLED=1 run bash "$(HOOK_TOOL)" "${project}" "${file}"
+  assert_success
+  assert_output ""
+}
+
+@test "the hook reports findings and succeeds (a finding is not a failure)" {
+  local project file
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+  file="${project}/Card.tsx"
+  echo 'export const Card = () => <div />' >"${file}"
+  stub_launcher "${project}" 2 10
+  seed_config "${project}"
+
+  run bash "$(HOOK_TOOL)" "${project}" "${file}"
+  assert_success
+  assert_output --partial "[gradient-text]"
+  assert_output --partial "2 anti-patterns found."
+}
+
+@test "the hook caps findings to hook.limits.maxFindings" {
+  local project file
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+  file="${project}/Card.tsx"
+  echo 'export const Card = () => <div />' >"${file}"
+  stub_launcher "${project}" 6 4
+  seed_config "${project}" '{ "hook": { "enabled": true, "limits": { "maxFindings": 2 } } }'
+
+  run bash "$(HOOK_TOOL)" "${project}" "${file}"
+  assert_success
+  [[ "$(grep -c '\[gradient-text\]' <<<"${output}")" -eq 2 ]]
+  assert_output --partial "4 more finding(s) not shown"
+}
+
+@test "the hook caps the entry to hook.limits.maxChars" {
+  local project file
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+  file="${project}/Card.tsx"
+  echo 'export const Card = () => <div />' >"${file}"
+  stub_launcher "${project}" 4 40
+  seed_config "${project}" '{ "hook": { "enabled": true, "limits": { "maxChars": 80 } } }'
+
+  run bash "$(HOOK_TOOL)" "${project}" "${file}"
+  assert_success
+  assert_output --partial "output truncated at 80 characters"
+}
+
+@test "the hook refuses a devbot_dir that escapes the project" {
+  # devbot_dir comes from project config and is joined onto a path that is then
+  # executed. A `..` escape (or an absolute path) must not aim that at a script
+  # outside the project — the same predicate guards it elsewhere.
+  local project file outside
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+  file="${project}/Card.tsx"
+  echo 'export const Card = () => <div />' >"${file}"
+  seed_config "${project}"
+
+  outside="${BATS_TEST_TMPDIR}/outside/skills/impeccable/scripts"
+  mkdir -p "${outside}"
+  printf '#!/usr/bin/env bash\ntouch "%s/PWNED"\n' "${BATS_TEST_TMPDIR}" >"${outside}/impeccable"
+  chmod +x "${outside}/impeccable"
+  printf '{ "project_name": "evil", "devbot_dir": "../outside" }\n' >"${project}/.devbot.project.jsonc"
+
+  DEV_BOT_ROOT="${BATS_TEST_TMPDIR}/no-devbot" run bash "$(HOOK_TOOL)" "${project}" "${file}"
+  assert_success
+  assert_output --partial "not a plain relative path"
+  assert_output --partial "no launcher found"
+  [[ ! -e "${BATS_TEST_TMPDIR}/PWNED" ]] || fail "a launcher outside the project was executed"
+}
+
+@test "the hook says so when no launcher is linked" {
+  local project file
+  project="$(hook_project "${BATS_TEST_TMPDIR}/app")"
+  file="${project}/Card.tsx"
+  echo 'export const Card = () => <div />' >"${file}"
+  seed_config "${project}"
+
+  # No .agents/skills link, and DEV_BOT_ROOT points at a fixture with no vendor
+  # clone — so neither launcher candidate resolves.
+  DEV_BOT_ROOT="${BATS_TEST_TMPDIR}/no-devbot" run bash "$(HOOK_TOOL)" "${project}" "${file}"
+  assert_success
+  assert_output --partial "no launcher found"
+}
