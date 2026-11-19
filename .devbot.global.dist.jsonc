@@ -33,7 +33,8 @@
     "sentry": false,
     "signoz": false,
     "sonarqube": false,
-    "svelte": false
+    "svelte": false,
+    "vite": false
   },
   "auto_recover": {
     "max_attempts": 5
@@ -187,6 +188,18 @@
       "url": "https://github.com/mindrally/skills.git",
       "paths": {
         "skills": "modern-web-development"
+      }
+    },
+    "antfu-vite": {
+      "url": "https://github.com/antfu/skills.git",
+      "paths": {
+        "skills": "skills/vite"
+      }
+    },
+    "antfu-vitest": {
+      "url": "https://github.com/antfu/skills.git",
+      "paths": {
+        "skills": "skills/vitest"
       }
     },
     "mattpocock-grilling": {

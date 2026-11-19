@@ -1,0 +1,14 @@
+{
+  "antfu-vite": {
+    "url": "https://github.com/antfu/skills.git",
+    "paths": {
+      "skills": "skills/vite"
+    }
+  },
+  "antfu-vitest": {
+    "url": "https://github.com/antfu/skills.git",
+    "paths": {
+      "skills": "skills/vitest"
+    }
+  }
+}

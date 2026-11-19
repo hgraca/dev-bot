@@ -1,0 +1,9 @@
+{
+  "mcp": {
+    "vite": {
+      "type": "http",
+      "enabled": false,
+      "url": "http://localhost:5173/tidewave/mcp"
+    }
+  }
+}
