@@ -219,6 +219,18 @@ _fmt_duration() {
 # Shallowest first; nested projects follow ancestors.
 # Assumes absolute, normalised paths (registration writes them).
 
+# _default_jobs — half of nproc, clamped to 2..16, for a project fan-out.
+_default_jobs() {
+  local n
+  n="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+  n="${n//[^0-9]/}"
+  [[ -n "${n}" ]] || n=2
+  n=$((n / 2))
+  [[ ${n} -lt 2 ]] && n=2
+  [[ ${n} -gt 16 ]] && n=16
+  printf '%s' "${n}"
+}
+
 # _path_depth <path> — how many directories deep the path sits.
 _path_depth() {
   local rest="$1" depth=0

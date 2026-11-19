@@ -832,17 +832,6 @@ _process_project() {
 #
 # bash 3.2 compatible: per-PID `wait`, no `wait -n`, no associative arrays.
 
-_default_jobs() {
-  local n
-  n="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
-  n="${n//[^0-9]/}"
-  [[ -n "${n}" ]] || n=2
-  n=$((n / 2))
-  [[ ${n} -lt 2 ]] && n=2
-  [[ ${n} -gt 16 ]] && n=16
-  printf '%s' "${n}"
-}
-
 _worker_log() {
   printf '%s/%02d.log' "$1" "$2"
 }

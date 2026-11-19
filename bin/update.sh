@@ -562,12 +562,18 @@ _reinit_registered_projects() {
 
   # `init --all` defers the env-var dialog; a parallel per-project run must do
   # the same or every child would block on the same prompt.
+  # update has no -j; the knob init --all honours caps it here too.
+  local jobs="${DEV_BOT_INIT_JOBS:-}"
+  case "${jobs}" in '' | *[!0-9]*) jobs="$(_default_jobs)" ;; esac
+  jobs=$((10#${jobs}))
+  if [[ ${jobs} -lt 1 ]]; then jobs=1; fi
+
   export DEV_BOT_DEFER_ENV_DIALOG=1
   local -a pids=() names=() running=()
   local next=0 active=0 i k
   while [[ ${next} -lt ${#dirs[@]} || ${active} -gt 0 ]]; do
     k=-1
-    while [[ ${next} -lt ${#dirs[@]} ]]; do
+    while [[ ${next} -lt ${#dirs[@]} && ${active} -lt ${jobs} ]]; do
       k=-1
       for i in "${!running[@]}"; do
         if _path_is_nested_under "${dirs[$next]}" "${running[$i]}"; then
@@ -589,6 +595,16 @@ _reinit_registered_projects() {
 
     if [[ ${active} -eq 0 ]]; then break; fi
     # Reap the ancestor that frees the next project, else the oldest launch.
+    # A full window never evaluated nesting above, so search again here.
+    k=-1
+    if [[ ${next} -lt ${#dirs[@]} ]]; then
+      for i in "${!running[@]}"; do
+        if _path_is_nested_under "${dirs[$next]}" "${running[$i]}"; then
+          k=$i
+          break
+        fi
+      done
+    fi
     if [[ ${k} -lt 0 ]]; then
       for i in "${!pids[@]}"; do
         if [[ -n "${pids[$i]}" ]]; then
