@@ -868,6 +868,20 @@ _run_projects_parallel() {
   local -a rc=()
   local n
 
+  # Order shallowest first; hold a level until it ends.
+  if [[ ${total} -gt 1 ]]; then
+    local -a ordered=()
+    local ordered_path
+    while IFS= read -r ordered_path; do
+      if [[ -n "${ordered_path}" ]]; then ordered+=("${ordered_path}"); fi
+    done < <(_order_paths_by_depth "${projects[@]}")
+    # An empty result would drop every project: keep the given order instead.
+    if [[ ${#ordered[@]} -gt 0 ]]; then projects=("${ordered[@]}"); fi
+  fi
+
+  local -a depths=()
+  for ((n = 0; n < total; n++)); do depths[n]="$(_path_depth "${projects[n]}")"; done
+
   mkdir -p "${log_dir}"
   rm -f "${log_dir}"/*.log 2>/dev/null || true
 
@@ -878,6 +892,10 @@ _run_projects_parallel() {
   local next=0
   while [[ ${next} -lt ${total} || ${#pids[@]} -gt 0 ]]; do
     while [[ ${next} -lt ${total} && ${#pids[@]} -lt ${jobs} ]]; do
+      # A new depth level starts only once the running one has finished.
+      if [[ ${#pids[@]} -gt 0 && "${depths[next]}" != "${depths[slots[0]]}" ]]; then
+        break
+      fi
       local log
       log="$(_worker_log "${log_dir}" $((next + 1)))"
       # stdin from /dev/null: the harness inits prompt with `read` when stdin is
@@ -1187,6 +1205,16 @@ for p in json.loads(sys.stdin.read()):
         [[ -n "${up}" ]] && project_list+=("${up}")
       done <<< "${uniq_paths}"
       project_count="${#project_list[@]}"
+    fi
+
+    # Ancestors first: a serial run has only the order.
+    if [[ ${#project_list[@]} -gt 1 ]]; then
+      local -a ordered_projects=()
+      local ordered_project
+      while IFS= read -r ordered_project; do
+        if [[ -n "${ordered_project}" ]]; then ordered_projects+=("${ordered_project}"); fi
+      done < <(_order_paths_by_depth "${project_list[@]}")
+      if [[ ${#ordered_projects[@]} -gt 0 ]]; then project_list=("${ordered_projects[@]}"); fi
     fi
 
     _info "Found ${project_count} registered project(s):"

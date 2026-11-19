@@ -72,6 +72,8 @@ STUB
     awk '/^_devbot_is_plain_relative_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_module_memory_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_devbot_project_initialized\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_path_depth\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_order_paths_by_depth\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
   } >> "${SANDBOX}/src/_shared/functions.sh"
 
   printf '{"project_name": "inited"}\n' > "${INITED}/.devbot.project.jsonc"

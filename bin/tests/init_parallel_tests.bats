@@ -5,7 +5,8 @@
 # `devbot init --all -j N` wires several projects at once. The runner is the
 # part that must hold whatever the projects do: every project runs, a failure
 # does not stop the others, output is reported in launch order instead of
-# interleaved, and each worker keeps its own log.
+# interleaved, and each worker keeps its own log. A nested project is wired only
+# once its ancestor has finished.
 #
 # _process_project is replaced here — the fan-out itself is under test, not the
 # wiring. Byte-level parity of a real parallel run against a serial one is a
@@ -45,6 +46,13 @@ _devbot_memory_collection_field() { echo ""; }
 _devbot_lock_wait() { return 0; }
 STUB
 
+  # Real helpers, extracted verbatim so the stub cannot drift: the fan-out orders
+  # projects by depth, and the library itself is stubbed here.
+  {
+    awk '/^_path_depth\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_order_paths_by_depth\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+  } >> "${SANDBOX}/src/_shared/functions.sh"
+
   export DEV_BOT_ROOT="${SANDBOX}"
   export PARALLEL_LOG="${SANDBOX}/runs.log"
   export PARALLEL_FAIL_ON="${SANDBOX}/fail-on"
@@ -78,6 +86,36 @@ teardown() {
   assert_equal "$(printf '%s\n' "$output" | grep -c '^OK: Project')" "3"
   assert_equal "$(printf '%s\n' "$output" | grep '^OK: Project' | head -1)" "OK: Project 1/3: $p1"
   assert_equal "$(printf '%s\n' "$output" | grep '^OK: Project' | tail -1)" "OK: Project 3/3: $p3"
+}
+
+@test "a nested project is wired after its ancestor, never beside it" {
+  # A project's wiring writes no plugin package an ancestor supplies, so an
+  # ancestor and its descendant wired together both write one and the host then
+  # fails the duplicate plugin id.
+  local parent="${SANDBOX}/parent" child="${SANDBOX}/parent/child"
+  mkdir -p "$parent" "$child"
+
+  # The parent holds its turn long enough that a concurrent run always records
+  # the child starting first; a depth-ordered run cannot produce that at all.
+  _process_project() {
+    printf 'start %s\n' "$1" >> "${PARALLEL_LOG}"
+    case "$1" in
+      */child) ;;
+      *) sleep 0.5 ;;
+    esac
+    printf 'end %s\n' "$1" >> "${PARALLEL_LOG}"
+  }
+
+  # The child is listed first: the order must come from nesting, not the list.
+  run _run_projects_parallel 2 "$child" "$parent"
+
+  assert_success
+  local parent_end child_start
+  parent_end="$(grep -nxF "end ${parent}" "${PARALLEL_LOG}" | cut -d: -f1)"
+  child_start="$(grep -nxF "start ${child}" "${PARALLEL_LOG}" | cut -d: -f1)"
+  [ -n "$parent_end" ]
+  [ -n "$child_start" ]
+  [ "$parent_end" -lt "$child_start" ]
 }
 
 @test "a failing project does not stop the others and fails the run" {
