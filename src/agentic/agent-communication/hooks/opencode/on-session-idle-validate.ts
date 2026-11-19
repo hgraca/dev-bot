@@ -19,7 +19,7 @@ function runValidator(file: string): Promise<{ status: number | null; stderr: st
   return new Promise((resolve) => {
     execFile(
       "bash",
-      [VALIDATOR, "--msg-file", file],
+      [VALIDATOR, "--msg-file", file, "--require-wait"],
       { timeout: VALIDATOR_TIMEOUT_MS },
       (error, stdout, stderr) => {
         const code = (error as any)?.code
@@ -42,6 +42,27 @@ export function textParts(message: any): Array<{ type: "text"; text: string }> {
   return (Array.isArray(message?.parts) ? message.parts : [])
     .filter((p: any) => p?.type === "text")
     .map((p: any) => ({ type: "text", text: String(p.text ?? "") }))
+}
+
+/**
+ * The tool parts a marker's evidence is read from, flattened to the fields the
+ * validator checks — the harness's own state shape differs between generations.
+ */
+export function waitEvidenceParts(
+  message: any,
+): Array<{ type: "tool"; tool: string; status: string; background: boolean }> {
+  return (Array.isArray(message?.parts) ? message.parts : [])
+    .filter((p: any) => p?.type === "tool" && typeof p?.tool === "string")
+    .map((p: any) => {
+      const status = typeof p?.state === "string" ? p.state : String(p?.state?.status ?? "")
+      const input = p?.state?.input ?? p?.input ?? {}
+      return {
+        type: "tool" as const,
+        tool: String(p.tool),
+        status,
+        background: input?.background === true || input?.background === "true",
+      }
+    })
 }
 
 /**
@@ -75,7 +96,8 @@ export const OnSessionIdleValidate: Plugin = async ({ directory, worktree, clien
     let dir: string | undefined
     try {
       inFlight.add(sessionId)
-      const parts = textParts(message)
+      // Text first, then the flattened tool parts the wait check reads.
+      const parts = [...textParts(message), ...waitEvidenceParts(message)]
       dir = mkdtempSync(join(tmpdir(), "devbot-agent-communication-"))
       const file = join(dir, "message.json")
       writeFileSync(file, JSON.stringify({ info: { role: "assistant" }, parts }), "utf8")

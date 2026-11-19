@@ -4,7 +4,12 @@
 // being marked checked.
 
 import { describe, test, expect } from "bun:test"
-import { isCheckedStatus, lastAssistantMessage, textParts } from "./on-session-idle-validate"
+import {
+  isCheckedStatus,
+  lastAssistantMessage,
+  textParts,
+  waitEvidenceParts,
+} from "./on-session-idle-validate"
 
 function message(role: string, parts: unknown[] = []): Record<string, unknown> {
   return { info: { role, id: `${role}-id` }, parts }
@@ -43,6 +48,43 @@ describe("textParts", () => {
 
   test("returns an empty list when there are no parts", () => {
     expect(textParts({})).toEqual([])
+  })
+})
+
+describe("waitEvidenceParts", () => {
+  test("flattens a tool part's status and background flag", () => {
+    const message = {
+      parts: [
+        { type: "text", text: "hi" },
+        { type: "tool", tool: "bash", state: { status: "completed", input: { background: true } } },
+      ],
+    }
+    expect(waitEvidenceParts(message)).toEqual([
+      { type: "tool", tool: "bash", status: "completed", background: true },
+    ])
+  })
+
+  test("reads a string state, as some harness shapes report it", () => {
+    expect(waitEvidenceParts({ parts: [{ type: "tool", tool: "pty_spawn", state: "completed" }] })).toEqual([
+      { type: "tool", tool: "pty_spawn", status: "completed", background: false },
+    ])
+  })
+
+  test("treats a background string as backgrounded", () => {
+    const parts = waitEvidenceParts({
+      parts: [{ type: "tool", tool: "shell", state: { status: "completed", input: { background: "true" } } }],
+    })
+    expect(parts[0].background).toBe(true)
+  })
+
+  test("keeps a failed part visible so the validator can reject it", () => {
+    const parts = waitEvidenceParts({ parts: [{ type: "tool", tool: "pty_spawn", state: { status: "error" } }] })
+    expect(parts).toEqual([{ type: "tool", tool: "pty_spawn", status: "error", background: false }])
+  })
+
+  test("returns nothing for a text-only message", () => {
+    expect(waitEvidenceParts({ parts: [{ type: "text", text: "x" }] })).toEqual([])
+    expect(waitEvidenceParts(undefined)).toEqual([])
   })
 })
 

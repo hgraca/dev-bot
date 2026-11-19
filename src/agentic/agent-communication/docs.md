@@ -15,6 +15,12 @@ Every agent message ends with exactly one terminal marker, so a caller always kn
 work is done, blocked, or needs input. The canonical marker set — definitions and semantics — is
 owned by the `devbot:agent-communication` skill; this page does not restate it.
 
+One rule is checked mechanically. On `session.idle` the module's hook re-validates the last
+assistant message with `--require-wait`: a `[WAITING_FOR_PTY]` whose message started no wait — no
+completed `pty_spawn`, no `bash`/`shell` with `background: true` — fails with that reason. The flag
+is opt-in because only a caller holding the message's tool parts can judge it; a text-only
+invocation keeps marker-only semantics.
+
 ## Protocol rules
 
 - **Post-delegation verification** — the orchestrator checks that deliverables exist on disk before

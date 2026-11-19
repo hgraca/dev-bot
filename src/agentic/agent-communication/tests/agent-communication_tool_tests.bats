@@ -493,3 +493,86 @@ with open('$tmpfile', 'w') as f:
 
   rm -f "$tmpfile"
 }
+
+# ── [WAITING_FOR_PTY] evidence (--require-wait) ──────────────────────────────
+# The marker asserts a wait the agent started. Only the caller that holds the
+# message's tool parts can check that, so the hook passes --require-wait; a
+# text-only caller keeps the old behaviour.
+
+wait_fixture() {
+  local parts="$1"
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+  python3 -c "
+import json, sys
+msg = {'info': {'role': 'assistant'}, 'parts': $parts}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+  printf '%s' "$tmpfile"
+}
+
+@test "wait evidence: a completed pty_spawn backs the marker" {
+  local f; f="$(wait_fixture "[{'type':'text','text':'Spawned it.\n\n[WAITING_FOR_PTY]'},{'type':'tool','tool':'pty_spawn','status':'completed'}]")"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$f" --require-wait
+
+  assert_success
+  [[ "$output" == *"OK — terminal marker found"* ]] || fail "expected OK (got: ${output:0:300})"
+  rm -f "$f"
+}
+
+@test "wait evidence: a backgrounded bash backs the marker" {
+  local f; f="$(wait_fixture "[{'type':'text','text':'Running the suite.\n\n[WAITING_FOR_PTY]'},{'type':'tool','tool':'bash','status':'completed','background':True}]")"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$f" --require-wait
+
+  assert_success
+  rm -f "$f"
+}
+
+@test "wait evidence: a marker with no tool part is a finding" {
+  local f; f="$(wait_fixture "[{'type':'text','text':'Waiting on the build.\n\n[WAITING_FOR_PTY]'}]")"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$f" --require-wait
+
+  assert_failure
+  [[ "$output" == *"started no wait"* ]] || fail "expected 'started no wait' (got: ${output:0:300})"
+  rm -f "$f"
+}
+
+@test "wait evidence: a foreground bash is not a wait" {
+  local f; f="$(wait_fixture "[{'type':'text','text':'Waiting.\n\n[WAITING_FOR_PTY]'},{'type':'tool','tool':'bash','status':'completed','background':False}]")"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$f" --require-wait
+
+  assert_failure
+  rm -f "$f"
+}
+
+@test "wait evidence: a failed spawn is not a wait" {
+  local f; f="$(wait_fixture "[{'type':'text','text':'Waiting.\n\n[WAITING_FOR_PTY]'},{'type':'tool','tool':'pty_spawn','status':'error'}]")"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$f" --require-wait
+
+  assert_failure
+  rm -f "$f"
+}
+
+@test "wait evidence: without --require-wait the old behaviour stands" {
+  local f; f="$(wait_fixture "[{'type':'text','text':'Waiting.\n\n[WAITING_FOR_PTY]'}]")"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$f"
+
+  assert_success
+  rm -f "$f"
+}
+
+@test "wait evidence: other markers are unaffected by --require-wait" {
+  local f; f="$(wait_fixture "[{'type':'text','text':'Done.\n\n[FINISHED]'}]")"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$f" --require-wait
+
+  assert_success
+  rm -f "$f"
+}

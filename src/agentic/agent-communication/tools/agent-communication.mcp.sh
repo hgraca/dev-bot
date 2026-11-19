@@ -9,15 +9,19 @@
 # MARKER_RE below in sync with it (the drift-guard test in tests/ enforces this).
 #
 # Usage:
-#   agent-communication.mcp.sh --msg-file <path>
+#   agent-communication.mcp.sh --msg-file <path> [--require-wait]
 #
 # Exit codes:
 #   0 — marker found (or no assistant message)
-#   1 — marker missing
+#   1 — marker missing, or [WAITING_FOR_PTY] with no started wait
 #   2 — file not found / parse error
 #
 # Parameters:
 # - msg-file (string, required): path to a JSON message file to validate
+# - require-wait (flag, optional): reject [WAITING_FOR_PTY] unless the message
+#   carries a started wait — a completed pty_spawn, or bash/shell with
+#   background: true. The session.idle hook passes it; a text-only caller
+#   cannot judge the tool parts and keeps marker-only semantics.
 # =============================================================================
 
 set -euo pipefail
@@ -25,7 +29,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"agent-communication","description":"Validate that an assistant message ends with a terminal status marker. The canonical marker set is defined by the devbot:agent-communication skill (its skills/SKILL.md). The --msg-file must contain a harness session-message JSON object, e.g. {\"info\":{\"role\":\"assistant\"},\"parts\":[{\"type\":\"text\",\"text\":\"...\"}]}.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args (e.g. --msg-file <path>)"}},"required":["args"]}}
+{"name":"agent-communication","description":"Validate that an assistant message ends with a terminal status marker. The canonical marker set is defined by the devbot:agent-communication skill (its skills/SKILL.md). Pass --require-wait to also reject [WAITING_FOR_PTY] when the message carries no started wait (a completed pty_spawn, or bash/shell with background: true). The --msg-file must contain a harness session-message JSON object, e.g. {\"info\":{\"role\":\"assistant\"},\"parts\":[{\"type\":\"text\",\"text\":\"...\"}]}.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args (e.g. --msg-file <path>)"}},"required":["args"]}}
 JSON
     exit 0
     ;;
@@ -34,13 +38,18 @@ esac
 # ── Parse args ───────────────────────────────────────────────────────────────
 
 MSG_FILE=""
+REQUIRE_WAIT=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --msg-file) MSG_FILE="$2"; shift 2 ;;
+    --require-wait) REQUIRE_WAIT=1; shift ;;
     validate) shift ;;  # optional subcommand
     --help|-h)
-      echo "Usage: agent-communication.mcp.sh --msg-file <path>"
+      echo "Usage: agent-communication.mcp.sh --msg-file <path> [--require-wait]"
       echo "  Validate a JSON message file for terminal status markers."
+      echo "  --require-wait: also reject [WAITING_FOR_PTY] when the message"
+      echo "  carries no started wait (a completed pty_spawn, or bash/shell"
+      echo "  with background: true). The session.idle hook passes it."
       exit 0
       ;;
     *) shift ;;
@@ -153,6 +162,25 @@ esac
 
 # Keep in sync with the canonical marker table in skills/SKILL.md (drift-guard test enforces it).
 MARKER_RE='\[(FINISHED|BLOCKED|NEEDS_INPUT|PARTIAL|WAITING_FOR_PTY)\]'
+
+# ── [WAITING_FOR_PTY] must be backed by a wait that started ──────────────────
+# The marker asserts a running wait. Only a caller holding the message's tool
+# parts can check that, so the hook opts in with --require-wait.
+if [[ "${REQUIRE_WAIT}" -eq 1 ]] && echo "$TEXT" | grep -qF '[WAITING_FOR_PTY]'; then
+  STARTED=$(echo "$MSG_JSON" | jq -r '
+    [.parts[]?
+      | select(.type == "tool")
+      | select((.status // "completed") != "error")
+      | select(
+          .tool == "pty_spawn"
+          or ((.tool == "bash" or .tool == "shell")
+              and (.background == true or .background == "true"))
+        )] | length' 2>/dev/null || echo 0)
+  if [[ "${STARTED}" -eq 0 ]]; then
+    echo "[agent-communication] [WAITING_FOR_PTY] claims a wait, but this message started no wait — spawn the PTY or the background job first, then end the turn on the marker" >&2
+    exit 1
+  fi
+fi
 
 if echo "$TEXT" | grep -qE "$MARKER_RE"; then
   echo "[agent-communication] OK — terminal marker found"
