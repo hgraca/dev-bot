@@ -45,6 +45,65 @@ if echo "${_disabled_raw}" | jq -e 'index("opencode-v2") != null' >/dev/null 2>&
   exit 0
 fi
 
+# ── Prune RETIRED MCP keys ───────────────────────────────────────────────────
+# Deliberately before the .opencode/ guard below: a project can carry a
+# dev-bot-managed opencode.jsonc without the symlink farm, and a retired key
+# must be shed there too. Independent of the symlink cleanup.
+RETIRED_MCP_KEYS=(qmd next-devtools)
+RETIRED_MCP_KEY_PREFIXES=(datasources-)
+
+# Server keys in whichever shape the config holds them: a migrated config nests
+# them under mcp.servers, one mid-upgrade still keeps them directly under mcp —
+# and bin/init.sh runs this reset BEFORE init migrates it, so both occur.
+# Compared as literals: a dotted `get` path would split a key containing dots.
+_mcp_config_server_keys() {
+  [[ -f "${CONFIG}" ]] || return 0
+  local servers
+  servers="$(_v2 get "${CONFIG}" mcp.servers 2>/dev/null || true)"
+  if [[ -n "${servers}" ]]; then
+    jq -r 'keys[]' <<<"${servers}" 2>/dev/null || true
+    return 0
+  fi
+  servers="$(_v2 get "${CONFIG}" mcp 2>/dev/null || true)"
+  [[ -n "${servers}" ]] || return 0
+  jq -r 'keys[] | select(. != "servers")' <<<"${servers}" 2>/dev/null || true
+}
+
+_prune_retired_mcp_key() {
+  local mcp_key="$1" reason="$2" keys
+  [[ -f "${CONFIG}" ]] || return 0
+  # grep reads a here-string, never a live pipe: `grep -q` exits on the first
+  # match, and a producer still writing would take SIGPIPE — which pipefail
+  # reports as failure, silently skipping the removal.
+  keys="$(_mcp_config_server_keys)"
+  grep -Fxq -- "${mcp_key}" <<<"${keys}" || return 0
+  if _v2 get "${CONFIG}" mcp.servers >/dev/null 2>&1; then
+    _v2 remove-mcp "${CONFIG}" "${mcp_key}" >/dev/null 2>&1 || true
+  else
+    python3 "${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py" "${CONFIG}" "${mcp_key}" >/dev/null 2>&1 || true
+  fi
+  _ok "${mcp_key}: removed retired MCP key (${reason})"
+}
+
+_main_retired_mcp_sweep() {
+  local retired_key retired_prefix candidate
+  for retired_key in "${RETIRED_MCP_KEYS[@]}"; do
+    _prune_retired_mcp_key "${retired_key}" "retired"
+  done
+  for retired_prefix in "${RETIRED_MCP_KEY_PREFIXES[@]}"; do
+    while IFS= read -r candidate; do
+      [[ -n "${candidate}" ]] || continue
+      _prune_retired_mcp_key "${candidate}" "prefix ${retired_prefix}"
+    done < <(
+      while IFS= read -r retired_key; do
+        [[ "${retired_key}" == "${retired_prefix}"* ]] && printf '%s\n' "${retired_key}"
+      done < <(_mcp_config_server_keys)
+    )
+  done
+}
+
+_main_retired_mcp_sweep
+
 if [[ ! -d "${OPENCODE_DIR}" ]]; then
   _skip "No .opencode/ directory — nothing to reset"
   exit 0

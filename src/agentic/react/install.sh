@@ -47,7 +47,7 @@ main() {
   fi
 
   # MCP server package check (informational — runtime uses npx)
-  _info "Next.js DevTools MCP: will use 'npx -y next-devtools-mcp@latest' at runtime"
+  _info "Next.js DevTools MCP: will use 'npx -y next-devtools-mcp@latest' at runtime (registered disabled)"
   _info "External skills (3): declared in external-modules.json — wired by 'devbot init'"
   _info "  - mindrally-react                (mindrally/skills)"
   _info "  - mindrally-nextjs               (mindrally/skills)"

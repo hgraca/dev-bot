@@ -1,11 +1,12 @@
 {
   "mcp": {
-    "next-devtools": {
+    "react-nextjs-devtools": {
       "type": "stdio",
+      "enabled": false,
       "command": [
         "bash",
         "-c",
-        "mkdir -p .agents/logs && exec npx -y next-devtools-mcp@latest 2>>.agents/logs/next-devtools-mcp.log"
+        "mkdir -p .agents/logs && exec npx -y next-devtools-mcp@latest 2>>.agents/logs/react-nextjs-devtools-mcp.log"
       ]
     }
   }

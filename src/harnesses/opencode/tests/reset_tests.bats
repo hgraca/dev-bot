@@ -170,13 +170,13 @@ print('MCP-CLEAN:OK')
 # .opencode/opencode.json (unioned with it). Fixture:
 #   - codebase-index disabled via project modules override (module declares
 #     plugin.opencode.json = ["opencode-codebase-index"])
-#   - react globally disabled (canonical mcp.json declares "next-devtools")
+#   - react globally disabled (canonical mcp.json declares "react-nextjs-devtools")
 #   - enabled modules' entries (on-hooks.ts plugin, chrome-devtools MCP) survive
 #   - a user's own plugin entry on the second surface survives
 
 _write_d7_fixture() {
   # opencode enabled; codebase-index (plugin) and react (mcp.json key
-  # "next-devtools") disabled at project level. chrome-devtools is
+  # "react-nextjs-devtools") disabled at project level. chrome-devtools is
   # force-ENABLED at project level too (its MCP entry must survive the prune):
   # the project modules map overrides the real global config, so the test is
   # hermetic — it must not depend on whatever per-machine .devbot.global.jsonc
@@ -210,7 +210,7 @@ entry = translate(server_map(canon)["chrome-devtools"], "opencode")
 config = {
     "plugin": ["opencode-codebase-index", ".opencode/plugins/on-hooks.ts"],
     "mcp": {
-        "next-devtools": {"type": "local", "command": ["next-devtools-mcp"]},
+        "react-nextjs-devtools": {"type": "local", "command": ["next-devtools-mcp"]},
         "chrome-devtools": entry,
     },
 }
@@ -246,7 +246,7 @@ plugins = d.get('plugin', [])
 assert 'opencode-codebase-index' not in plugins, plugins
 assert '.opencode/plugins/on-hooks.ts' in plugins, plugins
 mcp = d.get('mcp', {})
-assert 'next-devtools' not in mcp, mcp
+assert 'react-nextjs-devtools' not in mcp, mcp
 assert 'chrome-devtools' in mcp, mcp
 # Second plugin surface: the disabled module's entry must be pruned there too,
 # while the user's own entry survives.
@@ -876,4 +876,156 @@ print('D10-ORPHAN-PRUNE:OK')
 "
   assert_success
   grep -qF 'D10-ORPHAN-PRUNE:OK' <<< "$output" || fail "orphaned kctl key not pruned"
+}
+
+# ── D11: a RETIRED key is pruned whatever the module's state ─────────────────
+# A server dev-bot itself renamed leaves an orphan no other sweep can find: the
+# module's canonical mcp.json no longer declares the old name, so neither the
+# stale-refresh loop nor the disabled-module prune matches it. The ENABLED
+# module is the case that used to leak, so react is enabled here.
+@test "D11: reset prunes a retired MCP key while its module is enabled" {
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "harness": "opencode",
+  "modules": {
+    "react": true
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "next-devtools": {"type": "local", "command": ["next-devtools-mcp"]},
+    "react-nextjs-devtools": {"type": "local", "command": ["npx", "-y", "next-devtools-mcp@latest"], "enabled": false},
+    "other": {"type": "local", "command": ["other-mcp"]}
+  }
+}
+JSONC_EOF
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'next-devtools' not in mcp, mcp
+assert 'react-nextjs-devtools' in mcp, mcp
+assert 'other' in mcp, mcp
+print('D11-RETIRED-KEY:OK')
+"
+  assert_success
+  grep -qF 'D11-RETIRED-KEY:OK' <<< "$output" || fail "retired MCP key survived the reset"
+}
+
+# ── D12: a RETIRED key PREFIX is pruned ──────────────────────────────────────
+# datasources' server keys moved from `datasources-<source>` to `ds-<source>`.
+# The old family is unbounded, so an exact-key list cannot name it, and the
+# disabled-module prune only sweeps it while datasources is DISABLED. It is
+# enabled here, so only a prefix sweep can clear the orphans — and it must
+# leave the current `ds-` keys and an unrelated server alone.
+_write_retired_prefix_fixture() {
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "harness": "opencode",
+  "modules": {
+    "datasources": true
+  }
+}
+JSONC_EOF
+
+  mkdir -p "${SANDBOX_DIR}/.opencode/agents"
+  echo "# User agent" > "${SANDBOX_DIR}/.opencode/agents/user-agent.md"
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "datasources-mariadb-dev": {"type": "remote", "url": "http://127.0.0.1:18510/mcp/mariadb-dev"},
+    "datasources-legacy": {"type": "remote", "url": "http://127.0.0.1:18510/mcp/legacy"},
+    "ds-mariadb-dev": {"type": "remote", "url": "http://127.0.0.1:18510/mcp/mariadb-dev"},
+    "other": {"type": "local", "command": ["other-mcp"]}
+  }
+}
+JSONC_EOF
+}
+
+@test "D12: reset prunes retired MCP key prefixes and keeps current ones" {
+  _write_retired_prefix_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'datasources-mariadb-dev' not in mcp, mcp
+assert 'datasources-legacy' not in mcp, mcp
+assert 'ds-mariadb-dev' in mcp, mcp
+assert 'other' in mcp, mcp
+print('D12-RETIRED-PREFIX:OK')
+"
+  assert_success
+  grep -qF 'D12-RETIRED-PREFIX:OK' <<< "$output" || fail "retired MCP key prefix survived the reset"
+}
+
+@test "D12: second reset is byte-idempotent (retired key prefix prune)" {
+  _write_retired_prefix_fixture
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  local after_first
+  after_first="$(cat "${SANDBOX_DIR}/opencode.jsonc")"
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  assert_equal "$(cat "${SANDBOX_DIR}/opencode.jsonc")" "${after_first}"
+}
+
+# ── D13: a config-only project is swept too ─────────────────────────────────
+# reset exits early when .opencode/ is absent, which is right for the symlink
+# cleanup but wrong for config pruning: a project can carry a dev-bot-managed
+# opencode.jsonc with no symlink farm, and the retirement must still happen.
+@test "D13: reset prunes retired keys without an .opencode directory" {
+  cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'
+{
+  "harness": "opencode",
+  "modules": {
+    "react": true
+  }
+}
+JSONC_EOF
+  # Deliberately no .opencode/ directory.
+
+  cat > "${SANDBOX_DIR}/opencode.jsonc" <<'JSONC_EOF'
+{
+  "mcp": {
+    "next-devtools": {"type": "local", "command": ["next-devtools-mcp"]},
+    "other": {"type": "local", "command": ["other-mcp"]}
+  }
+}
+JSONC_EOF
+
+  run bash "${RESET_SCRIPT}" "${SANDBOX_DIR}"
+  assert_success
+
+  run python3 -c "
+import sys
+sys.path.insert(0, '${PROJECT_ROOT}/src/_shared')
+from read_jsonc import load_jsonc
+mcp = load_jsonc('${SANDBOX_DIR}/opencode.jsonc').get('mcp', {})
+assert 'next-devtools' not in mcp, mcp
+assert 'other' in mcp, mcp
+print('D13-CONFIG-ONLY:OK')
+"
+  assert_success
+  grep -qF 'D13-CONFIG-ONLY:OK' <<< "$output" || fail "retired key survived in a config-only project"
 }

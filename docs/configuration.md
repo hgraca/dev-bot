@@ -270,6 +270,14 @@ symlinks are removed outright and regenerated from source. Review the current
 config before reinit if you have hand-tuned entries for a module you are about
 to disable.
 
+Reset also deletes MCP keys dev-bot no longer declares, so a renamed or dropped
+server does not linger: an exact-key list, plus a **prefix** list for families it
+cannot enumerate. The prefix list is the one prune that is neither gated on a
+module's state nor bounded by time — `datasources-<source>` was the datasources
+server key before it was shortened to `ds-<source>`, and any `mcp` key starting
+with `datasources-` is deleted on every reinit, on every project, whatever wrote
+it. Name a hand-written server something else if it must survive.
+
 ---
 
 ### `codebase_memory_root`

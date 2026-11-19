@@ -46,6 +46,49 @@ if echo "${_disabled_raw}" | jq -e 'index("opencode") != null' >/dev/null 2>&1; 
   exit 0
 fi
 
+# ── Prune RETIRED MCP keys ───────────────────────────────────────────────────
+# Deliberately before the .opencode/ guard below: a project can carry a
+# dev-bot-managed opencode.jsonc without the symlink farm, and a retired key
+# must be shed there too. Independent of the symlink cleanup.
+OPENCODE_CONFIG="${PROJECT_DIR}/opencode.jsonc"
+REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
+if [[ -f "${OPENCODE_CONFIG}" && -f "${REMOVE_MCP_PY}" ]]; then
+  # A server key dev-bot renamed or dropped leaves an orphan no other sweep can
+  # find: the module's canonical mcp.json no longer declares it, so neither the
+  # stale-refresh loop nor the disabled-module prune (both keyed on a module's
+  # declarations) can locate it.
+  #   qmd           — `qmd mcp` removed (qmd is BM25-only, not agent-exposed)
+  #   next-devtools — renamed to `react-nextjs-devtools` so the key names the
+  #                   framework, matching every other module's server key
+  RETIRED_MCP_KEYS=(qmd next-devtools)
+  for retired_key in "${RETIRED_MCP_KEYS[@]}"; do
+    # Membership by literal key, not a whole-object grep: a server's value can
+    # contain the name and a dotted key is still one key.
+    if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
+      | jq -e --arg k "${retired_key}" 'has($k)' >/dev/null 2>&1; then
+      python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${retired_key}" 2>/dev/null || true
+      _ok "${retired_key}: removed retired MCP key"
+    fi
+  done
+
+  # Some retired keys are a FAMILY, not a name: datasources published one server
+  # per configured source (`datasources-<source>`) before shortening it to
+  # `ds-<source>`, so no fixed list can enumerate what a project holds. The
+  # disabled-module prune only sweeps these while datasources is DISABLED —
+  # enabled is the common case, and it leaks there forever.
+  RETIRED_MCP_KEY_PREFIXES=(datasources-)
+  for retired_prefix in "${RETIRED_MCP_KEY_PREFIXES[@]}"; do
+    while IFS= read -r retired_key; do
+      [[ -n "${retired_key}" ]] || continue
+      python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${retired_key}" 2>/dev/null || true
+      _ok "${retired_key}: removed retired MCP key (prefix ${retired_prefix})"
+    done < <(
+      python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
+        | jq -r --arg prefix "${retired_prefix}" 'keys[] | select(startswith($prefix))' 2>/dev/null || true
+    )
+  done
+fi
+
 if [[ ! -d "${OPENCODE_DIR}" ]]; then
   _skip "No .opencode/ directory — nothing to reset"
   exit 0
@@ -145,7 +188,6 @@ _reset_symlinks_in_dir "${OPENCODE_DIR}"
 # before it existed lack the key and keep opencode's 30 s startup default.
 OPENCODE_CONFIG="${PROJECT_DIR}/opencode.jsonc"
 if [[ -f "${OPENCODE_CONFIG}" ]]; then
-  REMOVE_MCP_PY="${DEV_BOT_ROOT}/src/_shared/remove_mcp_key.py"
   IS_CURRENT_PY="${DEV_BOT_ROOT}/src/_shared/mcp_key_is_current.py"
   if [[ -f "${REMOVE_MCP_PY}" ]]; then
     # The currently-correct host GPU value — the SAME source init resolves the
@@ -176,21 +218,6 @@ for k in data.get('mcp', {}):
     if not k.startswith('_'):
         print(k)
 " 2>/dev/null)
-    done
-
-    # ── Prune RETIRED MCP keys ──────────────────────────────────────────────
-    # A module that once shipped an MCP server can drop it; its canonical
-    # mcp.json disappears, so neither the stale-refresh loop above nor the
-    # disabled-module prune (both keyed on a module's mcp.json) can locate the
-    # key. Prune it explicitly so existing configs shed the dead server. qmd's
-    # `qmd mcp` server was removed (qmd is BM25-only and not agent-exposed).
-    RETIRED_MCP_KEYS=(qmd)
-    for retired_key in "${RETIRED_MCP_KEYS[@]}"; do
-      if python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${OPENCODE_CONFIG}" "mcp" 2>/dev/null \
-        | grep -q "\"${retired_key}\""; then
-        python3 "${REMOVE_MCP_PY}" "${OPENCODE_CONFIG}" "${retired_key}" 2>/dev/null || true
-        _ok "${retired_key}: removed retired MCP key"
-      fi
     done
   fi
 
