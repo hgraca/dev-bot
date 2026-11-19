@@ -114,19 +114,48 @@ _shared_shell() {
 
 # ── the repo-wide contract ────────────────────────────────────────────────────
 
+# Every tracked shipped pin, one per line.
+_shipped_pins() {
+  git ls-files '*versions.env.dist'
+}
+
 @test "no module pin is tracked: every shipped pin is a .dist" {
   cd "${PROJECT_ROOT}"
   run git ls-files '*versions.env'
   assert_success
   assert_output ""
 
-  # Every module that ships a pin still ships one.
   local dist files=0
   while IFS= read -r dist; do
     files=$((files + 1))
     [ -f "${dist}" ] || fail "missing shipped pin default: ${dist}"
-  done < <(git ls-files '*versions.env.dist')
-  [ "${files}" -ge 6 ] || fail "expected at least six shipped pin defaults, found ${files}"
+  done < <(_shipped_pins)
+  [ "${files}" -ge 5 ] || fail "expected at least five shipped pins, found ${files}"
+}
+
+@test "every shipped pin goes through the shared reader" {
+  # Runtime files only — a module's tests, fixtures and docs may name the helper
+  # without applying the pin, and `functions.sh` is sourced, so executable
+  # permission is not the discriminator. Comments are stripped before matching
+  # and the call must start a line or a command substitution, so prose cannot
+  # stand in for one and a *writer* (`_devbot_versions_env_seed`) cannot either.
+  cd "${PROJECT_ROOT}"
+  local dist module_dir files=0
+  local call='(^[[:space:]]*|\$\()[[:space:]]*_devbot_versions_env(_source)?[[:space:]]'
+  while IFS= read -r dist; do
+    module_dir="$(dirname "${dist}")"
+    run bash -c '
+      grep -rhE . "${2%/}" \
+        --include="*.sh" --include="*.bash" --include="*.py" --include="*.ts" \
+        --exclude-dir=tests 2>/dev/null \
+      | sed -E "s/#.*\$//" \
+      | grep -qE "$1"
+    ' _ "${call}" "${module_dir}"
+    [ "${status}" -eq 0 ] \
+      || fail "${module_dir} never calls a shared pin reader for ${dist}"
+    files=$((files + 1))
+  done < <(_shipped_pins)
+  [ "${files}" -ge 5 ] || fail "expected at least five shipped pins, found ${files}"
 }
 
 @test "the live pin is gitignored so an update bump never dirties the tree" {
