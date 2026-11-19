@@ -80,6 +80,8 @@ When something must be verified after a fixed delay — a deploy settling, a CI 
 - **opencode v2:** run the work itself with `background: true` (or a long `timeout`) and end your turn; the completion notification wakes you.
 - **claudecode:** use its background execution and end your turn.
 
+End the turn with `[WAITING_FOR_PTY]` only when one of those asynchronous waits actually started; a blocking call continues in the same turn. Its precondition and the no-PTY cases are in `devbot:agent-communication`.
+
 ## Gotchas
 
 - **A TTY-enabled container is the `/dev/null` exception.** `make up` and `docker compose exec -it` need a terminal; redirecting stdin there turns a working command into an error.

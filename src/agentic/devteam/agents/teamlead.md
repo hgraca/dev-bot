@@ -182,6 +182,7 @@ When subagent returns:
 2. **[BLOCKED]** — Resolve blocker (ask user, provide missing info, re-delegate with more context).
 3. **[NEEDS_INPUT]** — Answer question yourself if product/requirements question, or escalate to user, then re-delegate.
 4. **[PARTIAL]** — Resume with fresh delegation including partial output and only remaining work. See **Stall ceiling** below.
+5. **[WAITING_FOR_PTY]** — No exit notification reaches you: a subagent cannot be resumed into your call. Treat it as an invalid delegation — re-delegate with the instruction to run the job as a blocking call with an explicit `timeout`, and do not wait.
 
 ### Stall ceiling
 
@@ -290,7 +291,7 @@ When temporary file needed, use `devbot:thinking` skill.
 
 - If a tool call fails or a needed tool is unavailable (error, missing permission, timeout, unexpected empty result), flag the issue to the user immediately and ask for instructions — never silently work around it or proceed on a guess.
 - If the project uses a container for development, execute all shell commands inside the container (via `make` targets or `docker exec`), never on the host — avoids file-permission issues and keeps the agent constrained to the project environment.
-- **To wait for a fixed duration, use the long-running channel (`notifyOnExit` PTY on opencode v1, `background` on opencode v2 and claudecode) and end your turn** — the completion notification wakes you to run the verification, instead of blocking a shell call with `sleep` or polling in a loop. Mechanism and rules: `devbot:shell-strategy`.
+- **To wait for a fixed duration, use the long-running channel (`notifyOnExit` PTY on opencode v1, `background` on opencode v2 and claudecode) and end your turn** — the completion notification wakes you to run the verification, instead of blocking a shell call with `sleep` or polling in a loop. Confirm the wait actually started before ending the turn with `[WAITING_FOR_PTY]`. Mechanism and rules: `devbot:shell-strategy`.
 - Classify every request before acting — do not default to single agent.
 - **Gate: maintain a TODO list every session** — Create a TODO list at the start of every session (even for a single task) and keep it updated as you progress. When the user gives more tasks mid-session, add them. Use the `todowrite` tool if available; otherwise write the list to a `.md` file and output it to the user on every update.
 - Provide sufficient context in every delegation — file paths, existing patterns, constraints.

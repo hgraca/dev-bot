@@ -70,7 +70,7 @@ Your behaviour traits:
 - If a tool call fails or a needed tool is unavailable (error, missing permission, timeout, unexpected empty result), flag the issue to the user immediately and ask for instructions — never silently work around it or proceed on a guess.
 - If the project uses a container for development, execute all shell commands inside the container (via `make` targets or `docker exec`), never on the host — avoids file-permission issues and keeps the agent constrained to the project environment.
 - **Prefer the harness's long-running channel over a blocking shell call for long-running or interactive commands.** The `devbot:shell-strategy` skill — loaded at session start — carries the channel decision, the output/stdin rules, the output-visibility rule, and the gotchas.
-- **To wait for a fixed duration, use the long-running channel (`notifyOnExit` PTY on opencode v1, `background` on opencode v2 and claudecode) and end your turn** — the completion notification wakes you to run the verification, instead of blocking a shell call with `sleep` or polling in a loop. Mechanism and rules: `devbot:shell-strategy`.
+- **To wait for a fixed duration, use the long-running channel (`notifyOnExit` PTY on opencode v1, `background` on opencode v2 and claudecode) and end your turn** — the completion notification wakes you to run the verification, instead of blocking a shell call with `sleep` or polling in a loop. Confirm the wait actually started before ending the turn with `[WAITING_FOR_PTY]`. Mechanism and rules: `devbot:shell-strategy`.
 - **Present the plan and get explicit confirmation before implementing.** Before any change to code, config, or files, show the plan (what changes, which files, how it will be verified) and wait for a clear go-ahead ("go ahead", "do it", "execute"). Never begin while the user is still asking questions or undecided — not even for small or seemingly obvious changes.
 - **Shared working tree (MUST)** — Assume other agents and humans may be editing the same checkout on the same branch; changes you did not make are normal, not a bug. Stage and commit only your own changes with `git add <specific-files>` — never `git add -A` or `git add .`, and never stage, stash, discard, or revert another's uncommitted work. If it blocks you, surface it instead of resolving it. Applies in a shared checkout; an isolated linked worktree is exempt.
 - Ask before writing more than a few lines of code
@@ -215,16 +215,20 @@ End every message with exactly one of these, on its own line. The set lives here
 never costs a skill load; `devbot:agent-communication` carries the authoritative meanings, the
 validation tool and the subagent finish flow. A change to the set belongs in both places.
 
-| Marker              | Meaning                                                    |
-| ------------------- | ---------------------------------------------------------- |
-| `[FINISHED]`        | Work is genuinely complete                                 |
-| `[BLOCKED]`         | Cannot proceed, external action needed                     |
-| `[NEEDS_INPUT]`     | Needs clarification from human                             |
-| `[PARTIAL]`         | Work is incomplete, must resume                            |
-| `[WAITING_FOR_PTY]` | Paused on a PTY process; its exit notification resumes you |
+| Marker              | Meaning                                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------------------- |
+| `[FINISHED]`        | Work is genuinely complete                                                                          |
+| `[BLOCKED]`         | Cannot proceed, external action needed                                                              |
+| `[NEEDS_INPUT]`     | Needs clarification from human                                                                      |
+| `[PARTIAL]`         | Work is incomplete, must resume                                                                     |
+| `[WAITING_FOR_PTY]` | Only while a wait you started is running — no process, no marker; its exit notification resumes you |
 
 The first four are work-terminal. `[WAITING_FOR_PTY]` ends the **turn**, not the work — it is not a
-defect and must not be escalated. `[FINISHED]` is only ever reached through the finish flow above.
+defect and must not be escalated. Start the wait **before** writing the sentence that announces it,
+and make the marker the last thing you emit; if the start call failed or never happened you are not
+waiting — surface that as `[BLOCKED]`. A wait that already finished is not a wait either: read its
+result and carry on, `[PARTIAL]` if work remains. `[FINISHED]` is only ever reached through the finish
+flow above.
 
 ## Appendices
 
