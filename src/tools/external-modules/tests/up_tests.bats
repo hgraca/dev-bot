@@ -507,12 +507,14 @@ EOF
 @test "up: kills a TERM-ignoring descendant left behind by a finished command" {
   preclone
   # The fake transport's leader exits at once; its child ignores TERM and
-  # lingers 4s holding the caller's pipe.
+  # lingers 8s holding the caller's pipe. The gap is deliberately wide: the
+  # killed path takes ~1s and the waited-out path 8s, so a loaded suite cannot
+  # push the good path past the bound below.
   mkdir -p "${SANDBOX}/bin"
   cat > "${SANDBOX}/bin/git" <<EOF
 #!/usr/bin/env bash
 if [[ "\${1:-}" == "ls-remote" ]]; then
-  bash -c 'trap "" TERM; sleep 4' &
+  bash -c 'trap "" TERM; sleep 8' &
   exit 0
 fi
 exec "$(command -v git)" "\$@"
@@ -525,8 +527,8 @@ EOF
 
   assert_success
   assert_output --partial "mod1: could not compare with the remote"
-  # TERM at the leader's exit, KILL 1s later — not the child's own 4s.
-  [ "${elapsed}" -le 3 ]
+  # TERM at the leader's exit, KILL 1s later — not the child's own 8s.
+  [ "${elapsed}" -le 5 ]
 }
 
 @test "up: wires a module cloned during the start into the project" {
