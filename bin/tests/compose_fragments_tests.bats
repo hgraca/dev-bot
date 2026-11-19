@@ -39,6 +39,15 @@ teardown() {
   unset DEV_BOT_ROOT 2>/dev/null || true
 }
 
+# Every fragment here includes ollama, whose compose declares
+# `env_file: ../../../.env` — a gitignored, install-generated file. A linked
+# worktree has none, and CI seeds it before the suite runs, so the merge cannot
+# be exercised without it.
+_require_env_file() {
+  [[ -f "${PROJECT_ROOT}/.env" ]] \
+    || skip "${PROJECT_ROOT}/.env is missing (gitignored): cp .env.dist .env"
+}
+
 @test "codebase-index fragment resolves ollama (provider boots on demand)" {
   run docker compose -f "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.yml" \
     config --services
@@ -112,6 +121,8 @@ teardown() {
 }
 
 @test "the project name is devbot whichever fragment is -f'd first" {
+  _require_env_file
+
   local first resolved
   for first in \
     "${PROJECT_ROOT}/src/agentic/codebase-index/docker-compose.yml" \
@@ -123,6 +134,8 @@ teardown() {
 }
 
 @test "the project name is devbot when both fragments are merged, either order" {
+  _require_env_file
+
   local resolved
   resolved="$(docker compose \
     -f "${PROJECT_ROOT}/src/tools/litellm/docker-compose.yml" \
@@ -212,6 +225,8 @@ _build_compose_files() {
 }
 
 @test "a build service resolves its own directory as context when its compose is NOT the first -f" {
+  _require_env_file
+
   # The fresh-install regression: ollama's compose first (up.sh discovery order
   # whenever ollama is enabled), a build module second — compose read the
   # Dockerfile out of ollama's directory instead of the module's.

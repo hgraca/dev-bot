@@ -9,8 +9,16 @@ setup() {
 
   # `devbot init` registers the project in the global config; point it at a
   # throwaway copy so the developer's real .devbot.global.jsonc is untouched.
+  # That file is gitignored and install-generated, so a linked worktree has
+  # none — a minimal config keeps these tests runnable there.
   GLOBAL_CONFIG="$(mktemp "${TMPDIR:-/tmp}/devbot-global.XXXXXX")"
-  cp "${PROJECT_ROOT}/.devbot.global.jsonc" "${GLOBAL_CONFIG}"
+  if [[ -f "${PROJECT_ROOT}/.devbot.global.jsonc" ]]; then
+    cp "${PROJECT_ROOT}/.devbot.global.jsonc" "${GLOBAL_CONFIG}"
+  else
+    # The runtime config is gitignored; seed the dist CI copies, so the module
+    # set under test is the one CI runs rather than a hand-written subset.
+    cp "${PROJECT_ROOT}/.devbot.global.dist.jsonc" "${GLOBAL_CONFIG}"
+  fi
   export DEV_BOT_GLOBAL_CONFIG="${GLOBAL_CONFIG}"
 }
 

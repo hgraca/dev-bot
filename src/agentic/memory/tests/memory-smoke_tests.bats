@@ -122,12 +122,16 @@ scenario_copy() { scenario_copy_once "$1" _build_memory_scenario; }
 # when the target is wrong or missing.
 
 @test "init.sh: latent/global symlink points at the dev-bot central store" {
+  # The store is tracked, so every checkout has it; resolve it through
+  # DEV_BOT_ROOT, which a worktree session inherits from the main checkout.
+  local store="${DEV_BOT_ROOT:-${MODULE_DIR}/../../..}/storage/global-memories"
+  [[ -d "${store}" ]] || skip "no checkouts under DEV_BOT_ROOT: ${store}"
   scenario default
 
   local link="${SCENARIO}/.agents/memory/latent/global"
   [[ -L "$link" ]] || fail "latent/global is not a symlink"
   local expected
-  expected="$(cd "$MODULE_DIR/../../../storage/global-memories" && pwd)"
+  expected="$(cd "${store}" && pwd)"
   local actual
   actual="$(readlink "$link")"
   [[ "$actual" == "$expected" ]] \
@@ -139,6 +143,10 @@ scenario_copy() { scenario_copy_once "$1" _build_memory_scenario; }
 }
 
 @test "init.sh: re-run preserves the global symlink (idempotent)" {
+  # The store is tracked, so every checkout has it; resolve it through
+  # DEV_BOT_ROOT, which a worktree session inherits from the main checkout.
+  local store="${DEV_BOT_ROOT:-${MODULE_DIR}/../../..}/storage/global-memories"
+  [[ -d "${store}" ]] || skip "no checkouts under DEV_BOT_ROOT: ${store}"
   scenario_copy default
 
   run bash "$MODULE_DIR/init.sh" "$SCENARIO"
@@ -147,7 +155,7 @@ scenario_copy() { scenario_copy_once "$1" _build_memory_scenario; }
   local link="${SCENARIO}/.agents/memory/latent/global"
   [[ -L "$link" ]] || fail "latent/global is not a symlink after re-run"
   local expected
-  expected="$(cd "$MODULE_DIR/../../../storage/global-memories" && pwd)"
+  expected="$(cd "${store}" && pwd)"
   local actual
   actual="$(readlink "$link")"
   [[ "$actual" == "$expected" ]] || fail "symlink target changed on re-run"

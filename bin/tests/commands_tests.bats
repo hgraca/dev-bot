@@ -22,8 +22,16 @@ setup() {
   # Isolate the global config: a test here overwrites it to change
   # disabled_modules, so give it a throwaway copy (seeded from the real one)
   # and point the code under test at it — never the developer's real config.
+  # The real one is gitignored and install-generated, so a linked worktree has
+  # none: a minimal config keeps these tests runnable there.
   GLOBAL_CONFIG="$(mktemp "${TMPDIR:-/tmp}/devbot-global.XXXXXX")"
-  cp "${PROJECT_ROOT}/.devbot.global.jsonc" "${GLOBAL_CONFIG}"
+  if [[ -f "${PROJECT_ROOT}/.devbot.global.jsonc" ]]; then
+    cp "${PROJECT_ROOT}/.devbot.global.jsonc" "${GLOBAL_CONFIG}"
+  else
+    # The runtime config is gitignored; seed the dist CI copies, so the module
+    # set under test is the one CI runs rather than a hand-written subset.
+    cp "${PROJECT_ROOT}/.devbot.global.dist.jsonc" "${GLOBAL_CONFIG}"
+  fi
   export DEV_BOT_GLOBAL_CONFIG="${GLOBAL_CONFIG}"
 }
 
@@ -138,6 +146,10 @@ for line in lines:
 }
 
 @test "devbot list tools emits a table with a Description column" {
+  # `list tools` enumerates the .agents/tools farm, which a linked worktree has
+  # no copy of; CI seeds it with `devbot init`.
+  [[ -d "${PROJECT_ROOT}/.agents/tools" ]] \
+    || skip ".agents/tools farm is missing: run 'devbot init' to seed it"
   run bash "$PROJECT_ROOT/bin/devbot" list tools
   [ "$status" -eq 0 ]
 
@@ -226,6 +238,10 @@ JSON
 # ── audit-24 NOTE-7: module_of fallback for non-agentic tool paths ───────────
 
 @test "devbot list tools shows a real module name for src/tools tools" {
+  # `list tools` enumerates the .agents/tools farm, which a linked worktree has
+  # no copy of; CI seeds it with `devbot init`.
+  [[ -d "${PROJECT_ROOT}/.agents/tools" ]] \
+    || skip ".agents/tools farm is missing: run 'devbot init' to seed it"
   # list-projects lives in src/tools/devbot-cli/tools/ — outside src/agentic/. Its
   # module column must not be the raw relpath escape ("..").
   run bash "$PROJECT_ROOT/bin/devbot" list tools
