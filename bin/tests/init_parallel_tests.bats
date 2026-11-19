@@ -44,6 +44,7 @@ _devbot_get_disabled_modules() { echo '[]'; }
 _devbot_get_memory_search_provider() { echo "mdctx"; }
 _devbot_memory_collection_field() { echo ""; }
 _devbot_lock_wait() { return 0; }
+_devbot_rebuild_external_module_config() { true; }
 STUB
 
   # Real helpers, extracted verbatim so the stub cannot drift: the fan-out orders
@@ -245,6 +246,18 @@ STUB
   assert_success
   assert_equal "$(wc -l < "${BATCH_LOG}" | tr -d ' ')" "1"
   assert_output --partial "2 project(s) registered"
+}
+
+@test "the pre-pass merges external declarations once" {
+  local p1="${SANDBOX}/p1" p2="${SANDBOX}/p2"
+  mkdir -p "$p1" "$p2"
+  printf '{ "projects": [] }\n' > "${SANDBOX}/.devbot.global.jsonc"
+  _devbot_rebuild_external_module_config() { printf 'rebuild\n' >> "${SANDBOX}/rebuild.log"; }
+
+  run _run_global_pre_passes "$p1" "$p2"
+
+  assert_success
+  assert_equal "$(wc -l < "${SANDBOX}/rebuild.log" | tr -d ' ')" "1"
 }
 
 @test "the pre-pass rebuilds the shared store once per distinct target" {

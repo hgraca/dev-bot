@@ -58,6 +58,7 @@ _devbot_get_project_dir() { echo "${DEVBOT_DIR_STUB:-.agents}"; }
 _devbot_clear_config_sha() { true; }
 _devbot_write_config_sha() { true; }
 _devbot_missing_mcp_env_vars() { true; }
+_devbot_rebuild_external_module_config() { true; }
 _devbot_present_missing_env_vars() { true; }
 _devbot_get_external_modules() { true; }
 _devbot_disabled_external_names() { true; }
@@ -186,6 +187,34 @@ _sandbox_bash() {
 
   assert_success
   assert_output --partial "${OTHER}"
+}
+
+# ── External module declarations ─────────────────────────────────────────────
+
+@test "the wiring merges external declarations before the tools pass" {
+  run _sandbox_bash "
+    export ORDER_LOG='${SANDBOX}/order.log'
+    _devbot_rebuild_external_module_config() { echo REBUILD >> \"\${ORDER_LOG}\"; }
+    _init_modules() { echo \"INIT \$(basename \"\$1\")\" >> \"\${ORDER_LOG}\"; }
+    _init_wiring '${OTHER}' >/dev/null 2>&1 || true
+    cat \"\${ORDER_LOG}\""
+
+  assert_success
+  assert_line --index 0 "REBUILD"
+  assert_line --index 1 "INIT tools"
+}
+
+@test "a parallel worker leaves the declarations to the pre-pass" {
+  run _sandbox_bash "
+    export ORDER_LOG='${SANDBOX}/order.log'
+    _devbot_rebuild_external_module_config() { echo REBUILD >> \"\${ORDER_LOG}\"; }
+    _init_modules() { echo \"INIT \$(basename \"\$1\")\" >> \"\${ORDER_LOG}\"; }
+    DEV_BOT_DEFER_GLOBAL_EXTERNALS=1 _init_wiring '${OTHER}' >/dev/null 2>&1 || true
+    cat \"\${ORDER_LOG}\""
+
+  assert_success
+  refute_line --partial "REBUILD"
+  assert_line "INIT tools"
 }
 
 # ── Reset path ───────────────────────────────────────────────────────────────

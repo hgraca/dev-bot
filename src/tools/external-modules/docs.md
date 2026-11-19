@@ -56,7 +56,7 @@ An umbrella module (e.g. `react`, `svelte`) can be turned off in the `modules` m
 
 Provisioning is deliberately enablement-independent. The `external_modules` store, the `vendor/` clones and the `storage/external-agentic-modules/` mirrors all live under the global dev-bot root and are shared by every registered project, so a module disabled in one project must not deny its external modules to the others:
 
-- **Config** — `install.sh` and `bin/up.sh` merge every module's `external-modules.json` declarations regardless of enablement (`_devbot_rebuild_external_module_config`).
+- **Config** — `install.sh`, `bin/up.sh` and `bin/init.sh` merge every module's `external-modules.json` declarations regardless of enablement (`_devbot_rebuild_external_module_config`).
 - **Clones** — `vendor/<owner>/<repo>` is never pruned, even when its umbrella is disabled.
 - **Mirrors** — `bin/init.sh:_prune_orphaned_external_modules` removes a mirror only when **no** module declares it (enabled or disabled) and it is absent from `external_modules`. A declared name is always kept.
 

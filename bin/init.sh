@@ -543,6 +543,12 @@ _init_wiring() {
   # opencode.jsonc. The harnesses run last and apply those declarations.
   _header_2 "Init Scripts"
 
+  # Merge declarations before the wiring pass, or a new
+  # external is cloned but never linked.
+  if [[ "${DEV_BOT_DEFER_GLOBAL_EXTERNALS:-0}" != "1" ]]; then
+    _devbot_rebuild_external_module_config
+  fi
+
   _init_modules "${DEV_BOT_ROOT}/src/tools" "${PROJECT_DIR}"
 
   # Re-parse disabled_modules — tool init may have created/modified project config
@@ -994,6 +1000,12 @@ _run_global_pre_passes() {
   local add_project_py="${DEV_BOT_ROOT}/src/_shared/add_project.py"
   local global_config="${DEV_BOT_GLOBAL_CONFIG:-${DEV_BOT_ROOT}/.devbot.global.jsonc}"
 
+  # Workers defer their own merge: one write, not one per project.
+  if [[ -f "${global_config}" ]]; then
+    _header_2 "External Module Declarations"
+    _devbot_rebuild_external_module_config
+  fi
+
   if [[ ${#existing[@]} -gt 0 && -f "${add_project_py}" && -f "${global_config}" ]]; then
     _header_2 "Global Project Registry"
     if python3 "${add_project_py}" "${global_config}" "${existing[@]}"; then
@@ -1287,11 +1299,13 @@ for p in json.loads(sys.stdin.read()):
       export DEV_BOT_DEFER_GLOBAL_REGISTRATION=1
       export DEV_BOT_DEFER_GLOBAL_MEMORY=1
       export DEV_BOT_DEFER_GLOBAL_PRUNE=1
+      export DEV_BOT_DEFER_GLOBAL_EXTERNALS=1
       _run_projects_parallel "${jobs}" "${project_list[@]}" \
         -- "${reset_scripts[@]+"${reset_scripts[@]}"}" || failed=1
       unset DEV_BOT_DEFER_GLOBAL_REGISTRATION
       unset DEV_BOT_DEFER_GLOBAL_MEMORY
       unset DEV_BOT_DEFER_GLOBAL_PRUNE
+      unset DEV_BOT_DEFER_GLOBAL_EXTERNALS
 
       _run_global_post_passes "${project_list[@]}" || failed=1
     fi
