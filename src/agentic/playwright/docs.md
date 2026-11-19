@@ -19,7 +19,7 @@ The server allows uploads only from its output directory or its working director
 
 ## Configuration
 
-`install.sh` installs the pinned `@playwright/mcp` version recorded in `versions.env`; `devbot update` resolves the newest version and rewrites the pin. Registered on `devbot init` when the module is enabled. If the package is missing, the launch fails loudly with `FATAL: @playwright/mcp not installed — run 'devbot install' (module playwright)`.
+`install.sh` installs the pinned `@playwright/mcp` version — the committed `versions.env.dist` default, or the machine's gitignored `versions.env` when it has one; `devbot update` resolves the newest version and rewrites that machine-local pin only. Registered on `devbot init` when the module is enabled. If the package is missing, the launch fails loudly with `FATAL: @playwright/mcp not installed — run 'devbot install' (module playwright)`.
 
 ## See also
 

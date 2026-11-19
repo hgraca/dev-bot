@@ -33,8 +33,11 @@ done
 MODULE_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
 HARNESS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# shellcheck source=../../_shared/functions.sh
+source "${MODULE_DIR}/../../_shared/functions.sh"
+
 CHROME_DEVTOOLS_MCP_VERSION=""
-[[ -f "${MODULE_DIR}/versions.env" ]] && source "${MODULE_DIR}/versions.env"
+_devbot_versions_env_source "${MODULE_DIR}"
 
 # ── Resolve the installed binary by explicit prefix candidates ───────────────
 resolve_bin() {

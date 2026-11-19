@@ -5,8 +5,9 @@
 # the pin (T1.2 policy: versions change ONLY on `devbot update`), then re-runs
 # install so a sandboxable Chromium stays present (audit-25 F4).
 #
-# versions.env is rewritten in place so every consumer installs the same new
-# pin on their next install.
+# The machine's pin (versions.env, gitignored) is rewritten in place so the next
+# install uses the new version. The shipped default in versions.env.dist is
+# never touched — a tracked file there would leave the release checkout dirty.
 #
 # GATE: This module must work on Ubuntu, Fedora, and macOS.
 # =============================================================================
@@ -33,6 +34,8 @@ main() {
       _error "npm install -g chrome-devtools-mcp@${LATEST} failed — check network / npm registry access."
       return 1
     fi
+    # The pin is machine-local (gitignored): a writer needs a live copy to rewrite.
+    _devbot_versions_env_seed "${MODULE_DIR}"
     # sed->tmp->mv (no bare `sed -i` — macOS requires a backup suffix).
     sed "s/^CHROME_DEVTOOLS_MCP_VERSION=.*/CHROME_DEVTOOLS_MCP_VERSION=${LATEST}/" \
       "${MODULE_DIR}/versions.env" > "${MODULE_DIR}/versions.env.tmp" \

@@ -79,3 +79,11 @@ graphify-out/
 # >>> DEVBOT - global memories (shipped knowledge base, tracked despite storage/*)
 !storage/global-memories/
 # <<< DEVBOT - global memories
+
+# >>> DEVBOT - module pins
+# versions.env is the machine's pin and `devbot update` rewrites it in place;
+# keeping it tracked left the release checkout dirty after every update. The
+# shipped default is the committed versions.env.dist beside it.
+src/*/*/versions.env
+src/*/*/versions.env.tmp
+# <<< DEVBOT - module pins

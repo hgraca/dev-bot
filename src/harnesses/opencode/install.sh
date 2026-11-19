@@ -20,8 +20,7 @@ DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../../.." && pwd)"
 # shellcheck source=../../_shared/functions.sh
 source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 
-# shellcheck source=./versions.env
-source "${MODULE_DIR}/versions.env"
+_devbot_versions_env_source "${MODULE_DIR}"
 
 PREFIX="${DEV_BOT_ROOT}/storage/intelephense"
 PKG_JSON="${PREFIX}/node_modules/intelephense/package.json"

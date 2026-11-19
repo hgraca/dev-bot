@@ -35,7 +35,7 @@ Every module follows the same structure under `src/agentic/<name>/`. **All entri
   mcp.json              Canonical MCP server manifest (harness-agnostic — see [MCP configuration](/mcp-config))
   plugin.opencode.json  OpenCode plugin names declared by this module (optional)
   external-modules.json External module dependencies declared by this module
-  versions.env          Dependency version pin: installed exactly at install, bumped by `update.sh` (optional)
+  versions.env.dist     Dependency version pin — the shipped default; the live `versions.env` beside it is machine-local and gitignored, bumped by `update.sh` (optional)
   skills-prune.lst      Tool-installed skill duplicates this module declares for auto-pruning (optional)
   docker-compose.yml    Module-owned docker service(s), auto-discovered by `devbot up`/`down` (optional)
   docker-compose.gpu.yml  GPU passthrough overlay for this module's service, included when GPU is available (optional)
@@ -64,9 +64,9 @@ A module that ships a `docs.md` gets a page on this site at `/modules/<area>/<na
 
 **start.sh** (harnesses only): Launches the harness binary (`claude` / `opencode`) without forcing an agent — the session agent comes from the project's default (`opencode.jsonc` `default_agent` / `.claude/settings.json` `agent`), created with `devbot` by default during init and only asked about when an existing config chose a different agent. Run by `devbot` (`cmd_harness` in `bin/devbot`) to start the configured harness; not part of the generic lifecycle loops. Accepts an optional project directory as `$1` and forwards remaining args to the harness binary. Before launching it rotates the previous session's `.agents/logs/*.log` files to `.agents/logs/rotated/<date>-<name>-<NNN>.log`, then runs the harness as a child (not `exec`); on exit it scans the fresh logs for error-level lines, alerts the user, and exits with the harness's exit code.
 
-### Dependency version pins (`versions.env`)
+### Dependency version pins (`versions.env.dist`)
 
-Modules that install an external CLI/MCP dependency globally (e.g. chrome-devtools, playwright) keep its version in `versions.env`. `install.sh` installs exactly the pin and is idempotent; `update.sh` resolves the package's npm latest on `devbot update`, installs it, and rewrites the pin in place — session start never re-resolves `latest`. Runtime launch commands resolve the installed binary by explicit npm-prefix paths (never bare-name via PATH, which can pick up a stale system binary).
+Modules that install an external CLI/MCP dependency globally (e.g. chrome-devtools, playwright) keep its version in a committed `versions.env.dist` — the shipped default. The live `versions.env` beside it is machine-local and gitignored: `install.sh` installs the pin (live, else the default) and is idempotent; `update.sh` resolves the package's npm latest on `devbot update`, installs it, and rewrites the live pin in place — session start never re-resolves `latest`, and the release checkout never goes dirty. Runtime launch commands resolve the installed binary by explicit npm-prefix paths (never bare-name via PATH, which can pick up a stale system binary).
 
 ### Module-owned docker services (`docker-compose.yml`)
 

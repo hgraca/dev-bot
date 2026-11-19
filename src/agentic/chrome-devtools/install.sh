@@ -24,8 +24,7 @@ source "${MODULE_DIR}/../../_shared/functions.sh"
 
 # version from versions.env — T1.2: install installs the exact pin.
 CHROME_DEVTOOLS_MCP_VERSION=""
-# shellcheck source=./versions.env
-source "${MODULE_DIR}/versions.env"
+_devbot_versions_env_source "${MODULE_DIR}"
 
 _chromium_present() {
   # True if ANY Playwright-downloaded Chromium exists (Linux or macOS layout).

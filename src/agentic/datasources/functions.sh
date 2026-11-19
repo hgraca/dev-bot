@@ -6,8 +6,7 @@ set -euo pipefail
 MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export MODULE_DIR
 source "${MODULE_DIR}/../../_shared/functions.sh"
-# shellcheck source=./versions.env
-source "${MODULE_DIR}/versions.env"
+_devbot_versions_env_source "${MODULE_DIR}"
 
 # ── Rendered artifacts ───────────────────────────────────────────────────────
 #

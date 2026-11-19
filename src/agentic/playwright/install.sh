@@ -21,8 +21,7 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${MODULE_DIR}/../../_shared/functions.sh"
 
 PLAYWRIGHT_MCP_VERSION=""
-# shellcheck source=./versions.env
-source "${MODULE_DIR}/versions.env"
+_devbot_versions_env_source "${MODULE_DIR}"
 
 # Prints the installed global binary path, trying the npm prefix candidates the
 # mcp.json launcher uses. Never PATH-resolves.

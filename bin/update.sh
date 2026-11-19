@@ -205,6 +205,55 @@ _acknowledge_conflict() {
   _ok "Continuing."
 }
 
+_STASH_MARKER="update.sh auto-stash"
+
+# A release that stopped tracking a path this machine had modified leaves the
+# stash pop with a modify/delete conflict: the path is unmerged, and the
+# machine's copy is in the tree. When the release now gitignores that path the
+# copy belongs on disk, untracked — untrack it and keep it. A leftover unmerged
+# path from an interrupted run is repaired the same way, which matters because
+# `git stash push` refuses to write an index that needs a merge.
+# Returns 0 only when every unmerged path was resolved this way.
+_resolve_ignored_conflicts() {
+  local path remaining resolved=0
+  while IFS= read -r path; do
+    [[ -n "${path}" ]] || continue
+    git -C "${DEV_BOT_ROOT}" check-ignore --no-index -q -- "${path}" || continue
+    git -C "${DEV_BOT_ROOT}" rm --cached --force --quiet -- "${path}" || continue
+    [[ "${AUTO_QUIET}" -eq 0 ]] && _ok "Kept ${path} — gitignored by this release."
+    resolved=$(( resolved + 1 ))
+  done < <(git -C "${DEV_BOT_ROOT}" diff --name-only --diff-filter=U)
+  [[ "${resolved}" -gt 0 ]] || return 1
+  remaining="$(git -C "${DEV_BOT_ROOT}" diff --name-only --diff-filter=U)"
+  [[ -z "${remaining}" ]]
+}
+
+# Drop the entry this run's stash push created (or an interrupted earlier run
+# left behind), identified by its message so a user's own stash is never lost.
+_drop_auto_stash() {
+  local top=""
+  top="$(git -C "${DEV_BOT_ROOT}" stash list --format='%gs' 2>/dev/null | head -n1)"
+  [[ "${top}" == *"${_STASH_MARKER}" ]] || return 1
+  git -C "${DEV_BOT_ROOT}" stash drop --quiet 'stash@{0}'
+}
+
+# Reapply the auto-stash. Rename detection is off so a release that renamed a
+# path instead reports a modify/delete conflict: the machine's copy then stays
+# on disk instead of being merged into the release's own file.
+_restore_stash() {
+  _info "Restoring stashed changes..."
+  if git -C "${DEV_BOT_ROOT}" -c diff.renames=false -c merge.renames=false stash pop; then
+    _ok "Stash restored."
+    return 0
+  fi
+  if _resolve_ignored_conflicts && _drop_auto_stash; then
+    _ok "Stash restored — your copies of the newly gitignored files are kept."
+    return 0
+  fi
+  _acknowledge_conflict
+  return 1
+}
+
 # ── Path A: strictly behind -> stash, detach-jump, reapply ───────────────────
 _jump_to_release() {
   local release="$1"
@@ -225,24 +274,12 @@ _jump_to_release() {
 
   if ! git -C "${DEV_BOT_ROOT}" checkout --detach "${release}"; then
     _error "Could not check out release ${release}."
-    if [[ "${stashed}" -eq 1 ]]; then
-      _info "Restoring stashed changes..."
-      if ! git -C "${DEV_BOT_ROOT}" stash pop; then
-        _warn "Could not restore stashed changes — see 'git stash list'."
-      fi
-    fi
+    [[ "${stashed}" -eq 1 ]] && _restore_stash
     return 1
   fi
   _ok "Moved onto release ${release} (was ${old})."
 
-  if [[ "${stashed}" -eq 1 ]]; then
-    _info "Restoring stashed changes..."
-    if ! git -C "${DEV_BOT_ROOT}" stash pop; then
-      _acknowledge_conflict
-    else
-      _ok "Stash restored."
-    fi
-  fi
+  [[ "${stashed}" -eq 1 ]] && _restore_stash
 
   UPDATE_OLD="${old}" UPDATE_NEW="${release}"
 }
@@ -280,12 +317,7 @@ _rebase_onto_release() {
     else
       _warn "git rebase --abort failed — inspect the repository state manually."
     fi
-    if [[ "${stashed}" -eq 1 ]]; then
-      _info "Restoring stashed changes..."
-      if ! git -C "${DEV_BOT_ROOT}" stash pop; then
-        _warn "Could not restore stashed changes — see 'git stash list'."
-      fi
-    fi
+    [[ "${stashed}" -eq 1 ]] && _restore_stash
     _error "Attempted to rebase ${branch} onto release ${release}, but conflicts occurred;"
     _error "the rebase was aborted and your branch is exactly as it was before. Resolve the"
     _error "conflicts manually (e.g. git rebase --continue after fixing, or redo the branch),"
@@ -294,14 +326,7 @@ _rebase_onto_release() {
   fi
   _ok "Rebased ${branch} onto release ${release} (was ${old})."
 
-  if [[ "${stashed}" -eq 1 ]]; then
-    _info "Restoring stashed changes..."
-    if ! git -C "${DEV_BOT_ROOT}" stash pop; then
-      _acknowledge_conflict
-    else
-      _ok "Stash restored."
-    fi
-  fi
+  [[ "${stashed}" -eq 1 ]] && _restore_stash
 
   UPDATE_OLD="${old}" UPDATE_NEW="${release}"
 }
@@ -661,6 +686,11 @@ main() {
   # Interactive mode announces itself up front; auto mode stays silent until it
   # knows there is something to do.
   [[ "${AUTO_QUIET}" -eq 0 ]] && _header_1 "DevBot Update"
+
+  # Repair a transition an earlier run could not finish: a release that stopped
+  # tracking a path the machine had modified leaves it unmerged, and the next
+  # `git stash push` would refuse the index. Runs before anything reads the tree.
+  _resolve_ignored_conflicts && _drop_auto_stash || true
 
   if ! _fetch_tags; then
     exit 1

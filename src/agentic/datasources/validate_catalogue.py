@@ -71,7 +71,22 @@ MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEV_BOT_ROOT = os.environ.get("DEV_BOT_ROOT") or os.path.dirname(
     os.path.dirname(os.path.dirname(MODULE_DIR))
 )
-VERSIONS_FILE = os.path.join(MODULE_DIR, "versions.env")
+
+
+def versions_file(module_dir: str) -> str:
+    """The effective pin file for a module.
+
+    The live versions.env is machine-local and gitignored: `devbot update`
+    rewrites it in place, so a tracked copy would leave the release checkout
+    dirty. The shipped default is versions.env.dist beside it.
+    """
+    live = os.path.join(module_dir, "versions.env")
+    if os.path.isfile(live):
+        return live
+    return os.path.join(module_dir, "versions.env.dist")
+
+
+VERSIONS_FILE = versions_file(MODULE_DIR)
 
 # How long one source has to reach readiness. A good config serves within a
 # second; a host that blackholes the dial is caught first by the driver's own

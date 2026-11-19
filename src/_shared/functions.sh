@@ -167,6 +167,41 @@ _devbot_load_env_file() {
   [[ ${allexport} -eq 1 ]] || set +a
 }
 
+# ── Module pin files (versions.env) ────────────────────────────────────────────
+# A module ships its pin as a committed versions.env.dist; the live versions.env
+# beside it is machine-local and gitignored, because `devbot update` bumps it in
+# place and a tracked copy would leave the release checkout dirty.
+
+# _devbot_versions_env <module_dir> — echo the pin file to read, or nothing.
+_devbot_versions_env() {
+  local dir="${1:-}"
+  [[ -n "${dir}" ]] || return 0
+  if [[ -f "${dir}/versions.env" ]]; then
+    printf '%s\n' "${dir}/versions.env"
+  elif [[ -f "${dir}/versions.env.dist" ]]; then
+    printf '%s\n' "${dir}/versions.env.dist"
+  fi
+}
+
+# _devbot_versions_env_source <module_dir> — source the effective pin.
+_devbot_versions_env_source() {
+  local file=""
+  file="$(_devbot_versions_env "${1:-}")"
+  [[ -n "${file}" ]] || return 0
+  # shellcheck disable=SC1090  # live or shipped default, resolved at runtime
+  source "${file}"
+}
+
+# _devbot_versions_env_seed <module_dir> — give a writer a live pin to rewrite.
+# Readers never seed: a stale copy would shadow every later release bump.
+_devbot_versions_env_seed() {
+  local dir="${1:-}" live="${1}/versions.env" dist="${1}/versions.env.dist"
+  [[ -n "${dir}" ]] || return 1
+  [[ -f "${live}" ]] && return 0
+  [[ -f "${dist}" ]] || return 1
+  cp "${dist}" "${live}.tmp" && mv "${live}.tmp" "${live}"
+}
+
 # ── Shared utilities ──────────────────────────────────────────────────────────────
 
 _fmt_duration() {

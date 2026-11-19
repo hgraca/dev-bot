@@ -20,6 +20,10 @@ setup() {
   SHARED_WRAPPER="$(cd "$MODULE_DIR/../../.." && pwd)/src/_shared/mcp-stdio-wrapper.js"
 }
 
+# The pin ships as versions.env.dist; the live versions.env beside it is
+# machine-local.
+load '../../../_shared/tests/lib/pins.bash'
+
 # ── init.sh wiring ────────────────────────────────────────────────────────────
 
 # Harness selection is the root `harness` key alone: only the selected harness
@@ -34,7 +38,7 @@ setup_project() {
 # provide a fake binary at the pinned version, and a present chromium.
 _stub_runtime_kit() {
   local pin
-  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "${MODULE_DIR}/versions.env" | head -1)"
+  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$(pins_file "${MODULE_DIR}")" | head -1)"
   mkdir -p "${1}/.cache/ms-playwright/chromium-9999/chrome-linux" \
     "${1}/.npm-global/bin" "${1}/stubbin"
   touch "${1}/.cache/ms-playwright/chromium-9999/chrome-linux/chrome"
@@ -133,31 +137,39 @@ print('DISABLED-BY-DEFAULT:OK')
 
 # ── T1.2: version pinning ─────────────────────────────────────────────────────
 
-@test "versions.env: exists and pins a semver chrome-devtools-mcp version" {
-  [[ -f "${MODULE_DIR}/versions.env" ]]
-  run bash -c "source '${MODULE_DIR}/versions.env' && [[ -n \"\${CHROME_DEVTOOLS_MCP_VERSION:-}\" ]]"
+@test "versions.env.dist: ships a semver chrome-devtools-mcp default" {
+  # The tracked artifact is the shipped default; the machine's pin is the
+  # gitignored live copy that `devbot update` rewrites.
+  [[ -f "${MODULE_DIR}/versions.env.dist" ]]
+  run bash -c "source '${MODULE_DIR}/versions.env.dist' && [[ -n \"\${CHROME_DEVTOOLS_MCP_VERSION:-}\" ]]"
   assert_success
-  run grep -cE '^CHROME_DEVTOOLS_MCP_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env"
+  run grep -cE '^CHROME_DEVTOOLS_MCP_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env.dist"
   assert_equal "$output" "1"
 }
 
-@test "install.sh: installs the globally pinned package from versions.env" {
+@test "install.sh: installs the globally pinned package from the effective pin" {
   run grep -qF 'npm install -g "chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}"' "${MODULE_DIR}/install.sh"
   assert_success
-  run grep -q 'versions\.env' "${MODULE_DIR}/install.sh"
+  run grep -qF '_devbot_versions_env_source "${MODULE_DIR}"' "${MODULE_DIR}/install.sh"
   assert_success
 }
 
-@test "update.sh: resolves npm latest, installs it, and bumps versions.env" {
+@test "update.sh: resolves npm latest, installs it, and bumps the live pin only" {
   # User policy: the installed version is bumped to npm latest ONLY on
-  # 'devbot update', and the rewritten pin keeps every consumer at the new
-  # version on their next install.
+  # 'devbot update', and the rewritten pin keeps the machine at the new version
+  # on its next install. The shipped default must stay untouched — rewriting a
+  # tracked file is what left the release checkout dirty.
   run grep -q 'npm view chrome-devtools-mcp version' "${MODULE_DIR}/update.sh"
   assert_success
   run grep -qF 'npm install -g "chrome-devtools-mcp@${LATEST}"' "${MODULE_DIR}/update.sh"
   assert_success
-  run grep -q 'versions\.env' "${MODULE_DIR}/update.sh"
+  run grep -qF '_devbot_versions_env_seed "${MODULE_DIR}"' "${MODULE_DIR}/update.sh"
   assert_success
+  run grep -qF '"${MODULE_DIR}/versions.env" > "${MODULE_DIR}/versions.env.tmp"' "${MODULE_DIR}/update.sh"
+  assert_success
+  # nothing may write the shipped default: it is a tracked file
+  run grep -qF 'versions.env.dist" >' "${MODULE_DIR}/update.sh"
+  assert_failure
 }
 
 # ── serve launcher ────────────────────────────────────────────────────────────
@@ -279,7 +291,7 @@ print('DISABLED-BY-DEFAULT:OK')
   # the highest revision number, not the first path.
   local tmpdir old new small pin
   tmpdir="$(mktemp -d)"
-  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "${MODULE_DIR}/versions.env" | head -1)"
+  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$(pins_file "${MODULE_DIR}")" | head -1)"
   old="${tmpdir}/.cache/ms-playwright/chromium-1155/chrome-linux/chrome"
   new="${tmpdir}/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome"
   # A three-digit revision sorts LAST lexicographically but is numerically older:

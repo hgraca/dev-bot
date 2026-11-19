@@ -283,19 +283,24 @@ MOCK
   rm -rf "${mockbin}"
 }
 
-# A sandbox copy gives update.sh a private versions.env to rewrite.
+# A sandbox copy gives update.sh a private versions.env to rewrite. The live pin
+# is machine-local (gitignored), so seed a known-old one: the bump must stay
+# observable whatever this machine's own pin happens to be.
 _make_update_sandbox() {
   SANDBOX="$(mktemp -d)"
   MODULE_COPY="${SANDBOX}/src/agentic/sonarqube"
   mkdir -p "${MODULE_COPY}"
   cp -r "${MODULE_DIR}/." "${MODULE_COPY}/"
+  rm -f "${MODULE_COPY}/versions.env"
+  sed 's/^SONARQUBE_MCP_IMAGE_TAG=.*/SONARQUBE_MCP_IMAGE_TAG=1.0.0.1/' \
+    "${MODULE_COPY}/versions.env.dist" > "${MODULE_COPY}/versions.env"
   ln -s "${SHARED_DIR}" "${SANDBOX}/src/_shared"
   MOCKBIN="${SANDBOX}/mockbin"
   mkdir -p "${MOCKBIN}"
 }
 
-@test "update.sh bumps the pin from Docker Hub and pulls the new image" {
-  _make_update_sandbox
+# The registry + docker mocks the bump path needs: one newer 1.x tag published.
+_mock_bump_registry() {
   cat > "${MOCKBIN}/curl" <<'MOCK'
 #!/usr/bin/env bash
 cat <<'JSON'
@@ -312,11 +317,37 @@ case "$1" in
 esac
 MOCK
   chmod +x "${MOCKBIN}/curl" "${MOCKBIN}/docker"
+}
+
+@test "update.sh bumps the pin from Docker Hub and pulls the new image" {
+  _make_update_sandbox
+  _mock_bump_registry
 
   run env PATH="${MOCKBIN}:${PATH}" bash "${MODULE_COPY}/update.sh"
   assert_success
   grep -q '^SONARQUBE_MCP_IMAGE_TAG=1\.31\.2\.5000$' "${MODULE_COPY}/versions.env" \
     || fail "pin was not bumped to the newest 1.x tag"
+  # The shipped default is a tracked file: the bump must never touch it.
+  grep -q '^SONARQUBE_MCP_IMAGE_TAG=1\.30\.0\.4763$' "${MODULE_COPY}/versions.env.dist" \
+    || fail "update.sh rewrote the shipped default instead of the live pin"
+
+  rm -rf "${SANDBOX}"
+}
+
+@test "update.sh seeds the live pin when the machine has none" {
+  # A fresh checkout carries only the shipped default (the live pin is
+  # gitignored), so the writer has to create the file it is about to rewrite.
+  _make_update_sandbox
+  rm -f "${MODULE_COPY}/versions.env"
+  _mock_bump_registry
+
+  run env PATH="${MOCKBIN}:${PATH}" bash "${MODULE_COPY}/update.sh"
+  assert_success
+  [ -f "${MODULE_COPY}/versions.env" ]
+  grep -q '^SONARQUBE_MCP_IMAGE_TAG=1\.31\.2\.5000$' "${MODULE_COPY}/versions.env" \
+    || fail "the seeded live pin was not bumped"
+  run ls "${MODULE_COPY}/versions.env.tmp"
+  [ "$status" -ne 0 ]
 
   rm -rf "${SANDBOX}"
 }

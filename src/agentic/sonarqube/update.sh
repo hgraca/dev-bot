@@ -26,6 +26,8 @@ main() {
     if ! docker manifest inspect "sonarsource/sonarqube-mcp:${latest}" >/dev/null 2>&1; then
       _warn "could not verify sonarsource/sonarqube-mcp:${latest} — keeping the existing pin"
     else
+      # The pin is machine-local (gitignored): a writer needs a live copy.
+      _devbot_versions_env_seed "${MODULE_DIR}"
       # sed->tmp->mv (no bare `sed -i` — macOS requires a backup suffix).
       sed "s/^SONARQUBE_MCP_IMAGE_TAG=.*/SONARQUBE_MCP_IMAGE_TAG=${latest}/" \
         "${MODULE_DIR}/versions.env" > "${MODULE_DIR}/versions.env.tmp" \

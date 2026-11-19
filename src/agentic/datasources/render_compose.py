@@ -32,7 +32,7 @@ from render_tools_yaml import (
     load_catalogue,
     on_macos,
 )
-from validate_catalogue import load_versions
+from validate_catalogue import load_versions, versions_file
 
 # Replaced by the env var name list. Kept on a single line so the substitution
 # is a plain string replace and survives any formatter re-indenting the rest.
@@ -281,9 +281,7 @@ def main():
         if marker not in template:
             fail(f"template {template_path} does not contain {marker}")
 
-    versions = load_versions(
-        os.path.join(os.path.dirname(template_path), "versions.env")
-    )
+    versions = load_versions(versions_file(os.path.dirname(template_path)))
 
     out = template.replace(MARKER, json.dumps(effective_env_names(catalogue)))
     out = out.replace(NETWORK_MODE_MARKER, _network_mode(gateway_port()))

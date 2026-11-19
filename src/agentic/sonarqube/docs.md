@@ -88,8 +88,9 @@ A cold start — image pull, container boot, analyzer sync — measures 29-46 s,
 past opencode's 30 s default MCP timeout, which reports the enabled server as
 `failed`. The manifest therefore ships `"timeout": 120000`.
 
-The image is pinned in `versions.env` and pulled lazily the first time the MCP
-starts; `devbot update` moves the pin to the newest release. The server needs
+The image is pinned in `versions.env.dist` — the live `versions.env` beside it is
+machine-local and gitignored — and pulled lazily the first time the MCP
+starts; `devbot update` moves the machine's pin to the newest release. The server needs
 Docker, and the connected SonarQube instance must be 2025.1 / Community Build
 25.1 or later (Cloud is always supported). Because the launch is behind a
 script, the "docker-only server" registration guard does not detect it: on a

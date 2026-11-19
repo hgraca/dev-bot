@@ -14,9 +14,10 @@ name: devbot
 
 services:
   datasources-mcp:
-    # Defaults mirror versions.env (tests assert the two agree) so that a bare
-    # `docker compose config` — debugging, not a launch — is warning-free and
-    # still names the pinned image. `devbot up` overrides both from versions.env.
+    # Defaults mirror the shipped pin (versions.env.dist; tests assert the two
+    # agree) so that a bare `docker compose config` — debugging, not a launch —
+    # is warning-free and still names the pinned image. `devbot up` overrides
+    # both from the effective pin.
     image: ${TOOLBOX_IMAGE:-us-central1-docker.pkg.dev/database-toolbox/toolbox/toolbox}:${TOOLBOX_VERSION:-1.11.0}
     container_name: dev-bot-datasources-mcp
     # NO healthcheck: the toolbox image is distroless — no shell, and none of

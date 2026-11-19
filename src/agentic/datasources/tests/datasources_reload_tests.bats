@@ -14,6 +14,7 @@
 # =============================================================================
 
 load 'datasources_test_helper'
+load '../../../_shared/tests/lib/pins.bash'
 
 # ── reload.sh ────────────────────────────────────────────────────────────────
 
@@ -491,8 +492,9 @@ SH
   # oracle's verdict matches the gateway, which the docker-free unit tests
   # deliberately cannot.
   [[ -n "${REAL_DOCKER}" ]] || skip "docker not available"
-  # shellcheck source=./versions.env
-  source "${MODULE_DIR}/versions.env"
+  # The pin is machine-local (gitignored); the shipped default is the fallback.
+  # shellcheck source=/dev/null
+  source "$(pins_file "${MODULE_DIR}")"
   "${REAL_DOCKER}" image inspect "${TOOLBOX_IMAGE}:${TOOLBOX_VERSION}" >/dev/null 2>&1 ||
     skip "pinned toolbox image not present"
 

@@ -101,11 +101,13 @@ _stub_intelephense() {
 
 # ── version pin ───────────────────────────────────────────────────────────────
 
-@test "versions.env: pins a semver intelephense version" {
-  [[ -f "${MODULE_DIR}/versions.env" ]]
-  run bash -c "source '${MODULE_DIR}/versions.env' && [[ -n \"\${INTELEPHENSE_VERSION:-}\" ]]"
+@test "versions.env.dist: pins a semver intelephense version" {
+  # The tracked artifact is the shipped default; the machine's pin is the
+  # gitignored live copy beside it.
+  [[ -f "${MODULE_DIR}/versions.env.dist" ]]
+  run bash -c "source '${MODULE_DIR}/versions.env.dist' && [[ -n \"\${INTELEPHENSE_VERSION:-}\" ]]"
   assert_success
-  run grep -cE '^INTELEPHENSE_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env"
+  run grep -cE '^INTELEPHENSE_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env.dist"
   assert_equal "$output" "1"
 }
 
@@ -137,17 +139,24 @@ _stub_intelephense() {
   refute grep -q 'npm view' "${MODULE_DIR}/update.sh"
 }
 
-@test "update.sh: provisions the pin without rewriting versions.env" {
-  local stub before after
+@test "update.sh: provisions the pin without rewriting the pin files" {
+  local stub before after before_dist after_dist
   stub="$(mktemp -d)"
   printf '#!/bin/sh\nexit 0\n' > "${stub}/npm"
   chmod +x "${stub}/npm"
-  before="$(cat "${MODULE_DIR}/versions.env")"
+  # The shipped default is the tracked artifact; the live file exists only on a
+  # machine that has already read the pin.
+  before_dist="$(cat "${MODULE_DIR}/versions.env.dist")"
+  before=""
+  [[ -f "${MODULE_DIR}/versions.env" ]] && before="$(cat "${MODULE_DIR}/versions.env")"
 
   run env PATH="${stub}:${PATH}" bash "${MODULE_DIR}/update.sh"
 
   assert_success
-  after="$(cat "${MODULE_DIR}/versions.env")"
+  after_dist="$(cat "${MODULE_DIR}/versions.env.dist")"
+  after=""
+  [[ -f "${MODULE_DIR}/versions.env" ]] && after="$(cat "${MODULE_DIR}/versions.env")"
+  [ "${before_dist}" = "${after_dist}" ]
   [ "${before}" = "${after}" ]
   rm -r "${stub}"
 }

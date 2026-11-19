@@ -83,6 +83,57 @@ teardown() { _update_teardown; }
   [[ "$output" == *"UU f.txt"* || "$output" == *"AA f.txt"* || "$output" == *"U"* ]]
 }
 
+# ── A release that stops tracking a file the machine modified ─────────────────
+
+@test "behind: a release that untracks a modified file keeps it, cleanly" {
+  _new_sandbox "1.0.0"
+  _seed_untracked_pin_release "1.1.0" "1.2.0"
+
+  _run_update
+
+  [ "$UPDATE_STATUS" -eq 0 ]
+  _assert_detached_at_newest_tag
+  _refresh_ran
+  # The machine's bumped pin survives — as an untracked, ignored local copy.
+  grep -qx 'PIN=9.9.9' "${INSTALL}/src/agentic/pinmod/versions.env"
+  # The transition leaves nothing behind: no conflict, no lingering stash, and a
+  # tree that no longer reports the pin as modified.
+  run git -C "${INSTALL}" diff --name-only --diff-filter=U
+  [ -z "$output" ]
+  run git -C "${INSTALL}" stash list
+  [ -z "$output" ]
+  # The fixture's machinery dirs are untracked by design; what matters is that
+  # the pin no longer shows up as a modification.
+  run git -C "${INSTALL}" status --porcelain -- src/agentic/pinmod
+  [ -z "$output" ]
+}
+
+@test "behind: repairs an interrupted transition instead of aborting on the stash" {
+  _new_sandbox "1.0.0"
+  _seed_untracked_pin_release "1.1.0" "1.2.0"
+
+  # Reproduce what an earlier release's update.sh leaves behind: stash, jump,
+  # and a pop that hits modify/delete — an unmerged path plus a kept stash.
+  git -C "${INSTALL}" stash push --include-untracked -m "update.sh auto-stash" >/dev/null
+  _checkout_install_tag "1.2.0"
+  run git -C "${INSTALL}" stash pop
+  [ "$status" -ne 0 ]
+  run git -C "${INSTALL}" diff --name-only --diff-filter=U
+  [ -n "$output" ]
+
+  _run_update
+
+  # The repair runs before anything touches the index, so the update proceeds
+  # instead of failing on "could not write index ... needs merge".
+  [ "$UPDATE_STATUS" -eq 0 ]
+  [[ "$UPDATE_OUTPUT" != *"could not write index"* ]]
+  run git -C "${INSTALL}" diff --name-only --diff-filter=U
+  [ -z "$output" ]
+  run git -C "${INSTALL}" stash list
+  [ -z "$output" ]
+  grep -qx 'PIN=9.9.9' "${INSTALL}/src/agentic/pinmod/versions.env"
+}
+
 # ── Version recording (the per-project reinit trigger) ───────────────────────
 
 @test "behind: records the release tag in the global config version" {

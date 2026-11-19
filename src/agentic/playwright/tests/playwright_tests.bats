@@ -20,6 +20,10 @@ setup() {
   SHARED_WRAPPER="$(cd "$MODULE_DIR/../../.." && pwd)/src/_shared/mcp-stdio-wrapper.js"
 }
 
+# The pin ships as versions.env.dist; the live versions.env beside it is
+# machine-local.
+load '../../../_shared/tests/lib/pins.bash'
+
 # ── init.sh wiring ────────────────────────────────────────────────────────────
 
 # Harness selection is the root `harness` key alone: only the selected harness
@@ -35,7 +39,7 @@ setup_project() {
 # provide a fake binary at the pinned version.
 _stub_npm_kit() {
   local pin
-  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "${MODULE_DIR}/versions.env" | head -1)"
+  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$(pins_file "${MODULE_DIR}")" | head -1)"
   mkdir -p "${1}/.npm-global/bin" "${1}/stubbin"
   printf '#!/bin/bash\necho "%s"\n' "${pin}" > "${1}/.npm-global/bin/playwright-mcp"
   chmod +x "${1}/.npm-global/bin/playwright-mcp"
@@ -125,17 +129,19 @@ JSON
 
 # ── T1.2: version pinning ─────────────────────────────────────────────────────
 
-@test "versions.env: exists and pins a semver @playwright/mcp version" {
-  [[ -f "${MODULE_DIR}/versions.env" ]]
-  run bash -c "source '${MODULE_DIR}/versions.env' && [[ -n \"\${PLAYWRIGHT_MCP_VERSION:-}\" ]]"
+@test "versions.env.dist: ships a semver @playwright/mcp default" {
+  # The tracked artifact is the shipped default; the machine's pin is the
+  # gitignored live copy that `devbot update` rewrites.
+  [[ -f "${MODULE_DIR}/versions.env.dist" ]]
+  run bash -c "source '${MODULE_DIR}/versions.env.dist' && [[ -n \"\${PLAYWRIGHT_MCP_VERSION:-}\" ]]"
   assert_success
-  run grep -cE '^PLAYWRIGHT_MCP_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env"
+  run grep -cE '^PLAYWRIGHT_MCP_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env.dist"
   assert_equal "$output" "1"
 }
 
 @test "install.sh: exists, is executable, and installs the pinned package" {
   [[ -x "${MODULE_DIR}/install.sh" ]]
-  run grep -q 'versions\.env' "${MODULE_DIR}/install.sh"
+  run grep -qF '_devbot_versions_env_source "${MODULE_DIR}"' "${MODULE_DIR}/install.sh"
   assert_success
   run grep -qF 'npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}"' "${MODULE_DIR}/install.sh"
   assert_success
@@ -158,7 +164,7 @@ JSON
 @test "install.sh: runs install-browser when no docker daemon is reachable" {
   local tmpdir pin
   tmpdir="$(mktemp -d)"
-  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "${MODULE_DIR}/versions.env" | head -1)"
+  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$(pins_file "${MODULE_DIR}")" | head -1)"
   mkdir -p "${tmpdir}/.npm-global/bin" "${tmpdir}/stubbin"
 
   # The installed binary records every invocation and answers --version with the pin.
@@ -180,12 +186,14 @@ JSON
   rm -rf "${tmpdir}"
 }
 
-@test "Dockerfile: the baked @playwright/mcp version matches versions.env" {
+@test "Dockerfile: the baked @playwright/mcp version matches the shipped default" {
   # A drift makes reinit install a different server than the browser baked into
   # the image, so the fallback looks for a browser revision the image lacks
-  # (audit-66 FAIL).
+  # (audit-66 FAIL). Both sides are committed artifacts, so the comparison is
+  # against the shipped default — a machine's bumped pin is not part of the
+  # release and must not fail this test.
   local pin dockerfile
-  pin="$(grep -oE '^PLAYWRIGHT_MCP_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env" | cut -d= -f2)"
+  pin="$(grep -oE '^PLAYWRIGHT_MCP_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env.dist" | cut -d= -f2)"
   dockerfile="$(cd "${MODULE_DIR}/../../.." && pwd)/tests/test-project/Dockerfile"
   [[ -f "${dockerfile}" ]] || skip "fixture Dockerfile not present"
 
@@ -193,17 +201,22 @@ JSON
   assert_output "@playwright/mcp@${pin}"
 }
 
-@test "update.sh: exists, is executable, resolves npm latest, and bumps versions.env" {
+@test "update.sh: exists, is executable, resolves npm latest, and bumps the live pin only" {
   # User policy: the installed version is bumped to npm latest ONLY on
-  # 'devbot update', and the rewritten pin keeps every consumer at the new
-  # version on their next install.
+  # 'devbot update', and the rewritten pin keeps the machine at the new version
+  # on its next install. The shipped default must stay untouched — rewriting a
+  # tracked file is what left the release checkout dirty.
   [[ -x "${MODULE_DIR}/update.sh" ]]
   run grep -q 'npm view "@playwright/mcp" version' "${MODULE_DIR}/update.sh"
   assert_success
   run grep -qF 'npm install -g "@playwright/mcp@${LATEST}"' "${MODULE_DIR}/update.sh"
   assert_success
-  run grep -q 'versions\.env' "${MODULE_DIR}/update.sh"
+  run grep -qF '_devbot_versions_env_seed "${MODULE_DIR}"' "${MODULE_DIR}/update.sh"
   assert_success
+  run grep -qF '"${MODULE_DIR}/versions.env" > "${MODULE_DIR}/versions.env.tmp"' "${MODULE_DIR}/update.sh"
+  assert_success
+  run grep -qF 'versions.env.dist" >' "${MODULE_DIR}/update.sh"
+  assert_failure
 }
 
 # ── T1.2: mcp.json launch routing ────────────────────────────────────────────

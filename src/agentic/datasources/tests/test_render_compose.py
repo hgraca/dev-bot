@@ -359,11 +359,15 @@ if __name__ == "__main__":
 
 
 class TestTemplateDefaults(unittest.TestCase):
-    """The template's image defaults must track versions.env (audit-03 N6)."""
+    """The template's image defaults must track the shipped pin (audit-03 N6)."""
 
     def _versions(self):
+        # The committed default, not the machine's gitignored versions.env: a
+        # bumped pin is machine state and must not fail a release check.
         values = {}
-        with open(os.path.join(MODULE_DIR, "versions.env"), encoding="utf-8") as fh:
+        with open(
+            os.path.join(MODULE_DIR, "versions.env.dist"), encoding="utf-8"
+        ) as fh:
             for line in fh:
                 line = line.strip()
                 if not line or line.startswith("#") or "=" not in line:

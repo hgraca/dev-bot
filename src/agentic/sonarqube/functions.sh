@@ -11,8 +11,7 @@ source "${MODULE_DIR}/../../_shared/functions.sh"
 # version) with SONARQUBE_MCP_IMAGE.
 _sonarqube_image() {
   local tag=""
-  # shellcheck source=./versions.env
-  [[ -f "${MODULE_DIR}/versions.env" ]] && source "${MODULE_DIR}/versions.env"
+  _devbot_versions_env_source "${MODULE_DIR}"
   tag="${SONARQUBE_MCP_IMAGE_TAG:-latest}"
   printf '%s' "${SONARQUBE_MCP_IMAGE:-sonarsource/sonarqube-mcp:${tag}}"
 }

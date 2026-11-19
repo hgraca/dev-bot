@@ -257,6 +257,34 @@ _checkout_install_tag() {
   git -C "${INSTALL}" checkout -q --detach "$1"
 }
 
+# Shape of a release that stops tracking a file the machine had modified: the
+# pin is tracked in $1, bumped locally (exactly what a previous update leaves),
+# then renamed to versions.env.dist and gitignored in $2. The install ends dirty
+# at $1, which is what any machine that has run an update before looks like.
+_seed_untracked_pin_release() {
+  local base="$1" next="$2" pin="src/agentic/pinmod/versions.env"
+
+  git -C "${ORIGIN}" checkout -q main
+  mkdir -p "${ORIGIN}/$(dirname "${pin}")"
+  printf 'PIN=1.0.0\n' > "${ORIGIN}/${pin}"
+  git -C "${ORIGIN}" add -A
+  git -C "${ORIGIN}" commit -qm "release ${base}: ship the pin"
+  git -C "${ORIGIN}" tag "${base}"
+
+  _checkout_install_tag "${base}"
+  printf 'PIN=9.9.9\n' > "${INSTALL}/${pin}"
+
+  git -C "${ORIGIN}" mv "${pin}" "${pin}.dist"
+  # The shipped default carries its own header, as the real ones do: an
+  # identical rename would let git merge the stash into the .dist instead of
+  # reporting the conflict the transition actually produces.
+  printf '# shipped default\nPIN=1.0.0\n' > "${ORIGIN}/${pin}.dist"
+  printf 'src/*/*/versions.env\n' > "${ORIGIN}/.gitignore"
+  git -C "${ORIGIN}" add -A
+  git -C "${ORIGIN}" commit -qm "release ${next}: untrack the pin"
+  git -C "${ORIGIN}" tag "${next}"
+}
+
 _run_update() {
   run bash "${INSTALL}/bin/update.sh" "$@"
   UPDATE_STATUS="$status"
