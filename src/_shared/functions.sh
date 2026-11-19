@@ -180,6 +180,37 @@ _fmt_duration() {
   fi
 }
 
+# ── Project ordering ──────────────────────────────────────────────────────────
+# Shallowest first; nested projects follow ancestors.
+# Assumes absolute, normalised paths (registration writes them).
+
+# _path_depth <path> — how many directories deep the path sits.
+_path_depth() {
+  local rest="$1" depth=0
+  while [[ "${rest}" == */ ]]; do rest="${rest%/}"; done
+  while [[ "${rest}" == */* ]]; do
+    rest="${rest#*/}"
+    depth=$(( depth + 1 ))
+  done
+  printf '%s' "${depth}"
+}
+
+# _order_paths_by_depth <path>... — the paths shallowest first, keeping the given
+# order within one depth level (siblings cannot nest, so they stay interchangeable).
+_order_paths_by_depth() {
+  local -a paths=("$@") depths=()
+  local i d dmax=0
+  for i in "${!paths[@]}"; do
+    depths[i]="$(_path_depth "${paths[$i]}")"
+    if [[ ${depths[$i]} -gt ${dmax} ]]; then dmax=${depths[$i]}; fi
+  done
+  for ((d = 0; d <= dmax; d++)); do
+    for i in "${!paths[@]}"; do
+      if [[ "${depths[$i]}" == "${d}" ]]; then printf '%s\n' "${paths[$i]}"; fi
+    done
+  done
+}
+
 # ── DevBot config (.devbot.global.jsonc) helpers ────────────────────────────────────────
 #
 # _devbot_is_true <key>

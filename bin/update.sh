@@ -474,10 +474,12 @@ _retry_pending_bootstrap() {
 # writes only its own project, and add_project.py is a no-op for an already
 # registered project, so the runs do not race on the global config. Output is
 # captured per project and surfaced only on failure.
+#
+# A nested project needs its ancestor finished first.
 _reinit_registered_projects() {
   local global_config="$1"
-  local -a dirs=() pids=() names=()
-  local dir name log log_dir index=0 failed=0
+  local -a dirs=() depths=()
+  local dir depth name log log_dir index=0 failed=0
   REINIT_FAILED=0
 
   if [[ ! -f "${DEV_BOT_ROOT}/bin/init.sh" ]]; then
@@ -486,7 +488,10 @@ _reinit_registered_projects() {
   fi
 
   while IFS= read -r dir; do
-    if [[ -n "${dir}" && -d "${dir}" ]]; then dirs+=("${dir}"); fi
+    if [[ -n "${dir}" && -d "${dir}" ]]; then
+      dirs+=("${dir}")
+      depths+=("$(_path_depth "${dir}")")
+    fi
   done < <(_migration_project_dirs "${global_config}")
 
   if (( ${#dirs[@]} == 0 )); then
@@ -501,25 +506,31 @@ _reinit_registered_projects() {
   # `init --all` defers the env-var dialog; a parallel per-project run must do
   # the same or every child would block on the same prompt.
   export DEV_BOT_DEFER_ENV_DIALOG=1
-  for dir in "${dirs[@]}"; do
-    index=$(( index + 1 ))
-    name="$(basename "${dir}")"
-    log="${log_dir}/${index}-${name}.log"
-    bash "${DEV_BOT_ROOT}/bin/init.sh" "${dir}" </dev/null >"${log}" 2>&1 &
-    pids+=("$!")
-    names+=("${name}")
-  done
-
+  local -a pids=() names=()
   local i
-  for i in "${!pids[@]}"; do
-    if wait "${pids[$i]}"; then
-      _ok "reinitialised ${names[$i]}"
-    else
-      _warn "reinit failed for ${names[$i]} — see ${log_dir}"
-      REINIT_FAILED=$(( REINIT_FAILED + 1 ))
-      failed=1
-    fi
-  done
+  while IFS= read -r depth; do
+    pids=()
+    names=()
+    for i in "${!dirs[@]}"; do
+      [[ "${depths[$i]}" == "${depth}" ]] || continue
+      index=$(( index + 1 ))
+      name="$(basename "${dirs[$i]}")"
+      log="${log_dir}/${index}-${name}.log"
+      bash "${DEV_BOT_ROOT}/bin/init.sh" "${dirs[$i]}" </dev/null >"${log}" 2>&1 &
+      pids+=("$!")
+      names+=("${name}")
+    done
+
+    for i in "${!pids[@]}"; do
+      if wait "${pids[$i]}"; then
+        _ok "reinitialised ${names[$i]}"
+      else
+        _warn "reinit failed for ${names[$i]} — see ${log_dir}"
+        REINIT_FAILED=$(( REINIT_FAILED + 1 ))
+        failed=1
+      fi
+    done
+  done < <(printf '%s\n' "${depths[@]}" | sort -n -u)
   unset DEV_BOT_DEFER_ENV_DIALOG
   return "${failed}"
 }

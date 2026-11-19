@@ -806,3 +806,49 @@ EOF
     assert_success
   done
 }
+
+
+# ── Project ordering ─────────────────────────────────────────────────────────
+# A project nested inside another must be wired after it: the nested init writes
+# no plugin package an ancestor supplies, so both writing one makes the host
+# fail the duplicate plugin id.
+@test "_path_depth counts the directory levels of a path" {
+  run _path_depth "/srv/parent/child"
+
+  assert_success
+  assert_output "3"
+}
+
+@test "_order_paths_by_depth puts an ancestor before the project nested in it" {
+  run _order_paths_by_depth "/srv/parent/child" "/srv/other" "/srv/parent"
+
+  assert_success
+  assert_output "/srv/other
+/srv/parent
+/srv/parent/child"
+}
+
+@test "_order_paths_by_depth keeps the given order within one depth level" {
+  run _order_paths_by_depth "/srv/b" "/srv/a"
+
+  assert_success
+  assert_output "/srv/b
+/srv/a"
+}
+
+@test "_path_depth ignores a trailing slash" {
+  # A registry entry may keep one; counting it would put a project and its
+  # descendant in the same wave, which is the race this ordering exists to stop.
+  run _path_depth "/srv/parent/"
+
+  assert_success
+  assert_output "2"
+}
+
+@test "_order_paths_by_depth puts an ancestor written with a trailing slash first" {
+  run _order_paths_by_depth "/srv/parent/child" "/srv/parent/"
+
+  assert_success
+  assert_output "/srv/parent/
+/srv/parent/child"
+}
