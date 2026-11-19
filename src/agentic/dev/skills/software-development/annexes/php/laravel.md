@@ -115,12 +115,13 @@ Incident 2026-09-07: `OptionsFilter::blacklistTransporterIdsFor()` cached an Elo
 
 ## Container Entrypoint & Queue Workers
 
-The entrypoint (`.docker/*start*.sh`) is the only code that decides how a worker lives and dies under
-Kubernetes. Three rules, each fixing a different failure:
+The entrypoint (`.docker/*start*.sh`) decides how the worker **process** lives; the pod spec — probes,
+`terminationGracePeriodSeconds`, `preStop` — is the other half, and neither works without the other.
+Three process-level rules, each fixing a different failure:
 
 - **`exec` every direct branch** — `php-fpm`, kafka consumers, the scheduler. Without it the shell is
-  PID 1, and PID 1 discards SIGTERM: the process never drains, it is only stopped by the grace-period
-  SIGKILL.
+  PID 1 and never forwards TERM to its child, so the worker does not drain: it runs until the
+  grace-period SIGKILL.
 - **Supervise `queue:work` in a restart loop** — the worker must exit on its recycle bound, but the pod
   must not restart. Restart it in place, forward SIGTERM to the child, keep waiting until it is gone
   (a repeated TERM interrupts `wait`, so loop on `kill -0`), and publish the child pid for a liveness
