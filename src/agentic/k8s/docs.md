@@ -14,6 +14,17 @@ Auto-lints on file save when editing K8s YAML files. Agents can also invoke it e
 
 Cluster commands go through the MCP servers — see [Cluster access](#cluster-access).
 
+## Agentgateway skill
+
+The module vendors the official `agentgateway-oss-kubernetes` skill (upstream
+`agentgateway/website`, `skills/agentgateway-oss-kubernetes`) — Gateway API, the
+agentgateway controller and its CRDs, LLM and MCP routing, identity and cost
+controls. It is declared in the module's own `external-modules.json`, so it is
+wired like any external module (`.agents/skills/agentgateway-oss-kubernetes`)
+and cloned sparsely into `vendor/agentgateway/website` — the website repo's
+assets never reach the disk. `init.sh` fetches the checkout when it is missing
+and reports a failed clone as a warning rather than failing the init.
+
 ## Cluster access
 
 `init.sh` reads the `kubectl` node of the global config — a catalogue of

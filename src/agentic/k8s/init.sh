@@ -317,6 +317,16 @@ _write_memory() {
   _ok "kubectl — active/modules/k8s.md"
 }
 
+# Vendored skills are checkouts: init fetches them.
+# Subshell: the library reassigns MODULE_DIR.
+_ensure_external_skills() {
+  (
+    # shellcheck source=../../tools/external-modules/functions.sh
+    source "${MODULE_DIR}/../../tools/external-modules/functions.sh"
+    _external_module_ensure_declared k8s "${DEV_BOT_ROOT}"
+  ) || _warn "agentgateway skill not fetched into vendor/ — check the network"
+}
+
 # Is the k8s module itself turned off for this project? `_run_module_script`
 # already skips a disabled module's init.sh; this guard keeps a direct run
 # (`bash init.sh`) from writing instructions a disabled module does not own.
@@ -394,6 +404,8 @@ main() {
   fi
 
   _write_memory
+
+  _ensure_external_skills
 
   local config spec slug selection project
   config="$(_devbot_global_config)"

@@ -1,0 +1,8 @@
+{
+  "agentgateway-oss-kubernetes": {
+    "url": "https://github.com/agentgateway/website.git",
+    "paths": {
+      "skills": "skills/agentgateway-oss-kubernetes"
+    }
+  }
+}
