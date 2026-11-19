@@ -7,7 +7,7 @@ keywords: ["refactor", "response contract", "no-op", "engine pinning"]
 
 The refactor module's response answered `ok: true` for a run that changed zero files — a wrong name, or
 one already renamed — and the only hint was a `notice` a caller checks only if it parses the payload.
-While the scratch engine floated (`^2.6` → 2.8.5), that combination reported a *successful* fix that
+While the scratch engine floated (`^2.6` → 2.8.5), that combination reported a _successful_ fix that
 never happened: `"Renamed test -> scenario in 0 file(s)"` with `ok: true`.
 
 The contract now carries `changed` on an apply (all three engines), absent on a plan, `false` after a
