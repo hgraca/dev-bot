@@ -117,15 +117,19 @@ Incident 2026-09-07: `OptionsFilter::blacklistTransporterIdsFor()` cached an Elo
 
 The entrypoint (`.docker/*start*.sh`) decides how the worker **process** lives; the pod spec — probes,
 `terminationGracePeriodSeconds`, `preStop` — is the other half, and neither works without the other.
-Three process-level rules, each fixing a different failure:
+Four process-level rules, each fixing a different failure:
 
 - **`exec` every direct branch** — `php-fpm`, kafka consumers, the scheduler. Without it the shell is
   PID 1 and never forwards TERM to its child, so the worker does not drain: it runs until the
   grace-period SIGKILL.
 - **Supervise `queue:work` in a restart loop** — the worker must exit on its recycle bound, but the pod
-  must not restart. Restart it in place, forward SIGTERM to the child, keep waiting until it is gone
-  (a repeated TERM interrupts `wait`, so loop on `kill -0`), and publish the child pid for a liveness
-  probe.
+  must not restart. Fork it, restart it in place on that exit, and publish the child pid for a
+  liveness probe. Keep a shutdown flag: the worker exits the same way after the supervisor forwards the
+  pod's TERM, and a loop that cannot tell a recycle from a shutdown starts a fresh worker during
+  termination and runs until the grace-period SIGKILL.
+- **Re-`wait` while draining, never poll** — a repeated TERM interrupts `wait`, so drain inside
+  `while kill -0 "$pid"; do wait "$pid"; done`. The `wait` is what reaps the child, so the following
+  `kill -0` fails and the loop ends; a `kill -0` poll alone spins forever on the zombie.
 - **Recycle on `--max-time=1260`, not `--max-jobs`** — `--max-jobs` degenerates on a busy queue: 1000
   jobs at ~48 jobs/s means a full Laravel boot plus the throttle gap every ~20 s. `--memory` still
   bounds growth.
@@ -140,7 +144,7 @@ every expected recycle, reintroducing the failure the supervisor removed.
 
 Incident 2026-11-19 (POS-348): `positioning-activities` exited every ~20 s on `--max-jobs=1000`;
 kubelet restarted the pod each time, `availableReplicas` flapped, and Argo held the Application's
-sync. Reference implementation and shell test: positioning-activities#447.
+sync. Reference implementation and shell test: [GET-E/positioning-activities#447](https://github.com/GET-E/positioning-activities/pull/447).
 
 ## Do Not
 
