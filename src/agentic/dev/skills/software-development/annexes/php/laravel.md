@@ -1,6 +1,6 @@
 ---
 name: laravel
-description: "Laravel conventions: project structure (Laravel 10), configuration, Eloquent, controllers, validation, authentication, Artisan commands, testing. Read this annex when working with Laravel."
+description: "Laravel conventions: project structure (Laravel 10), configuration, Eloquent, controllers, validation, authentication, Artisan commands, testing, container entrypoints and queue workers. Read this annex when working with Laravel."
 ---
 
 # Laravel
@@ -12,6 +12,7 @@ description: "Laravel conventions: project structure (Laravel 10), configuration
 - Creating controllers, Form Requests, or route definitions
 - Running Artisan commands or creating new files via Artisan
 - Writing Laravel-specific tests
+- Changing a container entrypoint, queue worker flags, or worker probes
 
 ## Annex of `devbot:software-development`
 
@@ -111,6 +112,34 @@ config()->set('cache.stores.file.path', storage_path('framework/testing/cache'))
 ```
 
 Incident 2026-09-07: `OptionsFilter::blacklistTransporterIdsFor()` cached an Eloquent `Collection`; the second read within the TTL threw the TypeError above → HTTP 500s on Booking.com/Trip.com estimate flows.
+
+## Container Entrypoint & Queue Workers
+
+The entrypoint (`.docker/*start*.sh`) is the only code that decides how a worker lives and dies under
+Kubernetes. Three rules, each fixing a different failure:
+
+- **`exec` every direct branch** — `php-fpm`, kafka consumers, the scheduler. Without it the shell is
+  PID 1, and PID 1 discards SIGTERM: the process never drains, it is only stopped by the grace-period
+  SIGKILL.
+- **Supervise `queue:work` in a restart loop** — the worker must exit on its recycle bound, but the pod
+  must not restart. Restart it in place, forward SIGTERM to the child, keep waiting until it is gone
+  (a repeated TERM interrupts `wait`, so loop on `kill -0`), and publish the child pid for a liveness
+  probe.
+- **Recycle on `--max-time=1260`, not `--max-jobs`** — `--max-jobs` degenerates on a busy queue: 1000
+  jobs at ~48 jobs/s means a full Laravel boot plus the throttle gap every ~20 s. `--memory` still
+  bounds growth.
+
+`exec` alone is not enough: the worker still exits on its bound, so the pod still restarts. `core`
+measures 66–70 restarts per 23 h that way; `hotels-api` runs `exec` + `--max-jobs=500` with the same
+defect.
+
+Pidfile probe contract: it holds the worker pid and is stale across the recycle gap (throttle + boot),
+so `failureThreshold × periodSeconds` must exceed that gap — otherwise the probe restarts the pod on
+every expected recycle, reintroducing the failure the supervisor removed.
+
+Incident 2026-11-19 (POS-348): `positioning-activities` exited every ~20 s on `--max-jobs=1000`;
+kubelet restarted the pod each time, `availableReplicas` flapped, and Argo held the Application's
+sync. Reference implementation and shell test: positioning-activities#447.
 
 ## Do Not
 
