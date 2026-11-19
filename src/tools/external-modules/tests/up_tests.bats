@@ -138,6 +138,72 @@ publish() {
   [ "$(cat "${DEST}/skills/SKILL.md")" = "v2" ]
 }
 
+@test "up: fetches only the tracked branch, and no tags" {
+  preclone
+  publish v2
+  install_logging_git
+
+  run env PATH="${SANDBOX}/bin:${PATH}" bash "${SCRIPT}"
+
+  assert_success
+  # A `+refs/heads/*` glob makes the fetch scale with the upstream's branch
+  # count: one 488-branch repo took 127s against the 20s watchdog.
+  run grep '^fetch ' "${SANDBOX}/git.log"
+  refute_output --partial "refs/heads/*"
+  assert_output --partial "--no-tags"
+  assert_output --partial "+refs/heads/main:refs/remotes/origin/main"
+}
+
+@test "up: names a fetch watchdog timeout instead of a bare failure" {
+  preclone
+  publish v2
+  install_slow_fetch_git
+
+  run env PATH="${SANDBOX}/bin:${PATH}" DEV_BOT_FETCH_TIMEOUT=1 bash "${SCRIPT}"
+
+  assert_success
+  assert_output --partial "Failed to update mod1: fetch timed out after 1s"
+  assert_output --partial "1 failed"
+}
+
+@test "up: a git that exits 124 on its own is not called a timeout" {
+  preclone
+  publish v2
+  install_git_exiting_124
+
+  run env PATH="${SANDBOX}/bin:${PATH}" bash "${SCRIPT}"
+
+  assert_success
+  # Status 124 is also a child's own exit code: only the watchdog's flag can
+  # tell the two apart.
+  assert_output --partial "Failed to update mod1: fetch failed (git exit 124)"
+  refute_output --partial "timed out"
+}
+
+@test "up: names a reset failure with its git exit status" {
+  preclone
+  publish v2
+  install_reset_shim "echo 'simulated reset failure' >&2; exit 1"
+
+  run env PATH="${SANDBOX}/bin:${PATH}" bash "${SCRIPT}"
+
+  assert_success
+  assert_output --partial "Failed to update mod1: reset to origin/main failed (git exit 1)"
+  refute_output --partial "timed out"
+}
+
+@test "up: names a reset watchdog timeout instead of a bare failure" {
+  preclone
+  publish v2
+  install_reset_shim "sleep 5; exit 0"
+
+  run env PATH="${SANDBOX}/bin:${PATH}" DEV_BOT_FETCH_TIMEOUT=1 bash "${SCRIPT}"
+
+  assert_success
+  assert_output --partial "Failed to update mod1: reset timed out after 1s"
+  assert_output --partial "1 failed"
+}
+
 @test "up: prunes a README restored by the update reset" {
   preclone
   printf 'new readme\n' > "${SEED}/skills/README.md"
@@ -323,6 +389,75 @@ for arg in "\$@"; do
     echo fetch >> "${SANDBOX}/git.log"
     echo "simulated fetch failure" >&2
     exit 1
+  fi
+done
+exec "$(command -v git)" "\$@"
+EOF
+  chmod +x "${SANDBOX}/bin/git"
+}
+
+# Shim git to log the argv of every fetch, then run it for real: the fetch is
+# narrowed to one ref now, and the arguments are what a test has to inspect.
+install_logging_git() {
+  mkdir -p "${SANDBOX}/bin"
+  cat > "${SANDBOX}/bin/git" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\${arg}" == "fetch" ]]; then
+    printf 'fetch %s\n' "\$*" >> "${SANDBOX}/git.log"
+    break
+  fi
+done
+exec "$(command -v git)" "\$@"
+EOF
+  chmod +x "${SANDBOX}/bin/git"
+}
+
+# Shim git so a fetch fails with status 124, the same number the watchdog
+# reports when it fires: only the watchdog's own flag distinguishes them.
+install_git_exiting_124() {
+  mkdir -p "${SANDBOX}/bin"
+  cat > "${SANDBOX}/bin/git" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\${arg}" == "fetch" ]]; then
+    echo "simulated 124" >&2
+    exit 124
+  fi
+done
+exec "$(command -v git)" "\$@"
+EOF
+  chmod +x "${SANDBOX}/bin/git"
+}
+
+# Shim git so the fetch succeeds and only `reset --hard` misbehaves: the
+# update's second network call carries its own diagnostics, and nothing else
+# exercises them.
+# Args: shell body to run in place of the real `git reset`
+install_reset_shim() {
+  mkdir -p "${SANDBOX}/bin"
+  cat > "${SANDBOX}/bin/git" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\${arg}" == "reset" ]]; then
+    ${1}
+  fi
+done
+exec "$(command -v git)" "\$@"
+EOF
+  chmod +x "${SANDBOX}/bin/git"
+}
+
+# Shim git so a fetch outlives the watchdog: the cap has to surface as a
+# timeout, not as the generic failure an unexplained exit produces.
+install_slow_fetch_git() {
+  mkdir -p "${SANDBOX}/bin"
+  cat > "${SANDBOX}/bin/git" <<EOF
+#!/usr/bin/env bash
+for arg in "\$@"; do
+  if [[ "\${arg}" == "fetch" ]]; then
+    sleep 5
+    exit 0
   fi
 done
 exec "$(command -v git)" "\$@"

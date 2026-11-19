@@ -7,6 +7,11 @@ MODULE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=../../_shared/functions.sh
 source "${MODULE_DIR}/../../_shared/functions.sh"
 
+# Set by _external_module_with_timeout, in the caller's shell: 1 only when the
+# watchdog deadline fired. Status 124 alone cannot carry that fact — a child can
+# exit 124 by itself — so callers branch on this flag instead.
+EXTERNAL_MODULE_TIMED_OUT=0
+
 # Derive a vendor directory path (<owner>/<repo>) from a git URL. The host and
 # any credentials are dropped, so every spelling of one repository maps to the
 # same checkout:
@@ -370,11 +375,20 @@ _redact_url() {
 
 # Run a command under a portable watchdog. GNU `timeout` is absent on macOS,
 # and a start must never hang on a stalled network call.
+#
+# A caller must NOT infer the deadline from status 124: that is also a status a
+# child can exit with on its own, and the two are indistinguishable from the
+# number alone. Read EXTERNAL_MODULE_TIMED_OUT instead — it is set here, in the
+# caller's shell, only when the timer actually fired.
 # Args: cap_seconds command [args...]
 # Returns: the command's status, or 124 when the cap elapsed.
 _external_module_with_timeout() {
     local cap="$1"
     shift
+
+    # Reset before every call: a stale 1 from an earlier timeout would
+    # otherwise mislabel this command's ordinary failure.
+    EXTERNAL_MODULE_TIMED_OUT=0
 
     # The command runs in its OWN process group (job control), so the tree —
     # git and the transport it spawns — can be signalled at once. Signalling
@@ -439,7 +453,10 @@ _external_module_with_timeout() {
     # The deadline fired: report a timeout regardless of how the command
     # happened to exit — a command that traps TERM and exits 0 must not read
     # as a completed call.
-    [[ ${timed_out} -eq 1 ]] && return 124
+    if [[ ${timed_out} -eq 1 ]]; then
+        EXTERNAL_MODULE_TIMED_OUT=1
+        return 124
+    fi
     return "${rc}"
 }
 
@@ -1021,9 +1038,22 @@ _install_one_module() {
         # Fetch from the CONFIGURED url, not the clone's origin: the update
         # check compares against the configured url, so fetching elsewhere
         # would report "update available" then fail on every start.
-        if ! _external_module_git_network "${cap}" git -C "${dest}" fetch --depth 1 "${url}" \
-            "+refs/heads/*:refs/remotes/origin/*" >/dev/null 2>&1; then
-            _warn "Failed to update ${name}"
+        #
+        # Only the tracked branch, and no tags: everything below reads
+        # `origin/${branch}` and nothing else. A `+refs/heads/*` glob made the
+        # fetch scale with the upstream's branch count — one 488-branch repo
+        # needed 127s against a 20s watchdog, so that module never updated.
+        local fetch_rc=0
+        _external_module_git_network "${cap}" git -C "${dest}" fetch --depth 1 --no-tags "${url}" \
+            "+refs/heads/${branch}:refs/remotes/origin/${branch}" >/dev/null 2>&1 || fetch_rc=$?
+        if [[ ${fetch_rc} -ne 0 ]]; then
+            # The watchdog's flag, not its status: a git that exits 124 on its
+            # own is a failure, not a deadline.
+            if [[ "${EXTERNAL_MODULE_TIMED_OUT:-0}" -eq 1 ]]; then
+                _warn "Failed to update ${name}: fetch timed out after ${cap}s (DEV_BOT_FETCH_TIMEOUT)"
+            else
+                _warn "Failed to update ${name}: fetch failed (git exit ${fetch_rc})"
+            fi
             return 1
         fi
 
@@ -1044,8 +1074,14 @@ _install_one_module() {
         fi
 
         # Guarded: a partial clone can fetch the reset's blobs here.
-        if ! _external_module_git_network "${cap}" git -C "${dest}" reset --hard "origin/${branch}" >/dev/null 2>&1; then
-            _warn "Failed to update ${name}"
+        local reset_rc=0
+        _external_module_git_network "${cap}" git -C "${dest}" reset --hard "origin/${branch}" >/dev/null 2>&1 || reset_rc=$?
+        if [[ ${reset_rc} -ne 0 ]]; then
+            if [[ "${EXTERNAL_MODULE_TIMED_OUT:-0}" -eq 1 ]]; then
+                _warn "Failed to update ${name}: reset timed out after ${cap}s (DEV_BOT_FETCH_TIMEOUT)"
+            else
+                _warn "Failed to update ${name}: reset to origin/${branch} failed (git exit ${reset_rc})"
+            fi
             return 1
         fi
         # Applied on every update, so a checkout installed before sparse
