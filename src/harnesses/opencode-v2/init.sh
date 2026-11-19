@@ -307,7 +307,7 @@ _sweep_foreign_artifacts() {
   # target resolves on into dev-bot's vendored sources: `_link_skill_farm` owns
   # those (audit-01 FAIL-4). Without this the sweep deleted every farm entry at
   # the start of each init and the farm had to be rebuilt from scratch.
-  local removed=0 link target resolved candidate farm
+  local removed=0 plugins_removed=0 link target resolved candidate farm
   local farm_dir
   farm_dir="${PROJECT_DIR}/$(_devbot_get_project_dir "${PROJECT_DIR}")/skills"
   for farm in plugins plugin tui-plugins agents commands tools skills; do
@@ -332,6 +332,7 @@ _sweep_foreign_artifacts() {
     [[ -n "${resolved}" && "${resolved}" == "${DEV_BOT_ROOT}"/* ]] || continue
     rm -f "${link}"
     removed=$((removed + 1))
+    case "${farm}" in plugins | plugin | tui-plugins) plugins_removed=$((plugins_removed + 1)) ;; esac
   done < <(find "${OPENCODE_DIR}/${farm}" -type l -print0 2>/dev/null)
   done
 
@@ -348,6 +349,9 @@ _sweep_foreign_artifacts() {
 
   if [[ ${removed} -gt 0 ]]; then
     _ok "Removed ${removed} symlink(s) left by a previously selected harness"
+  fi
+  if [[ ${plugins_removed} -gt 0 ]]; then
+    _hint_plugin_restart
   fi
   return 0
 }
@@ -384,6 +388,11 @@ _ancestor_plugin_dir() {
   done
 }
 
+# A registration outlives the package on disk.
+_hint_plugin_restart() {
+  _info "restart the harness to clear its plugin registrations"
+}
+
 # Remove this project's generated copy of a plugin an ancestor supplies. Returns
 # 1 (and changes nothing) when the entry is not a package this harness wrote: a
 # user's package, a symlinked directory or a symlinked entry.
@@ -396,6 +405,7 @@ _retire_shadowed_plugin_dir() {
   grep -qE '"name"[[:space:]]*:[[:space:]]*"devbot-'"${name}"'"' "${dir}/package.json" 2>/dev/null || return 1
   rm -r -f "${dir}"
   _ok "Removed plugins/${name} — an ancestor project supplies it"
+  _hint_plugin_restart
   return 0
 }
 
@@ -912,6 +922,7 @@ _retire_stale_plugin_dirs() {
     _devbot_list_has ".opencode/plugins/${name}" "${declared}" && continue
     rm -r -f "${dir}"
     _ok "Removed retired plugin package ${name}"
+    _hint_plugin_restart
   done
 
   for link in "${plugins_dir}"/*.ts; do
@@ -921,6 +932,7 @@ _retire_stale_plugin_dirs() {
       "${DEV_BOT_ROOT}"/*)
         rm -f "${link}"
         _ok "Removed v1 plugin link $(basename "${link}")"
+        _hint_plugin_restart
         ;;
     esac
   done

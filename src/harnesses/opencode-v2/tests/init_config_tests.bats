@@ -309,3 +309,31 @@ EOF
   assert_success
   assert [ -f "${CONFIG}" ]
 }
+
+@test "init says the harness must restart after retiring a stale package" {
+  # `_retire_stale_plugin_dirs` drops a package no longer declared, and the host
+  # keeps the registration it made at startup until it reloads its plugins.
+  local dir="${PROJECT}/.opencode/plugins/legacy"
+  mkdir -p "${dir}"
+  printf '%s\n' "// dev-bot: generated opencode-v2 plugin shim (do not edit)" >"${dir}/index.ts"
+  printf '{"name":"devbot-legacy","version":"0.0.0","type":"module","exports":{".":"./index.ts"}}\n' >"${dir}/package.json"
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+
+  assert_success
+  refute [ -e "${dir}" ]
+  assert_output --partial "restart the harness"
+}
+
+@test "init says the harness must restart after retiring a v1 plugin link" {
+  local target="${DEV_BOT_ROOT}/src/harnesses/opencode-v2/hooks/mcp-sync.ts"
+  [ -f "${target}" ] || skip "fixture hook missing: ${target}"
+  mkdir -p "${PROJECT}/.opencode/plugins"
+  ln -s "${target}" "${PROJECT}/.opencode/plugins/legacy.ts"
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+
+  assert_success
+  refute [ -e "${PROJECT}/.opencode/plugins/legacy.ts" ]
+  assert_output --partial "restart the harness"
+}

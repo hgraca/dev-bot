@@ -208,3 +208,16 @@ _ancestor_package() {
     assert [ -d "${PROJECT}/.opencode/plugins/${name}" ]
   done
 }
+
+@test "init says the harness must restart after retiring a plugin copy" {
+  # The host registered the duplicate when it started; removing the package on
+  # disk leaves the failed entry until the harness reloads its plugins.
+  _nested_projects
+  bash "${MODULE_DIR}/init.sh" "${CHILD}" >/dev/null
+  bash "${MODULE_DIR}/init.sh" "${PARENT}" >/dev/null
+
+  run bash "${MODULE_DIR}/init.sh" "${CHILD}"
+
+  assert_success
+  assert_output --partial "restart the harness"
+}
