@@ -497,6 +497,74 @@ _fake_scratch() {
   assert_output --partial "is not the verified 2.6.7"
 }
 
+@test "php plugin: provision retries a transient composer failure" {
+  # The fetch is a network call, so one registry hiccup must not fail the run.
+  # A docker stub fails the first `run` and succeeds the second, writing the
+  # lock the plugin reads its reported version from.
+  local stub="${BATS_TEST_TMPDIR}/stubbin" scratch="${BATS_TEST_TMPDIR}/scratch"
+  local log="${BATS_TEST_TMPDIR}/docker.log"
+  mkdir -p "${stub}" "${scratch}"
+  : >"${log}"
+  cat >"${stub}/docker" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${DOCKER_LOG}"
+if [[ "$1" == "run" ]]; then
+  if [[ "$(wc -l < "${DOCKER_LOG}")" -le 1 ]]; then
+    echo "composer: transient network failure" >&2
+    exit 1
+  fi
+  # Second attempt: drop the lock into the mounted scratch dir.
+  i=0
+  for arg in "$@"; do
+    i=$((i + 1))
+    if [[ "${arg}" == "-v" ]]; then
+      j=$((i + 1))
+      mount="${!j}"
+      dir="${mount%%:*}"
+      mkdir -p "${dir}"
+      printf '{"packages-dev":[{"name":"rector/rector","version":"2.6.7"}]}\n' \
+        >"${dir}/composer.lock"
+    fi
+  done
+fi
+exit 0
+MOCK
+  chmod +x "${stub}/docker"
+
+  run env PATH="${stub}:${PATH}" DOCKER_LOG="${log}" \
+    REFACTOR_STORAGE_DIR="${scratch}" bash "${PHP_PLUGIN}" provision
+
+  assert_success
+  assert_output --partial '"version":"2.6.7"'
+  # The retry is announced, so a genuine failure is not read as a loud product
+  # defect when the second attempt is what the user sees last.
+  assert_output --partial "WARN: composer install failed, retrying once"
+  [ "$(grep -c '^run' "${log}")" -eq 2 ] || fail "composer was not retried once"
+}
+
+@test "php plugin: provision fails loudly when the install keeps failing" {
+  # The retry must not mask a real failure: two attempts, then the ERROR.
+  local stub="${BATS_TEST_TMPDIR}/failbin" scratch="${BATS_TEST_TMPDIR}/failscratch"
+  local log="${BATS_TEST_TMPDIR}/docker-fail.log"
+  mkdir -p "${stub}" "${scratch}"
+  : >"${log}"
+  cat >"${stub}/docker" <<'MOCK'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${DOCKER_LOG}"
+[[ "$1" == "run" ]] && { echo "composer: registry unreachable" >&2; exit 1; }
+exit 0
+MOCK
+  chmod +x "${stub}/docker"
+
+  run env PATH="${stub}:${PATH}" DOCKER_LOG="${log}" \
+    REFACTOR_STORAGE_DIR="${scratch}" bash "${PHP_PLUGIN}" provision
+
+  [ "$status" -ne 0 ]
+  assert_output --partial "ERROR: composer could not install rector/rector"
+  [ "$(grep -c '^run' "${log}")" -eq 2 ] || fail "provision did not stop after the retries"
+  assert_output --partial "retrying once"
+}
+
 @test "php plugin: provision reports the installed version and records it" {
   command -v docker >/dev/null 2>&1 || skip "docker not installed"
   docker info >/dev/null 2>&1 || skip "docker daemon not reachable"

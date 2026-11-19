@@ -343,9 +343,23 @@ cmd_provision() {
   # As the invoking user, like the analysis run: composer would otherwise leave
   # root-owned files in the user's storage that nothing on the host can clean up.
   # HOME/COMPOSER_HOME point somewhere writable inside the container.
-  if ! docker run --rm --network host -v "${dir}:/app" -w /app \
-    --user "$(id -u):$(id -g)" -e HOME=/tmp -e COMPOSER_HOME=/tmp/composer \
-    composer:2 require "rector/rector:${version}" --no-interaction --no-progress -q >&2; then
+  # Retried once: the fetch is a network call, and a registry hiccup must not
+  # strand provisioning (it failed under parallel suite load). Composer is
+  # idempotent, so a second attempt is safe.
+  local attempts=2 retry_pause=1 attempt provisioned=""
+  for attempt in $(seq 1 "${attempts}"); do
+    if docker run --rm --network host -v "${dir}:/app" -w /app \
+      --user "$(id -u):$(id -g)" -e HOME=/tmp -e COMPOSER_HOME=/tmp/composer \
+      composer:2 require "rector/rector:${version}" --no-interaction --no-progress -q >&2; then
+      provisioned=1
+      break
+    fi
+    if [[ "${attempt}" -lt "${attempts}" ]]; then
+      echo "WARN: composer install failed, retrying once" >&2
+      sleep "${retry_pause}"
+    fi
+  done
+  if [[ -z "${provisioned}" ]]; then
     echo "ERROR: composer could not install rector/rector:${version}" >&2
     exit 1
   fi
