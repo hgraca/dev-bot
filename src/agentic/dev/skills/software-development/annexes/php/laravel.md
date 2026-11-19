@@ -138,6 +138,12 @@ Four process-level rules, each fixing a different failure:
 measures 66–70 restarts per 23 h that way; `hotels-api` runs `exec` + `--max-jobs=500` with the same
 defect.
 
+Kafka consumers are the exception worth naming: the event-bus worker runs as a **StatefulSet** with a
+longer `terminationGracePeriodSeconds` (180 s — above `queue.connections.kafka.consumer_timeout_ms`) so
+the consumer can leave its group cleanly. The loop and the probe apply to it unchanged; the grace
+period is the only thing that differs. Do not normalise a StatefulSet consumer down to the plain
+worker's 60 s.
+
 Pidfile probe contract: it holds the worker pid and is stale across the recycle gap (throttle + boot),
 so `failureThreshold × periodSeconds` must exceed that gap — otherwise the probe restarts the pod on
 every expected recycle, reintroducing the failure the supervisor removed.
