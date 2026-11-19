@@ -51,6 +51,9 @@ STUB
   {
     awk '/^_path_depth\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
     awk '/^_order_paths_by_depth\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_path_is_nested_under\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_default_jobs\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
+    awk '/^_canonical_project_path\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh"
   } >> "${SANDBOX}/src/_shared/functions.sh"
 
   export DEV_BOT_ROOT="${SANDBOX}"
@@ -296,4 +299,90 @@ STUB
 
   assert_success
   assert_equal "$(wc -l < "${SANDBOX}/prune.log" | tr -d ' ')" "1"
+}
+
+@test "projects that are not nested run together whatever their depth" {
+  # Depth orders projects; only nesting holds one back behind another.
+  local shallow="${SANDBOX}/shallow" deep="${SANDBOX}/group/deep"
+  mkdir -p "$shallow" "$deep"
+
+  _process_project() {
+    printf 'start %s\n' "$1" >> "${PARALLEL_LOG}"
+    case "$1" in
+      */shallow) sleep 0.5 ;;
+    esac
+    printf 'end %s\n' "$1" >> "${PARALLEL_LOG}"
+  }
+
+  run _run_projects_parallel 2 "$shallow" "$deep"
+
+  assert_success
+  local shallow_end deep_start
+  shallow_end="$(grep -nxF "end ${shallow}" "${PARALLEL_LOG}" | cut -d: -f1)"
+  deep_start="$(grep -nxF "start ${deep}" "${PARALLEL_LOG}" | cut -d: -f1)"
+  [ -n "$shallow_end" ]
+  [ -n "$deep_start" ]
+  [ "$deep_start" -lt "$shallow_end" ]
+}
+
+@test "a nested project starts when its own ancestor ends, not another's" {
+  local slow="${SANDBOX}/slow" parent="${SANDBOX}/group/parent" child="${SANDBOX}/group/parent/child"
+  mkdir -p "$slow" "$parent" "$child"
+
+  _process_project() {
+    printf 'start %s\n' "$1" >> "${PARALLEL_LOG}"
+    case "$1" in
+      */slow) sleep 1 ;;
+    esac
+    printf 'end %s\n' "$1" >> "${PARALLEL_LOG}"
+  }
+
+  run _run_projects_parallel 2 "$slow" "$parent" "$child"
+
+  assert_success
+  local slow_end child_start
+  slow_end="$(grep -nxF "end ${slow}" "${PARALLEL_LOG}" | cut -d: -f1)"
+  child_start="$(grep -nxF "start ${child}" "${PARALLEL_LOG}" | cut -d: -f1)"
+  [ -n "$slow_end" ]
+  [ -n "$child_start" ]
+  [ "$child_start" -lt "$slow_end" ]
+}
+
+@test "a project reached through a symlink still waits for its ancestor" {
+  local real="${SANDBOX}/real/parent" link="${SANDBOX}/link"
+  mkdir -p "${real}/child"
+  ln -s "${real}" "${link}"
+
+  _process_project() {
+    printf 'start %s\n' "$1" >> "${PARALLEL_LOG}"
+    case "$1" in
+      */parent) sleep 0.5 ;;
+    esac
+    printf 'end %s\n' "$1" >> "${PARALLEL_LOG}"
+  }
+
+  run _run_projects_parallel 2 "${real}" "${link}/child"
+
+  assert_success
+  local parent_end child_start
+  parent_end="$(grep -nxF "end ${real}" "${PARALLEL_LOG}" | cut -d: -f1)"
+  child_start="$(grep -nxF "start ${real}/child" "${PARALLEL_LOG}" | cut -d: -f1)"
+  [ -n "$parent_end" ]
+  [ -n "$child_start" ]
+  [ "$parent_end" -lt "$child_start" ]
+}
+
+@test "one physical project is wired once however it is spelled" {
+  local real="${SANDBOX}/real/project" link="${SANDBOX}/link"
+  mkdir -p "${real}"
+  ln -s "${real}" "${link}"
+
+  _process_project() {
+    printf 'start %s\n' "$1" >> "${PARALLEL_LOG}"
+  }
+
+  run _run_projects_parallel 2 "${real}" "${link}"
+
+  assert_success
+  assert_equal "$(grep -c '^start ' "${PARALLEL_LOG}")" "1"
 }

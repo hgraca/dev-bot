@@ -868,7 +868,36 @@ _run_projects_parallel() {
   local -a rc=()
   local n
 
-  # Order shallowest first; hold a level until it ends.
+  # Physical paths, so two spellings of one directory compare equal.
+  local phys i
+  for ((n = 0; n < total; n++)); do
+    phys="$(_canonical_project_path "${projects[n]}")"
+    if [[ -n "${phys}" ]]; then projects[n]="${phys}"; fi
+  done
+
+  # One tree, one worker: canonical paths make duplicates equal.
+  if [[ ${total} -gt 1 ]]; then
+    local -a unique=()
+    local seen dup
+    for ((n = 0; n < total; n++)); do
+      dup=0
+      if [[ ${#unique[@]} -gt 0 ]]; then
+        for seen in "${unique[@]}"; do
+          if [[ "${seen}" == "${projects[n]}" ]]; then
+            dup=1
+            break
+          fi
+        done
+      fi
+      if [[ ${dup} -eq 0 ]]; then unique+=("${projects[n]}"); fi
+    done
+    if [[ ${#unique[@]} -gt 0 ]]; then
+      projects=("${unique[@]}")
+      total="${#projects[@]}"
+    fi
+  fi
+
+  # Order shallowest first; hold a project only behind its own ancestor.
   if [[ ${total} -gt 1 ]]; then
     local -a ordered=()
     local ordered_path
@@ -879,9 +908,6 @@ _run_projects_parallel() {
     if [[ ${#ordered[@]} -gt 0 ]]; then projects=("${ordered[@]}"); fi
   fi
 
-  local -a depths=()
-  for ((n = 0; n < total; n++)); do depths[n]="$(_path_depth "${projects[n]}")"; done
-
   mkdir -p "${log_dir}"
   rm -f "${log_dir}"/*.log 2>/dev/null || true
 
@@ -889,13 +915,20 @@ _run_projects_parallel() {
 
   _header_2 "Wiring ${total} project(s), ${jobs} at a time"
 
-  local next=0
-  while [[ ${next} -lt ${total} || ${#pids[@]} -gt 0 ]]; do
-    while [[ ${next} -lt ${total} && ${#pids[@]} -lt ${jobs} ]]; do
-      # A new depth level starts only once the running one has finished.
-      if [[ ${#pids[@]} -gt 0 && "${depths[next]}" != "${depths[slots[0]]}" ]]; then
-        break
-      fi
+  local next=0 active=0 i k
+  while [[ ${next} -lt ${total} || ${active} -gt 0 ]]; do
+    k=-1
+    while [[ ${next} -lt ${total} && ${active} -lt ${jobs} ]]; do
+      # A nested project waits for its own ancestor; others do not.
+      k=-1
+      for i in "${!slots[@]}"; do
+        if [[ -n "${slots[$i]}" ]] &&
+          _path_is_nested_under "${projects[next]}" "${projects[${slots[$i]}]}"; then
+          k=$i
+          break
+        fi
+      done
+      if [[ ${k} -ge 0 ]]; then break; fi
       local log
       log="$(_worker_log "${log_dir}" $((next + 1)))"
       # stdin from /dev/null: the harness inits prompt with `read` when stdin is
@@ -907,23 +940,39 @@ _run_projects_parallel() {
       ) </dev/null >"${log}" 2>&1 &
       pids+=("$!")
       slots+=("${next}")
+      active=$((active + 1))
       next=$((next + 1))
     done
 
-    # Reap in launch order, so the reported order and the log numbering match.
-    local pid="${pids[0]}" slot="${slots[0]}"
+    if [[ ${active} -eq 0 ]]; then break; fi
+    # Reap the ancestor that frees the next project, else the oldest launch.
+    # The window can be full, in which case nesting was never evaluated above.
+    k=-1
+    if [[ ${next} -lt ${total} ]]; then
+      for i in "${!slots[@]}"; do
+        if [[ -n "${slots[$i]}" ]] &&
+          _path_is_nested_under "${projects[next]}" "${projects[${slots[$i]}]}"; then
+          k=$i
+          break
+        fi
+      done
+    fi
+    if [[ ${k} -lt 0 ]]; then
+      for i in "${!slots[@]}"; do
+        if [[ -n "${slots[$i]}" ]]; then
+          k=$i
+          break
+        fi
+      done
+    fi
+    local pid="${pids[$k]}" slot="${slots[$k]}"
     if wait "${pid}"; then
       rc[slot]=0
     else
       rc[slot]=$?
     fi
-    if [[ ${#pids[@]} -gt 1 ]]; then
-      pids=("${pids[@]:1}")
-      slots=("${slots[@]:1}")
-    else
-      pids=()
-      slots=()
-    fi
+    pids[k]="" slots[k]=""
+    active=$((active - 1))
   done
 
   local failures=0
@@ -1191,9 +1240,15 @@ for p in json.loads(sys.stdin.read()):
     print(p)
 " 2>/dev/null)
 
-    # A hand-edited registry can list a path twice; two workers on one tree
-    # would mutate it concurrently where the serial run did it twice in turn.
-    local p
+    # Physical paths first: a registry keeps the spelling it was given, so a
+    # child reached through a symlink only reads as nested once resolved.
+    local p phys
+    for p in "${!project_list[@]}"; do
+      phys="$(_canonical_project_path "${project_list[p]}")"
+      if [[ -n "${phys}" ]]; then project_list[p]="${phys}"; fi
+    done
+
+    # One physical tree, one run: two spellings of it would be wired at once.
     if [[ ${#project_list[@]} -gt 1 ]]; then
       local uniq_paths="" up
       for up in "${project_list[@]}"; do

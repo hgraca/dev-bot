@@ -231,7 +231,7 @@ _path_depth() {
 }
 
 # _order_paths_by_depth <path>... — the paths shallowest first, keeping the given
-# order within one depth level (siblings cannot nest, so they stay interchangeable).
+# order within one depth level (siblings cannot nest, so they keep their order).
 _order_paths_by_depth() {
   local -a paths=("$@") depths=()
   local i d dmax=0
@@ -244,6 +244,26 @@ _order_paths_by_depth() {
       if [[ "${depths[$i]}" == "${d}" ]]; then printf '%s\n' "${paths[$i]}"; fi
     done
   done
+}
+
+# _canonical_project_path <path> — the physical path, so two spellings of one
+# directory compare equal. Prints nothing when the path cannot be resolved.
+_canonical_project_path() {
+  local path="$1" resolved
+  resolved="$(cd "${path}" 2>/dev/null && pwd -P)" || return 0
+  printf '%s' "${resolved}"
+}
+
+# _path_is_nested_under <path> <dir>... — 0 when one dir is a strict ancestor.
+# Depth only orders projects; this is the predicate that holds one back.
+_path_is_nested_under() {
+  local path="${1%/}" dir
+  shift
+  for dir in "$@"; do
+    [[ -n "${dir}" ]] || continue
+    case "${path}" in "${dir%/}"/*) return 0 ;; esac
+  done
+  return 1
 }
 
 # ── DevBot config (.devbot.global.jsonc) helpers ────────────────────────────────────────

@@ -852,3 +852,54 @@ EOF
   assert_output "/srv/parent/
 /srv/parent/child"
 }
+
+@test "_path_is_nested_under matches a strict ancestor only" {
+  run _path_is_nested_under "/srv/parent/child" "/srv/parent"
+  assert_success
+
+  # A shared name is not nesting: the ancestor needs its own path component.
+  run _path_is_nested_under "/srv/parental" "/srv/parent"
+  assert_failure
+
+  run _path_is_nested_under "/srv/parent" "/srv/parent"
+  assert_failure
+}
+
+@test "_path_is_nested_under ignores a trailing slash on either side" {
+  run _path_is_nested_under "/srv/parent/child/" "/srv/parent/"
+  assert_success
+}
+
+@test "_path_is_nested_under is false with nothing running" {
+  run _path_is_nested_under "/srv/parent/child"
+  assert_failure
+}
+
+@test "_path_is_nested_under ignores an empty candidate" {
+  # A reaped slot clears to an empty string; "" must never match like "/*".
+  run _path_is_nested_under "/srv/parent/child" ""
+  assert_failure
+
+  run _path_is_nested_under "/srv/parent/child" "" "/srv/parent"
+  assert_success
+}
+
+@test "_canonical_project_path resolves a symlinked directory" {
+  local real="${TEST_TEMP}/real/parent" link="${TEST_TEMP}/link"
+  mkdir -p "${real}/child"
+  ln -s "${real}" "${link}"
+  local want
+  want="$(cd "${real}/child" && pwd -P)"
+
+  run _canonical_project_path "${link}/child"
+
+  assert_success
+  assert_output "${want}"
+}
+
+@test "_canonical_project_path prints nothing for a missing path" {
+  run _canonical_project_path "${TEST_TEMP}/missing"
+
+  assert_success
+  assert_output ""
+}

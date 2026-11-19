@@ -503,8 +503,8 @@ _retry_pending_bootstrap() {
 # A nested project needs its ancestor finished first.
 _reinit_registered_projects() {
   local global_config="$1"
-  local -a dirs=() depths=()
-  local dir depth name log log_dir index=0 failed=0
+  local -a dirs=()
+  local dir name log log_dir index=0 failed=0 i
   REINIT_FAILED=0
 
   if [[ ! -f "${DEV_BOT_ROOT}/bin/init.sh" ]]; then
@@ -513,15 +513,47 @@ _reinit_registered_projects() {
   fi
 
   while IFS= read -r dir; do
-    if [[ -n "${dir}" && -d "${dir}" ]]; then
-      dirs+=("${dir}")
-      depths+=("$(_path_depth "${dir}")")
-    fi
+    if [[ -n "${dir}" && -d "${dir}" ]]; then dirs+=("${dir}"); fi
   done < <(_migration_project_dirs "${global_config}")
 
   if (( ${#dirs[@]} == 0 )); then
     _skip "no registered projects to reinitialise"
     return 0
+  fi
+
+  # A registry keeps the spelling it was given, so a child listed through a
+  # symlink would not read as nested; work on physical paths.
+  for i in "${!dirs[@]}"; do
+    dir="$(_canonical_project_path "${dirs[$i]}")"
+    if [[ -n "${dir}" ]]; then dirs[i]="${dir}"; fi
+  done
+
+  # One tree, one reinit: two spellings of it would run against each other.
+  if (( ${#dirs[@]} > 1 )); then
+    local -a unique=()
+    local seen dup
+    for i in "${!dirs[@]}"; do
+      dup=0
+      if (( ${#unique[@]} > 0 )); then
+        for seen in "${unique[@]}"; do
+          if [[ "${seen}" == "${dirs[$i]}" ]]; then
+            dup=1
+            break
+          fi
+        done
+      fi
+      if (( dup == 0 )); then unique+=("${dirs[$i]}"); fi
+    done
+    if (( ${#unique[@]} > 0 )); then dirs=("${unique[@]}"); fi
+  fi
+
+  # Ancestors first; only a nested project waits for the one above it.
+  if (( ${#dirs[@]} > 1 )); then
+    local -a ordered=()
+    while IFS= read -r dir; do
+      if [[ -n "${dir}" ]]; then ordered+=("${dir}"); fi
+    done < <(_order_paths_by_depth "${dirs[@]}")
+    if [[ ${#ordered[@]} -gt 0 ]]; then dirs=("${ordered[@]}"); fi
   fi
 
   _header_2 "Reinitialising ${#dirs[@]} registered project(s)"
@@ -531,31 +563,50 @@ _reinit_registered_projects() {
   # `init --all` defers the env-var dialog; a parallel per-project run must do
   # the same or every child would block on the same prompt.
   export DEV_BOT_DEFER_ENV_DIALOG=1
-  local -a pids=() names=()
-  local i
-  while IFS= read -r depth; do
-    pids=()
-    names=()
-    for i in "${!dirs[@]}"; do
-      [[ "${depths[$i]}" == "${depth}" ]] || continue
+  local -a pids=() names=() running=()
+  local next=0 active=0 i k
+  while [[ ${next} -lt ${#dirs[@]} || ${active} -gt 0 ]]; do
+    k=-1
+    while [[ ${next} -lt ${#dirs[@]} ]]; do
+      k=-1
+      for i in "${!running[@]}"; do
+        if _path_is_nested_under "${dirs[$next]}" "${running[$i]}"; then
+          k=$i
+          break
+        fi
+      done
+      if [[ ${k} -ge 0 ]]; then break; fi
       index=$(( index + 1 ))
-      name="$(basename "${dirs[$i]}")"
+      name="$(basename "${dirs[$next]}")"
       log="${log_dir}/${index}-${name}.log"
-      bash "${DEV_BOT_ROOT}/bin/init.sh" "${dirs[$i]}" </dev/null >"${log}" 2>&1 &
+      bash "${DEV_BOT_ROOT}/bin/init.sh" "${dirs[$next]}" </dev/null >"${log}" 2>&1 &
       pids+=("$!")
       names+=("${name}")
+      running+=("${dirs[$next]}")
+      active=$(( active + 1 ))
+      next=$(( next + 1 ))
     done
 
-    for i in "${!pids[@]}"; do
-      if wait "${pids[$i]}"; then
-        _ok "reinitialised ${names[$i]}"
-      else
-        _warn "reinit failed for ${names[$i]} — see ${log_dir}"
-        REINIT_FAILED=$(( REINIT_FAILED + 1 ))
-        failed=1
-      fi
-    done
-  done < <(printf '%s\n' "${depths[@]}" | sort -n -u)
+    if [[ ${active} -eq 0 ]]; then break; fi
+    # Reap the ancestor that frees the next project, else the oldest launch.
+    if [[ ${k} -lt 0 ]]; then
+      for i in "${!pids[@]}"; do
+        if [[ -n "${pids[$i]}" ]]; then
+          k=$i
+          break
+        fi
+      done
+    fi
+    if wait "${pids[$k]}"; then
+      _ok "reinitialised ${names[$k]}"
+    else
+      _warn "reinit failed for ${names[$k]} — see ${log_dir}"
+      REINIT_FAILED=$(( REINIT_FAILED + 1 ))
+      failed=1
+    fi
+    pids[k]="" names[k]="" running[k]=""
+    active=$(( active - 1 ))
+  done
   unset DEV_BOT_DEFER_ENV_DIALOG
   return "${failed}"
 }
