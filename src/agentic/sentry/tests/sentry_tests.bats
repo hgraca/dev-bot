@@ -208,17 +208,220 @@ PYJSON
   rm -r "${sandbox}"
 }
 
-@test "init.sh warns instead of failing when the skills are not installed yet" {
+@test "init.sh fetches the skills when they are not installed yet" {
   sandbox="$(mktemp -d)"
   project="${sandbox}/project"
-  mkdir -p "${sandbox}" "${project}"
+  mockbin="${sandbox}/mockbin"
+  mkdir -p "${mockbin}" "${project}"
   echo '{}' > "${sandbox}/.devbot.global.jsonc"
   echo '{}' > "${project}/.devbot.project.jsonc"
 
-  run env DEV_BOT_ROOT="${sandbox}" bash "${MODULE_DIR}/init.sh" "${project}"
+  # The layout the real CLI writes in the temp CWD the helper `cd`s into.
+  cat > "${mockbin}/npx" <<'MOCK'
+#!/usr/bin/env bash
+mkdir -p .agents/skills/sentry-instrument
+: > .agents/skills/sentry-instrument/SKILL.md
+exit 0
+MOCK
+  chmod +x "${mockbin}/npx"
+
+  run env DEV_BOT_ROOT="${sandbox}" PATH="${mockbin}:${PATH}" \
+    bash "${MODULE_DIR}/init.sh" "${project}"
 
   assert_success
-  [ ! -e "${project}/.opencode/skills/sentry" ]
+  [ -f "${sandbox}/storage/sentry/skills/sentry-instrument/SKILL.md" ]
+  rm -rf "${sandbox}"
+}
+
+@test "init.sh does not re-fetch the skills when they are already installed" {
+  sandbox="$(mktemp -d)"
+  project="${sandbox}/project"
+  mockbin="${sandbox}/mockbin"
+  mkdir -p "${mockbin}" "${sandbox}/storage/sentry/skills/sentry-instrument" "${project}"
+  : > "${sandbox}/storage/sentry/skills/sentry-instrument/SKILL.md"
+  echo '{}' > "${sandbox}/.devbot.global.jsonc"
+  echo '{}' > "${project}/.devbot.project.jsonc"
+
+  # Any npx call here would be a bug: the skills are already provisioned.
+  cat > "${mockbin}/npx" <<'MOCK'
+#!/usr/bin/env bash
+echo "UNEXPECTED npx invocation" >&2
+exit 1
+MOCK
+  chmod +x "${mockbin}/npx"
+
+  run env DEV_BOT_ROOT="${sandbox}" PATH="${mockbin}:${PATH}" \
+    bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  refute_output --partial "UNEXPECTED"
+  rm -rf "${sandbox}"
+}
+
+@test "_sentry_install_skills --if-missing skips when the skills landed meanwhile" {
+  sandbox="$(mktemp -d)"
+  mockbin="${sandbox}/mockbin"
+  mkdir -p "${mockbin}" "${sandbox}/storage/sentry/skills/sentry-instrument"
+  : > "${sandbox}/storage/sentry/skills/sentry-instrument/SKILL.md"
+
+  # The re-check under the lock is what collapses parallel inits to one fetch.
+  cat > "${mockbin}/npx" <<'MOCK'
+#!/usr/bin/env bash
+echo "UNEXPECTED npx invocation" >&2
+exit 1
+MOCK
+  chmod +x "${mockbin}/npx"
+
+  run env DEV_BOT_ROOT="${sandbox}" PATH="${mockbin}:${PATH}" bash -c \
+    "source '${MODULE_DIR}/functions.sh'; _sentry_install_skills --if-missing"
+
+  assert_success
+  assert_output --partial "already installed"
+  refute_output --partial "UNEXPECTED"
+  rm -rf "${sandbox}"
+}
+
+@test "init.sh warns instead of failing when the fetch fails" {
+  sandbox="$(mktemp -d)"
+  project="${sandbox}/project"
+  mockbin="${sandbox}/mockbin"
+  mkdir -p "${mockbin}" "${project}"
+  echo '{}' > "${sandbox}/.devbot.global.jsonc"
+  echo '{}' > "${project}/.devbot.project.jsonc"
+
+  # A broken npx must degrade to a warning:
+  # init wires, it does not provision.
+  cat > "${mockbin}/npx" <<'MOCK'
+#!/usr/bin/env bash
+echo "npx: network unreachable" >&2
+exit 1
+MOCK
+  chmod +x "${mockbin}/npx"
+
+  run env DEV_BOT_ROOT="${sandbox}" PATH="${mockbin}:${PATH}" \
+    bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "Sentry agent skills not fetched into"
+  refute [ -e "${sandbox}/storage/sentry/skills" ]
+  rm -rf "${sandbox}"
+}
+
+@test "init.sh warns instead of reporting success when the swap fails" {
+  sandbox="$(mktemp -d)"
+  project="${sandbox}/project"
+  mockbin="${sandbox}/mockbin"
+  mkdir -p "${mockbin}" "${project}"
+  echo '{}' > "${sandbox}/.devbot.global.jsonc"
+  echo '{}' > "${project}/.devbot.project.jsonc"
+
+  cat > "${mockbin}/npx" <<'MOCK'
+#!/usr/bin/env bash
+mkdir -p .agents/skills/sentry-instrument
+: > .agents/skills/sentry-instrument/SKILL.md
+exit 0
+MOCK
+  # The swap is the mv: failing it must never print "installed".
+  cat > "${mockbin}/mv" <<'MOCK'
+#!/usr/bin/env bash
+echo "mv: permission denied" >&2
+exit 1
+MOCK
+  chmod +x "${mockbin}/npx" "${mockbin}/mv"
+
+  run env DEV_BOT_ROOT="${sandbox}" PATH="${mockbin}:${PATH}" \
+    bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "Could not swap the fetched skills"
+  refute_output --partial "skills installed to"
+  refute [ -e "${sandbox}/storage/sentry/skills" ]
+  rm -rf "${sandbox}"
+}
+
+@test "init.sh restores a tree parked by an interrupted swap" {
+  sandbox="$(mktemp -d)"
+  project="${sandbox}/project"
+  mockbin="${sandbox}/mockbin"
+  mkdir -p "${mockbin}" "${project}" \
+    "${sandbox}/storage/sentry/.skills.previous.999/skill-old"
+  : > "${sandbox}/storage/sentry/.skills.previous.999/skill-old/SKILL.md"
+  : > "${sandbox}/.devbot.global.jsonc"
+  echo '{}' > "${project}/.devbot.project.jsonc"
+
+  # The parked tree is valid: restoring it must not need a fetch.
+  cat > "${mockbin}/npx" <<'MOCK'
+#!/usr/bin/env bash
+echo "UNEXPECTED npx invocation" >&2
+exit 1
+MOCK
+  chmod +x "${mockbin}/npx"
+
+  run env DEV_BOT_ROOT="${sandbox}" PATH="${mockbin}:${PATH}" \
+    bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  refute_output --partial "UNEXPECTED"
+  [ -f "${sandbox}/storage/sentry/skills/skill-old/SKILL.md" ]
+  refute [ -e "${sandbox}/storage/sentry/.skills.previous.999" ]
+  rm -rf "${sandbox}"
+}
+
+@test "init.sh leaves the installed skills untouched when the lock is unavailable" {
+  sandbox="$(mktemp -d)"
+  project="${sandbox}/project"
+  mockbin="${sandbox}/mockbin"
+  mkdir -p "${mockbin}" "${project}" "${sandbox}/storage"
+  : > "${sandbox}/.devbot.global.jsonc"
+  echo '{}' > "${project}/.devbot.project.jsonc"
+
+  # A file where the storage dir belongs makes the lock unopenable.
+  : > "${sandbox}/storage/sentry"
+  cat > "${mockbin}/npx" <<'MOCK'
+#!/usr/bin/env bash
+echo "UNEXPECTED npx invocation" >&2
+exit 1
+MOCK
+  chmod +x "${mockbin}/npx"
+
+  run env DEV_BOT_ROOT="${sandbox}" PATH="${mockbin}:${PATH}" \
+    bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_success
+  assert_output --partial "Could not lock"
+  refute_output --partial "UNEXPECTED"
+  rm -rf "${sandbox}"
+}
+
+@test "update.sh keeps the installed skills when the swap fails" {
+  sandbox="$(mktemp -d)"
+  mockbin="${sandbox}/mockbin"
+  mkdir -p "${mockbin}" "${sandbox}/storage/sentry/skills/skill-old"
+  : > "${sandbox}/storage/sentry/skills/skill-old/SKILL.md"
+
+  cat > "${mockbin}/npx" <<'MOCK'
+#!/usr/bin/env bash
+mkdir -p .agents/skills/skill-new
+: > .agents/skills/skill-new/SKILL.md
+exit 0
+MOCK
+  # mv 1 parks the old tree, mv 2 fails, mv 3 restores it.
+  cat > "${mockbin}/mv" <<MOCK
+#!/usr/bin/env bash
+n=0; f="${sandbox}/mv-count"
+[[ -f "\$f" ]] && n=\$(cat "\$f")
+n=\$((n + 1)); echo "\$n" > "\$f"
+if [[ "\$n" -eq 2 ]]; then echo "mv: disk full" >&2; exit 1; fi
+exec /bin/mv "\$@"
+MOCK
+  chmod +x "${mockbin}/npx" "${mockbin}/mv"
+
+  run env DEV_BOT_ROOT="${sandbox}" PATH="${mockbin}:${PATH}" \
+    bash "${MODULE_DIR}/update.sh"
+
+  assert_success
+  assert_output --partial "Could not swap the fetched skills"
+  [ -f "${sandbox}/storage/sentry/skills/skill-old/SKILL.md" ]
   rm -rf "${sandbox}"
 }
 

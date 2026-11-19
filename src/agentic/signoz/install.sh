@@ -34,7 +34,7 @@ main() {
   if [[ -d "${SKILLS_DIR}" ]] && [[ -n "$(ls -A "${SKILLS_DIR}" 2>/dev/null)" ]]; then
     _skip "SigNoz agent skills already installed (${SKILLS_DIR}/)"
   else
-    _signoz_install_skills || true
+    _signoz_install_skills --if-missing || true
   fi
 
   _log "SigNoz MCP server runs as a shared container — started by 'devbot up'"

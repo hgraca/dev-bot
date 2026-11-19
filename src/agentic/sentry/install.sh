@@ -28,7 +28,7 @@ main() {
   if [[ -d "${SKILLS_DIR}" ]] && [[ -n "$(ls -A "${SKILLS_DIR}" 2>/dev/null)" ]]; then
     _skip "Sentry agent skills already installed (${SKILLS_DIR}/)"
   else
-    _sentry_install_skills || true
+    _sentry_install_skills --if-missing || true
   fi
 
   _log "Sentry MCP server is hosted — wired from mcp.json, nothing local to start"

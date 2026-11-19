@@ -40,8 +40,15 @@ PROJECT_NAME="$(basename "${PROJECT_DIR}")"
 _disabled_raw="$(_devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null || echo '[]')"
 
 # ── Agent skills (opencode-only) ───────────────────────────────────────────────
+#
+# install/update fetch machine-wide; a project that
+# enables the module must not stay wired to nothing.
+SKILLS_DIR="$(_signoz_storage_dir)/skills"
+if [[ ! -d "${SKILLS_DIR}" ]] || [[ -z "$(ls -A "${SKILLS_DIR}" 2>/dev/null)" ]]; then
+  _signoz_install_skills --if-missing \
+    || _warn "SigNoz agent skills not fetched into ${SKILLS_DIR} — npx or the network may be unavailable"
+fi
 
-  # The harness links this module's declared assets (harness-assets.json).
 _log "SigNoz init complete for ${PROJECT_NAME}"
 
 cat <<'EOF'
