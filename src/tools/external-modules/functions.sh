@@ -1145,6 +1145,99 @@ _external_module_update_available() {
     return 0
 }
 
+# A module's own declaration file is a bare map, unlike
+# the config's nested external_modules.
+_external_module_declared_entries() {
+    python3 -c "
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+if not isinstance(data, dict):
+    sys.exit(0)
+for name, entry in data.items():
+    if not isinstance(entry, dict):
+        continue
+    invalid = (
+        not isinstance(name, str)
+        or not name
+        or name in ('.', '..')
+        or '/' in name
+        or any(ord(c) < 32 for c in name)
+    )
+    if invalid:
+        print('\tINVALID\x1f' + json.dumps(name)[1:-1] + '\x1f\x1f')
+        continue
+    paths = json.dumps(entry.get('paths', {}))
+    print(f\"{name}\x1f{entry.get('url', '')}\x1f{entry.get('local_path', '')}\x1f{paths}\")
+" "$1"
+}
+
+# Clone a module's declared entries that are missing.
+# Returns 1 when any clone failed; callers decide.
+_external_module_ensure_declared() {
+    local module="$1"
+    local dev_bot_root="$2"
+    local decl=""
+
+    if [[ -f "${dev_bot_root}/src/agentic/${module}/external-modules.json" ]]; then
+        decl="${dev_bot_root}/src/agentic/${module}/external-modules.json"
+    elif [[ -f "${dev_bot_root}/src/tools/${module}/external-modules.json" ]]; then
+        decl="${dev_bot_root}/src/tools/${module}/external-modules.json"
+    fi
+    [[ -n "${decl}" ]] || return 0
+
+    local failed=0 name url local_path paths_json dest
+
+    while IFS=$'\x1f' read -r name url local_path paths_json; do
+        if [[ "${name}" == $'\tINVALID' ]]; then
+            _warn "invalid module name in ${decl} — skipping"
+            failed=1
+            continue
+        fi
+        [[ -n "${name}" ]] || continue
+        # A local module is used in place; nothing to fetch.
+        [[ -z "${local_path}" ]] || continue
+        if [[ -z "${url}" ]]; then
+            _warn "${name}: no url declared — skipping"
+            failed=1
+            continue
+        fi
+        if ! dest="$(_derived_vendor_path "${url}")"; then
+            _warn "${name}: url does not map inside vendor/ — skipping"
+            failed=1
+            continue
+        fi
+        dest="${dev_bot_root}/vendor/${dest}"
+
+        _devbot_lock_wait "${dest}.lock" "${DEV_BOT_MODULE_UPDATE_LOCK_WAIT:-120}" \
+            "clone lock held >${DEV_BOT_MODULE_UPDATE_LOCK_WAIT:-120}s — continuing without it" || true
+
+        # Re-checked under the lock: another worker may have cloned it.
+        if [[ -d "${dest}/.git" ]]; then
+            if ! _checkout_belongs_to "${name}" "${dest}" "${url}"; then
+                failed=1
+                { exec 200>&-; } 2>/dev/null || true
+                continue
+            fi
+            _skip "${name} — already in vendor (${dest})"
+        elif ! _install_one_module "${name}" "${url}" "${dest}" "${paths_json}"; then
+            failed=1
+            { exec 200>&-; } 2>/dev/null || true
+            continue
+        fi
+
+        # Clone and mirror travel together: a
+        # lifecycle script reads the mirror.
+        _setup_external_module_storage "${dest}" "${name}" "${paths_json}" "${dev_bot_root}" ||
+            failed=1
+        { exec 200>&-; } 2>/dev/null || true
+    done <<< "$(_external_module_declared_entries "${decl}")"
+
+    return "${failed}"
+}
+
 # Install or update every configured destination, then mirror each entry.
 #
 # This is the one implementation behind `devbot install`/`devbot update`
