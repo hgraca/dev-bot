@@ -14,6 +14,7 @@ const project = (
     name,
     path: `/gete/${name}`,
     devbotDir: ".agents",
+    harness: "opencode",
     config: {
         pollJira: false,
         pollGithub: false,

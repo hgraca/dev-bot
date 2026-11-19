@@ -31,9 +31,15 @@ import {
     type CleanupReport,
     type SessionSummary,
 } from "./cleanup.ts";
-import type { ExecutorDeps } from "./executor.ts";
+import type { AgentRunRequest, ExecutorDeps, ProjectRef } from "./executor.ts";
 import { executeAction } from "./executor.ts";
 import { pollGithub } from "./github.ts";
+import {
+    DEFAULT_HARNESS,
+    resolveAgentBinary,
+    type Harness,
+} from "./harness.ts";
+import { renderCommand, stripFrontmatter } from "./command-body.ts";
 import { resolveEnvReference } from "./envref.ts";
 import {
     PARK_PHASES,
@@ -335,6 +341,60 @@ function required(env: CliEnv, key: string): string {
     return value;
 }
 
+/**
+ * The executable for a host, resolved once per (root, host).
+ *
+ * The harness owns the resolution — `OPENCODE2_BIN`, a 2.x `opencode` on PATH, two install paths — so
+ * it is asked rather than guessed, and asked once: a tick starts several runs.
+ */
+const binaryCache = new Map<string, string>();
+
+function binaryFor(root: string, harness: Harness): string {
+    const key = `${root}\u0000${harness}`;
+    const cached = binaryCache.get(key);
+    if (cached !== undefined) return cached;
+    const binary = resolveAgentBinary(harness, root);
+    binaryCache.set(key, binary);
+    return binary;
+}
+
+/** Where the AutoBot command's body lives, relative to the dev-bot install root. */
+const START_COMMAND_FILE = join(
+    "src",
+    "agentic",
+    "autobot",
+    "commands",
+    "autobot-work.md",
+);
+
+/**
+ * Last resort when the command file is unreadable: the same instruction in one line. It is not the
+ * preferred path — the file is the single source of truth — but a broken install should still start the
+ * ticket rather than hand the agent a bare ticket key with no instructions.
+ */
+const FALLBACK_START_PROMPT =
+    "Work ticket $ARGUMENTS to an open pull request, following `devbot:auto-dev` with " +
+    "`devbot:autobot-mode` for everything the unattended run changes. " +
+    "Sign every comment with `authored by AutoBot`.";
+
+/**
+ * The prompt that starts a run: the AutoBot command's body with the ticket substituted.
+ *
+ * Sent as plain text rather than as a slash command, because 2.x does not dispatch one from a run
+ * message and the id differs per host.
+ */
+function startPromptFor(root: string, ticketKey: string): string {
+    let body = FALLBACK_START_PROMPT;
+    try {
+        body = stripFrontmatter(
+            readFileSync(join(root, START_COMMAND_FILE), "utf8"),
+        );
+    } catch {
+        // A missing command file is a broken install, not a reason to skip the ticket.
+    }
+    return renderCommand(body || FALLBACK_START_PROMPT, ticketKey);
+}
+
 function loadProjects(
     root: string,
     onError?: (message: string) => void,
@@ -422,6 +482,23 @@ export async function runTickCommand(
     // Filled by the poll below; `pathForTicket` reads it when GitHub is queried.
     let jiraItems: Awaited<ReturnType<typeof pollJira>> = [];
 
+    // The host a request's project runs. `resolveProject` only ever returns a managed project, so the
+    // lookup succeeds; the default keeps a stale path from reaching a host that cannot run it.
+    const harnessForRef = (ref: ProjectRef): Harness =>
+        projects.find((candidate) => candidate.path === ref.path)?.harness ??
+        DEFAULT_HARNESS;
+
+    // Every path that starts a run — a ticket, a Slack answer, a scheduled prompt — goes through here,
+    // so each one spawns the project's own binary. An unsupported host or a missing executable is a
+    // per-ticket failure with a readable reason, not an exception that aborts the whole tick.
+    const runAgentFor = async (harness: Harness, request: AgentRunRequest) => {
+        try {
+            return await runAgent(request, binaryFor(root, harness));
+        } catch (error) {
+            return { ok: false, summary: (error as Error).message };
+        }
+    };
+
     // Every side effect goes through the connection that found the ticket: two Jira sites can share an
     // issue key, so a single client keyed by key would write to the wrong one.
     const depsFor = (
@@ -429,7 +506,9 @@ export async function runTickCommand(
         connectionId: string,
     ): ExecutorDeps => ({
         instance,
-        runAgent: (request) => runAgent(request),
+        runAgent: (request) =>
+            runAgentFor(harnessForRef(request.project), request),
+        startPrompt: (ticketKey) => startPromptFor(root, ticketKey),
         saveState: (ticketKey, state) =>
             client.setState(ticketKey, serialiseState(state)),
         clearState: (ticketKey) => client.setState(ticketKey, null),
@@ -527,7 +606,7 @@ export async function runTickCommand(
                             ok: false,
                             reason: `unknown project ${park.project}`,
                         };
-                    const result = await runAgent({
+                    const result = await runAgentFor(project.harness, {
                         project: { name: project.name, path: project.path },
                         session: park.session ?? null,
                         ticketKey: park.ticket,
@@ -608,7 +687,7 @@ export async function runTickCommand(
             return executeAction(action, deps);
         },
         runPrompt: async (project, prompt) => {
-            const result = await runAgent({
+            const result = await runAgentFor(project.harness, {
                 project: { name: project.name, path: project.path },
                 session: null,
                 ticketKey: "",
@@ -834,7 +913,7 @@ async function cleanupLocked(
     // Only sessions this module created are candidates: the index is written when a session starts, so
     // a developer's own sessions in the same project directory are never touched.
     const owned = readSessionIndex(env);
-    const pathBySession = new Map<string, string>();
+    const projectBySession = new Map<string, AutobotProject>();
     const sessions: SessionSummary[] = [];
     for (const project of managed) {
         // A project with no connection cannot have its referenced sessions known, so its sessions are
@@ -845,23 +924,50 @@ async function cleanupLocked(
             );
             continue;
         }
-        for (const session of await listOpencodeSessions(project.path)) {
-            if (!owned.has(session.id) || pathBySession.has(session.id))
+        // Only an OpenCode host keeps sessions this pass can see and delete.
+        let binary: string;
+        try {
+            binary = binaryFor(root, project.harness);
+        } catch (error) {
+            console.warn(
+                `WARN: ${project.name}: ${(error as Error).message} — its sessions are excluded from cleanup`,
+            );
+            continue;
+        }
+        for (const session of await listOpencodeSessions(
+            project.path,
+            binary,
+        )) {
+            if (!owned.has(session.id) || projectBySession.has(session.id))
                 continue;
-            pathBySession.set(session.id, project.path);
+            projectBySession.set(session.id, project);
             sessions.push(session);
         }
     }
+
+    // Which hosts this pass actually deleted from decides whether it compacts at all: v2 has no `db`
+    // subcommand, and a v2-only pass must never run v1's vacuum over the shared store.
+    const deletedHarnesses = new Set<Harness>();
 
     return cleanupSessions({
         sessions,
         referenced,
         now: new Date(),
         deleteSession: async (id) => {
-            // `opencode session delete` resolves against its working directory, the same one that listed it.
-            await deleteOpencodeSession(id, pathBySession.get(id) ?? root);
+            const project = projectBySession.get(id);
+            const harness = project?.harness ?? DEFAULT_HARNESS;
+            // `session delete` resolves against its working directory, the same one that listed it.
+            await deleteOpencodeSession(
+                id,
+                project?.path ?? root,
+                binaryFor(root, harness),
+            );
+            deletedHarnesses.add(harness);
             forgetSession(env, id);
         },
-        vacuum: () => vacuumOpencodeDatabase(root),
+        vacuum: async () => {
+            if (!deletedHarnesses.has("opencode")) return;
+            await vacuumOpencodeDatabase(root, binaryFor(root, "opencode"));
+        },
     });
 }

@@ -77,18 +77,3 @@ is_shipped() {
     return 1
   }
 }
-
-@test "AutoBot's start command matches the command file it names" {
-  local constant expected
-  constant="$(sed -n 's/^export const START_COMMAND = "\(.*\)";/\1/p' \
-    "${ROOT}/src/agentic/autobot/tools/autobot/executor.ts")"
-  [ -n "${constant}" ]
-
-  expected="/$(sed -n 's/^name:[[:space:]]*//p' \
-    "${ROOT}/src/agentic/autobot/commands/autobot-work.md" | head -1 | tr -d '"')"
-  # AutoBot drives the v1 CLI, whose ids are the frontmatter names.
-  [ "${constant}" = "${expected}" ] || {
-    echo "START_COMMAND is '${constant}', the command's v1 id is '${expected}'"
-    return 1
-  }
-}

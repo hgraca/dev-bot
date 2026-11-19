@@ -9,6 +9,21 @@ import {
 } from "./transports.ts";
 
 describe("extractSessionId", () => {
+    // Captured from `opencode2 run --format json`: the id sits at the top level of every event.
+    test("finds the id in a v2 run event", () => {
+        const output = JSON.stringify({
+            type: "step_start",
+            timestamp: 1795067758925,
+            sessionID: "ses_e0d9fc339ffeFcwZoWe1gMB1vo",
+            part: {
+                id: "prt_1f260494d001",
+                sessionID: "ses_e0d9fc339ffeFcwZoWe1gMB1vo",
+                type: "step-start",
+            },
+        });
+        expect(extractSessionId(output)).toBe("ses_e0d9fc339ffeFcwZoWe1gMB1vo");
+    });
+
     test("finds a nested session id", () => {
         const output = [
             '{"type":"session.created","properties":{"sessionID":"ses_abc123"}}',
@@ -115,6 +130,26 @@ describe("parseReviews", () => {
 });
 
 describe("parseSessionList", () => {
+    // Captured from `opencode2 session list --format json`: same fields, extra project metadata.
+    test("reads a v2 session list", () => {
+        const payload = JSON.stringify([
+            {
+                id: "ses_e0d9fc339ffeFcwZoWe1gMB1vo",
+                title: "Single-word ok reply",
+                updated: 1795067760086,
+                created: 1795067755745,
+                projectId: "global",
+                directory: "/tmp/probe",
+            },
+        ]);
+        expect(parseSessionList(payload)).toEqual([
+            {
+                id: "ses_e0d9fc339ffeFcwZoWe1gMB1vo",
+                updatedAt: new Date(1795067760086).toISOString(),
+            },
+        ]);
+    });
+
     test("converts epoch milliseconds to an ISO timestamp", () => {
         const payload = JSON.stringify([
             {

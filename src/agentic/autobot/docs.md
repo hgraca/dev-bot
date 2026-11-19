@@ -72,17 +72,16 @@ project is one or the other — there are no profile-plus-overrides.
     "slack_user_email": "you@example.com",
     "slack_bot_token": "${SLACK_BOT_TOKEN}",
     "prompts": [
-      // { "schedule": "*/5 * * * *", "prompt": "/devbot:autobot-work ARC-1017" }
+      // { "schedule": "*/5 * * * *", "prompt": "Work ARC-1017 to an open pull request." }
     ]
   }
 }
 ```
 
-A run starts with a slash command, and the spelling has to be the one the host AutoBot drives
-resolves. AutoBot runs the v1 `opencode` CLI (`opencode run`), whose ids are the command's frontmatter
-name — `/devbot:autobot-work`. A project configured for `opencode-v2` still has its AutoBot runs
-executed by v1, so keep the v1 form there even though the v2 host exposes the same command as
-`/devbot/autobot-work`.
+A scheduled `prompt` is sent to the agent as plain text, not as a slash command: a 2.x host does not
+dispatch one from a non-interactive run. The runs AutoBot starts itself work the same way — the prompt
+is the `autobot-work` command's own body with the ticket substituted, so the instructions reach the
+agent whatever the project's harness is.
 
 Every switch defaults to off, and the block is inert until one is enabled. A project is skipped unless
 a devbot harness is running there — the watch is the one lock file per PID the harness start script
@@ -197,10 +196,14 @@ none of the user's opencode store, `gh` login or checkouts.
 - Labels record the outcome as well as the trigger: `auto-bot` in the queue, then `auto-bot-done`,
   `auto-bot-abandoned` or `auto-bot-blocked`. The ticket is never re-picked.
 - One tick runs at a time (a `mkdir` mutex), so a slow run delays the next minute rather than stacking.
+- Runs need an OpenCode harness — `opencode` or `opencode-v2`, whose binary and session store are
+  resolved per project. A `claudecode` project is refused per ticket: AutoBot's run, list and delete
+  path is OpenCode's CLI.
 - Follow-ups are at-least-once: the item is recorded before the agent runs and promoted only on
   success, with a three-attempt cap that comments on the ticket instead of looping.
 - GitHub polling needs the Jira read anyway — the ticket key is the join.
-- Deleting a session does not shrink `opencode.db`, which is why cleanup follows with a vacuum.
+- Deleting a session does not shrink `opencode.db`, which is why cleanup follows with a vacuum where
+  the host exposes one — v1 does; a 2.x host owns its store, so cleanup there only deletes.
 - **One host at a time.** The instance id in the state is this machine; a state written by another
   instance is treated as dead and handed back. Two hosts must not run the tick against the same bot
   account until instance liveness is shared.

@@ -485,9 +485,10 @@ export function parseSessionList(payload: string): SessionSummary[] {
 
 export async function listOpencodeSessions(
     cwd: string,
+    command = "opencode",
 ): Promise<SessionSummary[]> {
     const result = await runCommand(
-        "opencode",
+        command,
         ["session", "list", "--format", "json", "-n", "500"],
         cwd,
     );
@@ -502,8 +503,9 @@ export async function listOpencodeSessions(
 export async function deleteOpencodeSession(
     id: string,
     cwd: string,
+    command = "opencode",
 ): Promise<void> {
-    const result = await runCommand("opencode", ["session", "delete", id], cwd);
+    const result = await runCommand(command, ["session", "delete", id], cwd);
     if (result.code !== 0) {
         throw new Error(
             `opencode session delete ${id} failed: ${result.stderr.trim()}`,
@@ -511,8 +513,11 @@ export async function deleteOpencodeSession(
     }
 }
 
-export async function vacuumOpencodeDatabase(cwd: string): Promise<void> {
-    const result = await runCommand("opencode", ["db", "VACUUM;"], cwd);
+export async function vacuumOpencodeDatabase(
+    cwd: string,
+    command = "opencode",
+): Promise<void> {
+    const result = await runCommand(command, ["db", "VACUUM;"], cwd);
     if (result.code !== 0) {
         throw new Error(`opencode db VACUUM failed: ${result.stderr.trim()}`);
     }

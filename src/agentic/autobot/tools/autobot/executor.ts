@@ -44,16 +44,6 @@ export interface ExecutionOutcome {
 
 export const MAX_ATTEMPTS = 3;
 
-/**
- * A new session is handed to the AutoBot command, which wraps `auto-dev` and carries the signature rule.
- *
- * This is the v1 host's id (the command file's frontmatter `name:`) because
- * `runAgent` drives the v1 `opencode` CLI; a 2.x host would expose the same command as
- * `/devbot/autobot-work`. Keep it in step with `commands/autobot-work.md` — the test
- * in `command_references_tests.bats` enforces that.
- */
-export const START_COMMAND = "/devbot:autobot-work";
-
 export interface ExecutorDeps {
     /** This harness's instance id, written into every state it creates. */
     instance: string;
@@ -81,6 +71,13 @@ export interface ExecutorDeps {
         ticketKey: string,
         state: AutobotState | null,
     ): ProjectRef | null;
+    /**
+     * The prompt that starts a run, from the AutoBot command's body with the ticket substituted.
+     *
+     * Injected because the body is a file in the install: a slash-command id would have to be spelled
+     * per host and 2.x does not dispatch one from a run message anyway.
+     */
+    startPrompt(ticketKey: string): string;
 }
 
 type Watermark = "last_comment_id" | "last_review_at";
@@ -114,7 +111,7 @@ async function start(
         project,
         session: null,
         ticketKey: ticket.key,
-        prompt: `${START_COMMAND} ${ticket.key}`,
+        prompt: deps.startPrompt(ticket.key),
         env: { DEV_BOT_AUTOBOT_TICKET: ticket.key },
     });
     if (!result.ok || !result.session) {

@@ -467,6 +467,7 @@ describe("effectiveAssignees", () => {
         name,
         path: `/gete/${name}`,
         devbotDir: ".agents",
+        harness: "opencode",
         config: {
             pollJira: true,
             pollGithub: false,
@@ -513,6 +514,7 @@ describe("jiraConnections", () => {
         name,
         path: `/gete/${name}`,
         devbotDir: ".agents",
+        harness: "opencode",
         config: {
             pollJira: true,
             pollGithub: false,
@@ -783,6 +785,7 @@ describe("slack", () => {
             name,
             path: `/gete/${name}`,
             devbotDir: ".agents",
+            harness: "opencode",
             config: {
                 pollJira: false,
                 pollGithub: false,
@@ -813,6 +816,7 @@ describe("slack", () => {
             name,
             path: `/gete/${name}`,
             devbotDir: ".agents",
+            harness: "opencode",
             config: {
                 pollJira: false,
                 pollGithub: false,

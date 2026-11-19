@@ -50,6 +50,7 @@ function fakeDeps(overrides: Partial<ExecutorDeps> = {}) {
     const saved: Array<{ key: string; state: AutobotState }> = [];
     const deps: ExecutorDeps = {
         instance: "me",
+        startPrompt: (ticketKey) => `start ${ticketKey}`,
         async runAgent(request) {
             calls.push(
                 `run:${request.session ?? "new"}:${request.project.name}`,
@@ -104,6 +105,21 @@ describe("executeAction — skip", () => {
 });
 
 describe("executeAction — start", () => {
+    test("starts with the prompt the caller builds", async () => {
+        const prompts: string[] = [];
+        const { deps } = fakeDeps({
+            async runAgent(request) {
+                prompts.push(request.prompt);
+                return { ok: true, session: "ses_new" };
+            },
+            startPrompt: (ticketKey) => `Body for ${ticketKey}`,
+        });
+
+        await executeAction({ kind: "start", ticket: ticket() }, deps);
+
+        expect(prompts).toEqual(["Body for ARC-1"]);
+    });
+
     test("starts a session and records it on the ticket", async () => {
         const { deps, calls, saved } = fakeDeps();
         const action: FollowupAction = {

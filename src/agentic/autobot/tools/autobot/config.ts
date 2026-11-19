@@ -8,6 +8,7 @@
  */
 
 import { parseSchedule } from "./cron.ts";
+import { type Harness, harnessFor } from "./harness.ts";
 
 export interface AutobotPrompt {
     schedule: string;
@@ -45,6 +46,8 @@ export interface ManagedProject {
 
 export interface AutobotProject extends ManagedProject {
     config: AutobotConfig;
+    /** The host this project runs; its command ids and CLI binary differ per host. */
+    harness: Harness;
 }
 
 /** A block with every switch off. A project carrying only these defaults is inert. */
@@ -580,6 +583,7 @@ export function collectOptedInProjects(
                 ...project,
                 devbotDir: readDevbotDir(raw, project.devbotDir),
                 config,
+                harness: harnessFor(raw, globalConfig),
             });
         } catch (error) {
             // One unreadable project must not stop the others from ticking.
