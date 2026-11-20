@@ -312,7 +312,9 @@ If yes, ask:
 2. **"What does the command do?"**
 3. **"Does it have another command?"** — If yes, repeat questions 1-2.
 
-**Implementation**: Commands go under `commands/<command-name>.md`. Each command is a repeatable instruction set invocable via agent input. Format as markdown with clear procedure steps.
+Then use the `devbot:create-command` skill for each one. That skill owns the placement, the
+name/filename match, the argument contract, the `docs.md` manifest entry and the tests — this question
+owns only the interview.
 
 ### Q11: Memory (Transient)
 

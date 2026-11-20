@@ -94,7 +94,7 @@ Declare hooks in `hooks.json` (harness-agnostic) — the business logic lives in
 
 ### Commands
 
-Repeatable instruction sets under `commands/<command-name>.md`, with `name`/`description` frontmatter.
+Repeatable instruction sets under `commands/<command-name>.md`, with `name`/`description` frontmatter. Load the `devbot:create-command` skill when authoring one — it owns the name/filename match, the `$1`/`$ARGUMENTS` contract, the wiring and the tests.
 
 ### Agents
 
