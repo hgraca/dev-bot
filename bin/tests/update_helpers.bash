@@ -172,7 +172,10 @@ _install_machinery() {
     "${REPO_ROOT}/src/_shared/reconcile_global_config.py" \
     "${REPO_ROOT}/src/_shared/migrate_workflow_config.py" \
     "${REPO_ROOT}/src/_shared/migrate_workspace_config.py" \
+    "${REPO_ROOT}/src/_shared/ensure_guard_rules.py" \
     "${INSTALL}/src/_shared/"
+  # The 1.19.0 migration reads its rule text from the shipped dist.
+  cp "${REPO_ROOT}/.devbot.global.dist.jsonc" "${INSTALL}/.devbot.global.dist.jsonc"
 
   # external-modules update stub — records that devbot update refreshed the
   # external module repos. That happens through the module update loop

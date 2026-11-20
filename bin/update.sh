@@ -399,7 +399,26 @@ _capture_migration_tools() {
   printf '%s' "${dir}"
 }
 
+# ── Config migrations ─────────────────────────────────────────────────────────
+
+# Apply what this checkout still owes for ${target}, on every path that does
+# not move it: `at`, `ahead` and `diverged`. Without that a dev-line machine
+# never runs the migration for the release it sits past (audit-03 FAIL-1).
+# An empty `version` means unknown, never "up to date".
+_apply_pending_migrations() {
+  local target="${1:?target release required}"
+  local capture="${2:-}"
+  local recorded
+  recorded="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "$(_devbot_global_config)" version 2>/dev/null || true)"
+  if [[ -n "${recorded}" ]] && ! _migration_version_lt "${recorded}" "${target}"; then
+    return 0
+  fi
+  _warn "config migrations pending (${recorded:-unrecorded} -> ${target}) — applying"
+  _run_config_migrations "${target}" "${capture}" || true
+}
+
 # ── Record the installed release ──────────────────────────────────────────────
+
 # Write the release tag into the global config's `version` and seed the
 # `auto_update` key (default true) for installs that predate it. This runs after
 # a clean migrate + reconcile; the updater then reinits every registered
@@ -835,12 +854,7 @@ main() {
         _ok "Already on the latest version (${target})."
       fi
       _sync_external_modules_on_noop
-      local recorded
-      recorded="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "$(_devbot_global_config)" version 2>/dev/null || true)"
-      if [[ -n "${recorded}" ]] && _migration_version_lt "${recorded}" "${target}"; then
-        _warn "config migrations still pending (${recorded} -> ${target}) — retrying"
-        _run_config_migrations "${target}" "${migration_capture}" || true
-      fi
+      _apply_pending_migrations "${target}" "${migration_capture}"
       exit 0
       ;;
     ahead)
@@ -852,6 +866,7 @@ main() {
       else
         _ok "Already on the latest version (${target})."
         _sync_external_modules_on_noop
+        _apply_pending_migrations "${target}" "${migration_capture}"
         exit 0
       fi
       ;;
@@ -882,6 +897,7 @@ main() {
           _ok "Branch '${dev_branch}' is not a release checkout — skipping update."
         fi
         _sync_external_modules_on_noop
+        _apply_pending_migrations "${target}" "${migration_capture}"
         exit 0
       fi
       ;;

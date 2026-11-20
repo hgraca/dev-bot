@@ -84,3 +84,110 @@ JSONC_EOF
   run cat "${pkg}/.devbot.project.jsonc"
   assert_output --partial '"workspace"'
 }
+
+# ── The dev line: ahead of the newest tag ────────────────────────────────────
+# A checkout past the newest release never crosses a release, so the "ahead"
+# path returned before any migration ran. The 1.19.0 guard migration is the one
+# that bites: the tree promises a kubectl guard that no runtime config has.
+
+@test "an ahead checkout applies the migration for the release it sits past" {
+  _new_sandbox "1.15.0"
+  local pkg="${SANDBOX}/pkg"
+  mkdir -p "${pkg}"
+  cat > "${pkg}/.devbot.project.jsonc" <<'JSONC'
+{
+  "commit_memory": true,
+  "workflow": "trunk"
+}
+JSONC
+  cat > "${INSTALL}/.devbot.global.jsonc" <<JSONC_EOF
+{
+  "version": "1.14.0",
+  "projects": ["${pkg}"]
+}
+JSONC_EOF
+
+  # One commit past the newest tag: `_head_vs_tag` reads `ahead`, not `at`.
+  git -C "${INSTALL}" checkout -q main
+  printf 'dev\n' > "${INSTALL}/dev.txt"
+  git -C "${INSTALL}" add dev.txt
+  git -C "${INSTALL}" commit -qm "dev commit after 1.15.0"
+
+  export DEVBOT_SKIP_GPU_DETECT=1
+  _run_update
+
+  [ "${UPDATE_STATUS}" -eq 0 ]
+  run cat "${pkg}/.devbot.project.jsonc"
+  assert_output --partial '"workspace"'
+}
+
+@test "an unrecorded version is treated as pending, not as nothing to do" {
+  # The field is empty on every checkout that is not exactly on a tag, so
+  # "empty" cannot mean "up to date" — the migrations would never run at all.
+  _new_sandbox "1.15.0"
+  local pkg="${SANDBOX}/pkg"
+  mkdir -p "${pkg}"
+  cat > "${pkg}/.devbot.project.jsonc" <<'JSONC'
+{
+  "commit_memory": true,
+  "workflow": "trunk"
+}
+JSONC
+  cat > "${INSTALL}/.devbot.global.jsonc" <<JSONC_EOF
+{
+  "projects": ["${pkg}"]
+}
+JSONC_EOF
+
+  git -C "${INSTALL}" checkout -q main
+  printf 'dev\n' > "${INSTALL}/dev.txt"
+  git -C "${INSTALL}" add dev.txt
+  git -C "${INSTALL}" commit -qm "dev commit after 1.15.0"
+
+  export DEVBOT_SKIP_GPU_DETECT=1
+  _run_update
+
+  [ "${UPDATE_STATUS}" -eq 0 ]
+  run cat "${pkg}/.devbot.project.jsonc"
+  assert_output --partial '"workspace"'
+  # Applying them records where the machine now stands, so the next run is a
+  # no-op rather than a full-range replay.
+  run cat "${INSTALL}/.devbot.global.jsonc"
+  assert_output --partial '"version": "1.15.0"'
+}
+
+@test "an ahead checkout seeds the 1.19.0 guard rules into the project" {
+  # The defect the audit found: a dev-line machine never ran any migration, so a
+  # module memory file promised a guard that no runtime config had. This drives
+  # the real 1.19.0 up-half through the ahead path.
+  _new_sandbox "1.19.0"
+  local pkg="${SANDBOX}/pkg"
+  mkdir -p "${pkg}"
+  cat > "${pkg}/.devbot.project.jsonc" <<'JSONC'
+{
+  "project_name": "demo",
+  "guards": [
+    { "regex": "rm -rf", "message": "rm -rf is blocked" }
+  ]
+}
+JSONC
+  cat > "${INSTALL}/.devbot.global.jsonc" <<JSONC_EOF
+{
+  "version": "1.18.0",
+  "projects": ["${pkg}"]
+}
+JSONC_EOF
+
+  git -C "${INSTALL}" checkout -q main
+  printf 'dev\n' > "${INSTALL}/dev.txt"
+  git -C "${INSTALL}" add dev.txt
+  git -C "${INSTALL}" commit -qm "dev commit after 1.19.0"
+
+  export DEVBOT_SKIP_GPU_DETECT=1
+  _run_update
+
+  [ "${UPDATE_STATUS}" -eq 0 ]
+  run cat "${pkg}/.devbot.project.jsonc"
+  assert_output --partial 'kubectl'
+  assert_output --partial 'kctl'
+}
