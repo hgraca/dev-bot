@@ -583,6 +583,61 @@ export function sessionEnvVars(
   return env
 }
 
+// Shell tools whose command can be prefixed without changing meaning.
+const SHELL_TOOLS = new Set(["shell", "bash"])
+
+// Single-quote for the shell that is about to run it: `'` is closed, escaped
+// and reopened, so a value can never end the quoting early.
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+// V2's shell.create.before carries no session, so the identity it exports is
+// scoped to the last session that ran a context hook. That is right for the
+// primary and wrong for a subagent: its rows get graded under the parent's id
+// and agent, silently (audit-03 F2). tool.execute.before *does* carry the real
+// session, so the command is stamped with it — an export inside the command
+// wins over the environment the shell was created with.
+//
+// Returns the command unchanged when the shell env already names this session,
+// so a primary session's commands are never rewritten.
+export function stampShellIdentity(
+  tool: string,
+  command: string,
+  sessionID?: string,
+  agent?: string,
+  envSessionID?: string,
+): string {
+  if (!SHELL_TOOLS.has(String(tool || "").toLowerCase())) return command
+  const id = sessionID?.trim()
+  if (!command || !id) return command
+  if (id === String(envSessionID ?? "").trim()) return command
+  const name = agent?.trim()
+  const prefix = name
+    ? `export ${SESSION_ID_ENV}=${shellQuote(id)} ${AGENT_NAME_ENV}=${shellQuote(name)}; `
+    : `export ${SESSION_ID_ENV}=${shellQuote(id)}; unset ${AGENT_NAME_ENV}; `
+  return prefix + command
+}
+
+// The wire: read the command out of the call's own input, rewrite it in place.
+// v2 hands execute.before ONE mutable event, so `event.input` is the surface —
+// the same one skill-name-resolver rewrites. Returns true when it changed
+// something, which is the only observable the hook has.
+export function stampShellCall(
+  tool: string,
+  input: unknown,
+  sessionID?: string,
+  agent?: string,
+  envSessionID?: string,
+): boolean {
+  const target = input as { command?: unknown } | null | undefined
+  if (!target || typeof target.command !== "string") return false
+  const stamped = stampShellIdentity(tool, target.command, sessionID, agent, envSessionID)
+  if (stamped === target.command) return false
+  target.command = stamped
+  return true
+}
+
 // ── Tool-name canonicalisation (audit-01 FAIL-2) ─────────────────────────────
 // The PTY extension is retired, so no tool carries a second name: the live set is
 // the shell tool plus V2's built-in file tools. The helper stays as the single

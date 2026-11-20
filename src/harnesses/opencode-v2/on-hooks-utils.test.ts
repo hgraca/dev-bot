@@ -14,7 +14,66 @@
 // =============================================================================
 
 import { describe, expect, test } from "bun:test"
-import { appendToToolResult, commandString, eventPayload, toolFileTargets } from "./on-hooks-utils"
+import { appendToToolResult, commandString, eventPayload, toolFileTargets, stampShellCall, stampShellIdentity } from "./on-hooks-utils"
+
+describe("stampShellIdentity", () => {
+  const CHILD = "ses_child01"
+  const PARENT = "ses_parent01"
+
+  test("leaves the command alone when the shell env already carries this session", () => {
+    expect(stampShellIdentity("shell", "git status", CHILD, "scout", CHILD)).toBe("git status")
+  })
+
+  test("stamps the calling session when it is not the one the env was scoped to", () => {
+    expect(stampShellIdentity("shell", "echo hi", CHILD, "scout", PARENT)).toBe(
+      `export DEV_BOT_SESSION_ID='${CHILD}' DEV_BOT_AGENT_NAME='scout'; echo hi`,
+    )
+  })
+
+  test("drops the inherited agent name when the calling agent is unknown", () => {
+    const stamped = stampShellIdentity("shell", "echo hi", CHILD, undefined, PARENT)
+    expect(stamped).toContain(`export DEV_BOT_SESSION_ID='${CHILD}'`)
+    expect(stamped).toContain("unset DEV_BOT_AGENT_NAME")
+    expect(stamped).not.toContain("DEV_BOT_AGENT_NAME='")
+  })
+
+  test("never touches a tool that is not a shell", () => {
+    expect(stampShellIdentity("read", "x", CHILD, "scout", PARENT)).toBe("x")
+    expect(stampShellIdentity("shell", "", CHILD, "scout", PARENT)).toBe("")
+  })
+
+  test("quotes a value instead of letting it break the command", () => {
+    const stamped = stampShellIdentity("shell", "echo hi", "ses_ok", "it's", PARENT)
+    expect(stamped).toContain(`DEV_BOT_AGENT_NAME='it'\\''s'`)
+  })
+})
+
+describe("stampShellCall", () => {
+  // The hook cannot be imported here (it needs the host runtime), so the
+  // mutation it performs lives in this helper and is tested through the same
+  // `input` object the hook passes.
+  const CHILD = "ses_child01"
+  const PARENT = "ses_parent01"
+
+  test("rewrites the call's own input in place", () => {
+    const input: { command?: string } = { command: "echo hi" }
+    expect(stampShellCall("shell", input, CHILD, "scout", PARENT)).toBe(true)
+    expect(input.command).toBe(
+      `export DEV_BOT_SESSION_ID='${CHILD}' DEV_BOT_AGENT_NAME='scout'; echo hi`,
+    )
+  })
+
+  test("reports false and leaves the input alone when nothing changes", () => {
+    const input: { command?: string } = { command: "echo hi" }
+    expect(stampShellCall("shell", input, CHILD, "scout", CHILD)).toBe(false)
+    expect(input.command).toBe("echo hi")
+  })
+
+  test("is inert for a tool with no command, and for a missing input", () => {
+    expect(stampShellCall("read", { path: "x" }, CHILD, "scout", PARENT)).toBe(false)
+    expect(stampShellCall("shell", undefined, CHILD, "scout", PARENT)).toBe(false)
+  })
+})
 
 describe("commandString", () => {
   test("returns the shell tool's command", () => {

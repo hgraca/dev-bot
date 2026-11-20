@@ -14,7 +14,7 @@ import { createHash } from "crypto"
 import { join } from "path"
 import { execSync } from "child_process"
 import { createLogger } from "../../../_shared/logger.ts"
-import { appendToToolResult, commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, canonicalToolName, eventPayload, toolFileTargets, type HookDecl, type FileChangeKind } from "../on-hooks-utils"
+import { appendToToolResult, commandString, createFileEditGate, createKindResolver, createRewriteEchoTracker, defaultHookLog, guardDecision, hasCommand, disabledModules, injectSessionId, rememberAgent, resolveGlobalConfigPath, routeHookOutput, sessionEnvVars, stampShellCall, AGENT_NAME_ENV, canonicalToolName, eventPayload, toolFileTargets, type HookDecl, type FileChangeKind } from "../on-hooks-utils"
 
 const DEV_BOT_ROOT = join(import.meta.dir, "../../../..") // repo root
 
@@ -372,6 +372,18 @@ export default Plugin.define({
           }
         }
       }
+
+      // Last, so the guards above see the command the model wrote. The calling
+      // session's own id must win over the one shell.env was scoped to: a
+      // subagent otherwise inherits the primary's identity (audit-03 F2).
+      const callerSession = String(event?.sessionID ?? "")
+      stampShellCall(
+        tool,
+        args,
+        callerSession,
+        String(event?.agent ?? sessionEnvVars(callerSession)[AGENT_NAME_ENV] ?? ""),
+        lastSessionID,
+      )
     })
 
     await ctx.tool.hook("execute.after", async (event: any) => {
