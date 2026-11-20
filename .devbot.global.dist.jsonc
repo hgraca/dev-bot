@@ -57,11 +57,14 @@
   //   }
   // },
   "datasources": {},
-  // Cluster access for agents, rendered by src/agentic/k8s/init.sh into
-  // ~/.kube/devbot.yaml plus an exec credential wrapper and ~/.kube/devbot.env.
+  // Cluster access for agents, rendered by src/agentic/k8s/init.sh into a
+  // per-project ~/.kube/devbot/<project>.yaml, an exec credential wrapper and
+  // an env file beside it. Each project opts in by naming catalogue keys.
   // Credential values stay in the environment: a value must be a "${VAR}"
   // reference, never the secret itself. See the `kubectl` section of
   // docs/configuration.md.
+  // `clusters` is keyed by the AWS EKS cluster name; `name` is the label an
+  // agent sees (the `kctl-<name>` server) and defaults to the key.
   // Example:
   // "kubectl": {
   //   "profile": "devbot-agent",
@@ -69,10 +72,10 @@
   //     "AWS_ACCESS_KEY_ID": "${AWS_KEY}",
   //     "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
   //   },
-  //   "clusters": [
-  //     { "name": "k8s-prod", "context": "k8s-prod-ro", "region": "eu-central-1" },
-  //     { "name": "k8s-stg", "context": "k8s-stg-rw", "region": "eu-central-1" }
-  //   ]
+  //   "clusters": {
+  //     "k8s-prod": { "context": "k8s-prod-ro", "region": "eu-central-1" },
+  //     "k8s-stg": { "context": "k8s-stg-rw", "region": "eu-central-1" }
+  //   }
   // },
   "kubectl": {},
   // AWS role connections offered to agents. Declared once here, so the key

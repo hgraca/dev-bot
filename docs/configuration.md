@@ -699,12 +699,12 @@ named `demo` get different files, so initialising one can neither widen nor
 overwrite another. Moving a project changes its slug and leaves the old file
 behind.
 
-Every cluster that renders also becomes its own MCP server, named
-`kctl-<cluster>`, with a single tool:
+Every cluster that renders also becomes its own MCP server, named after the
+entry's label — its `name`, or the key when it has none — with a single tool:
 
-| Server           | Tool      | Input                                                                                                      |
-| ---------------- | --------- | ---------------------------------------------------------------------------------------------------------- |
-| `kctl-<cluster>` | `kubectl` | `args`: kubectl's argv as a string array (`["get","pods","-n","core"]`); optional `stdin` for `apply -f -` |
+| Server        | Tool      | Input                                                                                                      |
+| ------------- | --------- | ---------------------------------------------------------------------------------------------------------- |
+| `kctl-<name>` | `kubectl` | `args`: kubectl's argv as a string array (`["get","pods","-n","core"]`); optional `stdin` for `apply -f -` |
 
 The server is the scoping: the cluster is fixed when it launches, so the tool
 has no target argument and cannot reach another cluster's context. It refuses
@@ -746,24 +746,37 @@ kubectl itself.
     "AWS_ACCESS_KEY_ID": "${AWS_KEY}",
     "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
   },
-  "clusters": [
-    { "name": "k8s-prod", "context": "k8s-prod-ro", "region": "eu-central-1" },
-    { "name": "k8s-stg", "context": "k8s-stg-rw", "region": "eu-central-1" }
-  ]
+  // Keyed by the AWS EKS cluster name — what `aws eks describe-cluster --name`
+  // receives. `name` is the label an agent sees and defaults to the key.
+  "clusters": {
+    "k8s-prod": { "context": "k8s-prod-ro", "region": "eu-central-1" },
+    "k8s-stg": { "context": "k8s-stg-rw", "region": "eu-central-1" },
+    "gete-prd": { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" }
+  }
 }
 
-// .devbot.project.jsonc — opt in by cluster name; nothing is rendered without it
-"kubectl": ["k8s-prod", "k8s-stg"]
+// .devbot.project.jsonc — opt in by catalogue key; nothing is rendered without it
+"kubectl": ["k8s-prod", "k8s-stg", "gete-prd"]
 ```
 
-The selection's order no longer decides the default: `current-context` is the
+**Key or label.** The key is the identity: it is the AWS cluster name, the name
+the project selection lists, and the name `devbot reinit` prunes by. The `name`
+field is what a human and an agent see — the kubeconfig cluster object, the
+`devbot-<name>` user, the context fallback and the `kctl-<name>` MCP server. It
+defaults to the key, so `"gete-prd": { … }` publishes `kctl-gete-prd`. Two
+entries may not share a label: their servers would collide, and the render
+refuses the config. The pre-1.20.0 array form is rejected by name — `devbot
+update` migrates it, giving every entry the key its `name` held, which is why no
+`kctl-*` server changes its name across the upgrade.
+
+The selection's order does not decide the default: `current-context` is the
 cluster the **project's own name** names, so a project declared as
 `acme-k8s-stg` opens on `k8s-stg` even when its array lists `k8s-prod` first.
-A catalogue name matches when the project name equals it or ends with
-`-<name>`, and the longest match wins — a catalogue holding both `k8s` and
+A catalogue label matches when the project name equals it or ends with
+`-<label>`, and the longest match wins — a catalogue holding both `k8s` and
 `k8s-stg` resolves `acme-k8s-stg` to `k8s-stg`. A project whose name names none
 of its clusters opens on the first selected cluster that rendered, which is why
-the order still fixes the order of the entries in the file. A name the
+the order still fixes the order of the entries in the file. A key the
 catalogue does not declare, or a cluster that cannot be described, is reported
 as a `WARN` and left out — the next selected cluster takes its place, so
 `current-context` is not necessarily the first name listed. A matching cluster
@@ -772,7 +785,7 @@ the first case is warned about, because the fallback may then name an
 environment the project did not. A selection that matches no catalogue entry at
 all prunes the project's files.
 
-`context` is the kubeconfig context name and defaults to the cluster name.
+`context` is the kubeconfig context name and defaults to the label.
 `namespace` is not configurable: contexts open in `default`, which is where the
 workloads live in this workspace. Both cluster and context names must match
 `[A-Za-z0-9._-]+` — the context is emitted as a YAML plain scalar, so a value
@@ -788,15 +801,20 @@ cannot produce.
 
 ```jsonc
 {
-  "name": "kosmos",
-  "type": "static",
-  "kubeconfig": "/abs/path/to/k3d-kubeconfig.yaml",
-  "context": "k3d-kosmos",
+  "kubectl": {
+    "clusters": {
+      "kosmos": {
+        "type": "static",
+        "kubeconfig": "/abs/path/to/k3d-kubeconfig.yaml",
+        "context": "k3d-kosmos"
+      }
+    }
+  }
 }
 ```
 
 `kubeconfig` is an absolute path; `context` names the context **inside** that
-file and defaults to the cluster name. The file's `clusters`, `users` and
+file and defaults to the label. The file's `clusters`, `users` and
 `contexts` are merged into the generated kubeconfig with
 `kubectl config view --flatten`, so whatever auth it uses survives intact. A
 missing or unreadable file, or a context the file does not hold, is a `WARN` and
@@ -818,7 +836,7 @@ kubectl --context k8s-prod-ro get pods
 That is the **human** path. An agent never runs it: `devbot kctl env|contexts`
 resolves the same paths for inspection, `devbot kctl run|exec` runs kubectl
 against the generated file, and the guard blocks a bare `kubectl` outright —
-agents go through the `kctl-<cluster>` MCP server instead.
+agents go through the `kctl-<name>` MCP server instead.
 
 Keeping it separate is deliberate. Merging agent contexts into a human's admin
 kubeconfig is how a `--context` typo reaches production, and the agent's

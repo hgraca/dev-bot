@@ -390,6 +390,7 @@ _capture_migration_tools() {
   rm -rf "${dir}"
   mkdir -p "${dir}"
   for file in migrations.sh read_jsonc.py migrate_workflow_config.py migrate_workspace_config.py \
+    migrate_kubectl_clusters.py \
     ensure_autobot_block.py ensure_autobot_slack_keys.py ensure_guard_rules.py; do
     if [[ -f "${DEV_BOT_ROOT}/src/_shared/${file}" ]]; then
       cp "${DEV_BOT_ROOT}/src/_shared/${file}" "${dir}/${file}"
@@ -703,6 +704,43 @@ _print_release_notes() {
 }
 
 # ── main ──────────────────────────────────────────────────────────────────────
+# Run the config migrations for the range this run crosses, reconcile, and record
+# the version. Also called from the already-on-target path: a migration that
+# failed on an earlier run leaves the recorded version behind, and exiting on
+# "already on the latest version" made the advice to run this command again a
+# no-op for exactly the case that needs it.
+_run_config_migrations() {
+  local target="$1" migration_capture="$2"
+  local global_config from_version migration_source migration_tools=""
+
+  global_config="$(_devbot_global_config)"
+  from_version="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${global_config}" version 2>/dev/null || true)"
+  if [[ -z "${from_version}" ]]; then
+    from_version="${UPDATE_OLD:-0.0.0}"
+  fi
+  local bootstrap_marker="${DEV_BOT_ROOT}/storage/run/migrate-bootstrap-pending"
+  if [[ -f "${bootstrap_marker}" ]]; then
+    _warn "config bootstrap still pending — retrying over the full range"
+    from_version="0.0.0"
+  fi
+  if _migration_version_lt "${target}" "${from_version}"; then
+    migration_source="${migration_capture}/migrations.sh"
+    migration_tools="${migration_capture}"
+  else
+    migration_source="${DEV_BOT_ROOT}/src/_shared/migrations.sh"
+  fi
+
+  if _migration_run_phase "${from_version}" "${target}" "${global_config}" "${migration_source}" "${migration_tools}"; then
+    rm -f "${bootstrap_marker}"
+    _reconcile_global_config
+    _record_installed_version "${target}"
+    _reinit_registered_projects "${global_config}" || true
+    return 0
+  fi
+  _warn "config migrations need attention — version not recorded; resolve them and run devbot update again"
+  return 1
+}
+
 main() {
   local total_start=${SECONDS}
   local tool_count=0 tool_failed=0
@@ -797,6 +835,12 @@ main() {
         _ok "Already on the latest version (${target})."
       fi
       _sync_external_modules_on_noop
+      local recorded
+      recorded="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "$(_devbot_global_config)" version 2>/dev/null || true)"
+      if [[ -n "${recorded}" ]] && _migration_version_lt "${recorded}" "${target}"; then
+        _warn "config migrations still pending (${recorded} -> ${target}) — retrying"
+        _run_config_migrations "${target}" "${migration_capture}" || true
+      fi
       exit 0
       ;;
     ahead)
@@ -876,37 +920,7 @@ main() {
   module_count=$(( module_count + ${MODULE_SCRIPT_COUNT:-0} ))
   module_failed=$(( module_failed + ${MODULE_SCRIPT_FAILED:-0} ))
 
-  # Migrate every retired config key over the range this update crossed,
-  # before the reconciler drops the old keys. The phase runs in a fresh shell
-  # so an upgrade loads the target checkout's migration set; a downgrade uses
-  # the tools captured before the checkout. On failure, keep the old recorded
-  # version so the same range runs again on the next update.
-  local global_config from_version migration_source migration_tools=""
-  global_config="$(_devbot_global_config)"
-  from_version="$(python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${global_config}" version 2>/dev/null || true)"
-  if [[ -z "${from_version}" ]]; then
-    from_version="${UPDATE_OLD:-0.0.0}"
-  fi
-  local bootstrap_marker="${DEV_BOT_ROOT}/storage/run/migrate-bootstrap-pending"
-  if [[ -f "${bootstrap_marker}" ]]; then
-    _warn "config bootstrap still pending — retrying over the full range"
-    from_version="0.0.0"
-  fi
-  if _migration_version_lt "${target}" "${from_version}"; then
-    migration_source="${migration_capture}/migrations.sh"
-    migration_tools="${migration_capture}"
-  else
-    migration_source="${DEV_BOT_ROOT}/src/_shared/migrations.sh"
-  fi
-
-  if _migration_run_phase "${from_version}" "${target}" "${global_config}" "${migration_source}" "${migration_tools}"; then
-    rm -f "${bootstrap_marker}"
-    _reconcile_global_config
-    _record_installed_version "${target}"
-    _reinit_registered_projects "${global_config}" || true
-  else
-    _warn "config migrations need attention — version not recorded; resolve them and run devbot update again"
-  fi
+  _run_config_migrations "${target}" "${migration_capture}" || true
 
   UPDATED="${tool_count}" FAILED="${tool_failed}"
   MODULE_UPDATED="${module_count}" MODULE_FAILED="${module_failed}"

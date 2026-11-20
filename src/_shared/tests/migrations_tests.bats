@@ -305,3 +305,44 @@ EOF
   refute grep -q 'poll_slack' "${SANDBOX}/locked/.devbot.project.jsonc"
   chmod 644 "${SANDBOX}/locked/.devbot.project.jsonc"
 }
+
+@test "the 1.20.0 up migration keys the kubectl catalogue by cluster name" {
+  export DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../.." && pwd)"
+
+  cat > "${CONFIG}" <<'JSONC'
+{
+  // machine-wide catalogue
+  "harness": "opencode-v2",
+  "kubectl": {
+    "profile": "devbot-agent",
+    "clusters": [
+      { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" },
+      { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
+    ]
+  }
+}
+JSONC
+
+  run migration_up-1.20.0 "${CONFIG}"
+  assert_success
+
+  run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${CONFIG}" kubectl clusters
+  assert_success
+  assert_output --partial '"gete":'
+  assert_output --partial '"gete-dev":'
+  refute_output --partial '"name"'
+  # The rewrite is textual, so the comment above the block survives.
+  run grep -c '// machine-wide catalogue' "${CONFIG}"
+  assert_output "1"
+
+  # A second run has nothing to do and says so.
+  run migration_up-1.20.0 "${CONFIG}"
+  assert_success
+  assert_output --partial "already in the target shape"
+
+  # The down half rebuilds the array, name included.
+  run migration_down-1.20.0 "${CONFIG}"
+  assert_success
+  run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${CONFIG}" kubectl clusters
+  assert_output --partial '"name": "gete-dev"'
+}

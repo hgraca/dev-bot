@@ -6,7 +6,7 @@ hooks: ["lint-k8s"]
 tools: ["lint-k8s"]
 ---
 
-Audits Kubernetes, Kustomize, and Helm manifests with `kubeconform` (schema validation) and `kube-linter` (best practices), and exposes a project's clusters as `kctl-<cluster>` MCP servers so an agent never runs `kubectl` itself.
+Audits Kubernetes, Kustomize, and Helm manifests with `kubeconform` (schema validation) and `kube-linter` (best practices), and exposes a project's clusters as `kctl-<name>` MCP servers so an agent never runs `kubectl` itself.
 
 ## How agents use it
 
@@ -28,8 +28,8 @@ and reports a failed clone as a warning rather than failing the init.
 ## Cluster access
 
 `init.sh` reads the `kubectl` node of the global config — a catalogue of
-clusters — together with the project's `kubectl` list of cluster names to opt
-into. It writes **two files per project**:
+clusters keyed by AWS EKS cluster name — together with the project's `kubectl`
+list of those keys to opt into. It writes **two files per project**:
 
 ```
 ~/.kube/devbot/<project_name>-<8-hex>.yaml   the kubeconfig
@@ -49,12 +49,13 @@ SSO exec contexts that expire; these use the devbot profile.
 
 ### MCP servers — one per cluster
 
-Every cluster that rendered becomes its own stdio MCP server, named
-`kctl-<cluster>`, with a single tool:
+Every cluster that rendered becomes its own stdio MCP server, named after the
+cluster's label — its catalogue `name`, or the catalogue key when it has none —
+with a single tool:
 
-| Server           | Tool      | Meaning                                                                                                           |
-| ---------------- | --------- | ----------------------------------------------------------------------------------------------------------------- |
-| `kctl-<cluster>` | `kubectl` | Run kubectl against that cluster. `args` is kubectl's argv (a string array); optional `stdin` feeds `apply -f -`. |
+| Server        | Tool      | Meaning                                                                                                           |
+| ------------- | --------- | ----------------------------------------------------------------------------------------------------------------- |
+| `kctl-<name>` | `kubectl` | Run kubectl against that cluster. `args` is kubectl's argv (a string array); optional `stdin` feeds `apply -f -`. |
 
 The server _is_ the scoping: the cluster is fixed at launch, so the tool has no
 `--context` to get wrong and the server can reach nothing else. It also refuses
@@ -76,14 +77,14 @@ in the file, so `devbot reinit` is what adds or removes one. They are declared
 enabled (not `wire_disabled`), because the module's memory makes them the only
 permitted way to reach a cluster.
 
-The runtime manifest group is `k8s-<cluster>` while the server key is
-`kctl-<cluster>`: a disabled module's manifests are recognised by their
-filename, so the file keeps the module's name and only the key is shortened
-(`docs/create-a-module.md`). `devbot list mcps` lists the key, which is what
-the agent's tool list shows.
+The runtime manifest group is `k8s-<key>` — the catalogue key, the AWS cluster
+name — while the server key is `kctl-<name>`, the entry's label. A disabled
+module's manifests are recognised by their filename, so the file is named after
+the identity rather than the label (`docs/create-a-module.md`); `devbot list
+mcps` lists the key, which is what the agent's tool list shows.
 
 The launcher needs `bun` (installed by `devbot install`); without it the server
-reports the missing runtime in `.agents/logs/kctl-<cluster>-mcp.log` instead of
+reports the missing runtime in `.agents/logs/kctl-<name>-mcp.log` instead of
 starting. A call is bounded at 120 s — a hung `watch` or `port-forward` would
 otherwise outlive the client's wait and keep running — and one the operator knows
 is slow can be given `KCTL_MCP_TIMEOUT_MS` in the environment that launches the
@@ -130,7 +131,7 @@ selection or the global catalogue, run `devbot reinit <path>`.
 
 Whenever the module is enabled, `init.sh` copies the module's `k8s.md` to
 `<devbot_dir>/memory/active/modules/k8s.md`. It is an absolute prohibition —
-never run `kubectl` in any shell, always use the `kctl-<cluster>` MCP — plus the
+never run `kubectl` in any shell, always use the `kctl-<name>` MCP — plus the
 RBAC boundaries and the gotchas, so the agent reads the rules without them being
 hand-copied into the project's `project.md`.
 

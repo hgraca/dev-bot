@@ -56,3 +56,31 @@ JSONC_EOF
   grep -q 'migration_up-1.15.0' "${REPO_ROOT}/src/_shared/migrations.sh"
   grep -q 'migration_down-1.15.0' "${REPO_ROOT}/src/_shared/migrations.sh"
 }
+
+@test "a pending migration is retried when already on the target tag" {
+  # A migration that failed on an earlier run leaves the recorded version behind.
+  # The "already on the latest version" path used to exit before migrations ran,
+  # so "run devbot update again" could never retry it.
+  _new_sandbox "1.14.0:1.15.0"
+  local pkg="${SANDBOX}/pkg"
+  mkdir -p "${pkg}"
+  cat > "${pkg}/.devbot.project.jsonc" <<'JSONC'
+{
+  "commit_memory": true,
+  "workflow": "trunk"
+}
+JSONC
+  cat > "${INSTALL}/.devbot.global.jsonc" <<JSONC_EOF
+{
+  "version": "1.14.0",
+  "projects": ["${pkg}"]
+}
+JSONC_EOF
+
+  export DEVBOT_SKIP_GPU_DETECT=1
+  _run_update
+
+  [ "${UPDATE_STATUS}" -eq 0 ]
+  run cat "${pkg}/.devbot.project.jsonc"
+  assert_output --partial '"workspace"'
+}

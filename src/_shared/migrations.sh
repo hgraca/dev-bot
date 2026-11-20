@@ -453,3 +453,48 @@ function migration_down-1.19.0 {
   _migration_ok "kubectl guard rule removed from ${removed} config(s)"
   return "${failed}"
 }
+
+# 1.20.0 — `kubectl.clusters` became an object keyed by the AWS EKS cluster name,
+# with `name` as the visible label. The array gave one string to four jobs (the
+# AWS cluster, the kubeconfig cluster object, the `devbot-<name>` user and the
+# `kctl-<name>` server key), so an AWS cluster name and the name a human sees
+# could not differ. The key takes the old name over, which is why every MCP
+# server keeps the name it had. The project selection lists those same names and
+# needs no change.
+#
+# Only the global config holds the catalogue; the down half rebuilds the array
+# from the same two fields.
+function migration_up-1.20.0 {
+  local config="${1:?global config path required}"
+  _migration_kubectl_catalogue "${config}"
+}
+
+function migration_down-1.20.0 {
+  local config="${1:?global config path required}"
+  _migration_kubectl_catalogue "${config}" --down
+}
+
+_migration_kubectl_catalogue() {
+  local config="$1" down="${2:-}"
+  local -a args=()
+  [[ -n "${down}" ]] && args+=("${down}")
+  local out
+  if ! out="$(python3 "$(_migration_tools_dir)/migrate_kubectl_clusters.py" \
+    ${args[@]+"${args[@]}"} "${config}" 2>&1)"; then
+    _migration_warn "kubectl catalogue: ${out}"
+    return 1
+  fi
+  case "${out}" in
+    migrated*)
+      if [[ -n "${down}" ]]; then
+        _migration_ok "kubectl catalogue reverted to the array form"
+      else
+        _migration_ok "kubectl catalogue keyed by cluster name"
+      fi
+      ;;
+    *)
+      _migration_skip "kubectl catalogue already in the target shape"
+      ;;
+  esac
+  return 0
+}
