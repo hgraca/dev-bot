@@ -173,3 +173,112 @@ teardown() {
   [ "$(cat "${AGENTS_DIR}/skills/devbot/graphify/devbot:graphify")" = "keep" ]
 }
 
+
+@test "_unlink_skills: takes a disabled module's skills out and removes its directory" {
+  _link_skills "${DEV_BOT_ROOT}/src/agentic/graphify/"
+  assert [ -L "${AGENTS_DIR}/skills/devbot/graphify/devbot:graphify" ]
+
+  _unlink_skills "${DEV_BOT_ROOT}/src/agentic/graphify/"
+
+  refute [ -e "${AGENTS_DIR}/skills/devbot/graphify" ]
+}
+
+@test "_unlink_skills: removes its own links and leaves a foreign one" {
+  _link_skills "${DEV_BOT_ROOT}/src/agentic/graphify/"
+  assert [ -L "${AGENTS_DIR}/skills/devbot/graphify/devbot:graphify" ]
+  mkdir -p "${SANDBOX}/elsewhere"
+  ln -sf "${SANDBOX}/elsewhere" "${AGENTS_DIR}/skills/devbot/graphify/devbot:foreign"
+
+  _unlink_skills "${DEV_BOT_ROOT}/src/agentic/graphify/"
+
+  refute [ -L "${AGENTS_DIR}/skills/devbot/graphify/devbot:graphify" ]
+  assert [ -L "${AGENTS_DIR}/skills/devbot/graphify/devbot:foreign" ]
+}
+
+@test "_unlink_skills: takes back a link into the generated storage store" {
+  # graphify's shape: a machine-local generated skill dir behind a sentinel.
+  mkdir -p "${DEV_BOT_ROOT}/storage/gen/skills"
+  printf -- '---\nname: devbot:gen\n---\n' >"${DEV_BOT_ROOT}/storage/gen/skills/SKILL.md"
+  touch "${DEV_BOT_ROOT}/storage/gen/skills/.devbot-generated"
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/gen"
+  _link_skills "${DEV_BOT_ROOT}/src/agentic/gen/"
+  assert [ -L "${AGENTS_DIR}/skills/devbot/gen/devbot:gen" ]
+
+  _unlink_skills "${DEV_BOT_ROOT}/src/agentic/gen/"
+
+  refute [ -e "${AGENTS_DIR}/skills/devbot/gen" ]
+}
+
+@test "_unlink_skills: takes back the legacy module-level symlink shape" {
+  # The previous farm shape is one link at the module name, not a directory.
+  mkdir -p "${AGENTS_DIR}/skills/devbot"
+  ln -sf "${DEV_BOT_ROOT}/src/agentic/graphify/skills" \
+    "${AGENTS_DIR}/skills/devbot/graphify"
+
+  _unlink_skills "${DEV_BOT_ROOT}/src/agentic/graphify/"
+
+  refute [ -e "${AGENTS_DIR}/skills/devbot/graphify" ]
+}
+
+@test "_link_skills: does not replace a link that resolves outside the module" {
+  mkdir -p "${AGENTS_DIR}/skills/devbot/graphify" "${SANDBOX}/mine"
+  ln -sf "${SANDBOX}/mine" "${AGENTS_DIR}/skills/devbot/graphify/devbot:graphify"
+
+  run _link_skills "${DEV_BOT_ROOT}/src/agentic/graphify/"
+
+  assert_output --partial "links outside this module"
+  [ "$(readlink "${AGENTS_DIR}/skills/devbot/graphify/devbot:graphify")" = "${SANDBOX}/mine" ]
+}
+
+@test "_link_modules: a disabled module's skills leave the farm" {
+  _link_skills "${DEV_BOT_ROOT}/src/agentic/graphify/"
+  assert [ -L "${AGENTS_DIR}/skills/devbot/graphify/devbot:graphify" ]
+
+  PROJECT_DIR="${SANDBOX}/project"
+  # shellcheck disable=SC2317  # consumed by _link_modules
+  _devbot_get_project_dir() { printf '.agents'; }
+  # shellcheck disable=SC2317
+  _devbot_get_disabled_modules() { printf '["graphify"]'; }
+
+  _link_modules
+
+  refute [ -e "${AGENTS_DIR}/skills/devbot/graphify" ]
+}
+
+@test "_link_skills: does not delete a module-level symlink it does not own" {
+  # The legacy shape is replaced with a real directory — but a foreign link at
+  # the module name is the user's, and every other path here leaves it.
+  mkdir -p "${AGENTS_DIR}/skills/devbot" "${SANDBOX}/mine"
+  ln -sf "${SANDBOX}/mine" "${AGENTS_DIR}/skills/devbot/graphify"
+
+  run _link_skills "${DEV_BOT_ROOT}/src/agentic/graphify/"
+
+  assert_output --partial "links outside this module"
+  [ "$(readlink "${AGENTS_DIR}/skills/devbot/graphify")" = "${SANDBOX}/mine" ]
+}
+
+@test "_link_modules: an empty disabled set links every module" {
+  # The disabled set can legitimately be empty; the loops must survive it.
+  PROJECT_DIR="${SANDBOX}/project"
+  # shellcheck disable=SC2317  # consumed by _link_modules
+  _devbot_get_project_dir() { printf '.agents'; }
+  # shellcheck disable=SC2317
+  _devbot_get_disabled_modules() { printf '[]'; }
+
+  run _link_modules
+
+  assert_success
+  assert [ -L "${AGENTS_DIR}/skills/devbot/graphify/devbot:graphify" ]
+}
+
+@test "_link_skills: prunes a legacy link into a storage dir when the module ships no skills" {
+  # A sentinel-less storage/<module>/skills is not preferred, so the committed
+  # skills dir is the expected one — and the no-skills branch must still
+  # recognise the storage link as this module's.
+  mkdir -p "${DEV_BOT_ROOT}/storage/noskills/skills" "${DEV_BOT_ROOT}/src/agentic/noskills"
+  ln -sf "${DEV_BOT_ROOT}/storage/noskills/skills" "${AGENTS_DIR}/skills/devbot/noskills"
+
+  _link_skills "${DEV_BOT_ROOT}/src/agentic/noskills/"
+
+  refute [ -e "${AGENTS_DIR}/skills/devbot/noskills" ]
+}
