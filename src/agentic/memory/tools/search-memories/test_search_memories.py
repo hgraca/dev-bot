@@ -1908,5 +1908,82 @@ class TestNonPolyrepoUnchanged(unittest.TestCase):
         self.assertEqual(seen["projects"], [cwd])
 
 
+class HyphenWideningTest(unittest.TestCase):
+    """A pasted slug finds nothing; the salted words do (audit-03 N4)."""
+
+    def test_main_retries_a_slug_query_with_its_words(self):
+        # The call site, not just the helper: reverting the dispatch to a plain
+        # search_mdctx(args.query, ...) leaves the helper tests green.
+        calls = []
+
+        def fake_search(queries, project_root, max_results, projects=None,
+                        collections=None, fallback_latent_root=False):
+            calls.append(list(queries))
+            return ([] if len(calls) == 1 else [{"file": "hit"}]), None
+
+        with patch.object(_search_memories, "resolve_provider", return_value="mdctx"), \
+             patch.object(_search_memories, "resolve_polyrepo", return_value=False), \
+             patch.object(_search_memories, "ensure_index_current",
+                          side_effect=lambda root, provider: (True, "")), \
+             patch.object(_search_memories, "search_mdctx", side_effect=fake_search), \
+             patch.object(sys, "argv",
+                          ["search-memories", "--query", "kube-linter-grep-target-archive"]):
+            _search_memories.main()
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[0], ["kube-linter-grep-target-archive"])
+        self.assertIn("kube linter grep target archive", calls[1])
+
+    def test_a_slug_is_widened_into_its_words(self):
+        widened = _search_memories.split_hyphenated_queries(
+            ["kube-linter-grep-must-target-archive"]
+        )
+        self.assertIn("kube linter grep must target archive", widened)
+        self.assertIn("kube-linter-grep-must-target-archive", widened)
+
+    def test_a_two_word_compound_and_a_plain_query_are_left_alone(self):
+        self.assertEqual(
+            _search_memories.split_hyphenated_queries(["kube-linter"]), ["kube-linter"]
+        )
+        self.assertEqual(
+            _search_memories.split_hyphenated_queries(["planning workflow"]),
+            ["planning workflow"],
+        )
+
+    def test_the_search_is_retried_only_after_an_empty_first_pass(self):
+        calls = []
+
+        def search(queries):
+            calls.append(list(queries))
+            return ([] if len(calls) == 1 else [{"file": "hit"}]), None
+
+        results, err = _search_memories.search_with_hyphen_fallback(
+            search, ["a-b-c-d"]
+        )
+        self.assertIsNone(err)
+        self.assertEqual(calls[0], ["a-b-c-d"])
+        self.assertIn("a b c d", calls[1])
+        self.assertEqual(results, [{"file": "hit"}])
+
+    def test_no_retry_without_hyphens_or_when_the_first_pass_hit(self):
+        calls = []
+
+        def search(queries):
+            calls.append(list(queries))
+            return [], None
+
+        _search_memories.search_with_hyphen_fallback(search, ["planning"])
+        self.assertEqual(len(calls), 1)
+
+        calls.clear()
+
+        def hitting(queries):
+            calls.append(list(queries))
+            return [{"file": "hit"}], None
+
+        _search_memories.search_with_hyphen_fallback(hitting, ["a-b-c-d"])
+        self.assertEqual(len(calls), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

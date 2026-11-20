@@ -608,6 +608,40 @@ def _scoped_mdctx_pairs(
     return unique
 
 
+# A slug pasted from a filename reaches BM25 as one token and matches nothing,
+# while its words do. Three hyphens is the threshold: two or fewer is a shipped
+# compound ("kube-linter") or a short phrase, and splitting changes the question.
+_SLUG_HYPHENS = 3
+
+
+def split_hyphenated_queries(queries: list[str]) -> list[str]:
+    """The queries, plus a space-split variant of every pasted slug."""
+    widened: list[str] = []
+    for query in queries:
+        if query not in widened:
+            widened.append(query)
+        if query.count("-") >= _SLUG_HYPHENS:
+            split = " ".join(query.replace("-", " ").split())
+            if split and split not in widened:
+                widened.append(split)
+    return widened
+
+
+def search_with_hyphen_fallback(search, queries):
+    """Retry once with slugs widened — only when the first pass found nothing.
+
+    `search` is the engine call (queries) -> (results, error); passing it in keeps
+    the retry rule testable without an index.
+    """
+    results, err = search(queries)
+    if results or err:
+        return results, err
+    widened = split_hyphenated_queries(queries)
+    if widened == list(queries):
+        return results, err
+    return search(widened)
+
+
 def search_mdctx(
     queries: list[str],
     project_root: Path,
@@ -1292,12 +1326,15 @@ def main() -> None:
     # Engine dispatch: qmd and mdctx are interchangeable behind this CLI,
     # selected by memory_search_provider. Both consume the resolved collections.
     if provider == "mdctx":
-        results, err = search_mdctx(
+        results, err = search_with_hyphen_fallback(
+            lambda qs: search_mdctx(
+                qs,
+                project_root,
+                args.max_results,
+                projects=read_projects,
+                collections=collections,
+            ),
             args.query,
-            project_root,
-            args.max_results,
-            projects=read_projects,
-            collections=collections,
         )
         body_fetch = fetch_mdctx_body
     else:
@@ -1329,11 +1366,16 @@ def main() -> None:
                 )
                 continue
             by_name[name] = entry["path"]
-        results, err = search_qmd_scoped(
+        # Same widening as the mdctx branch: qmd is BM25-only, so a pasted slug
+        # is one token that matches nothing there either.
+        results, err = search_with_hyphen_fallback(
+            lambda qs: search_qmd_scoped(
+                qs,
+                list(by_name),
+                args.max_results,
+                include_global=include_global,
+            ),
             args.query,
-            list(by_name),
-            args.max_results,
-            include_global=include_global,
         )
         body_fetch = fetch_file_body
 
