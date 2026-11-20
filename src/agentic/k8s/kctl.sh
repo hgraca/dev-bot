@@ -8,7 +8,7 @@
 # Never use the plain ~/.kube/config for these clusters: its contexts are SSO
 # exec contexts that expire, while the generated ones use the devbot profile.
 #
-# `exec` is the cluster-scoped form the `kctl-<name>` MCP servers call: the
+# `exec` is the cluster-scoped form the `kctl-<key>` MCP servers call: the
 # caller names the cluster and the context is applied for it, so a caller
 # cannot reach another cluster's context through this wrapper.
 set -euo pipefail
@@ -37,7 +37,7 @@ kubeconfig:
 
 `run` uses the kubeconfig's current-context unless you pass kubectl's own
 `--context`. `exec` takes the cluster name from the catalogue and applies that
-cluster's context itself — it is what the `kctl-<name>` MCP servers call, and
+cluster's context itself — it is what the `kctl-<key>` MCP servers call, and
 it refuses a caller `--context` so one cluster's server can never reach another.
 EOF
 }
@@ -92,8 +92,7 @@ _catalogue_type() {
   jq -r --arg ctx "$1" '
     .clusters
     | to_entries[]
-    | (.value.name // .key) as $label
-    | (if ((.value.context // "") | test("^[A-Za-z0-9._-]+$")) then .value.context else $label end) as $c
+    | (if ((.value.context // "") | test("^[A-Za-z0-9._-]+$")) then .value.context else .key end) as $c
     | select($c == $ctx)
     | (.value.type // "eks")' <<<"${SPEC}" 2>/dev/null | head -1
 }
@@ -116,10 +115,9 @@ _catalogue_entry() {
   jq -r --arg ctx "$1" '
     .clusters
     | to_entries[]
-    | (.value.name // .key) as $label
-    | (if ((.value.context // "") | test("^[A-Za-z0-9._-]+$")) then .value.context else $label end) as $c
+    | (if ((.value.context // "") | test("^[A-Za-z0-9._-]+$")) then .value.context else .key end) as $c
     | select($c == $ctx)
-    | [$label, (.value.region // "")] | @tsv' <<<"${SPEC}" 2>/dev/null | head -1
+    | [.key, (.value.region // "")] | @tsv' <<<"${SPEC}" 2>/dev/null | head -1
 }
 
 # The context a catalogue cluster resolves to: its declared `context`, or the
@@ -130,10 +128,9 @@ _catalogue_context() {
   jq -r --arg n "$1" '
     .clusters
     | to_entries[]
-    | select(.key == $n or (.value.name // .key) == $n)
-    | [ (if .key == $n then 0 else 1 end),
-        (if ((.value.context // "") | test("^[A-Za-z0-9._-]+$")) then .value.context else (.value.name // .key) end) ]
-    | @tsv' <<<"${SPEC}" 2>/dev/null | sort -n | head -1 | cut -f2
+    | select(.key == $n)
+    | (if ((.value.context // "") | test("^[A-Za-z0-9._-]+$")) then .value.context else .key end)' \
+    <<<"${SPEC}" 2>/dev/null | head -1
 }
 
 cmd_env() {

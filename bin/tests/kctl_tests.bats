@@ -37,8 +37,8 @@ EOF
       "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
     },
     "clusters": {
-      "gete": { "context": "gete-prod-ro", "region": "eu-central-1" },
-      "gete-dev": { "context": "gete-staging-rw", "region": "eu-central-1" }
+      "gete": { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" },
+      "gete-dev": { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
     }
   }
 }
@@ -368,13 +368,13 @@ EOF
   assert_output --partial "drop the leading 'kubectl'"
 }
 
-@test "exec resolves a renamed cluster by its label, not the AWS key" {
+@test "exec resolves a cluster by its key, not the AWS name" {
   cat > "${DEV_BOT_GLOBAL_CONFIG}" <<'EOF'
 {
   "kubectl": {
     "profile": "devbot-agent",
     "clusters": {
-      "gete-stg": { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
+      "gete-stg": { "name": "gete-staging", "context": "gete-staging-rw", "region": "eu-central-1" }
     }
   }
 }
@@ -383,10 +383,15 @@ EOF
     > "${PROJECT}/.devbot.project.jsonc"
   write_kubeconfig
 
-  run "${DEVBOT}" kctl exec gete-dev "${PROJECT}" -- get pods
+  run "${DEVBOT}" kctl exec gete-stg "${PROJECT}" -- get pods
 
   assert_success
-  assert_output --partial "kubectl context: gete-staging-rw (gete-dev)"
+  assert_output --partial "kubectl context: gete-staging-rw (gete-stg)"
+
+  # The AWS cluster name is not a lookup key under the new roles.
+  run "${DEVBOT}" kctl exec gete-staging "${PROJECT}" -- get pods
+  assert_failure
+  assert_output --partial "is not in the global kubectl catalogue"
 }
 
 @test "exec accepts the catalogue key the MCP launcher passes" {
@@ -404,8 +409,8 @@ EOF
     > "${PROJECT}/.devbot.project.jsonc"
   write_kubeconfig
 
-  # The published `kctl-gete-dev` server launches with the key, so the lookup
-  # has to answer for it as well as for the label.
+  # The published `kctl-gete-stg` server launches with the key, and that is the
+  # identifier the CLI takes: the AWS cluster name is not a lookup key.
   run "${DEVBOT}" kctl exec gete-stg "${PROJECT}" -- get pods
 
   assert_success
