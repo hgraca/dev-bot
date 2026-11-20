@@ -104,6 +104,29 @@ run_tool() {
   assert_output --partial "ERROR: --cwd is not a git repository"
 }
 
+@test "a positional repository is the same as --cwd" {
+  # The obvious first call — `git-report <dir>` — used to die in argparse with
+  # "unrecognized arguments", which reads as a broken tool (audit-03 N2).
+  run_tool "$OTHER"
+
+  assert_success
+  assert_output --partial "**Repository:** \`$(cd "$OTHER" && pwd -P)\`"
+  assert_output --partial "other repo commit"
+}
+
+@test "a positional repository that is missing is named as the positional" {
+  # The error must name the spelling the caller used, not a flag they never wrote.
+  run -2 bash -c "cd '$REPO' && bash '$TOOL' /nonexistent/repo"
+
+  assert_output --partial "ERROR: positional path is not a directory"
+}
+
+@test "a positional repository and --cwd together are refused" {
+  run -2 bash -c "cd '$REPO' && bash '$TOOL' --cwd '$OTHER' '$OTHER'"
+
+  assert_output --partial "not both"
+}
+
 @test "default: shows current branch" {
   run_tool
 

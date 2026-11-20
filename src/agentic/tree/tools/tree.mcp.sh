@@ -92,9 +92,9 @@ while [[ $# -gt 0 ]]; do
       fi
       MAX_DEPTH="$local_value"; shift
       ;;
-    --*)
-      # Unknown flag (e.g. --depth): reject with a usage error instead of
-      # silently treating it as a path (audit-26 NOTE-4).
+    -?*)
+      # Unknown flag, long or short (e.g. --depth, -d): reject with a usage
+      # error instead of treating it as a path (audit-26 NOTE-4, audit-03 NOTE-3).
       echo "Unknown option: $1" >&2
       echo "Usage: tree.mcp.sh [--markdown|--json|--format <fmt>] [--max-depth <n>|-L <n>] [--all] [--exclude <pattern>] <dir> [<dir> ...]" >&2
       exit 1

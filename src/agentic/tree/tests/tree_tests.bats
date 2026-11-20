@@ -28,6 +28,15 @@ setup() {
   assert_output --partial "Usage:"
 }
 
+@test "unknown option: a short flag is refused, not read as a path" {
+  # `tree -d 1 .` used to answer "skipped non-existent paths: -d 1" and print
+  # the tree anyway — a plausible answer to the wrong question (audit-03 N3).
+  run bash "$TOOL" -d 1 "$FIXTURES"
+
+  assert_failure
+  assert_output --partial "Unknown option: -d"
+}
+
 # ── Single valid directory ─────────────────────────────────────────────────────
 
 @test "single dir: outputs ## Tree structure header and code fence" {

@@ -196,15 +196,37 @@ def main() -> None:
         default="markdown",
         help=argparse.SUPPRESS,  # hidden — bash wrapper always passes markdown
     )
+    # A caller naming the repository positionally is the obvious first attempt
+    # and used to die in argparse ("unrecognized arguments: ."); --cwd stays the
+    # canonical flag, this only maps the positional onto it (audit-03 N2).
+    parser.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="Repository directory (same as --cwd)",
+    )
     args = parser.parse_args()
+
+    if args.cwd is not None and args.path is not None:
+        print(
+            "ERROR: give the repository either positionally or with --cwd, not both",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    # Name the spelling the caller used: "git-report /missing" must not be told
+    # its --cwd is wrong.
+    source = "--cwd"
+    if args.cwd is None:
+        args.cwd = args.path
+        source = "positional path"
 
     if args.cwd is not None:
         if not os.path.isdir(args.cwd):
-            print(f"ERROR: --cwd is not a directory: {args.cwd}", file=sys.stderr)
+            print(f"ERROR: {source} is not a directory: {args.cwd}", file=sys.stderr)
             raise SystemExit(2)
         _, repo_rc = run(["git", "rev-parse", "--show-toplevel"], cwd=args.cwd)
         if repo_rc != 0:
-            print(f"ERROR: --cwd is not a git repository: {args.cwd}", file=sys.stderr)
+            print(f"ERROR: {source} is not a git repository: {args.cwd}", file=sys.stderr)
             raise SystemExit(2)
 
     data = collect(args.log_count, cwd=args.cwd)

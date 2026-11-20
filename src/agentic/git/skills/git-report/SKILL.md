@@ -25,16 +25,17 @@ Snapshots the current git state and returns a structured Markdown report. Use be
 git-report
 ```
 
-| Parameter     | Required | Description                                                         |
-| ------------- | -------- | ------------------------------------------------------------------- |
-| (none)        | —        | Default output: Markdown, 10 recent commits, session project        |
-| `--log-count` | no       | Number of recent commits to show (default: 10)                      |
-| `--cwd`       | no       | Repository directory to inspect — a sibling repo or linked worktree |
+| Parameter     | Required | Description                                                                      |
+| ------------- | -------- | -------------------------------------------------------------------------------- |
+| (none)        | —        | Default output: Markdown, 10 recent commits, session project                     |
+| `--log-count` | no       | Number of recent commits to show (default: 10)                                   |
+| `<path>`      | no       | Repository directory to inspect (positional) — a sibling repo or linked worktree |
+| `--cwd`       | no       | Same as `<path>`; give the repository one way or the other, never both           |
 
 No format parameters — output is always Markdown.
 
-In a polyrepo project, pass `--cwd <owner>` (from
-`devbot tool project-for-path <path>`) — the default inspects the session
+In a polyrepo project, pass `<owner>` positionally (or `--cwd <owner>`) — from
+`devbot tool project-for-path <path>` — the default inspects the session
 project, which is the container repository.
 
 ## Output Sections
@@ -64,6 +65,6 @@ git-report
 git-report --log-count 3
 # → Same report, only 3 recent commits shown
 
-git-report --cwd ../sibling-repo
+git-report ../sibling-repo
 # → Same report, read from the sibling repository instead of the session project
 ```
