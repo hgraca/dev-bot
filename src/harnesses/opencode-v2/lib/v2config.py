@@ -25,6 +25,7 @@ Usage:
 import json
 import os
 import sys
+import tempfile
 
 # init.sh exports this (`_v2`), but the mcp-sync plugin spawns this helper from
 # the running host with an inherited, unrelated environment — there the import
@@ -51,12 +52,27 @@ def read(path):
 
 
 def write(path, text):
-    tmp = path + ".devbot-tmp"
-    with open(tmp, "w") as handle:
-        handle.write(text)
-    load(tmp)  # never replace the config with something unparseable
-    os.chmod(tmp, os.stat(path).st_mode)
-    os.replace(tmp, path)
+    # A unique name: two writers editing the same config must not be able to
+    # delete each other's candidate when one of them fails to validate.
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, tmp = tempfile.mkstemp(dir=directory, prefix=os.path.basename(path) + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(text)
+        load(tmp)  # never replace the config with something unparseable
+        try:
+            mode = os.stat(path).st_mode
+        except OSError:
+            mode = None
+        if mode is not None:
+            os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # ── scanning ──────────────────────────────────────────────────────────────────
@@ -200,6 +216,25 @@ def _line_indent(text, index):
 # ── insert / remove ───────────────────────────────────────────────────────────
 
 
+def _last_significant(text, start, end):
+    """Index of the last character in [start, end) outside strings, comments and whitespace."""
+    i, last = start, -1
+    while i < end:
+        char = text[i]
+        if char == '"' or text.startswith("//", i) or text.startswith("/*", i):
+            nxt = _skip(text, i)
+            if nxt > end:
+                break
+            if char == '"':
+                last = nxt - 1
+            i = nxt if nxt > i else i + 1
+            continue
+        if not char.isspace():
+            last = i
+        i += 1
+    return last
+
+
 def _insert(text, span, entry):
     open_i, close_i = span
     close_indent = _line_indent(text, close_i)
@@ -216,10 +251,23 @@ def _insert(text, span, entry):
             + close_indent
             + text[close_i:]
         )
-    i = close_i - 1
-    while i > open_i and text[i].isspace():
-        i -= 1
-    return text[:i + 1] + ",\n" + close_indent + "  " + entry + text[i + 1:]
+    i = _last_significant(text, open_i + 1, close_i)
+    if i <= open_i:
+        # Comments only: there is no member to hang a separator on, and the
+        # comments are the container's whole content — keep them.
+        child = close_indent + "  "
+        inner = text[open_i + 1:close_i].rstrip()
+        return text[:open_i + 1] + inner + "\n" + child + entry + "\n" + close_indent + text[close_i:]
+    if text[i] != ",":
+        # A JSONC trailing comma is already the separator; writing a second one
+        # corrupts the file. Either way the comma goes immediately after the
+        # value, never after a comment that trails it.
+        text = text[:i + 1] + "," + text[i + 1:]
+        close_i += 1
+    tail = close_i
+    while tail > open_i + 1 and text[tail - 1].isspace():
+        tail -= 1
+    return text[:tail] + "\n" + close_indent + "  " + entry + "\n" + close_indent + text[close_i:]
 
 
 def _line_start(text, index):
@@ -353,12 +401,13 @@ def cmd_merge_mcps(path, entries_json):
     alone (merge-mcp is insert-only) and not printed. The compact separators
     keep the written text identical to a `jq -c` definition passed on argv.
 
-    Each entry is applied on its own: one unreadable config or unwritable file
-    must not stop the rest of the set from being registered, and the caller only
-    learns about the failure through the keys that are missing from the output.
+    Each entry is applied on its own: one unreadable config must not stop the
+    rest of the set from being registered. Returns (added, failed) — the caller
+    prints `failed` and exits non-zero, because a key missing from stdout alone
+    is indistinguishable from a server that was already registered.
     """
     entries = json.loads(entries_json)
-    added = []
+    added, failed = [], []
     for key, definition in entries.items():
         try:
             cfg = load(path)
@@ -369,10 +418,11 @@ def cmd_merge_mcps(path, entries_json):
                 key,
                 json.dumps(definition, separators=(",", ":"), ensure_ascii=False),
             )
-        except Exception:
+        except Exception as exc:
+            failed.append("%s: %s" % (key, exc))
             continue
         added.append(key)
-    return added
+    return added, failed
 
 
 def cmd_remove_mcp(path, key):
@@ -551,10 +601,12 @@ def main(argv):
     if cmd == "merge-mcp":
         return cmd_merge_mcp(path, rest[0], rest[1])
     if cmd == "merge-mcps":
-        added = cmd_merge_mcps(path, rest[0])
+        added, failed = cmd_merge_mcps(path, rest[0])
         for key in added:
             print(key)
-        return 0
+        for line in failed:
+            print("ERROR: could not register %s" % line, file=sys.stderr)
+        return 1 if failed else 0
     if cmd == "remove-mcp":
         return cmd_remove_mcp(path, rest[0])
     if cmd == "ensure-external-directory":

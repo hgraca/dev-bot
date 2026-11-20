@@ -565,6 +565,10 @@ _init_wiring() {
 
   _header_2 "Harnesses"
   _init_modules "${DEV_BOT_ROOT}/src/harnesses" "${PROJECT_DIR}"
+  # Only the harness pass decides this: it is where the config and the MCP
+  # servers are published, and a half-wired harness is what must not look
+  # successful. An optional tool module that cannot provision here is not.
+  local harness_failures="${MODULE_SCRIPT_FAILED:-0}"
 
   # Re-detect config_file — harness init creates opencode.jsonc on first run
   if [[ -z "${config_file}" ]]; then
@@ -638,6 +642,11 @@ _init_wiring() {
   # run — the reset path ends by calling this, so it refreshes it too. Missing
   # .sha (fresh project, or an install upgrading from the retired per-file
   # baselines) counts as changed, so one init establishes it.
+  if [[ "${harness_failures}" -gt 0 ]]; then
+    _warn "${harness_failures} harness init script(s) failed — leaving the wiring marked incomplete"
+    return 1
+  fi
+
   _devbot_write_config_sha "${PROJECT_DIR}"
 
   # ── 9. Final header ─────────────────────────────────────────────────────
@@ -1108,7 +1117,9 @@ main() {
   # Internal: the reset path re-enters this script to wire one project with
   # errexit live (see _wire_project), skipping the detection below.
   if [[ "${DEV_BOT_WIRING_ONLY:-0}" == "1" ]]; then
-    _init_wiring "${1:?wiring target required}"
+    # Propagate wiring failures: the parent (`_wire_project`) aborts the start
+    # on a non-zero exit, and a swallowed one launches on half-built wiring.
+    _init_wiring "${1:?wiring target required}" || exit 1
     exit 0
   fi
 

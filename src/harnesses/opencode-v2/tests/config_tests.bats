@@ -109,6 +109,19 @@ PY
   assert_output --partial '"demo"'
 }
 
+@test "merge-mcp reuses a trailing comma already closing the last member" {
+  # JSONC tolerates a trailing comma, and a file dev-bot wrote can carry one.
+  # Inserting after it used to write a second comma and leave the config
+  # unparseable, which is what made a whole reinit's server registration vanish.
+  echo '{ "mcp": { "servers": { "a": {"type":"local","command":["echo"]}, } } }' > "${CONFIG}"
+  run v2 merge-mcp "${CONFIG}" demo '{"type":"local","command":["echo"]}'
+  assert_success
+  run v2 get "${CONFIG}" mcp.servers
+  assert_output --partial '"demo"'
+  assert_output --partial '"a"'
+  _valid_jsonc
+}
+
 @test "remove-mcp drops the server and keeps the file valid" {
   v2 merge-mcp "${CONFIG}" demo '{"type":"local","command":["echo"]}'
   v2 remove-mcp "${CONFIG}" demo
@@ -233,8 +246,9 @@ EOF
 
 @test "merge-mcps keeps going when one entry cannot be written" {
   # `write` renames a temp file over the config, so the directory is what has to
-  # be unwritable. The call must still exit 0 and leave the file alone rather
-  # than aborting the caller's whole registration pass.
+  # be unwritable. Every entry is still attempted, and only then does the call
+  # report the failures and exit non-zero — a pass that silently dropped servers
+  # is what let a broken reinit look successful.
   local before
   before="$(cat "${CONFIG}")"
   chmod 555 "${WORK}"
@@ -242,7 +256,38 @@ EOF
   run v2 merge-mcps "${CONFIG}" '{"alpha":{"type":"local","command":["a"]},"beta":{"type":"remote","url":"http://b.test/mcp"}}'
   chmod 755 "${WORK}"
 
-  assert_success
-  assert_equal "${output}" ""
+  assert_failure
+  assert_output --partial "could not register alpha"
+  assert_output --partial "could not register beta"
   assert_equal "$(cat "${CONFIG}")" "${before}"
+}
+
+@test "merge-mcp keeps the separator out of a trailing line comment" {
+  # The separator must follow the value, not the comment that trails it — a
+  # comma inside `// …` is invisible to the parser and leaves the file broken.
+  printf '{\n  "mcp": {\n    "servers": {\n      "a": { "type": "local" } // the only one\n    }\n  }\n}\n' \
+    >"${CONFIG}"
+  run v2 merge-mcp "${CONFIG}" demo '{"type":"local","command":["echo"]}'
+  assert_success
+  run v2 get "${CONFIG}" mcp.servers
+  assert_output --partial '"demo"'
+  assert_output --partial '"a"'
+  _valid_jsonc
+  # The comment still belongs to its own member.
+  run grep -c '"a": { "type": "local" }, // the only one' "${CONFIG}"
+  assert_output "1"
+}
+
+@test "merge-mcp keeps the comments in a container that holds only comments" {
+  # A `servers` object whose whole content is documentation has no member to
+  # hang a separator on; the comments still must not be deleted.
+  printf '{\n  "mcp": {\n    "servers": {\n      // servers are registered below\n      // by reinit\n    }\n  }\n}\n' \
+    >"${CONFIG}"
+  run v2 merge-mcp "${CONFIG}" demo '{"type":"local","command":["echo"]}'
+  assert_success
+  run v2 get "${CONFIG}" mcp.servers
+  assert_output --partial '"demo"'
+  _valid_jsonc
+  run grep -c '// by reinit' "${CONFIG}"
+  assert_output "1"
 }

@@ -189,6 +189,27 @@ _sandbox_bash() {
   assert_output --partial "${OTHER}"
 }
 
+@test "a failed harness init leaves the wiring marked incomplete" {
+  # The harness pass publishes the config and the MCP servers, so a failure there
+  # must not be recorded as a healthy baseline — the next start would trust it.
+  run _sandbox_bash "
+    _init_modules() {
+      case \"\$1\" in
+        */harnesses) MODULE_SCRIPT_FAILED=1 ;;
+        *) MODULE_SCRIPT_FAILED=0 ;;
+      esac
+      export MODULE_SCRIPT_FAILED
+    }
+    rc=0
+    _init_wiring '${OTHER}' >/dev/null 2>&1 || rc=\$?
+    echo \"status=\${rc}\"
+    [ -f '${OTHER}/.devbot.project.sha' ] && echo baseline=yes || echo baseline=no"
+
+  assert_success
+  assert_output --partial "status=1"
+  assert_output --partial "baseline=no"
+}
+
 # ── External module declarations ─────────────────────────────────────────────
 
 @test "the wiring merges external declarations before the tools pass" {

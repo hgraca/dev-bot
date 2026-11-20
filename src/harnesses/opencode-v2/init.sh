@@ -818,8 +818,14 @@ _register_module_mcps() {
 
   [[ -n "${batch}" ]] || return 0
 
-  local added
-  added="$(_v2 merge-mcps "${CONFIG}" "{${batch}}" 2>/dev/null || true)"
+  local added merge_status=0 err
+  err="$(mktemp "${TMPDIR:-/tmp}/devbot-mcps.XXXXXX")"
+  added="$(_v2 merge-mcps "${CONFIG}" "{${batch}}" 2>"${err}")" || merge_status=$?
+  if [[ "${merge_status}" -ne 0 ]]; then
+    _warn "${CONFIG##*/}: could not register the module MCP servers — $(tail -1 "${err}")"
+    MCP_REGISTRATION_FAILED=1
+  fi
+  rm -f "${err}"
   local owner_key owner_module
   while IFS= read -r key; do
     [[ -n "${key}" ]] || continue
@@ -843,7 +849,7 @@ _register_dynamic_mcps() {
   local disabled_names
   disabled_names="$(_devbot_disabled_module_names "${PROJECT_DIR}")"
 
-  local manifest key def def_v2 existing
+  local manifest key def def_v2 existing merge_err
   local manifest_name
   for manifest in "${OPENCODE_DIR}/"*.mcp.json; do
     [[ -f "${manifest}" ]] || continue
@@ -869,8 +875,13 @@ _register_dynamic_mcps() {
       fi
     fi
 
-    if _v2 merge-mcp "${CONFIG}" "${key}" "${def_v2}" >/dev/null 2>&1; then
+    if merge_err="$(_v2 merge-mcp "${CONFIG}" "${key}" "${def_v2}" 2>&1)"; then
       _ok "Registered dynamic MCP '${key}' from ${manifest_name}"
+    else
+      # Silence here is how a whole reinit lost every kctl-* server without a
+      # word: the failure is the only signal that the config was left unwritten.
+      _warn "${manifest_name}: could not register '${key}' in ${CONFIG##*/} — ${merge_err##*$'\n'}"
+      MCP_REGISTRATION_FAILED=1
     fi
   done
 }
@@ -1214,3 +1225,8 @@ _retire_legacy_tui_config
 _reconcile_external_directory
 _remove_gitkeep_files
 _ensure_default_agent
+
+if [[ "${MCP_REGISTRATION_FAILED:-0}" -eq 1 ]]; then
+  _warn "some MCP servers could not be registered — the harness would start without them"
+  exit 1
+fi

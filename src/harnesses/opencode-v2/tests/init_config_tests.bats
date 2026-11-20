@@ -337,3 +337,19 @@ EOF
   refute [ -e "${PROJECT}/.opencode/plugins/legacy.ts" ]
   assert_output --partial "restart the harness"
 }
+
+@test "a dynamic MCP that cannot be registered fails the run, not just warns" {
+  local project="${BATS_TEST_TMPDIR}/dynamic"
+  mkdir -p "${project}/.opencode"
+  printf '{ "harness": "opencode-v2" }\n' >"${project}/.devbot.project.jsonc"
+  # merge-mcp loads before it splices, so an unparseable config fails on its own
+  # — no permissions trickery needed.
+  printf '{ "mcp": { "servers": { "a": 1,, } } }\n' >"${project}/opencode.jsonc"
+  printf '{ "kctl-demo": { "type": "local", "command": ["bash", "-c", "true"] } }\n' \
+    >"${project}/.opencode/k8s-demo.mcp.json"
+
+  run bash "${MODULE_DIR}/init.sh" "${project}"
+
+  assert_output --partial "could not register 'kctl-demo'"
+  assert_failure
+}
