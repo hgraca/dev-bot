@@ -38,7 +38,7 @@ teardown() {
 
 @test "the k8s module's per-cluster launcher is linked" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
-  # Every kctl-<cluster> runtime manifest runs {harness-dir}/kctl-mcp.sh: a
+  # Every kctl-<name> runtime manifest runs {harness-dir}/kctl-mcp.sh: a
   # missing link turns every kctl server into exit 127, and nothing else
   # asserts that name.
   assert [ -L "${PROJECT}/.opencode/kctl-mcp.sh" ]

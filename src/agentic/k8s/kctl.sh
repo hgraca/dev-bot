@@ -8,7 +8,7 @@
 # Never use the plain ~/.kube/config for these clusters: its contexts are SSO
 # exec contexts that expire, while the generated ones use the devbot profile.
 #
-# `exec` is the cluster-scoped form the `kctl-<cluster>` MCP servers call: the
+# `exec` is the cluster-scoped form the `kctl-<name>` MCP servers call: the
 # caller names the cluster and the context is applied for it, so a caller
 # cannot reach another cluster's context through this wrapper.
 set -euo pipefail
@@ -37,7 +37,7 @@ kubeconfig:
 
 `run` uses the kubeconfig's current-context unless you pass kubectl's own
 `--context`. `exec` takes the cluster name from the catalogue and applies that
-cluster's context itself — it is what the `kctl-<cluster>` MCP servers call, and
+cluster's context itself — it is what the `kctl-<name>` MCP servers call, and
 it refuses a caller `--context` so one cluster's server can never reach another.
 EOF
 }

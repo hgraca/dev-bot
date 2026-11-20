@@ -167,7 +167,7 @@ load 'init_test_helper'
 
   # The k8s module's manifests are `k8s-<cluster>.mcp.json` (the filename keeps
   # the module's name, which is how a disabled module's manifests are found)
-  # while the server keys inside them are `kctl-<cluster>`. Disabling the module
+  # while the server keys inside them are `kctl-<name>`. Disabling the module
   # must take both, or a live server outlives the access it points at.
   printf '{ "harness": "opencode-v2", "modules": { "k8s": false } }\n' \
     > "${PROJECT}/.devbot.project.jsonc"

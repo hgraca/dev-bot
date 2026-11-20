@@ -3881,7 +3881,7 @@ _devbot_apply_runtime_mcps() {
         fi
       fi
       # The registered key(s): recorded at write time, because a group may
-      # publish a server under a different key (k8s publishes `kctl-<cluster>`
+      # publish a server under a different key (k8s publishes `kctl-<name>`
       # from `k8s-<cluster>.mcp.json`) and the manifest can already be gone
       # when the group is retired. Older records carry no keys; the manifest,
       # then the group name, stay the fallbacks.

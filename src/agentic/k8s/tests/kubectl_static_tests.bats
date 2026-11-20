@@ -470,7 +470,7 @@ EOF
   printf 'k8s-stg\n' > "${KUBECONFIG_FILE%.yaml}.labels"
   # A rebuilt or tidied .opencode/ can lose the manifest while the merged key
   # stays. Retirement must not fall back to the group name (k8s-<cluster>) and
-  # leave the live key (kctl-<cluster>) behind.
+  # leave the live key (kctl-<name>) behind.
   rm -f "$(harness_manifest k8s-prod)"
   printf '{ "project_name": "demo", "kubectl": ["k8s-stg"] }\n' \
     > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"

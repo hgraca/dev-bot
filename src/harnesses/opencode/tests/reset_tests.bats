@@ -771,7 +771,7 @@ print('D9-DATASOURCES-ORPHAN:OK')
 # D10: a module's server keys are not always its name. The k8s module writes
 # `k8s-<cluster>.mcp.json` (the filename keeps the module's name, which is how a
 # disabled module's manifests are found) while the server key inside is
-# `kctl-<cluster>`. Disabling the module must take both — the generated
+# `kctl-<name>`. Disabling the module must take both — the generated
 # kubeconfig outlives the module, so a leftover key is a live server.
 _write_prefixed_key_fixture() {
   cat > "${SANDBOX_DIR}/.devbot.project.jsonc" <<'JSONC_EOF'

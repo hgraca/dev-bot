@@ -190,7 +190,7 @@ _prune_mcp_key() {
 
 # Only modules that WRITE <name>.mcp.json under .opencode/ own these keys.
 # A module that ships mcp.dynamic.json is a producer too, whatever its name:
-# its servers' keys need not be named after it (k8s writes kctl-<cluster>).
+# its servers' keys need not be named after it (k8s writes kctl-<name>).
 _is_dynamic_manifest_producer() {
   case "$1" in
     aws|datasources|jetbrains|netsuite) return 0 ;;
