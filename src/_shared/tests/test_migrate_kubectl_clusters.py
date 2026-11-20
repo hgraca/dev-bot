@@ -1,8 +1,9 @@
 """Tests for migrate_kubectl_clusters.py.
 
-The catalogue moves from an array of `{name, context, region}` to an object keyed
-by the AWS EKS cluster name. The rewrite is textual: the global config is
-user-owned and carries comments, so re-serialising it is not an option.
+The catalogue moves from an array to an object keyed by the **MCP server name**
+(`kctl-<key>`), with `name` naming the **AWS EKS cluster**. The rewrite is
+textual: the global config is user-owned and carries comments, so
+re-serialising it is not an option.
 """
 
 import os
@@ -54,21 +55,20 @@ class MigrateTest(unittest.TestCase):
         with open(self.path, "w", encoding="utf-8") as handle:
             handle.write(text)
 
-    def test_up_keys_the_catalogue_by_cluster_name(self):
+    def test_up_keys_the_catalogue_by_cluster_and_names_it(self):
         self.assertTrue(migrate(self.path))
         clusters = load_jsonc(self.path)["kubectl"]["clusters"]
         self.assertEqual(sorted(clusters), ["gete", "gete-dev"])
         self.assertEqual(
             clusters["gete"],
-            {"context": "gete-prod-ro", "region": "eu-central-1"},
+            {
+                "name": "gete",
+                "context": "gete-prod-ro",
+                "region": "eu-central-1",
+            },
         )
 
-    def test_up_drops_the_name_redundant_with_the_key(self):
-        migrate(self.path)
-        for key, entry in load_jsonc(self.path)["kubectl"]["clusters"].items():
-            self.assertNotIn("name", entry, key)
-
-    def test_up_leaves_every_other_key_and_the_comments_alone(self):
+    def test_up_keeps_every_other_key_and_the_comments(self):
         migrate(self.path)
         text = self._text()
         self.assertIn("// the machine-wide catalogue", text)
@@ -96,23 +96,93 @@ class MigrateTest(unittest.TestCase):
         migrate(self.path, down=True)
         self.assertEqual(original, load_jsonc(self.path))
 
-    def test_down_keeps_the_aws_cluster_name_over_the_label(self):
-        # The array has no label field, and the AWS cluster name is what keeps the
-        # cluster reachable after a downgrade, so the key wins.
+    def test_down_uses_the_aws_name_not_the_key(self):
+        # A key that differs from the AWS cluster name: the array form carries
+        # only `name`, and that is the AWS cluster — the functional one.
         self._write(
             '{\n  "kubectl": {\n    "clusters": {\n'
-            '      "gete-prd": { "name": "gete", "context": "gete-prod-ro" }\n'
+            '      "get-e-prd": { "name": "gete-prd", "context": "gete-prod-ro" }\n'
             "    }\n  }\n}\n"
         )
         migrate(self.path, down=True)
         entry = load_jsonc(self.path)["kubectl"]["clusters"][0]
         self.assertEqual(entry["name"], "gete-prd")
-        self.assertEqual(entry["context"], "gete-prod-ro")
+
+    def test_down_rewrites_project_selections_to_the_aws_name(self):
+        # The selection lists keys; after the downgrade the key no longer exists.
+        project = os.path.join(self.tmp.name, ".devbot.project.jsonc")
+        self._write(
+            '{\n  "kubectl": {\n    "clusters": {\n'
+            '      "get-e-prd": { "name": "gete-prd", "region": "eu-central-1" },\n'
+            '      "get-e-stg": { "name": "gete-stg", "region": "eu-central-1" }\n'
+            "    }\n  }\n}\n"
+        )
+        with open(project, "w", encoding="utf-8") as handle:
+            handle.write('{\n  "kubectl": ["get-e-prd", "unrelated"]\n}\n')
+
+        migrate(self.path, down=True, projects=[project])
+
+        self.assertEqual(
+            load_jsonc(project)["kubectl"], ["gete-prd", "unrelated"]
+        )
+
+    def test_up_leaves_project_selections_alone(self):
+        # Key and AWS name are the same string in the array form, so selections
+        # keep working unchanged across the upgrade.
+        project = os.path.join(self.tmp.name, ".devbot.project.jsonc")
+        with open(project, "w", encoding="utf-8") as handle:
+            handle.write('{\n  "kubectl": ["gete"]\n}\n')
+
+        migrate(self.path, projects=[project])
+
+        self.assertEqual(load_jsonc(project)["kubectl"], ["gete"])
+
+    def test_down_fails_when_a_project_config_cannot_be_read(self):
+        # Reporting success after rewriting the catalogue while a selection was
+        # left on a now-missing key leaves the two configs inconsistent.
+        project = os.path.join(self.tmp.name, ".devbot.project.jsonc")
+        with open(project, "w", encoding="utf-8") as handle:
+            handle.write('{ "kubectl": ["gete"],, }\n')
+        migrate(self.path)
+
+        with self.assertRaises(ValueError):
+            migrate(self.path, down=True, projects=[project])
+
+    def test_one_bad_project_leaves_its_siblings_untouched(self):
+        # The rewrites are planned before any is written, so a later failure
+        # cannot leave an earlier project pointing at names the catalogue lacks.
+        good = os.path.join(self.tmp.name, "good.jsonc")
+        bad = os.path.join(self.tmp.name, "bad.jsonc")
+        with open(good, "w", encoding="utf-8") as handle:
+            handle.write('{ "kubectl": ["gete"] }\n')
+        with open(bad, "w", encoding="utf-8") as handle:
+            handle.write('{ "kubectl": ["gete"],, }\n')
+        good_before = open(good, encoding="utf-8").read()
+        migrate(self.path)
+
+        with self.assertRaises(ValueError):
+            migrate(self.path, down=True, projects=[good, bad])
+
+        self.assertEqual(good_before, open(good, encoding="utf-8").read())
+
+    def test_a_failed_project_rewrite_leaves_the_catalogue_untouched(self):
+        # Half-applied is worse than not applied: the catalogue stays in the
+        # object form, so a retry still has the mapping it needs.
+        project = os.path.join(self.tmp.name, ".devbot.project.jsonc")
+        with open(project, "w", encoding="utf-8") as handle:
+            handle.write('{ "kubectl": ["gete"],, }\n')
+        migrate(self.path)
+        before = self._text()
+
+        with self.assertRaises(ValueError):
+            migrate(self.path, down=True, projects=[project])
+
+        self.assertEqual(before, self._text())
+        self.assertIsInstance(load_jsonc(self.path)["kubectl"]["clusters"], dict)
 
     def test_a_bom_prefixed_config_migrates(self):
-        # The reader accepts a BOM; the span scanner must too, or the file reports
-        # unchanged and init later refuses the legacy array it still holds.
-        raw = open(self.path, "rb").read()
+        with open(self.path, "rb") as handle:
+            raw = handle.read()
         with open(self.path, "wb") as handle:
             handle.write(b"\xef\xbb\xbf" + raw)
         self.assertTrue(migrate(self.path))
@@ -151,7 +221,7 @@ class MigrateTest(unittest.TestCase):
         self.assertTrue(migrate(self.path))
         self.assertEqual(
             load_jsonc(self.path)["kubectl"]["clusters"],
-            {"gete": {"region": "eu-central-1"}},
+            {"gete": {"name": "gete", "region": "eu-central-1"}},
         )
 
 

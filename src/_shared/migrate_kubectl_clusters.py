@@ -18,7 +18,7 @@ import tempfile
 
 from read_jsonc import load_jsonc
 
-USAGE = "usage: migrate_kubectl_clusters.py [--down] <config> [<config>...]"
+USAGE = "usage: migrate_kubectl_clusters.py [--down] <global-config> [<project-config>...]"
 
 
 # ── JSONC scanning ────────────────────────────────────────────────────────────
@@ -162,9 +162,11 @@ def _to_object(clusters):
         if key in seen:
             raise ValueError("two cluster entries are both named %r" % key)
         seen.add(key)
-        # The key is the old name, so keeping the field would be a second copy of
-        # the same string. `context` and `region` stay as they were.
-        entries.append((key, {k: v for k, v in entry.items() if k != "name"}))
+        # The array's one `name` was both the MCP server name and the AWS cluster
+        # name. The object keeps it as `name` (the AWS cluster) and uses the same
+        # string as the key (the MCP server) — so `kctl-<key>` is unchanged.
+        rest = {k: v for k, v in entry.items() if k != "name"}
+        entries.append((key, dict({"name": key}, **rest)))
     return entries
 
 
@@ -173,9 +175,9 @@ def _to_array(clusters):
     for key, entry in clusters.items():
         if not isinstance(entry, dict):
             raise ValueError("cluster %r is not an object" % key)
-        # The array form has no label field, and the AWS cluster name is what
-        # keeps the cluster reachable, so the key wins and the label is dropped.
-        merged = {"name": key}
+        # The array has one `name`, and that is the AWS cluster — the functional
+        # one. A key that differs is the MCP name, which the array cannot carry.
+        merged = {"name": entry.get("name", key)}
         merged.update({k: v for k, v in entry.items() if k != "name"})
         entries.append(merged)
     return entries
@@ -202,8 +204,42 @@ def _write(path, text):
         raise
 
 
-def migrate(path, down=False):
-    """Rewrite one config in place. Returns True when the file changed."""
+def _plan_selection(path, mapping):
+    """Plan a project's `kubectl` selection rewrite, without writing it.
+
+    Returns (path, original, rewritten) or None when there is nothing to do.
+    Raises when the config cannot be read: a downgrade that silently skipped it
+    would leave the selection on a key the array form does not have.
+    """
+    data = load_jsonc(path)
+    selection = data.get("kubectl")
+    if not isinstance(selection, list):
+        return None
+    mapped = [mapping.get(item, item) if isinstance(item, str) else item
+              for item in selection]
+    if mapped == selection:
+        return None
+
+    with open(path, encoding="utf-8-sig") as handle:
+        text = handle.read()
+    root = _first_object(text)
+    if root is None:
+        return None
+    span = _member(text, root, "kubectl")
+    if span is None or text[span[1]] != "[":
+        return None
+    key_start, value_start, value_end = span
+    rendered = _render_array(mapped, _indent_of(text, key_start))
+    return (path, text, text[:value_start] + rendered + text[value_end:])
+
+
+def migrate(path, down=False, projects=None):
+    """Rewrite the catalogue in place. Returns True when anything changed.
+
+    `projects` are the project configs whose `kubectl` selection is rewritten on
+    a downgrade: the selection lists keys, and a key that differs from its AWS
+    name does not exist in the array form.
+    """
     data = load_jsonc(path)
     kubectl = data.get("kubectl")
     if not isinstance(kubectl, dict):
@@ -237,10 +273,49 @@ def migrate(path, down=False):
         rendered = _render_object(_to_object(clusters), indent)
 
     updated = text[:value_start] + rendered + text[value_end:]
-    if updated == text:
-        return False
-    _write(path, updated)
-    return True
+    changed = updated != text
+
+    if down and projects:
+        # Mapping from the object we just read, before anything is written.
+        mapping = {
+            key: (entry.get("name") or key)
+            for key, entry in clusters.items()
+            if isinstance(entry, dict)
+        }
+        # Plan every rewrite before writing any of them: a project that fails to
+        # parse must not leave its siblings pointing at names the catalogue will
+        # not have.
+        plans, failures = [], []
+        for project in projects:
+            try:
+                plan = _plan_selection(project, mapping)
+            except (OSError, ValueError) as exc:
+                failures.append("%s: %s" % (project, exc))
+                continue
+            if plan is not None:
+                plans.append(plan)
+        if failures:
+            # Nothing has been written yet, so the catalogue stays in the object
+            # form and a retry starts from a consistent state.
+            raise ValueError("; ".join(failures))
+
+        written = []
+        try:
+            for project_path, original, rewritten in plans:
+                _write(project_path, rewritten)
+                written.append((project_path, original))
+                changed = True
+        except OSError as exc:
+            for project_path, original in written:
+                try:
+                    _write(project_path, original)
+                except OSError:
+                    pass
+            raise ValueError("%s: %s (earlier rewrites rolled back)" % (project_path, exc))
+
+    if updated != text:
+        _write(path, updated)
+    return changed
 
 
 def main(argv):
@@ -252,10 +327,12 @@ def main(argv):
     if not paths:
         print(USAGE, file=sys.stderr)
         return 2
+    # The first path is the global config; any others are project configs whose
+    # selections a downgrade has to rewrite.
     failed = 0
-    for path in paths:
+    for path in paths[:1]:
         try:
-            changed = migrate(path, down=down)
+            changed = migrate(path, down=down, projects=paths[1:])
         except (OSError, ValueError) as exc:
             print("ERROR: %s: %s" % (path, exc), file=sys.stderr)
             failed = 1

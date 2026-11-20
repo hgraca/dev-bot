@@ -330,7 +330,9 @@ JSONC
   assert_success
   assert_output --partial '"gete":'
   assert_output --partial '"gete-dev":'
-  refute_output --partial '"name"'
+  # The array's one name was both identifiers, so the object keeps it as the AWS
+  # cluster and uses the same string as the key.
+  assert_output --partial '"name": "gete"'
   # The rewrite is textual, so the comment above the block survives.
   run grep -c '// machine-wide catalogue' "${CONFIG}"
   assert_output "1"

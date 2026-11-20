@@ -454,16 +454,17 @@ function migration_down-1.19.0 {
   return "${failed}"
 }
 
-# 1.20.0 — `kubectl.clusters` became an object keyed by the AWS EKS cluster name,
-# with `name` as the visible label. The array gave one string to four jobs (the
-# AWS cluster, the kubeconfig cluster object, the `devbot-<name>` user and the
-# `kctl-<name>` server key), so an AWS cluster name and the name a human sees
-# could not differ. The key takes the old name over, which is why every MCP
-# server keeps the name it had. The project selection lists those same names and
-# needs no change.
+# 1.20.0 — `kubectl.clusters` became an object. The key names the MCP server
+# (`kctl-<key>`) and everything generated from it; `name` is the AWS EKS cluster
+# the API is asked for. The array gave one string to four jobs — the AWS
+# cluster, the kubeconfig cluster object, the `devbot-<name>` user and the
+# `kctl-<key>` server — so the two could not differ. The up half keys by the old
+# name and keeps it as `name`, which is why no `kctl-*` server renames, and the
+# project selection (also the old name) needs no change.
 #
-# Only the global config holds the catalogue; the down half rebuilds the array
-# from the same two fields.
+# The down half rebuilds the array from each entry's AWS `name` and repoints
+# every project's selection from the key to that name, because a key that
+# differs from the AWS cluster does not exist in the array form.
 function migration_up-1.20.0 {
   local config="${1:?global config path required}"
   _migration_kubectl_catalogue "${config}"
@@ -478,9 +479,18 @@ _migration_kubectl_catalogue() {
   local config="$1" down="${2:-}"
   local -a args=()
   [[ -n "${down}" ]] && args+=("${down}")
+  # A downgrade repoints every project's selection: it lists keys, and a key that
+  # differs from its AWS cluster name does not exist in the array form.
+  local -a projects=()
+  if [[ -n "${down}" ]]; then
+    local path
+    while IFS= read -r path; do
+      [[ "${path}" == */.devbot.project.jsonc ]] && projects+=("${path}")
+    done < <(_migration_config_paths "${config}")
+  fi
   local out
   if ! out="$(python3 "$(_migration_tools_dir)/migrate_kubectl_clusters.py" \
-    ${args[@]+"${args[@]}"} "${config}" 2>&1)"; then
+    ${args[@]+"${args[@]}"} "${config}" ${projects[@]+"${projects[@]}"} 2>&1)"; then
     _migration_warn "kubectl catalogue: ${out}"
     return 1
   fi
