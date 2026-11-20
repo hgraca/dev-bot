@@ -287,9 +287,10 @@ databases live on the shared MariaDB/Mongo:
 # MariaDB
 docker exec shared-db-1 mariadb -uroot -ptest \
   -e 'DROP DATABASE IF EXISTS `<slug>`; DROP DATABASE IF EXISTS `<slug>_phpunit`;'
-# MongoDB — the convention rewrites DB_MONGO_DATABASE to the same slug
+# MongoDB — the convention rewrites DB_MONGO_DATABASE to the same slug.
+# mongosh has no `-e`: the eval flag is `--eval`.
 docker exec shared-mongo-1 mongosh --quiet \
-  -e 'db.getSiblingDB("<slug>").dropDatabase(); db.getSiblingDB("<slug>_phpunit").dropDatabase();'
+  --eval 'db.getSiblingDB("<slug>").dropDatabase(); db.getSiblingDB("<slug>_phpunit").dropDatabase();'
 ```
 
 ### Remove the worktree's hosts entries
