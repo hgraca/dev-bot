@@ -36,10 +36,10 @@ EOF
       "AWS_ACCESS_KEY_ID": "${AWS_KEY}",
       "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
     },
-    "clusters": [
-      { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" },
-      { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
-    ]
+    "clusters": {
+      "gete": { "context": "gete-prod-ro", "region": "eu-central-1" },
+      "gete-dev": { "context": "gete-staging-rw", "region": "eu-central-1" }
+    }
   }
 }
 EOF
@@ -366,4 +366,48 @@ EOF
   run "${DEVBOT}" kctl exec gete-dev "${PROJECT}" -- kubectl get pods
   assert_failure
   assert_output --partial "drop the leading 'kubectl'"
+}
+
+@test "exec resolves a renamed cluster by its label, not the AWS key" {
+  cat > "${DEV_BOT_GLOBAL_CONFIG}" <<'EOF'
+{
+  "kubectl": {
+    "profile": "devbot-agent",
+    "clusters": {
+      "gete-stg": { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
+    }
+  }
+}
+EOF
+  printf '{ "project_name": "demo", "kubectl": ["gete-stg"] }\n' \
+    > "${PROJECT}/.devbot.project.jsonc"
+  write_kubeconfig
+
+  run "${DEVBOT}" kctl exec gete-dev "${PROJECT}" -- get pods
+
+  assert_success
+  assert_output --partial "kubectl context: gete-staging-rw (gete-dev)"
+}
+
+@test "exec accepts the catalogue key the MCP launcher passes" {
+  cat > "${DEV_BOT_GLOBAL_CONFIG}" <<'EOF'
+{
+  "kubectl": {
+    "profile": "devbot-agent",
+    "clusters": {
+      "gete-stg": { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
+    }
+  }
+}
+EOF
+  printf '{ "project_name": "demo", "kubectl": ["gete-stg"] }\n' \
+    > "${PROJECT}/.devbot.project.jsonc"
+  write_kubeconfig
+
+  # The published `kctl-gete-dev` server launches with the key, so the lookup
+  # has to answer for it as well as for the label.
+  run "${DEVBOT}" kctl exec gete-stg "${PROJECT}" -- get pods
+
+  assert_success
+  assert_output --partial "kubectl context: gete-staging-rw"
 }

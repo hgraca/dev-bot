@@ -90,10 +90,12 @@ _generated_contexts() {
 # A static cluster has no exec wrapper, so its credentials are never checked.
 _catalogue_type() {
   jq -r --arg ctx "$1" '
-    .clusters[]
-    | (if ((.context // "") | test("^[A-Za-z0-9._-]+$")) then .context else .name end) as $c
+    .clusters
+    | to_entries[]
+    | (.value.name // .key) as $label
+    | (if ((.value.context // "") | test("^[A-Za-z0-9._-]+$")) then .value.context else $label end) as $c
     | select($c == $ctx)
-    | (.type // "eks")' <<<"${SPEC}" 2>/dev/null | head -1
+    | (.value.type // "eks")' <<<"${SPEC}" 2>/dev/null | head -1
 }
 
 # The ${VAR} references in credential_env: the variables the
@@ -108,24 +110,30 @@ _credential_refs() {
 }
 
 # The catalogue entry behind a context, as "name<TAB>region". A context name
-# defaults to the cluster name but a catalogue entry may override it, so match
-# on the effective context name rather than assuming the two are equal.
+# defaults to the cluster's visible name but a catalogue entry may override it,
+# so match on the effective context name rather than assuming the two are equal.
 _catalogue_entry() {
   jq -r --arg ctx "$1" '
-    .clusters[]
-    | (if ((.context // "") | test("^[A-Za-z0-9._-]+$")) then .context else .name end) as $c
+    .clusters
+    | to_entries[]
+    | (.value.name // .key) as $label
+    | (if ((.value.context // "") | test("^[A-Za-z0-9._-]+$")) then .value.context else $label end) as $c
     | select($c == $ctx)
-    | [.name, .region] | @tsv' <<<"${SPEC}" 2>/dev/null | head -1
+    | [$label, (.value.region // "")] | @tsv' <<<"${SPEC}" 2>/dev/null | head -1
 }
 
-# The context a catalogue cluster name resolves to: its declared `context`, or
-# the name itself when the entry declares none.
+# The context a catalogue cluster resolves to: its declared `context`, or the
+# cluster's visible name when the entry declares none. Accepts the catalogue key
+# and the label: init publishes the `kctl-*` server with the key (the AWS cluster
+# name), while a human types the label. A key match wins over a label match.
 _catalogue_context() {
   jq -r --arg n "$1" '
-    .clusters[]
-    | select(.name == $n)
-    | (if ((.context // "") | test("^[A-Za-z0-9._-]+$")) then .context else .name end)' \
-    <<<"${SPEC}" 2>/dev/null | head -1
+    .clusters
+    | to_entries[]
+    | select(.key == $n or (.value.name // .key) == $n)
+    | [ (if .key == $n then 0 else 1 end),
+        (if ((.value.context // "") | test("^[A-Za-z0-9._-]+$")) then .value.context else (.value.name // .key) end) ]
+    | @tsv' <<<"${SPEC}" 2>/dev/null | sort -n | head -1 | cut -f2
 }
 
 cmd_env() {
