@@ -165,6 +165,68 @@ JSONC
   assert_equal "$(jq -r .datasources <<< "${output}")" "enabled"
 }
 
+@test "project-for-path: reads a v2 config's servers nested under mcp.servers" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{
+  "mcp": {
+    "servers": {
+      "atlassian": { "type": "remote", "url": "x" },
+      "figma": { "type": "remote", "url": "y", "disabled": true }
+    }
+  }
+}
+JSONC
+
+  run_tool "${B}/src/file.ts" --key mcps
+  assert_success
+  assert_equal "$(jq -r .atlassian <<< "${output}")" "enabled"
+  # v2 spells the switch the other way round: `disabled: true`.
+  assert_equal "$(jq -r .figma <<< "${output}")" "disabled"
+  # The container key must never be reported as a server of its own.
+  assert_equal "$(jq -r 'has("servers")' <<< "${output}")" "false"
+}
+
+@test "project-for-path: a non-boolean v2 disabled flag is reported, not read as on" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "servers": { "figma": { "disabled": "true" } } } }
+JSONC
+
+  run_tool "${B}/src/file.ts" --key mcps
+  assert_failure 2
+  assert_output --partial "non-boolean \`disabled\`"
+}
+
+@test "project-for-path: a v2 disabled:false reads as enabled" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "servers": { "figma": { "disabled": false } } } }
+JSONC
+
+  run_tool "${B}/src/file.ts" --key mcps
+  assert_success
+  # The one input a truthy check would get wrong: re-enabling persists false.
+  assert_equal "$(jq -r .figma <<< "${output}")" "enabled"
+}
+
+@test "project-for-path: a malformed v2 mcp.servers is an error, not a v1 map" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "servers": "bad", "figma": { "type": "remote" } } }
+JSONC
+
+  run_tool "${B}/src/file.ts" --key mcps
+  assert_failure 2
+  # Falling back to the v1 reading would report `figma` from a config that is
+  # simply broken, which is worse than reporting nothing.
+  assert_output --partial "\`mcp.servers\` is not an object"
+}
+
+@test "project-for-path: a v2 config with an empty servers map reports no servers" {
+  printf '{ "mcp": { "servers": {} } }\n' > "${A}/opencode.jsonc"
+
+  run_tool "${B}/src/file.ts" --key mcps
+  assert_success
+  assert_output "{}"
+}
+
 @test "project-for-path: reports claudecode .mcp.json entries as enabled" {
   printf '{ "mcpServers": { "atlassian": { "type": "http", "url": "x" } } }\n' > "${A}/.mcp.json"
 

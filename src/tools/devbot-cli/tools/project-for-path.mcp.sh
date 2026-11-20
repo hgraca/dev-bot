@@ -225,6 +225,26 @@ def _one_line(exc):
     return " ".join(str(exc).split())
 
 
+def _server_state(name, cfg, source, errors):
+    """One server's state, or None when its flag is not usable.
+
+    The two harnesses spell the switch oppositely: opencode-v2 writes
+    `disabled: true` to wire a server without starting it, while a v1 config
+    writes `enabled: false`. A server with neither flag is on. The value must be
+    a real boolean — `"false"` or null must not read as on.
+    """
+    for flag, inverted in (("disabled", True), ("enabled", False)):
+        if flag not in cfg:
+            continue
+        value = cfg[flag]
+        if not isinstance(value, bool):
+            errors.append(f"{source}: server `{name}` has a non-boolean `{flag}`")
+            return None
+        on = (not value) if inverted else value
+        return "enabled" if on else "disabled"
+    return "enabled"
+
+
 def resolve_mcps():
     """Configured per-server state from the generated harness config.
 
@@ -249,9 +269,21 @@ def resolve_mcps():
                 if not isinstance(data, dict):
                     raise ValueError("top level is not an object")
                 # Default only when absent: `or {}` would hide null and [].
-                servers = data["mcp"] if "mcp" in data else {}
-                if not isinstance(servers, dict):
+                mcp = data["mcp"] if "mcp" in data else {}
+                if not isinstance(mcp, dict):
                     raise ValueError("`mcp` is not an object")
+                # opencode-v2 nests the per-server map under `mcp.servers`; a
+                # v1 config is the map itself. Reading only the outer keys
+                # reported one bogus server named `servers`. Key presence, not
+                # shape, decides: a malformed `servers` must not be mistaken
+                # for a v1 map and silently report the wrong servers.
+                if "servers" in mcp:
+                    nested = mcp["servers"]
+                    if not isinstance(nested, dict):
+                        raise ValueError("`mcp.servers` is not an object")
+                    servers = nested
+                else:
+                    servers = mcp
             except (OSError, ValueError) as exc:
                 errors.append(f"{opencode}: {_one_line(exc)}")
                 servers = {}
@@ -259,12 +291,9 @@ def resolve_mcps():
                 if not isinstance(cfg, dict):
                     errors.append(f"{opencode}: server `{name}` is not an object")
                     continue
-                enabled = cfg.get("enabled", True)
-                # The schema says boolean; "false" or null must not read as on.
-                if not isinstance(enabled, bool):
-                    errors.append(f"{opencode}: server `{name}` has a non-boolean `enabled`")
-                    continue
-                state[name] = "enabled" if enabled else "disabled"
+                status_of = _server_state(name, cfg, opencode, errors)
+                if status_of is not None:
+                    state[name] = status_of
         if os.path.isfile(claudecode):
             sources.append(claudecode)
             try:
