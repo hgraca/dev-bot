@@ -10,6 +10,8 @@
 
 bats_require_minimum_version 1.5.0
 
+load '../../../_shared/tests/lib/pins.bash'
+
 setup() {
   load "$(npm root -g)/bats-support/load.bash"
   load "$(npm root -g)/bats-assert/load.bash"
@@ -90,12 +92,18 @@ EOF
 
   cat > "$TMP/bin/curl" <<'EOF'
 #!/usr/bin/env bash
+[[ -n "${AWS_CURL_LOG:-}" ]] && printf '%s\n' "$*" >> "$AWS_CURL_LOG"
 out=""; args=("$@")
 for ((i=0;i<${#args[@]};i++)); do [[ "${args[$i]}" == "-o" ]] && out="${args[$((i+1))]}"; done
 [[ -n "$out" ]] && echo "# rules" > "$out"
 exit 0
 EOF
   chmod +x "$TMP/bin/curl"
+
+  # Offline by default: `update` moves the rules pin with `git ls-remote`, and a
+  # real call would rewrite the source module's gitignored pin from a test.
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP/bin/git"
+  chmod +x "$TMP/bin/git"
 }
 
 # ── init.sh — per-connection dynamic manifests ────────────────────────────────
@@ -104,7 +112,9 @@ _aws_seed_project() {
   mkdir -p "$TMP/proj" "$TMP/root/storage/aws/rules"
   # A git dir, so the local-exclude path is exercised.
   mkdir -p "$TMP/proj/.git/info"
-  echo '# aws rules' > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  # Labelled with the pin, as a real fetch would leave it.
+  printf '<!-- aws-agent-rules ref: %s -->\n# aws rules\n' "$(_aws_pin)" \
+    > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
   cat > "$TMP/root/.devbot.global.jsonc" <<'EOF'
 {
   "aws_connections": {
@@ -114,6 +124,33 @@ _aws_seed_project() {
 }
 EOF
   echo '{"aws_connections": ["prod", "dev"]}' > "$TMP/proj/.devbot.project.jsonc"
+}
+
+# A fake curl that "downloads" the rules, so init/update never reach the network.
+# Quoted heredoc: the stub resolves -o from its own argv only.
+_aws_fake_curl() {
+  mkdir -p "$TMP/bin"
+  cat > "$TMP/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+[[ -n "${AWS_CURL_LOG:-}" ]] && printf '%s\n' "$*" >> "$AWS_CURL_LOG"
+out=""; args=("$@")
+for ((i=0;i<${#args[@]};i++)); do [[ "${args[$i]}" == "-o" ]] && out="${args[$((i+1))]}"; done
+[[ -n "$out" ]] && printf '# AWS Guidance\n\n- fixture rule\n' > "$out"
+exit 0
+EOF
+  chmod +x "$TMP/bin/curl"
+}
+
+_aws_fake_curl_failing() {
+  mkdir -p "$TMP/bin"
+  printf '#!/usr/bin/env bash\nexit 22\n' > "$TMP/bin/curl"
+  chmod +x "$TMP/bin/curl"
+}
+
+# The ref the module's scripts actually resolve — the live pin when the machine
+# has one, the shipped default otherwise.
+_aws_pin() {
+  sed -n 's/^AWS_RULES_REF=//p' "$(pins_file "${MODULE_DIR}")"
 }
 
 @test "init.sh: writes one manifest per selected connection and links the launcher" {
@@ -351,16 +388,68 @@ print('OK')
   assert [ ! -e "$TMP/proj/.agents/memory/active/modules/aws.md" ]
 }
 
-@test "init.sh: keeps the project rule when the AWS rules source is missing" {
+@test "init.sh: fetches the AWS rules at the pinned ref when they are missing" {
   _aws_seed_project
   rm -f "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  _aws_fake_curl
+  export AWS_CURL_LOG="$TMP/curl-argv.log"
+  local pin
+  pin="$(_aws_pin)"
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" bash "$INIT" "$TMP/proj"
+
+  assert_success
+  assert [ -s "$TMP/root/storage/aws/rules/aws-agent-rules.md" ]
+
+  # The commit, never a branch: the request is what must carry the pin.
+  run cat "$AWS_CURL_LOG"
+  assert_output --partial "/${pin}/rules/aws-agent-rules.md"
+  refute_output --partial "refs/heads/main"
+
+  run cat "$TMP/proj/.agents/memory/active/modules/aws.md"
+  assert_output --partial "aws-<connection>"
+  assert_output --partial "fixture rule"
+}
+
+@test "init.sh: leaves already-fetched AWS rules alone" {
+  # A present file is never re-fetched: the failing stub would warn otherwise.
+  _aws_seed_project
+  _aws_fake_curl_failing
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" bash "$INIT" "$TMP/proj"
+
+  assert_success
+  refute_output --partial "AWS rules not fetched"
+
+  run cat "$TMP/proj/.agents/memory/active/modules/aws.md"
+  assert_output --partial "# aws rules"
+}
+
+@test "init.sh: warns instead of failing when the rules cannot be fetched" {
+  _aws_seed_project
+  rm -f "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  _aws_fake_curl_failing
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" bash "$INIT" "$TMP/proj"
+
+  assert_success
+  assert_output --partial "AWS rules not fetched"
+  assert [ ! -e "$TMP/root/storage/aws/rules/aws-agent-rules.md" ]
+
+  # Our own rule still lands — the CLI fallback stays contradicted.
+  run cat "$TMP/proj/.agents/memory/active/modules/aws.md"
+  assert_output --partial "aws-<connection>"
+}
+
+@test "init.sh: drops the legacy standalone aws-agent-rules memory file" {
+  _aws_seed_project
+  _aws_fake_curl
   mkdir -p "$TMP/proj/.agents/memory/active"
   printf '# aws rules\n' > "$TMP/proj/.agents/memory/active/aws-agent-rules.md"
 
-  run env DEV_BOT_ROOT="$TMP/root" bash "$INIT" "$TMP/proj"
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" bash "$INIT" "$TMP/proj"
 
   assert_success
-  assert_output --partial "AWS rules not found"
   assert [ ! -e "$TMP/proj/.agents/memory/active/aws-agent-rules.md" ]
 
   run cat "$TMP/proj/.agents/memory/active/modules/aws.md"
@@ -770,6 +859,7 @@ EOF
   chmod +x "$TMP/bin/aws"
   cat > "$TMP/bin/curl" <<'EOF'
 #!/usr/bin/env bash
+[[ -n "${AWS_CURL_LOG:-}" ]] && printf '%s\n' "$*" >> "$AWS_CURL_LOG"
 out=""; args=("$@")
 for ((i=0;i<${#args[@]};i++)); do [[ "${args[$i]}" == "-o" ]] && out="${args[$((i+1))]}"; done
 [[ -n "$out" ]] && echo "# rules" > "$out"
@@ -829,6 +919,22 @@ EOF
   assert_output "0"
 }
 
+@test "install.sh: leaves already-fetched rules alone" {
+  _fake_install_bins
+  : > "$TMP/uv-tool-list.txt"
+  # Already at the pin: install fills a gap, it does not refresh.
+  mkdir -p "$TMP/root/storage/aws/rules"
+  printf '<!-- aws-agent-rules ref: %s -->\n# rules at the pin\n' "$(_aws_pin)" \
+    > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+
+  run env HOME="$TMP/home" DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" bash "$INSTALL" </dev/null
+  assert_success
+  refute_output --partial "Fetching AWS agent rules"
+
+  run cat "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  assert_output --partial "# rules at the pin"
+}
+
 @test "update.sh: installs the pinned MCP proxy as a uv tool" {
   _fake_install_bins
   : > "$TMP/uv-tool-list.txt"
@@ -838,6 +944,267 @@ EOF
 
   run grep -c -- "tool install mcp-proxy-for-aws-cli==1.7.0" "$TMP/uv-argv.log"
   assert_output "1"
+}
+
+@test "update.sh: moves the rules pin and refreshes stored rules at it" {
+  _fake_install_bins
+  : > "$TMP/uv-tool-list.txt"
+  # A copied module tree: the bump rewrites versions.env beside it.
+  mkdir -p "$TMP/root/src/agentic/aws" "$TMP/root/src/_shared"
+  cp -r "$MODULE_DIR/." "$TMP/root/src/agentic/aws/"
+  cp -r "$REPO_ROOT/src/_shared/." "$TMP/root/src/_shared/"
+  rm -f "$TMP/root/src/agentic/aws/versions.env"
+  # Rules from an earlier pin: update must replace them, not skip them.
+  mkdir -p "$TMP/root/storage/aws/rules"
+  printf '# stale rules\n' > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  export AWS_CURL_LOG="$TMP/curl-argv.log"
+
+  cat > "$TMP/bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\trefs/heads/main\n'
+EOF
+  chmod +x "$TMP/bin/git"
+
+  run env HOME="$TMP/home" DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" \
+    bash "$TMP/root/src/agentic/aws/update.sh" </dev/null
+  assert_success
+
+  # The machine's pin moved; the shipped default did not.
+  run cat "$TMP/root/src/agentic/aws/versions.env"
+  assert_output --partial "AWS_RULES_REF=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  run grep -q "deadbeef" "$TMP/root/src/agentic/aws/versions.env.dist"
+  assert_failure
+
+  # The stored rules were replaced, fetched at the commit the pin now names.
+  run cat "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  assert_output --partial "# rules"
+  run cat "$AWS_CURL_LOG"
+  assert_output --partial "/deadbeefdeadbeefdeadbeefdeadbeefdeadbeef/rules/aws-agent-rules.md"
+}
+
+@test "update.sh: leaves the pin alone when the fetch of the new ref fails" {
+  _fake_install_bins
+  : > "$TMP/uv-tool-list.txt"
+  mkdir -p "$TMP/root/src/agentic/aws" "$TMP/root/src/_shared"
+  cp -r "$MODULE_DIR/." "$TMP/root/src/agentic/aws/"
+  cp -r "$REPO_ROOT/src/_shared/." "$TMP/root/src/_shared/"
+  rm -f "$TMP/root/src/agentic/aws/versions.env"
+  _aws_fake_curl_failing
+
+  cat > "$TMP/bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\trefs/heads/main\n'
+EOF
+  chmod +x "$TMP/bin/git"
+
+  run env HOME="$TMP/home" DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:/usr/bin:/bin" \
+    bash "$TMP/root/src/agentic/aws/update.sh" </dev/null
+  assert_success
+  assert_output --partial "aws update incomplete"
+
+  # The pin never moved: a pin ahead of the stored file would strand init.
+  assert [ ! -e "$TMP/root/src/agentic/aws/versions.env" ]
+}
+
+# A `mv` that refuses only the pin file, so the rules rename can still happen.
+_aws_fake_mv_failing_pin() {
+  mkdir -p "$TMP/bin"
+  printf '#!/usr/bin/env bash\nfor a in "$@"; do last="$a"; done\n[[ "${last##*/}" == versions.env ]] && exit 1\nexec /bin/mv "$@"\n' \
+    > "$TMP/bin/mv"
+  chmod +x "$TMP/bin/mv"
+}
+
+@test "rules: a failed rename of the fetched file is not reported as stored" {
+  # errexit is off under if/|| true, so the rename needs an explicit check.
+  _aws_seed_project
+  rm -f "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  _aws_fake_curl
+  printf '#!/usr/bin/env bash\nexit 1\n' > "$TMP/bin/mv"
+  chmod +x "$TMP/bin/mv"
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" \
+    bash -c "source '${MODULE_DIR}/functions.sh'; _aws_fetch_rules"
+
+  assert_failure
+  assert_output --partial "Could not move the fetched rules"
+  refute_output --partial "Stored "
+}
+
+@test "rules: a failed pin rename does not claim the pin moved" {
+  mkdir -p "$TMP/root/src/agentic/aws" "$TMP/root/src/_shared"
+  cp -r "$MODULE_DIR/." "$TMP/root/src/agentic/aws/"
+  cp -r "$REPO_ROOT/src/_shared/." "$TMP/root/src/_shared/"
+  # A live pin already, so the only rename left is the one that replaces it.
+  cp "$TMP/root/src/agentic/aws/versions.env.dist" "$TMP/root/src/agentic/aws/versions.env"
+  _aws_fake_mv_failing_pin
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" \
+    bash -c "source '$TMP/root/src/agentic/aws/functions.sh'; _aws_rules_pin_write deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+
+  assert_failure
+  assert_output --partial "Could not replace"
+  run grep -qx "AWS_RULES_REF=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" \
+    "$TMP/root/src/agentic/aws/versions.env"
+  assert_failure
+}
+
+@test "rules: a failed pin write restores the previous stored rules" {
+  mkdir -p "$TMP/root/src/agentic/aws" "$TMP/root/src/_shared"
+  cp -r "$MODULE_DIR/." "$TMP/root/src/agentic/aws/"
+  cp -r "$REPO_ROOT/src/_shared/." "$TMP/root/src/_shared/"
+  cp "$TMP/root/src/agentic/aws/versions.env.dist" "$TMP/root/src/agentic/aws/versions.env"
+  mkdir -p "$TMP/root/storage/aws/rules"
+  printf '# rules at the old pin\n' > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  _aws_fake_curl
+  _aws_fake_mv_failing_pin
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" \
+    bash -c "source '$TMP/root/src/agentic/aws/functions.sh'; _aws_rules_refresh deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+
+  assert_failure
+  assert_output --partial "Previous rules restored"
+
+  # The artifact the old pin names is back, so init cannot skip on a mismatch.
+  run cat "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  assert_output "# rules at the old pin"
+}
+
+@test "rules: says the rules and pin are inconsistent when the rollback fails" {
+  mkdir -p "$TMP/root/src/agentic/aws" "$TMP/root/src/_shared"
+  cp -r "$MODULE_DIR/." "$TMP/root/src/agentic/aws/"
+  cp -r "$REPO_ROOT/src/_shared/." "$TMP/root/src/_shared/"
+  cp "$TMP/root/src/agentic/aws/versions.env.dist" "$TMP/root/src/agentic/aws/versions.env"
+  mkdir -p "$TMP/root/storage/aws/rules"
+  printf '# rules at the old pin\n' > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  _aws_fake_curl
+  # Both the pin write and the rollback fail; the forward rename still works.
+  mkdir -p "$TMP/bin"
+  cat > "$TMP/bin/mv" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  case "$a" in *.rules.previous.*) exit 1 ;; esac
+done
+for a in "$@"; do last="$a"; done
+case "${last##*/}" in versions.env) exit 1 ;; esac
+exec /bin/mv "$@"
+EOF
+  chmod +x "$TMP/bin/mv"
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" \
+    bash -c "source '$TMP/root/src/agentic/aws/functions.sh'; _aws_rules_refresh deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+
+  assert_failure
+  assert_output --partial "RULES/PIN INCONSISTENT"
+  refute_output --partial "Previous rules restored"
+}
+
+@test "rules: the memory read is gated on the refresh lock" {
+  # A file where the lock's directory must be: the lock cannot be taken at all,
+  # so the read must refuse rather than consume rules unguarded.
+  _aws_seed_project
+  rm -rf "$TMP/root/storage/aws/rules"
+  printf 'not a directory\n' > "$TMP/root/storage/aws/rules"
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" \
+    bash -c "source '${MODULE_DIR}/functions.sh'; _aws_rules_snapshot"
+
+  assert_failure
+  assert_output --partial "Could not lock"
+}
+
+@test "init.sh: re-fetches an unlabelled pre-pin artifact" {
+  _aws_seed_project
+  printf '# legacy rules with no ref\n' > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  _aws_fake_curl
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" bash "$INIT" "$TMP/proj"
+
+  assert_success
+  assert_output --partial "Stored "
+  run head -1 "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  assert_output --partial "aws-agent-rules ref: $(_aws_pin)"
+}
+
+@test "init.sh: re-fetches an artifact left at a different ref" {
+  # What a refresh killed between its two renames leaves behind.
+  _aws_seed_project
+  printf '<!-- aws-agent-rules ref: deadbeefdeadbeefdeadbeefdeadbeefdeadbeef -->\n# other rules\n' \
+    > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  _aws_fake_curl
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" bash "$INIT" "$TMP/proj"
+
+  assert_success
+  run head -1 "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  assert_output --partial "ref: $(_aws_pin)"
+
+  run cat "$TMP/proj/.agents/memory/active/modules/aws.md"
+  assert_output --partial "fixture rule"
+  refute_output --partial "other rules"
+}
+
+@test "rules: a pin moved after startup wins over the stale one" {
+  mkdir -p "$TMP/root/src/agentic/aws" "$TMP/root/src/_shared"
+  cp -r "$MODULE_DIR/." "$TMP/root/src/agentic/aws/"
+  cp -r "$REPO_ROOT/src/_shared/." "$TMP/root/src/_shared/"
+  rm -f "$TMP/root/src/agentic/aws/versions.env"
+  local shipped moved
+  shipped="$(sed -n 's/^AWS_RULES_REF=//p' "$TMP/root/src/agentic/aws/versions.env.dist")"
+  moved="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  mkdir -p "$TMP/root/storage/aws/rules"
+  printf '<!-- aws-agent-rules ref: %s -->\n# rules at the startup pin\n' "${shipped}" \
+    > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  _aws_fake_curl
+
+  # Source first (capturing the old pin), then move the pin, then fetch: the
+  # fetch must follow the pin `update` published, not the value it started with.
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" AWS_CURL_LOG="$TMP/curl.log" \
+    bash -c "source '$TMP/root/src/agentic/aws/functions.sh';
+             printf 'AWS_RULES_REF=${moved}\n' > '$TMP/root/src/agentic/aws/versions.env';
+             _aws_fetch_rules --if-missing"
+
+  assert_success
+  run cat "$TMP/curl.log"
+  assert_output --partial "/${moved}/"
+  refute_output --partial "/${shipped}/"
+  run head -1 "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+  assert_output --partial "ref: ${moved}"
+}
+
+@test "rules: the snapshot refuses an artifact the pin does not name" {
+  _aws_seed_project
+  printf '<!-- aws-agent-rules ref: deadbeefdeadbeefdeadbeefdeadbeefdeadbeef -->\n# other rules\n' \
+    > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" \
+    bash -c "source '${MODULE_DIR}/functions.sh'; _aws_rules_snapshot"
+
+  assert_failure
+  assert_output --partial "pin is"
+  refute_output --partial "# other rules"
+}
+
+@test "rules: the snapshot reads the pin as it is now, not at startup" {
+  mkdir -p "$TMP/root/src/agentic/aws" "$TMP/root/src/_shared"
+  cp -r "$MODULE_DIR/." "$TMP/root/src/agentic/aws/"
+  cp -r "$REPO_ROOT/src/_shared/." "$TMP/root/src/_shared/"
+  rm -f "$TMP/root/src/agentic/aws/versions.env"
+  local shipped
+  shipped="$(sed -n 's/^AWS_RULES_REF=//p' "$TMP/root/src/agentic/aws/versions.env.dist")"
+  mkdir -p "$TMP/root/storage/aws/rules"
+  printf '<!-- aws-agent-rules ref: %s -->\n# rules at the startup pin\n' "${shipped}" \
+    > "$TMP/root/storage/aws/rules/aws-agent-rules.md"
+
+  run env DEV_BOT_ROOT="$TMP/root" PATH="$TMP/bin:$PATH" \
+    bash -c "source '$TMP/root/src/agentic/aws/functions.sh';
+             printf 'AWS_RULES_REF=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' \
+               > '$TMP/root/src/agentic/aws/versions.env';
+             _aws_rules_snapshot"
+
+  # The pin moved to a ref the artifact does not name: refuse, do not serve it.
+  assert_failure
+  assert_output --partial "pin is"
+  refute_output --partial "# rules at the startup pin"
 }
 
 # ── up.sh — verify-only ───────────────────────────────────────────────────────

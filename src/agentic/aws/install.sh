@@ -24,7 +24,6 @@ source "${MODULE_DIR}/functions.sh"
 DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
 
 AWS_CLI_INSTALLER='https://awscli.amazonaws.com/v2/install.sh'
-RULES_URL='https://raw.githubusercontent.com/aws/agent-toolkit-for-aws/refs/heads/main/rules/aws-agent-rules.md'
 
 # ── PATH ───────────────────────────────────────────────────────────────────────
 _ensure_path() {
@@ -114,15 +113,10 @@ _report_identity() {
 }
 
 # ── Rules ──────────────────────────────────────────────────────────────────────
+# The fetch, its pin and its lock live in functions.sh, shared with update.sh
+# and init.sh. Install only fills the gap: a fetched set is left alone.
 _fetch_rules() {
-  local rules_dir="${DEV_BOT_ROOT}/storage/aws/rules"
-  mkdir -p "${rules_dir}"
-  _info "Fetching AWS agent rules..."
-  if curl -fsSL "${RULES_URL}" -o "${rules_dir}/aws-agent-rules.md"; then
-    _ok "Stored ${rules_dir}/aws-agent-rules.md"
-  else
-    _warn "Failed to fetch rules from ${RULES_URL}"
-  fi
+  _aws_fetch_rules --if-missing || true
 }
 
 # ── main ───────────────────────────────────────────────────────────────────────

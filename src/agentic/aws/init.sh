@@ -105,8 +105,9 @@ _aws_write_manifests() {
 # One file: our rule, then AWS's rules when fetched.
 # Two files would leave the CLI fallback live.
 _write_memory() {
-  local rules_src="${DEV_BOT_ROOT}/storage/aws/rules/aws-agent-rules.md"
-  local tmp rc=0
+  local rules_src rc=0
+  rules_src="$(_aws_rules_file)"
+  local tmp rules
 
   # A rules-only file would let the CLI fallback stand uncontradicted.
   if [[ ! -f "${MODULE_DIR}/aws.md" ]]; then
@@ -114,13 +115,24 @@ _write_memory() {
     return 1
   fi
 
+  # install/update fetch machine-wide, but a project that wires a connection
+  # must not stay wired to rules it never got: fill the gap here, once, and
+  # leave a fetched file alone.
+  # A file is only usable when it names the pin: one left by a pre-pin install,
+  # or by a refresh that died between its renames, is re-fetched here. Both
+  # sides are re-read, since `update` may have moved the pin since startup.
+  if [[ "$(_aws_rules_stored_ref)" != "$(_aws_rules_pin)" ]]; then
+    _aws_fetch_rules --if-missing \
+      || _warn "AWS rules not fetched into ${rules_src} — curl or the network may be unavailable"
+  fi
+
   tmp="$(mktemp "${TMPDIR:-/tmp}/devbot-aws-memory.XXXXXX")"
   cat "${MODULE_DIR}/aws.md" > "${tmp}"
-  if [[ -f "${rules_src}" ]]; then
+  # Read under the refresh lock: a candidate the pin does not name yet must
+  # never reach a project's memory.
+  if rules="$(_aws_rules_snapshot)"; then
     printf '\n' >> "${tmp}"
-    cat "${rules_src}" >> "${tmp}"
-  else
-    _warn "AWS rules not found at ${rules_src} — run 'devbot install' first"
+    printf '%s\n' "${rules}" >> "${tmp}"
   fi
   # mktemp is 600; a memory file has to be readable by the harness user.
   chmod 644 "${tmp}"

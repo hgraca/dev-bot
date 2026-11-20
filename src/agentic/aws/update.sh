@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # src/agentic/aws/update.sh
 # Update the AWS CLI and uv to the latest versions, keep the pinned AWS MCP proxy
-# installed, and refresh the AWS agent rules in storage. Skills update separately
-# via the external-modules module during `devbot update`.
+# installed, and refresh the AWS agent rules at upstream main's current commit,
+# moving the pin only once that fetch has landed. Skills update separately via
+# the external-modules module during `devbot update`.
 #
 # GATE: This module must work on Ubuntu, Fedora, and macOS.
 
@@ -15,8 +16,7 @@ source "${MODULE_DIR}/functions.sh"
 DEV_BOT_ROOT="${DEV_BOT_ROOT:-$(cd "${MODULE_DIR}/../../.." && pwd)}"
 
 AWS_CLI_INSTALLER='https://awscli.amazonaws.com/v2/install.sh'
-RULES_URL='https://raw.githubusercontent.com/aws/agent-toolkit-for-aws/refs/heads/main/rules/aws-agent-rules.md'
-RULES_DIR="${DEV_BOT_ROOT}/storage/aws/rules"
+
 
 main() {
   _info "aws — update"
@@ -41,15 +41,22 @@ main() {
     _warn "aws CLI not installed — run install.sh"
   fi
 
-  # Rules
-  mkdir -p "${RULES_DIR}"
-  if curl -fsSL "${RULES_URL}" -o "${RULES_DIR}/aws-agent-rules.md"; then
-    _ok "Refreshed ${RULES_DIR}/aws-agent-rules.md"
+  # Rules: one locked transaction — fetch the candidate and move the pin
+  # together, so no update can interleave and no failure splits the pair.
+  local latest="" rules_ok=1
+  latest="$(_aws_rules_upstream_ref)"
+  if [[ -n "${latest}" ]]; then
+    _aws_rules_refresh "${latest}" || rules_ok=0
   else
-    _warn "Failed to refresh rules from ${RULES_URL}"
+    _warn "git ls-remote failed (offline?) — refreshing at the current pin"
+    _aws_fetch_rules || rules_ok=0
   fi
 
-  _ok "aws update complete"
+  if (( rules_ok )); then
+    _ok "aws update complete"
+  else
+    _warn "aws update incomplete — the AWS CLI and proxy updated, the rules did not"
+  fi
 }
 
 main "$@"
