@@ -139,6 +139,65 @@ When proposing a return-type or parameter-type narrowing (in a review recommenda
 - Grep existing callers and tests for values that would violate the proposed type (e.g. custom middleware passed through unchanged when only interface types are declared).
 - If the narrowed type breaks a used runtime path (confirm by running the test suite), it is BLOCKER — recommend the broader type with both outcomes documented instead.
 
+### 16. Registration Completeness
+
+When the change adds an artifact (skill, command, agent, hook, tool, migration, config file):
+
+- Verify something asserts the system will **see** it — linked, registered, loaded, discovered — not only that the file exists and its content is correct. A test over the source file plus its manifest is not a registration test.
+- Ask directly: if this artifact were never wired up, would the suite stay green? If yes, WARNING.
+
+### 17. Hand-Maintained Coverage Lists
+
+When a test iterates a hard-coded set — module names, file names, case tables:
+
+- Verify the change appears in that set. If it does not, the assertion never ran and the artifact is unverified while the suite is green.
+- Flag the pattern itself: a literal list that must be edited with every addition is a latent blind spot. Prefer one derived from the tree — WARNING on the pattern, not only on the omission.
+
+### 18. Claims About Existing Mechanisms
+
+When the diff states a fact about how an existing mechanism behaves — "it prunes", "every module does X", "the range is 10–40":
+
+- Verify each claim against the source, or by running it. A plausible sentence in a document is a factual assertion, and unverified it becomes the next reader's wrong belief.
+- A count, a range, or a "every/all" quantifier is the highest-risk form: it is cheap to check and easy to get wrong.
+- An unverified claim about existing behaviour is WARNING; one that a reader would act on is BLOCKER.
+
+### 19. Unverifiable Claims
+
+When a claim cannot be established from the repository at all:
+
+- The finding is the claim itself. Recommend deleting it rather than hedging it — a softened unverifiable claim still misleads.
+- WARNING; BLOCKER when a reader would make a decision on it.
+
+### 20. Exit-Status Semantics
+
+When the diff reads a command's status to decide something:
+
+- Enumerate the meaning of every code it can return, including the ones that mean "no answer" and "not applicable here".
+- Check that no code is silently mapped to success or failure. An inverted mapping is BLOCKER when the decision it drives is destructive or irreversible.
+
+### 21. Working-Directory Scope
+
+When a command inspects or acts on a target the text has just resolved:
+
+- Verify every call is scoped to that target — a `-C`/`--directory` equivalent, or an explicit path — not to wherever the process happens to run.
+- An unscoped call answers about a different thing and usually still exits 0, so the failure is silent.
+- WARNING; BLOCKER when what it acts on is production or irreversible.
+
+### 22. Procedure Described as Enforcement
+
+When the text describes a control — a gate, a check, a guard:
+
+- Distinguish what a document instructs from what the platform guarantees. A procedural control described as enforced is worse than one described honestly, because the reader stops checking.
+- WARNING.
+
+### 23. Second-Order Damage While Fixing
+
+When the change is itself a fix, or when a later round of the same review answers earlier findings:
+
+- Re-read the whole section around each edit, not just the edited sentence: an anchor can be dropped, a hazard the same file warns about can be reintroduced a few lines later, and counts go stale.
+- Re-verify each applied fix against its own finding before closing it — a replacement that silently matched nothing looks exactly like a successful edit.
+- WARNING; BLOCKER when the earlier round already reported the finding resolved.
+
 ## Recurring issue types
 
 Check the changeset against these issue types distilled from past reviews. Report a finding when one applies, even if the code "works" in the happy path. Each type names the check and the expected property.
@@ -295,6 +354,14 @@ Save to `<issue-folder>/REVIEW-YYYY-MM-DD-NNN.md`.
 > - **Magic Values** — Domain-meaningful literals extracted to class constants?
 > - **Log Level Appropriateness** — Hot-path log statements use `debug` for routine "nothing happened" messages?
 > - **Return-Type Contraction Safety** — Proposed type narrowings survive every runtime branch (pass-through/fallback paths) and existing callers/tests?
+> - **Registration Completeness** — Would the suite stay green if the artifact were never wired up?
+> - **Hand-Maintained Coverage Lists** — Does a test iterate a literal set the change is missing from?
+> - **Claims About Existing Mechanisms** — Is every factual sentence about existing behaviour verified, not merely plausible?
+> - **Unverifiable Claims** — Deleted rather than hedged?
+> - **Exit-Status Semantics** — Every code's meaning stated, including the ones that mean "no answer"?
+> - **Working-Directory Scope** — Every call scoped to the resolved target, not to the process cwd?
+> - **Procedure Described as Enforcement** — Is a document's instruction kept distinct from a platform guarantee?
+> - **Second-Order Damage While Fixing** — Would each applied fix survive re-reading against its own finding?
 > - **Recurring Issue Types (Generic)** — TOCTOU/concurrent modification? Config-like entity invariants? Migration `down()` restores exact schema? API contract round-trip? Docs match implementation (incl. docblocks)? Architecture/design smells? Atomic commit structure? Configuration & rollout? Per-request performance? Deployment/queue rollout compatibility? Concurrent-race recovery guards the actual failing operation (`new()` vs `save()`)? Bootstrap path for newly-gated admin capabilities?
 > - **Recurring Issue Types (Technology-specific)** — For each technology in use: PHP (SSRF/untrusted remote input, baselines not grown, `@phpstan-ignore` masking real type mismatches, extension guards cover all required extensions, global state restored in `finally`, `tearDown()` wrapped in nested `try/finally`, PSR-3 logs include `'exception' => $e`, no `@` operator, assumed third-party security defaults, credentials hashed before persistence), Laravel (async command correctness, real middleware stack on tested path, HTTP error/exception semantics, catch-all fallback & HTTP-method semantics, view/layout rendering, `authorize()`/policies use VOs, API resource serialization is scalar, validation bounded to DB column lengths, DB duplicate-key handlers name the violated field, case-sensitive identifiers use binary collation, single-use cache consumption atomic, route params constrained to VO constructors), Kubernetes (manifest consistency, `SkipDryRunOnMissingResource`, `kustomization.yaml` resources)?
 > - **Code Style** — Symbols imported? No FQCNs inline? Explicit guards? Sealed/final convention?

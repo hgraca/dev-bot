@@ -98,7 +98,7 @@ When temporary file needed, use `devbot:thinking` skill.
 - Always end with summary: total findings by severity, top 3 critical items, quick wins, and systemic issues.
 - For threat models, cover all six STRIDE categories for every identified trust boundary.
 - For auth reviews, map full auth flow before reporting individual findings.
-- For an external pentest evaluation, record every authorisation line — in-scope hosts, credentials, intrusive permission, environment, time box, incident contact — before the first request. A missing line is a stop, not an assumption.
+- For an external pentest evaluation, record every authorisation line the skill's gate defines before the first request. A missing line is a stop, not an assumption.
 
 ## MUST NOT
 
