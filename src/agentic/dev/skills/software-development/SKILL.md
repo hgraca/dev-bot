@@ -130,12 +130,13 @@ The **Testing Discipline** section below is the owned tests-first rule — it is
 ### Invoke a skill by its bare id
 
 A skill's id is its directory name — `reconcile-work`, `git-commits` — and the frontmatter `name` is
-only a display label. Pass the bare id to the `skill` tool. A namespaced id (`devbot:reconcile-work`)
-is what the available-skills list advertises for these skills, and it currently fails with
-`Unable to load skill` (upstream: anomalyco/opencode#64427). When that error names a skill you can
-see in the list, retry once with the bare directory name before falling back to reading its
-`SKILL.md` from `.agents/skills/` or `src/agentic/` — never conclude the skill is gone, and never
-silently skip it.
+only a display label. The available-skills list advertises a namespaced id (`devbot:reconcile-work`),
+and passing that works because the `skill-name-resolver` plugin rewrites it to the id the host
+actually registered (`devbot:x` → `x`, `hooks/skill-name-resolver.ts`). Where the plugin is absent —
+an older 2.x build, or a session started with the plugin dependencies skipped — the same call answers
+`Unable to load skill` (anomalyco/opencode#64427). When that error names a skill you can see in the
+list, retry once with the bare directory name before falling back to reading its `SKILL.md` from
+`.agents/skills/` or `src/agentic/` — never conclude the skill is gone, and never silently skip it.
 
 ## External documentation
 

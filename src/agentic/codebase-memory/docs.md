@@ -45,6 +45,15 @@ the structural tools first error (audit-51/52 NOTE).
 
 Powered by `codebase-memory-mcp` (DeusData) — a single native binary with embeddings compiled in. No Ollama, no GPU, no API key. dev-bot runs it as a shared Docker gateway (`devbot up`), and the index persists on the `devbot-codebase-memory-store` named volume rather than under your home directory.
 
+**One volume, and a check that it is the one in use.** The compose pins `name: devbot-codebase-memory-store`; an install from before that pin has a second volume called `devbot_devbot-codebase-memory-store` (compose used to derive `<project>_<volume>`). Docker leaves the old one alone and warns on every `devbot up`:
+
+```
+volume "devbot_devbot-codebase-memory-store" carries the compose label
+"devbot-codebase-memory-store" but does not match the compose file ...
+```
+
+Confirm which one the container mounts before touching either — `docker inspect dev-bot-codebase-memory-mcp --format '{{range .Mounts}}{{.Name}}{{end}}'` — then remove only the unused one: `docker volume rm devbot_devbot-codebase-memory-store`. Removing the mounted name discards the index (rebuild it with `index_repository`).
+
 ## Selecting the engine
 
 This module is one of two interchangeable codebase engines. Which one is active is set by `codebase_index_provider` in `.devbot.global.jsonc` (see [Configuration](/configuration)):

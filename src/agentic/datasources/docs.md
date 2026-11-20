@@ -45,6 +45,8 @@ An optional `mcp_timeout_ms` on a source raises the MCP client's request timeout
 
 A project then selects which declared sources it wants in `.devbot.project.jsonc`; a source that is selected but not declared warns, and one no longer selected is unregistered from the harness.
 
+**What the project opt-in does and does not gate.** The selection governs two things: which heavyweight **sidecars** (opensearch, s3) are rendered and run, and which `ds-<name>` servers are registered with the harness. It does **not** filter the toolbox catalogue: an enabled project with `"datasources": []` still runs the gateway and the toolbox still initialises every reachable non-sidecar source — dev and production databases alike — because those share one process with no per-project partitioning. A project that must reach nothing should disable the module rather than empty the list; an empty list means "register no datasource server for me", not "reach no database".
+
 Sidecar credentials are environment variables too — nothing mounts `~/.aws` into a sidecar, so an AWS-facing one takes the standard credential variables rather than a profile. The [AWS module](/modules/agentic/aws#setting-up-the-identity) documents the read-only IAM policy and the steps that produce the key pair.
 
 ## Lifecycle
@@ -54,6 +56,8 @@ A sidecar is **demand-gated**, not merely module-gated. It is rendered into the 
 Two things follow. A sidecar whose last consumer's session exits is stopped — by `reconcile.sh`, which the session registry runs on every non-final session exit (the last exit tears the whole gateway down) — so a project that wants nothing does not pay for another project's sidecar. And a sidecar's port is allocated from the same demand-filtered catalogue the compose is rendered from, so a manifest URL and its service listener cannot drift. The render side is deliberately session-independent (`.devbot.global.jsonc::projects` plus the project being wired), because ports are allocated at reinit, before a session exists.
 
 Sidecars run on the `uv` image and resolve their server's dependencies at container start, so a shared cache under `storage/datasources/uv-cache` (mounted at `/var/cache/uv`) keeps a restart warm.
+
+**The gateway container is re-created on `devbot up`, deliberately.** Its compose uses `up -d --no-deps` without `--no-recreate`, because the whole point of this container is the credentials it is handed: rotating a value in `.env` has to reach the process on the next start, and compose only recreates when the rendered definition differs. Every other gateway passes `--no-recreate` and stays put. Two consequences worth knowing: a `devbot up` can print `Creating → Created → Starting` for this one while the others log `Running`, and because every module shares the `devbot` compose project, each per-module `docker compose` call sees the other modules' containers as **orphans** — a warning, not a fault. Never pass `--remove-orphans` to silence it; that removes the other gateways.
 
 ### Recovering a source that was down
 

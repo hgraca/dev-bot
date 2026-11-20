@@ -195,13 +195,15 @@ setup() {
   assert_failure
 }
 
-@test "skills are invoked by their bare directory id, not the advertised namespace" {
-  # The available-skills list advertises `devbot:<dir>`; the tool resolves the
-  # directory name (anomalyco/opencode#64427). The hub must say which to call.
+@test "the skill hub says how a namespaced id resolves and how to recover" {
+  # The available-skills list advertises `devbot:<dir>`. Current builds load it
+  # directly; an older 2.x answered "Unable to load skill" (anomalyco/opencode#64427).
+  # The hub must say both, and name the recovery, so neither case is a blank.
   local needle
   for needle in \
     'Invoke a skill by its bare id' \
     'A skill'"'"'s id is its directory name' \
+    'skill-name-resolver' \
     'retry once with the bare directory name' \
     'anomalyco/opencode#64427'; do
     run grep -qF "$needle" "$FLAT"

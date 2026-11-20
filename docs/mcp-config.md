@@ -22,6 +22,8 @@ Module enablement is the primary gate:
 
 Within an enabled module a server can additionally ship **wired but not started** — see [Per-server enablement](#per-server-enablement).
 
+**A config in a parent directory also counts.** opencode reads an `opencode.jsonc` it finds above the project as well as the project's own, so a session started in a child project can reach servers that project never declares. It is invisible in the project's config — `devbot reinit` neither adds nor removes those entries, and the `mcp-sync` plugin logs `<server>: not in …/opencode.jsonc — skipped` when it refuses to write one back. When a tool appears that the project's config does not mention, look at the directories above it before suspecting the wiring.
+
 ## Reducing the footprint
 
 Every enabled server's tool schemas are injected into the session context, and every harness instance starts its own copy of the server process. Measured per server (2026-09-14, `tools/list` schema bytes):
@@ -61,6 +63,8 @@ Ten servers ship disabled by default — `atlassian`, `chrome-devtools`, `figma`
 `enabled` is optional and defaults to **true** — a manifest that omits it is wired and started exactly as before. Declare it only to opt out. To switch one on, set its `enabled` to `true` in the generated `opencode.jsonc` entry (or toggle it in the harness) and restart.
 
 An `enabled` value in the config is **yours**: `reinit` never reverts it. The module's declared default applies only to an entry that expresses no opinion — so a release newly declaring `enabled` still reaches an existing install, while a server you switched on stays on.
+
+**Two switches, and the module one is not the server one.** `modules.<name>: true` wires the module — its skills, commands and tools appear — while the server stays off unless `enabled` is also true. That pair is easy to half-set: a project with `modules.atlassian: true` and no `mcps` opt-in gets `devbot:atlassian` in its skill list and **no Jira tools**, because the module's manifest ships `enabled: false`. Turning on the module is not consent to reach the service, so check both when a skill is present but its tools are not.
 
 ### Runtime toggles are written back
 
