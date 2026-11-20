@@ -21,7 +21,10 @@ setup() {
   export DEV_BOT_SKIP_PLUGIN_DEPS=1
 
   PROJECT="$(mktemp -d)"
-  printf '{ "harness": "opencode-v2" }\n' > "${PROJECT}/.devbot.project.jsonc"
+  # `modules` is stated, never inherited: with no map the outcome of every
+  # module-dependent case below is decided by the machine's global config,
+  # so a module the developer disabled fails a case about the linking itself.
+  printf '{ "harness": "opencode-v2", "modules": { "sentry": true } }\n' > "${PROJECT}/.devbot.project.jsonc"
 }
 
 teardown() {
@@ -97,12 +100,42 @@ PYEOF
 }
 
 @test "a declared skill directory is linked into .opencode/skills" {
-  bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
-  # sentry declares {devbot-root}/storage/sentry/skills
-  [[ -d "${DEV_BOT_ROOT}/storage/sentry/skills" ]] || skip "sentry skills not provisioned"
-  assert [ -L "${PROJECT}/.opencode/skills/sentry" ]
-  run readlink "${PROJECT}/.opencode/skills/sentry"
-  assert_output --partial "storage/sentry/skills"
+  # Hermetic on purpose: the declaration is synthetic, so the case does not
+  # depend on a module being installed on this machine. It used to run only
+  # when storage/sentry/skills existed — failing where that module was
+  # disabled and silently skipping on a fresh clone.
+  local root="${BATS_TEST_TMPDIR}/root"
+  mkdir -p "${root}/src/agentic/fake" "${root}/src/_shared" "${root}/storage/fake/skills"
+  cp "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${root}/src/_shared/"
+  # An empty directory is skipped by the linker ("skills not found"), so the
+  # fixture carries the SKILL.md a real skill directory has.
+  printf -- '---\nname: fake\ndescription: probe\n---\n' >"${root}/storage/fake/skills/SKILL.md"
+  printf '{"skills":[{"name":"fake","path":"{devbot-root}/storage/fake/skills"}]}\n' \
+    >"${root}/src/agentic/fake/harness-assets.json"
+
+  run bash -c '
+    set -uo pipefail
+    export DEV_BOT_ROOT="${1}"
+    source "${2}"
+    _devbot_link_harness_assets "${3}" ".opencode" >/dev/null 2>&1
+  ' _ "${root}" "${DEV_BOT_ROOT}/src/_shared/functions.sh" "${PROJECT}"
+
+  assert [ -L "${PROJECT}/.opencode/skills/fake" ]
+  run readlink "${PROJECT}/.opencode/skills/fake"
+  assert_output --partial "storage/fake/skills"
+}
+
+@test "the sentry module declares the skill directory its manifest promises" {
+  run python3 - "${DEV_BOT_ROOT}/src/agentic/sentry/harness-assets.json" <<'PYEOF'
+import json, sys
+data = json.load(open(sys.argv[1]))
+entry = data["skills"][0]
+assert entry["name"] == "sentry", entry
+assert entry["path"].startswith("{devbot-root}/"), entry
+print("ok")
+PYEOF
+  assert_success
+  assert_output "ok"
 }
 
 @test "a stale skill link is pruned" {

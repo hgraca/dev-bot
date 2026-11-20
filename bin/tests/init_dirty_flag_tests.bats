@@ -63,6 +63,11 @@ _devbot_get_disabled_modules() { echo '[]'; }
 _devbot_get_project_dir() { echo ".agents"; }
 _devbot_get_external_modules() { true; }
 _devbot_disabled_external_names() { true; }
+# Reached by main → _reinit_project. Without these the fixture died at 127
+# ("command not found") and assert_failure passed for the wrong reason (BW01).
+_module_memory_paths() { _MODULE_MEMORY_ACTIVE="${1}/.module-memory/active"; _MODULE_MEMORY_MODULES="${1}/.module-memory/modules"; }
+_run_reset() { bash "$1" "$2"; }
+_default_jobs() { echo 1; }
 TEXT_BOLD=''; TEXT_BLUE=''; TEXT_CLEAR=''; TEXT_DIM=''
 TEXT_GREEN=''; TEXT_YELLOW=''; TEXT_ORANGE=''; TEXT_RED=''
 STUB
@@ -156,5 +161,20 @@ _sandbox_bash() {
 @test "init main exits non-zero and omits the success banner when the wiring fails" {
   run _sandbox_bash 'main'
   assert_failure
+  # The summary's failure branch, not an arbitrary non-zero exit: without this
+  # the case also passed when main died on a missing helper (bats BW01).
+  assert_output --partial "Init failed — fix the cause"
   refute_output --partial "DevBot init complete"
+}
+
+@test "init main exits zero and reports no failure when the wiring completes" {
+  # The control for the case above: same fixture, wiring that succeeds. If a
+  # missing helper makes main die at 127 both cases would "pass", so the pair
+  # is what proves the failure branch is reached on purpose.
+  run _sandbox_bash 'export INIT_COMPLETES=1; main'
+  assert_success
+  # The pair is the proof: the fixture stubs every success-flavoured helper
+  # (`_ok`), so the failure line is the only branch marker main emits. Same
+  # fixture, opposite wiring outcome, opposite marker.
+  refute_output --partial "Init failed — fix the cause"
 }
