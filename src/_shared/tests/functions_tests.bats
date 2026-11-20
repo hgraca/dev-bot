@@ -534,6 +534,63 @@ EOF
   refute_output --partial "old boom"
 }
 
+@test "_devbot_check_session_logs ignores INFO/DEBUG event-stream markers" {
+  # The adapter writes one "[INFO] ... event stream: first session.tool.failed"
+  # per process to announce an event type. It names no tool and no failure, so
+  # alerting on it is noise at the end of every session that ever had one.
+  local proj="${TEST_TEMP}/proj8"
+  mkdir -p "${proj}/.agents/logs"
+  cat > "${proj}/.agents/logs/hooks.log" <<'LOG'
+[2026-11-20T21:18:59.036Z] [INFO] [hooks] event stream: first session.tool.failed
+[2026-11-20T21:19:06.359Z] [INFO] [hooks] event stream: first session.step.failed
+LOG
+
+  run _devbot_check_session_logs "${proj}"
+  assert_success
+  refute_output --partial "hooks.log"
+}
+
+@test "_devbot_check_session_logs still alerts on a real ERROR in hooks.log" {
+  # The control: dropping INFO must not blind the alert to a genuine failure.
+  local proj="${TEST_TEMP}/proj9"
+  mkdir -p "${proj}/.agents/logs"
+  printf '[ts] [INFO] [hooks] event stream: first session.tool.failed\n[ts] [ERROR] [hooks] event file.edited failed: boom\n' \
+    > "${proj}/.agents/logs/hooks.log"
+
+  run _devbot_check_session_logs "${proj}"
+  assert_success
+  assert_output --partial "hooks.log: 1 error line(s)"
+  assert_output --partial "boom"
+}
+
+@test "_devbot_check_session_logs keeps a lowercase info tag that reports a failure" {
+  # Only the log's own uppercase tag is a diagnostic marker. A tool that writes
+  # "[info] request failed" is reporting a failure, whatever its level word.
+  local proj="${TEST_TEMP}/proj10"
+  mkdir -p "${proj}/.agents/logs"
+  printf '[info] request failed: ECONNREFUSED 127.0.0.1:18500\n[debug] retry failed: timeout\n' \
+    > "${proj}/.agents/logs/hooks.log"
+
+  run _devbot_check_session_logs "${proj}"
+  assert_success
+  assert_output --partial "hooks.log: 2 error line(s)"
+  assert_output --partial "ECONNREFUSED"
+}
+
+@test "_devbot_check_session_logs keeps an ERROR that mentions another level tag" {
+  # The marker filter is anchored to the line's own prefix: a tag inside the
+  # message is text, and "[ERROR] ... dependency [INFO] failed" is a failure.
+  local proj="${TEST_TEMP}/proj11"
+  mkdir -p "${proj}/.agents/logs"
+  printf '[ts] [ERROR] [svc] dependency [INFO] failed to answer\n' \
+    > "${proj}/.agents/logs/hooks.log"
+
+  run _devbot_check_session_logs "${proj}"
+  assert_success
+  assert_output --partial "hooks.log: 1 error line(s)"
+  assert_output --partial "dependency [INFO] failed"
+}
+
 @test "_devbot_check_session_logs avoids substring false positives" {
   local proj="${TEST_TEMP}/proj6"
   mkdir -p "${proj}/.agents/logs"

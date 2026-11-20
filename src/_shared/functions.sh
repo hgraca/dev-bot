@@ -1068,6 +1068,11 @@ _devbot_check_session_logs() {
   # works — degraded quality, not a runtime failure (audit-45 §4). These lines
   # must not trip the session-end alert the way a genuine crash would.
   local benign='(Reranker unavailable|Structured query expansion failed|GPU init failed|no GPU acceleration|InsufficientMemoryError|skipping reranking)'
+  # Only a line that OPENS with the level tag is a diagnostic: the adapter emits
+  # one "[INFO] ... event stream: first session.tool.failed" per process, which
+  # names no tool and no failure (audit-03 F3). Anchored, so message text
+  # ("... dependency [INFO] failed") and a lowercase "[info]" still alert.
+  local diagnostic='^(\[[^]]*\][[:space:]]+)?\[(INFO|DEBUG)\]'
   local report_logs="lint-k8s.log format-md.log format-json.log format-yml.log"
   local file count found=0
   while IFS= read -r file; do
@@ -1075,7 +1080,8 @@ _devbot_check_session_logs() {
     case " ${report_logs} " in
       *" $(basename "${file}") "*) continue ;;
     esac
-    count="$(grep -iE "${pattern}" "${file}" 2>/dev/null | grep -viE "${benign}" | grep -c . || true)"
+    count="$(grep -iE "${pattern}" "${file}" 2>/dev/null \
+      | grep -viE "${benign}" | grep -vE "${diagnostic}" | grep -c . || true)"
     if [[ "${count}" =~ ^[0-9]+$ ]] && (( count > 0 )); then
       found=$((found + 1))
       if [[ ${found} -eq 1 ]]; then
@@ -1085,7 +1091,7 @@ _devbot_check_session_logs() {
       # Distinct error types: normalized matching lines, most frequent first.
       local types type_count
       types="$(grep -iE "${pattern}" "${file}" 2>/dev/null \
-        | grep -viE "${benign}" \
+        | grep -viE "${benign}" | grep -vE "${diagnostic}" \
         | sed -E 's/^\[[^]]*\][[:space:]]*//g; s/[[:space:]]+/ /g; s/^[[:space:]]+//; s/[[:space:]]+$//' \
         | sort | uniq -c | sort -rn || true)"
       type_count="$(printf '%s\n' "${types}" | grep -c . 2>/dev/null || true)"
