@@ -97,8 +97,8 @@ JSONC
       "AWS_SECRET_ACCESS_KEY": "\${AWS_SECRET}"
     },
     "clusters": {
-      "k8s-prod": { "context": "k8s-prod-ro", "region": "eu-central-1" },
-      "kosmos": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/static.yaml", "context": "k3d-kosmos" }
+      "k8s-prod": { "name": "k8s-prod", "context": "k8s-prod-ro", "region": "eu-central-1" },
+      "kosmos": { "name": "kosmos", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/static.yaml", "context": "k3d-kosmos" }
     }
   }
 }
@@ -128,8 +128,8 @@ JSONC
 {
   "kubectl": {
     "clusters": {
-      "s1": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
-      "s2": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
+      "s1": { "name": "s1", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
+      "s2": { "name": "s2", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
     }
   }
 }
@@ -194,7 +194,7 @@ YAML
 {
   "kubectl": {
     "clusters": {
-      "kosmos": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/static.yaml", "context": "ctx-selected" }
+      "kosmos": { "name": "kosmos", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/static.yaml", "context": "ctx-selected" }
     }
   }
 }
@@ -241,8 +241,8 @@ YAML
 {
   "kubectl": {
     "clusters": {
-      "s1": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
-      "s2": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
+      "s1": { "name": "s1", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
+      "s2": { "name": "s2", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
     }
   }
 }
@@ -268,8 +268,8 @@ JSONC
 {
   "kubectl": {
     "clusters": {
-      "s1": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
-      "s2": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
+      "s1": { "name": "s1", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
+      "s2": { "name": "s2", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
     }
   }
 }
@@ -287,7 +287,7 @@ JSONC
 {
   "kubectl": {
     "clusters": {
-      "s1": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" }
+      "s1": { "name": "s1", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" }
     }
   }
 }
@@ -346,7 +346,7 @@ JSONC
     "profile": "devbot-agent",
     "credential_env": { "AWS_ACCESS_KEY_ID": "\${AWS_KEY}" },
     "clusters": {
-      "kosmos": { "context": "k3d-kosmos", "region": "eu-central-1" }
+      "kosmos": { "name": "kosmos", "context": "k3d-kosmos", "region": "eu-central-1" }
     }
   }
 }
@@ -408,8 +408,8 @@ JSONC
 {
   "kubectl": {
     "clusters": {
-      "s1": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
-      "s2": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
+      "s1": { "name": "s1", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
+      "s2": { "name": "s2", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
     }
   }
 }
@@ -467,10 +467,10 @@ users: []
 EOF
   # The rendered-label record must move with it: a label set that no longer
   # matches the selection is out-of-selection content and is pruned wholesale.
-  printf 'k8s-stg\n' > "${KUBECONFIG_FILE%.yaml}.labels"
+  printf 'k8s-stg\n' > "${KUBECONFIG_FILE%.yaml}.rendered"
   # A rebuilt or tidied .opencode/ can lose the manifest while the merged key
   # stays. Retirement must not fall back to the group name (k8s-<cluster>) and
-  # leave the live key (kctl-<name>) behind.
+  # leave the live key (kctl-<key>) behind.
   rm -f "$(harness_manifest k8s-prod)"
   printf '{ "project_name": "demo", "kubectl": ["k8s-stg"] }\n' \
     > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"

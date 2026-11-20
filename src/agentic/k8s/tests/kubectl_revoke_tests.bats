@@ -24,8 +24,8 @@ setup() {
       "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
     },
     "clusters": {
-      "dev": { "context": "dev-ro", "region": "eu-central-1" },
-      "gete-dev": { "context": "gete-staging-rw", "region": "eu-central-1" }
+      "dev": { "name": "dev", "context": "dev-ro", "region": "eu-central-1" },
+      "gete-dev": { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
     }
   }
 }

@@ -4,7 +4,7 @@
 # Split from kubectl_init_tests.bats; setup, stubs and fixtures live in
 # kubectl_test_helper.bash so a fixture is never copied into two files.
 #
-# One server per RENDERED cluster, named `kctl-<name>`, published through the
+# One server per RENDERED cluster, named `kctl-<key>`, published through the
 # harness-agnostic runtime manifest. The server name is the scoping: a dropped
 # cluster must lose its server too.
 
@@ -14,13 +14,13 @@ setup() {
 }
 
 # ── MCP servers ───────────────────────────────────────────────────────────────
-# One server per RENDERED cluster, named kctl-<name>, published through the
+# One server per RENDERED cluster, named kctl-<key>, published through the
 # harness-agnostic runtime manifest. The server name is the scoping: the agent's
 # tool list names the target, so a dropped cluster must lose its server too.
 
 # The runtime-manifest GROUP keeps the module's name (`k8s-<cluster>`) — that
 # filename is how a disabled module's manifests are recognised — while the
-# server KEY is `kctl-<name>`, which is what the agent's tool list shows.
+# server KEY is `kctl-<key>`, which is what the agent's tool list shows.
 @test "publishes one MCP server per rendered cluster" {
   write_config
 
@@ -83,24 +83,24 @@ setup() {
   refute [ -e "$(harness_manifest k8s-stg)" ]
 }
 
-@test "a renamed entry publishes kctl-<name> but describes the catalogue key" {
+@test "a renamed entry publishes kctl-<key> and describes the AWS cluster" {
   write_renamed_config
 
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
   assert_success
 
-  # The identity is the AWS cluster: both describe queries carry the key.
+  # Both describe queries carry the AWS cluster name.
   assert_equal "$(grep -c -- '--name gete-prd' "$BATS_TEST_TMPDIR/aws-describe.log")" 2
 
-  # The label is what an agent sees and what kctl.sh resolves at call time.
-  run jq -r '.mcp | keys[0]' "$(runtime_manifest gete-prd)"
+  # The key names the server, the manifest group and what kctl.sh resolves.
+  run jq -r '.mcp | keys[0]' "$(runtime_manifest gete)"
   assert_output "kctl-gete"
-  run jq -r '.mcp."kctl-gete".command[2]' "$(runtime_manifest gete-prd)"
-  assert_output --partial "kctl-mcp.sh gete-prd"
-  refute [ -e "$(harness_manifest gete)" ]
+  run jq -r '.mcp."kctl-gete".command[2]' "$(runtime_manifest gete)"
+  assert_output --partial "kctl-mcp.sh gete"
+  refute [ -e "$(harness_manifest gete-prd)" ]
 }
 
-@test "a renamed entry renders the label as the kubeconfig cluster object" {
+@test "a renamed entry renders the key as the kubeconfig cluster object" {
   write_renamed_config
 
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
@@ -134,7 +134,7 @@ setup() {
     "profile": "devbot-agent",
     "credential_env": { "AWS_ACCESS_KEY_ID": "${AWS_KEY}" },
     "clusters": {
-      "k8s;echo INJECTED": { "region": "eu-central-1" }
+      "k8s;echo INJECTED": { "name": "k8s;echo INJECTED", "region": "eu-central-1" }
     }
   }
 }
@@ -146,7 +146,7 @@ JSONC
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
 
   assert_failure
-  assert_output --partial "cluster key 'k8s;echo INJECTED' is not valid"
+  assert_output --partial "key 'k8s;echo INJECTED' is not a valid name"
   refute [ -e "$BATS_TEST_TMPDIR/project/.agents/mcp-runtime/k8s-k8s;echo INJECTED.json" ]
 }
 
@@ -214,8 +214,8 @@ JSONC
     "profile": "devbot-agent",
     "credential_env": { "AWS_ACCESS_KEY_ID": "${AWS_KEY}" },
     "clusters": {
-      "alpha": { "context": "shared-ctx", "region": "eu-central-1" },
-      "beta": { "context": "shared-ctx", "region": "eu-central-1" }
+      "alpha": { "name": "alpha", "context": "shared-ctx", "region": "eu-central-1" },
+      "beta": { "name": "beta", "context": "shared-ctx", "region": "eu-central-1" }
     }
   }
 }
@@ -231,43 +231,18 @@ JSONC
   assert_equal "$(generated_files | wc -l)" 0
 }
 
-@test "a label that is also another entry's key is refused as ambiguous" {
-  # Labels stay distinct here, so only the key/label collision is in play:
-  # `devbot kctl exec beta` means one entry's label and another's key.
-  cat > "$DEV_BOT_GLOBAL_CONFIG" <<'JSONC'
-{
-  "kubectl": {
-    "profile": "devbot-agent",
-    "credential_env": { "AWS_ACCESS_KEY_ID": "${AWS_KEY}" },
-    "clusters": {
-      "alpha": { "name": "beta", "region": "eu-central-1" },
-      "beta": { "name": "gamma", "region": "eu-central-1" }
-    }
-  }
-}
-JSONC
-  cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
-{ "project_name": "demo", "kubectl": ["alpha", "beta"] }
-JSONC
 
-  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
-
-  assert_failure
-  assert_output --partial "is also another entry's catalogue key"
-  assert_equal "$(generated_files | wc -l)" 0
-}
-
-@test "a context that falls back to another entry's label is refused" {
+@test "a context that falls back to another entry's key is refused" {
   # `context` is only used when it is a plain name; otherwise the render falls
-  # back to the label. Comparing raw values misses the collision that remains.
+  # back to the key. Comparing raw values misses the collision that remains.
   cat > "$DEV_BOT_GLOBAL_CONFIG" <<'JSONC'
 {
   "kubectl": {
     "profile": "devbot-agent",
     "credential_env": { "AWS_ACCESS_KEY_ID": "${AWS_KEY}" },
     "clusters": {
-      "alpha": { "name": "alpha-label", "context": "bad/name", "region": "eu-central-1" },
-      "beta": { "name": "beta-label", "context": "alpha-label", "region": "eu-central-1" }
+      "alpha": { "name": "alpha-aws", "context": "bad/name", "region": "eu-central-1" },
+      "beta": { "name": "beta-aws", "context": "alpha", "region": "eu-central-1" }
     }
   }
 }
@@ -279,7 +254,7 @@ JSONC
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
 
   assert_failure
-  assert_output --partial "share the context 'alpha-label'"
+  assert_output --partial "share the context 'alpha'"
   assert_equal "$(generated_files | wc -l)" 0
 }
 
@@ -303,7 +278,7 @@ JSONC
   cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
 { "project_name": "demo", "kubectl": ["k8s-prod"] }
 JSONC
-  export STUB_FAIL_CLUSTER="k8s-prod"
+  export STUB_FAIL_CLUSTER="renamed"
 
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
 
@@ -334,7 +309,7 @@ JSONC
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
 
   assert_failure
-  assert_output --partial "has a name that is not a string"
+  assert_output --partial 'has a "name" that is not a string'
   assert_equal "$(generated_files | wc -l)" 0
 }
 
@@ -344,7 +319,7 @@ JSONC
   "kubectl": {
     "profile": "devbot-agent",
     "credential_env": { "AWS_ACCESS_KEY_ID": "${AWS_KEY}" },
-    "clusters": { "k8s-prod": { "context": 123, "region": "eu-central-1" } }
+    "clusters": { "k8s-prod": { "name": "k8s-prod", "context": 123, "region": "eu-central-1" } }
   }
 }
 JSONC
@@ -355,7 +330,7 @@ JSONC
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
 
   assert_failure
-  assert_output --partial "has a context that is not a string"
+  assert_output --partial 'has a "context" that is not a string'
   refute_output --partial "Traceback"
   assert_equal "$(generated_files | wc -l)" 0
 }
@@ -383,8 +358,8 @@ JSONC
 }
 
 @test "a static kubeconfig user named like a generated one is not misread" {
-  # The recorded labels manifest, not a `devbot-<label>` name heuristic, decides
-  # which objects this module rendered.
+  # The recorded manifest, not a `devbot-<name>` heuristic, decides which
+  # objects this module rendered.
   write_static_kubeconfig "$BATS_TEST_TMPDIR/static.yaml"
   write_static_config
   cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
@@ -395,9 +370,9 @@ JSONC
   resolve_paths
   assert_success
   local first="$KUBECONFIG_FILE"
-  local labels="${KUBECONFIG_FILE%.yaml}.labels"
-  assert [ -f "$labels" ]
-  run cat "$labels"
+  local rendered="${KUBECONFIG_FILE%.yaml}.rendered"
+  assert [ -f "$rendered" ]
+  run cat "$rendered"
   assert_output "kosmos"
 
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
@@ -416,14 +391,14 @@ JSONC
   assert_success
   assert [ -f "$KUBECONFIG_FILE" ]
 
-  rm -f "${KUBECONFIG_FILE%.yaml}.labels"
+  rm -f "${KUBECONFIG_FILE%.yaml}.rendered"
   printf '{ "project_name": "demo", "kubectl": ["k8s-prod"] }\n' \
     >"$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
   export STUB_FAIL_CLUSTER="k8s-prod"
 
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
 
-  assert_output --partial "predates the label record"
+  assert_output --partial "predates the render record"
   assert_equal "$(generated_files | wc -l)" 0
 }
 
@@ -457,4 +432,28 @@ JSONC
   assert_failure
   assert_output --partial "cannot be read"
   assert_equal "$(generated_files | wc -l)" 0
+}
+
+@test "the project-name warning matches the catalogue key, not the AWS name" {
+  # `_default_index` picks the default context by key, so the warning that says
+  # "you are named after a cluster you did not select" has to use the same name.
+  cat > "$DEV_BOT_GLOBAL_CONFIG" <<'JSONC'
+{
+  "kubectl": {
+    "profile": "devbot-agent",
+    "credential_env": { "AWS_ACCESS_KEY_ID": "${AWS_KEY}" },
+    "clusters": {
+      "get-e-prd": { "name": "gete-prd", "region": "eu-central-1" },
+      "get-e-stg": { "name": "gete-stg", "region": "eu-central-1" }
+    }
+  }
+}
+JSONC
+  cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
+{ "project_name": "acme-get-e-prd", "kubectl": ["get-e-stg"] }
+JSONC
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_output --partial "names cluster 'get-e-prd', which this project does not select"
 }

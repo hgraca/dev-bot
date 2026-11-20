@@ -258,8 +258,8 @@ JSONC
       "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
     },
     "clusters": {
-      "gete": { "context": "gete-prod-ro", "region": "eu-central-1" },
-      "gete-dev": { "context": "gete-staging-rw", "region": "eu-central-1" }
+      "gete": { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" },
+      "gete-dev": { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
     }
   }
 }
@@ -310,26 +310,3 @@ JSONC
   assert_equal "$(generated_files | wc -l)" 0
 }
 
-@test "two entries sharing a visible name are refused before anything is written" {
-  cat > "$DEV_BOT_GLOBAL_CONFIG" <<'JSONC'
-{
-  "kubectl": {
-    "profile": "devbot-agent",
-    "credential_env": { "AWS_ACCESS_KEY_ID": "${AWS_KEY}" },
-    "clusters": {
-      "gete-prd": { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" },
-      "gete-stg": { "name": "gete", "context": "gete-staging-rw", "region": "eu-central-1" }
-    }
-  }
-}
-JSONC
-  cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
-{ "project_name": "demo", "kubectl": ["gete-prd", "gete-stg"] }
-JSONC
-
-  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
-
-  assert_failure
-  assert_output --partial "both named 'gete'"
-  assert_equal "$(generated_files | wc -l)" 0
-}

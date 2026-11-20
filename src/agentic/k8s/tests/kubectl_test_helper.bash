@@ -78,17 +78,17 @@ write_config() {
       "AWS_SECRET_ACCESS_KEY": "\${AWS_SECRET}"
     },
     "clusters": {
-      "k8s-prod": { "context": "${context}", "region": "eu-central-1" },
-      "k8s-stg": { "context": "k8s-stg-rw", "region": "eu-central-1" }
+      "k8s-prod": { "name": "k8s-prod", "context": "${context}", "region": "eu-central-1" },
+      "k8s-stg": { "name": "k8s-stg", "context": "k8s-stg-rw", "region": "eu-central-1" }
     }
   }
 }
 JSONC
 }
 
-# A catalogue whose key (the AWS EKS cluster name) differs from the visible name
-# an agent sees. The key is the identity; `name` is what the kubeconfig objects,
-# the context fallback and the `kctl-*` server carry.
+# A catalogue whose key (the MCP server name) differs from the AWS EKS cluster
+# name. The key is what the kubeconfig objects, the context fallback, the
+# selection and the `kctl-*` server carry; `name` is what AWS is asked for.
 write_renamed_config() {
   cat > "$DEV_BOT_GLOBAL_CONFIG" <<JSONC
 {
@@ -98,7 +98,7 @@ write_renamed_config() {
       "AWS_ACCESS_KEY_ID": "\${AWS_KEY}"
     },
     "clusters": {
-      "gete-prd": { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" }
+      "gete": { "name": "gete-prd", "context": "gete-prod-ro", "region": "eu-central-1" }
     }
   }
 }
@@ -106,7 +106,7 @@ JSONC
   cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
 {
   "project_name": "demo",
-  "kubectl": ["gete-prd"]
+  "kubectl": ["gete"]
 }
 JSONC
 }
@@ -179,7 +179,7 @@ write_static_config() {
 {
   "kubectl": {
     "clusters": {
-      "kosmos": { "type": "static", "kubeconfig": "${path}", "context": "k3d-kosmos" }
+      "kosmos": { "name": "kosmos", "type": "static", "kubeconfig": "${path}", "context": "k3d-kosmos" }
     }
   }
 }
