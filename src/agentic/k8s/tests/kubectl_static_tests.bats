@@ -96,10 +96,10 @@ JSONC
       "AWS_ACCESS_KEY_ID": "\${AWS_KEY}",
       "AWS_SECRET_ACCESS_KEY": "\${AWS_SECRET}"
     },
-    "clusters": [
-      { "name": "k8s-prod", "context": "k8s-prod-ro", "region": "eu-central-1" },
-      { "name": "kosmos", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/static.yaml", "context": "k3d-kosmos" }
-    ]
+    "clusters": {
+      "k8s-prod": { "context": "k8s-prod-ro", "region": "eu-central-1" },
+      "kosmos": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/static.yaml", "context": "k3d-kosmos" }
+    }
   }
 }
 JSONC
@@ -127,10 +127,10 @@ JSONC
   cat > "$DEV_BOT_GLOBAL_CONFIG" <<JSONC
 {
   "kubectl": {
-    "clusters": [
-      { "name": "s1", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
-      { "name": "s2", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
-    ]
+    "clusters": {
+      "s1": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
+      "s2": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
+    }
   }
 }
 JSONC
@@ -193,9 +193,9 @@ YAML
   cat > "$DEV_BOT_GLOBAL_CONFIG" <<JSONC
 {
   "kubectl": {
-    "clusters": [
-      { "name": "kosmos", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/static.yaml", "context": "ctx-selected" }
-    ]
+    "clusters": {
+      "kosmos": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/static.yaml", "context": "ctx-selected" }
+    }
   }
 }
 JSONC
@@ -240,10 +240,10 @@ YAML
   cat > "$DEV_BOT_GLOBAL_CONFIG" <<JSONC
 {
   "kubectl": {
-    "clusters": [
-      { "name": "s1", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
-      { "name": "s2", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
-    ]
+    "clusters": {
+      "s1": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
+      "s2": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
+    }
   }
 }
 JSONC
@@ -267,10 +267,10 @@ JSONC
   cat > "$DEV_BOT_GLOBAL_CONFIG" <<JSONC
 {
   "kubectl": {
-    "clusters": [
-      { "name": "s1", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
-      { "name": "s2", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
-    ]
+    "clusters": {
+      "s1": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
+      "s2": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
+    }
   }
 }
 JSONC
@@ -286,9 +286,9 @@ JSONC
   cat > "$DEV_BOT_GLOBAL_CONFIG" <<JSONC
 {
   "kubectl": {
-    "clusters": [
-      { "name": "s1", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" }
-    ]
+    "clusters": {
+      "s1": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" }
+    }
   }
 }
 JSONC
@@ -345,9 +345,9 @@ JSONC
   "kubectl": {
     "profile": "devbot-agent",
     "credential_env": { "AWS_ACCESS_KEY_ID": "\${AWS_KEY}" },
-    "clusters": [
-      { "name": "kosmos", "context": "k3d-kosmos", "region": "eu-central-1" }
-    ]
+    "clusters": {
+      "kosmos": { "context": "k3d-kosmos", "region": "eu-central-1" }
+    }
   }
 }
 JSONC
@@ -407,10 +407,10 @@ JSONC
   cat > "$DEV_BOT_GLOBAL_CONFIG" <<JSONC
 {
   "kubectl": {
-    "clusters": [
-      { "name": "s1", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
-      { "name": "s2", "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
-    ]
+    "clusters": {
+      "s1": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s1.yaml", "context": "ctx-1" },
+      "s2": { "type": "static", "kubeconfig": "$BATS_TEST_TMPDIR/s2.yaml", "context": "ctx-2" }
+    }
   }
 }
 JSONC
@@ -465,6 +465,9 @@ contexts:
 clusters: []
 users: []
 EOF
+  # The rendered-label record must move with it: a label set that no longer
+  # matches the selection is out-of-selection content and is pruned wholesale.
+  printf 'k8s-stg\n' > "${KUBECONFIG_FILE%.yaml}.labels"
   # A rebuilt or tidied .opencode/ can lose the manifest while the merged key
   # stays. Retirement must not fall back to the group name (k8s-<cluster>) and
   # leave the live key (kctl-<cluster>) behind.
@@ -479,4 +482,28 @@ EOF
   assert_failure
   run grep -q '"kctl-k8s-stg"' "$BATS_TEST_TMPDIR/project/opencode.jsonc"
   assert_success
+}
+
+@test "a static render is not treated as stale on the next reinit" {
+  # A static entry brings its own cluster objects (`cluster-k3d-kosmos`), which
+  # are not catalogue labels. Scanning them as labels marked every static
+  # project stale and deleted a working render on each reinit.
+  write_static_kubeconfig "$BATS_TEST_TMPDIR/static.yaml"
+  write_static_config
+  cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
+{ "project_name": "kosmos", "kubectl": ["kosmos"] }
+JSONC
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  resolve_paths
+  assert_success
+  local first="$KUBECONFIG_FILE"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_success
+  refute_output --partial "reached outside the selection"
+  assert [ -f "$first" ]
+  run grep current-context "$first"
+  assert_output --partial "k3d-kosmos"
 }

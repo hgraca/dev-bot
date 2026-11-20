@@ -191,6 +191,23 @@ _existing_clusters() {
     | sed 's/.*", "\([^"]*\)"\]$/\1/' || true
 }
 
+# The cluster object names in the generated file — the labels. A rename changes
+# these while the exec args (the keys) stay put, so the stale check has to see
+# both or a renamed entry survives an unavailable AWS.
+_labels_manifest_path() {
+  printf '%s' "${KUBECONFIG_PATH%.yaml}.labels"
+}
+
+# The labels this module last rendered, one per line. Recorded rather than
+# inferred: a static kubeconfig brings arbitrary object and user names, and a
+# name-prefix heuristic cannot tell the two apart.
+_existing_labels() {
+  local manifest
+  manifest="$(_labels_manifest_path)"
+  [[ -f "${manifest}" ]] || return 0
+  cat "${manifest}" 2>/dev/null || true
+}
+
 # Static entries carry no exec block, so the AWS-shaped grep above cannot see
 # them. What was rendered is recorded in a sidecar manifest next to the
 # kubeconfig — deriving it from the catalogue cannot see an entry that has since
@@ -204,7 +221,9 @@ _static_manifest_path() {
 _catalogue_kind() {
   local spec="$1" target="$2"
   echo "${spec}" | jq -r --arg n "${target}" \
-    '.clusters[] | select(.name == $n) | (.type // "eks")' 2>/dev/null | head -1
+    '.clusters | to_entries[]
+     | select((.value.name // .key) == $n)
+     | (.value.type // "eks")' 2>/dev/null | head -1
 }
 
 _existing_static_clusters() {
@@ -239,7 +258,9 @@ _existing_static_clusters() {
       printf '%s\n' "${name}"
     fi
   done < <(echo "${spec}" | jq -r \
-    '.clusters[] | select((.type // "eks") == "static") | "\(.name)\t\(.context // .name)"')
+    '.clusters | to_entries[]
+     | select((.value.type // "eks") == "static")
+     | "\(.value.name // .key)\t\(.value.context // .value.name // .key)"')
 }
 
 # Only this project's own files are pruned. The wrapper is shared by every
@@ -261,6 +282,9 @@ _prune_generated() {
   if [[ -e "$(_static_manifest_path)" ]]; then
     rm -f "$(_static_manifest_path)" && removed=1
   fi
+  if [[ -e "$(_labels_manifest_path)" ]]; then
+    rm -f "$(_labels_manifest_path)" && removed=1
+  fi
   _retire_mcps
   [[ "${removed}" -eq 1 ]]
 }
@@ -272,23 +296,28 @@ _prune_generated() {
 # applies. The command is secret-free — it names the cluster, and kctl.sh
 # resolves the kubeconfig, the context and the credential references at call
 # time. `{harness-dir}` is a translator token, so no harness is named here.
+#
+# Args are `<identity>:<label>` pairs: the identity is the AWS cluster name
+# kctl.sh looks up, the label is the server name an agent calls.
 _wire_mcps() {
-  local name group
+  local pair identity label group
   local -a keep=()
 
-  for name in "$@"; do
-    group="${MCP_GROUP_PREFIX}${name}"
+  for pair in "$@"; do
+    identity="${pair%%:*}"
+    label="${pair#*:}"
+    group="${MCP_GROUP_PREFIX}${identity}"
     if ! _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${group}" \
-      "$(jq -nc --arg s "${MCP_PREFIX}${name}" --arg c \
-        "mkdir -p .agents/logs && exec bash {harness-dir}/${MCP_LAUNCHER} ${name} 2>>.agents/logs/${MCP_PREFIX}${name}-mcp.log" \
+      "$(jq -nc --arg s "${MCP_PREFIX}${label}" --arg c \
+        "mkdir -p .agents/logs && exec bash {harness-dir}/${MCP_LAUNCHER} ${identity} 2>>.agents/logs/${MCP_PREFIX}${label}-mcp.log" \
         '{($s): {type: "stdio", command: ["bash", "-c", $c]}}')"; then
       # Not in `keep`: the previous manifest for this cluster is pruned below,
       # so a failed publish leaves the server absent rather than stale.
-      _warn "kubectl — could not publish the ${MCP_PREFIX}${name} MCP manifest"
+      _warn "kubectl — could not publish the ${MCP_PREFIX}${label} MCP manifest"
       continue
     fi
     keep+=("${group}")
-    _ok "kubectl — MCP ${MCP_PREFIX}${name}"
+    _ok "kubectl — MCP ${MCP_PREFIX}${label}"
   done
 
   _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${MCP_GROUP_PREFIX}" ${keep[@]+"${keep[@]}"}
@@ -430,6 +459,16 @@ main() {
 
   _header_3 "kubectl init — ${slug}"
 
+  # The array form predates the keyed catalogue: it gives one `name` to the AWS
+  # cluster, the kubeconfig objects and the MCP server key. Refused by name, and
+  # the previous render is revoked with it — a refusal that leaves the old
+  # kubeconfig live is not a refusal.
+  if [[ "$(echo "${spec}" | jq -r '.clusters | type')" != "object" ]]; then
+    _prune_generated || true
+    _fatal "kubectl — 'kubectl.clusters' must be an object keyed by cluster name; run 'devbot update' to migrate it"
+    return 1
+  fi
+
   if [[ "$(echo "${spec}" | jq -r '.clusters | length')" -eq 0 ]]; then
     if _prune_generated; then
       _ok "kubectl — no clusters configured; removed the generated kubeconfig for ${slug}"
@@ -469,13 +508,78 @@ main() {
   while IFS= read -r unknown; do
     _warn "kubectl — cluster '${unknown}' is not in the global kubectl catalogue; leaving it out"
   done < <(echo "${spec}" | jq -r --argjson sel "${selection}" \
-    '[.clusters[].name] as $have | $sel[] as $n | select(($have | index($n)) == null) | $n')
+    '(.clusters | keys) as $have | $sel[] as $n | select(($have | index($n)) == null) | $n')
 
   local permitted
   permitted="$(echo "${spec}" | jq -c --argjson sel "${selection}" \
     '.clusters as $c
      | ($sel | reduce .[] as $x ([]; if index($x) then . else . + [$x] end)) as $s
-     | [$s[] as $n | ($c[] | select(.name == $n)) | .name]')"
+     | [$s[] as $n | select($c | has($n)) | $n]')"
+
+  # A catalogue that cannot be rendered unambiguously is refused here, before any
+  # file is written or left behind: the previous render is revoked, because a
+  # refusal that keeps the old kubeconfig alive is not a refusal.
+  #
+  # Every value is validated from JSON, never through a field-separated round
+  # trip — a name containing a tab would otherwise be cut down to a valid one,
+  # and the truncated value is not the one the render would then use.
+  local -a catalogue_errors=()
+  local bad
+  bad="$(echo "${spec}" | jq -r \
+    '[.clusters | to_entries[] | select((.value | type) != "object") | .key] | first // empty')"
+  if [[ -n "${bad}" ]]; then
+    _prune_generated || true
+    _fatal "kubectl — refusing the kubectl catalogue: cluster '${bad}' is not an object"
+    return 1
+  fi
+  bad="$(echo "${spec}" | jq -r --arg re "${NAME_RE}" \
+    '[.clusters | keys[] | select(test($re) | not)] | first // empty')"
+  [[ -n "${bad}" ]] && catalogue_errors+=("cluster key '${bad}' is not valid; it becomes the AWS name and a filename")
+  bad="$(echo "${spec}" | jq -r \
+    '[.clusters | to_entries[] | select(.value | has("name")) | select((.value.name | type) != "string") | .key] | first // empty')"
+  [[ -n "${bad}" ]] && catalogue_errors+=("cluster '${bad}' has a name that is not a string")
+  bad="$(echo "${spec}" | jq -r \
+    '[.clusters | to_entries[] | select(.value | has("context")) | select((.value.context | type) != "string") | .key] | first // empty')"
+  [[ -n "${bad}" ]] && catalogue_errors+=("cluster '${bad}' has a context that is not a string")
+  bad="$(echo "${spec}" | jq -r --arg re "${NAME_RE}" \
+    '[.clusters | to_entries[]
+      | (if (.value.name | type) == "string" then .value.name else .key end)
+      | select(test($re) | not)] | first // empty')"
+  [[ -n "${bad}" ]] && catalogue_errors+=("cluster name '${bad}' is not valid; it names a kubeconfig object and an MCP server")
+  bad="$(echo "${spec}" | jq -r \
+    '[.clusters | to_entries[]
+      | (if (.value.name | type) == "string" then .value.name else .key end)]
+     | group_by(.) | map(select(length > 1)) | .[0][0] // empty')"
+  [[ -n "${bad}" ]] && catalogue_errors+=("two catalogue entries are both named '${bad}'; their MCP servers would collide")
+  # The render falls back to the label when `context` is not a plain name, so the
+  # comparison has to apply the same fallback or it checks a value nobody uses.
+  bad="$(echo "${spec}" | jq -r --arg re "${NAME_RE}" \
+    '[.clusters | to_entries[]
+      | (if (.value.context | type) == "string" then .value.context else "" end) as $c
+      | (if ($c | test($re)) then $c
+         else (if (.value.name | type) == "string" then .value.name else .key end) end)]
+     | group_by(.) | map(select(length > 1)) | .[0][0] // empty')"
+  [[ -n "${bad}" ]] && catalogue_errors+=("two catalogue entries share the context '${bad}'; kubectl could reach the wrong cluster")
+  bad="$(echo "${spec}" | jq -r '
+    .clusters as $c
+    | [$c | to_entries[]
+       | (if (.value.name | type) == "string" then .value.name else .key end) as $l
+       | select($l != .key and ($c | has($l)))
+       | $l] | first // empty')"
+  [[ -n "${bad}" ]] && catalogue_errors+=("the name '${bad}' is also another entry's catalogue key; rename one of them")
+
+  if [[ ${#catalogue_errors[@]} -gt 0 ]]; then
+    _prune_generated || true
+    _fatal "kubectl — refusing the kubectl catalogue: ${catalogue_errors[0]}"
+    return 1
+  fi
+
+  # What a human and the project name match on. The kubeconfig's cluster objects
+  # and every `kctl-*` server carry the label, while the catalogue identity — the
+  # AWS cluster name — stays the key.
+  local labels_json
+  labels_json="$(echo "${spec}" | jq -c --argjson perm "${permitted}" \
+    '.clusters as $c | [$perm[] as $n | ($c[$n].name // $n)]')"
 
   # A selection that matches nothing is not a cluster that is temporarily
   # unavailable: it is a project whose access was removed, or renamed, or whose
@@ -491,6 +595,7 @@ main() {
     return 0
   fi
 
+
   # The incident in another shape: the name says staging, the fallback says
   # production, and without this the only trace is init's `(default)` marker.
   # The message stops at "cannot be the default": a shorter *selected* match may
@@ -499,9 +604,11 @@ main() {
   while IFS= read -r excluded; do
     _warn "kubectl — the project name '${project}' names cluster '${excluded}', which this project does not select, so it cannot be the default context"
   done < <(echo "${spec}" | jq -r --arg p "${project}" --argjson perm "${permitted}" '
-    .clusters[]
-    | .name as $n
-    | select((($p == $n) or ($p | endswith("-" + $n))) and (($perm | index($n)) == null))
+    .clusters
+    | to_entries[]
+    | .key as $k
+    | (.value.name // $k) as $n
+    | select((($p == $n) or ($p | endswith("-" + $n))) and (($perm | index($k)) == null))
     | $n')
 
   # Revoke anything wider than the permitted set *before* the environment is
@@ -512,13 +619,35 @@ main() {
   # the raw selection: a name the catalogue no longer declares is not permitted
   # merely because the project still lists it.
   local stale=0 existing
+  # A render with no label record predates it, so its labels cannot be verified.
+  # Invalidate it once instead of trusting it: the next successful render writes
+  # the record, and an unavailable AWS must not keep stale names live meanwhile.
+  if [[ -f "${KUBECONFIG_PATH}" && ! -f "$(_labels_manifest_path)" ]]; then
+    _warn "kubectl — the generated kubeconfig predates the label record; removing it so the next render records it"
+    stale=1
+  fi
+
+  # Each source is compared against the names it was rendered from: the exec args
+  # carry the catalogue key, the static manifest carries the label.
+  if [[ "${stale}" -eq 0 ]]; then
   while IFS= read -r existing; do
     [[ -n "${existing}" ]] || continue
     if ! echo "${permitted}" | jq -e --arg c "${existing}" 'index($c) != null' >/dev/null; then
       stale=1
       break
     fi
-  done < <( { _existing_clusters; _existing_static_clusters "${spec}"; } )
+  done < <(_existing_clusters)
+  fi
+
+  if [[ "${stale}" -eq 0 ]]; then
+    while IFS= read -r existing; do
+      [[ -n "${existing}" ]] || continue
+      if ! echo "${labels_json}" | jq -e --arg c "${existing}" 'index($c) != null' >/dev/null; then
+        stale=1
+        break
+      fi
+    done < <( { _existing_labels; _existing_static_clusters "${spec}"; } )
+  fi
 
   if [[ "${stale}" -eq 1 ]]; then
     if _prune_generated; then
@@ -550,9 +679,9 @@ main() {
   # kubeconfig this module reduces to the selected context, so it needs no AWS.
   local has_eks has_static
   has_eks="$(echo "${spec}" | jq -r --argjson perm "${permitted}" \
-    '[.clusters as $c | $perm[] as $n | ($c[] | select(.name == $n)) | select((.type // "eks") != "static")] | length')"
+    '[.clusters as $c | $perm[] as $n | $c[$n] | select((.type // "eks") != "static")] | length')"
   has_static="$(echo "${spec}" | jq -r --argjson perm "${permitted}" \
-    '[.clusters as $c | $perm[] as $n | ($c[] | select(.name == $n)) | select((.type // "eks") == "static")] | length')"
+    '[.clusters as $c | $perm[] as $n | $c[$n] | select((.type // "eks") == "static")] | length')"
 
   # An unusable AWS environment aborts the render only when EKS clusters are all
   # the project has; a mixed selection still gets its static clusters.
@@ -577,17 +706,13 @@ main() {
   # Only clusters that answered get a user and a context. Emitting the rest
   # would produce a context whose cluster entry does not exist, and the
   # current-context could land on it.
-  local -a names=() regions=() contexts=() kinds=() files=()
+  local -a identities=() names=() regions=() contexts=() kinds=() files=()
   local dropped_static=0
 
-  local name kind region context endpoint ca file block clusters_yaml=""
+  local identity name kind region context endpoint ca file block clusters_yaml=""
 
-  while IFS=$'\t' read -r name kind region context; do
-    [[ -n "${name}" ]] || continue
-    if ! [[ "${name}" =~ ${NAME_RE} ]]; then
-      _warn "kubectl — cluster name '${name}' is not valid; leaving it out"
-      continue
-    fi
+  while IFS=$'\t' read -r identity name kind region context; do
+    [[ -n "${identity}" ]] || continue
     # The context is emitted as a YAML plain scalar: "team: prod" would be
     # parsed as a mapping and corrupt the file, so only simple names pass.
     if ! [[ "${context}" =~ ${NAME_RE} ]]; then
@@ -595,8 +720,8 @@ main() {
       context="${name}"
     fi
     if [[ "${kind}" == "static" ]]; then
-      file="$(echo "${spec}" | jq -r --arg n "${name}" \
-        '.clusters[] | select(.name == $n) | .kubeconfig // ""')"
+      file="$(echo "${spec}" | jq -r --arg n "${identity}" \
+        '.clusters[$n].kubeconfig // ""')"
       if [[ -z "${file}" || ! -r "${file}" ]]; then
         _warn "kubectl — static cluster ${name}: kubeconfig '${file}' is not readable; leaving it out"
         dropped_static=1
@@ -610,6 +735,7 @@ main() {
         dropped_static=1
         continue
       fi
+      identities+=("${identity}")
       names+=("${name}")
       regions+=("-")
       contexts+=("${context}")
@@ -627,15 +753,16 @@ main() {
       region=""
     fi
     if ! endpoint=$(_with_credentials "${spec}" "${profile}" --region "${region}" \
-      eks describe-cluster --name "${name}" --query 'cluster.endpoint' --output text 2>/dev/null); then
+      eks describe-cluster --name "${identity}" --query 'cluster.endpoint' --output text 2>/dev/null); then
       _warn "kubectl — cannot describe cluster ${name} in ${region}; leaving it out"
       continue
     fi
     if ! ca=$(_with_credentials "${spec}" "${profile}" --region "${region}" \
-      eks describe-cluster --name "${name}" --query 'cluster.certificateAuthority.data' --output text 2>/dev/null); then
+      eks describe-cluster --name "${identity}" --query 'cluster.certificateAuthority.data' --output text 2>/dev/null); then
       _warn "kubectl — no certificate authority for ${name}; leaving it out"
       continue
     fi
+    identities+=("${identity}")
     names+=("${name}")
     regions+=("${region}")
     contexts+=("${context}")
@@ -650,8 +777,8 @@ main() {
   done < <(echo "${spec}" | jq -r --argjson perm "${permitted}" \
     '.clusters as $c
      | $perm[] as $n
-     | ($c[] | select(.name == $n))
-     | "\(.name)\t\(.type // "eks")\t\(if (.region // "") == "" then "-" else .region end)\t\(.context // .name)"')
+     | $c[$n] as $e
+     | "\($n)\t\($e.name // $n)\t\($e.type // "eks")\t\(if ($e.region // "") == "" then "-" else $e.region end)\t\($e.context // $e.name // $n)"')
 
   # A static kubeconfig may hold more than the context this project selected:
   # another cluster, another user, an admin context. Reduce each one to its
@@ -668,10 +795,11 @@ main() {
     fi
   done
 
-  local -a keep_names=() keep_regions=() keep_contexts=() keep_kinds=() keep_files=()
+  local -a keep_identities=() keep_names=() keep_regions=() keep_contexts=() keep_kinds=() keep_files=()
   local mini object collide
   for ki in "${!names[@]}"; do
     if [[ "${kinds[$ki]}" != "static" ]]; then
+      keep_identities+=("${identities[$ki]}")
       keep_names+=("${names[$ki]}")
       keep_regions+=("${regions[$ki]}")
       keep_contexts+=("${contexts[$ki]}")
@@ -711,6 +839,7 @@ main() {
     done < <(kubectl --kubeconfig "${mini}" config view --raw -o json 2>/dev/null \
       | jq -r '(.clusters[]?.name), (.contexts[]?.name), (.users[]?.name)')
 
+    keep_identities+=("${identities[$ki]}")
     keep_names+=("${names[$ki]}")
     keep_regions+=("-")
     keep_contexts+=("${contexts[$ki]}")
@@ -718,6 +847,7 @@ main() {
     keep_files+=("${mini}")
   done
 
+  identities=("${keep_identities[@]}")
   names=("${keep_names[@]}")
   regions=("${keep_regions[@]}")
   contexts=("${keep_contexts[@]}")
@@ -772,7 +902,7 @@ main() {
       for i in "${!names[@]}"; do
         if [[ "${kinds[$i]}" == "eks" ]]; then
           printf '  - name: devbot-%s\n    user:\n      exec:\n        apiVersion: client.authentication.k8s.io/v1beta1\n        command: %s\n        args: ["%s", "%s"]\n        interactiveMode: Never\n' \
-            "${names[$i]}" "${WRAPPER_PATH}" "${regions[$i]}" "${names[$i]}"
+            "${names[$i]}" "${WRAPPER_PATH}" "${regions[$i]}" "${identities[$i]}"
         fi
       done
     fi
@@ -839,12 +969,19 @@ main() {
     rm -f "$(_static_manifest_path)"
   fi
 
+  printf '%s\n' "${names[@]}" >"$(_labels_manifest_path)"
+  chmod 600 "$(_labels_manifest_path)"
+
   _ok "kubectl — ${KUBECONFIG_PATH}"
 
   # One MCP server per rendered cluster. Published from the rendered set, not
   # the selection: a cluster the render dropped has no context in the file, so
   # its server could only ever fail.
-  _wire_mcps "${names[@]}"
+  local -a wired=() wi
+  for wi in "${!names[@]}"; do
+    wired+=("${identities[$wi]}:${names[$wi]}")
+  done
+  _wire_mcps "${wired[@]}"
 
   # kubectl reads ~/.kube/config unless KUBECONFIG says otherwise, so a
   # generated file nobody points at is inert. A separate file rather than a

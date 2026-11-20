@@ -41,6 +41,7 @@ case "$*" in
     fi
     ;;
   *describe-cluster*)
+    printf '%s\n' "$*" >>"${BATS_TEST_TMPDIR}/aws-describe.log"
     if [[ -n "${STUB_FAIL_CLUSTER:-}" && "$*" == *"--name ${STUB_FAIL_CLUSTER}"* ]]; then
       exit 1
     fi
@@ -76,11 +77,36 @@ write_config() {
       "AWS_ACCESS_KEY_ID": "${key_value}",
       "AWS_SECRET_ACCESS_KEY": "\${AWS_SECRET}"
     },
-    "clusters": [
-      { "name": "k8s-prod", "context": "${context}", "region": "eu-central-1" },
-      { "name": "k8s-stg", "context": "k8s-stg-rw", "region": "eu-central-1" }
-    ]
+    "clusters": {
+      "k8s-prod": { "context": "${context}", "region": "eu-central-1" },
+      "k8s-stg": { "context": "k8s-stg-rw", "region": "eu-central-1" }
+    }
   }
+}
+JSONC
+}
+
+# A catalogue whose key (the AWS EKS cluster name) differs from the visible name
+# an agent sees. The key is the identity; `name` is what the kubeconfig objects,
+# the context fallback and the `kctl-*` server carry.
+write_renamed_config() {
+  cat > "$DEV_BOT_GLOBAL_CONFIG" <<JSONC
+{
+  "kubectl": {
+    "profile": "devbot-agent",
+    "credential_env": {
+      "AWS_ACCESS_KEY_ID": "\${AWS_KEY}"
+    },
+    "clusters": {
+      "gete-prd": { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" }
+    }
+  }
+}
+JSONC
+  cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
+{
+  "project_name": "demo",
+  "kubectl": ["gete-prd"]
 }
 JSONC
 }
@@ -152,9 +178,9 @@ write_static_config() {
   cat > "$DEV_BOT_GLOBAL_CONFIG" <<JSONC
 {
   "kubectl": {
-    "clusters": [
-      { "name": "kosmos", "type": "static", "kubeconfig": "${path}", "context": "k3d-kosmos" }
-    ]
+    "clusters": {
+      "kosmos": { "type": "static", "kubeconfig": "${path}", "context": "k3d-kosmos" }
+    }
   }
 }
 JSONC

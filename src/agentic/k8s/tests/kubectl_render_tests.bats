@@ -126,7 +126,7 @@ STUB
   "kubectl": {
     "profile": "devbot-agent",
     "credential_env": { "AWS_ACCESS_KEY_ID": "${AWS_KEY}" },
-    "clusters": []
+    "clusters": {}
   }
 }
 JSONC
@@ -257,10 +257,10 @@ JSONC
       "AWS_ACCESS_KEY_ID": "${AWS_KEY}",
       "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
     },
-    "clusters": [
-      { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" },
-      { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
-    ]
+    "clusters": {
+      "gete": { "context": "gete-prod-ro", "region": "eu-central-1" },
+      "gete-dev": { "context": "gete-staging-rw", "region": "eu-central-1" }
+    }
   }
 }
 JSONC
@@ -276,4 +276,60 @@ JSONC
   assert_output --partial "context gete-staging-rw (default)"
   run grep current-context "$KUBECONFIG_FILE"
   assert_output --partial "current-context: gete-staging-rw"
+}
+
+@test "an array-shaped catalogue is refused by name, not read as empty" {
+  cat > "$DEV_BOT_GLOBAL_CONFIG" <<'JSONC'
+{
+  "kubectl": {
+    "clusters": [ { "name": "k8s-prod", "region": "eu-central-1" } ]
+  }
+}
+JSONC
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_failure
+  assert_output --partial "must be an object keyed by cluster name"
+  assert_output --partial "devbot update"
+}
+
+@test "a legacy array catalogue revokes the previous render when refused" {
+  # A half-finished migration must not leave the old credentials reachable.
+  write_config
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  assert_success
+  assert [ -n "$(generated_files)" ]
+
+  printf '{ "kubectl": { "clusters": [ { "name": "k8s-prod" } ] } }\n' >"$DEV_BOT_GLOBAL_CONFIG"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_failure
+  assert_output --partial "must be an object keyed by cluster name"
+  assert_equal "$(generated_files | wc -l)" 0
+}
+
+@test "two entries sharing a visible name are refused before anything is written" {
+  cat > "$DEV_BOT_GLOBAL_CONFIG" <<'JSONC'
+{
+  "kubectl": {
+    "profile": "devbot-agent",
+    "credential_env": { "AWS_ACCESS_KEY_ID": "${AWS_KEY}" },
+    "clusters": {
+      "gete-prd": { "name": "gete", "context": "gete-prod-ro", "region": "eu-central-1" },
+      "gete-stg": { "name": "gete", "context": "gete-staging-rw", "region": "eu-central-1" }
+    }
+  }
+}
+JSONC
+  cat > "$BATS_TEST_TMPDIR/project/.devbot.project.jsonc" <<'JSONC'
+{ "project_name": "demo", "kubectl": ["gete-prd", "gete-stg"] }
+JSONC
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_failure
+  assert_output --partial "both named 'gete'"
+  assert_equal "$(generated_files | wc -l)" 0
 }

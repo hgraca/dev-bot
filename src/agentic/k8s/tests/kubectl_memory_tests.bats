@@ -32,7 +32,7 @@ setup() {
   assert [ -f "$(memory_file)" ]
   run cat "$(memory_file)"
   assert_output --partial "NEVER run \`kubectl\` in any shell"
-  assert_output --partial "kctl-<cluster>"
+  assert_output --partial "kctl-<name>"
   assert_output --partial "pods/exec"
 }
 

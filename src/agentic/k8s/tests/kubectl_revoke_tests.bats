@@ -23,10 +23,10 @@ setup() {
       "AWS_ACCESS_KEY_ID": "${AWS_KEY}",
       "AWS_SECRET_ACCESS_KEY": "${AWS_SECRET}"
     },
-    "clusters": [
-      { "name": "dev", "context": "dev-ro", "region": "eu-central-1" },
-      { "name": "gete-dev", "context": "gete-staging-rw", "region": "eu-central-1" }
-    ]
+    "clusters": {
+      "dev": { "context": "dev-ro", "region": "eu-central-1" },
+      "gete-dev": { "context": "gete-staging-rw", "region": "eu-central-1" }
+    }
   }
 }
 JSONC
