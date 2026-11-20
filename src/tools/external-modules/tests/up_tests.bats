@@ -430,18 +430,24 @@ EOF
   chmod +x "${SANDBOX}/bin/git"
 }
 
-# Shim git so the fetch succeeds and only `reset --hard` misbehaves: the
-# update's second network call carries its own diagnostics, and nothing else
-# exercises them.
+# Shim git so only `reset --hard` misbehaves: the update's second network call
+# carries its own diagnostics, and nothing else exercises them.
+#
+# `fetch` is short-circuited rather than passed to the real git: the deadline
+# the reset must outlive is shared by every call, and a real fetch against the
+# local bare repo can still cross a one-second cap on a loaded runner. The
+# update reaches the reset without it — `ls-remote` is what decides "remote
+# moved", and the path validation reads the commit the clone already has.
 # Args: shell body to run in place of the real `git reset`
 install_reset_shim() {
   mkdir -p "${SANDBOX}/bin"
   cat > "${SANDBOX}/bin/git" <<EOF
 #!/usr/bin/env bash
 for arg in "\$@"; do
-  if [[ "\${arg}" == "reset" ]]; then
-    ${1}
-  fi
+  case "\${arg}" in
+    fetch) exit 0 ;;
+    reset) ${1} ;;
+  esac
 done
 exec "$(command -v git)" "\$@"
 EOF
