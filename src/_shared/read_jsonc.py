@@ -53,7 +53,11 @@ def load_jsonc(path):
         if raw[i : i + 2] == "/*":
             j = raw.find("*/", i + 2)
             if j == -1:
-                break  # unterminated comment
+                # Truncating here would report a file the harness cannot parse
+                # as valid JSONC, which is exactly what the start gate must stop.
+                raise json.JSONDecodeError(
+                    f"{path}: unterminated block comment", raw, i
+                )
             # Blank the comment in place — same length, newlines kept — so
             # every later offset still maps to the source. Dropping it shifts
             # both the line and the column, and the decode error reports

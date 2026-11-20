@@ -190,6 +190,18 @@ EOF
   [ ! -s "${LAUNCH_LOG}" ]
 }
 
+@test "start.sh refuses to launch on an unparseable opencode.jsonc" {
+  # The gate is only as good as its call site: prove the harness never starts.
+  _fake_opencode2 "2.3.0"
+  printf '{ "mcp": { "servers": { "a": 1,, } } }\n' > "${FAKE_PROJECT}/opencode.jsonc"
+  DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" PATH="${FAKE_PATH}" \
+    run bash "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+  local combined="${output}${stderr:-}"
+  assert_failure
+  [[ "${combined}" == *"not valid JSONC"* ]]
+  [ ! -s "${LAUNCH_LOG}" ]
+}
+
 @test "start.sh still launches on opencode 2.x" {
   _fake_opencode2 "2.3.0"
   DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" PATH="${FAKE_PATH}" \

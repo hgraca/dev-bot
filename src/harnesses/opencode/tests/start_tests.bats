@@ -112,6 +112,28 @@ teardown() {
   assert_output "--continue"
 }
 
+@test "start.sh refuses to launch on an unparseable opencode.jsonc" {
+  # The gate is only as good as its call site: prove the harness never starts.
+  _make_minimal_root
+  cat >"${FAKE_HOME}/.opencode/bin/opencode" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "--version" ]]; then
+  printf '1.18.35\n'
+  exit 0
+fi
+printf 'LAUNCHED\n'
+EOF
+  chmod +x "${FAKE_HOME}/.opencode/bin/opencode"
+  printf '{ "mcp": { "servers": { "a": 1,, } } }\n' >"${FAKE_PROJECT}/opencode.jsonc"
+
+  DEV_BOT_ROOT="${FAKE_ROOT}" HOME="${FAKE_HOME}" \
+    run bash "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"
+
+  assert_failure
+  assert_output --partial "not valid JSONC"
+  refute_output --partial "LAUNCHED"
+}
+
 @test "start.sh fails loudly when opencode binary is missing" {
   EMPTY_HOME="$(mktemp -d)"
   HOME="${EMPTY_HOME}" run "${BASH}" "${MODULE_DIR}/start.sh" "${FAKE_PROJECT}"

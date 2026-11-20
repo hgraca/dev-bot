@@ -2248,6 +2248,34 @@ _devbot_check_mcp_env_vars() {
   _devbot_present_missing_env_vars "${refs}" "${mode}"
 }
 
+# ── Refuse a harness config the harness cannot parse ───────────────────────────
+#
+# On a parse error the harness boots with none of the servers the file declares
+# and says nothing in-session, so check before launching.
+#
+# _devbot_require_valid_jsonc <file>
+#   0 — the file parses, or does not exist. 1 — a FATAL line plus the parser's
+#   own message.
+_devbot_require_valid_jsonc() {
+  local file="${1:-}"
+  [[ -n "${file}" && -e "${file}" ]] || return 0
+  # Fail open without python3: this helper is a gate, not the harness, and the
+  # other config readers here degrade the same way rather than refusing to start.
+  command -v python3 >/dev/null 2>&1 || return 0
+
+  # Beside this file, not DEV_BOT_ROOT: the parser that ships with the helper is
+  # the one that matches it.
+  local root err
+  root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  if err="$(python3 "${root}/src/_shared/read_jsonc.py" "${file}" 2>&1 >/dev/null)"; then
+    return 0
+  fi
+
+  _fatal "$(basename "${file}") is not valid JSONC — the harness would boot without the servers it declares"
+  [[ -n "${err}" ]] && printf '  %s\n' "${err}" >&2
+  return 1
+}
+
 # ── Config-change → auto-reinit (devbot start) ──────────────────────────────────
 #
 # A project's wiring depends on BOTH the global config

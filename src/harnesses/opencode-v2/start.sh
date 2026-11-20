@@ -71,6 +71,9 @@ _devbot_rotate_session_logs "${PROJECT_DIR}"
 # the launch.
 _devbot_prune_memories_detached "${PROJECT_DIR}" || true
 
+# Gate: an unparseable config launches a session with none of its servers.
+_devbot_require_valid_jsonc "${PROJECT_DIR}/opencode.jsonc" || exit 1
+
 # Gate: MCP configs registered at init may reference {env:VAR} tokens that must
 # be set in THIS shell's env (the harness inherits it). If any are missing, ask
 # whether to launch anyway — the affected servers would fail to start.
