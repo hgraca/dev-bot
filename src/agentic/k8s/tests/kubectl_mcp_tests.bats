@@ -4,7 +4,7 @@
 # Split from kubectl_init_tests.bats; setup, stubs and fixtures live in
 # kubectl_test_helper.bash so a fixture is never copied into two files.
 #
-# One server per RENDERED cluster, named `kctl-<cluster>`, published through the
+# One server per RENDERED cluster, named `kctl-<name>`, published through the
 # harness-agnostic runtime manifest. The server name is the scoping: a dropped
 # cluster must lose its server too.
 
@@ -14,13 +14,13 @@ setup() {
 }
 
 # ── MCP servers ───────────────────────────────────────────────────────────────
-# One server per RENDERED cluster, named kctl-<cluster>, published through the
+# One server per RENDERED cluster, named kctl-<name>, published through the
 # harness-agnostic runtime manifest. The server name is the scoping: the agent's
 # tool list names the target, so a dropped cluster must lose its server too.
 
 # The runtime-manifest GROUP keeps the module's name (`k8s-<cluster>`) — that
 # filename is how a disabled module's manifests are recognised — while the
-# server KEY is `kctl-<cluster>`, which is what the agent's tool list shows.
+# server KEY is `kctl-<name>`, which is what the agent's tool list shows.
 @test "publishes one MCP server per rendered cluster" {
   write_config
 
@@ -424,5 +424,37 @@ JSONC
   run bash "$INIT" "$BATS_TEST_TMPDIR/project"
 
   assert_output --partial "predates the label record"
+  assert_equal "$(generated_files | wc -l)" 0
+}
+
+@test "a non-array selection is refused instead of leaving the old render live" {
+  write_config
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  assert_success
+  assert [ -n "$(generated_files)" ]
+
+  printf '{ "project_name": "demo", "kubectl": "k8s-prod" }\n' \
+    >"$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_failure
+  assert_output --partial "must be an array"
+  assert_equal "$(generated_files | wc -l)" 0
+}
+
+@test "an unparseable project config is refused instead of leaving the old render live" {
+  write_config
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+  assert_success
+  assert [ -n "$(generated_files)" ]
+
+  printf '{ "project_name": "demo", "kubectl": ["k8s-prod"],, }\n' \
+    >"$BATS_TEST_TMPDIR/project/.devbot.project.jsonc"
+
+  run bash "$INIT" "$BATS_TEST_TMPDIR/project"
+
+  assert_failure
+  assert_output --partial "cannot be read"
   assert_equal "$(generated_files | wc -l)" 0
 }

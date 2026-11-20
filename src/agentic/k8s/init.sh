@@ -46,7 +46,7 @@ WORK_DIR="${HOME}/.kube/devbot"
 WRAPPER_PATH="${WORK_DIR}/exec-credential.sh"
 KUBECONFIG_PATH=""
 ENV_PATH=""
-# The MCP server name per rendered cluster: `kctl-<cluster>`. One server per
+# The MCP server name per rendered cluster: `kctl-<name>`. One server per
 # cluster is the scoping — the agent's tool list names the target, and the
 # server can only run kubectl against that cluster's context.
 #
@@ -269,7 +269,7 @@ _existing_static_clusters() {
 #
 # Retiring the MCP servers here keeps them and the kubeconfig in step: every
 # path that removes the project's kubeconfig also means no cluster of this
-# project is reachable, and a `kctl-<cluster>` server left registered would fail
+# project is reachable, and a `kctl-<name>` server left registered would fail
 # one tool call at a time instead of being absent.
 _prune_generated() {
   local removed=0
@@ -322,6 +322,22 @@ _wire_mcps() {
 
   _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${MCP_GROUP_PREFIX}" ${keep[@]+"${keep[@]}"}
   _devbot_apply_runtime_mcps "${PROJECT_DIR}"
+}
+
+# Prune when the project's own name cannot be read: the slug's name half comes
+# from the project config, but its hash half is the path's alone, so the hash
+# still identifies every file this project rendered.
+_prune_by_hash() {
+  local suffix f removed=0
+  suffix="$(_project_slug)"
+  suffix="${suffix##*-}"
+  for f in "${WORK_DIR}/"*"-${suffix}.yaml" "${WORK_DIR}/"*"-${suffix}.env" \
+           "${WORK_DIR}/"*"-${suffix}.labels" "${WORK_DIR}/"*"-${suffix}.static"; do
+    [[ -e "${f}" ]] || continue
+    rm -f "${f}" && removed=1
+  done
+  _retire_mcps
+  [[ "${removed}" -eq 1 ]]
 }
 
 # Drop every `kctl-*` server for this project — no cluster is reachable.
@@ -478,14 +494,29 @@ main() {
     return 0
   fi
 
-  selection="$(python3 "${READER}" "${PROJECT_CONFIG}" kubectl 2>/dev/null || true)"
+  if [[ ! -f "${PROJECT_CONFIG}" ]]; then
+    _skip "kubectl — no project config; nothing to render"
+    return 0
+  fi
+
+  # A project config that will not parse is a configuration error, not an
+  # opt-out: keeping the previous render live would keep access the file no
+  # longer describes.
+  local selection_rc=0
+  selection="$(python3 "${READER}" "${PROJECT_CONFIG}" kubectl 2>/dev/null)" || selection_rc=$?
+  if [[ "${selection_rc}" -ne 0 ]]; then
+    _prune_by_hash || true
+    _fatal "kubectl — ${PROJECT_CONFIG##*/} cannot be read; fix it and run devbot reinit"
+    return 1
+  fi
   if [[ -z "${selection}" || "${selection}" == "null" ]]; then
-    _skip "kubectl — no 'kubectl' selection in the project config; opt in with cluster names"
+    _skip "kubectl — no 'kubectl' selection in the project config; opt in with catalogue keys"
     return 0
   fi
   if [[ "$(echo "${selection}" | jq -r 'type')" != "array" ]]; then
-    _warn "kubectl — the project's 'kubectl' must be an array of cluster names; skipping"
-    return 0
+    _prune_generated || true
+    _fatal "kubectl — the project's 'kubectl' must be an array of catalogue keys; refusing to keep a render it no longer describes"
+    return 1
   fi
   if [[ "$(echo "${selection}" | jq -r 'length')" -eq 0 ]]; then
     if _prune_generated; then
