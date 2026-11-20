@@ -284,10 +284,28 @@ Load these context skills for project context — inform suggestions, not workfl
 | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | **DEFINE** | Clarify what we're building — requirements, constraints, edge cases. For established domains (auth/security, protocols, integrations, APIs), research the industry-standard pattern before settling the design | `grilling` + `interview-me` + `spec-driven-development` + `doubt-driven-development` + `idea-refine` + `source-driven-development` |
 | **PLAN**   | Break work into ordered tasks, persist the plan to the vault work folder, create todo list via `todowrite`, get user sign-off                                                                                  | `planning-and-task-breakdown`                                                                                                      |
-| **BUILD**  | Execute todo items; mark done via `todowrite`; load tech context skills                                                                                                                                        | `incremental-implementation` + the Testing Discipline in `devbot:software-development` (already loaded — no separate TDD skill)    |
+| **BUILD**  | Promote the work item to `active/` first (see _Entering BUILD_), then execute todo items; mark done via `todowrite`; load tech context skills                                                                  | `incremental-implementation` + the Testing Discipline in `devbot:software-development` (already loaded — no separate TDD skill)    |
 | **VERIFY** | Debug, investigate failures, confirm behaviour matches spec                                                                                                                                                    | `debugging-and-error-recovery`                                                                                                     |
 | **REVIEW** | Review what was written — quality, security, simplification                                                                                                                                                    | `devbot:review-implementation` + `code-review-and-quality` + `code-simplification`                                                 |
 | **SHIP**   | Pre-launch checks, deployment readiness                                                                                                                                                                        | `shipping-and-launch`                                                                                                              |
+
+#### Entering BUILD
+
+BUILD opens with bookkeeping that is easy to skip and leaves no trace when skipped. Run these in
+order, once, before the first edit:
+
+1. **Promote the work-item root** — resolve the **root** first: the top-level folder directly under
+   `.agents/memory/work/todo/`, which is the story folder on a plain story but the **enclosing epic
+   folder** when the item is nested inside one. Move that root to `.agents/memory/work/active/` with
+   `mv`, preserving its name; nested story folders travel inside it, so never move one on its own.
+   Do it for whatever the session picked up: a plan, a backlog entry, a todo. The folder's state is the
+   vault's only signal that work has started — nothing later reconstructs it from the commits, and a
+   missed promotion is what leaves an item stranded in `todo/` while its pull request is already
+   merged. A root already in `active/` means the session is resuming it; leave it there. Work with no
+   folder at all is trivial: create it directly in `active/`, never in `todo/`.
+2. **Load the stage's context skills** — the BUILD row of the Stages table, plus the module's own.
+3. **Open the todo list** — `todowrite`, exactly one item `in_progress`, matching the work item's
+   first task.
 
 #### How you guide
 
@@ -299,7 +317,7 @@ Load these context skills for project context — inform suggestions, not workfl
 - **Track progress** via `todowrite` — mark items `in_progress` as you work, `completed` as you finish, and keep the list updated throughout the session: add new tasks to it as the user gives them. Exactly one `in_progress` at a time.
 - **Create todo list** when entering PLAN — use `todowrite` to break work into actionable items. Then ask: "Does this look right? Want me to execute?"
 - **Persist the plan in the memory vault** when entering PLAN — write it to `.agents/memory/work/todo/YYYYMMDD-HHMMSS-NN-<title_slug>/backlog.md` before presenting it. Never ask where to persist a plan, never write one to a repo-root `tasks/` directory, and reuse the existing work folder for the same initiative.
-- **Move the work item through its lifecycle** — when you enter BUILD, move the work folder from `.agents/memory/work/todo/` to `.agents/memory/work/active/`; when the work is finished, `devbot:reconcile-work` (the last of the finish flow's capture, grade and reconcile steps) archives it to `.agents/memory/work/archive/YYYY/MM/`. This keeps the vault reflecting the todo → active → archive states.
+- **Move the work item through its lifecycle** — promotion to `.agents/memory/work/active/` is step 1 of _Entering BUILD_ above, and a work item left in `todo/` is a skipped step, not a pending decision. Archival to `.agents/memory/work/archive/YYYY/MM/` belongs to `devbot:reconcile-work` (the last of the finish flow's capture, grade and reconcile steps). This keeps the vault reflecting the todo → active → archive states.
 - **Gate before BUILD** — never start implementing until the user has explicitly confirmed the plan you presented. A plan you proposed is not confirmation; the user's "how about X? / WDYT?" is not confirmation; silence is not confirmation. If the user is still asking questions, answer them — do not implement. When in doubt, ask: "Shall I proceed?"
 - **Open the Jira ticket before BUILD** — immediately after refinement and before the first code change, append what the refinement established to the ticket description and move it to DOING or its equivalent (`devbot:jira-workflow`). A pull request still open keeps the ticket in DOING until the merge lands.
 
