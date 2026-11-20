@@ -265,7 +265,7 @@ for k in data.get('mcp', {}):
   # A harness that merely CONSUMES .mcp.json (claudecode rewrites the aggregate
   # one) must not be listed: disabling it would delete a user's same-named entry.
   # A module that ships mcp.dynamic.json is a producer too, whatever its name:
-  # its servers' keys need not be named after it (k8s writes kctl-<name>).
+  # its servers' keys need not be named after it (k8s writes kctl-<key>).
   _is_dynamic_manifest_producer() {
     case "$1" in
       aws|datasources|jetbrains|netsuite) return 0 ;;

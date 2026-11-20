@@ -5,7 +5,7 @@ description: "Use when reading, debugging, or deploying to a GET-E Kubernetes cl
 
 # Kubernetes Access
 
-How an agent reaches the GET-E clusters: through the `kctl-<name>` MCP
+How an agent reaches the GET-E clusters: through the `kctl-<key>` MCP
 servers the `k8s` module registers. The kubeconfig is **generated per project**
 by the module's `init.sh`; never hand-edit it, never point `kubectl` at
 `~/.kube/config`, and never run `kubectl` in a shell at all.

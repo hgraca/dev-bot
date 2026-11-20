@@ -2,9 +2,8 @@
 
 **NEVER run `kubectl` in any shell. Not once, not read-only, not "just to check".**
 
-This project's cluster access exists only through the `kctl-<name>` MCP
-servers this module registers — one per cluster, `name` being the catalogue
-entry's label. The `kubectl` binary on this machine is off limits to an agent:
+This project's cluster access exists only through the `kctl-<key>` MCP
+servers this module registers — one per catalogue entry, named after its key. The `kubectl` binary on this machine is off limits to an agent:
 
 - the bash tool, every PTY session, scripts, Makefiles, CI files, `ssh host …`,
   `docker exec … kubectl`, `KUBECONFIG=… kubectl` — all prohibited;
@@ -29,11 +28,11 @@ right one.
 ## Use the MCP servers instead
 
 Each cluster the project selected appears as its own MCP server, named after the
-cluster's label — its catalogue `name`, or the catalogue key when it has none.
+catalogue key — `kctl-<key>`.
 
-| Server        | One tool  | Target                      |
-| ------------- | --------- | --------------------------- |
-| `kctl-<name>` | `kubectl` | that cluster's context only |
+| Server       | One tool  | Target                      |
+| ------------ | --------- | --------------------------- |
+| `kctl-<key>` | `kubectl` | that cluster's context only |
 
 The tool takes kubectl's own argv:
 
@@ -65,7 +64,7 @@ Rules for calling it:
   `kctl-gete` is not possible — that is the point, not a limitation to work
   around.
 
-If no `kctl-<name>` server is available, this project has no cluster access.
+If no `kctl-<key>` server is available, this project has no cluster access.
 Report that and ask the human to run `devbot reinit <project>`; never fall back
 to `kubectl`.
 
