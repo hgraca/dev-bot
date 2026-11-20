@@ -67,7 +67,7 @@ _prune_agent_links() {
       [[ "${raw}" == /* ]] || raw="$(dirname "${stale}")/${raw}"
       resolved="${raw}"
     fi
-    [[ "${resolved}" == "${agent_dir}"/* ]] || continue
+    _link_is_owned_by "${resolved}" "${agent_dir}" || continue
     rm -f "${stale}"
     _ok "agents/${bare} pruned (agent no longer shipped)"
   done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
@@ -117,7 +117,7 @@ _link_agents() {
           # one (a user's own agent) is left in place, as above.
           resolved="$(_link_target_path "${link}")"
           [[ -n "${resolved}" ]] || resolved="${current}"
-          if [[ "${resolved}" == "${agent_dir}"/* ]]; then
+          if _link_is_owned_by "${resolved}" "${agent_dir}"; then
             rm -f "${link}"
             ln -sf "${f}" "${link}"
             _ok "agents/${name} relinked"
@@ -152,34 +152,125 @@ _link_agents() {
 _link_commands() {
   local mod_dir="$1"
   local cmd_dir="${mod_dir}commands"
-  [[ ! -d "${cmd_dir}" ]] && return
-
   local target_dir="${AGENTS_DIR}/commands/devbot"
-  local f name bare link current
-  for f in "${cmd_dir}"/*.md; do
-    [[ -f "${f}" ]] || continue
-    name="$(sed -n 's/^name:[[:space:]]*//p' "${f}" | head -1 | tr -d '"')"
-    bare="${name#devbot:}"
-    [[ -n "${bare}" ]] || continue
+  local f name bare link current resolved
+  local wanted=""
+  local cmd_dir_real
+  cmd_dir_real="$(cd "${cmd_dir}" 2>/dev/null && pwd -P || true)"
+  [[ -n "${cmd_dir_real}" ]] || cmd_dir_real="${cmd_dir}"
 
-    mkdir -p "${target_dir}"
-    link="${target_dir}/${bare}.md"
-    if [[ -L "${link}" ]]; then
-      current="$(readlink "${link}")"
-      if [[ "${current}" == "${f}" ]]; then
-        _skip "commands/${bare} already linked"
+  if [[ -d "${cmd_dir}" ]]; then
+    for f in "${cmd_dir}"/*.md; do
+      [[ -f "${f}" ]] || continue
+      name="$(sed -n 's/^name:[[:space:]]*//p' "${f}" | head -1 \
+        | tr -d '\r"' | sed 's/[[:space:]]*$//')"
+      bare="${name#devbot:}"
+      [[ -n "${bare}" ]] || continue
+      # A name with a path separator would escape the farm.
+      [[ "${bare}" == */* || "${bare}" == "." || "${bare}" == ".." ]] && continue
+      wanted+="${bare}.md"$'\n'
+
+      mkdir -p "${target_dir}"
+      link="${target_dir}/${bare}.md"
+      if [[ -L "${link}" ]]; then
+        current="$(readlink "${link}")"
+        if [[ "${current}" == "${f}" ]]; then
+          _skip "commands/${bare} already linked"
+        else
+          # Only a link this harness created is ours to re-point. The farm is
+          # shared, so a colliding command name from another module — or a
+          # user's own link — must survive this module's pass.
+          resolved="$(_link_target_path "${link}")"
+          [[ -n "${resolved}" ]] || resolved="${current}"
+          if _link_is_owned_by "${resolved}" "${cmd_dir}" "${cmd_dir_real}"; then
+            rm -f "${link}"
+            ln -sf "${f}" "${link}"
+            _ok "commands/${bare} relinked"
+          else
+            _warn "commands/${bare}.md links outside this module — leaving it"
+          fi
+        fi
+      elif [[ -e "${link}" ]]; then
+        _warn "commands/${bare} exists but is not a symlink"
       else
-        rm -f "${link}"
         ln -sf "${f}" "${link}"
-        _ok "commands/${bare} relinked"
+        _ok "commands/${bare} linked"
       fi
-    elif [[ -e "${link}" ]]; then
-      _warn "commands/${bare} exists but is not a symlink"
-    else
-      ln -sf "${f}" "${link}"
-      _ok "commands/${bare} linked"
+    done
+  fi
+
+  # A module that ships no commands — or dropped the directory entirely — still
+  # has to reconcile: an empty wanted set prunes every link into it, including a
+  # dangling one whose directory is gone. Returning early here left exactly that
+  # case live.
+  [[ -d "${target_dir}" ]] || return 0
+  _prune_command_links "${target_dir}" "${cmd_dir}" "${wanted}"
+}
+
+# ── Decide whether a farm link belongs to a module ─────────────────────────────
+# True when a symlink's recorded target points into <dir>. A `..` component is
+# rejected outright: the harness only ever writes absolute links to real files,
+# and a `..` in the recorded text can pass the prefix check while pointing
+# elsewhere — which would let one module replace or prune a foreign link.
+_link_is_owned_by() {
+  local target="$1" dir="$2" dir_real="${3:-$2}"
+
+  [[ -n "${target}" ]] || return 1
+  [[ "${target}" == *"/../"* || "${target}" == *"/.." ]] && return 1
+  [[ "${target}" == "${dir}"/* || "${target}" == "${dir_real}"/* ]] || return 1
+  return 0
+}
+
+# ── Reconcile the flat command links against what a module ships ───────────────
+# `wanted` is the newline-separated set of link basenames the module wants now; an
+# empty set prunes every link into the module's commands dir.
+_prune_command_links() {
+  local farm="$1"
+  local cmd_dir="$2"
+  local wanted="$3"
+  local reason="${4:-command no longer shipped}"
+  local cmd_dir_real
+  cmd_dir_real="$(cd "${cmd_dir}" 2>/dev/null && pwd -P || true)"
+  [[ -n "${cmd_dir_real}" ]] || cmd_dir_real="${cmd_dir}"
+
+  local stale resolved bare raw
+  while IFS= read -r -d '' stale; do
+    bare="$(basename "${stale}" .md)"
+    if [[ -n "${wanted}" ]] && grep -Fxq -- "${bare}.md" <<< "${wanted}"; then
+      continue
     fi
-  done
+    resolved="$(_link_target_path "${stale}")"
+    if [[ -z "${resolved}" ]]; then
+      # A link into a now-missing directory resolves to nothing; normalise the
+      # recorded target by hand so it can still be recognised as ours.
+      raw="$(readlink "${stale}" 2>/dev/null || true)"
+      [[ -n "${raw}" ]] || continue
+      [[ "${raw}" == /* ]] || raw="$(dirname "${stale}")/${raw}"
+      resolved="${raw}"
+    fi
+    # Both forms are compared: the recorded target may be logical while
+    # _link_target_path resolves physically, and the trailing slash keeps a
+    # sibling directory sharing the prefix (commands-old/) out of scope.
+    _link_is_owned_by "${resolved}" "${cmd_dir}" "${cmd_dir_real}" || continue
+    rm -f "${stale}"
+    _ok "commands/${bare} pruned (${reason})"
+    # Pre-filtered by recorded target: -lname matches the link's own value, so a
+    # dangling link still matches. Without it every module paid one subshell per
+    # farm entry to discover the entry was not its own.
+  done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l \
+    \( -lname "${cmd_dir}/*" -o -lname "${cmd_dir_real}/*" \) -print0 2>/dev/null)
+}
+
+# Take a disabled module's command links back out. _link_modules calls this where
+# it calls _unlink_agents: leaving them live kept a disabled module's slash
+# commands invocable.
+_unlink_commands() {
+  local mod_dir="$1"
+  local reason="${2:-module disabled}"
+  local target_dir="${AGENTS_DIR}/commands/devbot"
+
+  [[ -d "${target_dir}" ]] || return 0
+  _prune_command_links "${target_dir}" "${mod_dir}commands" "" "${reason}"
 }
 
 # ── Link skills into .agents/ ───────────────────────────────────────────────────
@@ -366,6 +457,7 @@ _link_modules() {
     if echo "${disabled_modules}" | grep -Fxq "${mod_name}" 2>/dev/null; then
       _skip "${mod_name}: disabled per config — skipping"
       _unlink_agents "${mod_dir}"
+      _unlink_commands "${mod_dir}"
       continue
     fi
 
