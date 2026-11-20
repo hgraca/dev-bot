@@ -218,6 +218,8 @@ per-module contract.
 
 Per-module enablement. A module set to `false` is skipped during **init** — its symlink wiring and declared MCP servers are not installed into the project. A module absent from both files is enabled. The global and project maps merge per key, with the project value winning, so a project can re-enable a globally disabled module, or vice versa.
 
+Disabling also **takes back** what a previous init installed: an agent, command, skill or tool link the module owns is removed from `<devbot_dir>/{agents,commands,skills,tools}`, so a disabled module stops loading its skills and stops exposing its MCP tools. A link that resolves outside the module — another module's, or your own — is left in place. Disabled modules are unlinked before enabled ones are linked, so a name two modules share goes to the enabled owner rather than disappearing.
+
 Harness modules are **not** toggled here. Which harness is wired comes from the root [`harness`](#harness) key alone, so `"opencode"` / `"claudecode"` entries in this map are silently ignored — setting `"opencode": false` on the selected harness does not disable it, and setting `"claudecode": true` on the unselected one does not enable it.
 
 `devbot update` merges the dist schema into an existing global config additively: a module key the runtime does not have picks up the dist default (so a newly shipped module arrives disabled or enabled exactly as declared), while a key the runtime already sets keeps the machine's value. Set a module to `true` explicitly to keep it enabled; do not rely on deleting its key, which the merge re-adds from the dist default.

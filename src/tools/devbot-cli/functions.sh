@@ -204,7 +204,7 @@ _link_commands() {
   # dangling one whose directory is gone. Returning early here left exactly that
   # case live.
   [[ -d "${target_dir}" ]] || return 0
-  _prune_command_links "${target_dir}" "${cmd_dir}" "${wanted}"
+  _prune_flat_links "${target_dir}" "${cmd_dir}" "${wanted}" "command no longer shipped" "commands/"
 }
 
 # ── Decide whether a farm link belongs to a module ─────────────────────────────
@@ -217,26 +217,32 @@ _link_is_owned_by() {
 
   [[ -n "${target}" ]] || return 1
   [[ "${target}" == *"/../"* || "${target}" == *"/.." ]] && return 1
-  [[ "${target}" == "${dir}"/* || "${target}" == "${dir_real}"/* ]] || return 1
+  # Equality counts: modules that keep SKILL.md directly in skills/ link at
+  # <module>/skills itself, not below it.
+  [[ "${target}" == "${dir}" || "${target}" == "${dir}"/* \
+    || "${target}" == "${dir_real}" || "${target}" == "${dir_real}"/* ]] || return 1
   return 0
 }
 
-# ── Reconcile the flat command links against what a module ships ───────────────
-# `wanted` is the newline-separated set of link basenames the module wants now; an
-# empty set prunes every link into the module's commands dir.
-_prune_command_links() {
+# ── Reconcile a flat farm against what a module ships ──────────────────────────
+# Commands and tools both farm ONE LINK PER FILE at a flat name, so they reconcile
+# the same way. `wanted` is the newline-separated set of link basenames the module
+# wants now — suffix included, since a command is `<name>.md` and a tool is
+# `<name>.mcp.sh`; an empty set prunes every link into <src_dir>.
+_prune_flat_links() {
   local farm="$1"
-  local cmd_dir="$2"
+  local src_dir="$2"
   local wanted="$3"
-  local reason="${4:-command no longer shipped}"
-  local cmd_dir_real
-  cmd_dir_real="$(cd "${cmd_dir}" 2>/dev/null && pwd -P || true)"
-  [[ -n "${cmd_dir_real}" ]] || cmd_dir_real="${cmd_dir}"
+  local reason="${4:-no longer shipped}"
+  local label="${5:-}"
+  local src_dir_real
+  src_dir_real="$(cd "${src_dir}" 2>/dev/null && pwd -P || true)"
+  [[ -n "${src_dir_real}" ]] || src_dir_real="${src_dir}"
 
-  local stale resolved bare raw
+  local stale name resolved raw
   while IFS= read -r -d '' stale; do
-    bare="$(basename "${stale}" .md)"
-    if [[ -n "${wanted}" ]] && grep -Fxq -- "${bare}.md" <<< "${wanted}"; then
+    name="$(basename "${stale}")"
+    if [[ -n "${wanted}" ]] && grep -Fxq -- "${name}" <<< "${wanted}"; then
       continue
     fi
     resolved="$(_link_target_path "${stale}")"
@@ -248,17 +254,17 @@ _prune_command_links() {
       [[ "${raw}" == /* ]] || raw="$(dirname "${stale}")/${raw}"
       resolved="${raw}"
     fi
-    # Both forms are compared: the recorded target may be logical while
-    # _link_target_path resolves physically, and the trailing slash keeps a
-    # sibling directory sharing the prefix (commands-old/) out of scope.
-    _link_is_owned_by "${resolved}" "${cmd_dir}" "${cmd_dir_real}" || continue
+    # _link_is_owned_by compares both forms — the recorded target may be logical
+    # while _link_target_path resolves physically — and rejects `..` outright, so
+    # a sibling directory sharing the prefix is out of scope.
+    _link_is_owned_by "${resolved}" "${src_dir}" "${src_dir_real}" || continue
     rm -f "${stale}"
-    _ok "commands/${bare} pruned (${reason})"
+    _ok "${label}${name} pruned (${reason})"
     # Pre-filtered by recorded target: -lname matches the link's own value, so a
     # dangling link still matches. Without it every module paid one subshell per
     # farm entry to discover the entry was not its own.
   done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l \
-    \( -lname "${cmd_dir}/*" -o -lname "${cmd_dir_real}/*" \) -print0 2>/dev/null)
+    \( -lname "${src_dir}/*" -o -lname "${src_dir_real}/*" \) -print0 2>/dev/null)
 }
 
 # Take a disabled module's command links back out. _link_modules calls this where
@@ -270,7 +276,7 @@ _unlink_commands() {
   local target_dir="${AGENTS_DIR}/commands/devbot"
 
   [[ -d "${target_dir}" ]] || return 0
-  _prune_command_links "${target_dir}" "${mod_dir}commands" "" "${reason}"
+  _prune_flat_links "${target_dir}" "${mod_dir}commands" "" "${reason}" "commands/"
 }
 
 # ── Link skills into .agents/ ───────────────────────────────────────────────────
@@ -302,6 +308,22 @@ _link_target_path() {
   printf '%s/%s\n' "${dir}" "$(basename "${target}")"
 }
 
+# ── Decide whether a skill link belongs to a module ────────────────────────────
+# A module has two possible skills dirs: the committed <module>/skills, and a
+# machine-local generated store at storage/<module>/skills when it carries the
+# `.devbot-generated` sentinel. A link into either is the module's.
+_skills_owned_by() {
+  local target="$1" mod_dir="$2" mod_name
+  mod_name="$(basename "${mod_dir}")"
+  local d real
+  for d in "${mod_dir}skills" "${DEV_BOT_ROOT}/storage/${mod_name}/skills"; do
+    real="$(cd "${d}" 2>/dev/null && pwd -P || true)"
+    [[ -n "${real}" ]] || real="${d}"
+    _link_is_owned_by "${target}" "${d}" "${real}" && return 0
+  done
+  return 1
+}
+
 _link_skills() {
   local mod_dir="$1"
   local mod_name
@@ -324,16 +346,23 @@ _link_skills() {
   # per-skill links of the current shape — is ours to remove; links from a
   # previous install root are left alone.
   if [[ ! -d "${skill_dir}" ]]; then
-    if [[ -L "${farm}" && "$(readlink "${farm}")" == "${skill_dir}" ]]; then
-      rm -f "${farm}"
-      _ok "skills/devbot/${mod_name} pruned (module ships no skills)"
+    if [[ -L "${farm}" ]]; then
+      local no_skills_target
+      no_skills_target="$(_link_target_path "${farm}")"
+      [[ -n "${no_skills_target}" ]] || no_skills_target="$(readlink "${farm}")"
+      if _skills_owned_by "${no_skills_target}" "${mod_dir}"; then
+        rm -f "${farm}"
+        _ok "skills/devbot/${mod_name} pruned (module ships no skills)"
+      else
+        _warn "skills/devbot/${mod_name} links outside this module — leaving it"
+      fi
     elif [[ -d "${farm}" && ! -L "${farm}" ]]; then
       # Current shape: drop only links that resolve into this module's skills.
       local stale
       while IFS= read -r -d '' stale; do
         local resolved
         resolved="$(_link_target_path "${stale}")"
-        [[ "${resolved}" == "${skill_dir}" || "${resolved}" == "${skill_dir}"/* ]] || continue
+        _skills_owned_by "${resolved}" "${mod_dir}" || continue
         rm -f "${stale}"
         _ok "skills/devbot/${mod_name}/$(basename "${stale}") pruned (module ships no skills)"
       done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
@@ -343,9 +372,18 @@ _link_skills() {
   fi
 
   # The module-level symlink of the previous farm shape becomes a real directory
-  # of per-skill links.
+  # of per-skill links — but only when it is ours. A user's own link at the
+  # module name is left in place, as every other path in this file now does.
   if [[ -L "${farm}" ]]; then
-    rm -f "${farm}"
+    local farm_target
+    farm_target="$(_link_target_path "${farm}")"
+    [[ -n "${farm_target}" ]] || farm_target="$(readlink "${farm}")"
+    if _skills_owned_by "${farm_target}" "${mod_dir}"; then
+      rm -f "${farm}"
+    else
+      _warn "skills/devbot/${mod_name} links outside this module — leaving it"
+      return
+    fi
   elif [[ -e "${farm}" && ! -d "${farm}" ]]; then
     _warn "skills/devbot/${mod_name} exists but is not a directory — leaving it"
     return
@@ -367,9 +405,18 @@ _link_skills() {
       if [[ "$(readlink "${link}")" == "${target}" ]]; then
         _skip "skills/devbot/${mod_name}/${name} already linked"
       else
-        rm -f "${link}"
-        ln -sf "${target}" "${link}"
-        _ok "skills/devbot/${mod_name}/${name} relinked"
+        # Only a link this harness created is ours to re-point — a user's own
+        # link at a skill name is left in place, as the prune below does.
+        local resolved_relink
+        resolved_relink="$(_link_target_path "${link}")"
+        [[ -n "${resolved_relink}" ]] || resolved_relink="$(readlink "${link}")"
+        if _skills_owned_by "${resolved_relink}" "${mod_dir}"; then
+          rm -f "${link}"
+          ln -sf "${target}" "${link}"
+          _ok "skills/devbot/${mod_name}/${name} relinked"
+        else
+          _warn "skills/devbot/${mod_name}/${name} links outside this module — leaving it"
+        fi
       fi
     elif [[ -e "${link}" ]]; then
       _warn "skills/devbot/${mod_name}/${name} exists but is not a symlink"
@@ -386,9 +433,9 @@ _link_skills() {
     local bare
     bare="$(basename "${stale}")"
     grep -Fxq -- "${bare}" <<< "${wanted}" && continue
-    # Only links into THIS module's skill dir are ours to prune.
+    # Only links into THIS module's skills dirs are ours to prune.
     resolved="$(_link_target_path "${stale}")"
-    [[ "${resolved}" == "${skill_dir}" || "${resolved}" == "${skill_dir}"/* ]] || continue
+    _skills_owned_by "${resolved}" "${mod_dir}" || continue
     rm -f "${stale}"
     _ok "skills/devbot/${mod_name}/${bare} pruned (skill no longer shipped)"
   done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
@@ -398,41 +445,118 @@ _link_skills() {
 _link_tools() {
   local mod_dir="$1"
   local tool_dir="${mod_dir}tools"
-  [[ ! -d "${tool_dir}" ]] && return
+  local target_dir="${AGENTS_DIR}/tools"
+  local tool_dir_real
+  tool_dir_real="$(cd "${tool_dir}" 2>/dev/null && pwd -P || true)"
+  [[ -n "${tool_dir_real}" ]] || tool_dir_real="${tool_dir}"
+
+  local wanted=""
+  if [[ -d "${tool_dir}" ]]; then
+    while IFS= read -r -d '' tool_file; do
+      local tool_name
+      tool_name="$(basename "${tool_file}")"
+
+      # Only *.mcp.sh files are devbot-tools MCP tools. Skip helper scripts
+      # (.ts hook targets, .sh CLIs/workers, .py implementations).
+      if [[ "${tool_name}" != *.mcp.sh ]]; then
+        continue
+      fi
+      wanted+="${tool_name}"$'\n'
+
+      local target="${tool_file}"
+      local link="${target_dir}/${tool_name}"
+
+      if [[ -L "${link}" ]]; then
+        local current
+        current="$(readlink "${link}")"
+        if [[ "${current}" == "${target}" ]]; then
+          _skip "tools/${tool_name} already linked"
+        else
+          # Only a link this harness created is ours to re-point: the tools farm
+          # is flat, so a colliding <name>.mcp.sh from another module must stay.
+          local resolved
+          resolved="$(_link_target_path "${link}")"
+          [[ -n "${resolved}" ]] || resolved="${current}"
+          if _link_is_owned_by "${resolved}" "${tool_dir}" "${tool_dir_real}"; then
+            rm -f "${link}"
+            ln -sf "${target}" "${link}"
+            _ok "tools/${tool_name} relinked"
+          else
+            _warn "tools/${tool_name} links outside this module — leaving it"
+          fi
+        fi
+      elif [[ -e "${link}" ]]; then
+        _warn "tools/${tool_name} exists but is not a symlink"
+      else
+        mkdir -p "$(dirname "${link}")"
+        ln -sf "${target}" "${link}"
+        _ok "tools/${tool_name} linked"
+      fi
+    done < <(find "${tool_dir}" -maxdepth 3 -name '*.mcp.sh' -type f -print0 2>/dev/null)
+  fi
+
+  # A module that ships no tools — or dropped the directory — still reconciles.
+  [[ -d "${target_dir}" ]] || return 0
+  _prune_flat_links "${target_dir}" "${tool_dir}" "${wanted}" "tool no longer shipped" "tools/"
+}
+
+# Take a disabled module's tool links back out. Flat farm, so the shared pruner
+# does it with an empty wanted set.
+_unlink_tools() {
+  local mod_dir="$1"
+  local reason="${2:-module disabled}"
+  local target_dir="${AGENTS_DIR}/tools"
+
+  [[ -d "${target_dir}" ]] || return 0
+  _prune_flat_links "${target_dir}" "${mod_dir}tools" "" "${reason}" "tools/"
+}
+
+# Take a disabled module's skills out of the farm. Unlike commands and tools the
+# skills farm is one DIRECTORY per module, so this walks that directory — and
+# still leaves any link that resolves somewhere else.
+_unlink_skills() {
+  local mod_dir="$1"
+  local reason="${2:-module disabled}"
   local mod_name
   mod_name="$(basename "${mod_dir}")"
+  local farm="${AGENTS_DIR}/skills/devbot/${mod_name}"
 
-  while IFS= read -r -d '' tool_file; do
-    local tool_name
-    tool_name="$(basename "${tool_file}")"
+  [[ -e "${farm}" || -L "${farm}" ]] || return 0
 
-    # Only *.mcp.sh files are devbot-tools MCP tools. Skip helper scripts
-    # (.ts hook targets, .sh CLIs/workers, .py implementations).
-    if [[ "${tool_name}" != *.mcp.sh ]]; then
-      continue
+  # The previous farm shape: one module-level link to the skills dir.
+  if [[ -L "${farm}" ]]; then
+    local farm_target
+    farm_target="$(_link_target_path "${farm}")"
+    if [[ -z "${farm_target}" ]]; then
+      farm_target="$(readlink "${farm}" 2>/dev/null || true)"
+      [[ "${farm_target}" == /* || -z "${farm_target}" ]] \
+        || farm_target="$(dirname "${farm}")/${farm_target}"
     fi
-
-    local target="${tool_file}"
-    local link="${AGENTS_DIR}/tools/${tool_name}"
-
-    if [[ -L "${link}" ]]; then
-      local current
-      current="$(readlink "${link}")"
-      if [[ "${current}" == "${target}" ]]; then
-        _skip "tools/${tool_name} already linked"
-      else
-        rm -f "${link}"
-        ln -sf "${target}" "${link}"
-        _ok "tools/${tool_name} relinked"
-      fi
-    elif [[ -e "${link}" ]]; then
-      _warn "tools/${tool_name} exists but is not a symlink"
+    if _skills_owned_by "${farm_target}" "${mod_dir}"; then
+      rm -f "${farm}"
+      _ok "skills/devbot/${mod_name} unlinked (${reason})"
     else
-      mkdir -p "$(dirname "${link}")"
-      ln -sf "${target}" "${link}"
-      _ok "tools/${tool_name} linked"
+      _warn "skills/devbot/${mod_name} links outside this module — leaving it"
     fi
-  done < <(find "${tool_dir}" -maxdepth 3 -name '*.mcp.sh' -type f -print0 2>/dev/null)
+    return 0
+  fi
+
+  [[ -d "${farm}" ]] || return 0
+  local link resolved raw
+  while IFS= read -r -d '' link; do
+    resolved="$(_link_target_path "${link}")"
+    if [[ -z "${resolved}" ]]; then
+      raw="$(readlink "${link}" 2>/dev/null || true)"
+      [[ -n "${raw}" ]] || continue
+      [[ "${raw}" == /* ]] || raw="$(dirname "${link}")/${raw}"
+      resolved="${raw}"
+    fi
+    _skills_owned_by "${resolved}" "${mod_dir}" || continue
+    rm -f "${link}"
+    _ok "skills/devbot/${mod_name}/$(basename "${link}") pruned (${reason})"
+  done < <(find "${farm}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
+  # Only when it is empty — a link that was not ours keeps the directory alive.
+  rmdir "${farm}" 2>/dev/null || true
 }
 
 # ── Wire all modules into devbot_dir (agents, commands, skills, tools) ──────────
@@ -448,19 +572,32 @@ _link_modules() {
   local -a mod_dirs=("${DEV_BOT_ROOT}/src/agentic/"*/)
   mod_dirs+=("${DEV_BOT_ROOT}/src/tools/"*/)
 
+  # UNLINK the disabled modules first, then LINK the enabled ones. When two
+  # modules ship the same farm name, link-then-unlink loses it: the enabled
+  # module refuses a link that is not its own, and the disabled module's unlink
+  # then removes it — leaving the name absent until the next run recreates it.
+  # Taking the disabled module back out first frees the name for its owner.
+  local -a enabled_dirs=() disabled_dirs=()
+  local mod_dir mod_name
   for mod_dir in "${mod_dirs[@]}"; do
-    local mod_name
     mod_name="$(basename "${mod_dir}")"
-
-    # Skip ENTIRE module if disabled — no symlinks created, and any link an
-    # earlier run created is taken back out.
     if echo "${disabled_modules}" | grep -Fxq "${mod_name}" 2>/dev/null; then
-      _skip "${mod_name}: disabled per config — skipping"
-      _unlink_agents "${mod_dir}"
-      _unlink_commands "${mod_dir}"
-      continue
+      disabled_dirs+=("${mod_dir}")
+    else
+      enabled_dirs+=("${mod_dir}")
     fi
+  done
 
+  for mod_dir in ${disabled_dirs[@]+"${disabled_dirs[@]}"}; do
+    mod_name="$(basename "${mod_dir}")"
+    _skip "${mod_name}: disabled per config — skipping"
+    _unlink_agents "${mod_dir}"
+    _unlink_commands "${mod_dir}"
+    _unlink_skills "${mod_dir}"
+    _unlink_tools "${mod_dir}"
+  done
+
+  for mod_dir in ${enabled_dirs[@]+"${enabled_dirs[@]}"}; do
     _link_agents "${mod_dir}"
     _link_commands "${mod_dir}"
     _link_skills "${mod_dir}"
