@@ -141,15 +141,44 @@ PY
   [ -d "$test_project/.opencode/plugins" ]
   [ -d "$test_project/.opencode/tools" ]
 
+  # Resolve the effective disabled set (modules map + codebase_index_provider
+  # auto-disable) the same way init does, once, for every assertion below: a
+  # disabled module links nothing, so each of them must skip it rather than
+  # report its absent links as a defect.
+  # The resolver converts its own failure into `[]` (… || echo "[]"), so its exit
+  # status is always 0 and a status check cannot detect anything. Its dependency
+  # is what can be checked: without python3 it yields `[]`, every module looks
+  # enabled, and the assertions below would blame a link for the resolver.
+  command -v python3 >/dev/null 2>&1 \
+    || fail "python3 is required to resolve the disabled-module set"
+  local disabled_names=""
+  disabled_names="$(
+    DEV_BOT_ROOT="${PROJECT_ROOT}" bash -c '
+      source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
+      _devbot_get_disabled_modules "${1}" 2>/dev/null
+    ' _ "${test_project}" 2>/dev/null
+  )"
+  module_disabled() { echo "${disabled_names}" | grep -qF "\"${1}\""; }
+
   # ── Verify agents match source ─────────────────────────────────────────
   # One link per agent, NAMED after its frontmatter name. An OpenCode 2 host
   # derives an agent id from the path below .opencode/agents, so a
   # module-directory link registers `devbot/devbot` and leaves the configured
   # bare `devbot` as a prompt-less agent with no persona.
-  MODULES_WITH_AGENTS=(devbot devteam)
-  for MODULE in "${MODULES_WITH_AGENTS[@]}"; do
-    local source_agents="$PROJECT_ROOT/src/agentic/${MODULE}/agents"
-    [ -d "$source_agents" ] || continue
+  # Derived from the tree for the same reason as the commands below: a literal
+  # list silently leaves any later module shipping agents unasserted.
+  local -a source_agent_dirs=()
+  local ad
+  for ad in "$PROJECT_ROOT"/src/agentic/*/agents "$PROJECT_ROOT"/src/tools/*/agents; do
+    [ -d "$ad" ] || continue
+    compgen -G "$ad/*.md" >/dev/null || continue
+    source_agent_dirs+=("$ad")
+  done
+  [ "${#source_agent_dirs[@]}" -gt 0 ] || fail "no module ships agents — the glob is wrong"
+  for source_agents in "${source_agent_dirs[@]}"; do
+    local MODULE
+    MODULE="$(basename "$(dirname "$source_agents")")"
+    module_disabled "${MODULE}" && continue
     [ -e "$test_project/.agents/agents/${MODULE}" ] \
       && fail "agents/${MODULE} module-directory link should not exist"
     for agent_file in "$source_agents"/*.md; do
@@ -170,11 +199,25 @@ PY
   # Commands are linked individually under .opencode/commands/devbot/ NAMED
   # after their frontmatter name (devbot:audit → devbot/audit.md), so both
   # harnesses expose the same slash command. No per-module category symlinks.
-  local MODULES_WITH_COMMANDS=(dev devbot devteam explore git github memory security)
+  # Derived from the tree, never a literal: a hand-maintained list let modules
+  # silently escape this assertion — one was added and never covered. Modules the
+  # fixture disables are skipped, because init links nothing for them.
+  local -a source_command_dirs=()
+  local d cmd_mod
+  for d in "$PROJECT_ROOT"/src/agentic/*/commands "$PROJECT_ROOT"/src/tools/*/commands; do
+    [ -d "$d" ] || continue
+    compgen -G "$d/*.md" >/dev/null || continue
+    cmd_mod="$(basename "$(dirname "$d")")"
+    module_disabled "${cmd_mod}" && continue
+    source_command_dirs+=("$d")
+  done
+  [ "${#source_command_dirs[@]}" -gt 0 ] || fail "no module ships commands — the glob is wrong"
+
   local linked_commands_dir="$test_project/.opencode/commands/devbot"
   [ -d "$linked_commands_dir" ] || fail "commands/devbot/ is missing"
-  for MODULE in "${MODULES_WITH_COMMANDS[@]}"; do
-    local source_commands="$PROJECT_ROOT/src/agentic/${MODULE}/commands"
+  for source_commands in "${source_command_dirs[@]}"; do
+    local MODULE
+    MODULE="$(basename "$(dirname "$source_commands")")"
     [ -L "$test_project/.opencode/commands/${MODULE}" ] \
       && fail "old per-module command symlink commands/${MODULE} should not exist"
     for cmd_file in "$source_commands"/*.md; do
@@ -194,25 +237,13 @@ PY
   # skips the skills delegation since opencode loads .agents/skills directly).
   local linked_skills="$test_project/.agents/skills/devbot"
   [ -d "$linked_skills" ] || fail "skills/devbot/ is missing"
-  # Resolve the effective disabled set (modules map + codebase_index_provider
-  # auto-disable) the same way init does, so modules disabled by config or by
-  # the provider selection are not expected to be linked.
-  local disabled_names=""
-  disabled_names="$(
-    DEV_BOT_ROOT="${PROJECT_ROOT}" bash -c '
-      source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
-      _devbot_get_disabled_modules "${1}" 2>/dev/null
-    ' _ "${test_project}" 2>/dev/null || true
-  )"
   # Build expected module list: modules that have a skills/ directory and are
   # not in the effective disabled set.
   local expected_skills=""
   for mod_dir in "$source_skills_dir/"*/; do
     [[ -d "${mod_dir}skills" ]] || continue
     local mod_name=$(basename "$mod_dir")
-    if echo "${disabled_names}" | grep -qF "\"${mod_name}\""; then
-      continue
-    fi
+    module_disabled "${mod_name}" && continue
     expected_skills="$expected_skills$mod_name\n"
   done
   # Compare against what's actually linked. The farm is one DIRECTORY per
