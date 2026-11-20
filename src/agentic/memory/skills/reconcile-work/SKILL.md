@@ -90,7 +90,15 @@ Worktrees follow the same rule but are found differently: each sits under its **
 
 4. **List the touched work items.** From the session's own activity, collect the top-level `work/todo/` and `work/active/` folders this session created, started, or edited. If there are none, skip to the end — there is nothing else to reconcile.
 
-5. **Classify each item** by its state this session:
+5. **Update each touched item's delivery record before moving it.** A work item is the vault's answer to "what happened to this?", and the folder it sits in only says where it is. Rewrite the item's own `backlog.md` so it matches what this session actually did:
+
+   - **Write one `**Delivery**` line beside `**Status**`** — never repurpose `**Status**`, which is the planning contract's (`DRAFT` | `IN REVIEW` | `FINAL`, owned by `devbot:make-plan`; a plan-only item keeps `DRAFT`). The line says what shipped and in which form, because the workflow in use decides that: `merged` with the pull request (`[GET-E/dev-bot#151](…)`) under the worktrees workflow, `landed` with the commit on the default branch under the trunk workflow. Add `— partial:` naming what remains when only part shipped, `— stopped by decision (date)` when work ended without meeting the criteria, and `— none: started, nothing landed yet` when the session began the item and delivered nothing at all. **Exactly one such line exists**: when it is already there, rewrite it in place — never append a second, or the item accumulates conflicting histories.
+   - **What changed underneath it** — when a session only delivered part of an item, say which findings/acceptance criteria are now met and which remain, rather than leaving the original brief to imply nothing happened.
+   - **The ticket, when the item has one** — a Jira ticket gets the same treatment through `devbot:jira-workflow`: move it when its status changed, and append what landed. A ticket is not closed by a landed pull request alone; close it when the work is finished.
+
+   This is a record update, not an audit: one delivery line and the facts that moved it. It is the only part of this skill that writes to a work item, and it happens **before** the classification below, because the correct folder follows from the recorded state.
+
+6. **Classify each item** by its state this session:
 
    | Item state this session           | Action                                               |
    | --------------------------------- | ---------------------------------------------------- |
@@ -99,11 +107,11 @@ Worktrees follow the same rule but are found differently: each sits under its **
    | created or planned, never started | leave in `work/todo/`                                |
    | already in `active/`, unfinished  | leave in `work/active/`                              |
 
-6. **Decide "finished".** An item is finished when every acceptance criterion in its `backlog.md` is met and its work is committed and proven. When the state is genuinely ambiguous, ask the user which way it goes — do not guess.
-7. **Move each item** with `mkdir -p <dest>` then `mv <src> <dest>`, preserving the folder name:
+7. **Decide "finished".** An item is finished when every acceptance criterion in its `backlog.md` is met and its work is committed and proven. When the state is genuinely ambiguous, ask the user which way it goes — do not guess.
+8. **Move each item** with `mkdir -p <dest>` then `mv <src> <dest>`, preserving the folder name:
    - unfinished → `work/active/`
    - finished → `work/archive/YYYY/MM/`, using the **completion** year and month (`date +%Y/%m`).
-8. **Stop** once every touched item sits in its correct state.
+9. **Stop** once every touched item sits in its correct state and its record says why.
 
 ## MUST
 
@@ -114,6 +122,7 @@ Worktrees follow the same rule but are found differently: each sits under its **
 - **Run the sweep once per owning project**, and let one unremovable worktree continue to the next.
 - **Keep every worktree the gate does not clear**, and name it in the wrap-up report so the user knows it is still there and why.
 - Reconcile only work **items** this session touched; leave all others alone — a worktree is gated by its state, not by who created it.
+- **Update every touched item's delivery record, then move it** — a `DRAFT` left beside a merged pull request makes the next session re-derive what happened, and the folder alone never says why an item is unfinished. Write the `**Delivery**` line; never repurpose the planning `**Status**`.
 - Move the work-item **root**; never split a folder's files across states.
 - Use plain `mkdir -p` + `mv` — `work/` is gitignored local scratch, never `git add` or commit it.
 - Place new archives at `work/archive/YYYY/MM/`; never restructure existing archive layouts.
