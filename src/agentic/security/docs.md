@@ -1,6 +1,7 @@
 ---
 title: "Security"
 description: "Security evaluation — static audit (STRIDE, OWASP Top 10, code review) and external web application pentest checks."
+commands: ["pentest-webapp"]
 skills: ["audit-security", "pentest-external-webapp"]
 ---
 
@@ -23,6 +24,12 @@ Ships two skills that answer different questions:
 
 Neither replaces the other: a conclusion about an authorisation bug is far stronger with the code
 read, and a header or port finding exists only at runtime.
+
+`/devbot/pentest-webapp <project>` (v1: `/devbot:pentest-webapp`) runs the external evaluation against a
+named project. It resolves the project — by name or path, asking when neither is given — loads that
+project's memory and the skill, and then **stops at the authorisation gate the skill defines**: nothing
+leaves the machine before every line of it is answered. The report is printed in the conversation and
+offered to the project's `reference/` vault, never written silently.
 
 ## Configuration
 

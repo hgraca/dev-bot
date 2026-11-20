@@ -180,3 +180,86 @@ disk_skills() {
     run grep -qF 'devbot:audit-security' "$SKILL"
     assert_success
 }
+
+# --- commands ---------------------------------------------------------------
+
+disk_commands() {
+    for path in "${MODULE}"/commands/*.md; do basename "$path" .md; done | sort
+}
+
+@test "every command declares valid front matter" {
+    for path in "${MODULE}"/commands/*.md; do
+        name="$(basename "$path" .md)"
+        run front_matter "$path"
+        assert_output --partial "name: devbot:${name}"
+        run grep -q '^description: ' "$path"
+        assert_success
+    done
+}
+
+@test "docs.md commands manifest matches the command files" {
+    run diff -u <(disk_commands) <(manifest_flow_list commands)
+    assert_success
+}
+
+@test "the pentest command resolves its project instead of assuming one" {
+    local cmd="${MODULE}/commands/pentest-webapp.md"
+    run bash -c "tr '\n' ' ' <'$cmd' | grep -q 'ask which project to test and wait'"
+    assert_success
+    # A path is resolved, and an unregistered one is a refusal, not a fallback.
+    run grep -qF 'project-for-path' "$cmd"
+    assert_success
+    run grep -qF 'Exit `3`' "$cmd"
+    assert_success
+    run grep -qF 'list-projects' "$cmd"
+    assert_success
+    # One value, so $1 — not the whole tail.
+    run grep -qF '`$1`' "$cmd"
+    assert_success
+    # A bare name through project-for-path resolves against the cwd, silently.
+    run bash -c "tr '\n' ' ' <'$cmd' | grep -q 'Never hand a bare name to'"
+    assert_success
+    # The ambiguity is settled before the two branches, or the ordered bullets
+    # make "ask when both" unreachable.
+    run bash -c "tr '\n' ' ' <'$cmd' | grep -q 'Decide the ambiguity first'"
+    assert_success
+}
+
+@test "the pentest command loads the project memory and the skill" {
+    local cmd="${MODULE}/commands/pentest-webapp.md"
+    run grep -qF 'project-memory' "$cmd"
+    assert_success
+    run grep -qF 'devbot:pentest-external-webapp' "$cmd"
+    assert_success
+}
+
+@test "the pentest command points at the skill instead of restating it" {
+    local cmd="${MODULE}/commands/pentest-webapp.md"
+    # It must send the reader to the skill's gate...
+    run bash -c "tr '\n' ' ' <'$cmd' | grep -q 'authorisation gate is a hard stop'"
+    assert_success
+    # ...without re-listing what the gate asks, or the skill's own structure.
+    local restated
+    for restated in 'in-scope hosts' 'credentials issued' 'intrusive testing' \
+        'lockout' 'time box' 'WSTG' 'CVSS' 'seven checks' 'six phases' \
+        'issued to you, not by you' 'never draft one, infer one'; do
+        run grep -qiF "$restated" "$cmd"
+        assert_failure
+    done
+}
+
+@test "the pentest command offers the report rather than writing it" {
+    local cmd="${MODULE}/commands/pentest-webapp.md"
+    run bash -c "tr '\n' ' ' <'$cmd' | grep -q 'offer.*to save it'"
+    assert_success
+    # The vault path is configurable, and commit_memory is the signal that decides
+    # whether writing it commits a pentest report into the repository.
+    run grep -qF 'devbot_dir' "$cmd"
+    assert_success
+    run grep -qF 'commit_memory' "$cmd"
+    assert_success
+    # The setting is intent; check-ignore on the file is the fact, and its exit 0
+    # means ignored — the inverted reading is the trap.
+    run grep -qF 'Exit `0` means ignored' "$cmd"
+    assert_success
+}
