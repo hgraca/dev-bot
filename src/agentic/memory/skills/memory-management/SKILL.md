@@ -68,7 +68,7 @@ Each `latent/` file is a standalone `.md` with YAML frontmatter (`date`, `keywor
 **Routing rules:**
 
 - Create a new file per item — never append to existing files
-- File name: `YYYYMMDDHHMMSS-NN-<max-10-word-subject>.md` (timestamp = item date, NN = sequence within same second)
+- File name: `YYYYMMDDHHMMSS-<max-10-word-subject>.md`, with §6's optional `NN` segment when the timestamp is shared (timestamp = item date)
 - Include YAML frontmatter: `date`, `keywords` (1–5 focused terms — tool names, concept names, domain terms)
 - One entry per insight
 - Include dates in entries
@@ -178,6 +178,7 @@ polyrepo's.
 All latent items are standalone `.md` files. File naming: `YYYYMMDDHHMMSS-<slug>.md`
 
 - Timestamp: date of the item (`HHMMSS` = `000000` when only date known)
+- A timestamp shared by more than one note takes a two-digit sequence: `YYYYMMDDHHMMSS-NN-<slug>.md`
 - Slug: max 10 words, hyphen-separated, lowercase, no special chars
 
 ### ADRs/ and PDRs/ — `keywords` frontmatter, single `##` body
@@ -259,6 +260,25 @@ superseded_by: ["learnings/YYYYMMDDHHMMSS-newer-lesson.md"]
 - `aliases`: optional array of 1–5 synonyms, alternate names, or coinages that do not appear verbatim in the note — the words a future search might use instead.
 - `supersedes` / `superseded_by`: optional bidirectional pointers set when one memory replaces another — see §6 "Supersession and aliases".
 - Body: `#` title, then multiple `##` sections as needed. On a superseded note the banner is the first line after the title.
+
+### reference/ — `keywords` frontmatter, `#` title, free body
+
+Location: `reference/` inside the project vault. Background material a later session reads: architecture maps, flow docs, and reports a command produced. It is tracked alongside the latent notes (`commit_memory` permitting), so it is for material worth keeping — scratch belongs in `thinking/`.
+
+```markdown
+---
+date: YYYY-MM-DD
+keywords: ["keyword1", "keyword2"]
+---
+
+# <Title>
+
+<Body — a map, a procedure, or a report. No required sections.>
+```
+
+- File name: `YYYYMMDDHHMMSS-<slug>.md`, with §6's optional `NN` segment when the timestamp is shared.
+- `keywords`: 1–5 focused terms. Both memory engines are keyword-only, so a reference file without them is invisible to a later search.
+- Body: `#` title, then whatever structure the material needs.
 
 ### Supersession and aliases (all latent formats)
 

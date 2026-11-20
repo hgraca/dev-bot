@@ -44,7 +44,13 @@ setup() {
 }
 
 @test "skill documents the knowledge-base input" {
-  grep -q '.agents/memory/reference' "$SKILL"
+  # The vault dir is configurable, so the skill resolves it rather than naming
+  # .agents — a hardcoded path silently reads the wrong tree for any project
+  # whose devbot_dir differs.
+  grep -q 'devbot_dir' "$SKILL"
+  grep -q 'project-for-path' "$SKILL"
+  grep -q 'memory/reference' "$SKILL"
+  ! grep -q '\.agents/memory/reference' "$SKILL"
 }
 
 @test "skill requires the questionnaire's own answer options" {

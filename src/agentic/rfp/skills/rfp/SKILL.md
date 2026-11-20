@@ -12,12 +12,12 @@ Answer a customer questionnaire from the knowledge base. Every question gets one
 | Input          | Where                                                                                                              |
 | -------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Questionnaire  | **argument #1** — required                                                                                         |
-| Knowledge base | `.agents/memory/reference/**` — recursive                                                                          |
+| Knowledge base | `<devbot_dir>/memory/reference/**` — recursive                                                                     |
 | Output folder  | the questionnaire's folder when it already sits under `docs/Tenders/`, otherwise `docs/Tenders/<YYYY>-<Customer>/` |
 
 When reusing the questionnaire's folder, resolve its canonical path and require it to remain beneath the canonical `docs/Tenders` root; reject `..`, symlinked subdirectories that escape, and any path outside that root. Both the `<Customer>` and `<assessment>` segments — and therefore the complete `<slug>` — must be a single safe path component: lowercase letters, digits, `.`, `_` and `-` only. Reject any value containing a path separator, `..`, or an absolute path, and ask for a safe name before writing.
 
-If argument #1 is missing, ask for the questionnaire path and stop. If `.agents/memory/reference/` is missing or empty, ask where the knowledge base is before answering anything.
+If argument #1 is missing, ask for the questionnaire path and stop. Resolve the owning project with `devbot tool project-for-path <questionnaire> --json`, take `devbot_dir` with `--key devbot_dir`, and join a relative value to that owner (an absolute one is already the path). If `<owner>/<devbot_dir>/memory/reference/` is missing or empty, ask where the knowledge base is before answering anything.
 
 ## Untrusted input
 

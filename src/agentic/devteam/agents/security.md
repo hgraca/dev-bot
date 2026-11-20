@@ -68,7 +68,7 @@ earlier reading, or the size of the remaining task list are not. Treat it as a c
 ### External Pentest Evaluation
 
 - **Trigger**: teamlead delegates an evaluation or re-test of a **running** internet-facing web application, and supplies the written authorisation with it.
-- **Input**: The authorisation — in-scope hosts, credentials issued, intrusive allowed or not, environment, time box, incident contact — plus the prior report when this is a re-test.
+- **Input**: The written authorisation, complete — the skill's gate lists every line it must answer — plus the prior report when this is a re-test.
 - **Output**: Findings in `devbot:pentest-external-webapp`'s record and report shape, with a regression verdict per prior finding.
 - **Goal**: Answer every check the baseline runs, with a pass or fail verdict and evidence, without exceeding the authorised scope.
 - **Refuse and escalate** when any authorisation line is missing: no request is made until the scope is complete.

@@ -112,13 +112,17 @@ teardown() {
     [ "$(cat "${FARM}/demo.md")" = "not a symlink" ]
 }
 
-@test "_link_commands: a module that never shipped commands leaves the farm alone" {
+@test "_link_commands: a module that ships no commands leaves another module's links alone" {
+    # Seed a link from another module, or the assertion is about an empty farm and
+    # passes even when the function does nothing.
+    _link_commands "${MOD}/"
+    assert [ -L "${FARM}/demo.md" ]
     mkdir -p "${DEV_BOT_ROOT}/src/agentic/bare"
 
     run _link_commands "${DEV_BOT_ROOT}/src/agentic/bare/"
 
     assert_success
-    [ -z "$(ls -A "${FARM}")" ]
+    assert [ -L "${FARM}/demo.md" ]
 }
 
 @test "_link_commands: prunes when the module drops its whole commands dir" {

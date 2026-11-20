@@ -27,7 +27,7 @@ Verify vault matches expected layout:
 For each file in `latent/`:
 
 - Content current? Flag stale or contradictory entries.
-- File naming follows `YYYYMMDDHHMMSS-NN-<subject>.md` pattern (NN = integer starting at 01, resets per timestamp)?
+- File naming follows `YYYYMMDDHHMMSS-<subject>.md`, with the optional `NN` segment when two notes share a timestamp (NN = integer starting at 01)?
 - `global/<tech>/` — entries reusable across projects, tech-specific, with context?
 - `PDRs/` — entries have rationale, not decision?
 - `ADRs/` — entries have rationale, not decision?
