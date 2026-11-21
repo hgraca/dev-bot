@@ -104,7 +104,7 @@ is_shipped() {
   # The audit dominates the loop's wall clock, so its model is chosen, not
   # inherited — and the override is named.
   grep -qF 'haiku' "${cmd}"
-  grep -qF 'DEV_BOT_AUDIT_MODEL' "${cmd}"
+  grep -qF 'DEVBOT_TEST_CLAUDE_MODEL' "${cmd}"
 }
 
 @test "full-audit-and-fix-loop: frontmatter name matches the filename" {

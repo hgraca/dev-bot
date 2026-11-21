@@ -443,3 +443,14 @@ _wait_for_port() {
   assert_success
   refute_output --partial "pruned"
 }
+
+@test "the cc audit model defaults when the launcher forwards an empty value" {
+  # The launcher always passes -e DEVBOT_TEST_CLAUDE_MODEL=…, so inside the
+  # container the variable is SET BUT EMPTY. `${VAR-word}` defaults only when
+  # unset, so the default silently never applied; the form must be `:-`.
+  local inner="${REPO_ROOT}/tests/test-project/test-cc-inner.sh"
+  run grep -qF 'DEVBOT_TEST_CLAUDE_MODEL="${DEVBOT_TEST_CLAUDE_MODEL:-haiku}"' "${inner}"
+  assert_success
+  run grep -qF 'DEVBOT_TEST_CLAUDE_MODEL="${DEVBOT_TEST_CLAUDE_MODEL-haiku}"' "${inner}"
+  assert_failure
+}

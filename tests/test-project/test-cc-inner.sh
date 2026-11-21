@@ -206,7 +206,13 @@ _phase "claudecode grant"
 # That is the LONG phase (5-25 min depending on model). Output streams live AND
 # is tee'd to .agents/logs/devbot-audit-run.log; a heartbeat prints every 60 s
 # so a long run is visibly alive. Pick a fast model with
-# DEVBOT_TEST_CLAUDE_MODEL (e.g. haiku).
+# DEVBOT_TEST_CLAUDE_MODEL, defaulting to haiku: the audit is long and
+# mechanical and dominates the run, so its model is chosen here rather than
+# inherited. `:-` and not `-`: the launcher always forwards this variable, so it
+# arrives SET BUT EMPTY, and the unset-only form would silently default nothing.
+DEVBOT_TEST_CLAUDE_MODEL="${DEVBOT_TEST_CLAUDE_MODEL:-haiku}"
+export DEVBOT_TEST_CLAUDE_MODEL
+
 if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
   echo
   echo "▶ Running headless devbot audit (/devbot:audit)..."
