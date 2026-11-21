@@ -338,18 +338,51 @@ EOF
   assert_output --partial "restart the harness"
 }
 
-@test "a dynamic MCP that cannot be registered fails the run, not just warns" {
-  local project="${BATS_TEST_TMPDIR}/dynamic"
-  mkdir -p "${project}/.opencode"
-  printf '{ "harness": "opencode-v2" }\n' >"${project}/.devbot.project.jsonc"
-  # merge-mcp loads before it splices, so an unparseable config fails on its own
-  # — no permissions trickery needed.
-  printf '{ "mcp": { "servers": { "a": 1,, } } }\n' >"${project}/opencode.jsonc"
-  printf '{ "kctl-demo": { "type": "local", "command": ["bash", "-c", "true"] } }\n' \
-    >"${project}/.opencode/k8s-demo.mcp.json"
+@test "a failed MCP registration is fatal, not a warning" {
+  # This used to provoke the failure with an unparseable config. The up-front
+  # gate now refuses that before any registration is attempted, so the contract
+  # is asserted at its source: whatever sets the flag must end the run.
+  run grep -A2 'MCP_REGISTRATION_FAILED:-0' "${MODULE_DIR}/init.sh"
 
-  run bash "${MODULE_DIR}/init.sh" "${project}"
+  assert_success
+  assert_output --partial "exit 1"
+}
 
-  assert_output --partial "could not register 'kctl-demo'"
+@test "init refuses a project whose opencode.jsonc does not parse" {
+  # A single bad byte here used to surface as a dozen unrelated WARN lines (MCP
+  # registration, the external_directory grants, every dynamic manifest) and a
+  # half-wired project. start.sh already refuses to boot on it; the repair path
+  # must refuse as early, and before it mutates anything.
+  printf '{ "snapshots": false,\n  "experimental": { "todo": true }\n  "instructions": [] }\n' \
+    >"${CONFIG}"
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+
   assert_failure
+  assert_output --partial "is not valid JSONC"
+  assert_output --partial "line 3"
+  refute [ -e "${PROJECT}/.opencode/skills" ]
+}
+
+@test "a failed external_directory reconcile names the reason, not just the file" {
+  # Naming only the config made this read as a second, independent problem with
+  # the same file — the reason is what tells the reader otherwise.
+  printf '{ "permissions": "not-an-array" }\n' >"${CONFIG}"
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+
+  assert_output --partial "external_directory: could not reconcile"
+  assert_output --partial "top-level"
+}
+
+@test "a failed MCP registration stops the run before the cosmetic tail" {
+  # A parseable config that cannot take servers: the run must end here, not go
+  # on to tidy .gitkeep files and pick a default agent for a broken project.
+  printf '{ "mcp": "not-an-object" }\n' >"${CONFIG}"
+
+  run bash "${MODULE_DIR}/init.sh" "${PROJECT}"
+
+  assert_failure
+  assert_output --partial "some MCP servers could not be registered"
+  refute_output --partial "default agent is"
 }

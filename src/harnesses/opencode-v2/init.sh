@@ -71,6 +71,13 @@ _v2() {
   V2_SHARED_DIR="${DEV_BOT_ROOT}/src/_shared" python3 "${V2HELPER}" "$@"
 }
 
+# ── Gate: an unparseable config stops here ────────────────────────────────────
+# Otherwise the run continues into a dozen unrelated warnings (MCP registration,
+# the external_directory grants, every dynamic manifest) and leaves a half-wired
+# project. start.sh refuses to boot on the same file — the repair path must
+# refuse as early, and before it touches the tree.
+_devbot_require_valid_jsonc "${CONFIG}" || exit 1
+
 # Marks the generated shim files so a later sweep can tell dev-bot's own plugin
 # directories from a user's.
 _PLUGIN_SHIM_MARKER="// dev-bot: generated opencode-v2 plugin shim (do not edit)"
@@ -1012,13 +1019,17 @@ _retire_legacy_tui_config() {
 # ── Reconcile external_directory: deny-first with /tmp/** allowed ─────────────
 _reconcile_external_directory() {
   [[ -f "${CONFIG}" ]] || return 0
-  local added rc=0
-  added="$(_v2 ensure-external-directory "${CONFIG}" 2>/dev/null)" || rc=$?
+  local added rc=0 err
+  err="$(mktemp "${TMPDIR:-/tmp}/devbot-extdir.XXXXXX")"
+  added="$(_v2 ensure-external-directory "${CONFIG}" 2>"${err}")" || rc=$?
   if [[ "${added}" == "1" ]]; then
     _ok "external_directory reconciled: deny-first, /tmp/** allowed"
   elif (( rc != 0 )); then
-    _warn "external_directory reconcile failed (${CONFIG})"
+    # The reason, not the path: naming the file alone reads as a second,
+    # independent problem with a config the gate has already accepted.
+    _warn "external_directory: could not reconcile the permissions block — $(tail -1 "${err}")"
   fi
+  rm -f "${err}"
 }
 
 # ── Default agent ─────────────────────────────────────────────────────────────
@@ -1223,10 +1234,13 @@ _retire_pty_dependency
 _reconcile_plugins
 _retire_legacy_tui_config
 _reconcile_external_directory
-_remove_gitkeep_files
-_ensure_default_agent
 
+# Stop before the cosmetic tail: tidying .gitkeep files and asking which agent
+# to default to is busywork on a project that cannot start its servers.
 if [[ "${MCP_REGISTRATION_FAILED:-0}" -eq 1 ]]; then
   _warn "some MCP servers could not be registered — the harness would start without them"
   exit 1
 fi
+
+_remove_gitkeep_files
+_ensure_default_agent
