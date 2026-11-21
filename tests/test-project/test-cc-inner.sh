@@ -154,14 +154,44 @@ if docker info >/dev/null 2>&1; then
 fi
 _phase "devbot up"
 
-# Grant the claudecode state dir through opencode's external_directory
-# permission (the agent audits the harness itself). Only meaningful when
-# opencode.jsonc exists; skip in a claudecode-only flow rather than letting
-# the script print its misleading "skip: ... not found" line.
-if [[ -f "${PWD}/opencode.jsonc" ]]; then
-  python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py" \
-    "${PWD}/opencode.jsonc" "${HOME}/.claude/**"
-fi
+# Grant what an unattended audit needs, in claudecode's own settings:
+#   - the harness state dir, so the agent can audit the harness itself;
+#   - every MCP server, because a headless run cannot answer the per-call
+#     consent prompt — without this each mcp__* call is denied and the audit
+#     stops to ask (found by the e2e run: "Claude requested permissions ...
+#     but you haven't granted it yet").
+mkdir -p "${PWD}/.claude"
+python3 - "${PWD}/.claude/settings.json" "${HOME}/.claude/**" <<'PYEOF'
+import json, os, sys
+
+path, state_dir = sys.argv[1], sys.argv[2]
+data = {}
+if os.path.exists(path):
+    try:
+        with open(path) as handle:
+            data = json.load(handle) or {}
+    except (json.JSONDecodeError, OSError):
+        data = {}
+
+permissions = data.setdefault("permissions", {})
+allow = permissions.setdefault("allow", [])
+wanted = [
+    state_dir,
+    "mcp__devbot-tools",
+    "mcp__mdctx",
+    "mcp__codebase-memory",
+    "mcp__context7",
+    "mcp__graphify",
+]
+for entry in wanted:
+    if entry not in allow:
+        allow.append(entry)
+
+with open(path, "w") as handle:
+    json.dump(data, handle, indent=2)
+    handle.write("\n")
+print("granted: " + ", ".join(wanted))
+PYEOF
 _phase "claudecode grant"
 
 # ── Agent audit — headless (opt-in) or manual ─────────────────────────────────
