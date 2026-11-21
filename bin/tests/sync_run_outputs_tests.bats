@@ -166,19 +166,22 @@ teardown() {
   assert_success
 }
 
-@test "inner scripts: grant the opencode permission only when opencode.jsonc exists" {
-  # A claudecode-only flow has no opencode.jsonc, so the grant must be guarded
-  # rather than called unconditionally — the script otherwise prints a
-  # misleading "skip: ... not found" into the provisioning log (audit-82 N1).
-  local inner
-  for inner in test-cc-inner.sh test-reinit.sh; do
-    # The python call is nested under an `if ... opencode.jsonc` guard…
-    run grep -qE '^[[:space:]]+python3 .*upsert_opencode_permission\.py' "${REPO_ROOT}/tests/test-project/${inner}"
-    assert_success
-    run grep -qE '^[[:space:]]*if .*opencode\.jsonc' "${REPO_ROOT}/tests/test-project/${inner}"
-    assert_success
-  done
-  # …but the opencode flow always has the file, so it stays unguarded there.
+@test "inner scripts: each harness grants only its own config" {
+  # A claudecode-only flow has no opencode.jsonc, so it must not call the
+  # opencode permission tool at all — it grants its own harness instead (the cc
+  # audit found every MCP call and every edit denied without it).
+  local cc="${REPO_ROOT}/tests/test-project/test-cc-inner.sh"
+  run grep -q 'upsert_opencode_permission.py' "${cc}"
+  assert_failure
+  run grep -q 'defaultMode' "${cc}"
+  assert_success
+  run grep -q 'mcp__devbot-tools' "${cc}"
+  assert_success
+
+  # The shared reset path still guards its opencode grant, and the opencode
+  # flow always has the file, so it stays unguarded there.
+  run grep -qE '^[[:space:]]*if .*opencode\.jsonc' "${REPO_ROOT}/tests/test-project/test-reinit.sh"
+  assert_success
   run grep -qE '^python3 .*upsert_opencode_permission\.py' "${REPO_ROOT}/tests/test-project/test-oc-inner.sh"
   assert_success
 }
