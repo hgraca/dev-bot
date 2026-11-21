@@ -996,3 +996,15 @@ setup_scope() {
   assert_output '{"nodes":[1]}'
 
 }
+
+@test "install pins graphify's mcp below 2, which the serve shim needs" {
+  # The shim wraps Server.request_handlers; mcp 2.x removed it and the server
+  # died on startup with an AttributeError (found by the e2e audit run).
+  run grep -F -- '--with "mcp<2"' "${MODULE_DIR}/install.sh"
+  assert_success
+  # An existing tool whose mcp moved to 2.x must be repaired, not skipped.
+  run grep -F 'mcp.__version__.startswith("1.")' "${MODULE_DIR}/install.sh"
+  assert_success
+  run grep -F -- '--force' "${MODULE_DIR}/install.sh"
+  assert_success
+}
