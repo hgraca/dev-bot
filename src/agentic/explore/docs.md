@@ -2,6 +2,7 @@
 title: "Explore"
 description: "Codebase exploration — session context gathering, project reports, and code search."
 commands: ["create-project-report", "gather-context"]
+tools: ["search"]
 skills: ["create-project-report", "gather-context", "search-code"]
 ---
 
