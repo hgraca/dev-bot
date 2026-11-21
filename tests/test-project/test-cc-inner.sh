@@ -245,7 +245,20 @@ if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
     if [[ -n "${audit_report}" ]]; then
       echo "✔ audit report written: ${audit_report}"
     else
-      echo "WARN: devbot audit exited 0 but wrote NO devbot-audit-*.md report — see devbot-audit-run.log"
+      # A run that ends [PARTIAL] stops with its checks done and no report, and
+      # the pair cannot land without one. One bounded re-prompt asks for the
+      # report only; a second miss is a real failure the gate must see.
+      echo "↻ audit ended without a report — asking for it once more"
+      retry_report="/app/.agents/memory/thinking/devbot-audit-${DEVBOT_AUDIT_NN:-next}.md"
+      claude -p --model "${DEVBOT_TEST_CLAUDE_MODEL}" \
+        "You ran the /devbot:audit checklist and stopped before writing the report. Write it now to ${retry_report}, covering the sections you verified and naming the FAIL rows you found with their evidence. Do not re-run any checks; write the report, then stop." \
+        2>&1 | tee -a /app/.agents/logs/devbot-audit-run.log
+      audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-*.md' 2>/dev/null | sort | tail -1 || true)"
+      if [[ -n "${audit_report}" ]]; then
+        echo "✔ audit report written on the retry: ${audit_report}"
+      else
+        echo "WARN: audit exited 0 and wrote NO devbot-audit-*.md report — see devbot-audit-run.log"
+      fi
     fi
   fi
 else
