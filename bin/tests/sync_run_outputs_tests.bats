@@ -189,6 +189,10 @@ teardown() {
   # default aborted the oc run before its audit started.
   run grep -q 'DEV_BOT_INSTALL_DIR' "${REPO_ROOT}/tests/test-project/test-oc-inner.sh"
   assert_success
+  # §8b tells the audit to read the harness log at ~/.local/share/opencode/log,
+  # so the fixture must grant that dir — not just ~/.opencode (audit-07).
+  run grep -qF '${HOME}/.local/share/opencode/**' "${REPO_ROOT}/tests/test-project/test-oc-inner.sh"
+  assert_success
   # A cc run that ends [PARTIAL] writes no report; one bounded re-prompt asks
   # for the report so the audit pair can still land.
   run grep -q 'asking for it once more' "${REPO_ROOT}/tests/test-project/test-cc-inner.sh"

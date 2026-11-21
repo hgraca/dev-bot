@@ -147,8 +147,11 @@ _phase "devbot up"
 # DEV_BOT_INSTALL_DIR — hardcoding $HOME/.local/share/dev-bot aborted the run
 # before the audit ever started.
 DEVBOT_INSTALL="${DEV_BOT_INSTALL_DIR:-$HOME/.local/share/dev-bot}"
+# The harness's own log lives under ~/.local/share/opencode/log (§8b): without
+# a grant there the audit cannot read the file it is told to examine.
 python3 "${DEVBOT_INSTALL}/src/_shared/upsert_opencode_permission.py" \
-  "${PWD}/opencode.jsonc" "${HOME}/.opencode/**" "${DEVBOT_INSTALL}/**"
+  "${PWD}/opencode.jsonc" "${HOME}/.opencode/**" "${DEVBOT_INSTALL}/**" \
+  "${HOME}/.local/share/opencode/**"
 _phase "opencode grant"
 
 # ── Agent audit — headless (opt-in) or manual ─────────────────────────────────
