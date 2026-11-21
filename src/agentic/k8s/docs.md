@@ -3,7 +3,7 @@ title: "K8s"
 description: "Kubernetes manifest linting and MCP-only cluster access — one kubectl server per cluster."
 skills: ["lint-k8s", "k8s-access"]
 hooks: ["lint-k8s"]
-tools: ["lint-k8s"]
+tools: ["kctl-get", "lint-k8s"]
 ---
 
 Audits Kubernetes, Kustomize, and Helm manifests with `kubeconform` (schema validation) and `kube-linter` (best practices), and exposes a project's clusters as `kctl-<key>` MCP servers so an agent never runs `kubectl` itself.
