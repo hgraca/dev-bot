@@ -3,7 +3,7 @@ title: "DevBot"
 description: "The pair-programming agent, with the Expert and Designer subagents it delegates to."
 agents: ["designer", "devbot", "expert"]
 commands: ["reload-datasources", "auto-dev", "stats"]
-tools: ["session-usage"]
+tools: ["session-usage", "where"]
 ---
 
 The default way to work with dev-bot: one agent beside you, not over you.
