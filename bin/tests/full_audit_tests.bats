@@ -34,6 +34,8 @@ teardown() {
 # before/after diff sees it.
 _stub() {
   local name="$1" mode="$2"
+  local id=11
+  [[ "${name}" == "oc" ]] && id=12
   cat >"${BIN}/stub-${name}.sh" <<EOF
 #!/usr/bin/env bash
 echo "stub ${name} \$*"
@@ -52,7 +54,7 @@ mkdir -p .agents/memory/thinking
   else
     echo "| Hooks | PASS | probe fired and the file was reformatted |"
   fi
-} >".agents/memory/thinking/devbot-audit-${name}.md"
+} >".agents/memory/thinking/devbot-audit-${id}.md"
 EOF
   chmod +x "${BIN}/stub-${name}.sh"
   printf '%s' "${BIN}/stub-${name}.sh"
@@ -81,8 +83,8 @@ _run() {
   _run
 
   assert_success
-  assert_output --partial "devbot-audit-cc.md"
-  assert_output --partial "devbot-audit-oc.md"
+  assert_output --partial "devbot-audit-11.md"
+  assert_output --partial "devbot-audit-12.md"
   assert_output --partial "both reports landed with no FAIL row"
 }
 
@@ -114,7 +116,7 @@ _run() {
   OC_STUB="$(_stub oc error)"
   # The failing launcher still leaves a clean report behind for its harness, so
   # the run is judged on the exit code, not on the file count alone.
-  printf '#!/usr/bin/env bash\nmkdir -p .agents/memory/thinking\necho "# stub oc" > .agents/memory/thinking/devbot-audit-oc.md\nexit 3\n' >"${BIN}/stub-oc.sh"
+  printf '#!/usr/bin/env bash\nmkdir -p .agents/memory/thinking\necho "# stub oc" > .agents/memory/thinking/devbot-audit-12.md\nexit 3\n' >"${BIN}/stub-oc.sh"
   chmod +x "${BIN}/stub-oc.sh"
 
   _run
@@ -131,7 +133,7 @@ _run() {
   _run --no-oc
 
   assert_success
-  assert_output --partial "devbot-audit-cc.md"
+  assert_output --partial "devbot-audit-11.md"
 }
 
 @test "the audit model defaults to sonnet" {
@@ -164,4 +166,24 @@ _run() {
 
   assert_success
   assert_output --partial "session at 65% (budget 70%)"
+}
+
+@test "a probe file is not a report — one real report is still exit 2" {
+  # Reports are devbot-audit-<NN>.md; the audit's own probes are
+  # devbot-audit-probe-<NN>-*. A probe must not satisfy the pair: that is how a
+  # run reported "both reports landed" with one harness never writing one.
+  CC_STUB="$(_stub cc clean)"
+  cat >"${BIN}/stub-oc.sh" <<'STUB'
+#!/usr/bin/env bash
+mkdir -p .agents/memory/thinking
+echo "probe" >.agents/memory/thinking/devbot-audit-probe-09-a.md
+STUB
+  chmod +x "${BIN}/stub-oc.sh"
+  OC_STUB="${BIN}/stub-oc.sh"
+
+  _run
+
+  assert_failure
+  assert_equal "$status" 2
+  assert_output --partial "not fixing on a partial pair"
 }

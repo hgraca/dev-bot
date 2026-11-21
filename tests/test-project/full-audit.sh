@@ -54,7 +54,7 @@ mkdir -p "${THINKING}"
 LOG_DIR="${SCRIPT_DIR}/.agents/logs/full-audit-$(date +%Y%m%d-%H%M%S)"
 mkdir -p "${LOG_DIR}"
 
-_before="$(find "${THINKING}" -maxdepth 1 -name 'devbot-audit-*.md' 2>/dev/null | sort)"
+_before="$(find "${THINKING}" -maxdepth 1 -name 'devbot-audit-[0-9]*.md' 2>/dev/null | sort)"
 
 SESSION_BUDGET="${FULL_AUDIT_SESSION_BUDGET:-70}"
 USAGE_TOOL="${FULL_AUDIT_USAGE_TOOL:-${SCRIPT_DIR}/../../src/agentic/devbot/tools/session-usage.mcp.sh}"
@@ -114,7 +114,7 @@ oc_rc=0
 [[ -n "${oc_pid}" ]] && { wait "${oc_pid}" || oc_rc=$?; }
 
 # `find | sort` in a subshell, so the diff only names reports this run wrote.
-_after="$(find "${THINKING}" -maxdepth 1 -name 'devbot-audit-*.md' 2>/dev/null | sort)"
+_after="$(find "${THINKING}" -maxdepth 1 -name 'devbot-audit-[0-9]*.md' 2>/dev/null | sort)"
 new_reports="$(comm -13 <(printf '%s\n' "${_before}") <(printf '%s\n' "${_after}") \
   | sed '/^$/d')"
 

@@ -241,7 +241,7 @@ if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
     tail -5 /app/.agents/logs/devbot-audit-run.log 2>/dev/null | sed 's/^/  /'
   else
     # The audit must have written a report inside the isolated run; surface it.
-    audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-*.md' 2>/dev/null | sort | tail -1 || true)"
+    audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-[0-9]*.md' 2>/dev/null | sort | tail -1 || true)"
     if [[ -n "${audit_report}" ]]; then
       echo "✔ audit report written: ${audit_report}"
     else
@@ -253,7 +253,7 @@ if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
       claude -p --model "${DEVBOT_TEST_CLAUDE_MODEL}" \
         "You ran the /devbot:audit checklist and stopped before writing the report. Write it now to ${retry_report}, covering the sections you verified and naming the FAIL rows you found with their evidence. Do not re-run any checks; write the report, then stop." \
         2>&1 | tee -a /app/.agents/logs/devbot-audit-run.log
-      audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-*.md' 2>/dev/null | sort | tail -1 || true)"
+      audit_report="$(find /app/.agents/memory/thinking -name 'devbot-audit-[0-9]*.md' 2>/dev/null | sort | tail -1 || true)"
       if [[ -n "${audit_report}" ]]; then
         echo "✔ audit report written on the retry: ${audit_report}"
       else
