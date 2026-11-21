@@ -72,8 +72,19 @@ def collect(log_count: int, cwd: str | None = None) -> dict:
 
     recent_commits, _ = run(["git", "log", "--oneline", f"-{log_count}"], cwd=cwd)
     status, _ = run(["git", "status"], cwd=cwd)
+    # Unstaged work is the common case an agent needs to see before deciding
+    # anything; reporting only the staged diff hid it entirely.
+    unstaged_stat, _ = run(["git", "diff", "--stat"], cwd=cwd)
     staged_stat, _ = run(["git", "diff", "--staged", "--stat"], cwd=cwd)
     staged_diff, _ = run(["git", "diff", "--staged"], cwd=cwd)
+
+    # Ahead/behind is what "am I up to date" actually means; without it the
+    # snapshot showed local commits but never their relation to the remote.
+    upstream, urc_c = run(
+        ["git", "rev-list", "--left-right", "--count", "@{upstream}...HEAD"], cwd=cwd
+    )
+    if urc_c != 0:
+        upstream = ""
 
     unique_commits = ""
     if default_branch_local not in ("", "(unknown)"):
@@ -101,6 +112,8 @@ def collect(log_count: int, cwd: str | None = None) -> dict:
         "default_branch_local": default_branch_local,
         "recent_commits": recent_commits,
         "status": status,
+        "unstaged_stat": unstaged_stat,
+        "upstream": upstream,
         "staged_stat": staged_stat,
         "staged_diff": staged_diff,
         "unique_commits": unique_commits,
@@ -178,6 +191,11 @@ def render_markdown(data: dict) -> str:
     lines.append(f"**Current branch:** `{data['current_branch']}`  ")
     lines.append(f"**Default branch:** `{data['default_branch_local']}`")
     lines.append(f"**Default remote branch:** `{data['default_branch']}`")
+    if data.get("upstream"):
+        behind, ahead = data["upstream"].split()
+        lines.append(f"**Upstream:** {ahead} ahead, {behind} behind")
+    else:
+        lines.append("**Upstream:** _(none set)_")
     lines.append("")
 
     lines.append("### Recent Commits")
@@ -194,6 +212,16 @@ def render_markdown(data: dict) -> str:
     lines.append("```")
     lines.append(data["status"] or "(clean)")
     lines.append("```")
+    lines.append("")
+
+    lines.append("### Unstaged Changes (summary)")
+    lines.append("")
+    if data.get("unstaged_stat"):
+        lines.append("```")
+        lines.append(data["unstaged_stat"])
+        lines.append("```")
+    else:
+        lines.append("_(no unstaged changes)_")
     lines.append("")
 
     lines.append("### Staged Changes (summary)")

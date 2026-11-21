@@ -320,3 +320,13 @@ run_tool() {
     assert_output --partial "one.txt"
     refute_output --partial "two.txt"
 }
+
+@test "the snapshot surfaces unstaged changes and upstream divergence" {
+    echo "dirty" >>"$REPO/file.txt"
+
+    run bash "$TOOL" --cwd "$REPO"
+    assert_success
+    assert_output --partial "Unstaged Changes (summary)"
+    assert_output --partial "file.txt"
+    assert_output --partial "**Upstream:**"
+}
