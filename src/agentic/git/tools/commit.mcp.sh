@@ -26,7 +26,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"commit","description":"Stage exactly the named paths and commit them in one call: never `git add -A` and never a whole tree, a pathspec keeps any foreign staged entry out, and --fixup records a correction for an earlier commit. Replaces the `git add <paths> -> git commit` pair. The paths and the message remain the caller's input.","parameters":{"type":"object","properties":{"paths":{"type":"array","items":{"type":"string"},"description":"Paths to stage and commit"},"message_file":{"type":"string","description":"File holding the commit message"},"message":{"type":"string","description":"Commit message inline (not with --fixup)"},"fixup":{"type":"string","description":"Record a fixup for this commit sha"}},"required":["paths"]}}
+{"name":"commit","description":"Stage exactly the named paths and commit them in one call: never a whole tree, a pathspec keeps any foreign staged entry out, and --fixup records a correction for an earlier commit.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI arguments: [--message-file <path> | -m <message> | --fixup <sha>] [--cwd <dir>] -- <paths...>."}},"required":["args"]}}
 JSON
     exit 0
     ;;

@@ -23,7 +23,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"where","description":"Resolve the project context in one call: owning project name and path, type and registration, the workflow in force, commit_memory, devbot_dir, datasources, the memory directory and the active memory files. Replaces the project-for-path plus project-memory plus second-key round trips a polyrepo session opens with.","parameters":{"type":"object","properties":{"path":{"type":"string","description":"Path to resolve (default: the current directory)"}}}}
+{"name":"where","description":"Resolve the project context in one call: owning project name and path, type and registration, the workflow in force, commit_memory, devbot_dir, datasources, the memory directory and the active memory files.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI arguments: [path]."}},"required":["args"]}}
 JSON
     exit 0
     ;;

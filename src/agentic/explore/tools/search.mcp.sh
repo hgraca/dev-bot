@@ -26,7 +26,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"search","description":"Search the repository with a digest instead of raw ripgrep output: repo-safe exclusions (dependencies, build output, generated artefacts, other worktrees) and a per-file summary — file, match count, first few matches — so one call replaces the re-runs caused by an unreadable first result. Exit 0 matches, 1 none.","parameters":{"type":"object","properties":{"pattern":{"type":"string","description":"Pattern to search for"},"path":{"type":"string","description":"Path to search (default: .)"},"glob":{"type":"array","items":{"type":"string"},"description":"Include globs, repeatable"},"exclude":{"type":"array","items":{"type":"string"},"description":"Extra directories to exclude"},"max_per_file":{"type":"integer","description":"Matches shown per file (default 5)"},"max_files":{"type":"integer","description":"Files listed (default 30)"},"fixed_strings":{"type":"boolean","description":"Treat the pattern literally"},"ignore_case":{"type":"boolean","description":"Case-insensitive search"}},"required":["pattern"]}}
+{"name":"search","description":"Search the repository with a digest instead of raw ripgrep output: repo-safe exclusions and a per-file summary — file, match count, first few matches — so one call replaces the re-runs caused by an unreadable first result.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI arguments: <pattern> [--path <dir>] [--glob <g>] [--exclude <dir>] [--max-per-file n] [--max-files n] [--fixed-strings] [--ignore-case] [--no-default-excludes]."}},"required":["args"]}}
 JSON
     exit 0
     ;;

@@ -36,7 +36,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"kctl-get","description":"Run a cluster query without retyping the cluster path: resolves the project's generated kubeconfig (or the cluster named by --cluster) and passes the query to kubectl through kctl. Arguments are kubectl's own — do not prefix the kubectl binary. Use it instead of retyping a long kubeconfig path per query.","parameters":{"type":"object","properties":{"cluster":{"type":"string","description":"Cluster key from the global catalogue (default: the project's current context)"},"path":{"type":"string","description":"Project directory whose kubeconfig to use (default: the current directory)"},"args":{"type":"array","items":{"type":"string"},"description":"kubectl arguments, without the leading kubectl (e.g. get deploy -n transfers-qa)"}},"required":["args"]}}
+{"name":"kctl-get","description":"Run a cluster query without retyping the cluster path: resolves the project's generated kubeconfig (or the cluster named by --cluster) and passes the query through kubectl. Arguments are the cluster client's own — do not prefix the binary name.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI arguments: [--cluster <key>] [--path <dir>] -- <kubectl arguments, without the leading binary>."}},"required":["args"]}}
 JSON
     exit 0
     ;;

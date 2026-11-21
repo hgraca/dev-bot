@@ -29,7 +29,7 @@ set -uo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"bats-run","description":"Run one or more BATS suite files in a single call and print only the failures — each failing test with its diagnostic block, plus the summary counts — exiting non-zero when anything failed. Replaces running one file at a time through `2>&1 | tail -6` and re-reading the tail.","parameters":{"type":"object","properties":{"files":{"type":"array","items":{"type":"string"},"description":"BATS suite files to run (one or more)"},"verbose":{"type":"boolean","description":"Also print passing tests"}},"required":["files"]}}
+{"name":"bats-run","description":"Run one or more BATS suite files in a single call and print only the failures — each failing test with its diagnostic block, plus the summary counts — exiting non-zero when anything failed.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI arguments: <suite.bats>... [--verbose]."}},"required":["args"]}}
 JSON
     exit 0
     ;;

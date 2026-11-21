@@ -34,7 +34,7 @@ setup() {
     run bash "$TOOL" mcp-meta
     assert_success
     assert_output --partial '"name":"commit"'
-    assert_output --partial 'never `git add -A`'
+    assert_output --partial 'never a whole tree'
 }
 
 @test "it commits the named path and prints the new commit" {

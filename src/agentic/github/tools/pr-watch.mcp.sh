@@ -23,7 +23,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"pr-watch","description":"Drive the Copilot review cycle for one pull request: request the review, poll the PR checks and the reviews endpoint until a review with findings appears, the checks fail, or the timeout expires, then print one digest. Exit codes carry the outcome — 0 review arrived, 3 checks failed, 4 timeout — so the caller never parses the digest.","parameters":{"type":"object","properties":{"number":{"type":"string","description":"Pull request number"},"repo":{"type":"string","description":"owner/name (default: the current repository)"},"timeout":{"type":"integer","description":"Seconds to wait (default 900)"},"interval":{"type":"integer","description":"Seconds between polls (default 60)"},"no_request":{"type":"boolean","description":"Do not request a Copilot review"},"json":{"type":"boolean","description":"Emit JSON instead of markdown"}},"required":["number"]}}
+{"name":"pr-watch","description":"Drive the Copilot review cycle for one pull request: request the review, poll the PR checks and the reviews until a review with findings appears, the checks fail, or the timeout expires, then print one digest. Exit codes carry the outcome — 0 review arrived, 3 checks failed, 4 timeout — so the caller never parses the digest.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI arguments: <number> [--repo owner/name] [--timeout seconds] [--interval seconds] [--no-request] [--json]."}},"required":["args"]}}
 JSON
     exit 0
     ;;

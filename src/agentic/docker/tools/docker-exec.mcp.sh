@@ -26,7 +26,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"docker-exec","description":"Run a command inside the project's compose container without naming it: resolves the container from the compose project (by --service, or the only running one) and execs there. Replaces retyped `docker exec <generated-name> ...` chains. Use --list to see the candidates when several match.","parameters":{"type":"object","properties":{"command":{"type":"array","items":{"type":"string"},"description":"Command and arguments to run inside the container"},"service":{"type":"string","description":"Compose service name (default: the only running container)"},"path":{"type":"string","description":"Project directory (default: the current directory)"},"list":{"type":"boolean","description":"List the project's containers and exit"}},"required":["command"]}}
+{"name":"docker-exec","description":"Run a command inside the project's compose container without naming it: resolves the container from the compose project (by --service, or the only running one) and execs there. Use --list to see the candidates when several match.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI arguments: [--service <name>] [--path <dir>] [--list] [--no-tty] -- <command...>."}},"required":["args"]}}
 JSON
     exit 0
     ;;

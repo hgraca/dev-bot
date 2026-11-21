@@ -24,7 +24,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"pr-open","description":"Push the current branch, open the pull request from a title and body file, and request the Copilot review — the three commands a PR session always runs — in one call. Reports the URL and skips the push or the create when they are already done.","parameters":{"type":"object","properties":{"title":{"type":"string","description":"Pull request title"},"body_file":{"type":"string","description":"File holding the PR body"},"base":{"type":"string","description":"Base branch (default: the repository's)"},"draft":{"type":"boolean","description":"Open as a draft"},"no_review":{"type":"boolean","description":"Do not request the Copilot review"}},"required":["title"]}}
+{"name":"pr-open","description":"Push the current branch, open the pull request from a title and body file, and request the Copilot review — the three commands a PR session always runs — in one call. Reports the URL and skips the push or the create when they are already done.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI arguments: --title <text> [--body-file <path>] [--base <branch>] [--draft] [--no-review]."}},"required":["args"]}}
 JSON
     exit 0
     ;;
