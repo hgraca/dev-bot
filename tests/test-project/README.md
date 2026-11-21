@@ -14,7 +14,7 @@ then either of these — **they can run in parallel** (different terminals):
 
 ```shell
 ./test-cc.sh # ClaudeCode
-./test-oc.sh # OpenCode
+./test-oc.sh # OpenCode v2
 ```
 
 Each launcher runs its container against an **isolated per-run copy** of this

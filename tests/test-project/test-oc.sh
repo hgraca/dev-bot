@@ -2,7 +2,7 @@
 # =============================================================================
 # test-oc.sh — HOST launcher. Builds the devbot-test image (if needed), starts
 # a container as your host uid with the project mounted at /app, runs the
-# opencode test inside it (test-oc-inner.sh), then leaves you in an interactive
+# opencode-v2 test inside it (test-oc-inner.sh), then leaves you in an interactive
 # shell in the same container so you can keep working after the test.
 #
 # Usage:
@@ -62,7 +62,7 @@ fi
 # Pre-create the dirs so docker does not mount root-owned ones.
 mkdir -p "${HOME}/.cache/qmd" "${HOME}/.cache/opencode" "${HOME}/.cache/bun" "${HOME}/.npm"
 
-echo "Starting container as uid $(id -u):$(id -g) — running the opencode test, then dropping you into a shell..."
+echo "Starting container as uid $(id -u):$(id -g) — running the opencode-v2 test, then dropping you into a shell..."
 
 # No GPU passthrough: the test runs no ollama and needs no acceleration.
 

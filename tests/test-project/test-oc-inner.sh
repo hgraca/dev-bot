@@ -2,8 +2,9 @@
 # =============================================================================
 # test-oc-inner.sh — runs INSIDE the devbot-test container, invoked by the
 # test-oc.sh launcher. Provisions prereqs, installs opencode if missing,
-# re-inits devbot, runs the devbot-audit command through opencode, then drops
-# to an interactive shell so you can keep working in the same container.
+# re-inits devbot against the opencode-v2 harness, runs the devbot-audit command
+# through it, then drops to an interactive shell so you can keep working in the
+# same container.
 # =============================================================================
 set -euo pipefail
 cd /app
@@ -71,7 +72,7 @@ _show_durations() {
   } >> /app/.agents/logs/test-durations.log 2>/dev/null || true
 }
 
-# Ensure the project config targets the opencode harness only.
+# Ensure the project config targets the opencode-v2 harness only.
 set_harness() {
   python3 - <<'PY'
 import json, sys
@@ -81,7 +82,7 @@ try:
         d = json.load(f)
 except (FileNotFoundError, json.JSONDecodeError):
     d = {}
-d["harness"] = "opencode"
+d["harness"] = "opencode-v2"
 with open(path, "w") as f:
     json.dump(d, f, indent=2)
     f.write("\n")
@@ -145,26 +146,21 @@ python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py"
   "${PWD}/opencode.jsonc" "${HOME}/.opencode/**"
 _phase "opencode grant"
 
-#echo
-#echo "doing agent audit..."
-#echo
-## Run the audit command body through opencode.
-#CMD_BODY=$(cat .agents/commands/devbot/audit.md | awk 'n < 2 { if (/^---[[:space:]]*$/) n++; next } { print }')
-#opencode run "$CMD_BODY" || echo "WARN: opencode run failed (exit $?) — likely missing model credentials"
-#_phase "agent audit"
-
 # ── Agent audit — headless (opt-in) or manual ─────────────────────────────────
 # Default (no --headless on the launcher): skip the audit and drop to the
 # interactive shell so you can run /devbot:audit manually in the harness.
-# With --headless (DEVBOT_TEST_HEADLESS=1): run it via `opencode run --command`.
+# With --headless (DEVBOT_TEST_HEADLESS=1): run it via `opencode run`.
 if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
   echo
-  echo "▶ Running headless audit (opencode run --command devbot:audit)..."
+  echo "▶ Running headless audit (opencode run --agent devbot <devbot:audit>)..."
   echo "  (tee'd to .agents/logs/devbot-audit-run.log)"
   echo
   mkdir -p /app/.agents/logs 2>/dev/null || true
   set +e
-  opencode run --command devbot:audit 2>&1 | tee /app/.agents/logs/devbot-audit-run.log
+  # v2 has no `run --command`: the command's body IS the prompt, the shape
+  # autobot uses (`opencode run "<prompt>"`). The frontmatter is stripped.
+  CMD_BODY="$(awk 'n < 2 { if (/^---[[:space:]]*$/) n++; next } { print }' /app/.agents/commands/devbot/audit.md)"
+  opencode run --agent devbot "${CMD_BODY}" 2>&1 | tee /app/.agents/logs/devbot-audit-run.log
   AUDIT_RC=${PIPESTATUS[0]}
   set -e
   _phase "agent audit"
