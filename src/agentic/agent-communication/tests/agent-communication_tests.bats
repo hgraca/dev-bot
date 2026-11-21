@@ -29,6 +29,15 @@ setup() {
   assert_success
 }
 
+@test "the finish flow ends on the reviewer improvement, gated on a review loop" {
+  # The step is instruction text: nothing else can prove it survives an edit.
+  # One match, so removing the gate or moving the step cannot stay green.
+  local skill="$MODULE_DIR/skills/SKILL.md"
+
+  run grep -F -- '— only when the session ran a code review loop — the `devbot:improve-reviewing` skill, then end with `[FINISHED]`' "$skill"
+  assert_success
+}
+
 @test "the [WAITING_FOR_PTY] row states its precondition in both tables" {
   # The row is what a message-phrasing agent reads; pin it, not the prose.
   local skill="$MODULE_DIR/skills/SKILL.md"

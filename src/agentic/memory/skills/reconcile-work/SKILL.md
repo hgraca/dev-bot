@@ -1,6 +1,6 @@
 ---
 name: devbot:reconcile-work
-description: "Use when wrapping up to reconcile the artifacts a session touched — work folders, worktrees and thinking files — the last of the finish flow's capture, grade and reconcile steps, after devbot:grade-tools. Triggers on 'wrap up', 'wrapping up', 'let's wrap', 'tidy the work folders', 'clean up my scratch notes'."
+description: "Use when wrapping up to reconcile the artifacts a session touched — work folders, worktrees and thinking files — the finish flow's housekeeping step, after devbot:remember-session and devbot:grade-tools, ahead of devbot:improve-reviewing when the session ran a code review loop. Triggers on 'wrap up', 'wrapping up', 'let's wrap', 'tidy the work folders', 'clean up my scratch notes'."
 ---
 
 # Reconcile Work
@@ -9,7 +9,7 @@ Align the session's artifacts with reality at the end of a session. Every work i
 
 ## When to Apply
 
-- **Primary trigger**: the primary finish flow (see `devbot:agent-communication`), immediately after `devbot:remember-session` and `devbot:grade-tools`, before `[FINISHED]`.
+- **Primary trigger**: the primary finish flow (see `devbot:agent-communication`), immediately after `devbot:remember-session` and `devbot:grade-tools`, and followed by `devbot:improve-reviewing` when the session ran a code review loop; before `[FINISHED]`.
 - The user says "wrap up", "wrapping up", "let's wrap", "tidy the work folders", "reconcile the work items", "archive the finished work", "clean up the worktrees", or "clean up my scratch notes". Only the session-ending phrasings ("wrap up", "wrapping up", "let's wrap") trigger step 3's removal of this session's `thinking/` files; the others run mid-session and skip it.
 
 ## Scope

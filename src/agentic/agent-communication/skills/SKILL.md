@@ -147,10 +147,12 @@ Where a journey _is_ warranted — to follow a decision, or to debug one — it 
 
 The primary agent (devbot or teamlead) must not emit `[FINISHED]` on its own initiative. When it believes its work with the human is complete, it asks the user whether the work is finished (using a question tool if available):
 
-- **Yes** → close the session's Jira ticket with `devbot:jira-workflow` (DONE, or CANCELED when the work was abandoned; skipped when no ticket was resolved), then run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then the `devbot:reconcile-work` skill, then end with `[FINISHED]`.
+- **Yes** → close the session's Jira ticket with `devbot:jira-workflow` (DONE, or CANCELED when the work was abandoned; skipped when no ticket was resolved), then run the `devbot:remember-session` skill, then the `devbot:grade-tools` skill, then the `devbot:reconcile-work` skill, then — only when the session ran a code review loop — the `devbot:improve-reviewing` skill, then end with `[FINISHED]`.
 - **No** → the user provides new directions and the agent continues working.
 
-This replaces the automatic post-commit memory capture — the Jira close, `devbot:remember-session` (memory), `devbot:grade-tools` (tool quality), and `devbot:reconcile-work` (work-folder and worktree housekeeping) run once, at the end, only after the user confirms the work is finished. The Jira close comes first and is not a memory step. This flow applies only to the human-facing primary agent.
+This replaces the automatic post-commit memory capture — the Jira close, `devbot:remember-session` (memory), `devbot:grade-tools` (tool quality), `devbot:reconcile-work` (work-folder and worktree housekeeping) and, when the session ran a review loop, `devbot:improve-reviewing` (reviewer improvement) run once, at the end, only after the user confirms the work is finished. The Jira close comes first and is not a memory step. This flow applies only to the human-facing primary agent.
+
+**The improvement step is what makes the toolkit learn.** A review loop on the session's pull request — Copilot's, a human's, another tool's; any reviewer that is not our own `@reviewer` — raises exactly the issues our reviewer missed, and that is the only evidence of what it still cannot see. Our own `@reviewer` pass before the pull request exists is not that loop: it has no independent findings, and it does not start this step. `devbot:improve-reviewing` turns those findings into a pull request against the dev-bot repository that improves the reviewer agent and the review skill it works from, so the next changeset catches them before a pull request exists. Write it generically: the gap is a check the reviewer does not perform, not one project's incident — no project, product, customer or consumer-repository name belongs in the instruction change or in the pull-request body. A session with no review loop has no findings, and skips the step.
 
 ## Finish Flow (subagent)
 

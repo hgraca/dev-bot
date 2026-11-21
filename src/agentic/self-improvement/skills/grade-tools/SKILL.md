@@ -20,7 +20,8 @@ spread across uses, a keep/improve quadrant verdict, and the reasons behind its 
 ## When to Apply
 
 - **Primary trigger**: the finish flow (see `devbot:agent-communication`), immediately after
-  `devbot:remember-session`; before `[FINISHED]`, followed by `devbot:reconcile-work`.
+  `devbot:remember-session`; before `[FINISHED]`, followed by `devbot:reconcile-work` and, when the
+  session ran a code review loop, `devbot:improve-reviewing`.
 - **Subagent trigger**: finishing a delegated assignment, immediately before signalling `[FINISHED]`
   back to the orchestrator. A subagent runs this skill only — never `devbot:remember-session`.
 - The user says "wrap up", "grade tools", "how did the tools do", or "remember this session".
