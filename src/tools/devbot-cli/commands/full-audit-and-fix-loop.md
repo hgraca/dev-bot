@@ -27,7 +27,8 @@ condition below.
    start a new round once the session is above 70% — finish the round in hand, then go to step 4:
 
    1. `make audit` — `tests/test-project/full-audit.sh [<branch>]` — runs the cc and oc
-      headless audits **in parallel** and gates on the reports. It exits `0` only when both
+      headless audits **in parallel** against this checkout (`DEV_BOT_TEST_LOCAL_SRC` defaults to
+      the repo root, so the worktree under review is the tree audited) and gates on the reports. It exits `0` only when both
       reports landed with no `FAIL` row, `1` while printing the FAIL rows, and `2` when a
       report is missing or a launcher failed. Sonnet is the audit default
       (`DEVBOT_TEST_CLAUDE_MODEL` overrides it): haiku fabricated findings in two

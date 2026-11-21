@@ -230,3 +230,38 @@ JSONC_EOF
   run grep -q 'note,' "$WORK/opencode.jsonc"
   assert_failure
 }
+
+@test "upsert v2: an allow for another action is not a grant" {
+  # A (action, resource) rule pair: read for /x/** does not allow
+  # external_directory on it (review: Copilot F1).
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  "permissions": [
+    { "action": "read", "resource": "/x/**", "effect": "allow" }
+  ]
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" '/x/**'
+
+  assert_success
+  assert_output --partial "added to permissions"
+}
+
+@test "upsert v2: a later deny still needs the grant" {
+  # Last match wins: an earlier allow overridden by a later * deny is not a
+  # grant, so the upsert must append (review: Copilot F2).
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  "permissions": [
+    { "action": "external_directory", "resource": "/x/**", "effect": "allow" },
+    { "action": "external_directory", "resource": "*", "effect": "deny" }
+  ]
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" '/x/**'
+
+  assert_success
+  assert_output --partial "added to permissions"
+}

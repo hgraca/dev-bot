@@ -91,6 +91,9 @@ fi
 # (three FAILs its own logs contradicted, then a fabricated PASS), and a
 # reported FAIL costs a full manual verification — sonnet pays for itself.
 export DEVBOT_TEST_CLAUDE_MODEL="${DEVBOT_TEST_CLAUDE_MODEL:-sonnet}"
+# Audit THIS checkout unless the caller points elsewhere: the launchers
+# otherwise install the public main, which is not the tree under review.
+export DEV_BOT_TEST_LOCAL_SRC="${DEV_BOT_TEST_LOCAL_SRC:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
 # Both launchers wait for their container to exit instead of attaching a shell.
 export DEVBOT_TEST_NONINTERACTIVE=1
 

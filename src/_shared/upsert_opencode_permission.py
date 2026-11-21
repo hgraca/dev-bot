@@ -156,6 +156,33 @@ def _line_comment_index(line):
     return None
 
 
+def _resource_matches(pattern, resource):
+    """v2 resource glob: `*` matches anything, `p/**` matches p and below."""
+    if pattern == resource or pattern == "*":
+        return True
+    if pattern.endswith("/**"):
+        prefix = pattern[: -len("/**")]
+        return resource == prefix or resource.startswith(prefix + "/")
+    return False
+
+
+def _v2_already_allowed(inner, resource):
+    """True when the LAST matching external_directory rule allows `resource`."""
+    verdict = None
+    for match in re.finditer(r"\{[^{}]*\}", inner, re.DOTALL):
+        obj = match.group(0)
+        action = re.search(r'"action"\s*:\s*"([^"]+)"', obj)
+        res = re.search(r'"resource"\s*:\s*"([^"]+)"', obj)
+        effect = re.search(r'"effect"\s*:\s*"([^"]+)"', obj)
+        if not (action and res and effect):
+            continue
+        if action.group(1) != "external_directory":
+            continue
+        if _resource_matches(res.group(1), resource):
+            verdict = effect.group(1)
+    return verdict == "allow"
+
+
 def _upsert_v2_array(path, src, entries):
     """Append external_directory allow rules to a v2 `permissions` array.
 
@@ -172,12 +199,10 @@ def _upsert_v2_array(path, src, entries):
 
     new_resources = []
     for resource in entries:
-        already = re.search(
-            r'\{[^{}]*"resource"\s*:\s*"' + re.escape(resource) + r'"[^{}]*"effect"\s*:\s*"allow"',
-            inner,
-            re.DOTALL,
-        )
-        if not already and resource not in new_resources:
+        # v2 resolves the LAST matching rule, and a rule is (action, resource).
+        # An allow for another action, or one a later rule overrides, is not a
+        # grant (review: Copilot F1/F2).
+        if _v2_already_allowed(inner, resource) is False and resource not in new_resources:
             new_resources.append(resource)
 
     if not new_resources:

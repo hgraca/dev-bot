@@ -156,7 +156,8 @@ python3 "${DEVBOT_INSTALL}/src/_shared/upsert_opencode_permission.py" \
 # The upsert exits 0 when it recognises neither shape, which is how the v2
 # no-op went unnoticed: assert the grant actually landed in the config.
 if ! grep -qF "${DEVBOT_INSTALL}/**" "${PWD}/opencode.jsonc"; then
-  echo "WARN: external_directory grant did not land in opencode.jsonc — the audit may be denied reads" >&2
+  echo "FATAL: external_directory grant did not land in opencode.jsonc — the audit would be denied reads" >&2
+  exit 1
 fi
 _phase "opencode grant"
 
