@@ -200,9 +200,10 @@ PY
   done
 
   # ── Verify commands match source ───────────────────────────────────────
-  # Commands are linked individually under .opencode/commands/devbot/ NAMED
-  # after their frontmatter name (devbot:audit → devbot/audit.md), so both
-  # harnesses expose the same slash command. No per-module category symlinks.
+  # Commands are linked individually under .opencode/commands/ NAMED after their
+  # full frontmatter name (devbot:audit → devbot:audit.md), so both harnesses
+  # register /devbot:audit — opencode joins path segments with `/`, claudecode
+  # with `:`. The pre-colon devbot/ category dir must be gone.
   # Derived from the tree, never a literal: a hand-maintained list let modules
   # silently escape this assertion — one was added and never covered. Modules the
   # fixture disables are skipped, because init links nothing for them.
@@ -217,21 +218,22 @@ PY
   done
   [ "${#source_command_dirs[@]}" -gt 0 ] || fail "no module ships commands — the glob is wrong"
 
-  local linked_commands_dir="$test_project/.opencode/commands/devbot"
-  [ -d "$linked_commands_dir" ] || fail "commands/devbot/ is missing"
+  local linked_commands_dir="$test_project/.opencode/commands"
+  [ -d "$linked_commands_dir" ] || fail ".opencode/commands/ is missing"
+  [ ! -e "$linked_commands_dir/devbot" ] \
+    || fail "the pre-colon commands/devbot/ category dir should be gone"
   for source_commands in "${source_command_dirs[@]}"; do
     local MODULE
     MODULE="$(basename "$(dirname "$source_commands")")"
-    [ -L "$test_project/.opencode/commands/${MODULE}" ] \
+    [ -L "$linked_commands_dir/${MODULE}" ] \
       && fail "old per-module command symlink commands/${MODULE} should not exist"
     for cmd_file in "$source_commands"/*.md; do
       [ -f "$cmd_file" ] || continue
-      local cmd_name bare
+      local cmd_name
       cmd_name="$(sed -n 's/^name:[[:space:]]*//p' "$cmd_file" | head -1 | tr -d '"')"
-      bare="${cmd_name#devbot:}"
-      local linked="$linked_commands_dir/${bare}.md"
-      [ -L "$linked" ] || fail "commands/${bare}.md is not a symlink"
-      [ "$(readlink "$linked")" = "$cmd_file" ] || fail "commands/${bare}.md points wrong target"
+      local linked="$linked_commands_dir/${cmd_name}.md"
+      [ -L "$linked" ] || fail "commands/${cmd_name}.md is not a symlink"
+      [ "$(readlink "$linked")" = "$cmd_file" ] || fail "commands/${cmd_name}.md points wrong target"
     done
   done
 

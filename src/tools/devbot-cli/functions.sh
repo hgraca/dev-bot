@@ -142,18 +142,17 @@ _link_agents() {
 }
 
 # ── Link module commands into .agents/ ──────────────────────────────────────────
-# Each command file is symlinked individually under .agents/commands/devbot/,
-# NAMED after its frontmatter name (devbot:audit → devbot/audit.md). This makes
-# both harnesses expose the same slash command: opencode reads the frontmatter
-# `name:` (devbot:audit), while claudecode derives `<dir>:<file>` from the path
-# — a category symlink of the module dir would render devbot/devbot-audit.md as
-# `devbot:devbot-audit` (wrong). The devbot/ category + bare-name file gives
-# claudecode the matching `devbot:audit`.
+# Each command file is symlinked individually into .agents/commands/, NAMED after
+# its full frontmatter name (devbot:audit → commands/devbot:audit.md). Hosts read
+# that name: opencode 2.x joins path segments with `/`, claudecode joins the dir
+# with `:`. A host that reads the frontmatter instead lands on the same id, since
+# link name == name. So `/devbot:audit` on every host; the retired devbot/ dir
+# gave opencode `/devbot/audit`.
 _link_commands() {
   local mod_dir="$1"
   local cmd_dir="${mod_dir}commands"
-  local target_dir="${AGENTS_DIR}/commands/devbot"
-  local f name bare link current resolved
+  local target_dir="${AGENTS_DIR}/commands"
+  local f name link current resolved
   local wanted=""
   local cmd_dir_real
   cmd_dir_real="$(cd "${cmd_dir}" 2>/dev/null && pwd -P || true)"
@@ -164,18 +163,20 @@ _link_commands() {
       [[ -f "${f}" ]] || continue
       name="$(sed -n 's/^name:[[:space:]]*//p' "${f}" | head -1 \
         | tr -d '\r"' | sed 's/[[:space:]]*$//')"
-      bare="${name#devbot:}"
-      [[ -n "${bare}" ]] || continue
-      # A name with a path separator would escape the farm.
-      [[ "${bare}" == */* || "${bare}" == "." || "${bare}" == ".." ]] && continue
-      wanted+="${bare}.md"$'\n'
+      # The link name is the frontmatter name verbatim, so the shape is the whole
+      # guard: anything else escapes the farm or lands in the user's namespace.
+      if [[ ! "${name}" =~ ^devbot:[A-Za-z0-9][A-Za-z0-9-]*$ ]]; then
+        _warn "commands/${f##*/} is named '${name}', not devbot:<id> — not farmed"
+        continue
+      fi
+      wanted+="${name}.md"$'\n'
 
       mkdir -p "${target_dir}"
-      link="${target_dir}/${bare}.md"
+      link="${target_dir}/${name}.md"
       if [[ -L "${link}" ]]; then
         current="$(readlink "${link}")"
         if [[ "${current}" == "${f}" ]]; then
-          _skip "commands/${bare} already linked"
+          _skip "commands/${name} already linked"
         else
           # Only a link this harness created is ours to re-point. The farm is
           # shared, so a colliding command name from another module — or a
@@ -185,16 +186,16 @@ _link_commands() {
           if _link_is_owned_by "${resolved}" "${cmd_dir}" "${cmd_dir_real}"; then
             rm -f "${link}"
             ln -sf "${f}" "${link}"
-            _ok "commands/${bare} relinked"
+            _ok "commands/${name} relinked"
           else
-            _warn "commands/${bare}.md links outside this module — leaving it"
+            _warn "commands/${name}.md links outside this module — leaving it"
           fi
         fi
       elif [[ -e "${link}" ]]; then
-        _warn "commands/${bare} exists but is not a symlink"
+        _warn "commands/${name} exists but is not a symlink"
       else
         ln -sf "${f}" "${link}"
-        _ok "commands/${bare} linked"
+        _ok "commands/${name} linked"
       fi
     done
   fi
@@ -205,6 +206,52 @@ _link_commands() {
   # case live.
   [[ -d "${target_dir}" ]] || return 0
   _prune_flat_links "${target_dir}" "${cmd_dir}" "${wanted}" "command no longer shipped" "commands/"
+  _retire_legacy_command_farm "${cmd_dir}" "command now named devbot:<id>"
+}
+
+# ── Retire the pre-colon devbot/ command category ──────────────────────────────
+# A module prunes only its own links, and the dir goes once it is empty, so a
+# foreign link or a user's file keeps it alive — and a survivor is reported.
+_retire_legacy_command_farm() {
+  local src_dir="$1"
+  local reason="${2:-command renamed}"
+
+  local legacy_dir="${AGENTS_DIR}/commands/devbot"
+  [[ -d "${legacy_dir}" ]] || return 0
+  _prune_flat_links "${legacy_dir}" "${src_dir}" "" "${reason}" "commands/devbot/"
+  _prune_install_owned_links "${legacy_dir}"
+  rmdir "${legacy_dir}" 2>/dev/null || true
+}
+
+# One report per run, after every module has retired its links: naming the dir
+# per module would repeat the same warning once for each of them.
+_warn_unretired_legacy_farm() {
+  local legacy_dir="${AGENTS_DIR}/commands/devbot"
+  [[ -d "${legacy_dir}" ]] || return 0
+  _warn "commands/devbot/ survives with: $(ls -A "${legacy_dir}" 2>/dev/null | tr '\n' ' ')"
+}
+
+# A legacy link into the install root is ours even when its module is gone. One
+# recorded against an older root matches nothing, so the dir survives and
+# `_warn_unretired_legacy_farm` names it — never deleting what we cannot place.
+_prune_install_owned_links() {
+  local legacy_dir="$1"
+  local link resolved raw root_real
+
+  [[ -n "${DEV_BOT_ROOT:-}" ]] || return 0
+  root_real="$(cd "${DEV_BOT_ROOT}" 2>/dev/null && pwd -P || echo "${DEV_BOT_ROOT}")"
+  while IFS= read -r -d '' link; do
+    resolved="$(_link_target_path "${link}")"
+    if [[ -z "${resolved}" ]]; then
+      raw="$(readlink "${link}" 2>/dev/null || true)"
+      [[ -n "${raw}" ]] || continue
+      [[ "${raw}" == /* ]] || raw="$(dirname "${link}")/${raw}"
+      resolved="${raw}"
+    fi
+    _link_is_owned_by "${resolved}" "${DEV_BOT_ROOT}" "${root_real}" || continue
+    rm -f "${link}"
+    _ok "commands/devbot/${link##*/} pruned (orphaned install link)"
+  done < <(find "${legacy_dir}" -mindepth 1 -maxdepth 1 -type l -print0 2>/dev/null)
 }
 
 # ── Decide whether a farm link belongs to a module ─────────────────────────────
@@ -273,10 +320,11 @@ _prune_flat_links() {
 _unlink_commands() {
   local mod_dir="$1"
   local reason="${2:-module disabled}"
-  local target_dir="${AGENTS_DIR}/commands/devbot"
+  local target_dir="${AGENTS_DIR}/commands"
 
   [[ -d "${target_dir}" ]] || return 0
   _prune_flat_links "${target_dir}" "${mod_dir}commands" "" "${reason}" "commands/"
+  _retire_legacy_command_farm "${mod_dir}commands" "${reason}"
 }
 
 # ── Link skills into .agents/ ───────────────────────────────────────────────────
@@ -603,4 +651,6 @@ _link_modules() {
     _link_skills "${mod_dir}"
     _link_tools "${mod_dir}"
   done
+
+  _warn_unretired_legacy_farm
 }

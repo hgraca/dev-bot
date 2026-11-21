@@ -174,7 +174,7 @@ if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
   set +e
   # v2 has no `run --command`: the command's body IS the prompt, the shape
   # autobot uses (`opencode run "<prompt>"`). The frontmatter is stripped.
-  CMD_BODY="$(awk 'n < 2 { if (/^---[[:space:]]*$/) n++; next } { print }' /app/.agents/commands/devbot/audit.md)"
+  CMD_BODY="$(awk 'n < 2 { if (/^---[[:space:]]*$/) n++; next } { print }' /app/.agents/commands/devbot:audit.md)"
   opencode run --agent devbot "${CMD_BODY}" 2>&1 | tee /app/.agents/logs/devbot-audit-run.log
   AUDIT_RC=${PIPESTATUS[0]}
   set -e
