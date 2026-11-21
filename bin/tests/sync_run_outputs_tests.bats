@@ -184,6 +184,14 @@ teardown() {
   assert_success
   run grep -qE '^python3 .*upsert_opencode_permission\.py' "${REPO_ROOT}/tests/test-project/test-oc-inner.sh"
   assert_success
+  # The install root is not always $HOME/.local/share/dev-bot: a local-src run
+  # installs into its own copy and exports DEV_BOT_INSTALL_DIR. Hardcoding the
+  # default aborted the oc run before its audit started.
+  run grep -q 'DEV_BOT_INSTALL_DIR' "${REPO_ROOT}/tests/test-project/test-oc-inner.sh"
+  assert_success
+  run grep -qF '${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py' \
+    "${REPO_ROOT}/tests/test-project/test-oc-inner.sh"
+  assert_failure
 }
 
 @test "audit spec: probe files and cleanup are scoped to the run's report id" {

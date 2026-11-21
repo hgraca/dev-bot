@@ -142,7 +142,12 @@ _phase "devbot up"
 
 # Grant the opencode install dir through opencode's external_directory
 # permission (the agent audits the harness itself). Merges; no-op if absent.
-python3 "${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py" \
+# The install root is not always the default one: a DEV_BOT_TEST_LOCAL_SRC run
+# installs into its own copy, and test-reinit.sh publishes it as
+# DEV_BOT_INSTALL_DIR — hardcoding $HOME/.local/share/dev-bot aborted the run
+# before the audit ever started.
+DEVBOT_INSTALL="${DEV_BOT_INSTALL_DIR:-$HOME/.local/share/dev-bot}"
+python3 "${DEVBOT_INSTALL}/src/_shared/upsert_opencode_permission.py" \
   "${PWD}/opencode.jsonc" "${HOME}/.opencode/**"
 _phase "opencode grant"
 
