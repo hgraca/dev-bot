@@ -1073,7 +1073,10 @@ _devbot_check_session_logs() {
   # names no tool and no failure (audit-03 F3). Anchored, so message text
   # ("... dependency [INFO] failed") and a lowercase "[info]" still alert.
   local diagnostic='^(\[[^]]*\][[:space:]]+)?\[(INFO|DEBUG)\]'
-  local report_logs="lint-k8s.log format-md.log format-json.log format-yml.log"
+  # Report logs and session transcripts. A transcript repeats everything the
+  # agent said and ran, so scanning it counts the audit's own prose as errors
+  # (54 hits in one headless run, audit-02 F2).
+  local report_logs="lint-k8s.log format-md.log format-json.log format-yml.log devbot-audit-run.log devbot-test-run.log"
   local file count found=0
   while IFS= read -r file; do
     [[ -n "${file}" ]] || continue

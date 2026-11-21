@@ -87,6 +87,15 @@ load 'init_test_helper'
   refute [ -d "${PROJECT}/.opencode/v2" ]
 }
 
+@test "a fresh init does not recreate the retired v2/ plugin farm" {
+  # The template used to ship v2/plugins/.gitkeep: the dir COPY keeps it (only
+  # bare .gitkeep entries are skipped), so the sweep's rmdir found the dir
+  # non-empty and the later .gitkeep removal left an empty retired farm behind
+  # on every reinit (audit-02 F1). A project that starts clean proves it.
+  scenario default
+  refute [ -d "${PROJECT}/.opencode/v2" ]
+}
+
 @test "every plugin directory carries a package.json" {
   scenario default
   local name

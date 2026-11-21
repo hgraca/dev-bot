@@ -960,3 +960,16 @@ LOG
   assert_success
   assert_output ""
 }
+
+@test "_devbot_check_session_logs ignores a session transcript" {
+  # A headless run tees the whole session into devbot-audit-run.log; every error
+  # verb in the agent's own prose counted as a log error (audit-02 F2).
+  local proj="${TEST_TEMP}/proj12"
+  mkdir -p "${proj}/.agents/logs"
+  printf 'ERROR: the audit brief says to look for failed things\nTraceback (most recent call last):\n' \
+    > "${proj}/.agents/logs/devbot-audit-run.log"
+
+  run _devbot_check_session_logs "${proj}"
+  assert_success
+  refute_output --partial "devbot-audit-run.log"
+}
