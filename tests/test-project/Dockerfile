@@ -63,7 +63,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # qmd is BM25-only — no models, no embeddings (ADR
 # 20260913072905-qmd-bm25-only-no-model-downloads). The launchers still mount the
 # host ~/.cache/qmd so parallel container runs share one qmd SQLite index.
-RUN su - ubuntu -c 'curl -fsSL https://opencode.ai/install | bash' \
+# The v2 installer, not the default one: opencode.ai/install ships OpenCode 1
+# only and refuses a 2.x version outright, so the default would bake a harness
+# that start.sh declines ("opencode 2.x binary not found").
+RUN su - ubuntu -c 'curl -fsSL https://opencode.ai/v2/install | bash' \
  && su - ubuntu -c 'mkdir -p "$HOME/.cache/opencode/packages/opencode-codebase-index@latest" && npm install --no-save --no-audit --no-fund --prefix "$HOME/.cache/opencode/packages/opencode-codebase-index@latest" opencode-codebase-index@0.25.1'
 
 # opencode-codebase-index pre-seed above: opencode's runtime fetch extracts
