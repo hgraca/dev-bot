@@ -51,10 +51,9 @@ OC_LAUNCHER="${FULL_AUDIT_OC_LAUNCHER:-./test-oc.sh}"
 
 THINKING="${SCRIPT_DIR}/.agents/memory/thinking"
 mkdir -p "${THINKING}"
-LOG_DIR="${SCRIPT_DIR}/.agents/logs/full-audit-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "${LOG_DIR}"
+mkdir -p "${SCRIPT_DIR}/.agents/logs"
+LOG_DIR="$(mktemp -d "${SCRIPT_DIR}/.agents/logs/full-audit-$(date +%Y%m%d-%H%M%S).XXXXXX")"
 
-_before="$(find "${THINKING}" -maxdepth 1 -name 'devbot-audit-[0-9]*.md' 2>/dev/null | sort)"
 
 SESSION_BUDGET="${FULL_AUDIT_SESSION_BUDGET:-70}"
 USAGE_TOOL="${FULL_AUDIT_USAGE_TOOL:-${SCRIPT_DIR}/../../src/agentic/devbot/tools/session-usage.mcp.sh}"
@@ -119,7 +118,7 @@ oc_rc=0
 # B1/B2). One report per launcher, by attribution, is the only honest pair.
 _report_for() {
   local log="$1" name
-  name="$(sed -n 's/.*→ \.agents\/memory\/thinking\/\(devbot-audit-[0-9][0-9]*\.md\)$/\1/p' "${log}" 2>/dev/null | tail -1)"
+  name="$(sed -n 's/^ *report written via mount → \.agents\/memory\/thinking\/\(devbot-audit-[0-9][0-9]*\.md\)$/\1/p' "${log}" 2>/dev/null | tail -1)"
   [[ -n "${name}" ]] || return 1
   [[ -s "${THINKING}/${name}" ]] || return 1
   printf '%s' "${THINKING}/${name}"
@@ -139,8 +138,8 @@ _fail_rows() {
     /^[[:space:]]*\|/ && NF >= 3 {
       status = toupper($3)
       gsub(/[[:space:]]/, "", status)
-      # Standalone token: "FAIL-1" and "PASS+FAIL-1" count, "FAILs" does not.
-      if (status ~ /(^|[^A-Z])FAIL([^A-Z]|$)/) print NR": "$0
+      # FAILED / FAILURE / FAIL-1 all count; "no FAILs" answers a question.
+      if (status ~ /(^|[^A-Z])FAIL/ && status !~ /(^|[^A-Z])(NO|0)FAIL/) print NR": "$0
     }
     /^#{1,6}[[:space:]]/ && toupper($0) ~ /FAIL/ { print NR": "$0 }
     /^\*\*FAIL/ { print NR": "$0 }

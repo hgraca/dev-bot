@@ -209,3 +209,24 @@ JSONC_EOF
   run grep -q 'last match wins,' "$WORK/opencode.jsonc"
   assert_failure
 }
+
+@test "upsert v2: an inline comment on the last rule stays valid" {
+  # "}  // note" used to take the separator into the comment (review W-A).
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  "permissions": [
+    { "action": "read", "resource": "*", "effect": "allow" }  // note
+  ]
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" '/x/**'
+
+  assert_success
+  run python3 "$PROJECT_ROOT/src/_shared/read_jsonc.py" "$WORK/opencode.jsonc" permissions
+  assert_success
+  run grep -qF '// note' "$WORK/opencode.jsonc"
+  assert_success
+  run grep -q 'note,' "$WORK/opencode.jsonc"
+  assert_failure
+}

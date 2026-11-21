@@ -247,3 +247,17 @@ STUB
   assert_success
   assert_output --partial "both reports landed with no FAIL row"
 }
+
+@test "a FAILED status cell is a finding" {
+  # FAILED/FAILURE used to read as clean once FAIL had to be a bare token
+  # (review W-C).
+  printf '| Subsystem | Status | Evidence |\n| Hooks | FAILED | dropped |\n' >"${SANDBOX}/body.md"
+  CC_STUB="$(_stub_from cc 11 "${SANDBOX}/body.md")"
+  OC_STUB="$(_stub_from oc 12 "${SANDBOX}/body.md")"
+
+  _run
+
+  assert_failure
+  assert_equal "$status" 1
+  assert_output --partial "FAILED"
+}

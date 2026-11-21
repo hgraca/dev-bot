@@ -7,7 +7,8 @@ The slash command devbot:audit has been run, inspect the latest audit report and
 
 You can find the report under `tests/test-project/<devbot_dir>/memory/thinking/devbot-audit-NN.md`,
 where `NN` is the next sequential integer starting at `01`.
-List the existing `devbot-audit-*.md` files in that directory to find the last one.
+List the existing `devbot-audit-*.md` files in that directory to find the last one — and when the
+caller names a report (the loop hands over the pair), read that file instead of guessing.
 
 If no report can be found under `tests/test-project/<devbot_dir>/memory/thinking/devbot-audit-NN.md`, then
 try within the project root path itself `<devbot_dir>/memory/thinking/devbot-audit-NN.md`.

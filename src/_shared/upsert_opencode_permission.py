@@ -134,6 +134,28 @@ def _bracket_block(text, key):
     return None
 
 
+def _line_comment_index(line):
+    """Index of a // comment outside a string in one line, or None."""
+    in_str = False
+    escaped = False
+    i = 0
+    while i < len(line) - 1:
+        ch = line[i]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "/" and line[i + 1] == "/":
+            return i
+        i += 1
+    return None
+
+
 def _upsert_v2_array(path, src, entries):
     """Append external_directory allow rules to a v2 `permissions` array.
 
@@ -165,6 +187,18 @@ def _upsert_v2_array(path, src, entries):
     indent = _entry_indent(inner)
     body = inner.rstrip()
     tail = inner[len(body) :]
+
+    # An inline comment on the last rule ("}  // note") would take the
+    # separator into the comment text (review W-A): cut it off first and
+    # re-emit it after the inserted entries.
+    inline = ""
+    if body:
+        last_nl = body.rfind("\n")
+        line = body[last_nl + 1 :]
+        cut = _line_comment_index(line)
+        if cut is not None:
+            inline = line[cut:]
+            body = (body[: last_nl + 1] + line[:cut]).rstrip()
     # A comment closing the array must not receive the separator: "// note,"
     # is not valid JSONC (review B4). Hold those lines and re-emit them after
     # the inserted entries.
@@ -186,6 +220,8 @@ def _upsert_v2_array(path, src, entries):
     addition = "\n" + "\n".join(added)
     if trailing:
         addition += "\n" + "\n".join(trailing)
+    if inline:
+        addition += "\n" + indent + inline
 
     if "\n" not in tail:
         tail = "\n" + _line_indent(src, open_idx)
