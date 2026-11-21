@@ -108,6 +108,66 @@ def collect(log_count: int, cwd: str | None = None) -> dict:
     }
 
 
+def collect_commits(
+    rev_range: str, paths: list[str] | None = None, limit: int = 20, cwd: str | None = None
+) -> dict:
+    """Per-commit subject, author and stat for a revision range.
+
+    One `git show` per commit is what a caller would otherwise type; this walks
+    the range once and renders the same information in a single block.
+    """
+    fmt = "%h%x1f%s%x1f%an%x1f%ad"
+    cmd = ["git", "log", f"-{limit}", f"--format={fmt}", "--date=short", rev_range]
+    if paths:
+        cmd += ["--", *paths]
+    listing, rc = run(cmd, cwd=cwd)
+    if rc != 0:
+        return {"range": rev_range, "error": listing or "(git log failed)", "commits": []}
+
+    commits = []
+    for line in listing.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\x1f")
+        if len(parts) != 4:
+            continue
+        sha, subject, author, date = parts
+        stat_cmd = ["git", "show", "--stat", "--format=", sha]
+        if paths:
+            stat_cmd += ["--", *paths]
+        stat, _ = run(stat_cmd, cwd=cwd)
+        commits.append(
+            {"sha": sha, "subject": subject, "author": author, "date": date, "stat": stat}
+        )
+    return {"range": rev_range, "paths": paths or [], "commits": commits}
+
+
+def render_commits(data: dict) -> str:
+    """Render a revision range as a markdown block."""
+    lines = [f"## Commits in `{data['range']}`", ""]
+    if data.get("paths"):
+        lines += [f"**Paths:** `{' '.join(data['paths'])}`", ""]
+    if data.get("error"):
+        lines += [f"**ERROR:** {data['error']}", ""]
+        return "\n".join(lines)
+    if not data["commits"]:
+        lines += ["_(no commits in range)_", ""]
+        return "\n".join(lines)
+    for commit in data["commits"]:
+        lines.append(f"### `{commit['sha']}` {commit['subject']}")
+        lines.append("")
+        lines.append(f"_{commit['author']}, {commit['date']}_")
+        lines.append("")
+        if commit["stat"]:
+            lines.append("```")
+            lines.append(commit["stat"])
+            lines.append("```")
+        else:
+            lines.append("_(empty commit)_")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def render_markdown(data: dict) -> str:
     """Render collected git state as a markdown report."""
     lines = []
@@ -205,6 +265,24 @@ def main() -> None:
         default=None,
         help="Repository directory (same as --cwd)",
     )
+    parser.add_argument(
+        "--commits",
+        default=None,
+        metavar="RANGE",
+        help="Report per-commit stat for a revision range instead of the snapshot "
+        "(e.g. origin/main..HEAD, or a single sha)",
+    )
+    parser.add_argument(
+        "--paths",
+        default=None,
+        help="With --commits: space-separated paths to limit the report to",
+    )
+    parser.add_argument(
+        "--max-commits",
+        type=int,
+        default=20,
+        help="With --commits: at most this many commits (default: 20)",
+    )
     args = parser.parse_args()
 
     if args.cwd is not None and args.path is not None:
@@ -228,6 +306,17 @@ def main() -> None:
         if repo_rc != 0:
             print(f"ERROR: {source} is not a git repository: {args.cwd}", file=sys.stderr)
             raise SystemExit(2)
+
+    if args.commits:
+        paths = args.paths.split() if args.paths else None
+        commits = collect_commits(
+            args.commits, paths=paths, limit=args.max_commits, cwd=args.cwd
+        )
+        if args.format == "json":
+            print(json.dumps({"status": "ok", **commits}, indent=2))
+        else:
+            print(render_commits(commits))
+        return
 
     data = collect(args.log_count, cwd=args.cwd)
 

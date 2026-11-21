@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---
-# description: Capture a snapshot of the current git state: current branch, default branch, recent commits, working tree status, staged diff, commits unique to the current branch, and index integrity
+# description: Capture a snapshot of the current git state — branch, default branch, recent commits, status, staged diff, branch-unique commits, index integrity — or, with --commits RANGE, one stat block per commit in a revision range
 # ---
 # =============================================================================
 # src/agentic/git/tools/git-report.mcp.sh
@@ -27,7 +27,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"git-report","description":"Capture a snapshot of a git repository's state: repository path, current branch, default branch, recent commits, working tree status, staged diff, commits unique to the current branch, and index integrity. Pass a repository path positionally or with --cwd to inspect a sibling repo or worktree instead of the session project.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"Options passed to git-report (e.g. --log-count 20, /path/to/repo, --cwd /path/to/repo)"}},"required":["args"]}}
+{"name":"git-report","description":"Capture a snapshot of a git repository's state: repository path, current branch, default branch, recent commits, working tree status, staged diff, commits unique to the current branch, and index integrity. With --commits RANGE it instead reports per-commit subject, author and stat for a revision range — one call where the agent would otherwise run git show per commit. Pass a repository path positionally or with --cwd to inspect a sibling repo or worktree.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"Options passed to git-report (e.g. --commits origin/main..HEAD, --paths src/x, --log-count 20, --cwd /path/to/repo)"}},"required":["args"]}}
 JSON
     exit 0
     ;;

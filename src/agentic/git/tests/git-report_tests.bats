@@ -289,3 +289,34 @@ run_tool() {
 
   rm -rf "$tmpdir"
 }
+
+@test "--commits reports one block per commit with its stat" {
+    git -C "$REPO" checkout -q -b work
+    echo "more" >>"$REPO/file.txt"
+    git -C "$REPO" commit -q -am "second: change file"
+
+    run bash "$TOOL" --commits "HEAD~1..HEAD" --cwd "$REPO"
+    assert_success
+    assert_output --partial '## Commits in `HEAD~1..HEAD`'
+    assert_output --partial "second: change file"
+    assert_output --partial "file.txt"
+}
+
+@test "--commits with an empty range says so instead of failing" {
+    run bash "$TOOL" --commits "HEAD..HEAD" --cwd "$REPO"
+    assert_success
+    assert_output --partial "no commits in range"
+}
+
+@test "--commits --paths limits the stat to the given paths" {
+    git -C "$REPO" checkout -q -b work2
+    echo "a" >"$REPO/one.txt"
+    echo "b" >"$REPO/two.txt"
+    git -C "$REPO" add -A
+    git -C "$REPO" commit -q -m "third: two files"
+
+    run bash "$TOOL" --commits "HEAD~1..HEAD" --paths one.txt --cwd "$REPO"
+    assert_success
+    assert_output --partial "one.txt"
+    refute_output --partial "two.txt"
+}
