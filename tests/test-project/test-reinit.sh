@@ -9,9 +9,24 @@ npm config set prefix "$HOME/.local" 2>/dev/null || true
 # (docs homepage hero). The branch to install comes from the launcher
 # (DEV_BOT_TEST_BRANCH, default main) — e.g. `./test-oc.sh my-branch`.
 BRANCH="${DEV_BOT_TEST_BRANCH:-main}"
+LOCAL_SRC="${DEV_BOT_TEST_LOCAL_SRC:-}"
 if ! command -v devbot >/dev/null 2>&1; then
-  echo "devbot not found — installing (branch: ${BRANCH})..."
-  curl -fsSL "https://raw.githubusercontent.com/hgraca/dev-bot/${BRANCH}/install.sh" | bash -s -- --org hgraca --branch "${BRANCH}"
+  if [[ -n "${LOCAL_SRC}" && -f "${LOCAL_SRC}/bin/install.sh" ]]; then
+    # Install from a local checkout or worktree, so an unmerged branch can be
+    # audited without pushing it anywhere. The mount is read-only and the
+    # installer writes into its own root (vendor, storage, node_modules), so it
+    # works on a copy — which also leaves the host tree untouched.
+    LOCAL_COPY="$HOME/devbot-src"
+    echo "devbot not found — installing from the local checkout at ${LOCAL_SRC}..."
+    [[ -d "${LOCAL_COPY}" ]] && rm -r "${LOCAL_COPY}"
+    cp -a "${LOCAL_SRC}" "${LOCAL_COPY}"
+    ( cd "${LOCAL_COPY}" && bash ./install.sh )
+    DEV_BOT_INSTALL_DIR="${LOCAL_COPY}"
+    export DEV_BOT_INSTALL_DIR
+  else
+    echo "devbot not found — installing (branch: ${BRANCH})..."
+    curl -fsSL "https://raw.githubusercontent.com/hgraca/dev-bot/${BRANCH}/install.sh" | bash -s -- --org hgraca --branch "${BRANCH}"
+  fi
 fi
 
 # The self-contained fixture runs no host ollama (no --network host). The gate

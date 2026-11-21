@@ -156,6 +156,16 @@ fi
 # works) — so run detached and, once the inner script signals it has finished
 # its phases (writes .agents/.test-ready into the host-mounted /app), attach a
 # real pty with `docker exec -it`. Phase output streams live via `docker logs`.
+# Optional: install dev-bot from a local checkout or worktree instead of the
+# public fork. Mounted read-only; the fixture copies it inside the container and
+# runs its own install.sh, so an unmerged branch needs no push.
+LOCAL_SRC="${DEV_BOT_TEST_LOCAL_SRC:-}"
+LOCAL_SRC_ARGS=()
+if [[ -n "${LOCAL_SRC}" ]]; then
+  LOCAL_SRC="$(cd "${LOCAL_SRC}" && pwd)"
+  LOCAL_SRC_ARGS=(-v "${LOCAL_SRC}:/opt/devbot-src:ro" -e "DEV_BOT_TEST_LOCAL_SRC=/opt/devbot-src")
+fi
+
 echo "Starting ${CONTAINER_NAME} (detached — phases run inside; log follows)..."
 docker run -d --rm --name "${CONTAINER_NAME}" \
   --privileged \
@@ -164,6 +174,7 @@ docker run -d --rm --name "${CONTAINER_NAME}" \
   "${CLAUDE_CONFIG_ARGS[@]+"${CLAUDE_CONFIG_ARGS[@]}"}" \
   "${CLAUDE_AUTH_ARGS[@]+"${CLAUDE_AUTH_ARGS[@]}"}" \
   -v "${RUN_DIR}:/app" \
+  "${LOCAL_SRC_ARGS[@]+"${LOCAL_SRC_ARGS[@]}"}" \
   -v "${SCRIPT_DIR}/.agents/memory/thinking:/app/.agents/memory/thinking" \
   -v "${HOME}/.ssh:/tmp/ssh:ro" \
   -v "${HOME}/.claude:/home/ubuntu/.claude" \

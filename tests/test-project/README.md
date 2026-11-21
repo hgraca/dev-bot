@@ -17,6 +17,15 @@ then either of these — **they can run in parallel** (different terminals):
 ./test-oc.sh # OpenCode v2
 ```
 
+By default a launcher installs dev-bot from the public fork (raw.githubusercontent
+cannot serve the private repo). To audit an **unmerged branch or a worktree**
+instead, point it at a local checkout — the fixture copies that tree into the
+container and runs its own `install.sh`, so nothing needs pushing:
+
+```shell
+DEV_BOT_TEST_LOCAL_SRC=/path/to/worktree ./test-oc.sh --headless
+```
+
 Each launcher runs its container against an **isolated per-run copy** of this
 fixture (mounted at `/app`), with its own pid-suffixed container name — so cc
 and oc never race over `.devbot.project.jsonc`, the harness wiring dirs, the
