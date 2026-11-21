@@ -49,6 +49,12 @@ PROJ-1234: add the gh-create-pr command
 Take the key from the ticket the session resolved (`devbot:jira-workflow`). Only when no ticket
 exists, use the bare imperative subject.
 
+**Exception — a pull request that implements none of the session's work.** Wrap-up can open a pull
+request in another repository from what the session learned — `devbot:improve-reviewing` does exactly
+that against the toolkit repository. The session's ticket tracks work in its own repository, so the
+key would link this pull request to an issue it does not implement: use the bare imperative subject,
+and that repository's own ticket key only when the improvement has one.
+
 ## Body — the why, not the how
 
 The PR body carries the same two lists a commit body does — what the branch addresses and what it does
@@ -66,6 +72,10 @@ Solutions:
 
 One bullet per distinct problem and solution, each ≤72 characters. Base them on the branch's commits
 and its diff against the default branch, not on the branch name alone.
+
+For the pull request in the [title exception](#title) — one that implements none of the session's
+work — the two lists give way to one short section per change it makes: what the external evidence
+showed, why the current instructions miss it, and the file that now covers it.
 
 ## Open the PR
 

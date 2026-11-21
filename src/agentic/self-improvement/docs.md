@@ -12,7 +12,7 @@ The toolkit's tools for improving itself: everything needed to author or revise 
 
 - **Authoring** — `create-skill`, `create-agent`, `create-devbot-module`, `create-opencode-tool`, `create-claudecode-tool` and `create-command` carry the conventions for each artifact type.
 - **Retrospectives** — `make-retrospective` assesses a completed task or iteration; `address-retrospective` acts on what it found.
-- **Process improvement** — `improve-planning`, `improve-reviewing` and `improve-implementation` trace a quality gap back to the instruction that caused it; the `improve-reviewing` command iterates on how the reviewer reviews.
+- **Process improvement** — `improve-planning`, `improve-reviewing` and `improve-implementation` trace a quality gap back to the instruction that caused it; `improve-reviewing` turns the issues a code review loop caught into a pull request against the dev-bot repository, so the reviewer catches them before the next pull request exists.
 - **Automation discovery** — `find-automation-candidates` measures the command chains the agent actually types across its sessions and ranks the ones worth a script; the command runs the analysis for a given number of sessions.
 - **Instruction quality** — `optimize-instructions` rewrites agent instruction files; `grade-tools` records how well each tool performed so a weak tool can be found and fixed.
 
