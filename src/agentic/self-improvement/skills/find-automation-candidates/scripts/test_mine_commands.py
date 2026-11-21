@@ -79,6 +79,19 @@ class RunRecordsTest(unittest.TestCase):
         self.assertEqual([raw for run in runs for _, raw in run], [10, 8])
 
 
+class SplitViewsTest(unittest.TestCase):
+    def test_all_symbols_keeps_tool_calls_and_order(self):
+        records = {"s": [("git status", 10), ("edit", 4), ("git diff", 8)]}
+        all_runs, shell_runs = mine.split_views(records, {"edit"})
+        self.assertEqual(all_runs["s"], [["git status", "edit", "git diff"]])
+        self.assertEqual(shell_runs["s"], [["git status"], ["git diff"]])
+
+    def test_shell_view_never_rejoins_across_a_tool_call(self):
+        records = {"s": [("sed", 3), ("edit", 4), ("sed", 3)]}
+        _all, shell = mine.split_views(records, {"edit"})
+        self.assertNotIn(["sed", "sed"], shell["s"])
+
+
 class MineTest(unittest.TestCase):
     def test_support_counts_sessions_not_runs(self):
         runsets = {"a": [["x", "y"], ["x", "y"]], "b": [["x", "y"]]}

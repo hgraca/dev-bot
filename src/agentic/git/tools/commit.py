@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 
@@ -60,6 +61,17 @@ def main(argv: list[str]) -> int:
                     return EXIT_USAGE
         except OSError as exc:
             print(f"ERROR: cannot read message file: {exc}", file=sys.stderr)
+            return EXIT_USAGE
+
+    # A directory pathspec stages everything under it — the whole-tree commit
+    # this tool promises never to make.
+    for path in args.paths:
+        resolved = path if not args.cwd else os.path.join(args.cwd, path)
+        if path in ("", ".", "./", "..") or path.endswith("/") or os.path.isdir(resolved):
+            print(
+                f"ERROR: refusing a whole-tree pathspec: {path!r} — name the files",
+                file=sys.stderr,
+            )
             return EXIT_USAGE
 
     _, rc, err = git(["add", "--", *args.paths], cwd=args.cwd)

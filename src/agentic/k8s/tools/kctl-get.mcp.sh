@@ -48,7 +48,11 @@ esac
 
 cluster=""
 project_path="."
+query=()
 
+# Wrapper options are recognised anywhere in the line, not just before the query:
+# `get pods -n transfers-qa --cluster gete-dev` is the documented form, and
+# leaving --cluster inside the query would silently target the wrong context.
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --cluster)
@@ -71,17 +75,23 @@ while [[ $# -gt 0 ]]; do
       }
       shift 2
       ;;
+    --path=*)
+      project_path="${1#*=}"
+      shift
+      ;;
     --)
       shift
+      query+=("$@")
       break
       ;;
     *)
-      break
+      query+=("$1")
+      shift
       ;;
   esac
 done
 
-if [[ $# -eq 0 ]]; then
+if [[ ${#query[@]} -eq 0 ]]; then
   echo "ERROR: no query given — pass kubectl arguments, e.g. get deploy -n transfers-qa" >&2
   exit 2
 fi
@@ -101,6 +111,6 @@ if [[ ! -f "$KCTL" ]]; then
 fi
 
 if [[ -n "$cluster" ]]; then
-  exec bash "$KCTL" exec "$cluster" "$project_path" -- "$@"
+  exec bash "$KCTL" exec "$cluster" "$project_path" -- "${query[@]}"
 fi
-exec bash "$KCTL" run "$project_path" -- "$@"
+exec bash "$KCTL" run "$project_path" -- "${query[@]}"

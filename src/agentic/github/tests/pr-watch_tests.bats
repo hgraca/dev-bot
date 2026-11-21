@@ -26,7 +26,10 @@ case "$*" in
   "api --paginate"*"timeline"*)
       [ -f "@MARKER@" ] && echo "2026-01-01T00:00:00Z" ;;
 
-  "pr view"*) echo '{"number":172,"state":"OPEN","isDraft":false,"reviewDecision":"","headRefName":"feat/x","title":"test pr","url":"https://example/pr/172"}' ;;
+  "pr view"*"--json commits"*) echo "2025-12-31T00:00:00Z" ;;
+  "pr view"*)
+      printf '{"number":172,"state":"OPEN","isDraft":false,"reviewDecision":"%s","headRefName":"feat/x","title":"test pr","url":"https://example/pr/172"}\n' "${PR_REVIEW_DECISION:-}"
+      ;;
   "api graphql"*)
       touch "@MARKER@"
       echo '{"data":{"requestReviews":{"clientMutationId":null}}}'
@@ -37,6 +40,7 @@ case "$*" in
       fi
       ;;
   "pr checks"*)
+      if [ "$scenario" = broken ]; then exit 5; fi
       if [ "$scenario" = fail ]; then
           echo '[{"name":"build","state":"FAILURE","bucket":"fail"}]'
       else
@@ -93,4 +97,19 @@ STUB
     assert_success
     assert_output --partial '"status": "review"'
     assert_output --partial '"repository": "GET-E/dev-bot"'
+}
+
+@test "a gh failure exits 1 instead of polling to the timeout" {
+    export PR_WATCH_SCENARIO=broken
+    run bash "$TOOL" 172 --no-request --timeout 5 --interval 1
+    assert_equal "$status" 1
+    assert_output --partial "ERROR:"
+}
+
+@test "a final review decision stops polling with no review body" {
+    export PR_WATCH_SCENARIO=none
+    export PR_REVIEW_DECISION=APPROVED
+    run bash "$TOOL" 172 --no-request --timeout 30 --interval 1
+    assert_success
+    assert_output --partial "APPROVED"
 }

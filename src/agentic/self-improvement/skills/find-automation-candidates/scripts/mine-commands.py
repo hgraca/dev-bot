@@ -512,6 +512,24 @@ def stage_extract(con, roots, out):
     return total
 
 
+def split_views(records_by_session, tools):
+    """The two views, from the same raw records.
+
+    The all-symbols view keeps native tool calls and the real call order; the
+    shell view splits at those calls. Filtering one flat list for the shell view
+    and reusing it for the all-symbols one would both drop the tool symbols and
+    rejoin commands that were separated by a call.
+    """
+    all_runsets = {
+        name: [[symbol for symbol, _ in records]] for name, records in records_by_session.items()
+    }
+    shell_runsets = {
+        name: [[symbol for symbol, _ in run] for run in run_records(records, tools)]
+        for name, records in records_by_session.items()
+    }
+    return all_runsets, shell_runsets
+
+
 def load_runsets(out):
     records, tools = {}, set()
     for path in sorted((out / "sessions").glob("*.md")):
@@ -528,31 +546,36 @@ def table(ranked, limit):
     return rows
 
 
+def load_records(out):
+    """Raw ``(symbol, raw_chars)`` records per session, plus native tool names."""
+    records, tools = {}, set()
+    for path in sorted((out / "sessions").glob("*.md")):
+        recs, used = session_records(path)
+        records[path.stem] = recs
+        tools |= used
+    return records, tools
+
+
 def stage_mine(out, min_support, top, lo, hi):
-    runsets = load_runsets(out)
-    if not runsets:
+    records, tools = load_records(out)
+    if not records:
         sys.exit(f"FATAL: no session files under {out / 'sessions'}")
-    symbols = {
-        name: [[s for s, _ in run] for run in runs]
-        for name, runs in runsets.items()
-    }
+    all_runsets, shell_runsets = split_views(records, tools)
     flat = {
-        name: [symbol for run in runs for symbol, _ in run]
-        for name, runs in runsets.items()
+        name: [symbol for run in runs for symbol in run]
+        for name, runs in all_runsets.items()
     }
 
-    # One run per session for the all-symbols view: native tools included, so the
-    # run is the whole call sequence and adjacency is the real call order.
-    all_grams = prune(mine({n: [syms] for n, syms in flat.items()}, lo, hi), min_support)
+    all_grams = prune(mine(all_runsets, lo, hi), min_support)
     all_ranked = sorted(all_grams.items(), key=lambda kv: (len(kv[1][1]), kv[1][0], len(kv[0])), reverse=True)
-    run_grams = prune(mine(symbols, lo, hi), min_support)
+    run_grams = prune(mine(shell_runsets, lo, hi), min_support)
     run_ranked = sorted(run_grams.items(), key=lambda kv: (len(kv[1][1]), kv[1][0], len(kv[0])), reverse=True)
 
     vocabulary = collections.Counter(symbol for syms in flat.values() for symbol in syms)
     lines = [
         "# Recurring command sequences",
         "",
-        f"Sessions: {len(runsets)} · symbols: {sum(vocabulary.values())} · n-grams: "
+        f"Sessions: {len(records)} · symbols: {sum(vocabulary.values())} · n-grams: "
         f"{lo}..{hi} · min session support: {min_support}",
         "",
         "Symbols are verb-level: program plus up to three meaningful words, paths, hashes "

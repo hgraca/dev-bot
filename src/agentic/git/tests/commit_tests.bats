@@ -92,3 +92,20 @@ setup() {
     assert_equal "$status" 2
     assert_output --partial "--fixup writes its own message"
 }
+
+@test "a directory pathspec is refused instead of staging the tree" {
+    mkdir -p "$REPO/sub"
+    echo "inside" >"$REPO/sub/inner.txt"
+    run bash "$TOOL" --message-file "$MSG" --cwd "$REPO" sub
+    assert_equal "$status" 2
+    assert_output --partial "whole-tree pathspec"
+    run git -C "$REPO" log -1 --format=%s
+    assert_output "initial"
+}
+
+@test "a bare dot is refused" {
+    echo "changed" >>"$REPO/one.txt"
+    run bash "$TOOL" --message-file "$MSG" --cwd "$REPO" .
+    assert_equal "$status" 2
+    assert_output --partial "whole-tree pathspec"
+}

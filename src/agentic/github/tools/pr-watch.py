@@ -42,6 +42,10 @@ COPILOT_USER = "copilot-pull-request-reviewer%5Bbot%5D"
 COPILOT_LOGIN = "Copilot"
 
 
+class GhError(Exception):
+    """A GitHub call failed; distinct from a PR that simply has no data yet."""
+
+
 def gh(args: list[str], timeout: int = 60) -> tuple[str, int, str]:
     """Run gh; return (stdout, returncode, stderr). Never raises."""
     try:
@@ -93,13 +97,27 @@ def review_requested_at(repo: str, number: str) -> str:
     return out.splitlines()[-1].strip()
 
 
+def head_committed_at(repo: str, number: str) -> str:
+    """When the PR's head commit was authored — the freshness bound for a request."""
+    out, rc, _ = gh(
+        ["pr", "view", number, "--repo", repo, "--json", "commits", "--jq", ".[-1].committedDate"],
+        timeout=120,
+    )
+    return out if rc == 0 else ""
+
+
 def request_review(repo: str, number: str) -> str:
     """Ask for the Copilot review. Returns a line describing what happened.
 
     GraphQL only: `gh pr edit --add-reviewer` reports success while registering
     nobody, and the REST request endpoint does not queue a bot reviewer either.
     """
-    if review_requested_at(repo, number):
+    # An old request stays in the timeline forever. Only a request newer than
+    # the current head proves this head was queued; otherwise a push would go
+    # unreviewed because a previous round had asked once.
+    requested = review_requested_at(repo, number)
+    head_at = head_committed_at(repo, number)
+    if requested and head_at and requested >= head_at:
         return "review: already requested"
     bot, rc, err = gh(["api", f"users/{COPILOT_USER}", "--jq", ".node_id"])
     if rc != 0 or not bot:
@@ -126,35 +144,57 @@ def request_review(repo: str, number: str) -> str:
     return "review: requested" if review_requested_at(repo, number) else "review: not queued"
 
 
-def latest_review(repo: str, number: str) -> dict | None:
-    out, rc, _ = gh(
+def latest_review(repo: str, number: str, since: str = "") -> dict | None:
+    """The newest Copilot review submitted after ``since``, paginated.
+
+    The endpoint mixes human and bot reviews and is paginated: taking the last
+    entry would let a human review end the loop, and would miss a Copilot review
+    beyond the first page.
+    """
+    out, rc, err = gh(
         [
             "api",
+            "--paginate",
             f"repos/{repo}/pulls/{number}/reviews",
             "--jq",
             ".[] | {user: .user.login, state, submitted_at, body}",
-        ]
+        ],
+        timeout=120,
     )
-    if rc != 0 or not out:
-        return None
+    if rc != 0:
+        raise GhError(err or "gh api reviews failed")
     reviews = []
     for line in out.splitlines():
         try:
-            reviews.append(json.loads(line))
+            entry = json.loads(line)
         except ValueError:
             continue
-    return reviews[-1] if reviews else None
+        if "copilot" not in (entry.get("user") or "").lower():
+            continue
+        if since and (entry.get("submitted_at") or "") <= since:
+            continue
+        reviews.append(entry)
+    if not reviews:
+        return None
+    return max(reviews, key=lambda entry: entry.get("submitted_at") or "")
 
 
 def checks(repo: str, number: str) -> tuple[str, list[dict]]:
-    """Return (overall bucket, rows). Overall is fail | pending | pass | none."""
-    out, rc, _ = gh(["pr", "checks", number, "--repo", repo, "--json", "name,state,bucket"])
-    if rc != 0:
+    """Return (overall bucket, rows). Overall is fail | pending | pass | none.
+
+    A gh failure raises: reporting "none" during an outage would look like a PR
+    with no checks and poll until the timeout instead of failing fast. A non-zero
+    exit with parseable JSON is normal — gh returns one when checks are failing.
+    """
+    out, rc, err = gh(["pr", "checks", number, "--repo", repo, "--json", "name,state,bucket"])
+    if not out:
+        if rc != 0:
+            raise GhError(err or "gh pr checks failed")
         return "none", []
     try:
-        rows = json.loads(out) if out else []
+        rows = json.loads(out)
     except ValueError:
-        return "none", []
+        raise GhError(err or "gh pr checks returned no JSON")
     buckets = {(row.get("bucket") or "").lower() for row in rows}
     if "fail" in buckets or "cancel" in buckets:
         return "fail", rows
@@ -221,15 +261,36 @@ def main(argv: list[str]) -> int:
         return EXIT_USAGE
 
     requested = request_review(repo, args.number) if not args.no_request else "review: skipped"
+    # Only a review newer than this cursor belongs to this round.
+    cursor = review_requested_at(repo, args.number) or head_committed_at(repo, args.number)
     deadline = time.monotonic() + args.timeout
     waits = 0
     review: dict | None = None
-    bucket, rows = checks(repo, args.number)
+    try:
+        bucket, rows = checks(repo, args.number)
+    except GhError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return EXIT_ERROR
 
     while True:
-        review = latest_review(repo, args.number)
-        has_findings = bool(review and (review.get("body") or "").strip())
-        bucket, rows = checks(repo, args.number)
+        try:
+            review = latest_review(repo, args.number, cursor)
+        except GhError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return EXIT_ERROR
+        try:
+            decision = (pr_state(repo, args.number).get("reviewDecision") or "").upper()
+        except SystemExit as exc:
+            print(str(exc), file=sys.stderr)
+            return EXIT_ERROR
+        has_findings = bool(
+            review and (review.get("body") or "").strip()
+        ) or decision in ("APPROVED", "CHANGES_REQUESTED")
+        try:
+            bucket, rows = checks(repo, args.number)
+        except GhError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return EXIT_ERROR
 
         if has_findings:
             code = EXIT_REVIEW

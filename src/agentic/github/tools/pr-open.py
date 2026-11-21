@@ -84,6 +84,15 @@ def create_pr(title: str, body_file: str | None, base: str | None, draft: bool) 
     return out.splitlines()[-1].strip() if out else ""
 
 
+def head_committed_at(number: str, repo: str) -> str:
+    """When the PR's head commit was authored — the freshness bound for a request."""
+    out, rc, _ = run(
+        ["gh", "pr", "view", number, "--repo", repo, "--json", "commits", "--jq", ".[-1].committedDate"],
+        timeout=120,
+    )
+    return out if rc == 0 else ""
+
+
 def timeline_requested(repo: str, number: str) -> str:
     """When Copilot was last asked to review — the timeline is the only source,
     because the REST reviewer view never lists bot reviewers."""
@@ -111,7 +120,11 @@ def request_review(url: str) -> str:
     )
     if rrc != 0 or nrc != 0:
         return "could not resolve the PR"
-    if timeline_requested(repo, number):
+    # A request stays in the timeline forever; only one newer than the current
+    # head proves this head was queued.
+    requested = timeline_requested(repo, number)
+    head_at = head_committed_at(number, repo)
+    if requested and head_at and requested >= head_at:
         return "already requested"
     bot, brc, berr = run(["gh", "api", f"users/{COPILOT_USER}", "--jq", ".node_id"])
     pr_id, irc, ierr = run(["gh", "pr", "view", url, "--json", "id", "-q", ".id"])
@@ -174,6 +187,11 @@ def main(argv: list[str]) -> int:
             indent=2,
         )
     )
+    # The PR exists either way, and its URL is printed above; a request that did
+    # not register is still a failure the caller must see in the exit code.
+    if not args.no_review and review not in ("requested", "already requested", "skipped"):
+        print(f"ERROR: the Copilot review did not register: {review}", file=sys.stderr)
+        return EXIT_FAIL
     return EXIT_OK
 
 

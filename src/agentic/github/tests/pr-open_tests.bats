@@ -37,10 +37,12 @@ case "\$*" in
   "pr list"*) [ "\${PR_OPEN:-0}" = "1" ] && echo "https://example/pr/42" || echo "" ;;
   "pr create"*) echo "https://example/pr/42" ;;
   "pr view"*"--json number"*) echo "42" ;;
+  "pr view"*"--json commits"*) echo "2025-12-31T00:00:00Z" ;;
   "pr view"*"--json id"*) echo "PR_NODE_ID" ;;
   "repo view"*) echo "GET-E/dev-bot" ;;
   "api users/"*) echo "BOT_NODE_ID" ;;
   "api --paginate"*"timeline"*)
+      [ -n "\${REVIEW_NEVER:-}" ] && exit 0
       [ -f "@MARKER@" ] && echo "2026-01-01T00:00:00Z" ;;
   "api graphql"*)
       touch "@MARKER@"
@@ -99,4 +101,12 @@ GHSTUB
     assert_equal "$status" 2
     assert_output --partial "body file is empty"
     [ ! -s "$CALLS" ]
+}
+
+@test "a review request that does not register exits 1 but still prints the URL" {
+    export REVIEW_NEVER=1
+    run bash "$TOOL" --title "t" --body-file "$BODY"
+    assert_equal "$status" 1
+    assert_output --partial 'https://example/pr/42'
+    assert_output --partial "did not register"
 }

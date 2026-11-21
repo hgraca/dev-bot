@@ -78,3 +78,19 @@ STUBKCTL
     assert_equal "$status" 2
     assert_output --partial "--cluster needs a value"
 }
+
+@test "wrapper options are parsed after the kubectl arguments" {
+    run bash "$TOOL" get pods -n transfers-qa --cluster gete-dev
+    assert_success
+    run cat "$RECORD"
+    assert_line --index 0 "exec"
+    assert_line --index 1 "gete-dev"
+    refute_output --partial "--cluster"
+}
+
+@test "--path=value after the query is parsed too" {
+    run bash "$TOOL" get ns --path=/srv/project
+    assert_success
+    run cat "$RECORD"
+    assert_line --index 1 "/srv/project"
+}
