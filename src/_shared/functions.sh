@@ -851,6 +851,120 @@ _devbot_get_harness() {
   esac
 }
 
+# ── Harness exit epilogue ─────────────────────────────────────────────────────
+#
+# One line naming devbot's resume command for the session that just ended. The
+# id comes from the harness's listing, not a state file (ADR 20260612191200).
+
+# _devbot_epilogue_enabled
+#   Only for the human at a terminal: piped runs stay clean.
+_devbot_epilogue_enabled() {
+  [[ -t 1 ]]
+}
+
+# _devbot_opencode_listing_bin <harness>
+#   The binary that ran the session, resolved per harness like bin/prune.sh:
+#   a stale 1.x on PATH would read the wrong session store.
+_devbot_opencode_listing_bin() {
+  local harness_functions
+  if [[ "${1}" == "opencode-v2" ]]; then
+    harness_functions="${DEV_BOT_ROOT}/src/harnesses/opencode-v2/functions.sh"
+    if [[ -f "${harness_functions}" ]]; then
+      # shellcheck source=../harnesses/opencode-v2/functions.sh
+      source "${harness_functions}"
+      _devbot_opencode2_bin
+      return 0
+    fi
+    command -v opencode2 2>/dev/null || command -v opencode 2>/dev/null || true
+    return 0
+  fi
+  # The v1 launcher runs exactly this path and refuses to start without it, so
+  # any other opencode on PATH did not run this session.
+  printf '%s' "${HOME}/.opencode/bin/opencode"
+}
+
+# _devbot_last_session <harness> <project_dir> <since_ms>
+#   Prints the id of the session the harness last touched, or nothing. <since_ms>
+#   is the launch time, so `devbot -- --help` offers nothing back.
+_devbot_last_session() {
+  local harness="$1" project_dir="$2" since_ms="$3"
+  # Launch stamp and mtime are second-granular: same-second writes still count.
+  local grace_ms=2000
+
+  case "${harness}" in
+    opencode|opencode-v2)
+      local bin
+      bin="$(_devbot_opencode_listing_bin "${harness}")"
+      [[ -x "${bin}" ]] || return 0
+      ( cd "${project_dir}" && "${bin}" session list --format json 2>/dev/null ) |
+        python3 -c '
+import json, os, sys
+
+def same_dir(row):
+    directory = row.get("directory")
+    return bool(directory) and os.path.realpath(directory) == os.path.realpath(sys.argv[3])
+
+try:
+    rows = json.loads(sys.stdin.read() or "[]")
+except ValueError:
+    sys.exit(0)
+# The listing is project-scoped, so a sibling checkout or worktree can lead it.
+# Keep only rows that name this project; rows carrying no directory at all are
+# kept only when none of them does, so an unattributable payload still works.
+# The launch-time check does not establish ownership on its own.
+if any(row.get("directory") for row in rows):
+    rows = [r for r in rows if same_dir(r)]
+if not rows:
+    sys.exit(0)
+newest = max(rows, key=lambda r: int(r.get("updated") or 0))
+if int(newest.get("updated") or 0) < int(sys.argv[1]) - int(sys.argv[2]):
+    sys.exit(0)
+print(newest.get("id") or "")
+' "${since_ms}" "${grace_ms}" "${project_dir}" 2>/dev/null || true
+      ;;
+    claudecode)
+      python3 -c '
+import glob, os, sys
+
+home, project, since, grace = sys.argv[1:5]
+# The harness relocation chain, matching claudecode/stats.py and session_usage.py:
+# CLAUDE_PROJECTS_DIR is the projects root itself, CLAUDE_CONFIG_DIR moves the
+# config dir, and ~/.claude/projects is the default.
+root = os.environ.get("CLAUDE_PROJECTS_DIR") or os.path.join(
+    os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude"), "projects"
+)
+slug = "".join(c if c.isalnum() else "-" for c in project)
+files = glob.glob(os.path.join(root, slug, "*.jsonl"))
+if not files:
+    sys.exit(0)
+newest = max(files, key=os.path.getmtime)
+if int(os.path.getmtime(newest) * 1000) < int(since) - int(grace):
+    sys.exit(0)
+print(os.path.basename(newest)[:-len(".jsonl")])
+' "${HOME:-}" "${project_dir}" "${since_ms}" "${grace_ms}" 2>/dev/null || true
+      ;;
+  esac
+}
+
+# _devbot_print_epilogue <harness> <project_dir> <since_ms>
+_devbot_print_epilogue() {
+  local harness="$1" project_dir="$2" since_ms="$3"
+  _devbot_epilogue_enabled || return 0
+
+  local session_id
+  session_id="$(_devbot_last_session "${harness}" "${project_dir}" "${since_ms}")"
+  [[ -n "${session_id}" ]] || return 0
+
+  local cmd
+  case "${harness}" in
+    claudecode) cmd="devbot -- --resume ${session_id}" ;;
+    *) cmd="devbot -- -s ${session_id}" ;;
+  esac
+
+  # echo -e: TEXT_* hold the literal \033 sequence, printf %s does not expand it.
+  echo -e "  ${TEXT_DIM}Continue  ${TEXT_CLEAR}${TEXT_BOLD}${cmd}${TEXT_CLEAR}"
+}
+
 # ── GUI launch (devbot --gui) ─────────────────────────────────────────────────────
 #
 # `devbot --gui` opens the harness's desktop app on the project instead of

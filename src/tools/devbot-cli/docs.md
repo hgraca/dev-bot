@@ -65,6 +65,14 @@ The terminal stays attached: `devbot --gui` keeps its session registered until y
 
 OpenCode desktop loads plugins with Node, which cannot resolve dev-bot's extensionless TypeScript imports: as of OpenCode desktop 1.19, `on-hooks.ts` (guards, formatters), `mcp-sync.ts` and the `opencode-pty` plugin fail to load there, so those do not run in the app. `devbot --gui` prints this as a warning. The Claude desktop app runs Claude Code with the project's own `.claude/settings.json`, so the harness hooks and MCP servers apply as they do in the CLI.
 
+**Continuing a session.** When the harness exits, `devbot` prints one line naming the session it just ended and devbot's own command to resume it:
+
+```text
+  Continue  devbot -- -s ses_e0ce33a76ffehT8bOB9apdeu6O
+```
+
+opencode prints its own farewell above that line (logo, session title, `opencode -s <id>`), so devbot adds only the devbot form of the same command instead of a second banner. `-s <id>` is opencode's "resume this session" flag on both 1.x and 2.x; `claudecode` prints `--resume <id>` instead, and `devbot -- -c` resumes whichever session was last. The id comes from the harness's own listing for this project — the newest row whose directory is this checkout — so no state file is involved. Two harness sessions running in the **same** checkout cannot be told apart from the outside: the newest row wins, so the hint may name the other one. The line appears only for a session the harness touched since launch (`devbot -- --help` offers nothing) and only on a terminal, so piped runs (`devbot | tee`, CI, autobot) stay byte-clean. `devbot --gui` prints it too: the session the desktop app created is resumable from the CLI.
+
 **Session teardown on exit.** Each `devbot` start registers a session in an install-level registry (`storage/run/sessions/`, gitignored) and holds a `flock` on its own file for the session's lifetime. When a session exits — normally, via Ctrl-C, or `kill` (the `flock` auto-releases even on `SIGKILL`) — it removes its file and, if **no other devbot session remains live**, runs `devbot down` to remove the devbot containers. If another session is still running (e.g. a second terminal in another project), the containers stay up — an explicit `devbot down` run in that state warns and keeps them, so it can never tear down a live session's containers. Containers are install-level (compose project `devbot`), shared by every session regardless of project, which is why the registry is install-level too. Volumes/mounted data (`storage/ollama`) are never touched. `devbot up`/`make up` alone start services without registering a session, so they are not auto-downed by a later harness exit.
 
 ### `devbot help`
@@ -231,9 +239,7 @@ and must print a single JSON object on stdout:
   "scope_label": "/path/to/project",
   "generated_at": "2026-09-10T16:40:00Z",
   "cost_kind": "estimated",
-  "tools": [
-    { "name": "bash", "count": 27710, "tokens": 196400000, "cost": 12.34 }
-  ],
+  "tools": [{ "name": "bash", "count": 27710, "tokens": 196400000, "cost": 12.34 }],
   "mcp_servers": [
     {
       "server": "devbot-tools",

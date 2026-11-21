@@ -639,6 +639,11 @@ cmd_harness() {
   local harness
   harness="$(_devbot_get_harness "$(pwd)")"
 
+  # Launch time for the exit epilogue: a session the harness does not touch
+  # after this point (`devbot -- --help`) is not one to offer back.
+  local session_since_ms
+  session_since_ms="$(( $(date +%s) * 1000 ))"
+
   # Run the harness as a child (not exec) so the EXIT/INT/TERM trap can
   # release the session after it returns; preserve the harness exit code.
   local harness_exit=0
@@ -669,6 +674,9 @@ cmd_harness() {
   fi
 
   _devbot_session_release
+  # Last line of the session: the harness has already printed its own farewell,
+  # this names devbot's command for the same session.
+  _devbot_print_epilogue "${harness}" "$(pwd)" "${session_since_ms}"
   exit "${harness_exit}"
 }
 
