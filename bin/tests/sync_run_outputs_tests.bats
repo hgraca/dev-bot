@@ -197,6 +197,11 @@ teardown() {
   # for the report so the audit pair can still land.
   run grep -q 'asking for it once more' "${REPO_ROOT}/tests/test-project/test-cc-inner.sh"
   assert_success
+  # thinking/ is shared with the parallel oc run, so the presence check must key
+  # on this run's reserved id — "the newest report" is often the other harness's
+  # and suppresses the retry (audit-pair 6).
+  run grep -qF 'devbot-audit-${DEVBOT_AUDIT_NN}.md' "${REPO_ROOT}/tests/test-project/test-cc-inner.sh"
+  assert_success
   run grep -qF '${HOME}/.local/share/dev-bot/src/_shared/upsert_opencode_permission.py' \
     "${REPO_ROOT}/tests/test-project/test-oc-inner.sh"
   assert_failure
