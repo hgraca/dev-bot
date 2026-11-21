@@ -370,6 +370,14 @@ cmd_list() {
     fi
 
     local storage_base="${DEV_BOT_ROOT}/storage/external-agentic-modules"
+    # A store this machine cannot see (a dangling symlink left by a copied
+    # tree, or none at all) renders every module ✖; name the cause once, or the
+    # operator reads one line per module as one defect per module (audit-02).
+    if [[ -L "${storage_base}" && ! -e "${storage_base}" ]]; then
+        _warn "store unreachable: ${storage_base} → $(readlink "${storage_base}") is a dangling symlink"
+    elif [[ ! -d "${storage_base}" ]]; then
+        _warn "store missing: ${storage_base} — nothing is mirrored yet"
+    fi
     while IFS=$'\x1f' read -r _name _url _local_path _paths_json; do
         # Resolved means the module is actually usable: its source resolves AND
         # init mirrored it into storage. The shared vendor clone alone is not a

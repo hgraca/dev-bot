@@ -131,6 +131,46 @@ JSON
   assert_output --regexp "✖  local-broken"
 }
 
+@test "list: a dangling store symlink is named once, not once per module" {
+  # A tree copied out of a checkout can carry storage/external-agentic-modules
+  # as an absolute symlink into the source machine. Every module then renders
+  # ✖, which reads as one defect per module instead of one missing store
+  # (audit-02 §9).
+  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  cat > "$config" <<'JSON'
+{
+  "external_modules": {
+    "mod-a": { "url": "https://example.com/org/shared.git", "paths": { "skills": "skills" } }
+  }
+}
+JSON
+  mkdir -p "${DEV_BOT_ROOT}/vendor/org/shared/.git" "${DEV_BOT_ROOT}/storage"
+  ln -s "${TEST_HOME}/not-on-this-machine" "${DEV_BOT_ROOT}/storage/external-agentic-modules"
+
+  run bash "$TOOL" list
+  assert_success
+  assert_output --partial "store unreachable:"
+  assert_output --partial "dangling symlink"
+  run grep -c "store unreachable:" <<<"${output}"
+  assert_output "1"
+}
+
+@test "list: an absent store is named once too" {
+  local config="${DEV_BOT_ROOT}/.devbot.global.jsonc"
+  cat > "$config" <<'JSON'
+{
+  "external_modules": {
+    "mod-a": { "url": "https://example.com/org/shared.git", "paths": { "skills": "skills" } }
+  }
+}
+JSON
+  mkdir -p "${DEV_BOT_ROOT}/vendor/org/shared/.git"
+
+  run bash "$TOOL" list
+  assert_success
+  assert_output --partial "store missing:"
+}
+
 # ── _ensure_config stdout leak (audit-32 NOTE) ───────────────────────────────
 
 @test "commands with an existing modules config do not dump raw JSON to stdout" {
