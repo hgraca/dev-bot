@@ -74,8 +74,8 @@ export interface ExecutorDeps {
     /**
      * The prompt that starts a run, from the AutoBot command's body with the ticket substituted.
      *
-     * Injected because the body is a file in the install: a slash-command id would have to be spelled
-     * per host and 2.x does not dispatch one from a run message anyway.
+     * Injected because the body is a file in the install: 2.x does not dispatch a slash command
+     * from a run message anyway.
      */
     startPrompt(ticketKey: string): string;
 }

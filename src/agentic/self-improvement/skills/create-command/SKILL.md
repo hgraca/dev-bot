@@ -18,7 +18,7 @@ skill (or a workflow) to something the user names. It is not a skill, and it is 
 
 | Artifact    | Owns                                          | Invoked by               |
 | ----------- | --------------------------------------------- | ------------------------ |
-| **Command** | What to do for one named input, in what order | The user, `/devbot/<id>` |
+| **Command** | What to do for one named input, in what order | The user, `/devbot:<id>` |
 | Skill       | The rules and method for a class of work      | The agent, when relevant |
 | Tool        | Deterministic execution of one operation      | The agent, or a command  |
 | Agent       | A role with its own scope and permissions     | Delegation               |
@@ -34,11 +34,15 @@ src/tools/<tool>/commands/<id>.md
 ```
 
 - `<id>` is the filename without `.md`, and the frontmatter name is `devbot:<id>`. **The two must
-  match.** The farm links each command to `.agents/commands/devbot/<id>.md` **by its frontmatter
-  name**, and Claude Code derives the command from the path as `<dir>:<file>` — so a mismatch gives
-  each harness a differently-named command.
-- Flat, never a subdirectory. Never repeat the prefix: a file called `devbot-audit.md` renders as
-  `devbot:devbot-audit`.
+  match**, and the frontmatter is the one that registers: the farm links each command at
+  `.agents/commands/<frontmatter name>.md`, and every host derives the slash command from that link
+  name. The filename is never registered, so a mismatch is not a second command — it is a broken
+  one: renaming `foo.md` to `bar.md` while `name: devbot:foo` stays keeps registering `foo` (and
+  `devbot list commands` keeps printing it) while nothing ever reaches `bar`. Correct both in the
+  same edit.
+- Flat, never a subdirectory, and always prefixed: the farm skips (with a warning) a command whose
+  name is not `devbot:<id>`, because the link would land a top-level `/<id>` in the user's own
+  namespace. `name: devbot:devbot-audit` registers `devbot:devbot-audit`.
 
 ## Front matter
 
@@ -88,11 +92,12 @@ its questions.
 No manual step exists, and none should be added:
 
 - `_link_commands` in `src/tools/devbot-cli/functions.sh` walks `commands/*.md` on `devbot init` /
-  `devbot reinit`, reads the frontmatter `name`, and links `.agents/commands/devbot/<id>.md` at the
-  file.
-- **It does not prune.** Unlike `_link_skills`, a renamed or deleted command leaves its old link
-  behind, and a disabled module keeps its command links. Delete the stale link by hand and treat the
-  missing reconciliation as a known gap — not as something the wiring does for you.
+  `devbot reinit`, reads the frontmatter `name`, and links `.agents/commands/devbot:<id>.md` at the
+  file — flat, so opencode (path segments joined with `/`) and claudecode (directory joined with
+  `:`) both register `/devbot:<id>`.
+- **It reconciles.** A renamed or deleted command loses its link, a disabled module's commands leave
+  the farm, and the pre-colon `commands/devbot/` category dir is retired module by module until it
+  empties — a link or file that is not the module's keeps it alive.
 - Add the bare id to the module's `docs.md` front matter, alphabetically:
 
   ```yaml
@@ -104,7 +109,7 @@ No manual step exists, and none should be added:
 
 - `devbot list commands` reads the source tree (`src/agentic/*/commands/*.md` and
   `src/tools/*/commands/*.md`), so it lists a new command before any init — it checks placement, not
-  wiring. The wiring check is that `.agents/commands/devbot/<id>.md` exists after `devbot init`.
+  wiring. The wiring check is that `.agents/commands/devbot:<id>.md` exists after `devbot init`.
 
 ## Testing
 
@@ -136,7 +141,7 @@ pointer passes on a command that also restates it.
 - [ ] Resolver exits treated as answers, not obstacles
 - [ ] `docs.md` `commands:` updated with the bare id
 - [ ] Module BATS asserts front matter, manifest and the non-drift behaviours
-- [ ] `devbot list commands` lists it (source tree), and `.agents/commands/devbot/<id>.md` exists after `devbot init`
+- [ ] `devbot list commands` lists it (source tree), and `.agents/commands/devbot:<id>.md` exists after `devbot init`
 
 ## References
 

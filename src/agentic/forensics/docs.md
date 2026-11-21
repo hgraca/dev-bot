@@ -47,7 +47,7 @@ backdated commit can appear in one and not the other.
   agent fills in with its own reading of the figures: refactoring targets, bus factor and
   knowledge sharing, and the limits the Data-quality block names.
 
-The `/devbot/forensics-report` command (v1: `/devbot:forensics-report`) does that for a project end to end: it asks for the
+The `/devbot:forensics-report` command does that for a project end to end: it asks for the
 time window, runs the tool, and writes the analysis itself.
 
 ## What it produces

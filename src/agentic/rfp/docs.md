@@ -9,7 +9,7 @@ Turn a customer questionnaire into a client-ready answer set, grounded in a proj
 
 ## What it does
 
-- **`/devbot/rfp <questionnaire>`** (v1: `/devbot:rfp`) — the entry point. Argument #1 is the questionnaire file; the answers come from `<devbot_dir>/memory/reference/`.
+- **`/devbot:rfp <questionnaire>`** — the entry point. Argument #1 is the questionnaire file; the answers come from `<devbot_dir>/memory/reference/`.
 - **`rfp` skill** — extracts the questions and their own answer options, answers each one from the knowledge base, and writes the answer sheet, the detailed report and a risk response for every question that carries a risk statement, asks for compensating controls, or asks for an explanation.
 - Handles HTML, XLSX/XLSM, DOCX, PDF and Markdown questionnaires; preserves the questionnaire's numbering and option labels. PDF extraction requires `pdftotext`.
 - Answers only with the options the questionnaire defines — a control that is not fully in place is answered with the closest valid option, normally No; if no valid option exists, the question is flagged for review.
@@ -37,4 +37,4 @@ before running the command.
 
 - [Memory](/modules/agentic/memory) — where the `<devbot_dir>/memory/reference/` knowledge base lives
 - [Skills](/skills) — how `devbot:rfp` is loaded
-- [Commands](/commands) — how `/devbot/rfp` is invoked
+- [Commands](/commands) — how `/devbot:rfp` is invoked

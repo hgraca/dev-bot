@@ -13,7 +13,7 @@ Work with Jira from an agent: search issues with JQL, read and update work items
 
 Wires the **Atlassian Rovo MCP server** into the harness and ships three skills: `devbot:atlassian` documents how to drive the server; `devbot:jira-workflow` binds a dev session's lifecycle to one ticket (resolve it at session start, open it before implementation, prefix the pull request, close it at wrap-up); `devbot:create-jira-issue` decides between epic, story, task and subtask and writes the `Problems:`/`Solutions:` description. The server is Atlassian's own hosted one (`https://mcp.atlassian.com/v2/mcp`), so the tool surface tracks Atlassian's releases rather than a dev-bot copy.
 
-`/devbot/create-jira-issue` (v1: `/devbot:create-jira-issue`) creates a work item outside a dev session.
+`/devbot:create-jira-issue` creates a work item outside a dev session.
 
 ## Configuration
 

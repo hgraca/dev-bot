@@ -108,10 +108,14 @@ manifest_flow_list() {
     assert_success
 }
 
-@test "the skill states the single-value argument contract and the farm's gap" {
+@test "the skill states the single-value argument contract and the farm's reconciliation" {
     run grep -qF '`$1` is the first word' "$FLAT"
     assert_success
-    # The farm does not prune, and a skill that claims otherwise misleads.
-    run grep -qF 'It does not prune' "$FLAT"
+    # The farm prunes what a module no longer ships and retires the pre-colon
+    # category dir; claiming the opposite sends the reader to clean up by hand.
+    run grep -qF 'It reconciles' "$FLAT"
+    assert_success
+    # The link name carries the prefix, flat — that is what both hosts read.
+    run grep -qF 'commands/devbot:<id>.md' "$FLAT"
     assert_success
 }

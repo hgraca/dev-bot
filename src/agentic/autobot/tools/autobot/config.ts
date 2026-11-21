@@ -46,7 +46,7 @@ export interface ManagedProject {
 
 export interface AutobotProject extends ManagedProject {
     config: AutobotConfig;
-    /** The host this project runs; its command ids and CLI binary differ per host. */
+    /** The host this project runs; its CLI binary and dispatch rules differ per host. */
     harness: Harness;
 }
 

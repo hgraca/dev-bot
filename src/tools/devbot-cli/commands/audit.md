@@ -151,7 +151,8 @@ Then run the checks below; they verify the vault _works_ once warm:
 
 ## 6. Commands
 
-- Invoke another slash command (e.g. `/devbot/commit`; `/devbot:commit` on v1) and confirm it runs.
+- Invoke another slash command (e.g. `/devbot:commit`) and confirm it runs.
+- **Ask the host what it registered, not just what the farm holds.** The command id is host-derived, so a farm that looks right can still register nothing. On opencode, `opencode api get /api/command` (pass `--header "x-opencode-directory: <project>"` when the shell is elsewhere) must list every `devbot:<id>`; on claudecode, `claude -p "/devbot:<id>"` in the project must run the command body rather than echo the string. Checked against opencode 2.3.2 and claudecode 2.1.241 — record the versions you tested. FAIL when a command is linked in `.agents/commands/` but absent from the host's registry, or resolves under a different id.
 
 ## 7. Agents & orchestration
 

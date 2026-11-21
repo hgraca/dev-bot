@@ -381,7 +381,7 @@ const FALLBACK_START_PROMPT =
  * The prompt that starts a run: the AutoBot command's body with the ticket substituted.
  *
  * Sent as plain text rather than as a slash command, because 2.x does not dispatch one from a run
- * message and the id differs per host.
+ * message.
  */
 function startPromptFor(root: string, ticketKey: string): string {
     let body = FALLBACK_START_PROMPT;

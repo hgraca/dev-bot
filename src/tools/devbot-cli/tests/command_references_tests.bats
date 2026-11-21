@@ -1,15 +1,16 @@
 #!/usr/bin/env bats
 # =============================================================================
 # src/tools/devbot-cli/tests/command_references_tests.bats
-# Every command a doc names must be spelled so it resolves on at least one host.
+# Every command a doc names must be spelled so it resolves on the host.
 #
-# A command's id is host-derived, and the two OpenCode lines disagree:
-#   v1 (and claudecode)  → the frontmatter `name:`   `/devbot:commit`
-#   v2                   → the path below the farm    `/devbot/commit`
-# Both spellings name a command we ship; a BARE one (`/rfp`, `/create-jira-issue`)
-# resolves on neither, so a reader following the doc hits nothing. The same
-# drift reaches code: AutoBot builds its start prompt from a constant, so a
-# rename leaves it invoking a command that no longer exists (test 3).
+# A command's id is host-derived, and the farm names it so both hosts agree:
+# the flat file `commands/devbot:commit.md` is `/devbot:commit` on opencode v2
+# (path segments joined with `/`, prefix inside the filename) and on claudecode
+# (`<dir>:<file>`). The old `commands/devbot/commit.md` farm read `/devbot/commit`
+# on v2 and is retired, so that spelling now names nothing. A BARE one (`/rfp`,
+# `/create-jira-issue`) resolves on neither. The same drift reaches code:
+# AutoBot builds its start prompt from a constant, so a rename leaves it
+# invoking a command that no longer exists (test 3).
 #
 # Run from project root:
 #   bats src/tools/devbot-cli/tests/command_references_tests.bats
@@ -52,11 +53,28 @@ is_shipped() {
     is_shipped "${name}" && continue
     unknown+="  ${name}\t${file#"${ROOT}"/}:${line}"$'\n'
   done < <(grep -rnoE '(^|[[:space:]`"'"'"'([])/devbot[:/][A-Za-z0-9][A-Za-z0-9-]*' \
-    "${DOC_SOURCES[@]}" --include='*.md' 2>/dev/null)
+    "${DOC_SOURCES[@]}" --include='*.md' --include='*.tpl' 2>/dev/null)
 
   [ -z "${unknown}" ] || {
     echo "references to commands we do not ship:"
     printf '%b' "${unknown}"
+    return 1
+  }
+}
+
+@test "no /devbot/<name> reference — that spelling resolves on no host" {
+  # The pre-colon farm rendered `/devbot/commit` on opencode v2 only; the flat
+  # colon farm is the single name both hosts resolve, so the path form is stale
+  # in a doc even though the command it meant still ships.
+  local stale=""
+  while IFS=: read -r file line match; do
+    stale+="  ${match}\t${file#"${ROOT}"/}:${line}"$'\n'
+  done < <(grep -rnoE '(^|[[:space:]`"'"'"'([])/devbot/[A-Za-z0-9][A-Za-z0-9-]*' \
+    "${DOC_SOURCES[@]}" --include='*.md' --include='*.tpl' 2>/dev/null)
+
+  [ -z "${stale}" ] || {
+    echo "stale /devbot/<name> references (use /devbot:<name>):"
+    printf '%b' "${stale}"
     return 1
   }
 }
@@ -68,7 +86,7 @@ is_shipped() {
     while IFS=: read -r file line _match; do
       bare+="  /${name}\t${file#"${ROOT}"/}:${line}"$'\n'
     done < <(grep -rnoE "(^|[[:space:]\`\"'([(])/${name}([^A-Za-z0-9-]|\$)" \
-      "${DOC_SOURCES[@]}" --include='*.md' 2>/dev/null)
+      "${DOC_SOURCES[@]}" --include='*.md' --include='*.tpl' 2>/dev/null)
   done
 
   [ -z "${bare}" ] || {
