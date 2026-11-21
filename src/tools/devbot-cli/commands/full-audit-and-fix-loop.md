@@ -25,7 +25,11 @@ condition below.
 
 3. **Loop — audit, fix, review.** Repeat, at most three rounds:
 
-   1. `/devbot:audit` in the worktree. Read the report it writes.
+   1. `/devbot:audit` in the worktree, then read the report it writes. On
+      **claudecode run it with `haiku`** — `--model haiku`, or
+      `DEVBOT_TEST_CLAUDE_MODEL=haiku` for the fixture launcher. The audit is
+      long and mechanical, and it dominates the loop's wall clock; `haiku` is
+      the default here, and `DEV_BOT_AUDIT_MODEL` overrides it.
    2. No `FAIL` row in that report → leave the loop.
    3. `/devbot:audit-fix` against that report. It owns what "address" means.
    4. Local review loop: `devbot:review-implementation`, then delegate the changeset to `@reviewer`
