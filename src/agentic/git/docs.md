@@ -3,7 +3,7 @@ title: "Git"
 description: "Git workflow skills and tools — commit craft, history surgery, release notes, and a git-state report."
 commands: ["commit", "gh-release"]
 skills: ["gh-release", "git-advanced-operations", "git-atomic-commits", "git-changelog", "git-commits", "git-conventional-commits", "git-fixup-commits", "git-report", "git-tag", "git-worktrees"]
-tools: ["git-report", "release", "tag", "worktree"]
+tools: ["commit", "git-report", "release", "tag", "worktree"]
 ---
 
 Everything an agent needs to make safe, reviewable commits — and to inspect or repair history when it goes wrong.
