@@ -2,7 +2,7 @@
 date: 2026-11-10
 keywords: ["review", "pull request", "fixup", "squash"]
 aliases: ["review-before-pr", "amend before opening the PR"]
-see: ["ADRs/20261106163656-review-loop-gates-on-green-ci.md"]
+see: ["ADRs/20261106163656-review-loop-gates-on-green-ci.md", "PDRs/20261120151807-review-pr-and-copilot-chain-is-automatic.md"]
 supersedes: ["learnings/20261023171442-fixups-cannot-fold-after-push.md"]
 ---
 

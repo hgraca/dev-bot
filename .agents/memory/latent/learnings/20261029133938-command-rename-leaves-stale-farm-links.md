@@ -2,9 +2,12 @@
 date: 2026-10-29
 keywords: ["devbot", "command", "symlink", "reinit", "farm"]
 aliases: ["rename command leaves dangling link", "stale command farm", "prune command symlinks"]
+superseded_by: ["learnings/20261120143259-command-farm-reconciles-and-owns-its-links.md"]
 ---
 
 # Renaming or removing a module command leaves a dangling farm link
+
+> **Superseded in part by** `learnings/20261120143259-command-farm-reconciles-and-owns-its-links.md` (2026-11-20) — `_link_commands` prunes stale links now, and the coverage gap this note describes is closed.
 
 `_link_commands` (`src/tools/devbot-cli/functions.sh`) iterates each module's source `commands/*.md` and creates or relinks `.agents/commands/devbot/<bare>.md` from the frontmatter `name:`. It never enumerates the target directory, so a command that is renamed or deleted leaves its old link behind, pointing at a file that no longer exists. Both harnesses then keep listing the old slash command.
 

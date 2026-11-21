@@ -87,3 +87,11 @@ graphify-out/
 src/*/*/versions.env
 src/*/*/versions.env.tmp
 # <<< DEVBOT - module pins
+
+# >>> DEVBOT - module memory
+.agents/memory/active/modules/
+# <<< DEVBOT - module memory
+
+# >>> DEVBOT - runtime state
+.agents/state/
+# <<< DEVBOT - runtime state

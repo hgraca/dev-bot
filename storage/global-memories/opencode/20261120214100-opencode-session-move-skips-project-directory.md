@@ -1,0 +1,10 @@
+---
+date: 2026-11-20
+keywords: ["opencode", "session_move", "project_directory", "session_v2", "sqlite"]
+aliases: ["re-home opencode sessions", "move a session to another directory", "duplicate project row"]
+trigger-on: ["opencode-session-directory-move", "opencode-session-store-surgery"]
+---
+
+## opencode `session_move` re-homes the session row but skips the `project_directory` row
+
+Moving sessions between directories in opencode v2 goes through the `session_move` tool (`tools.opencode.session_move`, arguments `{sessionID, directory}`), which rewrites `session_v2.directory`, re-points `session_v2.project_id` and creates the target `project` row (`worktree` = new path, `vcs` = `git`) when none exists — all against `~/.local/share/opencode/opencode.db`, so it is consistent with the running server and safe while hosts are up. It does **not** insert the `project_directory` row a normally-created project carries (the Get-e root project has exactly one: `(project_id, '/home/herberto/Development/Get-e', NULL, NULL)`), so a *fresh* session later opened in that directory can create a second project row for the same worktree and split the session list. Close the gap with `INSERT OR IGNORE INTO project_directory (project_id, directory, type, strategy, time_created) VALUES ('<new project id>', '<new path>', NULL, NULL, <project.time_created>)`. Three further facts: only `session_v2` / `session_message` / `session_part` are read by v2 — the legacy `session` / `message` / `part` store is v1-only, so leaving its rows alone is safe; `directory` exists in just four tables (`session`, `session_v2`, `project_directory`, `worktree`); and a running host caches its session list, so it shows the new grouping only after a restart. Verify before declaring success with `select directory, count(*) from session_v2 group by 1`, `select count(*) from project`, and `select worktree, count(*) c from project group by 1 having c>1` (no duplicate worktree), plus a message count for the moved set to prove the payload survived.

@@ -1,0 +1,9 @@
+---
+date: 2026-11-18
+keywords: ["keycloak", "patternfly", "account-console", "css-variables", "theming"]
+trigger-on: ["keycloak-theme", "patternfly-theming"]
+---
+
+## Re-skin Keycloak without forking a template: `kc*Class` properties for login, PatternFly variables for the account console
+
+Both theme types can be restyled from a child theme with no upstream file copied, because each exposes a different hook. The login theme (`keycloak.v2` in 26.x) renders every visible class from a `kc*Class` property in `theme.properties` — override `kcLoginMain`, `kcFormGroupClass`, `kcInputClass`, `kcButtonPrimaryClass`, `kcAlertClass` and so on, then style your own class names; check which properties the shipped templates actually read before assuming a class name, since the shell (`pf-v5-c-login`, `#kc-header-wrapper`) is hardcoded and must be targeted directly. The account console (`keycloak.v3`) is a React app that reads its entire palette from `--pf-v5-*` custom properties, so map that family onto your tokens at `:root` and one mapping repaints every screen; its inherited `index.ftl` emits the application's `entryStyles` first and the theme's `styles` afterwards, which is what lets a plain `:root` mapping win without `!important`. Two PatternFly traps: components remap the globals on their own element (`.pf-v5-c-masthead` reassigns `--pf-v5-global--Color--100` to the `-light-100` alias, the sidebar to the `-dark-*` family), so define both alias families to the same tokens when your chrome has no dark variant; and `--pf-v5-global--BorderColor--300` / `--400` are referenced by `.pf-v5-c-form-control` but never defined in the shipped CSS, so an input border resolves to `currentColor` and reads as solid ink until you define them. Set `darkMode=false` in `theme.properties` for both: it otherwise injects an OS-driven `pf-v5-theme-dark` class that fights a user-chosen mode.
