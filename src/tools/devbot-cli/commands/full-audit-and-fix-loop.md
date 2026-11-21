@@ -23,16 +23,22 @@ condition below.
    It prints the worktree path. Every later step runs there: edits use its absolute paths, git
    commands use `git -C <worktree>`.
 
-3. **Loop — audit, fix, review.** Repeat, at most three rounds:
+3. **Loop — audit both harnesses in parallel, fix, review.** Repeat until the pair is clean. Do not
+   start a new round once the session is above 70% — finish the round in hand, then go to step 4:
 
-   1. `/devbot:audit` in the worktree, then read the report it writes. The
-      claudecode fixture already runs the audit on `haiku` by default; set
-      `DEVBOT_TEST_CLAUDE_MODEL` to audit on another model.
-   2. No `FAIL` row in that report → leave the loop.
-   3. `/devbot:audit-fix` against that report. It owns what "address" means.
-   4. Local review loop: `devbot:review-implementation`, then delegate the changeset to `@reviewer`
-      and address each finding with `devbot:address-review` — fixing in place, then re-reviewing —
-      until a review introduces no new findings.
+   1. `make audit` — `tests/test-project/full-audit.sh [<branch>]` — runs the cc and oc
+      headless audits **in parallel** and gates on the reports. It exits `0` only when both
+      reports landed with no `FAIL` row, `1` while printing the FAIL rows, and `2` when a
+      report is missing or a launcher failed. Sonnet is the audit default
+      (`DEVBOT_TEST_CLAUDE_MODEL` overrides it): haiku fabricated findings in two
+      consecutive rounds — FAILs its own logs contradicted, then a fabricated PASS.
+   2. **Both reports must land before anything is fixed.** A harness-specific defect shows
+      up in one report and not the other, so a single report cannot tell "clean" from "not
+      audited". Exit `2` is a stop for the human, never a retry until it turns green.
+   3. `/devbot:audit-fix` against the pair. It owns what "address" means.
+   4. Local review loop: `devbot:review-implementation`, then delegate the changeset to
+      `@reviewer` and address each finding with `devbot:address-review` — fixing in place,
+      then re-reviewing — until a review introduces no new findings.
 
 4. **Open the pull request** with `devbot:gh-create-pr` once the loop is clean. Never push the
    default branch, never merge.
@@ -41,10 +47,23 @@ condition below.
    the resolve protocol and the required-check gate. Stop one step before the merge: squash the
    fixups and hand the human the exact `git push --force-with-lease` command.
 
+**The hand-off names what is still open.** Alongside the pull request and the push command, report
+what the last reports still named that would have warranted another round — the `FAIL` rows verified
+as design intent, the NOTEs left standing, the stop condition that ended the loop (budget, unlanded
+report, a decision only the human can make). A hand-off that says "clean" without that list reads as
+"nothing left to do", and the next session re-derives it from reports nobody wrote down.
+
 **Stop conditions** — report the condition, the evidence and the branch, then stop:
 
 - the auth gate in step 1 fails;
-- three rounds end with `FAIL` rows still in the report;
+- the audit pair cannot land (exit `2`) — a missing report or a failed launcher is a stop, not a
+  retry until it turns green;
+- session context goes above 70% (`make audit` exits `3` on it) **before a new round starts**: this
+  is not the end of the work — open the pull request, work the review loop, squash the fixups, and
+  hand off (steps 4–5). A round that runs out of context mid-fix leaves the branch half-addressed
+  with nobody to finish it, which is what the budget prevents;
+- a round's `FAIL` rows are verified as design intent or false findings: record "verified, no
+  change" for each and finish the round rather than looping on a report the code already satisfies;
 - the pull request is `CONFLICTING` or `DIRTY`, or a required check fails for a cause the loop cannot
   fix;
 - a step needs a decision only the human can make (a product question, a credential, a destructive

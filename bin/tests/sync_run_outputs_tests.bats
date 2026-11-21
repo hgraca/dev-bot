@@ -449,8 +449,8 @@ _wait_for_port() {
   # container the variable is SET BUT EMPTY. `${VAR-word}` defaults only when
   # unset, so the default silently never applied; the form must be `:-`.
   local inner="${REPO_ROOT}/tests/test-project/test-cc-inner.sh"
-  run grep -qF 'DEVBOT_TEST_CLAUDE_MODEL="${DEVBOT_TEST_CLAUDE_MODEL:-haiku}"' "${inner}"
+  run grep -qF 'DEVBOT_TEST_CLAUDE_MODEL="${DEVBOT_TEST_CLAUDE_MODEL:-sonnet}"' "${inner}"
   assert_success
-  run grep -qF 'DEVBOT_TEST_CLAUDE_MODEL="${DEVBOT_TEST_CLAUDE_MODEL-haiku}"' "${inner}"
+  run grep -qF 'DEVBOT_TEST_CLAUDE_MODEL="${DEVBOT_TEST_CLAUDE_MODEL-sonnet}"' "${inner}"
   assert_failure
 }

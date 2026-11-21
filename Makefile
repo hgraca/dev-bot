@@ -7,7 +7,7 @@ EXEC_SHELL=/bin/bash
 # Declare all non-file targets as phony so a same-named file or directory in the
 # repo root never shadows them (e.g. a stray `test` dir would otherwise make
 # `make test` silently report "up to date" and run nothing).
-.PHONY: help install update uninstall up down restart test test-bats test-bats-slice test-ts test-py lint logs docs docs-gather app
+.PHONY: help install update uninstall up down restart test test-bats test-bats-slice test-ts test-py lint logs docs docs-gather app audit
 # SECONDEXPANSION is needed to be able to resolve `psr4: .docker-wrap-$$@` to `psr4: .docker-wrap-psr4`
 .SECONDEXPANSION:
 
@@ -122,6 +122,12 @@ restart: ## Stop then start
 
 build-test-image:
 	cd tests/test-project && docker build --no-cache -t devbot-test .
+
+# Both harnesses audit in parallel, and the fix step waits for the pair: a
+# harness-specific defect shows in one report and not the other. Exits 0 only
+# when both reports landed with no FAIL row.
+audit: ## Audit cc and oc in parallel (both reports required to fix)
+	cd tests/test-project && ./full-audit.sh "$(BRANCH)"
 
 # The "./" in the bun invocation below makes bun treat the argument as a path.
 # A bare `bun test src/` is a filter, and matching one walks the whole checkout

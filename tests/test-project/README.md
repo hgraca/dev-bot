@@ -17,6 +17,24 @@ then either of these — **they can run in parallel** (different terminals):
 ./test-oc.sh # OpenCode v2
 ```
 
+Or run the pair as one gated step — the scripted path, and the only one that
+insists both reports land before anything is fixed:
+
+```shell
+./full-audit.sh          # from this dir
+make audit               # from the repo root; BRANCH=<branch> to audit a branch
+```
+
+It launches both headless audits in parallel, waits for both, and counts the
+`FAIL` rows per report. Exit `0` = both reports landed clean, `1` = FAIL rows
+were printed, `2` = a report is missing or a launcher failed — fix nothing on
+`2`, because one report cannot tell "clean" from "not audited" — and `3` = the
+session is above 70% context, so no new round starts: deliver what is done
+(pull request, review loop) instead of starting one the context cannot finish. The audit model
+defaults to `sonnet` (`DEVBOT_TEST_CLAUDE_MODEL` overrides it): haiku fabricated
+findings in two consecutive rounds. `DEV_BOT_TEST_LOCAL_SRC=<path>` still
+selects the tree under audit.
+
 By default a launcher installs dev-bot from the public fork (raw.githubusercontent
 cannot serve the private repo). To audit an **unmerged branch or a worktree**
 instead, point it at a local checkout — the fixture copies that tree into the

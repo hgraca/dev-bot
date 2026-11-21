@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# =============================================================================
+# full-audit.sh — HOST runner. Runs the cc and oc headless audits IN PARALLEL
+# and gates on BOTH reports landing before anything is fixed.
+#
+# Usage:
+#   ./full-audit.sh [<branch>] [--no-cc|--no-oc]
+#
+#   DEV_BOT_TEST_LOCAL_SRC=<path>  audit that tree instead of a pushed branch
+#   DEVBOT_TEST_CLAUDE_MODEL=<m>   cc audit model (default: sonnet)
+#   FULL_AUDIT_SESSION_BUDGET=<n>  no new round above n% (default: 70)
+#
+# Exit codes:
+#   0  both reports landed and neither names a FAIL row
+#   1  at least one report names a FAIL row — the rows are printed
+#   2  a launcher failed, or a report did not land: fixing must not start
+#   3  session budget spent — no new round; open the PR and hand off
+#
+# Exit 2 is a real outcome, not a nuisance: a harness-specific defect shows up
+# in one report and not the other, so one report cannot tell "clean" from "not
+# audited". Fixing on a single report is what this gate exists to prevent.
+# =============================================================================
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}" || exit 2
+
+BRANCH="main"
+RUN_CC=1
+RUN_OC=1
+for _arg in "$@"; do
+  case "${_arg}" in
+    --no-cc) RUN_CC=0 ;;
+    --no-oc) RUN_OC=0 ;;
+    --headless) : ;;
+    "") ;;
+    *) BRANCH="${_arg}" ;;
+  esac
+done
+
+if (( ! RUN_CC && ! RUN_OC )); then
+  echo "FATAL: --no-cc and --no-oc together run nothing" >&2
+  exit 2
+fi
+
+CC_LAUNCHER="${FULL_AUDIT_CC_LAUNCHER:-./test-cc.sh}"
+OC_LAUNCHER="${FULL_AUDIT_OC_LAUNCHER:-./test-oc.sh}"
+
+THINKING="${SCRIPT_DIR}/.agents/memory/thinking"
+mkdir -p "${THINKING}"
+LOG_DIR="${SCRIPT_DIR}/.agents/logs/full-audit-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "${LOG_DIR}"
+
+_before="$(find "${THINKING}" -maxdepth 1 -name 'devbot-audit-*.md' 2>/dev/null | sort)"
+
+SESSION_BUDGET="${FULL_AUDIT_SESSION_BUDGET:-70}"
+USAGE_TOOL="${FULL_AUDIT_USAGE_TOOL:-${SCRIPT_DIR}/../../src/agentic/devbot/tools/session-usage.mcp.sh}"
+
+# A round is useless if the driver runs out of context mid-fix. Past the budget
+# the loop stops STARTING rounds — it still opens the PR and works the review.
+_check_session_budget() {
+  local json percent
+  json="$(bash "${USAGE_TOOL}" --json 2>/dev/null || true)"
+  percent="$(printf '%s' "${json}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("percent"))' 2>/dev/null || true)"
+  if [[ -z "${percent}" || "${percent}" == "None" ]]; then
+    echo "  ? session usage unknown — continuing"
+    return 0
+  fi
+  echo "  session at ${percent}% (budget ${SESSION_BUDGET}%)"
+  python3 -c 'import sys; sys.exit(0 if float(sys.argv[1]) < float(sys.argv[2]) else 3)' \
+    "${percent}" "${SESSION_BUDGET}"
+}
+
+echo "▶ session budget"
+if ! _check_session_budget; then
+  echo "  ✖ past ${SESSION_BUDGET}% — stopping instead of starting a round"
+  exit 3
+fi
+
+# One image build for both runs: each launcher builds when the image is
+# missing, and two of them racing the same `docker build` is avoidable.
+if ! docker image inspect devbot-test >/dev/null 2>&1; then
+  echo "▶ building the devbot-test image once for both runs…"
+  docker build -t devbot-test . || { echo "FATAL: image build failed" >&2; exit 2; }
+fi
+
+# The audit phase dominates the loop's wall clock, so its model is chosen here
+# rather than inherited. haiku fabricated findings in two consecutive rounds
+# (three FAILs its own logs contradicted, then a fabricated PASS), and a
+# reported FAIL costs a full manual verification — sonnet pays for itself.
+export DEVBOT_TEST_CLAUDE_MODEL="${DEVBOT_TEST_CLAUDE_MODEL:-sonnet}"
+# Both launchers wait for their container to exit instead of attaching a shell.
+export DEVBOT_TEST_NONINTERACTIVE=1
+
+cc_pid=""
+oc_pid=""
+if (( RUN_CC )); then
+  echo "▶ cc audit → ${LOG_DIR}/cc.log"
+  "${CC_LAUNCHER}" "${BRANCH}" --headless > "${LOG_DIR}/cc.log" 2>&1 &
+  cc_pid=$!
+fi
+if (( RUN_OC )); then
+  echo "▶ oc audit → ${LOG_DIR}/oc.log"
+  "${OC_LAUNCHER}" "${BRANCH}" --headless > "${LOG_DIR}/oc.log" 2>&1 &
+  oc_pid=$!
+fi
+
+cc_rc=0
+oc_rc=0
+[[ -n "${cc_pid}" ]] && { wait "${cc_pid}" || cc_rc=$?; }
+[[ -n "${oc_pid}" ]] && { wait "${oc_pid}" || oc_rc=$?; }
+
+# `find | sort` in a subshell, so the diff only names reports this run wrote.
+_after="$(find "${THINKING}" -maxdepth 1 -name 'devbot-audit-*.md' 2>/dev/null | sort)"
+new_reports="$(comm -13 <(printf '%s\n' "${_before}") <(printf '%s\n' "${_after}") \
+  | sed '/^$/d')"
+
+_want=$(( RUN_CC + RUN_OC ))
+_have="$(printf '%s\n' "${new_reports}" | sed '/^$/d' | wc -l | tr -d ' ')"
+
+# FAIL rows: the status cell of a summary-table row, or a top-level finding
+# heading. Prose that merely mentions FAIL is not a finding (audit.md: a row a
+# log contradicts is deleted, not downgraded).
+_fail_rows() {
+  awk -F'|' '
+    /^[[:space:]]*\|/ && NF >= 3 {
+      status = $3
+      gsub(/[[:space:]]/, "", status)
+      if (status ~ /FAIL/ && status !~ /PASS/) print NR": "$0
+    }
+    /^#{1,6}[[:space:]]/ && $0 ~ /FAIL/ { print NR": "$0 }
+    /^\*\*FAIL/ { print NR": "$0 }
+  ' "$1" 2>/dev/null
+}
+
+echo
+echo "━━━ audit summary ━━━"
+(( RUN_CC )) && echo "  cc launcher exit: ${cc_rc}   log: ${LOG_DIR}/cc.log"
+(( RUN_OC )) && echo "  oc launcher exit: ${oc_rc}   log: ${LOG_DIR}/oc.log"
+
+status=0
+if (( cc_rc != 0 || oc_rc != 0 )); then
+  echo "  ✖ a launcher failed — a report from it cannot be trusted"
+  status=2
+fi
+if (( _have < _want )); then
+  echo "  ✖ expected ${_want} new report(s), landed ${_have} — not fixing on a partial pair"
+  status=2
+fi
+
+findings=0
+while IFS= read -r report; do
+  [[ -n "${report}" ]] || continue
+  rel="${report#"${SCRIPT_DIR}/"}"
+  rows="$(_fail_rows "${report}")"
+  count=0
+  [[ -n "${rows}" ]] && count="$(printf '%s\n' "${rows}" | grep -c . || true)"
+  printf '  %-44s FAIL rows: %s\n' "${rel}" "${count}"
+  if (( count > 0 )); then
+    findings=$((findings + count))
+    printf '%s\n' "${rows}" | sed 's/^/      /'
+  fi
+done <<< "${new_reports}"
+
+if (( status == 0 && findings > 0 )); then
+  status=1
+fi
+
+if (( status == 0 )); then
+  echo "  ✔ both reports landed with no FAIL row"
+elif (( status == 1 )); then
+  echo "  ✖ ${findings} FAIL row(s) — address them, then re-run: ./full-audit.sh"
+else
+  echo "  ✖ audit pair incomplete — see the launcher logs above"
+fi
+
+echo "  reports: ${THINKING}/devbot-audit-*.md"
+echo "  logs:    ${LOG_DIR}"
+exit "${status}"

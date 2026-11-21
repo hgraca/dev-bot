@@ -99,12 +99,29 @@ is_shipped() {
   done
 }
 
-@test "full-audit-and-fix-loop: audits on haiku by default" {
+@test "full-audit-and-fix-loop: audits on sonnet by default" {
   local cmd="${ROOT}/src/tools/devbot-cli/commands/full-audit-and-fix-loop.md"
   # The audit dominates the loop's wall clock, so its model is chosen, not
   # inherited — and the override is named.
-  grep -qF 'haiku' "${cmd}"
+  grep -qiF 'sonnet' "${cmd}"
   grep -qF 'DEVBOT_TEST_CLAUDE_MODEL' "${cmd}"
+}
+
+@test "full-audit-and-fix-loop: both harnesses audit in parallel before a fix" {
+  local cmd="${ROOT}/src/tools/devbot-cli/commands/full-audit-and-fix-loop.md"
+  # A harness-specific defect shows in one report and not the other, so the fix
+  # step waits for the pair.
+  grep -qF 'make audit' "${cmd}"
+  grep -qiF 'both reports' "${cmd}"
+}
+
+@test "full-audit-and-fix-loop: the 70% budget stops rounds, not the delivery" {
+  local cmd="${ROOT}/src/tools/devbot-cli/commands/full-audit-and-fix-loop.md"
+  # Running out of context mid-fix is what the budget prevents; reaching it still
+  # opens the PR, works the review loop and hands off.
+  grep -qF '70%' "${cmd}"
+  grep -qiF 'hand off' "${cmd}"
+  grep -qiF 'what the last reports still named' "${cmd}"
 }
 
 @test "full-audit-and-fix-loop: frontmatter name matches the filename" {
