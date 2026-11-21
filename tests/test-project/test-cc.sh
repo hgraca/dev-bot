@@ -136,6 +136,20 @@ read -r -a COMPOSER_ARGS <<< "$(composer_cache_args)"
 # Runs as the host uid, so file ownership matches and claude can read/write its
 # own state (settings, backups) as usual.
 
+# Unattended auth prefers a long-lived token over the interactive login: the
+# mounted ~/.claude/.credentials.json expires and cannot be renewed headlessly
+# ("this login reached its time limit"), which kills an e2e audit mid-run.
+# `claude setup-token` prints the token once, on the host, to export here.
+CLAUDE_AUTH_ARGS=()
+if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+  CLAUDE_AUTH_ARGS=(-e "CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}")
+elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+  CLAUDE_AUTH_ARGS=(-e "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}")
+elif [[ ! -f "${HOME}/.claude/.credentials.json" ]]; then
+  echo "WARN: no CLAUDE_CODE_OAUTH_TOKEN, ANTHROPIC_API_KEY or ~/.claude/.credentials.json —" >&2
+  echo "      the cc audit cannot authenticate. Run 'claude setup-token' and export the token." >&2
+fi
+
 # ── Run the container DETACHED; attach interactivity via `docker exec` ───────
 # `docker run -it`'s stdin attach has proven unreliable in several terminals
 # (typed input reaches neither echo nor the shell, while `docker exec -it`
@@ -148,6 +162,7 @@ docker run -d --rm --name "${CONTAINER_NAME}" \
   --mount type=volume,dst=/var/lib/docker \
   "${COMPOSER_ARGS[@]+"${COMPOSER_ARGS[@]}"}" \
   "${CLAUDE_CONFIG_ARGS[@]+"${CLAUDE_CONFIG_ARGS[@]}"}" \
+  "${CLAUDE_AUTH_ARGS[@]+"${CLAUDE_AUTH_ARGS[@]}"}" \
   -v "${RUN_DIR}:/app" \
   -v "${SCRIPT_DIR}/.agents/memory/thinking:/app/.agents/memory/thinking" \
   -v "${HOME}/.ssh:/tmp/ssh:ro" \

@@ -91,6 +91,15 @@ PY
 set_harness
 _phase "harness config"
 
+# Which credential the run is using, so a failed audit names its cause at once.
+if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]]; then
+  echo "claude auth: long-lived token (CLAUDE_CODE_OAUTH_TOKEN)"
+elif [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+  echo "claude auth: API key (ANTHROPIC_API_KEY)"
+else
+  echo "claude auth: mounted host login (~/.claude/.credentials.json)"
+fi
+
 # Seed the container-local ~/.claude.json (from the host copy mounted read-only
 # at /tmp/host-claude.json) so Claude Code skips its trust + onboarding dialogs:
 # trust is keyed by absolute project path, and the project here is /app.
