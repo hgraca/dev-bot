@@ -77,3 +77,30 @@ is_shipped() {
     return 1
   }
 }
+
+@test "full-audit-and-fix-loop: gates on unattended auth before any work" {
+  local cmd="${ROOT}/src/tools/devbot-cli/commands/full-audit-and-fix-loop.md"
+  # The gate exists and names the failure it prevents (an interactive login
+  # cannot be renewed headlessly, so an autonomous loop dies hours in).
+  grep -qF 'claude auth status' "${cmd}"
+  grep -qF 'oauth_token' "${cmd}"
+  grep -qF 'claude setup-token' "${cmd}"
+  # It stops, rather than working around the credential.
+  grep -qiE 'stop before anything else|never substitute' "${cmd}"
+}
+
+@test "full-audit-and-fix-loop: worktree from local main, then the full loop" {
+  local cmd="${ROOT}/src/tools/devbot-cli/commands/full-audit-and-fix-loop.md"
+  grep -qF 'worktree.sh" create' "${cmd}"
+  grep -qF -- '--base main' "${cmd}"
+  local needle
+  for needle in '/devbot:audit' '/devbot:audit-fix' 'devbot:review-implementation' 'devbot:gh-create-pr' 'devbot:gh-review-loop'; do
+    grep -qF -- "$needle" "${cmd}"
+  done
+}
+
+@test "full-audit-and-fix-loop: frontmatter name matches the filename" {
+  local cmd="${ROOT}/src/tools/devbot-cli/commands/full-audit-and-fix-loop.md"
+  grep -qx 'name: devbot:full-audit-and-fix-loop' "${cmd}"
+  grep -qE '^description: .+' "${cmd}"
+}

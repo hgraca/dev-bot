@@ -1,7 +1,7 @@
 ---
 title: "CLI commands"
 description: "The devbot command-line interface — lifecycle, management, and reporting commands."
-commands: ["audit", "audit-fix"]
+commands: ["audit", "audit-fix", "full-audit-and-fix-loop"]
 tools: ["list-projects", "project-for-path", "project-memory"]
 ---
 
