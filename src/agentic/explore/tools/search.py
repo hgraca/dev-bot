@@ -64,6 +64,7 @@ def collect(
     fixed: bool,
     ignore_case: bool,
     cwd: str | None,
+    keep_per_file: int = 200,
 ) -> tuple[dict, str]:
     """Return (per-file matches, warning). Uses rg --json so no output is parsed."""
     args = ["--json", "--line-number", "--no-heading", "--color", "never"]
@@ -100,7 +101,7 @@ def collect(
         text = ((data.get("lines") or {}).get("text") or "").rstrip("\n")
         entry = files.setdefault(filename, {"count": 0, "lines": []})
         entry["count"] += 1
-        if len(entry["lines"]) < 200:
+        if len(entry["lines"]) < keep_per_file:
             entry["lines"].append((line_no, text.strip()))
     return files, ""
 
@@ -161,6 +162,7 @@ def main(argv: list[str]) -> int:
         args.fixed_strings,
         args.ignore_case,
         args.cwd,
+        keep_per_file=max(200, args.max_per_file),
     )
     if warning:
         print(f"ERROR: {warning}", file=sys.stderr)

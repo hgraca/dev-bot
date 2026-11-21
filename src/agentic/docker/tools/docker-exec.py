@@ -74,10 +74,11 @@ def pick(rows: list[dict], service: str | None) -> dict:
                 f"ERROR: no container for service {service!r} (services: {available})"
             )
         candidates = matched
-    running = [row for row in candidates if "running" in row["state"]]
-    pool = running or candidates
+    # Only a running container can be exec'd into; falling back to a stopped one
+    # reports a docker failure instead of the documented no-target condition.
+    pool = [row for row in candidates if "running" in row["state"]]
     if not pool:
-        raise SystemExit("ERROR: no container found for this project")
+        raise SystemExit("ERROR: no running container for this project")
     if len(pool) > 1:
         names = ", ".join(f"{row['name']} ({row['service']})" for row in pool)
         raise SystemExit(

@@ -57,3 +57,11 @@ setup() {
     assert_equal "$status" 2
     assert_output --partial "must be positive"
 }
+
+@test "--max-per-file above the retention cap shows every requested match" {
+    for i in $(seq 1 210); do echo "hit $i"; done >"$REPO/src/big.txt"
+    run bash "$TOOL" hit --path "$REPO" --max-per-file 205 --max-files 1
+    assert_success
+    assert_output --partial "210 match(es)"
+    assert_output --partial "205: hit 205"
+}

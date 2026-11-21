@@ -261,8 +261,14 @@ def main(argv: list[str]) -> int:
         return EXIT_USAGE
 
     requested = request_review(repo, args.number) if not args.no_request else "review: skipped"
-    # Only a review newer than this cursor belongs to this round.
-    cursor = review_requested_at(repo, args.number) or head_committed_at(repo, args.number)
+    if "failed" in requested or "not queued" in requested:
+        # The request is the whole point of this call; polling without it would
+        # end in the timeout instead of the documented runtime error.
+        print(f"ERROR: {requested}", file=sys.stderr)
+        return EXIT_ERROR
+    # Only a review newer than this cursor belongs to this round — and the head
+    # is the later bound, so a request from a previous head cannot satisfy it.
+    cursor = max(review_requested_at(repo, args.number), head_committed_at(repo, args.number))
     deadline = time.monotonic() + args.timeout
     waits = 0
     review: dict | None = None
@@ -279,7 +285,8 @@ def main(argv: list[str]) -> int:
             print(f"ERROR: {exc}", file=sys.stderr)
             return EXIT_ERROR
         try:
-            decision = (pr_state(repo, args.number).get("reviewDecision") or "").upper()
+            state = pr_state(repo, args.number)  # refreshed: render() must not show the initial one
+            decision = (state.get("reviewDecision") or "").upper()
         except SystemExit as exc:
             print(str(exc), file=sys.stderr)
             return EXIT_ERROR

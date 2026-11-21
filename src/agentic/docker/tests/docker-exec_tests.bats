@@ -87,3 +87,10 @@ STUB
     assert_equal "$status" 2
     assert_output --partial "no command given"
 }
+
+@test "a stopped container is never selected" {
+    export DOCKER_PS_ROWS='{"Name":"proj-app-1","Service":"app","State":"exited"}'
+    run bash "$TOOL" php -v
+    assert_equal "$status" 3
+    assert_output --partial "no running container"
+}

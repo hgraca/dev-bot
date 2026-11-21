@@ -22,7 +22,9 @@ setup() {
 scenario="${PR_WATCH_SCENARIO:-none}"
 case "$*" in
   "repo view"*) echo "GET-E/dev-bot" ;;
-  "api users/"*) echo "BOT_NODE_ID" ;;
+  "api users/"*)
+      if [ -n "${PR_WATCH_BOT_BROKEN:-}" ]; then echo "boom" >&2; exit 1; fi
+      echo "BOT_NODE_ID" ;;
   "api --paginate"*"timeline"*)
       [ -f "@MARKER@" ] && echo "2026-01-01T00:00:00Z" ;;
 
@@ -112,4 +114,12 @@ STUB
     run bash "$TOOL" 172 --no-request --timeout 30 --interval 1
     assert_success
     assert_output --partial "APPROVED"
+}
+
+@test "a request that fails is a runtime error, not a poll to the timeout" {
+    export PR_WATCH_SCENARIO=review
+    export PR_WATCH_BOT_BROKEN=1
+    run bash "$TOOL" 172 --timeout 5 --interval 1
+    assert_equal "$status" 1
+    assert_output --partial "request failed"
 }
