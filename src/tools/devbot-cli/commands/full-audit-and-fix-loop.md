@@ -35,7 +35,8 @@ condition below.
    2. **Both reports must land before anything is fixed.** A harness-specific defect shows
       up in one report and not the other, so a single report cannot tell "clean" from "not
       audited". Exit `2` is a stop for the human, never a retry until it turns green.
-   3. `/devbot:audit-fix` against the pair. It owns what "address" means.
+   3. `/devbot:audit-fix` once per report in the pair — it reads the latest report, so name the
+      file — and address the union. It owns what "address" means.
    4. Local review loop: `devbot:review-implementation`, then delegate the changeset to
       `@reviewer` and address each finding with `devbot:address-review` — fixing in place,
       then re-reviewing — until a review introduces no new findings.
@@ -58,7 +59,9 @@ report, a decision only the human can make). A hand-off that says "clean" withou
 - the auth gate in step 1 fails;
 - the audit pair cannot land (exit `2`) — a missing report or a failed launcher is a stop, not a
   retry until it turns green;
-- session context goes above 70% (`make audit` exits `3` on it) **before a new round starts**: this
+- session context goes above 70% (`make audit` exits `3` on it; an unmeasurable session prints
+  `usage unknown` and continues, so the rule is a gate only where the number exists) **before a new
+  round starts**: this
   is not the end of the work — open the pull request, work the review loop, squash the fixups, and
   hand off (steps 4–5). A round that runs out of context mid-fix leaves the branch half-addressed
   with nobody to finish it, which is what the budget prevents;

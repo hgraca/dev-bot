@@ -243,8 +243,10 @@ if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
     # Only THIS run's reserved report counts: thinking/ is shared with the
     # parallel oc audit, so "the newest report" is often the other harness's —
     # that read suppressed the retry below and the pair lost a report.
+    # -s, not -f: the reserved report is pre-created EMPTY, so -f is always
+    # true even when the audit wrote nothing (review B1).
     audit_report=""
-    if [[ -n "${DEVBOT_AUDIT_NN:-}" && -f "/app/.agents/memory/thinking/devbot-audit-${DEVBOT_AUDIT_NN}.md" ]]; then
+    if [[ -n "${DEVBOT_AUDIT_NN:-}" && -s "/app/.agents/memory/thinking/devbot-audit-${DEVBOT_AUDIT_NN}.md" ]]; then
       audit_report="/app/.agents/memory/thinking/devbot-audit-${DEVBOT_AUDIT_NN}.md"
     fi
     if [[ -n "${audit_report}" ]]; then
@@ -259,7 +261,7 @@ if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
         "You ran the /devbot:audit checklist and stopped before writing the report. Write it now to ${retry_report}, covering the sections you verified and naming the FAIL rows you found with their evidence. Do not re-run any checks; write the report, then stop." \
         2>&1 | tee -a /app/.agents/logs/devbot-audit-run.log
       audit_report=""
-      if [[ -n "${DEVBOT_AUDIT_NN:-}" && -f "/app/.agents/memory/thinking/devbot-audit-${DEVBOT_AUDIT_NN}.md" ]]; then
+      if [[ -n "${DEVBOT_AUDIT_NN:-}" && -s "/app/.agents/memory/thinking/devbot-audit-${DEVBOT_AUDIT_NN}.md" ]]; then
         audit_report="/app/.agents/memory/thinking/devbot-audit-${DEVBOT_AUDIT_NN}.md"
       fi
       if [[ -n "${audit_report}" ]]; then

@@ -152,6 +152,12 @@ DEVBOT_INSTALL="${DEV_BOT_INSTALL_DIR:-$HOME/.local/share/dev-bot}"
 python3 "${DEVBOT_INSTALL}/src/_shared/upsert_opencode_permission.py" \
   "${PWD}/opencode.jsonc" "${HOME}/.opencode/**" "${DEVBOT_INSTALL}/**" \
   "${HOME}/.local/share/opencode/**"
+
+# The upsert exits 0 when it recognises neither shape, which is how the v2
+# no-op went unnoticed: assert the grant actually landed in the config.
+if ! grep -qF "${DEVBOT_INSTALL}/**" "${PWD}/opencode.jsonc"; then
+  echo "WARN: external_directory grant did not land in opencode.jsonc — the audit may be denied reads" >&2
+fi
 _phase "opencode grant"
 
 # ── Agent audit — headless (opt-in) or manual ─────────────────────────────────

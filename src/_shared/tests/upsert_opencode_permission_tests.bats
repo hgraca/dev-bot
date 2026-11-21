@@ -185,3 +185,27 @@ JSONC_EOF
   run grep -qF '// ordered: the last match wins' "$WORK/opencode.jsonc"
   assert_success
 }
+
+@test "upsert v2: a comment closing the array stays valid" {
+  # The separator must not land inside a trailing comment: "// note," is not
+  # valid JSONC, and the upsert used to exit 0 having written exactly that
+  # (review B4).
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  "permissions": [
+    { "action": "read", "resource": "*", "effect": "allow" }
+    // last match wins
+  ]
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" '/x/**'
+
+  assert_success
+  run python3 "$PROJECT_ROOT/src/_shared/read_jsonc.py" "$WORK/opencode.jsonc" permissions
+  assert_success
+  run grep -qF '// last match wins' "$WORK/opencode.jsonc"
+  assert_success
+  run grep -q 'last match wins,' "$WORK/opencode.jsonc"
+  assert_failure
+}

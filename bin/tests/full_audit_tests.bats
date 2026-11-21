@@ -55,6 +55,7 @@ mkdir -p .agents/memory/thinking
     echo "| Hooks | PASS | probe fired and the file was reformatted |"
   fi
 } >".agents/memory/thinking/devbot-audit-${id}.md"
+echo "  report written via mount → .agents/memory/thinking/devbot-audit-${id}.md"
 EOF
   chmod +x "${BIN}/stub-${name}.sh"
   printf '%s' "${BIN}/stub-${name}.sh"
@@ -186,4 +187,63 @@ STUB
   assert_failure
   assert_equal "$status" 2
   assert_output --partial "not fixing on a partial pair"
+}
+
+# ── review blockers B2/B3 (pair attribution, FAIL-row detection) ──────────────
+
+_stub_from() { # <name> <id> <bodyfile>
+  local name="$1" id="$2" body="$3"
+  cat >"${BIN}/stub-${name}.sh" <<EOF
+#!/usr/bin/env bash
+mkdir -p .agents/memory/thinking
+cp "${body}" ".agents/memory/thinking/devbot-audit-${id}.md"
+echo "  report written via mount → .agents/memory/thinking/devbot-audit-${id}.md"
+EOF
+  chmod +x "${BIN}/stub-${name}.sh"
+  printf '%s' "${BIN}/stub-${name}.sh"
+}
+
+@test "one harness writing two reports does not satisfy the pair" {
+  # Counting new report files let a single harness fill the pair (review B2).
+  cat >"${BIN}/stub-cc.sh" <<'STUB'
+#!/usr/bin/env bash
+mkdir -p .agents/memory/thinking
+echo "| S | PASS | e |" >.agents/memory/thinking/devbot-audit-11.md
+echo "| S | PASS | e |" >.agents/memory/thinking/devbot-audit-13.md
+echo "  report written via mount → .agents/memory/thinking/devbot-audit-11.md"
+STUB
+  chmod +x "${BIN}/stub-cc.sh"
+  CC_STUB="${BIN}/stub-cc.sh"
+  OC_STUB="$(_stub oc silent)"
+
+  _run
+
+  assert_failure
+  assert_equal "$status" 2
+  assert_output --partial "the oc run wrote no report"
+}
+
+@test "a compound status cell containing FAIL is a FAIL row" {
+  # "| Hooks | PASS + FAIL-1 |" is a finding, not a pass (review B3).
+  printf '| Subsystem | Status | Evidence |\n| Hooks | PASS + FAIL-1 | dropped |\n' >"${SANDBOX}/body.md"
+  CC_STUB="$(_stub_from cc 11 "${SANDBOX}/body.md")"
+  OC_STUB="$(_stub_from oc 12 "${SANDBOX}/body.md")"
+
+  _run
+
+  assert_failure
+  assert_equal "$status" 1
+  assert_output --partial "PASS + FAIL-1"
+}
+
+@test "a status cell answering a question is not a FAIL row" {
+  # "Yes — no FAILs." answers a question; it is not a status (review B3).
+  printf '| Question | Answer | Evidence |\n| Can the agent use it? | Yes - no FAILs. | proven |\n' >"${SANDBOX}/body.md"
+  CC_STUB="$(_stub_from cc 11 "${SANDBOX}/body.md")"
+  OC_STUB="$(_stub_from oc 12 "${SANDBOX}/body.md")"
+
+  _run
+
+  assert_success
+  assert_output --partial "both reports landed with no FAIL row"
 }

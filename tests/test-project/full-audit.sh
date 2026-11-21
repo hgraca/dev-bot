@@ -113,25 +113,36 @@ oc_rc=0
 [[ -n "${cc_pid}" ]] && { wait "${cc_pid}" || cc_rc=$?; }
 [[ -n "${oc_pid}" ]] && { wait "${oc_pid}" || oc_rc=$?; }
 
-# `find | sort` in a subshell, so the diff only names reports this run wrote.
-_after="$(find "${THINKING}" -maxdepth 1 -name 'devbot-audit-[0-9]*.md' 2>/dev/null | sort)"
-new_reports="$(comm -13 <(printf '%s\n' "${_before}") <(printf '%s\n' "${_after}") \
-  | sed '/^$/d')"
+# Each launcher names the report it wrote, in its own log, only when the file it
+# reserved has content — the reserved placeholder is created empty, so a plain
+# "the newest report exists" test passes on a run that wrote nothing (review
+# B1/B2). One report per launcher, by attribution, is the only honest pair.
+_report_for() {
+  local log="$1" name
+  name="$(sed -n 's/.*→ \.agents\/memory\/thinking\/\(devbot-audit-[0-9][0-9]*\.md\)$/\1/p' "${log}" 2>/dev/null | tail -1)"
+  [[ -n "${name}" ]] || return 1
+  [[ -s "${THINKING}/${name}" ]] || return 1
+  printf '%s' "${THINKING}/${name}"
+}
 
-_want=$(( RUN_CC + RUN_OC ))
-_have="$(printf '%s\n' "${new_reports}" | sed '/^$/d' | wc -l | tr -d ' ')"
+cc_report=""
+oc_report=""
+if (( RUN_CC )); then cc_report="$(_report_for "${LOG_DIR}/cc.log")" || cc_report=""; fi
+if (( RUN_OC )); then oc_report="$(_report_for "${LOG_DIR}/oc.log")" || oc_report=""; fi
 
 # FAIL rows: the status cell of a summary-table row, or a top-level finding
 # heading. Prose that merely mentions FAIL is not a finding (audit.md: a row a
-# log contradicts is deleted, not downgraded).
+# log contradicts is deleted, not downgraded), and a cell that answers a
+# question ("Yes — no FAILs.") is not a status.
 _fail_rows() {
   awk -F'|' '
     /^[[:space:]]*\|/ && NF >= 3 {
-      status = $3
+      status = toupper($3)
       gsub(/[[:space:]]/, "", status)
-      if (status ~ /FAIL/ && status !~ /PASS/) print NR": "$0
+      # Standalone token: "FAIL-1" and "PASS+FAIL-1" count, "FAILs" does not.
+      if (status ~ /(^|[^A-Z])FAIL([^A-Z]|$)/) print NR": "$0
     }
-    /^#{1,6}[[:space:]]/ && $0 ~ /FAIL/ { print NR": "$0 }
+    /^#{1,6}[[:space:]]/ && toupper($0) ~ /FAIL/ { print NR": "$0 }
     /^\*\*FAIL/ { print NR": "$0 }
   ' "$1" 2>/dev/null
 }
@@ -146,13 +157,16 @@ if (( cc_rc != 0 || oc_rc != 0 )); then
   echo "  ✖ a launcher failed — a report from it cannot be trusted"
   status=2
 fi
-if (( _have < _want )); then
-  echo "  ✖ expected ${_want} new report(s), landed ${_have} — not fixing on a partial pair"
-  status=2
-fi
+(( RUN_CC )) && [[ -z "${cc_report}" ]] \
+  && echo "  ✖ the cc run wrote no report (no reserved report in ${LOG_DIR}/cc.log)"
+(( RUN_CC )) && [[ -z "${cc_report}" ]] && status=2
+(( RUN_OC )) && [[ -z "${oc_report}" ]] \
+  && echo "  ✖ the oc run wrote no report (no reserved report in ${LOG_DIR}/oc.log)"
+(( RUN_OC )) && [[ -z "${oc_report}" ]] && status=2
+(( status == 2 )) && echo "  ✖ not fixing on a partial pair"
 
 findings=0
-while IFS= read -r report; do
+for report in "${cc_report}" "${oc_report}"; do
   [[ -n "${report}" ]] || continue
   rel="${report#"${SCRIPT_DIR}/"}"
   rows="$(_fail_rows "${report}")"
@@ -163,7 +177,7 @@ while IFS= read -r report; do
     findings=$((findings + count))
     printf '%s\n' "${rows}" | sed 's/^/      /'
   fi
-done <<< "${new_reports}"
+done
 
 if (( status == 0 && findings > 0 )); then
   status=1

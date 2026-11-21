@@ -165,6 +165,14 @@ def _upsert_v2_array(path, src, entries):
     indent = _entry_indent(inner)
     body = inner.rstrip()
     tail = inner[len(body) :]
+    # A comment closing the array must not receive the separator: "// note,"
+    # is not valid JSONC (review B4). Hold those lines and re-emit them after
+    # the inserted entries.
+    trailing = []
+    lines = body.split("\n")
+    while lines and lines[-1].lstrip().startswith("//"):
+        trailing.insert(0, lines.pop())
+    body = "\n".join(lines).rstrip()
     if body and not body.endswith(","):
         body += ","
 
@@ -176,6 +184,8 @@ def _upsert_v2_array(path, src, entries):
             f'"effect": "allow" }}{suffix}'
         )
     addition = "\n" + "\n".join(added)
+    if trailing:
+        addition += "\n" + "\n".join(trailing)
 
     if "\n" not in tail:
         tail = "\n" + _line_indent(src, open_idx)

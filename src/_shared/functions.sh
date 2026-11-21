@@ -3118,6 +3118,9 @@ _upsert_section_impl() {
 
 # Repo-local exclude file; resolves through git so a
 # linked worktree writes the shared info/exclude.
+# A nested dir keeps its own literal path on purpose: git would answer with
+# the enclosing repo's exclude, and writing there mutates a repo this project
+# does not own (dev-bot's own fixture is exactly that shape).
 _devbot_git_exclude_path() {
   local project_dir="${1:-.}"
   [[ "${project_dir}" != /* ]] && project_dir="$(pwd)/${project_dir}"
