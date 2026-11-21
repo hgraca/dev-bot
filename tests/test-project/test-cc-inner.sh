@@ -161,10 +161,10 @@ _phase "devbot up"
 #     stops to ask (found by the e2e run: "Claude requested permissions ...
 #     but you haven't granted it yet").
 mkdir -p "${PWD}/.claude"
-python3 - "${PWD}/.claude/settings.json" "${HOME}/.claude/**" <<'PYEOF'
+python3 - "${PWD}/.claude/settings.json" <<'PYEOF'
 import json, os, sys
 
-path, state_dir = sys.argv[1], sys.argv[2]
+path = sys.argv[1]
 data = {}
 if os.path.exists(path):
     try:
@@ -175,8 +175,13 @@ if os.path.exists(path):
 
 permissions = data.setdefault("permissions", {})
 allow = permissions.setdefault("allow", [])
+# An allow entry must name the scope it widens (`Tool(pattern)` or a literal
+# `mcp__<server>`); a bare path glob is rejected and skipped, so the state dir
+# is deliberately not granted here. Edits are granted by mode instead: nothing
+# can answer a per-call prompt in a headless run, and every Write/Edit was
+# denied (the cc audit wrote its report through Bash).
+permissions["defaultMode"] = "acceptEdits"
 wanted = [
-    state_dir,
     "mcp__devbot-tools",
     "mcp__mdctx",
     "mcp__codebase-memory",
