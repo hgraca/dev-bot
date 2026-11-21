@@ -122,3 +122,66 @@ JSONC_EOF
   assert_success
   assert_output --partial "no permission.external_directory block"
 }
+
+# ── v2 permissions array (audit-05 FAIL-1) ───────────────────────────────────
+# opencode-v2 replaced the `permission` map with an ordered `permissions` array.
+# The v1 upsert found no block there and exited 0 having written nothing, so an
+# opencode-v2 session was denied external_directory on the install dir.
+
+@test "upsert v2: appends an allow rule to the permissions array" {
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  "permissions": [
+    { "action": "external_directory", "resource": "*", "effect": "deny" },
+    { "action": "read", "resource": "*", "effect": "allow" }
+  ]
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" '/home/ubuntu/devbot-src/**'
+
+  assert_success
+  assert_output --partial "added to permissions"
+  run python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$WORK/opencode.jsonc"
+  assert_success
+  # Appended last: v2 resolves the LAST match, so this overrides the deny.
+  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); e=d['permissions'][-1]; print(e['action'], e['resource'], e['effect'])" "$WORK/opencode.jsonc"
+  assert_success
+  assert_output "external_directory /home/ubuntu/devbot-src/** allow"
+}
+
+@test "upsert v2: is idempotent" {
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  "permissions": [
+    { "action": "external_directory", "resource": "*", "effect": "deny" }
+  ]
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" '/home/ubuntu/devbot-src/**'
+  assert_success
+  run python3 "$TOOL" "$WORK/opencode.jsonc" '/home/ubuntu/devbot-src/**'
+
+  assert_success
+  assert_output --partial "already present"
+  run grep -c 'devbot-src' "$WORK/opencode.jsonc"
+  assert_output "1"
+}
+
+@test "upsert v2: keeps a comment inside the array intact" {
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  "permissions": [
+    // ordered: the last match wins
+    { "action": "external_directory", "resource": "*", "effect": "deny" }
+  ]
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" '~/.opencode/**'
+
+  assert_success
+  run grep -qF '// ordered: the last match wins' "$WORK/opencode.jsonc"
+  assert_success
+}

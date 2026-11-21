@@ -148,7 +148,7 @@ _phase "devbot up"
 # before the audit ever started.
 DEVBOT_INSTALL="${DEV_BOT_INSTALL_DIR:-$HOME/.local/share/dev-bot}"
 python3 "${DEVBOT_INSTALL}/src/_shared/upsert_opencode_permission.py" \
-  "${PWD}/opencode.jsonc" "${HOME}/.opencode/**"
+  "${PWD}/opencode.jsonc" "${HOME}/.opencode/**" "${DEVBOT_INSTALL}/**"
 _phase "opencode grant"
 
 # ── Agent audit — headless (opt-in) or manual ─────────────────────────────────

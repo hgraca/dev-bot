@@ -81,8 +81,113 @@ def _line_indent(text, index):
 
 def _entry_indent(inner):
     """Indent of the block's first entry line, or 4 spaces for a one-liner."""
-    match = re.search(r'\n([ \t]+)"', inner)
+    # A v2 permission entry is an object (`{ … }`), a v1 one a key (`"…"`).
+    match = re.search(r'\n([ \t]+)[{"]', inner)
     return match.group(1) if match else "    "
+
+
+def _bracket_block(text, key):
+    """Return (open_idx, close_idx) of the [...] value for "key", skipping
+    strings and comments the same way _brace_block does."""
+    key_m = re.search(r'"' + re.escape(key) + r'"\s*:\s*\[', text)
+    if not key_m:
+        return None
+    start = key_m.end() - 1
+    depth = 0
+    in_str = False
+    escaped = False
+    in_line_comment = False
+    in_block_comment = False
+    i = start
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if in_line_comment:
+            if ch == "\n":
+                in_line_comment = False
+        elif in_block_comment:
+            if ch == "*" and nxt == "/":
+                in_block_comment = False
+                i += 1
+        elif in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+        elif ch == "/" and nxt == "/":
+            in_line_comment = True
+            i += 1
+        elif ch == "/" and nxt == "*":
+            in_block_comment = True
+            i += 1
+        elif ch == '"':
+            in_str = True
+        elif ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth -= 1
+            if depth == 0:
+                return start, i
+        i += 1
+    return None
+
+
+def _upsert_v2_array(path, src, entries):
+    """Append external_directory allow rules to a v2 `permissions` array.
+
+    v2 replaced the v1 `permission` map with an ordered rule list (last match
+    wins), so the v1 path above found no block and skipped — a silent no-op that
+    left opencode-v2 sessions unable to read the install (audit-05 FAIL-1).
+    """
+    block = _bracket_block(src, "permissions")
+    if block is None:
+        print(f"skip: no permission.external_directory block or permissions array in {path}", file=sys.stderr)
+        return 0
+    open_idx, close_idx = block
+    inner = src[open_idx + 1 : close_idx]
+
+    new_resources = []
+    for resource in entries:
+        already = re.search(
+            r'\{[^{}]*"resource"\s*:\s*"' + re.escape(resource) + r'"[^{}]*"effect"\s*:\s*"allow"',
+            inner,
+            re.DOTALL,
+        )
+        if not already and resource not in new_resources:
+            new_resources.append(resource)
+
+    if not new_resources:
+        print(f"already present: {', '.join(entries)}")
+        return 0
+
+    indent = _entry_indent(inner)
+    body = inner.rstrip()
+    tail = inner[len(body) :]
+    if body and not body.endswith(","):
+        body += ","
+
+    added = []
+    for i, resource in enumerate(new_resources):
+        suffix = "," if i < len(new_resources) - 1 else ""
+        added.append(
+            f'{indent}{{ "action": "external_directory", "resource": "{resource}", '
+            f'"effect": "allow" }}{suffix}'
+        )
+    addition = "\n" + "\n".join(added)
+
+    if "\n" not in tail:
+        tail = "\n" + _line_indent(src, open_idx)
+
+    out = src[: open_idx + 1] + body + addition + tail + src[close_idx:]
+    try:
+        open(path, "w", encoding="utf-8").write(out)
+    except OSError as e:
+        print(f"error: cannot write {path}: {e}", file=sys.stderr)
+        return 1
+    print(f"added to permissions: {', '.join(new_resources)}")
+    return 0
 
 
 def main() -> int:
@@ -102,8 +207,7 @@ def main() -> int:
 
     block = _brace_block(src, "external_directory")
     if block is None:
-        print(f"skip: no permission.external_directory block in {path}", file=sys.stderr)
-        return 0
+        return _upsert_v2_array(path, src, entries)
     open_idx, close_idx = block
 
     inner = src[open_idx + 1 : close_idx]
