@@ -3116,6 +3116,25 @@ _upsert_section_impl() {
   mv "${tmpfile}" "${file}"
 }
 
+# Repo-local exclude file; resolves through git so a
+# linked worktree writes the shared info/exclude.
+_devbot_git_exclude_path() {
+  local project_dir="${1:-.}"
+  [[ "${project_dir}" != /* ]] && project_dir="$(pwd)/${project_dir}"
+  local physical top="" common=""
+  physical="$(cd "${project_dir}" && pwd -P 2>/dev/null || printf '%s' "${project_dir}")"
+  top="$(git -C "${physical}" rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -n "${top}" && "${top}" == "${physical}" ]]; then
+    common="$(git -C "${physical}" rev-parse --git-common-dir 2>/dev/null || true)"
+  fi
+  if [[ -z "${common}" ]]; then
+    printf '%s/.git/info/exclude\n' "${project_dir%/}"
+    return 0
+  fi
+  [[ "${common}" != /* ]] && common="${physical}/${common}"
+  printf '%s/info/exclude\n' "${common%/}"
+}
+
 # ── gitignore/exclude upsert ───────────────────────────────────────────────────
 #
 # Usage:  _upsert_gitignore_section <file> <start_marker> <end_marker> <lines...>

@@ -198,7 +198,7 @@ else
 fi
 
 # ── .git/info/exclude section (local-only patterns) ──────────────────────────
-_upsert_gitignore_section "${PROJECT_DIR}/.git/info/exclude" \
+_upsert_gitignore_section "$(_devbot_git_exclude_path "${PROJECT_DIR}")" \
   "# >>> DEVBOT - graphify" \
   "# <<< DEVBOT - graphify" \
   ".graphifyignore" \

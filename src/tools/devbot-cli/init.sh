@@ -185,7 +185,8 @@ with open(output_path, 'w') as f:
 _ensure_gitignore() {
   local project_dir="${1:-.}"
   [[ "${project_dir}" != /* ]] && project_dir="$(pwd)/${project_dir}"
-  local exclude="${project_dir}/.git/info/exclude"
+  local exclude
+  exclude="$(_devbot_git_exclude_path "${project_dir}")"
   local devbot_dir
   devbot_dir="$(_devbot_get_project_dir "${project_dir}")"
 

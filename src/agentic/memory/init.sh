@@ -212,7 +212,8 @@ _upsert_section() {
 _ensure_gitignore() {
   local project_dir="${1:-.}"
   [[ "${project_dir}" != /* ]] && project_dir="$(pwd)/${project_dir}"
-  local exclude="${project_dir}/.git/info/exclude"
+  local exclude
+  exclude="$(_devbot_git_exclude_path "${project_dir}")"
   mkdir -p "$(dirname "$exclude")"
 
   echo

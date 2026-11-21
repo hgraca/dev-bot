@@ -89,8 +89,8 @@ fi
 # The index JSON is a generated artifact — exclude it from the repo via the
 # local (non-committed) .git/info/exclude, same pattern as the memory module's
 # vault exclusion. Only meaningful when the project is a git repo.
-if [[ -d "${PROJECT_DIR}/.git" ]]; then
-  if _upsert_gitignore_section "${PROJECT_DIR}/.git/info/exclude" \
+if [[ -e "${PROJECT_DIR}/.git" ]] || git -C "${PROJECT_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
+  if _upsert_gitignore_section "$(_devbot_git_exclude_path "${PROJECT_DIR}")" \
     "# >>> DEVBOT - mdctx" \
     "# <<< DEVBOT - mdctx" \
     ".mdctx"
