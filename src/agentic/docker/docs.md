@@ -2,6 +2,7 @@
 title: "Docker"
 description: "Dockerfile authoring — patterns for production-grade container builds."
 skills: ["dockerfile-authoring"]
+tools: ["docker-exec"]
 ---
 
 Write a container build that is small, reproducible and cache-friendly.
