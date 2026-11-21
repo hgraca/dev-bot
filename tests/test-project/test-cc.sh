@@ -12,8 +12,8 @@
 # <branch> is the dev-bot branch to install for the test (default: main).
 #   e.g. ./test-cc.sh my-feature-branch
 #
-# Inside the container afterwards: 'exit' leaves (container is removed with
-# --rm).
+# Inside the container afterwards: 'exit' leaves (cleanup removes the
+# container).
 # =============================================================================
 set -euo pipefail
 
@@ -167,7 +167,7 @@ if [[ -n "${LOCAL_SRC}" ]]; then
 fi
 
 echo "Starting ${CONTAINER_NAME} (detached — phases run inside; log follows)..."
-docker run -d --rm --name "${CONTAINER_NAME}" \
+docker run -d --name "${CONTAINER_NAME}" \
   --privileged \
   --mount type=volume,dst=/var/lib/docker \
   "${COMPOSER_ARGS[@]+"${COMPOSER_ARGS[@]}"}" \

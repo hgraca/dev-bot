@@ -3116,26 +3116,28 @@ _upsert_section_impl() {
   mv "${tmpfile}" "${file}"
 }
 
-# Repo-local exclude file; resolves through git so a
+# Repo-local exclude file; resolved through git so a
 # linked worktree writes the shared info/exclude.
-# A nested dir keeps its own literal path on purpose: git would answer with
-# the enclosing repo's exclude, and writing there mutates a repo this project
-# does not own (dev-bot's own fixture is exactly that shape).
+# A nested dir resolves to the enclosing repo's exclude — the file git reads —
+# rather than fabricating <dir>/.git, which would make git treat it as a repo.
 _devbot_git_exclude_path() {
   local project_dir="${1:-.}"
   [[ "${project_dir}" != /* ]] && project_dir="$(pwd)/${project_dir}"
-  local physical top="" common=""
+  local physical="" git_path=""
   physical="$(cd "${project_dir}" && pwd -P 2>/dev/null || printf '%s' "${project_dir}")"
-  top="$(git -C "${physical}" rev-parse --show-toplevel 2>/dev/null || true)"
-  if [[ -n "${top}" && "${top}" == "${physical}" ]]; then
-    common="$(git -C "${physical}" rev-parse --git-common-dir 2>/dev/null || true)"
-  fi
-  if [[ -z "${common}" ]]; then
-    printf '%s/.git/info/exclude\n' "${project_dir%/}"
+  git_path="$(git -C "${physical}" rev-parse --git-path info/exclude 2>/dev/null || true)"
+  if [[ -n "${git_path}" ]]; then
+    [[ "${git_path}" != /* ]] && git_path="${physical}/${git_path}"
+    # git answers relative to its cwd ("nested/../.git/…"): normalise it so the
+    # caller gets one canonical path.
+    local dir base
+    dir="$(dirname "${git_path}")"
+    base="$(basename "${git_path}")"
+    [[ -d "${dir}" ]] && git_path="$(cd "${dir}" && pwd -P)/${base}"
+    printf '%s\n' "${git_path}"
     return 0
   fi
-  [[ "${common}" != /* ]] && common="${physical}/${common}"
-  printf '%s/info/exclude\n' "${common%/}"
+  printf '%s/.git/info/exclude\n' "${project_dir%/}"
 }
 
 # ── gitignore/exclude upsert ───────────────────────────────────────────────────

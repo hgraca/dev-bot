@@ -29,6 +29,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${SCRIPT_DIR}" || exit 2
 
 BRANCH="main"
+BRANCH_GIVEN=0
 RUN_CC=1
 RUN_OC=1
 for _arg in "$@"; do
@@ -37,7 +38,7 @@ for _arg in "$@"; do
     --no-oc) RUN_OC=0 ;;
     --headless) : ;;
     "") ;;
-    *) BRANCH="${_arg}" ;;
+    *) BRANCH="${_arg}"; BRANCH_GIVEN=1 ;;
   esac
 done
 
@@ -91,9 +92,13 @@ fi
 # (three FAILs its own logs contradicted, then a fabricated PASS), and a
 # reported FAIL costs a full manual verification — sonnet pays for itself.
 export DEVBOT_TEST_CLAUDE_MODEL="${DEVBOT_TEST_CLAUDE_MODEL:-sonnet}"
-# Audit THIS checkout unless the caller points elsewhere: the launchers
-# otherwise install the public main, which is not the tree under review.
-export DEV_BOT_TEST_LOCAL_SRC="${DEV_BOT_TEST_LOCAL_SRC:-$(cd "${SCRIPT_DIR}/../.." && pwd)}"
+# With no branch named, audit THIS checkout: the launchers otherwise install
+# the public main, which is not the tree under review. A named branch still
+# wins — the local source is only the default.
+if (( ! BRANCH_GIVEN )) && [[ -z "${DEV_BOT_TEST_LOCAL_SRC:-}" ]]; then
+  _local_src="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+  export DEV_BOT_TEST_LOCAL_SRC="${_local_src}"
+fi
 # Both launchers wait for their container to exit instead of attaching a shell.
 export DEVBOT_TEST_NONINTERACTIVE=1
 

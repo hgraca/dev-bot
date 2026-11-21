@@ -61,14 +61,16 @@ _make_repo() {
   assert_equal "${SANDBOX}/plain/.git/info/exclude" "${output}"
 }
 
-@test "a directory nested in a repository keeps its own .git path" {
+@test "a directory nested in a repository resolves to the enclosing exclude" {
+  # Writing <nested>/.git/info would fabricate a gitdir git then treats as a
+  # broken repo; the file git reads is the enclosing repository's exclude.
   _make_repo
   mkdir -p "${REPO}/nested"
 
   run _devbot_git_exclude_path "${REPO}/nested"
 
   assert_success
-  assert_equal "$(cd "${REPO}" && pwd)/nested/.git/info/exclude" "${output}"
+  assert_equal "$(cd "${REPO}" && pwd)/.git/info/exclude" "${output}"
 }
 
 @test "a worktree upsert reaches the shared exclude instead of failing" {

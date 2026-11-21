@@ -124,15 +124,19 @@ PY
   [ ! -e "$PROJECT_ROOT/.devbot.global.sha" ] \
     || fail ".devbot.global.sha should no longer be written by init"
 
-  # ── Verify .git/info/exclude was updated with .ai/ entry ───────────────
-  [ -f "$test_project/.git/info/exclude" ]
-  grep -qF "# >>> DEVBOT - memory" "$test_project/.git/info/exclude"
+  # ── Verify the repo's exclude was updated with the .ai/ entry ──────────
+  # The scaffold lives inside this repo, so the exclude git reads is the
+  # enclosing repository's — not a fabricated <project>/.git/info.
+  local exclude
+  exclude="$(bash -c "source '${PROJECT_ROOT}/src/_shared/functions.sh'; _devbot_git_exclude_path '${test_project}'")"
+  [ -f "$exclude" ]
+  grep -qF "# >>> DEVBOT - memory" "$exclude"
   # Generated runtime MCP manifests land in <devbot_dir>/mcp-runtime on every
   # init, so the project ignore block must cover them.
-  grep -qF "# >>> DEVBOT" "$test_project/.git/info/exclude"
-  grep -qF "mcp-runtime" "$test_project/.git/info/exclude"
+  grep -qF "# >>> DEVBOT" "$exclude"
+  grep -qF "mcp-runtime" "$exclude"
   # Session locks the plugins create on demand.
-  grep -qF "locks" "$test_project/.git/info/exclude"
+  grep -qF "locks" "$exclude"
 
   # ── Verify .opencode directory created by opencode init ────────────────
   [ -d "$test_project/.opencode" ]
