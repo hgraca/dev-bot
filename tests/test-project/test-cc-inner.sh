@@ -237,8 +237,10 @@ if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
   _phase "agent audit"
   echo
   if [[ ${AUDIT_RC} -ne 0 ]]; then
-    echo "WARN: devbot audit run failed (exit ${AUDIT_RC}) — tail of devbot-audit-run.log:"
-    tail -5 /app/.agents/logs/devbot-audit-run.log 2>/dev/null | sed 's/^/  /'
+    # A failed audit must not read as a successful launcher (review: Copilot P3).
+    echo "FATAL: devbot audit run failed (exit ${AUDIT_RC}) — tail of devbot-audit-run.log:" >&2
+    tail -5 /app/.agents/logs/devbot-audit-run.log 2>/dev/null | sed 's/^/  /' >&2
+    exit "${AUDIT_RC}"
   else
     # Only THIS run's reserved report counts: thinking/ is shared with the
     # parallel oc audit, so "the newest report" is often the other harness's —

@@ -155,7 +155,7 @@ python3 "${DEVBOT_INSTALL}/src/_shared/upsert_opencode_permission.py" \
 
 # The upsert exits 0 when it recognises neither shape, which is how the v2
 # no-op went unnoticed: assert the grant actually landed in the config.
-if ! grep -qF "${DEVBOT_INSTALL}/**" "${PWD}/opencode.jsonc"; then
+if ! grep -F "${DEVBOT_INSTALL}/**" "${PWD}/opencode.jsonc" | grep -q 'external_directory'; then
   echo "FATAL: external_directory grant did not land in opencode.jsonc — the audit would be denied reads" >&2
   exit 1
 fi
@@ -180,7 +180,9 @@ if [[ "${DEVBOT_TEST_HEADLESS:-0}" == "1" ]]; then
   set -e
   _phase "agent audit"
   if [[ ${AUDIT_RC} -ne 0 ]]; then
-    echo "WARN: headless opencode audit failed (exit ${AUDIT_RC}) — see devbot-audit-run.log"
+    # A failed audit must not read as a successful launcher (review: Copilot P3).
+    echo "FATAL: headless opencode audit failed (exit ${AUDIT_RC}) — see devbot-audit-run.log" >&2
+    exit "${AUDIT_RC}"
   fi
 else
   echo "(headless audit skipped — run /devbot:audit manually in the harness below)"

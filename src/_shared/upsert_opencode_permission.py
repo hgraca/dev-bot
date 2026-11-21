@@ -86,10 +86,110 @@ def _entry_indent(inner):
     return match.group(1) if match else "    "
 
 
+def _code_only(text):
+    """Same-length copy with comment text blanked.
+
+    Positions survive, so an index found in the copy edits the original. A
+    commented-out example (`// "permissions": [ … ]`) must never be the block
+    the upsert rewrites (review: Copilot P3); string-aware object scanning
+    protects the rule parse.
+    """
+    out = list(text)
+    in_str = False
+    escaped = False
+    in_line = False
+    in_block = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if in_line:
+            if ch == "\n":
+                in_line = False
+            else:
+                out[i] = " " if ch != "\n" else ch
+        elif in_block:
+            if ch == "*" and nxt == "/":
+                out[i] = " "
+                out[i + 1] = " "
+                in_block = False
+                i += 1
+            elif ch != "\n":
+                out[i] = " "
+        elif in_str:
+            # String contents stay: the key being searched for IS a string.
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+        elif ch == "/" and nxt == "/":
+            out[i] = " "
+            out[i + 1] = " "
+            in_line = True
+            i += 1
+        elif ch == "/" and nxt == "*":
+            out[i] = " "
+            out[i + 1] = " "
+            in_block = True
+            i += 1
+        elif ch == '"':
+            in_str = True
+        i += 1
+    return "".join(out)
+
+
+def _objects(text):
+    """Yield (start, end) of depth-1 {…} objects, ignoring strings/comments."""
+    depth = 0
+    start = None
+    in_str = False
+    escaped = False
+    in_line = False
+    in_block = False
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if in_line:
+            if ch == "\n":
+                in_line = False
+        elif in_block:
+            if ch == "*" and nxt == "/":
+                in_block = False
+                i += 1
+        elif in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+        elif ch == "/" and nxt == "/":
+            in_line = True
+            i += 1
+        elif ch == "/" and nxt == "*":
+            in_block = True
+            i += 1
+        elif ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start is not None:
+                yield start, i
+                start = None
+        i += 1
+
+
 def _bracket_block(text, key):
     """Return (open_idx, close_idx) of the [...] value for "key", skipping
     strings and comments the same way _brace_block does."""
-    key_m = re.search(r'"' + re.escape(key) + r'"\s*:\s*\[', text)
+    key_m = re.search(r'"' + re.escape(key) + r'"\s*:\s*\[', _code_only(text))
     if not key_m:
         return None
     start = key_m.end() - 1
@@ -169,8 +269,8 @@ def _resource_matches(pattern, resource):
 def _v2_already_allowed(inner, resource):
     """True when the LAST matching external_directory rule allows `resource`."""
     verdict = None
-    for match in re.finditer(r"\{[^{}]*\}", inner, re.DOTALL):
-        obj = match.group(0)
+    for begin, end in _objects(inner):
+        obj = inner[begin : end + 1]
         action = re.search(r'"action"\s*:\s*"([^"]+)"', obj)
         res = re.search(r'"resource"\s*:\s*"([^"]+)"', obj)
         effect = re.search(r'"effect"\s*:\s*"([^"]+)"', obj)
@@ -229,7 +329,12 @@ def _upsert_v2_array(path, src, entries):
     # the inserted entries.
     trailing = []
     lines = body.split("\n")
-    while lines and lines[-1].lstrip().startswith("//"):
+    while lines and (
+        lines[-1].lstrip().startswith("//")
+        or lines[-1].lstrip().startswith("/*")
+        or lines[-1].lstrip().startswith("*")
+        or lines[-1].rstrip().endswith("*/")
+    ):
         trailing.insert(0, lines.pop())
     body = "\n".join(lines).rstrip()
     if body and not body.endswith(","):

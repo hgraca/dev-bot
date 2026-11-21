@@ -54,6 +54,7 @@ mkdir -p .agents/memory/thinking
   else
     echo "| Hooks | PASS | probe fired and the file was reformatted |"
   fi
+  for _ in \$(seq 1 12); do echo "  evidence line"; done
 } >".agents/memory/thinking/devbot-audit-${id}.md"
 echo "  report written via mount → .agents/memory/thinking/devbot-audit-${id}.md"
 EOF
@@ -196,7 +197,7 @@ _stub_from() { # <name> <id> <bodyfile>
   cat >"${BIN}/stub-${name}.sh" <<EOF
 #!/usr/bin/env bash
 mkdir -p .agents/memory/thinking
-cp "${body}" ".agents/memory/thinking/devbot-audit-${id}.md"
+{ echo "# stub report"; cat "${body}"; for _ in \$(seq 1 12); do echo "  evidence line"; done; } > ".agents/memory/thinking/devbot-audit-${id}.md"
 echo "  report written via mount → .agents/memory/thinking/devbot-audit-${id}.md"
 EOF
   chmod +x "${BIN}/stub-${name}.sh"

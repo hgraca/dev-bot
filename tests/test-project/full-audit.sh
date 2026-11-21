@@ -128,8 +128,12 @@ _report_for() {
   local log="$1" name
   name="$(sed -n 's/^ *report written via mount → \.agents\/memory\/thinking\/\(devbot-audit-[0-9][0-9]*\.md\)$/\1/p' "${log}" 2>/dev/null | tail -1)"
   [[ -n "${name}" ]] || return 1
-  [[ -s "${THINKING}/${name}" ]] || return 1
-  printf '%s' "${THINKING}/${name}"
+  local file="${THINKING}/${name}"
+  [[ -s "${file}" ]] || return 1
+  # A non-empty file is not a report: the retry prompt could write anything.
+  grep -q '^#' "${file}" || return 1
+  (( $(wc -l < "${file}") >= 10 )) || return 1
+  printf '%s' "${file}"
 }
 
 cc_report=""

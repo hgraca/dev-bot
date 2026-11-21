@@ -225,13 +225,6 @@ if [[ "${READY}" == "1" ]] \
   if [[ "${DEVBOT_TEST_NONINTERACTIVE:-0}" == "1" ]]; then
     echo "=== non-interactive: waiting for container to exit ==="
     while docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null | grep -q true; do sleep 2; done
-    # The harness's own exit status, not the launcher's: a run that died
-    # mid-audit used to leave the launcher exiting 0 (review: Copilot F4).
-    CONTAINER_EXIT="$(docker inspect -f '{{.State.ExitCode}}' "${CONTAINER_NAME}" 2>/dev/null || echo 0)"
-    if [[ "${CONTAINER_EXIT:-0}" != "0" ]]; then
-      echo "WARN: harness exited ${CONTAINER_EXIT} — the audit did not complete" >&2
-      exit 1
-    fi
   else
     echo "=== Phases complete — attaching interactive shell ==="
     echo "    run /devbot:audit manually; type 'exit' to leave and clean up."
@@ -241,6 +234,17 @@ elif [[ "${READY}" != "1" ]]; then
   echo "WARN: container did not signal readiness — see the log above." >&2
 else
   echo "=== Test complete (container exited). ==="
+fi
+
+# The harness's own exit status, not the launcher's — on every non-interactive
+# path, including a container that stopped before signalling readiness, which
+# used to leave the launcher exiting 0 (review: Copilot F4 / P3).
+if [[ "${DEVBOT_TEST_NONINTERACTIVE:-0}" == "1" ]]; then
+  CONTAINER_EXIT="$(docker inspect -f '{{.State.ExitCode}}' "${CONTAINER_NAME}" 2>/dev/null || echo 0)"
+  if [[ "${CONTAINER_EXIT:-0}" != "0" ]]; then
+    echo "WARN: harness exited ${CONTAINER_EXIT} — the audit did not complete" >&2
+    exit 1
+  fi
 fi
 
 # Belt-and-braces: the EXIT trap cleans up; this is a no-op on the normal path.
