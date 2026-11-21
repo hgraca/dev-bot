@@ -3,7 +3,7 @@ title: "GitHub"
 description: "Create a repository, open a pull request from a branch or work one locally, and scaffold a GitHub Pages docs site."
 commands: ["gh-create-repo", "gh-address-review", "gh-make-review", "gh-create-pr", "gh-review-loop"]
 skills: ["gh-create-repo", "gh-create-pr", "gh-review-loop", "gh-pages"]
-tools: ["gh-configure-repo", "pr-watch"]
+tools: ["gh-configure-repo", "pr-open", "pr-watch"]
 ---
 
 Create a repository, open a pull request from a branch, or pull one down and work on it locally —
