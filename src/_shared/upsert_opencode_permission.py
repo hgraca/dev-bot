@@ -235,7 +235,7 @@ def _bracket_block(text, key):
 
 
 def _line_comment_index(line):
-    """Index of a // comment outside a string in one line, or None."""
+    """Index of the first // or /* comment outside a string, or None."""
     in_str = False
     escaped = False
     i = 0
@@ -250,7 +250,7 @@ def _line_comment_index(line):
                 in_str = False
         elif ch == '"':
             in_str = True
-        elif ch == "/" and line[i + 1] == "/":
+        elif ch == "/" and line[i + 1] in "/*":
             return i
         i += 1
     return None
@@ -329,12 +329,10 @@ def _upsert_v2_array(path, src, entries):
     # the inserted entries.
     trailing = []
     lines = body.split("\n")
-    while lines and (
-        lines[-1].lstrip().startswith("//")
-        or lines[-1].lstrip().startswith("/*")
-        or lines[-1].lstrip().startswith("*")
-        or lines[-1].rstrip().endswith("*/")
-    ):
+    # Comment-ONLY lines: blanking comments leaves nothing. A line that still
+    # carries a rule stays put, however it ends — an inline block comment used
+    # to take the rule with it (review: Copilot P4).
+    while lines and not _code_only(lines[-1]).strip():
         trailing.insert(0, lines.pop())
     body = "\n".join(lines).rstrip()
     if body and not body.endswith(","):

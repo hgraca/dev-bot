@@ -265,3 +265,29 @@ JSONC_EOF
   assert_success
   assert_output --partial "added to permissions"
 }
+
+@test "upsert v2: an inline block comment on the last rule keeps the rule" {
+  # The lift used to take the whole line (rule included) into the trailing
+  # bucket, appending the new rule without a separator (review: Copilot P4).
+  cat > "$WORK/opencode.jsonc" <<'JSONC_EOF'
+{
+  "permissions": [
+    { "action": "external_directory", "resource": "*", "effect": "deny" }  /* note */
+  ]
+}
+JSONC_EOF
+
+  run python3 "$TOOL" "$WORK/opencode.jsonc" '/x/**'
+
+  assert_success
+  run python3 "$PROJECT_ROOT/src/_shared/read_jsonc.py" "$WORK/opencode.jsonc" permissions
+  assert_success
+  # Both rules survive, and the allow is the later one (last match wins).
+  run grep -c '"action": "external_directory"' "$WORK/opencode.jsonc"
+  assert_output "2"
+  run sh -c "grep -n 'effect' '$WORK/opencode.jsonc' | tail -1"
+  assert_output --partial '/x/**'
+  assert_output --partial 'allow'
+  run grep -qF '/* note */' "$WORK/opencode.jsonc"
+  assert_success
+}
