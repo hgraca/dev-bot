@@ -3,6 +3,7 @@ title: "Dev"
 description: "Software-development conventions — craft rules, tests, review resolution, make, and shell strategy."
 commands: ["make-tests"]
 skills: ["address-review", "make-tests", "makefile", "shell-strategy", "software-development"]
+tools: ["bats-run"]
 ---
 
 The generic craft rules every dev-bot task leans on — independent of language or role.
