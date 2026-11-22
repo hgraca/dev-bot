@@ -10,7 +10,7 @@ A review loop on the session's pull request — Copilot's, or any reviewer that 
 that evidence into a change in the toolkit: a pull request against the dev-bot repository that makes
 the reviewer catch those issues before a pull request exists.
 
-Two rules make it useful rather than noisy:
+Three rules make it useful rather than noisy:
 
 - **Generic, never one project's incident.** The gap is a check the reviewer does not perform. Write
   the change as that generalized check, and keep every project, product, customer and consumer
@@ -20,6 +20,8 @@ Two rules make it useful rather than noisy:
   finished — not that a pull request should be opened against the toolkit repository. Draft and commit
   every gap first, then ask once whether to push and open it. Once the pull request exists, its review
   is where a suggestion is approved, modified or dropped.
+- **One standing pull request.** Every session's gaps go to the same titled pull request; a second one
+  splits the review and the history of the reviewer's growth across two places.
 
 ## When to Apply
 
@@ -40,9 +42,11 @@ worse, not better.
 | reviewer **behaviour** — workflow, tone, behavioural MUST/MUST NOT rules, skill references        | `src/agentic/devteam/agents/reviewer.md`                    |
 | What the reviewer **inspects and flags** — checks, issue types, finding patterns, report template | `src/agentic/devteam/skills/review-implementation/SKILL.md` |
 
-Paths are relative to the dev-bot repository root. Anything that is not about reviewing stays out of
-both files; a gap that belongs to another reviewer-referenced skill is raised as a follow-up, not
-landed here.
+Paths are relative to the dev-bot repository root. The standing pull request also carries a change to
+a review-loop skill — `gh-create-pr` or `gh-review-loop` — when the gap is in how a loop runs, because
+that is the same evidence read one step earlier. Anything else is out of scope: anything not about
+reviewing stays out of both files, and a gap belonging to any other skill is raised as a follow-up,
+not landed here.
 
 ## Procedure
 
@@ -99,7 +103,18 @@ bash src/agentic/git/tools/worktree.sh list                       # "<path> <bra
 git rev-parse --verify --quiet refs/heads/chore/<slug>
 git rev-parse --verify --quiet refs/remotes/origin/chore/<slug>
 gh pr list --head chore/<slug> --state all --json number,url,state
+# The standing pull request this skill appends to, on whatever branch it sits.
+gh pr list --state open --limit 200 --json number,url,headRefName,title \
+  --jq '.[] | select(.title == "chore(improve-reviews): improve review skill")'
 ```
+
+The standing lookup prints nothing when there is no such pull request: an empty answer means "none",
+not that the query was wrong. Set the limit: `gh pr list` pages at 30 by default, and a standing pull
+request beyond that page would read as "none" and invite the twin this rule forbids. When it prints more than one, do not guess — list them and ask which is
+the standing pull request, because two open pull requests under that title is a state only the human
+can resolve. Match the title exactly in `--jq` rather than through `--search`, whose
+syntax treats the parentheses and colon of a conventional-commit title as query operators and returns
+an empty list for a pull request that exists.
 
 `worktree.sh path` looks like the probe and is not: it exits `FATAL` for a branch with no worktree,
 which is the ordinary first run. `list` is the probe.
@@ -107,13 +122,14 @@ which is the ordinary first run. `list` is the probe.
 Read the pull request state first — it decides whether the branch may be continued at all — then what
 the checkout holds:
 
-| Pull request     | Local state               | What to do                                                                                                                                                |
-| ---------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| open             | a worktree for the branch | work there — never `create`                                                                                                                               |
-| open             | the branch, no worktree   | attach it, then continue: `git worktree add "$dir/worktrees/chore-<slug>" chore/<slug>`, fetching `origin/chore/<slug>` first when only the remote has it |
-| merged or closed | any                       | that gap is closed: a new slug and a new branch, never a revival — the stale worktree and branch are `devbot:reconcile-work`'s                            |
-| none             | a worktree or branch      | a run whose pull request was declined: continue it, or take a new slug if it was abandoned                                                                |
-| none             | nothing                   | `bash src/agentic/git/tools/worktree.sh create chore/<slug>`                                                                                              |
+| Pull request     | Local state               | What to do                                                                                                                                                                           |
+| ---------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| the standing one | any                       | append to it: work on its `<headRefName>` — reuse the worktree `worktree.sh list` shows, else attach it as the next row does — and skip `create`; this session opens no pull request |
+| open             | a worktree for the branch | work there — never `create`                                                                                                                                                          |
+| open             | the branch, no worktree   | attach it, then continue: `git worktree add "$dir/worktrees/chore-<slug>" chore/<slug>`, fetching `origin/chore/<slug>` first when only the remote has it                            |
+| merged or closed | any                       | that gap is closed: a new slug and a new branch, never a revival — the stale worktree and branch are `devbot:reconcile-work`'s                                                       |
+| none             | a worktree or branch      | a run whose pull request was declined: continue it, or take a new slug if it was abandoned                                                                                           |
+| none             | nothing                   | `bash src/agentic/git/tools/worktree.sh create chore/<slug>`                                                                                                                         |
 
 `create` refuses an existing branch or path, which is why every other row avoids it. The attach path
 uses the project's configured worktree root — a hard-coded `.agents` is wrong for a project that
@@ -140,20 +156,53 @@ Read both target files first, then write the smallest change that would have cau
 State the property to verify, not the incident that revealed it. One gap, one change: two findings
 that reduce to the same check are one check.
 
-### 5. Ask once, then open the pull request
+### 5. Final pass over the changed files
 
-Commit each gap atomically with a Conventional Commit (`devbot:git-commits`). Then present the result
-as one line per gap — the generalized check, the target file, and the change in a clause — and ask
-once whether to **push and open the pull request**. On a refusal, leave the commits on the local
-branch, name the branch and the worktree, and stop there.
+The gaps are fixed; the file they landed in may not read as one document yet. Before publishing,
+re-read **every file the change touched** end to end — not the diff — and remove what the
+accumulation left behind:
 
-With the go-ahead, push it — from `$root`, `bash src/agentic/git/tools/worktree.sh push chore/<slug>`, so
-the tool resolves the repository it acts on — and open it with `devbot:gh-create-pr`, which owns the
-title and body rules — including its exception for a pull request that does not belong to the
-session's project's work, which this one is. Never merge it. Its review belongs to the human: the
-next session that touches the dev-bot project picks up whatever is still unresolved.
+- **Inconsistencies** — a rule the new check now contradicts, a term used two ways, a count or a
+  cross-reference that no longer matches.
+- **Redundancies** — the same property asserted twice in different words; keep the stronger
+  statement and delete the other.
+- **Duplications** — a check that repeats one already in the file; fold the new detail into the
+  existing check instead of adding a second number.
+- **Ambiguities** — a predicate a reader can read two ways, an unstated scope, a term used before it
+  is defined.
 
-### 6. Report
+Renumber whatever moved and keep the numbering contiguous: a list with a gap reads as a lost rule.
+**Keep every property** — a pass that deletes a check to tidy the file has broken the skill, and that
+is worse than the repetition it removed.
+
+### 6. Publish the pull request
+
+Commit each gap atomically with a Conventional Commit (`devbot:git-commits`), the final pass
+included. Then present the result as one line per gap — the generalized check, the target file, and
+the change in a clause — and ask once whether to **push and publish**. On a refusal, leave the
+commits on the local branch, name the branch and the worktree, and stop there.
+
+The pull request always carries this title:
+
+```text
+chore(improve-reviews): improve review skill
+```
+
+It does not restate the gaps and is not composed from the commits: it is the standing home for this
+kind of change, so a later session finds the open one instead of opening a twin. Step 3 already
+answered which of the two cases applies:
+
+- **No standing pull request open** — push the branch (`bash src/agentic/git/tools/worktree.sh push
+chore/<slug>` from `$root`, so the tool resolves the repository it acts on) and open the pull
+  request with `devbot:gh-create-pr`, which owns the body rules, using the fixed title above.
+- **One open** — do **not** open a second: push the branch step 3 put you on
+  (`bash src/agentic/git/tools/worktree.sh push <headRefName>` from `$root`) so the standing pull
+  request grows and its review stays in one place.
+
+Never merge it. Its review belongs to the human: the next session that touches the dev-bot project
+picks up whatever is still unresolved.
+
+### 7. Report
 
 Report the pull request URL and what it would catch, and say that the rules take effect once merged.
 When nothing survived step 2's filter, say so in one line and stop: an unchanged reviewer is a valid
@@ -167,6 +216,10 @@ outcome.
 - Preserve the existing structure, heading hierarchy and numbering of the target files.
 - Draft only changes that address a finding the session actually produced.
 - Ask once before publishing, and leave the commits local when the answer is no.
+- Run the final pass over every touched file before publishing, and keep every property it is tempted
+  to delete.
+- Title the pull request `chore(improve-reviews): improve review skill`, and append to that open
+  standing pull request instead of opening a second.
 
 ## MUST NOT
 
@@ -175,6 +228,8 @@ outcome.
 - Put inspection content (checks, issue types) in `reviewer.md`, or behavioural rules in
   `review-implementation/SKILL.md`.
 - Touch production code, non-reviewer agents or skills, or files with "no-vcs" in the name.
-- Merge the pull request, or commit the change anywhere but its own worktree branch.
+- Merge the pull request, or commit the change anywhere but its own worktree branch — or the open
+  standing pull request's branch, when that is where step 3 put you.
+- Compose the pull-request title from the gaps, or open a second standing pull request.
 - Write memory notes: the finish flow's memory capture has already run, and it stays the last write
   to the vault.
