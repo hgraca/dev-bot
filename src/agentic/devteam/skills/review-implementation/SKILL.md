@@ -70,6 +70,7 @@ For every added or modified test method:
 - Test named `amounts_are_converted_using_billing_rate` that no longer asserts anything about amounts or conversion is BLOCKER — test name makes promise body must keep.
 - Fixture files (`*.csv`, `*.json`, `*.xml`, snapshot files) updated in changeset but no longer loaded by any test are dead fixtures — flag as WARNING and require deletion or re-use.
 - Verify test classes do NOT import traits/mixins already provided by the base test class. Redundant traits can cause subtle behavior changes.
+- When a test pins documented behaviour by matching prose (a `grep` over a skill or doc file), require the property in **one** matcher: two independent greps each pass while the sentence between them is gone, so the promise in the test name — order, gating, adjacency — silently stops being asserted. WARNING.
 
 ### 7. Decorator & Wrapper Integrity
 
@@ -174,6 +175,7 @@ When the diff reads a command's status to decide something:
 
 - Enumerate the meaning of every code it can return, including the ones that mean "no answer" and "not applicable here".
 - Check that no code is silently mapped to success or failure. An inverted mapping is BLOCKER when the decision it drives is destructive or irreversible.
+- When a command is used as a **probe** — "is this present?", "does it exist?" — verify what it does in the absent case. Many resolvers exit `FATAL` rather than printing nothing, so "empty output means absent" inverts on the ordinary first run; require the list/query form that reports absence instead. WARNING.
 
 ### 21. Working-Directory Scope
 
@@ -181,6 +183,8 @@ When a command inspects or acts on a target the text has just resolved:
 
 - Verify every call is scoped to that target — a `-C`/`--directory` equivalent, or an explicit path — not to wherever the process happens to run.
 - An unscoped call answers about a different thing and usually still exits 0, so the failure is silent.
+- A **repository** is a target too: `gh`, `git`, and tools taking `--project`/`--repo` resolve it from the working directory when no flag names one, so a procedure that runs from one repository and acts on another answers about the wrong one.
+- A default directory written as a literal (`./.agents/…`) is the same defect where the project configures it — require the configured value, not the convention.
 - WARNING; BLOCKER when what it acts on is production or irreversible.
 
 ### 22. Procedure Described as Enforcement
@@ -197,6 +201,23 @@ When the change is itself a fix, or when a later round of the same review answer
 - Re-read the whole section around each edit, not just the edited sentence: an anchor can be dropped, a hazard the same file warns about can be reintroduced a few lines later, and counts go stale.
 - Re-verify each applied fix against its own finding before closing it — a replacement that silently matched nothing looks exactly like a successful edit.
 - WARNING; BLOCKER when the earlier round already reported the finding resolved.
+
+### 24. Decision Tables and Retry Paths Cover Every Reachable State
+
+When the change documents a choice — a table, an if/else procedure, a resume or retry step:
+
+- List the states the document itself names, then check each has a row or a branch: present/absent, local/remote only, open/merged/closed, first run/rerun, declined/abandoned. A state named elsewhere in the same section but missing from the table is a finding.
+- Check no unconditional step follows the table: "reuse the existing branch" in the table plus "create the branch" below it fails on the very case the table handles.
+- Check the first run is a row, not an error path — the ordinary case must be the one the procedure was written for.
+- WARNING; BLOCKER when the missing state makes the documented procedure fail or act on the wrong target.
+
+### 25. A Conditional Gate Defines Its Term
+
+When a step or check is gated on a word — "a review loop ran", "the work is landed", "finished":
+
+- Require the term defined where the condition is introduced, and its lookalike excluded by name. The same session usually has a near-miss the reader will substitute: our own pre-pull-request review pass is not a pull-request review loop.
+- Check every restatement of the gate uses the defined term; a paraphrase in a sibling file reads as a second, looser gate.
+- WARNING; BLOCKER when the looser reading makes the step run where it cannot work.
 
 ## Recurring issue types
 
