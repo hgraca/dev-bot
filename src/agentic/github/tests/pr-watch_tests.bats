@@ -48,12 +48,16 @@ case "$*" in
   "pr checks"*"--required"*)
       case "${PR_WATCH_REQUIRED:-$scenario}" in
         fail) echo '[{"name":"build","state":"FAILURE","bucket":"fail"}]' ;;
-        none) exit 1 ;;
+        none|nochecks) exit 1 ;;
         *)    echo '[{"name":"build","state":"SUCCESS","bucket":"pass"}]' ;;
       esac
       ;;
   "pr checks"*)
       if [ "$scenario" = broken ]; then exit 5; fi
+      if [ "$scenario" = nochecks ]; then
+          echo "no checks reported on the 'feat/x' branch" >&2
+          exit 1
+      fi
       if [ "$scenario" = fail ]; then
           echo '[{"name":"build","state":"FAILURE","bucket":"fail"}]'
       else
@@ -117,6 +121,15 @@ STUB
     run bash "$TOOL" 172 --no-request --timeout 5 --interval 1
     assert_equal "$status" 1
     assert_output --partial "ERROR:"
+}
+
+@test "check runs not registered yet poll instead of failing" {
+    # A push is followed by a window where gh answers "no checks reported" —
+    # pending, not an outage: the loop must keep polling, not exit 1.
+    export PR_WATCH_SCENARIO=nochecks
+    run bash "$TOOL" 172 --no-request --timeout 1 --interval 1
+    assert_equal "$status" 4
+    refute_output --partial "ERROR:"
 }
 
 @test "a final review decision stops polling with no review body" {

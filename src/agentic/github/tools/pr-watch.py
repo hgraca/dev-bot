@@ -256,6 +256,15 @@ def gate(repo: str, number: str) -> tuple[str, list[dict]]:
     return bucket_of(rows), rows
 
 
+def unregistered(err: str) -> bool:
+    """True when gh says simply that no check run exists yet.
+
+    Check runs are created a moment after a push, and gh calls that state an
+    error. Polling is the correct answer; treating it as an outage is not.
+    """
+    return "no checks reported" in (err or "").lower()
+
+
 def checks(repo: str, number: str) -> tuple[str, list[dict]]:
     """Return (overall bucket, rows). Overall is fail | pending | pass | none.
 
@@ -265,7 +274,7 @@ def checks(repo: str, number: str) -> tuple[str, list[dict]]:
     """
     out, rc, err = gh(["pr", "checks", number, "--repo", repo, "--json", "name,state,bucket"])
     if not out:
-        if rc != 0:
+        if rc != 0 and not unregistered(err):
             raise GhError(err or "gh pr checks failed")
         return "none", []
     try:
