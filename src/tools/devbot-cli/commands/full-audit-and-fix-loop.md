@@ -42,12 +42,16 @@ condition below.
       `@reviewer` and address each finding with `devbot:address-review` — fixing in place,
       then re-reviewing — until a review introduces no new findings.
 
-4. **Open the pull request** with `devbot:gh-create-pr` once the loop is clean. Never push the
-   default branch, never merge.
+4. **Open the pull request** with `devbot:gh-create-pr` once the loop is clean — in its automatic
+   form: take yes at its local-review gate, state the plan instead of waiting for approval, and let
+   it request the Copilot review and start the loop. This command may not ask, and that is the one
+   place the loop starts. Never push the default branch, never merge.
 
-5. **Work the Copilot loop** with `devbot:gh-review-loop`. It owns the request/wait/read/fix cycle,
-   the resolve protocol and the required-check gate. Stop one step before the merge: squash the
-   fixups and hand the human the exact `git push --force-with-lease` command.
+5. **Carry the loop that step 4 started to its gate.** Do not start a second one:
+   `devbot:gh-review-loop` owns the request/wait/read/fix cycle, the resolve protocol and the
+   required-check gate, and the automatic run in step 4 entered it. See it through until a review
+   introduces no new findings and the required checks are green, then stop one step before the merge:
+   squash the fixups and hand the human the exact `git push --force-with-lease` command.
 
 **The hand-off names what is still open.** Alongside the pull request and the push command, report
 what the last reports still named that would have warranted another round — the `FAIL` rows verified

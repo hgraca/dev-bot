@@ -58,10 +58,31 @@ setup() {
   grep -qF 'review_requested' "$CMD"
 }
 
-@test "skill makes the Copilot request the default with an explicit opt-out" {
+@test "skill runs the local review loop before the PR when asked" {
+  LOCAL="$(section_flat "$SKILL" 'Local review first')"
+  [ -n "$LOCAL" ]
+  printf '%s\n' "$LOCAL" | grep -qiF 'local review'
+  printf '%s\n' "$LOCAL" | grep -qiF 'squash'
+  printf '%s\n' "$LOCAL" | grep -qF 'devbot:software-development'
+}
+
+@test "skill opens the PR without a Copilot review and asks afterwards" {
   COPILOT="$(section_flat "$SKILL" 'Copilot review')"
-  printf '%s\n' "$COPILOT" | grep -qF 'default for every pull request'
-  printf '%s\n' "$COPILOT" | grep -qF 'skip it only when the user explicitly asked to'
+  printf '%s\n' "$COPILOT" | grep -qiF 'without a reviewer'
+  printf '%s\n' "$COPILOT" | grep -qiF 'ask the user'
+  printf '%s\n' "$COPILOT" | grep -qF 'devbot:gh-review-loop'
+  # A pull request no longer queues a review nobody asked for.
+  ! printf '%s\n' "$COPILOT" | grep -qF 'default for every pull request'
+}
+
+@test "every loop runs by default in an automatic run" {
+  LOCAL="$(section_flat "$SKILL" 'Local review first')"
+  printf '%s\n' "$LOCAL" | grep -qF 'devbot:auto-dev'
+  printf '%s\n' "$LOCAL" | grep -qiF 'by default'
+
+  COPILOT="$(section_flat "$SKILL" 'Copilot review')"
+  printf '%s\n' "$COPILOT" | grep -qF 'devbot:auto-dev'
+  printf '%s\n' "$COPILOT" | grep -qiF 'by default'
 }
 
 @test "skill never requests a reviewer at creation" {
@@ -73,7 +94,6 @@ setup() {
 
 @test "skill requests Copilot through GraphQL, the only registering path" {
   COPILOT_DEFAULT="$(section_flat "$SKILL" 'Copilot review')"
-  printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 'default for every pull request'
   printf '%s\n' "$COPILOT_DEFAULT" | grep -qF -- 'requestReviews'
   printf '%s\n' "$COPILOT_DEFAULT" | grep -qF -- 'botIds'
   printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 'That is the only way'
@@ -90,14 +110,59 @@ setup() {
   printf '%s\n' "$COPILOT_DEFAULT" | grep -qF 'sleep 1'
 }
 
-@test "command creates without a reviewer and requests Copilot afterwards" {
+@test "command asks the local-review question without touching the branch" {
   local cmd="$MODULE_DIR/commands/gh-create-pr.md"
-  grep -qF 'Copilot review is requested by default' "$cmd"
-  ! grep -qF -- '--reviewer @copilot' "$cmd"
-  grep -qF -- 'requestReviews' "$cmd"
-  grep -qF -- 'sleep 1' "$cmd"
-  ! grep -qF -- '--add-reviewer @copilot' "$cmd"
-  grep -qF 'requested by default after the PR exists' "$cmd"
-  grep -qF 'only when the user explicitly asked to' "$cmd"
+  local step3
+  step3="$(awk '/^3\. \*\*Local review gate/{on=1} on && /^4\. Ask the user/{exit} on' "$cmd" | tr '\n' ' ' | tr -s ' ')"
+
+  [ -n "$step3" ]
+  printf '%s\n' "$step3" | grep -qF 'the question, not the run'
+  printf '%s\n' "$step3" | grep -qF 'devbot:auto-dev'
+  # Nothing is written before the plan is approved, so neither appears here.
+  run grep -qF 'gh pr create' <<< "$step3"
+  [ "$status" -ne 0 ]
+  run grep -qiF 'squash' <<< "$step3"
+  [ "$status" -ne 0 ]
+}
+
+@test "command reviews and squashes only after approval, before it creates the PR" {
+  local cmd="$MODULE_DIR/commands/gh-create-pr.md"
+  local step6 step7 review_at create_at
+  step6="$(awk '/^6\. Show the user/{on=1} on && /^7\. On approval/{exit} on' "$cmd" | tr '\n' ' ' | tr -s ' ')"
+  step7="$(awk '/^7\. On approval/{on=1} on && /^8\. Ask the user/{exit} on' "$cmd" | tr '\n' ' ' | tr -s ' ')"
+
+  # The approval gate comes first, and an automatic run is the stated exception.
+  printf '%s\n' "$step6" | grep -qF 'wait for explicit approval'
+  printf '%s\n' "$step6" | grep -qF 'devbot:auto-dev'
+
+  printf '%s\n' "$step7" | grep -qF 'run the local review when step 3 answered yes'
+  printf '%s\n' "$step7" | grep -qF 'refresh the body'
+  printf '%s\n' "$step7" | grep -qF 'gh pr create --base'
+  review_at="$(printf '%s' "$step7" | grep -bo 'run the local review' | head -1 | cut -d: -f1)"
+  create_at="$(printf '%s' "$step7" | grep -bo 'gh pr create' | head -1 | cut -d: -f1)"
+  [ "${review_at:-0}" -lt "${create_at:-0}" ]
+}
+
+@test "command gates on the local review and asks about Copilot after the PR" {
+  local cmd="$MODULE_DIR/commands/gh-create-pr.md"
+  # Step 7 flattened: creation, the ask, and every loop instruction inside it.
+  local step7
+  step7="$(awk '/^7\. On approval/{on=1} on && /^8\. Print/{exit} on' "$cmd" | tr '\n' ' ' | tr -s ' ')"
+
+  grep -qiF 'local review' "$cmd"
+  printf '%s\n' "$step7" | grep -qF 'without a reviewer'
+  # One matcher carries the ordering: the ask, then the conditional request.
+  printf '%s\n' "$step7" | grep -qF 'Copilot review loop now (`devbot:gh-review-loop`). Only on a yes, request the review'
+  # The loop is reachable only through the yes.
+  printf '%s\n' "$step7" | grep -qF 'On a yes, run `devbot:gh-review-loop`'
+  printf '%s\n' "$step7" | grep -qF 'On a no, stop at the URL'
+  # Never-passed flag: no reviewer at creation.
+  run grep -qF -- '--reviewer @copilot' "$cmd"
+  [ "$status" -ne 0 ]
+  run grep -qF -- 'gh pr create' "$cmd"
+  [ "$status" -eq 0 ]
+  run grep -qF 'gh pr create --base <default> --head <branch> --title' "$cmd"
+  [ "$status" -eq 0 ]
   grep -qF 'Do not pass `--reviewer` to `gh pr create`' "$cmd"
+  grep -qF 'Do not use `gh pr edit --add-reviewer @copilot`' "$cmd"
 }

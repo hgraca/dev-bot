@@ -77,6 +77,24 @@ For the pull request in the [title exception](#title) — one that implements no
 work — the two lists give way to one short section per change it makes: what the external evidence
 showed, why the current instructions miss it, and the file that now covers it.
 
+## Local review first
+
+A pull request is the wrong place to discover the branch was never reviewed. When no local review
+has been made of this changeset, ask the user whether to run it first, and run it on a yes: the
+review pass `devbot:software-development` step 5 defines — the changeset is reviewed, every finding
+addressed as a fixup (`devbot:address-review`), and the fixups squashed into their targets
+(`devbot:git-fixup-commits`). The question is asked while the pull request is being planned, but the
+review itself runs only after that plan is approved: it rewrites your commits, and a gate an
+unapproved rewrite preceded is not a gate. A no is answered honestly: say that the branch will be
+published unreviewed.
+
+A local review can change what ships. Once its fixups are squashed, re-read the diff and refresh the
+body — and the title, when the scope moved — before creating the pull request; a description written
+against the pre-review diff describes code that no longer exists.
+
+In an automatic run (`devbot:auto-dev`) there is nobody to ask: every loop runs by default, so run
+the local review loop and squash, then open the pull request without that gate.
+
 ## Open the PR
 
 **Show the user the full plan and wait for explicit approval before writing anything.** The `gh-create-pr`
@@ -117,10 +135,14 @@ that does not exist yet has no URL — name the branch instead.
 
 ## Copilot review
 
-Requesting Copilot's review is the **default for every pull request**: skip it only when the user
-explicitly asked to. Request it **after** the PR exists — never as a `gh pr create` flag, because a
-rejected reviewer makes `gh` abort creation (`could not request reviewer: '@copilot' not found`) and
-leaves no PR to repair.
+The pull request is opened **without a reviewer**. Once it exists, ask the user whether to run the
+Copilot review loop (`devbot:gh-review-loop`) — request the review only on a yes, then run that loop.
+In an automatic run (`devbot:auto-dev`) there is nobody to ask: request it and run the loop by
+default.
+
+Request it **after** the PR exists — never as a `gh pr create` flag, because a rejected reviewer
+makes `gh` abort creation (`could not request reviewer: '@copilot' not found`) and leaves no PR to
+repair.
 
 **Use the GraphQL mutation. That is the only way.** `gh pr edit --add-reviewer @copilot` reports
 success while requesting nobody — it never registers a bot reviewer — so it is not an option and
@@ -160,4 +182,7 @@ should run at that level. Iterating on the review is not this skill's job; the l
 - Do not compose the title or body from the branch name alone — read the commits and the diff.
 - Do not pass `--reviewer` to `gh pr create` — a rejected reviewer aborts creation.
 - Do not use `gh pr edit --add-reviewer @copilot` — it registers nobody; use the GraphQL mutation.
-- Do not skip the Copilot review request unless the user explicitly asked to.
+- Do not open a pull request while a local review of the changeset has neither been made nor
+  offered, or while fixups are still unsquashed.
+- Do not request a Copilot review at creation: the pull request opens without a reviewer, and the
+  loop is requested only after the user asks for it — always, in an automatic run.
