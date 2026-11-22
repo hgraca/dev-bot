@@ -255,6 +255,10 @@ Issue types that apply regardless of technology stack.
     - **Bound by the current revision**: an append-only history keeps old answers forever, so "an entry exists" is not "the current state is answered". Compare against the current head/version, or track a cursor taken before the action.
     - Distinguish "the call failed" from "the answer was empty": a failure mapped to empty looks like a settled result and turns into a timeout or a silent skip.
     - WARNING; BLOCKER when the read drives an irreversible action or a gate.
+15. **A hand-written guard enforces the whole contract, not one token of it** — when the change validates an identifier, name or path segment itself (rather than through a framework validator):
+    - Derive the contract from what the code does with the value — a filename, a namespace key, a URL segment, a user-visible id — then check the guard against every form that contract forbids: empty, whitespace, the separator alone, a trailing delimiter. A prefix or presence test that admits an empty remainder (`foo:`, `foo: bar`) passes every happy path and ships a malformed identifier into the place the guard was added to protect.
+    - Require a test per rejected form. A guard whose rejection cases are untested is a comment, and the malformed value only surfaces in the artifact.
+    - WARNING; BLOCKER when the value reaches the filesystem, an external namespace, or a user-visible identifier.
 
 ### Technology-specific
 
