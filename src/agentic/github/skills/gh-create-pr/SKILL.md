@@ -98,31 +98,30 @@ the local review loop and squash, then open the pull request without that gate.
 ## Open the PR
 
 **Show the user the full plan and wait for explicit approval before writing anything.** The `gh-create-pr`
-command drives this, but the rule holds whenever this skill is used. Then:
+command drives this, but the rule holds whenever this skill is used.
+
+The `devbot-tools` `pr-open` tool does the three commands this section otherwise spells out — push,
+create, and (on request) the review — in one call, and reports the URL:
 
 ```bash
-gh pr create \
-  [--repo <owner-slug>] \
-  --base <default-branch> \
-  --head <branch> \
-  --title '<title>' \
-  --body '<body>' \
-  [--draft] \
-  [--assignee @me]
+pr-open --title '<title>' --body-file <body-file> [--base <default-branch>] [--draft] --no-review
 ```
 
-- `--draft` when the PR is not ready for review.
-- `--assignee @me` when the user should be the assignee.
-- **No `--reviewer` here.** A rejected reviewer aborts creation, leaving no PR to repair; Copilot is
+- **`--no-review` is the path here**: the pull request opens unreviewed by Copilot, and the loop is
+  requested afterwards (see [Copilot review](#copilot-review)). Drop the flag only to request and
+  wait in the same call.
+- `--draft` when the PR is not ready for review. It takes no `--repo` (it acts on the checkout) and
+  no assignee: set one afterwards with `gh pr edit <url> --add-assignee @me` when it was chosen.
+- Its CLI form is `devbot tool pr-open …` — the same script, for a harness that has not reloaded its
+  tools. Fall back to the raw command when neither is available:
+
+```bash
+gh pr create --base <default-branch> --head <branch> \
+  --title '<title>' --body '<body>' [--draft] [--assignee @me]
+```
+
+- **No `--reviewer` there.** A rejected reviewer aborts creation, leaving no PR to repair; Copilot is
   requested after the PR exists (see [Copilot review](#copilot-review)).
-
-Print the PR URL that `gh pr create` returns.
-
-If the branch has no upstream, push it first — only after approval:
-
-```bash
-git [-C "$owner"] push -u origin <branch>
-```
 
 ## Reference the PR by its URL
 
@@ -137,6 +136,8 @@ that does not exist yet has no URL — name the branch instead.
 
 The pull request is opened **without a reviewer**. Once it exists, ask the user whether to run the
 Copilot review loop (`devbot:gh-review-loop`) — request the review only on a yes, then run that loop.
+`pr-watch <number>` requests and waits in one call, so the shorter path is: on a yes, hand the loop to
+`devbot:gh-review-loop`, whose [Wait](../gh-review-loop/SKILL.md#wait) step is that tool.
 In an automatic run (`devbot:auto-dev`) there is nobody to ask: request it and run the loop by
 default.
 

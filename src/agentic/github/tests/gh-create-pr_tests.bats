@@ -87,9 +87,10 @@ setup() {
 
 @test "skill never requests a reviewer at creation" {
   OPEN_PR="$(section_flat "$SKILL" 'Open the PR')"
-  # A rejected reviewer aborts creation, so the flag must not be on it.
-  printf '%s\n' "$OPEN_PR" | grep -qF 'No `--reviewer` here'
-  ! printf '%s\n' "$OPEN_PR" | grep -qF -- '--reviewer @copilot'
+  # A rejected reviewer aborts creation, so no reviewer flag belongs on it.
+  printf '%s\n' "$OPEN_PR" | grep -qF 'aborts creation'
+  run grep -qF -- '--reviewer @copilot' <<< "$OPEN_PR"
+  [ "$status" -ne 0 ]
 }
 
 @test "skill requests Copilot through GraphQL, the only registering path" {
