@@ -246,6 +246,15 @@ Issue types that apply regardless of technology stack.
 12. **Bootstrap path for newly-gated admin capabilities** — when a new privilege flag/role (defaulting to false) gates an admin or CRUD capability:
     - Verify an operator bootstrap path exists (CLI command, seed/backfill of known accounts, or documented deployment step). A flag that ships false for every existing user and gates the only API that can create initial state (e.g. the first SAML config) locks out the first admin.
     - Do not rely on a migration backfill unless it can name the trusted accounts; an explicit CLI command is the safe default.
+13. **Declared interface vs the consumer's parser** — when the change adds a schema, manifest, tool descriptor or protocol message that another component reads:
+    - Read the consumer's parser and verify it can express **everything the declaration advertises**. A property the consumer drops, or a shape it reads as empty, is a BLOCKER even though each side looks correct alone — the feature works from one entry point and silently fails from the other.
+    - A declaration is not a contract until something enforces it: check that a test or validator fails when the two drift, because this class of mismatch passes every happy-path test.
+    - WARNING; BLOCKER when the dropped value makes the feature unusable through its advertised interface.
+14. **External list and event reads: paginate, filter, bound by revision** — when the change reads a remote list, timeline or event log to decide something:
+    - **Paginate**, and filter to the subject (the bot, user or type meant) rather than taking the last entry — a mixed, multi-page response lets an unrelated entry end the logic or hides the one that matters.
+    - **Bound by the current revision**: an append-only history keeps old answers forever, so "an entry exists" is not "the current state is answered". Compare against the current head/version, or track a cursor taken before the action.
+    - Distinguish "the call failed" from "the answer was empty": a failure mapped to empty looks like a settled result and turns into a timeout or a silent skip.
+    - WARNING; BLOCKER when the read drives an irreversible action or a gate.
 
 ### Technology-specific
 
