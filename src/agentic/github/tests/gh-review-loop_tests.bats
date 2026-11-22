@@ -102,11 +102,31 @@ setup() {
   grep -q 'in the same format' "${SKILL_FLAT}"
 }
 
-@test "review loop polls Copilot every minute, 60 times" {
-  grep -q '1 minute after each request before the first check' "${SKILL_FLAT}"
-  grep -q 'maximum of 60 checks per request' "${SKILL_FLAT}"
-  # The old cadence must be gone, not merely outnumbered by the new one.
-  ! grep -q 'maximum of 12 checks' "${SKILL_FLAT}"
+@test "the wait is one pr-watch call, never a hand-rolled sleep loop" {
+  grep -q 'pr-watch' "${SKILL_FLAT}"
+  grep -q -- '--no-request' "${SKILL_FLAT}"
+  # The exit code is the answer, so the reader never parses the digest.
+  grep -q 'exit code' "${SKILL_FLAT}"
+  grep -q -- '--timeout 900' "${SKILL_FLAT}"
+  # A sleep loop is the thing the tool exists to replace.
+  ! grep -q 'sleep. PTY' "${SKILL_FLAT}"
+}
+
+@test "the wait contract covers every pr-watch exit code, errors included" {
+  grep -q 'a runtime failure' "${SKILL_FLAT}"
+  grep -q 'usage error' "${SKILL_FLAT}"
+  # A comment-only review does not stop the tool, so the Read step carries it.
+  grep -q 'line comments' "${SKILL_FLAT}"
+  # The tool's own verdict covers every check, so the gate re-checks the required set.
+  grep -q 'optional included' "${SKILL_FLAT}"
+  grep -q -- '--required' "${SKILL_FLAT}"
+  # The loop accepts a PR URL; pr-watch takes digits only.
+  grep -q 'digits-only' "${SKILL_FLAT}"
+}
+
+@test "the MUST states one polling contract, not the retired one" {
+  ! grep -q 'maximum of 60 checks per request' "${SKILL_FLAT}"
+  grep -q 'call per review cycle' "${SKILL_FLAT}"
 }
 
 @test "review loop gates on green required checks and mergeability" {

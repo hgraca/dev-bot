@@ -28,7 +28,7 @@ posting/reply mechanics, which are the deliberate exception to its local-only ru
   leaving no PR to repair.
 - **Verify, never trust an exit code.** `gh pr edit` and `gh api graphql` both exit 0 with no review
   queued.
-- **Poll at the documented cadence** — 1 minute, then every minute, at most 60 checks per request.
+- **Wait with one `pr-watch` call per review cycle**, not a hand-rolled loop; its exit code is the answer, and the codes are listed in [Wait](#wait).
 - **Fix every finding as a `fixup!`** (`devbot:git-fixup-commits`), one commit per finding.
 - **Reply and resolve** every thread, including a false positive — with the same succinct format.
 - **Gate on CI, not just the review.** Green required checks and a mergeable pull request come before
@@ -100,9 +100,38 @@ Lite and re-request before addressing the findings.
 
 ### Wait
 
-1 minute after each request before the first check. If the review has not landed, re-check every
-1 minute, for a maximum of 60 checks per request (the first check counts). Then stop and ask the user
-for instructions. Use a `sleep` PTY with `notifyOnExit` rather than blocking on polling.
+Drive the wait with `pr-watch` — the `devbot-tools` MCP server exposes it, and
+`devbot tool pr-watch <pr>` runs the same script when a harness has not reloaded its tools since the
+tool was installed. It polls the reviews and the checks, prints one digest, and answers with its exit
+code:
+
+| Exit | Meaning                                            | What the loop does                              |
+| ---- | -------------------------------------------------- | ----------------------------------------------- |
+| `0`  | a review arrived, or the decision is final         | [Read](#read) it                                |
+| `3`  | a check failed or was cancelled, optional included | treat as a failing check (see [Gate](#gate))    |
+| `4`  | the timeout expired with no review                 | re-run once longer, then ask the user           |
+| `1`  | a runtime failure from `gh`                        | stop and report it: not a review, not a timeout |
+| `2`  | a usage error — the arguments were wrong           | fix the call; the wait never started            |
+
+```bash
+devbot tool pr-watch <pr> --no-request --timeout 900 --interval 60
+```
+
+The tool takes a **digits-only** pull-request number: the loop command accepts `<number | url>`, so
+reduce a URL to its trailing number before calling (`.../pull/179` → `179`); anything else exits `2`.
+
+`--no-request` because [Request](#request) already queued it; drop the flag to have the tool request
+and wait in one call. Never hand-roll a `sleep` loop for this: the tool exists so the answer is an
+exit code rather than a digest someone has to read.
+
+`3` is the tool's own verdict over **every** check on the pull request, required or not: it reads
+each row's bucket and fails on `fail` or `cancel`. The merge gate is the required set, so confirm a
+failure with `gh pr checks <pr> --required` before treating it as one that blocks the merge.
+
+A `COMMENTED` review whose findings live **only in line comments** does not stop the tool — it looks
+for a non-empty body or a final decision. So after every exit, `0` or `4`, read the newest review's
+line comments too (see [Read](#read)); treating a silent `4` as "no review" is how a comment-only
+round gets lost.
 
 ### Read
 
