@@ -160,6 +160,9 @@ git show --stat HEAD   # must list only your files
 The pathspec leaves every other index entry untouched. If `git show --stat` lists a file you did not
 change, stop and surface it — never "fix" or discard another agent's staged work.
 
+The `commit` tool is that rule as one call: it stages exactly the paths it is given and commits them
+(`devbot tool commit -m … -- <paths…>`, or `--fixup <sha>`), so nothing else can ride along.
+
 ## Routing
 
 | Doing this                                                                 | Read                              |

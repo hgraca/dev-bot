@@ -7,7 +7,8 @@ description: "Use when running project commands through make or setting up makef
 
 ## When to Apply
 
-- Running CLI commands inside the application container.
+- Running CLI commands inside the application container — `docker-exec` resolves which container
+  from the compose project (`--list` shows the candidates) and execs there in one call.
 - Starting or stopping the development environment.
 - Creating the makefiles structure for a new project, or extending an existing one.
 

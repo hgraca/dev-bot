@@ -37,7 +37,7 @@ worktree then lands under the **owner's** `<devbot_dir>/worktrees/` and the owne
 setting decides whether it applies:
 
 ```bash
-project=(--project "$(devbot tool project-for-path <file> --json | jq -r .path)")
+project=(--project "$(devbot tool where <file> | jq -r .path)")
 ```
 
 In a normal project the variable stays empty and the commands run as written:

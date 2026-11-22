@@ -22,19 +22,20 @@ from.
 
 ## Tool Selection
 
-| Question type                                          | Tool                        | Why                                                                            |
-| ------------------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------ |
-| Meaning-based search ("where is auth logic?")          | codebase engine             | The active engine's semantic search tool — see `devbot:codebase-index`         |
-| Quick metadata lookup ("find payment handler")         | codebase engine             | Location-only variant when the engine has one — cheaper than full search       |
-| Jump to definition ("where is validateToken defined?") | codebase engine             | Finds authoritative source, skips tests/docs/examples                          |
-| Who calls this? / What does this call?                 | codebase engine             | Traces callers or callees by function name                                     |
-| Find similar code (duplicate detection, refactoring)   | codebase engine             | Similarity search over the codebase                                            |
-| File path lookup by pattern                            | `Glob`                      | Fast glob matching (`**/*.ts`, `src/**/Handler.php`)                           |
-| Exact string or regex in file contents                 | `Grep`                      | Regex search across files, filterable by extension                             |
-| AST structural pattern matching                        | `ast-grep`                  | Matches code by AST structure, not text                                        |
-| Cross-file relationships, architecture                 | `devbot:graphify` (CLI+MCP) | Knowledge graph with communities, god nodes, paths                             |
-| Full directory context for audit/analysis              | `repomix` (CLI)             | Packs files into single structured dump                                        |
-| Markdown notes/docs in the memory vault                | `search-memories`           | Searches the project + global vault under the configured engine (qmd or mdctx) |
+| Question type                                          | Tool                        | Why                                                                             |
+| ------------------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------- |
+| Meaning-based search ("where is auth logic?")          | codebase engine             | The active engine's semantic search tool — see `devbot:codebase-index`          |
+| Quick metadata lookup ("find payment handler")         | codebase engine             | Location-only variant when the engine has one — cheaper than full search        |
+| Jump to definition ("where is validateToken defined?") | codebase engine             | Finds authoritative source, skips tests/docs/examples                           |
+| Who calls this? / What does this call?                 | codebase engine             | Traces callers or callees by function name                                      |
+| Find similar code (duplicate detection, refactoring)   | codebase engine             | Similarity search over the codebase                                             |
+| File path lookup by pattern                            | `Glob`                      | Fast glob matching (`**/*.ts`, `src/**/Handler.php`)                            |
+| Exact string or regex in file contents                 | `Grep`                      | Regex search across files, filterable by extension                              |
+| Same, when raw output would swamp the context          | `search` (devbot-tools)     | Per-file digest — path, match count, first hits — so one call replaces a re-run |
+| AST structural pattern matching                        | `ast-grep`                  | Matches code by AST structure, not text                                         |
+| Cross-file relationships, architecture                 | `devbot:graphify` (CLI+MCP) | Knowledge graph with communities, god nodes, paths                              |
+| Full directory context for audit/analysis              | `repomix` (CLI)             | Packs files into single structured dump                                         |
+| Markdown notes/docs in the memory vault                | `search-memories`           | Searches the project + global vault under the configured engine (qmd or mdctx)  |
 
 ## Detailed Guidance
 

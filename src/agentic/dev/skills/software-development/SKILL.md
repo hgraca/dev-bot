@@ -24,7 +24,8 @@ commits land, how it is reviewed, and where it stops. Select it in this order �
    `workspace.workflow` in `.devbot.global.jsonc`, then to `worktrees`. The retired root `workflow`
    and `worktrees` keys are not read: `devbot init` migrates them into the block. In a polyrepo
    session _the project_ is the
-   **owning project** of the task's files — resolve it first (`devbot tool project-for-path <path>`),
+   **owning project** of the task's files — resolve it first (the `where` tool, or
+   `devbot tool where <path>`; it also reports the workflow and `commit_memory` in force),
    never the polyrepo root, and run the workflow's repo-scoped steps in that owner.
 3. **Default** — the [Worktrees workflow](#worktrees-workflow) when no configuration names one.
 
@@ -233,10 +234,12 @@ Before committing, run the following **in parallel**; all of them must pass befo
 
 - **Format tools** — run every applicable `format-*` tool (`devbot:format-md`, `devbot:format-json`, `devbot:format-yml`, …) over the files changed by this commit.
 - **Linting tools** — run every applicable `lint-*` tool (`devbot:lint-k8s`, …) over the changed files.
-- **Unit tests** — run the test suite. Prefer the full suite; if it takes longer than ~2 minutes, run targeted tests scoped to the change. Write tests if none exist for the changed scope.
+- **Unit tests** — run the test suite. Prefer the full suite; if it takes longer than ~2 minutes, run targeted tests scoped to the change. Write tests if none exist for the changed scope. The `bats-run` tool returns a suite's failures with their diagnostics in one call, so a red run does not need a second command to read.
 - **Static analysis** — run it if the project has one.
 
 If any check fails, fix the failure and re-run the checks before committing — never commit with a failing check.
+
+Stage and commit with the `commit` tool (`devbot tool commit …`): it takes the paths explicitly, so a foreign staged entry stays out, and `--fixup <sha>` records a correction in the same call.
 
 Commit style:
 

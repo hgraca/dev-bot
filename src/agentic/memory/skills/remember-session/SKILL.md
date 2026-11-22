@@ -100,7 +100,7 @@ Memory files under `.agents/memory/` are tracked **only when the effective `comm
 
 **Polyrepo sessions** — route each memory file to its **owning project's**
 repo and honour _that project's_ `commit_memory`, never the polyrepo's
-(resolve `_devbot_get_workspace_config commit_memory <owner>` — project-first,
+(resolve it with the `where` tool for that path, or `_devbot_get_workspace_config commit_memory <owner>` — project-first,
 global-fallback for the owner). Group findings by owning project and commit once
 per repo; a child with `commit_memory: false` gets no memory commit even when the
 polyrepo commits.
