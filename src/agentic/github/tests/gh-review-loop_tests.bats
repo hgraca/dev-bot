@@ -112,16 +112,13 @@ setup() {
   ! grep -q 'sleep. PTY' "${SKILL_FLAT}"
 }
 
-@test "the wait contract covers every pr-watch exit code, errors included" {
-  grep -q 'a runtime failure' "${SKILL_FLAT}"
-  grep -q 'usage error' "${SKILL_FLAT}"
-  # A comment-only review does not stop the tool, so the Read step carries it.
-  grep -q 'line comments' "${SKILL_FLAT}"
-  # The tool's own verdict covers every check, so the gate re-checks the required set.
-  grep -q 'optional included' "${SKILL_FLAT}"
-  grep -q -- '--required' "${SKILL_FLAT}"
-  # The loop accepts a PR URL; pr-watch takes digits only.
-  grep -q 'digits-only' "${SKILL_FLAT}"
+@test "the wait contract covers every exit code and every number form" {
+  grep -q 'a PR URL' "${SKILL_FLAT}"
+  grep -q 'runtime failure' "${SKILL_FLAT}"
+  grep -q 'never read as a timeout' "${SKILL_FLAT}"
+  grep -q 'the arguments were wrong' "${SKILL_FLAT}"
+  # Every shape of a landed review is an exit 0, inline-only included.
+  grep -q 'inline-only' "${SKILL_FLAT}"
 }
 
 @test "the MUST states one polling contract, not the retired one" {

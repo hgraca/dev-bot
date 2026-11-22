@@ -10,6 +10,9 @@
 #   0 a review arrived        3 the checks failed
 #   4 the timeout expired     1 runtime error     2 usage error
 #
+# The pull request may be a number, #number, owner/repo#number or a PR URL;
+# exit 3 comes from the required checks only, so an optional red is not a block.
+#
 # Usage:
 #   pr-watch.mcp.sh 172
 #   pr-watch.mcp.sh 172 --repo GET-E/dev-bot --timeout 600 --interval 30
@@ -23,7 +26,7 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"pr-watch","description":"Drive the Copilot review cycle for one pull request: request the review, poll the PR checks and the reviews until a review with findings appears, the checks fail, or the timeout expires, then print one digest. Exit codes carry the outcome — 0 review arrived, 3 checks failed, 4 timeout — so the caller never parses the digest.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI arguments: <number> [--repo owner/name] [--timeout seconds] [--interval seconds] [--no-request] [--json]."}},"required":["args"]}}
+{"name":"pr-watch","description":"Drive the Copilot review cycle for one pull request: request the review, poll the PR checks and the reviews until a review with findings appears, the checks fail, or the timeout expires, then print one digest. Exit codes carry the outcome — 0 review arrived, 3 checks failed, 4 timeout — so the caller never parses the digest.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI arguments: <number|#number|owner/repo#number|PR-URL> [--repo owner/name] [--timeout seconds] [--interval seconds] [--no-request] [--json]."}},"required":["args"]}}
 JSON
     exit 0
     ;;

@@ -13,9 +13,13 @@ Exit codes are the result, so a caller never has to parse the digest:
     1  runtime error from gh
     2  usage error
 
+The pull request may be given as a number, `#number`, `owner/repo#number` or a
+PR URL; a URL's repository is used when `--repo` is absent.
+
 Usage:
     pr-watch.py 172
-    pr-watch.py 172 --repo GET-E/dev-bot --timeout 600 --interval 30
+    pr-watch.py https://github.com/GET-E/dev-bot/pull/172 --timeout 600
+    pr-watch.py 172 --repo GET-E/dev-bot --interval 30
     pr-watch.py 172 --no-request --json
 """
 
@@ -23,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import time
@@ -57,6 +62,27 @@ def gh(args: list[str], timeout: int = 60) -> tuple[str, int, str]:
         return "", 1, "gh not found"
     except subprocess.TimeoutExpired:
         return "", 1, f"gh timed out after {timeout}s"
+
+
+PR_URL_RE = re.compile(
+    r"^https?://[^/]+/(?P<slug>[^/]+/[^/]+)/(?:pull|pulls)/(?P<num>\d+)/?(?:[?#].*)?$"
+)
+PR_SHORT_RE = re.compile(r"^(?:(?P<slug>[^/\s#]+/[^/\s#]+))?#?(?P<num>\d+)$")
+
+
+def parse_pr(value: str) -> tuple[str, str | None]:
+    """(number, owner/repo or None) from 172, #172, owner/repo#172 or a PR URL.
+
+    Callers hand this tool whatever their own surface accepts — a number from a
+    digest, a URL from a review comment — so the shape is normalised here rather
+    than in every caller.
+    """
+    text = value.strip()
+    for pattern in (PR_URL_RE, PR_SHORT_RE):
+        match = pattern.match(text)
+        if match:
+            return match.group("num"), match.group("slug")
+    raise ValueError(text)
 
 
 def resolve_repo(explicit: str | None) -> str:
@@ -157,7 +183,7 @@ def latest_review(repo: str, number: str, since: str = "") -> dict | None:
             "--paginate",
             f"repos/{repo}/pulls/{number}/reviews",
             "--jq",
-            ".[] | {user: .user.login, state, submitted_at, body}",
+            ".[] | {id, user: .user.login, state, submitted_at, body}",
         ],
         timeout=120,
     )
@@ -177,6 +203,57 @@ def latest_review(repo: str, number: str, since: str = "") -> dict | None:
     if not reviews:
         return None
     return max(reviews, key=lambda entry: entry.get("submitted_at") or "")
+
+
+def review_has_comments(repo: str, number: str, review_id: object) -> bool:
+    """Whether a review carries line comments — findings with no body at all.
+
+    A Copilot review can be COMMENTED with an empty body and every finding in the
+    inline comments; judging arrival by the body alone waits out the timeout on
+    a round that did land.
+    """
+    if review_id in (None, ""):
+        return False
+    out, rc, _ = gh(
+        [
+            "api",
+            "--paginate",
+            f"repos/{repo}/pulls/{number}/comments",
+            "--jq",
+            f".[] | select(.pull_request_review_id == {review_id}) | .id",
+        ],
+        timeout=120,
+    )
+    return rc == 0 and bool(out.strip())
+
+
+def bucket_of(rows: list[dict]) -> str:
+    buckets = {(row.get("bucket") or "").lower() for row in rows}
+    if "fail" in buckets or "cancel" in buckets:
+        return "fail"
+    if "pending" in buckets:
+        return "pending"
+    if "pass" in buckets:
+        return "pass"
+    return "none"
+
+
+def gate(repo: str, number: str) -> tuple[str, list[dict]]:
+    """The required checks — the merge gate — or ("", []) when gh cannot say.
+
+    A failing optional check is not a merge blocker, so the exit code has to come
+    from this set, not from every check on the pull request.
+    """
+    out, rc, _ = gh(
+        ["pr", "checks", number, "--repo", repo, "--required", "--json", "name,state,bucket"]
+    )
+    if not out:
+        return "", []
+    try:
+        rows = json.loads(out)
+    except ValueError:
+        return "", []
+    return bucket_of(rows), rows
 
 
 def checks(repo: str, number: str) -> tuple[str, list[dict]]:
@@ -247,14 +324,21 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--json", action="store_true", help="emit JSON instead of markdown")
     args = parser.parse_args(argv)
 
-    if not args.number.isdigit():
-        print(f"ERROR: PR number must be digits, got {args.number!r}", file=sys.stderr)
+    try:
+        number, slug = parse_pr(args.number)
+    except ValueError:
+        print(
+            f"ERROR: {args.number!r} is not a pull request — give a number, #number, "
+            "owner/repo#number or a PR URL",
+            file=sys.stderr,
+        )
         return EXIT_USAGE
+    args.number = number
     if args.interval < 1 or args.timeout < 1:
         print("ERROR: --interval and --timeout must be positive", file=sys.stderr)
         return EXIT_USAGE
 
-    repo = resolve_repo(args.repo)
+    repo = resolve_repo(args.repo or slug)
     state = pr_state(repo, args.number)
     if state.get("state") != "OPEN":
         print(f"ERROR: PR #{args.number} is {state.get('state')}, not open", file=sys.stderr)
@@ -291,7 +375,11 @@ def main(argv: list[str]) -> int:
             print(str(exc), file=sys.stderr)
             return EXIT_ERROR
         has_findings = bool(
-            review and (review.get("body") or "").strip()
+            review
+            and (
+                (review.get("body") or "").strip()
+                or review_has_comments(repo, args.number, review.get("id"))
+            )
         ) or decision in ("APPROVED", "CHANGES_REQUESTED")
         try:
             bucket, rows = checks(repo, args.number)
@@ -302,7 +390,10 @@ def main(argv: list[str]) -> int:
         if has_findings:
             code = EXIT_REVIEW
             break
-        if bucket == "fail":
+        # Only a required check blocks the merge; optional failures do not.
+        blocking, _ = gate(repo, args.number)
+        failed = blocking == "fail" if blocking else bucket == "fail"
+        if failed:
             code = EXIT_CHECKS_FAILED
             break
         if time.monotonic() >= deadline:

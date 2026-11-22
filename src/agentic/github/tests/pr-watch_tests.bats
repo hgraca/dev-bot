@@ -36,10 +36,21 @@ case "$*" in
       touch "@MARKER@"
       echo '{"data":{"requestReviews":{"clientMutationId":null}}}'
       ;;
+  "api "*"/pulls/"*"/comments"*)
+      if [ "$scenario" = comments ]; then echo "9001"; fi ;;
   "api "*"/reviews"*)
       if [ "$scenario" = review ]; then
-          echo '{"user":"copilot-pull-request-reviewer[bot]","state":"COMMENTED","submitted_at":"2026-01-01T00:00:00Z","body":"Found a null deref in the retry loop."}'
+          echo '{"id":77,"user":"copilot-pull-request-reviewer[bot]","state":"COMMENTED","submitted_at":"2026-01-01T00:00:00Z","body":"Found a null deref in the retry loop."}'
+      elif [ "$scenario" = comments ]; then
+          echo '{"id":78,"user":"copilot-pull-request-reviewer[bot]","state":"COMMENTED","submitted_at":"2026-01-01T00:00:00Z","body":""}'
       fi
+      ;;
+  "pr checks"*"--required"*)
+      case "${PR_WATCH_REQUIRED:-$scenario}" in
+        fail) echo '[{"name":"build","state":"FAILURE","bucket":"fail"}]' ;;
+        none) exit 1 ;;
+        *)    echo '[{"name":"build","state":"SUCCESS","bucket":"pass"}]' ;;
+      esac
       ;;
   "pr checks"*)
       if [ "$scenario" = broken ]; then exit 5; fi
@@ -87,10 +98,10 @@ STUB
     assert_equal "$status" 4
 }
 
-@test "a non-numeric PR number is a usage error" {
+@test "an argument that is not a pull request is a usage error" {
     run bash "$TOOL" not-a-number
     assert_equal "$status" 2
-    assert_output --partial "must be digits"
+    assert_output --partial "is not a pull request"
 }
 
 @test "json output carries the outcome" {
@@ -122,4 +133,38 @@ STUB
     run bash "$TOOL" 172 --timeout 5 --interval 1
     assert_equal "$status" 1
     assert_output --partial "request failed"
+}
+
+@test "a PR URL, a #number and an owner/repo#number are all accepted" {
+    export PR_WATCH_SCENARIO=review
+    run bash "$TOOL" "https://github.com/GET-E/dev-bot/pull/172" --no-request --timeout 5 --interval 1
+    assert_success
+    assert_output --partial "PR #172"
+
+    run bash "$TOOL" "#172" --no-request --timeout 5 --interval 1
+    assert_success
+
+    run bash "$TOOL" "GET-E/dev-bot#172" --no-request --timeout 5 --interval 1
+    assert_success
+}
+
+@test "a review whose findings are only line comments still exits 0" {
+    export PR_WATCH_SCENARIO=comments
+    run bash "$TOOL" 172 --no-request --timeout 30 --interval 1
+    assert_success
+    assert_output --partial "Latest review"
+}
+
+@test "an optional check failure does not exit 3 when the required set passes" {
+    export PR_WATCH_SCENARIO=fail
+    export PR_WATCH_REQUIRED=pass
+    run bash "$TOOL" 172 --no-request --timeout 2 --interval 1
+    assert_equal "$status" 4
+}
+
+@test "a required check failure exits 3 even when every other check passes" {
+    export PR_WATCH_SCENARIO=none
+    export PR_WATCH_REQUIRED=fail
+    run bash "$TOOL" 172 --no-request --timeout 5 --interval 1
+    assert_equal "$status" 3
 }

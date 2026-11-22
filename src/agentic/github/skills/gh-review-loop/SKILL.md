@@ -102,36 +102,30 @@ Lite and re-request before addressing the findings.
 
 Drive the wait with `pr-watch` — the `devbot-tools` MCP server exposes it, and
 `devbot tool pr-watch <pr>` runs the same script when a harness has not reloaded its tools since the
-tool was installed. It polls the reviews and the checks, prints one digest, and answers with its exit
+tool was installed. It takes whatever the loop was given — a number, `#number`, `owner/repo#number` or
+a PR URL — polls the reviews and the required checks, prints one digest, and answers with its exit
 code:
 
-| Exit | Meaning                                            | What the loop does                              |
-| ---- | -------------------------------------------------- | ----------------------------------------------- |
-| `0`  | a review arrived, or the decision is final         | [Read](#read) it                                |
-| `3`  | a check failed or was cancelled, optional included | treat as a failing check (see [Gate](#gate))    |
-| `4`  | the timeout expired with no review                 | re-run once longer, then ask the user           |
-| `1`  | a runtime failure from `gh`                        | stop and report it: not a review, not a timeout |
-| `2`  | a usage error — the arguments were wrong           | fix the call; the wait never started            |
+| Exit | Meaning                                    | What the loop does                    |
+| ---- | ------------------------------------------ | ------------------------------------- |
+| `0`  | a review arrived, or the decision is final | [Read](#read) it                      |
+| `3`  | a **required** check failed                | a failing check: see [Gate](#gate)    |
+| `4`  | the timeout expired with no review         | re-run once longer, then ask the user |
+| `1`  | a runtime failure from `gh`                | report it — never read as a timeout   |
+| `2`  | the arguments were wrong                   | fix the call; the wait never started  |
 
 ```bash
 devbot tool pr-watch <pr> --no-request --timeout 900 --interval 60
 ```
 
-The tool takes a **digits-only** pull-request number: the loop command accepts `<number | url>`, so
-reduce a URL to its trailing number before calling (`.../pull/179` → `179`); anything else exits `2`.
-
 `--no-request` because [Request](#request) already queued it; drop the flag to have the tool request
 and wait in one call. Never hand-roll a `sleep` loop for this: the tool exists so the answer is an
 exit code rather than a digest someone has to read.
 
-`3` is the tool's own verdict over **every** check on the pull request, required or not: it reads
-each row's bucket and fails on `fail` or `cancel`. The merge gate is the required set, so confirm a
-failure with `gh pr checks <pr> --required` before treating it as one that blocks the merge.
-
-A `COMMENTED` review whose findings live **only in line comments** does not stop the tool — it looks
-for a non-empty body or a final decision. So after every exit, `0` or `4`, read the newest review's
-line comments too (see [Read](#read)); treating a silent `4` as "no review" is how a comment-only
-round gets lost.
+`0` covers every shape a landed review takes — a body, an inline-only `COMMENTED` review, or a final
+decision — and `3` comes only from the required set, so an optional red check never stops a loop the
+merge gate would allow. [Read](#read) still reads both the body and the threads: that is where the
+findings live, not how their arrival is detected.
 
 ### Read
 
