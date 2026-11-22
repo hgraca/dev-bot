@@ -4,7 +4,8 @@
 # Guards the review steps that close blind spots a review can otherwise carry:
 # registration vs source, hand-maintained coverage lists, claims about existing
 # mechanisms, unverifiable claims, exit-status semantics, working-directory
-# scope, procedure described as enforcement, and damage introduced while fixing.
+# scope, procedure described as enforcement, damage introduced while fixing,
+# decision tables with unreachable states, and gates whose term is undefined.
 #
 # The wording must stay generic — technique a future reviewer can apply, not a
 # post-mortem naming one codebase or one reviewing tool.
@@ -23,7 +24,7 @@ setup() {
     tr '\n' ' ' <"$SKILL" | tr -s ' ' >"$FLAT"
 }
 
-@test "the skill carries all eight steps" {
+@test "the skill carries every step it numbers, contiguously" {
     local step
     for step in \
         "Registration Completeness" \
@@ -33,22 +34,34 @@ setup() {
         "Exit-Status Semantics" \
         "Working-Directory Scope" \
         "Procedure Described as Enforcement" \
-        "Second-Order Damage While Fixing"; do
+        "Second-Order Damage While Fixing" \
+        "Decision Tables and Retry Paths Cover Every Reachable State" \
+        "A Conditional Gate Defines Its Term"; do
         run grep -qF "$step" "$SKILL"
         assert_success
     done
 }
 
 @test "each step states what to do, not just a subject" {
-    # A heading with no instruction is a title, and a title catches nothing.
-    local n
-    n="$(awk '/^### 1[6-9]\. |^### 2[0-3]\. /{c++} END{print c+0}' "$SKILL")"
-    [ "$n" -eq 8 ] || fail "expected 8 numbered steps, found $n"
+    # A heading with no instruction is a title, and a title catches nothing. The
+    # step set is derived, never a literal window: a hand-maintained range let the
+    # two steps this branch added escape it silently.
+    local numbers expect n
+    numbers="$(grep -oE '^### [0-9]+\.' "$SKILL" | grep -oE '[0-9]+' | sort -n)"
+    # Derived, not assumed: the expected run starts at the file's own first step,
+    # so a list numbered from 1 is checked as strictly as one numbered from 0.
+    expect="$(seq "$(printf '%s\n' "$numbers" | head -1)" "$(printf '%s\n' "$numbers" | tail -1)")"
+    [ "$numbers" = "$expect" ] || fail "step numbering is not contiguous: $(printf '%s' "$numbers" | tr '\n' ' ')"
+
+    n="$(printf '%s\n' "$numbers" | wc -l | tr -d ' ')"
+    [ "$n" -ge 26 ] || fail "expected at least 26 numbered steps, found $n"
 
     # Every step must carry at least one instruction, not just a heading.
+    # Step 0 is one prose line by design, so the instruction check starts at 1.
     local empty
     empty="$(awk '
-        /^### 1[6-9]\. |^### 2[0-3]\. /{ if (t != "" && b == 0) print t; t=$0; b=0; next }
+        /^### 0\. /{ t=""; b=0; next }
+        /^### [0-9]+\./{ if (t != "" && b == 0) print t; t=$0; b=0; next }
         /^## /{ if (t != "" && b == 0) print t; t=""; next }
         /^- /{ if (t != "") b++ }
         END{ if (t != "" && b == 0) print t }
