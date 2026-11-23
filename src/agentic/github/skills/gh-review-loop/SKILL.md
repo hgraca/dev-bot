@@ -177,9 +177,11 @@ A review that introduces no new findings is not a mergeable pull request. Before
 verify the remote gates; in a multi-remote checkout both commands need `--repo <owner>/<repo>`:
 
 ```bash
-# Every required check must have finished green (pass, or skipped by design).
+# Every required check must have finished green (pass, or skipped by design) —
+# except a fixup guard, which rejects the very commits Finish is about to squash.
 gh pr checks <pr> --repo <owner>/<repo> --required --json name,bucket \
-  --jq '[.[] | select(.bucket != "pass" and .bucket != "skipping")] | length == 0'
+  --jq '[.[] | select(.name != "no-fixup")
+         | select(.bucket != "pass" and .bucket != "skipping")] | length == 0'
 
 # The pull request's own merge state — green checks alone do not make it mergeable.
 gh pr view <pr> --repo <owner>/<repo> --json mergeable,mergeStateStatus
@@ -196,7 +198,8 @@ gh pr view <pr> --repo <owner>/<repo> --json mergeable,mergeStateStatus
 - **`CONFLICTING` / `DIRTY`** — stop and ask the user. A conflict is resolved by rewriting the branch,
   not by a fixup.
 - **A no-fixup guard is not a failure** — a required check that rejects `fixup!`/`squash!` subjects
-  stays red until the squash, by design, and does not block the gate.
+  stays red until the squash, by design, and is excluded from the gate above. It must be green on the
+  squashed branch before the merge: the push that publishes the squash re-runs it.
 
 ### Finish
 

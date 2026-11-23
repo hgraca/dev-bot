@@ -83,9 +83,43 @@ jobs:
   # the slices report under their own names and this gate carries the required
   # one. It fails — rather than reporting skipped — whenever a slice is not green,
   # so the required check never silently passes on a red suite.
+  # A fixup/squash/amend commit exists only on a working branch: it marks a
+  # correction to an earlier commit and is folded into that commit before merge
+  # (devbot:git-fixup-commits). On a protected default branch it cannot be
+  # removed afterwards, so the only place to stop it is here.
+  no-fixup:
+    name: no-fixup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reject fixup, squash and amend subjects
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "${base}" ]; then
+            # Manual run: there is no pull-request base, so compare against the
+            # default branch instead of silently checking only the last commit.
+            git fetch --no-tags --quiet origin "${{ github.event.repository.default_branch }}"
+            base="origin/${{ github.event.repository.default_branch }}"
+          fi
+          # Subjects only, never whole messages: a body line beginning `fixup!`
+          # is prose, not an unfolded commit. `grep` runs without -q so it reads
+          # to EOF — under `-o pipefail` an early exit would SIGPIPE git log and
+          # turn "found" into a failed pipeline, making the guard a no-op.
+          offenders="$(git log --format='%s' "${base}..HEAD" \
+            | grep -E '^(fixup|squash|amend)!' || true)"
+          if [ -n "${offenders}" ]; then
+            echo "ERROR: fold these into their target commits before merge:"
+            printf '%s\n' "${offenders}"
+            exit 1
+          fi
+          echo "no fixup commits in ${base}..HEAD"
+
   test:
     name: test
-    needs: test-slice
+    needs: [test-slice, no-fixup]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -93,3 +127,7 @@ jobs:
         run: |
           echo "test-slice: ${{ needs.test-slice.result }}"
           [ "${{ needs.test-slice.result }}" = "success" ]
+      - name: No unfolded fixup commits
+        run: |
+          echo "no-fixup: ${{ needs.no-fixup.result }}"
+          [ "${{ needs.no-fixup.result }}" = "success" ]
