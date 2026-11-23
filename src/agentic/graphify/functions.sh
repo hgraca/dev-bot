@@ -15,6 +15,36 @@ _fmt_duration() {
   fi
 }
 
+# ── Install gate ─────────────────────────────────────────────────────────────
+
+# _graphify_python — print the interpreter owning the graphify tool
+# env: the path install.sh records, else resolved through uv.
+_graphify_python() {
+  local record="${DEV_BOT_ROOT:-}/storage/secrets/graphify-python"
+  local py=""
+  if [[ -f "${record}" ]]; then
+    # The record is a text file holding a path, not an executable.
+    py="$(cat "${record}" 2>/dev/null)"
+    if [[ -n "${py}" ]] && command -v "${py}" >/dev/null 2>&1; then
+      printf '%s' "${py}"
+      return 0
+    fi
+  fi
+  command -v uv >/dev/null 2>&1 || return 1
+  # `tail -n1`: uv may emit resolution progress before the path.
+  py="$(uv tool run --from graphifyy python3 -c 'import sys; print(sys.executable)' 2>/dev/null | tail -n1)"
+  [[ -n "${py}" ]] || return 1
+  printf '%s' "${py}"
+}
+
+# _graphify_mcp_is_v1 — true when the tool env has mcp 1.x.
+# The serve shim needs it, and the gateway images pin it too.
+_graphify_mcp_is_v1() {
+  local py
+  py="$(_graphify_python)" || return 1
+  "${py}" -c 'from importlib.metadata import version; raise SystemExit(0 if version("mcp").split(".")[0] == "1" else 1)' 2>/dev/null
+}
+
 # ── Version-matched skill generation ─────────────────────────────────────────
 # The graphify CLI ships the skill for the release it belongs to; dev-bot's
 # committed src/agentic/graphify/skills/SKILL.md is a vendored fork that drifts
@@ -37,18 +67,9 @@ _graphify_package_dir() {
     return 0
   fi
 
-  local py="${DEV_BOT_ROOT:-}/storage/secrets/graphify-python"
-  local dir
-  if [[ -x "${py}" ]]; then
+  local py dir
+  if py="$(_graphify_python)"; then
     if dir="$("${py}" -c 'import graphify, os; print(os.path.dirname(graphify.__file__))' 2>/dev/null)" \
-      && [[ -n "${dir}" && -f "${dir}/skill.md" ]]; then
-      printf '%s' "${dir}"
-      return 0
-    fi
-  fi
-
-  if command -v uv >/dev/null 2>&1; then
-    if dir="$(uv tool run --from graphifyy python3 -c 'import graphify, os; print(os.path.dirname(graphify.__file__))' 2>/dev/null | tail -n1)" \
       && [[ -n "${dir}" && -f "${dir}/skill.md" ]]; then
       printf '%s' "${dir}"
       return 0

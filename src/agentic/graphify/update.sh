@@ -22,8 +22,12 @@ main() {
 
   _info "Upgrading graphifyy via uv..."
   if uv tool upgrade graphifyy 2>/dev/null; then
-    # Restore --with mcp dependency (uv tool upgrade strips extras)
-    uv tool install graphifyy --with mcp --force 2>/dev/null || true
+    # uv tool upgrade strips the extra, and an unconstrained reinstall picks
+    # mcp 2.x — restore the gateway pin on every upgrade.
+    if ! uv tool install graphifyy --with "mcp<2" --force 2>/dev/null; then
+      _fatal "could not restore the mcp<2 pin — run: uv tool install graphifyy --with \"mcp<2\" --force"
+      exit 1
+    fi
 
     local after
     after="$(graphify --version 2>/dev/null || echo 'unknown')"

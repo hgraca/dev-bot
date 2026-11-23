@@ -15,7 +15,7 @@
 #   echo "..." | graphify.sh query stdin    # pipe query from stdin
 #
 # Output format: Markdown (unless piped, then plain text)
-# Dependencies: graphify CLI (installed via uv tool install graphifyy --with mcp)
+# Dependencies: graphify CLI (uv tool install graphifyy --with "mcp<2")
 #
 # Parameters:
 # - command (string, required): one of query, path, explain, update, graph-stats, god-nodes

@@ -42,8 +42,7 @@ main() {
   elif ! uv tool run --from graphifyy python3 -c 'import graphify.serve' 2>/dev/null; then
     _warn "graphify CLI found but Python module not importable — reinstalling"
     needs_install=true
-  elif ! uv tool run --from graphifyy python3 -c \
-    'import graphify.serve, mcp; raise SystemExit(0 if mcp.__version__.startswith("1.") else 1)' 2>/dev/null; then
+  elif ! _graphify_mcp_is_v1; then
     # graphify tolerates mcp 2.x; the serve shim does not (it wraps
     # Server.request_handlers, which 2.x removed). The gateways pin mcp<2 too.
     _warn "graphify's mcp is not 1.x — the serve shim needs it; reinstalling"

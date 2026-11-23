@@ -31,6 +31,7 @@ EOF
 teardown() {
   rm -rf "${FAKE_BIN}"
   [[ -n "${SKILL_ROOT:-}" ]] && rm -rf "${SKILL_ROOT}" || true
+  [[ -n "${GATE_ROOT:-}" ]] && rm -rf "${GATE_ROOT}" || true
   if [[ -n "${SCOPE_PROJECT:-}" ]]; then
     chmod -R u+w "${SCOPE_PROJECT}" 2>/dev/null || true
     rm -rf "${SCOPE_PROJECT}" || true
@@ -997,14 +998,145 @@ setup_scope() {
 
 }
 
-@test "install pins graphify's mcp below 2, which the serve shim needs" {
-  # The shim wraps Server.request_handlers; mcp 2.x removed it and the server
-  # died on startup with an AttributeError (found by the e2e audit run).
-  run grep -F -- '--with "mcp<2"' "${MODULE_DIR}/install.sh"
+# ── mcp pin and its install gate ─────────────────────────────────────────────
+# The tool env is pinned to mcp 1.x because the serve shim wires tools/call and
+# tools/list through Server.request_handlers, which 2.x renamed; the gateway
+# images pin mcp<2 too. Probing `mcp.__version__` cannot report drift: the
+# attribute does not exist in 1.x, so the check raised AttributeError, read a
+# CORRECT env as broken, and force-installed on every run without ever printing
+# its OK line.
+
+setup_mcp_gate() {
+  # shellcheck source=../functions.sh
+  source "${MODULE_DIR}/functions.sh"
+  GATE_ROOT="$(mktemp -d)"
+  mkdir -p "${GATE_ROOT}/storage/secrets" "${GATE_ROOT}/dists" "${GATE_ROOT}/bin"
+  # Stand-in interpreter: PYTHONPATH points importlib.metadata at the dist-info
+  # below, so the probe runs for real with no mcp installed here.
+  printf '#!/usr/bin/env bash\nPYTHONPATH="%s" exec python3 "$@"\n' "${GATE_ROOT}/dists" \
+    > "${GATE_ROOT}/python"
+  chmod +x "${GATE_ROOT}/python"
+  # The record is plain text holding that path, as install.sh writes it — the
+  # interpreter is the executable, never the record itself.
+  printf '%s' "${GATE_ROOT}/python" > "${GATE_ROOT}/storage/secrets/graphify-python"
+  # A uv that answers nothing, so a resolution miss cannot reach a real tool env.
+  printf '#!/usr/bin/env bash\nexit 0\n' > "${GATE_ROOT}/bin/uv"
+  chmod +x "${GATE_ROOT}/bin/uv"
+  export DEV_BOT_ROOT="${GATE_ROOT}"
+  PATH="${GATE_ROOT}/bin:${PATH}"
+}
+
+seed_mcp_dist() { # <version>
+  local dir="${GATE_ROOT}/dists/mcp-$1.dist-info"
+  mkdir -p "${dir}"
+  printf 'Metadata-Version: 2.1\nName: mcp\nVersion: %s\n' "$1" > "${dir}/METADATA"
+}
+
+@test "_graphify_mcp_is_v1: true when the tool env carries mcp 1.x" {
+  setup_mcp_gate
+  seed_mcp_dist 1.30.0
+
+  run _graphify_mcp_is_v1
   assert_success
-  # An existing tool whose mcp moved to 2.x must be repaired, not skipped.
-  run grep -F 'mcp.__version__.startswith("1.")' "${MODULE_DIR}/install.sh"
+}
+
+@test "_graphify_mcp_is_v1: false when the tool env moved to mcp 2.x" {
+  setup_mcp_gate
+  seed_mcp_dist 2.3.0
+
+  run _graphify_mcp_is_v1
+  # Status 1, not merely "non-zero": 127 would mean the helper never ran.
+  [ "$status" -eq 1 ]
+}
+
+@test "_graphify_mcp_is_v1: false when no interpreter resolves" {
+  setup_mcp_gate
+  seed_mcp_dist 1.30.0
+  # No record and a uv that answers with nothing: the gate must report the
+  # unknown env instead of assuming it is fine.
+  rm -f "${GATE_ROOT}/storage/secrets/graphify-python"
+
+  run _graphify_mcp_is_v1
+  [ "$status" -eq 1 ]
+}
+
+@test "_graphify_mcp_is_v1: false when uv is absent and nothing is recorded" {
+  setup_mcp_gate
+  seed_mcp_dist 1.30.0
+  rm -f "${GATE_ROOT}/storage/secrets/graphify-python"
+  # A bin dir carrying what the helper needs but deliberately no uv, so the
+  # `command -v uv` guard is the branch under test.
+  local bin="${GATE_ROOT}/bin"
+  mkdir -p "${bin}"
+  rm -f "${bin}/uv"
+  ln -s "$(command -v python3)" "${bin}/python3"
+  ln -s "$(command -v tail)" "${bin}/tail"
+  local saved_path="$PATH"
+  PATH="${bin}"
+
+  # Called directly: bats' `run` needs binaries this PATH hides.
+  local status=0
+  _graphify_mcp_is_v1 || status=$?
+  PATH="$saved_path"
+  [ "$status" -eq 1 ]
+}
+
+# Runs the real install.sh/update.sh against stubbed uv and graphify, so the gate
+# is observed through its effect — reinstalling or skipping — not its source text.
+setup_install_gate() { # <mcp-version-in-tool-env>
+  GATE_ROOT="$(mktemp -d)"
+  UV_LOG="${GATE_ROOT}/uv.log"
+  mkdir -p "${GATE_ROOT}/storage/secrets" "${GATE_ROOT}/dists" "${GATE_ROOT}/bin" "${GATE_ROOT}/home"
+  : > "${UV_LOG}"
+  seed_mcp_dist "$1"
+  # Stand-in interpreter: PYTHONPATH points importlib.metadata at the dist-info.
+  printf '#!/usr/bin/env bash\nPYTHONPATH="%s" exec python3 "$@"\n' "${GATE_ROOT}/dists" \
+    > "${GATE_ROOT}/python"
+  chmod +x "${GATE_ROOT}/python"
+  cat > "${GATE_ROOT}/bin/uv" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "${UV_LOG}"
+[[ "\$1 \$2" == "tool install" && -n "\${UV_FAIL_INSTALL:-}" ]] && exit 1
+[[ "\$1 \$2" == "tool run" ]] && printf '%s\n' "${GATE_ROOT}/python"
+exit 0
+EOF
+  printf '#!/usr/bin/env bash\nprintf "graphify 0.9.115\\n"\n' > "${GATE_ROOT}/bin/graphify"
+  chmod +x "${GATE_ROOT}/bin/uv" "${GATE_ROOT}/bin/graphify"
+  export DEV_BOT_ROOT="${GATE_ROOT}"
+  # HOME is redirected because install.sh prepends $HOME/.local/bin to PATH,
+  # which would otherwise put a real uv and graphify back in front of the stubs.
+  export HOME="${GATE_ROOT}/home"
+  PATH="${GATE_ROOT}/bin:${PATH}"
+}
+
+@test "install.sh reinstalls when the tool env moved to mcp 2.x" {
+  setup_install_gate 2.3.0
+
+  run bash "${MODULE_DIR}/install.sh"
+  assert_output --partial "mcp is not 1.x"
+
+  run grep -F -- 'tool install graphifyy --with mcp<2 --force' "${UV_LOG}"
   assert_success
-  run grep -F -- '--force' "${MODULE_DIR}/install.sh"
-  assert_success
+}
+
+@test "install.sh leaves a healthy mcp 1.x env alone" {
+  setup_install_gate 1.30.0
+
+  run bash "${MODULE_DIR}/install.sh"
+  assert_output --partial "Graphify ("
+  refute_output --partial "mcp is not 1.x"
+
+  run grep -c -F -- 'tool install' "${UV_LOG}"
+  [ "$output" -eq 0 ]
+}
+
+@test "update.sh fails when the mcp pin cannot be restored" {
+  setup_install_gate 1.30.0
+  # The upgrade succeeds, the pinned reinstall fails: reporting the upgrade as
+  # successful would leave an unpinned env the gate reinstalls on every run.
+  export UV_FAIL_INSTALL=1
+
+  run bash "${MODULE_DIR}/update.sh"
+  assert_failure
+  assert_output --partial "could not restore the mcp<2 pin"
 }
