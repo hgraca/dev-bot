@@ -165,7 +165,7 @@ setup_opencode_project() {
   assert_output --partial "Graph Statistics"
   assert_output --partial "Nodes"
   assert_output --partial "Edges"
-  assert_output --regexp '5\s*\|'
+  assert_output --regexp '5[[:space:]]*\|'
 
   rm -rf "$tmpdir"
 }
@@ -278,7 +278,7 @@ setup_opencode_project() {
 
   assert_success
   assert_output --partial "Nodes"
-  assert_output --regexp '0\s*\|'
+  assert_output --regexp '0[[:space:]]*\|'
 
   rm -rf "$tmpdir"
 }
