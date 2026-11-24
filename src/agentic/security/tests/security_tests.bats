@@ -12,6 +12,7 @@ setup() {
     MODULE="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
     PENTEST="${MODULE}/skills/pentest-external-webapp"
     SKILL="${PENTEST}/SKILL.md"
+    FINDINGS="${MODULE}/skills/security-findings/SKILL.md"
 }
 
 front_matter() {
@@ -179,6 +180,75 @@ disk_skills() {
     assert_success
     run grep -qF 'devbot:audit-security' "$SKILL"
     assert_success
+}
+
+# --- security-findings ------------------------------------------------------
+
+@test "the findings skill carries every field of the record" {
+    local field
+    for field in '**ID:**' '**Title:**' '**Severity:**' '**CVSS:**' '**Tier:**' \
+        '**Finding:**' '**Result:**' '**Evidence:**' '**Status:**' '**Discovered:**' \
+        '**Location:**' '**Targets:**' '**Proof of concept:**' '**Recommendation:**' \
+        '**References:**' '**Coverage basis:**'; do
+        run grep -qF "$field" "$FINDINGS"
+        assert_success
+    done
+}
+
+@test "the findings skill carries every lifecycle state" {
+    local state
+    for state in open confirmed mitigated false_positive accepted_risk; do
+        run grep -qF "\`${state}\`" "$FINDINGS"
+        assert_success
+    done
+    # The monotonic guard is the rule that makes the lifecycle worth having.
+    run bash -c "tr '\n' ' ' <'${FINDINGS}' | grep -qi 'dismissal never erases'"
+    assert_success
+}
+
+@test "the findings skill scores with CVSS v4.0 and not 3.1" {
+    run grep -qF 'CVSS v4.0' "$FINDINGS"
+    assert_success
+    run grep -qF 'CVSS:4.0/' "$FINDINGS"
+    assert_success
+    # A 3.1 vector in the skill that owns the scheme is the drift this exists to stop.
+    run grep -qF 'CVSS:3.1' "$FINDINGS"
+    assert_failure
+    local band
+    for band in '9.0–10.0' '7.0–8.9' '4.0–6.9' '0.1–3.9'; do
+        run grep -qF "$band" "$FINDINGS"
+        assert_success
+    done
+}
+
+@test "the findings skill fixes the refutation verdicts" {
+    local verdict
+    for verdict in uphold downgrade reject unverifiable; do
+        run grep -qF "\`${verdict}\`" "$FINDINGS"
+        assert_success
+    done
+}
+
+@test "the findings skill defines the report shape both siblings emit" {
+    local section
+    for section in 'Scope and basis' 'Coverage' 'Findings' 'Refutation' 'Summary' \
+        'Positive findings'; do
+        run grep -qF "**${section}**" "$FINDINGS"
+        assert_success
+    done
+}
+
+@test "the findings skill names its siblings instead of restating them" {
+    # PDR 20261024080246: a referencing skill names the other and when to load it.
+    run grep -qF 'devbot:audit-security' "$FINDINGS"
+    assert_success
+    run grep -qF 'devbot:pentest-external-webapp' "$FINDINGS"
+    assert_success
+    local restated
+    for restated in 'Spoofing' 'WSTG-' '### 1. Check' 'seven checks'; do
+        run grep -qiF "$restated" "$FINDINGS"
+        assert_failure
+    done
 }
 
 # --- commands ---------------------------------------------------------------
