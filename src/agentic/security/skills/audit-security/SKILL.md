@@ -49,6 +49,10 @@ finding in its own right.
 **Recommendation:** <specific action>
 ```
 
+**Exit:** every trust boundary has at least one threat, and every threat names either an existing
+control or a gap with a recommendation. A threat model that lists threats without controls is a wish
+list.
+
 ## 2. OWASP Top 10:2025
 
 The publisher is the authority — take the numbering and the category names from
@@ -79,6 +83,10 @@ checks. Run the checklist for every language the project uses.
 
 A language with no section here gets the category table above and an explicit line in the report
 saying no language-specific checks were applied. Silence reads as coverage.
+
+**Exit:** every category A01–A10 is recorded as `checked`, `clean`, `not applicable` (with the reason)
+or `not examined` (with the reason). The last two are the ones that get skipped, and they are the ones
+a reader needs.
 
 ### PHP
 
@@ -240,6 +248,9 @@ When reviewing auth systems:
 4. **Check token lifecycle** — created, validated, refreshed, invalidated
 5. **Check multi-tenancy** — any path where tenant A can reach tenant B?
 
+**Exit:** every step of both flows is located in the code, and every escalation path you tried is
+recorded with its result. An escalation path you did not try is not a clean result.
+
 ## 5. Scoring
 
 Score with **CVSS v4.0**, in the record `devbot:security-findings` defines — it owns the scheme, the
@@ -256,20 +267,70 @@ Use `devbot:security-findings`'s record. Two fields carry what a source review c
 runtime test cannot: `Location` — `path:line` plus the enclosing symbol — and `Coverage basis`, which
 check produced it.
 
-## 7. Reporting Rules
+## 7. Coverage
 
-- Never report finding without evidence (code location, line number)
-- Always include specific remediation — not just "fix SQL injection" but code example
-- Group related findings — do not report 20 instances of same XSS pattern separately
-- Always distinguish between confirmed vulnerability and potential risk
-- Include positive findings: what codebase does well
+A review that does not say what it did not look at cannot be told apart from a partial one. Record
+coverage before findings, not after: the two are read together, and the findings mean nothing without
+the boundary around them.
 
-## 8. Audit Summary Format
+| Area          | Files or modules            | Result                      |
+| ------------- | --------------------------- | --------------------------- |
+| Authorisation | `app/Policies`, controllers | checked                     |
+| Injection     | repository layer            | clean                       |
+| Crypto        | `app/Services/Crypto`       | not examined — out of scope |
+| Sessions      | —                           | not applicable: no surface  |
 
-End every review with:
+`checked` means the check ran and found something. `clean` means it ran and found nothing. Those are
+different claims, and an empty row is neither.
 
-1. **Total findings by severity** — table showing count per severity level
-2. **Top 3 most critical items** — three findings needing immediate attention
+## 8. Re-audit
+
+When reviewing a system that was audited before, work from the prior records and give each one a
+verdict:
+
+- **Resolved** — the observable that demonstrated it no longer appears. A commit message, a comment,
+  or a stated intention is not the observable.
+- **Still open** — the check still fails, under the same record id.
+- **Partially resolved** — name what changed and what did not.
+- **Not retestable** — name why: the code is gone, the blast radius moved, or the record lacks the
+  evidence to re-run it.
+
+Prior records live in the project's vault when `commit_memory` is on; otherwise ask for the last
+report rather than assuming there was none.
+
+## 9. Reporting rules
+
+- Every finding carries a `Location` and a remediation with a code example.
+- Group by defect class — twenty instances of one pattern are one finding with an inventory.
+- Say whether a finding is `read-in-source` or better; a candidate that was not traced is not a
+  finding.
+- Include positive findings: what the codebase does well. A report of only defects cannot be used to
+  decide what to leave alone.
+
+## 10. Audit summary
+
+This is the **Summary** section of the report shape `devbot:security-findings` fixes. End every
+review with:
+
+1. **Total findings by severity** — a table of counts per band
+2. **Top 3 most critical items** — the three that need attention first
 3. **Quick wins** — easy fixes with high security impact
-4. **Systemic issues** — patterns needing architectural change, not just point fixes
-5. **Positive findings** — what codebase does well from security perspective
+4. **Systemic issues** — patterns needing an architectural change, not a point fix
+5. **Positive findings** — what the codebase does well
+
+## 11. What tends to hide
+
+Defect classes that survive a review because the code looks right where you read it. Use this as a
+checklist of what to go looking for, and as the shape a finding should take.
+
+| Symptom                                              | Why the review misses it                                  | What to check instead                                           |
+| ---------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------- |
+| Authorisation at the route, not per object           | The route gate is visible and looks sufficient            | Trace the identifier into the query and the policy call         |
+| A record fetched before the policy check             | The policy call is present, so the line reads as guarded  | Order matters: `find()` first leaks existence via errors        |
+| Mass assignment from the request                     | The model looks protected; the guard lives in `$fillable` | Compare every assignable field against what the request carries |
+| Escaping applied on input                            | The output looks unescaped, but the input was "cleaned"   | Require output escaping; input cleaning breaks on stored data   |
+| Validation that accepts an array for a string field  | The rule name reads correctly                             | Check the type: `field[]=` bypasses a `string` rule             |
+| Token comparison with `==`                           | It passes every functional test                           | Require a constant-time comparison                              |
+| A check-then-act limit                               | Each half is correct in isolation                         | Look for the window between check and write                     |
+| An error path that returns success                   | The happy path is what gets tested                        | Follow every `catch` to its status code                         |
+| A console command or queued job bypassing middleware | Middleware is where the team looks for authorisation      | Check every entry point, not just HTTP                          |

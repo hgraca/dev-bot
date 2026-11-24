@@ -224,6 +224,29 @@ disk_skills() {
     assert_failure
 }
 
+@test "the audit skill states exit criteria it can be held to" {
+    # Borrowed from the pentest skill: a section with no exit criterion cannot
+    # say when it is done, so a partial review reads as a complete one.
+    local criteria
+    criteria="$(grep -c '^\*\*Exit:\*\*' "$AUDIT")"
+    [ "$criteria" -ge 3 ] || fail "expected at least 3 exit criteria, found $criteria"
+}
+
+@test "the audit skill requires coverage and a re-audit verdict" {
+    run grep -qF '## 7. Coverage' "$AUDIT"
+    assert_success
+    local result
+    for result in checked clean 'not applicable' 'not examined'; do
+        run grep -qF "\`${result}\`" "$AUDIT"
+        assert_success
+    done
+    local verdict
+    for verdict in 'Resolved' 'Still open' 'Partially resolved' 'Not retestable'; do
+        run grep -qF "**${verdict}**" "$AUDIT"
+        assert_success
+    done
+}
+
 # --- security-findings ------------------------------------------------------
 
 @test "the findings skill carries every field of the record" {
