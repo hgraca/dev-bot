@@ -26,24 +26,24 @@ and retro-fitting evidence is how findings become assertions.
 One record per finding. Fields marked **always** are required; the rest depend on the finding's
 basis.
 
-| Field                   | Required        | Content                                                                                                                            |
-| ----------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `**ID:**`               | always          | `<report>.<n>`. Stable for the life of the finding — a re-test reuses it.                                                          |
-| `**Title:**`            | always          | One line naming the defect class, not the endpoint.                                                                                |
-| `**Severity:**`         | always          | `Critical` / `High` / `Medium` / `Low` / `Informational`.                                                                          |
-| `**CVSS:**`             | always          | The `CVSS:4.0/` vector and the score a 4.0 calculator returns — or `none` for an `Informational` finding. See [Scoring](#scoring). |
-| `**Tier:**`             | always          | `read-in-source` / `observed` / `reproduced`. See [Evidence tiers](#evidence-tiers).                                               |
-| `**Finding:**`          | always          | What is wrong, and the observation that proves it.                                                                                 |
-| `**Result:**`           | always          | What an attacker gains **and what limited it**. A mitigating control that held belongs here, not in a footnote.                    |
-| `**Evidence:**`         | always          | The observation: request/response excerpt, probe output, or `file:line`. Not a summary of one.                                     |
-| `**Status:**`           | always          | The lifecycle state. See [Lifecycle](#lifecycle).                                                                                  |
-| `**Discovered:**`       | always          | The commit the finding was established against, plus the date.                                                                     |
-| `**Location:**`         | source          | `path/to/file.ext:line`, and the enclosing symbol when one exists.                                                                 |
-| `**Targets:**`          | runtime         | The exact URLs or hostnames tested. Never a pattern, never a sibling host inferred from one.                                       |
-| `**Proof of concept:**` | when one exists | Numbered steps or the exact request sequence that demonstrates the finding.                                                        |
-| `**Recommendation:**`   | always          | The specific fix. An allowlist over a blocklist; least privilege over review.                                                      |
-| `**References:**`       | always          | `CWE-nnn`, the OWASP category as `A0n:2025`, and the ASVS requirement when one applies.                                            |
-| `**Coverage basis:**`   | always          | Which check, tool or phase produced this — so a reader can tell detection from inference.                                          |
+| Field                   | Required        | Content                                                                                                                                                                                             |
+| ----------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `**ID:**`               | always          | `<report>.<n>`. Stable for the life of the finding — a re-test reuses it.                                                                                                                           |
+| `**Title:**`            | always          | One line naming the defect class, not the endpoint.                                                                                                                                                 |
+| `**Severity:**`         | always          | `Critical` / `High` / `Medium` / `Low` / `Informational`.                                                                                                                                           |
+| `**CVSS:**`             | always          | The `CVSS:4.0/` vector, the score a 4.0 calculator returns, and the designation — `CVSS-B`, `CVSS-BT`, `CVSS-BE` or `CVSS-BTE` — or `none` for an `Informational` finding. See [Scoring](#scoring). |
+| `**Tier:**`             | always          | `read-in-source` / `observed` / `reproduced`. See [Evidence tiers](#evidence-tiers).                                                                                                                |
+| `**Finding:**`          | always          | What is wrong, and the observation that proves it.                                                                                                                                                  |
+| `**Result:**`           | always          | What an attacker gains **and what limited it**. A mitigating control that held belongs here, not in a footnote.                                                                                     |
+| `**Evidence:**`         | always          | The observation: request/response excerpt, probe output, or `file:line`. Not a summary of one.                                                                                                      |
+| `**Status:**`           | always          | The lifecycle state. See [Lifecycle](#lifecycle).                                                                                                                                                   |
+| `**Discovered:**`       | always          | The commit the finding was established against, plus the date.                                                                                                                                      |
+| `**Location:**`         | source          | `path/to/file.ext:line`, and the enclosing symbol when one exists.                                                                                                                                  |
+| `**Targets:**`          | runtime         | The exact URLs or hostnames tested. Never a pattern, never a sibling host inferred from one.                                                                                                        |
+| `**Proof of concept:**` | when one exists | Numbered steps or the exact request sequence that demonstrates the finding.                                                                                                                         |
+| `**Recommendation:**`   | always          | The specific fix. An allowlist over a blocklist; least privilege over review.                                                                                                                       |
+| `**References:**`       | always          | `CWE-nnn`, the OWASP category as `A0n:2025`, and the ASVS requirement when one applies.                                                                                                             |
+| `**Coverage basis:**`   | always          | Which check, tool or phase produced this — so a reader can tell detection from inference.                                                                                                           |
 
 Exactly one of `Location` and `Targets` is present, matching the basis: a source finding has a
 location, a runtime finding has targets.
@@ -83,18 +83,24 @@ Never compute the score by hand. The v4.0 model is non-linear and no arithmetic 
 reproduces it — feed the vector to a calculator
 (<https://www.first.org/cvss/calculator/4.0>) and record what it returns.
 
-**Threat metrics.** Leave them unset for a source-only finding, and know what that means: v4.0
-scores an absent `E` as `E:A` — an attack that works. That is the right assumption when nobody has
-tested the deployment, and the wrong one when someone has.
+**Threat metrics.** `E` is **Exploit Maturity** — what is known about exploitation in general:
+`A` attacked, `P` proof-of-concept, `U` unreported. An absent `E` scores as `E:A`, the worst case,
+which is the right assumption for a finding nobody has tested in the field.
 
-When an attack was shown **not** to work — a control that held, a payload that was rejected — set
-`E:U`, or lower the impact metric the control actually defuses, and say in `Result` which you did.
-Naming the control while leaving `E` unset does not lower the score; it records the control beside a
-number that still assumes the attack succeeds. That gap is how "we tried it and it does not work"
-becomes a High finding.
+`E` is **not** a record of whether this target's control stopped a payload. An attempt that failed
+says nothing about how mature the exploit is, and setting `E:U` to mean "we tried it and it did not
+work" mis-scores the finding — in whichever direction it happens to sit.
 
-State whether the score is `CVSS-B` (base only) or `CVSS-BT` (base plus threat), so a reader knows
-which question was answered.
+A control that held belongs in the impact metrics:
+
+- **In the implementation** — a prepared statement, an allowlist in the code — the base impact
+  already reflects it, because the weakness is not there to find.
+- **In the environment** — a WAF rule, a network boundary, a deployment setting — lower the modified
+  impact metric it defuses (`MVC`/`MVI`/`MVA`, and `MSC`/`MSI`/`MSA` for a subsequent system), and
+  keep the observation in `Result`.
+
+State the designation so a reader knows which question was answered: `CVSS-B` (base only), `CVSS-BT`
+(plus threat), `CVSS-BE` (plus environmental), `CVSS-BTE` (both).
 
 Qualitative bands, identical across the two skills:
 
@@ -170,9 +176,12 @@ One shape for both skills, sections in this order:
    reason (tool absent, not applicable, outside scope). A clean section that omits this is
    indistinguishable from a partial one.
 
-   The security module's `src/agentic/security/scripts/tooling.sh check` prints which tools are
-   present at the moment of the review. A check whose tool was absent is recorded
-   `skipped: tool absent` — the sentence a reader needs, and the one a tidy table quietly drops.
+   The security module's `$DEV_BOT_ROOT/src/agentic/security/scripts/tooling.sh check` prints which
+   tools are present at the moment of the review, with the version this machine has where one was
+   recorded. **Record that output in the report.** A check whose tool was absent is recorded
+   `skipped: tool absent` — the sentence a reader needs, and the one a tidy table quietly drops — and
+   the version lines are what let a later reader tell whether a re-run used the same scanner that
+   produced the evidence.
 
 3. **Findings** — by severity, each in the record shape.
 4. **Refutation** — per finding, the verdict of the separate pass and what it rested on.

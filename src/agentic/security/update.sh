@@ -22,8 +22,15 @@ main() {
     return 0
   fi
 
-  "${MODULE_DIR}/scripts/tooling.sh" install
-  _ok "security tooling up to date"
+  # Force a re-fetch: without it the idempotent install reports every present
+  # tool as "already installed" and `devbot update` updates nothing. A failed
+  # refresh must not report success — the module runner reads the exit status.
+  if SEC_TOOLS_FORCE=1 "${MODULE_DIR}/scripts/tooling.sh" install; then
+    _ok "security tooling update pass complete"
+  else
+    _warn "some tooling could not be updated — see the ledger above"
+    return 1
+  fi
 }
 
 main "$@"

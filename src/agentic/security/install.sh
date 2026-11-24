@@ -29,19 +29,40 @@ else
 fi
 
 # FOSS tooling — one façade over four backends. `check` is local and fast, so it
-# always runs; provisioning is opt-in because it reaches the network.
+# always runs; provisioning is opt-in because it reaches the network. A partial
+# provision must not report the module as satisfied, so the closing line follows
+# what actually happened rather than what the script attempted.
 TOOLING="${MODULE_DIR}/scripts/tooling.sh"
+TOOLS_OK=1
 if [ -x "$TOOLING" ]; then
     info "security tooling:"
-    "$TOOLING" check || skip "tooling check reported a problem"
+    "$TOOLING" check || {
+        skip "tooling check reported a problem"
+        TOOLS_OK=0
+    }
     if [ "${SEC_TOOLS_AUTO_INSTALL:-0}" = "1" ]; then
         info "provisioning tooling (SEC_TOOLS_AUTO_INSTALL=1):"
-        "$TOOLING" install || skip "tooling install reported a problem"
+        "$TOOLING" install || {
+            skip "some tooling could not be provisioned — see the ledger above"
+            TOOLS_OK=0
+        }
     else
         skip "set SEC_TOOLS_AUTO_INSTALL=1, or run scripts/tooling.sh install, to provision"
     fi
+    # The closing line follows the ledger, not the script's intent: with
+    # provisioning left off, absent tools must not read as satisfied.
+    MISSING="$("$TOOLING" check | awk 'NR > 1 && NF >= 3 && $3 == "absent" { n++ } END { print n + 0 }')"
+    if [ "$MISSING" -gt 0 ]; then
+        skip "$MISSING tool(s) absent — see the ledger above"
+        TOOLS_OK=0
+    fi
 else
     skip "scripts/tooling.sh not executable — security tooling not checked"
+    TOOLS_OK=0
 fi
 
-ok "security module — all dependencies satisfied"
+if [ "$TOOLS_OK" = "1" ]; then
+    ok "security module — all dependencies satisfied"
+else
+    skip "security module — script dependencies are fine; tooling is not fully provisioned"
+fi

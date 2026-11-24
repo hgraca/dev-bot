@@ -10,7 +10,7 @@ invented. Nothing here is engagement data.
 **ID:** SEC-2026-11.1
 **Title:** Object read by sequential id without a tenant check
 **Severity:** High
-**CVSS:** 8.1 — CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N
+**CVSS:** 8.1 — CVSS-B · CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N
 **Tier:** read-in-source
 **Finding:** `InvoiceController@show` resolves the record with `Invoice::findOrFail($id)` and returns
 it. No policy check and no tenant scope are applied, so the id is the only access control. The route

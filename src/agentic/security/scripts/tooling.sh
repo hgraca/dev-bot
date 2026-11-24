@@ -67,8 +67,13 @@ Environment:
                             (default: <repo>/storage/security-tools)
   SEC_TOOLS_DOCKER_NETWORK  network mode for container tools (default: none —
                             pass bridge or host when the run must reach the target)
+  SEC_TOOLS_DOCKER_OUT      host directory mounted writable at /out, so a
+                            container tool can write its report
   SEC_TOOLS_DOCKER_ARGS     extra flags for `docker run`, word-split
   SEC_TOOLS_FORCE           re-fetch what is already present on `install`
+
+Container runs mount the caller's working directory read-only at /src and run
+there, so a filesystem scan inspects the project rather than the container.
 
 Exit codes: 0 success, 3 tool unavailable, 2 usage error. Any other non-zero
 status is the tool's own — `run` execs it, so its exit status is returned.
@@ -86,7 +91,8 @@ tool_names() {
 
 recorded_version() {
     [ -f "${VERSIONS_FILE}" ] || return 0
-    awk -v t="$1" '$1 == t { print $2; exit }' "${VERSIONS_FILE}"
+    # Last match wins: a forced refresh appends, so the first row is the oldest.
+    awk -v t="$1" '$1 == t { v = $2 } END { if (v != "") print v }' "${VERSIONS_FILE}"
 }
 
 system_present() {
@@ -129,7 +135,11 @@ cmd_check() {
         printf '%-11s %-7s %-8s %s\n' "${name}" "${backend}" "${status}" "${checks}"
     done <<<"${MANIFEST}"
     printf '\nA check needing an absent tool is reported as skipped, never as passed.\n'
-    printf 'resolve: uvx is present; the tool is fetched on first use, not cached here.\n'
+    if uvx_present; then
+        printf 'resolve: uvx is present; the tool is fetched on first use, not cached here.\n'
+    else
+        printf 'absent: uvx is not installed, so every uvx-backed row above is absent.\n'
+    fi
 }
 
 cmd_run() {
@@ -170,13 +180,27 @@ cmd_run() {
                 printf 'WARN: docker is not available, cannot serve %s\n' "${tool}" >&2
                 return 3
             fi
-            # No network by default: a scanner that needs the target opts in.
-            local net="--network none"
+            # `docker run` pulls implicitly when the image is absent, which would
+            # turn a local run into a network fetch that `check` called absent.
+            if ! docker image inspect "${source}" >/dev/null 2>&1; then
+                printf 'WARN: %s is not pulled: tooling.sh install %s\n' "${tool}" "${tool}" >&2
+                return 3
+            fi
+            # An array: `--network none` must reach docker as two arguments, not
+            # as the single literal "--network none".
+            local -a net_args=(--network none)
             if [ -n "${SEC_TOOLS_DOCKER_NETWORK:-}" ]; then
-                net="--network ${SEC_TOOLS_DOCKER_NETWORK}"
+                net_args=(--network "${SEC_TOOLS_DOCKER_NETWORK}")
+            fi
+            # Mount the caller's tree: without it a filesystem scan inspects the
+            # container and returns a confident, irrelevant result.
+            local -a mount_args=(-v "${PWD}:/src:ro" -w /src)
+            if [ -n "${SEC_TOOLS_DOCKER_OUT:-}" ]; then
+                mount_args+=(-v "${SEC_TOOLS_DOCKER_OUT}:/out")
             fi
             # shellcheck disable=SC2086
-            exec docker run --rm -i "${net}" ${SEC_TOOLS_DOCKER_ARGS:-} "${source}" "$@"
+            exec docker run --rm -i "${net_args[@]}" "${mount_args[@]}" \
+                ${SEC_TOOLS_DOCKER_ARGS:-} "${source}" "$@"
             ;;
         system)
             if ! system_present "${source}"; then
@@ -208,14 +232,14 @@ install_one() {
                 return 0
             fi
             if ! command -v go >/dev/null 2>&1; then
-                printf '  skip  %-10s no go toolchain\n' "${tool}"
-                return 0
+                printf '  warn  %-10s no go toolchain\n' "${tool}"
+                return 1
             fi
             printf '  get   %-10s %s\n' "${tool}" "${source}"
             mkdir -p "${BIN_DIR}"
             if ! GOBIN="${BIN_DIR}" go install "${source}@latest" >/dev/null 2>&1; then
                 printf '  warn  %-10s go install failed; check network\n' "${tool}"
-                return 0
+                return 1
             fi
             version="$("${BIN_DIR}/${tool}" -version 2>/dev/null | head -1 || true)"
             if [ -n "${version}" ]; then
@@ -223,6 +247,10 @@ install_one() {
             fi
             ;;
         uvx)
+            if ! uvx_present; then
+                printf '  warn  %-10s uvx is not installed\n' "${tool}"
+                return 1
+            fi
             printf '  ok    %-10s resolved per call by uvx\n' "${tool}"
             ;;
         docker)
@@ -237,6 +265,7 @@ install_one() {
             printf '  pull  %-10s %s\n' "${tool}" "${source}"
             if ! docker pull --quiet "${source}" >/dev/null 2>&1; then
                 printf '  warn  %-10s pull failed; check network\n' "${tool}"
+                return 1
             fi
             ;;
         system)
@@ -252,16 +281,25 @@ cmd_install() {
     # install is not. Pinning means maintaining a version table here; until it
     # exists, the module's own A03 checklist applies to this file too.
     mkdir -p "${STORE_DIR}"
+    local failed=0
     if [ "$#" -eq 0 ]; then
-        while IFS= read -r name; do install_one "${name}"; done < <(tool_names)
+        while IFS= read -r name; do
+            install_one "${name}" || failed=$((failed + 1))
+        done < <(tool_names)
     else
         local name
-        for name in "$@"; do install_one "${name}"; done
+        for name in "$@"; do
+            install_one "${name}" || failed=$((failed + 1))
+        done
     fi
     printf '\nstore: %s\n\n' "${STORE_DIR}"
     # End with the ledger: a partial install is only useful if the caller can
     # see which tools it did not get.
     cmd_check
+    if [ "${failed}" -gt 0 ]; then
+        printf '\nWARN: %s tool(s) failed to provision\n' "${failed}" >&2
+        return 1
+    fi
 }
 
 main() {

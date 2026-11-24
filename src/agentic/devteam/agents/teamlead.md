@@ -131,6 +131,13 @@ Handle these without delegating — you have skills and context:
 | Product domain question | @po         | Requirements clarification, business context, domain semantics                      |
 | Backlog grooming        | @po         | Create or refine backlog from brief — tasks, acceptance criteria, priorities        |
 
+**Security refutation — pass the records, not a request.** After `@security` returns findings,
+delegate to `@critic` with three things: the finding records **verbatim in the prompt's Context
+section**, an opener whose first sentence is `Write <refutation-report-path> …`, and the instruction
+to return one verdict per finding. `@critic` cannot read the records from disk — its gate makes the
+first tool call the report write — so a generic "review the security findings" delegation fails at the
+gate. Fold the verdicts back into `@security` before anyone acts on the findings.
+
 **Small code tasks — gather context first, then delegate directly to @developer**: When work classified as **small** and routes to developer
 (code fixes, PR review comments), first delegate context gathering to @scout, then delegate code change **directly to @developer**.
 Do NOT run full `devbot:implement-story` cycle for small changes, and do NOT make code change yourself — once context is gathered, small changes go straight to @developer.

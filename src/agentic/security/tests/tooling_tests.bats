@@ -19,13 +19,25 @@ setup() {
 }
 
 stub_system_tool() {
-    printf '#!/usr/bin/env bash\necho "stub-%s $*"\n' "$1" >"${STUB_BIN}/$1"
+    # Delimit every argument: `$*` would join them back into one string and
+    # make a malformed single argument indistinguishable from two correct ones.
+    {
+        printf '#!/usr/bin/env bash\n'
+        printf 'printf "stub-%s" "%s"\n' "$1" "$1"
+        printf 'for a in "$@"; do printf " [%%s]" "$a"; done\n'
+        printf 'printf "\\n"\n'
+    } >"${STUB_BIN}/$1"
     chmod +x "${STUB_BIN}/$1"
 }
 
 stub_store_tool() {
     mkdir -p "${SEC_TOOLS_DIR}/bin"
-    printf '#!/usr/bin/env bash\necho "stub-%s $*"\n' "$1" >"${SEC_TOOLS_DIR}/bin/$1"
+    {
+        printf '#!/usr/bin/env bash\n'
+        printf 'printf "stub-%s" "%s"\n' "$1" "$1"
+        printf 'for a in "$@"; do printf " [%%s]" "$a"; done\n'
+        printf 'printf "\\n"\n'
+    } >"${SEC_TOOLS_DIR}/bin/$1"
     chmod +x "${SEC_TOOLS_DIR}/bin/$1"
 }
 
@@ -66,14 +78,14 @@ stub_store_tool() {
     stub_system_tool nmap
     run bash "${TOOLING}" run nmap -p 443 example.invalid
     assert_success
-    assert_output 'stub-nmap -p 443 example.invalid'
+    assert_output 'stub-nmap [-p] [443] [example.invalid]'
 }
 
 @test "run dispatches a go tool installed in the store" {
     stub_store_tool nuclei
     run bash "${TOOLING}" run nuclei -u https://example.invalid
     assert_success
-    assert_output 'stub-nuclei -u https://example.invalid'
+    assert_output 'stub-nuclei [-u] [https://example.invalid]'
 }
 
 @test "run dispatches a uvx tool without injecting a separator" {
@@ -82,23 +94,61 @@ stub_store_tool() {
     assert_success
     # uvx must receive the command first and the tool's argv unchanged: a `--`
     # after the command is handed to the tool and ends its option parsing.
-    assert_output 'stub-uvx semgrep --config p/php .'
+    assert_output 'stub-uvx [semgrep] [--config] [p/php] [.]'
 }
 
-@test "run dispatches a container tool with --rm and no network by default" {
+@test "run dispatches a container tool with --rm, no network, and the project mounted" {
     stub_system_tool docker
     run bash "${TOOLING}" run trivy image alpine
     assert_success
-    # No egress unless the caller opts in: a scanner that must reach the target
-    # sets SEC_TOOLS_DOCKER_NETWORK.
-    assert_output 'stub-docker run --rm -i --network none aquasec/trivy image alpine'
+    # Two arguments, not the single literal "--network none": the delimiter is
+    # what makes that distinction visible.
+    assert_output --partial '[run] [--rm] [-i] [--network] [none]'
+    # Without the mount a filesystem scan inspects the container, not the tree.
+    assert_output --partial ':/src:ro] [-w] [/src]'
+    assert_output --partial '[aquasec/trivy] [image] [alpine]'
 }
 
-@test "container networking is opt-in" {
+@test "a writable output mount is available when asked for" {
+    stub_system_tool docker
+    SEC_TOOLS_DOCKER_OUT=/tmp/output run bash "${TOOLING}" run zap -cmd report
+    assert_success
+    assert_output --partial '[/tmp/output:/out]'
+}
+
+@test "check reports the most recently recorded version" {
+    # A forced refresh appends; reading the first row would report the oldest.
+    mkdir -p "${SEC_TOOLS_DIR}/bin"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"${SEC_TOOLS_DIR}/bin/ffuf"
+    chmod +x "${SEC_TOOLS_DIR}/bin/ffuf"
+    printf 'ffuf v1.0.0\nffuf v2.0.0\n' >"${SEC_TOOLS_DIR}/versions.txt"
+    run bash "${TOOLING}" check
+    assert_success
+    assert_output --partial 'v2.0.0'
+    refute_output --partial 'v1.0.0'
+}
+
+@test "container networking is opt-in and still two arguments" {
     stub_system_tool docker
     SEC_TOOLS_DOCKER_NETWORK=bridge run bash "${TOOLING}" run trivy image alpine
     assert_success
-    assert_output --partial '--network bridge'
+    assert_output --partial '[--network] [bridge]'
+}
+
+@test "run refuses a container image that was never pulled" {
+    # `docker run` would pull implicitly: a network fetch during a supposedly
+    # local run, for a tool `check` has just reported absent.
+    {
+        printf '#!/usr/bin/env bash\n'
+        printf 'for a in "$@"; do printf " [%%s]" "$a"; done\n'
+        printf 'printf "\\n"\n'
+        printf 'if [ "$1" = image ] && [ "$2" = inspect ]; then exit 1; fi\n'
+        printf 'exit 0\n'
+    } >"${STUB_BIN}/docker"
+    chmod +x "${STUB_BIN}/docker"
+    run bash "${TOOLING}" run trivy image alpine
+    assert_failure 3
+    assert_output --partial 'WARN: trivy is not pulled'
 }
 
 @test "check pairs each tool with the backend that serves it" {
@@ -155,6 +205,20 @@ stub_store_tool() {
     run bash "${TOOLING}" check
     assert_success
     assert_output --partial 'resolve'
+}
+
+@test "check reports an absent uvx backend as absent, not present" {
+    # PATH without ~/.local/bin: uv is not on /usr/bin on this machine, so the
+    # backend is genuinely unavailable and the footer must say so.
+    run env PATH="/usr/local/bin:/usr/bin:/bin" bash "${TOOLING}" check
+    assert_success
+    assert_output --partial 'uvx is not installed, so every uvx-backed row above is absent'
+}
+
+@test "install reports the uvx backend unavailable rather than resolved" {
+    run env PATH="/usr/local/bin:/usr/bin:/bin" bash "${TOOLING}" install semgrep
+    assert_failure 1
+    assert_output --partial 'uvx is not installed'
 }
 
 @test "an empty store reports a go tool absent rather than ready" {
