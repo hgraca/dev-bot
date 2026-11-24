@@ -191,6 +191,29 @@ disk_skills() {
     assert_success
 }
 
+@test "the pentest skill names what it is attacking before the checklist" {
+    run grep -qF '## What you are attacking' "$SKILL"
+    assert_success
+    local fact
+    for fact in '| Asset' '| Attacker' '| Boundary'; do
+        run grep -qF "$fact" "$SKILL"
+        assert_success
+    done
+}
+
+@test "the pentest skill labels the seven checks as a sample" {
+    run bash -c "tr '\n' ' ' <'${SKILL}' | grep -qi 'a sample, not a taxonomy'"
+    assert_success
+}
+
+@test "the pentest skill separates what needs no authorisation from what does" {
+    run grep -qF '## Before there is an engagement' "$SKILL"
+    assert_success
+    # A source reading is a lower evidence tier, and the section must say so.
+    run grep -qF 'read-in-source' "$SKILL"
+    assert_success
+}
+
 # --- OWASP Top 10:2025 ------------------------------------------------------
 
 @test "the audit skill answers the OWASP 2025 list" {
