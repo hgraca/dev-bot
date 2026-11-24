@@ -1,6 +1,6 @@
 ---
 name: devbot:audit-security
-description: "Use when performing a security review, threat model, or vulnerability assessment on a web application."
+description: "Use when performing a security review, building a threat model, or assessing a source tree for vulnerabilities. Triggers on 'STRIDE', 'OWASP', 'CWE', 'threat model', 'security audit', 'authorisation check', 'dependency audit', 'hardcoded secrets'."
 ---
 
 # Web Application Security Review Methodology
