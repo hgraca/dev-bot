@@ -12,6 +12,7 @@ setup() {
     MODULE="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
     PENTEST="${MODULE}/skills/pentest-external-webapp"
     SKILL="${PENTEST}/SKILL.md"
+    AUDIT="${MODULE}/skills/audit-security/SKILL.md"
     FINDINGS="${MODULE}/skills/security-findings/SKILL.md"
 }
 
@@ -180,6 +181,39 @@ disk_skills() {
     assert_success
     run grep -qF 'devbot:audit-security' "$SKILL"
     assert_success
+}
+
+# --- OWASP Top 10:2025 ------------------------------------------------------
+
+@test "the audit skill answers the OWASP 2025 list" {
+    local category
+    for category in A01 A02 A03 A04 A05 A06 A07 A08 A09 A10; do
+        run grep -qF "| ${category} |" "$AUDIT"
+        assert_success
+    done
+    # The three categories a 2021-era checklist does not carry at all.
+    run grep -qF 'Software Supply Chain' "$AUDIT"
+    assert_success
+    run grep -qF 'Insecure Design' "$AUDIT"
+    assert_success
+    run grep -qF 'Mishandling of Exceptional Conditions' "$AUDIT"
+    assert_success
+}
+
+@test "neither skill answers a superseded OWASP list" {
+    local skill
+    for skill in "$AUDIT" "$SKILL"; do
+        run grep -qF '2017' "$skill"
+        assert_failure
+        run grep -qF 'Priority Order' "$skill"
+        assert_failure
+    done
+    # The old list gave XSS and SSRF their own numbered categories; 2025 folds
+    # them into A05 and A01. Naming them is fine, listing them is the drift.
+    run grep -qF '**SSRF**' "$AUDIT"
+    assert_failure
+    run grep -qF '**XSS**' "$AUDIT"
+    assert_failure
 }
 
 # --- security-findings ------------------------------------------------------
