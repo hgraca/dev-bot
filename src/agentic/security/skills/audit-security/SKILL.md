@@ -218,6 +218,11 @@ Prefer a semantic pass to `grep` where one is available: `semgrep` matches the s
 than a string, and the `codebase-memory` call graph answers "who can reach this" directly. See
 `devbot:security-findings` for why an untraced candidate is not a finding.
 
+`semgrep`, `gitleaks` and `trivy` are provisioned by the module's tooling façade —
+`src/agentic/security/scripts/tooling.sh`, relative to the repository root. Run them through
+`tooling.sh run <tool>`, and ask `tooling.sh check` what is present: a tool that is absent is a check
+that did not run, and the coverage table says so rather than passing it silently.
+
 ```bash
 # Find all direct DB queries (check for parameterisation)
 grep -rn "mysql_query\|mysqli_query\|\$pdo->query\|\$db->query" \

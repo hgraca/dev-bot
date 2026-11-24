@@ -282,6 +282,37 @@ disk_skills() {
     done
 }
 
+@test "the pentest skill names the FOSS tooling façade" {
+    run grep -qF 'scripts/tooling.sh' "$SKILL"
+    assert_success
+    local tool
+    for tool in '`zap`' '`nuclei`' '`ffuf`'; do
+        run grep -qF "$tool" "$SKILL"
+        assert_success
+    done
+    # The ledger half: an absent tool is a skipped check, not a pass.
+    run grep -qF 'skipped: tool absent' "$SKILL"
+    assert_success
+}
+
+@test "the audit skill routes its semantic scans through the façade" {
+    run grep -qF 'scripts/tooling.sh' "$AUDIT"
+    assert_success
+    local tool
+    for tool in semgrep gitleaks trivy; do
+        run grep -qF "\`${tool}\`" "$AUDIT"
+        assert_success
+    done
+}
+
+@test "the module ships executable lifecycle scripts for its tooling" {
+    local script
+    for script in install.sh update.sh scripts/tooling.sh; do
+        run test -x "${MODULE}/${script}"
+        assert_success
+    done
+}
+
 # --- security-findings ------------------------------------------------------
 
 @test "the findings skill carries every field of the record" {

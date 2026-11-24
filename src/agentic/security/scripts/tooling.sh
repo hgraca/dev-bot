@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+# ---
+# description: Security tooling façade — one interface over four delivery backends, so a skill names a tool and never learns whether it is a local binary, a uvx invocation, a container or a system package
+# ---
+# =============================================================================
+# src/agentic/security/scripts/tooling.sh
+#
+# One façade, four backends. The backend is an implementation detail of this
+# file: run <tool> and it dispatches. `check` prints what is present, which is
+# also the coverage ledger a report cites for a check it could not run.
+#
+#   check                — tool → backend → status → the checks it enables
+#   run <tool> [args…]   — dispatch to the backend that serves <tool>
+#   install [tool…]      — provision what can be provisioned, skip the rest
+#   --help
+#
+# Backends:
+#   go      pinned Go module installed into <store>/bin (nuclei, ffuf, gitleaks)
+#   uvx     resolved per invocation, nothing installed (semgrep, bandit, sqlmap)
+#   docker  image pulled at install, run with --rm per call (zap, trivy, metasploit)
+#   system  the distro owns it; we only report presence (nmap, tcpdump, hydra, nikto)
+#
+# Nothing here is intrusive. Every tool it can install is read-only or advisory
+# by default; the intrusive ones are named in the manifest so a report can say
+# which checks it therefore did not run.
+# =============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
+STORE_DIR="${SEC_TOOLS_DIR:-${REPO_ROOT}/storage/security-tools}"
+BIN_DIR="${STORE_DIR}/bin"
+VERSIONS_FILE="${STORE_DIR}/versions.txt"
+
+# name|backend|source|checks-enabled
+# The source column is the Go module path, the PyPI name, or the image reference.
+MANIFEST=$(cat <<'EOF'
+semgrep|uvx|semgrep|A05 A07 static source patterns
+bandit|uvx|bandit|python source patterns
+sqlmap|uvx|sqlmap|A05 injection confirmation, intrusive
+nuclei|go|github.com/projectdiscovery/nuclei/v3/cmd/nuclei|scanner hypotheses
+ffuf|go|github.com/ffuf/ffuf/v2|entry-point discovery
+gitleaks|go|github.com/gitleaks/gitleaks/v8|A04 secrets in source and history
+zap|docker|zaproxy/zap-stable|A01 A02 A05 runtime headers CORS redirect
+trivy|docker|aquasec/trivy|A03 dependency and image CVEs
+metasploit|docker|metasploitframework/metasploit-framework|exploit validation, intrusive
+nmap|system|nmap|A01 ports and service fingerprint
+tcpdump|system|tcpdump|evidence of what crossed the wire
+hydra|system|hydra|A07 brute force, lockout-aware
+nikto|system|nikto|web server scan, hypotheses only
+EOF
+)
+
+usage() {
+    cat <<'EOF'
+Security tooling façade.
+
+  tooling.sh check                 Report every tool: backend, status, checks it enables
+  tooling.sh run <tool> [args...]  Run a tool through whichever backend serves it
+  tooling.sh install [tool...]     Provision what can be provisioned; skip the rest
+  tooling.sh --help
+
+Environment:
+  SEC_TOOLS_DIR   where Go binaries and the version record live
+                  (default: <repo>/storage/security-tools)
+
+Exit codes: 0 success, 1 tool unavailable, 2 usage error.
+EOF
+}
+
+manifest_line() {
+    local tool="$1"
+    printf '%s\n' "${MANIFEST}" | awk -F'|' -v t="${tool}" '$1 == t'
+}
+
+tool_names() {
+    printf '%s\n' "${MANIFEST}" | cut -d'|' -f1
+}
+
+recorded_version() {
+    [ -f "${VERSIONS_FILE}" ] || return 0
+    awk -v t="$1" '$1 == t { print $2; exit }' "${VERSIONS_FILE}"
+}
+
+system_present() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+go_present() {
+    [ -x "${BIN_DIR}/$1" ]
+}
+
+uvx_present() {
+    command -v uvx >/dev/null 2>&1
+}
+
+docker_present() {
+    command -v docker >/dev/null 2>&1 &&
+        docker image inspect "$1" >/dev/null 2>&1
+}
+
+# Prints "present" or "absent" for one tool, given its manifest line.
+status_of() {
+    local backend="$2" source="$3"
+    case "${backend}" in
+        go) go_present "$1" && echo present || echo absent ;;
+        uvx) uvx_present && echo present || echo absent ;;
+        docker) docker_present "${source}" && echo present || echo absent ;;
+        system) system_present "${source}" && echo present || echo absent ;;
+        *) echo absent ;;
+    esac
+}
+
+cmd_check() {
+    printf '%-11s %-7s %-8s %s\n' TOOL BACKEND STATUS ENABLES
+    local name backend source checks status version
+    while IFS='|' read -r name backend source checks; do
+        [ -n "${name}" ] || continue
+        status="$(status_of "${name}" "${backend}" "${source}")"
+        version="$(recorded_version "${name}")"
+        [ -n "${version}" ] && status="${status} ${version}"
+        printf '%-11s %-7s %-8s %s\n' "${name}" "${backend}" "${status}" "${checks}"
+    done <<<"${MANIFEST}"
+    printf '\nA check needing an absent tool is reported as skipped, never as passed.\n'
+}
+
+cmd_run() {
+    local tool="${1:-}"
+    shift || true
+    if [ -z "${tool}" ]; then
+        printf 'ERROR: run needs a tool name. Try: tooling.sh check\n' >&2
+        return 2
+    fi
+
+    local line backend source
+    line="$(manifest_line "${tool}")"
+    if [ -z "${line}" ]; then
+        printf 'ERROR: unknown tool %s. Try: tooling.sh check\n' "${tool}" >&2
+        return 2
+    fi
+    IFS='|' read -r _ backend source _ <<<"${line}"
+
+    case "${backend}" in
+        go)
+            if ! go_present "${tool}"; then
+                printf 'WARN: %s is not installed: tooling.sh install %s\n' "${tool}" "${tool}" >&2
+                return 1
+            fi
+            exec "${BIN_DIR}/${tool}" "$@"
+            ;;
+        uvx)
+            if ! uvx_present; then
+                printf 'WARN: uvx is not available, cannot serve %s\n' "${tool}" >&2
+                return 1
+            fi
+            exec uvx "${source}" -- "$@"
+            ;;
+        docker)
+            if ! command -v docker >/dev/null 2>&1; then
+                printf 'WARN: docker is not available, cannot serve %s\n' "${tool}" >&2
+                return 1
+            fi
+            # Network and capability flags are the caller's decision: this
+            # façade cannot know whether the run needs the target's network.
+            # shellcheck disable=SC2086
+            exec docker run --rm -i ${SEC_TOOLS_DOCKER_ARGS:-} "${source}" "$@"
+            ;;
+        system)
+            if ! system_present "${source}"; then
+                printf 'WARN: %s is not installed; install it with your package manager\n' "${tool}" >&2
+                return 1
+            fi
+            exec "${source}" "$@"
+            ;;
+        *)
+            printf 'ERROR: unknown backend %s for %s\n' "${backend}" "${tool}" >&2
+            return 2
+            ;;
+    esac
+}
+
+install_one() {
+    local tool="$1" line backend source version
+    line="$(manifest_line "${tool}")"
+    if [ -z "${line}" ]; then
+        printf 'ERROR: unknown tool %s\n' "${tool}" >&2
+        return 2
+    fi
+    IFS='|' read -r _ backend source _ <<<"${line}"
+
+    case "${backend}" in
+        go)
+            if go_present "${tool}"; then
+                printf '  ok    %-10s already installed\n' "${tool}"
+                return 0
+            fi
+            if ! command -v go >/dev/null 2>&1; then
+                printf '  skip  %-10s no go toolchain\n' "${tool}"
+                return 0
+            fi
+            printf '  get   %-10s %s\n' "${tool}" "${source}"
+            mkdir -p "${BIN_DIR}"
+            GOBIN="${BIN_DIR}" go install "${source}@latest" >/dev/null
+            version="$("${BIN_DIR}/${tool}" -version 2>/dev/null | head -1 || true)"
+            [ -n "${version}" ] && printf '%s %s\n' "${tool}" "${version}" >>"${VERSIONS_FILE}"
+            ;;
+        uvx)
+            printf '  ok    %-10s resolved per call by uvx\n' "${tool}"
+            ;;
+        docker)
+            if ! command -v docker >/dev/null 2>&1; then
+                printf '  skip  %-10s no docker\n' "${tool}"
+                return 0
+            fi
+            printf '  pull  %-10s %s\n' "${tool}" "${source}"
+            docker pull --quiet "${source}" >/dev/null
+            ;;
+        system)
+            printf '  skip  %-10s distro-owned; install with your package manager\n' "${tool}"
+            ;;
+    esac
+    return 0
+}
+
+cmd_install() {
+    mkdir -p "${STORE_DIR}"
+    if [ "$#" -eq 0 ]; then
+        while IFS= read -r name; do install_one "${name}"; done < <(tool_names)
+    else
+        local name
+        for name in "$@"; do install_one "${name}"; done
+    fi
+    printf '\nstore: %s\n' "${STORE_DIR}"
+}
+
+main() {
+    local cmd="${1:-}"
+    [ "$#" -gt 0 ] && shift
+    case "${cmd}" in
+        check) cmd_check ;;
+        run) cmd_run "$@" ;;
+        install) cmd_install "$@" ;;
+        --help | -h | "") usage ;;
+        *)
+            printf 'ERROR: unknown command %s\n' "${cmd}" >&2
+            usage >&2
+            return 2
+            ;;
+    esac
+}
+
+main "$@"
