@@ -199,7 +199,24 @@ not against a diff.
 - [ ] A partially completed write rolls back, or is recoverable
 - [ ] Error handling cannot distinguish an existing account from a missing one
 
-#### Quick Scan Commands (Safe, Read-Only)
+#### Quick Scan Commands (candidate generators)
+
+These find _candidates_ — a sink, a call, a string in the source. A hit is not a finding: `grep`
+cannot tell whether attacker-controlled input reaches the sink, or whether a guard sits in front of
+it. Run them to build a list to trace, never a list to report.
+
+**Confirming a candidate** — all three, or it stays a candidate:
+
+1. **Reachability** — trace from an untrusted boundary (a request, a file, a queue message) to the
+   sink. If no path exists there is no finding; record that you checked and drop it.
+2. **Guard** — check what runs on the _release_ path, not in a test or a dev config. A middleware
+   registered conditionally is not a guard, and a validated field is not validated on every caller.
+3. **Evidence** — record the path, with `Location` for both the boundary and the sink. A finding that
+   names only the sink has shown a dangerous function, not a vulnerability.
+
+Prefer a semantic pass to `grep` where one is available: `semgrep` matches the shape of a call rather
+than a string, and the `codebase-memory` call graph answers "who can reach this" directly. See
+`devbot:security-findings` for why an untraced candidate is not a finding.
 
 ```bash
 # Find all direct DB queries (check for parameterisation)

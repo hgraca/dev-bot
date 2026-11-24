@@ -46,13 +46,13 @@ behaviour — no request was made.
 
 ## Coverage
 
-| Area                    | Examined        | Basis                                                     |
-| ----------------------- | --------------- | --------------------------------------------------------- |
-| Authorisation           | `app/Policies`, `app/Http/Controllers` | Read + call-graph trace to the sink        |
-| Injection               | `app/Repositories` | `semgrep --config p/php` + manual trace                |
-| Dependencies            | `composer.lock` | `trivy fs` — ran                                          |
-| Security headers        | not examined    | runtime only — needs an observation, see the pentest skill |
-| Session configuration   | not examined    | tool absent: `bandit` does not cover PHP; no equivalent run |
+| Area                  | Examined                               | Basis                                                       |
+| --------------------- | -------------------------------------- | ----------------------------------------------------------- |
+| Authorisation         | `app/Policies`, `app/Http/Controllers` | Read + call-graph trace to the sink                         |
+| Injection             | `app/Repositories`                     | `semgrep --config p/php` + manual trace                     |
+| Dependencies          | `composer.lock`                        | `trivy fs` — ran                                            |
+| Security headers      | not examined                           | runtime only — needs an observation, see the pentest skill  |
+| Session configuration | not examined                           | tool absent: `bandit` does not cover PHP; no equivalent run |
 
 ## Findings
 
@@ -62,9 +62,9 @@ SEC-2026-11.1 · Object read by sequential id without a tenant check · 8.1
 
 ## Refutation
 
-| ID            | Verdict    | Rested on                                                                 |
-| ------------- | ---------- | ------------------------------------------------------------------------- |
-| SEC-2026-11.1 | uphold     | Refuter traced two other callers; both reach the same unscoped query.      |
+| ID            | Verdict | Rested on                                                             |
+| ------------- | ------- | --------------------------------------------------------------------- |
+| SEC-2026-11.1 | uphold  | Refuter traced two other callers; both reach the same unscoped query. |
 
 ## Summary
 

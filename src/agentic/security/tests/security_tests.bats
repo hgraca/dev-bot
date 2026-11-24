@@ -270,6 +270,18 @@ disk_skills() {
     done
 }
 
+@test "the audit skill treats a scan hit as a candidate, not a finding" {
+    run grep -qF 'candidate generators' "$AUDIT"
+    assert_success
+    run bash -c "tr '\n' ' ' <'${AUDIT}' | grep -qi 'a hit is not a finding'"
+    assert_success
+    local step
+    for step in 'Reachability' 'Guard' 'Evidence'; do
+        run grep -qF "**${step}**" "$AUDIT"
+        assert_success
+    done
+}
+
 # --- security-findings ------------------------------------------------------
 
 @test "the findings skill carries every field of the record" {
