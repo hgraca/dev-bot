@@ -166,6 +166,68 @@ They answer different questions and never substitute for one another:
 | Re-audit verdict   | What did a regression pass conclude? | `Status`, via a re-test                |
 | Refutation verdict | What did the second reader conclude? | `Status`, if it rejects at source tier |
 
+## The store
+
+A record that lives only in a report is a paragraph. The store is what makes it do work:
+`<devbot_dir>/memory/latent/security/findings.jsonl` in the project being reviewed, one JSON object
+per line mirroring the record's fields.
+
+| Field        | Shape                                                        |
+| ------------ | ------------------------------------------------------------ |
+| `id`         | the record's `ID`                                            |
+| `title`      | one line                                                     |
+| `severity`   | `Critical` / `High` / `Medium` / `Low` / `Informational`     |
+| `status`     | the lifecycle state                                          |
+| `tier`       | `read-in-source` / `observed` / `reproduced`                 |
+| `discovered` | the commit the finding was established against               |
+| `location`   | `{"file": …, "line": …, "symbol": …}` — source findings only |
+| `targets`    | array of URLs — runtime findings only                        |
+| `cvss`       | the vector and score, when one was computed                  |
+
+The module's CLI owns the file — `$DEV_BOT_ROOT/src/agentic/security/scripts/findings.sh`:
+
+- `add` — one JSON object on stdin; validates the required fields and the three vocabularies, and
+  refuses a duplicate `ID`.
+- `update` — replaces a record by `ID`. This is the re-test path: the contract reuses the `ID` rather
+  than minting a new record, and `add` refuses a duplicate.
+- `check` — validates every record and summarises by status.
+- `list --file <path>` — the advice surface: what we already know about this file, before editing it.
+- `stale` — findings that predate the file they describe.
+
+Write the record to the store **and** to the report. A finding in the report but not the store is one
+nobody reads again; in the store but not the report is one the reader never sees.
+
+## The gate
+
+`findings.sh gate` answers a diff against the store, and its exit code is the answer:
+
+| Exit | Verdict  | Means                                                     |
+| ---- | -------- | --------------------------------------------------------- |
+| 0    | `PASS`   | every check ran and nothing known intersects the change   |
+| 1    | `REVIEW` | known findings touch the change, or a check could not run |
+| 2    | `BLOCK`  | an open High/Critical finding sits on the changed lines   |
+| 3    | usage    | the call was wrong; nothing was checked                   |
+
+Three relationships — and this is why a changed _caller_ matters:
+
+- **`direct`** — the finding's line falls in a changed hunk, with the two-line slack a hunk boundary
+  needs.
+- **`unrelated_in_file`** — the finding is in a changed file but outside the modified lines: debt you
+  are now working next to.
+- **`caller_radius`** — a changed file calls the finding's symbol. Without a parser this is a
+  call-site match; `codebase-memory.detect_changes` gives the precise radius when it is available.
+
+**It fails closed.** A missing store, an unparseable store and an empty change set each answer
+`REVIEW`, never `PASS`. `PASS` means "every check ran and found nothing", not "this change is secure".
+
+```bash
+git diff --cached | findings.sh gate      # pre-commit
+findings.sh gate --base origin/main       # CI
+```
+
+A `BLOCK` is a reason to fix the finding, or to mark it `false_positive` with evidence — never a
+reason to regenerate the store.
+
 ## Report shape
 
 One shape for both skills, sections in this order:

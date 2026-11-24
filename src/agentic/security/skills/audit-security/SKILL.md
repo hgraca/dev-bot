@@ -291,6 +291,11 @@ Use `devbot:security-findings`'s record. Two fields carry what a source review c
 runtime test cannot: `Location` — `path:line` plus the enclosing symbol — and `Coverage basis`, which
 check produced it.
 
+Then write it to the store with
+`$DEV_BOT_ROOT/src/agentic/security/scripts/findings.sh add` — `DEV_BOT_ROOT` is the dev-bot
+checkout, and the script is not on `PATH`. A finding that exists only in the report cannot be gated,
+and a finding nobody gates is one the next person re-introduces.
+
 ## 7. Coverage
 
 A review that does not say what it did not look at cannot be told apart from a partial one. Record

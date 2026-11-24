@@ -335,6 +335,23 @@ disk_skills() {
     done
 }
 
+@test "the findings skill ships a store and a gate" {
+    run grep -qF 'findings.sh' "$FINDINGS"
+    assert_success
+    run grep -qF '## The gate' "$FINDINGS"
+    assert_success
+    run test -x "${MODULE}/scripts/findings.sh"
+    assert_success
+}
+
+@test "both producing skills write to the store, not only the report" {
+    local skill
+    for skill in "$AUDIT" "$SKILL"; do
+        run grep -qF 'findings.sh add' "$skill"
+        assert_success
+    done
+}
+
 # --- security-findings ------------------------------------------------------
 
 @test "the findings skill carries every field of the record" {

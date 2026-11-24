@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 
-REQUIRED = ("id", "title", "severity", "status", "tier")
+REQUIRED = ("id", "title", "severity", "status", "tier", "discovered")
 SEVERITIES = ("Critical", "High", "Medium", "Low", "Informational")
 STATUSES = ("open", "confirmed", "mitigated", "false_positive", "accepted_risk")
 TIERS = ("read-in-source", "observed", "reproduced")
@@ -37,10 +37,13 @@ BLOCKING_SEVERITIES = ("Critical", "High")
 # lines outside a hunk still belongs to it.
 LINE_SLACK = 2
 
-HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
+HUNK = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+OLD_FILE = re.compile(r"^--- a/(.+)$")
 NEW_FILE = re.compile(r"^\+\+\+ b/(.+)$")
+RENAME_FROM = re.compile(r"^rename from (.+)$")
+RENAME_TO = re.compile(r"^rename to (.+)$")
 
-DEFAULT_STORE = os.path.join(".agents", "memory", "latent", "security", "findings.jsonl")
+DEFAULT_STORE = os.path.join("memory", "latent", "security", "findings.jsonl")
 
 
 class StoreError(Exception):
@@ -62,13 +65,47 @@ def git(args: list[str], cwd: str) -> str:
     return out.stdout if out.returncode == 0 else ""
 
 
+def project_devbot_dir(start: str) -> str:
+    """The project's configured devbot dir — never assume `.agents`."""
+    try:
+        out = subprocess.run(
+            ["devbot", "tool", "project-for-path", start, "--key", "devbot-dir"],
+            capture_output=True, text=True, check=False,
+        )
+    except OSError:
+        return ".agents"
+    if out.returncode != 0:
+        return ".agents"
+    value = out.stdout.strip().strip('"')
+    return value or ".agents"
+
+
+def safe_devbot_dir(value: str, root: str) -> str:
+    """A project-supplied path, validated before it becomes a store location.
+
+    `project-for-path` returns project-controlled text; `../outside` in it would
+    move the store — and every finding with it — outside the repository.
+    """
+    if not value or os.path.isabs(value) or ".." in value.split(os.sep):
+        return ".agents"
+    resolved_root = os.path.realpath(root)
+    candidate = os.path.realpath(os.path.join(resolved_root, value))
+    if candidate != resolved_root and not candidate.startswith(resolved_root + os.sep):
+        return ".agents"
+    return value
+
+
 def store_path(args) -> str:
     if args.store:
         return args.store
     env = os.environ.get("SEC_FINDINGS_STORE")
     if env:
         return env
-    return os.path.join(repo_root(os.getcwd()), DEFAULT_STORE)
+    # `--repo` names the project under test; resolving from the cwd would read
+    # the wrong checkout's store, or fail when the cwd is not a repository.
+    start = getattr(args, "repo", None) or os.getcwd()
+    root = repo_root(start)
+    return os.path.join(root, safe_devbot_dir(project_devbot_dir(root), root), DEFAULT_STORE)
 
 
 def load(path: str):
@@ -91,17 +128,34 @@ def load(path: str):
     return records
 
 
-def problems_with(record: dict) -> list[str]:
+def problems_with(record) -> list[str]:
+    if not isinstance(record, dict):
+        return ["not an object"]
     found = [f"missing {key}" for key in REQUIRED if not record.get(key)]
+    # Downstream code calls string methods on these, so a wrong type is a crash
+    # in the gate rather than the documented REVIEW.
+    for key in REQUIRED:
+        value = record.get(key)
+        if value is not None and not isinstance(value, str):
+            found.append(f"{key} is not a string")
     if record.get("severity") and record["severity"] not in SEVERITIES:
         found.append(f"severity {record['severity']!r} is not one of {', '.join(SEVERITIES)}")
     if record.get("status") and record["status"] not in STATUSES:
         found.append(f"status {record['status']!r} is not one of {', '.join(STATUSES)}")
     if record.get("tier") and record["tier"] not in TIERS:
         found.append(f"tier {record['tier']!r} is not one of {', '.join(TIERS)}")
-    location = record.get("location") or {}
-    if location and not location.get("file"):
-        found.append("location present without a file")
+    location = record.get("location")
+    if location is not None:
+        if not isinstance(location, dict):
+            found.append("location is not an object")
+        elif not location.get("file"):
+            found.append("location present without a file")
+        else:
+            # A source finding with no line cannot be matched against a hunk,
+            # so it would classify as unrelated forever and never block.
+            line = location.get("line")
+            if not isinstance(line, int) or isinstance(line, bool) or line <= 0:
+                found.append("location needs a positive integer line")
     cvss = record.get("cvss")
     if cvss and re.search(r"CVSS:v?3\.1", str(cvss)):
         found.append("cvss carries a superseded 3.1 vector")
@@ -138,6 +192,9 @@ def cmd_add(args, path: str) -> int:
     except json.JSONDecodeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 3
+    if not isinstance(record, dict):
+        print("ERROR: add takes one JSON object, not an array or scalar", file=sys.stderr)
+        return 3
     found = problems_with(record)
     if found:
         for problem in found:
@@ -151,6 +208,50 @@ def cmd_add(args, path: str) -> int:
     with open(path, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, sort_keys=True) + "\n")
     print(f"recorded {record['id']}")
+    return 0
+
+
+def cmd_update(args, path: str) -> int:
+    """Replace a record by id — the path a re-test takes.
+
+    The contract says a re-test reuses the existing ID rather than minting a new
+    record, and `add` refuses a duplicate, so without this a regression pass
+    cannot persist its new status at all.
+    """
+    raw = sys.stdin.read().strip()
+    if not raw:
+        print("ERROR: update reads one JSON object on stdin", file=sys.stderr)
+        return 3
+    try:
+        record = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 3
+    if not isinstance(record, dict):
+        print("ERROR: update takes one JSON object", file=sys.stderr)
+        return 3
+    found = problems_with(record)
+    if found:
+        for problem in found:
+            print(f"ERROR: {problem}", file=sys.stderr)
+        return 2
+    existing = load(path)
+    if existing is None:
+        print(f"ERROR: no findings store at {path}", file=sys.stderr)
+        return 2
+    replaced = any(item.get("id") == record["id"] for item in existing)
+    if not replaced:
+        print(f"ERROR: {record['id']} is not in the store — use add", file=sys.stderr)
+        return 2
+    lines = [
+        json.dumps(record if item.get("id") == record["id"] else item, sort_keys=True)
+        for item in existing
+    ]
+    temporary = f"{path}.tmp"
+    with open(temporary, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    os.replace(temporary, path)
+    print(f"updated {record['id']}")
     return 0
 
 
@@ -188,10 +289,15 @@ def last_commit_for(repo: str, file: str) -> str:
 
 def is_stale(repo: str, record: dict) -> bool:
     """A verdict older than the file it describes is not trustworthy."""
-    discovered = (record.get("discovered") or "").strip()
+    discovered = record.get("discovered")
+    if not isinstance(discovered, str) or not discovered.strip():
+        return False
+    discovered = discovered.strip()
     location = record.get("location") or {}
+    if not isinstance(location, dict):
+        return False
     file = location.get("file")
-    if not discovered or not file:
+    if not file:
         return False
     current = last_commit_for(repo, file)
     if not current:
@@ -221,47 +327,138 @@ def cmd_stale(args, path: str, records) -> int:
     return 0
 
 
-def parse_diff(text: str) -> dict[str, list[tuple[int, int]]]:
-    changed: dict[str, list[tuple[int, int]]] = {}
+def parse_diff(text: str) -> dict[str, list[tuple[int, int, str]]]:
+    """Map each changed path to spans of ``(start, end, side)``.
+
+    Both sides are recorded: a finding's line number comes from the file as it
+    was when the finding was written — the old side of a deletion, the new side
+    of an addition — so a deletion hunk has to be matchable too.
+
+    Hunk payload is consumed by count, never re-parsed as headers: a deleted
+    line reading ``-- a/path`` appears in the diff as ``--- a/path`` and would
+    otherwise be mistaken for the start of another file.
+    """
+    changed: dict[str, list[tuple[int, int, str]]] = {}
+    renames: list[tuple[str, str]] = []
     current = None
+    pending_old = None
+    rename_from = None
+    old_left = 0
+    new_left = 0
+
     for line in text.splitlines():
+        if old_left > 0 or new_left > 0:
+            if line.startswith("\\"):
+                continue
+            if line.startswith("-"):
+                old_left -= 1
+            elif line.startswith("+"):
+                new_left -= 1
+            else:
+                old_left -= 1
+                new_left -= 1
+            continue
+
+        if line.startswith("diff --git "):
+            # A new file block: nothing carries over from the previous one.
+            pending_old = None
+            current = None
+            rename_from = None
+            continue
+
+        old = OLD_FILE.match(line)
+        if old:
+            pending_old = old.group(1)
+            continue
+        if line.startswith("--- /dev/null"):
+            # A new file has no old side; a stale pending_old would invent a
+            # rename from the previous file to this one.
+            pending_old = None
+            continue
+        if line.startswith("+++ /dev/null"):
+            if pending_old:
+                changed.setdefault(pending_old, [])
+                current = pending_old
+            pending_old = None
+            continue
         new = NEW_FILE.match(line)
         if new:
             current = new.group(1)
+            if pending_old and pending_old != current:
+                renames.append((pending_old, current))
+            pending_old = None
             changed.setdefault(current, [])
             continue
-        if line.startswith("+++ /dev/null"):
-            current = None
+        source = RENAME_FROM.match(line)
+        if source:
+            rename_from = source.group(1)
+            continue
+        target = RENAME_TO.match(line)
+        if target and rename_from:
+            renames.append((rename_from, target.group(1)))
+            rename_from = None
             continue
         hunk = HUNK.match(line)
         if hunk and current:
-            start = int(hunk.group(1))
-            length = int(hunk.group(2)) if hunk.group(2) is not None else 1
-            if length > 0:
-                changed[current].append((start, start + length - 1))
+            old_start = int(hunk.group(1))
+            old_len = int(hunk.group(2)) if hunk.group(2) is not None else 1
+            new_start = int(hunk.group(3))
+            new_len = int(hunk.group(4)) if hunk.group(4) is not None else 1
+            if old_len > 0:
+                changed[current].append((old_start, old_start + old_len - 1, "old"))
+            if new_len > 0:
+                changed[current].append((new_start, new_start + new_len - 1, "new"))
+            old_left, new_left = old_len, new_len
+
+    # A finding stored under the pre-rename path still describes the file. The
+    # out-of-range marker makes an otherwise-unmatched line REVIEW rather than
+    # PASS, and never a false BLOCK.
+    for old_path, new_path in renames:
+        spans = list(changed.get(new_path, [])) + [(-1, -1, "rename")]
+        changed[new_path] = spans
+        changed[old_path] = list(spans)
+
     return {file: spans for file, spans in changed.items() if spans}
 
 
-def calls_symbol(repo: str, file: str, symbol: str) -> bool:
+def file_contents(repo: str, file: str) -> list[str]:
+    """The index blob and the working tree, both.
+
+    `git diff --cached` describes the index and `git diff` the working tree, and
+    a diff arriving on stdin does not say which. Reading both means a call site
+    is missed only if it is in neither — the fail-safe direction.
+    """
+    contents: list[str] = []
+    blob = subprocess.run(
+        ["git", "show", f":{file}"], cwd=repo, capture_output=True, text=True, check=False
+    )
+    if blob.returncode == 0:
+        contents.append(blob.stdout)
     path = os.path.join(repo, file)
-    if not os.path.isfile(path):
-        return False
-    name = symbol.split("::")[-1]
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
-            text = fh.read()
+            working = fh.read()
     except OSError:
-        return False
+        working = None
+    if working is not None and working not in contents:
+        contents.append(working)
+    return contents
+
+
+def calls_symbol(repo: str, file: str, symbol: str) -> bool:
+    name = symbol.split("::")[-1]
     pattern = rf"(?:->|::|\b){re.escape(name)}\s*\("
-    return re.search(pattern, text) is not None
+    return any(re.search(pattern, text) is not None for text in file_contents(repo, file))
 
 
-def classify(repo: str, record: dict, changed: dict[str, list[tuple[int, int]]]) -> str | None:
+def classify(repo: str, record: dict, changed: dict[str, list[tuple[int, int, str]]]) -> str | None:
     location = record.get("location") or {}
     file = location.get("file")
     line = location.get("line")
     if file and file in changed:
-        if line and any(start - LINE_SLACK <= line <= end + LINE_SLACK for start, end in changed[file]):
+        if line and any(
+            start - LINE_SLACK <= line <= end + LINE_SLACK for start, end, _side in changed[file]
+        ):
             return "direct"
         return "unrelated_in_file"
     symbol = location.get("symbol")
@@ -292,6 +489,20 @@ def cmd_gate(args, path: str) -> int:
         return 1
     if records is None:
         print(f"REVIEW: no findings store at {path} — nothing to gate against")
+        return 1
+
+    # A syntactically valid store can still be a meaningless one: an unknown
+    # severity or status would be ignored by the classification below and the
+    # gate would answer PASS over a record it never understood.
+    invalid = [(record.get("id", "<no id>"), problem)
+               for record in records
+               for problem in problems_with(record)]
+    if invalid:
+        print("findings store does not validate:")
+        for identifier, problem in invalid:
+            print(f"  {identifier}: {problem}")
+        print("\nREVIEW: fix the store first — an invalid record is indistinguishable")
+        print("        from one the gate silently ignored")
         return 1
 
     matched = []
@@ -339,6 +550,7 @@ def main(argv: list[str]) -> int:
 
     sub.add_parser("check", help="validate the store and summarise it")
     sub.add_parser("add", help="append one record read as JSON on stdin")
+    sub.add_parser("update", help="replace one record by id, read as JSON on stdin")
     stale = sub.add_parser("stale", help="list findings that predate the file they describe")
     stale.add_argument("--repo", help="repository root (default: cwd)")
 
@@ -359,6 +571,8 @@ def main(argv: list[str]) -> int:
         return cmd_check(args, path, load_wrapped(path))
     if args.command == "add":
         return cmd_add(args, path)
+    if args.command == "update":
+        return cmd_update(args, path)
     if args.command == "stale":
         return cmd_stale(args, path, load_wrapped(path))
     if args.command == "list":

@@ -59,6 +59,23 @@ version record live under `storage/security-tools/`, outside the committed tree.
 `SEC_TOOLS_DOCKER_NETWORK` opts a container run out of its default `--network none` when the check
 must reach the target.
 
+## Findings store
+
+`scripts/findings.sh` owns the project's findings — one JSON record per line in
+`<devbot_dir>/memory/latent/security/findings.jsonl`, so a verdict outlives the report it was written
+in.
+
+| Verb                              | What it answers                                           |
+| --------------------------------- | --------------------------------------------------------- |
+| `check`                           | does every record validate, and what is the store's shape |
+| `add`                             | append one record, validated against the vocabularies     |
+| `list --file <path>`              | what we already know about this file                      |
+| `stale`                           | which findings predate the file they describe             |
+| `gate --base <ref>` (or on stdin) | `PASS` / `REVIEW` / `BLOCK` for a diff, exit 0 / 1 / 2    |
+
+The gate fails closed: a missing store, an unparseable store and an empty change set all answer
+`REVIEW`, never `PASS`. Needs `python3`.
+
 ## See also
 
 - [Architecture](/modules/agentic/architecture) — the security constraints `architecture-rules` carries
