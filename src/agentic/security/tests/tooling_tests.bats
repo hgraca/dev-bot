@@ -76,6 +76,43 @@ stub_store_tool() {
     assert_output 'stub-nuclei -u https://example.invalid'
 }
 
+@test "run dispatches a uvx tool without injecting a separator" {
+    stub_system_tool uvx
+    run bash "${TOOLING}" run semgrep --config p/php .
+    assert_success
+    # uvx must receive the command first and the tool's argv unchanged: a `--`
+    # after the command is handed to the tool and ends its option parsing.
+    assert_output 'stub-uvx semgrep --config p/php .'
+}
+
+@test "run dispatches a container tool with --rm and no network by default" {
+    stub_system_tool docker
+    run bash "${TOOLING}" run trivy image alpine
+    assert_success
+    # No egress unless the caller opts in: a scanner that must reach the target
+    # sets SEC_TOOLS_DOCKER_NETWORK.
+    assert_output 'stub-docker run --rm -i --network none aquasec/trivy image alpine'
+}
+
+@test "container networking is opt-in" {
+    stub_system_tool docker
+    SEC_TOOLS_DOCKER_NETWORK=bridge run bash "${TOOLING}" run trivy image alpine
+    assert_success
+    assert_output --partial '--network bridge'
+}
+
+@test "check pairs each tool with the backend that serves it" {
+    run bash "${TOOLING}" check
+    assert_success
+    local pair name want got
+    for pair in 'semgrep:uvx' 'nuclei:go' 'zap:docker' 'nmap:system'; do
+        name="${pair%%:*}"
+        want="${pair##*:}"
+        got="$(printf '%s\n' "$output" | awk -v n="${name}" '$1 == n { print $2 }')"
+        [ "${got}" = "${want}" ] || fail "${name}: expected backend ${want}, got '${got}'"
+    done
+}
+
 @test "run refuses an unknown tool with a usage error" {
     run bash "${TOOLING}" run nosuchtool
     assert_failure 2
@@ -91,7 +128,9 @@ stub_store_tool() {
 @test "run warns rather than silently doing nothing for an absent tool" {
     command -v nikto >/dev/null 2>&1 && skip 'nikto installed on this host'
     run bash "${TOOLING}" run nikto -h https://example.invalid
-    assert_failure 1
+    # 3 is reserved for "absent", so it cannot be confused with a tool that ran
+    # and failed — which returns its own status through exec.
+    assert_failure 3
     assert_output --partial 'WARN: nikto is not installed'
 }
 
@@ -106,6 +145,16 @@ stub_store_tool() {
     run bash "${TOOLING}" install ffuf
     assert_success
     assert_output --partial 'already installed'
+}
+
+@test "a uvx-backed tool reads as resolvable, not installed" {
+    # `uvx` present does not mean the tool is cached; saying "present" would
+    # claim more than was checked, which is the dishonesty this ledger exists
+    # to remove elsewhere.
+    command -v uvx >/dev/null 2>&1 || skip 'uvx not installed on this host'
+    run bash "${TOOLING}" check
+    assert_success
+    assert_output --partial 'resolve'
 }
 
 @test "an empty store reports a go tool absent rather than ready" {

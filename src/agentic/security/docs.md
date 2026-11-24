@@ -40,6 +40,25 @@ offered to the project's `reference/` vault, never written silently.
 No project configuration is required. The pentest skill's probe script needs `curl`; the open-port
 check treats `80` and `443` as expected and everything else as a finding.
 
+## Tooling
+
+`scripts/tooling.sh` is one façade over four delivery backends, so the skills name a tool and never
+learn whether it is a local binary, a `uvx` invocation, a container or a system package:
+
+| Backend  | Tools                               | Installed how                                 |
+| -------- | ----------------------------------- | --------------------------------------------- |
+| `go`     | `nuclei`, `ffuf`, `gitleaks`        | `go install`, version recorded after the fact |
+| `uvx`    | `semgrep`, `bandit`, `sqlmap`       | resolved per call — nothing is installed      |
+| `docker` | `zap`, `trivy`, `metasploit`        | `docker pull`, run with `--rm` and no network |
+| `system` | `nmap`, `tcpdump`, `hydra`, `nikto` | your package manager — never auto-installed   |
+
+`tooling.sh check` prints what is present; a check whose tool is absent is recorded as skipped, never
+as passed. Provisioning reaches the network, so `devbot install` only reports unless
+`SEC_TOOLS_AUTO_INSTALL=1` is set, while `devbot update` runs the install pass. Binaries and the
+version record live under `storage/security-tools/`, outside the committed tree.
+`SEC_TOOLS_DOCKER_NETWORK` opts a container run out of its default `--network none` when the check
+must reach the target.
+
 ## See also
 
 - [Architecture](/modules/agentic/architecture) — the security constraints `architecture-rules` carries

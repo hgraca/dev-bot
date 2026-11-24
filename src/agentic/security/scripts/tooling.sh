@@ -15,10 +15,11 @@
 #   --help
 #
 # Backends:
-#   go      pinned Go module installed into <store>/bin (nuclei, ffuf, gitleaks)
-#   uvx     resolved per invocation, nothing installed (semgrep, bandit, sqlmap)
-#   docker  image pulled at install, run with --rm per call (zap, trivy, metasploit)
-#   system  the distro owns it; we only report presence (nmap, tcpdump, hydra, nikto)
+#   go      Go module installed into <store>/bin, version recorded after the
+#           fact — NOT pinned; see the note in `install`
+#   uvx     resolved per invocation to the current release
+#   docker  image pulled at install, run with --rm per call
+#   system  the distro owns it; we only report presence
 #
 # Nothing here is intrusive. Every tool it can install is read-only or advisory
 # by default; the intrusive ones are named in the manifest so a report can say
@@ -45,7 +46,7 @@ gitleaks|go|github.com/gitleaks/gitleaks/v8|A04 secrets in source and history
 zap|docker|zaproxy/zap-stable|A01 A02 A05 runtime headers CORS redirect
 trivy|docker|aquasec/trivy|A03 dependency and image CVEs
 metasploit|docker|metasploitframework/metasploit-framework|exploit validation, intrusive
-nmap|system|nmap|A01 ports and service fingerprint
+nmap|system|nmap|A02 ports and service fingerprint
 tcpdump|system|tcpdump|evidence of what crossed the wire
 hydra|system|hydra|A07 brute force, lockout-aware
 nikto|system|nikto|web server scan, hypotheses only
@@ -62,10 +63,15 @@ Security tooling façade.
   tooling.sh --help
 
 Environment:
-  SEC_TOOLS_DIR   where Go binaries and the version record live
-                  (default: <repo>/storage/security-tools)
+  SEC_TOOLS_DIR             where Go binaries and the version record live
+                            (default: <repo>/storage/security-tools)
+  SEC_TOOLS_DOCKER_NETWORK  network mode for container tools (default: none —
+                            pass bridge or host when the run must reach the target)
+  SEC_TOOLS_DOCKER_ARGS     extra flags for `docker run`, word-split
+  SEC_TOOLS_FORCE           re-fetch what is already present on `install`
 
-Exit codes: 0 success, 1 tool unavailable, 2 usage error.
+Exit codes: 0 success, 3 tool unavailable, 2 usage error. Any other non-zero
+status is the tool's own — `run` execs it, so its exit status is returned.
 EOF
 }
 
@@ -105,7 +111,7 @@ status_of() {
     local backend="$2" source="$3"
     case "${backend}" in
         go) go_present "$1" && echo present || echo absent ;;
-        uvx) uvx_present && echo present || echo absent ;;
+        uvx) uvx_present && echo resolve || echo absent ;;
         docker) docker_present "${source}" && echo present || echo absent ;;
         system) system_present "${source}" && echo present || echo absent ;;
         *) echo absent ;;
@@ -123,6 +129,7 @@ cmd_check() {
         printf '%-11s %-7s %-8s %s\n' "${name}" "${backend}" "${status}" "${checks}"
     done <<<"${MANIFEST}"
     printf '\nA check needing an absent tool is reported as skipped, never as passed.\n'
+    printf 'resolve: uvx is present; the tool is fetched on first use, not cached here.\n'
 }
 
 cmd_run() {
@@ -145,31 +152,36 @@ cmd_run() {
         go)
             if ! go_present "${tool}"; then
                 printf 'WARN: %s is not installed: tooling.sh install %s\n' "${tool}" "${tool}" >&2
-                return 1
+                return 3
             fi
             exec "${BIN_DIR}/${tool}" "$@"
             ;;
         uvx)
             if ! uvx_present; then
                 printf 'WARN: uvx is not available, cannot serve %s\n' "${tool}" >&2
-                return 1
+                return 3
             fi
-            exec uvx "${source}" -- "$@"
+            # No `--` separator: uvx passes everything after the command
+            # straight through, and a `--` here becomes the tool's first arg.
+            exec uvx "${source}" "$@"
             ;;
         docker)
             if ! command -v docker >/dev/null 2>&1; then
                 printf 'WARN: docker is not available, cannot serve %s\n' "${tool}" >&2
-                return 1
+                return 3
             fi
-            # Network and capability flags are the caller's decision: this
-            # façade cannot know whether the run needs the target's network.
+            # No network by default: a scanner that needs the target opts in.
+            local net="--network none"
+            if [ -n "${SEC_TOOLS_DOCKER_NETWORK:-}" ]; then
+                net="--network ${SEC_TOOLS_DOCKER_NETWORK}"
+            fi
             # shellcheck disable=SC2086
-            exec docker run --rm -i ${SEC_TOOLS_DOCKER_ARGS:-} "${source}" "$@"
+            exec docker run --rm -i "${net}" ${SEC_TOOLS_DOCKER_ARGS:-} "${source}" "$@"
             ;;
         system)
             if ! system_present "${source}"; then
                 printf 'WARN: %s is not installed; install it with your package manager\n' "${tool}" >&2
-                return 1
+                return 3
             fi
             exec "${source}" "$@"
             ;;
@@ -191,7 +203,7 @@ install_one() {
 
     case "${backend}" in
         go)
-            if go_present "${tool}"; then
+            if go_present "${tool}" && [ -z "${SEC_TOOLS_FORCE:-}" ]; then
                 printf '  ok    %-10s already installed\n' "${tool}"
                 return 0
             fi
@@ -201,9 +213,14 @@ install_one() {
             fi
             printf '  get   %-10s %s\n' "${tool}" "${source}"
             mkdir -p "${BIN_DIR}"
-            GOBIN="${BIN_DIR}" go install "${source}@latest" >/dev/null
+            if ! GOBIN="${BIN_DIR}" go install "${source}@latest" >/dev/null 2>&1; then
+                printf '  warn  %-10s go install failed; check network\n' "${tool}"
+                return 0
+            fi
             version="$("${BIN_DIR}/${tool}" -version 2>/dev/null | head -1 || true)"
-            [ -n "${version}" ] && printf '%s %s\n' "${tool}" "${version}" >>"${VERSIONS_FILE}"
+            if [ -n "${version}" ]; then
+                printf '%s %s\n' "${tool}" "${version}" >>"${VERSIONS_FILE}"
+            fi
             ;;
         uvx)
             printf '  ok    %-10s resolved per call by uvx\n' "${tool}"
@@ -213,8 +230,14 @@ install_one() {
                 printf '  skip  %-10s no docker\n' "${tool}"
                 return 0
             fi
+            if docker image inspect "${source}" >/dev/null 2>&1 && [ -z "${SEC_TOOLS_FORCE:-}" ]; then
+                printf '  ok    %-10s already pulled\n' "${tool}"
+                return 0
+            fi
             printf '  pull  %-10s %s\n' "${tool}" "${source}"
-            docker pull --quiet "${source}" >/dev/null
+            if ! docker pull --quiet "${source}" >/dev/null 2>&1; then
+                printf '  warn  %-10s pull failed; check network\n' "${tool}"
+            fi
             ;;
         system)
             printf '  skip  %-10s distro-owned; install with your package manager\n' "${tool}"
@@ -224,6 +247,10 @@ install_one() {
 }
 
 cmd_install() {
+    # Unpinned by design: versions resolve at install time and are recorded in
+    # versions.txt, so a refresh is reproducible from that record but a first
+    # install is not. Pinning means maintaining a version table here; until it
+    # exists, the module's own A03 checklist applies to this file too.
     mkdir -p "${STORE_DIR}"
     if [ "$#" -eq 0 ]; then
         while IFS= read -r name; do install_one "${name}"; done < <(tool_names)
@@ -231,7 +258,10 @@ cmd_install() {
         local name
         for name in "$@"; do install_one "${name}"; done
     fi
-    printf '\nstore: %s\n' "${STORE_DIR}"
+    printf '\nstore: %s\n\n' "${STORE_DIR}"
+    # End with the ledger: a partial install is only useful if the caller can
+    # see which tools it did not get.
+    cmd_check
 }
 
 main() {

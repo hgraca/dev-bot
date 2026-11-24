@@ -127,6 +127,7 @@ Handle these without delegating — you have skills and context:
 | Design (UX + UI)        | @designer   | User flows, interaction specs, visual specs, design tokens                          |
 | Audit                   | @critic     | Codebase consistency, pattern drift                                                 |
 | Security                | @security   | Security audits, threat modelling, vulnerability assessment, auth review            |
+| Security refutation     | @critic     | After @security returns findings, before anyone acts on them — see the note below   |
 | Product domain question | @po         | Requirements clarification, business context, domain semantics                      |
 | Backlog grooming        | @po         | Create or refine backlog from brief — tasks, acceptance criteria, priorities        |
 

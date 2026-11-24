@@ -87,6 +87,8 @@ SEC-2026-11.1 · Object read by sequential id without a tenant check · 8.1
 - The `Tier` is `read-in-source` and `Result` does not claim an observed exploit.
 - The `CVSS` vector sets no Threat or Environmental metrics, because a source review cannot observe
   the deployment.
+- The score is illustrative. Copy the vector, not the number — feed it to the v4.0 calculator and
+  record what that returns, which is what the skill requires and what this example did not do.
 - Coverage names two areas that were **not** examined and why. A reader can tell this review is
   partial without reading a disclaimer.
 - The refutation column is filled per finding — a report with an empty refutation section has not

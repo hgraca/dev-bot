@@ -125,9 +125,21 @@ disk_skills() {
     done
 }
 
-@test "no security skill cites a superseded CVSS version" {
-    run bash -c "grep -rlF 'CVSS 3.1' '${MODULE}/skills' || true"
-    [ -z "$output" ] || fail "still cites CVSS 3.1: $output"
+@test "no security artefact ships a superseded CVSS vector" {
+    # The vector form, everywhere it could be written — skills, references and
+    # commands. Excludes the test files, which contain the literal by design.
+    # The regression baseline carried five of these past an earlier version of
+    # this test that scanned one spelling of one directory.
+    run bash -c "grep -rlF 'CVSS:3.1' '${MODULE}' | grep -v '/tests/' || true"
+    [ -z "$output" ] || fail "still ships a CVSS 3.1 vector: $output"
+}
+
+@test "the security agent names no superseded CVSS version" {
+    # The producer's own scoring instruction: the place a runtime finding is
+    # actually graded, and outside the module tree a skills-only scan reaches.
+    ROOT="$(cd "${MODULE}/../../.." && pwd)"
+    run bash -c "grep -nE 'CVSS[ :]3\\.1' '${ROOT}/src/agentic/devteam/agents/security.md' || true"
+    [ -z "$output" ] || fail "security agent still names CVSS 3.1: $output"
 }
 
 @test "the pentest skill points at the shared record and keeps the regression verdict" {
@@ -222,12 +234,22 @@ disk_skills() {
         run grep -qF "| ${category} |" "$AUDIT"
         assert_success
     done
-    # The three categories a 2021-era checklist does not carry at all.
+    # The categories a 2021 checklist carries under a different number or scope.
     run grep -qF 'Software Supply Chain' "$AUDIT"
     assert_success
     run grep -qF 'Insecure Design' "$AUDIT"
     assert_success
     run grep -qF 'Mishandling of Exceptional Conditions' "$AUDIT"
+    assert_success
+}
+
+@test "the OWASP table pairs each changed category with its number" {
+    # A table with A03 and A06 swapped would satisfy a names-only assertion.
+    run grep -qF '| A03 | **Software Supply Chain Failures**' "$AUDIT"
+    assert_success
+    run grep -qF '| A06 | **Insecure Design**' "$AUDIT"
+    assert_success
+    run grep -qF '| A10 | **Mishandling of Exceptional Conditions**' "$AUDIT"
     assert_success
 }
 

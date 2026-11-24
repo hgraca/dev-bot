@@ -42,6 +42,8 @@ Do not infer deliverable path. Do not begin work. Orchestrator re-delegates with
 - When checking architecture rules, security constraints, or design direction, use `devbot:architecture-rules`
 - When evaluating code quality and consistency holistically, use `code-review-and-quality`
 - When evaluating security aspects of plan or codebase, use `security-and-hardening`
+- When refuting security findings, use `devbot:security-findings` for the verdict vocabulary and the
+  evidence tiers — the mode below applies them, it does not define them
 
 ## Session budget (MUST)
 
@@ -111,6 +113,32 @@ These structural checks MUST appear as dedicated **Structural compliance** secti
 - **Input**: Full codebase, architecture document, ADR log.
 - **Output**: Audit Report (follow `devbot:audit-codebase` skill template).
 - **Goal**: Detect pattern drift, inconsistencies, and architectural erosion holistically — not scoped to single changeset (reviewer's job).
+
+### Security Findings Refutation
+
+- **Trigger**: the orchestrator delegates a security report after `@security` produced its findings, and before anyone acts on them.
+- **Input**: the finding records **verbatim in the prompt's Context section**, plus the code paths they cite. Do not read them from disk — the opener gate requires your first tool call to be the report write, and the orchestrator's Context section is where that material belongs.
+- **Output**: `SECURITY-REFUTE-YYYY-MM-DD-NNN.md`.
+- **Goal**: refute each finding. You are why a false positive stops here, and why a real finding is not quietly downgraded.
+
+The verdict vocabulary is `devbot:security-findings`'s — apply it, do not redefine it. One verdict per
+finding, with the evidence that carried it.
+
+Ask these in order, and stop at the first that fails:
+
+1. **Reachability** — does attacker-controlled input reach the sink on a real path? A sink with no
+   caller from a boundary is not a vulnerability, whatever the scan said.
+2. **Guard on the release path** — does a control run on the path that ships? A middleware
+   registered only in a dev config, a validation applied by one caller, or a check behind a flag does
+   not count.
+3. **Tier earned** — is `observed` actually observed, or was it inferred from source and labelled
+   upward?
+4. **Severity earned** — does the score follow from the vector, and does the vector's impact match
+   what `Result` claims? An informational exposure scored High is a downgrade to name, not a
+   disagreement to have.
+
+A rejection without evidence is an assertion. Every verdict ends with
+**"What would make me comfortable with this:"** — the specific evidence or change that would move it.
 
 ## Responsibilities
 

@@ -56,21 +56,22 @@ list.
 ## 2. OWASP Top 10:2025
 
 The publisher is the authority — take the numbering and the category names from
-<https://owasp.org/Top10/2025/>, never from a second-hand summary. All ten apply to a source review;
-the three marked **new** are the ones a 2021-era checklist does not carry at all.
+<https://owasp.org/Top10/2025/>, never from a second-hand summary. Its own framing is **two new
+categories and one consolidation**, so a reader reconciling a 2021 checklist renumbers rather than
+duplicates:
 
-| #   | Category                                          | What it looks like in source                                                    |
-| --- | ------------------------------------------------- | ------------------------------------------------------------------------------- |
-| A01 | Broken Access Control                             | Missing authorisation on a route or object; IDOR; path traversal; SSRF; CSRF    |
-| A02 | Security Misconfiguration                         | Debug on in production; default credentials; permissive CORS; missing headers   |
-| A03 | **Software Supply Chain Failures** _(new)_        | Unpinned dependencies; install scripts; unsigned artifacts; unpinned CI actions |
-| A04 | Cryptographic Failures                            | Weak hashing; hardcoded keys; absent transport encryption; weak randomness      |
-| A05 | Injection                                         | SQL, command, LDAP, template and header injection; XSS                          |
-| A06 | **Insecure Design** _(new)_                       | No threat model; unlimited consumption; limits enforced only in the client      |
-| A07 | Authentication Failures                           | Credential-stuffing exposure; session fixation; weak reset flows                |
-| A08 | Software or Data Integrity Failures               | Deserialising untrusted data; trusting an artifact without verification         |
-| A09 | Security Logging and Alerting Failures            | Sensitive operations unlogged; no actor in the log; no alerting path            |
-| A10 | **Mishandling of Exceptional Conditions** _(new)_ | Fail-open error handling; stack traces to users; unhandled exhaustion           |
+| #   | Category                                                | What it looks like in source                                                    |
+| --- | ------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| A01 | Broken Access Control                                   | Missing authorisation on a route or object; IDOR; path traversal; SSRF; CSRF    |
+| A02 | Security Misconfiguration                               | Debug on in production; default credentials; permissive CORS; missing headers   |
+| A03 | **Software Supply Chain Failures** _(expands A06:2021)_ | Unpinned dependencies; install scripts; unsigned artifacts; unpinned CI actions |
+| A04 | Cryptographic Failures                                  | Weak hashing; hardcoded keys; absent transport encryption; weak randomness      |
+| A05 | Injection                                               | SQL, command, LDAP, template and header injection; XSS                          |
+| A06 | **Insecure Design** _(was A04:2021)_                    | No threat model; unlimited consumption; limits enforced only in the client      |
+| A07 | Authentication Failures                                 | Credential-stuffing exposure; session fixation; weak reset flows                |
+| A08 | Software or Data Integrity Failures                     | Deserialising untrusted data; trusting an artifact without verification         |
+| A09 | Security Logging and Alerting Failures                  | Sensitive operations unlogged; no actor in the log; no alerting path            |
+| A10 | **Mishandling of Exceptional Conditions** _(new)_       | Fail-open error handling; stack traces to users; unhandled exhaustion           |
 
 Two categories were folded away and must not be checked under their own heading: **XSS belongs to
 A05** and **SSRF to A01**. A checklist that still lists them separately is answering a list OWASP
@@ -219,9 +220,10 @@ than a string, and the `codebase-memory` call graph answers "who can reach this"
 `devbot:security-findings` for why an untraced candidate is not a finding.
 
 `semgrep`, `gitleaks` and `trivy` are provisioned by the module's tooling façade —
-`src/agentic/security/scripts/tooling.sh`, relative to the repository root. Run them through
-`tooling.sh run <tool>`, and ask `tooling.sh check` what is present: a tool that is absent is a check
-that did not run, and the coverage table says so rather than passing it silently.
+`$DEV_BOT_ROOT/src/agentic/security/scripts/tooling.sh` (`DEV_BOT_ROOT` is the dev-bot checkout;
+a consumer project does not carry this path). Run them through `tooling.sh run <tool>`, and ask
+`tooling.sh check` what is present: a tool that is absent is a check that did not run, and the
+coverage table says so rather than passing it silently.
 
 ```bash
 # Find all direct DB queries (check for parameterisation)
@@ -322,23 +324,20 @@ report rather than assuming there was none.
 
 ## 9. Reporting rules
 
-- Every finding carries a `Location` and a remediation with a code example.
-- Group by defect class — twenty instances of one pattern are one finding with an inventory.
-- Say whether a finding is `read-in-source` or better; a candidate that was not traced is not a
-  finding.
-- Include positive findings: what the codebase does well. A report of only defects cannot be used to
-  decide what to leave alone.
+Two rules are this skill's own; the record and the report shape belong to `devbot:security-findings`
+and are not repeated here.
+
+- Every source finding carries a `Location` — `path:line` **and** the enclosing symbol, because a
+  location without the symbol is a line that moves.
+- A candidate that was not traced is not a finding. Say which candidates you dropped and why; the
+  coverage table is where that lives.
 
 ## 10. Audit summary
 
-This is the **Summary** section of the report shape `devbot:security-findings` fixes. End every
-review with:
+The **Summary** section of the shared report shape. What a source review adds to it:
 
-1. **Total findings by severity** — a table of counts per band
-2. **Top 3 most critical items** — the three that need attention first
-3. **Quick wins** — easy fixes with high security impact
-4. **Systemic issues** — patterns needing an architectural change, not a point fix
-5. **Positive findings** — what the codebase does well
+- **Systemic** — a pattern needing an architectural change rather than a point fix is worth more than
+  the individual findings it produced. Name it even when no single instance is severe.
 
 ## 11. What tends to hide
 
