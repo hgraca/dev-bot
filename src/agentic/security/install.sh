@@ -28,6 +28,15 @@ else
     skip "bats not found. Install bats via 'npm install -g bats bats-assert bats-support' to run tests."
 fi
 
+# The findings store and gate are python3; it is already a toolkit dependency.
+PY_OK=1
+if command -v python3 >/dev/null 2>&1; then
+    ok "python3 found: $(python3 --version 2>&1 | head -1)"
+else
+    skip "python3 not found — the findings store and gate cannot run"
+    PY_OK=0
+fi
+
 # FOSS tooling — one façade over four backends. `check` is local and fast, so it
 # always runs; provisioning is opt-in because it reaches the network. A partial
 # provision must not report the module as satisfied, so the closing line follows
@@ -61,8 +70,8 @@ else
     TOOLS_OK=0
 fi
 
-if [ "$TOOLS_OK" = "1" ]; then
+if [ "$TOOLS_OK" = "1" ] && [ "$PY_OK" = "1" ]; then
     ok "security module — all dependencies satisfied"
 else
-    skip "security module — script dependencies are fine; tooling is not fully provisioned"
+    skip "security module — script dependencies are fine; tooling or python3 is not ready"
 fi
