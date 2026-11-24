@@ -115,25 +115,33 @@ disk_skills() {
     [ "$fails" -eq "$passes" ] || fail "$passes pass criteria but $fails fail criteria"
 }
 
-@test "the pentest skill carries the CVSS 3.1 classification bands" {
-    local band
-    for band in '9.0–10.0' '7.0–8.9' '4.0–6.9' '0.1–3.9'; do
-        run grep -qF "$band" "$SKILL"
+@test "both skills score through the shared record" {
+    local skill
+    for skill in "$AUDIT" "$SKILL"; do
+        run grep -qF 'devbot:security-findings' "$skill"
+        assert_success
+        run grep -qF 'CVSS v4.0' "$skill"
         assert_success
     done
-    run grep -qF 'Informational' "$SKILL"
-    assert_success
 }
 
-@test "the pentest skill carries the report's finding record and reports the regression" {
-    local field
-    for field in '**ID:**' '**CVSS:**' '**Targets:**' '**Finding:**' '**Result:**' \
-        '**Proof of concept:**' '**Recommendation:**' '**Evidence:**'; do
-        run grep -qF "$field" "$SKILL"
-        assert_success
-    done
+@test "no security skill cites a superseded CVSS version" {
+    run bash -c "grep -rlF 'CVSS 3.1' '${MODULE}/skills' || true"
+    [ -z "$output" ] || fail "still cites CVSS 3.1: $output"
+}
+
+@test "the pentest skill points at the shared record and keeps the regression verdict" {
+    run grep -qF 'devbot:security-findings' "$SKILL"
+    assert_success
     run grep -qF 'Regression verdict' "$SKILL"
     assert_success
+    # The record lives in one place now; a field list here is the drift
+    # PDR 20261024080246 forbids.
+    local field
+    for field in '**ID:**' '**CVSS:**' '**Targets:**' '**Evidence:**' '**Recommendation:**'; do
+        run grep -qF "$field" "$SKILL"
+        assert_failure
+    done
 }
 
 @test "the pentest skill's references exist and carry their baseline" {

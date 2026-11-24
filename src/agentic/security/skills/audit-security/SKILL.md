@@ -240,26 +240,21 @@ When reviewing auth systems:
 4. **Check token lifecycle** — created, validated, refreshed, invalidated
 5. **Check multi-tenancy** — any path where tenant A can reach tenant B?
 
-## 5. Severity Classification
+## 5. Scoring
 
-- **CRITICAL** — Direct exploitation, no authentication required, RCE/SQLi/auth bypass
-- **HIGH** — Exploitation requires some access or conditions, data breach risk
-- **MEDIUM** — Requires specific conditions, limited impact individually
-- **LOW** — Defence in depth, information disclosure, best practice violation
-- **INFO** — Observation, no direct risk
+Score with **CVSS v4.0**, in the record `devbot:security-findings` defines — it owns the scheme, the
+bands, the lifecycle and the report shape, and none of it is restated here.
 
-## 6. Vulnerability Finding Format
+A source review sets the **Base** metrics only. It cannot observe the deployment, so Threat and
+Environmental metrics stay unset, and `Tier` records that the evidence is `read-in-source`. That
+combination is the honest one: a base score on traced code paths, with no claim about what an
+attacker will actually meet.
 
-```
-**[SEVERITY: CRITICAL/HIGH/MEDIUM/LOW/INFO]**
-**Finding:** <title>
-**Location:** <file>:<line>
-**Description:** What vulnerability is
-**Impact:** What attacker can do
-**Evidence:** Code snippet or proof of concept (no active exploitation)
-**Remediation:** Specific fix with code example
-**References:** CVE/CWE if applicable
-```
+## 6. Writing the finding
+
+Use `devbot:security-findings`'s record. Two fields carry what a source review can supply and a
+runtime test cannot: `Location` — `path:line` plus the enclosing symbol — and `Coverage basis`, which
+check produced it.
 
 ## 7. Reporting Rules
 
