@@ -108,6 +108,15 @@ stub_store_tool() {
     assert_output --partial 'already installed'
 }
 
+@test "an empty store reports a go tool absent rather than ready" {
+    # The ledger must survive a fresh machine: a tool nobody installed is absent.
+    run bash "${TOOLING}" check
+    assert_success
+    local row
+    row="$(printf '%s\n' "$output" | awk '$1 == "nuclei" { print $3 }')"
+    [ "${row}" = 'absent' ] || fail "expected nuclei absent, got '${row}'"
+}
+
 @test "every manifest line names a backend the dispatcher knows" {
     # A typo in the manifest is otherwise only visible when that tool is used.
     # Scope the scan to the MANIFEST heredoc: the rest of the file is full of pipes.

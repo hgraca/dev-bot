@@ -140,6 +140,11 @@ One shape for both skills, sections in this order:
 2. **Coverage** — what was examined, and what was not. Name the checks that were skipped and the
    reason (tool absent, not applicable, outside scope). A clean section that omits this is
    indistinguishable from a partial one.
+
+   The security module's `src/agentic/security/scripts/tooling.sh check` prints which tools are
+   present at the moment of the review. A check whose tool was absent is recorded
+   `skipped: tool absent` — the sentence a reader needs, and the one a tidy table quietly drops.
+
 3. **Findings** — by severity, each in the record shape.
 4. **Refutation** — per finding, the verdict of the separate pass and what it rested on.
 5. **Summary** — counts by severity, the top three by score, quick wins, and systemic issues (a
