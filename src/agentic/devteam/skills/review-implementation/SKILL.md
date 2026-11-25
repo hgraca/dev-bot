@@ -266,6 +266,10 @@ Issue types that apply regardless of technology stack.
     - **Destructive commands need a scope and a way back** — `migrate:fresh`, `DROP`, `rm -rf`, or `--force` against state the reader may not be able to recreate must say what it destroys and when it is safe: a disposable database, a backup, or a schema-preserving alternative. A command that is safe in a throwaway container is not safe when the same page hands it to a developer against a shared volume.
     - **Permission widening is a security change** — `chmod -R 777` and `a+rwx` on a host bind mount expose every file under it to every local user. Prefer restoring ownership to the configured UID/GID and keeping owner/group modes; check what the change exposes, not only that it unblocks the run.
     - WARNING; BLOCKER when the command destroys data the reader cannot recreate or widens access on a shared host path.
+19. **A narrowed allowlist admits every host the configuration itself declares** — when the change restricts which origins, hosts, addresses or identifiers may reach something (CORS origins, an IP allowlist, an authentication pattern, a redirect list):
+    - Enumerate every value the configuration declares legitimate — the URL another config key defaults to, the hosts the deployment manifests route, the addresses an environment template ships — and test the new rule against each one. A rule that drops one is a finding: the configuration now contradicts itself, and the dropped host fails closed in production while every test that builds its own value passes.
+    - Ask the inverse question the tightening invites: after this change, can the product's own declared entry point still reach what it is meant to reach? A rule narrower than the product's own published URLs is not hardening, it is an outage carrying a security rationale.
+    - WARNING; BLOCKER when the dropped host is the one the deployment tells clients to use.
 
 ### Technology-specific
 
