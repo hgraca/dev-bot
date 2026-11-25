@@ -47,7 +47,7 @@ seed() {
     local file="${3:-app/InvoiceController.php}" line="${4:-3}"
     local discovered="${5:-${HEAD_SHA}}"
     cat >"${SEC_FINDINGS_STORE}" <<JSON
-{"id":"SEC-1","title":"Object read by id without a tenant check","severity":"${severity}","status":"${status}","tier":"read-in-source","discovered":"${discovered}","location":{"file":"${file}","line":${line},"symbol":"InvoiceController::show"}}
+{"id":"SEC-1","title":"Object read by id without a tenant check","severity":"${severity}","status":"${status}","tier":"read-in-source","discovered":"${discovered}","location":{"file":"${file}","line":${line},"symbol":"InvoiceController::show"},"refutation":{"verdict":"uphold","by":"@critic","at":"2026-11-25"}}
 JSON
 }
 
@@ -283,6 +283,27 @@ DIFF
         <"${BATS_TEST_TMPDIR}/d.diff"
     assert_failure 1
     assert_output --partial "cannot be read"
+}
+
+@test "a gating finding with no refutation is a review, not a block" {
+    # A merge-stopping verdict needs a second reader; otherwise the pass is prose.
+    cat >"${SEC_FINDINGS_STORE}" <<JSON
+{"id":"SEC-1","title":"t","severity":"High","status":"confirmed","tier":"read-in-source","discovered":"${HEAD_SHA}","location":{"file":"app/InvoiceController.php","line":3,"symbol":"InvoiceController::show"}}
+JSON
+    diff_on_own_lines >"${BATS_TEST_TMPDIR}/d.diff"
+    run bash "${FINDINGS}" --store "${SEC_FINDINGS_STORE}" gate --repo "${REPO}" \
+        <"${BATS_TEST_TMPDIR}/d.diff"
+    assert_failure 1
+    assert_output --partial "no refutation"
+}
+
+@test "check flags a confirmed gating finding that was never refuted" {
+    cat >"${SEC_FINDINGS_STORE}" <<JSON
+{"id":"SEC-1","title":"t","severity":"High","status":"confirmed","tier":"read-in-source","discovered":"${HEAD_SHA}","location":{"file":"app/InvoiceController.php","line":3,"symbol":"InvoiceController::show"}}
+JSON
+    run bash "${FINDINGS}" check
+    assert_failure 1
+    assert_output --partial "no refutation"
 }
 
 @test "gate fails closed on a store that does not validate" {

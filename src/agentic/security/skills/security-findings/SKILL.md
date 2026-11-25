@@ -172,17 +172,18 @@ A record that lives only in a report is a paragraph. The store is what makes it 
 `<devbot_dir>/memory/latent/security/findings.jsonl` in the project being reviewed, one JSON object
 per line mirroring the record's fields.
 
-| Field        | Shape                                                        |
-| ------------ | ------------------------------------------------------------ |
-| `id`         | the record's `ID`                                            |
-| `title`      | one line                                                     |
-| `severity`   | `Critical` / `High` / `Medium` / `Low` / `Informational`     |
-| `status`     | the lifecycle state                                          |
-| `tier`       | `read-in-source` / `observed` / `reproduced`                 |
-| `discovered` | the commit the finding was established against               |
-| `location`   | `{"file": …, "line": …, "symbol": …}` — source findings only |
-| `targets`    | array of URLs — runtime findings only                        |
-| `cvss`       | the vector and score, when one was computed                  |
+| Field        | Shape                                                                 |
+| ------------ | --------------------------------------------------------------------- |
+| `id`         | the record's `ID`                                                     |
+| `title`      | one line                                                              |
+| `severity`   | `Critical` / `High` / `Medium` / `Low` / `Informational`              |
+| `status`     | the lifecycle state                                                   |
+| `tier`       | `read-in-source` / `observed` / `reproduced`                          |
+| `discovered` | the commit the finding was established against                        |
+| `location`   | `{"file": …, "line": …, "symbol": …}` — source findings only          |
+| `targets`    | array of URLs — runtime findings only                                 |
+| `cvss`       | the vector and score, when one was computed                           |
+| `refutation` | `{"verdict": …, "by": …, "at": …}` — a gating finding's second reader |
 
 The module's CLI owns the file — `$DEV_BOT_ROOT/src/agentic/security/scripts/findings.sh`:
 
@@ -216,6 +217,12 @@ Three relationships — and this is why a changed _caller_ matters:
   are now working next to.
 - **`caller_radius`** — a changed file calls the finding's symbol. Without a parser this is a
   call-site match; `codebase-memory.detect_changes` gives the precise radius when it is available.
+
+**A `BLOCK` requires a refutation.** A confirmed High/Critical finding with no `refutation.verdict`
+still surfaces on the change, but it answers `REVIEW` — the merge-stopping verdict belongs to a second
+reader, not to the finder. `findings.sh check` flags the same records, so an unrefuted finding is
+visible before anyone relies on it. This is the one rule in this module that the tooling enforces
+rather than describes.
 
 **It fails closed.** A missing store, an unparseable store and an empty change set each answer
 `REVIEW`, never `PASS`. `PASS` means "every check ran and found nothing", not "this change is secure".
