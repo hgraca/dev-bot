@@ -2605,6 +2605,12 @@ _run_service_scripts() {
       _ok "${count} ${script_name} script(s) completed${skipped:+ (${skipped} skipped)}"
     fi
   fi
+
+  # Same contract _run_module_script publishes, so a caller can tell a clean run
+  # from a tolerated failure without parsing output.
+  export MODULE_SCRIPT_COUNT="${count}"
+  export MODULE_SCRIPT_FAILED="${failed}"
+  export MODULE_SCRIPT_SKIPPED="${skipped}"
 }
 
 # _has_gpu: returns 0 if any usable GPU is available on the host.

@@ -33,9 +33,17 @@ setup() {
   sed '/^main "\$@"/d' "${PROJECT_ROOT}/bin/devbot" > "${SANDBOX}/bin/devbot"
 
   # Stub up.sh — the real one starts docker services. Also records whether a
-  # session file already exists at up-time (proves register runs BEFORE up).
+  # session file already exists at up-time (proves register runs BEFORE up), and
+  # answers the `--is-up` probe the start runs first: UP_CHECK_RC (default 1,
+  # "not up") so every other test still sees the normal start.
   cat > "${SANDBOX}/bin/up.sh" <<EOF
 #!/usr/bin/env bash
+if [[ "\${1:-}" == "--is-up" ]]; then
+  local_files="\$(find "${SANDBOX}/storage/run/sessions" -maxdepth 1 -name 'session-*' 2>/dev/null | wc -l | tr -d ' ')"
+  printf 'check-called %s\n' "\${2:-}" > "${SANDBOX}/check.log"
+  printf 'sessions-at-check=%s\n' "\${local_files}" >> "${SANDBOX}/check.log"
+  exit "\${UP_CHECK_RC:-1}"
+fi
 echo "up-called"
 local_files="\$(find "${SANDBOX}/storage/run/sessions" -maxdepth 1 -name 'session-*' 2>/dev/null | wc -l | tr -d ' ')"
 echo "sessions-at-up=\${local_files}" >> "${SANDBOX}/up.log"
@@ -159,6 +167,40 @@ _run_cmd_harness() {
   assert_output --partial "devbot up failed (exit 3)"
   assert_output --partial "torn down on exit"
   [ ! -f "${SANDBOX}/start-args.log" ]
+}
+
+# ── --is-up: skip the up sequence on a warm machine ───────────────────────────
+
+@test "cmd_harness skips up when every service the project needs is running" {
+  export UP_CHECK_RC=0
+  rm -f "${SANDBOX}/start-args.log" "${SANDBOX}/up.log" "${SANDBOX}/check.log"
+
+  _run_cmd_harness
+
+  unset UP_CHECK_RC
+  assert_success
+  assert_output --partial "devbot services already running"
+  refute_output --partial "up-called"
+  [ ! -f "${SANDBOX}/up.log" ]
+  run cat "${SANDBOX}/check.log"
+  assert_line --index 0 --partial "check-called"
+  assert_line --index 0 --partial "$(basename "${PROJECT}")"
+  # Registered before the probe, so a concurrent teardown cannot race it.
+  assert_line --index 1 "sessions-at-check=1"
+  run cat "${SANDBOX}/start-args.log"
+  assert_line --index 0 "start-opencode"
+}
+
+@test "cmd_harness runs up when the services are not up yet" {
+  rm -f "${SANDBOX}/start-args.log" "${SANDBOX}/up.log" "${SANDBOX}/check.log"
+
+  _run_cmd_harness
+
+  assert_success
+  assert_output --partial "up-called"
+  refute_output --partial "devbot services already running"
+  run cat "${SANDBOX}/up.log"
+  assert_output "sessions-at-up=1"
 }
 
 @test "cmd_harness forwards all args unchanged when no -- is present" {

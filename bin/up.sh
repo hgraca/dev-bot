@@ -7,6 +7,8 @@
 # Usage:
 #   bin/up.sh                    # run in current directory
 #   bin/up.sh /path/to/project   # run in specified project
+#   bin/up.sh --is-up [/path]    # silent probe: exit 0 iff every declared docker
+#                                # service is already running (used by `devbot`)
 #
 # Adding a new up step:
 #   Create src/tools/<module>/up.sh, src/agentic/<module>/up.sh or
@@ -57,6 +59,13 @@ _up_install_trap() {
 # It is resolved in main() after .env is loaded — see
 # _devbot_resolve_codebase_memory_root — and exported before compose
 # interpolates it.
+
+# ── `--is-up` probe (internal; the bare `devbot` start asks before running) ───
+UP_IS_UP=0
+if [[ "${1:-}" == "--is-up" ]]; then
+  UP_IS_UP=1
+  shift
+fi
 
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 
@@ -334,6 +343,107 @@ _docker_up() {
   _reconcile_ollama_gpu
 }
 
+# ── Up stamp ──────────────────────────────────────────────────────────────────
+# A completed start records the project it served and the wiring it ran on. The
+# compose scan cannot see what a module's own up.sh starts (the datasources
+# gateway is rendered per project), so liveness alone would skip a project's
+# first start whenever another project held the shared services up.
+_up_stamp_path() {
+  local key
+  key="$(printf '%s' "$1" | cksum | cut -d' ' -f1)"
+  printf '%s/run/up/%s.stamp' "${DEV_BOT_ROOT}/storage" "${key}"
+}
+
+# Every container the install owns, module-owned ones included — a module up.sh
+# may start what the compose scan cannot see (the datasources gateway), and a
+# stamp that ignored it would skip its recreation after it stops.
+_devbot_owned_containers() {
+  docker ps --filter "label=com.docker.compose.project=devbot" \
+    --format '{{.Names}}' 2>/dev/null | sort
+}
+
+_write_up_stamp() {
+  local path sha root containers
+  path="$(_up_stamp_path "${PROJECT_DIR}")"
+  sha="$(_devbot_wiring_sha "${PROJECT_DIR}")"
+  root="$(_devbot_codebase_memory_root)"
+  containers="$(_devbot_owned_containers)"
+  # An empty container list describes nothing: no stamp is better than one that
+  # would vouch for a start whose containers the probe cannot see.
+  [[ -n "${sha}" && -n "${containers}" ]] || return 0
+  mkdir -p "$(dirname "${path}")" 2>/dev/null || return 0
+  {
+    printf '%s\n%s\n%s\n' "${PROJECT_DIR}" "${sha}" "${root}"
+    printf '%s\n' "${containers}"
+  } > "${path}" 2>/dev/null || true
+}
+
+# The gateway's bind mount is fixed at container creation and only a module
+# up.sh recreates it, so a changed desired root must not be skipped over. A
+# module script that failed was tolerated by the start, not completed by it.
+_start_complete() { [[ "${MODULE_SCRIPT_FAILED:-0}" -eq 0 ]]; }
+
+# A completed start is recorded; anything else leaves no record at all. The
+# stamp is cleared when the run starts and again on a tolerated failure, so the
+# previous success can never vouch for work this run did not finish.
+_clear_up_stamp() { rm -f "$(_up_stamp_path "${PROJECT_DIR}")"; }
+
+_record_start() {
+  if _start_complete; then
+    _write_up_stamp
+  else
+    _clear_up_stamp
+    _warn "module scripts failed — no up stamp; the next start retries the up sequence"
+  fi
+}
+
+_up_stamp_matches() {
+  local path line i name live
+  local -a lines=()
+  path="$(_up_stamp_path "${PROJECT_DIR}")"
+  [[ -f "${path}" ]] || return 1
+  while IFS= read -r line; do lines+=("${line}"); done < "${path}"
+  [[ ${#lines[@]} -ge 3 ]] || return 1
+  [[ "${lines[0]}" == "${PROJECT_DIR}" ]] || return 1
+  [[ -n "${lines[1]}" && "${lines[1]}" == "$(_devbot_wiring_sha "${PROJECT_DIR}")" ]] || return 1
+  [[ "${lines[2]}" == "$(_devbot_codebase_memory_root)" ]] || return 1
+
+  live="$(_devbot_owned_containers)" || return 1
+  for ((i = 3; i < ${#lines[@]}; i++)); do
+    name="${lines[$i]}"
+    [[ -n "${name}" ]] || continue
+    grep -Fxq "${name}" <<< "${live}" || return 1
+  done
+}
+
+# ── Already-up probe ──────────────────────────────────────────────────────────
+# `bin/up.sh --is-up`: exit 0 only when this project's start already completed
+# here and every docker service it declares is still running. Silent, read-only.
+_up_is_up() {
+  [[ -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]] || return 1
+  docker info >/dev/null 2>&1 || return 1
+  # The stamp records the gateway's desired mount root, so the probe must see
+  # the same .env main() loads before resolving it.
+  _load_env_file >/dev/null 2>&1 || true
+  _up_stamp_matches || return 1
+
+  # Same selection `_docker_up` uses; its disabled-module notes are chatter the
+  # caller must not see.
+  _compose_opts >/dev/null 2>&1 || return 1
+  [[ ${#COMPOSE_OPTS[@]} -gt 0 ]] || return 1
+
+  local declared running service
+  # Relative -f paths and compose's .env lookup are anchored at DEV_BOT_ROOT.
+  declared="$(cd "${DEV_BOT_ROOT}" && docker compose "${COMPOSE_OPTS[@]}" config --services 2>/dev/null)" || return 1
+  [[ -n "${declared}" ]] || return 1
+  running="$(cd "${DEV_BOT_ROOT}" && docker compose "${COMPOSE_OPTS[@]}" ps --status running --services 2>/dev/null)" || return 1
+
+  while IFS= read -r service; do
+    [[ -n "${service}" ]] || continue
+    grep -Fxq "${service}" <<< "${running}" || return 1
+  done <<< "${declared}"
+}
+
 # ── Writable bind-mount sources ────────────────────────────────────────────────
 # Docker creates a missing bind-mount SOURCE on the host as root:root. A module
 # service that runs as the host uid (e.g. mdctx-mcp) then finds its own writable
@@ -542,6 +652,11 @@ main() {
 
   _header_1 "DevBot Up"
 
+  # Invalidate the previous record first: an abort at ANY later step (compose,
+  # a module script, the ERR trap) must not leave the old stamp vouching for a
+  # start this run did not complete.
+  _clear_up_stamp
+
   _UP_STEP="environment"
   _load_env_file
   _UP_STEP="codebase-memory root"
@@ -557,6 +672,8 @@ main() {
   _UP_STEP="module up scripts"
   _run_up_scripts
 
+  _record_start
+
   echo -e "  ${TEXT_DIM}⏱  Total: $(_fmt_duration $(( SECONDS - total_start )))${TEXT_CLEAR}"
   echo
 }
@@ -565,6 +682,10 @@ main() {
 # `set -E`) installed there would leak into the calling shell. `-E` is what
 # makes the trap fire inside functions and subshells, not just at top level.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  if [[ "${UP_IS_UP}" -eq 1 ]]; then
+    _up_is_up && exit 0
+    exit 1
+  fi
   _up_install_trap
 fi
 

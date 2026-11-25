@@ -763,10 +763,16 @@ YAML
 
 @test "_docker_up is preceded by the .env load in main()" {
   # Guards the call site, not just the helper: a defined-but-never-called
-  # _load_env_file would leave interpolation broken.
-  run grep -A6 '^main()' "${PROJECT_ROOT}/bin/up.sh"
-  assert_success
-  assert_output --partial '_load_env_file'
+  # _load_env_file would leave interpolation broken. Asserted as an ordering
+  # inside main(), not a fixed window, so unrelated lines above it cannot make
+  # this pass or fail for the wrong reason.
+  local body env_line docker_line
+  body="$(sed -n '/^main() {/,/^}/p' "${PROJECT_ROOT}/bin/up.sh")"
+  env_line="$(printf '%s\n' "${body}" | grep -n '_load_env_file' | head -1 | cut -d: -f1)"
+  docker_line="$(printf '%s\n' "${body}" | grep -n '^  _docker_up' | head -1 | cut -d: -f1)"
+  [ -n "${env_line}" ]
+  [ -n "${docker_line}" ]
+  [ "${env_line}" -lt "${docker_line}" ]
 }
 
 # ── Writable bind-mount sources ────────────────────────────────────────────────

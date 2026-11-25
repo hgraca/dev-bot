@@ -185,6 +185,18 @@ EOF
   assert_output --partial "No install.sh scripts found"
 }
 
+@test "_run_service_scripts publishes the same counts _run_module_script does" {
+  # Callers of the multi-base-dir variant (bin/up.sh and its up stamp) need the
+  # failure count without parsing output — the contract must not drift.
+  _source_lib
+  _add_module "src/tools" "ok" "up.sh"
+  _add_module "src/tools" "bad" "up.sh" 'exit 1'
+
+  _run_service_scripts "up.sh" "${SANDBOX_DIR}" >/dev/null
+  [ "${MODULE_SCRIPT_COUNT}" = "1" ]
+  [ "${MODULE_SCRIPT_FAILED}" = "1" ]
+}
+
 @test "works with agentic modules path" {
   _source_lib
   _add_module "src/agentic" "mod-x" "update.sh" 'echo "agentic_ok"'
