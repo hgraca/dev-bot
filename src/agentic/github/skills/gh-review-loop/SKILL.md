@@ -17,7 +17,7 @@ posting/reply mechanics, which are the deliberate exception to its local-only ru
 ## When to Apply
 
 - Working a pull request's Copilot review to a clean state.
-- `devbot:auto-dev`, `devbot:gh-create-pr` or `devbot:full-loop` reaches the remote review step.
+- `devbot:auto-dev`, `devbot:gh-create-pr` or `devbot:full-review-loop` reaches the remote review step.
 - The user asks to run the Copilot review loop, address Copilot's comments, or "iterate until
   Copilot is happy".
 

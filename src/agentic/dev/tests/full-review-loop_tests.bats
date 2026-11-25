@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 # =============================================================================
-# src/agentic/dev/tests/full-loop_tests.bats
-# Guards the full-loop command: local loop, pull request, host review, squash,
-# merge handover — GitHub Copilot named as the shipped example, not a
+# src/agentic/dev/tests/full-review-loop_tests.bats
+# Guards the full-review-loop command: local loop, pull request, host review,
+# squash, merge handover — GitHub Copilot named as the shipped example, not a
 # requirement, because the git host may be another one.
 # =============================================================================
 
@@ -12,7 +12,7 @@ setup() {
 
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
-  COMMAND="$MODULE_DIR/commands/full-loop.md"
+  COMMAND="$MODULE_DIR/commands/full-review-loop.md"
   # Prose wraps: grep each assertion against one flattened line.
   FLAT="$BATS_TEST_TMPDIR/command-flat.md"
   tr '\n' ' ' < "$COMMAND" | tr -s ' ' > "$FLAT"
@@ -21,7 +21,7 @@ setup() {
 @test "command declares its frontmatter name" {
   run sed -n '1,4p' "$COMMAND"
   assert_success
-  assert_output --partial "name: devbot:full-loop"
+  assert_output --partial "name: devbot:full-review-loop"
 }
 
 @test "command chains the generic loop with both adapters" {

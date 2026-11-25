@@ -1,5 +1,5 @@
 ---
-name: devbot:full-loop
+name: devbot:full-review-loop
 description: Run the full review path — local review, pull request, host review, squash — and hand the force-push and merge to the user
 ---
 

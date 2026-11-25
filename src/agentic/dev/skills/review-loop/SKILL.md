@@ -21,7 +21,7 @@ Reviewers plug in through an adapter. Two are in use today:
 - Reviewing a changeset before the pull request exists — the session's code reviewer, `@reviewer`
   interactively and `@code-reviewer` under `devbot:auto-dev`.
 - Working a pull request's reviewer — Copilot, a human, another bot — to a clean state.
-- A command drives it: `devbot:full-loop`, `devbot:gh-review-loop`, `devbot:auto-dev`.
+- A command drives it: `devbot:full-review-loop`, `devbot:gh-review-loop`, `devbot:auto-dev`.
 - The user asks to run the review loop, address the review comments, or "iterate until it's happy".
 
 ## MUST
