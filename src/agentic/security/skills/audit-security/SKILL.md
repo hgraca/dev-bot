@@ -91,6 +91,34 @@ a reader needs.
 
 ### PHP
 
+#### A04 — Cryptographic Failures
+
+§2's A04 row names four signs, and this section checks all four — with two splits. **Password**
+hashing is A07's, because that is where the authentication checklist lives; this section covers every
+other use of a hash. **Transport headers** are A02's; what is checked here is whether verification is
+enforced at all.
+
+- [ ] Symmetric encryption uses an authenticated mode — GCM, or libsodium's `secretbox` — never ECB,
+      and never CBC without a MAC
+- [ ] Every encryption generates a fresh random IV or nonce; none is constant, reused across calls, or
+      derived from the key
+- [ ] Keys come from the environment or a secret store — never a committed config file, the code, or
+      the raw user password
+- [ ] Security-relevant randomness uses `random_bytes()` or `random_int()` — not `rand()`,
+      `mt_rand()`, or `uniqid()`
+- [ ] TLS verification is never disabled: no `CURLOPT_SSL_VERIFYPEER => false`, no
+      `CURLOPT_SSL_VERIFYHOST => 0`, no HTTP-client `verify => false`
+- [ ] Every call carrying credentials or personal data uses TLS with a floor of 1.2 — no `http://`
+      endpoint, and no client permitted to negotiate below it
+- [ ] Integrity is verified with an authenticated mechanism — an AEAD tag, libsodium's `secretbox`
+      or `crypto_auth`, or `hash_hmac()` with a current algorithm — never a bare `hash()`; digests
+      compare with `hash_equals()`, not `==`
+- [ ] Hashes outside password storage — integrity checks, cache keys, lookup digests — use a current
+      algorithm, with a salt where the input is guessable; MD5 and SHA-1 are never sufficient
+- [ ] A decryption failure is handled as a failure — a `false` return is never treated as plaintext
+- [ ] Data that needs encryption at rest (PII, credentials, tokens) is encrypted where it is stored,
+      not only in transit
+
 #### A05 — Injection
 
 - [ ] All SQL queries use prepared statements or parameterised queries
@@ -302,12 +330,12 @@ A review that does not say what it did not look at cannot be told apart from a p
 coverage before findings, not after: the two are read together, and the findings mean nothing without
 the boundary around them.
 
-| Area          | Files or modules            | Result                      |
-| ------------- | --------------------------- | --------------------------- |
-| Authorisation | `app/Policies`, controllers | checked                     |
-| Injection     | repository layer            | clean                       |
-| Crypto        | `app/Services/Crypto`       | not examined — out of scope |
-| Sessions      | —                           | not applicable: no surface  |
+| Area          | Files or modules            | Result                                          |
+| ------------- | --------------------------- | ----------------------------------------------- |
+| Authorisation | `app/Policies`, controllers | checked                                         |
+| Injection     | repository layer            | clean                                           |
+| Supply chain  | `composer.lock`             | not examined — vendor review has its own ticket |
+| Sessions      | —                           | not applicable: no surface                      |
 
 `checked` means the check ran and found something. `clean` means it ran and found nothing. Those are
 different claims, and an empty row is neither.

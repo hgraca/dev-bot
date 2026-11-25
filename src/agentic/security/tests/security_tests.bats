@@ -32,6 +32,24 @@ disk_skills() {
     for path in "${MODULE}"/skills/*/; do basename "$path"; done | sort
 }
 
+# Derived from the table, not a hardcoded ten.
+# An OWASP revision changes what is expected.
+owasp_categories() {
+    grep -oE '^\| A[0-9]{2} \|' "${AUDIT}" | grep -oE 'A[0-9]{2}' | sort -u
+}
+
+# Check counts for EVERY `#### A0n — ` section, one line per section.
+# A category can appear more than once (A01 three times), and validating only
+# the first would leave the rest unguarded.
+checklist_sections() {
+    awk -v prefix="#### $1 — " '
+        index($0, prefix) == 1 { if (inside) print count; inside = 1; count = 0; next }
+        inside && substr($0, 1, 3) == "###" { print count; inside = 0; next }
+        inside && /^- \[ \]/ { count++ }
+        END { if (inside) print count }
+    ' "${AUDIT}"
+}
+
 @test "every skill declares valid front matter" {
     for path in "${MODULE}"/skills/*/SKILL.md; do
         name="$(basename "$(dirname "$path")")"
@@ -251,6 +269,37 @@ disk_skills() {
     assert_success
     run grep -qF '| A10 | **Mishandling of Exceptional Conditions**' "$AUDIT"
     assert_success
+}
+
+@test "every OWASP category in the table carries a checklist section" {
+    # A04 was missing and nothing failed, so §3's claim
+    # went unverified. This makes an omission red, not invisible.
+    local categories category
+    categories="$(owasp_categories)"
+    # A broken table parse would make the loop vacuous and the test green for
+    # the wrong reason.
+    [ "$(printf '%s\n' "${categories}" | wc -l)" -ge 10 ] ||
+        fail "expected the ten OWASP categories, parsed: ${categories}"
+    for category in ${categories}; do
+        grep -qE "^#### ${category} — " "${AUDIT}" ||
+            fail "${category} has a table row but no checklist section"
+    done
+}
+
+@test "every checklist section carries checks, not just a heading" {
+    # A heading with nothing under it satisfies a heading-only guard — which is
+    # how a category can look mapped and still be unexamined. Every section, not
+    # just the first: A01 appears three times.
+    local categories category counts n
+    categories="$(owasp_categories)"
+    for category in ${categories}; do
+        counts="$(checklist_sections "${category}")"
+        [ -n "${counts}" ] || fail "${category} has a table row but no checklist section"
+        while IFS= read -r n; do
+            [ "${n}" -ge 3 ] ||
+                fail "${category} has a section carrying ${n} check(s) — a heading is not a checklist"
+        done <<<"${counts}"
+    done
 }
 
 @test "neither skill answers a superseded OWASP list" {
