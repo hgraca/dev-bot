@@ -309,6 +309,12 @@ Issue types that apply regardless of technology stack.
     - Require the run to **record that the effect was attempted** and consult that record, rather than re-deriving it from the state it just mutated. The state the first path changed is the input the second path misreads — the target the first path just recreated is briefly not yet running, which is precisely what the second path reads as "still broken".
     - Decide which branch owns the decision and gate the other on the record: the intended outcome is one action, one verification and a report, not two attempts at the same target.
     - WARNING; BLOCKER when the effect touches shared infrastructure or destroys work — a force-recreate, a deploy, a destructive migration, a data rewrite.
+24. **A lookup that returns the first match is verified against a document holding several** — when the change adds a helper that locates a section, entry, row or span in a text or markup file, and a guard or check is then built on it:
+
+- Ask how many matches the input can hold, and verify the helper's answer for each. Returning the **first** match reads as correct on a file with one occurrence and silently narrows every rule built on it: the guard validates the first section, leaves the rest unexamined, and reports green. A category that appears three times is two-thirds unguarded.
+- Prove the helper discriminates before trusting the guard — one match, no match, several matches — and check that **every** match is reported, not only the first. A guard that passes all three is doing its job; one that answers the same regardless of input is not reading the input at all.
+- Apply the same question to the parse boundary: a stop condition that never fires reads the remainder of the file, so a ten-line section reports seventy and clears any minimum-count threshold. Verify the extractor's count on a known section before relying on a guard that counts.
+- WARNING; BLOCKER when the guard is the only evidence that the artifact is covered.
 
 ### Technology-specific
 
