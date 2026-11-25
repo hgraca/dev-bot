@@ -298,6 +298,12 @@ Issue types that apply regardless of technology stack.
     - Verify the conversion rejects malformed input instead of casting it. A cast accepts what validation would refuse: a leading-digit string becomes its prefix (`3abc` → 3), an array becomes 1, an empty string becomes 0. Framework input helpers often cast by default — read the helper's implementation in the installed version rather than trusting its name.
     - Check that every malformed, missing and out-of-range value lands on the documented fallback or a 4xx, and that a test covers at least one non-numeric and one array input, not only the absent and valid cases.
     - WARNING; BLOCKER when the coerced value bounds a query or a resource (a limit of 0 or an unbounded page size).
+22. **A skip decision is a record of completed work, and only a success may write it** — when the change lets a later run skip work because an earlier run "already did it" (a start/up probe, a done marker, a cache of a side effect, a resume checkpoint):
+    - Clear the record **before** the attempt begins, not only on a failure the code anticipates: an abort in the middle — a failed step, a trap, a crash — otherwise leaves the previous success standing, and the next run skips the work this one did not finish.
+    - Treat a tolerated failure as a failure for the record. A delegated script that logs a warning and exits 0 did not complete its work, so the marker must not be written on its behalf.
+    - Require the record to encode the **state** it vouches for, not just the fact that a run happened: the services or artifacts it claims are running, and any configuration-derived input the work's effect depends on. When one is gone or has changed, the marker is stale and the work must run again — #20 applied to a decision record instead of a build artifact.
+    - Read the skip branch's scope against the full work it bypasses, including work delegated to another script: a condition that only observes one part of it (the compose services, the last marker) permits the skip while the rest never runs.
+    - WARNING; BLOCKER when a stale record lets a required service, migration or reconciliation step be skipped.
 
 ### Technology-specific
 
