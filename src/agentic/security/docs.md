@@ -45,12 +45,16 @@ check treats `80` and `443` as expected and everything else as a finding.
 `scripts/tooling.sh` is one façade over four delivery backends, so the skills name a tool and never
 learn whether it is a local binary, a `uvx` invocation, a container or a system package:
 
-| Backend  | Tools                               | Installed how                                 |
-| -------- | ----------------------------------- | --------------------------------------------- |
-| `go`     | `nuclei`, `ffuf`, `gitleaks`        | `go install`, version recorded after the fact |
-| `uvx`    | `semgrep`, `bandit`, `sqlmap`       | resolved per call — nothing is installed      |
-| `docker` | `zap`, `trivy`, `metasploit`        | `docker pull`, run with `--rm` and no network |
-| `system` | `nmap`, `tcpdump`, `hydra`, `nikto` | your package manager — never auto-installed   |
+| Backend  | Tools                               | Installed how                               |
+| -------- | ----------------------------------- | ------------------------------------------- |
+| `go`     | `nuclei`, `ffuf`, `gitleaks`        | `go install`, pinned in `versions.txt`      |
+| `uvx`    | `semgrep`, `bandit`, `sqlmap`       | resolved per call; pinned once installed    |
+| `docker` | `zap`, `trivy`, `metasploit`        | `docker pull`, pinned by digest             |
+| `system` | `nmap`, `tcpdump`, `hydra`, `nikto` | your package manager — never auto-installed |
+
+`install --locked` reproduces `versions.txt` exactly: it resolves nothing new, and it refuses a tool
+the lock has no entry for rather than guessing. The lock is written by a normal install, so the first
+run resolves and every later one can be reproduced.
 
 `tooling.sh check` prints what is present; a check whose tool is absent is recorded as skipped, never
 as passed. Provisioning reaches the network, so `devbot install` only reports unless

@@ -221,6 +221,29 @@ stub_store_tool() {
     assert_output --partial 'uvx is not installed'
 }
 
+@test "a locked install refuses a tool the lock does not hold" {
+    # A locked run must never resolve something new; refusing beats guessing.
+    run bash "${TOOLING}" install --locked semgrep
+    assert_failure 1
+    assert_output --partial "not in the lock"
+}
+
+@test "a pinned uvx tool is invoked at that version" {
+    stub_system_tool uvx
+    mkdir -p "${SEC_TOOLS_DIR}"
+    printf 'semgrep 1.2.3\n' >"${SEC_TOOLS_DIR}/versions.txt"
+    run bash "${TOOLING}" run semgrep --config p/php .
+    assert_success
+    assert_output 'stub-uvx [semgrep@1.2.3] [--config] [p/php] [.]'
+}
+
+@test "an unpinned uvx tool is still invoked by name" {
+    stub_system_tool uvx
+    run bash "${TOOLING}" run semgrep --version
+    assert_success
+    assert_output 'stub-uvx [semgrep] [--version]'
+}
+
 @test "an empty store reports a go tool absent rather than ready" {
     # The ledger must survive a fresh machine: a tool nobody installed is absent.
     run bash "${TOOLING}" check

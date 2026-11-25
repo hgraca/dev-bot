@@ -59,7 +59,9 @@ Security tooling façade.
 
   tooling.sh check                 Report every tool: backend, status, checks it enables
   tooling.sh run <tool> [args...]  Run a tool through whichever backend serves it
-  tooling.sh install [tool...]     Provision what can be provisioned; skip the rest
+  tooling.sh install [--locked] [tool...]
+                                   Provision what can be provisioned; skip the rest.
+                                   --locked reproduces versions.txt exactly
   tooling.sh --help
 
 Environment:
@@ -93,6 +95,11 @@ recorded_version() {
     [ -f "${VERSIONS_FILE}" ] || return 0
     # Last match wins: a forced refresh appends, so the first row is the oldest.
     awk -v t="$1" '$1 == t { v = $2 } END { if (v != "") print v }' "${VERSIONS_FILE}"
+}
+
+# The first v?X.Y.Z in a version banner — the pin a locked install reuses.
+semver_of() {
+    printf '%s\n' "${1:-}" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true
 }
 
 system_present() {
@@ -150,7 +157,7 @@ cmd_run() {
         return 2
     fi
 
-    local line backend source
+    local line backend source ref pin
     line="$(manifest_line "${tool}")"
     if [ -z "${line}" ]; then
         printf 'ERROR: unknown tool %s. Try: tooling.sh check\n' "${tool}" >&2
@@ -171,9 +178,13 @@ cmd_run() {
                 printf 'WARN: uvx is not available, cannot serve %s\n' "${tool}" >&2
                 return 3
             fi
+            # Pinned when the lock holds a version; resolved otherwise.
+            ref="${source}"
+            pin="$(recorded_version "${tool}")"
+            [ -n "${pin}" ] && ref="${source}@${pin}"
             # No `--` separator: uvx passes everything after the command
             # straight through, and a `--` here becomes the tool's first arg.
-            exec uvx "${source}" "$@"
+            exec uvx "${ref}" "$@"
             ;;
         docker)
             if ! command -v docker >/dev/null 2>&1; then
@@ -182,7 +193,11 @@ cmd_run() {
             fi
             # `docker run` pulls implicitly when the image is absent, which would
             # turn a local run into a network fetch that `check` called absent.
-            if ! docker image inspect "${source}" >/dev/null 2>&1; then
+            # Pinned to the recorded digest when the lock has one.
+            ref="${source}"
+            pin="$(recorded_version "${tool}")"
+            [ -n "${pin}" ] && ref="${source}@${pin}"
+            if ! docker image inspect "${ref}" >/dev/null 2>&1; then
                 printf 'WARN: %s is not pulled: tooling.sh install %s\n' "${tool}" "${tool}" >&2
                 return 3
             fi
@@ -200,7 +215,7 @@ cmd_run() {
             fi
             # shellcheck disable=SC2086
             exec docker run --rm -i "${net_args[@]}" "${mount_args[@]}" \
-                ${SEC_TOOLS_DOCKER_ARGS:-} "${source}" "$@"
+                ${SEC_TOOLS_DOCKER_ARGS:-} "${ref}" "$@"
             ;;
         system)
             if ! system_present "${source}"; then
@@ -217,17 +232,25 @@ cmd_run() {
 }
 
 install_one() {
-    local tool="$1" line backend source version
+    local tool="$1" line backend source version pin target ref
     line="$(manifest_line "${tool}")"
     if [ -z "${line}" ]; then
         printf 'ERROR: unknown tool %s\n' "${tool}" >&2
         return 2
     fi
     IFS='|' read -r _ backend source _ <<<"${line}"
+    pin="$(recorded_version "${tool}")"
+
+    # A locked install reproduces the record; it never resolves a new version,
+    # and it refuses a tool the lock has no entry for rather than guessing.
+    if [ -n "${SEC_TOOLS_LOCKED:-}" ] && [ "${backend}" != "system" ] && [ -z "${pin}" ]; then
+        printf '  warn  %-10s not in the lock — run install once without --locked\n' "${tool}"
+        return 1
+    fi
 
     case "${backend}" in
         go)
-            if go_present "${tool}" && [ -z "${SEC_TOOLS_FORCE:-}" ]; then
+            if go_present "${tool}" && [ -z "${SEC_TOOLS_FORCE:-}" ] && [ -z "${SEC_TOOLS_LOCKED:-}" ]; then
                 printf '  ok    %-10s already installed\n' "${tool}"
                 return 0
             fi
@@ -235,15 +258,20 @@ install_one() {
                 printf '  warn  %-10s no go toolchain\n' "${tool}"
                 return 1
             fi
-            printf '  get   %-10s %s\n' "${tool}" "${source}"
+            target="${source}@latest"
+            [ -n "${SEC_TOOLS_LOCKED:-}" ] && target="${source}@${pin}"
+            printf '  get   %-10s %s\n' "${tool}" "${target}"
             mkdir -p "${BIN_DIR}"
-            if ! GOBIN="${BIN_DIR}" go install "${source}@latest" >/dev/null 2>&1; then
+            if ! GOBIN="${BIN_DIR}" go install "${target}" >/dev/null 2>&1; then
                 printf '  warn  %-10s go install failed; check network\n' "${tool}"
                 return 1
             fi
-            version="$("${BIN_DIR}/${tool}" -version 2>/dev/null | head -1 || true)"
-            if [ -n "${version}" ]; then
-                printf '%s %s\n' "${tool}" "${version}" >>"${VERSIONS_FILE}"
+            if [ -z "${SEC_TOOLS_LOCKED:-}" ]; then
+                version="$("${BIN_DIR}/${tool}" -version 2>/dev/null | head -1 || true)"
+                pin="$(semver_of "${version}")"
+                if [ -n "${pin}" ]; then
+                    printf '%s %s\n' "${tool}" "${pin}" >>"${VERSIONS_FILE}"
+                fi
             fi
             ;;
         uvx)
@@ -251,21 +279,42 @@ install_one() {
                 printf '  warn  %-10s uvx is not installed\n' "${tool}"
                 return 1
             fi
-            printf '  ok    %-10s resolved per call by uvx\n' "${tool}"
+            if [ -n "${SEC_TOOLS_LOCKED:-}" ]; then
+                printf '  ok    %-10s pinned at %s@%s\n' "${tool}" "${source}" "${pin}"
+                return 0
+            fi
+            version="$(uvx "${source}" --version 2>/dev/null | head -1 || true)"
+            pin="$(semver_of "${version}")"
+            if [ -n "${pin}" ]; then
+                printf '%s %s\n' "${tool}" "${pin}" >>"${VERSIONS_FILE}"
+                printf '  pin   %-10s %s@%s\n' "${tool}" "${source}" "${pin}"
+            else
+                printf '  ok    %-10s resolved per call; no version in its banner\n' "${tool}"
+            fi
             ;;
         docker)
             if ! command -v docker >/dev/null 2>&1; then
                 printf '  skip  %-10s no docker\n' "${tool}"
                 return 0
             fi
-            if docker image inspect "${source}" >/dev/null 2>&1 && [ -z "${SEC_TOOLS_FORCE:-}" ]; then
+            ref="${source}"
+            [ -n "${SEC_TOOLS_LOCKED:-}" ] && ref="${source}@${pin}"
+            if docker image inspect "${ref}" >/dev/null 2>&1 &&
+                [ -z "${SEC_TOOLS_FORCE:-}" ] && [ -z "${SEC_TOOLS_LOCKED:-}" ]; then
                 printf '  ok    %-10s already pulled\n' "${tool}"
                 return 0
             fi
-            printf '  pull  %-10s %s\n' "${tool}" "${source}"
-            if ! docker pull --quiet "${source}" >/dev/null 2>&1; then
+            printf '  pull  %-10s %s\n' "${tool}" "${ref}"
+            if ! docker pull --quiet "${ref}" >/dev/null 2>&1; then
                 printf '  warn  %-10s pull failed; check network\n' "${tool}"
                 return 1
+            fi
+            if [ -z "${SEC_TOOLS_LOCKED:-}" ]; then
+                # The digest, not the tag: a tag moves, and that is the point.
+                pin="$(docker inspect --format '{{index .RepoDigests 0}}' "${source}" 2>/dev/null | sed 's/.*@//' || true)"
+                if [ -n "${pin}" ]; then
+                    printf '%s %s\n' "${tool}" "${pin}" >>"${VERSIONS_FILE}"
+                fi
             fi
             ;;
         system)
@@ -276,19 +325,22 @@ install_one() {
 }
 
 cmd_install() {
-    # Unpinned by design: versions resolve at install time and are recorded in
-    # versions.txt, so a refresh is reproducible from that record but a first
-    # install is not. Pinning means maintaining a version table here; until it
-    # exists, the module's own A03 checklist applies to this file too.
+    # Unlocked installs resolve and record; a locked one reproduces the record.
+    local failed=0 name requested=()
+    for name in "$@"; do
+        if [ "${name}" = "--locked" ]; then
+            SEC_TOOLS_LOCKED=1
+        else
+            requested+=("${name}")
+        fi
+    done
     mkdir -p "${STORE_DIR}"
-    local failed=0
-    if [ "$#" -eq 0 ]; then
+    if [ "${#requested[@]}" -eq 0 ]; then
         while IFS= read -r name; do
             install_one "${name}" || failed=$((failed + 1))
         done < <(tool_names)
     else
-        local name
-        for name in "$@"; do
+        for name in "${requested[@]}"; do
             install_one "${name}" || failed=$((failed + 1))
         done
     fi
