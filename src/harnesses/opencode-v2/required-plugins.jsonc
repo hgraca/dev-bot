@@ -15,6 +15,9 @@
   "server": [
     ".opencode/plugins/on-hooks",
     ".opencode/plugins/mcp-sync",
-    ".opencode/plugins/skill-name-resolver"
+    ".opencode/plugins/skill-name-resolver",
+    // Carries a ./tui export: the pane-title TUI part rides on this package,
+    // and _retire_stale_plugin_dirs deletes any package not declared here.
+    ".opencode/plugins/herdr-pane-title"
   ]
 }

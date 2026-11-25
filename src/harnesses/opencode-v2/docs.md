@@ -203,10 +203,21 @@ terminal UI. opencode 2.3 validates the `./tui` default export as
   `opencode-tabs@0.3.0` and three `./tui-plugins/*` paths, so `init.sh` retires
   exactly those entries and leaves the project's own additions alone.
 
-**Shipped:** no TUI part. The PTY monitor that used to ship as the `./tui`
-part of the `hooks/pty/` package was removed with the PTY extension itself;
-v2's shell tool covers the long-running case without a sidebar. The package
-linker still supports a `./tui` / `./rpc` part for a module that grows one.
+**Shipped:** one — `hooks/herdr-pane-title/`. Its server part is deliberately
+empty: it exists only to carry the `./tui` export, which is how a project-scoped
+TUI plugin is delivered in v2. The TUI half keeps the pane's herdr border label
+on the **root** session's title, the same behaviour the v1 harness gets from
+`tui-plugins/herdr-pane-title/`. It is inert outside a herdr pane, and every ctx
+member it uses is feature-detected, so a narrowed 2.3 surface leaves it a no-op
+instead of the `Invalid V2 TUI plugin module` failure tui-defaults produced.
+Events arrive as v2's async stream — `subscribe({ signal })` with the payload
+under `data`, not v1's `event.on(type, handler)` with `properties`, which throws
+at load — and cleanup is the disposer `setup` returns, so no interval can outlive
+the TUI it belongs to. The
+PTY monitor that used to ship as the `./tui` part of the `hooks/pty/` package
+was removed with the PTY extension itself; v2's shell tool covers the
+long-running case without a sidebar. The package linker still supports a
+`./tui` / `./rpc` part for a module that grows one.
 
 **Retired:** `provider-ttft` — ported once, then dropped: 2.3's built-in
 `opencode.prompt.footer` already renders `· 1.2 ttft` (and `tok/s`), both gated

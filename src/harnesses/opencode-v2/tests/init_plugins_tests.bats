@@ -69,10 +69,10 @@ load 'init_test_helper'
   rm -f "${cfg}"
 }
 
-@test "init links no TUI part at all" {
+@test "init links no RETIRED TUI part" {
   # tui-defaults is still on the pre-2.3 API (its kv surface has no 2.3
   # equivalent), and provider-ttft was retired once 2.3's built-in prompt footer
-  # started reporting ttft. This harness ships server plugins only.
+  # started reporting ttft. Neither may come back.
   scenario default
 
   [ ! -e "${PROJECT}/.opencode/plugins/tui-defaults" ]
@@ -80,6 +80,21 @@ load 'init_test_helper'
   run v2 get "${CONFIG}" plugins
   refute_output --partial "tui-defaults"
   refute_output --partial "provider-ttft"
+}
+
+@test "init links the herdr pane-title package with its ./tui export" {
+  # A TUI part rides on a plugin package: v2 resolves it through the package's
+  # `exports`, and a package without the entry silently has no TUI half.
+  scenario default
+
+  local pkg="${PROJECT}/.opencode/plugins/herdr-pane-title"
+  [ -f "${pkg}/index.ts" ] || fail "no server part at ${pkg}"
+  [ -f "${pkg}/tui.ts" ] || fail "no TUI part at ${pkg}"
+
+  run python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["exports"].get("./tui",""))' \
+    "${pkg}/package.json"
+  assert_success
+  assert_output "./tui.ts"
 }
 
 @test "init retires the TTFT package an earlier build shipped" {
