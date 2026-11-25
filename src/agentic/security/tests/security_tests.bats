@@ -302,6 +302,28 @@ checklist_sections() {
     done
 }
 
+@test "the language-neutral checklist covers every category with three checks" {
+    # It is what a non-PHP project has, so a category missing here — or one
+    # carrying a token check — is coverage the report cannot claim.
+    local reference="${MODULE}/skills/audit-security/references/language-neutral.md"
+    run test -s "${reference}"
+    assert_success
+    local category rows total
+    for category in $(owasp_categories); do
+        grep -qE "^### ${category} — " "${reference}" ||
+            fail "${category} missing from the language-neutral checklist"
+        rows="$(awk -v p="### ${category} — " '
+            index($0, p) == 1 { inside = 1; next }
+            inside && substr($0, 1, 3) == "###" { exit }
+            inside && /^- \[ \]/ { count++ }
+            END { print count + 0 }
+        ' "${reference}")"
+        [ "${rows}" -ge 3 ] || fail "${category} carries ${rows} neutral check(s)"
+    done
+    total="$(grep -c '^- \[ \]' "${reference}")"
+    [ "${total}" -eq 30 ] || fail "expected 30 neutral checks, found ${total}"
+}
+
 @test "neither skill answers a superseded OWASP list" {
     local skill
     for skill in "$AUDIT" "$SKILL"; do

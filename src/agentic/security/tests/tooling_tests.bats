@@ -13,6 +13,7 @@ setup() {
     MODULE="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
     TOOLING="${MODULE}/scripts/tooling.sh"
     export SEC_TOOLS_DIR="${BATS_TEST_TMPDIR}/store"
+    export SEC_TOOLS_LOCK="${BATS_TEST_TMPDIR}/tooling.lock"
     STUB_BIN="${BATS_TEST_TMPDIR}/stub"
     mkdir -p "${STUB_BIN}"
     export PATH="${STUB_BIN}:${PATH}"
@@ -121,7 +122,7 @@ stub_store_tool() {
     mkdir -p "${SEC_TOOLS_DIR}/bin"
     printf '#!/usr/bin/env bash\nexit 0\n' >"${SEC_TOOLS_DIR}/bin/ffuf"
     chmod +x "${SEC_TOOLS_DIR}/bin/ffuf"
-    printf 'ffuf v1.0.0\nffuf v2.0.0\n' >"${SEC_TOOLS_DIR}/versions.txt"
+    printf 'ffuf v1.0.0\nffuf v2.0.0\n' >"${SEC_TOOLS_LOCK}"
     run bash "${TOOLING}" check
     assert_success
     assert_output --partial 'v2.0.0'
@@ -190,11 +191,12 @@ stub_store_tool() {
     assert_output --partial 'distro-owned'
 }
 
-@test "install is idempotent for a tool already in the store" {
+@test "install is idempotent for a tool already installed and pinned" {
     stub_store_tool ffuf
+    printf 'ffuf v2.1.0\n' >"${SEC_TOOLS_LOCK}"
     run bash "${TOOLING}" install ffuf
     assert_success
-    assert_output --partial 'already installed'
+    assert_output --partial 'already installed and pinned'
 }
 
 @test "a uvx-backed tool reads as resolvable, not installed" {
@@ -231,7 +233,7 @@ stub_store_tool() {
 @test "a pinned uvx tool is invoked at that version" {
     stub_system_tool uvx
     mkdir -p "${SEC_TOOLS_DIR}"
-    printf 'semgrep 1.2.3\n' >"${SEC_TOOLS_DIR}/versions.txt"
+    printf 'semgrep 1.2.3\n' >"${SEC_TOOLS_LOCK}"
     run bash "${TOOLING}" run semgrep --config p/php .
     assert_success
     assert_output 'stub-uvx [semgrep@1.2.3] [--config] [p/php] [.]'

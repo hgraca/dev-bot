@@ -47,19 +47,21 @@ learn whether it is a local binary, a `uvx` invocation, a container or a system 
 
 | Backend  | Tools                               | Installed how                               |
 | -------- | ----------------------------------- | ------------------------------------------- |
-| `go`     | `nuclei`, `ffuf`, `gitleaks`        | `go install`, pinned in `versions.txt`      |
+| `go`     | `nuclei`, `ffuf`, `gitleaks`        | `go install`, pinned in `tooling.lock`      |
 | `uvx`    | `semgrep`, `bandit`, `sqlmap`       | resolved per call; pinned once installed    |
 | `docker` | `zap`, `trivy`, `metasploit`        | `docker pull`, pinned by digest             |
 | `system` | `nmap`, `tcpdump`, `hydra`, `nikto` | your package manager — never auto-installed |
 
-`install --locked` reproduces `versions.txt` exactly: it resolves nothing new, and it refuses a tool
-the lock has no entry for rather than guessing. The lock is written by a normal install, so the first
+`install --locked` reproduces the lock exactly: it resolves nothing new, and it refuses a tool the
+lock has no entry for rather than guessing. The lock is written by a normal install, so the first
 run resolves and every later one can be reproduced.
 
 `tooling.sh check` prints what is present; a check whose tool is absent is recorded as skipped, never
 as passed. Provisioning reaches the network, so `devbot install` only reports unless
-`SEC_TOOLS_AUTO_INSTALL=1` is set, while `devbot update` runs the install pass. Binaries and the
-version record live under `storage/security-tools/`, outside the committed tree.
+`SEC_TOOLS_AUTO_INSTALL=1` is set, while `devbot update` runs the install pass. Binaries live under
+`storage/security-tools/`, outside the committed tree; the **lock** lives at
+`src/agentic/security/tooling.lock` and is committed, because a lock outside the repository
+reproduces nothing.
 `SEC_TOOLS_DOCKER_NETWORK` opts a container run out of its default `--network none` when the check
 must reach the target.
 

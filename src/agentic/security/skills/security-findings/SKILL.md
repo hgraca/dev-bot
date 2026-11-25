@@ -218,9 +218,9 @@ Three relationships — and this is why a changed _caller_ matters:
 - **`caller_radius`** — a changed file calls the finding's symbol. Without a parser this is a
   call-site match; `codebase-memory.detect_changes` gives the precise radius when it is available.
 
-**A `BLOCK` requires a refutation.** A confirmed High/Critical finding with no `refutation.verdict`
-still surfaces on the change, but it answers `REVIEW` — the merge-stopping verdict belongs to a second
-reader, not to the finder. `findings.sh check` flags the same records, so an unrefuted finding is
+**A `BLOCK` requires a refutation.** An open or confirmed High/Critical finding with no `uphold`
+verdict in `refutation` still surfaces on the change, but it answers `REVIEW` — the merge-stopping
+verdict belongs to a second reader, not to the finder. `findings.sh check` flags the same records, so an unrefuted finding is
 visible before anyone relies on it. This is the one rule in this module that the tooling enforces
 rather than describes.
 

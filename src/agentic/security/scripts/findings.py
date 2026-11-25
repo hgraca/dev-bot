@@ -164,22 +164,38 @@ def problems_with(record) -> list[str]:
     if refutation is not None:
         if not isinstance(refutation, dict):
             found.append("refutation is not an object")
-        elif refutation.get("verdict") not in REFUTATION_VERDICTS:
-            found.append(f"refutation verdict is not one of {', '.join(REFUTATION_VERDICTS)}")
+        else:
+            if refutation.get("verdict") not in REFUTATION_VERDICTS:
+                found.append(f"refutation verdict is not one of {', '.join(REFUTATION_VERDICTS)}")
+            for key in ("by", "at"):
+                value = refutation.get(key)
+                if not isinstance(value, str) or not value.strip():
+                    found.append(f"refutation needs a non-empty {key}")
     return found
 
 
 def has_refutation(record: dict) -> bool:
-    """A gating verdict is only trustworthy when a second reader produced it."""
+    """A verdict that may stop a merge.
+
+    Only `uphold` qualifies: `reject` says the finding is wrong, `downgrade` says
+    its severity is, and `unverifiable` says nobody could tell — none of those is
+    a reason to block. The verdict must also name its reader and the date.
+    """
     refutation = record.get("refutation")
-    return isinstance(refutation, dict) and refutation.get("verdict") in REFUTATION_VERDICTS
+    if not isinstance(refutation, dict) or refutation.get("verdict") != "uphold":
+        return False
+    return all(
+        isinstance(refutation.get(key), str) and refutation.get(key).strip()
+        for key in ("by", "at")
+    )
 
 
 def unrefuted_gating(records) -> list[dict]:
+    # Open and confirmed alike: the gate gates both, so check must report both.
     return [
         record
         for record in records
-        if record.get("status") == "confirmed"
+        if record.get("status") in OPEN_STATES
         and record.get("severity") in BLOCKING_SEVERITIES
         and not has_refutation(record)
     ]
@@ -195,7 +211,8 @@ def cmd_check(args, path: str, records) -> int:
             print(f"  {record.get('id', '<no id>')}: {problem}")
             failures += 1
     for record in unrefuted_gating(records):
-        print(f"  {record.get('id')}: confirmed {record.get('severity')} with no refutation")
+        state = record.get("status")
+        print(f"  {record.get('id')}: {state} {record.get('severity')} with no upheld refutation")
         failures += 1
     counted = {state: 0 for state in STATUSES}
     for record in records:
@@ -557,7 +574,7 @@ def cmd_gate(args, path: str) -> int:
             print(f"  {record['id']}  {record['severity']:<13} {relationship}{flag}  {record['title']}")
 
     if blocking:
-        print("\nBLOCK: a refuted High/Critical finding sits on the changed lines")
+        print("\nBLOCK: an upheld High/Critical finding sits on the changed lines")
         return 2
     if matched:
         stale_high = [i for i in matched if i[2] and i[0].get("severity") in BLOCKING_SEVERITIES]

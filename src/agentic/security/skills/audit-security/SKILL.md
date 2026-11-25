@@ -79,11 +79,13 @@ stopped publishing — and it chases them while missing A03, A06 and A10 entirel
 
 ## 3. Language-Specific Checklists
 
-The categories above are universal; the checklists below map them to concrete, language-specific
-checks. Run the checklist for every language the project uses.
+The categories above are universal. Start with
+[`references/language-neutral.md`](references/language-neutral.md) — checks that hold in any stack,
+and the whole checklist a non-PHP project gets. The sections below then add only what reading that
+language can see.
 
-A language with no section here gets the category table above and an explicit line in the report
-saying no language-specific checks were applied. Silence reads as coverage.
+A language with no section here still gets the neutral checklist and the category table; say in the
+report that no language-specific checks were applied. Silence reads as coverage.
 
 **Exit:** every category A01–A10 is recorded as `checked`, `clean`, `not applicable` (with the reason)
 or `not examined` (with the reason). The last two are the ones that get skipped, and they are the ones

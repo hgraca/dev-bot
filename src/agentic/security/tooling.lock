@@ -1,0 +1,3 @@
+# Toolchain lock for the security module — one pin per line, `<tool> <pin>`.
+# Written by `scripts/tooling.sh install`; reproduced by `install --locked`.
+# Committed on purpose: a lock outside the repository reproduces nothing.

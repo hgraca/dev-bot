@@ -92,7 +92,7 @@ DIFF
 
 @test "add records a valid finding, and check reports it" {
     run bash "${FINDINGS}" add <<'JSON'
-{"id":"SEC-1","title":"t","severity":"High","status":"open","tier":"observed","discovered":"abc1234"}
+{"id":"SEC-1","title":"t","severity":"Low","status":"open","tier":"observed","discovered":"abc1234"}
 JSON
     assert_success
     assert_output --partial "recorded SEC-1"
@@ -297,13 +297,43 @@ JSON
     assert_output --partial "no refutation"
 }
 
+@test "only an upheld refutation lets a finding block" {
+    # `reject` says the finding is wrong; that must not stop a merge.
+    cat >"${SEC_FINDINGS_STORE}" <<JSON
+{"id":"SEC-1","title":"t","severity":"High","status":"confirmed","tier":"read-in-source","discovered":"${HEAD_SHA}","location":{"file":"app/InvoiceController.php","line":3,"symbol":"InvoiceController::show"},"refutation":{"verdict":"reject","by":"@critic","at":"2026-11-25"}}
+JSON
+    diff_on_own_lines >"${BATS_TEST_TMPDIR}/d.diff"
+    run bash "${FINDINGS}" --store "${SEC_FINDINGS_STORE}" gate --repo "${REPO}" \
+        <"${BATS_TEST_TMPDIR}/d.diff"
+    assert_failure 1
+    assert_output --partial "no refutation"
+}
+
+@test "a refutation must name its reader and its date" {
+    run bash "${FINDINGS}" add <<'JSON'
+{"id":"SEC-1","title":"t","severity":"High","status":"open","tier":"observed","discovered":"abc","refutation":{"verdict":"uphold"}}
+JSON
+    assert_failure 2
+    assert_output --partial "refutation needs a non-empty by"
+}
+
+@test "check flags an open gating finding that was never refuted" {
+    # The gate gates open and confirmed alike, so check must report both.
+    cat >"${SEC_FINDINGS_STORE}" <<JSON
+{"id":"SEC-1","title":"t","severity":"Critical","status":"open","tier":"observed","discovered":"${HEAD_SHA}"}
+JSON
+    run bash "${FINDINGS}" check
+    assert_failure 1
+    assert_output --partial "no upheld refutation"
+}
+
 @test "check flags a confirmed gating finding that was never refuted" {
     cat >"${SEC_FINDINGS_STORE}" <<JSON
 {"id":"SEC-1","title":"t","severity":"High","status":"confirmed","tier":"read-in-source","discovered":"${HEAD_SHA}","location":{"file":"app/InvoiceController.php","line":3,"symbol":"InvoiceController::show"}}
 JSON
     run bash "${FINDINGS}" check
     assert_failure 1
-    assert_output --partial "no refutation"
+    assert_output --partial "no upheld refutation"
 }
 
 @test "gate fails closed on a store that does not validate" {

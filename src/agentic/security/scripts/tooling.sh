@@ -15,10 +15,9 @@
 #   --help
 #
 # Backends:
-#   go      Go module installed into <store>/bin, version recorded after the
-#           fact — NOT pinned; see the note in `install`
-#   uvx     resolved per invocation to the current release
-#   docker  image pulled at install, run with --rm per call
+#   go      Go module installed into <store>/bin; pinned in tooling.lock
+#   uvx     resolved per call, and at the pinned version once installed
+#   docker  image pulled at install; pinned by digest in tooling.lock
 #   system  the distro owns it; we only report presence
 #
 # Nothing here is intrusive. Every tool it can install is read-only or advisory
@@ -32,7 +31,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
 STORE_DIR="${SEC_TOOLS_DIR:-${REPO_ROOT}/storage/security-tools}"
 BIN_DIR="${STORE_DIR}/bin"
-VERSIONS_FILE="${STORE_DIR}/versions.txt"
+VERSIONS_FILE="${SEC_TOOLS_LOCK:-${REPO_ROOT}/src/agentic/security/tooling.lock}"
 
 # name|backend|source|checks-enabled
 # The source column is the Go module path, the PyPI name, or the image reference.
@@ -61,7 +60,7 @@ Security tooling façade.
   tooling.sh run <tool> [args...]  Run a tool through whichever backend serves it
   tooling.sh install [--locked] [tool...]
                                    Provision what can be provisioned; skip the rest.
-                                   --locked reproduces versions.txt exactly
+                                   --locked reproduces tooling.lock exactly
   tooling.sh --help
 
 Environment:
@@ -125,7 +124,15 @@ status_of() {
     case "${backend}" in
         go) go_present "$1" && echo present || echo absent ;;
         uvx) uvx_present && echo resolve || echo absent ;;
-        docker) docker_present "${source}" && echo present || echo absent ;;
+        docker)
+            # Status must use the same reference run/install use: the locked
+            # digest when there is one, the tag otherwise.
+            local docker_ref="${source}"
+            local docker_pin
+            docker_pin="$(recorded_version "$1")"
+            [ -n "${docker_pin}" ] && docker_ref="${source}@${docker_pin}"
+            docker_present "${docker_ref}" && echo present || echo absent
+            ;;
         system) system_present "${source}" && echo present || echo absent ;;
         *) echo absent ;;
     esac
@@ -250,8 +257,9 @@ install_one() {
 
     case "${backend}" in
         go)
-            if go_present "${tool}" && [ -z "${SEC_TOOLS_FORCE:-}" ] && [ -z "${SEC_TOOLS_LOCKED:-}" ]; then
-                printf '  ok    %-10s already installed\n' "${tool}"
+            if go_present "${tool}" && [ -z "${SEC_TOOLS_FORCE:-}" ] &&
+                [ -z "${SEC_TOOLS_LOCKED:-}" ] && [ -n "${pin}" ]; then
+                printf '  ok    %-10s already installed and pinned\n' "${tool}"
                 return 0
             fi
             if ! command -v go >/dev/null 2>&1; then
@@ -300,8 +308,8 @@ install_one() {
             ref="${source}"
             [ -n "${SEC_TOOLS_LOCKED:-}" ] && ref="${source}@${pin}"
             if docker image inspect "${ref}" >/dev/null 2>&1 &&
-                [ -z "${SEC_TOOLS_FORCE:-}" ] && [ -z "${SEC_TOOLS_LOCKED:-}" ]; then
-                printf '  ok    %-10s already pulled\n' "${tool}"
+                [ -z "${SEC_TOOLS_FORCE:-}" ] && [ -z "${SEC_TOOLS_LOCKED:-}" ] && [ -n "${pin}" ]; then
+                printf '  ok    %-10s already pulled and pinned\n' "${tool}"
                 return 0
             fi
             printf '  pull  %-10s %s\n' "${tool}" "${ref}"
