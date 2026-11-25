@@ -32,10 +32,18 @@ setup() {
   grep -q '^name: devbot:gh-review-loop' "${COMMAND}"
 }
 
-@test "command points at the skill instead of carrying the mechanics" {
+@test "command points at the loop and its adapter instead of carrying the mechanics" {
+  grep -q 'devbot:review-loop` skill' "${COMMAND}"
   grep -q 'devbot:gh-review-loop` skill' "${COMMAND}"
   ! grep -q 'requestReviews' "${COMMAND}"
   ! grep -q 'pull_request_review_id' "${COMMAND}"
+}
+
+@test "skill defers the loop policy to devbot:review-loop" {
+  grep -q 'devbot:review-loop' "${SKILL_FLAT}"
+  # The generic rules live there, not here.
+  ! grep -q 'one commit per finding' "${SKILL}"
+  ! grep -q 'Pre-push' "${SKILL}"
 }
 
 @test "skill carries the review loop mechanics" {
@@ -148,8 +156,9 @@ setup() {
   [ "${gate_line}" -lt "${squash_line}" ]
 }
 
-@test "review loop finishes one step before the merge" {
+@test "review loop defers the finish to devbot:review-loop" {
   grep -q 'squash the fixups' "${SKILL_FLAT}"
-  grep -q 'push --force-with-lease' "${SKILL_FLAT}"
   grep -q 'Never merge' "${SKILL_FLAT}"
+  # The lease command belongs to the generic loop, not this adapter.
+  ! grep -q 'push --force-with-lease' "${SKILL}"
 }

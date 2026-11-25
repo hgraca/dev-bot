@@ -118,7 +118,10 @@ setup() {
   done
 }
 
-@test "the review-loop mechanics stay in devbot:gh-review-loop, not the always-loaded skill" {
+@test "the review-loop mechanics stay in devbot:review-loop, not the always-loaded skill" {
+  run grep -qF 'devbot:review-loop' "$FLAT"
+  assert_success
+
   run grep -qF "carries the loop's mechanics" "$FLAT"
   assert_success
 

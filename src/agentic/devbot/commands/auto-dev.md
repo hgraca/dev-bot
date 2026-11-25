@@ -73,8 +73,8 @@ Task: $ARGUMENTS
 
 ## Review loop (when the workflow opens a pull request)
 
-The loop is `devbot:gh-review-loop`: load that skill and run it until a review introduces no new
-findings and the pull request's required checks are green and it is mergeable. It carries the
-request/verify mechanics, the wait cadence, the read/fix/mark/track steps and the CI gate; an
-interactive run uses the same skill, pausing at its own check-ins. Finish where it says — squash the
-fixups and hand the user the force-push command. Never merge.
+The loop is `devbot:review-loop` with `devbot:gh-review-loop` as the Copilot adapter: load both and
+run until a round introduces no new findings and the pull request's required checks are green and it
+is mergeable. The adapter carries the request/verify mechanics, the wait and the CI gate; the loop
+carries convergence, the fixup discipline and the finish. Finish where it says — squash the fixups
+and hand the user the force-push command. Never merge.

@@ -1,15 +1,14 @@
 ---
 name: devbot:gh-review-loop
-description: Loop Copilot pull-request reviews — request, wait, fix each finding as a fixup, push, re-request — until a review introduces no new findings. Use when running the review loop for a PR.
+description: "Use when looping a GitHub Copilot review on a pull request. Triggers on 'Copilot review loop', 'address Copilot's comments', 'iterate until Copilot is happy'."
 ---
 
 # GH Review Loop
 
-The Copilot pull-request review loop, end to end: request a review, wait for it to land, read every
-finding, fix each as a fixup, push, re-request, and repeat until a review introduces no new findings.
-A clean review is not a mergeable pull request: confirm the required checks are green and the pull
-request can actually merge, then squash the fixups and hand the user the force-push command — never
-merge.
+The Copilot adapter for `devbot:review-loop`: the same request → await → read → fix → answer cycle,
+with GitHub Copilot as the remote reviewer. This skill carries what is Copilot's and GitHub's; the
+loop itself — convergence, the fixup discipline, the answer rule and the finish — is
+`devbot:review-loop`'s and is not restated here.
 
 `devbot:auto-dev` and the `devbot:gh-review-loop` command both drive this skill; an interactive
 session uses it too, pausing at its own check-ins. `devbot:address-review` defers to it for the
@@ -18,26 +17,24 @@ posting/reply mechanics, which are the deliberate exception to its local-only ru
 ## When to Apply
 
 - Working a pull request's Copilot review to a clean state.
-- `devbot:auto-dev` reaches the review step.
-- The user asks to run the review loop, address Copilot's comments, or "iterate until Copilot is
-  happy".
+- `devbot:auto-dev`, `devbot:gh-create-pr` or `devbot:full-loop` reaches the remote review step.
+- The user asks to run the Copilot review loop, address Copilot's comments, or "iterate until
+  Copilot is happy".
 
 ## MUST
 
-- **Request after the PR exists.** A rejected reviewer on `gh pr create` aborts the whole creation,
-  leaving no PR to repair.
-- **Verify, never trust an exit code.** `gh pr edit` and `gh api graphql` both exit 0 with no review
-  queued.
+- **Request after the PR exists.** A rejected reviewer on `gh pr create` aborts the whole creation, leaving no PR to repair.
+- **Verify, never trust an exit code.** `gh pr edit` and `gh api graphql` both exit 0 with no review queued.
 - **Wait with one `pr-watch` call per review cycle**, not a hand-rolled loop; its exit code is the answer, and the codes are listed in [Wait](#wait).
-- **Fix every finding as a `fixup!`** (`devbot:git-fixup-commits`), one commit per finding.
 - **Reply and resolve** every thread, including a false positive — with the same succinct format.
 - **Gate on CI, not just the review.** Green required checks and a mergeable pull request come before
   the history is touched.
-- **Stop one step before the merge**: squash the fixups, hand the user the force-push command.
 
-## The loop
+## The cycle
 
-Run the steps in order until a review introduces no new findings.
+Run these steps in order for each round; the loop's control — when to re-enter and when it is
+done — is `devbot:review-loop`'s, and so are `Fix` and its push. The push matters here: Copilot
+re-reviews only a new tip, so a round's fixes are pushed before [Request](#request) is run again.
 
 ### Request
 
@@ -151,11 +148,6 @@ next push. Only `0 open issues` with no unaddressed `previously missed` entry cl
 Confirm the checkout is the PR's head branch before editing: an explicit `--head` may differ from the
 checked-out branch. Work in a clean checkout or worktree of that branch and push explicitly to it.
 
-### Fix
-
-Address every finding as per your own recommendation, commit each as a `fixup!`
-(`devbot:git-fixup-commits`), and push.
-
 ### Mark
 
 Reply with a succinct resolution comment, then resolve the thread. The reply is one to three bullet
@@ -164,12 +156,6 @@ prose around them. A false positive gets the same format, explaining why no chan
 finding that exists only as a review-body row has no thread: post its resolution as a PR comment in
 the same format. This posting is the deliberate exception to `devbot:address-review`'s local-only
 rule.
-
-### Track
-
-Follow the underlying issue and affected code across both sources, keeping comment IDs for the
-replies and resolutions. A re-raised finding already addressed or judged a false positive does not
-restart the loop.
 
 ### Gate
 
@@ -203,8 +189,7 @@ gh pr view <pr> --repo <owner>/<repo> --json mergeable,mergeStateStatus
 
 ### Finish
 
-Only a clean review **and** a green, mergeable pull request finish the loop. Squash the fixups into
-their target commits (`devbot:git-worktrees`, "Squash fixups before merge") and hand the user the exact
-`git push --force-with-lease=<branch>:<expected-sha> origin <new-head>:<branch>` command. The guards module blocks the agent's
-force-push; the human publishes it. A squash rewrites commits without changing the tree, so the
-checks stay green when it lands. Never merge.
+Once [Gate](#gate) is green, `devbot:review-loop`'s Finish applies: squash the fixups into their
+targets (`devbot:git-fixup-commits`, step 7 owns the lease and the exact command) and hand the user
+the force-push. GitHub-specific: the squash rewrites commits without changing the tree, so the push
+re-runs the checks green. Never merge.

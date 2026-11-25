@@ -64,12 +64,12 @@ request; nothing is merged.
    your own commits. The branch that gets pushed carries no `fixup!` commits.
 6. **Open the pull request and run the review loop** — only once step 5 is clean, push the branch and
    open the pull request with `devbot:gh-create-pr`, which owns the gate: it opens without a reviewer
-   and asks whether to run the Copilot loop, running it by default in an automatic run. When the loop
-   runs, drive it with `devbot:gh-review-loop` until a review introduces no new findings **and** every
-   required check is green with the pull request mergeable — request the reviewer, read both the line
-   comments and the review body, fix each finding as a fixup, reply then resolve each thread, and
-   re-enter the loop for a failing check. That skill carries the loop's mechanics — cadence, reviewer
-   effort, the CI gate and the resolution reply.
+   and asks whether to run the remote loop, running it by default in an automatic run. When the loop
+   runs, drive it with `devbot:review-loop` — the reviewer-agnostic loop — through
+   `devbot:gh-review-loop`, the Copilot adapter, until a round introduces no new findings **and**
+   every required check is green with the pull request mergeable. `devbot:review-loop` carries the
+   loop's mechanics — convergence, the fixup discipline, the answer rule and the finish;
+   `devbot:gh-review-loop` adds Copilot's request, wait, review effort and CI gate.
 7. **Hand back** — stop and report the pull request and its URL (`devbot:gh-create-pr`). The reviewer
    squashes the fixups and merges; you never merge it.
 

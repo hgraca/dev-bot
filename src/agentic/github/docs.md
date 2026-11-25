@@ -17,10 +17,9 @@ review its changeset, or address the comments it already has.
 - **`gh-create-pr`** — opens a pull request from a branch onto the default branch.
 - **`gh-make-review`** — checks out a PR and code-reviews its changeset locally.
 - **`gh-address-review`** — reads a PR's review comments and addresses them locally.
-- **`gh-review-loop`** — runs the Copilot review loop for a pull request until a review introduces no
-  new findings and every required check is green with the pull request mergeable: request, wait, fix
-  each finding as a fixup, re-request; it finishes by squashing the fixups and handing over the
-  force-push.
+- **`gh-review-loop`** — the Copilot adapter for the `dev` module's review loop: requesting, verifying,
+  waiting and reading a Copilot review on a pull request, until a round introduces no new findings and
+  every required check is green with the pull request mergeable.
 - **`gh-pages`** — scaffolds a Jekyll documentation site deployed to GitHub Pages: a project site, or
   the org-level umbrella that indexes every project's docs site.
 

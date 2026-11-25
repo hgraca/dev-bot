@@ -48,8 +48,8 @@ condition below.
    place the loop starts. Never push the default branch, never merge.
 
 5. **Carry the loop that step 4 started to its gate.** Do not start a second one:
-   `devbot:gh-review-loop` owns the request/wait/read/fix cycle, the resolve protocol and the
-   required-check gate, and the automatic run in step 4 entered it. See it through until a review
+   `devbot:gh-review-loop`, through `devbot:review-loop`, owns the request/wait/read cycle, the
+   resolve protocol and the required-check gate, and the automatic run in step 4 entered it. See it through until a review
    introduces no new findings and the required checks are green, then stop one step before the merge:
    squash the fixups and hand the human the exact `git push --force-with-lease` command.
 

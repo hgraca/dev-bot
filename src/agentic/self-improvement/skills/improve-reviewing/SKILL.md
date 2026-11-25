@@ -43,7 +43,7 @@ worse, not better.
 | What the reviewer **inspects and flags** — checks, issue types, finding patterns, report template | `src/agentic/devteam/skills/review-implementation/SKILL.md` |
 
 Paths are relative to the dev-bot repository root. The standing pull request also carries a change to
-a review-loop skill — `gh-create-pr` or `gh-review-loop` — when the gap is in how a loop runs, because
+a review-loop skill — `review-loop`, `gh-create-pr` or `gh-review-loop` — when the gap is in how a loop runs, because
 that is the same evidence read one step earlier. Anything else is out of scope: anything not about
 reviewing stays out of both files, and a gap belonging to any other skill is raised as a follow-up,
 not landed here.
@@ -81,7 +81,7 @@ folds each `fixup!` into its target so the commits no longer name the gap either
 
 - the review bodies and the top-level comments: `gh pr view <pr> --json reviews,comments`
 - the inline threads: `gh api repos/<owner>/<repo>/pulls/<pr>/comments`
-- the `fixup!` commits still present, which `devbot:gh-review-loop` writes one per line finding
+- the `fixup!` commits still present, which `devbot:review-loop` writes one per finding
 
 For each finding capture what was flagged, its category (correctness, security, performance,
 architecture, testing, style), whether it took a code change, and whether our reviewer should have
