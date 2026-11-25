@@ -276,6 +276,79 @@ teardown_mock() {
   python3 -m json.tool "$APP_MAP_ASSETS/AppMap.schema.json" > /dev/null
 }
 
+@test "app-map assets: menu labels the file buttons for their action" {
+  run grep -F 'id="save-btn" type="button">Save</button>' "$APP_MAP_ASSETS/AppMap.html"
+  assert_success
+  run grep -F 'id="save-as-btn" type="button">Save as</button>' "$APP_MAP_ASSETS/AppMap.html"
+  assert_success
+  run grep -F 'id="reload-btn" type="button" disabled>Reload</button>' "$APP_MAP_ASSETS/AppMap.html"
+  assert_success
+  run grep -F 'id="export-svg-btn" type="button" disabled>Export SVG</button>' "$APP_MAP_ASSETS/AppMap.html"
+  assert_success
+}
+
+@test "app-map assets: every file action is wired to the kept handle" {
+  run python3 - "$APP_MAP_ASSETS/AppMap.html" <<'PY'
+import re, sys
+html = open(sys.argv[1]).read()
+def body(name):
+    m = re.search(r'(?:async )?function ' + name + r'\([^)]*\)\{(.*?)\n  \}', html, re.S)
+    return m.group(1) if m else ''
+missing = []
+if 'options.startIn = fileHandle' not in body('pickerOptions'): missing.append('startIn')
+for fn in ('openFile', 'saveAs', 'exportSvg'):
+    if 'pickerOptions(' not in body(fn): missing.append(fn)
+if 'updateControls()' not in body('render'): missing.append('render')
+if '!fileHandle && !lastFile' not in body('updateControls'): missing.append('reload-gate')
+if '!hasContent()' not in body('updateControls'): missing.append('export-gate')
+if 'fileHandle' not in body('reloadFile'): missing.append('reloadFile')
+print(','.join(missing) or 'OK')
+PY
+  assert_output "OK"
+}
+
+@test "app-map assets: load keeps a handle that save and export start in" {
+  run grep -q 'showOpenFilePicker' "$APP_MAP_ASSETS/AppMap.html"
+  assert_success
+  run grep -q 'async function writeFile(handle, content)' "$APP_MAP_ASSETS/AppMap.html"
+  assert_success
+  run grep -q 'ensureWritable(fileHandle)' "$APP_MAP_ASSETS/AppMap.html"
+  assert_success
+}
+
+@test "app-map assets: export builds a standalone svg of the board" {
+  run grep -q 'image/svg+xml' "$APP_MAP_ASSETS/AppMap.html"
+  assert_success
+  run python3 - "$APP_MAP_ASSETS/AppMap.html" <<'PY'
+import re, sys
+html = open(sys.argv[1]).read()
+m = re.search(r'function buildExportSvg\(\)\{(.*?)\n  \}', html, re.S)
+body = m.group(1) if m else ''
+missing = [t for t in ('foreignObject', 'resize-handle', 'contentBounds') if t not in body]
+print(','.join(missing) or 'OK')
+PY
+  assert_output "OK"
+}
+
+@test "app-map assets: inline script parses" {
+  command -v node &>/dev/null || skip "node not installed"
+  python3 - "$APP_MAP_ASSETS/AppMap.html" > "$BATS_TEST_TMPDIR/app-map.js" <<'PY'
+import re, sys
+html = open(sys.argv[1]).read()
+m = re.search(r'<script>(.*?)</script>', html, re.S)
+sys.stdout.write(m.group(1))
+PY
+  run node --check "$BATS_TEST_TMPDIR/app-map.js"
+  assert_success
+}
+
+@test "app-map skill: teaches the agent to draw architecture diagrams" {
+  run grep -qi 'architecture diagram' "$SKILLS_DIR/app-map/SKILL.md"
+  assert_success
+  run head -5 "$SKILLS_DIR/app-map/SKILL.md"
+  assert_output --partial "architecture diagram"
+}
+
 @test "app-map assets: schema defines required map types" {
   run python3 -c "
 import json

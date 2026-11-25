@@ -19,6 +19,13 @@
     #new-btn:hover{background:#c73e3e}
     #save-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#2c2c2c;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
     #save-btn:hover{background:#1a1a1a}
+    #save-as-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#5b5b5b;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
+    #save-as-btn:hover{background:#464646}
+    #reload-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#0f9d8f;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
+    #reload-btn:hover{background:#0c8478}
+    #export-svg-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#7a5af8;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
+    #export-svg-btn:hover{background:#6746e0}
+    #menu-bar button:disabled{opacity:.4;pointer-events:none}
     #add-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#22BF3E;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
     #add-btn:hover{background:#1a9e32}
     #add-group-btn{appearance:none;border:0;border-radius:8px;padding:9px 14px;background:#8B5CF6;color:#fff;font-weight:600;font-size:.88rem;cursor:pointer}
@@ -96,7 +103,10 @@
   <div id="menu-title">Application Map</div>
   <button id="new-btn" type="button">New</button>
   <button id="load-btn" type="button">Load JSON</button>
-  <button id="save-btn" type="button">Save as</button>
+  <button id="save-btn" type="button">Save</button>
+  <button id="save-as-btn" type="button">Save as</button>
+  <button id="reload-btn" type="button" disabled>Reload</button>
+  <button id="export-svg-btn" type="button" disabled>Export SVG</button>
   <button id="add-btn" type="button">Add module</button>
   <button id="add-group-btn" type="button" title="Add moduleItemGroup">Add group</button>
   <input id="file-input" type="file" accept="application/json,.json"/>
@@ -163,6 +173,10 @@
   const emptyState = document.getElementById('empty-state');
   const loadBtn = document.getElementById('load-btn');
   const fileInput = document.getElementById('file-input');
+  const saveBtn = document.getElementById('save-btn');
+  const saveAsBtn = document.getElementById('save-as-btn');
+  const reloadBtn = document.getElementById('reload-btn');
+  const exportBtn = document.getElementById('export-svg-btn');
 
   const DEFAULT_COLORS = {
     map: '#d9c6ff',
@@ -172,7 +186,12 @@
     group: '#e8e8e8'
   };
 
+  const JSON_TYPES = [{ description: 'JSON', accept: { 'application/json': ['.json'] } }];
+
   let data = null;
+  let fileHandle = null;
+  let fileName = '';
+  let lastFile = null;
 
   let dragTarget = null, dragDX = 0, dragDY = 0, zTop = 10;
   let selectedGroup = null;
@@ -199,6 +218,25 @@
     tip.classList.add('show');
     clearTimeout(showTip._t);
     showTip._t = setTimeout(() => tip.classList.remove('show'), ms);
+  }
+
+  function hasContent(){
+    return !!(data && data.items && data.items.length);
+  }
+
+  function updateControls(){
+    reloadBtn.disabled = !fileHandle && !lastFile;
+    exportBtn.disabled = !hasContent();
+  }
+
+  function downloadText(content, name, mime){
+    const blob = new Blob([content], {type: mime});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function front(el){ el.style.zIndex = ++zTop; }
@@ -931,6 +969,7 @@
       boardHeader.style.display = 'none';
       emptyState.style.display = 'block';
       drawArrows();
+      updateControls();
       return;
     }
 
@@ -1046,6 +1085,7 @@
     layoutModules();
     applyTransform();
     requestAnimationFrame(drawArrows);
+    updateControls();
   }
 
   function distance(a, b){ return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); }
@@ -1096,41 +1136,197 @@
     }
   }
 
-  async function saveAs(){
+  function suggestJsonName(){
+    const base = (fileName || (data && data.title) || 'whiteboard').replace(/\.json$/i, '');
+    return (base || 'whiteboard') + '.json';
+  }
+
+  function pickerOptions(suggestedName, types){
+    const options = { suggestedName, types };
+    if(fileHandle) options.startIn = fileHandle;
+    return options;
+  }
+
+  async function ensureWritable(handle){
+    if(!handle.queryPermission) return true;
+    const options = { mode: 'readwrite' };
+    if(await handle.queryPermission(options) === 'granted') return true;
+    return await handle.requestPermission(options) === 'granted';
+  }
+
+  async function writeFile(handle, content){
+    const writable = await handle.createWritable();
+    await writable.write(content);
+    await writable.close();
+  }
+
+  function serializeBoard(){
+    if(!data) return null;
     syncDataFromDOM();
-    const content = JSON.stringify(data, null, 2);
-    const suggested = (data.title || 'whiteboard') + '.json';
-    try {
-      const handle = await window.showSaveFilePicker?.({
-        suggestedName: suggested,
-        types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }]
-      });
-      if(handle){
-        const writable = await handle.createWritable();
-        await writable.write(content);
-        await writable.close();
-        showTip('Saved');
-      }
+    return JSON.stringify(data, null, 2);
+  }
+
+  function rememberFile(handle, name, file){
+    fileHandle = handle || null;
+    fileName = name || '';
+    if(file) lastFile = file;
+    updateControls();
+  }
+
+  function forgetFile(){
+    fileHandle = null;
+    fileName = '';
+    lastFile = null;
+    updateControls();
+  }
+
+  async function save(){
+    const content = serializeBoard();
+    if(content === null) return;
+    if(!fileHandle) return saveAs();
+    try{
+      if(!(await ensureWritable(fileHandle))) return saveAs();
+      await writeFile(fileHandle, content);
+      showTip(`Saved ${fileName || 'file'}`);
     }catch(e){
-      if(e.name === 'AbortError') return; // user cancelled
-      // Fallback: download
-      const blob = new Blob([content], {type:'application/json'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = suggested;
-      a.click();
-      URL.revokeObjectURL(url);
+      console.error(e);
+      showTip('Save failed');
+    }
+  }
+
+  async function saveAs(){
+    const content = serializeBoard();
+    if(content === null) return;
+    const suggested = suggestJsonName();
+    if(!window.showSaveFilePicker){
+      downloadText(content, suggested, 'application/json');
+      showTip('Saved (download)');
+      return;
+    }
+    try{
+      const handle = await window.showSaveFilePicker(pickerOptions(suggested, JSON_TYPES));
+      if(!handle) return;
+      await writeFile(handle, content);
+      rememberFile(handle, handle.name, null);
+      showTip(`Saved ${handle.name}`);
+    }catch(e){
+      if(e.name === 'AbortError') return;
+      downloadText(content, suggested, 'application/json');
       showTip('Saved (download)');
     }
   }
 
-  document.getElementById('save-btn').addEventListener('click', saveAs);
+  async function reloadFile(){
+    if(!fileHandle && !lastFile) return;
+    try{
+      const file = fileHandle ? await fileHandle.getFile() : lastFile;
+      await applyLoadedFile(file, fileHandle);
+      showTip(`Reloaded ${file.name}`);
+    }catch(e){
+      console.error(e);
+      showTip(e.message || 'Reload failed — the file may have moved');
+    }
+  }
+
+  saveBtn.addEventListener('click', save);
+  saveAsBtn.addEventListener('click', saveAs);
+  reloadBtn.addEventListener('click', reloadFile);
 
   document.getElementById('new-btn').addEventListener('click', () => {
     setData({ id:'root', title:'Untitled', subtitle:'', type:'map', items:[] });
+    forgetFile();
     showTip('New board');
   });
+
+  function contentBounds(){
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const consider = (x, y, w, h) => {
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w);
+      maxY = Math.max(maxY, y + h);
+    };
+    board.querySelectorAll('.board-header, .module, .moduleItemGroup').forEach(el => {
+      if(el.offsetParent === null) return;
+      const p = elPos(el, board);
+      const group = el.parentElement && el.parentElement.closest('.moduleItemGroup');
+      if(group){
+        const g = elPos(group, board);
+        const x = Math.max(p.x, g.x), y = Math.max(p.y, g.y);
+        const right = Math.min(p.x + p.w, g.x + g.w), bottom = Math.min(p.y + p.h, g.y + g.h);
+        if(right > x && bottom > y) consider(x, y, right - x, bottom - y);
+        return;
+      }
+      consider(p.x, p.y, p.w, p.h);
+    });
+    try{
+      const bb = paths.getBBox();
+      if(bb.width && bb.height) consider(bb.x, bb.y, bb.width, bb.height);
+    }catch(e){ /* nothing drawn yet */ }
+    if(minX === Infinity) return null;
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+
+  function buildExportSvg(){
+    const box = contentBounds();
+    if(!box) return null;
+    const pad = 10;
+    const x = Math.floor(box.x) - pad;
+    const y = Math.floor(box.y) - pad;
+    const w = Math.ceil(box.x + box.w) - x + pad;
+    const h = Math.ceil(box.y + box.h) - y + pad;
+
+    const clone = board.cloneNode(true);
+    clone.style.transform = 'none';
+    clone.style.left = (-x) + 'px';
+    clone.style.top = (-y) + 'px';
+    // clone is shifted by -x: its box must reach x + w,
+    // while a negative x still needs the plain w
+    clone.style.width = Math.max(w, x + w) + 'px';
+    clone.style.height = Math.max(h, y + h) + 'px';
+    clone.querySelectorAll('.selected, .dragging').forEach(n => n.classList.remove('selected', 'dragging'));
+    clone.querySelectorAll('.resize-handle').forEach(n => n.remove());
+    const empty = clone.querySelector('#empty-state');
+    if(empty) empty.remove();
+
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+    wrapper.setAttribute('style', `position:relative;width:${w}px;height:${h}px;overflow:hidden;background:#ededed`);
+    wrapper.appendChild(clone);
+
+    const style = document.querySelector('style').textContent;
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
+      `<style><![CDATA[${style}]]></style>` +
+      `<rect x="0" y="0" width="${w}" height="${h}" fill="#ededed"/>` +
+      `<foreignObject x="0" y="0" width="${w}" height="${h}">${wrapper.outerHTML}</foreignObject>` +
+      '</svg>';
+  }
+
+  async function exportSvg(){
+    if(!hasContent()) return;
+    const markup = buildExportSvg();
+    if(!markup) return;
+    const name = suggestJsonName().replace(/\.json$/i, '.svg');
+    const types = [{ description: 'SVG', accept: { 'image/svg+xml': ['.svg'] } }];
+    if(!window.showSaveFilePicker){
+      downloadText(markup, name, 'image/svg+xml');
+      showTip('Exported (download)');
+      return;
+    }
+    try{
+      const handle = await window.showSaveFilePicker(pickerOptions(name, types));
+      if(!handle) return;
+      await writeFile(handle, markup);
+      showTip(`Exported ${handle.name}`);
+    }catch(e){
+      if(e.name === 'AbortError') return;
+      downloadText(markup, name, 'image/svg+xml');
+      showTip('Exported (download)');
+    }
+  }
+
+  exportBtn.addEventListener('click', exportSvg);
 
   let _cid = 0;
   document.getElementById('add-btn').addEventListener('click', () => {
@@ -1684,53 +1880,73 @@
     return false;
   }
 
-  loadBtn.addEventListener('click', () => fileInput.click());
+  function validateGroups(items){
+    for(const item of items){
+      if(item.type === 'moduleItemGroup' && (!item.id || typeof item.id !== 'string')) return false;
+      if(item.items && !validateGroups(item.items)) return false;
+    }
+    return true;
+  }
+
+  async function applyLoadedFile(file, handle){
+    const parsed = JSON.parse(await file.text());
+    // Migration: detect and offer to convert legacy nested modules
+    const legacy = detectLegacyNestedModules(parsed.items || []);
+    if(legacy.length > 0){
+      const migrate = confirm(`Found ${legacy.length} module(s) with nested children. Convert to moduleItemGroup?`);
+      if(migrate){
+        // Deep clone for safe conversion
+        const converted = JSON.parse(JSON.stringify(parsed));
+        detectLegacyNestedModules(converted.items || []).forEach(mod => {
+          const group = convertToGroup(mod);
+          // Replace in tree: find parent and swap
+          replaceInTree(converted.items, mod.id, group);
+        });
+        setData(converted);
+        rememberFile(handle, file.name, file);
+        showTip(`Migrated ${legacy.length} module(s) to groups. Save to persist.`);
+        return;
+      }
+    }
+    if(!validateGroups(parsed.items || [])) throw new Error('Invalid moduleItemGroup: missing id');
+    setData(parsed);
+    rememberFile(handle, file.name, file);
+  }
+
+  async function openFile(){
+    if(!window.showOpenFilePicker){ fileInput.click(); return; }
+    let handle = null, file = null;
+    try{
+      const picked = await window.showOpenFilePicker(pickerOptions(undefined, JSON_TYPES));
+      handle = picked[0];
+      if(!handle) return;
+      file = await handle.getFile();
+    }catch(e){
+      if(e.name === 'AbortError') return;
+      console.error(e);
+      showTip('Could not open the file picker');
+      return;
+    }
+    try{
+      await applyLoadedFile(file, handle);
+      showTip(`Loaded ${file.name}`);
+    }catch(e){
+      console.error(e);
+      showTip(e.message || 'Invalid JSON file');
+    }
+  }
+
+  loadBtn.addEventListener('click', openFile);
 
   fileInput.addEventListener('change', async () => {
     const file = fileInput.files?.[0];
     if(!file) return;
     try{
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      // Migration: detect and offer to convert legacy nested modules
-      const legacy = detectLegacyNestedModules(parsed.items || []);
-      if(legacy.length > 0){
-        const migrate = confirm(`Found ${legacy.length} module(s) with nested children. Convert to moduleItemGroup?`);
-        if(migrate){
-          // Deep clone for safe conversion
-          const converted = JSON.parse(JSON.stringify(parsed));
-          const convertedLegacy = detectLegacyNestedModules(converted.items || []);
-          convertedLegacy.forEach(mod => {
-            const group = convertToGroup(mod);
-            // Replace in tree: find parent and swap
-            replaceInTree(converted.items, mod.id, group);
-          });
-          // Use converted data
-          setData(converted);
-          showTip(`Migrated ${legacy.length} module(s) to groups. Save to persist.`);
-          fileInput.value = '';
-          return;
-        }
-      }
-      function validateGroups(items){
-        for(const item of items){
-          if(item.type === 'moduleItemGroup'){
-            if(!item.id || typeof item.id !== 'string'){
-              return false;
-            }
-          }
-          if(item.items && !validateGroups(item.items)) return false;
-        }
-        return true;
-      }
-      if(!validateGroups(parsed.items || [])){
-        showTip('Invalid moduleItemGroup: missing id');
-        return;
-      }
-      setData(parsed);
+      await applyLoadedFile(file, null);
       showTip(`Loaded ${file.name}`);
-    }catch(err){
-      showTip('Invalid JSON file');
+    }catch(e){
+      console.error(e);
+      showTip(e.message || 'Invalid JSON file');
     }finally{
       fileInput.value = '';
     }
