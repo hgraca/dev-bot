@@ -220,6 +220,25 @@ When a step or check is gated on a word — "a review loop ran", "the work is la
 - Check every restatement of the gate uses the defined term; a paraphrase in a sibling file reads as a second, looser gate.
 - WARNING; BLOCKER when the looser reading makes the step run where it cannot work.
 
+### 26. A Staged Change Is Safe in Every Intermediate State
+
+When the change lands in more than one step — a migration between systems, a mode switch on a running deployment, a rename spread across releases, or a step an operator runs by hand:
+
+- Enumerate the states the system passes through, not only the final one, and require each to be correct rather than merely reachable. A reference that becomes meaningful only after a later step is a live fault until that step runs.
+- Assume the steps run out of order, or that one is never taken. The single ordering that works is not the one to verify.
+- Scrutinise every intermediate state where a name is unqualified, a default applies, or a value is resolved by fallback: a bare name resolves to wherever the fallback points, which is rarely the intended target.
+- When the rollout depends on a manual step, the change must be safe if that step is skipped entirely.
+- BLOCKER when an intermediate state would serve the wrong artefact or take the deployment down.
+
+### 27. A Fixed Value Is Fixed Everywhere It Is Repeated
+
+When the change corrects a literal — a version, an image tag, an extension pin, a port, a timeout, a mode flag — that is also carried by sibling configuration:
+
+- Search every file type for the old literal and list the occurrences before calling the fix complete: workflows, Dockerfiles, compose files, env files, scripts and docs.
+- Fix each occurrence, or state explicitly why one is deliberately left. A sibling still carrying the old value is the same defect, unfixed.
+- Never assume a second file inherits the first: files that look parallel usually hold their own copy.
+- WARNING; BLOCKER when the un-updated copy runs in CI or production.
+
 ## Recurring issue types
 
 Check the changeset against these issue types distilled from past reviews. Report a finding when one applies, even if the code "works" in the happy path. Each type names the check and the expected property.
