@@ -304,6 +304,11 @@ Issue types that apply regardless of technology stack.
     - Require the record to encode the **state** it vouches for, not just the fact that a run happened: the services or artifacts it claims are running, and any configuration-derived input the work's effect depends on. When one is gone or has changed, the marker is stale and the work must run again — #20 applied to a decision record instead of a build artifact.
     - Read the skip branch's scope against the full work it bypasses, including work delegated to another script: a condition that only observes one part of it (the compose services, the last marker) permits the skip while the rest never runs.
     - WARNING; BLOCKER when a stale record lets a required service, migration or reconciliation step be skipped.
+23. **A side effect reachable from two recovery paths runs at most once** — when the change adds a fallback that performs the same effect an earlier step may already have performed (a heal after a reconcile, a retry after a repair, a second migration pass, a re-deploy):
+    - Enumerate every path in the run that can perform the effect, **including the ones the change did not add**, and check the second cannot fire after the first has. Two branches that each rebuild, recreate or migrate the same target are a finding even when each is correct alone: the pair turns one intended action into two on shared infrastructure.
+    - Require the run to **record that the effect was attempted** and consult that record, rather than re-deriving it from the state it just mutated. The state the first path changed is the input the second path misreads — the target the first path just recreated is briefly not yet running, which is precisely what the second path reads as "still broken".
+    - Decide which branch owns the decision and gate the other on the record: the intended outcome is one action, one verification and a report, not two attempts at the same target.
+    - WARNING; BLOCKER when the effect touches shared infrastructure or destroys work — a force-recreate, a deploy, a destructive migration, a data rewrite.
 
 ### Technology-specific
 
