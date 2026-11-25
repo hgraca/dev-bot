@@ -45,6 +45,10 @@ the structural tools first error (audit-51/52 NOTE).
 
 Powered by `codebase-memory-mcp` (DeusData) — a single native binary with embeddings compiled in. No Ollama, no GPU, no API key. dev-bot runs it as a shared Docker gateway (`devbot up`), and the index persists on the `devbot-codebase-memory-store` named volume rather than under your home directory.
 
+**A gateway container that is not running is recreated once.** `devbot up` runs compose with `--no-recreate`, so a container whose own state went bad is started again rather than rebuilt: the server exits 1 within seconds, nothing listens on 18504, and every harness reports the server as failed. When the readiness probe finds the container not running, `up.sh` force-recreates it, re-checks, and says so with a `WARN` line — at most once per run, and never while it is running or its state cannot be read.
+
+A recreate that does not help only rules the container out: the store volume below is the next thing to check, but a bad image, entrypoint or configuration presents the same way. Check the volume before removing anything — that discards the index.
+
 **One volume, and a check that it is the one in use.** The compose pins `name: devbot-codebase-memory-store`; an install from before that pin has a second volume called `devbot_devbot-codebase-memory-store` (compose used to derive `<project>_<volume>`). Docker leaves the old one alone and warns on every `devbot up`:
 
 ```

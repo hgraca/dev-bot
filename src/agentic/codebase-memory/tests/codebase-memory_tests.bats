@@ -200,11 +200,32 @@ _info() { true; }
 _ok()   { true; }
 _skip() { true; }
 _warn() { echo "WARN: $*" >&2; }
-_devbot_wait_for_mcp_gateway() { [[ "${GATEWAY_REACHABLE:-1}" == "1" ]]; }
+# Every readiness wait is recorded, so a test can prove the retry happened, that
+# it happened only once, and what arguments it was given. GATEWAY_SEQUENCE (e.g.
+# "0 1") answers the calls in order and models "down, then up after the
+# recreate"; without it the single GATEWAY_REACHABLE knob answers every call.
+_devbot_wait_for_mcp_gateway() {
+  WAIT_CALLS=$(( ${WAIT_CALLS:-0} + 1 ))
+  printf '%s|' "$@" >> "${WAIT_CALLS_FILE}"
+  printf '\n' >> "${WAIT_CALLS_FILE}"
+  printf 'wait\n' >> "${CALL_ORDER_FILE}"
+  if [[ -n "${GATEWAY_SEQUENCE:-}" ]]; then
+    local answer
+    answer="$(printf '%s\n' "${GATEWAY_SEQUENCE}" | cut -d' ' -f"${WAIT_CALLS}")"
+    [[ "${answer:-1}" == "1" ]]
+    return
+  fi
+  [[ "${GATEWAY_REACHABLE:-1}" == "1" ]]
+}
 # The derived root is exercised by src/_shared/tests/codebase_memory_root_tests.bats;
 # here it only has to honour the explicit value the reconcile tests set.
 _devbot_codebase_memory_root() { printf '%s\n' "${CODEBASE_MEMORY_ROOT:-${HOME}}"; }
 EOF
+  export WAIT_CALLS_FILE="${SANDBOX}/wait.calls"
+  : > "${WAIT_CALLS_FILE}"
+  # Waits and docker calls share one log, so a test can pin their order.
+  export CALL_ORDER_FILE="${SANDBOX}/call.order"
+  : > "${CALL_ORDER_FILE}"
 
   touch "${SANDBOX}/docker-compose.yml"
   export DOCKER_ARGS_FILE="${SANDBOX}/docker.args"
@@ -223,14 +244,25 @@ EOF
   export INDEX_CALLS_FILE="${SANDBOX}/index.calls"
   : > "${INDEX_CALLS_FILE}"
 
-  # Mock docker: `ps -aq` yields a container id; `inspect` yields the bind-mount
-  # source the test asked for (MOCK_ACTUAL_MOUNT).
+  # Mock docker: `ps -aq` yields a container id (MOCK_CID — empty means the
+  # gateway was never created); `inspect` yields the bind-mount source the test
+  # asked for (MOCK_ACTUAL_MOUNT), or the container's running state (MOCK_RUNNING)
+  # when the heal path asks for it. Every call is also appended to the shared
+  # order log.
   cat > "${SANDBOX}/mockbin/docker" <<'EOF'
 #!/usr/bin/env bash
 echo "$@" >> "${DOCKER_ARGS_FILE}"
+printf 'docker %s\n' "$*" >> "${CALL_ORDER_FILE}"
 case "$1" in
-  ps)      echo "c0ffee"; exit 0 ;;
-  inspect) echo "${MOCK_ACTUAL_MOUNT:-/desired}"; exit 0 ;;
+  ps)      echo "${MOCK_CID-c0ffee}"; exit 0 ;;
+  inspect)
+    if [[ "$*" == *State.Running* ]]; then
+      # An explicitly empty MOCK_RUNNING models a FAILED inspect: no output and a
+      # nonzero exit. Unset keeps the running default.
+      if [[ -n "${MOCK_RUNNING+set}" && -z "${MOCK_RUNNING}" ]]; then exit 1; fi
+      echo "${MOCK_RUNNING:-true}"; exit 0
+    fi
+    echo "${MOCK_ACTUAL_MOUNT:-/desired}"; exit 0 ;;
 esac
 exit 0
 EOF
@@ -260,6 +292,130 @@ EOF
   assert_success
   run cat "${DOCKER_ARGS_FILE}"
   refute_output --partial 'force-recreate'
+}
+
+# ── Healing a container that will not stay up ─────────────────────────────────
+# bin/up.sh runs compose with --no-recreate, so a container whose own state went
+# bad is started again rather than rebuilt: it exits 1 within seconds and nothing
+# ever listens on the port. The recovery is one force-recreate, driven by the
+# readiness wait — never a guess, and never on a container that is merely slow.
+
+@test "up.sh recreates a gateway container that is not running" {
+  _setup_up_sandbox
+  export MOCK_ACTUAL_MOUNT="/same/root"
+  export CODEBASE_MEMORY_ROOT="/same/root"
+  export GATEWAY_SEQUENCE="0 1"
+  export MOCK_RUNNING="false"
+
+  run bash "${SANDBOX}/up.sh"
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial 'up -d --force-recreate codebase-memory-mcp'
+  # Both waits name the container — that is what makes the first one fail fast
+  # instead of burning the retry budget on a URL nothing can answer.
+  run grep -c '|dev-bot-codebase-memory-mcp|' "${WAIT_CALLS_FILE}"
+  assert_equal "$output" "2"
+  # The gateway is re-checked afterwards, and the recreate sits between the two
+  # probes: wait, recreate, wait.
+  run sed -n 's/^wait$/W/p; s/^docker .*force-recreate.*$/R/p' "${CALL_ORDER_FILE}"
+  assert_output 'W
+R
+W'
+}
+
+@test "up.sh leaves a running gateway container alone when it is only slow" {
+  # Up but not yet answering is a boot in progress, not a wedge: recreating it
+  # would throw away a healthy start.
+  _setup_up_sandbox
+  export MOCK_ACTUAL_MOUNT="/same/root"
+  export CODEBASE_MEMORY_ROOT="/same/root"
+  export GATEWAY_REACHABLE=0
+  export MOCK_RUNNING="true"
+
+  run bash "${SANDBOX}/up.sh"
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  refute_output --partial 'force-recreate'
+}
+
+@test "up.sh does not recreate when the container state cannot be read" {
+  # A failed inspect says nothing about the container. The shared helper keeps
+  # retrying on a bad reading rather than reporting the gateway down; the heal
+  # path has to apply the same rule before it restarts a shared gateway.
+  _setup_up_sandbox
+  export MOCK_ACTUAL_MOUNT="/same/root"
+  export CODEBASE_MEMORY_ROOT="/same/root"
+  export GATEWAY_REACHABLE=0
+  export MOCK_RUNNING=""
+
+  run bash "${SANDBOX}/up.sh"
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  refute_output --partial 'force-recreate'
+}
+
+@test "up.sh creates no container when the gateway was never created" {
+  # Nothing to heal: compose deliberately excludes a disabled module, so
+  # recreating here would start a service the config said not to start.
+  _setup_up_sandbox
+  export GATEWAY_SEQUENCE="0"
+  export MOCK_CID=""
+
+  run bash "${SANDBOX}/up.sh"
+
+  assert_success
+  run cat "${DOCKER_ARGS_FILE}"
+  refute_output --partial 'force-recreate'
+}
+
+@test "up.sh names the same container the compose file declares" {
+  # A drift here degrades the heal silently: the wait stops failing fast on an
+  # exited container and _heal_dead_gateway finds nothing to recreate.
+  local from_compose from_up
+  from_compose="$(sed -n 's/^    container_name: //p' "${MODULE_DIR}/docker-compose.yml")"
+  from_up="$(sed -n 's/^CONTAINER_NAME="\(.*\)"$/\1/p' "${MODULE_DIR}/up.sh")"
+  [ -n "${from_compose}" ] || fail "docker-compose.yml declares no container_name"
+  [ -n "${from_up}" ] || fail "up.sh declares no CONTAINER_NAME"
+  assert_equal "${from_up}" "${from_compose}"
+}
+
+@test "up.sh recreates only once when the repo mount drifted and the container is down" {
+  # The reconciliation already recreated the gateway. If that container is still
+  # exited, healing it must report and re-check rather than recreate a shared
+  # gateway a second time.
+  _setup_up_sandbox
+  export MOCK_ACTUAL_MOUNT="/old/root"
+  export CODEBASE_MEMORY_ROOT="/new/root"
+  export GATEWAY_SEQUENCE="0 1"
+  export MOCK_RUNNING="false"
+
+  run bash "${SANDBOX}/up.sh"
+
+  assert_success
+  run grep -c 'force-recreate' "${DOCKER_ARGS_FILE}"
+  assert_equal "$output" "1"
+  # ... and the re-check after the reconciliation's recreate still happens.
+  run grep -c '|dev-bot-codebase-memory-mcp|' "${WAIT_CALLS_FILE}"
+  assert_equal "$output" "2"
+}
+
+@test "up.sh recreates the gateway only once when it stays down" {
+  # A recreate that changed nothing means the container's state was not the
+  # problem; looping would only delay the boot.
+  _setup_up_sandbox
+  export MOCK_ACTUAL_MOUNT="/same/root"
+  export CODEBASE_MEMORY_ROOT="/same/root"
+  export GATEWAY_SEQUENCE="0 0"
+  export MOCK_RUNNING="false"
+
+  run bash "${SANDBOX}/up.sh"
+
+  assert_success
+  run grep -c 'force-recreate' "${DOCKER_ARGS_FILE}"
+  assert_equal "$output" "1"
 }
 
 # ── Index priming on `devbot up` ──────────────────────────────────────────────
