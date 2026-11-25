@@ -16,10 +16,10 @@ Three rules make it useful rather than noisy:
   the change as that generalized check, and keep every project, product, customer and consumer
   repository name out of it — including the pull-request body. A rule shaped around one codebase
   misleads the reviewer in the next one.
-- **One go-ahead to publish, none per suggestion.** The human confirmed the session's work is
-  finished — not that a pull request should be opened against the toolkit repository. Draft and commit
-  every gap first, then ask once whether to push and open it. Once the pull request exists, its review
-  is where a suggestion is approved, modified or dropped.
+- **Unattended in the finish flow, one go-ahead standalone.** The finish flow runs without prompts:
+  draft and commit every gap, then push and open or update the standing pull request directly; the
+  pull request's review is where a suggestion is approved, modified or dropped. Only a standalone
+  invocation ("make the reviewer catch what this review caught") asks once before publishing.
 - **One standing pull request.** Every session's gaps go to the same titled pull request; a second one
   splits the review and the history of the reviewer's growth across two places.
 
@@ -110,9 +110,10 @@ gh pr list --state open --limit 200 --json number,url,headRefName,title \
 
 The standing lookup prints nothing when there is no such pull request: an empty answer means "none",
 not that the query was wrong. Set the limit: `gh pr list` pages at 30 by default, and a standing pull
-request beyond that page would read as "none" and invite the twin this rule forbids. When it prints more than one, do not guess — list them and ask which is
-the standing pull request, because two open pull requests under that title is a state only the human
-can resolve. Match the title exactly in `--jq` rather than through `--search`, whose
+request beyond that page would read as "none" and invite the twin this rule forbids. When it prints
+more than one, do not guess and do not open a third — list them and stop, naming the collision in the
+wrap-up report; two open pull requests under that title is a state only the human can resolve, and the
+finish flow does not wait for that answer. Match the title exactly in `--jq` rather than through `--search`, whose
 syntax treats the parentheses and colon of a conventional-commit title as query operators and returns
 an empty list for a pull request that exists.
 
@@ -178,9 +179,11 @@ is worse than the repetition it removed.
 ### 6. Publish the pull request
 
 Commit each gap atomically with a Conventional Commit (`devbot:git-commits`), the final pass
-included. Then present the result as one line per gap — the generalized check, the target file, and
-the change in a clause — and ask once whether to **push and publish**. On a refusal, leave the
-commits on the local branch, name the branch and the worktree, and stop there.
+included. In the finish flow, publish directly — the wrap-up is unattended: push the branch and open
+or update the standing pull request without asking. On a standalone invocation, present the result as
+one line per gap — the generalized check, the target file, and the change in a clause — and ask once
+whether to **push and publish**; on a refusal, leave the commits on the local branch, name the branch
+and the worktree, and stop there.
 
 The pull request always carries this title:
 
@@ -215,7 +218,7 @@ outcome.
 - Route each gap by kind: behaviour → `reviewer.md`, inspection → `review-implementation/SKILL.md`.
 - Preserve the existing structure, heading hierarchy and numbering of the target files.
 - Draft only changes that address a finding the session actually produced.
-- Ask once before publishing, and leave the commits local when the answer is no.
+- Publish without asking when the finish flow invokes the skill: push and open or update the standing pull request directly; ask once only on a standalone invocation.
 - Run the final pass over every touched file before publishing, and keep every property it is tempted
   to delete.
 - Title the pull request `chore(improve-reviews): improve review skill`, and append to that open

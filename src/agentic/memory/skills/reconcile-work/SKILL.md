@@ -37,7 +37,7 @@ Worktrees follow the same rule but are found differently: each sits under its **
    | clean, everything pushed, work landed                | remove it, then delete its local branch |
    | clean, everything pushed, pull request still open    | keep — review feedback is fixed there   |
    | uncommitted changes, or commits not pushed to origin | keep — report it                        |
-   | abandoned: no pull request, or one closed unmerged   | keep — ask the user                     |
+   | abandoned: no pull request, or one closed unmerged   | keep — report it                        |
 
    **Landed** means a pull request for `<branch>` into `<default>` was merged and none is still open. Run `gh` from `<root>` — in a `workspace.type: "polyrepo"` session an unscoped query reads the container repository's pull requests, not the owner's:
 
@@ -107,7 +107,7 @@ Worktrees follow the same rule but are found differently: each sits under its **
    | created or planned, never started | leave in `work/todo/`                                |
    | already in `active/`, unfinished  | leave in `work/active/`                              |
 
-7. **Decide "finished".** An item is finished when every acceptance criterion in its `backlog.md` is met and its work is committed and proven. When the state is genuinely ambiguous, ask the user which way it goes — do not guess.
+7. **Decide "finished".** An item is finished when every acceptance criterion in its `backlog.md` is met and its work is committed and proven. When the state is genuinely ambiguous, leave the item where it is and name it in the wrap-up report — the finish flow never waits for an answer.
 8. **Move each item** with `mkdir -p <dest>` then `mv <src> <dest>`, preserving the folder name:
    - unfinished → `work/active/`
    - finished → `work/archive/YYYY/MM/`, using the **completion** year and month (`date +%Y/%m`).
@@ -115,7 +115,7 @@ Worktrees follow the same rule but are found differently: each sits under its **
 
 ## MUST
 
-- **Stay silent on the finish flow** — emit no narrative, exactly like `devbot:remember-session` and `devbot:grade-tools`; the only exceptions are a question when a state is genuinely ambiguous, and the report of what was kept back — a worktree, or a `thinking/` file this session cannot attribute to itself.
+- **Stay silent on the finish flow** — emit no narrative, exactly like `devbot:remember-session` and `devbot:grade-tools`; the only exception is the report of what was kept back — a worktree, or a `thinking/` file this session cannot attribute to itself.
 - **Reap LSP servers on every wrap-up, unattended** — step 2 runs whether or not the session touched a work item or a worktree, and is never put to the user for approval; its only trace is `.agents/logs/lsp-reap.log`.
 - **Remove every `thinking/` file this session wrote**, on the session-ending trigger only — and delete-only: never write `latent/` or any memory note from this step. A file this session did not write is reported, never deleted.
 - **Remove a worktree only when it is clean, fully pushed, and landed** — then delete its local branch, and only then.
@@ -126,7 +126,7 @@ Worktrees follow the same rule but are found differently: each sits under its **
 - Move the work-item **root**; never split a folder's files across states.
 - Use plain `mkdir -p` + `mv` — `work/` is gitignored local scratch, never `git add` or commit it.
 - Place new archives at `work/archive/YYYY/MM/`; never restructure existing archive layouts.
-- Ask the user only when an item's finished / unfinished state, or a worktree's abandoned work, is genuinely ambiguous.
+- When an item's finished / unfinished state, or a worktree's abandoned work, is genuinely ambiguous, keep it and report it — never ask during the finish flow.
 
 ## MUST NOT
 

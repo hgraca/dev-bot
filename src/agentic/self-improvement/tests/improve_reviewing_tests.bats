@@ -2,8 +2,9 @@
 # =============================================================================
 # src/agentic/self-improvement/tests/improve_reviewing_tests.bats
 # Guards the rules the improve-reviewing skill owns: the final consistency pass
-# over the changed files before publishing, and the one canonical pull request
-# every session appends to instead of opening a second.
+# over the changed files before publishing, unattended publishing in the finish
+# flow, and the one canonical pull request every session appends to instead of
+# opening a second.
 # Assertions are scoped to the step that carries each rule, so a reworded-but-
 # correct file passes and a rule deleted or weakened fails.
 # =============================================================================
@@ -62,9 +63,22 @@ setup() {
   printf '%s\n' "$PUBLISH" | grep -qF 'step 3 put you on'
 }
 
-@test "more than one standing pull request is escalated, never guessed" {
+@test "more than one standing pull request is reported, never guessed" {
   printf '%s\n' "$SETUP" | grep -qF 'prints more than one'
-  printf '%s\n' "$SETUP" | grep -qiF 'ask which is'
+  printf '%s\n' "$SETUP" | grep -qF 'do not guess'
+  printf '%s\n' "$SETUP" | grep -qF 'does not wait for that answer'
+}
+
+@test "the finish flow publishes without a confirmation" {
+  grep -qF 'Unattended in the finish flow' "$SKILL"
+  printf '%s\n' "$PUBLISH" | grep -qF 'publish directly'
+  printf '%s\n' "$PUBLISH" | grep -qF 'wrap-up is unattended'
+}
+
+@test "MUST publishes unattended in the finish flow" {
+  local must
+  must="$(awk '/^## MUST$/{on=1;next} on&&/^## /{exit} on' "$SKILL" | tr '\n' ' ' | tr -s ' ')"
+  printf '%s\n' "$must" | grep -qF 'Publish without asking when the finish flow'
 }
 
 @test "the standing lookup matches the title exactly, never through search syntax" {
