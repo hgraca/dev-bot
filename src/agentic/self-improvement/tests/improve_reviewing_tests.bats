@@ -26,6 +26,7 @@ setup() {
   PASS="$(step_flat "$SKILL" '5. Final pass over the changed files')"
   PUBLISH="$(step_flat "$SKILL" '6. Publish the pull request')"
   SETUP="$(step_flat "$SKILL" '3. Assess progress before cutting anything')"
+  REPORT="$(step_flat "$SKILL" '7. Report')"
 }
 
 @test "skill carries a final pass step before publishing" {
@@ -94,4 +95,10 @@ setup() {
   printf '%s\n' "$must" | grep -qiF 'final pass'
   printf '%s\n' "$must" | grep -qF 'chore(improve-reviews): improve review skill'
   printf '%s\n' "$must" | grep -qF 'standing pull request'
+  printf '%s\n' "$must" | grep -qF 'more than 10 commits'
+}
+
+@test "a standing pull request over 10 commits is reported with a merge recommendation" {
+  printf '%s\n' "$REPORT" | grep -qF 'greater than 10'
+  printf '%s\n' "$REPORT" | grep -qF 'recommend merging'
 }

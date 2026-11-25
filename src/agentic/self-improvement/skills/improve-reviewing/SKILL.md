@@ -206,8 +206,10 @@ picks up whatever is still unresolved.
 ### 7. Report
 
 Report the pull request URL and what it would catch, and say that the rules take effect once merged.
-When nothing survived step 2's filter, say so in one line and stop: an unchanged reviewer is a valid
-outcome.
+Count the standing pull request's commits (`gh pr view <pr> --json commits --jq '.commits | length'`);
+when the count is **greater than 10**, report the number and recommend merging it before it grows
+further. When nothing survived step 2's filter, say so in one line and stop: an unchanged reviewer is
+a valid outcome.
 
 ## MUST
 
@@ -221,6 +223,7 @@ outcome.
   to delete.
 - Title the pull request `chore(improve-reviews): improve review skill`, and append to that open
   standing pull request instead of opening a second.
+- Report a standing pull request that carries more than 10 commits, and recommend merging it.
 
 ## MUST NOT
 

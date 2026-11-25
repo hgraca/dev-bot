@@ -292,3 +292,12 @@ setup() {
   grep -qF 'standing memory pull request' "$MEMORY_MGMT_FLAT"
   grep -qF 'never fixups and never on the default branch' "$MEMORY_MGMT_FLAT"
 }
+
+@test "a standing pull request over 10 commits is reported with a merge recommendation" {
+  local cleanup must
+  cleanup="$(subsection_flat "$SKILL" '7. Clean up and report')"
+  must="$(section_flat "$SKILL" 'MUST')"
+  printf '%s\n' "$cleanup" | grep -qF 'greater than 10'
+  printf '%s\n' "$cleanup" | grep -qF 'recommend merging'
+  printf '%s\n' "$must" | grep -qF 'more than 10 commits'
+}

@@ -221,6 +221,10 @@ A worktree that was already there belongs to its session — leave it. Report on
 pull request URL, or why the group was skipped. Say when nothing was published: an unchanged vault is
 a valid outcome.
 
+Count each published pull request's commits (`gh pr view <url> --json commits --jq '.commits |
+length'`). When the count is **greater than 10**, report the number and recommend merging the pull
+request: it is overdue for review, and another append only grows it.
+
 ## MUST
 
 - Group by the repository and stream that owns each note: project vault → that project; global
