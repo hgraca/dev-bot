@@ -113,9 +113,7 @@ not that the query was wrong. Set the limit: `gh pr list` pages at 30 by default
 request beyond that page would read as "none" and invite the twin this rule forbids. When it prints
 more than one, do not guess and do not open a third — list them and stop, naming the collision in the
 wrap-up report; two open pull requests under that title is a state only the human can resolve, and the
-finish flow does not wait for that answer. Match the title exactly in `--jq` rather than through `--search`, whose
-syntax treats the parentheses and colon of a conventional-commit title as query operators and returns
-an empty list for a pull request that exists.
+finish flow does not wait for that answer. Match the title exactly in `--jq`, never through `--search`.
 
 `worktree.sh path` looks like the probe and is not: it exits `FATAL` for a branch with no worktree,
 which is the ordinary first run. `list` is the probe.

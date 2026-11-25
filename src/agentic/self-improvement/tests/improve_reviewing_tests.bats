@@ -82,12 +82,10 @@ setup() {
 }
 
 @test "the standing lookup matches the title exactly, never through search syntax" {
-  # --search reads the parentheses and colon of a conventional-commit title as
-  # query operators and returns [] for a pull request that exists.
   printf '%s\n' "$SETUP" | grep -qF 'select(.title =='
   # The default page hides a standing PR beyond it.
   printf '%s\n' "$SETUP" | grep -qF -- '--limit 200'
-  printf '%s\n' "$SETUP" | grep -qF 'rather than through `--search`'
+  printf '%s\n' "$SETUP" | grep -qF 'never through `--search`'
 }
 
 @test "MUST carries the final pass, the fixed title and the single-PR rule" {
