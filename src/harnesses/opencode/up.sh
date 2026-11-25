@@ -31,3 +31,21 @@ fi
 if ! _devbot_require_opencode_1x; then
   exit 1
 fi
+
+# Converge the herdr pane-title TUI plugin: a project seeded before the plugin
+# existed has neither the symlink nor the tui.json entry. init.sh seeds both, but
+# it only runs on init/reinit, so a launch closes the gap too.
+#
+# Not EVERY launch: bin/devbot skips bin/up.sh entirely when bin/up.sh --is-up
+# reports a completed start, so a relaunch inside an already-up project reaches
+# this only when the start was redone (a version bump, a config change).
+#
+# The herdr check governs usefulness, not correctness: the plugin is inert
+# outside a herdr pane, but a project on a machine without the terminal has no
+# use for the wiring. HERDR_BIN_PATH counts as installed — herdr sets it on hosts
+# where the binary is not on PATH.
+if command -v herdr >/dev/null 2>&1 || [[ -n "${HERDR_BIN_PATH:-}" ]]; then
+  _ensure_tui_plugin "${1:-.}" herdr-pane-title || true
+elif [[ -n "${HERDR_ENV:-}" ]]; then
+  _skip "tui-plugins/herdr-pane-title: herdr is not installed — not wired"
+fi
