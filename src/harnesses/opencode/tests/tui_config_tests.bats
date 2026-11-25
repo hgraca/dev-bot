@@ -78,6 +78,10 @@ SHARED_EOF
   # so these tests exercise the code that actually runs.
   awk '/^_upsert_opencode_plugin\(\)/,/^}/' \
     "${PROJECT_ROOT}/src/_shared/functions.sh" >> "${SANDBOX_DIR}/src/_shared/functions.sh"
+  # _ensure_tui_plugin is the shared half of the farm: init.sh links through it
+  # and up.sh converges through it, so the sandbox runs the real one.
+  awk '/^_ensure_tui_plugin\(\)/,/^}/' \
+    "${PROJECT_ROOT}/src/_shared/functions.sh" >> "${SANDBOX_DIR}/src/_shared/functions.sh"
   cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX_DIR}/src/_shared/read_jsonc.py"
 }
 
@@ -239,6 +243,9 @@ _source_init() {
 }
 
 @test "_link_tui_plugins is idempotent" {
+  # Asserted on state, not on narration: the shared helper is silent when the
+  # link already points at its source, because up.sh converges on every launch
+  # and a per-launch "already linked" line is noise there.
   _setup_sandbox
   _source_init
 
@@ -246,7 +253,14 @@ _source_init() {
   assert_success
   run _link_tui_plugins
   assert_success
-  assert_output --partial "already linked"
+
+  local name
+  for name in "${_TUI_PLUGINS[@]}"; do
+    local link="${SANDBOX_DIR}/.opencode/tui-plugins/${name}"
+    [[ -L "$link" ]] || fail "link lost on the second run: ${name}"
+    [[ "$(readlink "$link")" == "${SANDBOX_DIR}/src/harnesses/opencode/${name}" ]] ||
+      fail "link retargeted on the second run: ${name}"
+  done
 }
 
 @test "_link_tui_plugins relinks when the target differs" {
@@ -323,11 +337,119 @@ _source_init() {
   assert_output --partial "does not exist"
 }
 
+# ── _ensure_tui_plugin: link + entry, shared by init.sh and up.sh ────────
+# up.sh converges the herdr plugin on a launch, where init.sh never runs. Both
+# callers go through this helper, so its own contract is what the tests pin.
+
+@test "_ensure_tui_plugin adds the entry to an existing tui.json" {
+  _setup_sandbox
+  _source_init
+  run _write_tui_config
+  assert_success
+
+  run _ensure_tui_plugin "${SANDBOX_DIR}" herdr-pane-title
+  assert_success
+
+  run python3 "$READER" "${SANDBOX_DIR}/.opencode/tui.json" plugin
+  assert_success
+  assert_output --partial "./tui-plugins/herdr-pane-title/index.ts"
+}
+
+@test "_ensure_tui_plugin is idempotent" {
+  _setup_sandbox
+  _source_init
+  run _write_tui_config
+  assert_success
+
+  run _ensure_tui_plugin "${SANDBOX_DIR}" herdr-pane-title
+  assert_success
+
+  local before after
+  before="$(md5sum "${SANDBOX_DIR}/.opencode/tui.json" | cut -d' ' -f1)"
+  run _ensure_tui_plugin "${SANDBOX_DIR}" herdr-pane-title
+  assert_success
+  after="$(md5sum "${SANDBOX_DIR}/.opencode/tui.json" | cut -d' ' -f1)"
+
+  [ "$before" = "$after" ] || fail "tui.json was rewritten on the second run"
+}
+
+@test "_ensure_tui_plugin leaves a user-owned directory alone" {
+  # Not just the link: naming a directory this plugin does not own in tui.json
+  # would make opencode load whatever is in it, so the config stays untouched.
+  _setup_sandbox
+  _source_init
+  printf '{"plugin": []}\n' > "${SANDBOX_DIR}/.opencode/tui.json"
+
+  local dir="${SANDBOX_DIR}/.opencode/tui-plugins/herdr-pane-title"
+  mkdir -p "$dir"
+  : > "$dir/index.ts"
+  local before
+  before="$(md5sum "${SANDBOX_DIR}/.opencode/tui.json" | cut -d' ' -f1)"
+
+  run _ensure_tui_plugin "${SANDBOX_DIR}" herdr-pane-title
+  assert_success
+  assert_output --partial "not a symlink"
+  [ ! -L "$dir" ] || fail "replaced a user-owned directory with a symlink"
+
+  local after
+  after="$(md5sum "${SANDBOX_DIR}/.opencode/tui.json" | cut -d' ' -f1)"
+  [ "$before" = "$after" ] || fail "named a directory it does not own in tui.json"
+}
+
+@test "_ensure_tui_plugin links even with no tui.json to name it in" {
+  _setup_sandbox
+  _source_init
+  rm -f "${SANDBOX_DIR}/.opencode/tui.json"
+
+  run _ensure_tui_plugin "${SANDBOX_DIR}" herdr-pane-title
+  assert_success
+  [ -L "${SANDBOX_DIR}/.opencode/tui-plugins/herdr-pane-title" ] ||
+    fail "link was not created"
+  [ ! -e "${SANDBOX_DIR}/.opencode/tui.json" ] ||
+    fail "created a tui.json that was not there"
+}
+
 # ── _ensure_required_plugins: dev-bot-owned entries only ─────────────────────
 # Regression guard for the shipped-dependency gap: _write_*_config are seed-once,
 # so opencode-pty (required by the PTY monitor) never reached any project seeded
 # before it was added to the dist. The panel was wired while its dependency was
 # not, and the only symptom was "server unavailable".
+
+@test "_upsert_opencode_plugin accepts JSON whitespace around the colon" {
+  # JSON-equivalent spelling. Missing it made the upsert append a SECOND
+  # "plugin" key, and a parser keeps the last one — silently dropping every
+  # entry the user already had.
+  _setup_sandbox
+  _source_init
+  printf '{\n  "plugin" : ["keep-me"]\n}\n' > "${SANDBOX_DIR}/.opencode/tui.json"
+
+  run _upsert_opencode_plugin "${SANDBOX_DIR}/.opencode/tui.json" "./tui-plugins/herdr-pane-title/index.ts"
+  [ "$status" -eq 0 ] || fail "upsert failed"
+
+  run python3 "$READER" "${SANDBOX_DIR}/.opencode/tui.json" plugin
+  assert_success
+  assert_output --partial "keep-me"
+  assert_output --partial "herdr-pane-title"
+  [ "$(grep -c '"plugin"' "${SANDBOX_DIR}/.opencode/tui.json")" -eq 1 ] ||
+    fail "wrote a second plugin key"
+}
+
+@test "_ensure_required_plugins does not name a user-owned plugin directory" {
+  # init.sh reconciles the manifest BEFORE _link_tui_plugins, so the ownership
+  # check has to hold on this path too or the ordering bypasses it.
+  _setup_sandbox
+  _source_init
+  printf '{"plugin": []}\n' > "${SANDBOX_DIR}/.opencode/tui.json"
+  mkdir -p "${SANDBOX_DIR}/.opencode/tui-plugins/herdr-pane-title"
+
+  run _ensure_required_plugins tui "${SANDBOX_DIR}/.opencode/tui.json"
+  assert_success
+  assert_output --partial "not a dev-bot link"
+
+  run python3 "$READER" "${SANDBOX_DIR}/.opencode/tui.json" plugin
+  assert_success
+  refute_output --partial "herdr-pane-title"
+}
 
 @test "_ensure_required_plugins adds a required plugin missing from an existing config" {
   _setup_sandbox

@@ -168,7 +168,7 @@ sys.exit(1)
 #
 # Every name here must also appear in tui.dist.jsonc and required-plugins.jsonc;
 # a test asserts the three stay in step.
-_TUI_PLUGINS=(pty-monitor tui-defaults provider-ttft)
+_TUI_PLUGINS=(pty-monitor tui-defaults provider-ttft herdr-pane-title)
 
 _link_tui_plugins() {
   local name
@@ -178,37 +178,11 @@ _link_tui_plugins() {
 }
 
 _link_tui_plugin() {
-  local name="$1"
-  local src_dir="${DEV_BOT_ROOT}/src/harnesses/opencode/${name}"
-  local link="${PROJECT_DIR}/.opencode/tui-plugins/${name}"
-
-  if [[ ! -d "${src_dir}" ]]; then
-    # Louder than a plain "missing": tui.dist.jsonc unconditionally lists this
-    # module, so skipping the link leaves the generated tui.json pointing at a
-    # plugin that is not there.
-    _warn "tui-plugins/${name}: source missing at ${src_dir} — tui.json will reference a plugin that does not exist"
-    return 0
-  fi
-
-  if [[ -L "${link}" ]]; then
-    if [[ "$(readlink "${link}")" == "${src_dir}" ]]; then
-      _skip "tui-plugins/${name} already linked"
-      return 0
-    fi
-    rm -f "${link}"
-    ln -sf "${src_dir}" "${link}"
-    _ok "tui-plugins/${name} relinked"
-    return 0
-  fi
-
-  if [[ -e "${link}" ]]; then
-    _warn "tui-plugins/${name} exists but is not a symlink — leaving it alone"
-    return 0
-  fi
-
-  mkdir -p "$(dirname "${link}")"
-  ln -sf "${src_dir}" "${link}"
-  _ok "tui-plugins/${name} linked"
+  # The symlink and its tui.json entry are one invariant, and up.sh converges
+  # the same pair, so both go through the shared helper rather than keeping a
+  # second copy of where the link lives. A missing source is reported there and
+  # must not abort the remaining plugins.
+  _ensure_tui_plugin "${PROJECT_DIR}" "$1" || true
 }
 
 # ── Write a runtime JSONC config from a dist template ──────────────────────────
@@ -367,6 +341,19 @@ _ensure_required_plugins() {
     # comments or other sections and then report a phantom addition).
     if python3 "${reader}" "${config}" plugin 2>/dev/null | grep -qF "\"${spec}\""; then
       continue
+    fi
+    # A local ./tui-plugins/<name> entry names a directory in the PROJECT. When
+    # that path exists but is not the link dev-bot would create, the user owns
+    # it and naming it here would make opencode load their directory as this
+    # plugin — the same refusal _ensure_tui_plugin makes.
+    if [[ "${spec}" == ./tui-plugins/*/index.ts ]]; then
+      local plugin_name="${spec#./tui-plugins/}"
+      plugin_name="${plugin_name%/index.ts}"
+      local owned="${config%/.opencode/*}/.opencode/tui-plugins/${plugin_name}"
+      if [[ -e "${owned}" && ! -L "${owned}" ]]; then
+        _warn "$(basename "${config}"): ${plugin_name} is a real directory, not a dev-bot link — not naming it in tui.json"
+        continue
+      fi
     fi
     _upsert_opencode_plugin "${config}" "${spec}"
     _ok "$(basename "${config}"): added '${spec}' (required by dev-bot, absent from an existing config)"

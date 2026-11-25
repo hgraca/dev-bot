@@ -44,10 +44,15 @@
   //   provider-ttft fills the order-100 sidebar row with the active session's
   //                last-request time-to-first-token; it relies on
   //                internal:sidebar-context staying disabled, as shipped here
+  //   herdr-pane-title keeps the pane's herdr border label on the ROOT
+  //                session's title, so a split shows which session it hosts;
+  //                a pane showing a subagent keeps the root's label, and
+  //                outside a herdr pane the plugin does nothing at all
   "plugin": [
     "opencode-tabs@0.3.0",
     "./tui-plugins/pty-monitor/index.ts",
     "./tui-plugins/tui-defaults/index.ts",
-    "./tui-plugins/provider-ttft/index.ts"
+    "./tui-plugins/provider-ttft/index.ts",
+    "./tui-plugins/herdr-pane-title/index.ts"
   ]
 }

@@ -1795,6 +1795,62 @@ _devbot_rebuild_external_module_config() {
 
 # ── opencode.jsonc plugin upsert ─────────────────────────────────────────────────
 #
+# ── TUI plugin farm ───────────────────────────────────────────────────────────
+# A dev-bot TUI plugin is a directory under src/harnesses/opencode/<name>/ that
+# opencode loads from the project's tui.json. Both halves have to exist — the
+# symlink in .opencode/tui-plugins/ and the entry naming it — and more than one
+# script converges them, so where they live is stated here once instead of in
+# every caller.
+#
+# Returns 1 when the source directory is missing: the caller decides whether
+# that is fatal (init warns and continues to the next plugin).
+#
+# Usage: _ensure_tui_plugin <project_dir> <plugin_name>
+_ensure_tui_plugin() {
+  local project_dir="$1"
+  local name="$2"
+  local root="${DEV_BOT_ROOT:?DEV_BOT_ROOT must be set}"
+  local src="${root}/src/harnesses/opencode/${name}"
+  local link="${project_dir}/.opencode/tui-plugins/${name}"
+  local config="${project_dir}/.opencode/tui.json"
+  local entry="./tui-plugins/${name}/index.ts"
+  local reader="${root}/src/_shared/read_jsonc.py"
+
+  if [[ ! -d "${src}" ]]; then
+    # Louder than a plain "missing": the dists list these unconditionally, so
+    # skipping the link leaves tui.json pointing at a plugin that is not there.
+    _warn "tui-plugins/${name}: source missing at ${src} — tui.json will reference a plugin that does not exist"
+    return 1
+  fi
+
+  if [[ -L "${link}" ]]; then
+    if [[ "$(readlink "${link}")" != "${src}" ]]; then
+      rm -f "${link}"
+      ln -sfn "${src}" "${link}" || return 1
+      _ok "tui-plugins/${name} relinked"
+    fi
+  elif [[ -e "${link}" ]]; then
+    # A real directory the user owns. Naming it in tui.json would load whatever
+    # it holds in place of this plugin, so the config is left alone too.
+    _warn "tui-plugins/${name} exists but is not a symlink — leaving it alone"
+    return 0
+  else
+    mkdir -p "$(dirname "${link}")" || return 1
+    ln -sfn "${src}" "${link}" || return 1
+  fi
+
+  # No generated config yet: the link stands, but there is no array to name it
+  # in. init.sh writes tui.json before linking, so this only covers a caller
+  # that converged a link early.
+  [[ -f "${config}" ]] || return 0
+
+  if python3 "${reader}" "${config}" plugin 2>/dev/null | grep -qF "\"${entry}\""; then
+    return 0
+  fi
+  _upsert_opencode_plugin "${config}" "${entry}" &&
+    _ok "tui.json: added '${entry}' (required by dev-bot)"
+}
+
 # Usage:  _upsert_opencode_plugin <opencode_jsonc_path> <plugin_entry>
 # Behaviour:
 #   - Adds <plugin_entry> (without quotes) to the "plugin" array
@@ -1817,6 +1873,9 @@ _upsert_opencode_plugin() {
   # Single awk pass — three modes, idempotent (no-op when the entry is
   # already inside the "plugin" array):
   #
+  # Both matchers tolerate JSON whitespace around the colon ("plugin" : [),
+  # because a second plugin key would silently replace the user's array.
+  #
   # Mode A (single-line array: "plugin": [...] on one line):
   #   Appends the entry inline, or no-ops if already present. This is the
   #   critical case — the dist ships "plugin": [], and the old two-mode awk
@@ -1828,7 +1887,7 @@ _upsert_opencode_plugin() {
   # Mode C (no "plugin" key): inserts a new block before the closing brace.
   awk -v entry="$plugin_entry" '
     BEGIN { found = 0; n = 0; buf_len = 0; already = 0 }
-    /"plugin": \[[^]]*\]/ {
+    /"plugin"[[:space:]]*:[[:space:]]*\[[^]]*\]/ {
       found = 1
       for (i = 1; i <= n; i++) print lines[i]
       n = 0
@@ -1837,7 +1896,7 @@ _upsert_opencode_plugin() {
       else sub(/\]/, ", \"" entry "\"]")
       print; next
     }
-    /"plugin": \[/ {
+    /"plugin"[[:space:]]*:[[:space:]]*\[/ {
       found = 1
       for (i = 1; i <= n; i++) print lines[i]
       n = 0

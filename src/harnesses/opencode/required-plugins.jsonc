@@ -20,6 +20,7 @@
     "opencode-tabs@0.3.0",
     "./tui-plugins/pty-monitor/index.ts",
     "./tui-plugins/tui-defaults/index.ts",
-    "./tui-plugins/provider-ttft/index.ts"
+    "./tui-plugins/provider-ttft/index.ts",
+    "./tui-plugins/herdr-pane-title/index.ts"
   ]
 }
