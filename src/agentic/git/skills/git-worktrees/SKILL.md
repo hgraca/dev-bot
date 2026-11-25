@@ -6,8 +6,9 @@ description: "Under the `worktrees` workflow (the default): use when you are abo
 # Git Worktrees
 
 Under the `worktrees` workflow every commit is made from a **linked worktree**, never from the main
-checkout — except the finish flow's memory commits, which are normal commits on the main checkout's
-local default branch (`devbot:remember-session`). This keeps the
+checkout. The finish flow's memory publishing is no exception to the branch rule: `devbot:commit-memories`
+copies the capture's vault notes into a temporary linked worktree, commits them on a memory branch, and
+opens or appends that branch's standing pull request. This keeps the
 main checkout's checked-out branch untouched, and gives each task an isolated branch cut from the
 **remote** default branch. This is the `worktrees` workflow, the default; a project selects
 another workflow with the `workflow` key (see [Opting out](#opting-out)).
@@ -241,7 +242,7 @@ On a branch that has never been pushed there is no lease: the human publishes it
 `git -C <worktree> push -u origin <branch>` after the squash. A checkout behind `origin/<branch>`
 stops before the lease is captured — another checkout pushed commits this one never incorporated.
 
-Base on **`origin/<default>`, never the local default**: local may hold unpushed memory commits, and
+Base on **`origin/<default>`, never the local default**: local may hold stranded commits, and
 rebasing onto it would make them ancestors and publish them. `GIT_SEQUENCE_EDITOR=:` applies the plan
 you showed non-interactively; agents have no editor to drive it. Do **not** fetch `<branch>` before
 the push — that would adopt a colleague's new tip as the lease and overwrite it; fetch only
@@ -263,16 +264,18 @@ unpushed stays where it is and is reported instead. The finish flow performs thi
 `devbot:reconcile-work` step 1 walks every worktree and applies exactly this rule, so a wrap-up does
 not leave a landed worktree behind.
 
-The primary agent's finish flow (`devbot:remember-session`) writes memories; commit them as
-**normal commits** (never fixups) on the **main checkout's local default branch** — that is where the
-finish flow runs, and keeping them off the worktree branch leaves the PR with only the work commits.
-If the main checkout is on any other branch, do not commit: leave the files uncommitted and surface
-them, rather than putting vault commits on that branch.
+The finish flow's memory capture (`devbot:remember-session`) writes vault notes in the main checkout;
+`devbot:commit-memories` then copies the capture's files into a **temporary linked worktree**, commits
+them as **normal commits** (never fixups) on a memory branch, and opens or appends the standing pull
+request titled `chore(agents): commit memories and lessons learned`. The main checkout's checked-out
+branch is never switched, and the task's pull request carries only its work commits — never memory.
 
-They are the human's to manage. `create` bases new branches on `origin/<default>`, so memory commits
-sitting on the local default do not ride along automatically: when you find them, say so and name
-them, then let the user decide how they reach origin. Do not reset, rebase, or push them, and do not
-widen a new worktree's base to carry them on your own.
+Memory branches are not task worktrees: the temporary worktree is removed after the push, and the
+standing pull request is the notes' home until it is merged. Never put vault commits on a task branch,
+and never base a task branch on the local default to pick up stranded commits: `create` bases new
+branches on `origin/<default>`, so a stranded local commit does not ride along automatically. When you
+find one, say so and name it, then let the user decide how it reaches origin. Do not reset, rebase, or
+push it, and do not widen a new worktree's base to carry it on your own.
 
 ### Drop the worktree's databases
 

@@ -38,6 +38,23 @@ setup() {
   assert_success
 }
 
+@test "the finish flow publishes the captured notes as a standing pull request" {
+  local skill="$MODULE_DIR/skills/SKILL.md"
+
+  run grep -F -- 'hands the captured notes to `devbot:commit-memories`' "$skill"
+  assert_success
+}
+
+@test "both primary profiles publish the memory notes through commit-memories" {
+  local rel path
+  for rel in devbot/agents/devbot.md devteam/agents/teamlead.md; do
+    path="$MODULE_DIR/../$rel"
+    [ -f "$path" ] || continue
+    run grep -q 'commit-memories' "$path"
+    assert_success
+  done
+}
+
 @test "the [WAITING_FOR_PTY] row states its precondition in both tables" {
   # The row is what a message-phrasing agent reads; pin it, not the prose.
   local skill="$MODULE_DIR/skills/SKILL.md"

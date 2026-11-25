@@ -40,7 +40,7 @@ Canonical reference for all `.agents/memory/` vault operations. Other memory ski
 
 Folders differ in git status — by design, not an oversight:
 
-- **Tracked** (committed when `commit_memory: true`): `active/`, `latent/ADRs/`, `latent/PDRs/`, `latent/learnings/`, `reference/`. They are committed as normal commits on the main checkout's local default branch, never as fixups and never in a worktree (see `devbot:remember-session`).
+- **Tracked** (committed when `commit_memory: true`): `active/`, `latent/ADRs/`, `latent/PDRs/`, `latent/learnings/`, `reference/`. They are published on the owning project's standing memory pull request — ordinary commits on its branch, never fixups and never on the default branch (see `devbot:commit-memories`).
 - **Local, gitignored** (never committed): `work/` (plans, backlogs, WIP), `thinking/` (scratch), and the `latent/global/` symlink — its target, `storage/global-memories/`, is tracked separately.
 
 Work items (`work/{todo,active,archive}/<…>`) and every `thinking/` note are **local artifacts**: never `git add` or commit them, and never ask the user where they live or whether to commit them — that is settled. An artifact that must survive across machines belongs in `reference/` or `latent/`.
@@ -131,14 +131,14 @@ by the **files the session touches**:
 - **Write** — route each finding by the path it concerns: a child project's
   file or behaviour → that child's vault; cross-project / org-wide → the
   polyrepo's vault; reusable across projects → `latent/global/<tech>/`.
-- **Child config, not the polyrepo's** — resolve `commit_memory` and
-  `workflow` for the **owning project** before writing or committing
-  (`_devbot_get_workspace_config commit_memory <child_dir>` and `_devbot_get_workflow <child_dir>` — both
-  project-first → global-fallback, the workflow resolver legacy-key-aware). A
-  child with `commit_memory: false` is never committed even when the polyrepo
-  commits; a child following the `trunk` workflow commits in its own main
-  checkout; a non-git owner is skipped with a **notice log line** (never a
-  warning).
+- **Child config, not the polyrepo's** — resolve `commit_memory` for the
+  **owning project** before writing or publishing
+  (`_devbot_get_workspace_config commit_memory <child_dir>` — project-first →
+  global-fallback). A child with `commit_memory: false` is never committed even
+  when the polyrepo commits; its notes stay local, while a global lesson still
+  goes to the dev-bot store's repository. Publishing is a pull request whatever
+  the child's `workflow` — the finish-flow exemption in `devbot:software-development`;
+  a non-git owner is skipped with a **notice log line** (never a warning).
 
 A session launched _inside_ a managed project is unaffected: it searches its own
 vault + the global store + its configured custom collections, never the

@@ -79,9 +79,9 @@ control. The vault lives at `<devbot_dir>/memory/` (default `.agents/memory/`; `
 `.devbot.project.jsonc` / `.devbot.global.jsonc`). Run `git ls-files <devbot_dir>/memory/ | head`: non-empty
 output means the vault is git-tracked (memory files are committed); empty means it is gitignored (not
 committed). The `workspace.commit_memory` key in `.devbot.project.jsonc` / `.devbot.global.jsonc` is the intended
-signal (`true` = committed, absent/`false` = not). Record the outcome in the description under _Critical
-conventions_ so future agents know whether to commit memory files — if the vault is not tracked, they must
-never `git add` it.
+signal (`true` = published on the project's standing memory pull request, absent/`false` = not). Record
+the outcome in the description under _Critical conventions_ so future agents know whether the vault's
+notes are trackable — if the vault is not tracked, they must never `git add` it.
 
 ### Step 3: Identify what may be problematic
 
@@ -231,7 +231,7 @@ See `devbot:search-code` for choosing between them.
 - Cite real paths for every architectural claim; verify each path exists before writing.
 - If the project has a `Makefile`, list its key commands in the description (Lifecycle & workflows) and note they are the preferred way to run project commands.
 - Record the project's runtime, deployment mechanism, and CI system (with its jobs and actions) in the description.
-- Record whether the memory vault is committed to git (from `commit_memory` config and `git ls-files <devbot_dir>/memory/`) so future agents know whether to commit memory files.
+- Record whether the memory vault is git-tracked (from `commit_memory` config and `git ls-files <devbot_dir>/memory/`) so future agents know whether its notes are publishable.
 - Keep `project.md` at or under 200 lines; aim for 80–150 _after_ compression.
 - End with `[FINISHED]` signal containing the file path, line count, and 3-bullet recap.
 

@@ -151,7 +151,7 @@ global, then the default above.
 | Key             | Type                   | Selects                                                                |
 | --------------- | ---------------------- | ---------------------------------------------------------------------- |
 | `type`          | `repo` \| `polyrepo`   | whether the project is an ordinary project or a container for siblings |
-| `commit_memory` | `boolean`              | whether the memory vault is committed to version control               |
+| `commit_memory` | `boolean`              | whether the memory vault is published on the memory pull request       |
 | `workflow`      | `worktrees` \| `trunk` | how a task is carried end to end                                       |
 
 #### `workspace.type`
@@ -174,10 +174,12 @@ polyrepo root), and `project-for-path`, which reports it as `type`.
 
 #### `workspace.commit_memory`
 
-When `true`, the memory vault is committed to version control instead of being gitignored. When
-`false`, the `memory/` directory is excluded via `.git/info/exclude`.
+When `true`, the memory vault is committed and published on the project's standing memory pull
+request (`chore(agents): commit memories and lessons learned`) instead of being gitignored. When
+`false`, the `memory/` directory is excluded via `.git/info/exclude` and the captured vault notes stay
+local; global lessons still go to the dev-bot store's repository.
 
-Used by memory init and the devbot init gitignore step.
+Used by memory init, the devbot init gitignore step, and `devbot:commit-memories`.
 
 #### `workspace.workflow`
 
@@ -812,10 +814,10 @@ cannot produce.
         "name": "kosmos",
         "type": "static",
         "kubeconfig": "/abs/path/to/k3d-kubeconfig.yaml",
-        "context": "k3d-kosmos"
-      }
-    }
-  }
+        "context": "k3d-kosmos",
+      },
+    },
+  },
 }
 ```
 

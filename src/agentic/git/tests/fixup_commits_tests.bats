@@ -54,6 +54,7 @@ setup() {
   DEV_AGENT="$AGENTIC_DIR/devbot/agents/devbot.md"
   REMEMBER="$AGENTIC_DIR/memory/skills/remember-session/SKILL.md"
   MEMORY_MGMT="$AGENTIC_DIR/memory/skills/memory-management/SKILL.md"
+  COMMIT_MEMORIES="$AGENTIC_DIR/memory/skills/commit-memories/SKILL.md"
 
   FIXUP_FLAT="$BATS_TEST_TMPDIR/fixup-flat.md"
   COMMITS_FLAT="$BATS_TEST_TMPDIR/commits-flat.md"
@@ -74,8 +75,10 @@ setup() {
   flatten "$SOFTWARE_DEV" > "$SOFTWARE_DEV_FLAT"
   flatten "$REMEMBER" > "$BATS_TEST_TMPDIR/remember-flat.md"
   flatten "$MEMORY_MGMT" > "$BATS_TEST_TMPDIR/memory-mgmt-flat.md"
+  flatten "$COMMIT_MEMORIES" > "$BATS_TEST_TMPDIR/commit-memories-flat.md"
   REMEMBER_FLAT="$BATS_TEST_TMPDIR/remember-flat.md"
   MEMORY_MGMT_FLAT="$BATS_TEST_TMPDIR/memory-mgmt-flat.md"
+  COMMIT_MEMORIES_FLAT="$BATS_TEST_TMPDIR/commit-memories-flat.md"
 }
 
 @test "git-fixup-commits frontmatter names devbot:git-fixup-commits" {
@@ -338,36 +341,44 @@ setup() {
   grep -qi 'devbot:git-fixup-commits' "$ADVANCED_FLAT"
 }
 
-@test "memory vault commits are normal commits, never fixups" {
-  grep -qi 'normal commits' "$REMEMBER_FLAT"
-  grep -qi 'memory files only' "$REMEMBER_FLAT"
-  ! grep -qi 'fixup commits only' "$REMEMBER_FLAT"
-  ! grep -qi 'git commit --fixup' "$REMEMBER_FLAT"
-  grep -qi 'never as fixups' "$MEMORY_MGMT_FLAT"
+@test "memory vault commits are ordinary commits, never fixups" {
+  grep -qi 'ordinary commits' "$COMMIT_MEMORIES_FLAT"
+  grep -qi 'never fixups' "$COMMIT_MEMORIES_FLAT"
+  ! grep -qi 'git commit --fixup' "$COMMIT_MEMORIES_FLAT"
+  grep -qi 'never fixups and never on the default branch' "$MEMORY_MGMT_FLAT"
 }
 
-@test "memory commits are surfaced to the human, not carried by the agent" {
-  grep -qi 'human decides how they reach origin' "$REMEMBER_FLAT"
-  grep -qi 'do not reset, rebase, or push' "$REMEMBER_FLAT"
-  grep -qi "do not change a new branch's base" "$REMEMBER_FLAT"
+@test "the commit policy sends memory to commit-memories, not the main checkout" {
+  grep -qi 'commit-memories' "$COMMITS_FLAT"
+  grep -qi 'temporary linked worktree and memory branch' "$COMMITS_FLAT"
+  # The retired exception is what this change removes; it must not come back.
+  ! grep -qi 'except the finish flow' "$COMMITS_FLAT"
 }
 
-@test "memory commits are skipped when the main checkout is on another branch" {
-  grep -qi 'if that checkout is on any other branch' "$REMEMBER_FLAT"
-  grep -qi 'leave the memory files uncommitted' "$REMEMBER_FLAT"
-  grep -qi 'do not commit' "$WORKTREES_FLAT"
+@test "memory notes are published on their own branch, not left on the local default" {
+  grep -qi 'published through a pull request' "$REMEMBER_FLAT"
+  grep -qi 'never committed to the local default branch' "$REMEMBER_FLAT"
+  grep -qi "opens or appends each group's standing pull request" "$REMEMBER_FLAT"
+  grep -qi 'Report every pull request URL' "$COMMIT_MEMORIES_FLAT"
 }
 
-@test "the worktree policy keeps memory commits off the PR and surfaces them" {
-  grep -qi 'normal commits' "$WORKTREES_FLAT"
-  grep -qi 'do not ride along automatically' "$WORKTREES_FLAT"
+@test "memory publishing never switches the main checkout's branch" {
+  grep -qi 'never switch its checked-out branch' "$COMMIT_MEMORIES_FLAT"
+  grep -qi 'temporary linked worktree' "$COMMIT_MEMORIES_FLAT"
+  grep -qi 'branch is never switched' "$WORKTREES_FLAT"
+}
+
+@test "the worktree policy keeps memory off the task PR and gives it its own" {
+  grep -qi 'carries only its work commits' "$WORKTREES_FLAT"
+  grep -qi 'Never put vault commits on a task branch' "$WORKTREES_FLAT"
+  grep -qi 'stranded local commit' "$WORKTREES_FLAT"
   grep -qi 'let the user decide' "$WORKTREES_FLAT"
 }
 
-@test "the fixup rule names a memory-vault commit as a normal commit" {
-  grep -qi 'memory' "$FIXUP_FLAT"
-  grep -qi 'normal commit' "$FIXUP_FLAT"
-  grep -qi 'remember-session' "$FIXUP_FLAT"
+@test "the fixup rule names a memory-vault commit as an ordinary commit" {
+  grep -qi 'memory-vault commit' "$FIXUP_FLAT"
+  grep -qi 'ordinary commit' "$FIXUP_FLAT"
+  grep -qi 'commit-memories' "$FIXUP_FLAT"
 }
 
 @test "the hand-off keys the lease on the short branch, not a qualified ref" {

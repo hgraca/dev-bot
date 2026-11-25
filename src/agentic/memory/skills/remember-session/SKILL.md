@@ -12,7 +12,7 @@ description: "Use when a session ends or the user asks to capture it. Triggers o
 # MUST
 
 - **Load the `devbot:memory-management` context skill once, first**: Before step 1, invoke `skill("memory-management")` exactly once. Do not invoke it again during steps 1–4. This provides the canonical frontmatter schema and routing rules for the entire execution.
-- **Silent execution**: Emit ZERO narrative text on finish-flow captures. No "Nothing to capture", "Captured X", or any status narration. Tool calls only. Only exception: manual "wrap up" trigger produces report described at end of this skill.
+- **Silent execution**: Emit ZERO narrative text on finish-flow captures. No "Nothing to capture", "Captured X", or any status narration. Tool calls only. The pull request URLs `devbot:commit-memories` returns are the one exception — list them as data, with no commentary. A manual "wrap up" trigger may additionally produce the report described at the end of this skill.
 - **No skill-tag echoes**: Do not emit `<skill>remember-session</skill>` markers as narrative text. Either invoke `skill` tool once (loads skill content) or run steps directly — never both.
 - **No headers, no preambles, no recaps**: Do not write heading like "## Capture" or closing line like "Captured 1 gotcha". End response immediately after the last tool call completes.
 
@@ -88,29 +88,26 @@ Promote the lasting value out of this session's `thinking/` files into `latent/`
 
 Deletion is not yours: `devbot:reconcile-work` removes every `thinking/` file this session created, so leave the files in place here and let the one owner do the removal.
 
-## 4. Commit memory files (if tracked)
+## 4. Publish the captured files
 
-Memory files under `.agents/memory/` are tracked **only when the effective `commit_memory` setting is `true`**. Resolve it with project-first, global-fallback precedence: an explicit `workspace.commit_memory` in `.devbot.project.jsonc` wins (even `false`); otherwise the value from the global config's `workspace.commit_memory`; when neither config sets it, the default is `false` (in which case `memory/init.sh` ignores the vault — `.agents/memory` lands in `.git/info/exclude`). **Check reality before committing**: resolve `commit_memory` from the project config first, falling back to the global config, AND run `git check-ignore <file>` on a captured file — if the effective value is not `true` or the file is ignored, skip the commit (the files stay local; nothing to fix). A pre-existing `.gitignore` blanket rule (e.g. `.agents/**`) can shadow the surgical excludes even with `commit_memory: true` — `git check-ignore` catches that too. Only when the file is genuinely trackable, commit:
+Memory files are published through a pull request, never committed to the local default branch: load
+`devbot:commit-memories` and follow it once, after the capture has written its notes. It groups the
+files this capture created or modified by the repository that owns them — the owning project for vault
+notes, the dev-bot repository for the global store — applies the `commit_memory` and `git check-ignore`
+gates, commits them on a branch, pushes the branch, and opens or appends each group's standing pull
+request — `chore(agents): commit memories and lessons learned` for vault notes and
+`chore(global-memories): commit global memories and lessons learned` for the global store. It is
+unattended in the finish flow: no permission prompt, no confirmation round. `devbot:commit-memories`
+carries every publishing rule; this step only hands it the files. The URLs it returns are the wrap-up
+report's memory lines.
 
-- **Normal commits, memory files only** — one commit per repository per capture, staged explicitly (`git add <memory-path>…`, never a blanket add) so nothing but the new or changed memory files rides along. These commits land on the default branch, where fixups are forbidden — never use `--fixup` (see `devbot:git-fixup-commits`).
-- **Only on the main checkout's local default branch** — the finish flow runs there; commit there, not in the worktree (`devbot:git-worktrees`). If that checkout is on any other branch — a feature branch, a detached HEAD — do not commit: leave the memory files uncommitted and surface them, because a commit there would ride into that branch's pull request.
-- **Never push** — commits only; the human decides when to push.
-- **Surface what you leave behind** — when the main checkout still holds memory changes, or its local default branch carries memory commits that `origin/<default>` does not, say so and name them. The human decides how they reach origin: do not reset, rebase, or push them, and do not change a new branch's base to carry them without their say.
-- **Keep the memory capture as the final memory action** — make these commits the last writes to the memory vault and write no further memory files afterward, so the memory capture stays a one-shot operation. The finish flow then runs `devbot:grade-tools` (tool quality), `devbot:reconcile-work` (work-folder and worktree housekeeping) and, when the session ran a code review loop, `devbot:improve-reviewing` (reviewer improvement) — none of them writes memory notes.
+**Polyrepo sessions** — a note's repository is its **owning project's**, never the polyrepo's. Pass
+every note with the owner resolved (`devbot tool project-for-path <file>`), and let the child's own
+`commit_memory` gate its vault notes; a global lesson still goes to the dev-bot store's repository. A
+non-git owner is skipped with a **notice** line in its `.agents/logs/memory-index.log` — no warning,
+no failure.
 
-**Polyrepo sessions** — route each memory file to its **owning project's**
-repo and honour _that project's_ `commit_memory`, never the polyrepo's
-(resolve it with the `where` tool for that path, or `_devbot_get_workspace_config commit_memory <owner>` — project-first,
-global-fallback for the owner). Group findings by owning project and commit once
-per repo; a child with `commit_memory: false` gets no memory commit even when the
-polyrepo commits.
-
-Memory commits always go to the owning project's **main checkout, never a
-worktree, whatever the workflow** — memory files live there, and a worktree has
-no runtime farm. Commit only when that checkout is on the local default branch;
-if it is on any other branch, leave the files uncommitted and surface them —
-never switch the human's branch, and never put vault commits on their feature
-branch. When the owner is not a git repo
-(e.g. a polyrepo root never `git init`ed), skip the commit and append a
-**notice** line to the owner's `.agents/logs/memory-index.log` — no warning, no
-failure.
+**Keep the memory capture as the final memory action** — write no memory files after this step, so the
+capture stays a one-shot operation. The finish flow then runs `devbot:grade-tools` (tool quality),
+`devbot:reconcile-work` (work-folder and worktree housekeeping) and, when the session ran a code review
+loop, `devbot:improve-reviewing` (reviewer improvement) — none of them writes memory notes.

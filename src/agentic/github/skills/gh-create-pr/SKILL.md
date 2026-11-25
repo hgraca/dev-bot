@@ -77,6 +77,14 @@ For the pull request in the [title exception](#title) — one that implements no
 work — the two lists give way to one short section per change it makes: what the external evidence
 showed, why the current instructions miss it, and the file that now covers it.
 
+## Finish-flow publishers
+
+Two skills publish a standing pull request **unattended** from the finish flow: `devbot:commit-memories`
+(the captured memory notes) and `devbot:improve-reviewing` (the reviewer gaps a review loop exposed).
+They use the title and body rules above, but the approval and local-review gates below do not apply:
+their pull request is the review, and they append to their one standing pull request instead of
+opening a second. They never merge it.
+
 ## Local review first
 
 A pull request is the wrong place to discover the branch was never reviewed. When no local review
@@ -177,13 +185,14 @@ should run at that level. Iterating on the review is not this skill's job; the l
 
 ## Must not
 
-- Do not open a pull request without showing the plan and getting explicit approval.
+- Except the finish-flow publishers above, do not open a pull request without showing the plan and
+  getting explicit approval.
 - Do not force-push — the guards module blocks it. The pre-merge squash is published by the human
   with `--force-with-lease` (see `devbot:git-fixup-commits`).
 - Do not compose the title or body from the branch name alone — read the commits and the diff.
 - Do not pass `--reviewer` to `gh pr create` — a rejected reviewer aborts creation.
 - Do not use `gh pr edit --add-reviewer @copilot` — it registers nobody; use the GraphQL mutation.
-- Do not open a pull request while a local review of the changeset has neither been made nor
-  offered, or while fixups are still unsquashed.
+- Except the finish-flow publishers above, do not open a pull request while a local review of the
+  changeset has neither been made nor offered, or while fixups are still unsquashed.
 - Do not request a Copilot review at creation: the pull request opens without a reviewer, and the
   loop is requested only after the user asks for it — always, in an automatic run.

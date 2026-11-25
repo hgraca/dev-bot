@@ -159,7 +159,7 @@ the squash is what makes the final history atomic.
 Just before merge:
 
 1. **Capture and fetch** — `git rev-parse origin/<branch>` records the lease, then `git fetch origin <default>` refreshes the base. Never fetch `<branch>` itself: that would move the lease onto a colleague's tip.
-2. **Squash** — `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/<default>`, after showing the plan and getting approval (steps 5–6). Base on **`origin/<default>`, never the local `<default>`**: the local default may hold unpushed memory commits, and rebasing onto it would make them ancestors of the branch and publish them with the rewrite.
+2. **Squash** — `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/<default>`, after showing the plan and getting approval (steps 5–6). Base on **`origin/<default>`, never the local `<default>`**: the local default may carry stranded commits, and rebasing onto it would make them ancestors of the branch and publish them with the rewrite.
 3. **Confirm** — nothing folded short of its target, and list any vault files in the range:
 
    ```bash
@@ -214,7 +214,7 @@ git rebase -i --autosquash <target-sha>^     # tightest base when fixing one com
 git rebase -i --autosquash --root            # entire history — rarely wanted
 ```
 
-Prefer `origin/<default>` over the local `<default>`: the local branch may carry unpushed commits (memory-vault commits among them), and using it as the base pulls them into the rewrite.
+Prefer `origin/<default>` over the local `<default>`: the local branch may carry unpushed commits, and using it as the base pulls them into the rewrite.
 
 `<target-sha>^` fails on a root commit, where `--root` is needed. Add `--autostash` if the user has uncommitted work to preserve across the rebase.
 
@@ -245,7 +245,7 @@ Conflicts during an autosquash rebase usually mean the fixup was aimed at the wr
 ## When not to use fixup
 
 - **The commit is already reachable from the default branch or another branch** → normal follow-up commit
-- **A memory-vault commit** → a normal commit containing only the memory files, on the main checkout's default branch (`devbot:remember-session`)
+- **A memory-vault commit** → an ordinary commit containing only the memory files, on the memory pull request's branch (`devbot:commit-memories`); never a fixup on a task branch
 - **The change is not a correction to code this branch introduced, but new independent behaviour** → a new atomic commit, not a fixup
 - **The target is the most recent commit with nothing stacked on it** → `git commit --amend` is simpler
 - **The branch is under review with per-commit comments** → the fixup is still right; ask before squashing

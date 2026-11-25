@@ -122,8 +122,8 @@ the agent (see `devbot:git-fixup-commits`).
 ## Committing from a worktree (MUST)
 
 When the project follows the `worktrees` workflow (the default), commit from a linked git
-worktree, never from the main checkout — except the finish flow's memory commits, which are normal
-commits made on the main checkout's local default branch (`devbot:remember-session`). Before the first edit, confirm the workflow is in use —
+worktree, never from the main checkout — the finish flow's memory publishing is no exception: it
+builds its own temporary linked worktree and memory branch (`devbot:commit-memories`). Before the first edit, confirm the workflow is in use —
 `worktree.sh enabled` — in a `workspace.type: "polyrepo"` session pass `--project <owner>` after resolving the
 owner, since the tool refuses a polyrepo root — exits `1` when the project follows another workflow
 (e.g. `"workflow": "trunk"`), in which case commit where that workflow directs: the **owning project's** main

@@ -29,6 +29,11 @@ commits land, how it is reviewed, and where it stops. Select it in this order �
    never the polyrepo root, and run the workflow's repo-scoped steps in that owner.
 3. **Default** — the [Worktrees workflow](#worktrees-workflow) when no configuration names one.
 
+**The finish flow publishes.** Two wrap-up steps always publish a branch and a pull request, whatever
+the workflow: `devbot:commit-memories` (the captured memory notes) and `devbot:improve-reviewing`
+(the reviewer gaps a review loop exposed). Their pull request is the review, so the trunk workflow's
+"no pull requests" rule and its push gate do not apply to them.
+
 **Check in after every step.** In an interactive session, end each step with a two-line report — what
 you did and what comes next — and ask the user whether to continue or change something. Do not start
 the next step until they answer. Runs with no human to answer are the only exception:
