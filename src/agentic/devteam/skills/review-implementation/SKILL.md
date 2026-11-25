@@ -201,6 +201,7 @@ When the change is itself a fix, or when a later round of the same review answer
 
 - Re-read the whole section around each edit, not just the edited sentence: an anchor can be dropped, a hazard the same file warns about can be reintroduced a few lines later, and counts go stale.
 - Re-verify each applied fix against its own finding before closing it — a replacement that silently matched nothing looks exactly like a successful edit.
+- Re-read the file's prohibitions, not only its requirements: a rule the change adds can contradict a MUST NOT a few lines away — each half correct alone, impossible together.
 - WARNING; BLOCKER when the earlier round already reported the finding resolved.
 
 ### 24. Decision Tables and Retry Paths Cover Every Reachable State
@@ -238,6 +239,24 @@ When the change corrects a literal — a version, an image tag, an extension pin
 - Fix each occurrence, or state explicitly why one is deliberately left. A sibling still carrying the old value is the same defect, unfixed.
 - Never assume a second file inherits the first: files that look parallel usually hold their own copy.
 - WARNING; BLOCKER when the un-updated copy runs in CI or production.
+
+### 28. A Composed Skill's Terminal Phase Runs Exactly Once
+
+When a change composes skills, commands or procedures that each end in a terminal phase — squash, hand-over, publish, merge:
+
+- List every unit the composition invokes and name its terminal phase. Then show where that phase runs in the composition, and confirm it runs **once**. A command that says "run the loop" and then adds its own squash step invokes the loop's finish **and** performs one, so the history is rewritten twice and the operator approves it twice.
+- A composition that needs a unit's cycle but not its finish must bound the invocation explicitly ("drive its loop and gate, then stop before its finish"), or own the finish and say so. An unbounded "run X" hands the terminal phase to X silently.
+- Check the read-only sibling too: a unit whose finish publishes must not be invoked for a step that only inspects.
+- WARNING; BLOCKER when the duplicate terminal phase rewrites published history or repeats an irreversible action.
+
+### 29. A Pointer to an Owner Resolves
+
+When text assigns a behaviour to another document — "the loop owns the push", "the adapter carries the wait", "the workflow squashes the fixups":
+
+- Open the named document and verify the behaviour is **defined there**, as a step or a stated rule, not merely named. A pointer to a rule that does not exist leaves the behaviour unowned: every reader follows the pointer and finds nothing, and nothing in the file that assigns it ever performs it.
+- Check the pointer's direction when the behaviour moves: the new home names it, and the old home no longer claims it. Two documents each saying the other owns it is the same defect with both ends missing.
+- The failure is silent when the unowned action is one of a sequence — the push, the re-request, the gate — because the procedure still reads as complete.
+- WARNING; BLOCKER when the procedure cannot work at all without the unowned action.
 
 ## Recurring issue types
 
