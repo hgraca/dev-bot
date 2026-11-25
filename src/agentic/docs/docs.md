@@ -13,7 +13,7 @@ How dev-bot's own documentation is written, gathered and published — plus the 
 - **`documentation-rules`** — where docs live, how they are structured, and the README table of contents invariant.
 - **`use-case-map`** — traces call chains from entry points through commands, handlers, ports and adapters in a PHP codebase.
 - **`impact-diagram`** — the diff-scoped use-case map: only the flows a change touches, changed units in red.
-- **`app-map`** — an interactive application-map editor.
+- **`app-map`** — the editor for drawing architecture diagrams: an interactive map saved as JSON and exported as SVG.
 
 ## Configuration
 

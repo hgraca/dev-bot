@@ -1,11 +1,11 @@
 ---
 name: devbot:app-map
-description: "Use when creating or editing an interactive application map. Triggers on 'app map', 'architecture canvas', 'visual architecture'."
+description: "Use when drawing, creating or editing an architecture diagram or application map. Triggers on 'app map', 'architecture diagram', 'architecture canvas', 'visual architecture'."
 ---
 
 # app-map
 
-Interactive, zoomable canvas for building and editing architecture diagrams. A standalone HTML application that loads, displays, and saves hierarchical application maps.
+Interactive, zoomable canvas for building and editing architecture diagrams. A standalone HTML application that loads, displays, saves and exports hierarchical application maps.
 
 ## What it Is
 
@@ -18,6 +18,8 @@ Interactive, zoomable canvas for building and editing architecture diagrams. A s
 - **Inline editing** — double-click to edit titles, subtitles
 - **Color coding** — each module/item can have a custom CSS color
 - **JSON persistence** — load from and save to `AppMap.schema.json`-compliant JSON
+- **File ownership** — Save writes back into the open file, Save as picks a new one
+- **SVG export** — the drawn board as a standalone image, trimmed to its content
 - **Minimap overlays** — visual overview of the entire board
 
 ### Schema (`AppMap.schema.json`)
@@ -48,6 +50,7 @@ Each item has `id`, `title`, `type`, and optional `color`, `x`, `y`, `items`.
 
 ## When to Use
 
+- **Drawing an architecture diagram** — when the user asks for a diagram of how modules, services and flows fit together, draw it in AppMap; do not hand back ASCII art or Mermaid when a diagram is what was asked for
 - **Initial architecture design** — sketch module boundaries and dependencies before coding
 - **Architecture documentation** — create a visual map for onboarding or review
 - **Refactoring planning** — move modules around to explore new structures
@@ -55,6 +58,17 @@ Each item has `id`, `title`, `type`, and optional `color`, `x`, `y`, `items`.
 - **Complement to UseCaseMap** — UseCaseMap auto-generates from code; AppMap lets you manually arrange and annotate
 
 ## How to Use
+
+### Drawing a diagram
+
+AppMap is the place to draw architecture. Its JSON is hand-authorable, so you can build the map
+without the UI:
+
+1. Write the map against `AppMap.schema.json` — `map` root, `module` nodes, `action` leaves,
+   `connector` arrows, `moduleItemGroup` containers. Give modules `x`/`y`, or let the editor lay
+   them out.
+2. Save it where the user wants it and open it in the editor (below) for them to adjust.
+3. Export the board as SVG when the picture belongs in a pull request, ticket or page.
 
 ### Opening the canvas
 
@@ -67,11 +81,11 @@ Each item has `id`, `title`, `type`, and optional `color`, `x`, `y`, `items`.
    python3 -m http.server 8080
    ```
 2. Open `http://localhost:8080/AppMap.html` in a browser
-3. The canvas starts empty — click **"Load"** to open a JSON file, or start building from scratch
+3. The canvas starts empty — click **"Load JSON"** to open a file, or **New** to start building from scratch
 
 ### Loading existing data
 
-- Click the **Load** button in the top menu bar
+- Click the **Load JSON** button in the top menu bar
 - Select a JSON file that follows `AppMap.schema.json`
 - All modules, groups, and connectors render on the canvas
 
@@ -86,10 +100,22 @@ Each item has `id`, `title`, `type`, and optional `color`, `x`, `y`, `items`.
 - Double-click titles to edit
 - Right-click → edit colors
 
-### Saving
+### Saving and exporting
 
-- Click **"Save"** to download the current state as a JSON file
-- The output follows `AppMap.schema.json` and can be reloaded later
+The editor keeps the file it opened, so the buttons mean what they say:
+
+| Button         | Behaviour                                                                                                                                  |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Save**       | writes straight into the open file; with nothing open it behaves as **Save as**                                                            |
+| **Save as**    | asks where to write, starting in the folder of the last opened file                                                                        |
+| **Reload**     | re-reads the open file from disk, discarding unsaved edits; disabled until a file is open — fallback browsers re-read the last loaded copy |
+| **Export SVG** | writes the drawn board as a standalone `.svg`, starting in the last file's folder; disabled while the board holds no modules or groups     |
+
+`New` starts an untitled board and drops the file association: `Save` then asks where to write and
+`Reload` returns to disabled.
+
+The SVG holds only the board — no menu bar — cropped to the content's bounding box plus a 10px
+border, so it drops into a document without whitespace around it.
 
 ### Navigation
 
@@ -125,5 +151,7 @@ Future: wire AppMap to consume UseCaseMap-generated JSON for visual editing of a
 ## Limitations
 
 - **No tool wrapping yet** — this is a skill with static HTML assets, not a CLI tool. The canvas requires a browser.
-- **Load/Save uses File API** — the HTML uses the browser's file picker (`<input type="file">`) and download API. No server-side persistence.
-- **Manual creation** — items are added via UI, not generated from code. Use `devbot:use-case-map` for code-driven generation.
+- **File access needs a Chromium browser** — Save, Save as, Reload and Export SVG use the File System Access API. Firefox and Safari have no equivalent: there the editor falls back to the file input and a download, so Save downloads and Reload re-reads the last loaded copy.
+- **The picker cannot start at the home directory** — a browser has no handle on the OS home folder. With no file opened yet, the picker opens wherever the browser last left it.
+- **Export is a rendered board, not an editable vector** — the SVG wraps the live DOM in a `foreignObject`, so it renders in browsers but shows an empty frame in Illustrator or Inkscape.
+- **No server-side persistence** — nothing is stored outside the file the user picks.
