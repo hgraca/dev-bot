@@ -91,6 +91,54 @@ a reader needs.
 
 ### PHP
 
+#### A01 — Cross-Site Request Forgery (CSRF)
+
+- [ ] All state-changing endpoints (POST/PUT/PATCH/DELETE) have CSRF tokens
+- [ ] CSRF token validated on server side, not just client side
+- [ ] `SameSite=Strict` or `SameSite=Lax` on session cookies
+
+#### A01 — Authorisation
+
+- [ ] Every endpoint checks authorisation — not just authentication
+- [ ] Vertical privilege escalation: can regular user access admin functions?
+- [ ] Horizontal privilege escalation: can user A access user B data?
+- [ ] Direct object references use indirect references or authorisation checks
+- [ ] Server-side requests to a user-supplied URL are allowlisted by host, not blocklisted
+- [ ] A redirect from an allowlisted host cannot reach an internal address
+- [ ] Loopback, link-local and metadata endpoints (`169.254.169.254`) are unreachable
+
+#### A01 — File Handling
+
+- [ ] Uploaded files validated by content type, not just extension
+- [ ] Upload directory outside webroot or has no execute permissions
+- [ ] Filenames sanitised before storage
+- [ ] Path traversal: `../` sequences removed from file paths
+
+#### A02 — Configuration
+
+- [ ] `display_errors = Off` in production
+- [ ] `expose_php = Off`
+- [ ] Debug/development tools disabled in production
+- [ ] Environment variables used for secrets, not config files
+
+#### A02 — Headers
+
+- [ ] `Strict-Transport-Security` (HSTS) configured
+- [ ] `X-Frame-Options: DENY` or `SAMEORIGIN`
+- [ ] `X-Content-Type-Options: nosniff`
+- [ ] `Referrer-Policy` configured
+- [ ] `Permissions-Policy` configured
+
+#### A03 — Software Supply Chain
+
+- [ ] `composer audit` run — no known CVEs in dependencies
+- [ ] Outdated packages with security patches noted
+- [ ] No abandoned packages in production dependencies
+- [ ] A lockfile is committed, and CI installs from it
+- [ ] Dependencies are pinned — a range that resolves differently each install is a gap
+- [ ] Composer install scripts and plugins are reviewed, not merely declared
+- [ ] CI actions are pinned by commit SHA, not by tag
+
 #### A04 — Cryptographic Failures
 
 §2's A04 row names four signs, and this section checks all four — with two splits. **Password**
@@ -134,48 +182,6 @@ enforced at all.
 - [ ] Content Security Policy headers set
 - [ ] DOM manipulation does not use `innerHTML` with user data
 
-#### A01 — Cross-Site Request Forgery (CSRF)
-
-- [ ] All state-changing endpoints (POST/PUT/PATCH/DELETE) have CSRF tokens
-- [ ] CSRF token validated on server side, not just client side
-- [ ] `SameSite=Strict` or `SameSite=Lax` on session cookies
-
-#### A01 — Authorisation
-
-- [ ] Every endpoint checks authorisation — not just authentication
-- [ ] Vertical privilege escalation: can regular user access admin functions?
-- [ ] Horizontal privilege escalation: can user A access user B data?
-- [ ] Direct object references use indirect references or authorisation checks
-- [ ] Server-side requests to a user-supplied URL are allowlisted by host, not blocklisted
-- [ ] A redirect from an allowlisted host cannot reach an internal address
-- [ ] Loopback, link-local and metadata endpoints (`169.254.169.254`) are unreachable
-
-#### A01 — File Handling
-
-- [ ] Uploaded files validated by content type, not just extension
-- [ ] Upload directory outside webroot or has no execute permissions
-- [ ] Filenames sanitised before storage
-- [ ] Path traversal: `../` sequences removed from file paths
-
-#### A07 — Authentication and Session
-
-- [ ] Passwords hashed with `password_hash()` (bcrypt/argon2), not MD5/SHA1
-- [ ] Session ID regenerated after login (`session_regenerate_id(true)`)
-- [ ] Session timeout configured
-- [ ] Secure + HttpOnly + SameSite flags on session cookies
-- [ ] Login attempts rate-limited
-- [ ] Password reset tokens single-use, time-limited, invalidated on use
-
-#### A03 — Software Supply Chain
-
-- [ ] `composer audit` run — no known CVEs in dependencies
-- [ ] Outdated packages with security patches noted
-- [ ] No abandoned packages in production dependencies
-- [ ] A lockfile is committed, and CI installs from it
-- [ ] Dependencies are pinned — a range that resolves differently each install is a gap
-- [ ] Composer install scripts and plugins are reviewed, not merely declared
-- [ ] CI actions are pinned by commit SHA, not by tag
-
 #### A06 — Insecure Design
 
 Design gaps that correct implementation cannot fix. Check these against the threat model from §1,
@@ -188,20 +194,14 @@ not against a diff.
 - [ ] A workflow cannot be skipped by calling a later step directly
 - [ ] Re-authentication required before a change that makes the account less safe
 
-#### A02 — Configuration
+#### A07 — Authentication and Session
 
-- [ ] `display_errors = Off` in production
-- [ ] `expose_php = Off`
-- [ ] Debug/development tools disabled in production
-- [ ] Environment variables used for secrets, not config files
-
-#### A02 — Headers
-
-- [ ] `Strict-Transport-Security` (HSTS) configured
-- [ ] `X-Frame-Options: DENY` or `SAMEORIGIN`
-- [ ] `X-Content-Type-Options: nosniff`
-- [ ] `Referrer-Policy` configured
-- [ ] `Permissions-Policy` configured
+- [ ] Passwords hashed with `password_hash()` (bcrypt/argon2), not MD5/SHA1
+- [ ] Session ID regenerated after login (`session_regenerate_id(true)`)
+- [ ] Session timeout configured
+- [ ] Secure + HttpOnly + SameSite flags on session cookies
+- [ ] Login attempts rate-limited
+- [ ] Password reset tokens single-use, time-limited, invalidated on use
 
 #### A08 — Software or Data Integrity
 
@@ -374,8 +374,10 @@ The **Summary** section of the shared report shape. What a source review adds to
 
 ## 11. What tends to hide
 
-Defect classes that survive a review because the code looks right where you read it. Use this as a
-checklist of what to go looking for, and as the shape a finding should take.
+Defect classes that survive a **source** review because the code looks right where you read it — the
+mechanism of the miss, not the evidence of it. For what an engagement actually found at runtime, with
+its technology and generalising fix, see `devbot:pentest-external-webapp`'s catalogue of applied
+findings.
 
 | Symptom                                              | Why the review misses it                                  | What to check instead                                           |
 | ---------------------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------- |
