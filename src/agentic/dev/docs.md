@@ -1,7 +1,7 @@
 ---
 title: "Dev"
 description: "Software-development conventions — craft rules, tests, review loops and resolution, make, and shell strategy."
-commands: ["make-tests"]
+commands: ["full-loop", "make-tests"]
 skills: ["address-review", "make-tests", "makefile", "review-loop", "shell-strategy", "software-development"]
 tools: ["bats-run"]
 ---
@@ -16,6 +16,8 @@ The generic craft rules every dev-bot task leans on — independent of language 
 - **`review-loop`** — the reviewer-agnostic review→fix cycle: convergence, one fixup per finding, the
   answer rule and the finish. Driven by `@reviewer` locally, or by a pull-request reviewer through
   its adapter.
+- **`full-loop`** (command) — runs it twice: local review, pull request, host review, squash, then
+  the force-push and merge handover to the user.
 - **`makefile`** — running project commands through `make`.
 - **`shell-strategy`** — choosing between a quick shell call and a long-running channel.
 
