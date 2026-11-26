@@ -2638,7 +2638,9 @@ _run_service_scripts() {
       echo
       _header_3 "Running ${module_name} ${script_name}..."
       local start=${SECONDS} rc=0
-      bash "${script}" "$@" || rc=$?
+      # Detached children must not inherit the
+      # caller's locker fd: they could outlive it.
+      bash "${script}" "$@" 200>&- || rc=$?
       if [[ ${rc} -eq 0 ]]; then
         _ok "${module_name} ${script_name} done ($(_fmt_duration $(( SECONDS - start ))))"
         count=$((count + 1))

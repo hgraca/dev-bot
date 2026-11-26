@@ -76,6 +76,7 @@ cmd_help() {
   echo "  Starts the configured harness (opencode or claudecode) after running devbot up."
   echo "  devbot up is skipped when this project's start already ran here and its"
   echo "  docker services are still up, so a second start goes straight to the harness."
+  echo "  A start that overlaps another one waits for it, then skips."
   echo "  Harness flags (and args after --) are forwarded; an unknown command is refused."
   echo "  --gui      Open the harness's desktop app (Claude / OpenCode) on this project"
   echo "             instead of its CLI, when installed. Services stay up until Ctrl-C."
@@ -627,11 +628,12 @@ cmd_harness() {
   # like the CAUSE of the failure — up.sh reports the error itself.
   local up_rc=0
   # A skipped start skips its module up.sh scripts too, so the
-  # probe requires this project's own completed start first.
+  # probe requires this project's own completed start first. The up re-probes
+  # under an install-level lock, so an overlapping start waits, then skips.
   if bash "${DEV_BOT_ROOT}/bin/up.sh" --is-up "$(pwd)" >/dev/null 2>&1; then
     _skip "devbot services already running — skipping 'devbot up'"
   else
-    bash "${DEV_BOT_ROOT}/bin/up.sh" "$(pwd)" || up_rc=$?
+    bash "${DEV_BOT_ROOT}/bin/up.sh" --if-needed "$(pwd)" || up_rc=$?
   fi
   if [[ "${up_rc}" -ne 0 ]]; then
     _DEVBOT_START_FAILED=1

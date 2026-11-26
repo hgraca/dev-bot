@@ -44,6 +44,7 @@ if [[ "\${1:-}" == "--is-up" ]]; then
   printf 'sessions-at-check=%s\n' "\${local_files}" >> "${SANDBOX}/check.log"
   exit "\${UP_CHECK_RC:-1}"
 fi
+printf '%s\n' "\$*" > "${SANDBOX}/up-args.log"
 echo "up-called"
 local_files="\$(find "${SANDBOX}/storage/run/sessions" -maxdepth 1 -name 'session-*' 2>/dev/null | wc -l | tr -d ' ')"
 echo "sessions-at-up=\${local_files}" >> "${SANDBOX}/up.log"
@@ -192,7 +193,7 @@ _run_cmd_harness() {
 }
 
 @test "cmd_harness runs up when the services are not up yet" {
-  rm -f "${SANDBOX}/start-args.log" "${SANDBOX}/up.log" "${SANDBOX}/check.log"
+  rm -f "${SANDBOX}/start-args.log" "${SANDBOX}/up.log" "${SANDBOX}/check.log" "${SANDBOX}/up-args.log"
 
   _run_cmd_harness
 
@@ -201,6 +202,11 @@ _run_cmd_harness() {
   refute_output --partial "devbot services already running"
   run cat "${SANDBOX}/up.log"
   assert_output "sessions-at-up=1"
+  # --if-needed: the up re-probes under the install lock, so a start that
+  # overlapped another one skips instead of running a second sequence.
+  run cat "${SANDBOX}/up-args.log"
+  assert_output --partial "--if-needed"
+  assert_output --partial "${PROJECT}"
 }
 
 @test "cmd_harness forwards all args unchanged when no -- is present" {

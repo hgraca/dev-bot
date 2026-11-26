@@ -9,6 +9,8 @@
 #   bin/up.sh /path/to/project   # run in specified project
 #   bin/up.sh --is-up [/path]    # silent probe: exit 0 iff every declared docker
 #                                # service is already running (used by `devbot`)
+#   bin/up.sh --if-needed [/path]  # run the sequence unless a start completed
+#                                  # while waiting for the install-level up lock
 #
 # Adding a new up step:
 #   Create src/tools/<module>/up.sh, src/agentic/<module>/up.sh or
@@ -62,8 +64,13 @@ _up_install_trap() {
 
 # ── `--is-up` probe (internal; the bare `devbot` start asks before running) ───
 UP_IS_UP=0
+UP_IF_NEEDED=0
 if [[ "${1:-}" == "--is-up" ]]; then
   UP_IS_UP=1
+  shift
+fi
+if [[ "${1:-}" == "--if-needed" ]]; then
+  UP_IF_NEEDED=1
   shift
 fi
 
@@ -444,6 +451,27 @@ _up_is_up() {
   done <<< "${declared}"
 }
 
+# ── Up lock ───────────────────────────────────────────────────────────────────
+# One sequence per install: the containers
+# and the gateway are shared by every project.
+_up_lock_path() { printf '%s/run/up.lock' "${DEV_BOT_ROOT}/storage"; }
+
+# `--if-needed` waits, re-probes, then skips or runs;
+# a lock failure proceeds unlocked with a warning.
+_up_run_locked() {
+  if _devbot_lock_wait "$(_up_lock_path)" "${DEVBOT_UP_LOCK_WAIT:-600}"; then
+    if [[ "${UP_IF_NEEDED}" -eq 1 ]] && _up_is_up; then
+      _skip "devbot services already running — skipping 'devbot up'"
+      return 0
+    fi
+  else
+    _warn "could not take the up lock — continuing unlocked; concurrent starts may overlap"
+  fi
+
+  _up_install_trap
+  main "$@"
+}
+
 # ── Writable bind-mount sources ────────────────────────────────────────────────
 # Docker creates a missing bind-mount SOURCE on the host as root:root. A module
 # service that runs as the host uid (e.g. mdctx-mcp) then finds its own writable
@@ -686,7 +714,8 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     _up_is_up && exit 0
     exit 1
   fi
-  _up_install_trap
+  _up_run_locked "$@"
+  exit $?
 fi
 
 main "$@"

@@ -427,6 +427,28 @@ EOF
   assert_output --partial "1 up.sh script(s) completed, 1 FAILED"
 }
 
+@test "_run_service_scripts never hands its locker fd to a module script" {
+  # A module up.sh may detach a long-lived child (graphify's cache prune). An
+  # inherited flock fd would keep the caller's up lock held for that child's
+  # whole lifetime, stalling the next start.
+  command -v jq &>/dev/null || skip "jq not installed"
+  _add_module "src/tools" "probe" "up.sh" \
+    'python3 -c "import os; os.fstat(200)" 2>/dev/null && echo "fd200=open" || echo "fd200=closed"'
+
+  run bash -c '
+    source "'"${PROJECT_ROOT}"'/src/_shared/functions.sh"
+    _devbot_get_disabled_modules() { echo "[]"; }
+    exec 200>"'"${SANDBOX_DIR}"'/caller.lock"
+    flock -x 200 2>/dev/null || true
+    _run_service_scripts "up.sh" "/fake/project"
+    python3 -c "import os; os.fstat(200)" 2>/dev/null && echo "parent=held"
+  '
+
+  assert_success
+  assert_output --partial "fd200=closed"
+  assert_output --partial "parent=held"
+}
+
 @test "_run_service_scripts --all passes remaining args through" {
   _source_lib
   export MOCK_DISABLED_MODULES='[]'

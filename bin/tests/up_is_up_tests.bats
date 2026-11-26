@@ -88,6 +88,24 @@ _devbot_wiring_sha() { echo "${MOCK_WIRING_SHA:-sha-1}"; }
 _devbot_codebase_memory_root() { echo "${MOCK_MEMORY_ROOT:-/home/probe}"; }
 
 _devbot_load_env_file() { return 0; }
+
+# Real flock, so the --if-needed tests can hold the up lock from another
+# process. Mirrors the production cap semantics: the Nth two-second probe that
+# fails is the timeout.
+_devbot_lock_wait() {
+  local lockfile="$1" cap="${2:-600}" msg="${3:-}"
+  mkdir -p "$(dirname "${lockfile}")" 2>/dev/null || return 1
+  { exec 200>"${lockfile}"; } 2>/dev/null || return 1
+  local waited=0
+  while ! flock -n 200 2>/dev/null; do
+    waited=$((waited + 2))
+    if (( waited >= cap )); then
+      [[ -n "${msg}" ]] && _warn "${msg}"
+      return 1
+    fi
+    sleep 2
+  done
+}
 HEREDOC
 
   awk '/^_gpu_overlay_skip_if\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh" \
@@ -256,6 +274,121 @@ _seed_stamp() {
   assert_failure
 }
 
+# ── `--if-needed` under the install-level up lock ─────────────────────────────
+# The bare start probes first, then calls `up.sh --if-needed`. A start that
+# overlapped another one reaches that call with no stamp: it must wait for the
+# in-flight up and re-probe before running a second sequence.
+
+# Drive _up_run_locked with a stand-in main, so the decision is tested without
+# the real sequence. The sourced script has its `main "$@"` tail stripped.
+_run_locked() {
+  local if_needed="$1" cap="${2:-600}"
+  run bash -c '
+    source "'"${SANDBOX}"'/bin/up.sh"
+    PROJECT_DIR="'"${PROBE_PROJECT}"'"
+    UP_IF_NEEDED='"${if_needed}"'
+    DEVBOT_UP_LOCK_WAIT='"${cap}"'
+    main() { echo "MAIN_RAN"; }
+    _up_install_trap() { :; }
+    _up_run_locked
+  '
+}
+
+# Hold the up lock for N seconds from another process; return only once it is
+# actually held, so the caller cannot win the race to the lock.
+_hold_up_lock() {
+  local seconds="$1"
+  local ready="${SANDBOX}/lock-ready"
+  mkdir -p "${SANDBOX}/storage/run"
+  rm -f "${ready}"
+  flock -x "${SANDBOX}/storage/run/up.lock" -c "touch '${ready}'; sleep ${seconds}" &
+  LOCK_HOLDER=$!
+  local waited=0
+  while [[ ! -f "${ready}" ]] && (( waited < 50 )); do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+}
+
+_release_up_lock() {
+  wait "${LOCK_HOLDER}" 2>/dev/null || true
+}
+
+@test "if-needed: waits for an in-flight up, re-probes and skips" {
+  printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
+  printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
+  _seed_stamp
+  _hold_up_lock 2
+
+  _run_locked 1
+
+  assert_success
+  assert_output --partial "devbot services already running"
+  refute_output --partial "MAIN_RAN"
+  _release_up_lock
+}
+
+@test "if-needed: runs the sequence when no start completed while waiting" {
+  printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
+  printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
+  _hold_up_lock 2
+
+  _run_locked 1
+
+  assert_success
+  assert_output --partial "MAIN_RAN"
+  refute_output --partial "devbot services already running"
+  _release_up_lock
+}
+
+@test "up: an explicit run ignores a valid stamp (devbot up stays unchanged)" {
+  printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
+  printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
+  _seed_stamp
+
+  _run_locked 0
+
+  assert_success
+  assert_output --partial "MAIN_RAN"
+  refute_output --partial "devbot services already running"
+}
+
+@test "up: the lock is held while the sequence runs" {
+  printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
+  printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
+
+  run bash -c '
+    source "'"${SANDBOX}"'/bin/up.sh"
+    PROJECT_DIR="'"${PROBE_PROJECT}"'"
+    UP_IF_NEEDED=0
+    main() {
+      if flock -n "'"${SANDBOX}"'/storage/run/up.lock" -c true; then
+        echo "LOCK_FREE"
+      else
+        echo "LOCK_HELD"
+      fi
+    }
+    _up_install_trap() { :; }
+    _up_run_locked
+  '
+
+  assert_success
+  assert_output --partial "LOCK_HELD"
+}
+
+@test "if-needed: falls through when the lock cannot be taken" {
+  printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
+  printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
+  _seed_stamp
+  _hold_up_lock 1
+
+  _run_locked 1 2
+
+  assert_success
+  assert_output --partial "MAIN_RAN"
+  _release_up_lock
+}
+
 @test "is-up: a completed start records the stamp the probe then accepts" {
   printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
   printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
@@ -419,6 +552,20 @@ _run_is_up_dispatch() {
   run cat "${DOCKER_ARGS_FILE}"
   refute_output --partial "up -d"
   refute_output --partial "config --format"
+}
+
+@test "is-up dispatch: never creates or takes the up lock" {
+  # The probe is the fast path: it must stay lock-free, or a warm start would
+  # wait on an in-flight sequence before it could answer.
+  printf 'litellm\n' > "${MOCK_DECLARED}"
+  printf 'litellm\n' > "${MOCK_RUNNING}"
+  _seed_stamp
+  [ ! -e "${SANDBOX}/storage/run/up.lock" ]
+
+  _run_is_up_dispatch
+
+  assert_success
+  [ ! -e "${SANDBOX}/storage/run/up.lock" ]
 }
 
 @test "is-up dispatch: answers 1 when this project has not started here yet" {
