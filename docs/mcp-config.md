@@ -136,7 +136,7 @@ A gateway's credentials are interpolated from the **environment `devbot up` buil
 - `bin/up.sh` loads the repo-root `.env` before invoking compose. This matters because compose interpolation reads the **project directory's** `.env`, and with a module-first `-f` list (the norm — there is no root compose) that directory is the _module's_. Without the explicit load, the repo `.env` is ignored and `${VAR}` silently interpolates to empty.
 - Put the value in the repo-root `.env`, or export it in the shell that runs `devbot up`.
 
-Changing a credential needs a container recreate — `devbot up` runs compose with `--no-recreate`, and `devbot down` removes nothing while any devbot session is alive (it is gated on the install-level session registry). Recreate that one service explicitly instead:
+Changing a credential needs a container recreate — `devbot up` runs compose with `--no-recreate`, and `devbot down` removes nothing while any devbot session is alive or a registered container owner (herdr) still holds the stack (it is gated on the install-level session and ownership registries). Recreate that one service explicitly instead:
 
 ```bash
 docker compose -f src/agentic/<module>/docker-compose.yml up -d --force-recreate <service>

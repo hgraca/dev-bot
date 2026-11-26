@@ -28,6 +28,7 @@ setup() {
 
   export DEV_BOT_ROOT="$(mktemp -d)"
   SESSIONS_DIR="${DEV_BOT_ROOT}/storage/run/sessions"
+  OWNERS_DIR="${DEV_BOT_ROOT}/storage/run/owners"
   DOWN_MARKER="${DEV_BOT_ROOT}/down-called"
   RECONCILE_MARKER="${DEV_BOT_ROOT}/reconcile-called"
 
@@ -258,6 +259,309 @@ EOF
   _devbot_session_release
   run grep -c "down-called" "${DOWN_MARKER}"
   assert_output "1"
+}
+
+# ── Container ownership ──────────────────────────────────────────────────────
+# A caller that is not a session (herdr) claims the stack; while its claim is
+# live a session exit must leave the containers alone, and only the owner's
+# `devbot down --owner` ends them. A claim is live while the process it names
+# exists AND still carries the start time recorded with it — a recycled pid
+# must not pin the stack.
+
+@test "owner claim records the name, the pid and the process start" {
+  sleep 5 &
+  local holder=$!
+  _devbot_owner_claim herdr "${holder}"
+  [ -f "${OWNERS_DIR}/owner-herdr-${holder}" ]
+  run cat "${OWNERS_DIR}/owner-herdr-${holder}"
+  assert_line --index 0 "herdr"
+  assert_line --index 1 "${holder}"
+  assert_line --index 2 --regexp '.+'
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "owner claim refuses a name that cannot be a claim file" {
+  run _devbot_owner_claim '../evil' "$$"
+  assert_failure
+  [ ! -e "${OWNERS_DIR}" ]
+}
+
+@test "owner claim refuses a pid that is not a number" {
+  run _devbot_owner_claim herdr abc
+  assert_failure
+}
+
+@test "owner claim refuses pid 0 — a process group is not a process" {
+  # kill -0 0 always answers, so such a claim would look live forever.
+  run _devbot_owner_claim herdr 0
+  assert_failure
+  [ ! -e "${OWNERS_DIR}/owner-herdr-0" ]
+}
+
+@test "owner claim refuses a pid with a leading zero" {
+  # 007 is not a pid the kernel knows, and it names a different claim file
+  # than 7 — a release could never match it.
+  sleep 5 &
+  local holder=$!
+  run _devbot_owner_claim herdr "0${holder}"
+
+  assert_failure
+  [ ! -e "${OWNERS_DIR}/owner-herdr-0${holder}" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "owner claim refuses a pid whose start time cannot be read" {
+  # Without the start time the claim could only use pid liveness — the
+  # recycling hole the recorded start exists to close.
+  sleep 5 &
+  local holder=$!
+  # Bats runs each test in its own subshell, so the override cannot leak.
+  _devbot_process_start() { :; }
+
+  run _devbot_owner_claim herdr "${holder}"
+
+  assert_failure
+  assert_output --partial "cannot read the start time"
+  [ ! -e "${OWNERS_DIR}/owner-herdr-${holder}" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "owner claim refuses to publish when the registry lock cannot be taken" {
+  # Publishing outside the lock is the race the lock closes: a teardown could
+  # have finished its no-owner probe and remove a stack just claimed.
+  sleep 5 &
+  local holder=$!
+  _devbot_owner_lock_take() { return 1; }
+
+  run _devbot_owner_claim herdr "${holder}"
+
+  assert_failure
+  [ ! -e "${OWNERS_DIR}/owner-herdr-${holder}" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "a claim with no start line is stale" {
+  sleep 5 &
+  local holder=$!
+  mkdir -p "${OWNERS_DIR}"
+  printf 'herdr\n%s\n' "${holder}" >"${OWNERS_DIR}/owner-herdr-${holder}"
+
+  run _devbot_live_owner_count --prune
+  assert_output "0"
+  [ ! -e "${OWNERS_DIR}/owner-herdr-${holder}" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "owner claim refuses a pid that is not a live process" {
+  # Such a claim would be pruned by the next gate, so reporting it as
+  # registered would tell the owner it holds a stack it does not.
+  run _devbot_owner_claim herdr 999999
+  assert_failure
+  [ ! -e "${OWNERS_DIR}/owner-herdr-999999" ]
+}
+
+@test "live_owner_names lists a live claim and prunes a dead-pid claim" {
+  sleep 5 &
+  local holder=$!
+  _devbot_owner_claim herdr "${holder}"
+  mkdir -p "${OWNERS_DIR}"
+  printf 'ghost\n999999\n' >"${OWNERS_DIR}/owner-ghost-999999"
+
+  run _devbot_live_owner_names --prune
+  assert_output "herdr"
+  [ ! -e "${OWNERS_DIR}/owner-ghost-999999" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "live_owner_names does not prune without --prune" {
+  # Only a caller holding the registry lock may prune; a lock-free probe must
+  # not remove a claim it merely judged stale.
+  mkdir -p "${OWNERS_DIR}"
+  printf 'ghost\n999999\n' >"${OWNERS_DIR}/owner-ghost-999999"
+
+  run _devbot_live_owner_names
+  assert_output ""
+  [ -e "${OWNERS_DIR}/owner-ghost-999999" ]
+}
+
+@test "process start is independent of the caller's time zone" {
+  # lstart renders in local time: a claim written under one TZ and read under
+  # another would differ for the same process and read as a stale owner.
+  sleep 5 &
+  local holder=$!
+  local plus14 minus9
+  plus14="$(TZ=Pacific/Kiritimati _devbot_process_start "${holder}")"
+  minus9="$(TZ=America/Anchorage _devbot_process_start "${holder}")"
+  [ -n "${plus14}" ]
+  [ "${plus14}" = "${minus9}" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "process start is the kernel tick counter where /proc exists" {
+  # Whole-second lstart could miss a pid recycled within the same second.
+  [ -r "/proc/$$/stat" ] || skip "no /proc on this host"
+  sleep 5 &
+  local holder=$!
+  run _devbot_process_start "${holder}"
+  assert_output --regexp '^[0-9]+$'
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "a claim whose pid now belongs to another process is stale" {
+  # The kernel recycles pids; the recorded start time is what tells the owner
+  # from the stranger that inherited its number.
+  sleep 5 &
+  local holder=$!
+  mkdir -p "${OWNERS_DIR}"
+  printf 'herdr\n%s\nThu Jan  1 00:00:00 1970\n' "${holder}" >"${OWNERS_DIR}/owner-herdr-${holder}"
+
+  run _devbot_live_owner_count --prune
+  assert_output "0"
+  [ ! -e "${OWNERS_DIR}/owner-herdr-${holder}" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "a claim file with no name line is stale, not a live owner" {
+  # Names and count must agree: a nameless file would otherwise keep the stack
+  # while `down` had no owner to name.
+  sleep 5 &
+  local holder=$!
+  mkdir -p "${OWNERS_DIR}"
+  : >"${OWNERS_DIR}/owner-nameless-${holder}"
+  printf '%s\n' "${holder}" >>"${OWNERS_DIR}/owner-nameless-${holder}"
+
+  run _devbot_live_owner_count --prune
+  assert_output "0"
+  run _devbot_live_owner_names
+  assert_output ""
+  [ ! -e "${OWNERS_DIR}/owner-nameless-${holder}" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "owner_release drops exactly one claim" {
+  mkdir -p "${OWNERS_DIR}"
+  printf 'herdr\n1111\n\n' >"${OWNERS_DIR}/owner-herdr-1111"
+  printf 'herdr\n2222\n\n' >"${OWNERS_DIR}/owner-herdr-2222"
+
+  _devbot_owner_release herdr 1111
+
+  [ ! -e "${OWNERS_DIR}/owner-herdr-1111" ]
+  [ -e "${OWNERS_DIR}/owner-herdr-2222" ]
+}
+
+@test "owner_release warns when no claim matches the name and pid" {
+  # A pid mismatch would otherwise look like a successful release, and the gate
+  # would then report the very owner the caller just asked to release.
+  mkdir -p "${OWNERS_DIR}"
+  printf 'herdr\n1111\n\n' >"${OWNERS_DIR}/owner-herdr-1111"
+
+  run _devbot_owner_release herdr 2222
+  assert_success
+  assert_output --partial "no container owner claim 'herdr' for pid 2222"
+  [ -e "${OWNERS_DIR}/owner-herdr-1111" ]
+}
+
+@test "release keeps the containers while a registered owner is live" {
+  sleep 5 &
+  local holder=$!
+  _devbot_owner_claim herdr "${holder}"
+
+  run bash -c "
+    export DEV_BOT_ROOT='${DEV_BOT_ROOT}'
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    _devbot_session_register
+    _devbot_session_release
+  "
+
+  assert_success
+  assert_output --partial "Container owner 'herdr' holds the stack — nothing changed"
+  [ ! -f "${DOWN_MARKER}" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "release does not reconcile module services while an owner keeps the stack" {
+  # Reconciling would converge the stack to a demand of zero while the owner
+  # still wants it up.
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/fakemod"
+  cat >"${DEV_BOT_ROOT}/src/agentic/fakemod/reconcile.sh" <<EOF
+#!/usr/bin/env bash
+echo reconciled >> "${RECONCILE_MARKER}"
+EOF
+  chmod +x "${DEV_BOT_ROOT}/src/agentic/fakemod/reconcile.sh"
+
+  sleep 5 &
+  local holder=$!
+  _devbot_owner_claim herdr "${holder}"
+
+  run bash -c "
+    export DEV_BOT_ROOT='${DEV_BOT_ROOT}'
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    _devbot_session_register
+    _devbot_session_release
+  "
+
+  assert_success
+  [ ! -f "${RECONCILE_MARKER}" ]
+  [ ! -f "${DOWN_MARKER}" ]
+
+  kill "${holder}" 2>/dev/null || true
+}
+
+@test "release does not reconcile even while ANOTHER session is still live" {
+  # The session-driven reconcile derives sidecar demand from live sessions, so
+  # with an owner holding the stack it would stop a sidecar the owner's panes
+  # are using — the owner decides the stack's shape, not a session count.
+  mkdir -p "${DEV_BOT_ROOT}/src/agentic/fakemod"
+  cat >"${DEV_BOT_ROOT}/src/agentic/fakemod/reconcile.sh" <<EOF
+#!/usr/bin/env bash
+echo reconciled >> "${RECONCILE_MARKER}"
+EOF
+  chmod +x "${DEV_BOT_ROOT}/src/agentic/fakemod/reconcile.sh"
+
+  sleep 5 &
+  local holder=$!
+  _devbot_owner_claim herdr "${holder}"
+  mkdir -p "${SESSIONS_DIR}"
+  ( exec 215>"${SESSIONS_DIR}/session-99999"; flock -x 215; sleep 3 ) &
+  local session=$!
+  sleep 0.3
+
+  run bash -c "
+    export DEV_BOT_ROOT='${DEV_BOT_ROOT}'
+    source '${PROJECT_ROOT}/src/_shared/functions.sh'
+    _devbot_session_register
+    _devbot_session_release
+  "
+
+  assert_success
+  assert_output --partial "holds the stack — nothing changed"
+  [ ! -f "${RECONCILE_MARKER}" ]
+
+  kill "${session}" "${holder}" 2>/dev/null || true
+}
+
+@test "release tears down when the only claim's pid is gone" {
+  # A crashed owner must not wedge the stack: the stale claim is pruned and the
+  # last session out still removes the containers.
+  mkdir -p "${OWNERS_DIR}"
+  printf 'herdr\n999999\n\n' >"${OWNERS_DIR}/owner-herdr-999999"
+
+  _devbot_session_register
+  _devbot_session_release
+
+  [ -f "${DOWN_MARKER}" ]
+  [ ! -e "${OWNERS_DIR}/owner-herdr-999999" ]
 }
 
 # ── Release: no DB prune on the exit path ────────────────────────────────────

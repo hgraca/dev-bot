@@ -35,7 +35,7 @@ _setup_sandbox() {
   local json_content="$1"
 
   # Per-test isolation for the gate inputs.
-  unset MOCK_LIVE_SESSIONS MOCK_SESSIONS_DIR _DEVBOT_REGISTRY_LOCK_HELD 2>/dev/null || true
+  unset MOCK_LIVE_SESSIONS MOCK_SESSIONS_DIR MOCK_LIVE_OWNERS _DEVBOT_REGISTRY_LOCK_HELD 2>/dev/null || true
 
   # Directory structure
   mkdir -p "${SANDBOX_DIR}/bin"
@@ -79,6 +79,17 @@ TEXT_RED=''
 _devbot_live_session_count() { echo "${MOCK_LIVE_SESSIONS:-0}"; }
 
 _devbot_sessions_dir() { echo "${MOCK_SESSIONS_DIR:-/tmp/devbot-sessions-mock}"; }
+
+# The container-ownership half of the gate: a live registered owner keeps the
+# stack too (MOCK_LIVE_OWNERS, empty → none). The real claim files and their
+# pid liveness are exercised in devbot_sessions_tests.bats.
+_devbot_owner_name_ok() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; }
+_devbot_owner_release() { echo "owner-release $*" >> "${OWNER_ARGS_FILE}"; }
+_devbot_live_owner_names() {
+  echo "owner-probe ${1:-}" >> "${OWNER_ARGS_FILE}"
+  [[ -n "${MOCK_LIVE_OWNERS:-}" ]] && printf '%s\n' "${MOCK_LIVE_OWNERS}"
+  return 0
+}
 
 # The real lock primitive is exercised in devbot_sessions_tests.bats; here we
 # only pin WHERE the gate takes the lock (and that it never re-takes it when
@@ -150,6 +161,7 @@ MOCK
   export SCRIPTS_ARGS_FILE="${SANDBOX_DIR}/scripts.args"
   export LOCK_ARGS_FILE="${SANDBOX_DIR}/lock.args"
   export UP_LOCK_ARGS_FILE="${SANDBOX_DIR}/up-lock.args"
+  export OWNER_ARGS_FILE="${SANDBOX_DIR}/owner.args"
   export LOCK_ORDER_FILE="${SANDBOX_DIR}/lock-order.args"
   export CALL_ORDER_FILE="${SANDBOX_DIR}/call.order"
   : > "${CALL_ORDER_FILE}"
@@ -157,6 +169,7 @@ MOCK
   : > "${SCRIPTS_ARGS_FILE}"
   : > "${LOCK_ARGS_FILE}"
   : > "${UP_LOCK_ARGS_FILE}"
+  : > "${OWNER_ARGS_FILE}"
   : > "${LOCK_ORDER_FILE}"
   PATH="${SANDBOX_DIR}/mockbin:${PATH}"
 }
@@ -172,6 +185,14 @@ _run_down_main() {
   # shellcheck disable=SC1091
   source "${SANDBOX_DIR}/bin/down.sh"
   main
+}
+
+_run_down_script() {
+  # Executes the REAL script (with its `main "$@"` tail), because the flags are
+  # parsed at load time: only an executed run exercises `--owner` end to end.
+  local full="${SANDBOX_DIR}/bin/down.run.sh"
+  [[ -f "${full}" ]] || cp "${PROJECT_ROOT}/bin/down.sh" "${full}"
+  bash "${full}" "$@"
 }
 
 # ── Compose selection: machine-wide, config-independent ────────────────────
@@ -247,6 +268,174 @@ _run_down_main() {
   assert_output --partial 'down --remove-orphans'
 }
 
+# ── Container-ownership gate ───────────────────────────────────────────────
+# A registered owner (herdr) keeps the stack alive after every session exits.
+# Only that owner ends it, by releasing its claim with `--owner`.
+
+@test "down keeps all containers while a registered owner is live" {
+  _setup_sandbox '{}'
+  MOCK_LIVE_SESSIONS=0
+  MOCK_LIVE_OWNERS=herdr
+
+  run _run_down_main
+
+  assert_success
+  assert_output --partial "container owner 'herdr' still registered — containers kept"
+  [ ! -s "${DOCKER_ARGS_FILE}" ]
+  [ ! -s "${SCRIPTS_ARGS_FILE}" ]
+}
+
+@test "down releases the caller's claim before probing and then removes" {
+  _setup_sandbox '{}'
+  export MOCK_LIVE_SESSIONS=0
+
+  run _run_down_script --owner herdr --owner-pid 4242
+
+  assert_success
+  run cat "${OWNER_ARGS_FILE}"
+  assert_line --index 0 "owner-release herdr 4242"
+  assert_line --index 1 "owner-probe --prune"
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial 'down --remove-orphans'
+}
+
+@test "down keeps the containers when another owner is still live" {
+  _setup_sandbox '{}'
+  export MOCK_LIVE_SESSIONS=0
+  export MOCK_LIVE_OWNERS=other
+
+  run _run_down_script --owner herdr --owner-pid 4242
+
+  assert_success
+  assert_output --partial "container owner 'other' still registered"
+  [ ! -s "${DOCKER_ARGS_FILE}" ]
+}
+
+@test "down without --owner releases no claim" {
+  _setup_sandbox '{}'
+  export MOCK_LIVE_SESSIONS=0
+
+  run _run_down_script
+
+  assert_success
+  run cat "${OWNER_ARGS_FILE}"
+  refute_output --partial "owner-release"
+}
+
+@test "down refuses an owner name that cannot be a claim file" {
+  _setup_sandbox '{}'
+  export MOCK_LIVE_SESSIONS=0
+
+  run _run_down_script --owner '../evil'
+
+  assert_failure
+  assert_output --partial "invalid owner name"
+  [ ! -s "${DOCKER_ARGS_FILE}" ]
+}
+
+@test "down refuses pid 0 — a process group is not a process" {
+  _setup_sandbox '{}'
+  export MOCK_LIVE_SESSIONS=0
+
+  run _run_down_script --owner herdr --owner-pid 0
+
+  assert_failure
+  assert_output --partial "invalid owner pid"
+  [ ! -s "${DOCKER_ARGS_FILE}" ]
+}
+
+@test "down refuses a pid with a leading zero" {
+  _setup_sandbox '{}'
+  export MOCK_LIVE_SESSIONS=0
+
+  run _run_down_script --owner herdr --owner-pid 0123
+
+  assert_failure
+  assert_output --partial "invalid owner pid"
+  [ ! -s "${DOCKER_ARGS_FILE}" ]
+}
+
+@test "down refuses --owner-pid without --owner, not silently ignoring it" {
+  _setup_sandbox '{}'
+  export MOCK_LIVE_SESSIONS=0
+
+  run _run_down_script --owner-pid 4242
+
+  assert_failure
+  assert_output --partial "pass --owner too"
+  [ ! -s "${DOCKER_ARGS_FILE}" ]
+}
+
+@test "down refuses an unknown option instead of reading it as a project dir" {
+  _setup_sandbox '{}'
+
+  run _run_down_script --nope
+
+  assert_failure
+  assert_output --partial "unknown option: --nope"
+  [ ! -s "${DOCKER_ARGS_FILE}" ]
+}
+
+# ── The gate still holds the registry lock while it removes ────────────────
+# The property is "a registration cannot land between the probe and the
+# removal". Asserting the order of calls proves only that the gate took the
+# lock — the release once re-pointed fd 200 and dropped it before the removal,
+# which every stubbed test stayed green over. These run the real release and the
+# real lock, and the mock docker probes the lock when the teardown reaches it.
+
+@test "down holds the registry lock through the removal" {
+  _setup_sandbox '{}'
+  export MOCK_LIVE_SESSIONS=0
+  export MOCK_SESSIONS_DIR="${SANDBOX_DIR}/storage/run/sessions"
+  mkdir -p "${MOCK_SESSIONS_DIR}"
+  _use_real_registry_lock
+  _docker_that_probes_the_lock
+
+  run _run_down_script
+
+  assert_success
+  run cat "${SANDBOX_DIR}/lock-probe"
+  assert_output "HELD"
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial 'down --remove-orphans'
+}
+
+@test "down --owner holds the registry lock through the removal" {
+  # The release runs inside the gate's critical section and must not touch the
+  # descriptor that holds the lock.
+  _setup_sandbox '{}'
+  export MOCK_LIVE_SESSIONS=0
+  export MOCK_SESSIONS_DIR="${SANDBOX_DIR}/storage/run/sessions"
+  mkdir -p "${MOCK_SESSIONS_DIR}" "${SANDBOX_DIR}/storage/run/owners"
+  printf 'herdr\n4242\n\n' >"${SANDBOX_DIR}/storage/run/owners/owner-herdr-4242"
+  _use_real_registry_lock
+  _docker_that_probes_the_lock
+
+  run _run_down_script --owner herdr --owner-pid 4242
+
+  assert_success
+  run cat "${SANDBOX_DIR}/lock-probe"
+  assert_output "HELD"
+  [ ! -e "${SANDBOX_DIR}/storage/run/owners/owner-herdr-4242" ]
+}
+
+@test "down --owner releases only its own claim, never another owner's" {
+  _setup_sandbox '{}'
+  export MOCK_LIVE_SESSIONS=0
+  export MOCK_SESSIONS_DIR="${SANDBOX_DIR}/storage/run/sessions"
+  mkdir -p "${MOCK_SESSIONS_DIR}" "${SANDBOX_DIR}/storage/run/owners"
+  printf 'herdr\n4242\n\n' >"${SANDBOX_DIR}/storage/run/owners/owner-herdr-4242"
+  printf 'other\n4343\n\n' >"${SANDBOX_DIR}/storage/run/owners/owner-other-4343"
+  _use_real_registry_lock
+  _docker_that_probes_the_lock
+
+  run _run_down_script --owner herdr --owner-pid 4242
+
+  assert_success
+  [ ! -e "${SANDBOX_DIR}/storage/run/owners/owner-herdr-4242" ]
+  [ -e "${SANDBOX_DIR}/storage/run/owners/owner-other-4343" ]
+}
+
 @test "down takes the registry lock before deciding (atomic gate)" {
   # The probe and the removal must not straddle the lock release, or a session
   # registering in the window has its containers removed underneath it.
@@ -282,6 +471,40 @@ _run_down_main() {
 _use_real_lock_acquire() {
   awk '/^_devbot_lock_acquire\(\) \{/,/^\}/' "${PROJECT_ROOT}/src/_shared/functions.sh" \
     >> "${SANDBOX_DIR}/src/_shared/functions.sh"
+}
+
+# Append one REAL helper from the shared library, after the stub of the same
+# name, so a test exercises the implementation rather than its shadow.
+_use_real() {
+  sed -n "/^$1() {/,/^}/p" "${PROJECT_ROOT}/src/_shared/functions.sh" \
+    >> "${SANDBOX_DIR}/src/_shared/functions.sh"
+}
+
+# The real registry lock (fd 200) and the real claim release: the pair whose
+# interaction the gate depends on.
+_use_real_registry_lock() {
+  _use_real _devbot_lock_acquire
+  _use_real _devbot_lock_wait
+  _use_real _devbot_owners_dir
+  _use_real _devbot_owner_claim_path
+  _use_real _devbot_owner_release
+}
+
+# Mock docker that records whether the registry lock is held when the teardown
+# reaches it — the property the gate exists to guarantee.
+_docker_that_probes_the_lock() {
+  cat > "${SANDBOX_DIR}/mockbin/docker" <<MOCK
+#!/usr/bin/env bash
+if [[ " \$* " == *" down "* ]]; then
+  if flock -n '${MOCK_SESSIONS_DIR}' -c true 2>/dev/null; then
+    echo FREE
+  else
+    echo HELD
+  fi >'${SANDBOX_DIR}/lock-probe'
+fi
+echo "\$@" >> '${DOCKER_ARGS_FILE}'
+MOCK
+  chmod +x "${SANDBOX_DIR}/mockbin/docker"
 }
 
 # Hold the up lock from another process, returning only once it is held.

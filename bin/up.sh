@@ -11,6 +11,13 @@
 #                                # service is already running (used by `devbot`)
 #   bin/up.sh --if-needed [/path]  # run the sequence unless a start completed
 #                                  # while waiting for the install-level up lock
+#   bin/up.sh --owner <name> [/path]
+#                                # ...and register <name> as an owner of the
+#                                # stack once the start completes (pid: the
+#                                # invoking process, or --owner-pid <pid>). A
+#                                # non-session owner (herdr) keeps the containers
+#                                # alive after every devbot session has exited;
+#                                # see the ownership registry in functions.sh.
 #
 # Adding a new up step:
 #   Create src/tools/<module>/up.sh, src/agentic/<module>/up.sh or
@@ -65,13 +72,50 @@ _up_install_trap() {
 # ── `--is-up` probe (internal; the bare `devbot` start asks before running) ───
 UP_IS_UP=0
 UP_IF_NEEDED=0
-if [[ "${1:-}" == "--is-up" ]]; then
-  UP_IS_UP=1
-  shift
+UP_OWNER=""
+UP_OWNER_PID=""
+while [[ "${1:-}" == --* ]]; do
+  case "$1" in
+    --is-up)
+      UP_IS_UP=1
+      shift
+      ;;
+    --if-needed)
+      UP_IF_NEEDED=1
+      shift
+      ;;
+    --owner)
+      [[ -n "${2:-}" ]] || { _fatal "--owner needs a name"; exit 1; }
+      UP_OWNER="$2"
+      shift 2
+      ;;
+    --owner-pid)
+      [[ -n "${2:-}" ]] || { _fatal "--owner-pid needs a pid"; exit 1; }
+      UP_OWNER_PID="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      _fatal "unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+# A caller that names itself an owner gets recorded as one after the start: the
+# pid is validated here, where a typo is still the caller's error to see.
+if [[ -z "${UP_OWNER}" && -n "${UP_OWNER_PID}" ]]; then
+  _fatal "--owner-pid names the process of an owner — pass --owner too"
+  exit 1
 fi
-if [[ "${1:-}" == "--if-needed" ]]; then
-  UP_IF_NEEDED=1
-  shift
+if [[ -n "${UP_OWNER}" ]]; then
+  _devbot_owner_name_ok "${UP_OWNER}" || { _fatal "invalid owner name '${UP_OWNER}'"; exit 1; }
+  UP_OWNER_PID="${UP_OWNER_PID:-$PPID}"
+  # A canonical positive pid only: 0 is a process group, 007 names nothing.
+  [[ "${UP_OWNER_PID}" =~ ^[1-9][0-9]*$ ]] \
+    || { _fatal "invalid owner pid '${UP_OWNER_PID}'"; exit 1; }
 fi
 
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
@@ -473,11 +517,34 @@ _up_run_locked() {
   # unlocked, a start that finished at the boundary still must not run twice.
   if [[ "${UP_IF_NEEDED}" -eq 1 ]] && _up_is_up; then
     _skip "devbot services already running — skipping 'devbot up'"
+    # A skipped start still leaves the stack up, which is exactly what the
+    # owner asked for — so the claim is recorded either way.
+    _up_register_owner
     return 0
   fi
 
   _up_install_trap
   main "$@"
+  # Reached only on success: a failure aborts through the ERR trap, and a
+  # failed start must never leave a claim vouching for containers it did not
+  # bring up.
+  _up_register_owner
+}
+
+# ── Owner registration ─────────────────────────────────────────────────────────
+# A caller that is not a devbot session can own the stack (herdr runs this and
+# opens its own panes), and the last-session teardown must then leave it alone.
+# Called while the up lock is held, before it is released — the claim takes the
+# registry lock, so it stays inside the up → registry order.
+_up_register_owner() {
+  [[ -n "${UP_OWNER}" ]] || return 0
+  if _devbot_owner_claim "${UP_OWNER}" "${UP_OWNER_PID}"; then
+    _ok "container owner registered: ${UP_OWNER} (pid ${UP_OWNER_PID})"
+  else
+    # The claim is the only thing protecting this stack from the next session
+    # exit's teardown, so a silent miss would be worse than the warning.
+    _warn "container owner '${UP_OWNER}' NOT registered — the next last-session exit removes these containers"
+  fi
 }
 
 # ── Writable bind-mount sources ────────────────────────────────────────────────

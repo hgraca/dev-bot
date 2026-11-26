@@ -660,7 +660,9 @@ _devbot_lock_memory_index() {
 # its own file (session-$$) for its lifetime, and the kernel releases it on
 # ANY exit — including SIGKILL, where no trap runs. A file whose flock is
 # acquirable is therefore stale and gets pruned. When the exiting session
-# finds no live session left, it runs the docker teardown.
+# finds no live session left, it runs the docker teardown — unless a registered
+# container owner is still live (see the ownership registry at the end of this
+# block), in which case the stack is that owner's to end.
 #
 # The flock fd is deliberately NOT inherited by detached children (prune,
 # model pulls): the probe opens each file fresh, and a session unlinks its own
@@ -675,10 +677,11 @@ _devbot_lock_memory_index() {
 #   until release (or process exit).
 #
 # _devbot_session_release — release this session; if it was the last, tear the
-#   containers down. The probe AND the teardown both run INSIDE the registry
-#   lock — that is what makes "remove iff no live session" atomic rather than a
-#   check-then-act. Idempotent (guarded) — safe to call from a trap that may
-#   fire alongside an explicit call.
+#   containers down UNLESS a registered container owner is still live (see the
+#   ownership registry below). The probe AND the teardown both run INSIDE the
+#   registry lock — that is what makes "remove iff nothing needs it" atomic
+#   rather than a check-then-act. Idempotent (guarded) — safe to call from a
+#   trap that may fire alongside an explicit call.
 #
 # _devbot_session_teardown — docker down for the devbot project (skipped when
 #   there is no docker daemon). Delegates to bin/down.sh, telling it the
@@ -811,19 +814,27 @@ _devbot_session_release() {
   # are done (its containers then start after our removal — harmless). The
   # probe and the removal must not be split across the lock release: that gap
   # is exactly what let a starting session lose its containers.
-  local live
+  local live owners
   live="$(_devbot_live_session_count --prune)"
+  owners="$(_devbot_live_owner_count --prune)"
 
-  if [[ ${live} -eq 0 ]]; then
-    # No session left: the teardown removes every container, sidecars included.
-    _devbot_session_teardown
-  else
+  if [[ ${owners} -gt 0 ]]; then
+    # An owner holds the whole stack, and only it knows what it still needs:
+    # the session-driven reconcile below derives sidecar demand from the live
+    # sessions alone, so it would stop a sidecar a herdr pane is using. Leave
+    # the stack exactly as it is — the owner is the one that ends it.
+    _info "Container owner '$(_devbot_live_owner_names | paste -sd, -)' holds the stack — nothing changed"
+  elif [[ ${live} -gt 0 ]]; then
     # Sessions remain: converge module services to what THEY want, so a sidecar
     # whose last consumer just left is stopped now rather than at the next boot.
     # The registry lock is already held (hence _DEVBOT_REGISTRY_LOCK_HELD) — a
     # module that took it again would deadlock. Quiet on purpose: a release must
     # not spray headers over the harness's exit.
     _DEVBOT_REGISTRY_LOCK_HELD=1 _run_service_scripts "reconcile.sh" >/dev/null 2>&1 || true
+  else
+    # Nothing left that owns the stack: the teardown removes every container,
+    # sidecars included.
+    _devbot_session_teardown
   fi
 
   { exec 200>&-; } 2>/dev/null || true  # release the registry lock
@@ -846,6 +857,191 @@ _devbot_session_teardown() {
   # Tell down.sh so it treats the lock as held rather than opening the same
   # directory and blocking forever on an flock it can never get.
   _DEVBOT_REGISTRY_LOCK_HELD=1 bash "${down_script}" >/dev/null 2>&1 || true
+}
+
+# ── Container ownership registry (install-level) ──────────────────────────────
+#
+# The session registry says when a devbot session needs the containers; it
+# cannot say when something that is NOT a session owns them. herdr starts the
+# stack with `devbot up` and opens its panes itself, so a devbot session opened
+# inside herdr looks like the last user and used to remove a stack herdr owns.
+#
+# An owner claim is a file `<owners>/owner-<name>-<pid>` naming the PROCESS that
+# keeps the stack. `devbot up --owner <name>` writes it after a completed or
+# skipped start, `devbot down --owner <name>` removes it, and the teardown gate
+# in bin/down.sh keeps the containers while one is live. Every install-level
+# owner (herdr today, whatever comes next) is the same claim shape, so the gate
+# needs no per-owner knowledge.
+#
+# Liveness is the pid plus the process's start time, not a flock: a claim must
+# OUTLIVE the `devbot up` that created it, which is what a flock held by that
+# process cannot do. The start string is what tells a live owner from a pid the
+# kernel handed to somebody else, so a recycled pid cannot pin the stack.
+#
+# _devbot_owner_claim <name> <pid> — register <pid> as an owner. Publishes under
+#   the registry lock, like a session registers, so a teardown's probe+removal
+#   cannot straddle it. Called from `devbot up`, which holds the up lock but
+#   never the registry lock.
+#
+# _devbot_owner_release <name> <pid> — drop one claim (idempotent). The caller
+#   holds the registry lock (bin/down.sh does), so this never takes it and never
+#   touches a descriptor.
+#
+# _devbot_live_owner_files / _names / _count [--prune] — the live claims, their
+#   distinct owner names, and how many are live. A file with no name, no pid, or
+#   a dead/recycled pid is stale. Only a caller holding the registry lock may
+#   prune.
+
+_devbot_owners_dir() {
+  echo "${DEV_BOT_ROOT}/storage/run/owners"
+}
+
+# The claim name becomes a file name and a word in a listing a human reads, so
+# it stays one path-safe token.
+_devbot_owner_name_ok() {
+  [[ "${1:-}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]
+}
+
+_devbot_owner_claim_path() {
+  printf '%s/owner-%s-%s' "$(_devbot_owners_dir)" "$1" "$2"
+}
+
+# Start value that identifies a process across pid recycling. Linux's kernel
+# starttime (clock ticks since boot) is exact; elsewhere the locale- and
+# TZ-neutralised `lstart` is used, whose whole-second precision is still finer
+# than the kernel reuses a pid. Empty output means "cannot tell" — the claim is
+# refused and the probe reads the claim as stale, never as live.
+_devbot_process_start() {
+  local pid="${1:-}" fields
+  if [[ -n "${pid}" && -r "/proc/${pid}/stat" ]]; then
+    # comm (field 2) may contain spaces and parentheses: drop through the last
+    # ") ", which leaves state at $1 — starttime is field 22 overall, so $20.
+    fields="$(sed 's/.*) //' "/proc/${pid}/stat" 2>/dev/null)" || true
+    printf '%s\n' "${fields}" | awk 'NF >= 20 { print $20; exit }'
+    return 0
+  fi
+  LC_ALL=C TZ=UTC ps -o lstart= -p "${pid}" 2>/dev/null \
+    | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+}
+
+# _devbot_owner_pid_live <pid> [recorded_start] — the pid exists and still
+# carries the recorded start time. Without that timestamp a recycled pid could
+# pass for the owner, so a claim that carries none is not live.
+_devbot_owner_pid_live() {
+  local pid="${1:-}" recorded="${2:-}" current
+  [[ "${pid}" =~ ^[1-9][0-9]*$ ]] || return 1
+  [[ -n "${recorded}" ]] || return 1
+  kill -0 "${pid}" 2>/dev/null || return 1
+  current="$(_devbot_process_start "${pid}")"
+  [[ -n "${current}" && "${current}" == "${recorded}" ]]
+}
+
+# The registry lock on fd 202 — never fd 200. fd 200 carries whatever lock the
+# CALLER holds (the up lock in `devbot up`, the registry lock in `devbot down`),
+# and _devbot_lock_wait opens fd 200, which would silently release it.
+_devbot_owner_lock_take() {
+  local dir
+  dir="$(_devbot_sessions_dir)"
+  mkdir -p "${dir}" 2>/dev/null || return 1
+  { exec 202<"${dir}"; } 2>/dev/null || return 1
+  if ! _devbot_lock_acquire 202 30 "${1:-}"; then
+    { exec 202<&-; } 2>/dev/null || true
+    return 1
+  fi
+  return 0
+}
+
+_devbot_owner_lock_drop() {
+  { exec 202<&-; } 2>/dev/null || true
+}
+
+_devbot_owner_claim() {
+  local name="${1:-}" pid="${2:-}" start path
+  _devbot_owner_name_ok "${name}" || { _warn "invalid container owner name '${name}' — not registered"; return 1; }
+  # A canonical positive pid only: 0 is the caller's process group (kill -0 0
+  # always answers) and a leading zero names no process holding that file.
+  [[ "${pid}" =~ ^[1-9][0-9]*$ ]] \
+    || { _warn "invalid container owner pid '${pid}' — not registered"; return 1; }
+  # A claim for a process that is already gone would be pruned by the next gate
+  # and report a success nobody has: refuse it instead.
+  kill -0 "${pid}" 2>/dev/null || { _warn "container owner pid ${pid} is not a live process — '${name}' not registered"; return 1; }
+  # The start time is what survives pid recycling; without it the claim would
+  # fall back to pid-only liveness, which is the hole this registry closes.
+  start="$(_devbot_process_start "${pid}")"
+  [[ -n "${start}" ]] || { _warn "cannot read the start time of pid ${pid} — '${name}' not registered"; return 1; }
+  path="$(_devbot_owner_claim_path "${name}" "${pid}")"
+
+  mkdir -p "$(_devbot_owners_dir)" 2>/dev/null \
+    || { _warn "could not create $(_devbot_owners_dir) — '${name}' not registered"; return 1; }
+
+  # Same lock a teardown holds across its probe+removal: either it sees this
+  # claim and keeps the containers, or it finished and the stack is up as the
+  # owner left it. Publishing outside that lock is exactly the race it exists to
+  # close, so a lock we cannot take refuses the claim — the caller warns.
+  if [[ "${_DEVBOT_REGISTRY_LOCK_HELD:-0}" != "1" ]]; then
+    _devbot_owner_lock_take \
+      "session registry lock held >30s — the container owner cannot be registered now" || return 1
+  fi
+  if ! printf '%s\n%s\n%s\n' "${name}" "${pid}" "${start}" >"${path}" 2>/dev/null; then
+    _devbot_owner_lock_drop
+    _warn "could not write ${path} — '${name}' not registered"
+    return 1
+  fi
+  _devbot_owner_lock_drop
+  return 0
+}
+
+_devbot_owner_release() {
+  local name="${1:-}" pid="${2:-}" path
+  _devbot_owner_name_ok "${name}" || return 0
+  [[ "${pid}" =~ ^[1-9][0-9]*$ ]] || return 0
+  path="$(_devbot_owner_claim_path "${name}" "${pid}")"
+  # Silence would hide a pid mismatch (the caller released nothing while the
+  # gate then keeps the stack, naming this very owner).
+  if [[ ! -e "${path}" ]]; then
+    _warn "no container owner claim '${name}' for pid ${pid} — nothing released"
+    return 0
+  fi
+  rm -f "${path}" 2>/dev/null || true
+  return 0
+}
+
+_devbot_live_owner_files() {
+  local prune=0
+  [[ "${1:-}" == "--prune" ]] && prune=1
+
+  local dir f name pid start
+  dir="$(_devbot_owners_dir)"
+  [[ -d "${dir}" ]] || return 0
+
+  for f in "${dir}"/owner-*; do
+    [[ -e "${f}" ]] || continue
+    name="$(sed -n 1p "${f}" 2>/dev/null || true)"
+    pid="$(sed -n 2p "${f}" 2>/dev/null || true)"
+    start="$(sed -n 3p "${f}" 2>/dev/null || true)"
+    # A nameless or pid-less file describes nothing a gate could act on, so it
+    # counts as stale exactly like a dead pid — names and count never disagree.
+    if [[ -n "${name}" ]] && _devbot_owner_pid_live "${pid}" "${start}"; then
+      printf '%s\n' "${f}"
+    elif [[ ${prune} -eq 1 ]]; then
+      rm -f "${f}" 2>/dev/null || true
+    fi
+  done
+}
+
+_devbot_live_owner_names() {
+  local f
+  while IFS= read -r f; do
+    sed -n 1p "${f}" 2>/dev/null || true
+  done < <(_devbot_live_owner_files "${1:-}") | awk 'NF && !seen[$0]++'
+}
+
+_devbot_live_owner_count() {
+  local live=0 _
+  while IFS= read -r _; do
+    live=$((live + 1))
+  done < <(_devbot_live_owner_files "${1:-}")
+  echo "${live}"
 }
 
 # ── Harness selection (config-driven) ─────────────────────────────────────────────

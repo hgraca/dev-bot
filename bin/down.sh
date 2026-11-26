@@ -13,12 +13,20 @@
 # and codebase-memory serve every project, and stopping "this project's" copy
 # would stop another live session's.
 #
-# Invariant (see the registry note in src/_shared/functions.sh):
-#   remove dev-bot containers  ⟺  live devbot session count == 0
-#   live > 0  ⟹  nothing is removed. `bin/up.sh` may ADD containers but never
-#               removes one belonging to project `devbot` (it does reclaim
+# Invariant (see the registry notes in src/_shared/functions.sh):
+#   remove dev-bot containers  ⟺  no live devbot session
+#                                  AND no live registered container owner
+#   either one live  ⟹  nothing is removed. `bin/up.sh` may ADD containers but
+#               never removes one belonging to project `devbot` (it does reclaim
 #               containers stranded under other project names, and force-
 #               recreates ollama to reconcile its GPU state).
+#
+# A "container owner" is a caller that is not a devbot session and keeps the
+# stack alive on its own — herdr today: it runs `devbot up --owner herdr` and
+# opens its panes itself, so a devbot session opened inside herdr must not tear
+# the stack down on exit. `devbot down --owner <name>` is how that owner ends
+# its claim; the gate then removes the containers only if nothing else — session
+# or owner — remains.
 #
 # The same removal must not overlap a start: up.sh holds the install-level up
 # lock for its whole sequence, so down takes it BEFORE the registry gate (that
@@ -29,14 +37,21 @@
 # or an explicit `down`.
 #
 # The last session to exit reaches the count-0 path via
-# _devbot_session_teardown; an explicit `devbot down` while instances are alive
-# is a no-op that warns.
+# _devbot_session_teardown; an explicit `devbot down` while a session or an
+# owner is live is a no-op that warns. There is no override flag: the containers
+# are shared, and removing them under a live session or owner is the bug the gate
+# exists to prevent.
 #
 # Usage:
-#   bin/down.sh [project-dir]
+#   bin/down.sh [--owner <name> [--owner-pid <pid>]] [project-dir]
 #
 # [project-dir] does NOT scope the teardown — removal is always machine-wide.
 # It is only forwarded to each module's down.sh (none currently reads it).
+#
+# --owner names a registered container owner giving its claim up (the pid
+# defaults to the invoking process, the same default `devbot up --owner` uses).
+# The claim is released inside the gate's critical section, and the teardown
+# then happens only if neither a session nor another owner is left.
 # =============================================================================
 
 set -euo pipefail
@@ -47,6 +62,48 @@ export DEV_BOT_ROOT
 # ── Source shared library ──────────────────────────────────────────────────────
 # shellcheck source=../src/_shared/functions.sh
 source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
+
+# ── Arguments ──────────────────────────────────────────────────────────────────
+DOWN_OWNER=""
+DOWN_OWNER_PID=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --owner)
+      [[ -n "${2:-}" ]] || { _fatal "--owner needs a name"; exit 1; }
+      DOWN_OWNER="$2"
+      shift 2
+      ;;
+    --owner-pid)
+      [[ -n "${2:-}" ]] || { _fatal "--owner-pid needs a pid"; exit 1; }
+      DOWN_OWNER_PID="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      _fatal "unknown option: $1"
+      exit 1
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+# Validated here, where a typo is still the caller's error to see: a name that
+# cannot be a claim file would otherwise silently release nothing.
+if [[ -z "${DOWN_OWNER}" && -n "${DOWN_OWNER_PID}" ]]; then
+  _fatal "--owner-pid names the process of an owner — pass --owner too"
+  exit 1
+fi
+if [[ -n "${DOWN_OWNER}" ]]; then
+  _devbot_owner_name_ok "${DOWN_OWNER}" || { _fatal "invalid owner name '${DOWN_OWNER}'"; exit 1; }
+  DOWN_OWNER_PID="${DOWN_OWNER_PID:-$PPID}"
+  # A canonical positive pid only: 0 is a process group, 007 names nothing.
+  [[ "${DOWN_OWNER_PID}" =~ ^[1-9][0-9]*$ ]] \
+    || { _fatal "invalid owner pid '${DOWN_OWNER_PID}'"; exit 1; }
+fi
 
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 
@@ -85,10 +142,29 @@ _down_guard() {
     fi
   fi
 
+  # An owner ending its own claim does it INSIDE the critical section, so the
+  # probe below cannot see the claim this `down` is retiring and abort on it.
+  # The release never takes a lock (this guard holds it) and never touches
+  # fd 200, so the lock stays held across the probe and the removal.
+  if [[ -n "${DOWN_OWNER}" ]]; then
+    _devbot_owner_release "${DOWN_OWNER}" "${DOWN_OWNER_PID}"
+  fi
+
   local live
   live="$(_devbot_live_session_count --prune)"
   if [[ "${live}" -gt 0 ]]; then
     _warn "${live} devbot instance(s) still running — containers kept"
+    _down_release_lock
+    return 1
+  fi
+
+  # Sessions are the implicit owners of a stack they started; these are the
+  # registered ones (herdr, and whatever comes next). A claim outlives every
+  # session by design, so a `down` that is not that owner's leaves the stack.
+  local owners
+  owners="$(_devbot_live_owner_names --prune | paste -sd, -)"
+  if [[ -n "${owners}" ]]; then
+    _warn "container owner '${owners}' still registered — containers kept"
     _down_release_lock
     return 1
   fi
