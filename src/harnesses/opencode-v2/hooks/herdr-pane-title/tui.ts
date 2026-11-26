@@ -1,98 +1,121 @@
-// src/harnesses/opencode-v2/hooks/herdr-pane-title/tui.ts
-// TUI part: keeps the herdr pane border label on the ROOT session's title.
-//
-// V2 validates the `./tui` default export as `{ id, setup(ctx) }` and rejects
-// anything else with "Invalid V2 TUI plugin module", which is a failed plugin at
-// startup. 2.3 also changed the surface the ctx exposes: events arrive as an
-// async stream (`subscribe({ signal })`, payload under `data`) rather than v1's
-// `event.on(type, handler)` with `properties`, and a TUI plugin cleans up by
-// RETURNING a disposer instead of registering one.
+// TUI part: panes follow the root session's title.
+// 2.x ctx: ui.router.current() and data.on(...).
 
 import { spawn } from "node:child_process"
-import { eventPayload } from "../../on-hooks-utils"
 import { paneTitle, type RouteSource, type SessionInfo, type SessionSource } from "./lib"
 
-const POLL_MS = 500
+const POLL_MS = 5000
 
-/** The ctx surface this plugin uses, every member optional by design. */
-export interface TuiCtx {
-  state?: { session?: SessionSource }
-  route?: RouteSource
-  event?: { subscribe(options: { signal: AbortSignal }): AsyncIterable<unknown> }
+/** One TUI event as `data.on` delivers it. */
+export interface TuiEvent {
+  type?: string
+  data?: { sessionID?: string; parentID?: string; title?: string }
 }
 
-export function setup(ctx: TuiCtx): (() => void) | undefined {
-  // HERDR_BIN_PATH is set inside a herdr pane, but a herdr installed on PATH
-  // without it is just as usable.
+/** The shown route from ui.router.current(). */
+export interface TuiRoute {
+  type?: string
+  sessionID?: string
+}
+
+/** The 2.x TUI context slice this plugin uses. */
+export interface TuiCtx {
+  data?: {
+    session?: SessionSource
+    on?: (type: string, handler: (event: TuiEvent) => void) => () => void
+  }
+  ui?: { router?: { current(): TuiRoute } }
+}
+
+/** pollMs is a test seam. */
+export function setup(ctx: TuiCtx, pollMs = POLL_MS): (() => void) | undefined {
+  // HERDR_BIN_PATH is set in a pane, but herdr on
+  // PATH is just as usable.
   const bin = process.env.HERDR_BIN_PATH || "herdr"
   const pane = process.env.HERDR_PANE_ID
-  // Outside a herdr pane there is no label to own: the plugin is moot.
+  // Outside a herdr pane there is no label to own.
   if (process.env.HERDR_ENV !== "1" || !pane) return
-  // Without a session cache and a route there is nothing to follow.
-  if (typeof ctx?.state?.session?.get !== "function" || !ctx.route) return
+  // Without a session cache, an event stream and a
+  // router there is nothing to follow.
+  const data = ctx?.data
+  const router = ctx?.ui?.router
+  if (typeof data?.session?.get !== "function" || typeof data.on !== "function") return
+  if (typeof router?.current !== "function") return
+  const sessions: SessionSource = data.session
+  const on = data.on
+  const current = router.current.bind(router)
 
-  const sessions = ctx.state.session
-  const route = ctx.route
-
-  // The cache lags the events: opencode assigns a title shortly after creating
-  // a session and rewrites it on every rename, so titles are taken from the
-  // events and only resolved against the cache as a fallback.
+  // Event titles win over the cache; the cache keeps
+  // the parentID an event may not carry.
   const known = new Map<string, SessionInfo>()
-  const sources: SessionSource = { get: (id) => known.get(id) ?? sessions.get(id) }
+  const sources: SessionSource = {
+    get: (id) => {
+      const cached = sessions.get(id)
+      const heard = known.get(id)
+      if (!cached) return heard
+      if (!heard) return cached
+      return { ...cached, ...heard }
+    },
+  }
+  const route: RouteSource = {
+    get current() {
+      const shown = current()
+      return shown?.type === "session"
+        ? { name: "session", params: { sessionID: shown.sessionID } }
+        : { name: shown?.type }
+    },
+  }
 
   const rename = (label: string) =>
     spawn(bin, ["pane", "rename", pane, label], { stdio: "ignore" }).on("error", () => {})
 
-  // undefined until a title is applied, so a manual label set by hand survives
-  // both the first sync and a route that has nothing to say.
+  // undefined until applied, so a hand-set label
+  // survives the first sync and an idle route.
   let applied: string | undefined
 
   const sync = () => {
     const title = paneTitle(sources, route)
     if (title === applied) return
     applied = title
-    // Moving to an untitled session or off the session route drops the claim:
-    // keeping the old label would name a session the pane no longer shows.
+    // Off the session route or untitled drops the claim:
+    // keeping the old label would name another session.
     rename(title ?? "--clear")
   }
 
-  const controller = new AbortController()
-  if (typeof ctx.event?.subscribe === "function") {
-    void (async () => {
-      try {
-        for await (const event of ctx.event!.subscribe({ signal: controller.signal })) {
-          const type = (event as { type?: string } | undefined)?.type
-          const payload = eventPayload(event)
-          if (type === "session.deleted") {
-            const id = payload?.sessionID
-            if (typeof id === "string") known.delete(id)
-          } else if (type === "session.created" || type === "session.updated") {
-            const info = payload?.info as SessionInfo | undefined
-            if (!info?.id) continue
-            known.set(info.id, { ...known.get(info.id), ...info })
-          } else {
-            continue
-          }
-          sync()
-        }
-      } catch {
-        // An abort is the normal unload path.
-      }
-    })()
+  const remember = (event: TuiEvent) => {
+    const payload = event?.data
+    if (!payload?.sessionID) return
+    const patch: SessionInfo = { id: payload.sessionID }
+    if (payload.parentID !== undefined) patch.parentID = payload.parentID
+    if (payload.title !== undefined) patch.title = payload.title
+    known.set(payload.sessionID, { ...known.get(payload.sessionID), ...patch })
+    sync()
   }
 
-  // opencode emits no route-change event, so a session switch is caught by the
-  // poll; a title change does not wait for it.
-  const poll = setInterval(sync, POLL_MS)
+  const forget = (event: TuiEvent) => {
+    const id = event?.data?.sessionID
+    if (id) known.delete(id)
+    sync()
+  }
+
+  // Titles arrive as session.renamed; the 2.x TUI
+  // event union has no session.updated.
+  const offs = [
+    on("session.created", remember),
+    on("session.renamed", remember),
+    on("session.deleted", forget),
+  ]
+  // No route-change event exists: a switch relies on
+  // this route-only poll.
+  const poll = setInterval(sync, pollMs)
   sync()
 
-  // The returned disposer is the v2 cleanup contract, so the interval can never
-  // outlive the TUI it belongs to.
+  // Disposer: no interval outlives the TUI.
   return () => {
-    controller.abort()
     clearInterval(poll)
-    // The pane outlives the TUI, so drop the claim instead of leaving a label
-    // that describes a session nothing is showing any more.
+    for (const off of offs) off()
+    // The pane outlives the TUI: drop the claim, never
+    // leave a label for a session it no longer shows.
     if (applied !== undefined) rename("--clear")
   }
 }

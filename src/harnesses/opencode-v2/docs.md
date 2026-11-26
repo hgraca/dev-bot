@@ -207,13 +207,15 @@ terminal UI. opencode 2.3 validates the `./tui` default export as
 empty: it exists only to carry the `./tui` export, which is how a project-scoped
 TUI plugin is delivered in v2. The TUI half keeps the pane's herdr border label
 on the **root** session's title, the same behaviour the v1 harness gets from
-`tui-plugins/herdr-pane-title/`. It is inert outside a herdr pane, and every ctx
-member it uses is feature-detected, so a narrowed 2.3 surface leaves it a no-op
-instead of the `Invalid V2 TUI plugin module` failure tui-defaults produced.
-Events arrive as v2's async stream — `subscribe({ signal })` with the payload
-under `data`, not v1's `event.on(type, handler)` with `properties`, which throws
-at load — and cleanup is the disposer `setup` returns, so no interval can outlive
-the TUI it belongs to. The
+`tui-plugins/herdr-pane-title/`. It is inert outside a herdr pane, and it reads
+the 2.x context only, as verified on 2.4.1: `ui.router.current()` for the shown
+session, `data.on("session.created" | "session.renamed", …)` for the title and
+`data.on("session.deleted", …)` for deletion, with `data.session.get` supplying
+the parent chain. The event carries the freshest title, so a generated title or a
+rename is applied at once; 2.x publishes no route-change event, so a 5 s poll
+compares the route only. That context has no `state`/`route`/`event` members —
+those belong to the v1 TUI plugin API — and cleanup is the disposer `setup`
+returns, so no interval can outlive the TUI it belongs to. The
 PTY monitor that used to ship as the `./tui` part of the `hooks/pty/` package
 was removed with the PTY extension itself; v2's shell tool covers the
 long-running case without a sidebar. The package linker still supports a

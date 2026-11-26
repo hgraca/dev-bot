@@ -1,7 +1,5 @@
-// src/harnesses/opencode-v2/hooks/herdr-pane-title/tui.test.ts
-// Tests for the v2 TUI part. The title rules themselves are covered once, beside
-// the shared lib.ts; this file pins the v2 contract (async event stream, returned
-// disposer) and the three moments a label can go stale.
+// Tests for the v2 TUI part: the 2.x context shape
+// and the three moments a label goes stale.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
@@ -10,37 +8,35 @@ import { join } from "node:path"
 import plugin, { setup } from "./tui"
 import type { SessionInfo } from "./lib"
 
-const route = (sessionID?: string) => ({
-  current: sessionID === undefined ? { name: "home" } : { name: "session", params: { sessionID } },
-})
+type SessionEvent = { type?: string; data?: Record<string, unknown> }
+type Route = { type: string; sessionID?: string }
 
-/** A stand-in for v2's async event stream: push a v2-shaped event (payload in `data`). */
-function eventStream() {
-  const queue: unknown[] = []
-  let wake: (() => void) | undefined
+const route = (sessionID?: string): Route =>
+  sessionID === undefined ? { type: "home" } : { type: "session", sessionID }
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** A 2.x ctx stand-in; a delete also drops
+ *  the cache record, as the host's store does. */
+function host(records: SessionInfo[], shown: Route = route("root")) {
+  const sessions = new Map(records.map((s) => [s.id, s]))
+  const handlers = new Map<string, Array<(event: SessionEvent) => void>>()
   return {
-    push(event: unknown) {
-      queue.push(event)
-      wake?.()
-      wake = undefined
-    },
-    subscribe({ signal }: { signal: AbortSignal }) {
-      return {
-        [Symbol.asyncIterator]() {
-          return {
-            async next() {
-              while (queue.length === 0) {
-                if (signal.aborted) throw Object.assign(new Error("aborted"), { name: "AbortError" })
-                await new Promise<void>((resolve) => {
-                  wake = resolve
-                  signal.addEventListener("abort", () => resolve(), { once: true })
-                })
-              }
-              return { value: queue.shift(), done: false }
-            },
-          }
+    ctx: {
+      data: {
+        session: { get: (id: string) => sessions.get(id) },
+        on: (type: string, handler: (event: SessionEvent) => void) => {
+          const list = handlers.get(type) ?? []
+          list.push(handler)
+          handlers.set(type, list)
+          return () => handlers.set(type, (handlers.get(type) ?? []).filter((h) => h !== handler))
         },
-      } as unknown as AsyncIterable<unknown>
+      },
+      ui: { router: { current: () => shown } },
+    },
+    emit(type: string, data: Record<string, unknown>) {
+      if (type === "session.deleted" && typeof data.sessionID === "string") sessions.delete(data.sessionID)
+      for (const handler of handlers.get(type) ?? []) handler({ type, data })
     },
   }
 }
@@ -57,17 +53,6 @@ describe("v2 TUI part", () => {
       .split("\n")
       .filter(Boolean)
       .map((line) => line.split("|").slice(0, 4))
-
-  const ctxFor = (records: SessionInfo[], shown = route("root")) => {
-    const map = new Map(records.map((s) => [s.id, s]))
-    const stream = eventStream()
-    return {
-      state: { session: { get: (id: string) => map.get(id) } },
-      route: shown,
-      event: { subscribe: stream.subscribe },
-      push: stream.push,
-    }
-  }
 
   const restore = () => {
     for (const key of KEYS) {
@@ -111,17 +96,19 @@ describe("v2 TUI part", () => {
     try {
       delete process.env.HERDR_ENV
       writeFileSync(calls, "")
-      expect(setup(ctxFor([{ id: "root", title: "Root title" }]) as never)).toBeUndefined()
+      const h = host([{ id: "root", title: "Root title" }])
+      expect(setup(h.ctx as never)).toBeUndefined()
       expect(herdrCalls()).toEqual([])
     } finally {
       restore()
     }
   })
 
-  test("a ctx without the session cache is a no-op, not a failure", () => {
+  test("a ctx without the session cache or the router is a no-op, not a failure", () => {
     try {
       insideHerdr()
-      expect(() => setup({ route: route("root") } as never)).not.toThrow()
+      expect(() => setup({ ui: { router: { current: () => route() } } } as never)).not.toThrow()
+      expect(() => setup({ data: { session: { get: () => undefined } } } as never)).not.toThrow()
       expect(herdrCalls()).toEqual([])
     } finally {
       restore()
@@ -132,20 +119,62 @@ describe("v2 TUI part", () => {
     let dispose: (() => void) | undefined
     try {
       insideHerdr()
-      // The cache has no title yet: exactly the window after session.created.
-      const ctx = ctxFor([{ id: "root" }])
-      dispose = setup(ctx as never)
-      await new Promise((r) => setTimeout(r, 150))
+      // No cache title yet, as after session.created.
+      const h = host([{ id: "root" }])
+      dispose = setup(h.ctx as never, 10)
+      await wait(100)
       expect(herdrCalls()).toEqual([])
 
-      ctx.push({
-        type: "session.updated",
-        data: { sessionID: "root", info: { id: "root", title: "Generated later" } },
-      })
-      await new Promise((r) => setTimeout(r, 200))
+      h.emit("session.renamed", { sessionID: "root", title: "Generated later" })
+      await wait(150)
       expect(herdrCalls()).toEqual([["pane", "rename", "w1:p1", "Generated later"]])
     } finally {
       dispose?.()
+      await wait(100)
+      restore()
+    }
+  })
+
+  test("a title carried by session.created labels a session the cache lacks", async () => {
+    let dispose: (() => void) | undefined
+    try {
+      insideHerdr()
+      const h = host([], route("root"))
+      dispose = setup(h.ctx as never, 10)
+      await wait(100)
+      expect(herdrCalls()).toEqual([])
+
+      h.emit("session.created", { sessionID: "root", title: "Fresh title" })
+      await wait(150)
+      expect(herdrCalls()).toEqual([["pane", "rename", "w1:p1", "Fresh title"]])
+    } finally {
+      dispose?.()
+      await wait(100)
+      restore()
+    }
+  })
+
+  test("a child session's rename keeps the root session's label", async () => {
+    let dispose: (() => void) | undefined
+    try {
+      insideHerdr()
+      const h = host(
+        [
+          { id: "root", title: "Root title" },
+          { id: "child", parentID: "root" },
+        ],
+        route("child"),
+      )
+      dispose = setup(h.ctx as never, 10)
+      await wait(150)
+      expect(herdrCalls()).toEqual([["pane", "rename", "w1:p1", "Root title"]])
+
+      h.emit("session.renamed", { sessionID: "child", title: "Child title" })
+      await wait(150)
+      expect(herdrCalls()).toHaveLength(1)
+    } finally {
+      dispose?.()
+      await wait(100)
       restore()
     }
   })
@@ -154,26 +183,53 @@ describe("v2 TUI part", () => {
     try {
       insideHerdr()
       const shown = route("root")
-      const ctx = ctxFor(
+      const h = host(
         [
           { id: "root", title: "Root title" },
           { id: "other", title: "Other title" },
         ],
         shown,
       )
-      const dispose = setup(ctx as never)
+      const dispose = setup(h.ctx as never, 10)
       expect(typeof dispose).toBe("function")
-      await new Promise((r) => setTimeout(r, 150))
+      await wait(150)
+      expect(herdrCalls().at(-1)).toEqual(["pane", "rename", "w1:p1", "Root title"])
 
-      // No event accompanies a switch, so this is the poll's job.
-      shown.current = { name: "session", params: { sessionID: "other" } }
-      await new Promise((r) => setTimeout(r, 700))
+      // A switch has no event; the poll must catch it.
+      shown.sessionID = "other"
+      await wait(150)
       expect(herdrCalls().at(-1)).toEqual(["pane", "rename", "w1:p1", "Other title"])
 
       dispose?.()
-      await new Promise((r) => setTimeout(r, 200))
+      await wait(150)
+      expect(herdrCalls().at(-1)).toEqual(["pane", "rename", "w1:p1", "--clear"])
+
+      // Disposed: route change and event must not rename.
+      shown.sessionID = "root"
+      h.emit("session.renamed", { sessionID: "other", title: "After dispose" })
+      await wait(150)
       expect(herdrCalls().at(-1)).toEqual(["pane", "rename", "w1:p1", "--clear"])
     } finally {
+      restore()
+    }
+  })
+
+  test("deleting the shown session clears the label", async () => {
+    let dispose: (() => void) | undefined
+    try {
+      insideHerdr()
+      const h = host([{ id: "root", title: "Root title" }])
+      // 60 s poll: only the handler can clear here.
+      dispose = setup(h.ctx as never, 60_000)
+      await wait(150)
+      expect(herdrCalls().at(-1)).toEqual(["pane", "rename", "w1:p1", "Root title"])
+
+      h.emit("session.deleted", { sessionID: "root" })
+      await wait(150)
+      expect(herdrCalls().at(-1)).toEqual(["pane", "rename", "w1:p1", "--clear"])
+    } finally {
+      dispose?.()
+      await wait(100)
       restore()
     }
   })
