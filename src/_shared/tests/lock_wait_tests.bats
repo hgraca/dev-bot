@@ -41,6 +41,39 @@ teardown() {
   kill "${holder}" 2>/dev/null || true
 }
 
+@test "lock_wait reports a lock file it cannot open" {
+  # A regular file where the parent directory should be: mkdir -p fails whatever
+  # the uid, so the open failure is reproducible inside a root container too.
+  : > "${SANDBOX_DIR}/notadir"
+
+  run _devbot_lock_wait "${SANDBOX_DIR}/notadir/x.lock" 0 "LOCK-MESSAGE"
+  assert_failure
+  # The caller's message names a holder; on this path there is none, so the
+  # helper states the real cause instead of reusing it.
+  assert_output --partial "could not open the lock"
+  refute_output --partial "LOCK-MESSAGE"
+}
+
+@test "lock_wait reports an unopenable lock without a caller message" {
+  : > "${SANDBOX_DIR}/notadir"
+
+  run _devbot_lock_wait "${SANDBOX_DIR}/notadir/x.lock" 0 ""
+  assert_failure
+  assert_output --partial "could not open the lock"
+}
+
+@test "lock_wait still reports a timeout with the caller message" {
+  ( exec 205>"${SANDBOX_DIR}/held.lock"; flock -x 205; sleep 3 ) &
+  local holder=$!
+  sleep 0.3
+
+  run _devbot_lock_wait "${SANDBOX_DIR}/held.lock" 0 "TIME-MESSAGE"
+  assert_failure
+  assert_output --partial "TIME-MESSAGE"
+
+  kill "${holder}" 2>/dev/null || true
+}
+
 @test "lock_wait does not permanently silence stderr" {
   # Regression: a bare `exec 200>file 2>/dev/null` persists the redirect and
   # swallows every later _error/_fatal from the caller.

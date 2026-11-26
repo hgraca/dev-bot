@@ -562,20 +562,31 @@ _devbot_resolve_project_for_path() {
 #   npm reify) and qmd llama builds on a shared model cache (same rig, CPU
 #   freeze). flock(1) is util-linux; on macOS fall back to python fcntl on the
 #   inherited fd (same pattern as the reindex tool).
-#   Returns 0 when the lock is held; 1 when it could not be acquired in time —
-#   the caller should then proceed (with the warning) or skip, never block.
+#   Returns 0 when the lock is held; 1 when it could not be acquired in time
+#   (warns with the caller's message) or could not be opened at all (always
+#   warns). The caller then proceeds or skips, never blocks.
 _devbot_lock_wait() {
   local lockfile="$1"
   local cap="${2:-600}"
   local msg="${3:-}"
+  local opened=1
   if [[ -d "${lockfile}" ]]; then
     # Directory target: open read-only (a dir cannot be opened for writing).
     # The redirect is scoped to the group — a bare `exec … 2>/dev/null` would
     # persist and permanently silence the shell's stderr.
-    { exec 200<"${lockfile}"; } 2>/dev/null || return 1
+    { exec 200<"${lockfile}"; } 2>/dev/null || opened=0
   else
-    mkdir -p "$(dirname "${lockfile}")" 2>/dev/null || return 1
-    { exec 200>"${lockfile}"; } 2>/dev/null || return 1
+    mkdir -p "$(dirname "${lockfile}")" 2>/dev/null || opened=0
+    if [[ ${opened} -eq 1 ]]; then
+      { exec 200>"${lockfile}"; } 2>/dev/null || opened=0
+    fi
+  fi
+  # A lock that cannot be opened is NOT a timeout: report it instead of letting
+  # the caller believe serialisation held when there was never a lock at all.
+  # The caller's message describes a holder, so it is never reused here.
+  if [[ ${opened} -eq 0 ]]; then
+    _warn "could not open the lock ${lockfile} — continuing without it"
+    return 1
   fi
   _devbot_lock_acquire 200 "${cap}" "${msg}"
 }
