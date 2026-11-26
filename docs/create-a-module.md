@@ -96,6 +96,8 @@ Declare hooks in `hooks.json` (harness-agnostic) — the business logic lives in
 
 Repeatable instruction sets under `commands/<command-name>.md`, with `name`/`description` frontmatter. Load the `devbot:create-command` skill when authoring one — it owns the name/filename match, the `$1`/`$ARGUMENTS` contract, the wiring and the tests.
 
+Both commands and skills are rendered before they run — Claude Code renders both bodies, OpenCode commands only. The renderer reads an exclamation mark placed immediately before a backtick as a shell command and runs the text after it, so no body may carry that pair. An autosquash marker closing a code span is the usual way it slips in: write it unquoted instead — fixup!, squash! and amend!, never inside backticks. `src/harnesses/claudecode/tests/inline_shell_tests.bats` fails when either body carries it.
+
 ### Agents
 
 Agent profiles under `agents/<name>.md`, with `name`, `description`, and `mode` (`primary` or `subagent`) frontmatter.
