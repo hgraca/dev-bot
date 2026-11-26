@@ -329,3 +329,43 @@ EOF
   [ "$status" -eq 0 ]
   ! grep -q 'z.string' "${OUT}/modules/tools/gamma.md"
 }
+
+# The real tree, not the fixture: a capability the module's own files carry must
+# parse as declared, or the site silently drops it — a wrapped front-matter list
+# parses as empty without an error.
+@test "every module declares each capability its own files carry" {
+  run python3 - "$PROJECT_ROOT" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+script = root / "src/agentic/docs/tools/gather-module-docs.py"
+spec = importlib.util.spec_from_file_location("gather_module_docs", script)
+gather = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(gather)
+
+problems = []
+for area in gather.AREAS:
+    area_dir = root / "src" / area
+    if not area_dir.is_dir():
+        continue
+    for module_dir in sorted(p for p in area_dir.iterdir() if p.is_dir()):
+        doc = module_dir / "docs.md"
+        if not doc.is_file():
+            continue
+        meta, _ = gather.parse_front_matter(doc.read_text(encoding="utf-8"), doc)
+        details = gather.capability_details(root, area, module_dir.name, meta)
+        for kind in gather.CAPABILITY_KEYS:
+            # A wrapped list leaves the key present but empty; a module that never
+            # declares the kind is a separate, deliberate gap.
+            if kind not in meta:
+                continue
+            declared, _ = gather.capability_entries(meta, kind)
+            if details[kind] and not declared:
+                problems.append(f"{area}/{module_dir.name}: {kind} parses empty but is on disk")
+print("\n".join(problems))
+PY
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
