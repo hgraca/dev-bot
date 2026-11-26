@@ -274,6 +274,7 @@ Issue types that apply regardless of technology stack.
 5. **Documentation must match implementation** — verify docs against the code: failure semantics (what retries vs fails immediately), external endpoint formats (official, not remembered), configuration behaviour. A doc that contradicts the code is a finding.
    - Code comments and docblocks are docs too: a docblock that contradicts the implementation (e.g. says OPTIONS is included while the code removes it), or a **duplicated stale docblock** left behind an edit, is a finding.
    - When the change alters **when a setting is honoured**, the prose describing that setting is part of the change: a sentence that stays true of the library yet false of the configuration it sits in — an empty list still allows every caller, while the new gate makes the list mandatory — misleads the next operator even though no clause in it is factually wrong.
+   - An **amendment banner is not an amendment**: when a note or doc supersedes an earlier instruction, mark the retired instruction in the paragraph it governs — or remove it. A banner above a paragraph that still tells the reader to do the old thing is a finding; the reader follows the paragraph, not the banner.
 6. **Architecture/design smells** — ports named by domain/area (not by implementation); API inputs reduced to what cannot be derived; no duplicated output or duplicated invariants (single source of truth); queries/logic in intent-named private methods; **compare values before mutating** them; check mutation order (comparing post-mutation values is always equal).
 7. **Atomic commit structure** — one logical change per commit; migration-only commits; related cleanup grouped with its change; unrelated changes not bundled.
 8. **Configuration & rollout** — only non-default config values should be specified (do not replicate package defaults); env switches/flags must be safe for fresh environments (provisioning must be part of the rollout, or the switch stays off).
@@ -349,6 +350,30 @@ Issue types that apply regardless of technology stack.
 - Check the order the writers run in. A reconciliation pass that runs before the guarded step will write entries the guard would have refused.
 - Where a writer matches text — a key, a section header — verify the matcher against the spellings a user's file can legally contain, not only the one the generator emits. A narrow matcher that fails to recognise an existing entry appends a second one, and the parser keeps the last: the user's array is silently replaced.
 - WARNING; BLOCKER when the unguarded writer overwrites or discards user data.
+
+27. **A later blanket filter does not defeat an earlier always/never guarantee** — when the change states that one class of item is always (or never) handled, and a later step skips or stages items through a general filter:
+
+- Verify the general filter cannot silently drop the guaranteed item. An "always published" rule followed by a blanket "skip anything ignored" check is two policies in one flow; the exception must be explicit, and a guaranteed item the filter rejects must be reported as an error, not skipped.
+- Ask what a conservative filter — an ignore rule, an allowlist, a `check-ignore` probe — does to the guaranteed class, and test that case. A guarantee that holds only while the filter stays permissive is not a guarantee.
+- WARNING; BLOCKER when the dropped item is the feature's headline behaviour or leaves user data unhandled.
+
+28. **A reused checkout is validated, never borrowed on trust** — when a procedure reuses an existing worktree, clone or checkout another run may own (a standing-PR branch, a cached build directory, a shared temp tree):
+
+- Require the reuse to prove the checkout is clean and at the fetched tip before writing into it; a dirty or diverged checkout carries another session's staged changes or commits into the new commit. When the proof fails, use a fresh detached worktree or report and stop.
+- Check the failure mode the reuse creates: a reaped path git still registers, a branch checked out elsewhere, a worktree that cannot be removed. A fresh detached worktree avoids all three.
+- WARNING; BLOCKER when the new commit can include another session's work or lose it.
+
+29. **A generated ref or identifier is unique under concurrency** — when the change generates a branch name, temporary path, lock key or id from a timestamp:
+
+- Verify the generator cannot collide between two runs in the same second. A second-resolution timestamp alone is not unique; add a session nonce (a PID or random suffix) or retry on collision.
+- Check the collision path: the second run must fail loudly or retry, not silently take the first run's branch or overwrite its work.
+- WARNING; BLOCKER when the collision loses or mixes another run's commits.
+
+30. **A path is resolved before it is checked, copied or staged** — when ownership, ignore rules or repository identity differ across a symlink (a vault link into a shared store, a linked worktree, a bind-mounted directory):
+
+- Verify the operation uses the resolved physical target, not the path the caller named. `check-ignore`, copy and `git add` must all see the same target-relative path; a symlink checked in one repository and staged in another either fails as ignored or lands in the wrong tree.
+- Ask which repository owns the resolved path and which repository the command runs against, and test the path through the link. Resolving late — after the check but before the copy — is the same defect.
+- WARNING; BLOCKER when the miss silently drops the item or commits it to the wrong repository.
 
 ### Technology-specific
 
@@ -486,7 +511,7 @@ Save to `<issue-folder>/REVIEW-YYYY-MM-DD-NNN.md`.
 > - **Working-Directory Scope** — Every call scoped to the resolved target, not to the process cwd?
 > - **Procedure Described as Enforcement** — Is a document's instruction kept distinct from a platform guarantee?
 > - **Second-Order Damage While Fixing** — Would each applied fix survive re-reading against its own finding?
-> - **Recurring Issue Types (Generic)** — TOCTOU/concurrent modification? Config-like entity invariants? Migration `down()` restores exact schema? API contract round-trip? Docs match implementation (incl. docblocks)? Docs/runbooks issue only scoped, reversible commands? Architecture/design smells? Atomic commit structure? Configuration & rollout? Per-request performance? Deployment/queue rollout compatibility? Concurrent-race recovery guards the actual failing operation (`new()` vs `save()`)? Bootstrap path for newly-gated admin capabilities? Cached build artifacts renamed or invalidated when their inputs change? Request parameters validated rather than coerced?
+> - **Recurring Issue Types (Generic)** — TOCTOU/concurrent modification? Config-like entity invariants? Migration `down()` restores exact schema? API contract round-trip? Docs match implementation (incl. docblocks)? Docs/runbooks issue only scoped, reversible commands? Architecture/design smells? Atomic commit structure? Configuration & rollout? Per-request performance? Deployment/queue rollout compatibility? Concurrent-race recovery guards the actual failing operation (`new()` vs `save()`)? Bootstrap path for newly-gated admin capabilities? Cached build artifacts renamed or invalidated when their inputs change? Request parameters validated rather than coerced? Blanket filters not defeating an always/never guarantee? Reused checkouts validated before writing? Generated refs unique under concurrency? Symlinked paths resolved before check/copy/stage?
 > - **Recurring Issue Types (Technology-specific)** — For each technology in use: PHP (SSRF/untrusted remote input, baselines not grown, `@phpstan-ignore` masking real type mismatches, extension guards cover all required extensions, global state restored in `finally`, `tearDown()` wrapped in nested `try/finally`, PSR-3 logs include `'exception' => $e`, no `@` operator, assumed third-party security defaults, credentials hashed before persistence), Laravel (async command correctness, real middleware stack on tested path, HTTP error/exception semantics, catch-all fallback & HTTP-method semantics, view/layout rendering, `authorize()`/policies use VOs, API resource serialization is scalar, validation bounded to DB column lengths, DB duplicate-key handlers name the violated field, case-sensitive identifiers use binary collation, single-use cache consumption atomic, route params constrained to VO constructors), Kubernetes (manifest consistency, `SkipDryRunOnMissingResource`, `kustomization.yaml` resources)?
 > - **Code Style** — Symbols imported? No FQCNs inline? Explicit guards? Sealed/final convention?
 > - **Role Compliance** — All code changes made by the developer?
