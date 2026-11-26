@@ -194,6 +194,7 @@ When a command inspects or acts on a target the text has just resolved:
 When the text describes a control — a gate, a check, a guard:
 
 - Distinguish what a document instructs from what the platform guarantees. A procedural control described as enforced is worse than one described honestly, because the reader stops checking.
+- An executable block **is** the procedure, not an illustration of it: when the prose promises a step — a plan preview, a verification, a confirmation — the block must contain it, and every step the block runs must be one the prose describes. Read the whole block, not the sentence that cites it.
 - WARNING.
 
 ### 23. Second-Order Damage While Fixing
@@ -380,6 +381,18 @@ Issue types that apply regardless of technology stack.
     - Verify the guarantee against the platform's own ordering, never the flag's name: a client may apply post-create mutations after creation on the hosted product and resolve them before it on an enterprise edition, where the same flag aborts the creation. Name the host the guarantee holds for, or keep the step off the create command entirely.
     - Require the guard to pin the split rather than the whole section: the invocation carries the flag, and the create command carries none. An assertion that only looks for the flag anywhere in the section is satisfied by the fallback.
     - WARNING; BLOCKER when the documented path can destroy the object the sequence exists to create.
+
+32. **A guard's scope equals the operation's scope** — when a step proves a property before acting on a range, a set or a collection (a rewrite range, a batch, an inventory), and the action then touches every element of it:
+    - Compare the proof's subject against the action's subject **element by element**. Proving the named target safe while the action replays the whole range leaves every other element unproven — and the named target is the one a reviewer checks.
+    - Re-prove against the state the action reads, immediately before the action runs. Elements added between proof and action — commits, entries, files — sit outside the proof, and a proof taken before a fetch describes the ref as it was, not as it is.
+    - Require the proof to fail closed. A proof whose own failure reads as "nothing found" — a filter's non-zero status taken as no-match, an enumeration that errored — reports a clean result it never computed.
+    - WARNING; BLOCKER when the action rewrites history, deletes, or is otherwise not recoverable from its own result.
+
+33. **A documented command runs under the shell mode it will run in** — when the change ships a shell recipe in a document, runbook or skill:
+    - Read the block as a script under `set -euo pipefail`, the mode these procedures declare. Every step must survive a stage that legitimately exits non-zero **and** still fail when a stage fails unexpectedly: `cmd | filter || true` swallows the upstream failure as readily as the filter's no-match, so guard the command whose status is expected, not the pipeline.
+    - A step that must fail — a dry run whose editor aborts, a probe signalling "nothing there" by exiting non-zero — needs its status allowed explicitly **and** its intended effect verified (expected output present, target unchanged). A tolerated non-zero alone cannot distinguish the intended abort from a failure that happened before the step's own work.
+    - Run the block once before approving it. Prose reliably describes recipes that cannot execute, and the block is the artefact that runs.
+    - WARNING; BLOCKER when the recipe performs an irreversible or history-rewriting action.
 
 ### Technology-specific
 
