@@ -25,7 +25,7 @@ can drive automated versioning and changelogs. The message skeleton and the body
 | `chore`    | Anything else not touching src or tests                                                                                                     | —              |
 | `revert`   | Reverts a previous commit                                                                                                                   | —              |
 
-Anything marked `!` or carrying a `BREAKING CHANGE:` footer is MAJOR regardless of type.
+Anything marked with an exclamation mark or carrying a `BREAKING CHANGE:` footer is MAJOR regardless of type.
 
 Choose the type by the _user-visible effect_, not the size of the diff. A one-character change that fixes wrong behaviour is `fix`; a 500-line reorganization that changes nothing observable is `refactor`.
 
@@ -75,7 +75,7 @@ BREAKING CHANGE: unauthenticated requests now return 401 instead of
 falling back to the anonymous role. Callers must send Authorization.
 ```
 
-The `!` is the scannable signal; the footer is where the migration path goes. For anything a downstream consumer must act on, write the footer — `!` alone tells them something broke but not what to do.
+The exclamation mark is the scannable signal; the footer is where the migration path goes. For anything a downstream consumer must act on, write the footer — the mark alone tells them something broke but not what to do.
 
 ## Checking a message against project history
 

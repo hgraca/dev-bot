@@ -17,14 +17,14 @@ branch.
 
 - **Target commit is unique to this branch** (a feature branch, including one with an open pull request) — the correction MUST be recorded as a fixup against that commit. This is the default workflow, not an option, and it applies to pushed commits too: creating a fixup only _adds_ a commit, so it is safe at any point in the branch's life. Only the later squash rewrites anything.
 - **Target commit is reachable from the default branch** (`main`, `master`, …), or from another branch — never record a fixup. That history is shared; a correction there is a normal follow-up commit.
-- **Before merging** — fixup commits MUST be squashed into their targets first; they must never reach the default branch. Projects commonly enforce this with a CI check that fails a PR whose branch still contains `fixup!`/`squash!`/`amend!` commits, so an unsquashed fixup is expected to fail that check until it is folded in. See [PR stage](#pr-stage).
+- **Before merging** — fixup commits MUST be squashed into their targets first; they must never reach the default branch. Projects commonly enforce this with a CI check that fails a PR whose branch still contains fixup!/squash!/amend! commits, so an unsquashed fixup is expected to fail that check until it is folded in. See [PR stage](#pr-stage).
 
 ## Choose the right action first
 
 | Situation                                                        | Action                                                                  |
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | Correction to a commit unique to this branch (pushed or not)     | `git commit --fixup=<sha>`                                              |
-| The target commit is itself a fixup                              | Target the commit it fixes — never create `fixup! fixup!`               |
+| The target commit is itself a fixup                              | Target the commit it fixes — never create fixup! fixup!                 |
 | Correction to a commit already reachable from the default branch | Normal follow-up commit — fixups are forbidden there                    |
 | Branch under review with per-commit comments                     | The fixup is still right; ask before _squashing_, not before committing |
 | Memory/global note lives in another repository                   | Commit in the repository that owns the note; a fixup has no target here |
@@ -220,7 +220,7 @@ Prefer `origin/<default>` over the local `<default>`: the local branch may carry
 
 ## Autosquash matching
 
-`--autosquash` reorders the todo list so each `fixup!`/`squash!`/`amend!` commit sits directly after its target, marked to fold in. It matches on the commit _subject line_, or on the sha recorded when `--fixup=<sha>` was used. Two consequences:
+`--autosquash` reorders the todo list so each fixup!/squash!/amend! commit sits directly after its target, marked to fold in. It matches on the commit _subject line_, or on the sha recorded when `--fixup=<sha>` was used. Two consequences:
 
 - If a target's subject is later reworded, subject-based matching breaks and the fixup stays a standalone commit. Always check `git log --oneline` after a rebase.
 - `rebase.autosquash=true` in the user's config makes this the default for every interactive rebase. Check with `git config --get rebase.autosquash` — if set, a plain `git rebase -i` also folds fixups, which may surprise the user.

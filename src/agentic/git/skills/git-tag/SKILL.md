@@ -205,7 +205,7 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/tag.sh" push    --version "<version>" 
 
 Run them one at a time, in that order, and report each step's outcome.
 
-- **`merge`** folds every `fixup!`/`squash!`/`amend!` commit not yet on the
+- **`merge`** folds every fixup!/squash!/amend! commit not yet on the
   default branch into its target, then merges the branch you were on into the
   default branch and switches to it. On a conflict it aborts, restores your
   original branch, and exits `FATAL:` — stop there, nothing was tagged.

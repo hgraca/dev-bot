@@ -26,7 +26,7 @@ Reviewers plug in through an adapter. Two are in use today:
 
 ## MUST
 
-- **Fix every finding as a `fixup!`** (`devbot:git-fixup-commits`), one commit per finding.
+- **Fix every finding as a fixup! commit** (`devbot:git-fixup-commits`), one commit per finding.
 - **Answer every finding** — a fix or a reasoned refusal, never silence. A false positive is
   answered in the same form as a fix.
 - **Convergence is a round, not a thread list.** A round introduces no new findings only when
@@ -35,7 +35,7 @@ Reviewers plug in through an adapter. Two are in use today:
 - **Gate before the history is touched.** The local adapter gates on the project's checks, the
   remote adapter on the required checks and the pull request's mergeability.
 - **Squash the fixups into their targets** (`devbot:git-fixup-commits`). The branch that leaves
-  this skill carries no `fixup!` commit.
+  this skill carries no fixup! commit.
 - **Stop one step before the merge** — the merge is the user's.
 
 ## The loop
@@ -62,7 +62,7 @@ body. Keep each finding's identity so a re-raised one is recognised as already a
 
 ### Fix
 
-Address every finding as per your own recommendation, one `fixup!` commit per finding, against the
+Address every finding as per your own recommendation, one fixup! commit per finding, against the
 commit that introduced the code. A finding you reject gets no commit — it gets an answer.
 
 Remote: push the fixups before re-requesting. The reviewer sees only the pushed tip, so a re-request

@@ -77,11 +77,11 @@ credential.
 
 Read them from the session before it is gone — the whole review conversation on the pull request(s) it
 worked, not only its inline threads. A body-only finding leaves no thread, and the wrap-up squash
-folds each `fixup!` into its target so the commits no longer name the gap either. So collect from:
+folds each fixup! into its target so the commits no longer name the gap either. So collect from:
 
 - the review bodies and the top-level comments: `gh pr view <pr> --json reviews,comments`
 - the inline threads: `gh api repos/<owner>/<repo>/pulls/<pr>/comments`
-- the `fixup!` commits still present, which `devbot:review-loop` writes one per finding
+- the fixup! commits still present, which `devbot:review-loop` writes one per finding
 
 For each finding capture what was flagged, its category (correctness, security, performance,
 architecture, testing, style), whether it took a code change, and whether our reviewer should have

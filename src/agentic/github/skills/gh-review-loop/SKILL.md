@@ -175,7 +175,7 @@ gh pr view <pr> --repo <owner>/<repo> --json mergeable,mergeStateStatus
 
 - **Pending** — a `pending` bucket, or `mergeable: UNKNOWN` while GitHub computes it, is not a pass.
   Wait on the [Wait](#wait) cadence and check again; never block on a polling loop.
-- **Failing** — fix every failing check as its own `fixup!` (`devbot:git-fixup-commits`), push, then
+- **Failing** — fix every failing check as its own fixup! commit (`devbot:git-fixup-commits`), push, then
   return to [Request](#request). Green checks against a stale review are not the finish line: the push
   needs a fresh Copilot review, so repeat until a review introduces no new findings **and** every
   required check passes.
@@ -183,7 +183,7 @@ gh pr view <pr> --repo <owner>/<repo> --json mergeable,mergeStateStatus
   and re-enter the wait; the update re-runs the checks.
 - **`CONFLICTING` / `DIRTY`** — stop and ask the user. A conflict is resolved by rewriting the branch,
   not by a fixup.
-- **A no-fixup guard is not a failure** — a required check that rejects `fixup!`/`squash!` subjects
+- **A no-fixup guard is not a failure** — a required check that rejects fixup!/squash! subjects
   stays red until the squash, by design, and is excluded from the gate above. It must be green on the
   squashed branch before the merge: the push that publishes the squash re-runs it.
 

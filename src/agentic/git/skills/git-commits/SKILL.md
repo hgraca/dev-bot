@@ -38,7 +38,7 @@ rule that gets skipped, and a message is read far more often than it is written:
 - No paragraph body — not even one explaining the why. That reasoning belongs
   in the bullets; any prose body is a defect, not a style choice.
 - Exempt from this list: `Merge`/`Revert` as git writes them, and the
-  `fixup!`/`amend!`/`squash!` markers as `git commit --fixup`/`--squash` writes
+  fixup!/amend!/squash! markers as `git commit --fixup`/`--squash` writes
   them. Git writes their subject and body, so neither the subject rules nor the
   two-list form apply. A marker prefix you type yourself is not an exemption.
 
@@ -88,7 +88,7 @@ Solutions:
 ```
 
 The only messages outside this form are the ones git writes itself: `Merge`, `Revert`, and the
-`fixup!`/`amend!`/`squash!` markers — their subject and body are git's, so neither rule set applies
+fixup!/amend!/squash! markers — their subject and body are git's, so neither rule set applies
 to them. Writing a marker prefix by hand does not opt a message out. See
 [Message checklist](#message-checklist-must).
 

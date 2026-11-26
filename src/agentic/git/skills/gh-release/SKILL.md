@@ -123,7 +123,7 @@ bash "$DEV_BOT_ROOT/src/agentic/git/tools/release.sh" release \
   --version "<version>" --notes-file "<notes file>" --remotes <remotes>
 ```
 
-- **`merge`** folds every `fixup!`/`squash!`/`amend!` commit into its target,
+- **`merge`** folds every fixup!/squash!/amend! commit into its target,
   then merges the branch into the default branch. On a conflict it aborts,
   restores your branch, and exits `FATAL:` — stop there; nothing was tagged.
 - **`tag`** creates the annotated tag from the notes file.

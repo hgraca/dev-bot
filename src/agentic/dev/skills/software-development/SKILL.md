@@ -66,7 +66,7 @@ request; nothing is merged.
    corrects. Before the branch is pushed, squash the fixups into their targets with an interactive
    rebase (`git rebase -i --autosquash origin/<default>`), showing the plan and getting approval
    first as `devbot:git-fixup-commits` requires — the branch is still local, so this rewrites only
-   your own commits. The branch that gets pushed carries no `fixup!` commits.
+   your own commits. The branch that gets pushed carries no fixup! commits.
 6. **Open the pull request and run the review loop** — only once step 5 is clean, push the branch and
    open the pull request with `devbot:gh-create-pr`, which owns the gate: it opens without a reviewer
    and asks whether to run the remote loop, running it by default in an automatic run. When the loop
