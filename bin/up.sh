@@ -457,15 +457,18 @@ _up_is_up() {
 _up_lock_path() { printf '%s/run/up.lock' "${DEV_BOT_ROOT}/storage"; }
 
 # `--if-needed` waits, re-probes, then skips or runs;
-# a lock failure proceeds unlocked with a warning.
+# a failed wait warns and re-probes too.
 _up_run_locked() {
-  if _devbot_lock_wait "$(_up_lock_path)" "${DEVBOT_UP_LOCK_WAIT:-600}"; then
-    if [[ "${UP_IF_NEEDED}" -eq 1 ]] && _up_is_up; then
-      _skip "devbot services already running — skipping 'devbot up'"
-      return 0
-    fi
-  else
-    _warn "could not take the up lock — continuing unlocked; concurrent starts may overlap"
+  local cap="${DEVBOT_UP_LOCK_WAIT:-600}"
+  if ! _devbot_lock_wait "$(_up_lock_path)" "${cap}"; then
+    _warn "up lock not held — continuing unlocked; concurrent starts may overlap (cap ${cap}s, DEVBOT_UP_LOCK_WAIT)"
+  fi
+
+  # Probed after the wait either way: locked, the stamp cannot change under us;
+  # unlocked, a start that finished at the boundary still must not run twice.
+  if [[ "${UP_IF_NEEDED}" -eq 1 ]] && _up_is_up; then
+    _skip "devbot services already running — skipping 'devbot up'"
+    return 0
   fi
 
   _up_install_trap

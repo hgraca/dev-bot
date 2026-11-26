@@ -290,6 +290,7 @@ _run_locked() {
     DEVBOT_UP_LOCK_WAIT='"${cap}"'
     main() { echo "MAIN_RAN"; }
     _up_install_trap() { :; }
+    _warn() { echo "WARN: $*"; }
     _up_run_locked
   '
 }
@@ -376,7 +377,9 @@ _release_up_lock() {
   assert_output --partial "LOCK_HELD"
 }
 
-@test "if-needed: falls through when the lock cannot be taken" {
+@test "if-needed: the fall-through still re-probes and skips" {
+  # A wait that exceeds the cap releases the caller unlocked. If the in-flight
+  # start completed at the boundary, a second sequence must still not run.
   printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
   printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
   _seed_stamp
@@ -385,7 +388,22 @@ _release_up_lock() {
   _run_locked 1 2
 
   assert_success
+  assert_output --partial "devbot services already running"
+  refute_output --partial "MAIN_RAN"
+  _release_up_lock
+}
+
+@test "if-needed: the fall-through warns with the cap when nothing completed" {
+  printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
+  printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
+  _hold_up_lock 1
+
+  _run_locked 1 2
+
+  assert_success
   assert_output --partial "MAIN_RAN"
+  assert_output --partial "DEVBOT_UP_LOCK_WAIT"
+  assert_output --partial "cap 2s"
   _release_up_lock
 }
 
