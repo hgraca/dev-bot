@@ -18,8 +18,9 @@ another host's mechanics — ask.
    and the handover. This and step 5 are two runs of the same loop, not two different loops.
 2. **Gate** — run the project's checks (`make lint` and `make test`, or the project's documented
    equivalents); they must be green before the squash.
-3. **Squash** — squash the local fixups into their targets (`devbot:git-fixup-commits`), showing
-   the plan and getting approval. The branch that gets pushed carries no `fixup` commit.
+3. **Squash** — squash the local fixups into their targets (`devbot:git-fixup-commits`), printing
+   the plan and applying it without an approval ask. The branch that gets pushed carries no `fixup`
+   commit.
 4. **Pull request** — open it with `devbot:gh-create-pr`, or the host's equivalent. Invoking this
    command answers that skill's two questions — step 1 was the local review, step 5 is the remote
    loop — but not its inputs: still show the plan (title, body, base, assignee) before creating, and
@@ -28,8 +29,8 @@ another host's mechanics — ask.
    `devbot:gh-review-loop` (Copilot). Drive its loop and Gate until a round introduces no new
    findings and every required check is green with the pull request mergeable, then stop before its
    Finish: steps 6 and 7 are this command's.
-6. **Squash again** — squash the remote loop's fixups into their targets, showing the plan and
-   getting approval first.
+6. **Squash again** — squash the remote loop's fixups into their targets, printing the plan and
+   applying it without an approval ask.
 7. **Hand back** — give the user the exact `git -C <owner>
 push --force-with-lease=<branch>:<expected-sha> origin <new-head>:<branch>` command, `<owner>`
    being the owning project (`devbot tool project-for-path <file>`). The user force-pushes and

@@ -211,8 +211,9 @@ the whole flow is independent of the local situation.
 ### Squash fixups before merge
 
 Corrections made while the pull request is open are fixups against the branch's own commits. They
-must not reach the default branch, so squash them just before merge — after showing the plan and
-getting approval:
+must not reach the default branch, so squash them just before merge (steps 1 and 5–6 of
+`devbot:git-fixup-commits`: prove the range is unique, print the plan, then apply it — no approval is
+asked):
 
 ```bash
 # Remember the remote head before refreshing: a fetch hides a force-reset or deletion.
@@ -226,7 +227,33 @@ if [ -n "$after" ]; then
   [ "$(git -C <worktree> rev-list --count HEAD..origin/<branch>)" -eq 0 ] \
     || { echo "origin/<branch> is ahead — reconcile before squashing"; exit 1; }
 fi
+# Prove the WHOLE rewrite range is this branch's alone — the squash replays
+# every commit in it, not only the fixup target.
+current="$(git -C <worktree> branch --show-current)"
+range="$(git -C <worktree> rev-list origin/<default>..HEAD)" \
+  || { echo "cannot list the rewrite range — stop"; exit 1; }
+shared=""
+while read -r sha; do
+  # Enumerating refs failing is not "no sibling": it stops the flow.
+  refs="$(git -C <worktree> for-each-ref --contains="$sha" --format='%(refname)' refs/heads refs/remotes)" \
+    || { echo "cannot enumerate refs for ${sha} — stop"; exit 1; }
+  # Only grep's status 1 is expected here: it means no sibling.
+  siblings="$(printf '%s\n' "${refs}" | grep -vxF \
+    -e "refs/heads/${current}" -e "refs/remotes/origin/${current}" || true)"
+  [ -z "${siblings}" ] || shared="${shared}${sha} ${siblings}"$'\n'
+done <<< "${range}"
+[ -z "$shared" ] || { echo "shared commits in the rewrite range: $shared — stop"; exit 1; }
 expected_sha="$after"                            # the lease the handoff uses
+# Print the plan (the editor fails, so the rebase aborts untouched), then apply it.
+head_before="$(git -C <worktree> rev-parse HEAD)"
+plan="$(GIT_SEQUENCE_EDITOR='grep -v "^#" "$1"; false' git -C <worktree> rebase -i --autosquash origin/<default> 2>/dev/null)" && {
+  echo "preview applied a rebase — stop"
+  exit 1
+}
+[ -n "${plan}" ] || { echo "preview printed no plan — stop"; exit 1; }
+[ "$head_before" = "$(git -C <worktree> rev-parse HEAD)" ] \
+  || { echo "preview moved HEAD — stop"; exit 1; }
+printf '%s\n' "${plan}"
 GIT_SEQUENCE_EDITOR=: git -C <worktree> rebase -i --autosquash origin/<default>
 # hand this to the human — the agent cannot force-push
 head_sha="$(git -C <worktree> rev-parse HEAD)"
@@ -243,8 +270,9 @@ On a branch that has never been pushed there is no lease: the human publishes it
 stops before the lease is captured — another checkout pushed commits this one never incorporated.
 
 Base on **`origin/<default>`, never the local default**: local may hold stranded commits, and
-rebasing onto it would make them ancestors and publish them. `GIT_SEQUENCE_EDITOR=:` applies the plan
-you showed non-interactively; agents have no editor to drive it. Do **not** fetch `<branch>` before
+rebasing onto it would make them ancestors and publish them. The first rebase prints the plan and
+aborts — its sequence editor exits non-zero — so the rewrite is never blind; `GIT_SEQUENCE_EDITOR=:`
+then applies that exact plan, because agents have no editor to drive it. Do **not** fetch `<branch>` before
 the push — that would adopt a colleague's new tip as the lease and overwrite it; fetch only
 `<default>`. The agent prepares the push and hands it over — the guards module denies force-push. See
 steps 5–7 of `devbot:git-fixup-commits`.

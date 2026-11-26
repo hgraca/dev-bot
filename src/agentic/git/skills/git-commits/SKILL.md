@@ -108,10 +108,11 @@ git branch -r --contains <sha>        # empty output means not pushed anywhere
 git log --oneline @{upstream}..HEAD   # the range that is yours alone
 ```
 
-If the commit is on a remote, rewriting forces every collaborator to reset or force-pull. Get
-explicit approval. When the target commit is already reachable from the default branch — or from
-another branch or repository — prefer a normal follow-up commit: that is the shared history this rule
-protects.
+If the commit is on a remote, rewriting forces every collaborator to reset or force-pull — get
+explicit approval for that. The standing exception is the pre-merge squash of this branch's own
+fixups (`devbot:git-fixup-commits`), which needs none. When the target commit is already reachable
+from the default branch — or from another branch or repository — prefer a normal follow-up commit:
+that is the shared history this rule protects.
 
 Creating a fixup commit is **not** rewriting — it only adds a commit, so it is safe on a pushed
 feature branch and needs no approval, including a branch with an open pull request. The rewrite is
