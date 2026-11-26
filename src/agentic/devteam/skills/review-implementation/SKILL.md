@@ -472,6 +472,17 @@ Apply the section for each technology the project uses. Each list merges issue t
    - When resource uses Custom Resource `apiVersion` (not core `v1`, `apps/v1`, `batch/v1`, `networking.k8s.io/v1`, etc.), verify it has `argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true` if CRD installed by another Application in same changeset. Missing this annotation causes ArgoCD dry-run failures on first sync — flag as WARNING.
    - When `kustomization.yaml` exists in same directory as new resource file, verify new file listed in `resources:`. Unlisted resource in Kustomize-managed directory will not be synced — flag as BLOCKER.
 
+2. **Relocating a manifest** — when the change moves or renames a manifest, or the directory that holds it:
+   - Verify every other declaration of the same object is removed in the same change. Two files declaring one object give it two owners: whichever applies last wins, and the other reports drift forever. BLOCKER.
+   - Verify load-bearing metadata survives the move — `argocd.argoproj.io/*` annotations, tracking labels, and any selector a controller matches on. A relocated object that lost its `sync-wave` is not the same object. WARNING.
+   - Verify the controller that rendered the old location can no longer prune it. A directory that still renders something compares the rest of its set and deletes what disappeared; only a path that no longer exists stops the comparison. Moving the last file out of a directory and moving one of several are different changes. BLOCKER when the pruned object owns resources of its own.
+   - Verify the new location matches the glob the generator actually reads — name, depth and the segment that decides the namespace or destination. A directory the generator does not match is applied by nothing.
+
+3. **A shared generator template is blast-radius-wide** — when the change edits an ApplicationSet, Helmfile, or any generator whose template serves many generated units:
+   - A field that selects the source *type* applies to every unit, not only the one the change targets: adding a directory-mode block to a template that also generates kustomize units switches them all, dropping their patches and generated names. BLOCKER.
+   - A template that reads a per-unit key must fail closed for all of them, so verify every input carries it — one missing key stops the whole generator, not the incomplete unit. BLOCKER when the generator is what creates the objects.
+   - Verify per-unit options the hand-managed predecessors carried are expressed by the template. Adoption rewrites the generated unit's whole spec, so an option the template omits is silently lost on the next reconcile. BLOCKER when the option governs how a destructive apply behaves.
+
 ## Review Report
 
 Save to `<issue-folder>/REVIEW-YYYY-MM-DD-NNN.md`.
