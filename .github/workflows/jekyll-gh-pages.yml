@@ -26,6 +26,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify Pages publishes this artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: src/agentic/docs/tools/assert-pages-build-type.sh "${{ github.repository }}"
+
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
