@@ -85,6 +85,40 @@ They use the title and body rules above, but the approval and local-review gates
 their pull request is the review, and they append to their one standing pull request instead of
 opening a second. They never merge it.
 
+The publisher runs as `pr-open --type <stream>`, which fixes everything that would otherwise be
+composed per session — the title, the repository and (for the memory streams) the body:
+
+| `--type`             | Title                                                                | Repository                    |
+| -------------------- | -------------------------------------------------------------------- | ----------------------------- |
+| `review-improvement` | `chore(improve-reviews): improve review skill`                       | dev-bot (`DEV_BOT_ROOT`)      |
+| `global-memories`    | `chore(global-memories): commit global memories and lessons learned` | dev-bot (`DEV_BOT_ROOT`)      |
+| `proj-memories`      | `chore(agents): commit memories and lessons learned`                 | the checkout's own (`origin`) |
+
+```bash
+devbot tool pr-open --type global-memories --cwd <checkout>
+devbot tool pr-open --type review-improvement --body-file <body> --cwd <checkout>
+```
+
+The typed call pushes the branch, opens the standing pull request when none is open, and appends when
+one already belongs to the branch — and it **refuses** rather than guessing: a standing pull request
+on another branch, a second one under the same title, a push remote that is not the pull request's
+repository, a branch heading more than one open pull request, or the repository's default branch is an
+error the caller resolves (`--repo` overrides the repository, and the remote must match it). The check
+reads the remote's **push** URL, which is where the commits actually go, and refuses a remote with
+more than one push destination. It never requests a review: the pull request is the human's to review.
+
+- **`--cwd` is required**, because an MCP call has no working directory of its own: the tool resolves
+  the branch, the remote and the head from the checkout it is given, and would otherwise act on the
+  directory the harness started it in.
+- **`--branch`** names the branch these commits are published as, which a detached worktree needs; the
+  tool then pushes `HEAD:<branch>`.
+- **`--body-file`** is required for `review-improvement` — that body is per change — and overrides the
+  standing body for the memory streams. It applies when the pull request is created: an append leaves
+  the standing body untouched and reports `"body": "unchanged"`, so nothing is silently discarded. A
+  relative path resolves against `--cwd`, the checkout passed to the call.
+- **`"twins"`** in the output names a second standing pull request that appeared between the look-up
+  and the creation: report both and leave both open.
+
 ## Local review first
 
 A pull request is the wrong place to discover the branch was never reviewed. When no local review
@@ -116,6 +150,9 @@ call, and reports the URL:
 pr-open --title '<title>' --body-file <body-file> [--base <default-branch>] [--draft] \
   [--assignee @me] --no-review
 ```
+
+The finish-flow streams use `--type` in place of `--title` — see
+[Finish-flow publishers](#finish-flow-publishers).
 
 - **`--no-review` is the path here**: the pull request opens unreviewed by Copilot, and the loop is
   requested afterwards (see [Copilot review](#copilot-review)). Drop the flag only to request and

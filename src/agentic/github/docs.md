@@ -35,6 +35,15 @@ repository and its ruleset, reconfiguring an existing one, and creating a pull r
 local — no replies, comments or resolutions are posted back — except in the Copilot loop, where
 marking each finding resolved is the point.
 
+`pr-open` runs those writes as one call, and its `--type` mode is the finish flow's publisher: a
+`review-improvement`, `global-memories` or `proj-memories` call carries the stream's standing title,
+its repository — the dev-bot one for the global streams, the checkout's own for project memories —
+and, for the memory streams, the standing body. It is told the worktree to publish from (`--cwd`),
+appends to the branch's open pull request, refuses a twin or a push remote that is not the pull
+request's repository, and reports one it finds after creating. Publishing a session's memories or
+reviewer improvements is therefore one deterministic command instead of a push and a `gh pr create`
+spelled out in each skill.
+
 ## Configuration
 
 Needs the `gh` CLI and `jq`, authenticated on the machine; the module's lifecycle scripts install and

@@ -87,10 +87,11 @@ setup() {
 @test "each stream has its own fixed title, never composed from the notes" {
   local publish
   publish="$(subsection_flat "$SKILL" '6. Publish')"
-  printf '%s\n' "$publish" | grep -qF -- "--title '<group title>'"
+  printf '%s\n' "$publish" | grep -qF 'pr-open --type proj-memories'
+  printf '%s\n' "$publish" | grep -qF 'pr-open --type global-memories'
   printf '%s\n' "$publish" | grep -qF 'chore(agents): commit memories and lessons learned'
   printf '%s\n' "$publish" | grep -qF 'chore(global-memories): commit global memories and lessons learned'
-  printf '%s\n' "$publish" | grep -qF "The group's title is fixed"
+  printf '%s\n' "$publish" | grep -qF 'fixed per stream'
   printf '%s\n' "$publish" | grep -qF 'not a summary of the notes'
 }
 
@@ -234,10 +235,10 @@ setup() {
   printf '%s\n' "$commit" | grep -qF 'never fixups'
 }
 
-@test "the agent pushes a branch and never the default branch" {
+@test "the agent publishes through the tool and never pushes the default branch" {
   local publish
   publish="$(subsection_flat "$SKILL" '6. Publish')"
-  printf '%s\n' "$publish" | grep -qF 'push -u origin "$branch"'
+  printf '%s\n' "$publish" | grep -qF 'devbot tool pr-open --type'
   printf '%s\n' "$publish" | grep -qF 'never push the default branch'
   printf '%s\n' "$publish" | grep -qF 'never force-push'
   printf '%s\n' "$publish" | grep -qF 'Never merge'

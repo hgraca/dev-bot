@@ -55,7 +55,7 @@ setup() {
 
 @test "the pull request title is fixed, not composed from the gaps" {
   # The literal also appears in the title lookup, so pin the specification itself.
-  grep -A3 'always carries this title' "$SKILL" | grep -qF 'chore(improve-reviews): improve review skill'
+  grep -A3 '^The title is fixed:' "$SKILL" | grep -qF 'chore(improve-reviews): improve review skill'
   printf '%s\n' "$PUBLISH" | grep -qF 'does not restate the gaps'
 }
 
@@ -101,4 +101,15 @@ setup() {
 @test "a standing pull request over 10 commits is reported with a merge recommendation" {
   printf '%s\n' "$REPORT" | grep -qF 'greater than 10'
   printf '%s\n' "$REPORT" | grep -qF 'recommend merging'
+}
+
+@test "the publish step names the typed call and the checkout it acts on" {
+  printf '%s\n' "$PUBLISH" | grep -qF 'pr-open --type review-improvement'
+  printf '%s\n' "$PUBLISH" | grep -qF -- '--cwd'
+}
+
+@test "MUST publishes through the typed call, never by hand" {
+  local must
+  must="$(awk '/^## MUST$/{on=1;next} on&&/^## /{exit} on' "$SKILL" | tr '\n' ' ' | tr -s ' ')"
+  printf '%s\n' "$must" | grep -qF 'pr-open --type review-improvement'
 }

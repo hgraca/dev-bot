@@ -134,6 +134,10 @@ the checkout holds:
 uses the project's configured worktree root — a hard-coded `.agents` is wrong for a project that
 renamed it — and `<slug>` in it is the branch with `/` written as `-`, the tool's own convention.
 
+Bind the worktree this table selected or created to `$worktree`: it is the path `worktree.sh list`
+printed for the branch, or the path `create`/`add` returned. Every later step runs there, and step 6
+hands it to `pr-open --cwd`.
+
 Then edit only absolute paths under the worktree, with every git command run as `git -C <worktree>`.
 
 Agents and skills are symlinked into the running harness from the main checkout, so a worktree commit
@@ -177,28 +181,49 @@ is worse than the repetition it removed.
 ### 6. Publish the pull request
 
 Commit each gap atomically with a Conventional Commit (`devbot:git-commits`), the final pass
-included. In the finish flow, publish directly — the wrap-up is unattended: push the branch and open
-or update the standing pull request without asking. On a standalone invocation, present the result as
-one line per gap — the generalized check, the target file, and the change in a clause — and ask once
-whether to **push and publish**; on a refusal, leave the commits on the local branch, name the branch
-and the worktree, and stop there.
+included. In the finish flow, publish directly — the wrap-up is unattended. On a standalone
+invocation, present the result as one line per gap — the generalized check, the target file, and the
+change in a clause — and ask once whether to **push and publish**; on a refusal, leave the commits on
+the local branch, name the branch and the worktree, and stop there.
 
-The pull request always carries this title:
+Publishing is one call, and `--cwd` names the worktree the tool acts on — a typed call refuses
+without it. Write the body first and bind its path, because `review-improvement` refuses without one:
+
+```bash
+body="$(mktemp -d)/body.md"
+cat >"$body" <<'EOF'
+<one short section per change, each with:>
+- evidence: what the review flagged
+- gap: why the current instructions miss it
+- covered by: the file that now covers it
+EOF
+devbot tool pr-open --type review-improvement --body-file "$body" --cwd "$worktree"
+```
+
+`--type review-improvement` fixes the repository (the dev-bot one, resolved from the tool's own
+location, `DEV_BOT_ROOT` when set) and the standing title, so neither is composed here. It pushes the
+branch, opens the pull request when step 3 found none, and appends to the one step 3 put you on — do
+**not** open a second; the tool refuses a twin rather than guessing. `--remote <name>` is there if the
+branch must go somewhere other than `origin`, and `--repo <owner/name>` overrides the repository (the
+remote must match it). The call prints the URL, `"pr": "opened"` or `"appended"`, `"body"` and
+`"twins"`, and never requests a review.
+
+`--body-file` applies when the tool opens the pull request. An append leaves the standing pull
+request's body as it is and reports `"body": "unchanged"` — say so in the report, because the body
+you wrote there is the evidence of what the latest gaps were and it was not recorded.
+
+The title is fixed:
 
 ```text
 chore(improve-reviews): improve review skill
 ```
 
 It does not restate the gaps and is not composed from the commits: it is the standing home for this
-kind of change, so a later session finds the open one instead of opening a twin. Step 3 already
-answered which of the two cases applies:
-
-- **No standing pull request open** — push the branch (`bash src/agentic/git/tools/worktree.sh push
-chore/<slug>` from `$root`, so the tool resolves the repository it acts on) and open the pull
-  request with `devbot:gh-create-pr`, which owns the body rules, using the fixed title above.
-- **One open** — do **not** open a second: push the branch step 3 put you on
-  (`bash src/agentic/git/tools/worktree.sh push <headRefName>` from `$root`) so the standing pull
-  request grows and its review stays in one place.
+kind of change, so a later session finds the open one instead of opening a twin. The body is the one
+`devbot:gh-create-pr` asks for in its title exception — one short section per change: what the
+external evidence showed, why the current instructions miss it, and the file that now covers it.
+Write it to a temporary file and pass it as `--body-file`; without one the tool refuses, because this
+body cannot be derived from the branch.
 
 Never merge it. Its review belongs to the human: the next session that touches the dev-bot project
 picks up whatever is still unresolved.
@@ -221,6 +246,8 @@ a valid outcome.
 - Publish without asking when the finish flow invokes the skill: push and open or update the standing pull request directly; ask once only on a standalone invocation.
 - Run the final pass over every touched file before publishing, and keep every property it is tempted
   to delete.
+- Publish with `devbot-tools pr-open --type review-improvement --body-file <body> --cwd <worktree>`:
+  the tool owns the push, the creation and the append; never push, create or title by hand.
 - Title the pull request `chore(improve-reviews): improve review skill`, and append to that open
   standing pull request instead of opening a second.
 - Report a standing pull request that carries more than 10 commits, and recommend merging it.

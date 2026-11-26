@@ -114,10 +114,10 @@ is 30, and a standing pull request beyond it would read as "none".
 - **Neither `origin/<default>` nor `origin/<headRefName>` resolves after the explicit fetch** — report
   the group and skip it; never revive or guess a base.
 
-Lookup and create are not atomic: two wrap-ups can both see "none". After `gh pr create`, re-list the
-group's title; when a second one appeared, report both URLs and leave both open — never close another
-session's pull request. The rule is "append when you see one"; a twin created concurrently belongs to
-the human.
+Lookup and create are not atomic: two wrap-ups can both see "none". Step 6's `pr-open --type` re-lists
+the group's title after creating one and reports a twin in its `twins` field; report both URLs and
+leave both open — never close another session's pull request. The rule is "append when you see one";
+a twin created concurrently belongs to the human.
 
 ### 4. Prepare the branch
 
@@ -173,35 +173,44 @@ commit, and the append path's earlier memory commits are never rewritten.
 
 ### 6. Publish
 
-The title and body follow `devbot:gh-create-pr`; its finish-flow-publisher exception is what allows
-this skill to publish unattended. Push the branch, then open the pull request only when step 3 found
-none:
+Publishing is one call — `pr-open --type <stream>` (`devbot-tools pr-open` through MCP, `devbot tool
+pr-open` on the CLI) — naming the worktree it publishes from:
 
 ```bash
-git -C "$wt" push -u origin "$branch"            # new branch
-git -C "$wt" push origin "HEAD:$branch"          # standing branch
-
-gh pr create --repo <owner/name> --base "$default" --head "$branch" \
-  --title '<group title>' \
-  --body-file <body>
+devbot tool pr-open --type proj-memories --cwd "$wt" --branch "$branch"     # vault group
+devbot tool pr-open --type global-memories --cwd "$wt" --branch "$branch"   # global group
 ```
 
-Run `gh` from the repository root, or pass `--repo <owner/name>` — resolved with
-`gh repo view --json nameWithOwner --jq .nameWithOwner` — as shown. The group's title is fixed: the
-standing home for this kind of change, not a summary of the notes. Use
-`chore(agents): commit memories and lessons learned` for a vault group and
-`chore(global-memories): commit global memories and lessons learned` for a global group. Write the body
-to a temporary file in the ordinary Problems/Solutions shape:
+`--cwd` is not optional on a typed call: the tool resolves the branch, the remote and the head from
+the checkout it is given, so a call that names none is refused rather than acting on whatever
+directory the harness happened to run it in.
 
-```text
-Problems:
-- session memories stay on a local branch no one reviews
-- global lessons accumulate untracked in the toolkit
+`--branch` names the branch these commits are published as. Pass it always: step 4's standing-branch
+worktree is **detached**, where the tool cannot read a branch name and refuses a call without it, and
+on the new branch's attached worktree it matches `HEAD`, so the call is identical either way.
 
-Solutions:
-- publish the vault notes from the project that owns them
-- collect them in one reviewable pull request per repository
-```
+- `proj-memories` opens against the repository the `origin` remote points at — the owning project's.
+- `global-memories` opens against the dev-bot repository, resolved from the tool's own location
+  (`DEV_BOT_ROOT` when set); a dev-bot checkout it cannot find is refused, so a global lesson cannot
+  land in a project.
+- `--remote <name>` pushes somewhere other than `origin`. `--repo <owner/name>` overrides the
+  repository, and the remote must match it or the call is refused.
+
+The call prints the URL, `"pr": "opened"` or `"appended"`, `"body"`, `"twins"` and what the push did.
+It never requests a review: the pull request's review is the human's. Two outcomes belong in the
+report:
+
+- **`"body": "unchanged"`** — an append leaves the standing pull request's body as it is, so a
+  `--body-file` passed there was not applied.
+- **`"twins"` not empty** — a second standing pull request appeared between the look-up and the
+  creation, i.e. another session finished at the same moment.
+
+The titles are fixed because they are the standing home for this kind of change, not a summary of the
+notes — `chore(agents): commit memories and lessons learned` for a vault group and
+`chore(global-memories): commit global memories and lessons learned` for a global group — and the
+bodies are the ordinary Problems/Solutions shape the tool carries. The title, repository and body are
+fixed per stream by the tool, so a session never composes one; pass `--body-file` only to say
+something the standing body does not.
 
 A push that fails leaves the commit in the worktree — on the local branch when the skill created one,
 otherwise in the detached `HEAD`. Keep the worktree and make a detached commit reachable by naming it:
@@ -234,6 +243,8 @@ request: it is overdue for review, and another append only grows it.
   `chore(global-memories): commit global memories and lessons learned` for a global group; append to
   the open one instead of opening a second.
 - Publish unattended from the finish flow: no permission prompt, no confirmation round.
+- Publish with `devbot-tools pr-open --type proj-memories|global-memories` — the tool owns the push,
+  the creation and the append; never compose the title or open the pull request by hand.
 - Commit only the capture's memory files, staged explicitly, on a branch — never the default branch.
 - Respect `commit_memory` and `git check-ignore` for project-vault notes; the global store needs no
   such gate.
