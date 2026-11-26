@@ -336,6 +336,20 @@ Issue types that apply regardless of technology stack.
 - Apply the same question to the parse boundary: a stop condition that never fires reads the remainder of the file, so a ten-line section reports seventy and clears any minimum-count threshold. Verify the extractor's count on a known section before relying on a guard that counts.
 - WARNING; BLOCKER when the guard is the only evidence that the artifact is covered.
 
+25. **A test releases every long-lived resource it starts** — when the change adds or modifies a test that starts a timer, a subscription, a watcher, a server or a background task:
+
+- Require the test to call the disposer before it returns, inside a `finally`. A test that starts a resource and asserts on it without releasing it leaves that resource running into every later test in the same process, and a leaked interval or subscription can keep the run alive after the last assertion.
+- Check that the production code **offers** a release path, and that the test uses the same one the runtime does. A test that cannot dispose is evidence the API has no cleanup, which is the real finding.
+- A fixture that hands back a disposer and a test that ignores it is the commonest shape of this defect, and it survives review because the test passes and the suite stays green.
+- WARNING; BLOCKER when the leaked work reaches shared state — spawning processes, writing files, mutating the fixture other tests read.
+
+26. **Every writer of the same file or state honours the same guard** — when the change adds a guard to one path that writes a shared artifact (a config file, a link farm, a manifest, a lock):
+
+- Enumerate every writer of that artifact and check each applies the same condition. A guard inside a helper while another path writes the same entry directly is a guard bypassed, and a test that exercises only the guarded path cannot see it.
+- Check the order the writers run in. A reconciliation pass that runs before the guarded step will write entries the guard would have refused.
+- Where a writer matches text — a key, a section header — verify the matcher against the spellings a user's file can legally contain, not only the one the generator emits. A narrow matcher that fails to recognise an existing entry appends a second one, and the parser keeps the last: the user's array is silently replaced.
+- WARNING; BLOCKER when the unguarded writer overwrites or discards user data.
+
 ### Technology-specific
 
 Apply the section for each technology the project uses. Each list merges issue types distilled from past reviews with technology-specific pitfalls of the generic checks above.
