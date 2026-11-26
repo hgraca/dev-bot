@@ -375,6 +375,12 @@ Issue types that apply regardless of technology stack.
 - Ask which repository owns the resolved path and which repository the command runs against, and test the path through the link. Resolving late — after the check but before the copy — is the same defect.
 - WARNING; BLOCKER when the miss silently drops the item or commits it to the wrong repository.
 
+31. **A step declared non-fatal stays off the command that creates what it needs** — when text or code declares that a later step's failure costs only that step (an assignee, a label, a reviewer request, a notification applied once the object exists):
+    - Enumerate **every documented form** of the sequence, including the raw fallback written for when a helper tool or wrapper is unavailable, and check the later step's flag appears on none of the earlier commands. A helper that assigns after creating while its documented fallback passes `--assignee` to the create command states a guarantee only one of the two paths honours, and the fallback is exactly the path a reader takes when the helper is missing.
+    - Verify the guarantee against the platform's own ordering, never the flag's name: a client may apply post-create mutations after creation on the hosted product and resolve them before it on an enterprise edition, where the same flag aborts the creation. Name the host the guarantee holds for, or keep the step off the create command entirely.
+    - Require the guard to pin the split rather than the whole section: the invocation carries the flag, and the create command carries none. An assertion that only looks for the flag anywhere in the section is satisfied by the fallback.
+    - WARNING; BLOCKER when the documented path can destroy the object the sequence exists to create.
+
 ### Technology-specific
 
 Apply the section for each technology the project uses. Each list merges issue types distilled from past reviews with technology-specific pitfalls of the generic checks above.
