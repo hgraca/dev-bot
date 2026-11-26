@@ -3,7 +3,7 @@ title: "GitHub"
 description: "Create a repository, open a pull request from a branch or work one locally, and scaffold a GitHub Pages docs site."
 commands: ["gh-create-repo", "gh-address-review", "gh-make-review", "gh-create-pr", "gh-review-loop"]
 skills: ["gh-create-repo", "gh-create-pr", "gh-review-loop", "gh-pages"]
-tools: ["gh-configure-repo", "pr-open", "pr-watch"]
+tools: ["gh-configure-repo", "pr-open", "pr-watch", "deploy-wait"]
 ---
 
 Create a repository, open a pull request from a branch, or pull one down and work on it locally —
@@ -22,6 +22,9 @@ review its changeset, or address the comments it already has.
   every required check is green with the pull request mergeable.
 - **`gh-pages`** — scaffolds a Jekyll documentation site deployed to GitHub Pages: a project site, or
   the org-level umbrella that indexes every project's docs site.
+- **`deploy-wait`** — waits for a GitHub Actions deploy run to appear and finish: a run id or URL, or
+  a workflow with a branch or commit, polled until its verdict and printed as one digest. Exit codes
+  carry the outcome, so a caller never parses the digest.
 
 `gh-configure-repo` resets a repository that already exists to the same standard: the pull-request and
 merge settings, merged-branch cleanup, and one default-branch ruleset that carries the status checks
