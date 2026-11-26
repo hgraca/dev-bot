@@ -112,6 +112,29 @@ concrete URL with a record that matches the design.
 Never log in yourself and never handle credentials. The user logs in by hand in the Playwright
 browser; its profile keeps the session between runs.
 
+**Precondition — the browser server must be able to hold a session.** The `playwright` module's
+shared gateway (`http://127.0.0.1:18505/mcp`) is headless and `--isolated`: there is no window to log
+into and no profile survives a session. Before an authenticated run (any `userType` other than
+`public`), confirm a **headed, persistent-profile** Playwright is the server these tools drive — the
+recipe is in this module's docs (`figma/docs.md`, "Browser window and login"): run it locally with
+`--user-data-dir` and register it under its own server key.
+
+The check reads the transport, because the enabled/disabled state says nothing about it:
+`devbot tool project-for-path <project> --json` lists `mcps_sources` (the harness config actually
+consulted). Open the `playwright` entry in the last of those files:
+
+- a `url` ending in `127.0.0.1:18505/mcp` (opencode: `type: "remote"`) — **the shared gateway**;
+- a `command` array (opencode: `type: "local"`) — a **local instance**, which is the one that can
+  hold a profile.
+
+If the server is the gateway and the run needs a login, **stop before measuring** with:
+
+> login not possible: the configured playwright server is the headless shared gateway — register a
+> headed Playwright with a persistent profile (see `figma/docs.md`) and re-run
+
+Never report `login needed` for that case: no login action can satisfy it. A `public` run is
+unaffected and needs neither the window nor the profile.
+
 ## 1. Figma
 
 1. `get_metadata(fileKey, nodeId)`. Note the frame name, width and height, and its children with their
@@ -202,7 +225,8 @@ proximity), and its position. Exclude all markup from the element comparison.
    - If you landed on a public route, `hasSession` is false, or a configured `detect` resolved a type
      different from the selected `userType`, stop with "login needed as <userType>": ask the user to
      log in as that user in the Playwright browser window, then run the command again. Don't clear the
-     existing session.
+     existing session. This assumes the session precondition above holds — with the headless shared
+     gateway the run stops before this point instead.
    - When `project.session.detect` is absent, emit `const detect = {}`, verify presence only, and add
      an Observation that the user type could not be checked.
 

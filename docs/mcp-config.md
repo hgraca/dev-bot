@@ -93,7 +93,7 @@ opencode runs the consent flow and stores the tokens itself; `opencode mcp logou
 
 A dev-bot MCP server must never launch its own per-instance process. Servers that are stateless and machine-global run **once per machine** as a docker compose service; every harness instance connects over streamable-http instead of spawning its own stdio copy. This follows the module-owned compose pattern (`docker-compose.yml` in the module dir, auto-discovered by `devbot up`/`down`; `up` is gated by the `modules` map, while `down` is machine-wide and session-gated).
 
-The gateway pattern is for machine-global, stateless servers. A server that carries a per-user identity or per-project context — `aws`, `chrome-devtools`, `playwright`, `sonarqube` — stays stdio and is started only when its module and MCP entry are both enabled.
+The gateway pattern is for machine-global servers. A server that carries a per-user identity or per-project context — `aws`, `chrome-devtools`, `sonarqube` — stays stdio and is started only when its module and MCP entry are both enabled. `playwright` used to be on that list: it is a gateway now because Playwright MCP isolates clients itself — each HTTP client gets its own browser context, and the workspace root it may use is the root that client declares over MCP `roots` (opencode answers with the session's project directory, verified; a client that declares none gets the container's working directory instead). One container therefore still gives every project its own context.
 
 The canonical manifest declares such a server as `http`:
 
@@ -113,6 +113,7 @@ Gateways bind `127.0.0.1` only (never exposed off the machine), in the `18500–
 | 18502  | signoz                                                                                  |
 | 18503  | svelte                                                                                  |
 | 18504  | codebase-memory                                                                         |
+| 18505  | playwright                                                                              |
 | 18510  | datasources                                                                             |
 | 18520+ | `datasources` sidecars — one per `opensearch`/`s3` datasource, allocated by sorted name |
 
@@ -176,7 +177,11 @@ If the container is not running the server is simply unavailable; there is no st
   "mcp": {
     "qmd": {
       "type": "stdio",
-      "command": ["bash", "-c", "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"],
+      "command": [
+        "bash",
+        "-c",
+        "mkdir -p .agents/logs && exec qmd mcp 2>>.agents/logs/qmd-mcp.log"
+      ],
       "env": {
         "QMD_LLAMA_GPU": "__GPU_ENABLED__",
         "QMD_EXPAND_CONTEXT_SIZE": "512"

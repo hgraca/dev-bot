@@ -16,6 +16,11 @@
 # stale-refresh list began dropping its outdated entry — the server would be
 # dropped on every daemon-less host. The declaration is now explicit: the
 # server carries `"_hybrid": true` in its canonical manifest.
+#
+# playwright was the only producer of that annotation. It is now a shared http
+# gateway (127.0.0.1:18505), so no shipped manifest declares `_hybrid` any more
+# and the cases below use fixtures. The predicate stays: claudecode's guard
+# still consults it per module, and a future hybrid launcher needs it.
 # =============================================================================
 
 setup() {
@@ -39,13 +44,11 @@ _manifest() {
   echo "${WORK}/mcp.json"
 }
 
-@test "playwright's real manifest declares a hybrid (regression: e7e7cd40 removed the literal the guard keyed on)" {
-  run _mcp_declares_hybrid "${PROJECT_ROOT}/src/agentic/playwright/mcp.json" playwright
-  assert_success
-}
+@test "a manifest declaring the annotation for that key is hybrid" {
+  local m
+  m="$(_manifest '{"mcp":{"s":{"type":"stdio","_hybrid":true,"command":["x"]}}}')"
 
-@test "playwright's real manifest is hybrid without a key (claudecode's per-module form)" {
-  run _mcp_declares_hybrid "${PROJECT_ROOT}/src/agentic/playwright/mcp.json"
+  run _mcp_declares_hybrid "$m" s
   assert_success
 }
 
@@ -60,7 +63,10 @@ _manifest() {
 }
 
 @test "unknown server key in a hybrid manifest is not hybrid" {
-  run _mcp_declares_hybrid "${PROJECT_ROOT}/src/agentic/playwright/mcp.json" not-a-server
+  local m
+  m="$(_manifest '{"mcp":{"s":{"type":"stdio","_hybrid":true,"command":["x"]}}}')"
+
+  run _mcp_declares_hybrid "$m" not-a-server
   assert_failure
 }
 

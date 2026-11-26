@@ -101,11 +101,13 @@ for key, value in data.items():
     # Docker-only MCPs can't run without a docker daemon (e.g. inside a
     # container) — skip registering them so the client never starts them and
     # never logs connection errors. A hybrid def (docker with a non-docker
-    # fallback its own launcher picks at runtime, like playwright) is still
-    # registered; its canonical manifest declares that with `"_hybrid": true`,
-    # read by _mcp_declares_hybrid. Never key this on the fallback's command
-    # text: e7e7cd40 replaced playwright's fallback and the old literal grep
-    # left it misclassified as docker-only.
+    # fallback its own launcher picks at runtime) is still registered; its
+    # canonical manifest declares that with `"_hybrid": true`, read by
+    # _mcp_declares_hybrid. No module ships one today — playwright was the last
+    # and is now an http gateway — so keep the predicate for the next launcher
+    # that needs it. Never key this on the fallback's command text: an earlier
+    # grep for one such literal left a hybrid server misclassified as
+    # docker-only.
     if echo "${mcp_def}" | grep -q 'docker run' \
       && ! _mcp_declares_hybrid "${mcp_file}" "${mcp_key}" \
       && ! docker info >/dev/null 2>&1; then

@@ -395,7 +395,7 @@ EOF
 
 @test "_run_service_scripts --all runs disabled modules' scripts too" {
   # Machine-wide teardown needs this: a module disabled in this project may
-  # still own a non-compose container (playwright reaps its own by label).
+  # still own a container the selected compose set does not declare.
   _source_lib
   export MOCK_DISABLED_MODULES='["skip-me"]'
   _add_module "src/tools" "skip-me" "down.sh" 'echo "skip_me_ran"'

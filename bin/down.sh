@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
 # bin/down.sh
-# Removes all containers in the `devbot` compose project, plus the non-compose
-# ones a module's down.sh reaps (playwright's labelled `docker run` containers).
-# Containers stranded under a DIFFERENT compose project — the retired `dev-bot`
-# name, or a bare `docker run` — are not reached here: bin/up.sh's stale-name
-# reclaim owns those.
+# Removes all containers in the `devbot` compose project, plus any a module's
+# down.sh reaps (datasources' sidecars, started from a compose file generated
+# under storage/). Containers stranded under a DIFFERENT compose project — the
+# retired `dev-bot` name, or a bare `docker run` — are not reached here:
+# bin/up.sh's stale-name reclaim owns those.
 #
 # Lifetime is install-level, not project-level: every module's services live in
 # ONE compose project (`devbot`), shared by every harness session on this
@@ -51,10 +51,11 @@ source "${DEV_BOT_ROOT}/src/_shared/functions.sh"
 PROJECT_DIR="$(cd "${1:-$(pwd)}" && pwd 2>/dev/null || true)"
 
 # ── Lifetime gate ──────────────────────────────────────────────────────────────
-# Gates the WHOLE teardown, module down-scripts included: playwright's reaper
-# removes this machine's playwright containers, and those belong to whichever
-# instance is using them (playwright is per-instance, not shared). Removing
-# anything before the last exit would break a live session.
+# Gates the WHOLE teardown, module down-scripts included: a module's reaper
+# removes containers that belong to whichever instance is using them (a module
+# disabled in this project may own a container another project is using), and
+# the compose set itself is machine-wide. Removing anything before the last exit
+# would break a live session.
 #
 # The gate takes the registry lock and HOLDS it for the whole removal, so the
 # session count cannot change between the probe and the containers going away.
@@ -131,8 +132,8 @@ _down_wait_for_up() {
 
 # ── Module down scripts ────────────────────────────────────────────────────────
 # EVERY module's down.sh runs, including disabled ones (--all): a module
-# disabled in this project may still own a NON-compose container — playwright
-# reaps its own by label, and `docker compose down` cannot collect those.
+# disabled in this project may still own a container the compose set does not
+# declare — datasources starts sidecars from a generated compose under storage/.
 # Covered by the disabled-module regression test.
 
 _run_down_scripts() {
@@ -197,6 +198,15 @@ _docker_down() {
   _header_3 "Stopping docker services..."
 
   cd "${DEV_BOT_ROOT}"
+  # compose interpolates the gateway mount roots as mandatory, so a set that
+  # includes them aborts on an unresolved one and stops nothing. `down` never
+  # reads the mount, only the interpolation, so any absolute value will do: a
+  # typo'd root must not leave the user unable to tear down what a failed up
+  # just started.
+  if ! _devbot_export_playwright_root; then
+    _warn "PLAYWRIGHT_ROOT is not a usable path — using \$HOME for interpolation; down does not read the mount"
+    export PLAYWRIGHT_ROOT="${HOME:-/}"
+  fi
   # --remove-orphans collects the containers no selected compose declares —
   # including datasources, whose generated compose lives under storage/ and is
   # outside the discovery path.

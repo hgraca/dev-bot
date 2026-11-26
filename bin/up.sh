@@ -370,17 +370,19 @@ _devbot_owned_containers() {
 }
 
 _write_up_stamp() {
-  local path sha root containers
+  local path sha root pw_root containers
   path="$(_up_stamp_path "${PROJECT_DIR}")"
   sha="$(_devbot_wiring_sha "${PROJECT_DIR}")"
   root="$(_devbot_codebase_memory_root)"
+  pw_root="$(_devbot_stamp_playwright_root 2>/dev/null || true)"
   containers="$(_devbot_owned_containers)"
   # An empty container list describes nothing: no stamp is better than one that
-  # would vouch for a start whose containers the probe cannot see.
-  [[ -n "${sha}" && -n "${containers}" ]] || return 0
+  # would vouch for a start whose containers the probe cannot see. A gateway root
+  # that will not resolve is the same case — the mount it describes is unknown.
+  [[ -n "${sha}" && -n "${containers}" && -n "${pw_root}" ]] || return 0
   mkdir -p "$(dirname "${path}")" 2>/dev/null || return 0
   {
-    printf '%s\n%s\n%s\n' "${PROJECT_DIR}" "${sha}" "${root}"
+    printf '%s\n%s\n%s\n%s\n' "${PROJECT_DIR}" "${sha}" "${root}" "${pw_root}"
     printf '%s\n' "${containers}"
   } > "${path}" 2>/dev/null || true
 }
@@ -410,13 +412,15 @@ _up_stamp_matches() {
   path="$(_up_stamp_path "${PROJECT_DIR}")"
   [[ -f "${path}" ]] || return 1
   while IFS= read -r line; do lines+=("${line}"); done < "${path}"
-  [[ ${#lines[@]} -ge 3 ]] || return 1
+  [[ ${#lines[@]} -ge 4 ]] || return 1
   [[ "${lines[0]}" == "${PROJECT_DIR}" ]] || return 1
   [[ -n "${lines[1]}" && "${lines[1]}" == "$(_devbot_wiring_sha "${PROJECT_DIR}")" ]] || return 1
   [[ "${lines[2]}" == "$(_devbot_codebase_memory_root)" ]] || return 1
+  # A changed playwright root means the running container's bind mount is stale.
+  [[ "${lines[3]}" == "$(_devbot_stamp_playwright_root 2>/dev/null)" ]] || return 1
 
   live="$(_devbot_owned_containers)" || return 1
-  for ((i = 3; i < ${#lines[@]}; i++)); do
+  for ((i = 4; i < ${#lines[@]}; i++)); do
     name="${lines[$i]}"
     [[ -n "${name}" ]] || continue
     grep -Fxq "${name}" <<< "${live}" || return 1
@@ -429,9 +433,12 @@ _up_stamp_matches() {
 _up_is_up() {
   [[ -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]] || return 1
   docker info >/dev/null 2>&1 || return 1
-  # The stamp records the gateway's desired mount root, so the probe must see
-  # the same .env main() loads before resolving it.
+  # The stamp records the gateways' desired mount roots, so the probe must see
+  # the same .env main() loads before resolving them.
   _load_env_file >/dev/null 2>&1 || true
+  # The compose set includes a mandatory PLAYWRIGHT_ROOT; without it compose
+  # aborts before answering, and the probe would report every start as needed.
+  _devbot_probe_playwright_root >/dev/null 2>&1 || return 1
   _up_stamp_matches || return 1
 
   # Same selection `_docker_up` uses; its disabled-module notes are chatter the
@@ -485,8 +492,10 @@ _up_run_locked() {
 # dir already exists, so nobody looks. Create the WRITABLE sources ourselves, as
 # the host user, before compose can get there.
 # Deliberately one-sided: a missing READ-ONLY source is a misconfiguration (the
-# module would mount an empty dir), so it must fail loudly — those mounts declare
-# create_host_path: false — and is never fabricated here.
+# module would mount an empty dir), so it must fail loudly and is never
+# fabricated here. The same holds for a writable source that declares
+# create_host_path: false — the module is saying its absence is an error, so the
+# model is consulted rather than assumed.
 _ensure_writable_bind_sources() {
   if [[ ! -f "${DEV_BOT_ROOT}/.devbot.global.jsonc" ]]; then
     return 0
@@ -536,6 +545,11 @@ seen = set()
 for service in model.get("services", {}).values():
     for volume in service.get("volumes") or []:
         if volume.get("type") != "bind" or volume.get("read_only"):
+            continue
+        # Honour the mount contract: create_host_path: false means a missing
+        # source is a misconfiguration that must fail loudly, so it is never
+        # fabricated here either.
+        if (volume.get("bind") or {}).get("create_host_path", True) is False:
             continue
         source = volume.get("source")
         if source and source not in seen:
@@ -675,6 +689,53 @@ _devbot_resolve_codebase_memory_root() {
   fi
 }
 
+# ── Resolve the Playwright gateway's mount root ──────────────────────────────
+# The compose file interpolates PLAYWRIGHT_ROOT as mandatory, and three entry
+# points hand it to docker: `main()` here, `--is-up`, and `bin/down.sh`. Each
+# resolves it through the shared helper, so none of them can forget.
+# A project that disables the module selects no such file, so its knob must not
+# abort the start — and the stamp must agree, or it would never match.
+_devbot_playwright_enabled() {
+  ! _devbot_get_disabled_modules "${PROJECT_DIR}" 2>/dev/null \
+    | tr -d '[]" ' | tr ',' '\n' | grep -Fxq playwright
+}
+
+_devbot_resolve_playwright_root() {
+  _devbot_playwright_enabled || return 0
+  local explicit="${PLAYWRIGHT_ROOT:-}" baseline_clean=0
+  _devbot_export_playwright_root || return 1
+  # Persist an explicit root: the gateway is one shared container, so a value
+  # that lives only in one invocation would recreate it under every other
+  # project's live sessions on the next start.
+  if [[ -n "${explicit}" ]]; then
+    _devbot_config_changed "${PROJECT_DIR}" || baseline_clean=1
+    _devbot_persist_playwright_root "${explicit}"
+    if [[ "${baseline_clean}" == "1" ]]; then
+      _devbot_write_config_sha "${PROJECT_DIR}"
+    fi
+  fi
+  return 0
+}
+
+# Read-only variant for the liveness probe: resolves and exports, never writes
+# configuration. A probe that persisted a value would mutate the state it exists
+# to inspect (the global config, and the wiring sha that hashes it).
+_devbot_probe_playwright_root() {
+  _devbot_playwright_enabled || return 0
+  _devbot_export_playwright_root
+}
+
+# The root the up stamp records. "-" for a disabled module: nothing interpolates
+# the file, so the knob is not part of the recorded state — but the line must
+# still exist, keeping the container names at index 4.
+_devbot_stamp_playwright_root() {
+  _devbot_playwright_enabled || {
+    printf '%s\n' '-'
+    return 0
+  }
+  _devbot_playwright_root
+}
+
 # ── main ───────────────────────────────────────────────────────────────────────
 main() {
   local total_start=${SECONDS}
@@ -690,6 +751,8 @@ main() {
   _load_env_file
   _UP_STEP="codebase-memory root"
   _devbot_resolve_codebase_memory_root
+  _UP_STEP="playwright root"
+  _devbot_resolve_playwright_root
   _UP_STEP="codebase-memory scope"
   _check_codebase_memory_scope
   _UP_STEP="bind-mount sources"

@@ -1,12 +1,25 @@
 #!/usr/bin/env bats
 # =============================================================================
 # src/agentic/playwright/tests/playwright_tests.bats
-# Tests for the playwright module's init.sh symlink wiring.
+# Tests for the playwright module — the browser MCP, now a machine-wide docker
+# compose gateway instead of a per-session `docker run --rm -i`.
 #
-# The wrapper itself (EPIPE swallow) lives in src/_shared/mcp-stdio-wrapper.js
-# and is behavior-tested in src/_shared/tests/mcp-stdio-wrapper_tests.bats.
-# This file only verifies that init.sh wires the shared wrapper into the
-# project harness dirs under the module-specific name.
+# WHY the shape changed: one container serves every harness instance over
+# streamable-http at 127.0.0.1:18505/mcp. Playwright MCP isolates per client on
+# its own — each HTTP client gets a separate browser context, and the workspace
+# root it may use is the root that client declares over MCP `roots`, which
+# opencode answers with the session's project directory. So the per-project
+# context the old stdio launcher got from `-v "$PWD:$PWD" -w "$PWD"` is now
+# carried by the protocol instead of by a mount per session.
+#
+# Verified against the running service (2026-11-26):
+#   - streamable-http `initialize` answers 200 on the published port
+#   - two clients declaring different roots wrote relative output into those
+#     two roots, so root isolation is real
+#   - `file:` navigation is blocked by default in BOTH shapes, so the gateway
+#     gives up nothing there
+#   - the Docker-catalog image `mcp/playwright:latest` is stale (v0.0.76, no
+#     roots support): the service must use Microsoft's image
 # =============================================================================
 
 setup() {
@@ -15,359 +28,374 @@ setup() {
 
   TEST_DIR="$(cd "$(dirname "$BATS_TEST_FILENAME")" && pwd)"
   MODULE_DIR="$(cd "$TEST_DIR/.." && pwd)"
-  INIT_TOOL="$MODULE_DIR/init.sh"
-  # The shared wrapper this module's init.sh must symlink to.
-  SHARED_WRAPPER="$(cd "$MODULE_DIR/../../.." && pwd)/src/_shared/mcp-stdio-wrapper.js"
+  PROJECT_ROOT="$(cd "$TEST_DIR/../../../.." && pwd)"
 }
 
-# The pin ships as versions.env.dist; the live versions.env beside it is
-# machine-local.
-load '../../../_shared/tests/lib/pins.bash'
+# ── Canonical manifest ────────────────────────────────────────────────────────
 
-# ── init.sh wiring ────────────────────────────────────────────────────────────
-
-# Harness selection is the root `harness` key alone: only the selected harness
-# is wired. The fixture names it explicitly so the test is hermetic.
-
-setup_project() {
-  printf '{\n  "harness": "%s"\n}\n' "${2:-opencode}" \
-    > "${1}/.devbot.project.jsonc"
+@test "canonical mcp.json declares playwright as a shared http gateway" {
+  run python3 -c "
+import json
+d = json.load(open('${MODULE_DIR}/mcp.json'))
+m = d['mcp']['playwright']
+assert m['type'] == 'http', m
+assert m['url'] == 'http://127.0.0.1:18505/mcp', m
+assert 'command' not in m, m
+assert 'env' not in m, m
+print('MCP:OK')
+"
+  assert_success
+  assert_output --partial 'MCP:OK'
 }
 
-# T1.2: init.sh self-heals via install.sh, which would otherwise run a REAL
-# global `npm install -g` during tests. Isolate the install path: stub npm,
-# provide a fake binary at the pinned version.
-_stub_npm_kit() {
-  local pin
-  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$(pins_file "${MODULE_DIR}")" | head -1)"
-  mkdir -p "${1}/.npm-global/bin" "${1}/stubbin"
-  printf '#!/bin/bash\necho "%s"\n' "${pin}" > "${1}/.npm-global/bin/playwright-mcp"
-  chmod +x "${1}/.npm-global/bin/playwright-mcp"
-  printf '#!/bin/bash\nif [ "$1 $2 $3" = "config get prefix" ]; then echo "/nonexistent"; exit 0; fi\nexit 0\n' \
-    > "${1}/stubbin/npm"
-  chmod +x "${1}/stubbin/npm"
-}
-
-@test "init.sh: symlinks the shared wrapper into the selected harness" {
-  local tmpdir
-  tmpdir="$(mktemp -d)"
-  setup_project "${tmpdir}"
-  _stub_npm_kit "${tmpdir}"
-
-  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
-
-  assert_success
-  # Declared by the module; the harness creates the link (harness_assets_tests).
-  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('mcp',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/harness-assets.json" "playwright-mcp-wrapper.js"
-  assert_success
-  [[ ! -e "${tmpdir}/.claude/playwright-mcp-wrapper.js" ]]
-  # The symlinks resolve to the shared wrapper, not a dangling local copy.
-
-  # The other harness is wired only once it is the selected one.
-  setup_project "${tmpdir}" claudecode
-  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
-  assert_success
-  # Declared by the module; the harness creates the link (harness_assets_tests).
-  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('mcp',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/harness-assets.json" "playwright-mcp-wrapper.js"
-  assert_success
-
-  rm -rf "${tmpdir}"
-}
-
-@test "init.sh: migrates a pre-mount launch command in an existing config" {
-  # MCP registration is insert-only, so a project initialised before the project
-  # bind mount keeps the broken command forever: uploads are rejected and a
-  # screenshot filename fails ENOENT. The module init rewrites the known
-  # fragments; a second run must be a no-op.
-  local tmpdir
-  tmpdir="$(mktemp -d)"
-  setup_project "${tmpdir}"
-  _stub_npm_kit "${tmpdir}"
-  cat > "${tmpdir}/opencode.jsonc" <<'JSON'
-{"mcp":{"playwright":{"type":"local","command":["bash","-c","docker run --rm -i --label dev-bot.mcp=playwright mcp/playwright 2>>.agents/logs/playwright-mcp.log; node \"$PW_BIN\" --browser chromium 2>>.agents/logs/playwright-mcp.log"]}}}
-JSON
-
-  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
-  assert_success
-  assert_output --partial "migrated the playwright launch command"
-
-  # JSON stays valid, the mount and working dir are in, and both launch paths
-  # carry the output dir.
-  run python3 -c "import json,sys; json.load(open(sys.argv[1]))" "${tmpdir}/opencode.jsonc"
-  assert_success
-  run grep -qF -- '-v \"$PWD:$PWD:z\"' "${tmpdir}/opencode.jsonc"
-  assert_success
-  run grep -qF -- '-w \"$PWD\"' "${tmpdir}/opencode.jsonc"
-  assert_success
-  run bash -c "grep -o -- '--output-dir .agents/logs/playwright-mcp' '${tmpdir}/opencode.jsonc' | wc -l"
-  assert_equal "$output" "2"
-
-  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
-  assert_success
-  assert_output --partial "already current"
-
-  rm -r -f "${tmpdir}"
-}
-
-@test "init.sh: idempotent — re-run leaves the symlinks intact" {
-  local tmpdir
-  tmpdir="$(mktemp -d)"
-  setup_project "${tmpdir}"
-  _stub_npm_kit "${tmpdir}"
-
-  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
-  assert_success
-  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${INIT_TOOL}" "${tmpdir}"
-  assert_success
-
-  # Declared by the module; the harness creates the link (harness_assets_tests).
-  run python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert any(a['name']==sys.argv[2] for a in d.get('mcp',[])), d" "$(dirname "$(dirname "$BATS_TEST_FILENAME")")/harness-assets.json" "playwright-mcp-wrapper.js"
-  assert_success
-
-  rm -rf "${tmpdir}"
-}
-
-# ── T1.2: version pinning ─────────────────────────────────────────────────────
-
-@test "versions.env.dist: ships a semver @playwright/mcp default" {
-  # The tracked artifact is the shipped default; the machine's pin is the
-  # gitignored live copy that `devbot update` rewrites.
-  [[ -f "${MODULE_DIR}/versions.env.dist" ]]
-  run bash -c "source '${MODULE_DIR}/versions.env.dist' && [[ -n \"\${PLAYWRIGHT_MCP_VERSION:-}\" ]]"
-  assert_success
-  run grep -cE '^PLAYWRIGHT_MCP_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env.dist"
-  assert_equal "$output" "1"
-}
-
-@test "install.sh: exists, is executable, and installs the pinned package" {
-  [[ -x "${MODULE_DIR}/install.sh" ]]
-  run grep -qF '_devbot_versions_env_source "${MODULE_DIR}"' "${MODULE_DIR}/install.sh"
-  assert_success
-  run grep -qF 'npm install -g "@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}"' "${MODULE_DIR}/install.sh"
-  assert_success
-}
-
-@test "install.sh: ensures the chromium browser on the docker-absent fallback path" {
-  # The npm binary is only used when no docker daemon is reachable, and it
-  # launches with --browser chromium — so install.sh must ensure that browser
-  # exists (audit-66 FAIL: it launched with none). The call must sit outside the
-  # pinned-already early branch, so a current binary with a missing browser is
-  # still repaired.
-  run grep -q 'install-browser chrome-for-testing' "${MODULE_DIR}/install.sh"
-  assert_success
-  run grep -q 'docker info' "${MODULE_DIR}/install.sh"
-  assert_success
-  run grep -qF '_ensure_browser "${bin}"' "${MODULE_DIR}/install.sh"
-  assert_success
-}
-
-@test "install.sh: runs install-browser when no docker daemon is reachable" {
-  local tmpdir pin
-  tmpdir="$(mktemp -d)"
-  pin="$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' "$(pins_file "${MODULE_DIR}")" | head -1)"
-  mkdir -p "${tmpdir}/.npm-global/bin" "${tmpdir}/stubbin"
-
-  # The installed binary records every invocation and answers --version with the pin.
-  printf '#!/bin/bash\necho "$@" >> "%s"\n[[ "$1" == "--version" ]] && echo "%s"\nexit 0\n' \
-    "${tmpdir}/pw.calls" "${pin}" > "${tmpdir}/.npm-global/bin/playwright-mcp"
-  chmod +x "${tmpdir}/.npm-global/bin/playwright-mcp"
-  printf '#!/bin/bash\nif [ "$1 $2 $3" = "config get prefix" ]; then echo "/nonexistent"; exit 0; fi\nexit 0\n' \
-    > "${tmpdir}/stubbin/npm"
-  chmod +x "${tmpdir}/stubbin/npm"
-  # Force the "no docker daemon" fallback path.
-  printf '#!/bin/bash\nexit 1\n' > "${tmpdir}/stubbin/docker"
-  chmod +x "${tmpdir}/stubbin/docker"
-
-  run env HOME="${tmpdir}" PATH="${tmpdir}/stubbin:${PATH}" bash "${MODULE_DIR}/install.sh"
-
-  assert_success
-  run grep -q 'install-browser chrome-for-testing' "${tmpdir}/pw.calls"
-  assert_success
-  rm -rf "${tmpdir}"
-}
-
-@test "Dockerfile: the baked @playwright/mcp version matches the shipped default" {
-  # A drift makes reinit install a different server than the browser baked into
-  # the image, so the fallback looks for a browser revision the image lacks
-  # (audit-66 FAIL). Both sides are committed artifacts, so the comparison is
-  # against the shipped default — a machine's bumped pin is not part of the
-  # release and must not fail this test.
-  local pin dockerfile
-  pin="$(grep -oE '^PLAYWRIGHT_MCP_VERSION=[0-9]+\.[0-9]+\.[0-9]+$' "${MODULE_DIR}/versions.env.dist" | cut -d= -f2)"
-  dockerfile="$(cd "${MODULE_DIR}/../../.." && pwd)/tests/test-project/Dockerfile"
-  [[ -f "${dockerfile}" ]] || skip "fixture Dockerfile not present"
-
-  run bash -c "grep -oE '@playwright/mcp@[0-9]+\.[0-9]+\.[0-9]+' '${dockerfile}' | sort -u"
-  assert_output "@playwright/mcp@${pin}"
-}
-
-@test "update.sh: exists, is executable, resolves npm latest, and bumps the live pin only" {
-  # User policy: the installed version is bumped to npm latest ONLY on
-  # 'devbot update', and the rewritten pin keeps the machine at the new version
-  # on its next install. The shipped default must stay untouched — rewriting a
-  # tracked file is what left the release checkout dirty.
-  [[ -x "${MODULE_DIR}/update.sh" ]]
-  run grep -q 'npm view "@playwright/mcp" version' "${MODULE_DIR}/update.sh"
-  assert_success
-  run grep -qF 'npm install -g "@playwright/mcp@${LATEST}"' "${MODULE_DIR}/update.sh"
-  assert_success
-  run grep -qF '_devbot_versions_env_seed "${MODULE_DIR}"' "${MODULE_DIR}/update.sh"
-  assert_success
-  run grep -qF '"${MODULE_DIR}/versions.env" > "${MODULE_DIR}/versions.env.tmp"' "${MODULE_DIR}/update.sh"
-  assert_success
-  run grep -qF 'versions.env.dist" >' "${MODULE_DIR}/update.sh"
-  assert_failure
-}
-
-# ── T1.2: mcp.json launch routing ────────────────────────────────────────────
-
-@test "mcp.json: npm fallback is explicit-prefix resolved, never npx/@latest" {
-  # No runtime version resolution: no npx, no @latest — the fallback binary is
-  # installed at the pin and resolved by explicit prefix (never via PATH).
-  refute grep -q 'npx' "${MODULE_DIR}/mcp.json"
-  refute grep -q '@latest' "${MODULE_DIR}/mcp.json"
-  run grep -q 'config get prefix' "${MODULE_DIR}/mcp.json"
-  assert_success
-}
-
-@test "mcp.json: fallback fails loudly when the binary is not installed" {
-  run grep -q 'devbot install' "${MODULE_DIR}/mcp.json"
-  assert_success
-}
-
-@test "mcp.json: docker path launches the pinned image, labelled for reaping" {
-  run grep -qF 'docker run --rm -i' "${MODULE_DIR}/mcp.json"
-  assert_success
-  run grep -qF -- '--label dev-bot.mcp=playwright mcp/playwright' "${MODULE_DIR}/mcp.json"
-  assert_success
-  run grep -q 'docker info' "${MODULE_DIR}/mcp.json"
-  assert_success
-}
-
-@test "mcp.json: docker path mounts the project at the same path" {
-  # Without a bind mount the container runs with its own /home/node cwd, so
-  # browser_file_upload rejects host paths and a screenshot filename fails with
-  # ENOENT on the project directory. Mirrored paths keep both working.
-  run grep -qF '\"$PWD:$PWD:z\"' "${MODULE_DIR}/mcp.json"
-  assert_success
-  run grep -qF '\"$PWD\"' "${MODULE_DIR}/mcp.json"
-  assert_success
-}
-
-@test "mcp.json: keeps generated artifacts under the gitignored logs dir" {
-  # With the project mounted, the default output dir (./.playwright-mcp) lands in
-  # the repo and shows up in git status on every session. Both launch paths must
-  # send snapshots/screenshots to .agents/logs instead.
-  # Position matters: a flag before the image name is a docker flag, and one
-  # before the binary is a playwright-mcp flag. Pin both tails, not a count.
-  run grep -qF -- '--label dev-bot.mcp=playwright mcp/playwright --output-dir .agents/logs/playwright-mcp' "${MODULE_DIR}/mcp.json"
-  assert_success
-  run grep -qF -- '--browser chromium --output-dir .agents/logs/playwright-mcp' "${MODULE_DIR}/mcp.json"
-  assert_success
-}
-
-# ── down.sh: orphan reaping ───────────────────────────────────────────────────
-
-# A docker stub that records every call and answers `ps -q` with the ids in the
-# given file (empty file = no containers).
-_stub_docker() {
-  local bin_dir="$1" ids_file="$2"
-  mkdir -p "${bin_dir}"
-  cat > "${bin_dir}/docker" <<SH
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "${DOCKER_CALL_LOG}"
-if [[ "\$1" == "ps" ]]; then cat "${ids_file}"; fi
-exit 0
-SH
-  chmod +x "${bin_dir}/docker"
-}
-
-@test "down.sh: the label is the contract between launcher and reaper" {
-  # A one-sided edit silently stops collecting orphans, and nothing else would
-  # notice until the containers pile up again. down.sh reaches the value through
-  # LABEL=, so assert on the value, not on a literal filter expression.
-  local label="dev-bot.mcp=playwright"
-  run grep -qF -- "--label ${label}" "${MODULE_DIR}/mcp.json"
-  assert_success
-  run grep -qF -- "${label}" "${MODULE_DIR}/down.sh"
-  assert_success
-}
-
-@test "down.sh: removes every container carrying the dev-bot label" {
-  local bin_dir tmpdir
-  bin_dir="$(mktemp -d)"
-  tmpdir="$(mktemp -d)"
-  export DOCKER_CALL_LOG="${tmpdir}/docker.log"
-  printf 'abc123\ndef456\n' > "${tmpdir}/ids"
-  _stub_docker "${bin_dir}" "${tmpdir}/ids"
-  export PATH="${bin_dir}:${PATH}"
-
-  run bash "${MODULE_DIR}/down.sh"
-
-  assert_success
-  assert_output --partial "reaped 2 orphaned container(s)"
-  run cat "${DOCKER_CALL_LOG}"
-  assert_output --partial "ps -aq --filter label=dev-bot.mcp=playwright"
-  assert_output --partial "rm -f abc123"
-  assert_output --partial "rm -f def456"
-
-  rm -rf "${bin_dir}" "${tmpdir}"
-}
-
-@test "down.sh: a container that will not die is warned about, not counted" {
-  local bin_dir tmpdir
-  bin_dir="$(mktemp -d)"
-  tmpdir="$(mktemp -d)"
-  export DOCKER_CALL_LOG="${tmpdir}/docker.log"
-  printf 'abc123\ndef456\n' > "${tmpdir}/ids"
-  mkdir -p "${bin_dir}"
-  cat > "${bin_dir}/docker" <<SH
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "${DOCKER_CALL_LOG}"
-if [[ "\$1" == "ps" ]]; then cat "${tmpdir}/ids"; exit 0; fi
-if [[ "\$*" == "rm -f abc123" ]]; then exit 1; fi
-exit 0
-SH
-  chmod +x "${bin_dir}/docker"
-  export PATH="${bin_dir}:${PATH}"
-
-  run bash "${MODULE_DIR}/down.sh"
-
-  assert_success
-  assert_output --partial "reaped 1 orphaned container(s)"
-  assert_output --partial "could not remove container abc123"
-
-  rm -rf "${bin_dir}" "${tmpdir}"
-}
-
-@test "down.sh: a clean no-op when nothing carries the label" {
-  local bin_dir tmpdir
-  bin_dir="$(mktemp -d)"
-  tmpdir="$(mktemp -d)"
-  export DOCKER_CALL_LOG="${tmpdir}/docker.log"
-  : > "${tmpdir}/ids"
-  _stub_docker "${bin_dir}" "${tmpdir}/ids"
-  export PATH="${bin_dir}:${PATH}"
-
-  run bash "${MODULE_DIR}/down.sh"
-
-  assert_success
-  assert_output --partial "no orphaned containers"
-  refute grep -q "rm -f" "${DOCKER_CALL_LOG}"
-
-  rm -rf "${bin_dir}" "${tmpdir}"
-}
-
-@test "mcp.json: ships the server disabled by default (enabled: false)" {
-  # Wired in every harness but not started, so the ~3.5k tokens of tool schema
-  # are costed only when the user turns it on. opencode honors the flag;
-  # claudecode drops it — .mcp.json has no per-server on/off.
+@test "mcp.json ships the server disabled by default (enabled: false)" {
+  # Heavy and opt-in: registered wired-but-off, like before the gateway move.
   run python3 -c "
 import json
 m = json.load(open('${MODULE_DIR}/mcp.json'))['mcp']['playwright']
-assert m['enabled'] is False, m
-print('DISABLED-BY-DEFAULT:OK')
+assert m.get('enabled') is False, m
 "
   assert_success
-  grep -qF 'DISABLED-BY-DEFAULT:OK' <<< "$output" || fail "playwright must ship enabled: false"
+}
+
+@test "no manifest launches docker or npx any more (stdio path retired)" {
+  run grep -c 'docker run' "${MODULE_DIR}/mcp.json"
+  assert_equal "$output" "0"
+  run grep -c 'npx' "${MODULE_DIR}/mcp.json"
+  assert_equal "$output" "0"
+}
+
+# ── Compose service ───────────────────────────────────────────────────────────
+
+@test "docker-compose.yml declares the gateway on the 18500+ block" {
+  local compose="$MODULE_DIR/docker-compose.yml"
+  [ -f "$compose" ]
+  # Every dev-bot compose file declares the same project name.
+  run grep -q 'name: devbot' "$compose"
+  assert_success
+  # Host-local port mapping only — never exposed off the machine.
+  run grep -q '127.0.0.1:18505:18505' "$compose"
+  assert_success
+}
+
+@test "docker-compose.yml uses Microsoft's image, pinned to the verified build" {
+  # mcp/playwright:latest is v0.0.76 (built 2026-06-26) and predates per-client
+  # workspace roots — with it every session falls back to one cwd. The pin
+  # matters too: the isolation behaviour was verified against v0.0.86, so an
+  # unpinned `latest` would silently move it.
+  run grep -q 'image: mcr.microsoft.com/playwright/mcp:v0.0.86' "$MODULE_DIR/docker-compose.yml"
+  assert_success
+  run grep -Eq 'image: (mcp/playwright|mcr.microsoft.com/playwright/mcp)$' "$MODULE_DIR/docker-compose.yml"
+  assert_failure
+}
+
+@test "a roots-less client still lands inside the mounted tree" {
+  # The server falls back to its own cwd when a client declares no MCP roots.
+  # The image default (/home/node) is not mounted, so that fallback would write
+  # into the container layer and the files would never reach the host. Asserted
+  # on the RESOLVED model, so any value that would not mount still fails.
+  command -v docker >/dev/null 2>&1 || skip "docker not installed"
+  docker compose version >/dev/null 2>&1 || skip "compose plugin not installed"
+
+  run env PLAYWRIGHT_ROOT="$HOME" DEV_BOT_ROOT="$PROJECT_ROOT" \
+    docker compose -f "$MODULE_DIR/docker-compose.yml" config --format json
+  assert_success
+  run python3 -c "
+import json, sys
+svc = json.loads(sys.argv[1])['services']['playwright-mcp']
+assert svc.get('working_dir') == '${HOME}', svc.get('working_dir')
+mounts = [v for v in svc.get('volumes') or [] if v.get('type') == 'bind']
+assert any(m.get('source') == '${HOME}' and m.get('target') == '${HOME}' for m in mounts), mounts
+print('WORKDIR:OK')
+" "$output"
+  assert_success
+  assert_output --partial 'WORKDIR:OK'
+}
+
+@test "the mount root is mandatory and resolved through the shared helper" {
+  # The same compose file is handed to docker by `bin/up.sh main()`, `--is-up`
+  # and `bin/down.sh`; a root resolved in only one of them aborts the whole set
+  # ("required variable PLAYWRIGHT_ROOT is missing a value") and stops nothing.
+  run grep -c 'PLAYWRIGHT_ROOT must be set' "$MODULE_DIR/docker-compose.yml"
+  [ "$output" -ge 3 ] || fail "the root must be mandatory in every mount reference"
+
+  command -v docker >/dev/null 2>&1 || skip "docker not installed"
+  docker compose version >/dev/null 2>&1 || skip "compose plugin not installed"
+
+  # Bare, compose refuses: that is why every caller resolves first.
+  run env -u PLAYWRIGHT_ROOT DEV_BOT_ROOT="$PROJECT_ROOT" \
+    docker compose -f "$MODULE_DIR/docker-compose.yml" config --services
+  assert_failure
+
+  # With the shared helper, the set resolves — no daemon needed.
+  run env -u PLAYWRIGHT_ROOT DEV_BOT_ROOT="$PROJECT_ROOT" bash -c \
+    "source '${PROJECT_ROOT}/src/_shared/functions.sh'; _devbot_export_playwright_root >/dev/null && docker compose -f '${MODULE_DIR}/docker-compose.yml' config --services"
+  assert_success
+  assert_output --partial 'playwright-mcp'
+}
+
+@test "docker-compose.yml mounts the root at its real path and requires it" {
+  local compose="$MODULE_DIR/docker-compose.yml"
+  # Same absolute path inside and out: a client's declared root must resolve
+  # unchanged, or every file-backed tool call misses. create_host_path: false
+  # turns a wrong PLAYWRIGHT_ROOT into a loud failure instead of an empty mount.
+  run grep -c 'source: ${PLAYWRIGHT_ROOT:?PLAYWRIGHT_ROOT must be set}' "$compose"
+  assert_equal "$output" "1"
+  run grep -c 'target: ${PLAYWRIGHT_ROOT:?PLAYWRIGHT_ROOT must be set}' "$compose"
+  assert_equal "$output" "1"
+  run grep -A3 'source: ${PLAYWRIGHT_ROOT' "$compose"
+  assert_line --partial 'create_host_path: false'
+}
+
+@test "docker-compose.yml keeps the per-client root guard armed" {
+  # --allow-unrestricted-file-access would widen every session to the whole
+  # mount; the guard is what makes the declared root a boundary at all. Matched
+  # as a YAML list item so the prose mentioning it does not satisfy the check.
+  run grep -qE '^[[:space:]]*- --allow-unrestricted-file-access$' "$MODULE_DIR/docker-compose.yml"
+  assert_failure
+}
+
+@test "docker-compose.yml passes the flags the running service was verified with" {
+  local compose="$MODULE_DIR/docker-compose.yml"
+  # --isolated: a persistent profile can only be used by one browser instance,
+  # and the profile is keyed by workspace root, so two sessions in one repo
+  # would collide.
+  run grep -q -- '--isolated' "$compose"
+  assert_success
+  # The allowed-hosts check compares the Host header INCLUDING port; without
+  # the published host:port every request 403s.
+  run grep -q -- '127.0.0.1:18505' "$compose"
+  assert_success
+}
+
+@test "the healthcheck closes the session it opens" {
+  # The server is stateful: a probe that only initialises leaves one browser
+  # context per 30s probe for the container's whole lifetime.
+  run grep -c "method: 'DELETE'" "$MODULE_DIR/docker-compose.yml"
+  assert_equal "$output" "1"
+  run grep -q "mcp-session-id" "$MODULE_DIR/docker-compose.yml"
+  assert_success
+}
+
+@test "docker-compose.yml follows the gateway house rules" {
+  local compose="$MODULE_DIR/docker-compose.yml"
+  # Started by `devbot up` and left running — no reboot resurrection.
+  run grep -q 'restart: "no"' "$compose"
+  assert_success
+  # Local/public image reuse: never pull on every up.
+  run grep -q 'pull_policy: missing' "$compose"
+  assert_success
+  # A gateway that stopped answering must read as unhealthy.
+  run grep -q 'healthcheck:' "$compose"
+  assert_success
+}
+
+# ── Lifecycle ─────────────────────────────────────────────────────────────────
+
+@test "up.sh waits for the shared gateway" {
+  [ -f "$MODULE_DIR/up.sh" ]
+  [ -x "$MODULE_DIR/up.sh" ]
+  run bash -n "$MODULE_DIR/up.sh"
+  assert_success
+  run grep -q -- '_devbot_wait_for_mcp_gateway playwright' "$MODULE_DIR/up.sh"
+  assert_success
+  run grep -q '18505/mcp' "$MODULE_DIR/up.sh"
+  assert_success
+}
+
+@test "bin/up.sh resolves PLAYWRIGHT_ROOT before compose runs" {
+  local bin_up="$PROJECT_ROOT/bin/up.sh"
+  run grep -q '^_devbot_resolve_playwright_root() {' "$bin_up"
+  assert_success
+  # Called before the compose step, or the mount root is never exported.
+  # Anchored on the two-space call lines, so the function definitions earlier in
+  # the file cannot satisfy the order check.
+  run python3 -c "
+s = open('${bin_up}').read()
+assert s.index('\n  _devbot_resolve_playwright_root\n') < s.index('\n  _docker_up\n'), 'called after compose'
+print('ORDER:OK')
+"
+  assert_success
+  assert_output --partial 'ORDER:OK'
+}
+
+@test "the stdio-path files are retired" {
+  for f in down.sh init.sh install.sh update.sh harness-assets.json versions.env.dist; do
+    [ ! -e "$MODULE_DIR/$f" ] || fail "$f should be retired"
+  done
+}
+
+# ── Reconcile: the container must match the file it was created from ─────────
+# Docker fixes every creation-time property and `devbot up` runs compose with
+# --no-recreate, so only this step applies an edited compose file. It compares a
+# fingerprint (file + mount root) recorded after each successful creation, so a
+# changed healthcheck, command, image or mount all reach the container.
+
+_setup_reconcile_sandbox() {
+  SANDBOX="$(mktemp -d)"
+  mkdir -p "${SANDBOX}/src/agentic/playwright" "${SANDBOX}/src/_shared" "${SANDBOX}/mockbin"
+  cp "${MODULE_DIR}/up.sh" "${SANDBOX}/src/agentic/playwright/up.sh"
+  printf 'services:\n  playwright-mcp:\n    image: test\n' \
+    > "${SANDBOX}/src/agentic/playwright/docker-compose.yml"
+
+  export CALL_ORDER_FILE="${SANDBOX}/order"
+  : > "${CALL_ORDER_FILE}"
+
+  cat > "${SANDBOX}/src/_shared/functions.sh" <<'EOF'
+#!/usr/bin/env bash
+_info() { true; }
+_ok()   { true; }
+_skip() { true; }
+_warn() { echo "WARN: $*" >&2; }
+_error() { echo "ERROR: $*" >&2; return 1; }
+_fatal() { echo "FATAL: $*" >&2; return 1; }
+_devbot_export_playwright_root() { export PLAYWRIGHT_ROOT="${MOCK_ROOT:-/home/probe}"; }
+_devbot_wait_for_mcp_gateway() { printf 'wait\n' >> "${CALL_ORDER_FILE}"; return 0; }
+EOF
+
+  cat > "${SANDBOX}/mockbin/docker" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "${CALL_ORDER_FILE}"
+case "$1" in
+  ps) [[ -n "${MOCK_CID:-}" ]] && echo "${MOCK_CID}"; exit 0 ;;
+  inspect) echo "${MOCK_CREATED:-2000-01-01T00:00:00Z}"; exit 0 ;;
+  compose) [[ "${MOCK_RECREATE_RC:-0}" == "0" ]] && exit 0 || exit 1 ;;
+esac
+exit 0
+EOF
+  chmod +x "${SANDBOX}/mockbin/docker"
+
+  export PATH="${SANDBOX}/mockbin:${PATH}"
+  export DEV_BOT_ROOT="${SANDBOX}"
+  export MOCK_CID="" MOCK_RECREATE_RC=0
+  # Default: the container is older than the file, so drift means recreate.
+  export MOCK_CREATED="2000-01-01T00:00:00Z"
+}
+
+_run_reconcile() {
+  run bash "${SANDBOX}/src/agentic/playwright/up.sh"
+}
+
+_recreates() { grep -c 'force-recreate' "${CALL_ORDER_FILE}"; }
+
+@test "reconcile: no container yet means nothing to reconcile" {
+  _setup_reconcile_sandbox
+
+  _run_reconcile
+
+  assert_success
+  run _recreates
+  assert_equal "$output" "0"
+}
+
+@test "reconcile: a container created from the current file is left alone" {
+  _setup_reconcile_sandbox
+  export MOCK_CID=abc
+  bash "${SANDBOX}/src/agentic/playwright/up.sh" >/dev/null 2>&1 || true
+  # First run records the fingerprint; the second must be a no-op.
+  : > "${CALL_ORDER_FILE}"
+
+  _run_reconcile
+
+  assert_success
+  run _recreates
+  assert_equal "$output" "0"
+}
+
+@test "reconcile: a container with no recorded fingerprint is recreated once" {
+  # It predates this check (or an older release created it), so the file in
+  # force now must be applied exactly once — not on every start.
+  _setup_reconcile_sandbox
+  export MOCK_CID=abc
+
+  _run_reconcile
+  assert_success
+  run _recreates
+  assert_equal "$output" "1"
+
+  : > "${CALL_ORDER_FILE}"
+  _run_reconcile
+  assert_success
+  run _recreates
+  assert_equal "$output" "0"
+}
+
+@test "reconcile: an edited compose file recreates the gateway" {
+  # This is the case that reaches the container for a changed healthcheck, flag
+  # or image — none of which any per-field comparison covers.
+  _setup_reconcile_sandbox
+  export MOCK_CID=abc
+  bash "${SANDBOX}/src/agentic/playwright/up.sh" >/dev/null 2>&1 || true
+  printf '# edited\n' >> "${SANDBOX}/src/agentic/playwright/docker-compose.yml"
+  : > "${CALL_ORDER_FILE}"
+
+  _run_reconcile
+
+  assert_success
+  run _recreates
+  assert_equal "$output" "1"
+}
+
+@test "reconcile: a changed mount root recreates the gateway" {
+  _setup_reconcile_sandbox
+  export MOCK_CID=abc
+  bash "${SANDBOX}/src/agentic/playwright/up.sh" >/dev/null 2>&1 || true
+  : > "${CALL_ORDER_FILE}"
+
+  MOCK_ROOT=/home/other _run_reconcile
+
+  assert_success
+  run _recreates
+  assert_equal "$output" "1"
+}
+
+@test "reconcile: a failed recreate is an error, not a success" {
+  # The old container still answers the readiness probe, so reporting success
+  # would present a stale configuration as reconciled.
+  _setup_reconcile_sandbox
+  export MOCK_CID=abc MOCK_RECREATE_RC=1
+
+  _run_reconcile
+
+  assert_failure
+  assert_output --partial "still holds the old configuration"
+}
+
+# The reconcile sandbox is per test and never shared.
+teardown() {
+  if [[ -n "${SANDBOX:-}" && -d "${SANDBOX}" ]]; then
+    rm -r -- "${SANDBOX}"
+  fi
+}
+
+@test "the module ships disabled, so no gateway starts by default" {
+  # It pulls a browser image and runs a container: a module key absent from the
+  # modules map means ENABLED, so the dist config must name it explicitly.
+  # JSONC is parsed by the repo's own reader — trailing comments defeat json.loads.
+  run python3 "${PROJECT_ROOT}/src/_shared/read_jsonc.py" \
+    "${PROJECT_ROOT}/.devbot.global.dist.jsonc" "modules"
+  assert_success
+  assert_output --partial '"playwright": false'
+}
+
+@test "an unusable mount root is refused, including // and a relative path" {
+  local lib="${PROJECT_ROOT}/src/_shared/functions.sh"
+  for bad in '/' '//' 'relative/path'; do
+    run env PLAYWRIGHT_ROOT="${bad}" bash -c "source '${lib}'; _devbot_playwright_root"
+    assert_failure
+  done
+}
+
+@test "reconcile: a container created from the current file is adopted, not recreated" {
+  # A clean start has compose create the container moments before this runs; an
+  # adoption here avoids recreating it on every fresh start.
+  _setup_reconcile_sandbox
+  export MOCK_CID=abc
+  export MOCK_CREATED="$(python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00","Z"))')"
+
+  _run_reconcile
+
+  assert_success
+  run _recreates
+  assert_equal "$output" "0"
 }

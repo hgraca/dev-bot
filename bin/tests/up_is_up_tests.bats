@@ -87,6 +87,17 @@ _devbot_wiring_sha() { echo "${MOCK_WIRING_SHA:-sha-1}"; }
 # never skipped over.
 _devbot_codebase_memory_root() { echo "${MOCK_MEMORY_ROOT:-/home/probe}"; }
 
+# The playwright gateway root: recorded in the stamp AND exported before every
+# compose hand-off (compose interpolates it as mandatory).
+_devbot_playwright_root() {
+  local r="${MOCK_PLAYWRIGHT_ROOT:-/home/probe}"
+  r="${r%/}"
+  [[ -n "${r}" && "${r}" == /* ]] || return 1
+  printf '%s\n' "${r}"
+}
+_devbot_export_playwright_root() { export PLAYWRIGHT_ROOT="$(_devbot_playwright_root)"; }
+_devbot_persist_playwright_root() { echo "$1" >> "${PERSIST_CALLS_FILE:-/dev/null}"; }
+
 _devbot_load_env_file() { return 0; }
 
 # The install-level up lock bin/up.sh holds and bin/down.sh waits on.
@@ -240,6 +251,18 @@ _seed_stamp() {
   _seed_stamp
 
   MOCK_MEMORY_ROOT=/srv/other _run_is_up
+
+  assert_failure
+}
+
+@test "is-up: a changed playwright mount root answers 1" {
+  # Same rule for the browser gateway: its workspace mount is fixed at creation
+  # too, so an explicit PLAYWRIGHT_ROOT override must not be skipped over.
+  printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
+  printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
+  _seed_stamp
+
+  MOCK_PLAYWRIGHT_ROOT=/srv/other _run_is_up
 
   assert_failure
 }
@@ -599,4 +622,47 @@ _run_is_up_dispatch() {
   [ -z "${output}" ]
   run cat "${DOCKER_ARGS_FILE}"
   refute_output --partial "up -d"
+}
+
+@test "is-up: a disabled playwright module neither blocks the stamp nor the probe" {
+  # Nothing interpolates the compose file when the module is off, so an unusable
+  # PLAYWRIGHT_ROOT is not part of the recorded state. It must still let a stamp
+  # through, or every start would look needed again (the round-2 symptom).
+  printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
+  printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
+  python3 -c "
+import json, sys
+path = sys.argv[1]
+cfg = {'modules': {'playwright': False}}
+with open(path, 'w') as fh:
+    json.dump(cfg, fh)
+" "${SANDBOX}/.devbot.global.jsonc"
+
+  MOCK_PLAYWRIGHT_ROOT="relative/path" bash -c '
+    source "'"${SANDBOX}"'/bin/up.sh"
+    PROJECT_DIR="'"${PROBE_PROJECT}"'"
+    _write_up_stamp
+  '
+  # The probe answering 0 IS the assertion: a stamp that was never written
+  # could never match, and every launch would run the full up again.
+
+  MOCK_PLAYWRIGHT_ROOT="relative/path" _run_is_up
+
+  assert_success
+}
+
+@test "is-up: the probe never persists configuration" {
+  # --is-up is a read-only liveness check: persisting a root there would rewrite
+  # the global config (and the wiring sha that hashes it) from a probe.
+  printf 'mdctx-mcp\n' > "${MOCK_DECLARED}"
+  printf 'mdctx-mcp\n' > "${MOCK_RUNNING}"
+  _seed_stamp
+  export PERSIST_CALLS_FILE="${SANDBOX}/persist.calls"
+  : > "${PERSIST_CALLS_FILE}"
+
+  PLAYWRIGHT_ROOT=/home/probe _run_is_up
+
+  assert_success
+  run cat "${PERSIST_CALLS_FILE}"
+  assert_output ""
 }

@@ -5,7 +5,7 @@ description: "Use when correcting a commit unique to the branch. Triggers on 'fi
 
 # Fixup Commits
 
-When a change corrects a commit that is unique to the current branch, record it as a fixup against that commit instead of adding a loose "fix typo" commit. The eventual history stays atomic, and the rewrite stays a separate, deliberate step the agent performs itself.
+When a change corrects a commit that is unique to the current branch, record it as a fixup against that commit instead of adding a loose "fix typo" commit. The eventual history stays atomic, and the rewrite stays a separate, explicitly approved step.
 
 The core distinction: **creating a fixup commit is always safe** — it only adds a commit. **Squashing it rewrites history** — it does not.
 
@@ -18,7 +18,6 @@ branch.
 - **Target commit is unique to this branch** (a feature branch, including one with an open pull request) — the correction MUST be recorded as a fixup against that commit. This is the default workflow, not an option, and it applies to pushed commits too: creating a fixup only _adds_ a commit, so it is safe at any point in the branch's life. Only the later squash rewrites anything.
 - **Target commit is reachable from the default branch** (`main`, `master`, …), or from another branch — never record a fixup. That history is shared; a correction there is a normal follow-up commit.
 - **Before merging** — fixup commits MUST be squashed into their targets first; they must never reach the default branch. Projects commonly enforce this with a CI check that fails a PR whose branch still contains fixup!/squash!/amend! commits, so an unsquashed fixup is expected to fail that check until it is folded in. See [PR stage](#pr-stage).
-- **Squashing needs no permission (MUST NOT)** — never ask the user whether to squash a branch's own fixups, and never present the squash as theirs to approve. Every commit in the rewrite range is unique to this branch (proven above), the plan is printed as a record, and the guards module blocks the force-push — so the rewrite is safe to run and the publish still waits for the human. Asking turns a routine step into a decision it is not.
 
 ## Choose the right action first
 
@@ -27,7 +26,7 @@ branch.
 | Correction to a commit unique to this branch (pushed or not)     | `git commit --fixup=<sha>`                                              |
 | The target commit is itself a fixup                              | Target the commit it fixes — never create fixup! fixup!                 |
 | Correction to a commit already reachable from the default branch | Normal follow-up commit — fixups are forbidden there                    |
-| Branch under review with per-commit comments                     | The fixup is still right; squash it when the flow calls for it          |
+| Branch under review with per-commit comments                     | The fixup is still right; ask before _squashing_, not before committing |
 | Memory/global note lives in another repository                   | Commit in the repository that owns the note; a fixup has no target here |
 
 ## Workflow
@@ -45,20 +44,11 @@ if [[ "${before}" != "${after}" ]]; then
   echo "origin/<branch> changed (${before:-absent} -> ${after:-absent}) — stop and reconcile"
   exit 1
 fi
-git log --oneline origin/<default>..HEAD     # the rewrite range — every commit the squash replays
-range="$(git rev-list origin/<default>..HEAD)" || { echo "cannot list the rewrite range — stop"; exit 1; }
+git log --oneline origin/<default>..HEAD     # commits unique to this branch — the safe candidates
 current="$(git branch --show-current)"       # this branch and its own origin/<current> are expected
-shared=""
-while read -r sha; do
-  # Enumerating refs failing is not "no sibling": it stops the flow.
-  refs="$(git for-each-ref --contains="$sha" --format='%(refname)' refs/heads refs/remotes)" \
-    || { echo "cannot enumerate refs for ${sha} — stop"; exit 1; }
-  # Only grep's status 1 is expected here: it means no sibling.
-  siblings="$(printf '%s\n' "${refs}" | grep -vxF \
-    -e "refs/heads/${current}" -e "refs/remotes/origin/${current}" || true)"
-  [ -z "${siblings}" ] || shared="${shared}${sha} ${siblings}"$'\n'
-done <<< "${range}"
-[[ -z "${shared}" ]] || { echo "shared commits in the rewrite range: ${shared}"; exit 1; }
+siblings="$(git for-each-ref --contains=<target-sha> --format='%(refname)' refs/heads refs/remotes \
+  | grep -vxF -e "refs/heads/${current}" -e "refs/remotes/origin/${current}" || true)"
+[[ -z "${siblings}" ]] || { echo "target is shared: ${siblings}"; exit 1; }
 if git rev-parse --verify --quiet origin/<branch> >/dev/null; then
   git rev-list --count HEAD..origin/<branch>   # > 0: you are behind
 fi
@@ -70,7 +60,7 @@ git log --oneline -G '<regex>'               # commits whose diff matches a patt
 
 Target the commit that _introduced_ the thing being corrected, not merely a later commit that touched the same file. `git blame` on the pre-correction version of the line is the most reliable signal. Confirm with `git show --stat <target-sha>`.
 
-The range only decides what to look at; it proves nothing. Fetch **every** remote first (`--all`) — containment reads all `refs/remotes`, so refreshing only `origin` leaves a sibling on another remote stale, and a shared commit looks unique. Then prove the **whole rewrite range** is this branch's alone: step 6 replays every commit in `origin/<default>..HEAD`, so a unique target is not enough — an earlier commit in that range can still be reachable from a sibling branch (`release`, another worktree's branch), and the squash would replay it and publish a rewritten copy. The check above lists every ref holding each commit in the range, so exclude the current branch and its own remote-tracking ref by exact ref name (fixed-string matching, so a branch called `feature/foo+bar` is not misread as a regex). Anything left is a sibling: stop. Capture the filtered result rather than piping it straight into the shell — no sibling is the normal case, and `grep`'s exit 1 there must not abort a `set -e` workflow.
+The range is a filter, not proof: a commit can be in `origin/<default>..HEAD` and still be reachable from a sibling branch (`release`, another worktree's branch). Fetch **every** remote first (`--all`) — containment reads all `refs/remotes`, so refreshing only `origin` leaves a sibling on another remote stale, and the target looks unique. The containment check then proves uniqueness: it lists every ref holding the target, so exclude the current branch and its own remote-tracking ref by exact ref name (fixed-string matching, so a branch called `feature/foo+bar` is not misread as a regex). Anything left is a sibling: stop. Capture the filtered result rather than piping it straight into the shell — no sibling is the normal case, and `grep`'s exit 1 there must not abort a `set -e` workflow.
 
 A remote head that changed during the fetch stops the workflow: a branch that moved on (or was rewritten), a ref that vanished, or one that appeared — each means your checkout no longer matches the PR, and a lease captured afterwards would make the rewrite overwrite it. Stop and reconcile before creating a fixup. The `HEAD..origin/<branch>` count alone cannot see a force-reset to an ancestor or a deleted ref, which is why the head is captured before the fetch and compared after.
 
@@ -93,11 +83,11 @@ git commit --fixup=<target-sha>
 
 This writes a commit titled `fixup! <target subject>` — the marker `--autosquash` looks for later.
 
-### 4. Keep the fixup until the flow calls for the squash
+### 4. Do not autosquash automatically
 
-A branch may legitimately carry fixups for a while: the commit records "this belongs to that commit" without destroying anything, which is the right state mid-review. Squash when the flow reaches that point — the pre-merge step of [PR stage](#pr-stage), or a branch about to be pushed — not merely because a fixup exists. When it does, squash it yourself; do not hand the decision back.
+Stop here unless the user asked for history cleanup. The fixup commit is a valid, informative state: it records "this belongs to that commit" without destroying anything. Report what was created and leave the squash decision to the user.
 
-### 5. Capture the lease, then print the plan
+### 5. Capture the lease, then show the plan and ask for approval
 
 Capture the expected remote head **before** any rewrite. Step 1 refreshed every origin ref; from here on,
 refresh only the base — fetching `<branch>` would adopt a colleague's newer tip as the lease:
@@ -110,25 +100,17 @@ git fetch origin <default>        # refresh the base only, never <branch>
 
 git log --oneline origin/<default>..HEAD    # the commits to be rewritten
 
-# Print the exact autosquash plan without executing it: the editor prints the
-# todo list then fails, so the rebase aborts untouched. Capture the plan and
-# require it: a failure before the editor, or a rebase that ran, stops here.
-head_before="$(git rev-parse HEAD)"
-plan="$(GIT_SEQUENCE_EDITOR='grep -v "^#" "$1"; false' \
-  git rebase -i --autosquash origin/<default> 2>/dev/null)" && {
-  echo "preview applied a rebase — stop"
-  exit 1
-}
-[ -n "${plan}" ] || { echo "preview printed no plan — stop"; exit 1; }
-[ "${head_before}" = "$(git rev-parse HEAD)" ] || { echo "preview moved HEAD — stop"; exit 1; }
-printf '%s\n' "${plan}"
+# Print the exact autosquash plan without executing it.
+# The editor prints the todo list then fails, so the rebase aborts untouched.
+GIT_SEQUENCE_EDITOR='grep -v "^#" "$1"; false' \
+  git rebase -i --autosquash origin/<default>
 ```
 
-That prints the `pick`/`fixup` lines showing precisely which commit folds into which, exits non-zero, and leaves history unchanged. There is no `git rebase --dry-run`; this is the substitute. Capturing the output is what proves the plan was printed: an empty capture or a successful rebase stops the flow before anything is rewritten. (Using bare `cat` here hangs — it reads stdin — so keep the `"$1"`.)
+That prints the `pick`/`fixup` lines showing precisely which commit folds into which, exits non-zero, and leaves history unchanged. There is no `git rebase --dry-run`; this is the substitute. (Using bare `cat` here hangs — it reads stdin — so keep the `"$1"`.)
 
-State the base, how many commits are affected, which fixups fold into which targets, and whether any of them have been pushed. When the branch is published, include the exact leased push command from step 7.
+State the base, how many commits are affected, which fixups fold into which targets, and whether any of them have been pushed. When the branch is published, include the exact leased push command from step 7. Then wait for a yes.
 
-**Then apply it — do not ask.** Squashing a branch's own fixups is a routine step of the flow, not a decision to escalate. Every commit in the rewrite range is unique to this branch (step 1 proved it) and the guards module blocks the force-push, so nothing reaches shared history without the human. The plan is printed as a record of what the rewrite touches, never as a request for approval. The push remains the human's to run — see step 7.
+That yes covers the squash only. The push is the human's to run — see step 7.
 
 ### 6. Apply the squash
 
@@ -136,7 +118,7 @@ State the base, how many commits are affected, which fixups fold into which targ
 GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/<default>
 ```
 
-`GIT_SEQUENCE_EDITOR=:` replaces the todo-list editor with a no-op (`:` is a shell builtin that succeeds silently), accepting the pre-arranged list without opening an editor. This is safe _only because_ step 1 proved every commit in the rewrite range is unique to this branch and step 5 printed the plan — never combine it with a rebase whose range is not proven unique.
+`GIT_SEQUENCE_EDITOR=:` replaces the todo-list editor with a no-op (`:` is a shell builtin that succeeds silently), accepting the pre-arranged list without opening an editor. This is safe _only because_ the plan was reviewed in step 5 — never combine it with an unreviewed rebase.
 
 ### 7. Hand the publish to the human
 
@@ -163,11 +145,10 @@ publishes it after the squash with an ordinary `git push -u origin <branch>`.
 
 ### 8. Never rewrite shared history outside this flow
 
-Creating a fixup is not rewriting, and squashing a branch that is yours alone — including its open
-pull request — is the flow above; neither needs approval. Everything else is the check in
-`devbot:git-commits` under **Rewriting history (MUST)**: run it before touching history, and state
-plainly whether any target has been pushed. When that check fails, the rewrite is not done at all —
-it is not "done after asking"; a correction on shared history is a normal follow-up commit.
+Creating a fixup is not rewriting, so it never needs approval. Squashing a branch that is yours
+alone — including its open pull request — is the flow above. Everything else is the check in
+`devbot:git-commits` under **Rewriting history (MUST)**: run it before proposing anything in step 5,
+and state plainly whether any target has been pushed.
 
 ## PR stage
 
@@ -178,7 +159,7 @@ the squash is what makes the final history atomic.
 Just before merge:
 
 1. **Capture and fetch** — `git rev-parse origin/<branch>` records the lease, then `git fetch origin <default>` refreshes the base. Never fetch `<branch>` itself: that would move the lease onto a colleague's tip.
-2. **Re-prove, then squash** — fixups added since step 1 extend the rewrite range, so re-run step 1's range check against the current tip before rewriting; then `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/<default>`, per steps 5–6 (plan printed, no approval needed). Base on **`origin/<default>`, never the local `<default>`**: the local default may carry stranded commits, and rebasing onto it would make them ancestors of the branch and publish them with the rewrite.
+2. **Squash** — `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash origin/<default>`, after showing the plan and getting approval (steps 5–6). Base on **`origin/<default>`, never the local `<default>`**: the local default may carry stranded commits, and rebasing onto it would make them ancestors of the branch and publish them with the rewrite.
 3. **Confirm** — nothing folded short of its target, and list any vault files in the range:
 
    ```bash
@@ -267,4 +248,4 @@ Conflicts during an autosquash rebase usually mean the fixup was aimed at the wr
 - **A memory-vault commit** → an ordinary commit containing only the memory files, on the memory pull request's branch (`devbot:commit-memories`); never a fixup on a task branch
 - **The change is not a correction to code this branch introduced, but new independent behaviour** → a new atomic commit, not a fixup
 - **The target is the most recent commit with nothing stacked on it** → `git commit --amend` is simpler
-- **The branch is under review with per-commit comments** → the fixup is still right; squash it when the flow calls for it
+- **The branch is under review with per-commit comments** → the fixup is still right; ask before squashing

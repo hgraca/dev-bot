@@ -43,13 +43,15 @@ or optional. How to turn them on depends on the harness:
 
 Then authenticate Figma (`/mcp` → figma → Authenticate).
 
-**Browser window and login.** The Playwright module's launcher prefers Docker when a daemon is
-available, and that path exposes neither a browser UI nor a persistent profile — so manual login
-cannot work through it. For authenticated QA, run Playwright locally (it is headed by default) with a persistent
-profile, e.g. `npx @playwright/mcp@latest --browser chromium --user-data-dir
-~/.cache/dev-bot/playwright-profile`, and register that command as the server (the Claude Code form
-above does this; for opencode, point the `playwright` entry's `command` at it). The profile keeps the
-session between runs.
+**Browser window and login.** The playwright module now ships a **shared gateway** —
+headless, and `--isolated` (in-memory profile) so that concurrent sessions never
+collide — so it exposes neither a browser UI nor a persistent profile, and
+manual login cannot work through it. For authenticated QA, run Playwright
+locally (it is headed by default) with a persistent profile, e.g. `npx
+@playwright/mcp@latest --browser chromium --user-data-dir
+~/.cache/dev-bot/playwright-profile`, and register that command as the server
+(the Claude Code form above does this; for opencode, add a separate stdio entry
+instead of the gateway `url`). The profile keeps the session between runs.
 
 Prerequisites:
 

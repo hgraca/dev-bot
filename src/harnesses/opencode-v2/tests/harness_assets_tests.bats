@@ -51,9 +51,10 @@ teardown() {
 
 @test "a declared shared asset resolves {devbot-root}" {
   bash "${MODULE_DIR}/init.sh" "${PROJECT}" >/dev/null
-  # playwright and chrome-devtools share src/_shared/mcp-stdio-wrapper.js
-  [[ -L "${PROJECT}/.opencode/playwright-mcp-wrapper.js" ]] || skip "playwright module not installed"
-  run readlink "${PROJECT}/.opencode/playwright-mcp-wrapper.js"
+  # chrome-devtools declares src/_shared/mcp-stdio-wrapper.js as its wrapper
+  # (playwright did too, until it became an http gateway with no launcher).
+  [[ -L "${PROJECT}/.opencode/chrome-devtools-mcp-wrapper.js" ]] || skip "chrome-devtools module not installed"
+  run readlink "${PROJECT}/.opencode/chrome-devtools-mcp-wrapper.js"
   assert_output --partial "src/_shared/mcp-stdio-wrapper.js"
 }
 

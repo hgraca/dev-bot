@@ -200,12 +200,14 @@ _run_docker_up() {
 # Seed the model `docker compose config --format json` answers with, as
 # "SOURCE|rw" / "SOURCE|ro" rows — one service, one bind mount each.
 _seed_compose_model() {
-  local row source ro vols=""
+  local row source ro bind vols=""
   for row in "$@"; do
     source="${row%%|*}"
     ro=false
+    bind=""
     [[ "${row##*|}" == "ro" ]] && ro=true
-    vols="${vols}${vols:+, }{\"type\": \"bind\", \"source\": \"${source}\", \"target\": \"/t\", \"read_only\": ${ro}}"
+    [[ "${row##*|}" == "chp-false" ]] && bind=', "bind": {"create_host_path": false}'
+    vols="${vols}${vols:+, }{\"type\": \"bind\", \"source\": \"${source}\", \"target\": \"/t\", \"read_only\": ${ro}${bind}}"
   done
   MOCK_COMPOSE_CONFIG_FILE="${SANDBOX_DIR}/compose-model.json"
   printf '{"services": {"svc": {"volumes": [%s]}}}\n' "${vols}" > "${MOCK_COMPOSE_CONFIG_FILE}"
@@ -795,6 +797,20 @@ YAML
   assert_success
   [ -d "${missing}" ] || fail "writable bind source was not created"
   assert_equal "$(ls -ld "${missing}" | awk '{print $1}')" "drwx------"
+}
+
+@test "a writable source declaring create_host_path: false is never fabricated" {
+  # The playwright gateway mount says its absence is a misconfiguration, so a
+  # typo'd root must fail at compose rather than be silently created empty and
+  # 0700 — where the container's uid could not write into it anyway.
+  _setup_sandbox '{}'
+  local declared_absent="${SANDBOX_DIR}/state/declared-absent"
+  _seed_compose_model "${declared_absent}|rw|chp-false"
+
+  run _run_ensure_sources
+
+  assert_success
+  [ ! -e "${declared_absent}" ] || fail "a create_host_path: false source was fabricated"
 }
 
 @test "an existing bind source keeps its mode and contents" {

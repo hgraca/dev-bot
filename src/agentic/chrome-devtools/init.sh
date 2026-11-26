@@ -9,9 +9,9 @@
 # FAIL). The wrapper (src/_shared/mcp-stdio-wrapper.js) swallows it; this init
 # wires the shared file under the module-specific name.
 #
-# Mirrors playwright/init.sh's pattern. Agentic init runs BEFORE the harness
-# inits (bin/init.sh: tools -> agentic -> harnesses), so the harness dirs are
-# created here rather than assumed to exist.
+# Module init links declared MCP assets this way. Agentic init runs BEFORE the
+# harness inits (bin/init.sh: tools -> agentic -> harnesses), so the harness
+# dirs are created here rather than assumed to exist.
 #
 # Idempotent — safe to re-run.
 #

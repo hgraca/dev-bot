@@ -28,6 +28,7 @@
     "netsuite": false,
     "notion": false,
     "ollama": false,
+    "playwright": false,
     "react": false,
     "rfp": false,
     "sentry": false,

@@ -106,5 +106,5 @@ teardown() {
   labels="$(grep -o '^  _UP_STEP="[^"]*"' "${PROJECT_ROOT}/bin/up.sh" \
     | sed 's/.*="//; s/"$//' | tr '\n' ' ')"
 
-  [ "${labels}" = "environment codebase-memory root codebase-memory scope bind-mount sources docker services external module config module up scripts " ]
+  [ "${labels}" = "environment codebase-memory root playwright root codebase-memory scope bind-mount sources docker services external module config module up scripts " ]
 }

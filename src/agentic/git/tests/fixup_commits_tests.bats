@@ -51,8 +51,6 @@ setup() {
   CREATE_PR="$AGENTIC_DIR/github/skills/gh-create-pr/SKILL.md"
   CREATE_PR_CMD="$AGENTIC_DIR/github/commands/gh-create-pr.md"
   SOFTWARE_DEV="$AGENTIC_DIR/dev/skills/software-development/SKILL.md"
-  REVIEW_LOOP="$AGENTIC_DIR/dev/skills/review-loop/SKILL.md"
-  FULL_LOOP_CMD="$AGENTIC_DIR/dev/commands/full-review-loop.md"
   DEV_AGENT="$AGENTIC_DIR/devbot/agents/devbot.md"
   REMEMBER="$AGENTIC_DIR/memory/skills/remember-session/SKILL.md"
   MEMORY_MGMT="$AGENTIC_DIR/memory/skills/memory-management/SKILL.md"
@@ -123,79 +121,11 @@ setup() {
     "$FIXUP" "$COMMITS" "$WORKTREES" "$CREATE_PR" "$CREATE_PR_CMD"
 }
 
-@test "the squash plan shows the push command, asks nothing, and leaves the push to the human" {
+@test "the squash approval shows the push command and leaves it to the human" {
   workflow="$(section "$FIXUP" 'Workflow')"
   step5="$(printf '%s\n' "$workflow" | awk '/^### 5\./,/^### 6\./')"
   printf '%s\n' "$step5" | grep -qi 'leased push command'
   printf '%s\n' "$step5" | grep -qi "human's to run"
-  # The plan is a record, not a gate: nothing may wait on a yes.
-  ! printf '%s\n' "$step5" | grep -qiE 'wait for a yes|ask for approval|getting approval'
-}
-
-# The sentences these files carried while the squash was gated. A regression is
-# one of them coming back, so match the forms actually in use and nothing
-# looser — `git-commits` legitimately still requires approval for shared history.
-# Flattened first: the old wording wrapped across lines, and a per-line grep
-# misses `... showing the plan and` / `getting approval ...` entirely. On a hit
-# the file and the matched fragment are printed, so a false fail on another
-# action's approval sentence (an implementation plan, a check-in) names its cause.
-gate_sentence() { # exits 0 when a gating sentence is present, wrapped or not
-  local f hit
-  for f in "$@"; do
-    hit="$(flatten "$f" | grep -oiE 'show(ing)? the plan and get(ting)? approval|wait for a yes|ask before _?squash|get explicit approval|approved[^.]{0,40}squash' | head -1)"
-    [ -n "$hit" ] || continue
-    echo "gate sentence in $f: $hit"
-    return 0
-  done
-  return 1
-}
-
-# Plant <sentence> in a copy of <file> and require the sweep to see it. Used
-# with the verbatim old wording, line breaks included.
-plant_and_catch() { # <file> <sentence>
-  [ -f "$1" ] || return 1
-  local planted="$BATS_TEST_TMPDIR/planted-$(basename "$(dirname "$1")").md"
-  { cat "$1"; printf '\n%s\n' "$2"; } > "$planted"
-  gate_sentence "$planted" || {
-    echo "unmatched gate sentence: $2"
-    return 1
-  }
-}
-
-@test "no de-gated instruction asks permission before squashing fixups" {
-  # Every file whose squash wording this change corrected: the six with a gate
-  # sentence, plus `git-advanced-operations`, whose "approved pre-merge squash"
-  # was the same claim in one word. The `gh-create-pr` pair is out on purpose:
-  # its approval governs the PR plan, not this squash. `git-commits` is out
-  # because its approval rule for shared history is legitimate — it is covered
-  # by the positive assertion below. `gh-review-loop`, `auto-dev`,
-  # `address-review` and `full-audit-and-fix-loop` carry no gate.
-  local f
-  for f in "$FIXUP" "$ADVANCED" "$WORKTREES" "$SOFTWARE_DEV" "$REVIEW_LOOP" "$FULL_LOOP_CMD" "$DEV_AGENT"; do
-    [ -f "$f" ] || {
-      echo "missing guard target: $f"
-      return 1
-    }
-  done
-  ! gate_sentence "$FIXUP" "$ADVANCED" "$WORKTREES" "$SOFTWARE_DEV" "$REVIEW_LOOP" "$FULL_LOOP_CMD" "$DEV_AGENT"
-  # The rule is stated positively where the flow is defined, and `git-commits`
-  # names the squash as the standing exception to its approval rule.
-  grep -qi 'squashing needs no permission' "$FIXUP"
-  grep -qi 'standing exception is the pre-merge squash' "$COMMITS"
-}
-
-@test "the guard catches each gate sentence these files used to carry" {
-  # Mutation test: plant the real pre-change sentence in a copy of each file and
-  # require the sweep to see it, so a matcher that only recognises paraphrases
-  # fails here instead of letting a later regression through. Three of the old
-  # sentences wrapped across lines — those are planted verbatim, wrap included.
-  plant_and_catch "$FIXUP" 'The fixup is still right; ask before _squashing_, not before committing'
-  plant_and_catch "$ADVANCED" 'The approved pre-merge squash of a pull-request branch is the sanctioned exception'
-  plant_and_catch "$WORKTREES" $'squash them just before merge — after showing the plan and\ngetting approval:'
-  plant_and_catch "$SOFTWARE_DEV" $'showing the plan and getting approval\nfirst as `devbot:git-fixup-commits` requires'
-  plant_and_catch "$REVIEW_LOOP" $'showing the plan and getting\napproval first.'
-  plant_and_catch "$FULL_LOOP_CMD" $'showing\nthe plan and getting approval.'
-  plant_and_catch "$DEV_AGENT" 'showing the plan and getting approval first as `devbot:git-fixup-commits` requires'
 }
 
 @test "the lease is captured before the rewrite and never refreshed after" {
@@ -247,42 +177,6 @@ plant_and_catch() { # <file> <sentence>
   printf '%s\n' "$block" | grep -q 'reconcile before squashing'
   # The lease is only meaningful if the branch ref was not refreshed after capture.
   ! printf '%s\n' "$block" | grep -qE 'git -C [^ ]+ fetch origin <branch>'
-}
-
-@test "the rewrite range is proved unique by every commit, not only the target" {
-  workflow="$(section "$FIXUP" 'Workflow')"
-  step1="$(printf '%s\n' "$workflow" | awk '/^### 1\./,/^### 2\./')"
-  printf '%s\n' "$step1" | grep -q 'rev-list origin/<default>\.\.HEAD'
-  printf '%s\n' "$step1" | grep -qF 'for-each-ref --contains="$sha"'
-  printf '%s\n' "$step1" | grep -q 'shared commits in the rewrite range'
-  # The worktree recipe must carry the same proof, not just the remote-head check.
-  block="$(subsection "$WORKTREES" 'Squash fixups before merge')"
-  printf '%s\n' "$block" | grep -q 'shared commits in the rewrite range'
-}
-
-@test "the worktree squash prints the plan before it applies it" {
-  block="$(subsection "$WORKTREES" 'Squash fixups before merge')"
-  plan="$(printf '%s\n' "$block" | grep -nF 'grep -v "^#" "$1"; false' | head -1 | cut -d: -f1)"
-  apply="$(printf '%s\n' "$block" | grep -nF 'GIT_SEQUENCE_EDITOR=: git -C' | head -1 | cut -d: -f1)"
-  [ -n "$plan" ] && [ -n "$apply" ] && [ "$plan" -lt "$apply" ]
-}
-
-@test "the proofs and the plan preview fail closed" {
-  # grep's status 1 (no sibling) is the only status tolerated, and only around
-  # the grep; an enumeration failure or a rebase that ran stops the flow.
-  grep -qF 'cannot enumerate refs for' "$FIXUP_FLAT"
-  grep -qF 'cannot enumerate refs for' "$WORKTREES_FLAT"
-  grep -qF 'siblings="$(printf' "$FIXUP_FLAT"
-  grep -qF 'siblings="$(printf' "$WORKTREES_FLAT"
-  grep -qF 'preview printed no plan' "$FIXUP_FLAT"
-  grep -qF 'preview printed no plan' "$WORKTREES_FLAT"
-  grep -qF 'preview applied a rebase' "$FIXUP_FLAT"
-  grep -qF 'preview applied a rebase' "$WORKTREES_FLAT"
-  grep -qF 'preview moved HEAD' "$FIXUP_FLAT"
-  grep -qF 'preview moved HEAD' "$WORKTREES_FLAT"
-  # The PR stage re-proves the range, which fixups since step 1 have extended.
-  stage="$(section "$FIXUP" 'PR stage')"
-  printf '%s\n' "$stage" | grep -qi 're-run step 1'
 }
 
 @test "the target is proved unique with an all-refs containment check" {
@@ -356,11 +250,8 @@ plant_and_catch() { # <file> <sentence>
 }
 
 @test "the containment check treats no sibling as the normal case" {
-  # Captured into a variable, never trusted to grep's exit status: no sibling is
-  # the normal case, and grep exits 1 there.
-  grep -qF 'range="$(git rev-list origin/<default>..HEAD)"' "$FIXUP_FLAT"
-  grep -qF 'shared commits in the rewrite range' "$FIXUP_FLAT"
-  grep -qF 'grep -vxF' "$FIXUP_FLAT"
+  grep -q 'siblings="$(git for-each-ref --contains' "$FIXUP_FLAT"
+  grep -q 'target is shared' "$FIXUP_FLAT"
 }
 
 @test "the release recipe keeps the protected path off the local merge" {

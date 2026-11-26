@@ -121,7 +121,7 @@ You are running a design QA check. Load the `devbot:design-qa` skill and follow 
 
 Rules for this run:
 - Report-only. Never edit files, never use --fix.
-- Non-interactive: never ask the user anything. If you would stop to ask (state doesn't match and the entry's `state` can't fix it, not logged in as the right user, zoom can't be fixed), stop and return status "blocked" with a one-line reason. If the blocker is the session, start the reason with "login needed".
+- Non-interactive: never ask the user anything. If you would stop to ask (state doesn't match and the entry's `state` can't fix it, not logged in as the right user, zoom can't be fixed), stop and return status "blocked" with a one-line reason. If the blocker is the session, start the reason with "login needed" — unless the configured playwright server is the headless shared gateway (18505), in which case start it with "login not possible" as the design-qa skill directs.
 - If browser zoom is not 100%, continue and add it to observations.
 
 Return ONLY the block below and the terminal marker. Repeat the block per viewport, starting each with "VIEWPORT: <px>"; put NOTES only in the first. End with `[FINISHED]` when done, or `[BLOCKED]` when blocked.
@@ -145,6 +145,9 @@ Don't keep the subagent's raw MCP output. Keep only the returned block, strippin
 
 If a subagent returns `blocked — login needed…`, don't run the remaining entries for that `userType`.
 List them under **Skipped** with the reason `log in as <userType> in the Playwright browser and re-run`.
+For `blocked — login not possible…`, skip the `userType` the same way but use the reason as given —
+that one is a configuration gap (headless shared gateway, no persistent profile), not a missing
+login, and it needs a headed Playwright registered before the next run.
 
 ## 5. Write design-qa-report.md
 

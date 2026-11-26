@@ -1286,6 +1286,75 @@ PY
   printf '%s\n' "${root%/}"
 }
 
+# _devbot_playwright_root
+#   Prints the root the shared playwright gateway bind-mounts. An explicit
+#   PLAYWRIGHT_ROOT wins, then a persisted `playwright_root`, then the
+#   codebase-memory root — a client's declared workspace root must resolve at
+#   its real path inside the container, and the registered projects are exactly
+#   the set that has to.
+#
+#   The persisted value is what makes the root MACHINE-wide: the gateway is one
+#   shared container, so a per-invocation override in one project would recreate
+#   it under every other project's live sessions. `devbot up` persists an
+#   explicit value, and every later start (in any project) resolves the same one.
+#
+#   Every consumer resolves it here — `bin/down.sh` and `bin/up.sh --is-up`
+#   interpolate the same compose file as `main()` does, and compose aborts on a
+#   missing mandatory variable ("/" is refused too: stripping its trailing slash
+#   would leave an empty value that reads as a valid root).
+_devbot_playwright_root() {
+  local root="" shared_dir config
+  if [[ -n "${PLAYWRIGHT_ROOT:-}" ]]; then
+    root="${PLAYWRIGHT_ROOT}"
+  else
+    shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    config="$(_devbot_global_config)"
+    if [[ -f "${config}" ]] && command -v python3 >/dev/null 2>&1; then
+      root="$(python3 "${shared_dir}/read_jsonc.py" "${config}" "playwright_root" 2>/dev/null || true)"
+      [[ "${root}" == "null" ]] && root=""
+    fi
+    [[ -n "${root}" ]] || root="$(_devbot_codebase_memory_root)"
+  fi
+  # Strip EVERY trailing slash, then refuse the host root: `//` collapses to
+  # `/`, which would bind-mount the whole host filesystem over the image.
+  while [[ "${root}" == */ ]]; do
+    root="${root%/}"
+  done
+  if [[ -z "${root}" || "${root}" != /* || "${root}" == "/" ]]; then
+    _fatal "PLAYWRIGHT_ROOT must be an absolute path other than '/': '${PLAYWRIGHT_ROOT:-}'"
+    return 1
+  fi
+  printf '%s\n' "${root}"
+}
+
+# _devbot_persist_playwright_root <root>
+#   Record the gateway's mount root in .devbot.global.jsonc, so an explicit
+#   override outlives the invocation that set it and every project resolves the
+#   same machine-wide value. Fail-open: a missing config or writer is harmless.
+_devbot_persist_playwright_root() {
+  local root="${1%/}"
+  # Only an absolute, non-root path can serve as a bind mount.
+  [[ -n "${root}" && "${root}" == /* && "${root}" != "/" ]] || return 0
+  local shared_dir writer config value
+  shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  writer="${shared_dir}/set_jsonc_key.py"
+  config="$(_devbot_global_config)"
+  [[ -f "${writer}" && -f "${config}" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  value="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "${root}" 2>/dev/null || true)"
+  [[ -n "${value}" ]] || return 0
+  python3 "${writer}" "${config}" "playwright_root" "${value}" >/dev/null 2>&1 || true
+}
+
+# _devbot_export_playwright_root
+#   Resolve and export PLAYWRIGHT_ROOT for a process that hands a compose file
+#   to docker. Fails loudly rather than exporting an unusable root.
+_devbot_export_playwright_root() {
+  local root
+  root="$(_devbot_playwright_root)" || return 1
+  export PLAYWRIGHT_ROOT="${root}"
+}
+
 # _devbot_persist_codebase_memory_root <root>
 #   Write the gateway root to .devbot.global.jsonc (comment-preserving, via
 #   set_jsonc_key.py) so a later env-less `devbot up` resolves the same mount

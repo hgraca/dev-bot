@@ -10,7 +10,7 @@
 #   - no GPU overlays (down needs no device reservations)
 #   - the root compose is selected first when one exists
 #   - the lifetime gate: containers kept while any devbot instance is alive
-#   - the gate runs BEFORE the module down-scripts (playwright is per-instance)
+#   - the gate runs BEFORE the module down-scripts (they remove machine-wide)
 #   - module down-scripts run with --all, even with no compose files to stop
 #   - no daemon and missing global config guards
 #
@@ -86,6 +86,7 @@ _devbot_sessions_dir() { echo "${MOCK_SESSIONS_DIR:-/tmp/devbot-sessions-mock}";
 _devbot_lock_wait() {
   echo "lock-wait $*" >> "${LOCK_ARGS_FILE}"
   echo "registry" >> "${LOCK_ORDER_FILE}"
+  echo "lock-wait" >> "${CALL_ORDER_FILE}"
   return 0
 }
 
@@ -99,9 +100,23 @@ _devbot_lock_acquire() {
   return 0
 }
 
+# compose interpolates the playwright mount root as mandatory, so down must
+# export it before handing the file set to docker. Recorded into the shared call
+# order so a test pins the export BEFORE the compose call; the same absolute /
+# non-"/" validation as production, so the fallback path is reachable.
+_devbot_export_playwright_root() {
+  local root="${MOCK_PLAYWRIGHT_ROOT:-/home/probe}"
+  root="${root%/}"
+  if [[ -z "${root}" || "${root}" != /* ]]; then
+    return 1
+  fi
+  export PLAYWRIGHT_ROOT="${root}"
+  echo "playwright-root ${PLAYWRIGHT_ROOT}" >> "${CALL_ORDER_FILE}"
+}
+
 # Module down-scripts: record the invocation so tests can pin the --all flag
 # and prove the gate ordering.
-_run_service_scripts() { echo "service-scripts $*" >> "${SCRIPTS_ARGS_FILE}"; }
+_run_service_scripts() { echo "service-scripts $*" >> "${SCRIPTS_ARGS_FILE}"; echo "service-scripts" >> "${CALL_ORDER_FILE}"; }
 HEREDOC
 
   # Create .devbot.global.jsonc (production name)
@@ -127,6 +142,7 @@ YAML
   cat > "${SANDBOX_DIR}/mockbin/docker" <<'MOCK'
 #!/usr/bin/env bash
 echo "$@" >> "${DOCKER_ARGS_FILE}"
+echo "docker $*" >> "${CALL_ORDER_FILE}"
 MOCK
   chmod +x "${SANDBOX_DIR}/mockbin/docker"
 
@@ -135,6 +151,8 @@ MOCK
   export LOCK_ARGS_FILE="${SANDBOX_DIR}/lock.args"
   export UP_LOCK_ARGS_FILE="${SANDBOX_DIR}/up-lock.args"
   export LOCK_ORDER_FILE="${SANDBOX_DIR}/lock-order.args"
+  export CALL_ORDER_FILE="${SANDBOX_DIR}/call.order"
+  : > "${CALL_ORDER_FILE}"
   : > "${DOCKER_ARGS_FILE}"
   : > "${SCRIPTS_ARGS_FILE}"
   : > "${LOCK_ARGS_FILE}"
@@ -380,8 +398,9 @@ EOF
 # ── Module down-scripts ────────────────────────────────────────────────────
 
 @test "down runs module down-scripts with --all" {
-  # A module disabled here may still own a NON-compose container (playwright
-  # reaps its own by label). The unfiltered run is what collects it.
+  # A module disabled here may still own a container the selected compose set
+  # does not declare (datasources starts sidecars from a generated compose). The
+  # unfiltered run is what collects it.
   _setup_sandbox '{}'
 
   run _run_down_main
@@ -392,7 +411,7 @@ EOF
 }
 
 @test "down still runs module down-scripts when no compose files exist" {
-  # The reapers (playwright) must run even when compose has nothing to stop.
+  # The module reapers must run even when compose has nothing to stop.
   _setup_sandbox '{}'
   rm -f "${SANDBOX_DIR}/docker-compose.yml" "${SANDBOX_DIR}/docker-compose.gpu.yml" \
     "${SANDBOX_DIR}/src/tools/litellm/docker-compose.yml" \
@@ -434,4 +453,34 @@ MOCK
   run _run_docker_down
   assert_failure
   assert_output --partial "No .devbot.global.jsonc found"
+}
+
+@test "down exports the playwright root before compose is handed the file set" {
+  # The round-1 defect was exactly this: the variable was resolved in bin/up.sh
+  # only, so `down` aborted on interpolation and stopped nothing.
+  _setup_sandbox '{}'
+
+  run _run_docker_down
+
+  assert_success
+  local root_line compose_line
+  root_line="$(grep -n '^playwright-root ' "${CALL_ORDER_FILE}" | head -1 | cut -d: -f1)"
+  compose_line="$(grep -n '^docker compose .* down' "${CALL_ORDER_FILE}" | head -1 | cut -d: -f1)"
+  [ -n "${root_line}" ] || fail "the root was never exported"
+  [ -n "${compose_line}" ] || fail "compose down never ran"
+  [ "${root_line}" -lt "${compose_line}" ] || fail "the export must precede the compose call"
+}
+
+@test "down still tears down when PLAYWRIGHT_ROOT is unusable" {
+  # down never reads the mount, only the interpolation: refusing here would
+  # strand the containers a failed `devbot up` left behind.
+  _setup_sandbox '{}'
+  export MOCK_PLAYWRIGHT_ROOT="relative/path"
+
+  run _run_docker_down
+
+  assert_success
+  assert_output --partial 'using $HOME for interpolation'
+  run cat "${DOCKER_ARGS_FILE}"
+  assert_output --partial 'down --remove-orphans'
 }

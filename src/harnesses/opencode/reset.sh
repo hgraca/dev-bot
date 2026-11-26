@@ -176,9 +176,10 @@ _reset_symlinks_in_dir "${OPENCODE_DIR}"
 # changes its mcp.json in a way existing configs must pick up. Disabled
 # modules are pruned unconditionally in the block below, refresh-list or not.
 #
-# playwright is listed for e7e7cd40: the npm fallback was repinned from bare
-# `npx -y @playwright/mcp@0.0.79` to an explicitly-resolved binary at the
-# pinned version, so pre-existing entries keep the old command until refreshed.
+# playwright is listed because its canonical manifest changed shape: the
+# per-session `docker run` stdio launcher is gone and the server is now the
+# shared http gateway on 127.0.0.1:18505, so pre-existing entries would keep
+# spawning a stale container until refreshed.
 #
 # chrome-devtools is listed for the canonical `enabled` field: entries
 # registered before it existed lack the key, so they read as stale and are

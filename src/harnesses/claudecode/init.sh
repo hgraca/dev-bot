@@ -314,11 +314,12 @@ _wire_mcp() {
     # Docker-only MCPs can't run without a docker daemon (e.g. inside a
     # container) — skip the module's MCPs so the client never starts them. A
     # hybrid def (docker with a non-docker fallback its own launcher picks at
-    # runtime, like playwright) is kept; its canonical manifest declares that
-    # with `"_hybrid": true`, read by _mcp_declares_hybrid (per-module form —
-    # this guard is per-module, unlike opencode's per-server one). Never key
-    # this on the fallback's command text: e7e7cd40 replaced playwright's
-    # fallback and the old literal grep left it misclassified as docker-only.
+    # runtime) is kept; its canonical manifest declares that with
+    # `"_hybrid": true`, read by _mcp_declares_hybrid (per-module form — this
+    # guard is per-module, unlike opencode's per-server one). No module ships
+    # one today; playwright, the last, is now an http gateway. Never key this on
+    # the fallback's command text: an earlier grep for one such literal left a
+    # hybrid server misclassified as docker-only.
     if grep -q 'docker run' "${mcp_file}" \
       && ! _mcp_declares_hybrid "${mcp_file}" \
       && ! docker info >/dev/null 2>&1; then

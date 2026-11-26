@@ -87,8 +87,8 @@ loop and sends a failing check back to [Request](#request).
 
 ## Finish
 
-Squash the fixups into their targets (`devbot:git-fixup-commits`), applying it straight away — the
-plan is printed, never gated on an approval ask. Then the branch's state decides the rest:
+Squash the fixups into their targets (`devbot:git-fixup-commits`), showing the plan and getting
+approval first. Then the branch's state decides the rest:
 
 - **Pre-push** — the branch has never been pushed, so the squash is local history: nothing to
   force-push. Hand it back for the pull request (`devbot:gh-create-pr`).

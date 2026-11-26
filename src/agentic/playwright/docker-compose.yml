@@ -1,0 +1,103 @@
+# src/agentic/playwright/docker-compose.yml
+# Shared Playwright MCP gateway. Auto-discovered by bin/up.sh (maxdepth 2 under
+# each module dir) and gated by disabled_modules — the container starts only when
+# the playwright module is enabled.
+#
+# `name: devbot` — the compose project name is read from the FIRST -f file;
+# every dev-bot compose file declares the same name so all containers land in
+# one project regardless of which file is first.
+#
+# ONE SERVER, MANY CLIENTS. Playwright MCP isolates per client itself: each HTTP
+# client gets its own browser context and its own declared MCP `roots` as cwd,
+# so the mount below is the outer limit, not the unit of isolation.
+# `--allow-unrestricted-file-access` is deliberately ABSENT to keep that guard.
+#
+# PLAYWRIGHT_ROOT is MANDATORY (`:?`): bin/up.sh, `--is-up` and bin/down.sh all
+# hand this file to docker, so every one of them resolves it through
+# _devbot_playwright_root — an unresolved one aborts the whole compose set.
+name: devbot
+
+services:
+  playwright-mcp:
+    # Microsoft's official image, PINNED to the build the isolation behaviour was
+    # verified against. The Docker-catalog `mcp/playwright` tag is stale at
+    # 0.0.76 and predates per-client workspace roots, so it is unusable here.
+    image: mcr.microsoft.com/playwright/mcp:v0.0.86
+    # Local image only: never pull on every `devbot up`. Moving the pin is a
+    # deliberate edit (MCR publishes vX.Y.Z tags), not a silent re-pull.
+    pull_policy: missing
+    container_name: dev-bot-playwright-mcp
+    # Started by `devbot up` and left running — no reboot resurrection, matching
+    # the other dev-bot gateways.
+    restart: "no"
+    # A client that declares no MCP roots falls back to the server's own cwd.
+    # Pointing that at the mounted root keeps its files on the host at a real
+    # path; the image default (/home/node) is not mounted, so its writes would
+    # vanish into the container layer.
+    working_dir: ${PLAYWRIGHT_ROOT:?PLAYWRIGHT_ROOT must be set}
+    ports:
+      # Host-local only — the browser service is never exposed off the machine.
+      - "127.0.0.1:18505:18505"
+    volumes:
+      # Host uid 1000 == the image's `node` user, so no `user:` override is
+      # needed and files the browser writes stay host-owned. Same absolute path
+      # inside and out: a client's declared root must resolve unchanged.
+      # create_host_path: false — the root always exists ($HOME or a registered
+      # project's ancestor), so a missing one is a misconfiguration and must
+      # fail loudly rather than mount an empty directory.
+      - type: bind
+        source: ${PLAYWRIGHT_ROOT:?PLAYWRIGHT_ROOT must be set}
+        target: ${PLAYWRIGHT_ROOT:?PLAYWRIGHT_ROOT must be set}
+        bind:
+          create_host_path: false
+      # Automatically named outputs only; an explicit filename resolves against
+      # the client's workspace root instead.
+      - ${DEV_BOT_ROOT}/storage/playwright:/out
+    # The image entrypoint already carries `--headless --browser chromium
+    # --no-sandbox`; a command is appended to it, so only the extras belong here.
+    # --isolated is explicit so a future default cannot reintroduce the profile
+    # collision; --allowed-hosts must name the published host:port, because the
+    # check compares the Host header including its port.
+    command:
+      - --isolated
+      - --host
+      - 0.0.0.0
+      - --port
+      - "18505"
+      - --allowed-hosts
+      - 127.0.0.1:18505
+      - --output-dir
+      - /out
+    healthcheck:
+      # A real MCP handshake on the server's own port, so `docker ps` shows a
+      # gateway that has stopped answering as unhealthy. node -e, because the
+      # image carries node and no HTTP client.
+      #
+      # The session the probe opens is DELETED afterwards: the server is
+      # stateful, so without the DELETE it keeps one browser context per probe
+      # (every 30s) for the container's whole lifetime.
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          const url = 'http://127.0.0.1:18505/mcp';
+          const accept = 'application/json, text/event-stream';
+          fetch(url, {
+            method: 'POST',
+            headers: {'content-type': 'application/json', accept},
+            body: JSON.stringify({jsonrpc: '2.0', id: 1, method: 'initialize',
+              params: {protocolVersion: '2025-06-18', capabilities: {},
+                       clientInfo: {name: 'healthcheck', version: '1'}}})
+          }).then(async (r) => {
+            const sid = r.headers.get('mcp-session-id');
+            if (sid) {
+              await fetch(url, {method: 'DELETE', headers: {accept, 'mcp-session-id': sid}})
+                .catch(() => {});
+            }
+            process.exit(r.ok ? 0 : 1);
+          }).catch(() => process.exit(1));
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
