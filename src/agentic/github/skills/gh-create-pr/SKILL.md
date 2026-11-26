@@ -108,28 +108,36 @@ the local review loop and squash, then open the pull request without that gate.
 **Show the user the full plan and wait for explicit approval before writing anything.** The `gh-create-pr`
 command drives this, but the rule holds whenever this skill is used.
 
-The `devbot-tools` `pr-open` tool does the three commands this section otherwise spells out — push,
-create, and (on request) the review — in one call, and reports the URL:
+The `devbot-tools` `pr-open` tool does the commands this section otherwise spells out — push,
+create, the assignee when one was chosen, and (on request) the review — in that order and in one
+call, and reports the URL:
 
 ```bash
-pr-open --title '<title>' --body-file <body-file> [--base <default-branch>] [--draft] --no-review
+pr-open --title '<title>' --body-file <body-file> [--base <default-branch>] [--draft] \
+  [--assignee @me] --no-review
 ```
 
 - **`--no-review` is the path here**: the pull request opens unreviewed by Copilot, and the loop is
   requested afterwards (see [Copilot review](#copilot-review)). Drop the flag only to request and
   wait in the same call.
-- `--draft` when the PR is not ready for review. It takes no `--repo` (it acts on the checkout) and
-  no assignee: set one afterwards with `gh pr edit <url> --add-assignee @me` when it was chosen.
+- **`--assignee` carries the answer the plan asked for**: `--assignee @me` when the user wanted the
+  pull request assigned, omitted when they did not. The tool assigns after the creation, skips a
+  login already on the pull request, and reports every step that did not register in its output and
+  its exit code — the whole sequence, push to review request, in one call.
+- `--draft` when the PR is not ready for review. It takes no `--repo`: it acts on the checkout.
 - Its CLI form is `devbot tool pr-open …` — the same script, for a harness that has not reloaded its
   tools. Fall back to the raw command when neither is available:
 
 ```bash
 gh pr create --base <default-branch> --head <branch> \
-  --title '<title>' --body '<body>' [--draft] [--assignee @me]
+  --title '<title>' --body '<body>' [--draft]
+gh pr edit <url> --add-assignee @me   # only once the PR exists
 ```
 
 - **No `--reviewer` there.** A rejected reviewer aborts creation, leaving no PR to repair; Copilot is
   requested after the PR exists (see [Copilot review](#copilot-review)).
+- **No `--assignee` there either.** A host that validates the login before creating aborts the whole
+  creation on a rejected assignee; assign the PR after it exists, as the second line does.
 
 ## Reference the PR by its URL
 
@@ -191,6 +199,8 @@ should run at that level. Iterating on the review is not this skill's job; the l
   with `--force-with-lease` (see `devbot:git-fixup-commits`).
 - Do not compose the title or body from the branch name alone — read the commits and the diff.
 - Do not pass `--reviewer` to `gh pr create` — a rejected reviewer aborts creation.
+- Do not pass `--assignee` to `gh pr create` — a host that validates the login first aborts the
+  whole creation; assign the pull request once it exists.
 - Do not use `gh pr edit --add-reviewer @copilot` — it registers nobody; use the GraphQL mutation.
 - Except the finish-flow publishers above, do not open a pull request while a local review of the
   changeset has neither been made nor offered, or while fixups are still unsquashed.

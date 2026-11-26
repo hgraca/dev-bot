@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""pr-open — push the branch, open the pull request, request the review.
+"""pr-open — push the branch, open the pull request, assign it, request the review.
 
-Three commands that always happen together in the corpus: `git push -u origin
-<branch>`, `gh pr create --repo … --title … --body-file …`, then the GraphQL
-mutation that requests the Copilot review. This does them in one call and prints
-the pull request URL.
+The commands that always happen together in the corpus: `git push -u origin
+<branch>`, `gh pr create --title … --body-file …`, `gh pr edit --add-assignee`,
+then the GraphQL mutation that requests the Copilot review. This does them in
+one call and prints the pull request URL.
 
-Exit codes: 0 opened (or already open), 1 git/gh failure, 2 usage.
+Of the steps after the push, only the creation is fatal: the PR is what the
+caller cannot reconstruct, so a failed assignment or review request is reported
+at the end instead of losing it.
+
+Exit codes: 0 opened (or already open) with every requested step done,
+1 git/gh failure or a step that did not register, 2 usage.
 
 Usage:
     pr-open.py --title "feat(x): do the thing" --body-file /tmp/body.md
-    pr-open.py --title "..." --body-file body.md --base main --no-review
+    pr-open.py --title "..." --body-file body.md --base main --assignee @me --no-review
 """
 
 from __future__ import annotations
@@ -84,6 +89,22 @@ def create_pr(title: str, body_file: str | None, base: str | None, draft: bool) 
     return out.splitlines()[-1].strip() if out else ""
 
 
+def assign(url: str, login: str) -> str:
+    """Add an assignee, unless that login is already on the pull request."""
+    target = login
+    if login == "@me":
+        target, _, _ = run(["gh", "api", "user", "--jq", ".login"])
+    current, _, _ = run(
+        ["gh", "pr", "view", url, "--json", "assignees", "--jq", ".assignees[].login"]
+    )
+    if target and target in current.splitlines():
+        return "already assigned"
+    out, rc, err = run(["gh", "pr", "edit", url, "--add-assignee", login])
+    if rc != 0:
+        return f"failed ({err or out})"
+    return "assigned"
+
+
 def head_committed_at(number: str, repo: str) -> str:
     """When the PR's head commit was authored — the freshness bound for a request."""
     out, rc, _ = run(
@@ -150,11 +171,12 @@ def request_review(url: str) -> str:
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="Push, open a pull request, request the review")
+    parser = argparse.ArgumentParser(description="Push, open a pull request, assign it, request the review")
     parser.add_argument("--title", required=True)
     parser.add_argument("--body-file", default=None)
     parser.add_argument("--base", default=None)
     parser.add_argument("--draft", action="store_true")
+    parser.add_argument("--assignee", default=None, help="login to assign, @me for yourself")
     parser.add_argument("--no-review", action="store_true", help="skip the Copilot request")
     args = parser.parse_args(argv)
 
@@ -180,19 +202,31 @@ def main(argv: list[str]) -> int:
         opened = True
         note = "opened"
 
+    assigned = assign(url, args.assignee) if args.assignee else "skipped"
     review = "skipped" if args.no_review else request_review(url)
     print(
         json.dumps(
-            {"branch": branch, "push": pushed, "pr": note, "url": url, "review": review},
+            {
+                "branch": branch,
+                "push": pushed,
+                "pr": note,
+                "url": url,
+                "assignee": assigned,
+                "review": review,
+            },
             indent=2,
         )
     )
-    # The PR exists either way, and its URL is printed above; a request that did
-    # not register is still a failure the caller must see in the exit code.
+    # PR exists either way; a step that did not
+    # register still fails the exit code.
+    failures = []
+    if args.assignee and assigned not in ("assigned", "already assigned"):
+        failures.append(f"the assignee was not added: {assigned}")
     if not args.no_review and review not in ("requested", "already requested", "skipped"):
-        print(f"ERROR: the Copilot review did not register: {review}", file=sys.stderr)
-        return EXIT_FAIL
-    return EXIT_OK
+        failures.append(f"the Copilot review did not register: {review}")
+    for failure in failures:
+        print(f"ERROR: {failure}", file=sys.stderr)
+    return EXIT_FAIL if failures else EXIT_OK
 
 
 if __name__ == "__main__":

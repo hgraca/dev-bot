@@ -39,6 +39,17 @@ setup() {
   printf '%s\n' "$RULE" | grep -qF 'has no URL — name the branch'
 }
 
+@test "skill assigns after creation, never on the raw create" {
+  local open
+  open="$(section_flat "$SKILL" 'Open the PR')"
+  printf '%s\n' "$open" | grep -qF -- '--assignee @me'
+  # Invocation, not prose, must carry the flag.
+  printf '%s\n' "$open" | grep -qF -- '[--assignee @me] --no-review'
+  # The raw create takes none: a host that validates the login aborts it.
+  run grep -qE -- 'gh pr create[^`]*--assignee' <<< "$open"
+  [ "$status" -ne 0 ]
+}
+
 @test "rule never models the bare number it bans" {
   ! printf '%s\n' "$RULE" | grep -qF 'number-or-url'
   ! printf '%s\n' "$RULE" | grep -qE '(PR|pull request) ?#[0-9]+'
@@ -139,6 +150,11 @@ setup() {
   printf '%s\n' "$step7" | grep -qF 'run the local review when step 3 answered yes'
   printf '%s\n' "$step7" | grep -qF 'refresh the body'
   printf '%s\n' "$step7" | grep -qF 'gh pr create --base'
+  # Carried by the tool invocation, not a second edit.
+  printf '%s\n' "$step7" | grep -qF -- '[--draft] [--assignee @me] --no-review'
+  # And never on the raw create: a host that validates the login aborts it.
+  run grep -qE -- 'gh pr create[^`]*--assignee' <<< "$step7"
+  [ "$status" -ne 0 ]
   review_at="$(printf '%s' "$step7" | grep -bo 'run the local review' | head -1 | cut -d: -f1)"
   create_at="$(printf '%s' "$step7" | grep -bo 'gh pr create' | head -1 | cut -d: -f1)"
   [ "${review_at:-0}" -lt "${create_at:-0}" ]

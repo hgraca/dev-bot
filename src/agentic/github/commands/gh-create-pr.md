@@ -43,16 +43,18 @@ If no branch is given, use the current branch.
    `git diff <default>...<branch>` after the squash and refresh the body — and the title, when the
    scope moved — so the description matches the code that lands. Then push the branch if it has no
    upstream (`git push -u origin <branch>`), and create the PR **without a reviewer** — it opens
-   unreviewed by Copilot by design — the `pr-open` tool does the push, the creation and nothing else,
-   in one call (`devbot tool pr-open …` when the harness has not reloaded it):
+   unreviewed by Copilot by design. The `pr-open` tool does the push, the creation and the
+   assignee step 4 chose, in that order and in one call (`devbot tool pr-open …` when the
+   harness has not reloaded it):
 
    ```bash
-   pr-open --title '<title>' --body-file <body-file> --base <default> [--draft] --no-review
+   pr-open --title '<title>' --body-file <body-file> --base <default> [--draft] [--assignee @me] --no-review
    ```
 
-   Fall back to `gh pr create --base <default> --head <branch> --title '<title>' --body '<body>'
-[--draft] [--assignee @me]` when the tool is unavailable; set an assignee with
-   `gh pr edit <url> --add-assignee @me`.
+   `--assignee` carries step 4's answer: leave it off when the user said no. The tool assigns after
+   creating, so a refused login costs the assignment, not the pull request.
+
+   Fall back to `gh pr create --base <default> --head <branch> --title '<title>' --body '<body>' [--draft]` when the tool is unavailable, then assign it with `gh pr edit <url> --add-assignee @me` — never `--assignee` on the create itself, which aborts the whole creation on a host that validates the login first.
 
 8. Ask the user whether to run the Copilot review loop now (`devbot:gh-review-loop`). Only on a
    yes, request the review through the GraphQL mutation — it is the only path that registers a bot
