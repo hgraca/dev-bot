@@ -454,13 +454,11 @@ _up_is_up() {
 # ── Up lock ───────────────────────────────────────────────────────────────────
 # One sequence per install: the containers
 # and the gateway are shared by every project.
-_up_lock_path() { printf '%s/run/up.lock' "${DEV_BOT_ROOT}/storage"; }
-
 # `--if-needed` waits, re-probes, then skips or runs;
 # a failed wait warns and re-probes too.
 _up_run_locked() {
   local cap="${DEVBOT_UP_LOCK_WAIT:-600}"
-  if ! _devbot_lock_wait "$(_up_lock_path)" "${cap}"; then
+  if ! _devbot_lock_wait "$(_devbot_up_lock_path)" "${cap}"; then
     _warn "up lock not held — continuing unlocked; concurrent starts may overlap (cap ${cap}s, DEVBOT_UP_LOCK_WAIT)"
   fi
 

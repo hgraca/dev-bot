@@ -427,26 +427,31 @@ EOF
   assert_output --partial "1 up.sh script(s) completed, 1 FAILED"
 }
 
-@test "_run_service_scripts never hands its locker fd to a module script" {
+@test "_run_service_scripts never hands its locker fds to a module script" {
   # A module up.sh may detach a long-lived child (graphify's cache prune). An
   # inherited flock fd would keep the caller's up lock held for that child's
-  # whole lifetime, stalling the next start.
+  # whole lifetime, stalling the next start. down.sh holds a second one on 201.
   command -v jq &>/dev/null || skip "jq not installed"
   _add_module "src/tools" "probe" "up.sh" \
-    'python3 -c "import os; os.fstat(200)" 2>/dev/null && echo "fd200=open" || echo "fd200=closed"'
+    'for fd in 200 201; do python3 -c "import os; os.fstat($fd)" 2>/dev/null && echo "fd$fd=open" || echo "fd$fd=closed"; done'
 
   run bash -c '
     source "'"${PROJECT_ROOT}"'/src/_shared/functions.sh"
     _devbot_get_disabled_modules() { echo "[]"; }
     exec 200>"'"${SANDBOX_DIR}"'/caller.lock"
     flock -x 200 2>/dev/null || true
+    exec 201>"'"${SANDBOX_DIR}"'/caller-201.lock"
+    flock -x 201 2>/dev/null || true
     _run_service_scripts "up.sh" "/fake/project"
-    python3 -c "import os; os.fstat(200)" 2>/dev/null && echo "parent=held"
+    python3 -c "import os; os.fstat(200)" 2>/dev/null && echo "parent200=held"
+    python3 -c "import os; os.fstat(201)" 2>/dev/null && echo "parent201=held"
   '
 
   assert_success
   assert_output --partial "fd200=closed"
-  assert_output --partial "parent=held"
+  assert_output --partial "fd201=closed"
+  assert_output --partial "parent200=held"
+  assert_output --partial "parent201=held"
 }
 
 @test "_run_service_scripts --all passes remaining args through" {

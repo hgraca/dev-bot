@@ -622,6 +622,11 @@ _devbot_lock_acquire() {
   return 0
 }
 
+# ── Install-level up lock ─────────────────────────────────────────────────────
+# bin/up.sh holds it for the whole sequence; bin/down.sh waits on it before
+# removing anything, so a `down` cannot tear the stack down under a start.
+_devbot_up_lock_path() { printf '%s/run/up.lock' "${DEV_BOT_ROOT}/storage"; }
+
 # ── Shared memory index lock ──────────────────────────────────────────────────
 #
 # One lock for every engine that writes the shared memory index: the reindex
@@ -2650,8 +2655,8 @@ _run_service_scripts() {
       _header_3 "Running ${module_name} ${script_name}..."
       local start=${SECONDS} rc=0
       # Detached children must not inherit the
-      # caller's locker fd: they could outlive it.
-      bash "${script}" "$@" 200>&- || rc=$?
+      # caller's locker fds: they could outlive them.
+      bash "${script}" "$@" 200>&- 201>&- || rc=$?
       if [[ ${rc} -eq 0 ]]; then
         _ok "${module_name} ${script_name} done ($(_fmt_duration $(( SECONDS - start ))))"
         count=$((count + 1))

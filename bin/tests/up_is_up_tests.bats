@@ -89,6 +89,9 @@ _devbot_codebase_memory_root() { echo "${MOCK_MEMORY_ROOT:-/home/probe}"; }
 
 _devbot_load_env_file() { return 0; }
 
+# The install-level up lock bin/up.sh holds and bin/down.sh waits on.
+_devbot_up_lock_path() { echo "${DEV_BOT_ROOT}/storage/run/up.lock"; }
+
 # Real flock, so the --if-needed tests can hold the up lock from another
 # process. Mirrors the production cap semantics: the Nth two-second probe that
 # fails is the timeout.

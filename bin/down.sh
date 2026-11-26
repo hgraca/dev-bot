@@ -20,6 +20,14 @@
 #               containers stranded under other project names, and force-
 #               recreates ollama to reconcile its GPU state).
 #
+# The same removal must not overlap a start: up.sh holds the install-level up
+# lock for its whole sequence, so down takes it BEFORE the registry gate (that
+# order is what keeps the pair acyclic) and refuses rather than tear the stack
+# down mid-up. A last-session teardown takes it without waiting — it already
+# holds the registry lock, and waiting there would invert that order.
+# Containers a refused teardown leaves behind are reclaimed by the next start
+# or an explicit `down`.
+#
 # The last session to exit reaches the count-0 path via
 # _devbot_session_teardown; an explicit `devbot down` while instances are alive
 # is a no-op that warns.
@@ -87,9 +95,38 @@ _down_guard() {
 }
 
 # Release the registry lock, but only if WE took it — never yank the caller's.
+# The up lock (fd 201) is always ours when it is open.
 _down_release_lock() {
-  _down_lock_held && return 0
-  { exec 200>&-; } 2>/dev/null || true
+  if ! _down_lock_held; then
+    { exec 200>&-; } 2>/dev/null || true
+  fi
+  { exec 201>&-; } 2>/dev/null || true
+}
+
+# ── Up lock ────────────────────────────────────────────────────────────────────
+# A start holds the install-level up lock for its whole sequence, and its module
+# scripts may take the registry lock from under it — so removal takes the up
+# lock BEFORE the registry gate, never after. Taken on fd 201: fd 200 carries
+# the registry lock.
+_down_wait_for_up() {
+  local path
+  path="$(_devbot_up_lock_path)"
+  mkdir -p "$(dirname "${path}")" 2>/dev/null || true
+  if ! { exec 201>"${path}"; } 2>/dev/null; then
+    _warn "could not open ${path} — tearing down without waiting for a start"
+    return 0
+  fi
+  # The caller of a last-session teardown already holds the registry lock, and
+  # waiting here would invert the order above. Its gate already proved no
+  # session is live; a start it could still race is an explicit `devbot up`, so
+  # take the lock without waiting and leave the stack to it on refusal.
+  if _down_lock_held; then
+    _devbot_lock_acquire 201 0 \
+      "a start is in progress — leaving the containers to it"
+    return $?
+  fi
+  _devbot_lock_acquire 201 "${DEVBOT_DOWN_UP_LOCK_WAIT:-30}" \
+    "a start is in progress (up lock held >${DEVBOT_DOWN_UP_LOCK_WAIT:-30}s) — refusing to tear the stack down"
 }
 
 # ── Module down scripts ────────────────────────────────────────────────────────
@@ -175,9 +212,20 @@ main() {
 
   _header_1 "DevBot Down"
 
-  # Holds the registry lock until _down_release_lock below — the whole teardown
+  # Up lock FIRST, then the registry gate. Taking them in that order — the order
+  # a start uses — is what keeps the pair acyclic. Both are held until
+  # _down_release_lock below.
+  if ! _down_wait_for_up; then
+    _down_release_lock
+    return 1
+  fi
+
+  # Holds the registry lock too until the same release — the whole teardown
   # (module down-scripts included) stays inside the critical section.
-  _down_guard || return 0
+  _down_guard || {
+    _down_release_lock
+    return 0
+  }
 
   _run_down_scripts
   _docker_down
