@@ -19,7 +19,7 @@ another host's mechanics — ask.
 2. **Gate** — run the project's checks (`make lint` and `make test`, or the project's documented
    equivalents); they must be green before the squash.
 3. **Squash** — squash the local fixups into their targets (`devbot:git-fixup-commits`), showing
-   the plan and getting approval. The branch that gets pushed carries no `fixup!` commit.
+   the plan and getting approval. The branch that gets pushed carries no `fixup` commit.
 4. **Pull request** — open it with `devbot:gh-create-pr`, or the host's equivalent. Invoking this
    command answers that skill's two questions — step 1 was the local review, step 5 is the remote
    loop — but not its inputs: still show the plan (title, body, base, assignee) before creating, and
@@ -44,7 +44,7 @@ done, start at step 5. A merged or closed pull request is not resumed — assess
 - Do not merge, and do not force-push: the guards module blocks the push, and the merge is the
   user's.
 - Do not skip the local loop — the remote reviewer is the second reader, not the first.
-- Do not push the local loop's `fixup!` commits: the first push carries none. The remote loop does
+- Do not push the local loop's `fixup` commits: the first push carries none. The remote loop does
   push its fixups — that is how the reviewer sees them — and step 6 squashes them.
 - Do not let `devbot:review-loop` finish a round: stop it before its Finish, so nothing is squashed
   or handed over twice.

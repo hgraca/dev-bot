@@ -89,3 +89,10 @@ setup() {
   run grep -q 'The remote loop does push its fixups' "$FLAT"
   assert_success
 }
+
+@test "no exclamation mark sits directly before a backtick" {
+  # The harness runs !`cmd` inline in a command file, so a code span
+  # ending in "fixup!" executed the prose after it as shell.
+  run grep -nF '!`' "$COMMAND"
+  assert_failure 1
+}
