@@ -2,29 +2,23 @@
 // 2.x ctx: ui.router.current() and data.on(...).
 
 import { spawn } from "node:child_process"
+import type { Plugin } from "@opencode/plugin/tui"
 import { paneTitle, type RouteSource, type SessionInfo, type SessionSource } from "./lib"
 
 const POLL_MS = 5000
 
-/** One TUI event as `data.on` delivers it. */
-export interface TuiEvent {
-  type?: string
+/** The event fields the plugin reads. */
+interface SessionEvent {
   data?: { sessionID?: string; parentID?: string; title?: string }
-}
-
-/** The shown route from ui.router.current(). */
-export interface TuiRoute {
-  type?: string
-  sessionID?: string
 }
 
 /** The 2.x TUI context slice this plugin uses. */
 export interface TuiCtx {
   data?: {
     session?: SessionSource
-    on?: (type: string, handler: (event: TuiEvent) => void) => () => void
+    on?: Plugin.Context["data"]["on"]
   }
-  ui?: { router?: { current(): TuiRoute } }
+  ui?: { router?: Pick<Plugin.Context["ui"]["router"], "current"> }
 }
 
 /** pollMs is a test seam. */
@@ -82,7 +76,7 @@ export function setup(ctx: TuiCtx, pollMs = POLL_MS): (() => void) | undefined {
     rename(title ?? "--clear")
   }
 
-  const remember = (event: TuiEvent) => {
+  const remember = (event: SessionEvent) => {
     const payload = event?.data
     if (!payload?.sessionID) return
     const patch: SessionInfo = { id: payload.sessionID }
@@ -92,7 +86,7 @@ export function setup(ctx: TuiCtx, pollMs = POLL_MS): (() => void) | undefined {
     sync()
   }
 
-  const forget = (event: TuiEvent) => {
+  const forget = (event: SessionEvent) => {
     const id = event?.data?.sessionID
     if (id) known.delete(id)
     sync()

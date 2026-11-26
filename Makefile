@@ -7,7 +7,7 @@ EXEC_SHELL=/bin/bash
 # Declare all non-file targets as phony so a same-named file or directory in the
 # repo root never shadows them (e.g. a stray `test` dir would otherwise make
 # `make test` silently report "up to date" and run nothing).
-.PHONY: help install update uninstall up down restart test test-bats test-bats-slice test-ts test-py lint logs docs docs-gather app audit
+.PHONY: help install update uninstall up down restart test test-bats test-bats-slice test-ts test-py lint typecheck logs docs docs-gather app audit
 # SECONDEXPANSION is needed to be able to resolve `psr4: .docker-wrap-$$@` to `psr4: .docker-wrap-psr4`
 .SECONDEXPANSION:
 
@@ -252,11 +252,19 @@ test-py: ## Run the python test suite
 	done < <(find src -name 'test_*.py' -not -path '*/node_modules/*' 2>/dev/null | sort); \
 	[ $${failed} -eq 0 ]
 
+typecheck: ## Typecheck the opencode-v2 TUI plugin against the pinned host types
+	@echo -e "\n\033[1m\033[34m━━━ Typechecking... ━━━\033[0m"
+	@if [ ! -x node_modules/.bin/tsc ]; then \
+		echo "ERROR: typescript not installed — run npm install"; \
+		exit 1; \
+	fi
+	@node_modules/.bin/tsc -p tsconfig.typecheck.json && echo "  tsc: clean"
+
 # Keep the prettier flags in sync with the format-* hooks
 # (src/agentic/format-*/tools/*.py): they define the project's standard.
 # Shellcheck scope excludes .bats: BATS is its own syntax and does not parse as
 # shell. The .bash helpers and the extensionless bin/devbot are included.
-lint: ## Run the linters (shellcheck, prettier, py_compile)
+lint: typecheck ## Run the linters (typecheck, shellcheck, prettier, py_compile)
 	echo -e "\n\033[1m\033[34m━━━ Running linters... ━━━\033[0m"
 	@failed=0; \
 	if ! command -v shellcheck >/dev/null 2>&1; then \

@@ -29,6 +29,8 @@ jobs:
           curl -fsSL https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz \
             | tar -xJ -C /tmp
           sudo install -m 0755 /tmp/shellcheck-v0.11.0/shellcheck /usr/local/bin/shellcheck
+      - name: Install dev dependencies
+        run: npm install --no-audit --no-fund
       - run: make lint
 
   # The BATS suite is ~99% of the test runtime, and one job spends most of its

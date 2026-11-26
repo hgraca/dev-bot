@@ -6,40 +6,9 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import plugin, { setup } from "./tui"
-import type { SessionInfo } from "./lib"
-
-type SessionEvent = { type?: string; data?: Record<string, unknown> }
-type Route = { type: string; sessionID?: string }
-
-const route = (sessionID?: string): Route =>
-  sessionID === undefined ? { type: "home" } : { type: "session", sessionID }
+import { host, route, type MutableRoute } from "./fixture"
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
-/** A 2.x ctx stand-in; a delete also drops
- *  the cache record, as the host's store does. */
-function host(records: SessionInfo[], shown: Route = route("root")) {
-  const sessions = new Map(records.map((s) => [s.id, s]))
-  const handlers = new Map<string, Array<(event: SessionEvent) => void>>()
-  return {
-    ctx: {
-      data: {
-        session: { get: (id: string) => sessions.get(id) },
-        on: (type: string, handler: (event: SessionEvent) => void) => {
-          const list = handlers.get(type) ?? []
-          list.push(handler)
-          handlers.set(type, list)
-          return () => handlers.set(type, (handlers.get(type) ?? []).filter((h) => h !== handler))
-        },
-      },
-      ui: { router: { current: () => shown } },
-    },
-    emit(type: string, data: Record<string, unknown>) {
-      if (type === "session.deleted" && typeof data.sessionID === "string") sessions.delete(data.sessionID)
-      for (const handler of handlers.get(type) ?? []) handler({ type, data })
-    },
-  }
-}
 
 describe("v2 TUI part", () => {
   const KEYS = ["HERDR_ENV", "HERDR_PANE_ID", "HERDR_BIN_PATH", "PATH"] as const
@@ -97,7 +66,7 @@ describe("v2 TUI part", () => {
       delete process.env.HERDR_ENV
       writeFileSync(calls, "")
       const h = host([{ id: "root", title: "Root title" }])
-      expect(setup(h.ctx as never)).toBeUndefined()
+      expect(setup(h.ctx)).toBeUndefined()
       expect(herdrCalls()).toEqual([])
     } finally {
       restore()
@@ -107,8 +76,8 @@ describe("v2 TUI part", () => {
   test("a ctx without the session cache or the router is a no-op, not a failure", () => {
     try {
       insideHerdr()
-      expect(() => setup({ ui: { router: { current: () => route() } } } as never)).not.toThrow()
-      expect(() => setup({ data: { session: { get: () => undefined } } } as never)).not.toThrow()
+      expect(() => setup({ ui: { router: { current: () => route() } } })).not.toThrow()
+      expect(() => setup({ data: { session: { get: () => undefined } } })).not.toThrow()
       expect(herdrCalls()).toEqual([])
     } finally {
       restore()
@@ -121,7 +90,7 @@ describe("v2 TUI part", () => {
       insideHerdr()
       // No cache title yet, as after session.created.
       const h = host([{ id: "root" }])
-      dispose = setup(h.ctx as never, 10)
+      dispose = setup(h.ctx, 10)
       await wait(100)
       expect(herdrCalls()).toEqual([])
 
@@ -140,11 +109,18 @@ describe("v2 TUI part", () => {
     try {
       insideHerdr()
       const h = host([], route("root"))
-      dispose = setup(h.ctx as never, 10)
+      dispose = setup(h.ctx, 10)
       await wait(100)
       expect(herdrCalls()).toEqual([])
 
-      h.emit("session.created", { sessionID: "root", title: "Fresh title" })
+      h.emit("session.created", {
+        sessionID: "root",
+        projectID: "project",
+        location: { directory: "/tmp" },
+        slug: "root",
+        version: "2.4.1",
+        title: "Fresh title",
+      })
       await wait(150)
       expect(herdrCalls()).toEqual([["pane", "rename", "w1:p1", "Fresh title"]])
     } finally {
@@ -165,7 +141,7 @@ describe("v2 TUI part", () => {
         ],
         route("child"),
       )
-      dispose = setup(h.ctx as never, 10)
+      dispose = setup(h.ctx, 10)
       await wait(150)
       expect(herdrCalls()).toEqual([["pane", "rename", "w1:p1", "Root title"]])
 
@@ -182,7 +158,7 @@ describe("v2 TUI part", () => {
   test("a session switch follows the new root, and the disposer clears the label", async () => {
     try {
       insideHerdr()
-      const shown = route("root")
+      const shown: Extract<MutableRoute, { type: "session" }> = { type: "session", sessionID: "root" }
       const h = host(
         [
           { id: "root", title: "Root title" },
@@ -190,7 +166,7 @@ describe("v2 TUI part", () => {
         ],
         shown,
       )
-      const dispose = setup(h.ctx as never, 10)
+      const dispose = setup(h.ctx, 10)
       expect(typeof dispose).toBe("function")
       await wait(150)
       expect(herdrCalls().at(-1)).toEqual(["pane", "rename", "w1:p1", "Root title"])
@@ -220,7 +196,7 @@ describe("v2 TUI part", () => {
       insideHerdr()
       const h = host([{ id: "root", title: "Root title" }])
       // 60 s poll: only the handler can clear here.
-      dispose = setup(h.ctx as never, 60_000)
+      dispose = setup(h.ctx, 60_000)
       await wait(150)
       expect(herdrCalls().at(-1)).toEqual(["pane", "rename", "w1:p1", "Root title"])
 

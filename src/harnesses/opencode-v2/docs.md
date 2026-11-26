@@ -215,7 +215,10 @@ the parent chain. The event carries the freshest title, so a generated title or 
 rename is applied at once; 2.x publishes no route-change event, so a 5 s poll
 compares the route only. That context has no `state`/`route`/`event` members —
 those belong to the v1 TUI plugin API — and cleanup is the disposer `setup`
-returns, so no interval can outlive the TUI it belongs to. The
+returns, so no interval can outlive the TUI it belongs to. The context slice,
+the event fields and the test double are typed against the pinned host package
+(`@opencode/plugin@2.4.1`), so `make typecheck` fails when a member, the route or
+an event field it reads moves rather than leaving the plugin a silent no-op. The
 PTY monitor that used to ship as the `./tui` part of the `hooks/pty/` package
 was removed with the PTY extension itself; v2's shell tool covers the
 long-running case without a sidebar. The package linker still supports a
