@@ -2,9 +2,12 @@
 date: 2026-11-26
 keywords: ["opencode", "tui", "plugin", "setup", "subscribe"]
 aliases: ["Invalid V2 TUI plugin module", "v2 tui plugin ctx", "plugin async event stream"]
+superseded_by: ["opencode/20261126210000-opencode-v2-tui-plugin-context-and-events.md"]
 ---
 
 ## opencode v2's TUI plugin contract is `{ id, setup(ctx) }` over an async event stream
+
+> **Superseded by** `opencode/20261126210000-opencode-v2-tui-plugin-context-and-events.md` (2026-11-26) — the TUI ctx has `data`/`ui`, not `ctx.event.subscribe`/`ctx.state`.
 
 A `./tui` part is validated as a default export of `{ id: string, setup(ctx) }`; any other shape is rejected at startup with `Invalid V2 TUI plugin module` and shows up as a failed plugin. The v1 shape (`{ id, tui(api) }`) is not accepted, and neither is the pre-2.3 ctx: `kv`, `slots` and v1's `event.on(type, handler)` are gone.
 

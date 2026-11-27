@@ -2,9 +2,13 @@
 date: 2026-11-25
 keywords: ["herdr", "window_title", "terminal_title", "opencode", "terminal title"]
 aliases: ["terminal title shows opencode session", "OC | title", "window title template"]
+superseded_by: ["herdr/20261127090718-herdr-app-uses-json-config-not-toml.md"]
 ---
 
 ## Put the agent session title in herdr's outer terminal title
+
+> **Superseded by** `herdr/20261127090718-herdr-app-uses-json-config-not-toml.md` (2026-11-27) — this
+> describes the `config.toml` generation; `herdr-app` configures in JSON under `~/.config/herdr-app`.
 
 herdr keeps two separate titles: `[ui] window_title` — the template it writes to the outer terminal as OSC 0 — and each pane's `terminal_title`, which is whatever that pane's own process emitted. The default template is `"{hostname}: {workspace}"` and omits the pane title, so the terminal window never shows which agent session is running.
 

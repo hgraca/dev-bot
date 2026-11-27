@@ -2,9 +2,13 @@
 date: 2026-11-26
 keywords: ["herdr", "pane", "label", "rename", "session-title"]
 aliases: ["pane border shows the session title", "herdr pane rename", "pane name from agent"]
+superseded_by: ["herdr/20261127090718-herdr-app-uses-json-config-not-toml.md"]
 ---
 
 ## herdr pane borders take their label from `pane rename`, never from config
+
+> **Superseded by** `herdr/20261127090718-herdr-app-uses-json-config-not-toml.md` (2026-11-27) — the
+> `pane rename` behaviour holds, but the config key named here belongs to the previous generation.
 
 A herdr pane border shows a **manual pane label**, or the agent kind when none is set. `ui.show_agent_labels_on_pane_borders` only adds that agent kind (the word "opencode"), and only while no manual label exists — it does not render the terminal title. No config key puts a pane's `terminal_title` in the border, so a pane that says which session it hosts needs `herdr pane rename <pane_id> <label>`, driven from outside: an agent-side plugin that renames the pane it runs in, since the OSC title the agent emits stops at herdr's pane boundary.
 
