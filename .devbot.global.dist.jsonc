@@ -23,6 +23,8 @@
     "aws": false,
     "figma": false,
     "frontend": false,
+    "ghostty": false,
+    "herdr": false,
     "jetbrains": false,
     "kafka": false,
     "litellm": false,

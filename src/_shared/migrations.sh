@@ -508,3 +508,47 @@ _migration_kubectl_catalogue() {
   esac
   return 0
 }
+
+# 1.25.0 — the `herdr` and `ghostty` tool modules ship DISABLED. A module the
+# config never names reads as enabled, and the module scripts run before the
+# reconciler writes the dist defaults, so the gate would provision both on the
+# update that crosses this release. The migration writes the explicit `false`
+# first, and only where the config names the module NOWHERE: a machine that set
+# either value itself keeps that choice, which is the contract the module gate
+# documents.
+#
+# The down half does nothing: neither module exists below 1.25.0, so the keys this
+# migration wrote are inert there and undoing them would only guess at a value.
+function migration_up-1.25.0 {
+  local config="${1:?global config path required}"
+  _migration_module_flag "${config}" false
+}
+
+function migration_down-1.25.0 {
+  _migration_skip "herdr and ghostty do not exist below 1.25.0 — nothing to undo"
+  return 0
+}
+
+# _migration_module_flag <config> <true|false> — write both tool-module defaults.
+_migration_module_flag() {
+  local config="$1" value="$2" helper
+  helper="$(_migration_tools_dir)/set_module_flags.py"
+
+  if [[ ! -f "${config}" ]]; then
+    _migration_skip "no global config at ${config} — herdr/ghostty defaults not written"
+    return 0
+  fi
+  if [[ ! -f "${helper}" ]]; then
+    _migration_warn "missing ${helper} — herdr/ghostty defaults not written"
+    return 1
+  fi
+
+  local out
+  # --if-absent: never overwrite a value the machine chose for itself.
+  if ! out="$(python3 "${helper}" --if-absent "${config}" "herdr=${value}" "ghostty=${value}" 2>&1)"; then
+    _migration_warn "could not set the herdr/ghostty module defaults in ${config}: ${out}"
+    return 1
+  fi
+  _migration_ok "herdr and ghostty modules ${value} in ${config}"
+  return 0
+}

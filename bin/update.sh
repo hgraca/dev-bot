@@ -389,8 +389,13 @@ _capture_migration_tools() {
   local file
   rm -rf "${dir}"
   mkdir -p "${dir}"
-  for file in migrations.sh read_jsonc.py migrate_workflow_config.py migrate_workspace_config.py \
-    migrate_kubectl_clusters.py \
+  # Every helper a shipped migration reaches for must be here: a down half that
+  # cannot find its tool fails the downgrade, and parity tests only prove the
+  # function exists. `migrations_tests.bats` derives this list from the calls in
+  # migrations.sh so a new one cannot be forgotten again.
+  for file in migrations.sh read_jsonc.py reconcile_global_config.py \
+    migrate_workflow_config.py migrate_workspace_config.py \
+    migrate_kubectl_clusters.py set_module_flags.py \
     ensure_autobot_block.py ensure_autobot_slack_keys.py ensure_guard_rules.py; do
     if [[ -f "${DEV_BOT_ROOT}/src/_shared/${file}" ]]; then
       cp "${DEV_BOT_ROOT}/src/_shared/${file}" "${dir}/${file}"

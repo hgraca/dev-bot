@@ -1044,6 +1044,218 @@ _devbot_live_owner_count() {
   echo "${live}"
 }
 
+# ── Managed shell snippets ─────────────────────────────────────────────────────
+#
+# A tool module that must put a shell FUNCTION into the user's interactive shells
+# (herdr's `devbot up` wrapper) owns a MARKERED BLOCK rather than a line appended
+# once: the block is re-rendered on every install and update, so a changed
+# function reaches the machine with a devbot release instead of needing a manual
+# edit. A foreign definition of the same function — written by hand, or appended
+# by an older setup script — is removed first, so the shell never keeps running a
+# copy devbot no longer manages.
+#
+# _devbot_shell_block_upsert <rc_file> <marker>   (block body on stdin)
+#   Replace devbot's marked block in <rc_file>; append it when absent; write
+#   nothing when the rendered file would be byte-identical. A missing <rc_file>
+#   is skipped, never created: only the shells this machine actually uses get a
+#   block. Trailing blank lines are dropped before the block, which is what keeps
+#   the result stable across runs.
+#
+# _devbot_shell_function_strip <rc_file> <function_name>
+#   Remove any definition of <function_name>: `name() { … }`, `function name { … }`
+#   and one-line definitions included.
+
+_devbot_shell_block_upsert() {
+  local rc="${1:-}" marker="${2:-}" body tmp
+  [[ -n "${rc}" && -n "${marker}" ]] || return 1
+  [[ -f "${rc}" ]] || return 0
+  body="$(cat)"
+
+  # An empty render would replace a working block with nothing, and the shell
+  # would silently lose the wrapper on a release whose module is incomplete.
+  if [[ -z "${body//[[:space:]]/}" ]]; then
+    _warn "refusing to render an empty block for '${marker}' — ${rc} left as it is"
+    return 1
+  fi
+
+  local start="# >>> devbot:${marker} >>>" end="# <<< devbot:${marker} <<<"
+  # The markers must pair up, in order, one block: an opener without its footer,
+  # a footer without an opener, a nested or duplicated pair. Removing from an
+  # unpaired opener to EOF would eat the user's rc, so a damaged file is left
+  # alone rather than "repaired".
+  if ! awk -v start="${start}" -v end="${end}" '
+    $0 == start { if (open) bad = 1; open = 1; next }
+    $0 == end { if (!open) bad = 1; open = 0; next }
+    END { if (open) bad = 1; exit(bad ? 1 : 0) }
+  ' "${rc}"; then
+    _warn "${rc} has unpaired '${marker}' block markers — left as it is"
+    return 1
+  fi
+
+  local parsed_before=0
+  _devbot_shell_syntax_ok "${rc}" "${rc}" && parsed_before=1
+
+  tmp="$(mktemp "${rc}.devbot.XXXXXX")" || return 1
+  # Strip the previous block and any trailing blank lines; interior blank lines
+  # are held back until the next non-blank line so they survive untouched.
+  awk -v start="${start}" -v end="${end}" '
+    $0 == start { skip = 1; next }
+    skip == 1 { if ($0 == end) skip = 0; next }
+    $0 == end { next }
+    $0 == "" { blanks++; next }
+    { for (i = 0; i < blanks; i++) print ""; blanks = 0; print }
+  ' "${rc}" >"${tmp}" || { rm -f "${tmp}"; return 1; }
+
+  {
+    printf '\n%s\n' "${start}"
+    printf '%s\n' "${body}"
+    printf '%s\n' "${end}"
+  } >>"${tmp}"
+
+  if cmp -s "${tmp}" "${rc}"; then
+    rm -f "${tmp}"
+    return 0
+  fi
+
+  # Never install a shell file that does not parse: the block is shell, and the
+  # rest of the file is the user's.
+  if ! _devbot_shell_syntax_ok "${tmp}" "${rc}"; then
+    rm -f "${tmp}"
+    # Blame the right thing: a file that was already broken stays broken, and
+    # saying "the rendered file would not parse" would accuse this edit.
+    if [[ ${parsed_before} -eq 1 ]]; then
+      _warn "the rendered ${rc} would not parse — left as it is"
+    else
+      _warn "${rc} did not parse before this edit either — left as it is"
+    fi
+    return 1
+  fi
+
+  cat "${tmp}" >"${rc}" && rm -f "${tmp}"
+}
+
+# _devbot_shell_syntax_ok <candidate> <target> — parse the candidate with the
+# shell the target belongs to. No parser installed means no check: blocking a
+# write over a missing tool would be worse than the write.
+_devbot_shell_syntax_ok() {
+  local candidate="${1:-}" target="${2:-}" checker=""
+  case "$(basename "${target}")" in
+    *zsh*|.zprofile) checker="$(command -v zsh 2>/dev/null || true)" ;;
+    *) checker="$(command -v bash 2>/dev/null || true)" ;;
+  esac
+  [[ -n "${checker}" ]] || return 0
+  "${checker}" -n "${candidate}" 2>/dev/null
+}
+
+_devbot_shell_function_strip() {
+  local rc="${1:-}" name="${2:-}" tmp rc_awk=0
+  [[ -n "${rc}" && -n "${name}" ]] || return 1
+  [[ -f "${rc}" ]] || return 0
+
+  local parsed_before=0
+  _devbot_shell_syntax_ok "${rc}" "${rc}" && parsed_before=1
+
+  tmp="$(mktemp "${rc}.devbot.XXXXXX")" || return 1
+  # One line is held back so the opening line can consult what precedes it; the
+  # same hold is what lets a marker comment be dropped with its function.
+  #
+  # The definition ends where its braces balance — counted with comments and
+  # quoted text stripped — never at the first line that happens to start with a
+  # `}`. A `};` tail, a trailing comment, an indented closing brace and a body
+  # holding its own block all end in the right place; a definition whose braces
+  # never balance is left alone (exit 3) instead of eating the rest of the file.
+  awk -v fn="${name}" '
+    # The line with comments removed (a `#` after whitespace or a separator).
+    function uncommented(line,   out, i, ch, prev, q) {
+      out = ""
+      q = ""
+      for (i = 1; i <= length(line); i++) {
+        ch = substr(line, i, 1)
+        if (q != "") {
+          out = out ch
+          if (ch == q) q = ""
+          else if (ch == "\\" && q == "\"") i++
+          continue
+        }
+        if (ch == "\"" || ch == "\047") { q = ch; out = out ch; continue }
+        if (ch == "#") {
+          prev = (i == 1) ? "" : substr(line, i - 1, 1)
+          if (prev == "" || prev ~ /[[:space:];]/) break
+        }
+        out = out ch
+      }
+      return out
+    }
+    # Net brace balance of a line, ignoring braces inside quotes.
+    function balance(line,   s, n, i, ch, q) {
+      s = uncommented(line)
+      n = 0; q = ""
+      for (i = 1; i <= length(s); i++) {
+        ch = substr(s, i, 1)
+        if (q == "") {
+          if (ch == "\"" || ch == "\047") { q = ch; continue }
+          if (ch == "{") n++
+          else if (ch == "}") n--
+        } else if (ch == q) {
+          q = ""
+        } else if (ch == "\\" && q == "\"") {
+          i++
+        }
+      }
+      return n
+    }
+    function opens_function(line) {
+      if (line ~ ("^[[:space:]]*" fn "[[:space:]]*\\(\\)[[:space:]]*\\{")) return 1
+      if (line ~ ("^[[:space:]]*function[[:space:]]+" fn "([[:space:]]|\\(|\\{)")) return 1
+      return 0
+    }
+    # Block markers are never treated as the stale comment.
+    function is_marker(line) { return line ~ /^[[:space:]]*# [<>]{3} devbot:/ }
+    removing == 1 {
+      depth += balance($0)
+      if (depth <= 0) removing = 0
+      next
+    }
+    opens_function($0) == 1 {
+      if (held != "" && !(held ~ /^[[:space:]]*#/ && !is_marker(held) && held ~ ("devbot|" fn))) print held
+      held = ""
+      depth = balance($0)
+      if (depth > 0) removing = 1
+      next
+    }
+    { if (held != "") print held; held = $0 }
+    END {
+      if (held != "") print held
+      if (removing == 1) exit 3
+    }
+  ' "${rc}" >"${tmp}"
+  rc_awk=$?
+
+  if [[ ${rc_awk} -eq 3 ]]; then
+    rm -f "${tmp}"
+    _warn "the '${name}' definition in ${rc} has no matching closing brace — left as it is"
+    return 1
+  fi
+  [[ ${rc_awk} -eq 0 ]] || { rm -f "${tmp}"; return 1; }
+
+  if cmp -s "${tmp}" "${rc}"; then
+    rm -f "${tmp}"
+    return 0
+  fi
+
+  if ! _devbot_shell_syntax_ok "${tmp}" "${rc}"; then
+    rm -f "${tmp}"
+    if [[ ${parsed_before} -eq 1 ]]; then
+      _warn "removing the '${name}' definition from ${rc} would not parse — left as it is"
+    else
+      _warn "${rc} did not parse before this edit either — left as it is"
+    fi
+    return 1
+  fi
+
+  cat "${tmp}" >"${rc}" && rm -f "${tmp}"
+}
+
 # ── Harness selection (config-driven) ─────────────────────────────────────────────
 #
 # _devbot_get_harness [project_dir]
@@ -1934,7 +2146,64 @@ PY
 #   against. Resolving the split here, in the same process, is what keeps a
 #   caller from paying a second interpreter launch for the same answer.
 _devbot_disabled_module_names() {
-  _devbot_get_disabled_modules "${1:-}" | jq -r '.[]' 2>/dev/null || true
+  # python3, not jq: jq is not a prerequisite (bin/install.sh checks python3),
+  # and a missing parser would answer "nothing disabled" — enabling a module the
+  # machine explicitly turned off.
+  _devbot_get_disabled_modules "${1:-}" \
+    | python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin)))' 2>/dev/null || true
+}
+
+# _devbot_module_enabled <name> [project_dir]
+#   True when the module is enabled: a name neither map disables is enabled, and
+#   a name the config does not mention takes the SHIPPED default from the dist —
+#   which is what keeps a module a release adds disabled from being provisioned
+#   before the reconciler writes that value. A project dir opts into the project
+#   map; the tool modules pass none, since install/update provision the machine.
+#   Fail-open on an unreadable config, so a module is never silently skipped
+#   because its answer could not be computed.
+_devbot_module_enabled() {
+  local name="${1:?module name required}" project_dir="${2:-}" value=""
+  if _devbot_disabled_module_names "${project_dir}" | grep -Fxq "${name}"; then
+    return 1
+  fi
+
+  # The machine's own config, then the shipped dist: a name the config mentions
+  # at all is that machine's choice, and only a name it never mentions takes the
+  # release default — which is what keeps a module a release adds disabled from
+  # being provisioned before the reconciler writes that value.
+  value="$(_devbot_module_flag "${name}" "${project_dir}")"
+  if [[ -z "${value}" ]]; then
+    value="$(_devbot_module_flag "${name}" "" "${DEV_BOT_ROOT}/.devbot.global.dist.jsonc")"
+  fi
+  [[ "${value}" != "false" ]]
+}
+
+# _devbot_module_flag <name> [project_dir] [config_file]
+#   Print `true`/`false` for the module's enablement, or nothing when the config
+#   does not name it. Without a config_file the effective pair is read: the
+#   project's map when a project dir is given, else the global one.
+_devbot_module_flag() {
+  local name="${1:?module name required}" project_dir="${2:-}" explicit="${3:-}" value=""
+  local reader
+  # The reader lives beside this file, never under DEV_BOT_ROOT — tests and a
+  # downgrade's captured tools override that to a sandbox root.
+  reader="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/read_jsonc.py"
+  [[ -f "${reader}" ]] || return 0
+
+  if [[ -n "${explicit}" ]]; then
+    value="$(python3 "${reader}" "${explicit}" modules "${name}" 2>/dev/null || true)"
+  else
+    if [[ -n "${project_dir}" && -f "${project_dir}/.devbot.project.jsonc" ]]; then
+      value="$(python3 "${reader}" "${project_dir}/.devbot.project.jsonc" modules "${name}" 2>/dev/null || true)"
+    fi
+    if [[ -z "${value}" ]]; then
+      value="$(python3 "${reader}" "$(_devbot_global_config)" modules "${name}" 2>/dev/null || true)"
+    fi
+  fi
+
+  case "${value}" in
+    true | false) printf '%s' "${value}" ;;
+  esac
 }
 
 # ── Dynamic MCP manifest ownership ────────────────────────────────────────────

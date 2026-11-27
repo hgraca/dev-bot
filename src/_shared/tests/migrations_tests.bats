@@ -348,3 +348,83 @@ JSONC
   run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${CONFIG}" kubectl clusters
   assert_output --partial '"name": "gete-dev"'
 }
+
+# ── 1.25.0: the herdr and ghostty modules ship disabled ─────────────────────
+# The module scripts run before the reconciler, so a config that names neither
+# module would provision both before the dist default lands. The migration writes
+# the explicit `false` first — and only where the config names the module nowhere,
+# so a value the machine set itself survives.
+
+@test "the 1.25.0 up migration disables herdr and ghostty" {
+  export DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../.." && pwd)"
+
+  cat > "${CONFIG}" <<'JSONC'
+{
+  // machine config
+  "modules": {
+    "atlassian": false,
+    "herdr": true
+  },
+  "auto_update": true
+}
+JSONC
+
+  run migration_up-1.25.0 "${CONFIG}"
+  assert_success
+  assert_output --partial "herdr and ghostty modules false"
+
+  run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${CONFIG}" modules
+  assert_success
+  # The machine enabled herdr itself: that choice stands.
+  assert_output --partial '"herdr": true'
+  assert_output --partial '"ghostty": false'
+  assert_output --partial '"atlassian": false'
+
+  # Textual surgery: the comment and the untouched key survive.
+  run grep -c '// machine config' "${CONFIG}"
+  assert_output "1"
+  run python3 "${DEV_BOT_ROOT}/src/_shared/read_jsonc.py" "${CONFIG}" auto_update
+  assert_output "true"
+
+  # Running it again is a no-op, not a second edit.
+  run migration_up-1.25.0 "${CONFIG}"
+  assert_success
+  run grep -c '"ghostty"' "${CONFIG}"
+  assert_output "1"
+}
+
+@test "the 1.25.0 down migration touches nothing" {
+  # Neither module exists below 1.25.0: the keys are inert there, and undoing
+  # them would have to guess which value the machine wanted.
+  export DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../.." && pwd)"
+  printf '{\n  "modules": {\n    "herdr": false,\n    "ghostty": false\n  }\n}\n' > "${CONFIG}"
+  cp "${CONFIG}" "${SANDBOX}/before"
+
+  run migration_down-1.25.0 "${CONFIG}"
+
+  assert_success
+  assert_output --partial "nothing to undo"
+  cmp -s "${SANDBOX}/before" "${CONFIG}"
+}
+
+@test "the 1.25.0 migration skips a machine with no global config" {
+  export DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../.." && pwd)"
+
+  run migration_up-1.25.0 "${SANDBOX}/absent.jsonc"
+  assert_success
+  assert_output --partial "no global config"
+}
+
+@test "the 1.25.0 up migration fails on a config it cannot rewrite" {
+  export DEV_BOT_ROOT="$(cd "${MODULE_DIR}/../.." && pwd)"
+  printf '{\n  "modules": {\n' > "${CONFIG}"
+
+  run migration_up-1.25.0 "${CONFIG}"
+  assert_failure
+  assert_output --partial "could not set the herdr/ghostty module defaults"
+
+  # Left exactly as it was.
+  run cat "${CONFIG}"
+  assert_output "{
+  \"modules\": {"
+}
