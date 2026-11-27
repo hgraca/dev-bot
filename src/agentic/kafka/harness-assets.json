@@ -1,0 +1,8 @@
+{
+  "mcp": [
+    {
+      "name": "kafka-mcp-launch.sh",
+      "path": "tools/kafka-mcp-launch.sh"
+    }
+  ]
+}

@@ -103,8 +103,21 @@ EOF
   assert_output --partial "enable modules.aws"
 }
 
-@test "does not warn when a disabled module's configuration is empty" {
+@test "warns when the disabled kafka module still has a catalogue" {
   _source_lib
+  export MOCK_DISABLED_MODULES='["kafka"]'
+  cat > "${SANDBOX_DIR}/.devbot.global.jsonc" <<'EOF'
+{ "kafka_connections": { "staging": { "bootstrap_servers": "broker:9092" } } }
+EOF
+  _add_module "src/agentic" "kafka"
+
+  run _run_module_script "${SANDBOX_DIR}/src/agentic" "init.sh" "Initializing" "initialized"
+  assert_success
+  assert_output --partial "declares kafka_connections"
+  assert_output --partial "enable modules.kafka"
+}
+
+@test "does not warn when a disabled module's configuration is empty" {  _source_lib
   export MOCK_DISABLED_MODULES='["aws"]'
   echo '{ "aws_connections": {} }' > "${SANDBOX_DIR}/.devbot.global.jsonc"
   _add_module "src/agentic" "aws"

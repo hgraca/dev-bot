@@ -527,12 +527,13 @@ JSONC_EOF
 # The shipped schema is a release contract for machines already running: a
 # global-only catalogue added after the first release must be in the dist, or
 # reconciliation deletes what the user declared there.
-@test "shipped dist keeps the kubectl and aws_connections catalogues" {
+@test "shipped dist keeps the kubectl, aws_connections and kafka_connections catalogues" {
   cp "${PROJECT_ROOT}/.devbot.global.dist.jsonc" "$WORK/dist.jsonc"
   cat > "$WORK/runtime.jsonc" <<'JSONC_EOF'
 {
   "kubectl": { "clusters": [] },
-  "aws_connections": { "aws-prod-ro": { "region": "eu-central-1" } }
+  "aws_connections": { "aws-prod-ro": { "region": "eu-central-1" } },
+  "kafka_connections": { "staging": { "bootstrap_servers": "broker:9092" } }
 }
 JSONC_EOF
 
@@ -541,6 +542,7 @@ JSONC_EOF
   refute_output --partial "REMOVED:"
   assert_equal "$(_read_key aws_connections | jq -r 'keys[0]')" "aws-prod-ro"
   assert_equal "$(_read_key kubectl | jq -r '.clusters | length')" "0"
+  assert_equal "$(_read_key kafka_connections | jq -r 'keys[0]')" "staging"
 }
 
 

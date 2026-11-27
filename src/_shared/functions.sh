@@ -2313,19 +2313,26 @@ _run_module_prereqs() {
 #   configuration.
 
 _warn_disabled_module_config() {
-  local module="$1" config reader value
+  local module="$1" config reader value key hint
   case "${module}" in
     aws)
-      config="$(_devbot_global_config)"
-      reader="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/read_jsonc.py"
-      [[ -f "${config}" ]] || return 0
-      value=$(python3 "${reader}" "${config}" "aws_connections" 2>/dev/null || true)
-      case "${value}" in
-        "" | "{}" | "None" | "null") return 0 ;;
-      esac
-      _warn "aws — module disabled but .devbot.global.jsonc declares aws_connections; enable modules.aws for this project or no aws-* server is wired"
+      key="aws_connections"
+      hint="enable modules.aws for this project or no aws-* server is wired"
       ;;
+    kafka)
+      key="kafka_connections"
+      hint="enable modules.kafka for this project or no kafka-* server is wired"
+      ;;
+    *) return 0 ;;
   esac
+  config="$(_devbot_global_config)"
+  reader="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/read_jsonc.py"
+  [[ -f "${config}" ]] || return 0
+  value=$(python3 "${reader}" "${config}" "${key}" 2>/dev/null || true)
+  case "${value}" in
+    "" | "{}" | "None" | "null") return 0 ;;
+  esac
+  _warn "${module} — module disabled but .devbot.global.jsonc declares ${key}; ${hint}"
 }
 
 # ── Generic module script runner ─────────────────────────────────────────────────

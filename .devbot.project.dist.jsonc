@@ -13,6 +13,10 @@
   // are registered with this project's harness — the rest cost nothing, not
   // even context.
   "datasources": [],
+  // Opt in BY NAME to Kafka connections declared in .devbot.global.jsonc.
+  // Each becomes a read-only MCP server `kafka-<name>` — diagnostics and a
+  // bounded message tail, never produce or delete.
+  "kafka_connections": [],
   // Opt in BY KEY to entries declared in .devbot.global.jsonc::kubectl.clusters.
   // The project gets its own ~/.kube/devbot/<project>.yaml; nothing is rendered
   // while this list is absent. The current-context is chosen by project name,

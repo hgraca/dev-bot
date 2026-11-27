@@ -24,6 +24,7 @@
     "figma": false,
     "frontend": false,
     "jetbrains": false,
+    "kafka": false,
     "litellm": false,
     "netsuite": false,
     "notion": false,
@@ -99,6 +100,35 @@
   //   }
   // },
   "aws_connections": {},
+  // Kafka connections offered to agents. Declared once here, so the key always
+  // exists: reconciliation removes runtime keys the dist lacks, and a machine
+  // that declared connections would lose them on `devbot update`.
+  // The `kafka` module must be enabled (`modules.kafka: true`): a disabled
+  // module's init never runs, so this catalogue alone wires no server.
+  // Each project opts in by NAME in .devbot.project.jsonc. A connection is a
+  // broker address, an optional named "auth" block, optional librdkafka
+  // properties, and an optional Schema Registry. Credentials belong in "auth",
+  // never in "extra_properties" (the server refuses sasl.username/password
+  // there); a "${VAR}" is resolved from the shell and the repo .env, so each
+  // one is named exactly once.
+  // The server is launched read-only: produce, create, delete and alter tools
+  // are never registered.
+  // Example:
+  // "kafka_connections": {
+  //   "staging": {
+  //     "bootstrap_servers": "broker.staging.get-e.local:9092",
+  //     "auth": {
+  //       "type": "api_key",
+  //       "key": "${KAFKA_STAGING_USER}",
+  //       "secret": "${KAFKA_STAGING_PASS}"
+  //     },
+  //     "extra_properties": { "sasl.mechanisms": "SCRAM-SHA-512" },
+  //     "schema_registry": { "endpoint": "https://sr.staging.get-e.local" }
+  //   }
+  // },
+  // The module owns the `kafka` and `kafka-*` MCP keys: while it is disabled,
+  // reset prunes them from opencode.jsonc, so do not name your own server that.
+  "kafka_connections": {},
   // AutoBot profiles: declare a configuration once here, then name it from a project's
   // .devbot.project.jsonc (`"autobot": "gete-jira"`) — or configure that project inline instead.
   // "autobot": {
