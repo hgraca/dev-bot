@@ -182,12 +182,8 @@ if [[ "${REQUIRE_WAIT}" -eq 1 ]] && echo "$TEXT" | grep -qF '[WAITING_FOR_PTY]';
   fi
 fi
 
-if echo "$TEXT" | grep -qE "$MARKER_RE"; then
-  echo "[agent-communication] OK — terminal marker found"
-  exit 0
-fi
-
-# Strip trailing fenced block and extract last line
+# Strip trailing fenced block and extract last line. This runs before the
+# marker check because the reported marker is the one the message ends on.
 STRIPPED=$(echo "$TEXT" | python3 -c "
 import sys, re
 text = sys.stdin.read()
@@ -197,6 +193,15 @@ print(text.rstrip())
 " 2>/dev/null || echo "$TEXT")
 
 LAST_LINE=$(echo "$STRIPPED" | grep -v '^\s*$' | tail -1)
+
+# The terminal marker leads the last line: a bare `[FINISHED]` or
+# `[BLOCKED] reason`. A marker quoted mid-body is not a status claim.
+TERMINAL_MARKER=$(printf '%s' "$LAST_LINE" | grep -oE "^${MARKER_RE}" | tr -d '[]' || true)
+
+if echo "$TEXT" | grep -qE "$MARKER_RE"; then
+  echo "[agent-communication] OK — terminal marker found${TERMINAL_MARKER:+: ${TERMINAL_MARKER}}"
+  exit 0
+fi
 
 echo "[agent-communication] Missing terminal marker. Last line: \"${LAST_LINE}\". Expected one of: ${MARKER_RE}" >&2
 exit 1

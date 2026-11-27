@@ -133,6 +133,82 @@ with open('$tmpfile', 'w') as f:
   rm -f "$tmpfile"
 }
 
+# ── Terminal marker: which marker the message actually ends on ───────────────
+
+@test "tool agent-communication: names the terminal marker on the pass line" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'All work is complete.\n\n[FINISHED]'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_success
+  [[ "$output" == *"terminal marker found: FINISHED"* ]] || fail "expected FINISHED (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+}
+
+@test "tool agent-communication: names the marker leading the last line" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'Cannot proceed.\n\n[BLOCKED] CI pipeline is failing'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_success
+  [[ "$output" == *"terminal marker found: BLOCKED"* ]] || fail "expected BLOCKED (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+}
+
+@test "tool agent-communication: names no terminal marker when it only appears in the body" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'The markers are [PARTIAL], [BLOCKED] and [FINISHED].\n\nWhich one applies here?'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_success
+  [[ "$output" == *"OK — terminal marker found"* ]] || fail "expected OK (got: ${output:0:300})"
+  [[ "$output" != *"terminal marker found:"* ]] || fail "a body marker is not terminal (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+}
+
+@test "tool agent-communication: names no terminal marker when it trails prose on the last line" {
+  local tmpfile
+  tmpfile="$(mktemp "$FIXTURES/tmp.XXXXXX.json")"
+
+  python3 -c "
+import json
+msg = {'info': {'role': 'assistant'}, 'parts': [{'type': 'text', 'text': 'Here is why [PARTIAL] applies better than the rest.'}]}
+with open('$tmpfile', 'w') as f:
+    json.dump(msg, f)
+"
+
+  run bash "$TOOL_DIR/agent-communication.mcp.sh" --msg-file "$tmpfile"
+  assert_success
+  [[ "$output" == *"OK — terminal marker found"* ]] || fail "expected OK (got: ${output:0:300})"
+  [[ "$output" != *"terminal marker found:"* ]] || fail "a mid-line marker is not terminal (got: ${output:0:300})"
+
+  rm -f "$tmpfile"
+}
+
 # ── Drift guard: the skill is the single source of truth for the marker set ──
 
 @test "tool agent-communication: accepts every marker defined in the skill table" {
