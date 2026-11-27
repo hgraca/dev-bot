@@ -63,7 +63,7 @@ The main `Makefile` `include`s `Makefile.proj.mk`, `Makefile.local.mk`, and `Mak
 - `.SILENT` and `MAKEFLAGS += --no-print-directory` mute make noise; `.DEFAULT_GOAL := help`.
 - `help` scans `Makefile`, `Makefile.proj.mk`, and `Makefile.local.mk` for `##` comments to build the command list — every public target should carry a `## description`.
 - `.docker-wrap-%` pattern rule runs the dotted target inside the `app` container when not already inside Docker — the mechanism behind `test`, `static`, `unit`, `ut`, `cov`, `fix`, `lint`, `cs`, `stan`, `arch`, etc.
-- Namespace-prefix aggregate targets — `init`, `install`, `db`, `migrate`, `seed`, `generate`, `workers` — run every `init-*`, `install-*`, `db-*`, … target found across all included files.
+- Namespace-prefix aggregate targets — `init`, `preinstall`, `install`, `db`, `migrate`, `seed`, `generate`, `workers` — run every `init-*`, `install-*`, `db-*`, … target found across all included files. `preinstall-*` is the one `up-worktree` runs after the app container is up and before `install`, for generated code the dependency install boots.
 - Docker helpers: `RUN` (container not yet booted), `EXEC` (container booted), `EXEC_ROOT` (as root), `SH`.
 - `UID`/`GID` map the host user into the container to avoid permission mismatches.
 
