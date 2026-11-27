@@ -307,7 +307,11 @@ function toolDefinition() {
       `Run kubectl against the '${CLUSTER}' cluster. The kubeconfig and that cluster's context are applied ` +
       `for you — never pass --context, --kubeconfig or other flags that would retarget the command. ` +
       `\`args\` is kubectl's own argv, one element per argument (e.g. ["get","pods","-n","core"]); ` +
-      `do not include the leading \`kubectl\`. Use \`stdin\` for manifest input (e.g. ["apply","-f","-"]).`,
+      `do not include the leading \`kubectl\`. Use \`stdin\` for manifest input (e.g. ["apply","-f","-"]). ` +
+      `Returns one text string, never { stdout, stderr }: for a command that finished, stdout, then ` +
+      `an optional "[stderr]" block, then "[exit N]" on a non-zero exit. A timeout kill returns its ` +
+      `own message plus one capped stream; rejected arguments return the message alone. All three ` +
+      `set isError.`,
     inputSchema: {
       type: "object",
       properties: {

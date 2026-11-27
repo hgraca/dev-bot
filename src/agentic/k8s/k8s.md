@@ -64,6 +64,22 @@ Rules for calling it:
   `kctl-gete` is not possible — that is the point, not a limitation to work
   around.
 
+What comes back — **one text string, never a `{ stdout, stderr }` object**:
+
+- **A command that finished**: stdout, then a block prefixed `[stderr]` (the
+  `kctl.sh` context banner lands there), then `[exit N]` when the exit code is
+  non-zero.
+- **A timeout kill**: the kill sentence, then whichever of the two streams had
+  content — unlabelled, and not both.
+- **Rejected arguments**: the validation message alone.
+- `isError` is set by all three: a non-zero exit (which appends `[exit N]`), a
+  timeout kill, and a rejected argument.
+- Each stream is capped — 100 000 characters of stdout, 20 000 of stderr — and
+  a cut stream ends with `… output truncated at N characters`.
+
+Reading `.stdout` off that result yields `undefined`, which reads as silence
+rather than as failure. Parse the string.
+
 If no `kctl-<key>` server is available, this project has no cluster access.
 Report that and ask the human to run `devbot reinit <project>`; never fall back
 to `kubectl`.

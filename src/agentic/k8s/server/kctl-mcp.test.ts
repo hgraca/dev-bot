@@ -109,6 +109,19 @@ describe("kctl MCP server", () => {
     expect(result.tools[0].description).toContain(CLUSTER)
   })
 
+  test("documents the single-string response shape in the tool description", async () => {
+    send(rpc("tools/list", {}, 41))
+    const { result } = await next()
+    const description: string = result.tools[0].description
+
+    // .stdout off a string is undefined: reads as silence.
+    expect(description).toContain("one text string")
+    expect(description).toContain("[stderr]")
+    expect(description).toContain("[exit N]")
+    expect(description).toContain("isError")
+    expect(description).toContain("timeout")
+  })
+
   test("runs the call through kctl.sh exec with its own cluster and argv", async () => {
     send(rpc("tools/call", { name: "kubectl", arguments: { args: ["get", "pods", "-n", "core"] } }, 3))
     const { result } = await next()
