@@ -1,103 +1,162 @@
-// Unit tests for the agent-communication session.idle hook. The hook is
-// log-only, so the guards that matter are: which message is validated, how its
-// text is extracted, and that a failed invocation stays retryable rather than
-// being marked checked.
+// Behaviour tests for the session.idle hook: the manifest wiring, and the
+// decision to publish a marker to herdr — driven through the factory with a
+// fake client, validator and reporter.
 
-import { describe, test, expect } from "bun:test"
-import {
-  isCheckedStatus,
-  lastAssistantMessage,
-  textParts,
-  waitEvidenceParts,
-} from "./on-session-idle-validate"
+import { describe, test, expect, beforeEach, afterEach } from "bun:test"
+import { makeOnSessionIdleValidate } from "./on-session-idle-validate"
+import type { HerdrPlan } from "../../lib/herdr-report"
+import type { ValidatorResult } from "../../lib/validator"
 
-function message(role: string, parts: unknown[] = []): Record<string, unknown> {
-  return { info: { role, id: `${role}-id` }, parts }
+const HERDR_KEYS = ["HERDR_ENV", "HERDR_PANE_ID", "HERDR_BIN_PATH"] as const
+const saved: Array<[string, string | undefined]> = []
+
+const silent = { debug() {}, info() {}, notice() {}, warn() {}, error() {}, fatal() {} }
+
+function assistant(text: string) {
+  return { info: { role: "assistant", id: "m1" }, parts: [{ type: "text", text }] }
 }
 
-describe("lastAssistantMessage", () => {
-  test("returns the last assistant message among mixed roles", () => {
-    const messages = [message("user"), message("assistant"), message("user"), message("assistant")]
-    expect(lastAssistantMessage(messages)).toBe(messages[3])
-  })
+function fakeClient(messages: unknown[], sessions: Record<string, unknown> = {}) {
+  return {
+    session: {
+      messages: async () => ({ data: messages }),
+      get: async ({ path }: any) => ({ data: sessions[path.id] }),
+    },
+  }
+}
 
-  test("skips a trailing non-assistant message", () => {
-    const messages = [message("assistant"), message("user")]
-    expect(lastAssistantMessage(messages)).toBe(messages[0])
-  })
+interface RunOptions {
+  result: ValidatorResult
+  messages?: unknown[]
+  sessions?: Record<string, unknown>
+  client?: unknown
+}
 
-  test("returns undefined when there is no assistant message", () => {
-    expect(lastAssistantMessage([message("user")])).toBeUndefined()
-  })
+async function idle(options: RunOptions) {
+  const plans: HerdrPlan[] = []
+  let validations = 0
+  const plugin = await makeOnSessionIdleValidate({
+    validate: async () => {
+      validations += 1
+      return options.result
+    },
+    writeMessage: () => ({ file: "/tmp/devbot-test-message.json", cleanup() {} }),
+    report: async (plan) => {
+      plans.push(plan)
+      return true
+    },
+    log: silent,
+  })({
+    directory: "/tmp/opencode",
+    worktree: "/tmp/opencode",
+    client: options.client ?? fakeClient(options.messages ?? [assistant("Done.\n\n[PARTIAL]")], options.sessions),
+  } as any)
 
-  test("returns undefined for non-array input", () => {
-    expect(lastAssistantMessage(undefined)).toBeUndefined()
-  })
+  await (plugin as any).event({ event: { type: "session.idle", properties: { sessionID: "s1" } } })
+  return { plans, validations }
+}
+
+beforeEach(() => {
+  saved.length = 0
+  for (const key of HERDR_KEYS) saved.push([key, process.env[key]])
+  process.env.HERDR_ENV = "1"
+  process.env.HERDR_PANE_ID = "w1:p1"
+  process.env.HERDR_BIN_PATH = "/opt/herdr"
 })
 
-describe("textParts", () => {
-  test("keeps text parts and drops the rest", () => {
-    expect(
-      textParts({ parts: [{ type: "tool", state: "completed" }, { type: "text", text: "hi" }] }),
-    ).toEqual([{ type: "text", text: "hi" }])
-  })
-
-  test("coerces missing text to an empty string", () => {
-    expect(textParts({ parts: [{ type: "text" }] })).toEqual([{ type: "text", text: "" }])
-  })
-
-  test("returns an empty list when there are no parts", () => {
-    expect(textParts({})).toEqual([])
-  })
+afterEach(() => {
+  for (const [key, value] of saved) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
 })
 
-describe("waitEvidenceParts", () => {
-  test("flattens a tool part's status and background flag", () => {
-    const message = {
-      parts: [
-        { type: "text", text: "hi" },
-        { type: "tool", tool: "bash", state: { status: "completed", input: { background: true } } },
-      ],
-    }
-    expect(waitEvidenceParts(message)).toEqual([
-      { type: "tool", tool: "bash", status: "completed", background: true },
-    ])
-  })
-
-  test("reads a string state, as some harness shapes report it", () => {
-    expect(waitEvidenceParts({ parts: [{ type: "tool", tool: "pty_spawn", state: "completed" }] })).toEqual([
-      { type: "tool", tool: "pty_spawn", status: "completed", background: false },
-    ])
-  })
-
-  test("treats a background string as backgrounded", () => {
-    const parts = waitEvidenceParts({
-      parts: [{ type: "tool", tool: "shell", state: { status: "completed", input: { background: "true" } } }],
+describe("publishing the marker", () => {
+  test("a pass publishes the marker the validator named", async () => {
+    const { plans } = await idle({
+      result: { status: 0, stdout: "OK — terminal marker found: PARTIAL", stderr: "" },
     })
-    expect(parts[0].background).toBe(true)
+    expect(plans).toHaveLength(1)
+    expect(plans[0].args).toContain("devbot=PARTIAL")
+    expect(plans[0].args.slice(0, 3)).toEqual(["pane", "report-metadata", "w1:p1"])
   })
 
-  test("keeps a failed part visible so the validator can reject it", () => {
-    const parts = waitEvidenceParts({ parts: [{ type: "tool", tool: "pty_spawn", state: { status: "error" } }] })
-    expect(parts).toEqual([{ type: "tool", tool: "pty_spawn", status: "error", background: false }])
+  test("a pass with no terminal marker clears the token", async () => {
+    const { plans } = await idle({
+      result: { status: 0, stdout: "OK — terminal marker found", stderr: "" },
+    })
+    expect(plans).toHaveLength(1)
+    expect(plans[0].args).toContain("devbot=")
   })
 
-  test("returns nothing for a text-only message", () => {
-    expect(waitEvidenceParts({ parts: [{ type: "text", text: "x" }] })).toEqual([])
-    expect(waitEvidenceParts(undefined)).toEqual([])
-  })
-})
-
-describe("isCheckedStatus", () => {
-  test("a pass (0) or a finding (1) marks the message checked", () => {
-    expect(isCheckedStatus(0)).toBe(true)
-    expect(isCheckedStatus(1)).toBe(true)
+  test("a finding clears the token", async () => {
+    const { plans } = await idle({
+      result: { status: 1, stdout: "", stderr: "Missing terminal marker." },
+    })
+    expect(plans).toHaveLength(1)
+    expect(plans[0].args).toContain("devbot=")
   })
 
-  test("a failed invocation (2 or null) stays retryable", () => {
-    expect(isCheckedStatus(2)).toBe(false)
-    expect(isCheckedStatus(null)).toBe(false)
-    expect(isCheckedStatus(undefined)).toBe(false)
+  test("a failed invocation publishes nothing and stays retryable", async () => {
+    const { plans, validations } = await idle({
+      result: { status: 2, stdout: "", stderr: "jq is required" },
+    })
+    expect(plans).toHaveLength(0)
+    expect(validations).toBe(1)
+  })
+
+  test("a subagent session never publishes: the pane's turn has not ended", async () => {
+    const { plans } = await idle({
+      result: { status: 0, stdout: "OK — terminal marker found: FINISHED", stderr: "" },
+      sessions: { s1: { id: "s1", parentID: "root" } },
+    })
+    expect(plans).toHaveLength(0)
+  })
+
+  test("a root session publishes", async () => {
+    const { plans } = await idle({
+      result: { status: 0, stdout: "OK — terminal marker found: FINISHED", stderr: "" },
+      sessions: { s1: { id: "s1" } },
+    })
+    expect(plans).toHaveLength(1)
+    expect(plans[0].args).toContain("devbot=FINISHED")
+  })
+
+  test("outside a herdr pane nothing is published", async () => {
+    delete process.env.HERDR_ENV
+    const { plans, validations } = await idle({
+      result: { status: 0, stdout: "OK — terminal marker found: FINISHED", stderr: "" },
+    })
+    expect(plans).toHaveLength(0)
+    expect(validations).toBe(1)
+  })
+
+  test("one turn validates and publishes once, even on a repeated idle", async () => {
+    const plans: HerdrPlan[] = []
+    let validations = 0
+    const plugin = await makeOnSessionIdleValidate({
+      validate: async () => {
+        validations += 1
+        return { status: 0, stdout: "OK — terminal marker found: IDLE", stderr: "" }
+      },
+      writeMessage: () => ({ file: "/tmp/devbot-test-message.json", cleanup() {} }),
+      report: async (plan) => {
+        plans.push(plan)
+        return true
+      },
+      log: silent,
+    })({
+      directory: "/tmp/opencode",
+      worktree: "/tmp/opencode",
+      client: fakeClient([assistant("Done.\n\n[FINISHED]")]),
+    } as any)
+
+    const event = { event: { type: "session.idle", properties: { sessionID: "s1" } } }
+    await (plugin as any).event(event)
+    await (plugin as any).event(event)
+
+    expect(validations).toBe(1)
+    expect(plans).toHaveLength(1)
   })
 })
 
