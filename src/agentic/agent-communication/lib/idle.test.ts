@@ -64,6 +64,13 @@ describe("waitEvidenceParts", () => {
     ])
   })
 
+  test("reads a v2 tool part, which names the tool `name`", () => {
+    const parts = waitEvidenceParts({
+      parts: [{ type: "tool", name: "shell", state: { status: "completed", input: { background: true } } }],
+    })
+    expect(parts).toEqual([{ type: "tool", tool: "shell", status: "completed", background: true }])
+  })
+
   test("reads a string state, as some harness shapes report it", () => {
     expect(waitEvidenceParts({ parts: [{ type: "tool", tool: "pty_spawn", state: "completed" }] })).toEqual([
       { type: "tool", tool: "pty_spawn", status: "completed", background: false },

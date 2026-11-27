@@ -97,6 +97,16 @@ load 'init_test_helper'
   assert_output "./tui.ts"
 }
 
+@test "init links the agent-communication herdr adapter as a server plugin" {
+  # The module's idle hook is a V1 plugin factory, which a v2 host skips; the
+  # adapter package is what makes the pass run there at all.
+  scenario default
+
+  local pkg="${PROJECT}/.opencode/plugins/agent-communication-herdr"
+  [ -f "${pkg}/index.ts" ] || fail "no server part at ${pkg}"
+  grep -q "agent-communication-herdr/index.ts" "${pkg}/index.ts" || fail "index.ts does not re-export the adapter"
+}
+
 @test "init retires the TTFT package an earlier build shipped" {
   scenario_copy default
   mkdir -p "${PROJECT}/.opencode/plugins/provider-ttft"

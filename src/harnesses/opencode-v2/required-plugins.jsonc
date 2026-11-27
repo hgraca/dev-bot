@@ -18,6 +18,9 @@
     ".opencode/plugins/skill-name-resolver",
     // Carries a ./tui export: the pane-title TUI part rides on this package,
     // and _retire_stale_plugin_dirs deletes any package not declared here.
-    ".opencode/plugins/herdr-pane-title"
+    ".opencode/plugins/herdr-pane-title",
+    // The agent-communication idle pass: a v2 host skips V1 plugin hooks, so
+    // the module's hook is wrapped in this package to run here at all.
+    ".opencode/plugins/agent-communication-herdr"
   ]
 }

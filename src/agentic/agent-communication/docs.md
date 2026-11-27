@@ -34,6 +34,10 @@ itself fails. The report is skipped entirely outside a herdr pane (`HERDR_ENV`/`
 when herdr cannot be reached — a herdr failure never affects a turn. A subagent session never
 publishes: it shares the pane, so its marker is not the pane's turn end.
 
+The pass runs on **opencode v1** through this module's hook. A v2 host skips module plugin hooks, so
+the harness ships `agent-communication-herdr`, a v2 adapter package that wraps the same pass against a
+v2 context. Claude Code is not wired yet: its stop hook does not carry the transcript the pass needs.
+
 ## Protocol rules
 
 - **Post-delegation verification** — the orchestrator checks that deliverables exist on disk before

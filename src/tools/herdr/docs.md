@@ -41,7 +41,9 @@ metadata tokens, so add it to a row to see it:
 rows = [["state_icon", "machine", "workspace", "tab"], ["agent", "$devbot"]]
 ```
 
-The token follows the turn:
+Both opencode generations publish it — the module's idle hook on v1, the harness's
+`agent-communication-herdr` package on v2; a Claude Code pane has no reporter yet. The token follows
+the turn:
 
 ```bash
 herdr agent list | jq '.result.agents[] | {pane: .pane_id, marker: .tokens.devbot}'

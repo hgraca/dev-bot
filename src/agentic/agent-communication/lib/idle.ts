@@ -24,13 +24,14 @@ export function waitEvidenceParts(
   message: any,
 ): Array<{ type: "tool"; tool: string; status: string; background: boolean }> {
   return (Array.isArray(message?.parts) ? message.parts : [])
-    .filter((p: any) => p?.type === "tool" && typeof p?.tool === "string")
+    // v1 names a tool part `tool`, a v2 host names it `name`.
+    .filter((p: any) => p?.type === "tool" && typeof (p?.tool ?? p?.name) === "string")
     .map((p: any) => {
       const status = typeof p?.state === "string" ? p.state : String(p?.state?.status ?? "")
       const input = p?.state?.input ?? p?.input ?? {}
       return {
         type: "tool" as const,
-        tool: String(p.tool),
+        tool: String(p.tool ?? p.name),
         status,
         background: input?.background === true || input?.background === "true",
       }
