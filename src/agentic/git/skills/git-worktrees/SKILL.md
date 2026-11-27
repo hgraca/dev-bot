@@ -262,7 +262,7 @@ git -C <root> branch -D <branch>   # a squash-merge is not ancestry, so -d refus
 `remove` refuses a worktree with uncommitted changes, and neither command discards work — anything
 unpushed stays where it is and is reported instead. The finish flow performs this teardown:
 `devbot:reconcile-work` step 1 walks every worktree and applies exactly this rule, so a wrap-up does
-not leave a landed worktree behind.
+not leave a landed worktree — or the dev environment booted for it — behind.
 
 The finish flow's memory capture (`devbot:remember-session`) writes vault notes in the main checkout;
 `devbot:commit-memories` then copies the capture's files into a **temporary linked worktree**, commits
@@ -309,6 +309,51 @@ scripts/ensure-hosts.sh --remove <the hosts the project's init-hosts adds>
 
 Read the project's `Makefile.proj.mk` `init-hosts` for the exact names — the same literals the
 recipe adds, with `${WORKTREE_PREFIX}` (the worktree directory and a dot) in front.
+
+### Bring down the worktree's containers
+
+`remove` deletes the directory only. A worktree booted with `make up-worktree` runs a compose project
+named for it (`<slug>-<main checkout>`) from its own `.docker/`, and those containers outlive the
+directory: they keep running against bind mounts that no longer exist, owned by no worktree and no
+session. Stop them in the same cleanup, matching both of their labels:
+
+```bash
+# Stop the containers this worktree owns — matched on both of their labels, so a project name
+# shared with another checkout cannot reach them. Volumes and networks carry only the project
+# label, which cannot prove ownership: they are left for the report instead.
+drop_env() {
+  local ids
+  ids=$(docker ps -aq --filter "label=com.docker.compose.project=$1" \
+                      --filter "label=com.docker.compose.project.working_dir=$2")
+  [ -z "$ids" ] && return 0
+  docker rm -f $ids
+}
+
+# A discovery that fails is not an empty result: report it, do not assume nothing is running.
+dirs=$(set -o pipefail; docker ps -a --format '{{.Label "com.docker.compose.project"}}\t{{.Label "com.docker.compose.project.working_dir"}}' \
+| sort -u) || { echo "WARN: docker is not answering — no environment torn down" >&2; dirs=""; }
+printf '%s\n' "$dirs" | while IFS=$'\t' read -r env dir; do
+  case "$dir" in
+    "$W"|"$W"/*) drop_env "$env" "$dir" || echo "WARN: $env left running" >&2 ;;
+  esac
+done
+```
+
+Not with `docker compose down`: `-p` names the project but never loads _its_ configuration, so a `down`
+run from a checkout that has a compose file of its own resolves the wrong stack, and once the directory
+is gone there is no file left to load.
+
+**Containers only, and matched on both labels.** A project name is not proof of ownership — it is built
+from the worktree's directory name, so two checkouts of the same repository can share one — while a
+volume or a network carries that name and nothing else. A sibling checkout whose containers are already
+stopped leaves nothing to tell its data from this worktree's, so neither is removed here: a volume is
+named in the wrap-up report for the user to judge, and a network is recreated by the next `up`. When the
+project has its own teardown target (`make down-worktree`), run that instead while the directory still
+exists: it also removes the worktree's hosts entry, which the section above covers.
+
+A worktree that **stays** keeps its environment: a pull request still open is fixed there, and the
+next session boots into the running containers. `devbot:reconcile-work` step 1 applies exactly this
+rule, and sweeps the environments an earlier teardown missed.
 
 ## Opting out
 
