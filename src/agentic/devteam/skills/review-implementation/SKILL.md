@@ -463,6 +463,18 @@ Issue types that apply regardless of technology stack.
     - Require a test per spelling, one asserting the pass is idempotent, and one asserting the absent-key case fails.
     - WARNING; BLOCKER when the value the pass leaves behind names shared infrastructure, another environment, or another tenant.
 
+45. **A narrowing filter accounts for the rows it excludes** — when the change selects rows to process (a query, a stream filter, an `array_filter`) and the result drives a verdict, an aggregate or a completeness claim:
+    - Enumerate every condition the filter applies and ask what happens to a row that fails it: a NULL in a filtered column, a missing foreign key, a value outside the accepted set. The filter drops them silently, and everything downstream reports on the survivors as though they were the whole population.
+    - Decide and record one outcome per excluded class: fail loudly as a data fault, store a status that explains the exclusion, or justify why the row is out of scope. "It cannot happen" belongs in that list only when a constraint enforces it.
+    - Prefer refusing to compute over a clean-looking result: an aggregate that silently ignores a row is worse than one that fails, because the ignored row leaves no trace.
+    - WARNING; BLOCKER when the aggregate or verdict is user-facing evidence.
+
+46. **A runtime configuration value is validated against its domain, not just its type** — when the change reads a value at runtime (feature flag, environment variable, remote config, a persisted payload) and applies it to a computation:
+    - Check the value against what the computation assumes, not only its type: a tolerance is non-negative, a ratio stays within bounds, a count is positive, a unit is one the code handles. A type test (`is_numeric`, an integer cast, an enum from string) admits values the arithmetic cannot survive.
+    - Verify an out-of-domain value fails loudly and attributably, naming the key and the value, instead of falling back to a default or quietly distorting every result it touches.
+    - Ask what a wrong-but-valid value does to results already stored, and whether the value is recorded alongside them so a later reader can tell what each record was computed with.
+    - WARNING; BLOCKER when the value silently changes every computed result.
+
 ### Technology-specific
 
 Apply the section for each technology the project uses. Each list merges issue types distilled from past reviews with technology-specific pitfalls of the generic checks above.
