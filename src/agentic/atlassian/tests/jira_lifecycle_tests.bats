@@ -36,7 +36,9 @@ line_of() {
 }
 
 @test "devbot: the gate consults the configured server state, not a guess" {
-  run grep -qF -- '--key mcps' "$DEV_AGENT"
+  # The Jira gate is the endpoint-resolved key: a project may register the
+  # server under another name to keep a second account.
+  run grep -qF -- '--key atlassian_server' "$DEV_AGENT"
   assert_success
   run grep -qF -- '--session-root' "$DEV_AGENT"
   assert_success
@@ -77,6 +79,10 @@ line_of() {
     run grep -qF "$needle" "$TEAMLEAD"
     assert_success
   done
+  # The teamlead gate is the same one the devbot role carries: the server is
+  # resolved by endpoint, because a project may rename it for a second account.
+  run grep -qF -- '--key atlassian_server' "$TEAMLEAD"
+  assert_success
 }
 
 @test "auto-dev: resolves the ticket inside its one pause and opens it entering BUILD" {
@@ -112,7 +118,10 @@ line_of() {
 @test "gather-context: pins both switches, the JQL rule and the report section" {
   local skill="${PROJECT_ROOT}/src/agentic/explore/skills/gather-context/SKILL.md"
 
-  run grep -qF -- '--key mcps' "$skill"
+  # Both gates are read through the tool, and the Jira one is the
+  # endpoint-resolved key — a project may register the server under another name
+  # to keep a second account.
+  run grep -qF -- '--key atlassian_server' "$skill"
   assert_success
   run grep -qF -- '--key modules' "$skill"
   assert_success
@@ -122,8 +131,9 @@ line_of() {
   assert_success
   run grep -qF '## Jira ticket' "$skill"
   assert_success
-  # Another enabled server must not stand in for the Atlassian entry.
-  run grep -qF 'another enabled server does' "$skill"
+  # Another enabled server must not stand in for the Atlassian entry. Read the
+  # prose unwrapped: a reflow must not decide whether this passes.
+  run bash -c 'tr "\n" " " < "$1" | grep -qF "another enabled server does"' _ "$skill"
   assert_success
 }
 

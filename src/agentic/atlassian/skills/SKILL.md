@@ -12,8 +12,9 @@ and Loom. This skill covers **Jira** work items; the same connection also backs
 Confluence and the rest.
 
 The module is opt-in and its server ships **disabled** (`enabled: false` in the
-module's `mcp.json`). Enable the module and flip `enabled` to `true` in the
-generated harness config before relying on the tools below.
+module's `mcp.json`). Enable the module, then clear `disabled` on its entry in
+the generated harness config — a v1 config spells that `enabled: true` — before
+relying on the tools below.
 
 ## Authentication
 
@@ -21,12 +22,18 @@ The server authorizes with **OAuth 2.1**. opencode detects the server's 401 and
 runs the consent flow itself, so authenticate once per machine:
 
 ```sh
-opencode mcp auth atlassian
+opencode mcp auth <server-name>     # `atlassian`, unless the project renamed it
 ```
 
 Tokens live with the host, never in the project config, and are **scoped to the
 site (`cloudId`) the user consented to**. If a call fails with an authorization
 error, re-run the command above.
+
+opencode stores them **per server name**, in one file shared by every project, so
+two projects using the name `atlassian` share one Atlassian account. Keep a
+second account by registering the same endpoint under a second name in that
+project's config and signing in to that name; `devbot tool project-for-path
+<project> --key atlassian_server` reports which name is live here.
 
 **Non-interactive alternative** (CI, service accounts) — only if the organisation
 admin has enabled API-token authentication. Add `"oauth": false` to this server's

@@ -98,8 +98,10 @@ print('MCP:OK')
   assert_success
   run grep -q 'CANCELED' "$skill"
   assert_success
-  # Both gates are consulted through the tool, never by guessing.
-  run grep -q -- '--key mcps' "$skill"
+  # Both gates are consulted through the tool, never by guessing. The Jira gate
+  # is the endpoint-resolved key: the server may carry a name other than
+  # `atlassian` when a project keeps a second account.
+  run grep -q -- '--key atlassian_server' "$skill"
   assert_success
   run grep -q -- '--key modules' "$skill"
   assert_success

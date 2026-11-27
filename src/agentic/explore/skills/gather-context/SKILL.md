@@ -149,13 +149,17 @@ Two switches must both be on, and neither is assumed:
 
 ```bash
 devbot tool project-for-path <project> --key modules                    # absence => enabled
-devbot tool project-for-path <project> --key mcps [--session-root DIR]  # server map
+devbot tool project-for-path <project> --key atlassian_server [--session-root DIR]  # {name, state}
 ```
 
-Both on means `mcps` maps `atlassian` to `enabled` — another enabled server does
-not count. When `atlassian` is absent or `disabled`, skip this step and say so in
-one line. In a polyrepo session pass the workspace root as `--session-root`,
-the checkout the harness runs in.
+Both on means `atlassian_server` reports `state: enabled` — another enabled
+server does not count. When it is `missing` or `disabled`, skip this step and say
+so in one line; when it is `ambiguous` (two enabled servers on the module's
+endpoint), ask which account to search; when it is `error`, say the config entry
+is malformed rather than reporting Jira as off. Read that key rather than the
+literal `atlassian` entry: a project keeps a second Jira account by registering
+the same endpoint under a second server name. In a polyrepo session pass the
+workspace root as `--session-root`, the checkout the harness runs in.
 
 With the entry `enabled`, load `devbot:atlassian` and search once with JQL built from the
 delegation keywords — an issue key present in the request, otherwise one

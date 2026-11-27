@@ -15,16 +15,29 @@ Two independent switches must both be on:
 
 ```bash
 devbot tool project-for-path <project> --key modules                    # absence => enabled
-devbot tool project-for-path <project> --key mcps [--session-root DIR]  # server map
+devbot tool project-for-path <project> --key atlassian_server [--session-root DIR]  # {name, state}
+devbot tool project-for-path <project> --key mcps [--session-root DIR]  # full server map
 ```
 
 `modules` reports the module gate, merged project-over-global with absence
 meaning enabled. `mcps` reports the generated harness config's per-server state
 and `mcps_sources` names the files it read. In a polyrepo session pass the
 workspace root as `--session-root`: the live config belongs to the checkout the
-harness runs in, not to the project that owns the file. When the module is
-enabled but `atlassian` is `disabled` or absent from `mcps`, ask the user
-whether to enable the MCP before continuing.
+harness runs in, not to the project that owns the file.
+
+Jira is live when the module is enabled **and** `--key atlassian_server` reports
+`state: enabled`. Read that key, not the literal `atlassian` entry: opencode
+stores OAuth credentials per server _name_, so a project keeps a second Jira
+account by registering the same endpoint under a second name, and a `reinit` can
+leave a disabled `atlassian` stub beside it. The key matches the module's
+endpoint and reports `{name, state}`, adding `candidates` whenever `name` is
+null so the agent knows which entries it is choosing between.
+
+When the state is not `enabled`: `missing` → ask the user whether to add and
+enable the MCP; `disabled` → ask whether to enable it, and when `candidates`
+lists several entries ask which one rather than enabling the canonical stub;
+`ambiguous` → two live servers, ask which account to file against; `error` → the
+config entry is malformed, so fix it instead of "enabling" it.
 
 A configured `enabled` server is necessary, not sufficient: it can still be
 offline or unauthenticated. If the first Jira call fails to connect or
@@ -32,11 +45,13 @@ authorise, say so and treat the ticket work as unavailable for this session —
 `devbot:atlassian` carries the auth path.
 
 On yes, apply the path the harness needs — `src/agentic/atlassian/docs.md` is
-the source: opencode reads `mcp.atlassian.enabled` from the generated
-`opencode.jsonc`, so set it to `true`; Claude Code has no per-server switch, so
-set `enabled: true` in the module manifest and run `devbot reinit`. Either way
-the harness must be restarted — MCP tools load at start, so this session stays
-without Jira. Never edit a config silently.
+the source: opencode reads the server's toggle from the generated
+`opencode.jsonc`, so switch it on for the name `atlassian_server` reports:
+`disabled: false`, or `enabled: true` where the config uses the older spelling.
+Claude Code has no per-server switch, so set `enabled: true` in the module
+manifest and run `devbot reinit`. Either way the harness must be restarted — MCP
+tools load at start, so this session stays without Jira. Never edit a config
+silently.
 
 Module enabled **and** MCP enabled is the only state in which the steps below
 run. In every other state skip the Jira work for the session and say so once.
