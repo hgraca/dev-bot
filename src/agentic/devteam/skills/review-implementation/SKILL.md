@@ -455,6 +455,14 @@ Issue types that apply regardless of technology stack.
     - Require a test per case class (passing, failing, absent), not one representative: a quantifier proven on the failing case is the one that was certainly implemented.
     - WARNING; BLOCKER when a caller's decision depends on an omitted case.
 
+44. **A rewrite pass over a template is idempotent, complete, and loud about what it missed** — when the change substitutes, renames or re-homes values inside a copied artifact (a rendered manifest, a generated config, a snapshot, a scaffolded file):
+    - **Match every spelling the source can legally carry.** A token appears hyphenated, underscored, host-qualified, or bare depending on which field holds it, and a pass that names one form scopes the fields it happened to look at. Enumerate the spellings, derive the list from the artifact rather than from the one line that revealed the problem, and rewrite all of them in the same pass.
+    - **Rewrite each match once.** Run the pass left to right over a single buffer, or make the replacement not re-match its own output. A pass applied per key over its own result substitutes twice, and the second application silently produces a name no other component looks for.
+    - **Fail loudly on what it could not rewrite.** A key the pass was asked to scope but did not find is the whole defect: report it and fail. A pass that skips absent keys exits 0, leaves the copied value naming the source, and the environment then shares state with it while every log line reads as success.
+    - **Do not require what the artifact cannot express.** The mirror image is as damaging: a key demanded of every application fails the ones that legitimately have none, so the requirement is derived from the artifact, not asserted over the set.
+    - Require a test per spelling, one asserting the pass is idempotent, and one asserting the absent-key case fails.
+    - WARNING; BLOCKER when the value the pass leaves behind names shared infrastructure, another environment, or another tenant.
+
 ### Technology-specific
 
 Apply the section for each technology the project uses. Each list merges issue types distilled from past reviews with technology-specific pitfalls of the generic checks above.
