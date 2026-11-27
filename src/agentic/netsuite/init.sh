@@ -37,6 +37,11 @@ READER="${MODULE_DIR}/../../_shared/read_jsonc.py"
 
 PREFIX="netsuite"
 URL_SUFFIX="suitetalk.api.netsuite.com/services/mcp/v1/all"
+# The account host serves authorization-server metadata that declares
+# `issuer: https://system.netsuite.com`. RFC 8414 §3.3 requires the issuer to
+# equal the URL the document was fetched from, so plain discovery is rejected
+# outright; naming the document is what gets a client past it.
+METADATA_SUFFIX="suitetalk.api.netsuite.com/.well-known/oauth-authorization-server"
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -79,13 +84,51 @@ _netsuite_normalize_account() {
   printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr '_' '-'
 }
 
+# Extra `netsuite.oauth` keys the manifest carries verbatim — `client_id`,
+# `scope`, `redirect_uri`, and whatever indirection holds the secret
+# (`{env:VAR}` / `{file:path}`). They cannot be derived: NetSuite's
+# registration endpoint rejects every redirect URI, so the client is registered
+# by hand and the redirect URI opencode has to send is the one that record
+# pinned. The project's object wins; the global one is the fallback, and an
+# explicit `{}` is a project override too — that is how a project clears
+# inherited credentials instead of silently keeping another account's.
+# `auth_server_metadata_url` is not part of this set: it is derived from the
+# account, and letting configuration replace it would bring back the issuer
+# mismatch this module emits it to avoid.
+_netsuite_oauth_extra() {
+  local cfg extra
+  for cfg in "${PROJECT_CONFIG}" "${GLOBAL_CONFIG}"; do
+    [[ -f "${cfg}" ]] || continue
+    extra="$(python3 "${READER}" "${cfg}" "${PREFIX}" 2>/dev/null |
+      python3 -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    data = None
+value = data.get("oauth") if isinstance(data, dict) else None
+if isinstance(value, dict):
+    print(json.dumps(value, sort_keys=True))
+' 2>/dev/null || true)"
+    if [[ -n "${extra}" ]]; then
+      printf '%s' "${extra}"
+      return 0
+    fi
+  done
+  return 0
+}
+
 # Publish the server canonically; the selected harness applies it. The account
 # URL is the only per-project input and the harness owns the shape.
 _netsuite_write_manifests() {
-  local server="$1" enabled="$2" url="$3"
+  local server="$1" enabled="$2" url="$3" metadata="$4" extra
+  extra="$(_netsuite_oauth_extra)"
+  [[ -n "${extra}" ]] || extra='{}'
   _devbot_publish_runtime_mcp "${PROJECT_DIR}" "${server}" \
     "$(jq -nc --arg s "${server}" --arg u "${url}" --argjson e "${enabled}" \
-      '{($s): {type: "http", url: $u, enabled: $e}}')" \
+      --arg m "${metadata}" --argjson x "${extra}" \
+      '{($s): {type: "http", url: $u, enabled: $e,
+               oauth: ($x + {auth_server_metadata_url: $m})}}')" \
     && _devbot_apply_runtime_mcps "${PROJECT_DIR}"
 }
 
@@ -123,7 +166,8 @@ enabled="$(_netsuite_config enabled)"
 [[ "${enabled}" == "true" ]] || enabled="false"
 
 _devbot_prune_runtime_mcp "${PROJECT_DIR}" "${PREFIX}" "${server}"
-_netsuite_write_manifests "${server}" "${enabled}" "https://${account}.${URL_SUFFIX}"
+_netsuite_write_manifests "${server}" "${enabled}" \
+  "https://${account}.${URL_SUFFIX}" "https://${account}.${METADATA_SUFFIX}"
 
 if [[ "${enabled}" == "true" ]]; then
   _ok "netsuite — MCP server '${server}' registered (enabled)"

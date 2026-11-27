@@ -38,6 +38,29 @@ The server is off by default. To wire it on from configuration instead of the ha
 { "netsuite": { "account_id": "1234567", "enabled": true } }
 ```
 
+### OAuth client settings
+
+NetSuite's registration endpoint rejects every redirect URI (`invalid_redirect_uri`), so the OAuth client cannot be registered dynamically: create the integration record by hand and feed what it pinned to opencode. `netsuite.oauth` is carried into the manifest verbatim (project value over global), merged over the `auth_server_metadata_url` the module always emits:
+
+```jsonc
+{
+  "netsuite": {
+    "account_id": "1234567",
+    "oauth": {
+      "client_id": "{env:NETSUITE_MCP_CLIENT_ID}",
+      "client_secret": "{env:NETSUITE_MCP_CLIENT_SECRET}",
+      "redirect_uri": "http://127.0.0.1:19876/mcp/oauth/callback",
+    },
+  },
+}
+```
+
+`redirect_uri` must match the integration record's callback character for character — NetSuite reports a mismatch as a plain "Invalid login attempt", not as a redirect error. Keep the secret behind `{env:VAR}` or `{file:path}` indirection so no credential lands in a config file, and turn the AI Connector scope on in the record itself.
+
+`auth_server_metadata_url` is **not** configurable: the module derives it from the account and keeps it authoritative, because a replaced URL would bring back the issuer mismatch below.
+
+The module always emits `oauth.auth_server_metadata_url` set to the account's own metadata document. NetSuite serves it from the account host but declares `issuer: https://system.netsuite.com`, which RFC 8414 §3.3 rejects; without the explicit document every discovery fails on that mismatch.
+
 ## Enabling and authenticating
 
 - **opencode** — open the MCP dialog (`/mcp`), connect `netsuite-<account_id>`, and authorise in the browser. opencode stores and refreshes the tokens; `opencode mcp auth netsuite-<account_id>` runs the same flow from a shell, and `opencode mcp logout netsuite-<account_id>` clears it.

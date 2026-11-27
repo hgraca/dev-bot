@@ -45,6 +45,7 @@ print(json.dumps(data[sys.argv[2]], sort_keys=True))
 }
 
 URL_BASE="suitetalk.api.netsuite.com/services/mcp/v1/all"
+METADATA_BASE="suitetalk.api.netsuite.com/.well-known/oauth-authorization-server"
 
 # ── emission ─────────────────────────────────────────────────────────────────
 
@@ -56,7 +57,7 @@ URL_BASE="suitetalk.api.netsuite.com/services/mcp/v1/all"
 
   [ -f "${PROJECT}/.opencode/netsuite-1234567.mcp.json" ]
   run entry "${PROJECT}/.opencode/netsuite-1234567.mcp.json" "netsuite-1234567"
-  assert_output '{"enabled": false, "type": "remote", "url": "https://1234567.'"${URL_BASE}"'"}'
+  assert_output '{"enabled": false, "oauth": {"auth_server_metadata_url": "https://1234567.'"${METADATA_BASE}"'"}, "type": "remote", "url": "https://1234567.'"${URL_BASE}"'"}'
 }
 
 @test "normalises a sandbox account id the way NetSuite's hostname does" {
@@ -67,7 +68,7 @@ URL_BASE="suitetalk.api.netsuite.com/services/mcp/v1/all"
 
   [ -f "${PROJECT}/.opencode/netsuite-1234567-sb1.mcp.json" ]
   run entry "${PROJECT}/.opencode/netsuite-1234567-sb1.mcp.json" "netsuite-1234567-sb1"
-  assert_output '{"enabled": false, "type": "remote", "url": "https://1234567-sb1.'"${URL_BASE}"'"}'
+  assert_output '{"enabled": false, "oauth": {"auth_server_metadata_url": "https://1234567-sb1.'"${METADATA_BASE}"'"}, "type": "remote", "url": "https://1234567-sb1.'"${URL_BASE}"'"}'
 }
 
 @test "the claudecode manifest omits a server the config disables" {
@@ -130,6 +131,60 @@ data = json.load(open(sys.argv[1]))["mcpServers"]["netsuite-1234567"]
 print(sorted(data), data["type"])
 ' "${PROJECT}/.claude/netsuite-1234567.mcp.json"
   assert_output "['type', 'url'] http"
+}
+
+@test "carries netsuite.oauth keys into the manifest" {
+  # NetSuite's registration endpoint rejects every redirect URI, so the client
+  # is registered by hand and its redirect URI is not derivable — init has to
+  # pass through what that registration pinned. The secret stays an indirection
+  # token; init never sees or resolves it.
+  set_global '{"netsuite": {"account_id": "1234567", "oauth": {"client_id": "{env:NS_ID}", "client_secret": "{env:NS_SECRET}", "redirect_uri": "http://127.0.0.1:19876/mcp/oauth/callback"}}}'
+
+  run bash "${INIT}" "${PROJECT}"
+  assert_success
+
+  run entry "${PROJECT}/.opencode/netsuite-1234567.mcp.json" "netsuite-1234567"
+  assert_output --partial '"client_id": "{env:NS_ID}"'
+  assert_output --partial '"client_secret": "{env:NS_SECRET}"'
+  assert_output --partial '"redirect_uri": "http://127.0.0.1:19876/mcp/oauth/callback"'
+  assert_output --partial '"auth_server_metadata_url": "https://1234567.'"${METADATA_BASE}"'"'
+}
+
+@test "a project oauth object overrides the global one" {
+  set_global '{"netsuite": {"account_id": "1234567", "oauth": {"client_id": "global"}}}'
+  set_project '{"netsuite": {"oauth": {"client_id": "project"}}}'
+
+  run bash "${INIT}" "${PROJECT}"
+  assert_success
+
+  run entry "${PROJECT}/.opencode/netsuite-1234567.mcp.json" "netsuite-1234567"
+  assert_output --partial '"client_id": "project"'
+}
+
+@test "the derived metadata URL cannot be overridden from configuration" {
+  # Letting configuration replace it would reintroduce the RFC 8414 issuer
+  # mismatch the derived URL exists to avoid, so the derived value wins.
+  set_global '{"netsuite": {"account_id": "1234567", "oauth": {"auth_server_metadata_url": "https://example.com/.well-known/oauth-authorization-server"}}}'
+
+  run bash "${INIT}" "${PROJECT}"
+  assert_success
+
+  run entry "${PROJECT}/.opencode/netsuite-1234567.mcp.json" "netsuite-1234567"
+  assert_output --partial '"auth_server_metadata_url": "https://1234567.'"${METADATA_BASE}"'"'
+  refute_output --partial "example.com"
+}
+
+@test "an explicit empty project oauth object clears the global one" {
+  # `{}` is a project override, not a missing value: otherwise a project could
+  # not drop inherited credentials and reinit would keep another account's.
+  set_global '{"netsuite": {"account_id": "1234567", "oauth": {"client_id": "global", "redirect_uri": "http://127.0.0.1:19876/mcp/oauth/callback"}}}'
+  set_project '{"netsuite": {"oauth": {}}}'
+
+  run bash "${INIT}" "${PROJECT}"
+  assert_success
+
+  run entry "${PROJECT}/.opencode/netsuite-1234567.mcp.json" "netsuite-1234567"
+  assert_output '{"enabled": false, "oauth": {"auth_server_metadata_url": "https://1234567.'"${METADATA_BASE}"'"}, "type": "remote", "url": "https://1234567.'"${URL_BASE}"'"}'
 }
 
 # ── precedence ───────────────────────────────────────────────────────────────
