@@ -1,0 +1,9 @@
+---
+date: 2026-11-27
+keywords: ["cypress", "sharding", "cypress-split", "e2e-speed", "ci"]
+trigger-on: ["cypress-suite-speed", "cypress-split-sharding", "cypress-animations-disabled"]
+---
+
+## Cutting a slow Cypress suite: kill fixed costs before adding runners
+
+On `GET-E/portal` a 10m45s job was 9m02 of nine specs run serially (~8–15s per test). What actually moved the needle, in order of measured effect: (1) **shard the specs** — Cypress cannot parallelise specs inside one run, so a matrix + `cypress-split` is the only structural lever, but each shard re-pays its own setup, browser start and first page load, so wall clock flattens: six shards of a 484s suite left a 94s shard, seven gave 64s, eight measured *worse* at 67s. (2) **Disable CSS transitions/animations in the app under test** with `Cypress.on('window:before:load', win => …)` injecting `*, *::before, *::after { transition: none !important; animation: none !important; }` — MUI transitions make every click wait for animation settle, and this cut vehicles.cy.ts by 19% and the pair by 12%; always A/B it against a *warm-cache* baseline, because a naive before/after comparison on the same machine attributed a 2.4× win that was mostly browser/Vite cache. (3) **Serve the production build instead of the dev server** measured ~2× faster per spec, but only validate it first — in the same repo the login page never rendered in the bundled app, so that lever was dropped rather than chased. `cypress-split` reads `SPLIT` (total) and `SPLIT_INDEX` (zero-based) from env, balances by `SPLIT_FILE` durations (`{ "durations": [{ "spec", "duration" }] }` in ms) instead of its file-size heuristic, requires `setupNodeEvents(on, config) { cypressSplit(on, config); return config }` — without the `return config` every spec runs — and **rewrites the timings file at the end of a run unless `SPLIT_OUTPUT_FILE` points elsewhere**, which silently dirties the checkout and can break a formatting gate.

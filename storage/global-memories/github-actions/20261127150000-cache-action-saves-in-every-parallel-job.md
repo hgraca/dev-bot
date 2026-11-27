@@ -1,0 +1,9 @@
+---
+date: 2026-11-27
+keywords: ["github-actions", "actions-cache", "ci-speed", "matrix-shards"]
+trigger-on: ["github-actions-cache-save", "actions-cache-post-step", "ci-cache-version-key"]
+---
+
+## `actions/cache` saves in *every* parallel job, and all but one save is lost
+
+With a `matrix` of N jobs sharing one `uses: actions/cache@v4` step, each job runs the action's post step at the end of the job and **re-tars the cached path** before trying to reserve the key: in `GET-E/portal` six Cypress shards each spent ~31s tarring a 1 GB `~/.cache/Cypress` and then logged `Failed to save: Unable to reserve cache with key …, another job may be creating this cache` — exactly one shard wins. That is up to ~30s per shard of pure waste on the critical path, invisible unless you read the action `duration_ms` in the logs. Two fixes, both needed: switch to `actions/cache/restore@v4` (restore-only, no post step) plus an explicit `actions/cache/save@v4` gated on `inputs.SAVE == 'true' && steps.<restore-id>.outputs.cache-hit != 'true'` and enabled for a single matrix cell; and key a *tool binary* cache on the tool's version (`Linux-cypress-bin-15.21.2`) rather than `hashFiles('pnpm-lock.yaml')`, because a lockfile key restores a stale 1 GB entry on every dependency bump and then saves a duplicate — five such entries had grown to 4.68 GB of GitHub's 10 GB per-repo budget. A `restore-keys` prefix for a version-keyed binary cache is harmful: another version's binary is useless, and the fallback is what silently restores stale trees. Note that `cache-hit` is deliberately unset (not `false`) on a total miss, so `!= 'true'` is the guard that also saves on the first ever run. The same defect exists in `actions/setup-node`'s `cache: 'pnpm'`, which has no restore-only mode — its post step loses the reservation in most jobs too (~12s each).
