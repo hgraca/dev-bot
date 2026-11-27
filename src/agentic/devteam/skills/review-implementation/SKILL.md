@@ -162,6 +162,7 @@ When the diff states a fact about how an existing mechanism behaves — "it prun
 - Verify each claim against the source, or by running it. A plausible sentence in a document is a factual assertion, and unverified it becomes the next reader's wrong belief.
 - A count, a range, or a "every/all" quantifier is the highest-risk form: it is cheap to check and easy to get wrong.
 - A **negative or complete** claim — "only these routes are public", "nothing else reads it" — needs the full set enumerated (the route table, the registry, every call site), not a spot-check. A refutation that holds only while a dependency is healthy names that condition instead of closing the finding.
+- When the claim describes a **shape the caller parses** — a response format, an output layout, an exit-code meaning — the full set is every return path of the producing function, not the happy one. Verify the format the code actually emits on its timeout, validation, empty and fallback paths too: a shape documented for the completed call and silently different on an error path ships a caller that misparses exactly the case it was documented for.
 - An unverified claim about existing behaviour is WARNING; one that a reader would act on is BLOCKER.
 
 ### 19. Unverifiable Claims
@@ -378,6 +379,34 @@ Issue types that apply regardless of technology stack.
 - Ask which repository owns the resolved path and which repository the command runs against, and test the path through the link. Resolving late — after the check but before the copy — is the same defect.
 - WARNING; BLOCKER when the miss silently drops the item or commits it to the wrong repository.
 
+31. **A gate reads the declaration, not the subset that currently exists** — when the change decides "is everything required here?" by querying for the items themselves (a required-check list, a replica set, a set of migrations, an expected set of files):
+
+- Establish what the query omits. A filtered view reports only what exists **now**, so an item that has not been created yet — a check that has not started, a job not yet scheduled, a file not yet written — is absent from the answer rather than reported missing. "All of the visible items passed" is then a vacuous truth, and the gate reports success on the one state it was built to catch.
+- Resolve the expected set from the declaration instead: the repository's configured required contexts, the manifest's declared entries, the source of truth the items are derived from. Compare that set against what reported, and treat a declared-but-absent item as pending, never as satisfied.
+- Treat an unreadable declaration as unknown, not as empty. A lookup that fails, is unauthorized, or returns an unparseable body must not collapse into "nothing is required" — that is the same false green by another route. An empty result is a third state too: distinguish "no items declared" from "no items yet".
+- WARNING; BLOCKER when the gate's answer is reported as success or drives a merge, deploy or destructive step.
+
+32. **A serialized key is renamed or dropped only with a compatibility path** — when the change alters the shape a caller parses: a JSON/CSV column, a response field, an event payload, a CLI `--json` key:
+
+- Keep the old key, alias it, or version the shape. Removing a field a caller reads is a breaking change even when the replacement is better named, and even when nothing in this repository parses it — consumers outside the diff are exactly the ones that cannot be found by grepping for usage.
+- The value's **vocabulary** counts as part of the key: a field kept under the same name but whose values change spelling (`checks_failed` → `check-failed`, an enum renamed, a status code remapped) breaks every comparison the caller wrote, and passes any check that only asserts the key still exists.
+- Check the migration's whole surface: a test asserting the new key alone does not notice the removal, so require one that pins the old contract until the alias is retired.
+- WARNING; BLOCKER when the field drives a caller's control flow or a gate.
+
+31. **A retry's guard reaches every request the mechanism issues** — when the change retries, replays or re-issues a call:
+
+- Follow the guard — a flag on the request, an attempt counter, a state marker — into **every** request the mechanism creates itself: a token or cookie fetch, a refresh, a probe. Each of those is a new request with fresh state, so a guard stored on the original does not reach it, and a failure there re-enters the same handler: the retry is unbounded while reading as "once".
+- Check the dependency's failure modes, not only its success: a rejection, a **resolved non-answer** (a shared hook that returns nothing), a redirect, and a status other than the one the mechanism keys on. A mechanism that only distinguishes "worked" from "the error I retry" replays on the third shape.
+- Require the original call to reject when the mechanism's own dependency fails, and never to replay a mutating request after a failed dependency.
+- WARNING; BLOCKER when the nested path can re-enter the handler, or a swallowed dependency failure replays a write.
+
+32. **A shared interceptor keeps every caller's contract** — when the change adds or modifies a response interceptor, middleware or cross-cutting hook that several call sites share:
+
+- Verify every branch ends in the outcome the caller expects. A branch that navigates, logs or retries but **returns nothing** resolves the caller's promise with `undefined`; a caller destructuring the response then throws a `TypeError` and the real status is lost. Require a rejection on every error branch.
+- Check the status read is null-safe — `error.response?.status`, not `error.response.status` — because a network failure, timeout or abort carries no response object.
+- When a new call site adopts the shared hook, check what it now inherits: navigation or redirects on statuses that call legitimately receives, retries, flags. Require an explicit opt-out where a background call must not navigate, and verify the opt-out reaches every nested request the operation issues.
+- WARNING; BLOCKER when a legitimate response for an adopting caller navigates the page or loses the error.
+
 31. **A step declared non-fatal stays off the command that creates what it needs** — when text or code declares that a later step's failure costs only that step (an assignee, a label, a reviewer request, a notification applied once the object exists):
 
     - Enumerate **every documented form** of the sequence, including the raw fallback written for when a helper tool or wrapper is unavailable, and check the later step's flag appears on none of the earlier commands. A helper that assigns after creating while its documented fallback passes `--assignee` to the create command states a guarantee only one of the two paths honours, and the fallback is exactly the path a reader takes when the helper is missing.
@@ -496,6 +525,41 @@ Issue types that apply regardless of technology stack.
     - Treat an explicitly present empty value as a value. When the higher-precedence layer carries `{}`, `[]` or `""`, a truthiness or length test — `if value:`, `[ -n "$value" ]` — reads it as missing and falls through to the inherited layer, so an operator can never clear inherited settings; only an absent or wrongly typed value may fall back.
     - Ask which layer wins for every key the change touches, including the one the derivation owns, and test each decision with both the empty and the wrong-value case.
     - WARNING; BLOCKER when the fallback reinstates the failure the change exists to prevent, or applies another project's or account's credentials.
+
+48. **An external contract is verified against the implementation that defines it** — when the change binds to a host or library API, or parses a format another component writes:
+
+    - Verify the call and response shapes against the installed version or the repository's own working consumer — an event payload under `data` rather than `properties`, a client envelope `{ data: [...] }` rather than a bare array, an agent entry shaped `{ info, parts }` rather than `{ type, content }`. A sibling file's naming is not evidence, and neither is the API of the previous major version.
+    - For a parser, read the code that writes the format: a record per content block, a repeated message id, a second directory for delegated runs. Group and normalise from that, not from how one sample line looked.
+    - A fixture built on the implementer's assumption verifies the assumption, not the integration. Take the shape from the writer or a live call.
+    - WARNING; BLOCKER when the integration is inert where it ships — the happy-path test passes and nothing ever happens at runtime.
+
+49. **A new entry honours the gates its siblings do** — when the change registers an artifact beside existing ones (a hook, a manifest entry, a plugin, a command):
+
+    - Enumerate the gates every sibling passes — module enablement, platform, environment — and show the new one passing them too. Registration completeness asks whether the system sees it (type 16); this asks whether the gates that suppress its siblings suppress it as well.
+    - A dispatcher that never consults the enablement set makes the new entry fire in every project, including the ones that switched the module off. Silence on that path is the defect, not a detail.
+    - Test the suppressed case, not only the enabled one.
+    - WARNING; BLOCKER when the entry performs an external side effect for a module its owner disabled.
+
+50. **A bounded read proves termination and completeness** — when the change reads a growing file or stream through a window, or grows a scan until it finds what it needs:
+
+    - Show where the loop stops. A cap that leaves the window at its previous size spins forever, and a hook that spins hangs the caller; every growth must change the thing the loop reads or end it.
+    - A truncated read is not a complete one. When the bound is reached with the unit still incomplete, publish nothing and say so — a partial result that downstream treats as whole clears state it should have preserved.
+    - Keep the per-invocation cost bounded: re-reading a file that grows for the life of a session makes every later call slower than the last.
+    - Require a test at the boundary, not only below it: the size that exceeds the cap, and the input that never settles.
+
+51. **A new external dependency is portable to every supported platform** — when the change shells out to a binary or relies on a flag:
+
+    - Check the command exists on each supported platform, not only the one under test. GNU `timeout` is absent on macOS; prefer the repository's own `timeout`/`gtimeout` fallback or an equivalent bounded call. A budget that is correct (type 42) can still be enforced by a mechanism that is not there.
+
+52. **A target named on the command line is not configured by naming it** — when the change documents or writes a command that selects an object by identifier (a project, a context, an environment, a workspace, a cluster) and then acts on it:
+
+    - Separate the **selector** the tool accepts from the **configuration** it still resolves from the caller, usually a file found from the current directory. A selector that matches is not a load: `docker compose -p <project> down` reads whichever compose file the working directory resolves to, so run from a checkout carrying its own file it validates the wrong stack, and once the directory holding the original file is gone there is nothing left to load.
+    - Prefer the route that needs neither, where the tool offers one: acting on the resources through the metadata the tool itself stamps on them (labels, tags, annotations) works with no file and no working directory, and is what the selector path does internally.
+    - Test the removal case explicitly — "select it, then tear it down" stops working exactly when the directory that declared it no longer exists, which is when such commands are run.
+    - WARNING; BLOCKER when the command destroys state or reaches a target the reader did not name.
+    - A failure hidden behind `|| true` or a discarded exit code turns "not installed" into "feature silently off". Distinguish the two, or bound the call in the process instead.
+    - Record the platform each path was verified on, so a later reader knows what was actually exercised.
+    - WARNING; BLOCKER when the feature is silently inert on a platform the project supports.
 
 ### Technology-specific
 
@@ -652,7 +716,7 @@ Save to `<issue-folder>/REVIEW-YYYY-MM-DD-NNN.md`.
 > - **Working-Directory Scope** — Every call scoped to the resolved target, not to the process cwd?
 > - **Procedure Described as Enforcement** — Is a document's instruction kept distinct from a platform guarantee?
 > - **Second-Order Damage While Fixing** — Would each applied fix survive re-reading against its own finding?
-> - **Recurring Issue Types (Generic)** — TOCTOU/concurrent modification? Config-like entity invariants? Migration `down()` restores exact schema? API contract round-trip? Docs match implementation (incl. docblocks)? Docs/runbooks issue only scoped, reversible commands? Architecture/design smells? Atomic commit structure? Configuration & rollout? Per-request performance? Deployment/queue rollout compatibility? Concurrent-race recovery guards the actual failing operation (`new()` vs `save()`)? Bootstrap path for newly-gated admin capabilities? Cached build artifacts renamed or invalidated when their inputs change? Request parameters validated rather than coerced? Blanket filters not defeating an always/never guarantee? Reused checkouts validated before writing? Generated refs unique under concurrency? Symlinked paths resolved before check/copy/stage? Credential graded by every surface (argv, environment, file and directory mode, logs, inspection output) with permissions enforced rather than attempted? A hazard documented once applied everywhere it occurs? A timeout budget that exceeds the wait it wraps and survives every boundary it crosses? A contract quantifier ("every", "all") honoured by every case it names?
+> - **Recurring Issue Types (Generic)** — TOCTOU/concurrent modification? Config-like entity invariants? Migration `down()` restores exact schema? API contract round-trip? Docs match implementation (incl. docblocks)? Docs/runbooks issue only scoped, reversible commands? Architecture/design smells? Atomic commit structure? Configuration & rollout? Per-request performance? Deployment/queue rollout compatibility? Concurrent-race recovery guards the actual failing operation (`new()` vs `save()`)? Bootstrap path for newly-gated admin capabilities? Cached build artifacts renamed or invalidated when their inputs change? Request parameters validated rather than coerced? Blanket filters not defeating an always/never guarantee? Reused checkouts validated before writing? Generated refs unique under concurrency? Symlinked paths resolved before check/copy/stage? Gate reads the declaration rather than the subset that exists now? Serialized key renamed or dropped only with a compatibility path (vocabulary included)? Credential graded by every surface (argv, environment, file and directory mode, logs, inspection output) with permissions enforced rather than attempted? A hazard documented once applied everywhere it occurs? A timeout budget that exceeds the wait it wraps and survives every boundary it crosses? A contract quantifier ("every", "all") honoured by every case it names?
 > - **Recurring Issue Types (Technology-specific)** — For each technology in use: PHP (SSRF/untrusted remote input, baselines not grown, `@phpstan-ignore` masking real type mismatches, extension guards cover all required extensions, global state restored in `finally`, `tearDown()` wrapped in nested `try/finally`, PSR-3 logs include `'exception' => $e`, no `@` operator, assumed third-party security defaults, credentials hashed before persistence), Laravel (async command correctness, real middleware stack on tested path, HTTP error/exception semantics, catch-all fallback & HTTP-method semantics, view/layout rendering, `authorize()`/policies use VOs, API resource serialization is scalar, validation bounded to DB column lengths, DB duplicate-key handlers name the violated field, case-sensitive identifiers use binary collation, single-use cache consumption atomic, route params constrained to VO constructors), Kubernetes (manifest consistency, `SkipDryRunOnMissingResource`, `kustomization.yaml` resources)?
 > - **Code Style** — Symbols imported? No FQCNs inline? Explicit guards? Sealed/final convention?
 > - **Role Compliance** — All code changes made by the developer?
