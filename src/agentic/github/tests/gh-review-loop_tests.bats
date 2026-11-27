@@ -125,8 +125,12 @@ setup() {
   grep -q 'runtime failure' "${SKILL_FLAT}"
   grep -q 'never read as a timeout' "${SKILL_FLAT}"
   grep -q 'the arguments were wrong' "${SKILL_FLAT}"
-  # Every shape of a landed review is an exit 0, inline-only included.
-  grep -q 'inline-only' "${SKILL_FLAT}"
+  # A review with findings is its own exit code, not exit 0.
+  grep -q 'a review arrived \*\*with findings\*\*' "${SKILL}"
+  # The full code set, each on its own table row.
+  for code in 5 0 3 4 1 2; do
+    grep -qF "| \`${code}\`" "${SKILL}"
+  done
 }
 
 @test "the MUST states one polling contract, not the retired one" {
@@ -135,6 +139,9 @@ setup() {
 }
 
 @test "review loop gates on green required checks and mergeability" {
+  # The gate is one pr-watch call, not a hand-rolled poll.
+  grep -q 'pr-watch <pr> .*--until green' "${SKILL_FLAT}"
+  grep -q 'every required check is green' "${SKILL_FLAT}"
   grep -q 'gh pr checks' "${SKILL}"
   grep -q -- '--required' "${SKILL}"
   # The pull request's own merge state, not only its checks.
@@ -145,7 +152,7 @@ setup() {
   grep -q 'return to \[Request\](#request)' "${SKILL_FLAT}"
   # Any fixup guard is red until the squash, by design — not a code failure.
   grep -q 'contains `fixup`' "${SKILL_FLAT}"
-  # The gate's jq excludes the guard by name pattern, case-insensitively.
+  # The one-shot read excludes the guard by name pattern, case-insensitively.
   grep -q 'test("fixup"; "i")' "${SKILL}"
 }
 

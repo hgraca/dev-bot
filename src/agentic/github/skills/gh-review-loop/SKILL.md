@@ -97,32 +97,35 @@ Lite and re-request before addressing the findings.
 
 ### Wait
 
-Drive the wait with `pr-watch` — the `devbot-tools` MCP server exposes it, and
-`devbot tool pr-watch <pr>` runs the same script when a harness has not reloaded its tools since the
-tool was installed. It takes whatever the loop was given — a number, `#number`, `owner/repo#number` or
-a PR URL — polls the reviews and the required checks, prints one digest, and answers with its exit
-code:
+Drive the wait with `pr-watch` — `devbot tool pr-watch <pr>` runs the CLI the `devbot-tools` MCP
+server exposes under the same name. It takes whatever the loop was given — a number, `#number`,
+`owner/repo#number` or a PR URL — polls the reviews and the required checks, prints one digest, and
+answers with its exit code:
 
-| Exit | Meaning                                    | What the loop does                    |
-| ---- | ------------------------------------------ | ------------------------------------- |
-| `0`  | a review arrived, or the decision is final | [Read](#read) it                      |
-| `3`  | a **required** check failed                | a failing check: see [Gate](#gate)    |
-| `4`  | the timeout expired with no review         | re-run once longer, then ask the user |
-| `1`  | a runtime failure from `gh`                | report it — never read as a timeout   |
-| `2`  | the arguments were wrong                   | fix the call; the wait never started  |
+| Exit | Meaning                                  | What the loop does                    |
+| ---- | ---------------------------------------- | ------------------------------------- |
+| `5`  | a review arrived **with findings**       | [Read](#read) it, then fix and answer |
+| `0`  | a review arrived with nothing to address | [Gate](#gate) — the round is clean    |
+| `3`  | a **required** check failed              | a failing check: see [Gate](#gate)    |
+| `4`  | the timeout expired with no review       | re-run once longer, then ask the user |
+| `1`  | a runtime failure from `gh`              | report it — never read as a timeout   |
+| `2`  | the arguments were wrong                 | fix the call; the wait never started  |
 
 ```bash
 devbot tool pr-watch <pr> --no-request --timeout 900 --interval 60
 ```
 
 `--no-request` because [Request](#request) already queued it; drop the flag to have the tool request
-and wait in one call. Never hand-roll a `sleep` loop for this: the tool exists so the answer is an
-exit code rather than a digest someone has to read.
+and wait in one call. Never hand-roll a `sleep` loop, a `gh run watch` or a `gh pr checks` poll for
+this: the tool exists so the answer is an exit code rather than a digest someone has to read. It
+fails fast on a required check — reported on the poll that sees it, within one `--interval`, with the
+check named.
 
-`0` covers every shape a landed review takes — a body, an inline-only `COMMENTED` review, or a final
-decision — and `3` comes only from the required set, so an optional red check never stops a loop the
-merge gate would allow. [Read](#read) still reads both the body and the threads: that is where the
-findings live, not how their arrival is detected.
+Run it as a background job (`background: true`, or a `notifyOnExit` PTY on opencode v1) when the wait
+should outlive the turn: end that turn on `[WAITING_FOR_PTY]`, and the job's exit notification wakes
+you to read the digest and take the branch it reports.
+
+`0` still covers every shape a clean round takes — an approval, a review that reports no open issues, or a bare acknowledgement — and `3` comes only from the required set, so an optional red check never stops a loop the merge gate would allow. `5` is a change request, line comments on the review, or a body that does not claim "no open issues": Copilot writes a body every time, approvals included, so the body alone is not a finding. [Read](#read) still reads both the body and the threads — that is where the findings live, and the exit code is only how their arrival is detected.
 
 ### Read
 
@@ -159,12 +162,44 @@ rule.
 
 ### Gate
 
-A review that introduces no new findings is not a mergeable pull request. Before touching the history,
-verify the remote gates; in a multi-remote checkout both commands need `--repo <owner>/<repo>`:
+A review that introduces no new findings is not a mergeable pull request. Ask the tool for the merge
+gate in one call — it already ignores the fixup guard and needs no `jq`:
 
 ```bash
-# Every required check must have finished green (pass, or skipped by design) —
-# except a fixup guard, which rejects the very commits Finish is about to squash.
+devbot tool pr-watch <pr> --repo <owner>/<repo> --until green --timeout 900
+```
+
+| Exit | Meaning                                                              | What to do                            |
+| ---- | -------------------------------------------------------------------- | ------------------------------------- |
+| `6`  | every required check is green **and** the pull request is mergeable  | [Finish](#finish)                     |
+| `3`  | a required check failed — the digest names it                        | fix it as its own fixup! commit, push |
+| `4`  | a check is still pending, or GitHub has not computed the merge state | re-run once longer, then ask the user |
+| `1`  | `gh` failed                                                          | report it, never read as a timeout    |
+
+`--until green` requests no review and reads none: it is the second leg of the loop, not a substitute
+for [Wait](#wait). A failed check returns `3` on the poll that sees it, so a red run does not wait out
+the timeout. Its digest names the `merge state`, so a timeout says which leg was short.
+
+`6` is the checks and the branch's readiness, not the approval: a missing required approval, an
+unresolved thread or a change request leaves the merge state `BLOCKED`, which is the human's gate and
+does not hold this wait back. A draft, a conflict, a stale base (`BEHIND`) or an uncomputed merge
+state does.
+
+`6` is also a claim about the **declared** gate, not about what happens to be running:
+`gh pr checks --required` lists only contexts that already exist, so a required check still queued
+would read as green. The tool reads the branch protection and the repository rulesets instead and waits for every
+declared context to report. An **organisation** ruleset is not read — listing one needs an `admin:org`
+token, which the session does not carry — so a check required only there is invisible until it reports;
+that is the edge of what this gate can prove, and the reason to read [Gate](#gate) yourself on a repo
+whose rules live at the organisation. A pull request with no declared check, or one whose declaration
+cannot be read, never reports `6` — a vacuous gate is not evidence — so that wait runs out and the
+merge state is the thing to read.
+
+When the gate is not the whole story — the tool is not the place to diagnose a conflict or a stale
+base — inspect it once, never in a polling loop:
+
+```bash
+# Every required check, with the fixup guard's name left in — a one-shot read.
 gh pr checks <pr> --repo <owner>/<repo> --required --json name,bucket \
   --jq '[.[] | select(.name | test("fixup"; "i") | not)
          | select(.bucket != "pass" and .bucket != "skipping")] | length == 0'
@@ -173,8 +208,8 @@ gh pr checks <pr> --repo <owner>/<repo> --required --json name,bucket \
 gh pr view <pr> --repo <owner>/<repo> --json mergeable,mergeStateStatus
 ```
 
-- **Pending** — a `pending` bucket, or `mergeable: UNKNOWN` while GitHub computes it, is not a pass.
-  Wait on the [Wait](#wait) cadence and check again; never block on a polling loop.
+- **Pending** — a `pending` bucket, or `mergeable: UNKNOWN` while GitHub computes it, is not a pass;
+  `--until green` keeps waiting on it and answers `4` when its timeout expires.
 - **Failing** — fix every failing check as its own fixup! commit (`devbot:git-fixup-commits`), push, then
   return to [Request](#request). Green checks against a stale review are not the finish line: the push
   needs a fresh Copilot review, so repeat until a review introduces no new findings **and** every
@@ -184,8 +219,10 @@ gh pr view <pr> --repo <owner>/<repo> --json mergeable,mergeStateStatus
 - **`CONFLICTING` / `DIRTY`** — stop and ask the user. A conflict is resolved by rewriting the branch,
   not by a fixup.
 - **A fixup guard is not a failure** — any required check whose name contains `fixup` (in any
-  case) stays red until the squash, by design, and is excluded from the gate above. It must be green on the
-  squashed branch before the merge: the push that publishes the squash re-runs it.
+  case) stays red until the squash, by design, and is excluded from the gate. It must be green on the
+  squashed branch before the merge: the push that publishes the squash re-runs it. A required job that
+  merely _runs_ the guard — `test` on this repository — is red for the same reason and is not excluded by
+  name, so that gate is read once on the squashed branch, after the push.
 
 ### Finish
 
