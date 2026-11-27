@@ -362,6 +362,194 @@ JSONC
   assert_output --partial '`mcp` is not an object'
 }
 
+@test "project-for-path: the Rovo endpoint matches the atlassian module manifest" {
+  local from_tool from_manifest
+
+  from_tool="$(grep -o 'https://mcp\.atlassian\.com[^"]*' "${TOOL}" | head -1)"
+  from_manifest="$(python3 -c "
+import json
+print(json.load(open('${PROJECT_ROOT}/src/agentic/atlassian/mcp.json'))['mcp']['atlassian']['url'])
+")"
+
+  # The resolver matches servers by this literal. If the endpoint moves and only
+  # the manifest follows, every project reports `missing` and the gates ask the
+  # user to enable a server that is already there.
+  assert_equal "$from_tool" "$from_manifest"
+}
+
+# ── Atlassian server resolved by endpoint ────────────────────────────────────
+# The server's key is a local label, not the integration's identity: opencode
+# stores OAuth credentials per server *name*, so a project needing a second Jira
+# account registers the same endpoint under a second name.
+
+ROVO="https://mcp.atlassian.com/v2/mcp"
+
+@test "project-for-path: resolves the Atlassian server under a renamed key" {
+  cat > "${A}/opencode.jsonc" <<JSONC
+{ "mcp": { "servers": { "atlassian-wedding": { "type": "remote", "url": "${ROVO}" } } } }
+JSONC
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  assert_success
+  assert_equal "$(jq -r .name <<< "${output}")" "atlassian-wedding"
+  assert_equal "$(jq -r .state <<< "${output}")" "enabled"
+}
+
+@test "project-for-path: a reinit stub beside the live server does not win" {
+  # The shape a reinit leaves behind: the module re-registers its canonical
+  # name as a disabled stub even though the live server carries another name.
+  cat > "${A}/opencode.jsonc" <<JSONC
+{ "mcp": { "servers": {
+  "atlassian": { "type": "remote", "url": "${ROVO}", "disabled": true },
+  "atlassian-wedding": { "type": "remote", "url": "${ROVO}", "disabled": false }
+} } }
+JSONC
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  assert_success
+  assert_equal "$(jq -r .name <<< "${output}")" "atlassian-wedding"
+  assert_equal "$(jq -r .state <<< "${output}")" "enabled"
+}
+
+@test "project-for-path: a disabled Atlassian server reads disabled, not missing" {
+  cat > "${A}/opencode.jsonc" <<JSONC
+{ "mcp": { "servers": { "atlassian": { "type": "remote", "url": "${ROVO}", "disabled": true } } } }
+JSONC
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  assert_success
+  assert_equal "$(jq -r .name <<< "${output}")" "atlassian"
+  assert_equal "$(jq -r .state <<< "${output}")" "disabled"
+}
+
+@test "project-for-path: several disabled Atlassian servers name none" {
+  # Naming one would pick the canonical stub (`atlassian` sorts first), and
+  # enabling that is how a project lands back on the shared account.
+  cat > "${A}/opencode.jsonc" <<JSONC
+{ "mcp": { "servers": {
+  "atlassian": { "type": "remote", "url": "${ROVO}", "disabled": true },
+  "atlassian-wedding": { "type": "remote", "url": "${ROVO}", "disabled": true }
+} } }
+JSONC
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  assert_success
+  assert_equal "$(jq -r .name <<< "${output}")" "null"
+  assert_equal "$(jq -r .state <<< "${output}")" "disabled"
+  assert_equal "$(jq -r '.candidates | join(",")' <<< "${output}")" "atlassian,atlassian-wedding"
+}
+
+@test "project-for-path: an unreadable server flag reads error, not disabled" {
+  cat > "${A}/opencode.jsonc" <<JSONC
+{ "mcp": { "servers": { "atlassian-wedding": { "type": "remote", "url": "${ROVO}", "disabled": "false" } } } }
+JSONC
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  assert_success
+  # "enable it" is the wrong instruction for a typo in the config.
+  assert_equal "$(jq -r .state <<< "${output}")" "error"
+  assert_equal "$(jq -r .name <<< "${output}")" "atlassian-wedding"
+}
+
+@test "project-for-path: a Claude entry does not mask an invalid opencode flag" {
+  cat > "${A}/opencode.jsonc" <<JSONC
+{ "mcp": { "servers": { "atlassian-wedding": { "type": "remote", "url": "${ROVO}", "disabled": "false" } } } }
+JSONC
+  printf '{ "mcpServers": { "atlassian-wedding": { "type": "http", "url": "%s" } } }\n' \
+    "${ROVO}" > "${A}/.mcp.json"
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  assert_success
+  # opencode is authoritative for a name it declares, so the duplicate must not
+  # promote the errored entry to enabled.
+  assert_equal "$(jq -r .state <<< "${output}")" "error"
+
+  run_tool "${A}/src/file.ts" --json
+  assert_success
+  assert_equal "$(jq -r '.config.mcps | has("atlassian-wedding")' <<< "${output}")" "false"
+}
+
+@test "project-for-path: --key atlassian_server fails loudly when the config is unreadable" {
+  printf 'not json at all' > "${A}/opencode.jsonc"
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  # Reporting `missing` would read as "no Atlassian server configured".
+  assert_failure 2
+  assert_output --partial "cannot read the harness MCP config"
+}
+
+@test "project-for-path: renders several disabled servers as a candidate list" {
+  cat > "${A}/opencode.jsonc" <<JSONC
+{ "mcp": { "servers": {
+  "atlassian": { "type": "remote", "url": "${ROVO}", "disabled": true },
+  "atlassian-wedding": { "type": "remote", "url": "${ROVO}", "disabled": true }
+} } }
+JSONC
+
+  run_tool "${A}/src/file.ts"
+  assert_success
+  assert_output --partial "| atlassian server | disabled (atlassian, atlassian-wedding) |"
+}
+
+@test "project-for-path: a server at another endpoint is not the Atlassian server" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "servers": { "jira": { "type": "remote", "url": "https://jira.example.com/mcp" } } } }
+JSONC
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  assert_success
+  # Matching the first server would call any MCP server the Atlassian one.
+  assert_equal "$(jq -r .state <<< "${output}")" "missing"
+  assert_equal "$(jq -r .name <<< "${output}")" "null"
+}
+
+@test "project-for-path: two enabled Atlassian servers are ambiguous, never a guess" {
+  cat > "${A}/opencode.jsonc" <<JSONC
+{ "mcp": { "servers": {
+  "atlassian": { "type": "remote", "url": "${ROVO}" },
+  "atlassian-wedding": { "type": "remote", "url": "${ROVO}" }
+} } }
+JSONC
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  assert_success
+  # Picking either would file the ticket against the wrong site.
+  assert_equal "$(jq -r .state <<< "${output}")" "ambiguous"
+  assert_equal "$(jq -r .name <<< "${output}")" "null"
+  assert_equal "$(jq -r '.candidates | join(",")' <<< "${output}")" "atlassian,atlassian-wedding"
+}
+
+@test "project-for-path: an endpoint written with a trailing slash still matches" {
+  cat > "${A}/opencode.jsonc" <<'JSONC'
+{ "mcp": { "servers": { "atlassian": { "type": "remote", "url": "https://mcp.atlassian.com/v2/mcp/" } } } }
+JSONC
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  assert_success
+  assert_equal "$(jq -r .state <<< "${output}")" "enabled"
+}
+
+@test "project-for-path: resolves the Atlassian server from .mcp.json too" {
+  cat > "${A}/.mcp.json" <<JSONC
+{ "mcpServers": { "atlassian": { "type": "http", "url": "${ROVO}" } } }
+JSONC
+
+  run_tool "${A}/src/file.ts" --key atlassian_server
+  assert_success
+  assert_equal "$(jq -r .name <<< "${output}")" "atlassian"
+  assert_equal "$(jq -r .state <<< "${output}")" "enabled"
+}
+
+@test "project-for-path: renders the Atlassian server row in the markdown table" {
+  cat > "${A}/opencode.jsonc" <<JSONC
+{ "mcp": { "servers": { "atlassian-wedding": { "type": "remote", "url": "${ROVO}" } } } }
+JSONC
+
+  run_tool "${A}/src/file.ts"
+  assert_success
+  assert_output --partial "| atlassian server | atlassian-wedding:enabled |"
+}
+
 @test "project-for-path: a --session-root that is not a directory fails" {
   run bash "${TOOL}" "${A}/src/file.ts" --key mcps \
     --session-root "${SANDBOX}/nope" --global-config "${GLOBAL}"

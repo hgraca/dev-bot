@@ -13,7 +13,11 @@
 # checkout the harness actually runs in), otherwise the nearest one at or above
 # the owner. `mcps_sources` names the files read, so state is never mistaken for a
 # config that was never consulted. `mcps_errors` reports a config that could not
-# be read, parsed, or shaped as expected.
+# be read, parsed, or shaped as expected. `atlassian_server` resolves the
+# Atlassian MCP server by endpoint, not by name: OAuth credentials are per server
+# name, so a second Jira account registers the same URL under a second name.
+# `name` is null when nothing can be named — two live servers, or several entries
+# with none live — and `candidates` then lists them.
 #
 # Usage:
 #   project-for-path.mcp.sh <path>                       # markdown table
@@ -30,12 +34,12 @@ set -euo pipefail
 case "${1:-}" in
   mcp-meta)
     cat <<'JSON'
-{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective workspace type, commit_memory, workflow, devbot_dir, datasources, modules and configured MCP servers. Use it in a polyrepo session before any project-scoped action, and before assuming an MCP server is configured. Configuration does not imply reachability: an enabled server may still be offline or unauthenticated.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--session-root <dir>] [--global-config <file>]"}},"required":["args"]}}
+{"name":"project-for-path","description":"Resolve a path to the registered devbot project that owns it (longest registered prefix in .devbot.global.jsonc), and report that project's effective workspace type, commit_memory, workflow, devbot_dir, datasources, modules and configured MCP servers. `atlassian_server` resolves the Atlassian MCP server by endpoint to `{name, state}` (with `candidates` when `name` is null) — a project may register it under a name other than `atlassian` to keep a separate Jira account, so read that key rather than the literal one. Use it in a polyrepo session before any project-scoped action, and before assuming an MCP server is configured. Configuration does not imply reachability: an enabled server may still be offline or unauthenticated.","parameters":{"type":"object","properties":{"args":{"type":"array","items":{"type":"string"},"description":"CLI args: <path> [--json] [--key <name>] [--session-root <dir>] [--global-config <file>]"}},"required":["args"]}}
 JSON
     exit 0
     ;;
   -h | --help)
-    sed -n '7,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '7,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 0
     ;;
 esac
@@ -258,7 +262,8 @@ def resolve_mcps():
     surface instead of masquerading as a bad config.
     """
     root = _config_dir()
-    state, sources, errors = {}, [], []
+    state, urls, sources, errors = {}, {}, [], []
+    declared = set()
     if root:
         opencode = os.path.join(root, "opencode.jsonc")
         claudecode = os.path.join(root, ".mcp.json")
@@ -288,9 +293,17 @@ def resolve_mcps():
                 errors.append(f"{opencode}: {_one_line(exc)}")
                 servers = {}
             for name, cfg in servers.items():
+                # Recorded before the shape check: a name opencode declares but
+                # cannot read is still opencode's, and `.mcp.json` must not
+                # fill it in as enabled below.
+                declared.add(name)
                 if not isinstance(cfg, dict):
                     errors.append(f"{opencode}: server `{name}` is not an object")
                     continue
+                # The endpoint identifies the server; the key is a local label
+                # (one name per OAuth account — see `resolve_atlassian_server`).
+                if isinstance(cfg.get("url"), str):
+                    urls[name] = cfg["url"]
                 status_of = _server_state(name, cfg, opencode, errors)
                 if status_of is not None:
                     state[name] = status_of
@@ -311,12 +324,72 @@ def resolve_mcps():
                 if not isinstance(cfg, dict):
                     errors.append(f"{claudecode}: server `{name}` is not an object")
                     continue
+                # opencode is the per-server authority, so this file only adds
+                # servers. Filling in a name opencode errored on would report
+                # `enabled` while `mcps_errors` says the entry is broken.
+                if name in declared:
+                    continue
+                if isinstance(cfg.get("url"), str):
+                    urls.setdefault(name, cfg["url"])
                 state.setdefault(name, "enabled")
     # Sorted: the report must not change shape with the config's key order.
-    return dict(sorted(state.items())), sources, errors
+    return (
+        dict(sorted(state.items())),
+        dict(sorted(urls.items())),
+        sources,
+        errors,
+    )
 
 
-mcps_state, mcps_sources, mcps_errors = resolve_mcps()
+# The module's canonical endpoint (`src/agentic/atlassian/mcp.json`). Atlassian
+# hosts the Rovo MCP server, so the URL is stable across projects.
+ROVO_ENDPOINTS = ("https://mcp.atlassian.com/v2/mcp",)
+
+
+def resolve_atlassian_server(state, urls):
+    """The configured Atlassian server, resolved by endpoint rather than name.
+
+    opencode stores OAuth credentials per server *name*, so a project that needs
+    a second Jira account registers the same endpoint under a second name
+    (`atlassian-wedding`). Reading the literal key `atlassian` therefore misses
+    it, and a `devbot reinit` can put a disabled `atlassian` stub back beside the
+    live server. Resolving by URL finds the server whichever name it carries,
+    and preferring the enabled candidate makes the stub irrelevant.
+
+    Returns `{name, state}`, with `candidates` whenever `name` is null: two live
+    servers, or several entries with none live. Nothing is picked in those
+    cases — the canonical stub sorts first and enabling it would sign the
+    project back into the other account.
+    """
+    candidates = sorted(
+        name
+        for name, url in urls.items()
+        if url.rstrip("/") in ROVO_ENDPOINTS
+    )
+    live = [name for name in candidates if state.get(name) == "enabled"]
+    if len(live) > 1:
+        # Two signed-in accounts behind one endpoint: picking either would
+        # silently file the ticket against the wrong site.
+        return {"name": None, "state": "ambiguous", "candidates": live}
+    if live:
+        return {"name": live[0], "state": "enabled"}
+    if not candidates:
+        return {"name": None, "state": "missing"}
+    if len(candidates) == 1:
+        # A name is worth reporting only when there is nothing to choose
+        # between. Absent from `state` means the flag was unreadable, which is
+        # a config fault — not "off, so enable it".
+        only = candidates[0]
+        return {"name": only, "state": state.get(only, "error")}
+    broken = [name for name in candidates if name not in state]
+    return {
+        "name": None,
+        "state": "error" if broken else "disabled",
+        "candidates": candidates,
+    }
+
+
+mcps_state, mcps_urls, mcps_sources, mcps_errors = resolve_mcps()
 
 resolved = {
     "commit_memory": resolve_workspace("commit_memory"),
@@ -326,6 +399,7 @@ resolved = {
     "datasources": resolve_datasources(),
     "modules": resolve_modules(),
     "mcps": mcps_state,
+    "atlassian_server": resolve_atlassian_server(mcps_state, mcps_urls),
     "mcps_sources": mcps_sources,
     "mcps_errors": mcps_errors,
 }
@@ -337,7 +411,19 @@ if key:
         sys.exit(2)
     # An unreadable config and one with no servers are different failures: the
     # first must not send the user to "enable" a server that is already there.
+    # Every gate reads `atlassian_server`, so that key needs the same guard —
+    # otherwise a broken config tells the agent "no Atlassian server".
     if key == "mcps" and not resolved["mcps"] and resolved["mcps_errors"]:
+        print(
+            f"ERROR: cannot read the harness MCP config: {'; '.join(resolved['mcps_errors'])}",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    if (
+        key == "atlassian_server"
+        and resolved["atlassian_server"]["state"] == "missing"
+        and resolved["mcps_errors"]
+    ):
         print(
             f"ERROR: cannot read the harness MCP config: {'; '.join(resolved['mcps_errors'])}",
             file=sys.stderr,
@@ -359,6 +445,7 @@ report = {
         "datasources": resolved["datasources"] or [],
         "modules": resolved["modules"] or {},
         "mcps": resolved["mcps"] or {},
+        "atlassian_server": resolved["atlassian_server"],
         "mcps_sources": resolved["mcps_sources"],
         "mcps_errors": resolved["mcps_errors"],
     },
@@ -401,4 +488,12 @@ if sources:
     print(f"| mcps source | {escape_cell(', '.join(sources))} |")
 if errors:
     print(f"| mcps error | {escape_cell('; '.join(errors))} |")
+atlassian = report["config"]["atlassian_server"]
+if atlassian["name"]:
+    atlassian_cell = f"{atlassian['name']}:{atlassian['state']}"
+elif atlassian.get("candidates"):
+    atlassian_cell = f"{atlassian['state']} ({', '.join(atlassian['candidates'])})"
+else:
+    atlassian_cell = atlassian["state"]
+print(f"| atlassian server | {escape_cell(atlassian_cell)} |")
 PY
