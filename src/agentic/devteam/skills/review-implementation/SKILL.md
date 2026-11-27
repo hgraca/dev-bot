@@ -443,6 +443,12 @@ Issue types that apply regardless of technology stack.
     - Require the negative case in the tests: authoritative entry malformed **and** a duplicate in the secondary source, asserting the resolved state still reports the error.
     - WARNING; BLOCKER when the resolved answer is `enabled`/`valid` and something acts on it while the error list contradicts it.
 
+42. **A timeout budget survives every boundary it crosses, and exceeds the wait it wraps** — when the change adds a call that may block for a long time (a poller, a watch, a deploy or rollout wait):
+    - Enumerate every bound on the call: the tool's own deadline, the client's request timeout, the server's or harness's per-tool default, the proxy's idle timeout. The **smallest** one decides — a generous `--timeout` behind a shorter server default dies at the server's value, and the caller sees a transport death or a generic "killed" instead of the exit code the tool would have returned.
+    - Require the outer bound to **exceed the inner wait it contains**, with headroom for the documented "re-run once longer" path, and a test asserting the relation. The two values live in different files and drift silently; a literal pin on one side does not notice the other moving.
+    - Check the tool's own calls as well: an HTTP or CLI timeout that is not clamped to the time left lets one call overshoot the deadline, and an overshoot caused by the deadline must report the timeout exit code, not a runtime error.
+    - WARNING; BLOCKER when the outer bound is the one that fires, making the documented contract unreachable through its advertised interface.
+
 ### Technology-specific
 
 Apply the section for each technology the project uses. Each list merges issue types distilled from past reviews with technology-specific pitfalls of the generic checks above.
