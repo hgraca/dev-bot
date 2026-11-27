@@ -302,3 +302,32 @@ setup() {
   printf '%s\n' "$cleanup" | grep -qF 'recommend merging'
   printf '%s\n' "$must" | grep -qF 'more than 10 commits'
 }
+
+@test "a published capture removes the new notes it published and nothing else" {
+  local cleanup must
+  cleanup="$(subsection_flat "$SKILL" '7. Clean up and report')"
+  must="$(section_flat "$SKILL" 'MUST')"
+
+  # Scoped to the capture's own paths, and gated on the remote holding the commits — not on the
+  # word "pushed" alone, which a retry reports as "already up to date".
+  printf '%s\n' "$cleanup" | grep -qF 'for the paths it published and only for those'
+  printf '%s\n' "$cleanup" | grep -qF 'only for a group the remote now holds'
+
+  # A new note is removed; a tracked one is deliberately left alone (HEAD decides, not the index).
+  printf '%s\n' "$cleanup" | grep -qF 'cat-file -e "HEAD:$path"'
+  printf '%s\n' "$cleanup" | grep -qF 'rm -f -- "$root/$path"'
+  printf '%s\n' "$cleanup" | grep -qF 'a tracked note keeps its edit until the pull request merges'
+  printf '%s\n' "$cleanup" | grep -qF '`published` is the group'
+
+  # A no-op group cleans up too: the skip applies to the commit, not to the cleanup.
+  printf '%s\n' "$cleanup" | grep -qF 'still runs this cleanup'
+
+  # A staged entry is dropped too, and the comparison runs while the worktree still holds the copy.
+  printf '%s\n' "$cleanup" | grep -qF 'rm --cached --quiet'
+  printf '%s\n' "$cleanup" | grep -qF 'Only now remove the temporary worktree'
+
+  # A path the capture did not write is never touched.
+  printf '%s\n' "$cleanup" | grep -qF 'path this capture did not write is never touched'
+
+  printf '%s\n' "$must" | grep -qF 'Remove only the new notes this capture published'
+}

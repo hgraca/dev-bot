@@ -159,7 +159,12 @@ path that is ignored is skipped. A **global-store** path that is ignored is a de
 tracked by design, so report it as an error and leave the file out — never drop it silently and never
 force-add it. Copy the accepted paths from their main-checkout location to the group's
 repository-relative path — a global note uses its `storage/global-memories/...` target resolved in
-step 1 — creating directories as needed. Then, in the worktree:
+step 1 — creating directories as needed. A copy is never blind: when the standing branch already
+carries the path, compare before writing — identical content is a no-op, and different content is an
+earlier capture's published but unmerged edit, which is reported as a conflict for the human to
+resolve on the pull request and **never overwritten**. Step 7 leaves the checkout on `HEAD`, so a
+blind copy would publish `HEAD` plus this capture's edit and silently drop the earlier one. Then, in
+the worktree:
 
 - run the commit protocol's checks over the copied files — `devbot:format-md` for every Markdown note,
   plus the project's lint and tests when they cover the vault;
@@ -214,21 +219,76 @@ something the standing body does not.
 
 A push that fails leaves the commit in the worktree — on the local branch when the skill created one,
 otherwise in the detached `HEAD`. Keep the worktree and make a detached commit reachable by naming it:
-`git -C "$wt" branch chore/commit-memories-recovered-<timestamp> HEAD`. Report that branch, the
+`git -C "$wt" branch chore/commit-memories-recovered-<timestamp> HEAD`. The main checkout's copy stays
+where it is as well, since step 7 — which returns it to `HEAD` — does not run. Report that branch, the
 worktree and the failure, and open no pull request. Never merge, never push the default branch, never
 force-push, and never request a review — the pull request's review is the human's.
 
 ### 7. Clean up and report
 
-Remove only the temporary worktree this skill created, once its branch is pushed:
+**Remove the copies of the notes this capture added**, for the paths it published and only for
+those. A published note whose copy stays behind is duplicate state: untracked or
+staged in a checkout that is usually on the default branch, it is one absent-minded `git add -A` away
+from a memory commit on `main`, and it reads in every later `git status` as work still pending. Do this
+**only for a group the remote now holds** — a `push` value of `"pushed"`, or `"already up to date"` when
+the remote already carried the commits. A failed push raises before this step: it keeps the worktree,
+leaves the checkout's copy untouched, and the commit never reached the remote. `published` is the
+group's accepted paths, repository-relative — step 5's targets, so a global note is its
+`storage/global-memories/...` path, never the `latent/global/` symlink spelling:
+
+```bash
+for path in "${published[@]}"; do            # the capture's own paths, repository-relative
+  if git -C "$root" cat-file -e "HEAD:$path" 2>/dev/null; then
+    echo "kept $path — a tracked note keeps its edit until the pull request merges"
+    continue
+  fi
+  # still exactly what was published? a later edit by another session is reported, never removed
+  cmp -s "$root/$path" "$wt/$path" || { echo "kept $path — changed since it was published"; continue; }
+  git -C "$root" rm --cached --quiet -- "$path" 2>/dev/null || true   # drop a staged entry too
+  rm -f -- "$root/$path"                     # new note: the branch is its only home
+done
+```
+
+Deleting the file is not enough when the note was staged — the index keeps the entry and `git status`
+reports a deletion waiting to be committed, which is the same residue in a new shape. Drop the index
+entry as well; the `|| true` covers a path that was never staged.
+
+**Only now remove the temporary worktree**, and only once the cleanup above has used it: the
+comparison reads the published copy out of `$wt`, so removing the worktree first turns every note
+into "changed since it was published" and none is ever removed.
 
 ```bash
 git -C "$root" worktree remove "$wt"
 ```
 
-A worktree that was already there belongs to its session — leave it. Report one line per group: the
-pull request URL, or why the group was skipped. Say when nothing was published: an unchanged vault is
-a valid outcome.
+A worktree that was already there belongs to its session — leave it.
+
+**A group that had nothing to publish still runs this cleanup.** A run interrupted between the push and
+this step leaves a note the rerun finds already on the branch: it stages nothing, reports the group as
+skipped, and would leave the residue this rule exists to remove. `published` is the group's accepted
+paths whether or not staging found anything new, so the loop above runs for that group too — the skip
+applies to the commit, not to the cleanup.
+
+A new note is deleted rather than kept as a spare: its content is on the branch, and the branch is where
+a memory lives until it merges. The cost is visibility — `search-memories` indexes the vault tree, so
+until that pull request merges the note answers no query and the next capture's dedup check cannot see
+it. Check the standing pull request's diff before capturing the same lesson again. The removal is
+conditional on the file still holding the published content, because the checkout is shared: a session
+that edited the note after this capture wrote it has a real edit there, and deleting or reverting it
+would destroy work the capture cannot see. That guard covers edits made between the capture and this
+step, which is the realistic window — it cannot cover a write landing in the instant between the
+comparison and the removal, a race no shell guard wins and no lock here arbitrates. Anything caught in
+it is recoverable, because the published copy is on the branch: `git show <remote>/<branch>:<path>`. A **tracked** note is
+left alone: its edit is the capture's own, and it stops appearing in `git status` by itself once the
+pull request merges. Reverting it to `HEAD` here would instead discard any edit another session made to
+the same note — before the capture or after it — and this checkout is shared, so that is a real loss
+rather than a theoretical one. Step 5's conflict rule is what keeps an earlier capture's published edit
+from being overwritten in the first place. A
+path this capture did not write is never touched, however dirty the checkout looks: another session's
+files are its own to publish, and a capture that deletes them destroys work it cannot see.
+
+Report one line per group: the pull request URL, or why the group was skipped. Say when nothing was
+published: an unchanged vault is a valid outcome.
 
 Count each published pull request's commits (`gh pr view <url> --json commits --jq '.commits |
 length'`). When the count is **greater than 10**, report the number and recommend merging the pull
@@ -246,6 +306,9 @@ request: it is overdue for review, and another append only grows it.
 - Publish with `devbot-tools pr-open --type proj-memories|global-memories` — the tool owns the push,
   the creation and the append; never compose the title or open the pull request by hand.
 - Commit only the capture's memory files, staged explicitly, on a branch — never the default branch.
+- **Remove only the new notes this capture published** — a published path is deleted when `HEAD` does
+  not carry it and the checkout copy is still the published content, once the remote holds the commits;
+  a tracked note is left alone, and a path the capture did not write is never touched.
 - Respect `commit_memory` and `git check-ignore` for project-vault notes; the global store needs no
   such gate.
 - Report every pull request URL, and every group skipped or left with an unpushed branch.
