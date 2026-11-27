@@ -379,54 +379,63 @@ Issue types that apply regardless of technology stack.
 - WARNING; BLOCKER when the miss silently drops the item or commits it to the wrong repository.
 
 31. **A step declared non-fatal stays off the command that creates what it needs** — when text or code declares that a later step's failure costs only that step (an assignee, a label, a reviewer request, a notification applied once the object exists):
+
     - Enumerate **every documented form** of the sequence, including the raw fallback written for when a helper tool or wrapper is unavailable, and check the later step's flag appears on none of the earlier commands. A helper that assigns after creating while its documented fallback passes `--assignee` to the create command states a guarantee only one of the two paths honours, and the fallback is exactly the path a reader takes when the helper is missing.
     - Verify the guarantee against the platform's own ordering, never the flag's name: a client may apply post-create mutations after creation on the hosted product and resolve them before it on an enterprise edition, where the same flag aborts the creation. Name the host the guarantee holds for, or keep the step off the create command entirely.
     - Require the guard to pin the split rather than the whole section: the invocation carries the flag, and the create command carries none. An assertion that only looks for the flag anywhere in the section is satisfied by the fallback.
     - WARNING; BLOCKER when the documented path can destroy the object the sequence exists to create.
 
 32. **A guard's scope equals the operation's scope** — when a step proves a property before acting on a range, a set or a collection (a rewrite range, a batch, an inventory), and the action then touches every element of it:
+
     - Compare the proof's subject against the action's subject **element by element**. Proving the named target safe while the action replays the whole range leaves every other element unproven — and the named target is the one a reviewer checks.
     - Re-prove against the state the action reads, immediately before the action runs. Elements added between proof and action — commits, entries, files — sit outside the proof, and a proof taken before a fetch describes the ref as it was, not as it is.
     - Require the proof to fail closed. A proof whose own failure reads as "nothing found" — a filter's non-zero status taken as no-match, an enumeration that errored — reports a clean result it never computed.
     - WARNING; BLOCKER when the action rewrites history, deletes, or is otherwise not recoverable from its own result.
 
 33. **A documented command runs under the shell mode it will run in** — when the change ships a shell recipe in a document, runbook or skill:
+
     - Read the block as a script under `set -euo pipefail`, the mode these procedures declare. Every step must survive a stage that legitimately exits non-zero **and** still fail when a stage fails unexpectedly: `cmd | filter || true` swallows the upstream failure as readily as the filter's no-match, so guard the command whose status is expected, not the pipeline.
     - A step that must fail — a dry run whose editor aborts, a probe signalling "nothing there" by exiting non-zero — needs its status allowed explicitly **and** its intended effect verified (expected output present, target unchanged). A tolerated non-zero alone cannot distinguish the intended abort from a failure that happened before the step's own work.
     - Run the block once before approving it. Prose reliably describes recipes that cannot execute, and the block is the artefact that runs.
     - WARNING; BLOCKER when the recipe performs an irreversible or history-rewriting action.
 
 34. **A step declared inert is inert in both directions** — when the change adds a probe, a healthcheck, a readiness check, or any step the text calls read-only, silent, or side-effect free:
+
     - **It must retain nothing server-side.** A probe that opens a stateful session, a connection, a lock or a temporary resource must close it on every exit path — including the success path, which is the one nobody notices. A probe running on an interval multiplies the leak by the container's lifetime, and the resource count only shows up as memory growth long after.
     - **It must write nothing it inspects.** Resolve, read and compare only: a probe that persists a value (a cache, a stamp, a config key) mutates the state it exists to describe, and a caller that trusts the probe now sees its own side effect as fact. Check the probe's whole call graph, not just its own body — every helper it invokes is part of the claim.
     - **A probe's failure must not be indistinguishable from its success.** An exit status the caller ignores, or a swallowed error that reads as "nothing there", converts a broken probe into a clean result.
     - WARNING; BLOCKER when the probe runs unattended on a schedule, or when its side effect changes what a later decision reads.
 
 35. **A validated path is canonicalised before it is validated** — when the change accepts a filesystem path (a mount root, a workspace, an output directory) and enforces a boundary on it:
+
     - Normalise **first**, then apply every rule to the normalised value, and iterate the normalisation to a fixed point: one pass leaves `//`, `//foo/`, a trailing separator after stripping, and `.`/`..` segments intact, and a check satisfied by the raw form passes a value the boundary was meant to reject.
     - Refuse the filesystem root explicitly. A rule written only as "must be absolute and non-empty" accepts `/` — and `/` is the one value that turns a scoped mount into the whole host.
     - Require a test per rejected form, including the canonicalised aliases of a rejected value; a guard proven only against its literal example is a comment.
     - WARNING; BLOCKER when the value reaches a bind mount, a delete, or a path the process writes through.
 
 36. **A configuration fixed at creation is reconciled, in full** — when the change adds or edits a resource whose configuration is applied once and then left alone (a container, a schema, a generated file, a provisioned object), and the tool in use will not reapply it:
+
     - Establish **what defeats reapplication** — a `--no-recreate`, a skip-if-exists, an immutable attribute — and require an explicit reconcile step. "The file is correct" is not evidence the running resource is.
     - Require the reconcile to be a whole-configuration comparison, not a hand-picked set of fields. A comparison of the two properties that happened to drift last time misses the next one added — a probe, a command flag, an environment value — and every future field joins the same blind spot.
     - Check the reconcile's own two edges: it must not churn on a clean start (a resource created moments ago is already current), and a failed reconcile must not be reported as success — an old resource that still answers its readiness check will otherwise read as reconciled, and the caller records a start that never applied the change.
     - WARNING; BLOCKER when the stale configuration is the one being tested, or when the resource serves other consumers during the window.
 
 37. **An irreversible effect follows every refusal that can precede it** — when the change performs an effect it cannot undo (a push, a publish, a deploy, a delete, a send) and also refuses the call for one or more reasons:
+
     - Verify the refusal paths return **before** the effect, not after it. A helper that pushes first and then finds the branch belongs to another purpose has already changed the remote it then refuses to touch, and every later refusal shares that ordering.
     - Enumerate the refusals and the effect as one sequence, in the order the code runs them. "The check exists" is not the property; "no refusal can observe an effect it did not prevent" is.
     - Require the guard to pin the ordering, not just the outcome: assert the effect is absent on at least one refusal path, because a test that only reads the error message passes either way.
     - WARNING; BLOCKER when the effect publishes, deletes or rewrites something the caller cannot recover.
 
 38. **A guard reads the value that takes effect, and every component of the identity** — when the change compares two things as equivalent before acting on one of them (a repository and a remote, an environment and a target, a directory and its link):
+
     - Read the value the operation will actually use. A push writes to a remote's **push** URL, not its fetch URL, and a symlinked path acts on its target: a guard that inspects the convenient one of the pair approves the wrong destination.
     - Compare every component that distinguishes the two. Owner and name are not an identity when the host may differ, and a path is not a target until it is resolved — an equality that drops a component admits a lookalike.
     - Refuse configurations the comparison cannot represent as one value (several push destinations, several roots) instead of silently validating one of them.
     - WARNING; BLOCKER when the approved destination receives an irreversible write.
 
 39. **A credential is graded by every surface it travels** — when the change moves a secret to a process, a file or an output:
+
     - Name each surface it reaches and grade that surface, not the intent: the process's **argv** (world-readable through `ps`), the child's **environment**, an on-disk **file** — its mode _and_ the mode of the directory holding it — the log and error paths, and any inspection or debug command the change adds (`--print-config`, `--dry-run`).
     - A fix that moves a value from the environment onto the command line has changed the surface, not removed it. The same holds for resolving a reference into a file: the file becomes the credential, so its permissions are now load-bearing.
     - An exposure noted as "acceptable if deliberate, worth one line in the docs" is not a grade. Grade by surface and reachability: argv, and a file another user can read, are findings.
@@ -434,28 +443,33 @@ Issue types that apply regardless of technology stack.
     - WARNING; BLOCKER when the secret reaches argv, a file readable by another user, or an inspection command whose output is pasted into a diagnosis.
 
 40. **A hazard documented once is applied everywhere it occurs** — when a change documents a non-obvious trap and how it is avoided in one place (a helper's comment, a wrapper, a lint exemption):
+
     - Search the change for the same pattern and verify each occurrence carries the avoidance. A second copy of the hazard is a finding even when the file explains the trap a few lines above — the comment is evidence that the property is known, never that it holds.
     - The same applies to a convention the change introduces ("quote paths before they enter a `bash -c` string", "never `writer | grep -q` under `pipefail`"): the review checks the whole file, not the site where the convention is described.
     - WARNING; BLOCKER when the sibling occurrence silently yields a wrong answer — a probe that reports everything missing, a guard that approves the wrong target.
 
 41. **A layered source must not resurrect what the authoritative one rejected** — when two or more sources (config files, manifests, overlays) fill one resolved map and one of them is the authority per entry:
+
     - Confirm a lower-precedence source cannot supply a value for an entry the authoritative one **rejected** — a parse error or an unreadable flag drops the entry from the resolved map, and a "fill in the gaps" pass (`setdefault`, `??`, `merge` with the secondary as the target) then reports the entry as valid while the error list says otherwise.
     - Require the negative case in the tests: authoritative entry malformed **and** a duplicate in the secondary source, asserting the resolved state still reports the error.
     - WARNING; BLOCKER when the resolved answer is `enabled`/`valid` and something acts on it while the error list contradicts it.
 
 42. **A timeout budget survives every boundary it crosses, and exceeds the wait it wraps** — when the change adds a call that may block for a long time (a poller, a watch, a deploy or rollout wait):
+
     - Enumerate every bound on the call: the tool's own deadline, the client's request timeout, the server's or harness's per-tool default, the proxy's idle timeout. The **smallest** one decides — a generous `--timeout` behind a shorter server default dies at the server's value, and the caller sees a transport death or a generic "killed" instead of the exit code the tool would have returned.
     - Require the outer bound to **exceed the inner wait it contains**, with headroom for the documented "re-run once longer" path, and a test asserting the relation. The two values live in different files and drift silently; a literal pin on one side does not notice the other moving.
     - Check the tool's own calls as well: an HTTP or CLI timeout that is not clamped to the time left lets one call overshoot the deadline, and an overshoot caused by the deadline must report the timeout exit code, not a runtime error.
     - WARNING; BLOCKER when the outer bound is the one that fires, making the documented contract unreachable through its advertised interface.
 
 43. **A quantifier in the contract is honoured by every case it names** — when the change documents "every", "each", "all" or "always" about what it reports, returns, validates or preserves:
+
     - Enumerate the cases the quantifier covers and verify the code enumerates them. A field documented as "every ignored check" but populated only from the failing subset is a finding even though each line is correct — the contract is the union, not the interesting half.
     - Do not resolve the mismatch by narrowing the wording and leaving the code: the contract may be what a caller depends on, and the review names which side is wrong rather than picking the cheaper repair.
     - Require a test per case class (passing, failing, absent), not one representative: a quantifier proven on the failing case is the one that was certainly implemented.
     - WARNING; BLOCKER when a caller's decision depends on an omitted case.
 
 44. **A rewrite pass over a template is idempotent, complete, and loud about what it missed** — when the change substitutes, renames or re-homes values inside a copied artifact (a rendered manifest, a generated config, a snapshot, a scaffolded file):
+
     - **Match every spelling the source can legally carry.** A token appears hyphenated, underscored, host-qualified, or bare depending on which field holds it, and a pass that names one form scopes the fields it happened to look at. Enumerate the spellings, derive the list from the artifact rather than from the one line that revealed the problem, and rewrite all of them in the same pass.
     - **Rewrite each match once.** Run the pass left to right over a single buffer, or make the replacement not re-match its own output. A pass applied per key over its own result substitutes twice, and the second application silently produces a name no other component looks for.
     - **Fail loudly on what it could not rewrite.** A key the pass was asked to scope but did not find is the whole defect: report it and fail. A pass that skips absent keys exits 0, leaves the copied value naming the source, and the environment then shares state with it while every log line reads as success.
@@ -464,16 +478,24 @@ Issue types that apply regardless of technology stack.
     - WARNING; BLOCKER when the value the pass leaves behind names shared infrastructure, another environment, or another tenant.
 
 45. **A narrowing filter accounts for the rows it excludes** — when the change selects rows to process (a query, a stream filter, an `array_filter`) and the result drives a verdict, an aggregate or a completeness claim:
+
     - Enumerate every condition the filter applies and ask what happens to a row that fails it: a NULL in a filtered column, a missing foreign key, a value outside the accepted set. The filter drops them silently, and everything downstream reports on the survivors as though they were the whole population.
     - Decide and record one outcome per excluded class: fail loudly as a data fault, store a status that explains the exclusion, or justify why the row is out of scope. "It cannot happen" belongs in that list only when a constraint enforces it.
     - Prefer refusing to compute over a clean-looking result: an aggregate that silently ignores a row is worse than one that fails, because the ignored row leaves no trace.
     - WARNING; BLOCKER when the aggregate or verdict is user-facing evidence.
 
 46. **A runtime configuration value is validated against its domain, not just its type** — when the change reads a value at runtime (feature flag, environment variable, remote config, a persisted payload) and applies it to a computation:
+
     - Check the value against what the computation assumes, not only its type: a tolerance is non-negative, a ratio stays within bounds, a count is positive, a unit is one the code handles. A type test (`is_numeric`, an integer cast, an enum from string) admits values the arithmetic cannot survive.
     - Verify an out-of-domain value fails loudly and attributably, naming the key and the value, instead of falling back to a default or quietly distorting every result it touches.
     - Ask what a wrong-but-valid value does to results already stored, and whether the value is recorded alongside them so a later reader can tell what each record was computed with.
     - WARNING; BLOCKER when the value silently changes every computed result.
+
+47. **A layered configuration keeps the derived value authoritative and an explicit empty value is an override** — when the change derives a value from an input (an account id, a host, a tenant, a resource path) and also accepts that same key from configuration:
+    - Verify the derived side wins. A derived value usually exists because deriving it avoids a known failure, so a merge that lets configuration replace it reinstates that failure silently. Read the merge direction (`derived + config` versus `config + derived`) rather than the surrounding intent, and ask why the derived value exists before deciding which side may override.
+    - Treat an explicitly present empty value as a value. When the higher-precedence layer carries `{}`, `[]` or `""`, a truthiness or length test — `if value:`, `[ -n "$value" ]` — reads it as missing and falls through to the inherited layer, so an operator can never clear inherited settings; only an absent or wrongly typed value may fall back.
+    - Ask which layer wins for every key the change touches, including the one the derivation owns, and test each decision with both the empty and the wrong-value case.
+    - WARNING; BLOCKER when the fallback reinstates the failure the change exists to prevent, or applies another project's or account's credentials.
 
 ### Technology-specific
 
@@ -574,11 +596,13 @@ Apply the section for each technology the project uses. Each list merges issue t
 #### Kubernetes
 
 1. **Kubernetes Manifest Consistency** — when changeset includes Kubernetes YAML manifests (any file with `apiVersion` and `kind`):
+
    - When multiple resources share same `apiVersion`/`kind`, verify they have consistent ArgoCD annotations (`sync-wave`, `sync-options`). Inconsistent annotations across resources of same kind is WARNING.
    - When resource uses Custom Resource `apiVersion` (not core `v1`, `apps/v1`, `batch/v1`, `networking.k8s.io/v1`, etc.), verify it has `argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true` if CRD installed by another Application in same changeset. Missing this annotation causes ArgoCD dry-run failures on first sync — flag as WARNING.
    - When `kustomization.yaml` exists in same directory as new resource file, verify new file listed in `resources:`. Unlisted resource in Kustomize-managed directory will not be synced — flag as BLOCKER.
 
 2. **Relocating a manifest** — when the change moves or renames a manifest, or the directory that holds it:
+
    - Verify every other declaration of the same object is removed in the same change. Two files declaring one object give it two owners: whichever applies last wins, and the other reports drift forever. BLOCKER.
    - Verify load-bearing metadata survives the move — `argocd.argoproj.io/*` annotations, tracking labels, and any selector a controller matches on. A relocated object that lost its `sync-wave` is not the same object. WARNING.
    - Verify the controller that rendered the old location can no longer prune it. A directory that still renders something compares the rest of its set and deletes what disappeared; only a path that no longer exists stops the comparison. Moving the last file out of a directory and moving one of several are different changes. BLOCKER when the pruned object owns resources of its own.
