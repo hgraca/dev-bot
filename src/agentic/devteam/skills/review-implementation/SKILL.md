@@ -550,6 +550,9 @@ Issue types that apply regardless of technology stack.
 51. **A new external dependency is portable to every supported platform** — when the change shells out to a binary or relies on a flag:
 
     - Check the command exists on each supported platform, not only the one under test. GNU `timeout` is absent on macOS; prefer the repository's own `timeout`/`gtimeout` fallback or an equivalent bounded call. A budget that is correct (type 42) can still be enforced by a mechanism that is not there.
+    - A failure hidden behind `|| true` or a discarded exit code turns "not installed" into "feature silently off". Distinguish the two, or bound the call in the process instead.
+    - Record the platform each path was verified on, so a later reader knows what was actually exercised.
+    - WARNING; BLOCKER when the feature is silently inert on a platform the project supports.
 
 52. **A target named on the command line is not configured by naming it** — when the change documents or writes a command that selects an object by identifier (a project, a context, an environment, a workspace, a cluster) and then acts on it:
 
@@ -557,9 +560,13 @@ Issue types that apply regardless of technology stack.
     - Prefer the route that needs neither, where the tool offers one: acting on the resources through the metadata the tool itself stamps on them (labels, tags, annotations) works with no file and no working directory, and is what the selector path does internally.
     - Test the removal case explicitly — "select it, then tear it down" stops working exactly when the directory that declared it no longer exists, which is when such commands are run.
     - WARNING; BLOCKER when the command destroys state or reaches a target the reader did not name.
-    - A failure hidden behind `|| true` or a discarded exit code turns "not installed" into "feature silently off". Distinguish the two, or bound the call in the process instead.
-    - Record the platform each path was verified on, so a later reader knows what was actually exercised.
-    - WARNING; BLOCKER when the feature is silently inert on a platform the project supports.
+
+53. **A cleanup is decided by the store that proves the fact, and clears every store the artefact occupies** — when a change removes something it did not create, or reports it as absent:
+
+    - Separate the stores that answer "does this exist?" and ask which one decides. Git's index and `HEAD` disagree for a staged new file — the index has it, `HEAD` does not — so a test written against the index (`git ls-files`) takes the branch that assumes version control holds the path, and the restore it calls fails or does nothing. Ask `git cat-file -e "HEAD:$path"` for presence in history and the index only for what is staged; the same split appears in package manifests versus installed trees, and in a registry entry versus the artifact on disk.
+    - Removing the artifact is not removing the record. A file deleted from the worktree leaves its index entry behind, so `git status` reports a deletion waiting to be committed — the same residue in a new shape. Clear every store the artefact occupies as part of the removal, and make that idempotent (`|| true`) for the paths that were never registered.
+    - Do not decide what to undo from the current state when the goal is a pre-change state. Current dirt may predate the change, and reverting it destroys work the change never touched; only state the code itself created can be reverted safely, and any other path is reported.
+    - WARNING; BLOCKER when the wrong store makes the code act destructively — a delete taken for a restore, or a restore taken for a delete.
 
 ### Technology-specific
 
