@@ -8,10 +8,15 @@ digest. Replaces the hand-typed `gh api` / `sleep` cycle.
 Exit codes are the result, so a caller never has to parse the digest:
 
     0  a review arrived (or the review decision is already final)
-    3  the checks failed
+    3  a required check failed, ignoring a fixup guard
     4  the timeout expired with no review
     1  runtime error from gh
     2  usage error
+
+A required check whose name contains `fixup` is red by design until the branch
+is squashed, so it never produces exit 3. `--ignore-check NAME` adds another
+check that may be red by design (repeatable); every ignored check is named in
+the digest.
 
 The pull request may be given as a number, `#number`, `owner/repo#number` or a
 PR URL; a URL's repository is used when `--repo` is absent.
@@ -21,6 +26,7 @@ Usage:
     pr-watch.py https://github.com/GET-E/dev-bot/pull/172 --timeout 600
     pr-watch.py 172 --repo GET-E/dev-bot --interval 30
     pr-watch.py 172 --no-request --json
+    pr-watch.py 172 --no-request --ignore-check deploy-check
 """
 
 from __future__ import annotations
@@ -238,8 +244,14 @@ def bucket_of(rows: list[dict]) -> str:
     return "none"
 
 
-def gate(repo: str, number: str) -> tuple[str, list[dict]]:
-    """The required checks — the merge gate — or ("", []) when gh cannot say.
+def is_ignored(row: dict, names: list[str]) -> bool:
+    """A fixup guard is red by design until the squash, so it cannot block."""
+    name = (row.get("name") or "").strip().casefold()
+    return name in {entry.strip().casefold() for entry in names} or "fixup" in name
+
+
+def gate(repo: str, number: str, ignore: list[str]) -> tuple[str, list[dict], list[dict]]:
+    """The required checks — the merge gate — minus the ignored ones.
 
     A failing optional check is not a merge blocker, so the exit code has to come
     from this set, not from every check on the pull request.
@@ -248,12 +260,16 @@ def gate(repo: str, number: str) -> tuple[str, list[dict]]:
         ["pr", "checks", number, "--repo", repo, "--required", "--json", "name,state,bucket"]
     )
     if not out:
-        return "", []
+        return "", [], []
     try:
         rows = json.loads(out)
     except ValueError:
-        return "", []
-    return bucket_of(rows), rows
+        return "", [], []
+    active: list[dict] = []
+    ignored: list[dict] = []
+    for row in rows:
+        (ignored if is_ignored(row, ignore) else active).append(row)
+    return bucket_of(active), active, ignored
 
 
 def unregistered(err: str) -> bool:
@@ -291,7 +307,15 @@ def checks(repo: str, number: str) -> tuple[str, list[dict]]:
     return "none", rows
 
 
-def render(repo: str, state: dict, review: dict | None, bucket: str, rows: list[dict]) -> str:
+def render(
+    repo: str,
+    state: dict,
+    review: dict | None,
+    bucket: str,
+    rows: list[dict],
+    ignored: list[dict],
+    required: list[dict],
+) -> str:
     lines = [
         f"## PR #{state.get('number')} — {state.get('title', '')}",
         "",
@@ -312,8 +336,24 @@ def render(repo: str, state: dict, review: dict | None, bucket: str, rows: list[
         ]
         lines.append(body[:2000] if body else "_(no body — likely a review request, not findings)_")
         lines.append("")
+    if ignored:
+        lines += ["### Ignored checks", ""]
+        for row in ignored:
+            lines.append(f"- `{row.get('name', '?')}` — {row.get('state', '?')}")
+        lines.append("")
+    ignored_names = {row.get("name") for row in ignored}
     failed = [
-        row for row in rows if (row.get("bucket") or "").lower() in ("fail", "cancel")
+        row
+        for row in rows
+        if (row.get("bucket") or "").lower() in ("fail", "cancel")
+        and row.get("name") not in ignored_names
+    ]
+    seen = {row.get("name") for row in failed}
+    failed += [
+        row
+        for row in required
+        if (row.get("bucket") or "").lower() in ("fail", "cancel")
+        and row.get("name") not in seen
     ]
     if failed:
         lines += ["### Failing checks", ""]
@@ -330,6 +370,13 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--timeout", type=int, default=900, help="seconds to wait (default 900)")
     parser.add_argument("--interval", type=int, default=60, help="poll seconds (default 60)")
     parser.add_argument("--no-request", action="store_true", help="do not request a review")
+    parser.add_argument(
+        "--ignore-check",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="required check that may be red by design (repeatable)",
+    )
     parser.add_argument("--json", action="store_true", help="emit JSON instead of markdown")
     args = parser.parse_args(argv)
 
@@ -365,6 +412,8 @@ def main(argv: list[str]) -> int:
     deadline = time.monotonic() + args.timeout
     waits = 0
     review: dict | None = None
+    ignored: list[dict] = []
+    required: list[dict] = []
     try:
         bucket, rows = checks(repo, args.number)
     except GhError as exc:
@@ -396,12 +445,20 @@ def main(argv: list[str]) -> int:
             print(f"ERROR: {exc}", file=sys.stderr)
             return EXIT_ERROR
 
+        # The gate is read before the findings break so the digest and JSON name
+        # an ignored guard even when the review landed on this poll.
+        blocking, required, ignored = gate(repo, args.number, args.ignore_check)
+        if not blocking:
+            # gh reports no required set: apply the same ignore to the overall
+            # bucket, or a fixup guard becomes the failure this tool removes.
+            ignored = [row for row in rows if is_ignored(row, args.ignore_check)]
+            required = [row for row in rows if not is_ignored(row, args.ignore_check)]
+            blocking = bucket_of(required)
+
         if has_findings:
             code = EXIT_REVIEW
             break
-        # Only a required check blocks the merge; optional failures do not.
-        blocking, _ = gate(repo, args.number)
-        failed = blocking == "fail" if blocking else bucket == "fail"
+        failed = blocking == "fail"
         if failed:
             code = EXIT_CHECKS_FAILED
             break
@@ -422,13 +479,14 @@ def main(argv: list[str]) -> int:
                     "request": requested,
                     "waits": waits,
                     "checks": bucket,
+                    "ignored_checks": [row.get("name") for row in ignored],
                     "review": review,
                 },
                 indent=2,
             )
         )
     else:
-        print(render(repo, state, review, bucket, rows))
+        print(render(repo, state, review, bucket, rows, ignored, required))
         print(f"_{requested}; {waits} poll(s)_")
     return code
 

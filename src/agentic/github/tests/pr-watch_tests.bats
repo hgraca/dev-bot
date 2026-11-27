@@ -48,12 +48,20 @@ case "$*" in
   "pr checks"*"--required"*)
       case "${PR_WATCH_REQUIRED:-$scenario}" in
         fail) echo '[{"name":"build","state":"FAILURE","bucket":"fail"}]' ;;
+        fixup) echo '[{"name":"no-fixup","state":"FAILURE","bucket":"fail"}]' ;;
+        fixup_ok) echo '[{"name":"no-fixup","state":"SUCCESS","bucket":"pass"}]' ;;
+        fixup2) echo '[{"name":"No fixup! commits","state":"FAILURE","bucket":"fail"}]' ;;
+        other) echo '[{"name":"deploy-check","state":"FAILURE","bucket":"fail"}]' ;;
         none|nochecks) exit 1 ;;
         *)    echo '[{"name":"build","state":"SUCCESS","bucket":"pass"}]' ;;
       esac
       ;;
   "pr checks"*)
       if [ "$scenario" = broken ]; then exit 5; fi
+      if [ "$scenario" = guard_overall ]; then
+          echo '[{"name":"no-fixup","state":"FAILURE","bucket":"fail"}]'
+          exit 0
+      fi
       if [ "$scenario" = nochecks ]; then
           echo "no checks reported on the 'feat/x' branch" >&2
           exit 1
@@ -180,4 +188,97 @@ STUB
     export PR_WATCH_REQUIRED=fail
     run bash "$TOOL" 172 --no-request --timeout 5 --interval 1
     assert_equal "$status" 3
+}
+
+@test "mcp-meta outlives the MCP server's 120s default bound" {
+    run bash "$TOOL" mcp-meta
+    assert_success
+    assert_output --partial '"timeoutMs":3600000'
+
+    # The bound must stay ahead of the tool's own default, or the server kills
+    # a normal call before the tool can report its own timeout. The default is
+    # read from the source so a change that skips the help text is still seen.
+    source_default="$(sed -n 's/.*"--timeout"[^)]*default=\([0-9]*\).*/\1/p' "$MODULE_DIR/tools/pr-watch.py")"
+    documented="$(bash "$TOOL" --help 2>&1 | sed -n 's/.*seconds to wait (default \([0-9]*\)).*/\1/p')"
+    bound="$(bash "$TOOL" mcp-meta | sed -n 's/.*"timeoutMs":\([0-9]*\).*/\1/p')"
+    [ -n "$source_default" ] && [ -n "$documented" ] && [ -n "$bound" ]
+    [ "$source_default" = "$documented" ]
+    [ "$bound" -gt $((source_default * 1000 * 2)) ]
+}
+
+@test "json names the ignored fixup guard" {
+    export PR_WATCH_SCENARIO=none
+    export PR_WATCH_REQUIRED=fixup
+    run bash "$TOOL" 172 --no-request --timeout 1 --interval 1 --json
+    assert_equal "$status" 4
+    assert_output --partial '"ignored_checks"'
+    assert_output --partial '"no-fixup"'
+}
+
+@test "a fixup guard does not exit 3 when gh cannot list the required set" {
+    export PR_WATCH_SCENARIO=guard_overall
+    export PR_WATCH_REQUIRED=none
+    run bash "$TOOL" 172 --no-request --timeout 1 --interval 1
+    assert_equal "$status" 4
+    assert_output --partial "Ignored checks"
+    assert_output --partial "no-fixup"
+}
+
+@test "an ignored guard is named even when the review landed first" {
+    export PR_WATCH_SCENARIO=review
+    export PR_WATCH_REQUIRED=fixup
+    run bash "$TOOL" 172 --no-request --timeout 5 --interval 1 --json
+    assert_success
+    assert_output --partial '"ignored_checks"'
+    assert_output --partial '"no-fixup"'
+}
+
+@test "a passing ignored guard is still named" {
+    export PR_WATCH_SCENARIO=none
+    export PR_WATCH_REQUIRED=fixup_ok
+    run bash "$TOOL" 172 --no-request --timeout 1 --interval 1
+    assert_equal "$status" 4
+    assert_output --partial "Ignored checks"
+    assert_output --partial "no-fixup"
+}
+
+@test "a no-fixup guard that is red by design does not exit 3" {
+    export PR_WATCH_SCENARIO=none
+    export PR_WATCH_REQUIRED=fixup
+    run bash "$TOOL" 172 --no-request --timeout 1 --interval 1
+    assert_equal "$status" 4
+    assert_output --partial "Ignored checks"
+    assert_output --partial "no-fixup"
+}
+
+@test "a differently named fixup guard is recognised too" {
+    export PR_WATCH_SCENARIO=none
+    export PR_WATCH_REQUIRED=fixup2
+    run bash "$TOOL" 172 --no-request --timeout 1 --interval 1
+    assert_equal "$status" 4
+    assert_output --partial "No fixup! commits"
+}
+
+@test "--ignore-check excludes a red-by-design check by name" {
+    export PR_WATCH_SCENARIO=none
+    export PR_WATCH_REQUIRED=other
+    run bash "$TOOL" 172 --no-request --timeout 1 --interval 1 --ignore-check deploy-check
+    assert_equal "$status" 4
+    assert_output --partial "Ignored checks"
+    assert_output --partial "deploy-check"
+}
+
+@test "--ignore-check does not hide a failure it was not given" {
+    export PR_WATCH_SCENARIO=none
+    export PR_WATCH_REQUIRED=other
+    run bash "$TOOL" 172 --no-request --timeout 5 --interval 1 --ignore-check something-else
+    assert_equal "$status" 3
+    assert_output --partial "deploy-check"
+}
+
+@test "--ignore-check matches a name case-insensitively" {
+    export PR_WATCH_SCENARIO=none
+    export PR_WATCH_REQUIRED=other
+    run bash "$TOOL" 172 --no-request --timeout 1 --interval 1 --ignore-check DEPLOY-CHECK
+    assert_equal "$status" 4
 }

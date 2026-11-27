@@ -143,8 +143,10 @@ setup() {
   grep -q 'mergeStateStatus' "${SKILL}"
   # A failing or pending check sends the loop back round; it never finishes it.
   grep -q 'return to \[Request\](#request)' "${SKILL_FLAT}"
-  # A no-fixup guard is red until the squash, by design — not a code failure.
-  grep -q 'no-fixup guard' "${SKILL_FLAT}"
+  # Any fixup guard is red until the squash, by design — not a code failure.
+  grep -q 'contains `fixup`' "${SKILL_FLAT}"
+  # The gate's jq excludes the guard by name pattern, case-insensitively.
+  grep -q 'test("fixup"; "i")' "${SKILL}"
 }
 
 @test "the CI gate runs before the squash, not after" {
