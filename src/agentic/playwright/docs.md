@@ -66,6 +66,14 @@ Automatically named outputs (a screenshot taken without a filename) go to
 `storage/playwright`; a **filename given explicitly resolves against the
 client's workspace root**, so those land in the project that asked.
 
+The gateway passes `--output-dir /out`, but a Playwright MCP started any other
+way — typically the headed, persistent-profile instance `figma/docs.md`
+describes for authenticated QA — has no output directory unless one is passed,
+and then writes its automatically named outputs to `./.playwright-mcp` in its
+working directory: untracked files at the project root. Give such an instance
+`--output-dir <devbot_dir>/state/playwright-mcp` (`.agents/state/playwright-mcp`
+by default), the state directory `devbot init` gitignores.
+
 `file:` navigation is blocked by default and stays blocked here — the same
 behaviour the previous per-session container had. To verify a local UI, serve it
 over `http://127.0.0.1:<port>` rather than opening the file.

@@ -35,11 +35,14 @@ or optional. How to turn them on depends on the harness:
 
   ```bash
   claude mcp add --transport http --scope user figma https://mcp.figma.com/mcp
-  claude mcp add --scope user playwright -- npx @playwright/mcp@latest --browser chromium
+  claude mcp add --scope user playwright -- npx @playwright/mcp@latest --browser chromium --output-dir .agents/state/playwright-mcp
   ```
 
   The second command registers Playwright directly; it bypasses the module's Docker-preferring
-  wrapper deliberately (see the browser note below).
+  wrapper deliberately (see the browser note below). The Playwright recipes assume the default
+  `devbot_dir` (`.agents`) — in a project that configures another one, substitute
+  `<devbot_dir>/state/playwright-mcp`. A Playwright registered without `--output-dir` keeps writing
+  `.playwright-mcp/` in the project root until it is registered again.
 
 Then authenticate Figma (`/mcp` → figma → Authenticate).
 
@@ -47,11 +50,28 @@ Then authenticate Figma (`/mcp` → figma → Authenticate).
 headless, and `--isolated` (in-memory profile) so that concurrent sessions never
 collide — so it exposes neither a browser UI nor a persistent profile, and
 manual login cannot work through it. For authenticated QA, run Playwright
-locally (it is headed by default) with a persistent profile, e.g. `npx
-@playwright/mcp@latest --browser chromium --user-data-dir
-~/.cache/dev-bot/playwright-profile`, and register that command as the server
-(the Claude Code form above does this; for opencode, add a separate stdio entry
-instead of the gateway `url`). The profile keeps the session between runs.
+locally (it is headed by default) with a persistent profile, and register that
+command as the server (the Claude Code form above does this; for opencode, add a
+separate stdio entry instead of the gateway `url`):
+
+```bash
+claude mcp add --scope user playwright -- bash -c 'exec npx @playwright/mcp@latest --browser chromium --user-data-dir "$HOME/.cache/dev-bot/playwright-profile" --output-dir .agents/state/playwright-mcp'
+```
+
+The profile keeps the session between runs. The `bash -c` wrapper is not
+decoration: the harness spawns the server as a program rather than through a
+shell, so `~` and `$HOME` reach it literally — and the server resolves both
+paths with `path.resolve`, which expands no tilde (`@playwright/mcp` 0.0.80).
+A tilde path passed to `--user-data-dir` therefore creates a directory
+literally named `~` under the working directory.
+
+`--output-dir` is not cosmetic either: left unset, Playwright MCP writes its
+automatically named snapshots and screenshots to `./.playwright-mcp` in its
+working directory — the project root when the client launches it there — where
+they show up as untracked files. Pointing it at
+`<devbot_dir>/state/playwright-mcp` moves them into the state directory
+`devbot init` already gitignores (default `devbot_dir` is `.agents`); the flag
+resolves against that same working directory.
 
 Prerequisites:
 
@@ -61,8 +81,10 @@ Prerequisites:
   keeps the session between runs. The check never logs in and never handles credentials.
 - Reset that browser's per-site zoom to 100% (Cmd+0 / Ctrl+0) — widths and positions are measured in
   CSS px.
-- Ignore `.playwright-mcp/` and `design-qa-report.md`: the report can contain authenticated-app data
-  (names, amounts, statuses), and the Playwright directory holds screenshots and console logs.
+- Keep `design-qa-report.md` out of commits: the report can contain authenticated-app data (names,
+  amounts, statuses). Automatically named Playwright artifacts go to the gitignored
+  `<devbot_dir>/state/playwright-mcp`; one saved with an explicit `filename` still resolves against
+  the project root, flag or not.
 
 ```text
 /devbot:design-qa <figma-link> <route-or-url> [viewport] [--as <userType>] [--scope "<component>"] [--fix]

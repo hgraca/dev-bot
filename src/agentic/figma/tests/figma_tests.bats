@@ -197,3 +197,17 @@ PY
   run grep -qF 'enabled: false' "${MODULE}/docs.md"
   assert_success
 }
+
+@test "every local Playwright recipe keeps artifacts out of the project root" {
+  local recipes flags
+  # Unset, Playwright writes to ./.playwright-mcp
+  # in the server's working directory.
+  recipes="$(grep -cF 'npx @playwright/mcp' "${MODULE}/docs.md" || true)"
+  flags="$(grep -cF -- '--output-dir .agents/state/playwright-mcp' "${MODULE}/docs.md" || true)"
+  [[ "${recipes}" -gt 0 ]] || fail "no Playwright recipe in docs.md"
+  [[ "${flags}" -eq "${recipes}" ]] ||
+    fail "expected a flag per recipe: ${flags} flags, ${recipes} recipes"
+  # No shell parses the server command: "~" would reach it literally.
+  run grep -qF -- '--user-data-dir ~' "${MODULE}/docs.md"
+  assert_failure
+}
