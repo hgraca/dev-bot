@@ -279,3 +279,43 @@ JSON
   [ "${header_line}" -lt "${bg_line}" ] \
     || fail "header (line ${header_line}) must precede background output (line ${bg_line})"
 }
+
+@test "stop phase hands the transcript path to the hook" {
+  # A Stop hook that reports on the finished turn cannot read it otherwise.
+  _setup_sandbox
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$*"' \
+    >"${SANDBOX_DIR}/src/agentic/fakelog/log.sh"
+  cat >"${SANDBOX_DIR}/src/agentic/fakelog/hooks.json" <<'JSON'
+{
+  "hooks": [
+    {
+      "id": "fakelog",
+      "event": "session.idle",
+      "run": ["bash", "{module}/log.sh", "--transcript", "{transcript}"],
+      "log": ".agents/logs/fakelog.log"
+    }
+  ]
+}
+JSON
+
+  run _run_phase stop "{\"cwd\":\"${SANDBOX_DIR}\",\"session_id\":\"s1\",\"transcript_path\":\"/tmp/t.jsonl\"}"
+  assert_success
+
+  run cat "${SANDBOX_DIR}/.agents/logs/fakelog.log"
+  assert_output --partial "--transcript /tmp/t.jsonl"
+}
+
+@test "a module disabled in the project config runs no hooks" {
+  _setup_sandbox
+  # The disabled-module resolver reads JSONC through the shared helper, which
+  # the sandbox must carry at the same relative depth as a real install.
+  mkdir -p "${SANDBOX_DIR}/src/_shared"
+  cp "${PROJECT_ROOT}/src/_shared/read_jsonc.py" "${SANDBOX_DIR}/src/_shared/read_jsonc.py"
+  printf '{ "modules": { "fakelog": false } }\n' >"${SANDBOX_DIR}/.devbot.project.jsonc"
+  _write_manifest "session.created" ".agents/logs/fakelog.log"
+
+  run _run_phase startup "{\"cwd\":\"${SANDBOX_DIR}\"}"
+  assert_success
+
+  refute [ -e "${SANDBOX_DIR}/.agents/logs/fakelog.log" ]
+}

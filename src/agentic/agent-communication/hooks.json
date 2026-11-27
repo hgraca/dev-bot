@@ -4,6 +4,17 @@
       "id": "agent-communication-idle",
       "event": "session.idle",
       "plugin": "{module}/hooks/opencode/on-session-idle-validate.ts"
+    },
+    {
+      "id": "agent-communication-claudecode-idle",
+      "event": "session.idle",
+      "run": [
+        "bash",
+        "{module}/tools/claudecode-idle.sh",
+        "--transcript",
+        "{transcript}"
+      ],
+      "_claudecodeNote": "Claude Code's Stop payload carries the transcript and no plugin API, so the idle pass runs as this command. The opencode hosts resolve {transcript} to \"\" and the script exits immediately there \u2014 their own plugin reports instead."
     }
   ]
 }

@@ -41,8 +41,8 @@ metadata tokens, so add it to a row to see it:
 rows = [["state_icon", "machine", "workspace", "tab"], ["agent", "$devbot"]]
 ```
 
-Both opencode generations publish it — the module's idle hook on v1, the harness's
-`agent-communication-herdr` package on v2; a Claude Code pane has no reporter yet. The token follows
+All three harnesses publish it — the module's idle hook on opencode v1, the harness's
+`agent-communication-herdr` package on v2, and the transcript-reading Stop hook on Claude Code. The token follows
 the turn:
 
 ```bash

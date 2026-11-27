@@ -36,7 +36,9 @@ publishes: it shares the pane, so its marker is not the pane's turn end.
 
 The pass runs on **opencode v1** through this module's hook. A v2 host skips module plugin hooks, so
 the harness ships `agent-communication-herdr`, a v2 adapter package that wraps the same pass against a
-v2 context. Claude Code is not wired yet: its stop hook does not carry the transcript the pass needs.
+v2 context. On **Claude Code** the Stop hook hands its transcript to `tools/claudecode-idle.sh`, which
+rebuilds the last assistant turn, validates it, and publishes the same token — there is no plugin API
+to wrap there.
 
 ## Protocol rules
 

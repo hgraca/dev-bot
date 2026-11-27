@@ -214,12 +214,83 @@ def inject_session_arg(data):
     )
 
 
-def load_manifests():
+# ── Disabled modules ─────────────────────────────────────────────────────────
+def _config(path):
+    """A JSONC config document, or an empty one when it is absent or broken."""
+    try:
+        shared = os.path.join(DEV_BOT_ROOT, "src", "_shared")
+        if shared not in sys.path:
+            sys.path.insert(0, shared)
+        from read_jsonc import load_jsonc
+        data = load_jsonc(path)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def disabled_modules(project_dir):
+    """Modules switched off for this project.
+
+    Mirrors src/_shared/functions.sh::_devbot_get_disabled_modules: the project
+    map overrides the global one, a module absent from both is enabled, the
+    harness directories are selected by the root `harness` key, and the two
+    engine pairs contribute whichever one is not selected.
+    """
+    global_path = os.environ.get("DEV_BOT_GLOBAL_CONFIG") or os.path.join(
+        DEV_BOT_ROOT, ".devbot.global.jsonc"
+    )
+    global_cfg = _config(global_path)
+    project_cfg = _config(os.path.join(project_dir, ".devbot.project.jsonc")) if project_dir else {}
+
+    def setting(key):
+        value = project_cfg.get(key)
+        if value in (None, "", {}, []):
+            value = global_cfg.get(key)
+        return value
+
+    harnesses_dir = os.path.join(DEV_BOT_ROOT, "src", "harnesses")
+    harnesses = {"opencode", "opencode-v2", "claudecode"}
+    if os.path.isdir(harnesses_dir):
+        harnesses |= {
+            n for n in os.listdir(harnesses_dir) if os.path.isdir(os.path.join(harnesses_dir, n))
+        }
+
+    global_states = global_cfg.get("modules")
+    project_states = project_cfg.get("modules")
+    global_states = global_states if isinstance(global_states, dict) else {}
+    project_states = project_states if isinstance(project_states, dict) else {}
+
+    disabled = set()
+    for name, value in global_states.items():
+        if name not in harnesses and project_states.get(name, value) is False:
+            disabled.add(name)
+    for name, value in project_states.items():
+        if name not in harnesses and name not in global_states and value is False:
+            disabled.add(name)
+    # An unrecognised harness value falls back to opencode, as the shared
+    # resolver does — subtracting an unknown name would disable every harness.
+    selected = setting("harness")
+    if selected not in harnesses:
+        selected = "opencode"
+    disabled |= harnesses - {selected}
+    disabled.add(
+        "codebase-memory" if global_cfg.get("codebase_index_provider") == "codebase-index" else "codebase-index"
+    )
+    memory_provider = os.environ.get("DEVBOT_MEMORY_SEARCH_PROVIDER") or global_cfg.get("memory_search_provider")
+    disabled.add("mdctx" if memory_provider == "qmd" else "qmd")
+    return disabled
+
+
+def load_manifests(project_dir=None):
     base = os.path.join(DEV_BOT_ROOT, "src", "agentic")
     hooks = []
     if not os.path.isdir(base):
         return hooks
+    disabled = disabled_modules(project_dir)
     for d in sorted(os.listdir(base)):
+        # A module switched off must not run its hooks.
+        if d in disabled:
+            continue
         mf = os.path.join(base, d, "hooks.json")
         if not os.path.isfile(mf):
             continue
@@ -305,7 +376,7 @@ def run_hook(hook, ctx, worktree):
 
 
 def run_file_edits(file_path, worktree):
-    for hook in load_manifests():
+    for hook in load_manifests(worktree):
         if hook.get("event") != "file.edited" or not hook.get("run"):
             continue
         match = hook.get("match", {})
@@ -361,7 +432,7 @@ def main():
     elif phase == "pre-tool":
         command = (data.get("tool_input") or {}).get("command") or ""
         tool_name = (data.get("tool_name") or "")
-        for hook in load_manifests():
+        for hook in load_manifests(worktree):
             if hook.get("event") != "command.before" or not hook.get("run"):
                 continue
             # Match filtering (same semantics as run_file_edits): a hook scoped
@@ -434,7 +505,7 @@ def main():
             ).strip()
         except Exception:
             hash_ = ""
-        for hook in load_manifests():
+        for hook in load_manifests(worktree):
             if hook.get("event") != "command.after" or not hook.get("run"):
                 continue
             match = hook.get("match", {})
@@ -444,13 +515,25 @@ def main():
 
     elif phase == "stop":
         session_id = data.get("session_id") or "default"
-        for hook in load_manifests():
+        # The Stop payload names the transcript; a hook that reports on the
+        # finished turn cannot read it otherwise.
+        transcript = data.get("transcript_path") or ""
+        for hook in load_manifests(worktree):
             if hook.get("event") != "session.idle" or not hook.get("run"):
                 continue
-            run_hook(hook, {"module": hook["_module"], "worktree": worktree, "session-id": session_id}, worktree)
+            run_hook(
+                hook,
+                {
+                    "module": hook["_module"],
+                    "worktree": worktree,
+                    "session-id": session_id,
+                    "transcript": transcript,
+                },
+                worktree,
+            )
 
     elif phase == "startup":
-        for hook in load_manifests():
+        for hook in load_manifests(worktree):
             if hook.get("event") != "session.created" or not hook.get("run"):
                 continue
             run_hook(hook, {"module": hook["_module"], "worktree": worktree}, worktree)
