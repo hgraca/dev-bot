@@ -394,6 +394,24 @@ Issue types that apply regardless of technology stack.
     - Run the block once before approving it. Prose reliably describes recipes that cannot execute, and the block is the artefact that runs.
     - WARNING; BLOCKER when the recipe performs an irreversible or history-rewriting action.
 
+34. **A step declared inert is inert in both directions** — when the change adds a probe, a healthcheck, a readiness check, or any step the text calls read-only, silent, or side-effect free:
+    - **It must retain nothing server-side.** A probe that opens a stateful session, a connection, a lock or a temporary resource must close it on every exit path — including the success path, which is the one nobody notices. A probe running on an interval multiplies the leak by the container's lifetime, and the resource count only shows up as memory growth long after.
+    - **It must write nothing it inspects.** Resolve, read and compare only: a probe that persists a value (a cache, a stamp, a config key) mutates the state it exists to describe, and a caller that trusts the probe now sees its own side effect as fact. Check the probe's whole call graph, not just its own body — every helper it invokes is part of the claim.
+    - **A probe's failure must not be indistinguishable from its success.** An exit status the caller ignores, or a swallowed error that reads as "nothing there", converts a broken probe into a clean result.
+    - WARNING; BLOCKER when the probe runs unattended on a schedule, or when its side effect changes what a later decision reads.
+
+35. **A validated path is canonicalised before it is validated** — when the change accepts a filesystem path (a mount root, a workspace, an output directory) and enforces a boundary on it:
+    - Normalise **first**, then apply every rule to the normalised value, and iterate the normalisation to a fixed point: one pass leaves `//`, `//foo/`, a trailing separator after stripping, and `.`/`..` segments intact, and a check satisfied by the raw form passes a value the boundary was meant to reject.
+    - Refuse the filesystem root explicitly. A rule written only as "must be absolute and non-empty" accepts `/` — and `/` is the one value that turns a scoped mount into the whole host.
+    - Require a test per rejected form, including the canonicalised aliases of a rejected value; a guard proven only against its literal example is a comment.
+    - WARNING; BLOCKER when the value reaches a bind mount, a delete, or a path the process writes through.
+
+36. **A configuration fixed at creation is reconciled, in full** — when the change adds or edits a resource whose configuration is applied once and then left alone (a container, a schema, a generated file, a provisioned object), and the tool in use will not reapply it:
+    - Establish **what defeats reapplication** — a `--no-recreate`, a skip-if-exists, an immutable attribute — and require an explicit reconcile step. "The file is correct" is not evidence the running resource is.
+    - Require the reconcile to be a whole-configuration comparison, not a hand-picked set of fields. A comparison of the two properties that happened to drift last time misses the next one added — a probe, a command flag, an environment value — and every future field joins the same blind spot.
+    - Check the reconcile's own two edges: it must not churn on a clean start (a resource created moments ago is already current), and a failed reconcile must not be reported as success — an old resource that still answers its readiness check will otherwise read as reconciled, and the caller records a start that never applied the change.
+    - WARNING; BLOCKER when the stale configuration is the one being tested, or when the resource serves other consumers during the window.
+
 ### Technology-specific
 
 Apply the section for each technology the project uses. Each list merges issue types distilled from past reviews with technology-specific pitfalls of the generic checks above.
