@@ -412,6 +412,18 @@ Issue types that apply regardless of technology stack.
     - Check the reconcile's own two edges: it must not churn on a clean start (a resource created moments ago is already current), and a failed reconcile must not be reported as success — an old resource that still answers its readiness check will otherwise read as reconciled, and the caller records a start that never applied the change.
     - WARNING; BLOCKER when the stale configuration is the one being tested, or when the resource serves other consumers during the window.
 
+37. **An irreversible effect follows every refusal that can precede it** — when the change performs an effect it cannot undo (a push, a publish, a deploy, a delete, a send) and also refuses the call for one or more reasons:
+    - Verify the refusal paths return **before** the effect, not after it. A helper that pushes first and then finds the branch belongs to another purpose has already changed the remote it then refuses to touch, and every later refusal shares that ordering.
+    - Enumerate the refusals and the effect as one sequence, in the order the code runs them. "The check exists" is not the property; "no refusal can observe an effect it did not prevent" is.
+    - Require the guard to pin the ordering, not just the outcome: assert the effect is absent on at least one refusal path, because a test that only reads the error message passes either way.
+    - WARNING; BLOCKER when the effect publishes, deletes or rewrites something the caller cannot recover.
+
+38. **A guard reads the value that takes effect, and every component of the identity** — when the change compares two things as equivalent before acting on one of them (a repository and a remote, an environment and a target, a directory and its link):
+    - Read the value the operation will actually use. A push writes to a remote's **push** URL, not its fetch URL, and a symlinked path acts on its target: a guard that inspects the convenient one of the pair approves the wrong destination.
+    - Compare every component that distinguishes the two. Owner and name are not an identity when the host may differ, and a path is not a target until it is resolved — an equality that drops a component admits a lookalike.
+    - Refuse configurations the comparison cannot represent as one value (several push destinations, several roots) instead of silently validating one of them.
+    - WARNING; BLOCKER when the approved destination receives an irreversible write.
+
 ### Technology-specific
 
 Apply the section for each technology the project uses. Each list merges issue types distilled from past reviews with technology-specific pitfalls of the generic checks above.
