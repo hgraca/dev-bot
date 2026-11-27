@@ -19,7 +19,20 @@ One rule is checked mechanically. On `session.idle` the module's hook re-validat
 assistant message with `--require-wait`: a `[WAITING_FOR_PTY]` whose message started no wait — no
 completed `pty_spawn`, no `bash`/`shell` with `background: true` — fails with that reason. The flag
 is opt-in because only a caller holding the message's tool parts can judge it; a text-only
-invocation keeps marker-only semantics.
+invocation keeps marker-only semantics. The same pass names the marker the message actually ends on
+(the one leading the last line), so a caller never has to re-derive it.
+
+## Reporting to herdr
+
+Inside a [herdr](/modules/tools/herdr) pane the same idle pass publishes that marker to the pane as
+display-only metadata — the `devbot` token, e.g. `devbot=NEEDS_INPUT` — so the workspace manager can
+show how a turn ended. It is metadata on purpose: a state report would take the pane's lifecycle
+authority, rename its agent, and strand the pane as `unknown` on release. The token is cleared when
+the turn does not _end_ on a marker — the validator still accepts one quoted mid-body, but only the
+marker leading the last line is published — and it is left alone when the validator invocation
+itself fails. The report is skipped entirely outside a herdr pane (`HERDR_ENV`/`HERDR_PANE_ID`) or
+when herdr cannot be reached — a herdr failure never affects a turn. A subagent session never
+publishes: it shares the pane, so its marker is not the pane's turn end.
 
 ## Protocol rules
 
