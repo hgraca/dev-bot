@@ -84,5 +84,8 @@ setup() {
     [ -f "$path" ] || continue
     run grep -q 'Confirm the wait actually started' "$path"
     assert_success
+    # CI and review waits have one route, and the profile names it.
+    run grep -q 'pr-watch' "$path"
+    assert_success
   done
 }

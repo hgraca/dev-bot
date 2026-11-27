@@ -42,12 +42,13 @@ shell(command: "make test", workdir: "/repo", timeout: 600000)
 
 ## Choosing the channel
 
-| Situation                                                                   | opencode v1 | opencode v2 / claudecode                      |
-| --------------------------------------------------------------------------- | ----------- | --------------------------------------------- |
-| Quick, deterministic, non-interactive (`git status`, `ls`, `rg`, `git add`) | `bash` tool | `shell` tool                                  |
-| May outlive the tool's timeout — test suites, builds, migrations, installs  | PTY         | `shell` with an explicit `timeout`            |
-| Prompts for input — REPL, interactive auth, a script that calls `read`      | PTY         | not supported; use a terminal the user drives |
-| Output must be watched while it runs — dev server, watch mode               | PTY         | `shell` with `background: true`               |
+| Situation                                                                   | opencode v1                                        | opencode v2 / claudecode                           |
+| --------------------------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------- |
+| Quick, deterministic, non-interactive (`git status`, `ls`, `rg`, `git add`) | `bash` tool                                        | `shell` tool                                       |
+| May outlive the tool's timeout — test suites, builds, migrations, installs  | PTY                                                | `shell` with an explicit `timeout`                 |
+| Prompts for input — REPL, interactive auth, a script that calls `read`      | PTY                                                | not supported; use a terminal the user drives      |
+| Output must be watched while it runs — dev server, watch mode               | PTY                                                | `shell` with `background: true`                    |
+| Waiting on a GitHub run or a pull request                                   | `deploy-wait` / `pr-watch` on a `notifyOnExit` PTY | `deploy-wait` / `pr-watch` with `background: true` |
 
 The distinction is **time, not command length**. A one-liner that runs for ten minutes is a long-running command; a long command line that returns instantly is not.
 
@@ -76,11 +77,19 @@ The `pty_*` tools are available to the **primary agent only**; a `task` subagent
 
 When something must be verified after a fixed delay — a deploy settling, a CI run finishing, a cache entry expiring — do not block a tool call with `sleep` and do not poll in a loop.
 
+- **A GitHub run or a pull request — use the tool built for it.** `deploy-wait` waits on a GitHub
+  Actions run and `pr-watch` on a pull request: a review arriving, or `--until green` for the merge
+  gate. Both belong to the `github` module, so use them when it is installed; both answer by exit
+  code, both are also exposed by the `devbot-tools` MCP server under the same names, and both belong
+  on the long-running channel. Never assemble `gh run watch`, `gh pr checks` or a `sleep N; gh …` loop
+  yourself — that is the loop these tools replace, and a hand-rolled one reports the wrong thing: it
+  cannot name the failing check, cannot ignore a guard that is red by design, and answers a timeout
+  the same way as a result.
 - **opencode v1:** spawn a PTY running `sleep` with `notifyOnExit: true`, then end your turn. The `<pty_exited>` notification wakes you; run the verification then. Kill the session with `pty_kill(id, cleanup: true)` once it has woken you. `sleep` is a binary, so the no-shell spawn rule above is satisfied without a wrapper.
 - **opencode v2:** run the work itself with `background: true` (or a long `timeout`) and end your turn; the completion notification wakes you.
 - **claudecode:** use its background execution and end your turn.
 
-End the turn with `[WAITING_FOR_PTY]` only when one of those asynchronous waits actually started; a blocking call continues in the same turn. Its precondition and the no-PTY cases are in `devbot:agent-communication`.
+End the turn with `[WAITING_FOR_PTY]` only when one of those asynchronous waits actually started; a blocking call continues in the same turn. Its precondition and the no-PTY cases are in `devbot:agent-communication`, and the module's idle hook re-validates the marker with `--require-wait`.
 
 ## Gotchas
 

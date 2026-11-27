@@ -138,6 +138,14 @@ _DUPLICATED_PHRASES=(
   grep -q "120000" "$SKILL" || fail "skill must state the v2 foreground timeout"
 }
 
+@test "the shell-strategy skill routes CI and review waits to the tools" {
+  # The one documented route, so no agent assembles its own gh polling loop.
+  grep -q "pr-watch" "$SKILL" || fail "a review wait is pr-watch"
+  grep -q "deploy-wait" "$SKILL" || fail "a run wait is deploy-wait"
+  grep -q -- "--until green" "$SKILL" || fail "skill must name the merge-gate form"
+  grep -q "gh run watch" "$SKILL" || fail "skill must name the loop these replace"
+}
+
 @test "the scan finds at least one agent that cannot shell" {
   # architect/critic/po deny bash. If the reader stopped recognising the deny,
   # every agent would silently classify as shell-capable and this suite would
